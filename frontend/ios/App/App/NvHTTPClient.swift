@@ -62,6 +62,7 @@ import Security
     // MARK: - Public API
 
     /// HTTPS GET、 query 引数を URL に組み込む。
+    /// build 21 で URL + レスポンス body 全文を NSLog に流すよう変更 (= 沼回避の観測ベース)。
     public func get(
         path: String,
         params: [String: String] = [:],
@@ -72,17 +73,24 @@ import Security
             completion(.failure(NvHTTPError.invalidURL))
             return
         }
+        DebugLog.send("NvHTTP", "GET \(url.absoluteString)")
         let task = session.dataTask(with: url) { data, resp, err in
-            if let err = err { completion(.failure(err)); return }
+            if let err = err {
+                DebugLog.send("NvHTTP", "error \(url.absoluteString): \(err)")
+                completion(.failure(err)); return
+            }
             guard let http = resp as? HTTPURLResponse else {
                 completion(.failure(NvHTTPError.malformedResponse("no HTTPURLResponse")))
                 return
             }
+            let body = data ?? Data()
+            let preview = String(data: body, encoding: .utf8) ?? "<binary \(body.count) bytes>"
+            DebugLog.send("NvHTTP", "\(http.statusCode) \(url.absoluteString)\n\(preview)")
             if !(200...299).contains(http.statusCode) {
                 completion(.failure(NvHTTPError.httpStatus(http.statusCode)))
                 return
             }
-            completion(.success(data ?? Data()))
+            completion(.success(body))
         }
         task.resume()
     }
@@ -131,7 +139,7 @@ import Security
             "rikey": rikey,
             "rikeyid": rikeyId,
             "localAudioPlayMode": "0",
-            "surroundAudioInfo": "196610",
+            "surroundAudioInfo": "197322",
             "remoteControllersBitmap": "0",
             "gcmap": "0",
         ]
@@ -144,6 +152,53 @@ import Security
                     return
                 }
                 completion(.success(url))
+            }
+        }
+    }
+
+    /// /cancel (HTTPS) で Sunshine 側の現状 stream / app をクリア。
+    /// build 23 で導入: 過去 /launch で起動した app が running 状態で残ると
+    /// `An app is already running on this host` (400) で sessionUrl0 missing になる。
+    /// connect 前に常に呼んで「currentgame をクリア → 新規 /launch」 を成立させる。
+    public func cancel(completion: @escaping (Result<Void, Error>) -> Void) {
+        get(path: "/cancel", params: ["uniqueid": "0123456789ABCDEF"], useTLS: true) { result in
+            switch result {
+            case .success: completion(.success(()))
+            case .failure(let e): completion(.failure(e))
+            }
+        }
+    }
+
+    /// /applist (HTTPS) で Sunshine が公開してる app 一覧を取得。
+    /// 公式 Moonlight が AppCollectionView で動的取得してる方式。
+    /// build 21 で導入: app id をハードコードしない (Sunshine 側で id が変わる)。
+    public func listApps(completion: @escaping (Result<[(name: String, id: String)], Error>) -> Void) {
+        get(path: "/applist", useTLS: true) { result in
+            switch result {
+            case .failure(let e): completion(.failure(e))
+            case .success(let body):
+                guard let xml = String(data: body, encoding: .utf8) else {
+                    completion(.failure(NvHTTPError.malformedResponse("applist non-utf8")))
+                    return
+                }
+                // <App>...<AppTitle>NAME</AppTitle><ID>NUMBER</ID>...</App> ブロックを総当たりで抽出
+                let appBlockPattern = "<App>([\\s\\S]*?)</App>"
+                guard let regex = try? NSRegularExpression(pattern: appBlockPattern, options: []) else {
+                    completion(.failure(NvHTTPError.malformedResponse("regex compile failed")))
+                    return
+                }
+                let nsXml = xml as NSString
+                let matches = regex.matches(in: xml, options: [], range: NSRange(location: 0, length: nsXml.length))
+                var apps: [(name: String, id: String)] = []
+                for m in matches {
+                    let block = nsXml.substring(with: m.range(at: 1))
+                    let blockData = block.data(using: .utf8) ?? Data()
+                    let name = NvHTTPClient.extractXMLValue(data: blockData, tag: "AppTitle") ?? ""
+                    let id = NvHTTPClient.extractXMLValue(data: blockData, tag: "ID") ?? ""
+                    if !id.isEmpty { apps.append((name: name, id: id)) }
+                }
+                DebugLog.send("NvHTTP", "applist parsed \(apps.count) app(s): \(apps.map { "\($0.name)=\($0.id)" }.joined(separator: ", "))")
+                completion(.success(apps))
             }
         }
     }
