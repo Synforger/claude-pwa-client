@@ -12,17 +12,6 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim())
 })
 
-// 各 client (= タブ) が今どの session を visible で見ているか。 client.id をキーに保持し、
-// push の session-aware 抑制に使う。 App から active-session メッセージで更新される。
-const clientActive = {}
-
-self.addEventListener('message', (event) => {
-  const d = event.data
-  if (d && d.type === 'active-session' && event.source && event.source.id) {
-    clientActive[event.source.id] = { sid: d.sid || null, visible: !!d.visible }
-  }
-})
-
 self.addEventListener('push', (event) => {
   let data = { title: 'Notification', body: '' }
   try {
@@ -59,15 +48,9 @@ self.addEventListener('push', (event) => {
     let suppress = false
     try {
       const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-      const liveIds = new Set()
       for (const c of all) {
-        liveIds.add(c.id)
         if (c.visibilityState === 'visible') suppress = true
         try { c.postMessage({ type: 'push-received', sid: data.sid || null }) } catch { /* ignore */ }
-      }
-      // 閉じた client の残骸を掃除。
-      for (const id of Object.keys(clientActive)) {
-        if (!liveIds.has(id)) delete clientActive[id]
       }
     } catch { /* ignore */ }
     if (suppress) return
