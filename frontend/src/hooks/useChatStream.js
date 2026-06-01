@@ -41,6 +41,10 @@ export function useChatStream({
   const [apiKeySource, setApiKeySource] = useState({})
   // App.jsx の showStopButton が参照する楽観 deadline。
   const pendingSendUntilRef = useRef({})
+  // 停止ボタン押下後、 backend が busy=false を出すまでの遅延 (= 数百 ms-数秒) に
+  // backend busy SSE が busy=true を流し続けて loading が即時復帰するチラつきを抑える。
+  // この期間中は useSessionsOverview が busy=true での上書きをスキップする。
+  const stopUntilRef = useRef({})
   // session ごとの最後に受信した byte offset。 タブ切替で再接続する時、 ここから差分だけ
   // 取り直すことで全 replay を避ける (= 切替を軽く + localStorage 即復元と併用)。
   // localStorage に永続化することで、 アプリ再起動 / リロードを跨いでも継続。
@@ -237,6 +241,9 @@ export function useChatStream({
     await sendToPty(sid, { key: 'Escape' })
     setLoading(prev => ({ ...prev, [sid]: false }))
     pendingSendUntilRef.current[sid] = 0
+    // claude が Esc を受けて JSONL に result 行を書くまで backend は busy=true のまま。
+    // その間 backend busy SSE が loading=true に戻してチラつくのを 5 秒間抑制する。
+    stopUntilRef.current[sid] = Date.now() + 5000
   }, [sid, sendToPty])
 
   const sendAnswer = useCallback(async (targetSid, tool_use_id, answer, isFree = false, optionCount = 0) => {
@@ -309,5 +316,6 @@ export function useChatStream({
     fetchLatest,
     endSession,
     pendingSendUntilRef,
+    stopUntilRef,
   }
 }
