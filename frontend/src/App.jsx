@@ -247,6 +247,24 @@ export default function App() {
     return () => navigator.serviceWorker.removeEventListener('message', onMessage)
   }, [fetchLatest])
 
+  // 今 active で見ている session を SW に伝える (= sw.js の LINE 流抑制で使う)。
+  // visibility=hidden の時は sid=null を送って「見てない」 扱いにする (= bg/別アプリ時に
+  // 通知が届くべき状態を明示)。 SW direct postMessage で backend は介さない。
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return
+    const post = () => {
+      const ctrl = navigator.serviceWorker.controller
+      if (!ctrl) return
+      ctrl.postMessage({
+        type: 'active-session',
+        sid: document.visibilityState === 'visible' ? (activeSid || null) : null,
+      })
+    }
+    post()
+    document.addEventListener('visibilitychange', post)
+    return () => document.removeEventListener('visibilitychange', post)
+  }, [activeSid])
+
   const handleOpenPath = useCallback((path) => {
     if (path.endsWith('/')) {
       setTreeOpen(path)

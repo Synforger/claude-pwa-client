@@ -12,6 +12,19 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim())
 })
 
+// 各 client (= タブ) が「今どの session を見ているか」 を保持。 App.jsx が active-session
+// メッセージで sid を投げてくる。 push の session-aware 抑制で使う (= LINE 流: 「まさに
+// そのトーク見てる時」 だけ抑制、 他は通知する)。 SW 再起動で消える + 死んだ client は
+// push 受信時の matchAll で掃除する = stale 概念が原理的に発生しない。
+const clientActive = {}
+
+self.addEventListener('message', (event) => {
+  const d = event.data
+  if (d && d.type === 'active-session' && event.source && event.source.id) {
+    clientActive[event.source.id] = { sid: d.sid || null }
+  }
+})
+
 // 診断ログ: SW 内 console は実機 (iOS PWA) から見れないので backend に POST して
 // logs/backend.log に集約する。 通知が届かない時の切り分けに使う。
 // fetch 失敗は無視 (= keepalive ベストエフォート)。
@@ -57,24 +70,36 @@ self.addEventListener('push', (event) => {
     try { self.navigator.setAppBadge(data.unread_count) } catch { /* ignore */ }
   }
   event.waitUntil((async () => {
-    // 抑制方針: 「アプリのタブが 1 つでも可視 (= 前面) なら、 どのタブ宛でも OS 通知は出さない」
-    // (= 2026-05-30 方針。 アプリを見てる間は他タブのも含め通知を撃たず、 サイドバーの
-    // 赤/青丸で気づく)。 バックグラウンド / 完全終了の時だけ OS 通知を撃つ。
-    // postMessage は visible / hidden 問わず投げる (= 状態同期と未読 fetch 用)。
+    // 抑制方針 (LINE 流): 「focused (= キーボード焦点を持って実際に操作中) かつ
+    // active な session が payload の sid と一致」 の時だけ抑制。 visibility は判定に
+    // 使わない (= iOS PWA バックグラウンドで matchAll の visibilityState が更新されない
+    // バグを回避)。 active 未登録は **抑制しない (fail-open)** = SW 起動直後でも通知が
+    // 黙って消えることがない。
     let suppress = false
     let clientCount = 0
-    let visibleCount = 0
+    let focusedCount = 0
     try {
       const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
       clientCount = all.length
+      const liveIds = new Set()
       for (const c of all) {
-        if (c.visibilityState === 'visible') { suppress = true; visibleCount++ }
+        liveIds.add(c.id)
+        const active = clientActive[c.id]
+        const focused = !!c.focused
+        if (focused) focusedCount++
+        if (data.sid && focused && active && active.sid === data.sid) {
+          suppress = true
+        }
         try { c.postMessage({ type: 'push-received', sid: data.sid || null }) } catch { /* ignore */ }
+      }
+      // 死んだ client の active state を掃除 (= SW 再起動でも消えるが定期的にも縮める)。
+      for (const id of Object.keys(clientActive)) {
+        if (!liveIds.has(id)) delete clientActive[id]
       }
     } catch (e) {
       diagLog('push:matchAll-error', { err: String(e) })
     }
-    diagLog('push:suppress-decision', { suppress, clientCount, visibleCount })
+    diagLog('push:suppress-decision', { suppress, clientCount, focusedCount })
     if (suppress) return
     try {
       await self.registration.showNotification(data.title || 'Notification', options)
