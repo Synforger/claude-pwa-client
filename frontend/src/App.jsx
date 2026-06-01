@@ -29,6 +29,7 @@ import {
 import { setBadge } from './utils/badge.js'
 import { gcImages } from './utils/imageStore.js'
 import { usePushSubscription } from './hooks/usePushSubscription.js'
+import { enablePush, isPushEnabledLocally } from './utils/push.js'
 import ChatInput from './components/ChatInput.jsx'
 // session 削除後の IndexedDB orphan 画像掃除を遅延する時間 (= setMessages の state 反映を待つ)。
 const IMAGE_GC_AFTER_DELETE_MS = 300
@@ -188,6 +189,12 @@ export default function App() {
       }
       return next
     })
+    // backend 再起動跨ぎで PushSubscription が無効化される事象がある (= 実機観察)。
+    // 通知 ON 状態なら enablePush() で再発行 (= 既存と同 endpoint なら backend 側で
+    // 上書き、 新規 endpoint なら追加)、 ユーザの手動 ON/OFF を肩代わりする。
+    if (isPushEnabledLocally()) {
+      enablePush().catch(() => { /* 失敗時は UI ボタンで手動再有効化 */ })
+    }
     // pendingSendUntilRef は ref なので deps 不要 (= ref.current 書き込みは再 render を起こさない)。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.backend_start_time, setLoading, setMessages])
