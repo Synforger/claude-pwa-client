@@ -65,9 +65,11 @@ self.addEventListener('push', (event) => {
         liveIds.add(c.id)
         if (c.visibilityState === 'visible') {
           const active = clientActive[c.id]
-          // payload に sid が無いテスト通知や、 「同じ sid を見ている」 時は抑制。
-          // active が未登録 (= postMessage 未着) なら安全側で抑制 (= 通常 mount 直後に届く)。
-          if (!data.sid || !active || active.sid === data.sid) {
+          // 抑制: (a) payload に sid が無い (= テスト通知など)、 または
+          //       (b) active が登録済 かつ まさにその sid を見ている。
+          // active 未登録 (= SW 起動直後・postMessage 未着) は安全側で「出す」。
+          // ここを「未登録なら抑制」 にすると、 SW 更新直後の通常通知が全部消える事故になる。
+          if (!data.sid || (active && active.sid === data.sid)) {
             suppress = true
           }
         }
