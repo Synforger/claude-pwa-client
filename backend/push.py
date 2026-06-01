@@ -245,6 +245,15 @@ def mark_all_read(payload: dict = Body(default={})):
     return {"ok": True, "count": before}
 
 
+@router.post("/log/sw")
+def log_sw(payload: dict = Body(default={})):
+    """Service Worker からの診断ログ。 SW 内では console が見えにくいため、 push event
+    の各ステップを backend ログ (= logs/backend.log) に集約する。 通知が届かない原因を
+    端末側のどこで止まっているか実機切り分けするための観測点。"""
+    logger.info("sw-log: %s", json.dumps(payload, ensure_ascii=False))
+    return {"ok": True}
+
+
 @router.post("/notifications/sync")
 def sync_unread_count(payload: dict = Body(default={})):
     """未読カウンタを frontend から渡された現存数で上書きする。

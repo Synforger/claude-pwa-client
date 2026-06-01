@@ -236,25 +236,6 @@ export default function App() {
     return () => navigator.serviceWorker.removeEventListener('message', onMessage)
   }, [fetchLatest])
 
-  // 今 visible で見ている session を SW に伝える (= sw.js の session-aware 抑制用)。
-  // 「同じ session を見ている」 時だけ OS 通知を抑制し、 別 session 宛 / バックグラウンドは
-  // 撃たせる。 SW direct postMessage なので backend を介さず、 stale 問題なし。
-  useEffect(() => {
-    if (!('serviceWorker' in navigator)) return
-    const post = () => {
-      const ctrl = navigator.serviceWorker.controller
-      if (!ctrl) return
-      ctrl.postMessage({
-        type: 'active-session',
-        sid: activeSid || null,
-        visible: document.visibilityState === 'visible',
-      })
-    }
-    post()
-    document.addEventListener('visibilitychange', post)
-    return () => document.removeEventListener('visibilitychange', post)
-  }, [activeSid])
-
   const handleOpenPath = useCallback((path) => {
     if (path.endsWith('/')) {
       setTreeOpen(path)
@@ -360,7 +341,7 @@ export default function App() {
   }
 
   // Web Push 購読状態 (= 環境制約・トグル・連打防止) は専用 hook に集約。
-  const { pushEnabled, pushBusy, pushAvailable, handleTogglePush } = usePushSubscription({
+  const { pushEnabled, pushBroken, pushBusy, pushAvailable, handleTogglePush } = usePushSubscription({
     onCloseMenu: () => setMenuOpen(false),
   })
 
@@ -449,6 +430,7 @@ export default function App() {
             sessionBadges={sessionBadges}
             pushAvailable={pushAvailable}
             pushEnabled={pushEnabled}
+            pushBroken={pushBroken}
             pushBusy={pushBusy}
             onTogglePush={handleTogglePush}
           />
