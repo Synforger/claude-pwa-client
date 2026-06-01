@@ -12,6 +12,19 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim())
 })
 
+// 各 client (= タブ) が今どの session を visible で見ているか。 client.id をキーに保持し、
+// push handler で session-aware 抑制に使う (= 「まさにそのセッションを見ている」 時だけ
+// OS 通知を出さない、 別 session を見ている / バックグラウンドの時は通知を出す)。
+// SW restart や client disappear で自然に消えるため stale state バグが原理的に起きない。
+const clientActive = {}
+
+self.addEventListener('message', (event) => {
+  const d = event.data
+  if (d && d.type === 'active-session' && event.source && event.source.id) {
+    clientActive[event.source.id] = { sid: d.sid || null, visible: !!d.visible }
+  }
+})
+
 self.addEventListener('push', (event) => {
   let data = { title: 'Notification', body: '' }
   try {
@@ -41,16 +54,28 @@ self.addEventListener('push', (event) => {
     try { self.navigator.setAppBadge(data.unread_count) } catch { /* ignore */ }
   }
   event.waitUntil((async () => {
-    // 抑制方針: 「アプリのタブが 1 つでも可視 (= 前面) なら、 どのタブ宛でも OS 通知は出さない」
-    // (= 2026-05-30 方針。 アプリを見てる間は他タブのも含め通知を撃たず、 サイドバーの
-    // 赤/青丸で気づく)。 バックグラウンド / 完全終了の時だけ OS 通知を撃つ。
+    // 抑制方針: 「visible なタブが今まさに対象 session を見ている」 時だけ OS 通知を抑制。
+    // それ以外 (= 別 session を見ている / バックグラウンド / 完全終了) は通知を撃つ。
     // postMessage は visible / hidden 問わず投げる (= 状態同期と未読 fetch 用)。
     let suppress = false
     try {
       const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      const liveIds = new Set()
       for (const c of all) {
-        if (c.visibilityState === 'visible') suppress = true
+        liveIds.add(c.id)
+        if (c.visibilityState === 'visible') {
+          const active = clientActive[c.id]
+          // payload に sid が無いテスト通知や、 「同じ sid を見ている」 時は抑制。
+          // active が未登録 (= postMessage 未着) なら安全側で抑制 (= 通常 mount 直後に届く)。
+          if (!data.sid || !active || active.sid === data.sid) {
+            suppress = true
+          }
+        }
         try { c.postMessage({ type: 'push-received', sid: data.sid || null }) } catch { /* ignore */ }
+      }
+      // 閉じた client の残骸を掃除 (= SW 再起動で消えるが定期掃除でも自然に縮む)。
+      for (const id of Object.keys(clientActive)) {
+        if (!liveIds.has(id)) delete clientActive[id]
       }
     } catch { /* ignore */ }
     if (suppress) return
