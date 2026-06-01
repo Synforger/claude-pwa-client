@@ -8,13 +8,16 @@
  *   - 非アクティブタブの青丸/赤丸が live 追従する
  *   - active タブの result 取りこぼし (= loading が落ちない) も backend busy が補正する
  *
- * 送信直後の楽観 window (pendingSendUntilRef) 中だけは busy=false の上書きをスキップする
- * (= 最初の SSE event 到達まで楽観 loading を維持して停止ボタンをチラつかせない)。
+ * 楽観 window 中は backend busy の上書きを方向別にスキップする:
+ *   - pendingSendUntilRef (送信直後): busy=false で上書きしない (= loading を維持)
+ *   - stopUntilRef (停止直後): busy=true で上書きしない (= 停止ボタンが復活しないように)
+ *     claude が Esc を受けて result 行を書くまで backend は busy=true のまま流すので、
+ *     ここで止めないと「停止押す → 一瞬消える → 即復活」 のチラつきになる。
  */
 import { useEffect } from 'react'
 import { apiUrl } from '../utils/api.js'
 
-export function useSessionsOverview({ setLoading, pendingSendUntilRef }) {
+export function useSessionsOverview({ setLoading, pendingSendUntilRef, stopUntilRef }) {
   useEffect(() => {
     const es = new EventSource(apiUrl('/sessions/overview/stream'))
     es.onmessage = (e) => {
@@ -31,8 +34,8 @@ export function useSessionsOverview({ setLoading, pendingSendUntilRef }) {
         const now = Date.now()
         for (const sid of Object.keys(payload)) {
           const busy = !!payload[sid]?.busy
-          // 送信直後の楽観 window 中は busy=false で上書きしない (= 最初の SSE まで loading 維持)
           if (!busy && (pendingSendUntilRef?.current?.[sid] || 0) > now) continue
+          if (busy && (stopUntilRef?.current?.[sid] || 0) > now) continue
           if (!!next[sid] !== busy) {
             next[sid] = busy
             changed = true
@@ -43,5 +46,5 @@ export function useSessionsOverview({ setLoading, pendingSendUntilRef }) {
     }
     es.onerror = () => { /* EventSource は自動再接続 (= 一時切断は無視) */ }
     return () => es.close()
-  }, [setLoading, pendingSendUntilRef])
+  }, [setLoading, pendingSendUntilRef, stopUntilRef])
 }
