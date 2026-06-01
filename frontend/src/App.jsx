@@ -168,30 +168,34 @@ export default function App() {
     if (!status?.backend_start_time) return
     const prev = lastBackendStartRef.current
     lastBackendStartRef.current = status.backend_start_time
-    if (prev === null || prev === status.backend_start_time) return
-    // backend が再起動された:
+    const sameAsLast = prev === status.backend_start_time
+    if (sameAsLast) return
+    // backend 再起動 or 初回 mount の同期化処理。 既存処理は backend 再起動時のみ意味
+    // を持つので prev !== null ガードを残す:
     //   - loading 全 reset
     //   - 楽観的 pendingSend deadline も全 reset (= 残ってると停止ボタンが居座る)
     //   - 各 session 末尾の streaming bubble を false に固定 (= 永遠の推論中表示を消す)
-    setLoading({})
-    pendingSendUntilRef.current = {}
-    setMessages(p => {
-      const next = {}
-      for (const sid of Object.keys(p)) {
-        const arr = p[sid] || []
-        if (arr.length === 0) { next[sid] = arr; continue }
-        const last = arr[arr.length - 1]
-        if (last?.streaming) {
-          next[sid] = [...arr.slice(0, -1), { ...last, streaming: false }]
-        } else {
-          next[sid] = arr
+    if (prev !== null) {
+      setLoading({})
+      pendingSendUntilRef.current = {}
+      setMessages(p => {
+        const next = {}
+        for (const sid of Object.keys(p)) {
+          const arr = p[sid] || []
+          if (arr.length === 0) { next[sid] = arr; continue }
+          const last = arr[arr.length - 1]
+          if (last?.streaming) {
+            next[sid] = [...arr.slice(0, -1), { ...last, streaming: false }]
+          } else {
+            next[sid] = arr
+          }
         }
-      }
-      return next
-    })
-    // backend 再起動跨ぎで PushSubscription が無効化される事象がある (= 実機観察)。
-    // 通知 ON 状態なら enablePush() で再発行 (= 既存と同 endpoint なら backend 側で
-    // 上書き、 新規 endpoint なら追加)、 ユーザの手動 ON/OFF を肩代わりする。
+        return next
+      })
+    }
+    // PushSubscription の再発行は初回 mount 時も実行する (= リロード後に backend と
+    // subscription が乖離してても自動で同期する)。 enablePush は idempotent (= 同 endpoint
+    // なら backend 側で upsert) なので mount のたびに呼んでも害なし。
     if (isPushEnabledLocally()) {
       enablePush().catch(() => { /* 失敗時は UI ボタンで手動再有効化 */ })
     }
