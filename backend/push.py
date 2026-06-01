@@ -2,16 +2,20 @@
 
 - VAPID 鍵 / サブスクリプションの永続化
 - ターン完了時に呼ばれる broadcast_push()
-- /push/state, /push/vapid-public-key, /push/subscribe, /push/unsubscribe
+- /push/vapid-public-key, /push/subscribe, /push/unsubscribe
 - 未読数 (= app badge 用) の保持 + /notifications/read-all + /notifications/sync
   (= 通知履歴は持たない、 未読カウンタだけ。 PWA を開いた / 該当 session を見た時に 0 リセット)
+
+可視タブでの通知抑制は SW (`frontend/public/sw.js`) の push handler が
+`clients.matchAll()` で判定する (= W3C Push API 標準パターン)。 backend は visibility
+状態を持たない (= 過去に frontend 由来の stale state が原因で通知が永久抑制される
+バグがあったため、 backend 側 gate を全廃)。
 """
 import asyncio
 import json
 import logging
 import re
 import threading
-import time
 from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException
@@ -31,16 +35,13 @@ router = APIRouter()
 VAPID_PATH = Path(__file__).parent / "vapid.json"
 SUBSCRIPTIONS_PATH = Path(__file__).parent / "subscriptions.json"
 
-# 未読カウンタ: broadcast_push のたびに +1、 PWA を開いた時 (= /push/state visible) や
-# /notifications/read-all で 0 リセット。 通知履歴本体は保持しない (= 2026-05-16 改修で
+# 未読カウンタ: broadcast_push のたびに +1、 PWA を開いた時の /notifications/read-all や
+# /notifications/sync で 0 リセット。 通知履歴本体は保持しない (= 2026-05-16 改修で
 # 通知センター UI を撤去したため、 アプリバッジ同期に必要な int 1 個だけ残す)。
 # broadcast_push は async、 mark_all_read / sync_unread_count は sync handler
 # (= FastAPI thread pool 上で並行実行) なので、 +1 と read-write を atomic にするための lock。
 _unread_count_lock = threading.Lock()
 unread_count: int = 0
-
-# client visible 状態: 該当 session を見てる時の通知抑制判定用
-client_states: dict[str, dict] = {}
 
 
 def _load_vapid() -> dict | None:
@@ -158,18 +159,6 @@ def notification_title_for(session_id: str) -> str:
     return NOTIFICATION_TITLE_DEFAULT
 
 
-def is_session_actively_viewed(session_id: str | None) -> bool:
-    """指定 session を visible で見てる client がいるか。
-    session_id が None なら 1 client でも visible なら True (legacy 互換)。
-    """
-    if not session_id:
-        return any(s.get("visible") for s in client_states.values())
-    for s in client_states.values():
-        if s.get("visible") and s.get("session_id") == session_id:
-            return True
-    return False
-
-
 async def broadcast_push(
     message: str,
     title: str | None = None,
@@ -177,17 +166,13 @@ async def broadcast_push(
 ) -> None:
     """登録済みの全 Web Push サブスクリプションに通知を送る + 未読カウンタ +1。
 
-    アクティブに該当セッションを見てる client がいる時は OS 通知も未読カウンタ加算も
-    スキップする (= 既に画面で読まれてる前提)。
+    可視タブでの抑制は SW 側で行う (= W3C Push API 標準パターン)。 backend は
+    無条件に push を送る。
 
     session_id を渡すと payload に sid + URL を含める。 通知タップ時に SW が
     chat の該当セッションを開く。
     """
     global unread_count
-
-    # 抑制判定: いずれかの client がこのセッションを active 表示中なら通知不要
-    if is_session_actively_viewed(session_id):
-        return
 
     body_clean = sanitize_notif_body(message)
     notif_title = title or NOTIFICATION_TITLE_DEFAULT
@@ -246,29 +231,6 @@ async def broadcast_push(
             except ValueError:
                 pass
         _save_subscriptions()
-
-
-# --- エンドポイント ---
-@router.post("/push/state")
-def push_state(payload: dict = Body(...)):
-    """visibilitychange / activeSession 変化イベントで呼ばれる。
-
-    request body:
-      - visible: bool   フォアグラウンド (= 通知不要) かどうか
-      - session_id: str  現在見てるセッション id (可視時のみ意味あり)
-      - client: 後方互換のため受け取るが内部では使わない
-
-    broadcast_push 時に「該当 session を見てる client がいるなら抑制」 判定に使う。
-    """
-    visible = bool(payload.get("visible"))
-    session_id = payload.get("session_id")
-    client = payload.get("client") or "web"
-    client_states[client] = {
-        "visible": visible,
-        "session_id": session_id if visible else None,
-        "ts": time.time(),
-    }
-    return {"ok": True}
 
 
 # --- 未読カウンタ API (= 通知履歴は持たない、 badge 同期用の数値だけ) ---

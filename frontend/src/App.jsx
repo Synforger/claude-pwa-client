@@ -19,7 +19,6 @@ import { useSessionsOverview } from './hooks/useSessionsOverview.js'
 import { useSessions } from './hooks/useSessions.js'
 import { useStorageQuota } from './hooks/useStorageQuota.js'
 import {
-  usePushState,
   useReadOnSessionOpen,
   useDeepLink,
   useSessionActivity,
@@ -154,7 +153,6 @@ export default function App() {
   const menuRef = useRef(null)
 
   // backend / 通知 / deep link 系の effect を hook に集約 (= useAppEffects.js)
-  usePushState(activeSid)
   useReadOnSessionOpen(activeSid)
   useDeepLink(setActiveId)
   useNotificationClear()
@@ -237,25 +235,6 @@ export default function App() {
     navigator.serviceWorker.addEventListener('message', onMessage)
     return () => navigator.serviceWorker.removeEventListener('message', onMessage)
   }, [fetchLatest])
-
-  // active session + 可視状態を SW に伝える (= push の session-aware 抑制用)。
-  // 「その session を今 visible で見てる」 時だけ OS 通知を抑制し、 別 session を見てる /
-  // バックグラウンドの時は対象 session の通知を撃たせる (= 巻き添え抑制を防ぐ)。
-  useEffect(() => {
-    if (!('serviceWorker' in navigator)) return
-    const post = () => {
-      const ctrl = navigator.serviceWorker.controller
-      if (!ctrl) return
-      ctrl.postMessage({
-        type: 'active-session',
-        sid: activeSid || null,
-        visible: document.visibilityState === 'visible',
-      })
-    }
-    post()
-    document.addEventListener('visibilitychange', post)
-    return () => document.removeEventListener('visibilitychange', post)
-  }, [activeSid])
 
   const handleOpenPath = useCallback((path) => {
     if (path.endsWith('/')) {
