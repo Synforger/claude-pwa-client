@@ -33,6 +33,12 @@ JSONL_MAX_BYTES = 1 * 1024 * 1024 * 1024  # 1 GB
 # 定期実行間隔。 起動時に 1 回 + 24 時間ごと。
 MAINTENANCE_INTERVAL_SEC = 24 * 3600
 
+# アイドル pwa-* tmux session を kill する閾値。 session_attached=0 かつ session_activity が
+# この日数より古ければ tmux session (+ 配下の claude プロセス) を kill する。 sessions_meta
+# は触らないので PWA のタブ一覧には残り、 次にタブを開いた時に新規 spawn される (= 「使わない
+# けどタブだけ残しておく」 運用に合わせた設計)。
+IDLE_SESSION_KILL_DAYS = 7
+
 # Sunshine が画面共有 encoder のメモリをこの phys_footprint 超で抱えていたら restart
 # 対象とみなす。 観測実績では idle 放置 + ゾンビストリームで 30 GB まで膨らんだ (= 大半は
 # swap 退避され RSS には出ない、 phys_footprint でしか捕捉できない)。 fresh 起動直後は
@@ -70,6 +76,52 @@ def cleanup_stale_tmux_sessions() -> int:
                 capture_output=True, timeout=2.0,
             )
             logger.info("maintenance: killed stale tmux session %s", name)
+            killed += 1
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+    return killed
+
+
+def cleanup_idle_pwa_sessions(idle_days: int = IDLE_SESSION_KILL_DAYS) -> int:
+    """非 attached の pwa-* tmux session のうち、 最終 activity が idle_days より古いものを
+    kill する。 sessions_meta は触らず PWA のタブ一覧には残す (= 次回 open で再 spawn される)。
+    アイドル claude プロセスが RSS 100-300MB を抱えたまま無期限に残るのを防ぐ。"""
+    try:
+        r = subprocess.run(
+            ["tmux", "list-sessions",
+             "-F", "#{session_name}\t#{session_attached}\t#{session_activity}"],
+            capture_output=True, text=True, timeout=2.0,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return 0
+    if r.returncode != 0:
+        return 0
+    cutoff = time.time() - idle_days * 86400
+    killed = 0
+    for line in r.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3:
+            continue
+        name, attached, activity_str = parts
+        if not name.startswith("pwa-"):
+            continue
+        if attached != "0":
+            continue
+        try:
+            activity = float(activity_str)
+        except ValueError:
+            continue
+        if activity >= cutoff:
+            continue
+        try:
+            subprocess.run(
+                ["tmux", "kill-session", "-t", name],
+                capture_output=True, timeout=2.0,
+            )
+            logger.info(
+                "maintenance: killed idle pwa session %s (idle=%.1fd)",
+                name, (time.time() - activity) / 86400,
+            )
             killed += 1
         except (subprocess.TimeoutExpired, OSError):
             pass
@@ -238,6 +290,7 @@ def run_all_maintenance() -> dict:
     """全 cleanup を 1 回実行 + 結果サマリを返す。 起動時と定期 loop の両方で呼ぶ。"""
     return {
         "killed_tmux": cleanup_stale_tmux_sessions(),
+        "killed_idle_pwa": cleanup_idle_pwa_sessions(),
         "removed_statusline_map": cleanup_stale_statusline_map(),
         "removed_jsonl": cleanup_old_jsonl(),
         "restarted_sunshine": restart_sunshine_if_bloated(),
