@@ -6,32 +6,6 @@ import { lsGet, lsSet } from '../utils/storage.js'
 import { clearAllNotifications } from '../utils/badge.js'
 
 
-// --- /push/state を可視状態 + active session で backend に申告 ---
-// broadcast_push 抑制用: 「該当 session を見てる時は通知しない」 判定材料を backend に渡す。
-export function usePushState(activeSid) {
-  useEffect(() => {
-    const sendState = () => {
-      const body = JSON.stringify({
-        visible: !document.hidden,
-        session_id: activeSid,
-        client: 'web',
-      })
-      try {
-        apiFetch(`/push/state`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body,
-        }).catch(() => { /* ignore */ })
-      } catch { /* ignore */ }
-    }
-    sendState()
-    const onVis = () => sendState()
-    document.addEventListener('visibilitychange', onVis)
-    return () => document.removeEventListener('visibilitychange', onVis)
-  }, [activeSid])
-}
-
-
 // --- session を開いた時に既読化 (= backend 側の通知履歴を消す) ---
 // アプリバッジ数字は App.jsx で useSessionBadges.unreadCount → setBadge 経路で
 // 同期するので、 ここでは backend の read-all を投げるだけ (= push 通知センター用)。
