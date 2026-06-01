@@ -23,7 +23,8 @@ const MENU_FLIP_UP_THRESHOLD_PX = 140
 //   onDelete(sid)       : 削除 (確認ダイアログ表示は呼出側責任)
 //   sessionBadges       : {sid: {kind, label} | null}
 //   pushAvailable       : 通知が使える環境か (iOS PWA standalone 等)
-//   pushEnabled         : 通知 ON/OFF 状態
+//   pushEnabled         : 通知 ON/OFF 状態 (= 希望 ON + 実 subscription あり)
+//   pushBroken          : 希望 ON だが実 subscription 失効中 (= UI で再有効化を促す)
 //   pushBusy            : 通知切替処理中
 //   onTogglePush        : 通知 ON/OFF 切替 callback
 export default function SessionDrawer({
@@ -39,6 +40,7 @@ export default function SessionDrawer({
   sessionBadges = {},
   pushAvailable = false,
   pushEnabled = false,
+  pushBroken = false,
   pushBusy = false,
   onTogglePush,
 }) {
@@ -52,15 +54,19 @@ export default function SessionDrawer({
   const [resetBusy, setResetBusy] = useState(false)
   const globalMenuRef = useRef(null)
   const isLastSession = sessions.length <= 1
-  // リセット (= SW unregister + cache 全消し + reload) は常時提供。
+  // リセット (= SW を新版に差し替え + cache 全消し + reload)。
   // PWA 化すると Safari の cache クリア UI に届かなくなるための救済。
   // localStorage / IndexedDB / 通知許可は触らない (= 状態は保持)。
+  // 注: registration.unregister() は紐づく PushSubscription を無効化する (W3C 仕様)。
+  // 過去にこれを呼んでいたため backend に古い endpoint が大量に残った。 update() で
+  // 新版 SW を install (= sw.js の skipWaiting + clients.claim で即時反映) して、
+  // 既存 PushSubscription は維持する。
   const handleReset = async () => {
     setResetBusy(true)
     try {
       if ('serviceWorker' in navigator) {
         const regs = await navigator.serviceWorker.getRegistrations()
-        await Promise.all(regs.map(r => r.unregister().catch(() => {})))
+        await Promise.all(regs.map(r => r.update().catch(() => {})))
       }
       if (typeof caches !== 'undefined') {
         const keys = await caches.keys()
@@ -155,7 +161,11 @@ export default function SessionDrawer({
                     onClick={() => { setGlobalMenuOpen(false); onTogglePush() }}
                     disabled={pushBusy}
                   >
-                    {pushEnabled ? '通知を無効にする' : '通知を有効にする'}
+                    {pushEnabled
+                      ? '🔔 通知 ON (タップで無効化)'
+                      : pushBroken
+                        ? '⚠ 通知が失効しています (タップで再有効化)'
+                        : '🔕 通知 OFF (タップで有効化)'}
                   </button>
                 )}
                 <button

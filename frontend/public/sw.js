@@ -12,20 +12,22 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim())
 })
 
-// 各 client (= タブ) が今どの session を visible で見ているか。 client.id をキーに保持し、
-// push handler で session-aware 抑制に使う (= 「まさにそのセッションを見ている」 時だけ
-// OS 通知を出さない、 別 session を見ている / バックグラウンドの時は通知を出す)。
-// SW restart や client disappear で自然に消えるため stale state バグが原理的に起きない。
-const clientActive = {}
-
-self.addEventListener('message', (event) => {
-  const d = event.data
-  if (d && d.type === 'active-session' && event.source && event.source.id) {
-    clientActive[event.source.id] = { sid: d.sid || null, visible: !!d.visible }
-  }
-})
+// 診断ログ: SW 内 console は実機 (iOS PWA) から見れないので backend に POST して
+// logs/backend.log に集約する。 通知が届かない時の切り分けに使う。
+// fetch 失敗は無視 (= keepalive ベストエフォート)。
+function diagLog(stage, extra) {
+  try {
+    fetch('/log/sw', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      keepalive: true,
+      body: JSON.stringify({ stage, ...extra }),
+    }).catch(() => {})
+  } catch { /* ignore */ }
+}
 
 self.addEventListener('push', (event) => {
+  diagLog('push:received', { hasData: !!event.data })
   let data = { title: 'Notification', body: '' }
   try {
     if (event.data) {
@@ -50,38 +52,36 @@ self.addEventListener('push', (event) => {
   }
   // ホーム画面アプリアイコンの未読バッジを更新 (Badging API、 iOS 16.4+ PWA 対応)
   // payload に unread_count が載ってるので fetch 不要 = 完全終了状態でも省電力で更新
+  diagLog('push:parsed', { title: data.title, sid: data.sid || null, unreadCount: data.unread_count })
   if (typeof data.unread_count === 'number' && self.navigator && self.navigator.setAppBadge) {
     try { self.navigator.setAppBadge(data.unread_count) } catch { /* ignore */ }
   }
   event.waitUntil((async () => {
-    // 抑制方針: 「visible なタブが今まさに対象 session を見ている」 時だけ OS 通知を抑制。
-    // それ以外 (= 別 session を見ている / バックグラウンド / 完全終了) は通知を撃つ。
+    // 抑制方針: 「アプリのタブが 1 つでも可視 (= 前面) なら、 どのタブ宛でも OS 通知は出さない」
+    // (= 2026-05-30 方針。 アプリを見てる間は他タブのも含め通知を撃たず、 サイドバーの
+    // 赤/青丸で気づく)。 バックグラウンド / 完全終了の時だけ OS 通知を撃つ。
     // postMessage は visible / hidden 問わず投げる (= 状態同期と未読 fetch 用)。
     let suppress = false
+    let clientCount = 0
+    let visibleCount = 0
     try {
       const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-      const liveIds = new Set()
+      clientCount = all.length
       for (const c of all) {
-        liveIds.add(c.id)
-        if (c.visibilityState === 'visible') {
-          const active = clientActive[c.id]
-          // 抑制: (a) payload に sid が無い (= テスト通知など)、 または
-          //       (b) active が登録済 かつ まさにその sid を見ている。
-          // active 未登録 (= SW 起動直後・postMessage 未着) は安全側で「出す」。
-          // ここを「未登録なら抑制」 にすると、 SW 更新直後の通常通知が全部消える事故になる。
-          if (!data.sid || (active && active.sid === data.sid)) {
-            suppress = true
-          }
-        }
+        if (c.visibilityState === 'visible') { suppress = true; visibleCount++ }
         try { c.postMessage({ type: 'push-received', sid: data.sid || null }) } catch { /* ignore */ }
       }
-      // 閉じた client の残骸を掃除 (= SW 再起動で消えるが定期掃除でも自然に縮む)。
-      for (const id of Object.keys(clientActive)) {
-        if (!liveIds.has(id)) delete clientActive[id]
-      }
-    } catch { /* ignore */ }
+    } catch (e) {
+      diagLog('push:matchAll-error', { err: String(e) })
+    }
+    diagLog('push:suppress-decision', { suppress, clientCount, visibleCount })
     if (suppress) return
-    return self.registration.showNotification(data.title || 'Notification', options)
+    try {
+      await self.registration.showNotification(data.title || 'Notification', options)
+      diagLog('push:shown', { title: data.title })
+    } catch (e) {
+      diagLog('push:show-error', { err: String(e) })
+    }
   })())
 })
 
