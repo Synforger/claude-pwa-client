@@ -10,7 +10,17 @@ import ErrorBoundary from './ErrorBoundary.jsx'
 // 未対応環境では何もしない。
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => { /* noop */ })
+    // updateViaCache: 'none' で sw.js 自体を毎回 fresh fetch する (= デフォルト 'imports'
+    // だと HTTP cache 経由になり、 iOS Safari で SW 更新が大幅に遅延する事例がある)。
+    // register 直後と visibility 復帰時に明示的 update() を呼んで新版反映を促す。
+    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
+      .then(reg => {
+        reg.update().catch(() => {})
+        document.addEventListener('visibilitychange', () => {
+          if (!document.hidden) reg.update().catch(() => {})
+        })
+      })
+      .catch(() => { /* noop */ })
   })
 }
 
