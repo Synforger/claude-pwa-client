@@ -16,8 +16,7 @@ BACKEND = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND))
 
 
-# state.py の module-level に存在する dict 群。 push.client_states は別 module
-# なので、 第二弾で push 専用 fixture を切る時に分離する。
+# state.py の module-level に存在する dict 群。
 _STATE_GLOBALS = (
     "agent_status",
     "shared_status",
