@@ -259,3 +259,32 @@ def test_unknown_pwa_sid_header_does_not_bind(fake_bindings, captured_pushes, mo
     # 登録外の id を送る
     client.post("/hooks/event", json=payload, headers={"X-PWA-SID": "ses_intruder"})
     assert jsonl_watcher.get_jsonl_for("ses_intruder") is None
+
+
+def test_endpoint_rejects_non_local_client():
+    """tailnet 等の非 localhost からの hook 偽造を 403 で拒否する。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from starlette.types import ASGIApp, Receive, Scope, Send
+
+    class SpoofClientMiddleware:
+        """request.client.host を attacker IP に偽装する ASGI middleware (test 用)。"""
+        def __init__(self, app: ASGIApp, host: str):
+            self.app = app
+            self.host = host
+
+        async def __call__(self, scope: Scope, receive: Receive, send: Send):
+            if scope.get("type") == "http":
+                scope = {**scope, "client": (self.host, 12345)}
+            await self.app(scope, receive, send)
+
+    inner = FastAPI()
+    inner.include_router(hooks_router.router)
+    app = SpoofClientMiddleware(inner, host="100.64.0.42")
+    client = TestClient(app)
+
+    response = client.post(
+        "/hooks/event",
+        json={"hook_event_name": "Stop", "session_id": "x"},
+    )
+    assert response.status_code == 403

@@ -53,3 +53,45 @@ def test_require_session_raises_404_for_unknown(isolated_state):
     with pytest.raises(HTTPException) as exc:
         chat_routes.require_session("ses_does_not_exist")
     assert exc.value.status_code == 404
+
+
+def test_stop_session_marks_user_stopped_and_clears_busy(isolated_state):
+    """POST /sessions/{sid}/stop が user_stopped=True を立て busy を False に強制する。"""
+    import chat_routes
+    state = isolated_state
+    sid = _setup_session(state)
+    state.stream_states[sid].busy = True
+    state.stream_states[sid].user_stopped = False
+
+    result = asyncio.run(chat_routes.stop_session(sid, sid))
+    assert result == {"ok": True}
+    assert state.stream_states[sid].user_stopped is True
+    assert state.stream_states[sid].busy is False
+
+
+def test_stop_session_unknown_sid_returns_no_state(isolated_state):
+    """state が無い sid に対しても 500 でなく ok=False を返す (= 多重押下耐性)。"""
+    import chat_routes
+    state = isolated_state
+    # sessions_meta だけ生やして stream_states は作らない
+    state.sessions_meta["ses_orphan"] = object()
+    state.stream_states.pop("ses_orphan", None)
+
+    result = asyncio.run(chat_routes.stop_session("ses_orphan", "ses_orphan"))
+    assert result == {"ok": False, "reason": "no_state"}
+
+
+def test_is_session_viewed_via_views_by_conn(isolated_state):
+    """views_by_conn に sid を持つ接続があれば is_session_viewed が True を返す。"""
+    from state import is_session_viewed, views_by_conn
+    views_by_conn.clear()
+    assert is_session_viewed("ses_x") is False
+    views_by_conn["conn-uuid-1"] = "ses_x"
+    try:
+        assert is_session_viewed("ses_x") is True
+        assert is_session_viewed("ses_other") is False
+        # 別接続が消えれば false に戻る (= 切断で自動失効)
+        del views_by_conn["conn-uuid-1"]
+        assert is_session_viewed("ses_x") is False
+    finally:
+        views_by_conn.clear()
