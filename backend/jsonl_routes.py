@@ -288,6 +288,16 @@ async def monitor_all_sessions_loop():
                             continue
                         _maybe_push_blockers(sid, obj)
                         _update_busy(sid, obj)
+                        # agent_status (= current_tool / todos / pending_question /
+                        # pending_plan / model / ctx_pct) も backend 側で常時更新する。
+                        # SSE 接続中の session しか更新されないと、 非アクティブタブの
+                        # AskUserQuestion / ExitPlanMode が overview SSE の pending_*
+                        # フラグに反映されない (= hook 経路だけが頼り)。 idempotent + 二重発火
+                        # gate 済みなので SSE 経路と並走しても害なし。
+                        if _mutate_agent_status(sid, obj):
+                            st_obj = stream_states.get(sid)
+                            if st_obj is not None:
+                                st_obj.status_event.set()
             except asyncio.CancelledError:
                 raise
             except Exception:

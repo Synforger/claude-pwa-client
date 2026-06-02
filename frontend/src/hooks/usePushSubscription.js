@@ -46,21 +46,31 @@ export function usePushSubscription({ onCloseMenu } = {}) {
   // 見せない。 enablePush は idempotent (= 同 endpoint なら backend で upsert)。
   useEffect(() => {
     let cancelled = false
+    let syncing = false
     const sync = async () => {
-      const have = await detectActualSubscription()
-      if (cancelled) return
-      setHasRealSub(have)
-      if (
-        !have &&
-        localFlag &&
-        pushAvailable &&
-        typeof Notification !== 'undefined' &&
-        Notification.permission === 'granted'
-      ) {
-        try {
-          await enablePush()
-          if (!cancelled) setHasRealSub(true)
-        } catch { /* 失敗時は次の ping で再試行 */ }
+      // hidden 中は走らせない (= iOS PWA は bg suspended で実質止まる、 desktop は走るので明示 guard)
+      if (document.hidden) return
+      // 同 tick の二重起動を防ぐ (= setInterval と visibilitychange が同時に triggers するケース)
+      if (syncing) return
+      syncing = true
+      try {
+        const have = await detectActualSubscription()
+        if (cancelled) return
+        setHasRealSub(have)
+        if (
+          !have &&
+          localFlag &&
+          pushAvailable &&
+          typeof Notification !== 'undefined' &&
+          Notification.permission === 'granted'
+        ) {
+          try {
+            await enablePush()
+            if (!cancelled) setHasRealSub(true)
+          } catch { /* 失敗時は次の ping で再試行 */ }
+        }
+      } finally {
+        syncing = false
       }
     }
     sync()

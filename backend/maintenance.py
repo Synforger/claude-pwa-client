@@ -288,12 +288,14 @@ def restart_sunshine_if_bloated() -> bool:
 
 def run_all_maintenance() -> dict:
     """全 cleanup を 1 回実行 + 結果サマリを返す。 起動時と定期 loop の両方で呼ぶ。"""
+    from jsonl_session_status import cleanup_orphan_turn_starts  # noqa: PLC0415
     return {
         "killed_tmux": cleanup_stale_tmux_sessions(),
         "killed_idle_pwa": cleanup_idle_pwa_sessions(),
         "removed_statusline_map": cleanup_stale_statusline_map(),
         "removed_jsonl": cleanup_old_jsonl(),
         "restarted_sunshine": restart_sunshine_if_bloated(),
+        "orphan_turn_starts": cleanup_orphan_turn_starts(),
     }
 
 
