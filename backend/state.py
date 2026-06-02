@@ -188,6 +188,23 @@ stream_states: dict[str, StreamState] = {
     sid: StreamState(agent_id=meta.agent_id) for sid, meta in sessions_meta.items()
 }
 
+# /views/ws 接続ごとに「今その client が見ている session_id」 を保持。 接続切断 (TCP FIN /
+# iOS が PWA bg 化時に socket を切る) で自動削除されるので stale 概念が発生しない。
+# broadcast_push は session_id がこの set に含まれていれば送信スキップ (= ユーザが画面で
+# 見ている session への通知を抑止)。 接続を connection id (= id(websocket)) で索引する。
+views_by_conn: dict[int, str] = {}
+
+
+def is_session_viewed(session_id: str) -> bool:
+    """session_id を見ている WebSocket 接続が 1 つでもあるか。"""
+    if not session_id:
+        return False
+    for v in views_by_conn.values():
+        if v == session_id:
+            return True
+    return False
+
+
 # 全 session の busy / pending_question 変化を 1 本の SSE (/sessions/status/stream) に流す
 # ためのシグナル。 いずれかの session の busy が変わったら set される。 個別 session の
 # status_event とは別に、 全 session を横断する 1 接続の push を担う (= 非アクティブタブの

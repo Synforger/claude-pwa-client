@@ -29,6 +29,7 @@ import {
 import { setBadge } from './utils/badge.js'
 import { gcImages } from './utils/imageStore.js'
 import { usePushSubscription } from './hooks/usePushSubscription.js'
+import { useViewsWs } from './hooks/useViewsWs.js'
 import { enablePush, isPushEnabledLocally } from './utils/push.js'
 import ChatInput from './components/ChatInput.jsx'
 // session 削除後の IndexedDB orphan 画像掃除を遅延する時間 (= setMessages の state 反映を待つ)。
@@ -155,6 +156,8 @@ export default function App() {
 
   // backend / 通知 / deep link 系の effect を hook に集約 (= useAppEffects.js)
   useReadOnSessionOpen(activeSid)
+  // 「今この sid を見てる」 を WebSocket で backend に通知 (= broadcast_push の skip 判定)
+  useViewsWs(activeSid)
   useDeepLink(setActiveId)
   useNotificationClear()
   const moonlightAvailable = useMoonlightAvailable()
