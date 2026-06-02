@@ -59,8 +59,6 @@ export function useChatStream({
     scheduleFlush: buffer.scheduleFlush,
     streamBufRef: buffer.streamBufRef,
     bufFor: buffer.bufFor,
-    onUserRequestId: () => {},
-    onResultMessage: () => {},
   }
 
   // event ハンドラを ref に逃がして、 EventSource は sid 変更時だけ張り直す。
