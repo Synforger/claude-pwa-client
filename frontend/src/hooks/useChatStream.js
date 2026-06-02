@@ -35,6 +35,7 @@ export function useChatStream({
   input, setInput,
   attachments, clearAttachments,
   scrollToBottom, isAtBottomRef,
+  sendStopIntent,
 }) {
   const sid = activeSession?.id || null
   const [loading, setLoading] = useState({})
@@ -234,10 +235,11 @@ export function useChatStream({
     if (!sid) return
     // 並行で 2 つ:
     //   (a) PTY に Esc を送る = claude TUI の中断 (= 物理停止)
-    //   (b) backend の /stop endpoint = StreamState.user_stopped=true で busy 強制 false
-    //       (= 全 client が overview SSE で即時に「停止」 を観測する権威ソース)
+    //   (b) /views/ws で Stop 意思を backend に送る = StreamState.user_stopped=true で
+    //       busy 強制 false。 WS 経由で TCP 保証付き (= 旧 HTTP POST 経路の到達失敗 race を
+    //       根本治療)。 全 client が overview SSE で即時に「停止」 を観測。
     sendToPty(sid, { key: 'Escape' }).catch(() => {})
-    apiFetch(`/sessions/${encodeURIComponent(sid)}/stop`, { method: 'POST' }).catch(() => {})
+    sendStopIntent?.(sid)
     setLoading(prev => ({ ...prev, [sid]: false }))
     pendingSendUntilRef.current[sid] = 0
     // 末尾の streaming bubble (= 「推論中…」 表示の元) を停止扱いに固定。
@@ -248,7 +250,7 @@ export function useChatStream({
       if (!last?.streaming) return prev
       return { ...prev, [sid]: [...arr.slice(0, -1), { ...last, streaming: false }] }
     })
-  }, [sid, sendToPty, setMessages])
+  }, [sid, sendToPty, sendStopIntent, setMessages])
 
   const sendAnswer = useCallback(async (targetSid, tool_use_id, answer, isFree = false, optionCount = 0) => {
     // AskUserQuestion の回答を tmux 経由で claude TUI に送る。

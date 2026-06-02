@@ -9,7 +9,7 @@
  *
  * heartbeat は不要 (= 接続生存自体がシグナル)、 ディレイは TCP レベルで最小。
  */
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { API_BASE } from '../constants.js'
 
 function toWsUrl(path) {
@@ -23,6 +23,17 @@ export function useViewsWs(activeSid) {
   // sidRef は接続 onopen 時に「最新の activeSid」 を読むためのコピー。 render 中の
   // ref 直書きは React 警告対象なので effect 内で同期する。
   useEffect(() => { sidRef.current = activeSid }, [activeSid])
+
+  // Stop 意思を WebSocket 経由で backend に送る。 HTTP POST だと送信失敗時の race で
+  // overview SSE が busy=true を流して停止ボタンが復活していた。 WS なら接続中の TCP
+  // 保証で届くか、 切断中なら何もしない (= 切断中 = PWA が見えてない = stop 押せない)。
+  const sendStopIntent = useCallback((sid) => {
+    if (!sid) return
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.send(JSON.stringify({ type: 'stop', sid })) } catch { /* ignore */ }
+    }
+  }, [])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -84,4 +95,6 @@ export function useViewsWs(activeSid) {
       try { ws.send(JSON.stringify({ sid: activeSid || null })) } catch { /* ignore */ }
     }
   }, [activeSid])
+
+  return { sendStopIntent }
 }
