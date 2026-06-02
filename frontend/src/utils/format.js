@@ -246,7 +246,7 @@ export function formatTool(block) {
     }
     case 'TaskOutput': {
       const tid = input?.task_id ?? '?'
-      shortLabel = `📥 task output: ${tid.slice(0, 12)}`
+      shortLabel = `📄 task output: ${tid.slice(0, 12)}`
       label = `get output of task ${tid}` + (input?.block ? ` (blocking)` : ` (non-blocking)`)
       break
     }
@@ -299,7 +299,7 @@ export function formatTool(block) {
       // input: { script?, scriptPath?, name?, args? }。 script は巨大な JS なので出さず、
       // 予定義名 / scriptPath を出す (= inline script は名前が無いので汎用表記)。
       const wfName = input?.name || input?.scriptPath || '(inline script)'
-      shortLabel = `🔀 workflow: ${truncate(wfName, SHORT_LABEL_MAX - 12)}`
+      shortLabel = `🤖 workflow: ${truncate(wfName, SHORT_LABEL_MAX - 12)}`
       const lines = [`workflow: ${wfName}`]
       if (input?.args !== undefined) lines.push('', 'args:', JSON.stringify(input.args, null, 2))
       label = lines.join('\n')

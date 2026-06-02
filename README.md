@@ -11,7 +11,11 @@ Claude Code をスマートフォンから操作するための PWA クライア
   差分を受信
 - **Web Push 通知**: `AskUserQuestion` 等のプロアクティブな問い合わせを iOS / Android に通知
 - **Proactive 自動配信**: `Monitor` / `cron` / `ScheduleWakeup` 等で agent が自発した turn を
-  持続 SSE で即時表示する
+  持続 SSE で即時表示する。 バックグラウンドタスクの完了はチャット内に折りたたみカードで表示し、
+  タップで出力ログを展開する
+- **サブエージェント / ワークフロー閲覧**: `Task` で起動した子エージェントや `Workflow` 実行の
+  transcript を専用パネルで一覧 ・ 個別閲覧する。 ワークフローは実行単位でまとめ、 大規模な
+  fan-out (= 多数の子エージェント) でも 1 行に畳む。 チャットログの該当チップから対象へ直接遷移できる
 - **通知センター自動同期**: PWA を開く / フォアグラウンド復帰のタイミングで OS 通知センター ・
   アプリバッジ ・ backend 未読カウンタを同期掃除
 - **ファイルプレビュー**: チャット内のパスをタップして Markdown ・ シンタックスハイライト表示
@@ -514,7 +518,8 @@ claude-pwa-client/
 │   ├── jsonl_watcher.py           # ~/.claude/projects 監視で session ↔ JSONL を紐付け
 │   ├── chat_routes.py             # session メタ / status / overview SSE / /views/ws / /stop
 │   ├── hooks_router.py            # /hooks/event (localhost only、 claude CLI hooks → Web Push)
-│   ├── files_routes.py            # /file, /files/tree
+│   ├── files_routes.py            # /file, /files/tree, /task-output
+│   ├── subagents_routes.py        # subagent / workflow 一覧 + 個別 transcript
 │   ├── push.py                    # Web Push + 通知履歴 + SSE listener
 │   ├── usage.py                   # 使用率 (5h / 7d / ctx) 組み立て
 │   ├── chat_content.py            # 添付ファイル保存 (uploads/tmp)
