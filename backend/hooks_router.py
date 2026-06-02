@@ -21,7 +21,7 @@ import asyncio
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from config import AGENTS, TMUX_SESSION_MAP_DIR
 from push import broadcast_push, notification_title_for
@@ -114,7 +114,17 @@ async def hooks_event(request: Request) -> dict:
         - Notification: 通知ダイアログ系。 payload.message を通知本文に
     その他のイベントは受信ログだけ残して 200 OK を返す (= claude の hook を
     詰まらせない、 後で対応イベントを増やしていく)。
+
+    セキュリティ: 本 endpoint は claude CLI の `~/.claude/settings.json` hook が
+    `http://localhost:8000/hooks/event` を叩く前提。 tailnet 経由で偽 hook を投げると
+    JSONL bind を任意ファイルに書き換えられる経路があるため、 接続元を localhost に限定。
     """
+    client_host = request.client.host if request.client else None
+    # "testclient" は starlette TestClient のデフォルト host (= 単体テスト用、 外部から
+    # この値で到達するクライアントは存在しない)。 production の安全性には影響しない。
+    if client_host not in ("127.0.0.1", "::1", "localhost", "testclient"):
+        logger.warning("hooks/event rejected: non-local client=%s", client_host)
+        raise HTTPException(status_code=403, detail="hooks accepted only from localhost")
     try:
         payload = await request.json()
     except Exception:
