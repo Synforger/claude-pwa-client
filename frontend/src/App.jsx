@@ -124,6 +124,8 @@ export default function App() {
   const [previewPath, setPreviewPath] = useState(null)
   const [treeOpen, setTreeOpen] = useState(null)
   const [subagentsOpen, setSubagentsOpen] = useState(false)
+  // 🧩 を開く時のスコープ記述子 (= Task チップなら該当 agent、 Workflow チップなら該当 run に直行)。
+  const [subagentsFocus, setSubagentsFocus] = useState(null)
   const [confirmEnd, setConfirmEnd] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null) // 削除確認中の session_id
   const [confirmStop, setConfirmStop] = useState(false)
@@ -418,11 +420,11 @@ export default function App() {
         {activeViewMode === 'chat' && activeSid && (
           <button
             className="topbar-icon-btn"
-            onClick={() => setSubagentsOpen(true)}
+            onClick={() => { setSubagentsFocus(null); setSubagentsOpen(true) }}
             aria-label="サブエージェント"
             title="サブエージェント一覧"
           >
-            🧩
+            🤖
           </button>
         )}
         {/* 画面共有 (= moonlight-web-stream を iframe で埋め込み) ON/OFF。
@@ -487,6 +489,7 @@ export default function App() {
                 onAnswer={handleAnswer}
                 apiKeySource={activeSid ? apiKeySource[activeSid] : null}
                 activeSubagentTool={status?.subagent?.last_tool || null}
+                onOpenSubagents={(focus) => { setSubagentsFocus(focus || null); setSubagentsOpen(true) }}
               />
             ))}
           </div>
@@ -593,7 +596,7 @@ export default function App() {
           />
         )}
         {subagentsOpen && activeSid && (
-          <SubagentsModal sid={activeSid} onClose={() => setSubagentsOpen(false)} />
+          <SubagentsModal sid={activeSid} focus={subagentsFocus} onClose={() => setSubagentsOpen(false)} />
         )}
       </Suspense>
     </div>
