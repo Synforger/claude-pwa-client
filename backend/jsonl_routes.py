@@ -265,6 +265,8 @@ async def monitor_all_sessions_loop():
                         st = stream_states.get(sid)
                         if st is not None:
                             new_busy = _compute_busy_from_tail(path)
+                            if st.user_stopped:
+                                new_busy = False
                             if new_busy != st.busy:
                                 st.busy = new_busy
                                 sessions_overview_event.set()
