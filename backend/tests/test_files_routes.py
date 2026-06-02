@@ -30,3 +30,38 @@ def test_resolve_safe_dotdot_escape_raises():
     with pytest.raises(HTTPException) as exc_info:
         _resolve_safe(str(HOME) + "/../../etc")
     assert exc_info.value.status_code == 403
+
+
+# --- deny list (= 秘密ファイルの読み書き阻止) ---
+
+@pytest.mark.parametrize("path", [
+    "~/.ssh/id_rsa",
+    "~/.ssh/authorized_keys",
+    "~/.ssh/config",
+    "~/.aws/credentials",
+    "~/.gnupg/private-keys-v1.d",
+    "~/.kube/config",
+    "~/.docker/config.json",
+    "~/.netrc",
+    "~/.zshrc",
+    "~/.zshenv",
+    "~/.bashrc",
+    "~/.bash_profile",
+    "~/.zsh_history",
+    "~/.bash_history",
+    "~/Documents/work/key.pem",
+    "~/Downloads/cert.p12",
+    "~/something/id_ed25519",
+    "~/.config/gh/hosts.yml",
+])
+def test_resolve_safe_denies_secret_paths(path):
+    # 意図: SSH 鍵 / クラウド認証 / シェル rc / 履歴 / 証明書 は 403 で拒否される
+    with pytest.raises(HTTPException) as exc_info:
+        _resolve_safe(path)
+    assert exc_info.value.status_code == 403
+
+
+def test_resolve_safe_allows_ordinary_paths():
+    # 意図: deny list に当たらない通常 path は通過する
+    p = _resolve_safe(str(HOME / "repos" / "myproj" / "README.md"))
+    assert str(p).endswith("README.md")

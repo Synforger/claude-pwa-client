@@ -401,6 +401,28 @@ done
 Windows / Linux では OS のループバックオーディオで直接キャプチャできる場合が多く、 仮想
 デバイスが不要なケースが多い (Sunshine 公式ドキュメントの OS 別注記を参照)。
 
+## セキュリティモデル
+
+本リポジトリは個人ホスト機を Tailscale tailnet 内に限定公開する前提で設計している。
+インターネット公開を想定した認証 / 認可機構は持たない。 「tailnet 内に到達できる主体は
+ホスト機にログインしているのと同等の権限を持つ」 という前提を置き、 その上で以下の境界を
+最小限守る:
+
+- **`/file` (GET/PUT) は HOME 配下に制限 + 秘密ファイル deny list**: SSH 鍵 (`~/.ssh/`,
+  `*.pem`, `id_rsa` 等)、 クラウド認証情報 (`~/.aws/`, `~/.gnupg/`, `~/.docker/`,
+  `~/.kube/`, `~/.config/gh/`)、 シェル初期化ファイル (`~/.zshrc`, `~/.bashrc` 等)、
+  シェル履歴 (`~/.zsh_history`, `~/.bash_history`)、 `~/.netrc` を読み書き禁止
+- **`/hooks/event` は localhost のみ受け付け**: claude CLI の hook は loopback で叩く前提。
+  tailnet 経由で偽 hook を送られて JSONL bind を任意ファイルに書き換える経路を塞ぐ
+- **Markdown レンダラの URL は react-markdown 標準 sanitizer を通す**: `javascript:` /
+  `data:` 等の危険スキームをブロック。 内部の `cpc-file://` だけ pass-through
+- **Web Push の subscription / VAPID 鍵は `backend/` 配下の JSON に保存**: 個人 Mac 1
+  ユーザ運用前提、 同マシン上に別ユーザを置くなら `chmod 600` 等で別途絞る
+
+WebSocket (`/ws/pty/{sid}`, `/views/ws`, `/jsonl/stream/{sid}`) や `/sessions/*` HTTP は
+認証なしで、 tailnet ACL に委ねている。 公開や multi-tenant 化する場合は別途
+middleware 層の認証が必要。
+
 ## Troubleshooting
 
 ### Chromium 系ブラウザで HTTPS 証明書エラー (`NET::ERR_CERTIFICATE_TRANSPARENCY_REQUIRED` 等)
@@ -490,8 +512,8 @@ claude-pwa-client/
 │   ├── jsonl_notifications.py     # 停止要因の検出と Web Push 配信
 │   ├── jsonl_plan_choices.py      # ExitPlanMode の選択肢抽出
 │   ├── jsonl_watcher.py           # ~/.claude/projects 監視で session ↔ JSONL を紐付け
-│   ├── chat_routes.py             # session メタ / status / 全 session overview SSE
-│   ├── hooks_router.py            # /hooks/event (claude CLI hooks → Web Push)
+│   ├── chat_routes.py             # session メタ / status / overview SSE / /views/ws / /stop
+│   ├── hooks_router.py            # /hooks/event (localhost only、 claude CLI hooks → Web Push)
 │   ├── files_routes.py            # /file, /files/tree
 │   ├── push.py                    # Web Push + 通知履歴 + SSE listener
 │   ├── usage.py                   # 使用率 (5h / 7d / ctx) 組み立て
