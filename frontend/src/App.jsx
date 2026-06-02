@@ -50,6 +50,7 @@ function collectActiveImageIds(msgDict) {
 }
 
 const FilePreviewModal = lazy(() => import('./FilePreviewModal.jsx'))
+const SubagentsModal = lazy(() => import('./components/SubagentsModal.jsx'))
 const FileTreePanel = lazy(() => import('./FileTreePanel.jsx'))
 // SessionDrawer は drawerOpen=true の時のみ render = 遅延 load 妥当 (= 初回 paint 早く)
 const SessionDrawer = lazy(() => import('./components/SessionDrawer.jsx'))
@@ -99,7 +100,7 @@ export default function App() {
   // Stop は HTTP POST から WS 経由に移行 (= 失敗時 race の根本治療)。 useChatStream より
   // 先に呼ぶ必要があるのは sendStopIntent を stopMessage に渡すため。
   const { sendStopIntent } = useViewsWs(activeSid)
-  const { loading, setLoading, apiKeySource, sendMessage, sendAnswer, stopMessage, fetchLatest, endSession, pendingSendUntilRef } = useChatStream({
+  const { loading, setLoading, apiKeySource, sendMessage, sendAnswer, stopMessage, fetchLatest, endSession, pendingSendRef } = useChatStream({
     activeSession,
     setMessages,
     input, setInput,
@@ -107,9 +108,9 @@ export default function App() {
     scrollToBottom, isAtBottomRef,
     sendStopIntent,
   })
-  // 全 session の busy を 1 本の SSE で購読し loading を backend 権威で上書き (= 非アクティブ
-  // タブの青丸/赤丸を live 追従 + active の result 取りこぼし補正)。
-  useSessionsOverview({ setLoading, pendingSendUntilRef })
+  // loading (= 停止ボタンの真値) の唯一のソース。 backend 権威 busy を 1 本の SSE で受け、
+  // 全タブの停止/送信ボタン + 青丸/赤丸を駆動する (= dual-driver 排除、 単一権威)。
+  useSessionsOverview({ setLoading, pendingSendRef })
 
   const storageInfo = useStorageQuota()
 
@@ -122,6 +123,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [previewPath, setPreviewPath] = useState(null)
   const [treeOpen, setTreeOpen] = useState(null)
+  const [subagentsOpen, setSubagentsOpen] = useState(false)
   const [confirmEnd, setConfirmEnd] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null) // 削除確認中の session_id
   const [confirmStop, setConfirmStop] = useState(false)
@@ -182,7 +184,7 @@ export default function App() {
     //   - 各 session 末尾の streaming bubble を false に固定 (= 永遠の推論中表示を消す)
     if (prev !== null) {
       setLoading({})
-      pendingSendUntilRef.current = {}
+      pendingSendRef.current = {}
       setMessages(p => {
         const next = {}
         for (const sid of Object.keys(p)) {
@@ -204,37 +206,18 @@ export default function App() {
     if (isPushEnabledLocally()) {
       enablePush().catch(() => { /* 失敗時は UI ボタンで手動再有効化 */ })
     }
-    // pendingSendUntilRef は ref なので deps 不要 (= ref.current 書き込みは再 render を起こさない)。
+    // pendingSendRef は ref なので deps 不要 (= ref.current 書き込みは再 render を起こさない)。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.backend_start_time, setLoading, setMessages])
 
-  // ボタン UI 用の合成 loading 判定。 2 source の OR:
-  //   - loading[sid]         : JSONL SSE の assistant/result イベントで駆動 (= user 送信も
-  //                            proactive turn も拾う、 turn 中 true / 完了 false)
-  //   - pendingSendUntilRef  : 送信直後の楽観的 deadline (= 最初の SSE event 到達まで救済)
-  //
-  // 旧 status.streaming (= backend state.complete の反転) は PTY 経路で常に true 固定の
-  // ゴーストだったので撤去。 loading が真値、 pendingSend が送信直後の数百 ms を橋渡しする。
-  const [now, setNow] = useState(Date.now())
-  // pendingSend の deadline 切れを「停止ボタン表示」 に反映するための one-shot timer。
-  // 常時 interval を回すと前景中ずっと App を 2Hz 再描画して iPhone の電力を食うので、
-  // activeSid に未来の deadline がある時だけ、 その時刻ちょうどに 1 回 setNow する。
-  // 送信時は sendMessage が loading を立てる → この effect が再評価 → timer を仕込む。
-  useEffect(() => {
-    const deadline = pendingSendUntilRef.current[activeSid] || 0
-    const remain = deadline - Date.now()
-    if (remain <= 0) return
-    const id = setTimeout(() => setNow(Date.now()), remain + 50)
-    return () => clearTimeout(id)
-    // loading の変化が deadline 設定の契機なので deps に入れる
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSid, loading])
-  const isPendingSend = !!(activeSid && (pendingSendUntilRef.current[activeSid] || 0) > now)
-  // AskUserQuestion 回答待ち (= pending_question) 中も停止ボタンにする。 質問が出てる間に
-  // メッセージボックスから通常メッセージを誤送信させない (= 送信は質問バブルの UI 経由のみ)。
+  // 停止ボタンの表示判定 = backend 権威 loading の**派生**(参照実装の「ボタンは導出、 独立
+  // boolean を持たない」 原則)。 loading[sid] は useSessionsOverview が backend busy + 送信直後
+  // の楽観フラグから唯一管理する。 旧来の now タイマー / isPendingSend (= 1500ms 窓) は撤去。
+  //   - loading[activeSid]        : ターン進行中 (= 推論中) → 停止
+  //   - status?.pending_question  : AskUserQuestion 回答待ち → 停止 (= 質問中の誤送信を防ぐ)
   const showStopButton = !!(
     activeSid
-    && (loading[activeSid] || isPendingSend || status?.pending_question)
+    && (loading[activeSid] || status?.pending_question)
   )
 
   // SW からの「push-received」 メッセージで即座に fetchLatest を発火させる。
@@ -430,6 +413,18 @@ export default function App() {
             💬
           </button>
         )}
+        {/* サブエージェント (= Task で起動した子 agent) の一覧 + transcript を見るモーダル。
+            親 chat には sidechain を出さないので、 中身を遡りたい時はここから開く。 */}
+        {activeViewMode === 'chat' && activeSid && (
+          <button
+            className="topbar-icon-btn"
+            onClick={() => setSubagentsOpen(true)}
+            aria-label="サブエージェント"
+            title="サブエージェント一覧"
+          >
+            🧩
+          </button>
+        )}
         {/* 画面共有 (= moonlight-web-stream を iframe で埋め込み) ON/OFF。
             backend で /moonlight/ プロキシが有効な場合 (= Path B セットアップ済) だけ
             表示。 chat + 通知だけのユーザにはアイコン自体出さない (= 押しても 404)。 */}
@@ -596,6 +591,9 @@ export default function App() {
             onOpenFile={handleOpenPath}
             onClose={() => setTreeOpen(null)}
           />
+        )}
+        {subagentsOpen && activeSid && (
+          <SubagentsModal sid={activeSid} onClose={() => setSubagentsOpen(false)} />
         )}
       </Suspense>
     </div>

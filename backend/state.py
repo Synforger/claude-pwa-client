@@ -203,11 +203,37 @@ def is_session_viewed(session_id: str) -> bool:
     return False
 
 
-# 全 session の busy / pending_question 変化を 1 本の SSE (/sessions/status/stream) に流す
-# ためのシグナル。 いずれかの session の busy が変わったら set される。 個別 session の
-# status_event とは別に、 全 session を横断する 1 接続の push を担う (= 非アクティブタブの
-# 青丸/赤丸を live 追従させる経路。 タブごとに SSE を張らずに済むのでリソースが増えない)。
-sessions_overview_event: asyncio.Event = asyncio.Event()
+class OverviewBroadcaster:
+    """全 session の busy / pending_question 変化を /sessions/overview/stream に push する
+    fan-out。 複数接続 (= 複数デバイス / 複数タブ) が購読しても取りこぼさないよう、 1 個の
+    共有 Event でなく**接続ごとの Event** を broadcaster が一括 notify する。
+
+    旧実装は単一 asyncio.Event を全接続で共有しており、 1 接続の generator が clear() した
+    瞬間に他接続の wait が起きそこねて push を落とす競合があった (= iPhone 2 台同時運用で
+    「片方だけ停止ボタンが stuck」 の一因)。 接続ごとに Event を分けることで各接続が独立に
+    確実に起こされる。"""
+
+    def __init__(self) -> None:
+        self._waiters: set[asyncio.Event] = set()
+
+    def subscribe(self) -> asyncio.Event:
+        ev = asyncio.Event()
+        self._waiters.add(ev)
+        return ev
+
+    def unsubscribe(self, ev: asyncio.Event) -> None:
+        self._waiters.discard(ev)
+
+    def notify(self) -> None:
+        """全購読接続を起こす。 同一イベントループ内からのみ呼ぶ (= asyncio.Event.set)。"""
+        for ev in list(self._waiters):
+            ev.set()
+
+
+# 全 session の busy / pending_question 変化を全接続へ fan-out する broadcaster。
+# 個別 session の status_event とは別に、 全 session 横断の 1 接続 push を担う (= 非アクティブ
+# タブの青丸/赤丸 + 停止ボタンを live 追従させる経路。 タブごとに SSE を張らずに済む)。
+sessions_overview = OverviewBroadcaster()
 
 # --- セッションごとの一時ファイル ---
 session_tmp_files: dict[str, list[Path]] = {}

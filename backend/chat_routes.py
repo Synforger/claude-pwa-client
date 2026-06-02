@@ -31,7 +31,7 @@ from state import (
     rename_session,
     session_tmp_files,
     sessions_meta,
-    sessions_overview_event,
+    sessions_overview,
     shared_status,
     stream_states,
     unregister_session,
@@ -85,7 +85,7 @@ def _mark_user_stopped(session_id: str) -> bool:
     st.user_stopped = True
     if st.busy:
         st.busy = False
-    sessions_overview_event.set()
+    sessions_overview.notify()
     return True
 
 
@@ -241,22 +241,26 @@ async def sessions_overview_stream():
     """全 session の busy / pending を 1 本で push する SSE (= 案 B)。
 
     タブごとに SSE を張らず 1 接続で全 session をカバーするので、 session 数が増えても
-    接続は 1 本のまま (= リソース増加なし)。 sessions_overview_event が set されるたびに
-    最新 snapshot を yield。 20 秒の timeout で keep-alive 兼 定期同期。
+    接続は 1 本のまま (= リソース増加なし)。 sessions_overview.notify() のたびに最新 snapshot
+    を yield。 20 秒の timeout で keep-alive 兼 定期同期。
 
-    注: event は全接続で共有するため、 複数デバイスで同時に開くと clear 競合で片方の即時
-    push を取りこぼしうるが、 その場合も 20 秒の定期 push で追従する (= 単一デバイス運用が
-    主なので実用上の遅延は出ない)。"""
+    接続ごとに専用 Event を購読するので、 複数デバイス同時でも 1 接続の clear() が他接続の
+    push を奪わない (= 旧 単一 Event 共有時の取りこぼしを解消)。"""
     async def gen():
-        # 接続直後に snapshot を 1 chunk で送る (= retry + 初期 data を結合)。
-        yield f"retry: 3000\n\ndata: {json.dumps(_build_sessions_overview())}\n\n"
-        while True:
-            try:
-                await asyncio.wait_for(sessions_overview_event.wait(), timeout=20.0)
-                sessions_overview_event.clear()
-                yield f"data: {json.dumps(_build_sessions_overview())}\n\n"
-            except asyncio.TimeoutError:
-                yield f"data: {json.dumps(_build_sessions_overview())}\n\n"
+        # 接続ごとに専用 Event を購読 (= 複数デバイス同時でも push を取りこぼさない)。
+        ev = sessions_overview.subscribe()
+        try:
+            # 接続直後に snapshot を 1 chunk で送る (= retry + 初期 data を結合)。
+            yield f"retry: 3000\n\ndata: {json.dumps(_build_sessions_overview())}\n\n"
+            while True:
+                try:
+                    await asyncio.wait_for(ev.wait(), timeout=20.0)
+                    ev.clear()
+                    yield f"data: {json.dumps(_build_sessions_overview())}\n\n"
+                except asyncio.TimeoutError:
+                    yield f"data: {json.dumps(_build_sessions_overview())}\n\n"
+        finally:
+            sessions_overview.unsubscribe(ev)
 
     return StreamingResponse(
         gen(),
