@@ -10,6 +10,22 @@ import './MessageItem.css'
 
 const RESULT_PREVIEW_CHARS = 800
 
+// 🧩 タップ時に「どこを開くか」 のスコープ記述子を作る。
+//   - Task     : input.description が subagent meta.description と一致 → その agent transcript
+//   - Workflow : tool_result の "Task ID: <taskId>" が manifest.taskId と一致 → その run
+// 引き当てキーが取れなければ null (= パネルをスコープ無しで開く)。
+function subagentFocus(t) {
+  if (t.name === 'Task' && t.subagentDescription) {
+    return { kind: 'agentDesc', value: t.subagentDescription }
+  }
+  if (t.name === 'Workflow' && t.result) {
+    const text = formatToolResultContent(t.result.content) || ''
+    const m = text.match(/Task ID:\s*(\S+)/)
+    if (m) return { kind: 'workflowTaskId', value: m[1] }
+  }
+  return null
+}
+
 // Grep / Glob の結果本文をパスリンク化する。
 // Grep content mode: "path:line:content" / files_with_matches: "path"
 // Glob: "path" (絶対 or 相対)
@@ -264,7 +280,7 @@ function SessionEndBanner() {
   )
 }
 
-const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKeySource, activeSubagentTool }) {
+const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKeySource, activeSubagentTool, onOpenSubagents }) {
   if (msg.role === 'system' && msg.kind === 'compact') {
     return <CompactBanner msg={msg} />
   }
@@ -357,6 +373,20 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
                           何をやってるか」 が普通の tool 行として観察可能 (= ActivityBar 撤去の代替)。 */}
                       {t.name === 'Task' && !t.result && activeSubagentTool && (
                         <span className="tool-meta"> · ↳ {activeSubagentTool}</span>
+                      )}
+                      {/* Task / Workflow は子エージェントを生やす。 タイムライン上のこの地点から
+                          🧩 (= サブエージェント一覧) へ飛べるようにする (= 「どこで分岐したか」 を
+                          残しつつ、 中身は専用パネルで深掘り)。 details の開閉とは別操作にするため
+                          preventDefault + stopPropagation。 */}
+                      {(t.name === 'Task' || t.name === 'Workflow') && onOpenSubagents && (
+                        <button
+                          type="button"
+                          className="tool-open-subagents"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpenSubagents(subagentFocus(t)) }}
+                          title="サブエージェント一覧を開く"
+                        >
+                          🤖{!t.result && <span className="tool-running-dot" />}
+                        </button>
                       )}
                     </summary>
                     {hasMore && (

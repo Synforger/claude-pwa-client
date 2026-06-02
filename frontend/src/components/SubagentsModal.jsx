@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import MessageRenderer from '../MessageRenderer.jsx'
 import { formatTool } from '../utils/format.js'
 import { apiFetch } from '../utils/api.js'
@@ -145,11 +145,12 @@ function WorkflowAgentsView({ sid, run, onBack, onOpenAgent }) {
   )
 }
 
-export default function SubagentsModal({ sid, onClose }) {
+export default function SubagentsModal({ sid, focus, onClose }) {
   const [data, setData] = useState(null)  // {subagents, workflows}
   const [error, setError] = useState(null)
   const [run, setRun] = useState(null)        // drill-down 中の Workflow run
   const [agent, setAgent] = useState(null)    // transcript 表示中の agent
+  const focusedRef = useRef(false)            // focus 自動遷移を 1 回だけ行う
 
   const load = useCallback(() => {
     const controller = new AbortController()
@@ -162,6 +163,20 @@ export default function SubagentsModal({ sid, onClose }) {
   }, [sid])
 
   useEffect(() => load(), [load])
+
+  // チップから渡された focus で、 一覧ロード後に該当 run / agent へ 1 回だけ自動遷移する。
+  //   - workflowTaskId : tool_result の "Task ID" が manifest.taskId と一致する run を開く
+  //   - agentDesc      : Task の description が一致する subagent の transcript を直接開く
+  useEffect(() => {
+    if (!focus || !data || focusedRef.current) return
+    if (focus.kind === 'workflowTaskId') {
+      const w = data.workflows.find(x => x.taskId === focus.value)
+      if (w) { setRun(w); focusedRef.current = true }
+    } else if (focus.kind === 'agentDesc') {
+      const s = data.subagents.find(x => x.description === focus.value)
+      if (s) { setAgent(s); focusedRef.current = true }
+    }
+  }, [focus, data])
 
   useEffect(() => {
     const onKeyDown = (e) => {

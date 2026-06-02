@@ -119,8 +119,8 @@ def client_with_base(tmp_path, monkeypatch):
 def test_list_includes_workflow_run_as_group(client_with_base):
     client, base = client_with_base
     (base / "workflows" / "wf_abc123-x.json").write_text(json.dumps({
-        "runId": "wf_abc123-x", "workflowName": "deep-research", "status": "killed",
-        "agentCount": 105, "totalTokens": 2310845, "durationMs": 446740,
+        "runId": "wf_abc123-x", "taskId": "wgms5lj4t", "workflowName": "deep-research",
+        "status": "killed", "agentCount": 105, "totalTokens": 2310845, "durationMs": 446740,
         "phases": [{"title": "Scope"}, {"title": "Search"}], "error": "aborted",
     }))
     res = client.get("/sessions/s1/subagents")
@@ -129,6 +129,8 @@ def test_list_includes_workflow_run_as_group(client_with_base):
     assert len(wfs) == 1
     w = wfs[0]
     assert w["runId"] == "wf_abc123-x"
+    # taskId は親チャットの Workflow tool_result "Task ID: ..." と突き合わせる引き当てキー
+    assert w["taskId"] == "wgms5lj4t"
     assert w["workflowName"] == "deep-research"
     assert w["agentCount"] == 105
     assert w["status"] == "killed"
@@ -148,7 +150,8 @@ def test_list_workflow_agents_from_journal(client_with_base):
     res = client.get("/sessions/s1/workflows/wf_abc123-x/agents")
     assert res.status_code == 200
     agents = res.json()["agents"]
-    assert [a["agentId"] for a in agents] == ["a1", "a2"]
+    # journal の agentId (prefix 無し) は実ファイル名に合わせ "agent-" 付きで返る
+    assert [a["agentId"] for a in agents] == ["agent-a1", "agent-a2"]
     assert agents[0]["done"] is True
     assert agents[0]["label"] == "Searched SOTA methods"
     assert agents[1]["done"] is False

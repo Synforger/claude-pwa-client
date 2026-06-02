@@ -119,6 +119,36 @@
   white-space: nowrap;
 }
 
+/* Task / Workflow チップから 🧩 サブエージェント一覧へ飛ぶボタン */
+.tool-open-subagents {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 4px;
+  margin-left: 4px;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.7;
+}
+.tool-open-subagents:hover {
+  opacity: 1;
+}
+/* 進行中 (= result 未受信) を示す小さな脈動ドット */
+.tool-running-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 3px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+  animation: tool-running-pulse 1.2s ease-in-out infinite;
+}
+@keyframes tool-running-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
 /* ツール実行ログ */
 .tool-log {
   font-family: 'Menlo', 'Monaco', monospace;

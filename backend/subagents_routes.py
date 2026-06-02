@@ -116,6 +116,9 @@ def _list_workflows(base: Path) -> list[dict]:
         phases = d.get("phases") or []
         runs.append({
             "runId": run_id,
+            # 親チャットの Workflow tool_result が "Task ID: <taskId>" を含むので、
+            # frontend はこの taskId で run を引き当ててスコープ表示する。
+            "taskId": d.get("taskId"),
             "workflowName": d.get("workflowName"),
             "status": d.get("status"),
             "agentCount": d.get("agentCount"),
@@ -190,7 +193,10 @@ def list_workflow_agents(session_id: str, run_id: str):
                 if not aid:
                     continue
                 if aid not in agents:
-                    agents[aid] = {"agentId": aid, "label": None, "done": False}
+                    # journal の agentId は prefix 無し (= "a20bbf...")。 実ファイルは
+                    # agent-<id>.jsonl なので、 transcript 取得 (= _AGENT_ID_RE / ファイル名) と
+                    # 揃うよう "agent-" を付けて返す。
+                    agents[aid] = {"agentId": f"agent-{aid}", "label": None, "done": False}
                     order.append(aid)
                 if ev.get("type") == "result":
                     agents[aid]["done"] = True
