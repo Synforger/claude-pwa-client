@@ -114,9 +114,9 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   const data = event.notification.data || {}
   const notifId = data.id  // backend が払い出した通知 id (既読化用)
-  // 通知タップは常に chat に着地 (= 旧 native bridge は撤去、 2026-05-16)。
-  // 将来 sid からセッションを active にする deep link を再導入する時は data.sid を読む。
-  const targetUrl = '/'
+  const sid = data.sid || null
+  // backend が payload に "/?ses={sid}" を入れてくる (= 新規ウィンドウ open 用 fallback URL)。
+  const targetUrl = data.url || (sid ? `/?ses=${encodeURIComponent(sid)}` : '/')
   event.waitUntil((async () => {
     // 既読化 (失敗時は無視)
     if (notifId) {
@@ -124,14 +124,16 @@ self.addEventListener('notificationclick', (event) => {
         await fetch(`/notifications/${encodeURIComponent(notifId)}/read`, { method: 'POST' })
       } catch { /* ignore */ }
     }
-    // 既存タブがあれば focus、 無ければ新規開く。
     const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    // 既存タブがあれば focus + postMessage で sid を伝える (= App が activeSid を切替)。
+    // navigate() はオリジン内 URL 変更で SPA を full reload しないので、 postMessage の方が
+    // 既存 state を保ったまま session 切替できて軽い。
     for (const client of allClients) {
       if ('focus' in client) {
         try {
           await client.focus()
-          if ('navigate' in client) {
-            try { await client.navigate(targetUrl) } catch { /* ignore */ }
+          if (sid) {
+            try { client.postMessage({ type: 'open-session', sid }) } catch { /* ignore */ }
           }
           return
         } catch { /* ignore */ }
