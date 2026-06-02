@@ -8,19 +8,17 @@
  *   - 非アクティブタブの青丸/赤丸が live 追従する
  *   - active タブの result 取りこぼし (= loading が落ちない) も backend busy が補正する
  *
- * 楽観 window 中は backend busy の上書きを方向別にスキップする:
- *   - pendingSendUntilRef (送信直後の時限式): busy=false で上書きしない
- *     (= 最初の SSE event 到達まで loading を維持)
- *   - stopRequestedRef (Stop 押下後の sticky): busy=true で上書きしない
- *     ユーザが Stop を意図したら、 次に send/sendAnswer/endSession を出すまで sticky で
- *     ガードする。 時限式だと、 別 session の更新で overview SSE が走る (= 全 sid 載った
- *     payload を流す) たびに、 停止済 session も backend busy=true のまま上書きされて
- *     停止ボタンが復活する。
+ * 送信直後の楽観 window (pendingSendUntilRef) 中だけは busy=false の上書きをスキップする
+ * (= 最初の SSE event 到達まで楽観 loading を維持して停止ボタンをチラつかせない)。
+ *
+ * 停止ボタン経路は backend に /sessions/{sid}/stop で意思を送り、 backend が
+ * StreamState.user_stopped を立てて busy=false を強制 + 全 client に push するので、
+ * frontend 側で別フラグを持つ必要は無い (= backend 権威に一本化)。
  */
 import { useEffect } from 'react'
 import { apiUrl } from '../utils/api.js'
 
-export function useSessionsOverview({ setLoading, pendingSendUntilRef, stopRequestedRef }) {
+export function useSessionsOverview({ setLoading, pendingSendUntilRef }) {
   useEffect(() => {
     const es = new EventSource(apiUrl('/sessions/overview/stream'))
     es.onmessage = (e) => {
@@ -38,7 +36,6 @@ export function useSessionsOverview({ setLoading, pendingSendUntilRef, stopReque
         for (const sid of Object.keys(payload)) {
           const busy = !!payload[sid]?.busy
           if (!busy && (pendingSendUntilRef?.current?.[sid] || 0) > now) continue
-          if (busy && stopRequestedRef?.current?.[sid]) continue
           if (!!next[sid] !== busy) {
             next[sid] = busy
             changed = true
@@ -49,5 +46,5 @@ export function useSessionsOverview({ setLoading, pendingSendUntilRef, stopReque
     }
     es.onerror = () => { /* EventSource は自動再接続 (= 一時切断は無視) */ }
     return () => es.close()
-  }, [setLoading, pendingSendUntilRef, stopRequestedRef])
+  }, [setLoading, pendingSendUntilRef])
 }
