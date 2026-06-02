@@ -23,12 +23,9 @@ export function processStreamEvent(deps, sid, event) {
     scheduleFlush,
     streamBufRef,
     bufFor,
-    onUserRequestId,
-    onResultMessage,
   } = deps
 
   if (event.type === 'request_id') {
-    if (typeof onUserRequestId === 'function') onUserRequestId(sid, event.request_id)
     return
   }
 
@@ -88,7 +85,6 @@ export function processStreamEvent(deps, sid, event) {
       msgs[msgs.length - 1] = { ...last, meta, streaming: false }
       return { ...prev, [sid]: msgs }
     })
-    if (typeof onResultMessage === 'function') onResultMessage(sid, event.request_id)
     return
   }
 
