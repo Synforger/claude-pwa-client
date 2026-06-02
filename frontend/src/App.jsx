@@ -239,13 +239,17 @@ export default function App() {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return
     const onMessage = (event) => {
-      if (event.data?.type === 'push-received') {
+      const d = event.data
+      if (d?.type === 'push-received') {
         fetchLatest()
+      } else if (d?.type === 'open-session' && d.sid) {
+        // 通知タップで送られてくる。 該当 session をフォアグラウンドに切替。
+        setActiveId(d.sid)
       }
     }
     navigator.serviceWorker.addEventListener('message', onMessage)
     return () => navigator.serviceWorker.removeEventListener('message', onMessage)
-  }, [fetchLatest])
+  }, [fetchLatest, setActiveId])
 
   // 今 active で見ている session を SW に伝える (= sw.js の LINE 流抑制で使う)。
   // visibility=hidden の時は sid=null を送って「見てない」 扱いにする (= bg/別アプリ時に
