@@ -13,9 +13,9 @@ self.addEventListener('activate', (event) => {
 })
 
 // 各 client (= タブ) が「今どの session を見ているか」 を保持。 App.jsx が active-session
-// メッセージで sid を投げてくる。 push の session-aware 抑制で使う (= LINE 流: 「まさに
-// そのトーク見てる時」 だけ抑制、 他は通知する)。 SW 再起動で消える + 死んだ client は
-// push 受信時の matchAll で掃除する = stale 概念が原理的に発生しない。
+// メッセージで sid を投げてくる。 push の silent 判定で使う (= 自分が見てる session 宛の
+// 通知だけ silent=true で控えめにする)。 SW 再起動で消える + 死んだ client は push 受信時の
+// matchAll で掃除する = stale 概念が原理的に発生しない。
 const clientActive = {}
 
 self.addEventListener('message', (event) => {
@@ -70,12 +70,13 @@ self.addEventListener('push', (event) => {
     try { self.navigator.setAppBadge(data.unread_count) } catch { /* ignore */ }
   }
   event.waitUntil((async () => {
-    // 抑制方針 (LINE 流): 「focused (= キーボード焦点を持って実際に操作中) かつ
-    // active な session が payload の sid と一致」 の時だけ抑制。 visibility は判定に
-    // 使わない (= iOS PWA バックグラウンドで matchAll の visibilityState が更新されない
-    // バグを回避)。 active 未登録は **抑制しない (fail-open)** = SW 起動直後でも通知が
-    // 黙って消えることがない。
-    let suppress = false
+    // 方針 (W3C 標準 + iOS Safari 仕様準拠): push を受けたら **必ず showNotification を
+    // 呼ぶ**。 呼ばないと iOS が「silent push」 と判定し、 3 回連続で発生すると
+    // PushSubscription を強制破棄する (= 「放置で通知失効」 の根本原因)。
+    // 「自分が見てる session 宛」 の通知は silent=true (= 音/振動なし、 バナーは出るが
+    // 控えめ) にして主張を弱める。 これが「常に showNotification + silent オプション」
+    // という Web Push 業界標準パターン。
+    let isSelfViewing = false
     let clientCount = 0
     let focusedCount = 0
     try {
@@ -88,7 +89,7 @@ self.addEventListener('push', (event) => {
         const focused = !!c.focused
         if (focused) focusedCount++
         if (data.sid && focused && active && active.sid === data.sid) {
-          suppress = true
+          isSelfViewing = true
         }
         try { c.postMessage({ type: 'push-received', sid: data.sid || null }) } catch { /* ignore */ }
       }
@@ -99,11 +100,13 @@ self.addEventListener('push', (event) => {
     } catch (e) {
       diagLog('push:matchAll-error', { err: String(e) })
     }
-    diagLog('push:suppress-decision', { suppress, clientCount, focusedCount })
-    if (suppress) return
+    diagLog('push:decision', { isSelfViewing, clientCount, focusedCount })
     try {
-      await self.registration.showNotification(data.title || 'Notification', options)
-      diagLog('push:shown', { title: data.title })
+      await self.registration.showNotification(data.title || 'Notification', {
+        ...options,
+        silent: isSelfViewing,
+      })
+      diagLog('push:shown', { title: data.title, silent: isSelfViewing })
     } catch (e) {
       diagLog('push:show-error', { err: String(e) })
     }
