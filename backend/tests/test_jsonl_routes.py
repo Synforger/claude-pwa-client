@@ -160,6 +160,18 @@ def test_is_user_prompt_false_for_harness_xml():
     assert jr._is_user_prompt(line) is False
 
 
+def test_is_user_prompt_true_for_task_notification():
+    """background task の完了通知は表示こそ system カードに変えるが、 busy 判定では
+    ユーザ発話扱いのまま残す: 完了を受けて claude が proactive turn を走らせるため、
+    その間 busy=True で停止可能なのが正しい挙動 (= 停止ボタンを消さない)。"""
+    text = (
+        "<task-notification>\n<status>completed</status>\n"
+        '<summary>Background command "x" completed (exit code 0)</summary>\n'
+        "</task-notification>"
+    )
+    assert jr._is_user_prompt(_user(text)) is True
+
+
 def test_is_user_prompt_false_for_tool_result_and_meta():
     # tool_result の user 行 (content が list で text 無し) は除外
     assert jr._is_user_prompt({"type": "user", "message": {"content": [{"type": "tool_result", "content": "r"}]}}) is False

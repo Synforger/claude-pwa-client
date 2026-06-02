@@ -34,6 +34,43 @@ HARNESS_XML_RE = re.compile(
 _HARNESS_XML_RE = HARNESS_XML_RE
 
 
+# harness が background task (= Monitor / バックグラウンド Bash 等) の完了時に user 行として
+# JSONL に書く `<task-notification>...` ブロック。 これはユーザの発話ではなく harness 通知なので、
+# user バブルで右寄せ表示せず専用の system カード (task_notification event) に変換する。
+# ただし busy 判定 (jsonl_session_status.is_user_prompt) では除外しない: 完了通知を受けて claude が
+# 実際に proactive turn を走らせるため、 その間 busy=True で停止可能なのが公式の正しい挙動。
+_TASK_NOTIFICATION_RE = re.compile(r"^\s*<task-notification\b")
+
+
+def _extract_tag(text: str, tag: str) -> str | None:
+    m = re.search(rf"<{tag}>(.*?)</{tag}>", text, re.S)
+    return m.group(1).strip() if m else None
+
+
+def parse_task_notification(text: str) -> dict | None:
+    """`<task-notification>` user 行を構造化 dict に parse する。 該当しなければ None。
+
+    抽出: taskId / toolUseId / outputFile / status / summary / exitCode。
+    exitCode は summary 末尾の `(exit code N)` から拾う (= 失敗時の赤表示用)。
+    """
+    if not _TASK_NOTIFICATION_RE.match(text):
+        return None
+    summary = _extract_tag(text, "summary")
+    exit_code: int | None = None
+    if summary:
+        m = re.search(r"exit code (\d+)", summary)
+        if m:
+            exit_code = int(m.group(1))
+    return {
+        "taskId": _extract_tag(text, "task-id"),
+        "toolUseId": _extract_tag(text, "tool-use-id"),
+        "outputFile": _extract_tag(text, "output-file"),
+        "status": _extract_tag(text, "status"),
+        "summary": summary,
+        "exitCode": exit_code,
+    }
+
+
 def jsonl_line_to_events(line: dict) -> list[dict]:
     """JSONL 1 行 (parsed dict) を 0 個以上の processStreamEvent event に変換する。
 
@@ -144,6 +181,10 @@ def _user_events(line: dict) -> list[dict]:
         text = content.strip()
         if not text:
             return []
+        # background task の完了通知は専用 system カードに変換 (= user バブルにしない)
+        task = parse_task_notification(text)
+        if task is not None:
+            return [{"type": "task_notification", "uuid": line.get("uuid"), **task}]
         # claude TUI の slash command / stdout 内部表現は user 発話ではないので chat には出さない
         if _HARNESS_XML_RE.match(text):
             return []
