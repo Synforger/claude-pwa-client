@@ -204,6 +204,10 @@ async def broadcast_push(
     if session_id:
         payload_dict["sid"] = session_id
         payload_dict["url"] = f"/?ses={session_id}"
+        # セッションごとの通知モード (both / banner / off) を SW に渡す。 SW は showNotification
+        # は必ず呼びつつ silent / autoclose だけ切替える (= subscription 破棄回避は不変)。
+        meta = sessions_meta.get(session_id)
+        payload_dict["notify_mode"] = meta.notify_mode if meta is not None else "both"
     payload = json.dumps(payload_dict, ensure_ascii=False)
     dead: list[dict] = []
 

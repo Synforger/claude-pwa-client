@@ -116,6 +116,18 @@ export function useSessions() {
     } catch { /* ignore: ローカルは既に反映済み */ }
   }, [])
 
+  const setNotifyMode = useCallback(async (id, mode) => {
+    // 楽観更新 (= ⋯ メニューの選択を即反映)
+    setSessions(prev => prev.map(s => s.id === id ? { ...s, notify_mode: mode } : s))
+    try {
+      await apiFetch(`/sessions/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notify_mode: mode }),
+      })
+    } catch { /* ignore: ローカルは既に反映済み */ }
+  }, [])
+
   return {
     sessions,
     activeId,
@@ -124,5 +136,6 @@ export function useSessions() {
     createSession,
     removeSession,
     renameSession,
+    setNotifyMode,
   }
 }
