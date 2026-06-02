@@ -95,7 +95,7 @@ export default function App() {
     scrollToBottom,
     onScroll,
   } = useAutoScroll({ messages, activeSession, viewMode: activeViewMode })
-  const { loading, setLoading, apiKeySource, sendMessage, sendAnswer, stopMessage, fetchLatest, endSession, pendingSendUntilRef, stopUntilRef } = useChatStream({
+  const { loading, setLoading, apiKeySource, sendMessage, sendAnswer, stopMessage, fetchLatest, endSession, pendingSendUntilRef, stopRequestedRef } = useChatStream({
     activeSession,
     setMessages,
     input, setInput,
@@ -104,7 +104,7 @@ export default function App() {
   })
   // 全 session の busy を 1 本の SSE で購読し loading を backend 権威で上書き (= 非アクティブ
   // タブの青丸/赤丸を live 追従 + active の result 取りこぼし補正)。
-  useSessionsOverview({ setLoading, pendingSendUntilRef, stopUntilRef })
+  useSessionsOverview({ setLoading, pendingSendUntilRef, stopRequestedRef })
 
   const storageInfo = useStorageQuota()
 
