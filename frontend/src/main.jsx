@@ -12,14 +12,10 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     // updateViaCache: 'none' で sw.js 自体を毎回 fresh fetch する (= デフォルト 'imports'
     // だと HTTP cache 経由になり、 iOS Safari で SW 更新が大幅に遅延する事例がある)。
-    // register 直後と visibility 復帰時に明示的 update() を呼んで新版反映を促す。
+    // visibility 復帰での明示 update() は外した: iOS PWA で SW update のたびに
+    // PushSubscription が失効する症状を踏んだため、 update は register 時の 1 回に絞り
+    // ブラウザの自動 update に任せる (= 「↺ アプリを更新」 ボタンで明示更新は別途可能)。
     navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
-      .then(reg => {
-        reg.update().catch(() => {})
-        document.addEventListener('visibilitychange', () => {
-          if (!document.hidden) reg.update().catch(() => {})
-        })
-      })
       .catch(() => { /* noop */ })
   })
 }
