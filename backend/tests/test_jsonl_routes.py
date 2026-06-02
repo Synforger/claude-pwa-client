@@ -185,7 +185,8 @@ def test_update_busy_transitions(isolated_state):
     import state as state_mod
     sid = "ses_busy"
     state.stream_states[sid] = state_mod.StreamState(agent_id="a")
-    ev = state_mod.sessions_overview_event
+    # broadcaster に 1 接続ぶん購読して notify を検出する (= 旧 単一 Event の代替)
+    ev = state_mod.sessions_overview.subscribe()
     ev.clear()
 
     # 素ユーザ発話 → busy=True + event set
@@ -203,6 +204,68 @@ def test_update_busy_transitions(isolated_state):
     jr._update_busy(sid, _asst("end_turn"))
     assert state.stream_states[sid].busy is False
     assert ev.is_set() is True
+
+
+def test_overview_broadcaster_notifies_all_subscribers():
+    # 複数接続 (= 複数デバイス) を模した複数 Event が 1 回の notify で全部 set される。
+    # 旧 単一 Event 共有では 1 接続の clear() が他を奪う競合があった (= その回帰防止)。
+    import state as state_mod
+    b = state_mod.OverviewBroadcaster()
+    a = b.subscribe()
+    c = b.subscribe()
+    assert a.is_set() is False and c.is_set() is False
+    b.notify()
+    assert a.is_set() is True and c.is_set() is True
+    # 片方が clear しても他方は影響を受けない (= 取りこぼし解消の核)
+    a.clear()
+    assert c.is_set() is True
+    b.unsubscribe(a)
+    b.notify()
+    assert c.is_set() is True  # まだ購読中
+
+
+def _write_jsonl(path, lines):
+    import json as _json
+    with open(path, "w") as fh:
+        for ln in lines:
+            fh.write(_json.dumps(ln) + "\n")
+
+
+def test_busy_after_idle_settles_missing_terminal_marker(tmp_path):
+    # 末尾が assistant 応答 (content あり) なのに stop_reason 欠落 → idle 判定では settled=False。
+    # (= claude-code #22566 / monitor 取りこぼしのバックストップ)
+    from jsonl_session_status import busy_after_idle, compute_busy_from_tail
+    p = tmp_path / "s.jsonl"
+    _write_jsonl(p, [
+        {"type": "user", "message": {"content": "go"}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "done"}]}},  # no stop_reason
+    ])
+    # 通常判定は「partial かも」 で古い user 行まで遡って busy=True にしてしまう
+    assert compute_busy_from_tail(p) is True
+    # idle 判定は marker 欠落を settled とみなす
+    assert busy_after_idle(p) is False
+
+
+def test_busy_after_idle_keeps_tool_use_busy(tmp_path):
+    # 末尾が tool_use (= 長時間ツール実行中) は idle でも busy 維持 (誤って送信ボタンに戻さない)
+    from jsonl_session_status import busy_after_idle
+    p = tmp_path / "s.jsonl"
+    _write_jsonl(p, [
+        {"type": "user", "message": {"content": "go"}},
+        {"type": "assistant", "message": {"stop_reason": "tool_use",
+                                          "content": [{"type": "tool_use", "name": "Bash", "id": "t", "input": {}}]}},
+    ])
+    assert busy_after_idle(p) is True
+
+
+def test_busy_after_idle_terminal_is_false(tmp_path):
+    from jsonl_session_status import busy_after_idle
+    p = tmp_path / "s.jsonl"
+    _write_jsonl(p, [
+        {"type": "user", "message": {"content": "go"}},
+        {"type": "assistant", "message": {"stop_reason": "end_turn", "content": [{"type": "text", "text": "ok"}]}},
+    ])
+    assert busy_after_idle(p) is False
 
 
 def test_update_busy_refusal_completes(isolated_state):
