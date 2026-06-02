@@ -118,7 +118,21 @@ self.addEventListener('push', (event) => {
     }
     diagLog('push:decision', { isSelfViewing, mode, silent, autoClose, clientCount, focusedCount })
     try {
-      await self.registration.showNotification(data.title || 'Notification', {
+      // iOS Safari の SW が更新サイクル等で registration.showNotification を失う持病があり
+      // (= 2026-06-03 実測)、 その場合 showNotification を呼べず「silent push」 扱いで 3 回
+      // 連続→ subscription 破棄 (= 通知が勝手に無効化される根本原因)。 壊れてる時は「registration
+      // 自体が無いのか / メソッドだけ無いのか」 を診断ログに残す (= 次回の切り分け材料)。
+      const reg = self.registration
+      if (!reg || typeof reg.showNotification !== 'function') {
+        diagLog('push:reg-broken', {
+          hasReg: !!reg,
+          regType: typeof reg,
+          showType: reg ? typeof reg.showNotification : 'no-reg',
+          scope: reg ? reg.scope : null,
+        })
+        return
+      }
+      await reg.showNotification(data.title || 'Notification', {
         ...options,
         silent,
       })
