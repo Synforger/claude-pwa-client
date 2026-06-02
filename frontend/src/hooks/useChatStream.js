@@ -41,10 +41,11 @@ export function useChatStream({
   const [apiKeySource, setApiKeySource] = useState({})
   // App.jsx の showStopButton が参照する楽観 deadline。
   const pendingSendUntilRef = useRef({})
-  // 停止ボタン押下後、 backend が busy=false を出すまでの遅延 (= 数百 ms-数秒) に
-  // backend busy SSE が busy=true を流し続けて loading が即時復帰するチラつきを抑える。
-  // この期間中は useSessionsOverview が busy=true での上書きをスキップする。
-  const stopUntilRef = useRef({})
+  // ユーザが Stop を押した状態を「次に明示的に何かを送るまで」 永続でガードする。
+  // 時限式だと、 別 session の busy 更新で overview SSE が走る (= 全 sid 載った payload を
+  // 流す) たびに、 停止済 session も backend busy=true のまま上書きされて停止ボタンが
+  // 復活する。 send/sendAnswer/endSession で false に戻すまで sticky。
+  const stopRequestedRef = useRef({})
   // session ごとの最後に受信した byte offset。 タブ切替で再接続する時、 ここから差分だけ
   // 取り直すことで全 replay を避ける (= 切替を軽く + localStorage 即復元と併用)。
   // localStorage に永続化することで、 アプリ再起動 / リロードを跨いでも継続。
@@ -150,6 +151,7 @@ export function useChatStream({
     setInput(prev => ({ ...prev, [sid]: '' }))
     setLoading(prev => ({ ...prev, [sid]: true }))
     pendingSendUntilRef.current[sid] = Date.now() + 1500
+    stopRequestedRef.current[sid] = false
     // 楽観 user bubble + 空 streaming agent bubble を即挿入。 添付があれば user bubble に
     // 表示用の imageUrls / fileNames を載せる (= MessageItem の user-block 経路で render)。
     // imageUrls は ObjectURL なのでアプリリロード後は消えるが、 当該セッション中は見える。
@@ -241,9 +243,9 @@ export function useChatStream({
     await sendToPty(sid, { key: 'Escape' })
     setLoading(prev => ({ ...prev, [sid]: false }))
     pendingSendUntilRef.current[sid] = 0
-    // claude が Esc を受けて JSONL に result 行を書くまで backend は busy=true のまま。
-    // その間 backend busy SSE が loading=true に戻してチラつくのを 5 秒間抑制する。
-    stopUntilRef.current[sid] = Date.now() + 5000
+    // 「ユーザが停止を意図した」 状態を sticky で保持。 次に send/sendAnswer/endSession で
+    // 解除されるまで backend busy=true の上書きを無視する。
+    stopRequestedRef.current[sid] = true
   }, [sid, sendToPty])
 
   const sendAnswer = useCallback(async (targetSid, tool_use_id, answer, isFree = false, optionCount = 0) => {
@@ -252,6 +254,7 @@ export function useChatStream({
     // 送信ボタン → 停止ボタンに切り替える (= 楽観的に pendingSend deadline も置く)。
     setLoading(prev => ({ ...prev, [targetSid]: true }))
     pendingSendUntilRef.current[targetSid] = Date.now() + 1500
+    stopRequestedRef.current[targetSid] = false
     if (isFree) {
       // 自由記述: claude TUI は選択肢リストの末尾に "Type something"(自由入力) を持つ。
       // フォーカスは先頭選択肢にあるので、 素のテキストを送ると先頭が選ばれてしまう
@@ -284,6 +287,8 @@ export function useChatStream({
     try {
       await apiFetch(`/sessions/${encodeURIComponent(sid)}/restart`, { method: 'POST' })
     } catch { /* 失敗しても次操作で復帰 */ }
+    // 停止フラグを解除 (= 新プロセスで turn を再開できる状態にする)
+    stopRequestedRef.current[sid] = false
     // UI 上のセッション区切りを messages に挿入 (= MessageItem の system/kind=session_end 経路)
     setMessages(prev => ({
       ...prev,
@@ -316,6 +321,6 @@ export function useChatStream({
     fetchLatest,
     endSession,
     pendingSendUntilRef,
-    stopUntilRef,
+    stopRequestedRef,
   }
 }
