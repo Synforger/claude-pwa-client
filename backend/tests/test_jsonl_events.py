@@ -3,7 +3,7 @@
 claude の JSONL 1 行が processStreamEvent.js の期待する event 形式に正しく
 変換されることを、 行種別ごとに確認する。
 """
-from jsonl_events import jsonl_line_to_events
+from jsonl_events import jsonl_line_to_events, parse_task_notification
 
 
 def test_assistant_tool_use_passthrough():
@@ -214,6 +214,61 @@ def test_local_command_stderr_skipped():
         },
     }
     assert jsonl_line_to_events(line) == []
+
+
+_TASK_NOTE_TEXT = (
+    "<task-notification>\n"
+    "<task-id>b4aaezg2d</task-id>\n"
+    "<tool-use-id>toolu_01L843</tool-use-id>\n"
+    "<output-file>/private/tmp/claude-501/proj/sess/tasks/b4aaezg2d.output</output-file>\n"
+    "<status>completed</status>\n"
+    '<summary>Background command "unit tests" completed (exit code 0)</summary>\n'
+    "</task-notification>"
+)
+
+
+def test_parse_task_notification_fields():
+    # 意図: 各タグと summary 末尾の exit code が構造化 dict に抽出される
+    t = parse_task_notification(_TASK_NOTE_TEXT)
+    assert t == {
+        "taskId": "b4aaezg2d",
+        "toolUseId": "toolu_01L843",
+        "outputFile": "/private/tmp/claude-501/proj/sess/tasks/b4aaezg2d.output",
+        "status": "completed",
+        "summary": 'Background command "unit tests" completed (exit code 0)',
+        "exitCode": 0,
+    }
+
+
+def test_parse_task_notification_non_match():
+    # 意図: task-notification でない文字列は None
+    assert parse_task_notification("<command-name>/clear</command-name>") is None
+    assert parse_task_notification("普通の発話") is None
+
+
+def test_task_notification_emits_system_event_not_user():
+    # 意図: harness の background task 完了通知は user_message ではなく
+    # task_notification system event に変換される (= 右寄せ「自分が送った」 誤表示の解消)
+    line = {
+        "type": "user",
+        "uuid": "u-task",
+        "message": {"role": "user", "content": _TASK_NOTE_TEXT},
+    }
+    events = jsonl_line_to_events(line)
+    assert len(events) == 1
+    ev = events[0]
+    assert ev["type"] == "task_notification"
+    assert ev["uuid"] == "u-task"
+    assert ev["status"] == "completed"
+    assert ev["exitCode"] == 0
+    assert ev["outputFile"].endswith("b4aaezg2d.output")
+
+
+def test_task_notification_failure_exit_code():
+    # 意図: exit code != 0 は exitCode に拾われる (= frontend の error 色判定用)
+    text = _TASK_NOTE_TEXT.replace("exit code 0", "exit code 1")
+    t = parse_task_notification(text)
+    assert t["exitCode"] == 1
 
 
 def test_compact_boundary_emits_event():
