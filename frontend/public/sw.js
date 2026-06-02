@@ -106,7 +106,16 @@ self.addEventListener('push', (event) => {
         ...options,
         silent: isSelfViewing,
       })
-      diagLog('push:shown', { title: data.title, silent: isSelfViewing })
+      // 自分が見てる session 宛は、 表示後すぐに close することでバナー/通知センター
+      // からも消す (= 仕様上 showNotification は呼ぶ義務があるので、 呼んだ直後に取り
+      // 下げる)。 iOS でバナーが一瞬チラつく可能性はあるが、 通知センターには残らない。
+      if (isSelfViewing) {
+        try {
+          const list = await self.registration.getNotifications({ tag: options.tag })
+          for (const n of list) { try { n.close() } catch { /* ignore */ } }
+        } catch { /* ignore */ }
+      }
+      diagLog('push:shown', { title: data.title, silent: isSelfViewing, autoClose: isSelfViewing })
     } catch (e) {
       diagLog('push:show-error', { err: String(e) })
     }
