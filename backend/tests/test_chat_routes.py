@@ -55,30 +55,26 @@ def test_require_session_raises_404_for_unknown(isolated_state):
     assert exc.value.status_code == 404
 
 
-def test_stop_session_marks_user_stopped_and_clears_busy(isolated_state):
-    """POST /sessions/{sid}/stop が user_stopped=True を立て busy を False に強制する。"""
+def test_mark_user_stopped_sets_flag_and_clears_busy(isolated_state):
+    """/views/ws の stop メッセージで呼ばれる _mark_user_stopped が user_stopped=True を
+    立て busy を False に強制する。"""
     import chat_routes
     state = isolated_state
     sid = _setup_session(state)
     state.stream_states[sid].busy = True
     state.stream_states[sid].user_stopped = False
 
-    result = asyncio.run(chat_routes.stop_session(sid, sid))
-    assert result == {"ok": True}
+    assert chat_routes._mark_user_stopped(sid) is True
     assert state.stream_states[sid].user_stopped is True
     assert state.stream_states[sid].busy is False
 
 
-def test_stop_session_unknown_sid_returns_no_state(isolated_state):
-    """state が無い sid に対しても 500 でなく ok=False を返す (= 多重押下耐性)。"""
+def test_mark_user_stopped_returns_false_for_unknown_sid(isolated_state):
+    """state が無い sid は False を返すだけで例外を出さない (= 多重 stop 耐性)。"""
     import chat_routes
     state = isolated_state
-    # sessions_meta だけ生やして stream_states は作らない
-    state.sessions_meta["ses_orphan"] = object()
     state.stream_states.pop("ses_orphan", None)
-
-    result = asyncio.run(chat_routes.stop_session("ses_orphan", "ses_orphan"))
-    assert result == {"ok": False, "reason": "no_state"}
+    assert chat_routes._mark_user_stopped("ses_orphan") is False
 
 
 def test_is_session_viewed_via_views_by_conn(isolated_state):
