@@ -30,6 +30,17 @@ from usage import compute_ctx_pct, format_model_name
 _turn_started_at: dict[str, float] = {}
 
 
+def cleanup_orphan_turn_starts() -> int:
+    """`sessions_meta` に存在しない sid の `_turn_started_at` entry を掃除する。
+    Stop / 削除等で pop されずに残った turn 開始時刻が、 プロセス無停止運用で累積する
+    のを 1 日 1 回 (maintenance loop) で刈る。 削除件数を返す。"""
+    from state import sessions_meta  # noqa: PLC0415
+    stale = [sid for sid in _turn_started_at if sid not in sessions_meta]
+    for sid in stale:
+        _turn_started_at.pop(sid, None)
+    return len(stale)
+
+
 def is_user_prompt(line: dict) -> bool:
     """素プロンプト (= 実ユーザ発言の user 行) か。 tool_result の user 行 (= content が
     list で type=tool_result) や isMeta / isSidechain は除外する。
@@ -264,6 +275,11 @@ def mutate_agent_status(session_id: str, line: dict) -> bool:
                 name = block.get("name")
                 tool_id = block.get("id")
                 inp = block.get("input") or {}
+                if name == "ExitPlanMode":
+                    cur = a.get("pending_plan") or {}
+                    if cur.get("tool_use_id") == tool_id:
+                        # 既に同 tool_id で処理済 (= SSE / monitor 両経路で呼ばれた)、 capture を二重起動しない
+                        continue
                 if name == "TodoWrite":
                     todos = inp.get("todos")
                     if todos is not None and a.get("todos") != todos:

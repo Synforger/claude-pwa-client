@@ -192,7 +192,7 @@ stream_states: dict[str, StreamState] = {
 # iOS が PWA bg 化時に socket を切る) で自動削除されるので stale 概念が発生しない。
 # broadcast_push は session_id がこの set に含まれていれば送信スキップ (= ユーザが画面で
 # 見ている session への通知を抑止)。 接続を connection id (= id(websocket)) で索引する。
-views_by_conn: dict[int, str] = {}
+views_by_conn: dict[str, str] = {}
 
 
 def is_session_viewed(session_id: str) -> bool:
