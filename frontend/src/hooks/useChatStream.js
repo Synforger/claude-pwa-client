@@ -23,7 +23,7 @@ function persistOffsets(offsets) {
 //
 // 旧 SDK + proxy 版を置き換えたもの。 App.jsx 側のインターフェース
 // (loading / sendMessage / stopMessage / apiKeySource / sendAnswer / fetchLatest /
-//  endSession / setLoading / pendingSendUntilRef) は維持し、 App.jsx はほぼ無改修で動く。
+//  endSession / setLoading / pendingSendRef) は維持し、 App.jsx はほぼ無改修で動く。
 //
 // 受信: 常時 /jsonl/stream を EventSource で購読 (= claude が書く JSONL を backend が tail)。
 //       event は processStreamEvent + useStreamBuffer で旧 chat と同じ message state に組む。
@@ -40,8 +40,11 @@ export function useChatStream({
   const sid = activeSession?.id || null
   const [loading, setLoading] = useState({})
   const [apiKeySource, setApiKeySource] = useState({})
-  // App.jsx の showStopButton が参照する楽観 deadline。
-  const pendingSendUntilRef = useRef({})
+  // 送信直後の楽観フラグ。 `{[sid]: {seen}}`。 送信した瞬間 loading を立てて停止ボタンを出し、
+  // backend 権威 busy が「ターン開始 (busy=true)」 を返すまで busy=false の上書きを保留する
+  // (= useSessionsOverview がこの ref を見て確定的にクリアする)。 旧来の 1500ms タイマー
+  // (= タイムアウト窓) を撤去し、 backend スナップショット駆動の event ベースに置換した。
+  const pendingSendRef = useRef({})
   // session ごとの最後に受信した byte offset。 タブ切替で再接続する時、 ここから差分だけ
   // 取り直すことで全 replay を避ける (= 切替を軽く + localStorage 即復元と併用)。
   // localStorage に永続化することで、 アプリ再起動 / リロードを跨いでも継続。
@@ -76,15 +79,11 @@ export function useChatStream({
         })
         return
       }
-      if (event.type === 'assistant') {
-        setLoading(prev => (prev[curSid] ? prev : { ...prev, [curSid]: true }))
-      } else if (event.type === 'result') {
-        // result = turn 完了でのみ loading 解放。 ask_user_question では解放しない:
-        // AskUserQuestion 中の停止ボタンは status.pending_question が担い、 回答後の
-        // JSONL flush で ask_user_question event が再発火しても loading を落とさない
-        // (= 回答直後に送信ボタンへ戻って誤送信できてしまう問題を防ぐ)。
-        setLoading(prev => (prev[curSid] === false ? prev : { ...prev, [curSid]: false }))
-      }
+      // 注: ここでは loading (= 停止ボタンの真値) を一切触らない。 loading は backend 権威 busy
+      // を overview SSE で受ける useSessionsOverview の**単一ソース**で駆動する。 チャット SSE は
+      // メッセージ描画専用 (= assistant/result の取りこぼし・replay で停止ボタンが stuck する
+      // dual-driver 構造を根本的に排除)。 result event は processStreamEvent 内で streaming
+      // フラグ (=「推論中…」 表示) を落とすのには引き続き使う (ボタン状態とは別軸)。
       try {
         processStreamEvent(eventDeps, curSid, event)
       } catch { /* 1 event の失敗で stream を落とさない */ }
@@ -144,7 +143,7 @@ export function useChatStream({
     const sendText = text
     setInput(prev => ({ ...prev, [sid]: '' }))
     setLoading(prev => ({ ...prev, [sid]: true }))
-    pendingSendUntilRef.current[sid] = Date.now() + 1500
+    pendingSendRef.current[sid] = { seen: false }
     // 楽観 user bubble + 空 streaming agent bubble を即挿入。 添付があれば user bubble に
     // 表示用の imageUrls / fileNames を載せる (= MessageItem の user-block 経路で render)。
     // imageUrls は ObjectURL なのでアプリリロード後は消えるが、 当該セッション中は見える。
@@ -226,7 +225,7 @@ export function useChatStream({
           return { ...prev, [sid]: msgs }
         })
         setLoading(prev => ({ ...prev, [sid]: false }))
-        pendingSendUntilRef.current[sid] = 0
+        pendingSendRef.current[sid] = null
       }
     }
   }, [sid, input, attachments, loading, setInput, setMessages, clearAttachments, scrollToBottom, isAtBottomRef, setLoading])
@@ -241,7 +240,7 @@ export function useChatStream({
     sendToPty(sid, { key: 'Escape' }).catch(() => {})
     sendStopIntent?.(sid)
     setLoading(prev => ({ ...prev, [sid]: false }))
-    pendingSendUntilRef.current[sid] = 0
+    pendingSendRef.current[sid] = null
     // 末尾の streaming bubble (= 「推論中…」 表示の元) を停止扱いに固定。
     setMessages(prev => {
       const arr = prev[sid] || []
@@ -255,9 +254,9 @@ export function useChatStream({
   const sendAnswer = useCallback(async (targetSid, tool_use_id, answer, isFree = false, optionCount = 0) => {
     // AskUserQuestion の回答を tmux 経由で claude TUI に送る。
     // 回答 = turn 再開の合図なので、 送信 (sendMessage) と同じく loading を立てて
-    // 送信ボタン → 停止ボタンに切り替える (= 楽観的に pendingSend deadline も置く)。
+    // 送信ボタン → 停止ボタンに切り替える (= 楽観フラグも置く、 backend busy が追いつくまで保留)。
     setLoading(prev => ({ ...prev, [targetSid]: true }))
-    pendingSendUntilRef.current[targetSid] = Date.now() + 1500
+    pendingSendRef.current[targetSid] = { seen: false }
     if (isFree) {
       // 自由記述: claude TUI は選択肢リストの末尾に "Type something"(自由入力) を持つ。
       // フォーカスは先頭選択肢にあるので、 素のテキストを送ると先頭が選ばれてしまう
@@ -322,6 +321,6 @@ export function useChatStream({
     stopMessage,
     fetchLatest,
     endSession,
-    pendingSendUntilRef,
+    pendingSendRef,
   }
 }
