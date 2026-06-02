@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import MessageRenderer from '../MessageRenderer.jsx'
 import AskUserQuestionBubble from './AskUserQuestionBubble.jsx'
+import TaskNotification from './TaskNotification.jsx'
 import AttachedImages from './AttachedImages.jsx'
 import { formatToolResultContent, formatCost, formatDuration, formatModelName, formatTokens } from '../utils/format.js'
 import { diffLines, compactDiff } from '../utils/diff.js'
@@ -269,6 +270,9 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
   }
   if (msg.role === 'system' && msg.kind === 'session_end') {
     return <SessionEndBanner />
+  }
+  if (msg.role === 'system' && msg.kind === 'task') {
+    return <TaskNotification msg={msg} />
   }
   if (msg.role === '__loading__') {
     return (
