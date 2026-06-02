@@ -79,6 +79,7 @@ import jsonl_routes  # noqa: E402
 import pty_routes  # noqa: E402
 import pty_runner  # noqa: E402
 import push  # noqa: E402
+import subagents_routes  # noqa: E402
 
 
 def _truncate_if_oversized(path: Path, max_bytes: int) -> None:
@@ -204,6 +205,7 @@ app.include_router(hooks_router.router)
 app.include_router(jsonl_routes.router)
 app.include_router(pty_routes.router)
 app.include_router(push.router)
+app.include_router(subagents_routes.router)
 
 
 # --- 静的ファイル配信 (Vite ビルド成果物) ---
