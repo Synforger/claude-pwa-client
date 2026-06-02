@@ -169,7 +169,6 @@ def _build_status(session_id: str) -> dict:
     そのタブの最新ステータスラインが出る (= 別タブの値に引っ張られない)。
     """
     a = agent_status[session_id]
-    state = stream_states[session_id]
     import jsonl_watcher  # noqa: PLC0415
     jp = jsonl_watcher.get_jsonl_for(session_id)
     claude_sid = jp.stem if jp else None
@@ -187,10 +186,6 @@ def _build_status(session_id: str) -> dict:
         "seven_day_pct": rl["seven_day_pct"] if rl.get("seven_day_pct") is not None else shared_status["seven_day_pct"],
         "five_hour_resets_at": rl.get("five_hour_resets_at") or shared_status["five_hour_resets_at"],
         "seven_day_resets_at": rl.get("seven_day_resets_at") or shared_status["seven_day_resets_at"],
-        # streaming / buffer_* は撤去 (= PTY 経路では state.complete が常に True 固定の
-        # ゴーストフィールドだった)。 frontend の停止/送信ボタン判定は loading (= JSONL
-        # SSE の assistant/result で駆動) + pendingSend + pending_question に一本化した。
-        "pending_question_tool_id": state.pending_question_tool_id,
         # backend プロセスの起動時刻 (= frontend がこの値の変化で「再起動された」 と検知し、
         # 古い streaming bubble を強制的に停止扱いに固定する)。
         "backend_start_time": backend_start_time,
