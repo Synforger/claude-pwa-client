@@ -94,6 +94,25 @@ def jsonl_line_to_events(line: dict) -> list[dict]:
     return []
 
 
+def subagent_line_to_events(line: dict) -> list[dict]:
+    """サブエージェント (= Task で起動した子 agent、 isSidechain=True) の 1 行を表示用 event に
+    変換する。 親 chat 用の jsonl_line_to_events は sidechain を skip するが、 専用ビュー
+    (= subagents_routes) では中身を見せたいので sidechain チェックを外して同じ
+    assistant / user / system 変換を通す。"""
+    if not isinstance(line, dict):
+        return []
+    if line.get("isMeta"):
+        return []
+    line_type = line.get("type")
+    if line_type == "assistant":
+        return _assistant_events(line)
+    if line_type == "user":
+        return _user_events(line)
+    if line_type == "system":
+        return _system_events(line)
+    return []
+
+
 def _system_events(line: dict) -> list[dict]:
     """system 行のうち frontend にとって意味があるものだけを event 化する。
 
