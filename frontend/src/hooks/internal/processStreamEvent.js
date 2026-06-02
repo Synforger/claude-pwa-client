@@ -63,6 +63,33 @@ export function processStreamEvent(deps, sid, event) {
     return
   }
 
+  // task_notification: background task (= Monitor / バックグラウンド Bash) の完了通知。
+  // user バブルでなく中央寄せの system カードとして差し込む (= 「自分が送った」 風の誤表示を解消)。
+  if (event.type === 'task_notification') {
+    cancelAndFlush(sid)
+    const uuid = event.uuid || null
+    setMessages(prev => {
+      const msgs = prev[sid] || []
+      if (uuid && msgs.some(m => m.role === 'system' && m.kind === 'task' && m.uuid === uuid)) {
+        return prev
+      }
+      return {
+        ...prev,
+        [sid]: [...msgs, {
+          id: generateId(),
+          role: 'system',
+          kind: 'task',
+          uuid,
+          summary: event.summary || null,
+          status: event.status || null,
+          outputFile: event.outputFile || null,
+          exitCode: typeof event.exitCode === 'number' ? event.exitCode : null,
+        }].slice(-MAX_MESSAGES),
+      }
+    })
+    return
+  }
+
   // result: 直近 agent バブルに meta 埋め込み + 送信ボタン解放
   if (event.type === 'result') {
     const meta = {

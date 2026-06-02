@@ -137,3 +137,31 @@ describe('processStreamEvent — AskUserQuestion の止まり解消', () => {
     expect(bubble.streaming).toBe(true)
   })
 })
+
+describe('processStreamEvent — task_notification (background task 完了カード)', () => {
+  function taskEvent(uuid, over = {}) {
+    return {
+      type: 'task_notification', uuid,
+      summary: 'Background command "x" completed (exit code 0)',
+      status: 'completed', outputFile: '/private/tmp/claude-501/p/s/tasks/x.output',
+      exitCode: 0, ...over,
+    }
+  }
+
+  it('system/task バブルとして push される (= user バブルにしない)', () => {
+    const { deps, get } = makeStatefulDeps({ s1: [] })
+    processStreamEvent(deps, 's1', taskEvent('t1'))
+    const bubble = get().s1.at(-1)
+    expect(bubble.role).toBe('system')
+    expect(bubble.kind).toBe('task')
+    expect(bubble.exitCode).toBe(0)
+    expect(bubble.outputFile).toContain('x.output')
+  })
+
+  it('同一 uuid の replay では重複追加しない', () => {
+    const { deps, get } = makeStatefulDeps({ s1: [] })
+    processStreamEvent(deps, 's1', taskEvent('t2'))
+    processStreamEvent(deps, 's1', taskEvent('t2'))
+    expect(get().s1.filter(m => m.kind === 'task')).toHaveLength(1)
+  })
+})

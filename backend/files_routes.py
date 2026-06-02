@@ -73,6 +73,36 @@ def put_file(path: str = Body(...), content: str = Body(...)):
     return {"ok": True}
 
 
+# background task の出力ログ (= `<task-notification>` の output-file)。 harness が
+# `/private/tmp/claude-<uid>/<project>/<session>/tasks/<task-id>.output` に書く一時ファイルで
+# HOME の外にあるため `/file` (= HOME 限定) では読めない。 この狭いパターンだけ通す専用経路。
+# resolve() で `..` / symlink を展開した後の絶対パスを再検査して traversal を物理的に塞ぐ。
+# macOS は resolve() で /tmp → /private/tmp に展開、 Linux (WSL2) は /tmp のまま。 両対応で
+# 先頭 /private を任意にする。
+_TASK_OUTPUT_RE = re.compile(
+    r"^/(?:private/)?tmp/claude-\d+/[^/]+/[^/]+/tasks/[A-Za-z0-9._-]+\.output$"
+)
+
+
+@router.get("/task-output")
+def get_task_output(path: str = Query(...)):
+    resolved = Path(path).expanduser().resolve()
+    if not _TASK_OUTPUT_RE.match(str(resolved)):
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not resolved.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    if not resolved.is_file():
+        raise HTTPException(status_code=400, detail="Not a file")
+    if resolved.stat().st_size > FILE_SIZE_LIMIT:
+        raise HTTPException(status_code=413, detail="ファイルが大きすぎます（上限 1MB）")
+    try:
+        content = resolved.read_text(errors="replace")
+    except Exception:
+        logger.exception("failed to read task output: %s", resolved)
+        raise HTTPException(status_code=500, detail="Internal error")
+    return {"path": str(resolved), "content": content}
+
+
 @router.get("/files/tree")
 def get_tree(path: str = Query(default="~")):
     resolved = _resolve_safe(path)

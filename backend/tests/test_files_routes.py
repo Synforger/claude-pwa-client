@@ -65,3 +65,48 @@ def test_resolve_safe_allows_ordinary_paths():
     # 意図: deny list に当たらない通常 path は通過する
     p = _resolve_safe(str(HOME / "repos" / "myproj" / "README.md"))
     assert str(p).endswith("README.md")
+
+
+# --- /task-output (= background task の出力ログ専用経路) ---
+
+def _task_output_client():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    import files_routes
+    app = FastAPI()
+    app.include_router(files_routes.router)
+    return TestClient(app)
+
+
+def test_task_output_reads_tmp_task_file(tmp_path, monkeypatch):
+    # 意図: /tmp/claude-<uid>/.../tasks/<id>.output の中身を読める (= HOME 外でも専用経路で許可)
+    import files_routes
+    real = tmp_path / "claude-501" / "proj" / "sess" / "tasks" / "abc123.output"
+    real.parent.mkdir(parents=True)
+    real.write_text("task log here\nexit 0\n")
+    # 実 path の代わりに tmp_path を許可するよう regex を差し替えて隔離テスト
+    monkeypatch.setattr(
+        files_routes, "_TASK_OUTPUT_RE",
+        __import__("re").compile(rf"^{tmp_path}/claude-\d+/[^/]+/[^/]+/tasks/[A-Za-z0-9._-]+\.output$"),
+    )
+    client = _task_output_client()
+    res = client.get("/task-output", params={"path": str(real)})
+    assert res.status_code == 200
+    assert "task log here" in res.json()["content"]
+
+
+def test_task_output_rejects_non_task_path():
+    # 意図: tasks 出力パターン以外 (= /etc/passwd 等) は 403
+    client = _task_output_client()
+    res = client.get("/task-output", params={"path": "/etc/passwd"})
+    assert res.status_code == 403
+
+
+def test_task_output_rejects_traversal():
+    # 意図: .. で tasks ディレクトリから抜けようとしても resolve 後の再検査で 403
+    client = _task_output_client()
+    res = client.get(
+        "/task-output",
+        params={"path": "/private/tmp/claude-501/p/s/tasks/../../../../etc/passwd"},
+    )
+    assert res.status_code == 403
