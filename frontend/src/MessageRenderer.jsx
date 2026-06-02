@@ -1,5 +1,5 @@
 import React, { useRef, useState, useCallback } from 'react'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { visit } from 'unist-util-visit'
 import './MessageRenderer.css'
@@ -92,7 +92,14 @@ const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile }
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkFilePaths]}
-      urlTransform={(url) => url}
+      urlTransform={(url) => {
+        // cpc-file:// は内部で onOpenFile に流す独自スキーム = pass-through。
+        // それ以外は react-markdown 既定の sanitizer を使い、 javascript: / data:
+        // 等の危険スキームをブロック。 過去ここで `(url) => url` にしてた結果、
+        // 任意 URL スキームがそのまま <a href> に出ていた (XSS 経路)。
+        if (typeof url === 'string' && url.startsWith('cpc-file://')) return url
+        return defaultUrlTransform(url)
+      }}
       components={{
         a({ href, children }) {
           if (href?.startsWith('cpc-file://')) {

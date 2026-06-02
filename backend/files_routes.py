@@ -1,5 +1,10 @@
-"""ホームディレクトリ配下のファイル閲覧・編集 / ディレクトリツリー取得。"""
+"""ホームディレクトリ配下のファイル閲覧・編集 / ディレクトリツリー取得。
+
+セキュリティ: tailnet 経由で誰でも `/file` を叩けるので、 秘密ファイル (= SSH 鍵 / クラウド
+認証情報 / シェル初期化ファイル) は読み書き両方禁止。 HOME 配下 deny list ベース。
+"""
 import logging
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException, Query
@@ -10,9 +15,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+# 読み書きを完全に禁止するパス / 拡張子 / ファイル名のパターン。 HOME 配下に存在しても
+# `/file` 経由では到達させない。 リモートシェル奪取 / 認証情報漏洩経路を物理的に塞ぐ。
+_DENY_RE = re.compile(
+    r"(?:^|/)(?:"
+    r"\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.config/gh|\.netrc|"
+    r"\.zshrc|\.zshenv|\.zprofile|\.bashrc|\.bash_profile|\.profile|"
+    r"\.zsh_history|\.bash_history"
+    r")(?:$|/)"
+    r"|(?:^|/)(?:authorized_keys|id_rsa|id_ed25519|id_ecdsa|id_dsa|known_hosts)$"
+    r"|\.(?:pem|key|p12|pfx)$"
+)
+
+
 def _resolve_safe(path_str: str) -> Path:
     resolved = Path(path_str).expanduser().resolve()
-    if not str(resolved).startswith(str(HOME)):
+    # HOME 配下 (= 物理的に許可された roots) の境界チェック。 symlink は resolve() で展開済。
+    try:
+        resolved.relative_to(HOME)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied")
+    # 秘密ファイル deny list。 SSH 鍵 / 認証情報 / シェル初期化ファイル等は読み書き不可。
+    if _DENY_RE.search(str(resolved)):
         raise HTTPException(status_code=403, detail="Access denied")
     return resolved
 
