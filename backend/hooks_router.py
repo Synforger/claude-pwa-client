@@ -70,34 +70,6 @@ def _pwa_session_for_claude_sid(claude_sid: str | None) -> str | None:
     return None
 
 
-def _pwa_session_for_cwd(cwd: str | None) -> str | None:
-    """claude hook payload の cwd を PWA session id に逆引き。
-
-    一致条件: 正規化済 path 同士の前方一致 (= cwd が agent.cwd 配下なら拾う)。
-    マッチが無ければ None を返す、 呼び出し側で fallback 判断する。
-    """
-    if not cwd:
-        return None
-    try:
-        target = Path(cwd).resolve()
-    except OSError:
-        return None
-    for pwa_id, agent_cfg in AGENTS.items():
-        agent_cwd = agent_cfg.get("cwd")
-        if not agent_cwd:
-            continue
-        try:
-            agent_path = Path(agent_cwd).expanduser().resolve()
-        except OSError:
-            continue
-        try:
-            target.relative_to(agent_path)
-        except ValueError:
-            continue
-        return pwa_id
-    return None
-
-
 def _truncate(text: str, limit: int = 140) -> str:
     text = text.strip()
     if len(text) <= limit:

@@ -60,8 +60,9 @@ self.addEventListener('push', (event) => {
     badge: '/icon-192.svg',
     tag: data.tag || 'proactive',
     renotify: true,
-    // sid (session id) と url 両方持たせる: native deep link と PWA fallback URL
-    data: { id: data.id || null, sid: data.sid || null, url: data.url || '/' },
+    // sid (session id) と url 両方持たせる: notificationclick で sid → activeSid 切替、
+    // url は新規ウィンドウ open 時の deep link fallback。
+    data: { sid: data.sid || null, url: data.url || '/' },
   }
   // ホーム画面アプリアイコンの未読バッジを更新 (Badging API、 iOS 16.4+ PWA 対応)
   // payload に unread_count が載ってるので fetch 不要 = 完全終了状態でも省電力で更新
@@ -125,17 +126,10 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   const data = event.notification.data || {}
-  const notifId = data.id  // backend が払い出した通知 id (既読化用)
   const sid = data.sid || null
   // backend が payload に "/?ses={sid}" を入れてくる (= 新規ウィンドウ open 用 fallback URL)。
   const targetUrl = data.url || (sid ? `/?ses=${encodeURIComponent(sid)}` : '/')
   event.waitUntil((async () => {
-    // 既読化 (失敗時は無視)
-    if (notifId) {
-      try {
-        await fetch(`/notifications/${encodeURIComponent(notifId)}/read`, { method: 'POST' })
-      } catch { /* ignore */ }
-    }
     const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
     // 既存タブがあれば focus + postMessage で sid を伝える (= App が activeSid を切替)。
     // navigate() はオリジン内 URL 変更で SPA を full reload しないので、 postMessage の方が

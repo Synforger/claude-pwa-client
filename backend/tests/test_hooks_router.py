@@ -58,29 +58,6 @@ def fake_bindings(monkeypatch, tmp_path):
     return register
 
 
-def test_pwa_session_for_cwd_exact_match(fake_agents):
-    """agent.cwd と同一の path → その agent の id を返す。"""
-    assert hooks_router._pwa_session_for_cwd(fake_agents["cwd"]) == "primary"
-
-
-def test_pwa_session_for_cwd_subdirectory(fake_agents, tmp_path):
-    """agent.cwd 配下の sub-path も同一 agent に解決する (= claude が中で cd した場合)。"""
-    sub = tmp_path / "project" / "deep" / "nested"
-    sub.mkdir(parents=True)
-    assert hooks_router._pwa_session_for_cwd(str(sub)) == "primary"
-
-
-def test_pwa_session_for_cwd_no_match(fake_agents, tmp_path):
-    unrelated = tmp_path / "unrelated"
-    unrelated.mkdir()
-    assert hooks_router._pwa_session_for_cwd(str(unrelated)) is None
-
-
-def test_pwa_session_for_cwd_handles_none():
-    assert hooks_router._pwa_session_for_cwd(None) is None
-    assert hooks_router._pwa_session_for_cwd("") is None
-
-
 def test_truncate_short_passes_through():
     assert hooks_router._truncate("hello") == "hello"
 

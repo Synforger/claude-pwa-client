@@ -141,8 +141,6 @@ sessions_meta = _load_sessions_meta()
 @dataclass
 class StreamState:
     agent_id: str = ""  # どの AGENTS 設定 (cwd / notification_title) を参照するか
-    # AskUserQuestion の回答待ち tool_use id (= /status payload に載せる)。
-    pending_question_tool_id: str | None = None
     # 状態変化シグナル (= /status/{sid}/stream SSE が wait する event)。
     # current_tool 変化 / todos 更新等 (= hooks / jsonl 経路) で set、 SSE 受信側は
     # 現状 status JSON を yield して event.clear() する。 backend→frontend を即時 push。

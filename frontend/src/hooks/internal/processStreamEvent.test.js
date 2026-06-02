@@ -18,8 +18,6 @@ function makeDeps(buf) {
     scheduleFlush: vi.fn(),
     streamBufRef: { current: {} },
     bufFor: () => buf,
-    onUserRequestId: vi.fn(),
-    onResultMessage: vi.fn(),
   }
 }
 
@@ -64,8 +62,6 @@ function makeStatefulDeps(initial = {}) {
     scheduleFlush: vi.fn(),
     streamBufRef: { current: {} },
     bufFor: () => emptyBuf(),
-    onUserRequestId: vi.fn(),
-    onResultMessage: vi.fn(),
   }
   return { deps, get: () => state }
 }
