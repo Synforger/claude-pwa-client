@@ -76,29 +76,17 @@ def patch_session(session_id: str, payload: dict = Body(...), _: str = Depends(r
     return sessions_meta[session_id].to_dict()
 
 
-@router.post("/sessions/{session_id}/stop")
-async def stop_session(session_id: str, _: str = Depends(require_session)):
-    """Stop ボタン押下の権威記録。 frontend は sendToPty で Esc を直接送る (= 中断の物理
-    実行) のと並行で本 endpoint を呼び、 backend に「ユーザが停止を意図した」 状態を
-    sticky で持たせる。
-
-    効果:
-      - StreamState.user_stopped=True で busy を即時 False に強制
-      - overview SSE が全 client (= 別タブ / 別端末) に busy=false を push する
-      - 次の素ユーザ発話 (= 新 turn 開始) で自動解除されるまで sticky
-
-    これにより停止押した直後に JSONL 末尾が tool_use 中 (= busy=true 判定) でも UI が
-    「推論中」 に戻らず、 別 session の更新で overview SSE が走っても停止 session が
-    上書きされない。"""
-    from state import sessions_overview_event  # noqa: PLC0415
+def _mark_user_stopped(session_id: str) -> bool:
+    """ユーザ Stop 意思を backend の権威 state に書く。 /views/ws の stop メッセージ
+    から呼ばれる (= HTTP POST 経由は廃止、 WebSocket で確実に届ける構造)。"""
     st = stream_states.get(session_id)
     if st is None:
-        return {"ok": False, "reason": "no_state"}
+        return False
     st.user_stopped = True
     if st.busy:
         st.busy = False
     sessions_overview_event.set()
-    return {"ok": True}
+    return True
 
 
 @router.post("/sessions/{session_id}/restart")
@@ -133,6 +121,9 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
         a["plan_mode"] = False
     state = stream_states.get(session_id)
     if state is not None:
+        # 新プロセス = 過去の Stop 意思は無効化 (= 残ったまま sticky だと新 turn が永久に
+        # busy=false に強制されて停止ボタンが立たない逆方向のバグになる)。
+        state.user_stopped = False
         state.status_event.set()
     return {"ok": True}
 
@@ -297,8 +288,11 @@ async def views_ws(ws: WebSocket):
     TCP FIN / iOS が PWA bg 化時に socket を切るタイミングで自動削除されるので、
     stale state 永久抑制バグが構造的に起きない。
 
-    プロトコル: client が `{"sid": "ses_xxx" | null}` を JSON で随時送信。 sid 変化
-    (= タブ切替) で再送、 null で「今は何も見てない」 状態。
+    プロトコル: client が JSON メッセージで随時送信:
+      - `{"sid": "ses_xxx" | null}`: 今見ている sid を更新 (タブ切替で再送)
+      - `{"type": "stop", "sid": "ses_xxx"}`: Stop ボタン押下の権威記録。 backend が
+        user_stopped=True を立てて busy を強制 false に。 WebSocket 経由なので HTTP の
+        POST 失敗 race が原理的に無い (= 接続中なら TCP 保証で届く)。
     """
     # conn_id は uuid (= id(ws) は GC 後再利用で別接続と衝突する余地があるため不採用)。
     conn_id = uuid.uuid4().hex
@@ -310,7 +304,14 @@ async def views_ws(ws: WebSocket):
                 payload = json.loads(text)
             except (ValueError, TypeError):
                 continue
-            sid = payload.get("sid") if isinstance(payload, dict) else None
+            if not isinstance(payload, dict):
+                continue
+            msg_type = payload.get("type")
+            sid = payload.get("sid")
+            if msg_type == "stop" and isinstance(sid, str) and sid:
+                _mark_user_stopped(sid)
+                continue
+            # default: view 更新
             if isinstance(sid, str) and sid:
                 views_by_conn[conn_id] = sid
             else:

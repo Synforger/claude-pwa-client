@@ -95,12 +95,17 @@ export default function App() {
     scrollToBottom,
     onScroll,
   } = useAutoScroll({ messages, activeSession, viewMode: activeViewMode })
+  // 「今この sid を見てる」 + Stop 意思を WebSocket で backend に通知。
+  // Stop は HTTP POST から WS 経由に移行 (= 失敗時 race の根本治療)。 useChatStream より
+  // 先に呼ぶ必要があるのは sendStopIntent を stopMessage に渡すため。
+  const { sendStopIntent } = useViewsWs(activeSid)
   const { loading, setLoading, apiKeySource, sendMessage, sendAnswer, stopMessage, fetchLatest, endSession, pendingSendUntilRef } = useChatStream({
     activeSession,
     setMessages,
     input, setInput,
     attachments, clearAttachments,
     scrollToBottom, isAtBottomRef,
+    sendStopIntent,
   })
   // 全 session の busy を 1 本の SSE で購読し loading を backend 権威で上書き (= 非アクティブ
   // タブの青丸/赤丸を live 追従 + active の result 取りこぼし補正)。
@@ -155,8 +160,6 @@ export default function App() {
 
   // backend / 通知 / deep link 系の effect を hook に集約 (= useAppEffects.js)
   useReadOnSessionOpen(activeSid)
-  // 「今この sid を見てる」 を WebSocket で backend に通知 (= broadcast_push の skip 判定)
-  useViewsWs(activeSid)
   useDeepLink(setActiveId)
   useNotificationClear()
   const moonlightAvailable = useMoonlightAvailable()
