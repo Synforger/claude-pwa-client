@@ -29,6 +29,7 @@ from state import (
     backend_start_time,
     register_session,
     rename_session,
+    set_notify_mode,
     session_tmp_files,
     sessions_meta,
     sessions_overview,
@@ -70,9 +71,17 @@ def create_session(payload: dict = Body(...)):
 @router.patch("/sessions/{session_id}")
 def patch_session(session_id: str, payload: dict = Body(...), _: str = Depends(require_session)):
     title = payload.get("title")
-    if not isinstance(title, str) or not title.strip():
-        raise HTTPException(status_code=400, detail="title は必須 (空不可)")
-    rename_session(session_id, title.strip())
+    notify_mode = payload.get("notify_mode")
+    touched = False
+    if isinstance(title, str) and title.strip():
+        rename_session(session_id, title.strip())
+        touched = True
+    if notify_mode is not None:
+        if not set_notify_mode(session_id, notify_mode):
+            raise HTTPException(status_code=400, detail="notify_mode は both / banner / off")
+        touched = True
+    if not touched:
+        raise HTTPException(status_code=400, detail="title または notify_mode が必要")
     return sessions_meta[session_id].to_dict()
 
 

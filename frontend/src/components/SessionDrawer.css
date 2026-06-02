@@ -251,6 +251,32 @@
 .drawer-item-popup button.danger {
   color: #e74c3c;
 }
+.drawer-popup-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+.drawer-popup-label {
+  padding: 4px 14px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.drawer-item-popup button.drawer-popup-radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 14px;
+  font-size: 13px;
+}
+.drawer-popup-check {
+  display: inline-block;
+  width: 12px;
+  color: var(--accent);
+}
+.drawer-item-popup button.drawer-popup-radio.on {
+  color: var(--accent);
+}
 .drawer-item-popup button:disabled {
   color: var(--text-dim);
   cursor: not-allowed;

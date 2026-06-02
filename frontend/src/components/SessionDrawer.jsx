@@ -36,6 +36,7 @@ export default function SessionDrawer({
   onSelect,
   onCreate,
   onRename,
+  onSetNotifyMode,
   onDelete,
   sessionBadges = {},
   pushAvailable = false,
@@ -267,6 +268,30 @@ export default function SessionDrawer({
                     onClick={e => e.stopPropagation()}
                   >
                     <button onClick={() => startRename(s.id, s.title)}>リネーム</button>
+                    {onSetNotifyMode && (
+                      <>
+                        <div className="drawer-popup-sep" />
+                        <div className="drawer-popup-label">通知</div>
+                        {[
+                          ['both', '🔔 音 + バナー'],
+                          ['banner', '🔕 バナーのみ'],
+                          ['off', '⛔ オフ'],
+                        ].map(([mode, label]) => {
+                          const cur = s.notify_mode || 'both'
+                          return (
+                            <button
+                              key={mode}
+                              className={`drawer-popup-radio ${cur === mode ? 'on' : ''}`}
+                              onClick={() => { onSetNotifyMode(s.id, mode); setMenuFor(null) }}
+                            >
+                              <span className="drawer-popup-check">{cur === mode ? '✓' : ''}</span>
+                              {label}
+                            </button>
+                          )
+                        })}
+                        <div className="drawer-popup-sep" />
+                      </>
+                    )}
                     <button
                       className="danger"
                       disabled={isLastSession}
