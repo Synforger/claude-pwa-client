@@ -246,7 +246,16 @@ export function useChatStream({
     // 「ユーザが停止を意図した」 状態を sticky で保持。 次に send/sendAnswer/endSession で
     // 解除されるまで backend busy=true の上書きを無視する。
     stopRequestedRef.current[sid] = true
-  }, [sid, sendToPty])
+    // 末尾の streaming bubble (= 「推論中…」 表示の元) を停止扱いに固定。
+    // backend が result 行を書くまで自動では消えないので、 ユーザ意思に即応させる。
+    setMessages(prev => {
+      const arr = prev[sid] || []
+      if (arr.length === 0) return prev
+      const last = arr[arr.length - 1]
+      if (!last?.streaming) return prev
+      return { ...prev, [sid]: [...arr.slice(0, -1), { ...last, streaming: false }] }
+    })
+  }, [sid, sendToPty, setMessages])
 
   const sendAnswer = useCallback(async (targetSid, tool_use_id, answer, isFree = false, optionCount = 0) => {
     // AskUserQuestion の回答を tmux 経由で claude TUI に送る。
