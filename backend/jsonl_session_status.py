@@ -20,7 +20,7 @@ from pathlib import Path
 from jsonl_events import HARNESS_XML_RE
 from jsonl_plan_choices import capture_plan_choices
 from jsonl_tail import parse_jsonl_timestamp
-from state import agent_status, sessions_overview_event, stream_states
+from state import agent_status, sessions_overview, stream_states
 from usage import compute_ctx_pct, format_model_name
 
 
@@ -81,7 +81,7 @@ def track_turn_start(session_id: str, line: dict) -> None:
 
 def update_busy(session_id: str, line: dict) -> None:
     """JSONL 1 行から session の busy (= turn 進行中か) を更新する。 変化したら
-    sessions_overview_event を叩いて /sessions/overview/stream に push させる。
+    sessions_overview.notify() で /sessions/overview/stream に push させる。
 
     素ユーザ発話 → busy=True (推論開始)。 assistant 行は stop_reason で判定:
     `tool_use` (= ツール継続中) は busy=True、 それ以外の確定 stop_reason
@@ -106,7 +106,7 @@ def update_busy(session_id: str, line: dict) -> None:
         new = False
     if new != st.busy:
         st.busy = new
-        sessions_overview_event.set()
+        sessions_overview.notify()
 
 
 def compute_busy_from_tail(path: Path, tail_bytes: int = 32768) -> bool:
@@ -132,6 +132,39 @@ def compute_busy_from_tail(path: Path, tail_bytes: int = 32768) -> bool:
                 return False
         elif is_user_prompt(d):
             return True
+    return False
+
+
+def busy_after_idle(path: Path, tail_bytes: int = 32768) -> bool:
+    """idle watchdog 用の busy 再判定。 monitor が busy=True のまま長時間 JSONL が静かな時に呼ぶ。
+
+    通常の tail 判定 (compute_busy_from_tail) との違いは 1 点だけ:
+    **末尾の決定的 assistant 行が stop_reason を持たない**場合、 通常判定は「partial かも」 と
+    見て古い行へ走査を続けるが、 idle 判定では**終端マーカー欠落 (= claude-code #22566 で
+    観測される、 応答は書かれたのに stop_reason 行が永続しない事象) とみなして settled=False**
+    を返す。 長時間 (= 呼び出し側の閾値) 新規行ゼロなら streaming 途中ではあり得ず、 応答済み
+    と判断できるため安全。 `tool_use` 末尾 (= 長時間かかるツール実行中) は busy=True を維持する
+    ので、 ツール実行中に誤って送信ボタンへ戻すことはない。"""
+    try:
+        size = path.stat().st_size
+        with open(path, "rb") as f:
+            f.seek(max(0, size - tail_bytes))
+            data = f.read()
+    except OSError:
+        return False
+    for raw in reversed([ln for ln in data.split(b"\n") if ln.strip()]):
+        try:
+            d = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if d.get("type") == "assistant":
+            sr = (d.get("message") or {}).get("stop_reason")
+            if sr == "tool_use":
+                return True   # ツール実行中 (= 長時間でも busy 維持)
+            # 終端 stop_reason、 または marker 欠落 (idle なので応答済みと判断) は settled
+            return False
+        if is_user_prompt(d):
+            return True       # ユーザ発話後で応答開始前 (= まだ in-flight)
     return False
 
 

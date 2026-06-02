@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -26,6 +27,7 @@ from jsonl_events import jsonl_line_to_events
 from jsonl_notifications import maybe_push_blockers as _maybe_push_blockers
 from jsonl_session_status import (
     attach_duration_to_result as _attach_duration_to_result,
+    busy_after_idle as _busy_after_idle,
     compute_busy_from_tail as _compute_busy_from_tail,
     is_user_prompt as _is_user_prompt,
     latest_subagent_tool as _latest_subagent_tool,
@@ -39,7 +41,7 @@ from jsonl_tail import (
     read_tail as _read_tail,
 )
 from pty_runner import jsonl_path_for_session
-from state import sessions_overview_event, stream_states
+from state import sessions_overview, stream_states
 
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,12 @@ INITIAL_REPLAY_LINES = 500
 
 # tail の polling 間隔 (秒)。
 POLL_INTERVAL = 0.5
+
+# idle watchdog: busy=True のまま JSONL がこの秒数以上 静かなら file 真値で busy を照合し直す。
+# 通常 (= 終端 stop_reason 行が書かれる) は monitor が即 busy=False にするので発火しない。
+# 終端マーカー欠落 (claude-code #22566) / monitor の取りこぼし のバックストップ。 長時間の
+# ツール実行 (= 末尾が tool_use) は busy_after_idle が True を返すので誤って解除しない。
+WATCHDOG_IDLE_SEC = 15.0
 
 
 def _latest_jsonl(session_id: str) -> Path | None:
@@ -240,6 +248,8 @@ async def monitor_all_sessions_loop():
     バックエンド内の追跡 (= frontend の localStorage が消えても影響を受けない)。
     """
     state: dict[str, tuple[Path, int]] = {}
+    # sid → 最後に新規 JSONL 行を処理した monotonic 時刻 (= idle watchdog 用)。
+    last_line_at: dict[str, float] = {}
     logger.info("monitor_all_sessions_loop started")
     try:
         while True:
@@ -249,6 +259,7 @@ async def monitor_all_sessions_loop():
                 # 削除済み session の追跡 entry を刈り取る (= 無停止運用での単調増加防止)
                 for stale in [s for s in state if s not in _sessions_meta]:
                     state.pop(stale, None)
+                    last_line_at.pop(stale, None)
                 for sid in list(_sessions_meta.keys()):
                     path = _latest_jsonl(sid)
                     if path is None:
@@ -269,13 +280,27 @@ async def monitor_all_sessions_loop():
                                 new_busy = False
                             if new_busy != st.busy:
                                 st.busy = new_busy
-                                sessions_overview_event.set()
+                                sessions_overview.notify()
+                        last_line_at[sid] = time.monotonic()
                         continue
                     lines, new_pos, status = _read_tail(path, prev[1])
                     if status == "error":
                         continue
                     # truncated → 末尾再同期 (new_pos=size) / ok → 進行 / nochange → 据置
                     state[sid] = (path, new_pos)
+                    if status == "ok" and lines:
+                        last_line_at[sid] = time.monotonic()
+                    # idle watchdog: busy のまま長時間 静かなら file 真値で再判定 (= 終端マーカー
+                    # 欠落 / 取りこぼしのバックストップ)。 user_stopped 中は触らない。
+                    st_w = stream_states.get(sid)
+                    if (
+                        st_w is not None and st_w.busy and not st_w.user_stopped
+                        and time.monotonic() - last_line_at.get(sid, time.monotonic()) >= WATCHDOG_IDLE_SEC
+                        and not _busy_after_idle(path)
+                    ):
+                        st_w.busy = False
+                        last_line_at[sid] = time.monotonic()  # 再発火を抑える
+                        sessions_overview.notify()
                     if status != "ok":
                         continue
                     for raw in lines:
