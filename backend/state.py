@@ -153,6 +153,11 @@ class StreamState:
     # JSONL を直接読むので、 chat SSE の result イベント取りこぼしに依存しない (= 非アクティブ
     # タブでも追従でき、 active タブの取りこぼしも backend が拾い直せる)。
     busy: bool = False
+    # ユーザが Stop ボタンを押した「意思」 を sticky で持つ。 True の間は busy 計算結果が
+    # 何であれ busy=False を強制する (= 停止押した後の JSONL 末尾 (tool_use 等) で busy=True
+    # に戻ったり、 別 session の overview SSE 発火で停止 session が再評価されたりしても
+    # 停止ボタンが復活しない)。 次の素ユーザ発話で False にリセット。
+    user_stopped: bool = False
 
 
 def _make_agent_status(agent_id: str) -> dict:

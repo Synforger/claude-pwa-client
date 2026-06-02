@@ -88,6 +88,11 @@ def update_busy(session_id: str, line: dict) -> None:
             new = False
     elif is_user_prompt(line):
         new = True
+        # 素ユーザ発話 = turn の再開意思。 sticky だった「停止」 を解除する。
+        st.user_stopped = False
+    # ユーザが Stop を押した状態は busy=False を強制 (= 次の素ユーザ発話で解除)。
+    if st.user_stopped:
+        new = False
     if new != st.busy:
         st.busy = new
         sessions_overview_event.set()
