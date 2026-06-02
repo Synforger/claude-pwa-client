@@ -27,7 +27,7 @@ except ImportError:
     _HAS_WEBPUSH = False
 
 from config import AGENTS, NOTIFICATION_TITLE_DEFAULT, VAPID_SUB
-from state import atomic_write_text, sessions_meta
+from state import atomic_write_text, is_session_viewed, sessions_meta
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -173,6 +173,12 @@ async def broadcast_push(
     chat の該当セッションを開く。
     """
     global unread_count
+
+    # 該当 session を見ている WebSocket 接続 (/views/ws) があれば送信を完全スキップ。
+    # backend 権威の即時判定なので SW 側 silent + auto-close より早く止まる。
+    # 接続切断で自動的に「見てない」 扱いになるので stale 永久抑制も起きない。
+    if is_session_viewed(session_id):
+        return
 
     body_clean = sanitize_notif_body(message)
     notif_title = title or NOTIFICATION_TITLE_DEFAULT

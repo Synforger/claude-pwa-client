@@ -18,7 +18,7 @@ import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
 from config import AGENTS
@@ -34,6 +34,7 @@ from state import (
     shared_status,
     stream_states,
     unregister_session,
+    views_by_conn,
 )
 
 logger = logging.getLogger(__name__)
@@ -290,3 +291,34 @@ def list_agents():
 # 用)。 2026-05-31 撤去。 設計方針「制御はターミナル」 に揃え、 切替はターミナルから
 # `/model <name>` `/effort <level>` `/fast` を直打ちする (= picker で切替えても結局
 # 切替確認プロンプトが出てターミナル操作が要る、 多くの場合 default 固定で十分)。
+
+
+@router.websocket("/views/ws")
+async def views_ws(ws: WebSocket):
+    """frontend が「今どの session を見ているか」 を realtime に backend に伝える経路。
+
+    接続中の間 sid を保持し、 broadcast_push の `is_session_viewed` 判定に使う。
+    TCP FIN / iOS が PWA bg 化時に socket を切るタイミングで自動削除されるので、
+    stale state 永久抑制バグが構造的に起きない。
+
+    プロトコル: client が `{"sid": "ses_xxx" | null}` を JSON で随時送信。 sid 変化
+    (= タブ切替) で再送、 null で「今は何も見てない」 状態。
+    """
+    await ws.accept()
+    conn_id = id(ws)
+    try:
+        while True:
+            text = await ws.receive_text()
+            try:
+                payload = json.loads(text)
+            except (ValueError, TypeError):
+                continue
+            sid = payload.get("sid") if isinstance(payload, dict) else None
+            if isinstance(sid, str) and sid:
+                views_by_conn[conn_id] = sid
+            else:
+                views_by_conn.pop(conn_id, None)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        views_by_conn.pop(conn_id, None)
