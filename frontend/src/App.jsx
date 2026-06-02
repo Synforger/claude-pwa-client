@@ -101,7 +101,7 @@ export default function App() {
   // Stop は HTTP POST から WS 経由に移行 (= 失敗時 race の根本治療)。 useChatStream より
   // 先に呼ぶ必要があるのは sendStopIntent を stopMessage に渡すため。
   const { sendStopIntent } = useViewsWs(activeSid)
-  const { loading, setLoading, apiKeySource, sendMessage, sendAnswer, stopMessage, fetchLatest, endSession, pendingSendRef } = useChatStream({
+  const { loading, setLoading, apiKeySource, sendMessage, sendAnswer, stopMessage, fetchLatest, endSession, optimisticRef } = useChatStream({
     activeSession,
     setMessages,
     input, setInput,
@@ -111,7 +111,7 @@ export default function App() {
   })
   // loading (= 停止ボタンの真値) の唯一のソース。 backend 権威 busy を 1 本の SSE で受け、
   // 全タブの停止/送信ボタン + 青丸/赤丸を駆動する (= dual-driver 排除、 単一権威)。
-  useSessionsOverview({ setLoading, pendingSendRef })
+  useSessionsOverview({ setLoading, optimisticRef })
 
   const storageInfo = useStorageQuota()
 
@@ -187,7 +187,7 @@ export default function App() {
     //   - 各 session 末尾の streaming bubble を false に固定 (= 永遠の推論中表示を消す)
     if (prev !== null) {
       setLoading({})
-      pendingSendRef.current = {}
+      optimisticRef.current = {}
       setMessages(p => {
         const next = {}
         for (const sid of Object.keys(p)) {
@@ -209,7 +209,7 @@ export default function App() {
     if (isPushEnabledLocally()) {
       enablePush().catch(() => { /* 失敗時は UI ボタンで手動再有効化 */ })
     }
-    // pendingSendRef は ref なので deps 不要 (= ref.current 書き込みは再 render を起こさない)。
+    // optimisticRef は ref なので deps 不要 (= ref.current 書き込みは再 render を起こさない)。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.backend_start_time, setLoading, setMessages])
 

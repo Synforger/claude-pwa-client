@@ -9,12 +9,10 @@
  * イベント取りこぼし・再接続・複数デバイスでも、 次の snapshot で必ず正しい状態に収束する
  * (= reconcile-on-snapshot)。
  *
- * 楽観送信 (pendingSendRef): 送信直後は backend がまだ user 行を見ておらず busy=false の
- * ことがある。 その一瞬で停止ボタンが送信ボタンに戻る (= 二重送信・チラつき) のを防ぐため、
- * 送信時に pendingSendRef.current[sid] = {seen:false} を置き、 ここで確定的にクリアする:
- *   - busy=true を観測 = ターン開始確認 → クリアして以降 backend 権威に委譲
- *   - busy=false の snapshot を 2 回観測 = ターンが立ち上がらなかった (= 即終了 / no-op) →
- *     クリアして送信ボタンへ。 1 回目は保留 (= backend が user 行を処理する猶予)。
+ * 楽観意図 (optimisticRef): 送信/停止 直後は backend がまだそれを処理しておらず、 逆向きの
+ * busy が残った古い snapshot が来ることがある。 その一瞬でボタンが戻る (= 送信なら二重送信、
+ * 停止なら「2 回押さないと送信に戻らない」) のを防ぐため、 操作時に want='busy'(送信) /
+ * want='idle'(停止) を置き、 backend が追いつくまで保持する (詳細は applyOverviewSnapshot)。
  * 旧来の 1500ms タイムアウト窓を撤去し、 snapshot 駆動の event ベースにした (= タイマーで
  * ボタンを駆動しない、 という参照実装の原則に合わせる)。
  *
@@ -25,7 +23,7 @@ import { useEffect } from 'react'
 import { apiUrl } from '../utils/api.js'
 import { applyOverviewSnapshot } from './internal/applyOverviewSnapshot.js'
 
-export function useSessionsOverview({ setLoading, pendingSendRef }) {
+export function useSessionsOverview({ setLoading, optimisticRef }) {
   useEffect(() => {
     const es = new EventSource(apiUrl('/sessions/overview/stream'))
     es.onmessage = (e) => {
@@ -36,9 +34,9 @@ export function useSessionsOverview({ setLoading, pendingSendRef }) {
       } catch {
         return
       }
-      setLoading(prev => applyOverviewSnapshot(prev, payload, pendingSendRef))
+      setLoading(prev => applyOverviewSnapshot(prev, payload, optimisticRef))
     }
     es.onerror = () => { /* EventSource は自動再接続 (= 一時切断は無視) */ }
     return () => es.close()
-  }, [setLoading, pendingSendRef])
+  }, [setLoading, optimisticRef])
 }
