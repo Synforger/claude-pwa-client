@@ -12,6 +12,9 @@ export function formatTool(block) {
   let shortLabel = ''
   // Edit / Write は diff 描画のため input を保持する
   let diffInput = null
+  // Task の description は subagent の meta.description と一致するので、 🧩 スコープ表示の
+  // 引き当てキーとして保持する (= タップで該当 agent の transcript に直行)。
+  let subagentDescription = null
   if (name === 'Edit' && input && typeof input === 'object') {
     diffInput = {
       kind: 'edit',
@@ -138,6 +141,7 @@ export function formatTool(block) {
       // も見られる形に揃える。
       const desc = input?.description ?? ''
       const sub = input?.subagent_type ?? 'general-purpose'
+      subagentDescription = desc || null
       shortLabel = `🤖 agent[${sub}]: ${truncate(desc, SHORT_LABEL_MAX - sub.length - 12)}`
       const lines = [`agent: ${sub}`, `description: ${desc}`]
       if (input?.model) lines.push(`model: ${input.model}`)
@@ -324,7 +328,7 @@ export function formatTool(block) {
         : `🔧 ${displayName}`
     }
   }
-  return { id, name, label, shortLabel, diffInput }
+  return { id, name, label, shortLabel, diffInput, subagentDescription }
 }
 
 export function formatCost(usd) {
