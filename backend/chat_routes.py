@@ -17,6 +17,7 @@
 import asyncio
 import json
 import logging
+import uuid
 
 from fastapi import APIRouter, Body, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
@@ -304,9 +305,10 @@ async def views_ws(ws: WebSocket):
     プロトコル: client が `{"sid": "ses_xxx" | null}` を JSON で随時送信。 sid 変化
     (= タブ切替) で再送、 null で「今は何も見てない」 状態。
     """
-    await ws.accept()
-    conn_id = id(ws)
+    # conn_id は uuid (= id(ws) は GC 後再利用で別接続と衝突する余地があるため不採用)。
+    conn_id = uuid.uuid4().hex
     try:
+        await ws.accept()
         while True:
             text = await ws.receive_text()
             try:
