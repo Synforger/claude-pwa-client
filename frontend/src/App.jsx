@@ -67,6 +67,7 @@ export default function App() {
     createSession,
     removeSession,
     renameSession,
+    setNotifyMode,
   } = useSessions()
 
   const activeSession = useMemo(
@@ -461,6 +462,7 @@ export default function App() {
             onSelect={selectSession}
             onCreate={(agentId) => createSession(agentId)}
             onRename={renameSession}
+            onSetNotifyMode={setNotifyMode}
             onDelete={(sid) => setConfirmDelete(sid)}
             sessionBadges={sessionBadges}
             pushAvailable={pushAvailable}

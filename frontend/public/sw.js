@@ -101,22 +101,36 @@ self.addEventListener('push', (event) => {
     } catch (e) {
       diagLog('push:matchAll-error', { err: String(e) })
     }
-    diagLog('push:decision', { isSelfViewing, clientCount, focusedCount })
+    // セッションごとの通知モード (both / banner / off) と「自分が見てる session」 を合成して
+    // silent / autoClose を決める。 **どの分岐でも showNotification は必ず呼ぶ** (= silent push
+    // 判定を避けて iOS の subscription 破棄を構造的に回避する不変条件)。
+    //   - 見てる session、 または off : silent + 直後に close (= バナー/通知センターに残さない)
+    //   - banner                      : silent バナー (= 音なし、 通知センターには残る)
+    //   - both (既定)                 : 音 + バナー
+    const mode = data.notify_mode || 'both'
+    let silent, autoClose
+    if (isSelfViewing || mode === 'off') {
+      silent = true; autoClose = true
+    } else if (mode === 'banner') {
+      silent = true; autoClose = false
+    } else {
+      silent = false; autoClose = false
+    }
+    diagLog('push:decision', { isSelfViewing, mode, silent, autoClose, clientCount, focusedCount })
     try {
       await self.registration.showNotification(data.title || 'Notification', {
         ...options,
-        silent: isSelfViewing,
+        silent,
       })
-      // 自分が見てる session 宛は、 表示後すぐに close することでバナー/通知センター
-      // からも消す (= 仕様上 showNotification は呼ぶ義務があるので、 呼んだ直後に取り
-      // 下げる)。 iOS でバナーが一瞬チラつく可能性はあるが、 通知センターには残らない。
-      if (isSelfViewing) {
+      // autoClose: showNotification は呼ぶ義務があるので、 呼んだ直後に取り下げる。
+      // iOS でバナーが一瞬チラつく可能性はあるが、 通知センターには残らない。
+      if (autoClose) {
         try {
           const list = await self.registration.getNotifications({ tag: options.tag })
           for (const n of list) { try { n.close() } catch { /* ignore */ } }
         } catch { /* ignore */ }
       }
-      diagLog('push:shown', { title: data.title, silent: isSelfViewing, autoClose: isSelfViewing })
+      diagLog('push:shown', { title: data.title, silent, autoClose })
     } catch (e) {
       diagLog('push:show-error', { err: String(e) })
     }

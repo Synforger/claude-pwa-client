@@ -44,12 +44,18 @@ DEFAULT_CTX_WINDOW = 1_000_000
 
 
 # --- セッション定義 (= UI 上の 1 タブ) ---
+# セッションごとの通知モード (= ⋯ メニューで切替)。 Web Push の制約上「音のみ (バナー無し)」 は
+# 作れないので 3 値: both=音+バナー / banner=消音バナー / off=このセッションは通知しない。
+NOTIFY_MODES = ("both", "banner", "off")
+
+
 @dataclass
 class SessionDef:
     id: str
     agent_id: str
     title: str
     created_at: int
+    notify_mode: str = "both"
 
     def to_dict(self) -> dict:
         return {
@@ -57,6 +63,7 @@ class SessionDef:
             "agent_id": self.agent_id,
             "title": self.title,
             "created_at": self.created_at,
+            "notify_mode": self.notify_mode,
         }
 
 
@@ -98,8 +105,10 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
                 if sid:
                     logger.warning("session %s skipped: agent_id %r not in AGENTS", sid, aid)
                 continue
+            mode = entry.get("notify_mode")
             sessions_meta[sid] = SessionDef(
-                id=sid, agent_id=aid, title=title, created_at=int(created)
+                id=sid, agent_id=aid, title=title, created_at=int(created),
+                notify_mode=mode if mode in NOTIFY_MODES else "both",
             )
     else:
         # 初期化: agent ごと 1 セッションを生成する
@@ -291,6 +300,15 @@ def rename_session(session_id: str, title: str) -> bool:
     if session_id not in sessions_meta or not title:
         return False
     sessions_meta[session_id].title = title
+    save_sessions_meta()
+    return True
+
+
+def set_notify_mode(session_id: str, mode: str) -> bool:
+    """セッションの通知モード (both / banner / off) を設定して永続化する。"""
+    if session_id not in sessions_meta or mode not in NOTIFY_MODES:
+        return False
+    sessions_meta[session_id].notify_mode = mode
     save_sessions_meta()
     return True
 
