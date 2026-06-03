@@ -26,6 +26,7 @@ from config import AGENTS
 from usage import read_latest_rate_limits
 from state import (
     agent_status,
+    atomic_write_text,
     backend_start_time,
     register_session,
     rename_session,
@@ -83,6 +84,59 @@ def patch_session(session_id: str, payload: dict = Body(...), _: str = Depends(r
     if not touched:
         raise HTTPException(status_code=400, detail="title または notify_mode が必要")
     return sessions_meta[session_id].to_dict()
+
+
+@router.post("/sessions/{session_id}/fork")
+def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(require_session)):
+    """会話を任意メッセージから分岐する (= フォーク)。
+
+    body: {from_uuid}。 from_uuid を leaf に parentUuid 鎖を根まで遡った lineage を、 新しい
+    claude session の jsonl として元と同じ project dir に書き出す。 その session を
+    `claude --resume` で開く新タブ (= SessionDef、 parent_id + resume_session_id 付き) を
+    登録して返す。 元タブ・元 jsonl には一切触れない。
+    """
+    from pty_runner import jsonl_path_for_session  # noqa: PLC0415
+    from fork import build_forked_lineage, is_clean_fork_point  # noqa: PLC0415
+
+    from_uuid = payload.get("from_uuid")
+    if not from_uuid or not isinstance(from_uuid, str):
+        raise HTTPException(status_code=400, detail="from_uuid が必要です")
+
+    src_path = jsonl_path_for_session(session_id)
+    if src_path is None or not src_path.exists():
+        raise HTTPException(status_code=409, detail="この会話の JSONL がまだ確定していません")
+    try:
+        source_lines = src_path.read_text(encoding="utf-8").splitlines()
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"JSONL 読み込み失敗: {e}")
+
+    if not is_clean_fork_point(source_lines, from_uuid):
+        raise HTTPException(
+            status_code=400,
+            detail="この位置からは分岐できません (= user 発言か完了したターンのみ)",
+        )
+
+    new_claude_id = str(uuid.uuid4())
+    try:
+        forked = build_forked_lineage(source_lines, from_uuid, new_claude_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not forked:
+        raise HTTPException(status_code=400, detail="分岐対象の会話が空です")
+
+    # 元 jsonl と同じ project dir (= 同 cwd hash) に置く。 新タブは agent を継承 = 同 cwd で
+    # spawn するので、 claude --resume がこの新 jsonl を確実に見つける。
+    dest = src_path.parent / f"{new_claude_id}.jsonl"
+    atomic_write_text(dest, "\n".join(forked) + "\n")
+
+    parent = sessions_meta[session_id]
+    new_meta = register_session(
+        parent.agent_id,
+        title=f"{parent.title} fork",
+        parent_id=session_id,
+        resume_session_id=new_claude_id,
+    )
+    return new_meta.to_dict()
 
 
 def _mark_user_stopped(session_id: str) -> bool:
