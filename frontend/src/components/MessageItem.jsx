@@ -314,11 +314,13 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
     )
   }
   // フォーク (= 会話分岐) の起点にできる切れ目だけにボタンを出す。 user 発言は常に安全、
-  // assistant は end_turn で閉じたターン末尾のみ (= tool_use/tool_result の途中で切ると
-  // resume が壊れるため)。 最終判定は backend (is_clean_fork_point) が再チェックする。
+  // assistant は tool_use を保留してないテキスト回答のみ (= tool 行で切ると resume が壊れる)。
+  // meta.stop_reason は result が最後のバブルに上書き stamp するため当てにならないので使わず、
+  // バブルが tool / 質問待ちを持たない (= 純テキスト回答) ことで判定する。 最終判定は backend。
   const canForkUser = msg.role === 'user' && msg.uuid && !msg.optimistic && !msg.sendFailed
   const canForkAgent =
-    msg.role === 'agent' && !msg.streaming && msg.uuid && msg.meta?.stop_reason === 'end_turn'
+    msg.role === 'agent' && !msg.streaming && msg.uuid &&
+    !(msg.tools?.length > 0) && !msg.askUserQuestion
   const forkBtn = onFork && (canForkUser || canForkAgent) ? (
     <div className="bubble-fork-row">
       <button
