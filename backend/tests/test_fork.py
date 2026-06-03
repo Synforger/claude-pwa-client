@@ -107,6 +107,42 @@ def test_clean_point_unknown_uuid_false():
     assert is_clean_fork_point(SAMPLE, "nope") is False
 
 
+# --- message.id (= assistant バブル識別子) 経由の解決 ---
+# 1 つの API message が thinking 行 + text 行に分かれ、 同じ message.id を共有するケース。
+
+def _asst_mid(uuid, parent, mid, blocks):
+    msg = {"id": mid, "stop_reason": "tool_use", "content": blocks}
+    return _line(uuid, parent, "assistant", message=msg)
+
+
+# u1 -> [m1: think(a1) + text(a2) 同一 message.id] の clean な回答
+GROUPED = [
+    _line("u1", None, "user"),
+    _asst_mid("a1", "u1", "msg_X", [{"type": "thinking", "thinking": "..."}]),
+    _asst_mid("a2", "a1", "msg_X", [{"type": "text", "text": "answer"}]),
+]
+
+
+def test_status_resolves_message_id_to_clean_group():
+    # frontend が送る from_uuid = message.id。 group に tool_use が無いので ok
+    from fork import fork_point_status  # noqa: PLC0415
+    assert fork_point_status(GROUPED, "msg_X") == "ok"
+
+
+def test_status_message_id_group_with_tool_use_is_dirty():
+    from fork import fork_point_status  # noqa: PLC0415
+    lines = GROUPED + [_asst_mid("a3", "a2", "msg_X", [{"type": "tool_use", "name": "Read", "id": "t"}])]
+    # 同 message.id に tool_use 行が混ざれば dirty
+    assert fork_point_status(lines, "msg_X") == "dirty"
+
+
+def test_build_lineage_from_message_id_uses_group_leaf():
+    # message.id 指定 → group 最後 (a2) を leaf に鎖を遡る = u1,a1,a2 全部残る
+    out = build_forked_lineage(GROUPED, from_uuid="msg_X", new_session_id="NEW")
+    assert _uuids(out) == ["u1", "a1", "a2"]
+    assert all(json.loads(x)["sessionId"] == "NEW" for x in out)
+
+
 # --- エンドポイント (chat_routes.fork_session) の結線 test ---
 
 def _setup_fork_env(tmp_path, monkeypatch, isolated_state, source_lines=SAMPLE):
@@ -159,3 +195,32 @@ def test_fork_endpoint_requires_from_uuid(tmp_path, monkeypatch, isolated_state)
         assert e.status_code == 400
         return
     raise AssertionError("expected 400 when from_uuid missing")
+
+
+def test_fork_endpoint_finds_uuid_in_rolled_file(tmp_path, monkeypatch, isolated_state):
+    """claude が session id をロールして、 from_uuid が live でなく project dir 内の別
+    (= 古い) jsonl に居るケース。 cwd 内全 jsonl を走査して見つける。"""
+    import jsonl_watcher  # noqa: PLC0415
+    chat_routes, parent, live = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
+    # live (OLD.jsonl) には無い uuid を、 古いファイルに置く
+    rolled = tmp_path / "rolled.jsonl"
+    rolled.write_text("\n".join(SAMPLE) + "\n", encoding="utf-8")
+    live.write_text(_line("zz", None, "user") + "\n", encoding="utf-8")  # live は別内容
+    monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd: tmp_path)
+    out = chat_routes.fork_session(parent.id, {"from_uuid": "u2"})
+    assert out["parent_id"] == parent.id
+    new = tmp_path / f"{out['resume_session_id']}.jsonl"
+    assert _uuids(new.read_text().splitlines()) == ["u1", "a1", "u2"]
+
+
+def test_fork_endpoint_not_found_across_all_files(tmp_path, monkeypatch, isolated_state):
+    from fastapi import HTTPException  # noqa: PLC0415
+    import jsonl_watcher  # noqa: PLC0415
+    chat_routes, parent, _ = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
+    monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd: tmp_path)
+    try:
+        chat_routes.fork_session(parent.id, {"from_uuid": "ghost-uuid"})
+    except HTTPException as e:
+        assert e.status_code == 404
+        return
+    raise AssertionError("expected 404 when uuid is in no file")
