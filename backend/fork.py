@@ -41,52 +41,58 @@ def _content_block_types(line: dict) -> list[str]:
     return [b.get("type") for b in content if isinstance(b, dict)]
 
 
-def is_clean_fork_point(source_lines: list[str], from_uuid: str) -> bool:
-    """from_uuid が分岐の安全な切れ目か判定する。
+def _resolve_target(parsed: list[dict], from_uuid: str) -> tuple[dict | None, list[dict]]:
+    """from_uuid を行に解決する。 戻り値 (leaf_line, group_lines)。
 
-    tool_use と tool_result のペアの間で切ると resume が壊れるので、 stop_reason でなく
-    コンテンツ構造で判定する (= frontend は result の stop_reason を最後のバブルに上書き
-    stamp するため、 バブルの stop_reason は当てにならない。 行の中身が真値):
-      - user      : tool_result ブロックを含まない実プロンプトなら OK (= claude の次手番が
-                    user 入力で、 dangling が無い)
-      - assistant : tool_use ブロックを含まない行なら OK (= ツール呼び出しが保留してない、
-                    end_turn のテキスト回答等)
+    frontend は **assistant バブルの識別子に message.id (= "msg_xxx") を使う** (= jsonl の行
+    uuid とは別物)。 さらに 1 つの API message が thinking / text / tool_use と複数行に分かれて
+    同じ message.id を共有するので、 message.id 一致は『その id を持つ全行 (= group)』 を返し、
+    leaf には group の最後 (= file 順最後 = そのメッセージの末尾) を採る。
+      - 行 uuid 直接一致: leaf=その行、 group=[その行]   (= user バブル等)
+      - message.id 一致 : leaf=group[-1]、 group=全行       (= assistant バブル)
+      - どちらも無し    : (None, [])
     """
-    for d in _parse_lines(source_lines):
-        if d.get("uuid") != from_uuid:
-            continue
-        if d.get("isSidechain") or d.get("isMeta"):
-            return False
-        t = d.get("type")
-        block_types = _content_block_types(d)
-        if t == "user":
-            return "tool_result" not in block_types
-        if t == "assistant":
-            return "tool_use" not in block_types
-        return False
-    return False
+    by_uuid = {d.get("uuid"): d for d in parsed if d.get("uuid")}
+    if from_uuid in by_uuid:
+        d = by_uuid[from_uuid]
+        return d, [d]
+    group = [d for d in parsed if (d.get("message") or {}).get("id") == from_uuid]
+    if not group:
+        return None, []
+    return group[-1], group
 
 
 def fork_point_status(source_lines: list[str], from_uuid: str) -> str:
     """from_uuid が分岐できるか分類する。 戻り値:
       "ok"        : 分岐可能な切れ目
-      "not_found" : その uuid の行が jsonl に無い (= バインドが古い / 別 jsonl / 未確定)
+      "not_found" : その uuid / message.id が jsonl に無い (= 別 jsonl / 未確定)
       "dirty"     : 行はあるが tool 保留中 / sidechain 等で切れ目でない
-    is_clean_fork_point の bool では区別できない 2 つの失敗要因を分けて返す (= 診断用)。
+
+    tool_use と tool_result のペアの間で切ると resume が壊れるので、 stop_reason でなく
+    コンテンツ構造で判定する (= frontend は result の stop_reason を最後のバブルに上書き
+    stamp するため当てにならない。 行の中身が真値):
+      - user      : tool_result ブロックを含まない実プロンプトなら ok
+      - assistant : group の全行で tool_use ブロックが無ければ ok (= ツール呼び出しを
+                    保留してない、 thinking/text だけの回答)
     """
-    for d in _parse_lines(source_lines):
-        if d.get("uuid") != from_uuid:
-            continue
-        if d.get("isSidechain") or d.get("isMeta"):
-            return "dirty"
-        t = d.get("type")
-        block_types = _content_block_types(d)
-        if t == "user":
-            return "ok" if "tool_result" not in block_types else "dirty"
-        if t == "assistant":
-            return "ok" if "tool_use" not in block_types else "dirty"
+    parsed = _parse_lines(source_lines)
+    leaf, group = _resolve_target(parsed, from_uuid)
+    if leaf is None:
+        return "not_found"
+    if any(d.get("isSidechain") or d.get("isMeta") for d in group):
         return "dirty"
-    return "not_found"
+    t = leaf.get("type")
+    if t == "user":
+        return "ok" if "tool_result" not in _content_block_types(leaf) else "dirty"
+    if t == "assistant":
+        has_tool = any("tool_use" in _content_block_types(d) for d in group)
+        return "ok" if not has_tool else "dirty"
+    return "dirty"
+
+
+def is_clean_fork_point(source_lines: list[str], from_uuid: str) -> bool:
+    """fork_point_status が "ok" かの薄いラッパ (= 既存呼び出し / test 互換)。"""
+    return fork_point_status(source_lines, from_uuid) == "ok"
 
 
 def build_forked_lineage(
@@ -110,14 +116,18 @@ def build_forked_lineage(
         for d in parsed
         if d.get("type") in _MESSAGE_TYPES and d.get("uuid")
     }
-    if from_uuid not in by_uuid:
+    # from_uuid は行 uuid か message.id (= assistant バブル) のどちらか。 leaf 行を解決して、
+    # その実 uuid を鎖の起点にする。
+    leaf, _group = _resolve_target(parsed, from_uuid)
+    leaf_uuid = leaf.get("uuid") if leaf is not None else None
+    if leaf_uuid not in by_uuid:
         raise ValueError(f"from_uuid {from_uuid!r} not found in source session")
 
     # leaf から parentUuid を根まで遡る。 親がファイル内に無い (= 過去の compact /
     # 別セッション由来) 時点で打ち切る = そこが新セッションの実質的な根になる。
     chain: list[dict] = []
     seen: set[str] = set()
-    cur: str | None = from_uuid
+    cur: str | None = leaf_uuid
     while cur is not None and cur in by_uuid and cur not in seen:
         seen.add(cur)
         chain.append(by_uuid[cur])
