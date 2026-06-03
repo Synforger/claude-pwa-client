@@ -280,7 +280,7 @@ function SessionEndBanner() {
   )
 }
 
-const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKeySource, activeSubagentTool, onOpenSubagents }) {
+const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKeySource, activeSubagentTool, onOpenSubagents, onFork }) {
   if (msg.role === 'system' && msg.kind === 'compact') {
     return <CompactBanner msg={msg} />
   }
@@ -313,6 +313,25 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
       </div>
     )
   }
+  // フォーク (= 会話分岐) の起点にできる切れ目だけにボタンを出す。 user 発言は常に安全、
+  // assistant は end_turn で閉じたターン末尾のみ (= tool_use/tool_result の途中で切ると
+  // resume が壊れるため)。 最終判定は backend (is_clean_fork_point) が再チェックする。
+  const canForkUser = msg.role === 'user' && msg.uuid && !msg.optimistic && !msg.sendFailed
+  const canForkAgent =
+    msg.role === 'agent' && !msg.streaming && msg.uuid && msg.meta?.stop_reason === 'end_turn'
+  const forkBtn = onFork && (canForkUser || canForkAgent) ? (
+    <div className="bubble-fork-row">
+      <button
+        type="button"
+        className="bubble-fork"
+        onClick={() => onFork(msg.uuid)}
+        title="Fork the conversation from this message into a new tab"
+      >
+        ⑂ fork
+      </button>
+    </div>
+  ) : null
+
   return (
     <div className={`message ${msg.role}`}>
       {msg.role === 'user' && (msg.imageRefs?.length > 0 || msg.imageUrls?.length > 0 || msg.fileNames?.length > 0) ? (
@@ -448,6 +467,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
       )}
       {/* 送信失敗 (= backend で JSONL user 行 +1 を確認できず、 再送 1 回も届かなかった)
           の表示。 text は input box に復元されているのでユーザは送り直せる。 */}
+      {forkBtn}
       {msg.role === 'user' && msg.sendFailed && (
         <div className="send-failed-note" style={{ color: '#c0392b', fontSize: '0.85em', marginTop: 4 }}>
           ⚠ Not delivered to claude — text restored in the input box

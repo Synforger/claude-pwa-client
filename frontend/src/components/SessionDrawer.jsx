@@ -137,6 +137,24 @@ export default function SessionDrawer({
     setRenameFor(null)
   }
 
+  // フォークタブ (= parent_id を持つ) を親の直下にインデント表示する (= C 案)。 兄弟内の
+  // 並びは渡された順 (= created_at 降順) を保つ。 親が消えてる孤児はトップレベル扱い。
+  const idSet = new Set(sessions.map(s => s.id))
+  const childrenByParent = {}
+  for (const s of sessions) {
+    const key = (s.parent_id && idSet.has(s.parent_id)) ? s.parent_id : '__root__'
+    if (!childrenByParent[key]) childrenByParent[key] = []
+    childrenByParent[key].push(s)
+  }
+  const orderedSessions = []
+  const walkTree = (list, depth) => {
+    for (const s of list) {
+      orderedSessions.push({ session: s, depth })
+      if (childrenByParent[s.id]) walkTree(childrenByParent[s.id], depth + 1)
+    }
+  }
+  walkTree(childrenByParent['__root__'] || [], 0)
+
   return (
     <>
       {open && <div className="drawer-overlay" onClick={onClose} />}
@@ -209,15 +227,17 @@ export default function SessionDrawer({
           {sessions.length === 0 && (
             <div className="drawer-empty">会話がありません。 上の「+ 新規会話」 から作成してください。</div>
           )}
-          {sessions.map(s => {
+          {orderedSessions.map(({ session: s, depth }) => {
             const badge = sessionBadges[s.id]
             const isActive = s.id === activeId
             const isMenuOpen = menuFor === s.id
             const isRenaming = renameFor === s.id
+            const isFork = depth > 0
             return (
               <div
                 key={s.id}
-                className={`drawer-item ${isActive ? 'active' : ''}`}
+                className={`drawer-item ${isActive ? 'active' : ''} ${isFork ? 'fork' : ''}`}
+                style={depth > 0 ? { paddingLeft: `${depth * 16}px` } : undefined}
               >
                 {isRenaming ? (
                   <input
@@ -236,6 +256,7 @@ export default function SessionDrawer({
                     className="drawer-item-main"
                     onClick={() => handleSelect(s.id)}
                   >
+                    {isFork && <span className="drawer-item-fork-mark" title="フォーク">⑂</span>}
                     <span className="drawer-item-title">{s.title}</span>
                     {badge && <span className={`tab-badge ${badge.kind}`}>{badge.label}</span>}
                   </button>

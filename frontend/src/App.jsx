@@ -65,6 +65,7 @@ export default function App() {
     setActiveId,
     agents,
     createSession,
+    forkSession,
     removeSession,
     renameSession,
     setNotifyMode,
@@ -492,6 +493,7 @@ export default function App() {
                 apiKeySource={activeSid ? apiKeySource[activeSid] : null}
                 activeSubagentTool={status?.subagent?.last_tool || null}
                 onOpenSubagents={(focus) => { setSubagentsFocus(focus || null); setSubagentsOpen(true) }}
+                onFork={activeSid ? ((uuid) => forkSession(activeSid, uuid)) : null}
               />
             ))}
           </div>
