@@ -12,8 +12,12 @@ import maintenance as m
 
 
 def test_footprint_parse_units():
+    # 旧表記 (phys_footprint: ...)
     assert m._FOOTPRINT_RE.search("phys_footprint: 30 GB").groups() == ("30", "GB")
     assert m._FOOTPRINT_RE.search("    phys_footprint: 38 MB").groups() == ("38", "MB")
+    # 新表記 (Footprint: ..., capital F、 接頭辞なし)。 macOS が出すヘッダ行をそのまま再現。
+    sample = "sunshine [16114]: 64-bit    Footprint: 40 GB (16384 bytes per page)"
+    assert m._FOOTPRINT_RE.search(sample).groups() == ("40", "GB")
 
 
 def _patch(monkeypatch, *, sunshine_pid, streamer_pid, footprint_bytes, killed):
@@ -27,6 +31,9 @@ def _patch(monkeypatch, *, sunshine_pid, streamer_pid, footprint_bytes, killed):
     monkeypatch.setattr(m, "_pgrep_one", fake_pgrep)
     monkeypatch.setattr(m, "_phys_footprint_bytes", lambda pid: footprint_bytes)
     monkeypatch.setattr(m.os, "kill", lambda pid, sig: killed.append((pid, sig)))
+    # 新導入の streamer ゾンビ判定はテスト本体で別途上書きする時以外は noop / streamer_pid 互換で。
+    monkeypatch.setattr(m, "_reap_zombie_streamers", lambda: 0)
+    monkeypatch.setattr(m, "_has_live_streamer", lambda: streamer_pid is not None)
 
 
 def test_skip_when_sunshine_absent(monkeypatch):
@@ -66,6 +73,46 @@ def test_skip_when_footprint_unavailable(monkeypatch):
     killed = []
     _patch(monkeypatch, sunshine_pid=100, streamer_pid=None,
            footprint_bytes=None, killed=killed)
+    assert m.restart_sunshine_if_bloated() is False
+    assert killed == []
+
+
+def test_zombie_streamer_does_not_block_sunshine_kill(monkeypatch):
+    """配信終了後に reap されなかった streamer (= elapsed が閾値超え) が居ても、 ゾンビ
+    として先に reap した上で sunshine 肥大化なら kill する。 旧版が永遠にスキップして
+    sunshine が 40GB まで膨らんだ 2026-06-04 の再発防止 (= 真因 #1)。"""
+    killed = []
+    reaped = []
+
+    def fake_pgrep(pattern, *, exact=False):
+        if "sunshine" in pattern:
+            return 100
+        return None
+
+    monkeypatch.setattr(m, "_pgrep_one", fake_pgrep)
+    monkeypatch.setattr(m, "_phys_footprint_bytes",
+                        lambda pid: m.SUNSHINE_FOOTPRINT_MAX_BYTES + 1)
+    monkeypatch.setattr(m.os, "kill", lambda pid, sig: killed.append((pid, sig)))
+    monkeypatch.setattr(m, "_reap_zombie_streamers",
+                        lambda: reaped.append("reap") or 1)
+    # ゾンビ reap 後は live streamer 無し
+    monkeypatch.setattr(m, "_has_live_streamer", lambda: False)
+    assert m.restart_sunshine_if_bloated() is True
+    assert reaped == ["reap"]  # 必ず ゾンビ reap が先に走る
+    assert killed == [(100, signal.SIGKILL)]
+
+
+def test_live_streamer_still_protects_sunshine(monkeypatch):
+    """elapsed が短い streamer (= 本当に配信中) が居れば、 肥大化していても sunshine
+    には触らない。 ゾンビ判定の閾値導入で誤って配信中の sunshine を kill しない安全弁。"""
+    killed = []
+    monkeypatch.setattr(m, "_pgrep_one",
+                        lambda pattern, exact=False: 100 if "sunshine" in pattern else None)
+    monkeypatch.setattr(m, "_phys_footprint_bytes",
+                        lambda pid: m.SUNSHINE_FOOTPRINT_MAX_BYTES + 1)
+    monkeypatch.setattr(m.os, "kill", lambda pid, sig: killed.append((pid, sig)))
+    monkeypatch.setattr(m, "_reap_zombie_streamers", lambda: 0)
+    monkeypatch.setattr(m, "_has_live_streamer", lambda: True)
     assert m.restart_sunshine_if_bloated() is False
     assert killed == []
 
