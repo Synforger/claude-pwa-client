@@ -232,7 +232,20 @@ def cleanup_old_jsonl(
 
 _FOOTPRINT_UNITS = {"B": 1, "K": 1024, "KB": 1024, "M": 1024**2, "MB": 1024**2,
                     "G": 1024**3, "GB": 1024**3, "T": 1024**4, "TB": 1024**4}
-_FOOTPRINT_RE = re.compile(r"phys_footprint:\s*([\d.]+)\s*([KMGT]?B)", re.IGNORECASE)
+# `footprint` コマンドの出力ヘッダ行 (= プロセス合計の phys_footprint 相当)。
+# macOS のバージョンによって表記が違うので両対応する:
+#   旧: `phys_footprint:  40 GB`
+#   新: `sunshine [16114]: 64-bit    Footprint: 40 GB (16384 bytes per page)`
+# capital F / 接頭辞無しでもマッチさせ、 サマリ表 (= MALLOC_SMALL 行等) は拾わない
+# ように行頭から見る IGNORECASE で。
+_FOOTPRINT_RE = re.compile(r"(?:phys_)?footprint:\s*([\d.]+)\s*([KMGT]?B)", re.IGNORECASE)
+# 配信が物理的に終わっても release/streamer プロセスだけ残るケースがある (= 観測実績、
+# 5 日稼働で sunshine phys_footprint 40GB まで膨張、 streamer ゾンビが watchdog の
+# 「配信中なら触らない」 ガードに引っかかって sunshine が永遠に kill されなかった)。
+# elapsed 秒がこの閾値を超えた streamer は配信中ではなくゾンビとみなして kill する。
+# 通常の moonlight ストリームは数分〜数十分単位なので、 1 時間あれば明確にゾンビ判定で
+# 良い (= 連続配信ユーザでも 1 時間で session を畳まないことはほぼ無い)。
+STREAMER_ZOMBIE_SECONDS = 3600
 
 
 def _pgrep_one(pattern: str, *, exact: bool = False) -> int | None:
@@ -263,6 +276,78 @@ def _phys_footprint_bytes(pid: int) -> int | None:
     return int(float(m.group(1)) * _FOOTPRINT_UNITS[m.group(2).upper()])
 
 
+def _reap_zombie_streamers() -> int:
+    """release/streamer プロセスのうち elapsed が閾値を超えたものをゾンビとして kill する。
+    moonlight stream 終了時にきれいに reap されない地雷の対策。 戻り値は kill した件数。
+
+    elapsed 取得には `ps -o etimes= -p <pid>` を使う (etimes は経過秒、 etime は HH:MM:SS で
+    parse がだるい)。 ゾンビ判定の閾値 STREAMER_ZOMBIE_SECONDS 以下なら本当に配信中の可能性が
+    あるので触らない (= 配信中の停止という最悪挙動を避ける)。"""
+    try:
+        r = subprocess.run(
+            ["pgrep", "-f", "release/streamer"],
+            capture_output=True, text=True, timeout=2.0,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return 0
+    if r.returncode != 0:
+        return 0
+    pids = [p for p in r.stdout.split() if p.strip().isdigit()]
+    killed = 0
+    for pid_str in pids:
+        try:
+            etime_r = subprocess.run(
+                ["ps", "-o", "etimes=", "-p", pid_str],
+                capture_output=True, text=True, timeout=2.0,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            continue
+        try:
+            elapsed = int(etime_r.stdout.strip())
+        except ValueError:
+            continue
+        if elapsed < STREAMER_ZOMBIE_SECONDS:
+            continue
+        try:
+            os.kill(int(pid_str), signal.SIGKILL)
+            killed += 1
+            logger.info(
+                "maintenance: killed zombie streamer pid=%s (elapsed=%ds)",
+                pid_str, elapsed,
+            )
+        except (ProcessLookupError, PermissionError, OSError):
+            continue
+    return killed
+
+
+def _has_live_streamer() -> bool:
+    """配信中とみなす streamer (= elapsed が STREAMER_ZOMBIE_SECONDS 未満) が居るか。
+    ゾンビ reap 後に呼ぶことで「本当に配信中」 だけを sunshine 触らない条件に絞れる。"""
+    try:
+        r = subprocess.run(
+            ["pgrep", "-f", "release/streamer"],
+            capture_output=True, text=True, timeout=2.0,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    if r.returncode != 0:
+        return False
+    for pid_str in r.stdout.split():
+        if not pid_str.strip().isdigit():
+            continue
+        try:
+            etime_r = subprocess.run(
+                ["ps", "-o", "etimes=", "-p", pid_str],
+                capture_output=True, text=True, timeout=2.0,
+            )
+            elapsed = int(etime_r.stdout.strip())
+        except (subprocess.TimeoutExpired, OSError, ValueError):
+            continue
+        if elapsed < STREAMER_ZOMBIE_SECONDS:
+            return True
+    return False
+
+
 def restart_sunshine_if_bloated() -> bool:
     """Sunshine が phys_footprint 閾値を超えて肥大化し、 かつアクティブな画面共有
     ストリームが無い時だけ kill -9 で restart する (= LaunchAgent KeepAlive が clean
@@ -271,12 +356,19 @@ def restart_sunshine_if_bloated() -> bool:
 
     kill -9 を使う理由: SIGTERM (launchctl kickstart) 経由の graceful shutdown は
     ScreenCaptureKit / VideoToolbox の resource を中途半端に解放し respawn 後の encoder
-    初期化を hang させる既知の地雷がある。 SIGKILL なら OS が resource を強制 reap する。"""
+    初期化を hang させる既知の地雷がある。 SIGKILL なら OS が resource を強制 reap する。
+
+    2026-06-04 改修: 配信中ガードを「streamer pid 在席」 から「elapsed が短い streamer 在席」
+    に絞った。 旧版は配信終了後に reap されない streamer ゾンビが居るだけで watchdog が
+    永遠にスキップし続け、 5 日稼働で 40GB phys_footprint まで膨張した実例があった。 先に
+    ゾンビ streamer (= 1h 以上 elapsed) を kill してから判定する。"""
     pid = _pgrep_one("sunshine", exact=True)
     if pid is None:
         return False  # 未導入 or 停止中
-    # 配信中なら触らない (= moonlight-web-stream が stream ごとに streamer を spawn)
-    if _pgrep_one("release/streamer") is not None:
+    # 古い streamer はゾンビとして先に reap (= 配信中ガードに引っかかる根本原因を除去)
+    _reap_zombie_streamers()
+    # 残った streamer (= elapsed 短い = 本当に配信中の可能性) があれば触らない
+    if _has_live_streamer():
         return False
     footprint = _phys_footprint_bytes(pid)
     if footprint is None or footprint <= SUNSHINE_FOOTPRINT_MAX_BYTES:
