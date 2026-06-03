@@ -204,6 +204,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* フォークタブの系譜マーカー (= 親の下にインデント表示される子の目印)。 */
+.drawer-item-fork-mark {
+  flex: 0 0 auto;
+  color: var(--text-dim, #8a8f98);
+  font-size: 12px;
+  opacity: 0.8;
+}
 .drawer-item-menu {
   background: none;
   border: none;
