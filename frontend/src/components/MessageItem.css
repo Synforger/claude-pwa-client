@@ -71,16 +71,10 @@
   line-height: 1.5;
   color: var(--text-dim, #8a8f98);
   background: transparent;
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
   border-radius: 6px;
   cursor: pointer;
-  opacity: 0.4;
-}
-.bubble-fork:hover,
-.bubble-fork:active {
-  opacity: 1;
-  border-color: var(--border);
-  background: var(--bg3);
+  opacity: 0.5;
 }
 
 .message.user { justify-content: flex-end; }
