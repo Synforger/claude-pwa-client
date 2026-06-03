@@ -160,6 +160,26 @@ def test_is_user_prompt_false_for_harness_xml():
     assert jr._is_user_prompt(line) is False
 
 
+def test_is_user_prompt_false_for_interrupt_marker():
+    """`[Request interrupted by user]` は claude が中断完了 marker として user 行に書く文字列で、
+    新プロンプトではない。 ユーザ発話扱いすると busy=True が再点火し、 終端 stop_reason 行が
+    来ないため停止ボタンが送信ボタンに戻らない (2026-06-04 真因)。"""
+    # 文字列 content
+    assert jr._is_user_prompt(_user("[Request interrupted by user]")) is False
+    # list content (claude が実際に書く形式)
+    line = {"type": "user", "message": {"content": [{"type": "text", "text": "[Request interrupted by user]"}]}}
+    assert jr._is_user_prompt(line) is False
+    # 大小無視 + 前後空白許容
+    assert jr._is_user_prompt(_user("  [REQUEST INTERRUPTED BY USER]  ")) is False
+    # interrupt marker と通常 text が混ざった list は通常 text 側で True (= 安全側に倒さない: claude が
+    # 実際にこの形で書くことは無いが、 通常発話が誤って弾かれないことの担保)
+    line2 = {"type": "user", "message": {"content": [
+        {"type": "text", "text": "[Request interrupted by user]"},
+        {"type": "text", "text": "hello"},
+    ]}}
+    assert jr._is_user_prompt(line2) is True
+
+
 def test_is_user_prompt_true_for_task_notification():
     """background task の完了通知は表示こそ system カードに変えるが、 busy 判定では
     ユーザ発話扱いのまま残す: 完了を受けて claude が proactive turn を走らせるため、
