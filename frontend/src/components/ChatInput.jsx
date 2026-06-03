@@ -1,6 +1,14 @@
 // 入力欄 + ⋯ アクションメニュー + 送信/停止ボタン。 App.jsx から切り出した
 // プレゼンテーショナルコンポーネント (= 状態とハンドラは props で受ける)。
 // terminal 表示中は App 側で描画しない (= activeViewMode のガードは呼び出し側)。
+//
+// 打鍵中の text は親 App の input dict に毎打鍵書き戻さず、 ChatInput 内部 (= textRef +
+// localText state) で抱える (= 1 文字打つたびに App 全体が再 render する jank を解消、
+// 2026-06-04 改修)。 親への flush は (a) タブ切替 (= activeSid 変化) と (b) 送信時 のみ。
+// 永続化 (localStorage) と sendMessage 経路は flush 後の input dict を参照するので、 ユーザ
+// 体感では従来と同じ。 強制リロード時に未 flush の打鍵途中文字は失われる、 これは draft 保存
+// しない明示挙動。
+import { useEffect, useRef, useState } from 'react'
 
 export default function ChatInput({
   activeSid,
@@ -22,6 +30,40 @@ export default function ChatInput({
   onSend,
   currentAttachments,
 }) {
+  // 表示は controlled、 親 input dict ではなく内部 state で更新する。
+  const [localText, setLocalText] = useState('')
+  // 「ここまでに親に flush 済の sid」 を覚えておき、 activeSid が切り替わった時に前タブの
+  // localText を親に書き戻す (= 別タブで戻ってきても draft が残る)。
+  const prevSidRef = useRef(null)
+  // 親 input dict 最新値の ref。 useEffect の deps で input を持つと打鍵中に effect が走るので、
+  // ref で読みつつ deps は activeSid だけにする。
+  const inputRef = useRef(input)
+  inputRef.current = input
+
+  useEffect(() => {
+    const prevSid = prevSidRef.current
+    if (prevSid && prevSid !== activeSid) {
+      // 別タブへ移る前に、 今まで内部で持ってた打鍵途中を親 input dict に書き戻す。
+      const text = localText
+      setInput(prev => (prev[prevSid] === text ? prev : { ...prev, [prevSid]: text }))
+    }
+    // 新タブの初期値を親から取り直す。
+    setLocalText(activeSid ? (inputRef.current[activeSid] || '') : '')
+    prevSidRef.current = activeSid
+    // localText は依存に入れない (= 打鍵のたびに effect が走るのを避ける)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSid, setInput])
+
+  const handleSend = () => {
+    if (!activeSid) return
+    // 送信時は textOverride を渡して App→useChatStream の sendMessage に直接届ける。
+    // 同時に親 input dict もクリアして次の永続化 (= 500ms debounce) で空になる。
+    const text = localText
+    setLocalText('')
+    setInput(prev => (prev[activeSid] ? { ...prev, [activeSid]: '' } : prev))
+    onSend(text)
+  }
+
   return (
     <div className="inputarea">
       <input
@@ -33,8 +75,8 @@ export default function ChatInput({
         onChange={onFileSelect}
       />
       <textarea
-        value={activeSid ? (input[activeSid] || '') : ''}
-        onChange={e => activeSid && setInput(prev => ({ ...prev, [activeSid]: e.target.value }))}
+        value={localText}
+        onChange={e => setLocalText(e.target.value)}
         placeholder={activeSession ? 'メッセージを入力...' : '左の ☰ から会話を作成してください'}
         rows={2}
         disabled={inputDisabled}
@@ -75,8 +117,8 @@ export default function ChatInput({
           <button onClick={onStop} className="stop" aria-label="停止">■</button>
         ) : (
           <button
-            onClick={onSend}
-            disabled={!activeSession || (!(input[activeSid] || '').trim() && currentAttachments.length === 0)}
+            onClick={handleSend}
+            disabled={!activeSession || (!localText.trim() && currentAttachments.length === 0)}
             className="send"
             aria-label="送信"
           >

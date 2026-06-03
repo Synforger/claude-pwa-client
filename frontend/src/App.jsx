@@ -542,7 +542,7 @@ export default function App() {
           onEndSession={() => setConfirmEnd(true)}
           showStopButton={showStopButton}
           onStop={() => setConfirmStop(true)}
-          onSend={() => sendMessage()}
+          onSend={(text) => sendMessage(text)}
           currentAttachments={currentAttachments}
         />
       )}
