@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { getImageURL } from '../utils/imageStore.js'
 
 // user メッセージの画像表示。 imageRefs (= IndexedDB の ID 配列) から URL を取り出し、
 // 表示中だけ ObjectURL を保持してアンマウント時に revoke する。
 // 後方互換: legacy data URL `imageUrls` も併せて受ける。
-export default function AttachedImages({ imageRefs, imageUrls }) {
+// memo: 親 (MessageItem) は memo 済だが、 親の親 (Messages list / App) の何かが変わった時に
+// props 同一でも再 render が走り、 IndexedDB fetch + ObjectURL 再作成のループが起きる。
+// 添付画像があるメッセージで入力中にカクつく原因の一つだったので props 比較で間引く。
+function AttachedImagesImpl({ imageRefs, imageUrls }) {
   const [refUrls, setRefUrls] = useState(() => imageRefs?.map(() => null) || [])
 
   useEffect(() => {
@@ -42,3 +45,9 @@ export default function AttachedImages({ imageRefs, imageUrls }) {
     </div>
   )
 }
+
+// imageRefs / imageUrls は配列なので参照同一で比較したい。 親で同じ配列を渡し続けてる
+// ケースがほとんどなので shallow で十分。 中身が増減した時のみ再 fetch する。
+export default memo(AttachedImagesImpl, (prev, next) => (
+  prev.imageRefs === next.imageRefs && prev.imageUrls === next.imageUrls
+))
