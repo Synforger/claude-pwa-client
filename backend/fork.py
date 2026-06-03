@@ -67,6 +67,28 @@ def is_clean_fork_point(source_lines: list[str], from_uuid: str) -> bool:
     return False
 
 
+def fork_point_status(source_lines: list[str], from_uuid: str) -> str:
+    """from_uuid が分岐できるか分類する。 戻り値:
+      "ok"        : 分岐可能な切れ目
+      "not_found" : その uuid の行が jsonl に無い (= バインドが古い / 別 jsonl / 未確定)
+      "dirty"     : 行はあるが tool 保留中 / sidechain 等で切れ目でない
+    is_clean_fork_point の bool では区別できない 2 つの失敗要因を分けて返す (= 診断用)。
+    """
+    for d in _parse_lines(source_lines):
+        if d.get("uuid") != from_uuid:
+            continue
+        if d.get("isSidechain") or d.get("isMeta"):
+            return "dirty"
+        t = d.get("type")
+        block_types = _content_block_types(d)
+        if t == "user":
+            return "ok" if "tool_result" not in block_types else "dirty"
+        if t == "assistant":
+            return "ok" if "tool_use" not in block_types else "dirty"
+        return "dirty"
+    return "not_found"
+
+
 def build_forked_lineage(
     source_lines: list[str], from_uuid: str, new_session_id: str
 ) -> list[str]:
