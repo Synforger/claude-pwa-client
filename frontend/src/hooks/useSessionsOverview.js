@@ -34,25 +34,6 @@ export function useSessionsOverview({ setLoading, optimisticRef }) {
       } catch {
         return
       }
-      // [一時診断] 楽観中の sid があれば busy / optimistic / 結果 loading を backend ログへ。
-      // 停止が 1 押下で効かない件の実機切り分け用 (= 解決後に撤去)。
-      try {
-        const opt = optimisticRef?.current || {}
-        const watched = Object.keys(opt).filter(k => opt[k])
-        if (watched.length) {
-          const before = {}
-          for (const k of watched) before[k] = { busy: !!payload[k]?.busy, opt: { ...opt[k] } }
-          setLoading(prev => {
-            const nextState = applyOverviewSnapshot(prev, payload, optimisticRef)
-            const after = {}
-            for (const k of watched) after[k] = { loading: !!nextState[k], optCleared: !optimisticRef.current[k] }
-            fetch('/log/sw', { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
-              body: JSON.stringify({ stage: 'fe-overview', before, after }) }).catch(() => {})
-            return nextState
-          })
-          return
-        }
-      } catch { /* ignore */ }
       setLoading(prev => applyOverviewSnapshot(prev, payload, optimisticRef))
     }
     es.onerror = () => { /* EventSource は自動再接続 (= 一時切断は無視) */ }
