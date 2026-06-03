@@ -232,6 +232,11 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
 
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str, _: str = Depends(require_session)):
+    # フォーク産タブはここで掴んでおく (= unregister 後だと meta が消えて辿れない)。
+    # resume_session_id は build_forked_lineage で書き出した新 jsonl のファイル名。
+    meta = sessions_meta.get(session_id)
+    fork_resume_id = getattr(meta, "resume_session_id", None) if meta is not None else None
+    fork_agent_id = getattr(meta, "agent_id", None) if meta is not None else None
     # PTY + tmux + JSONL binding を一括 cleanup
     try:
         from pty_runner import kill_tmux_session, pty_sessions  # noqa: PLC0415
@@ -247,6 +252,24 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
             p.unlink(missing_ok=True)
         except Exception:
             logger.debug("tmp file unlink failed: %s", p, exc_info=True)
+    # フォーク産 jsonl の GC: 削除時にこのタブが生成した新 jsonl も消す。
+    # build_forked_lineage は parentUuid 鎖を全部新ファイルに書き出す (= 自己完結) ので、
+    # 孫フォークがあっても孫の jsonl 単体で resume できる。 親 fork jsonl を消して問題ない。
+    # 元タブの jsonl (= claude が普段使ってる alias 起動由来) はここでは絶対に触らない。
+    if fork_resume_id and fork_agent_id:
+        try:
+            from jsonl_watcher import _cwd_to_project_dir  # noqa: PLC0415
+            cwd = (AGENTS.get(fork_agent_id) or {}).get("cwd")
+            project_dir = _cwd_to_project_dir(cwd) if cwd else None
+            if project_dir is not None:
+                fork_jsonl = project_dir / f"{fork_resume_id}.jsonl"
+                if fork_jsonl.exists():
+                    fork_jsonl.unlink(missing_ok=True)
+                    logger.info(
+                        "fork: gc jsonl session=%s file=%s", session_id, fork_jsonl.name,
+                    )
+        except Exception:
+            logger.debug("fork jsonl gc failed for %s", session_id, exc_info=True)
     unregister_session(session_id)
     return {"status": "ok", "session_id": session_id}
 
