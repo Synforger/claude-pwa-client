@@ -41,6 +41,14 @@ _HARNESS_XML_RE = HARNESS_XML_RE
 # 実際に proactive turn を走らせるため、 その間 busy=True で停止可能なのが公式の正しい挙動。
 _TASK_NOTIFICATION_RE = re.compile(r"^\s*<task-notification\b")
 
+# claude TUI が「停止ボタン押下」「Esc」 等で turn を中断した時に user 行として書く marker。
+# 公式 claude CLI が string content / list 内 text どちらでも書きうる固定文字列。 これはユーザの
+# 発話ではなく「中断が完了した」 という終端 marker。 busy 判定でユーザ発話扱いすると claude プロセスは
+# 既に止まっていて応答 (= 終端 stop_reason 行) が来ないため、 busy=True が永遠に落ちず停止ボタンが
+# 送信ボタンに戻らない (2026-06-04 真因確定、 これまでの単一権威化 / probe 観測でも消えなかった元凶)。
+# 後方 / 前方の空白だけ許容、 大小無視。
+INTERRUPT_USER_RE = re.compile(r"^\s*\[request interrupted by user\]\s*$", re.IGNORECASE)
+
 
 def _extract_tag(text: str, tag: str) -> str | None:
     m = re.search(rf"<{tag}>(.*?)</{tag}>", text, re.S)
