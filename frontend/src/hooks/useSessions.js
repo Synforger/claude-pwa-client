@@ -88,6 +88,31 @@ export function useSessions() {
     return meta
   }, [])
 
+  // 会話を任意メッセージから分岐する (= フォーク)。 backend が lineage を新 jsonl に
+  // 書き出して子 SessionDef を返す → 先頭に挿して active を新タブへ。 元タブは無傷。
+  const forkSession = useCallback(async (sourceId, fromUuid) => {
+    let meta
+    try {
+      const res = await apiFetch(`/sessions/${sourceId}/fork`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from_uuid: fromUuid }),
+      })
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`
+        try { detail = (await res.json())?.detail || detail } catch { /* ignore */ }
+        throw new Error(detail)
+      }
+      meta = await res.json()
+    } catch (e) {
+      alert(`フォークに失敗しました: ${e?.message || e}`)
+      return null
+    }
+    setSessions(prev => [meta, ...prev])
+    setActiveId(meta.id)
+    return meta
+  }, [])
+
   const removeSession = useCallback(async (id) => {
     try {
       await apiFetch(`/sessions/${id}`, { method: 'DELETE' })
@@ -134,6 +159,7 @@ export function useSessions() {
     setActiveId,
     agents,
     createSession,
+    forkSession,
     removeSession,
     renameSession,
     setNotifyMode,

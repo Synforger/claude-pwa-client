@@ -52,8 +52,35 @@
 
 .message {
   display: flex;
+  flex-wrap: wrap;
   margin-bottom: 6px;
   content-visibility: auto;
+}
+
+/* フォーク (= 会話分岐) ボタン。 bubble の下段に折り返し、 発言の左右寄せに合わせる。
+   普段は淡く、 hover / active で前に出す (= タイムラインのノイズにしない)。 */
+.bubble-fork-row {
+  flex-basis: 100%;
+  text-align: left;
+}
+.message.user .bubble-fork-row { text-align: right; }
+.bubble-fork {
+  margin-top: 2px;
+  padding: 1px 7px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim, #8a8f98);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0.4;
+}
+.bubble-fork:hover,
+.bubble-fork:active {
+  opacity: 1;
+  border-color: var(--border);
+  background: var(--bg3);
 }
 
 .message.user { justify-content: flex-end; }
