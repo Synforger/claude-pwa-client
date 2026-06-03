@@ -163,12 +163,19 @@ export function useChatStorage(sessions) {
 
   useEffect(() => {
     if (inputSaveTimer.current) clearTimeout(inputSaveTimer.current)
-    inputSaveTimer.current = setTimeout(() => {
+    // input は ChatInput タブ切替時にしか変わらない (= 打鍵中は ChatInput 内部 state)
+    // なので発火頻度は低いが、 save 自体は idle 時に倒して描画と競合させない。
+    const run = () => {
       const toSave = {}
       for (const s of sessions) {
         toSave[s.id] = input[s.id] || ''
       }
       try { localStorage.setItem(LS_INPUT, JSON.stringify(toSave)) } catch { /* ignore */ }
+    }
+    const ric = window.requestIdleCallback
+    inputSaveTimer.current = setTimeout(() => {
+      if (ric) ric(run, { timeout: 1500 })
+      else run()
     }, 500)
   }, [input, sessions])
 

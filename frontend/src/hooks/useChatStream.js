@@ -136,9 +136,12 @@ export function useChatStream({
     } catch { /* 送信失敗は握りつぶす (= 次操作で復帰) */ }
   }, [])
 
-  const sendMessage = useCallback(async () => {
+  const sendMessage = useCallback(async (textOverride) => {
     if (!sid) return
-    const text = (input[sid] || '').trim()
+    // ChatInput が内部 state で打鍵を抱えるようになったので、 送信時には override (= 直近の
+    // localText) を優先する。 タブ切替で flush 済の draft を後追い送信するケース等は引数なしで
+    // 呼ばれて従来通り input dict を読む。
+    const text = (typeof textOverride === 'string' ? textOverride : (input[sid] || '')).trim()
     const files = attachments[sid] || []
     if ((!text && files.length === 0) || loading[sid]) return
     const sendText = text
