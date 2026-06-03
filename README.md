@@ -23,6 +23,8 @@ Claude Code をスマートフォンから操作するための PWA クライア
 - **ファイルツリー**: サーバ上のディレクトリをパネルで閲覧
 - **画像 / テキスト添付**: マルチパートで送信し、 履歴に永続化
 - **ステータスバー**: 使用モデル ・ 5h usage ・ 7d usage ・ context 使用率をリアルタイム表示
+- **会話のフォーク (分岐)**: 任意のメッセージから新タブで分岐する。 起点までの会話を引き継いだ
+  まま別方向に試せる。 親 ・ 子はドロワーで階層表示、 フォークタブを閉じると専用 jsonl も掃除する
 - **メッセージ履歴永続化**: lz-string で圧縮して localStorage に保存
 
 ### 追加機能 (任意セットアップ)
@@ -517,6 +519,7 @@ claude-pwa-client/
 │   ├── jsonl_notifications.py     # 停止要因の検出と Web Push 配信
 │   ├── jsonl_plan_choices.py      # ExitPlanMode の選択肢抽出
 │   ├── jsonl_watcher.py           # ~/.claude/projects 監視で session ↔ JSONL を紐付け
+│   ├── fork.py                    # 会話フォーク (parentUuid 鎖の lineage 切り出し)
 │   ├── chat_routes.py             # session メタ / status / overview SSE / /views/ws / /stop
 │   ├── hooks_router.py            # /hooks/event (localhost only、 claude CLI hooks → Web Push)
 │   ├── files_routes.py            # /file, /files/tree, /task-output
