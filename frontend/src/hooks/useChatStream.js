@@ -147,7 +147,7 @@ export function useChatStream({
     const sendText = text
     setInput(prev => ({ ...prev, [sid]: '' }))
     setLoading(prev => ({ ...prev, [sid]: true }))
-    optimisticRef.current[sid] = { want: 'busy', seen: false }
+    optimisticRef.current[sid] = { want: 'busy', startedAt: Date.now() }
     // 楽観 user bubble + 空 streaming agent bubble を即挿入。 添付があれば user bubble に
     // 表示用の imageUrls / fileNames を載せる (= MessageItem の user-block 経路で render)。
     // imageUrls は ObjectURL なのでアプリリロード後は消えるが、 当該セッション中は見える。
@@ -246,7 +246,7 @@ export function useChatStream({
     setLoading(prev => ({ ...prev, [sid]: false }))
     // 停止意図を楽観保持 (= want:'idle')。 backend が user_stopped→busy=false を返すまで、
     // 古い busy=true snapshot に上書きされて停止ボタンへ戻るのを防ぐ (= 1 押下で送信へ)。
-    optimisticRef.current[sid] = { want: 'idle', seen: false }
+    optimisticRef.current[sid] = { want: 'idle', startedAt: Date.now() }
     // 末尾の streaming bubble (= 「推論中…」 表示の元) を停止扱いに固定。
     setMessages(prev => {
       const arr = prev[sid] || []
@@ -262,7 +262,7 @@ export function useChatStream({
     // 回答 = turn 再開の合図なので、 送信 (sendMessage) と同じく loading を立てて
     // 送信ボタン → 停止ボタンに切り替える (= 楽観フラグも置く、 backend busy が追いつくまで保留)。
     setLoading(prev => ({ ...prev, [targetSid]: true }))
-    optimisticRef.current[targetSid] = { want: 'busy', seen: false }
+    optimisticRef.current[targetSid] = { want: 'busy', startedAt: Date.now() }
     if (isFree) {
       // 自由記述: claude TUI は選択肢リストの末尾に "Type something"(自由入力) を持つ。
       // フォーカスは先頭選択肢にあるので、 素のテキストを送ると先頭が選ばれてしまう
