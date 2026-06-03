@@ -224,3 +224,39 @@ def test_fork_endpoint_not_found_across_all_files(tmp_path, monkeypatch, isolate
         assert e.status_code == 404
         return
     raise AssertionError("expected 404 when uuid is in no file")
+
+
+# --- フォーク産タブ削除時の jsonl GC ---
+# build_forked_lineage で書き出した新 jsonl は claude --resume の入口。 タブを消したら
+# このファイルも消える (= ディスク蓄積しない) のが期待動作。 元タブの jsonl は触らない。
+
+import asyncio  # noqa: E402
+
+
+def test_delete_fork_session_removes_its_jsonl(tmp_path, monkeypatch, isolated_state):
+    import chat_routes  # noqa: PLC0415
+    import jsonl_watcher  # noqa: PLC0415
+    chat_routes, parent, src = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
+    monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd: tmp_path)
+    # フォーク作成 → 新 jsonl がある状態を確認
+    forked = chat_routes.fork_session(parent.id, {"from_uuid": "u2"})
+    new_path = tmp_path / f"{forked['resume_session_id']}.jsonl"
+    assert new_path.exists()
+    # フォーク産タブを DELETE
+    asyncio.get_event_loop().run_until_complete(
+        chat_routes.delete_session(forked["id"], _="ok")
+    )
+    # 新 jsonl は消える、 元タブの jsonl (= OLD.jsonl) は残る
+    assert not new_path.exists()
+    assert src.exists()
+
+
+def test_delete_normal_session_does_not_touch_jsonl(tmp_path, monkeypatch, isolated_state):
+    """通常タブ (= resume_session_id 無し) の DELETE では project dir の jsonl を絶対に触らない。
+    フォーク GC ロジックが暴発しないかの安全弁テスト。"""
+    import chat_routes  # noqa: PLC0415
+    chat_routes, parent, src = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
+    asyncio.get_event_loop().run_until_complete(
+        chat_routes.delete_session(parent.id, _="ok")
+    )
+    assert src.exists()
