@@ -28,16 +28,22 @@ logger = logging.getLogger(__name__)
 
 # 保持基準: mtime が KEEP_DAYS 日以内 = 残す、 それより古いものは削除候補。
 # 加えて、 残った合計が MAX_BYTES を超える場合は古い方から削除して quota 内に収める。
-JSONL_KEEP_DAYS = 30
-JSONL_MAX_BYTES = 1 * 1024 * 1024 * 1024  # 1 GB
-# 定期実行間隔。 起動時に 1 回 + 24 時間ごと。
-MAINTENANCE_INTERVAL_SEC = 24 * 3600
+# 実機観測 (2026-06-04) で 468MB / 168 ファイルまで蓄積していたので、 quota を 500MB に
+# 引き下げて 24h ループで効くようにする (= 旧 1GB 設定だと threshold まで届かず KEEP_DAYS
+# だけが効いていて、 mtime 新しめのファイルが溜まり続けていた)。 KEEP_DAYS も 30→14 に
+# 短縮、 普段の試行錯誤履歴は十分カバーしつつ蓄積速度を半分にする。
+JSONL_KEEP_DAYS = 14
+JSONL_MAX_BYTES = 500 * 1024 * 1024  # 500 MB
+# 定期実行間隔。 起動時に 1 回 + この間隔で繰り返し。 24h → 12h に短縮して quota 超過の
+# 滞留時間を半減する (= 上の threshold 改定とセット)。
+MAINTENANCE_INTERVAL_SEC = 12 * 3600
 
 # アイドル pwa-* tmux session を kill する閾値。 session_attached=0 かつ session_activity が
 # この日数より古ければ tmux session (+ 配下の claude プロセス) を kill する。 sessions_meta
 # は触らないので PWA のタブ一覧には残り、 次にタブを開いた時に新規 spawn される (= 「使わない
-# けどタブだけ残しておく」 運用に合わせた設計)。
-IDLE_SESSION_KILL_DAYS = 7
+# けどタブだけ残しておく」 運用に合わせた設計)。 7→5 日に短縮、 claude プロセス 1 個あたり
+# RSS 100-300MB を抱えるので長期累積を抑える。
+IDLE_SESSION_KILL_DAYS = 5
 
 # Sunshine が画面共有 encoder のメモリをこの phys_footprint 超で抱えていたら restart
 # 対象とみなす。 観測実績では idle 放置 + ゾンビストリームで 30 GB まで膨らんだ (= 大半は
