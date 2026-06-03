@@ -17,7 +17,7 @@ import json
 import time
 from pathlib import Path
 
-from jsonl_events import HARNESS_XML_RE
+from jsonl_events import HARNESS_XML_RE, INTERRUPT_USER_RE
 from jsonl_plan_choices import capture_plan_choices
 from jsonl_tail import parse_jsonl_timestamp
 from state import agent_status, sessions_overview, stream_states
@@ -50,7 +50,12 @@ def is_user_prompt(line: dict) -> bool:
     等。 ターミナルから slash command や shell コマンドを打った時に発生) も除外する。
     これらをユーザ発話扱いすると、 チャットに何も送ってないのに busy=True が立って停止ボタンが
     アクティブになる事象を引き起こす (2026-05-31 修正)。 harness XML 検出は jsonl_events と
-    共通 (= 同じ regex を 2 箇所で持つと判定がズレるため)。"""
+    共通 (= 同じ regex を 2 箇所で持つと判定がズレるため)。
+
+    `[Request interrupted by user]` も同様に除外する。 これは claude が中断完了を marker として
+    user 行に書くもので、 新プロンプトではない (= claude プロセスは既に turn を畳んでいて、
+    終端 stop_reason 行も来ない)。 ユーザ発話扱いすると busy=True が再点火し、 result が
+    永遠に来ないため停止ボタンが送信ボタンに戻らない (2026-06-04 真因確定)。"""
     if line.get("type") != "user" or line.get("isSidechain") or line.get("isMeta"):
         return False
     content = (line.get("message") or {}).get("content")
@@ -58,14 +63,19 @@ def is_user_prompt(line: dict) -> bool:
         s = content.strip()
         if not s:
             return False
-        return not HARNESS_XML_RE.match(s)
+        if HARNESS_XML_RE.match(s) or INTERRUPT_USER_RE.match(s):
+            return False
+        return True
     if isinstance(content, list):
         for b in content:
             if not isinstance(b, dict) or b.get("type") != "text":
                 continue
             t = (b.get("text") or "").strip()
-            if t and not HARNESS_XML_RE.match(t):
-                return True
+            if not t:
+                continue
+            if HARNESS_XML_RE.match(t) or INTERRUPT_USER_RE.match(t):
+                continue
+            return True
         return False
     return False
 
