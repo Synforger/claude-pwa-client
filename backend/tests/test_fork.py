@@ -260,3 +260,58 @@ def test_delete_normal_session_does_not_touch_jsonl(tmp_path, monkeypatch, isola
         chat_routes.delete_session(parent.id, _="ok")
     )
     assert src.exists()
+
+
+# --- フォーク産タブ restart の通常タブ化 ---
+# fork タブで restart を押した時、 resume_session_id を残したままだと
+# `claude --resume <同一 id>` が走って claude CLI が重複起動を検知し rc=0 で即 exit する
+# (= 2026-06-04 実機確認、 ターミナルが変わらず「終了してない」 ように見える)。 restart は
+# 文脈リセット + プロセスリセットのセマンティクスに揃えるべきで、 fork の親文脈引き継ぎは
+# 初回 spawn で完了した役目。 restart のタイミングで通常タブ化し fork jsonl も掃除する。
+
+
+def test_restart_fork_session_promotes_to_normal_tab(tmp_path, monkeypatch, isolated_state):
+    import chat_routes  # noqa: PLC0415
+    import jsonl_watcher  # noqa: PLC0415
+    chat_routes, parent, _src = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
+    monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd: tmp_path)
+    forked = chat_routes.fork_session(parent.id, {"from_uuid": "u2"})
+    fork_jsonl = tmp_path / f"{forked['resume_session_id']}.jsonl"
+    assert fork_jsonl.exists()
+    # ensure_pty_session_for と内部副作用は noop に差し替え (= restart の通常タブ化部分のみを検証)
+    from pty_routes import ensure_pty_session_for as real_spawn  # noqa: F401, PLC0415
+    async def _noop(_sid):
+        return None
+    import pty_routes  # noqa: PLC0415
+    import pty_runner  # noqa: PLC0415
+    monkeypatch.setattr(pty_routes, "ensure_pty_session_for", _noop)
+    monkeypatch.setattr(pty_runner, "kill_tmux_session", lambda sid: True)
+    # restart 実行
+    asyncio.get_event_loop().run_until_complete(
+        chat_routes.restart_session(forked["id"], _="ok")
+    )
+    # resume_session_id は剥がれて通常タブ化、 parent_id は派生履歴として残す
+    from state import sessions_meta  # noqa: PLC0415
+    promoted = sessions_meta[forked["id"]]
+    assert promoted.resume_session_id is None
+    assert promoted.parent_id == parent.id
+    # 役目を終えた fork jsonl は掃除される
+    assert not fork_jsonl.exists()
+
+
+def test_restart_normal_session_keeps_meta_unchanged(tmp_path, monkeypatch, isolated_state):
+    """通常タブ (= resume_session_id 無し) の restart では meta を一切触らない安全弁テスト。"""
+    import chat_routes  # noqa: PLC0415
+    chat_routes, parent, _ = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
+    async def _noop(_sid):
+        return None
+    import pty_routes  # noqa: PLC0415
+    import pty_runner  # noqa: PLC0415
+    monkeypatch.setattr(pty_routes, "ensure_pty_session_for", _noop)
+    monkeypatch.setattr(pty_runner, "kill_tmux_session", lambda sid: True)
+    asyncio.get_event_loop().run_until_complete(
+        chat_routes.restart_session(parent.id, _="ok")
+    )
+    from state import sessions_meta  # noqa: PLC0415
+    assert sessions_meta[parent.id].resume_session_id is None  # 元から None
+    assert sessions_meta[parent.id].parent_id is None  # 通常タブのまま

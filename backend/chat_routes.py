@@ -30,6 +30,7 @@ from state import (
     backend_start_time,
     register_session,
     rename_session,
+    save_sessions_meta,
     set_notify_mode,
     session_tmp_files,
     sessions_meta,
@@ -206,6 +207,33 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
         jsonl_watcher.unregister(session_id)
     except Exception:
         logger.debug("restart kill phase failed for %s", session_id, exc_info=True)
+    # フォーク産タブを通常タブ化する。 restart のセマンティクスは「文脈リセット + プロセス
+    # リセット」 で、 fork タブの resume_session_id を残したままだと再 spawn で
+    # `claude --resume <同一 id>` が走り、 claude CLI が重複起動を検知して即 exit (rc=0) する
+    # = ターミナルが何も変わらず終了しない (2026-06-04 確認)。 fork の親文脈引き継ぎは初回
+    # spawn で完了した役目なので、 restart のタイミングで resume_session_id を落として通常
+    # タブと完全に同じ launch_alias 起動経路に合流させる。 役目を終えた fork jsonl は同時に
+    # 掃除する (= delete_session の GC と同型、 蓄積させない)。 parent_id は派生履歴として
+    # 残し、 ドロワー上の親子インデント表示は維持する。
+    meta = sessions_meta.get(session_id)
+    fork_resume_id = getattr(meta, "resume_session_id", None) if meta is not None else None
+    if meta is not None and fork_resume_id:
+        meta.resume_session_id = None
+        save_sessions_meta()
+        try:
+            from jsonl_watcher import _cwd_to_project_dir  # noqa: PLC0415
+            cwd = (AGENTS.get(meta.agent_id) or {}).get("cwd")
+            project_dir = _cwd_to_project_dir(cwd) if cwd else None
+            if project_dir is not None:
+                fork_jsonl = project_dir / f"{fork_resume_id}.jsonl"
+                if fork_jsonl.exists():
+                    fork_jsonl.unlink(missing_ok=True)
+                    logger.info(
+                        "fork: gc jsonl on restart session=%s file=%s",
+                        session_id, fork_jsonl.name,
+                    )
+        except Exception:
+            logger.debug("fork jsonl gc on restart failed for %s", session_id, exc_info=True)
     # 新規 spawn (= 同 PWA_SID で tmux 再生成 + claude 再起動 + SessionStart hook で
     # 新 claude_sid を confirm_bind)
     try:
