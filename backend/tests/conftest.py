@@ -26,11 +26,19 @@ _STATE_GLOBALS = (
 
 
 @pytest.fixture
-def isolated_state():
+def isolated_state(monkeypatch, tmp_path):
     """state.py の global dict を deepcopy で snapshot → test 退場時に復元。
-    test 間で global state が漏れて偽の pass/fail を起こさないための保険。"""
+    test 間で global state が漏れて偽の pass/fail を起こさないための保険。
+
+    あわせて永続化先 SESSION_META_PATH を tmp_path に飛ばす。 個別 test の
+    monkeypatch では救えないケース (= chat_routes 側が `from state import
+    save_sessions_meta` で bind した参照を呼ぶと state 属性差し替えを素通りする)
+    があり、 実機 backend/session_meta.json に test 用の "Chat" / "Chat fork" が
+    書き込まれて UI ドロワーにゴーストタブが残る事故が起きた (2026-06-04 観測)。
+    永続化先そのものを tmp に向けることで bind 経路に関係なく実機を汚さない。"""
     import state
 
+    monkeypatch.setattr(state, "SESSION_META_PATH", tmp_path / "session_meta.json")
     snapshots = {name: copy.deepcopy(getattr(state, name)) for name in _STATE_GLOBALS}
     yield state
     for name, snap in snapshots.items():
