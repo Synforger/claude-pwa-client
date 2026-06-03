@@ -57,24 +57,27 @@
   content-visibility: auto;
 }
 
-/* フォーク (= 会話分岐) ボタン。 bubble の下段に折り返し、 発言の左右寄せに合わせる。
-   普段は淡く、 hover / active で前に出す (= タイムラインのノイズにしない)。 */
+/* フォーク (= 会話分岐) ボタン。 agent 回答はメタ行 (= モデル名の横) に同居、 user 発言は
+   メタ行が無いので独立した行で左右寄せに合わせる。 はっきり見えるよう明るく出す。 */
 .bubble-fork-row {
   flex-basis: 100%;
   text-align: left;
 }
 .message.user .bubble-fork-row { text-align: right; }
 .bubble-fork {
-  margin-top: 2px;
-  padding: 1px 7px;
+  padding: 0 6px;
   font-size: 11px;
-  line-height: 1.5;
-  color: var(--text-dim, #8a8f98);
+  line-height: 1.6;
+  color: var(--accent);
   background: transparent;
-  border: 1px solid var(--border);
+  border: 1px solid var(--accent);
   border-radius: 6px;
   cursor: pointer;
-  opacity: 0.5;
+  opacity: 1;
+}
+/* メタ行に同居する fork はモデル名と縦位置を揃える */
+.bubble-meta .bubble-fork {
+  vertical-align: middle;
 }
 
 .message.user { justify-content: flex-end; }
@@ -388,10 +391,13 @@
 .bubble-meta {
   font-size: 10px;
   color: var(--text-dim);
-  opacity: 0.55;
   margin-top: 2px;
   font-family: 'Menlo', 'Monaco', monospace;
   letter-spacing: 0.02em;
+}
+/* メタ本文だけを淡く (= 隣の fork ボタンを親 opacity で暗くしないため) */
+.bubble-meta-parts {
+  opacity: 0.55;
 }
 
 /* thinking ブロック */
