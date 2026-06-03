@@ -220,8 +220,11 @@ function StopReasonChip({ meta, streaming }) {
   return <div className={`stop-chip ${def.cls}`}>{def.label}</div>
 }
 
-function MetaLine({ meta, streaming, apiKeySource }) {
-  if (!meta || streaming) return null
+function MetaLine({ meta, streaming, apiKeySource, trailing }) {
+  if (!meta || streaming) {
+    // meta がまだ無い (= streaming 等) でも、 fork ボタンだけは出したい時がある
+    return trailing ? <div className="bubble-meta">{trailing}</div> : null
+  }
   const parts = []
   // cost は API キー経由（"none" でない）のときだけ表示。OAuth/subscription 経路では参考値で誤解を招くため非表示
   if (apiKeySource && apiKeySource !== 'none') {
@@ -235,8 +238,16 @@ function MetaLine({ meta, streaming, apiKeySource }) {
   if (dur) parts.push(dur)
   const model = formatModelName(meta.modelUsage)
   if (model) parts.push(model)
-  if (parts.length === 0) return null
-  return <div className="bubble-meta">{parts.join(' · ')}</div>
+  if (parts.length === 0 && !trailing) return null
+  return (
+    <div className="bubble-meta">
+      {/* メタ本文は淡く。 opacity を本文 span に閉じることで、 隣の fork は親 opacity に
+          引きずられず明るく出せる。 */}
+      {parts.length > 0 && <span className="bubble-meta-parts">{parts.join(' · ')}</span>}
+      {/* fork ボタンはモデル名の横に並べる (= 回答の下のメタ行に同居) */}
+      {trailing && <>{parts.length > 0 ? ' ' : ''}{trailing}</>}
+    </div>
+  )
 }
 
 // 会話圧縮 (compact_boundary) 用バナー。SDK からは事後通知しか来ないので
@@ -321,18 +332,19 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
   const canForkAgent =
     msg.role === 'agent' && !msg.streaming && msg.uuid &&
     !(msg.tools?.length > 0) && !msg.askUserQuestion
-  const forkBtn = onFork && (canForkUser || canForkAgent) ? (
-    <div className="bubble-fork-row">
-      <button
-        type="button"
-        className="bubble-fork"
-        onClick={() => onFork(msg.uuid)}
-        title="Fork the conversation from this message into a new tab"
-      >
-        ⑂ fork
-      </button>
-    </div>
+  const forkButton = onFork && (canForkUser || canForkAgent) ? (
+    <button
+      type="button"
+      className="bubble-fork"
+      onClick={() => onFork(msg.uuid)}
+      title="Fork the conversation from this message into a new tab"
+    >
+      ⑂ fork
+    </button>
   ) : null
+  // agent 回答はモデル名と同じメタ行に同居させる。 user 発言はメタ行が無いので独立した行で。
+  const agentForkBtn = canForkAgent ? forkButton : null
+  const userForkRow = canForkUser ? <div className="bubble-fork-row">{forkButton}</div> : null
 
   return (
     <div className={`message ${msg.role}`}>
@@ -450,7 +462,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
             />
           )}
           <StopReasonChip meta={msg.meta} streaming={msg.streaming} />
-          <MetaLine meta={msg.meta} streaming={msg.streaming} apiKeySource={apiKeySource} />
+          <MetaLine meta={msg.meta} streaming={msg.streaming} apiKeySource={apiKeySource} trailing={agentForkBtn} />
         </div>
       ) : msg.role === 'agent' ? (
         <div className="agent-block">
@@ -460,7 +472,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
             </span>
           )}
           <StopReasonChip meta={msg.meta} streaming={msg.streaming} />
-          <MetaLine meta={msg.meta} streaming={msg.streaming} apiKeySource={apiKeySource} />
+          <MetaLine meta={msg.meta} streaming={msg.streaming} apiKeySource={apiKeySource} trailing={agentForkBtn} />
         </div>
       ) : (
         <span className="bubble">
@@ -469,7 +481,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
       )}
       {/* 送信失敗 (= backend で JSONL user 行 +1 を確認できず、 再送 1 回も届かなかった)
           の表示。 text は input box に復元されているのでユーザは送り直せる。 */}
-      {forkBtn}
+      {userForkRow}
       {msg.role === 'user' && msg.sendFailed && (
         <div className="send-failed-note" style={{ color: '#c0392b', fontSize: '0.85em', marginTop: 4 }}>
           ⚠ Not delivered to claude — text restored in the input box
