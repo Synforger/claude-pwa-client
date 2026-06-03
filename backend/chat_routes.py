@@ -96,7 +96,7 @@ def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(re
     登録して返す。 元タブ・元 jsonl には一切触れない。
     """
     from pty_runner import jsonl_path_for_session  # noqa: PLC0415
-    from fork import build_forked_lineage, is_clean_fork_point  # noqa: PLC0415
+    from fork import build_forked_lineage, fork_point_status  # noqa: PLC0415
 
     from_uuid = payload.get("from_uuid")
     if not from_uuid or not isinstance(from_uuid, str):
@@ -104,13 +104,26 @@ def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(re
 
     src_path = jsonl_path_for_session(session_id)
     if src_path is None or not src_path.exists():
+        logger.warning("fork: jsonl unresolved session=%s path=%s", session_id, src_path)
         raise HTTPException(status_code=409, detail="この会話の JSONL がまだ確定していません")
     try:
         source_lines = src_path.read_text(encoding="utf-8").splitlines()
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"JSONL 読み込み失敗: {e}")
 
-    if not is_clean_fork_point(source_lines, from_uuid):
+    status = fork_point_status(source_lines, from_uuid)
+    logger.info(
+        "fork: session=%s jsonl=%s from_uuid=%s lines=%d status=%s",
+        session_id, src_path.name, from_uuid, len(source_lines), status,
+    )
+    if status == "not_found":
+        # uuid がこの jsonl に無い = 表示中の会話と backend が見てる jsonl がズレてる
+        # (= バインドが古い / 別ファイル)。 切れ目判定でなくファイル特定の問題。
+        raise HTTPException(
+            status_code=404,
+            detail="この会話の現在ログに該当メッセージが見つかりません (ログがローテートした可能性)",
+        )
+    if status != "ok":
         raise HTTPException(
             status_code=400,
             detail="この位置からは分岐できません (= user 発言か完了したターンのみ)",
