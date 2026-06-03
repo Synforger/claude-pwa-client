@@ -97,32 +97,59 @@ def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(re
     """
     from pty_runner import jsonl_path_for_session  # noqa: PLC0415
     from fork import build_forked_lineage, fork_point_status  # noqa: PLC0415
+    from jsonl_watcher import _cwd_to_project_dir  # noqa: PLC0415
 
     from_uuid = payload.get("from_uuid")
     if not from_uuid or not isinstance(from_uuid, str):
         raise HTTPException(status_code=400, detail="from_uuid が必要です")
 
-    src_path = jsonl_path_for_session(session_id)
-    if src_path is None or not src_path.exists():
-        logger.warning("fork: jsonl unresolved session=%s path=%s", session_id, src_path)
-        raise HTTPException(status_code=409, detail="この会話の JSONL がまだ確定していません")
-    try:
-        source_lines = src_path.read_text(encoding="utf-8").splitlines()
-    except OSError as e:
-        raise HTTPException(status_code=500, detail=f"JSONL 読み込み失敗: {e}")
+    parent = sessions_meta[session_id]
 
+    # from_uuid を含む jsonl を探す。 claude は途中で session id をロール (= compact / 継続)
+    # することがあり、 画面に残る古いメッセージは前のファイルに居る一方、 jsonl_path_for_session
+    # は今 open 中の新ファイルを返す。 そのため「今のファイルだけ」 でなく同じ cwd の project dir
+    # 内の全 jsonl を新しい順に走査して、 uuid を実際に含むファイルを source にする (= uuid は
+    # 一意なので確実に当たる)。
+    live = jsonl_path_for_session(session_id)
+    cwd = (AGENTS.get(parent.agent_id) or {}).get("cwd")
+    project_dir = _cwd_to_project_dir(cwd) if cwd else (live.parent if live else None)
+
+    candidates: list = []
+    if live is not None and live.exists():
+        candidates.append(live)
+    if project_dir is not None and project_dir.is_dir():
+        others = sorted(
+            (p for p in project_dir.glob("*.jsonl") if p != live),
+            key=lambda p: p.stat().st_mtime, reverse=True,
+        )
+        candidates.extend(others[:40])  # 走査上限 (= 新しい順 40 ファイルまで)
+
+    needle = from_uuid.encode("utf-8")
+    src_path = None
+    for p in candidates:
+        try:
+            if needle in p.read_bytes():
+                src_path = p
+                break
+        except OSError:
+            continue
+
+    if src_path is None:
+        logger.warning(
+            "fork: from_uuid not found session=%s uuid=%s scanned=%d dir=%s",
+            session_id, from_uuid, len(candidates), project_dir,
+        )
+        raise HTTPException(
+            status_code=404,
+            detail="この会話のログに該当メッセージが見つかりません",
+        )
+
+    source_lines = src_path.read_text(encoding="utf-8").splitlines()
     status = fork_point_status(source_lines, from_uuid)
     logger.info(
         "fork: session=%s jsonl=%s from_uuid=%s lines=%d status=%s",
         session_id, src_path.name, from_uuid, len(source_lines), status,
     )
-    if status == "not_found":
-        # uuid がこの jsonl に無い = 表示中の会話と backend が見てる jsonl がズレてる
-        # (= バインドが古い / 別ファイル)。 切れ目判定でなくファイル特定の問題。
-        raise HTTPException(
-            status_code=404,
-            detail="この会話の現在ログに該当メッセージが見つかりません (ログがローテートした可能性)",
-        )
     if status != "ok":
         raise HTTPException(
             status_code=400,
@@ -137,12 +164,11 @@ def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(re
     if not forked:
         raise HTTPException(status_code=400, detail="分岐対象の会話が空です")
 
-    # 元 jsonl と同じ project dir (= 同 cwd hash) に置く。 新タブは agent を継承 = 同 cwd で
-    # spawn するので、 claude --resume がこの新 jsonl を確実に見つける。
+    # 新 jsonl は project dir (= 同 cwd hash) に置く。 新タブは agent を継承 = 同 cwd で spawn
+    # するので claude --resume がこの新 jsonl を確実に見つける。
     dest = src_path.parent / f"{new_claude_id}.jsonl"
     atomic_write_text(dest, "\n".join(forked) + "\n")
 
-    parent = sessions_meta[session_id]
     new_meta = register_session(
         parent.agent_id,
         title=f"{parent.title} fork",
