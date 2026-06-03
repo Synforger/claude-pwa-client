@@ -241,11 +241,12 @@ function MetaLine({ meta, streaming, apiKeySource, trailing }) {
   if (parts.length === 0 && !trailing) return null
   return (
     <div className="bubble-meta">
+      {/* fork ボタンはメタ行の先頭 (= 一番左、 in/cache より前) に置く。 エージェント回答の
+          本命操作なので最初に目に入る位置に。 */}
+      {trailing && <>{trailing}{parts.length > 0 ? ' ' : ''}</>}
       {/* メタ本文は淡く。 opacity を本文 span に閉じることで、 隣の fork は親 opacity に
           引きずられず明るく出せる。 */}
       {parts.length > 0 && <span className="bubble-meta-parts">{parts.join(' · ')}</span>}
-      {/* fork ボタンはモデル名の横に並べる (= 回答の下のメタ行に同居) */}
-      {trailing && <>{parts.length > 0 ? ' ' : ''}{trailing}</>}
     </div>
   )
 }
