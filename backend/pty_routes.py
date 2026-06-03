@@ -24,8 +24,9 @@ from fastapi import APIRouter, Body, File, Form, UploadFile, WebSocket, WebSocke
 from starlette.websockets import WebSocketState
 
 from chat_content import save_to_tmp
-from config import AGENTS
+from config import AGENTS, CLAUDE_PATH
 import re
+import shlex
 
 from pty_runner import (
     PtySession,
@@ -180,6 +181,25 @@ def _resolve_agent_cfg(session_id: str) -> dict | None:
     return None
 
 
+def _resolve_launch_alias(session_id: str) -> str | None:
+    """初回 spawn で zsh prompt に送る起動コマンドを解決する。
+
+    通常タブは agent cfg の `launch_alias` (= ユーザの claude 起動 wrapper)。 フォークタブ
+    (= SessionDef.resume_session_id を持つ) は wrapper でなく `claude --resume <id>` を直接
+    送り、 分岐元から書き出した jsonl をその時点の会話として開く。 cwd は agent 継承 (=
+    親と同じ project dir) なので resume が新 jsonl を確実に見つける。
+    """
+    meta = sessions_meta.get(session_id)
+    resume_id = getattr(meta, "resume_session_id", None) if meta is not None else None
+    if resume_id:
+        if not CLAUDE_PATH:
+            logger.error("fork spawn needs claude_path but it is empty session=%s", session_id)
+            return None
+        return f"{shlex.quote(CLAUDE_PATH)} --resume {shlex.quote(resume_id)}"
+    cfg = _resolve_agent_cfg(session_id) or {}
+    return cfg.get("launch_alias")
+
+
 async def ensure_pty_session_for(session_id: str) -> None:
     """指定 session の tmux + claude を起動 (既にあれば何もしない)。
 
@@ -197,7 +217,7 @@ async def ensure_pty_session_for(session_id: str) -> None:
         return
     cfg = _resolve_agent_cfg(session_id) or {}
     cwd = cfg.get("cwd")
-    launch_alias = cfg.get("launch_alias")
+    launch_alias = _resolve_launch_alias(session_id)
     try:
         session = await spawn_pty_session(
             session_id, cwd=cwd, launch_alias=launch_alias,
@@ -224,7 +244,7 @@ async def pty_socket(ws: WebSocket, session_id: str) -> None:
     if session is None or session.exit_event.is_set():
         cfg = _resolve_agent_cfg(session_id) or {}
         cwd = cfg.get("cwd")
-        launch_alias = cfg.get("launch_alias")
+        launch_alias = _resolve_launch_alias(session_id)
         try:
             session = await spawn_pty_session(
                 session_id, cwd=cwd, launch_alias=launch_alias,

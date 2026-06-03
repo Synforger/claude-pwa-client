@@ -56,6 +56,13 @@ class SessionDef:
     title: str
     created_at: int
     notify_mode: str = "both"
+    # フォーク (= 会話分岐) で生まれたタブの出自。 分岐元の PWA session id を持つ。
+    # ドロワで親の下にインデント表示するのに使う。 通常の新規タブは None。
+    parent_id: str | None = None
+    # フォークタブが初回 spawn 時に `claude --resume <id>` で開く claude session id。
+    # build_forked_lineage で書き出した新 jsonl のファイル名 (= 新 claude session uuid)。
+    # 通常タブ (= alias 起動) は None。
+    resume_session_id: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -64,6 +71,8 @@ class SessionDef:
             "title": self.title,
             "created_at": self.created_at,
             "notify_mode": self.notify_mode,
+            "parent_id": self.parent_id,
+            "resume_session_id": self.resume_session_id,
         }
 
 
@@ -109,6 +118,8 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
             sessions_meta[sid] = SessionDef(
                 id=sid, agent_id=aid, title=title, created_at=int(created),
                 notify_mode=mode if mode in NOTIFY_MODES else "both",
+                parent_id=entry.get("parent_id"),
+                resume_session_id=entry.get("resume_session_id"),
             )
     else:
         # 初期化: agent ごと 1 セッションを生成する
@@ -266,8 +277,17 @@ backend_start_time: float = time.time()
 
 
 # --- セッション操作ヘルパ ---
-def register_session(agent_id: str, title: str | None = None) -> SessionDef:
-    """新規セッションを登録して全状態 dict を初期化する。 永続化まで行う。"""
+def register_session(
+    agent_id: str,
+    title: str | None = None,
+    parent_id: str | None = None,
+    resume_session_id: str | None = None,
+) -> SessionDef:
+    """新規セッションを登録して全状態 dict を初期化する。 永続化まで行う。
+
+    parent_id / resume_session_id はフォーク (= 会話分岐) で生まれたタブにのみ渡す
+    (= 出自と、 初回 spawn で resume する claude session id)。
+    """
     if agent_id not in AGENTS:
         raise ValueError(f"Unknown agent_id: {agent_id}")
     sid = _new_session_id()
@@ -275,7 +295,8 @@ def register_session(agent_id: str, title: str | None = None) -> SessionDef:
         existing_count = sum(1 for m in sessions_meta.values() if m.agent_id == agent_id)
         title = _default_title(agent_id, existing_count + 1)
     meta = SessionDef(
-        id=sid, agent_id=agent_id, title=title, created_at=int(time.time())
+        id=sid, agent_id=agent_id, title=title, created_at=int(time.time()),
+        parent_id=parent_id, resume_session_id=resume_session_id,
     )
     sessions_meta[sid] = meta
     stream_states[sid] = StreamState(agent_id=agent_id)
