@@ -240,11 +240,6 @@ export function useChatStream({
     //       根本治療)。 全 client が overview SSE で即時に「停止」 を観測。
     sendToPty(sid, { key: 'Escape' }).catch(() => {})
     sendStopIntent?.(sid)
-    // [一時診断] 停止が発火したことと、 その時点の loading を backend ログへ (= 解決後撤去)。
-    try {
-      fetch('/log/sw', { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
-        body: JSON.stringify({ stage: 'fe-stop', sid, loadingBefore: !!loading[sid] }) }).catch(() => {})
-    } catch { /* ignore */ }
     setLoading(prev => ({ ...prev, [sid]: false }))
     // 停止意図を楽観保持 (= want:'idle')。 backend が user_stopped→busy=false を返すまで、
     // 古い busy=true snapshot に上書きされて停止ボタンへ戻るのを防ぐ (= 1 押下で送信へ)。
@@ -257,7 +252,7 @@ export function useChatStream({
       if (!last?.streaming) return prev
       return { ...prev, [sid]: [...arr.slice(0, -1), { ...last, streaming: false }] }
     })
-  }, [sid, sendToPty, sendStopIntent, setMessages, loading, setLoading])
+  }, [sid, sendToPty, sendStopIntent, setMessages])
 
   const sendAnswer = useCallback(async (targetSid, tool_use_id, answer, isFree = false, optionCount = 0) => {
     // AskUserQuestion の回答を tmux 経由で claude TUI に送る。
