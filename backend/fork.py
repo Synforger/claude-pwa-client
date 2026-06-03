@@ -32,11 +32,25 @@ def _parse_lines(source_lines: list[str]) -> list[dict]:
     return out
 
 
+def _content_block_types(line: dict) -> list[str]:
+    """message.content (str / list / None) からブロック type のリストを返す。 str や
+    None は空 (= ブロック無し) 扱い。"""
+    content = (line.get("message") or {}).get("content")
+    if not isinstance(content, list):
+        return []
+    return [b.get("type") for b in content if isinstance(b, dict)]
+
+
 def is_clean_fork_point(source_lines: list[str], from_uuid: str) -> bool:
     """from_uuid が分岐の安全な切れ目か判定する。
 
-    tool_use と tool_result のペアの間で切ると resume が壊れるので、 分岐点は
-    「user メッセージ」 または 「end_turn で閉じた assistant ターン」 に限る。
+    tool_use と tool_result のペアの間で切ると resume が壊れるので、 stop_reason でなく
+    コンテンツ構造で判定する (= frontend は result の stop_reason を最後のバブルに上書き
+    stamp するため、 バブルの stop_reason は当てにならない。 行の中身が真値):
+      - user      : tool_result ブロックを含まない実プロンプトなら OK (= claude の次手番が
+                    user 入力で、 dangling が無い)
+      - assistant : tool_use ブロックを含まない行なら OK (= ツール呼び出しが保留してない、
+                    end_turn のテキスト回答等)
     """
     for d in _parse_lines(source_lines):
         if d.get("uuid") != from_uuid:
@@ -44,11 +58,11 @@ def is_clean_fork_point(source_lines: list[str], from_uuid: str) -> bool:
         if d.get("isSidechain") or d.get("isMeta"):
             return False
         t = d.get("type")
+        block_types = _content_block_types(d)
         if t == "user":
-            return True
+            return "tool_result" not in block_types
         if t == "assistant":
-            msg = d.get("message") or {}
-            return msg.get("stop_reason") == "end_turn"
+            return "tool_use" not in block_types
         return False
     return False
 

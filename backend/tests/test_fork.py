@@ -16,8 +16,9 @@ def _line(uuid, parent, type_, **extra):
     return json.dumps(d)
 
 
-def _assistant(uuid, parent, stop="end_turn"):
-    return _line(uuid, parent, "assistant", message={"stop_reason": stop})
+def _assistant(uuid, parent, stop="end_turn", content=None):
+    msg = {"stop_reason": stop, "content": content if content is not None else [{"type": "text", "text": "hi"}]}
+    return _line(uuid, parent, "assistant", message=msg)
 
 
 # 根 u1(user) -> a1(assistant) -> u2(user) -> a2(assistant) の線形会話 + 先頭メタ行
@@ -78,13 +79,23 @@ def test_clean_point_user_message():
     assert is_clean_fork_point(SAMPLE, "u2") is True
 
 
-def test_clean_point_assistant_end_turn():
+def test_clean_point_assistant_text_only():
+    # tool_use ブロックを含まない assistant (= テキスト回答) は切れ目
     assert is_clean_fork_point(SAMPLE, "a2") is True
 
 
-def test_clean_point_rejects_non_end_turn_assistant():
-    lines = [_line("u1", None, "user"), _assistant("a1", "u1", stop="tool_use")]
+def test_clean_point_rejects_assistant_with_tool_use():
+    # tool_use ブロックを含む行は保留中なので不可 (stop_reason に依らず content で判定)
+    content = [{"type": "text", "text": "x"}, {"type": "tool_use", "name": "Read", "id": "t1"}]
+    lines = [_line("u1", None, "user"), _assistant("a1", "u1", stop="end_turn", content=content)]
     assert is_clean_fork_point(lines, "a1") is False
+
+
+def test_clean_point_rejects_user_tool_result():
+    # tool_result の user 行 (= ツール出力、 実プロンプトでない) は不可
+    content = [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]
+    lines = [_line("u1", None, "user", message={"content": content})]
+    assert is_clean_fork_point(lines, "u1") is False
 
 
 def test_clean_point_rejects_sidechain():
@@ -128,7 +139,8 @@ def test_fork_endpoint_creates_indented_child(tmp_path, monkeypatch, isolated_st
 
 def test_fork_endpoint_rejects_dirty_point(tmp_path, monkeypatch, isolated_state):
     from fastapi import HTTPException  # noqa: PLC0415
-    lines = [_line("u1", None, "user"), _assistant("a1", "u1", stop="tool_use")]
+    content = [{"type": "tool_use", "name": "Read", "id": "t1"}]
+    lines = [_line("u1", None, "user"), _assistant("a1", "u1", content=content)]
     chat_routes, parent, _ = _setup_fork_env(tmp_path, monkeypatch, isolated_state, lines)
     try:
         chat_routes.fork_session(parent.id, {"from_uuid": "a1"})
