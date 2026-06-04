@@ -83,10 +83,6 @@ export default function App() {
   // terminal にし、 localStorage で永続化する (= そのタブはターミナル、 別タブは chat)。
   const [viewModes, setViewModes] = useState(() => lsGet('cpc_view_modes') || {})
   useEffect(() => { lsSet('cpc_view_modes', viewModes) }, [viewModes])
-  // pending_plan が消えたら自動でダイアログも閉じる (= 承認後に手動で X するのを省く)
-  useEffect(() => {
-    if (!status?.pending_plan && planOpen) setPlanOpen(false)
-  }, [status?.pending_plan, planOpen])
   const activeViewMode = activeSid ? (viewModes[activeSid] || 'chat') : 'chat'
   // toggle ヘルパは「現在 mode → 反転 mode」 を計算する純粋関数として残し、
   // 実際の setViewModes 呼出は呼び出し側で行う (= topbar の 💬 戻るボタンと同じ
@@ -137,6 +133,12 @@ export default function App() {
   // 形に変更 (2026-06-04)。 topbar の 📑 ボタンが pending_plan の在席を示し、
   // タップでこのダイアログを開く。 pending_plan が消えたら自動で閉じる。
   const [planOpen, setPlanOpen] = useState(false)
+  // pending_plan が消えたら自動でダイアログも閉じる (= 承認後に手動で X するのを省く)。
+  // この useEffect は planOpen 宣言より後に置くこと。 依存配列はレンダー中に同期評価される
+  // ので、 宣言前に書くと planOpen が TDZ に入り ReferenceError で全画面クラッシュする。
+  useEffect(() => {
+    if (!status?.pending_plan && planOpen) setPlanOpen(false)
+  }, [status?.pending_plan, planOpen])
   const [confirmEnd, setConfirmEnd] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null) // 削除確認中の session_id
   const [confirmStop, setConfirmStop] = useState(false)
