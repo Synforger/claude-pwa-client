@@ -83,6 +83,10 @@ export default function App() {
   // terminal にし、 localStorage で永続化する (= そのタブはターミナル、 別タブは chat)。
   const [viewModes, setViewModes] = useState(() => lsGet('cpc_view_modes') || {})
   useEffect(() => { lsSet('cpc_view_modes', viewModes) }, [viewModes])
+  // pending_plan が消えたら自動でダイアログも閉じる (= 承認後に手動で X するのを省く)
+  useEffect(() => {
+    if (!status?.pending_plan && planOpen) setPlanOpen(false)
+  }, [status?.pending_plan, planOpen])
   const activeViewMode = activeSid ? (viewModes[activeSid] || 'chat') : 'chat'
   // toggle ヘルパは「現在 mode → 反転 mode」 を計算する純粋関数として残し、
   // 実際の setViewModes 呼出は呼び出し側で行う (= topbar の 💬 戻るボタンと同じ
@@ -128,6 +132,11 @@ export default function App() {
   const [subagentsOpen, setSubagentsOpen] = useState(false)
   // 🧩 を開く時のスコープ記述子 (= Task チップなら該当 agent、 Workflow チップなら該当 run に直行)。
   const [subagentsFocus, setSubagentsFocus] = useState(null)
+  // ExitPlanMode 承認ダイアログの開閉。 旧仕様は pending_plan が出た瞬間に全画面 overlay
+  // が自動展開する設計だったが、 「画面を遮らずにヘッダーに常駐して、 開きたい時だけ開く」
+  // 形に変更 (2026-06-04)。 topbar の 📑 ボタンが pending_plan の在席を示し、
+  // タップでこのダイアログを開く。 pending_plan が消えたら自動で閉じる。
+  const [planOpen, setPlanOpen] = useState(false)
   const [confirmEnd, setConfirmEnd] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null) // 削除確認中の session_id
   const [confirmStop, setConfirmStop] = useState(false)
@@ -429,6 +438,19 @@ export default function App() {
             🤖
           </button>
         )}
+        {/* ExitPlanMode 承認待ち: 🤖 の隣に常駐する 📑 ボタン。 pending_plan がある時のみ表示、
+            脈動ドットで承認待ちを示し、 タップで PlanApprovalBubble を開く。 旧来の自動全画面
+            overlay は画面を遮るのでやめた (2026-06-04 改修)。 */}
+        {activeViewMode === 'chat' && activeSid && status?.pending_plan && (
+          <button
+            className="topbar-icon-btn topbar-plan-btn"
+            onClick={() => setPlanOpen(true)}
+            aria-label="plan 承認待ち"
+            title="plan 承認"
+          >
+            📑<span className="topbar-plan-dot" />
+          </button>
+        )}
         {/* 画面共有 (= moonlight-web-stream を iframe で埋め込み) ON/OFF。
             backend で /moonlight/ プロキシが有効な場合 (= Path B セットアップ済) だけ
             表示。 chat + 通知だけのユーザにはアイコン自体出さない (= 押しても 404)。 */}
@@ -547,11 +569,12 @@ export default function App() {
         />
       )}
 
-      {/* claude が ExitPlanMode で出した承認プロンプトを overlay として表示。
-          backend がアクティブ session の agent_status.pending_plan を SSE で流す。 */}
-      {status?.pending_plan && (
+      {/* ExitPlanMode 承認プロンプト。 topbar の 📑 ボタンタップで開く明示 open 制御。
+          pending_plan が消えたら自動で閉じる (= 承認が反映されたら片付ける)。 */}
+      {planOpen && status?.pending_plan && (
         <PlanApprovalBubble
           pendingPlan={status.pending_plan}
+          onClose={() => setPlanOpen(false)}
           onChoose={async (key) => {
             if (!activeSid) return
             await apiFetch(`/pty/${encodeURIComponent(activeSid)}/send`, {
@@ -559,6 +582,7 @@ export default function App() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ text: key, enter: true }),
             }).catch(() => {})
+            setPlanOpen(false)
           }}
         />
       )}

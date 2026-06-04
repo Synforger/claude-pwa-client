@@ -510,12 +510,49 @@ button:disabled {
   flex-direction: column;
   overflow: hidden;
 }
+.plan-approval-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
 .plan-approval-title {
-  padding: 14px 16px;
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
-  border-bottom: 1px solid var(--border);
+}
+.plan-approval-close {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 20px;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+}
+.plan-approval-close:hover {
+  color: var(--text);
+}
+/* topbar 📑 ボタンの脈動ドット (= 承認待ちを明示)。 MessageItem.css の tool-running-dot
+   と同じ脈動だが、 サイズと位置を topbar アイコンに合わせて右上に重ねる。 */
+.topbar-plan-btn {
+  position: relative;
+}
+.topbar-plan-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  pointer-events: none;
+  animation: topbar-plan-pulse 1.2s ease-in-out infinite;
+}
+@keyframes topbar-plan-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
 }
 .plan-approval-body {
   padding: 12px 16px;
