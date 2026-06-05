@@ -304,6 +304,33 @@ def test_build_forked_lineage_lazy_pulls_only_needed_files():
     assert len(fetches) == 1  # file3 は残ったまま (= 呼ばれてない)
 
 
+def test_build_forked_lineage_lazy_walks_through_system_rows():
+    """parentUuid 鎖の中間に type='system' 行があっても完走する。 実機 jsonl で claude が
+    note / caveat を system 行として鎖に挟むケースを実装が見逃してた (2026-06-05 真因、
+    1475 行あるべき lineage が leaf 1 行だけになってた)。"""
+    from fork import build_forked_lineage_lazy  # noqa: PLC0415
+    src = [
+        _line("u1", None, "user"),
+        _line("s1", "u1", "system"),       # 鎖の中間に system 行
+        _assistant("a1", "s1"),
+        _line("u2", "a1", "user"),
+    ]
+    out = build_forked_lineage_lazy(src, "u2", "NEW", lambda: None)
+    assert _uuids(out) == ["u1", "s1", "a1", "u2"]  # system 行も lineage に含めて完走
+
+
+def test_build_forked_lineage_lazy_walks_through_attachment_rows():
+    """type='attachment' (= ファイル添付情報) も鎖の中間に入るケースを抜け落とさない。"""
+    from fork import build_forked_lineage_lazy  # noqa: PLC0415
+    src = [
+        _line("u1", None, "user"),
+        _line("at1", "u1", "attachment"),
+        _assistant("a1", "at1"),
+    ]
+    out = build_forked_lineage_lazy(src, "a1", "NEW", lambda: None)
+    assert _uuids(out) == ["u1", "at1", "a1"]
+
+
 def test_build_forked_lineage_lazy_stops_when_fetch_returns_none():
     """fetch_more が None を返したら、 そこまでの鎖で確定する (= 無限ループしない)。"""
     from fork import build_forked_lineage_lazy  # noqa: PLC0415
