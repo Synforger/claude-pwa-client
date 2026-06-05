@@ -123,9 +123,9 @@ def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(re
             (p for p in project_dir.glob("*.jsonl") if p != live),
             key=lambda p: p.stat().st_mtime, reverse=True,
         )
-        candidates.extend(others[:200])  # 走査上限 (= 新しい順 200 ファイルまで、 長期 cwd で
-        # 100+ jsonl まで膨らむケースを実機観測したため拡張、 旧 40 上限だと祖先 uuid が範囲外で
-        # lineage が中途半端に打ち切られる事故が起きた 2026-06-05)
+        candidates.extend(others)  # 全部走査。 ハード上限 (旧 40 / 拡張 200) は長期 cwd で
+        # 「祖先 uuid が範囲外」 で lineage を中途半端に打ち切る事故の元だったので撤廃。
+        # 自然な上限は maintenance.cleanup_old_jsonl (= 14 日 / 500MB 自動掃除) が引いてくれる。
 
     needle = from_uuid.encode("utf-8")
     src_path = None
@@ -154,15 +154,16 @@ def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(re
     # (2026-06-05 観測: 数百ターン会話の fork が 12 行 jsonl に縮んでた)。 同 project dir の
     # jsonl は同 cwd で動いた他 session も混ざりうるが、 uuid は各 session 内で独立してて
     # 別 session の uuid が鎖に紛れ込むことは無い (= 親子関係が成立するのは同 session 内)。
-    # 走査範囲は src_path 探索と同じ 200 ファイルに揃える (= 数ヶ月稼働の長期 cwd でも
-    # 祖先 uuid をカバー、 メモリは数十 MB 程度で許容範囲)。
+    # 走査範囲は src_path 探索と同じく全 jsonl。 fork は一発 POST なので I/O コストよりも
+    # context 完走の方が遥かに価値が高い (= 上限で lineage が切れる事故より、 数百 ms の
+    # 余計な read の方が圧倒的に許容)。 maintenance の自動掃除が背景で上限を引いてくれる。
     source_lines = src_path.read_text(encoding="utf-8").splitlines()
     extra_files = 0
     if project_dir is not None and project_dir.is_dir():
         related = sorted(
             (p for p in project_dir.glob("*.jsonl") if p != src_path),
             key=lambda p: p.stat().st_mtime, reverse=True,
-        )[:200]
+        )
         for p in related:
             try:
                 source_lines.extend(p.read_text(encoding="utf-8").splitlines())
