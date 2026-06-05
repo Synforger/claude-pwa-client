@@ -97,7 +97,7 @@ def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(re
     登録して返す。 元タブ・元 jsonl には一切触れない。
     """
     from pty_runner import jsonl_path_for_session  # noqa: PLC0415
-    from fork import build_forked_lineage, fork_point_status, lineage_root_resolved  # noqa: PLC0415
+    from fork import build_forked_lineage_lazy, fork_point_status  # noqa: PLC0415
     from jsonl_watcher import _cwd_to_project_dir  # noqa: PLC0415
 
     from_uuid = payload.get("from_uuid")
@@ -147,53 +147,52 @@ def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(re
             detail="この会話のログに該当メッセージが見つかりません",
         )
 
-    # 第一手: from_uuid を含む jsonl 単体で lineage を組む。 1 jsonl = 1 claude session の
-    # 中で会話が閉じてればここで完走する (= ほとんどのケース)。
-    # 保険 (lazy stitching): claude が compact / session roll で会話を複数 jsonl に分散させた
-    # 場合、 parentUuid 鎖の親が src_path に無い時点で打ち切られる。 そこで「鎖が根 (= parentUuid
-    # =null) まで到達したか」 を lineage_root_resolved で確認し、 未到達なら同 cwd の他 jsonl を
-    # 新しい順に 1 つずつ追加 load して再試行する。 鎖が完走するか候補が尽きるまで繰り返す。
-    # 同 cwd の他セッション jsonl は uuid が独立しているので鎖に紛れ込まず、 余計な読みでも
-    # build_forked_lineage の正しさには影響しない (= 安全に lazy で増やせる)。
-    source_lines = src_path.read_text(encoding="utf-8").splitlines()
-    extra_files = 0
-    if project_dir is not None and project_dir.is_dir():
-        other_iter = iter(sorted(
-            (p for p in project_dir.glob("*.jsonl") if p != src_path),
-            key=lambda p: p.stat().st_mtime, reverse=True,
-        ))
-        while not lineage_root_resolved(source_lines, from_uuid):
-            try:
-                nxt = next(other_iter)
-            except StopIteration:
-                break  # もう候補無し = ここまでの鎖で確定
-            try:
-                source_lines.extend(nxt.read_text(encoding="utf-8").splitlines())
-                extra_files += 1
-            except OSError:
-                continue
-
-    status = fork_point_status(source_lines, from_uuid)
-    logger.info(
-        "fork: session=%s jsonl=%s from_uuid=%s lines=%d extra_files=%d status=%s",
-        session_id, src_path.name, from_uuid, len(source_lines), extra_files, status,
-    )
+    # まず src_path 単体で fork point の妥当性 (= tool 行で切れてないか) を確認。
+    # 大半のフォークは src_path の中で会話が閉じてて、 ここで全部完結する。
+    src_lines = src_path.read_text(encoding="utf-8").splitlines()
+    status = fork_point_status(src_lines, from_uuid)
     if status != "ok":
         raise HTTPException(
             status_code=400,
             detail="この位置からは分岐できません (= user 発言か完了したターンのみ)",
         )
 
+    # lazy stitching: build_forked_lineage_lazy が鎖を辿りながら、 親 uuid が src_lines に
+    # 無い時だけ fetch_more で次の jsonl を 1 個取りに来る。 鎖が src_lines 内で閉じれば
+    # 追加 jsonl は読まれない (= 大半のケース)。 同 cwd の他 jsonl は新しい順に提供。
+    other_iter = None
+    if project_dir is not None and project_dir.is_dir():
+        other_iter = iter(sorted(
+            (p for p in project_dir.glob("*.jsonl") if p != src_path),
+            key=lambda p: p.stat().st_mtime, reverse=True,
+        ))
+    extra_files: list[str] = []
+
+    def fetch_more():
+        if other_iter is None:
+            return None
+        try:
+            nxt = next(other_iter)
+        except StopIteration:
+            return None
+        try:
+            lines = nxt.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return []  # 1 ファイルだけ読み損ねても次へ進めるよう空 list を返す
+        extra_files.append(nxt.name)
+        return lines
+
     new_claude_id = str(uuid.uuid4())
     try:
-        forked = build_forked_lineage(source_lines, from_uuid, new_claude_id)
+        forked = build_forked_lineage_lazy(src_lines, from_uuid, new_claude_id, fetch_more)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not forked:
         raise HTTPException(status_code=400, detail="分岐対象の会話が空です")
     logger.info(
-        "fork: lineage built session=%s lines=%d -> new_jsonl=%s.jsonl lineage_rows=%d",
-        session_id, len(source_lines), new_claude_id, len(forked),
+        "fork: session=%s src=%s from_uuid=%s extra_files=%d -> new_jsonl=%s.jsonl rows=%d",
+        session_id, src_path.name, from_uuid, len(extra_files),
+        new_claude_id, len(forked),
     )
 
     # 新 jsonl は project dir (= 同 cwd hash) に置く。 新タブは agent を継承 = 同 cwd で spawn

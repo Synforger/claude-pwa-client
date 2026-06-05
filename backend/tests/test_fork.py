@@ -267,6 +267,51 @@ def test_fork_endpoint_stitches_lineage_across_rolled_files(tmp_path, monkeypatc
     assert _uuids(new.read_text().splitlines()) == ["u1", "a1", "u2", "a2", "u3"]
 
 
+def test_build_forked_lineage_lazy_self_contained_does_not_call_fetch_more():
+    """src_lines 内で鎖が完走するケース、 fetch_more は 1 回も呼ばれない。 large project dir で
+    無関係な jsonl を読まない (= fork が重くならない) ことの最小単位の担保。"""
+    from fork import build_forked_lineage_lazy  # noqa: PLC0415
+    src = [
+        _line("u1", None, "user"),
+        _assistant("a1", "u1"),
+        _line("u2", "a1", "user"),
+    ]
+    calls = {"count": 0}
+    def fetch_more():
+        calls["count"] += 1
+        return None
+    out = build_forked_lineage_lazy(src, "u2", "NEW", fetch_more)
+    assert _uuids(out) == ["u1", "a1", "u2"]
+    assert calls["count"] == 0
+
+
+def test_build_forked_lineage_lazy_pulls_only_needed_files():
+    """親 uuid が src_lines に無い時だけ fetch_more が呼ばれ、 親が見つかった時点で停止。
+    候補 jsonl が複数あっても鎖完走後は呼ばれない。"""
+    from fork import build_forked_lineage_lazy  # noqa: PLC0415
+    src = [
+        _line("u2", "a1", "user"),       # 親 a1 は src に無い
+        _assistant("a2", "u2"),
+    ]
+    file1 = [_assistant("a1", "u1")]      # a1 はここ
+    file2 = [_line("u1", None, "user")]   # u1 (= 根) はここ
+    file3 = [_line("ZZZ", None, "user")]  # 鎖完走後は呼ばれない
+    fetches = [file1, file2, file3]
+    def fetch_more():
+        return fetches.pop(0) if fetches else None
+    out = build_forked_lineage_lazy(src, "u2", "NEW", fetch_more)
+    assert _uuids(out) == ["u1", "a1", "u2"]
+    assert len(fetches) == 1  # file3 は残ったまま (= 呼ばれてない)
+
+
+def test_build_forked_lineage_lazy_stops_when_fetch_returns_none():
+    """fetch_more が None を返したら、 そこまでの鎖で確定する (= 無限ループしない)。"""
+    from fork import build_forked_lineage_lazy  # noqa: PLC0415
+    src = [_line("u2", "a1", "user")]  # 親 a1 はどこにも無い
+    out = build_forked_lineage_lazy(src, "u2", "NEW", lambda: None)
+    assert _uuids(out) == ["u2"]  # 鎖は u2 だけで打ち切り
+
+
 def test_fork_endpoint_lazy_stops_reading_when_root_resolved(tmp_path, monkeypatch, isolated_state):
     """src_path 単体で鎖が完走するケースでは他 jsonl を 1 個も読まない (= lazy 振る舞い検証)。
     無関係な大きい jsonl が project dir にあっても fork POST は src_path だけ触る。"""
