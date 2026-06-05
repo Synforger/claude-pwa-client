@@ -213,6 +213,32 @@ def test_fork_endpoint_finds_uuid_in_rolled_file(tmp_path, monkeypatch, isolated
     assert _uuids(new.read_text().splitlines()) == ["u1", "a1", "u2"]
 
 
+def test_lineage_root_resolved_returns_true_when_chain_completes():
+    """parentUuid 鎖が根 (= null) まで到達してれば True。 build_forked_lineage の完走判定に使う。"""
+    from fork import lineage_root_resolved  # noqa: PLC0415
+    lines = [
+        _line("u1", None, "user"),
+        _assistant("a1", "u1"),
+        _line("u2", "a1", "user"),
+    ]
+    assert lineage_root_resolved(lines, "u2") is True
+
+
+def test_lineage_root_resolved_returns_false_when_parent_missing():
+    """親 uuid がファイル内に無ければ False = 別 jsonl にまたがってる、 lazy stitching が要る印。"""
+    from fork import lineage_root_resolved  # noqa: PLC0415
+    lines = [
+        _line("u2", "a1", "user"),       # 親 a1 は別 jsonl にある想定
+        _assistant("a2", "u2"),
+    ]
+    assert lineage_root_resolved(lines, "u2") is False
+
+
+def test_lineage_root_resolved_returns_false_when_from_uuid_absent():
+    from fork import lineage_root_resolved  # noqa: PLC0415
+    assert lineage_root_resolved([_line("u1", None, "user")], "ghost") is False
+
+
 def test_fork_endpoint_stitches_lineage_across_rolled_files(tmp_path, monkeypatch, isolated_state):
     """claude が会話 compact / session roll で 1 会話を複数 jsonl に分割しているケース。
     from_uuid を含む jsonl 単体では parentUuid 鎖が途中で切れる (= 親が別 jsonl) ため
@@ -239,6 +265,29 @@ def test_fork_endpoint_stitches_lineage_across_rolled_files(tmp_path, monkeypatc
     new = tmp_path / f"{out['resume_session_id']}.jsonl"
     # full lineage: rolled の u1,a1 + live の u2,a2,u3 を時系列順で 5 行揃う
     assert _uuids(new.read_text().splitlines()) == ["u1", "a1", "u2", "a2", "u3"]
+
+
+def test_fork_endpoint_lazy_stops_reading_when_root_resolved(tmp_path, monkeypatch, isolated_state):
+    """src_path 単体で鎖が完走するケースでは他 jsonl を 1 個も読まない (= lazy 振る舞い検証)。
+    無関係な大きい jsonl が project dir にあっても fork POST は src_path だけ触る。"""
+    import jsonl_watcher  # noqa: PLC0415
+    # src_path に full lineage (= root から leaf まで揃ってる)
+    full = [
+        _line("u1", None, "user"),
+        _assistant("a1", "u1"),
+        _line("u2", "a1", "user"),
+    ]
+    chat_routes, parent, _ = _setup_fork_env(tmp_path, monkeypatch, isolated_state, full)
+    # ノイズ jsonl を 5 個生やしておく (= 読まれたら _check 経路で uuid 衝突しないが、 行数が増える)
+    for i in range(5):
+        (tmp_path / f"noise-{i}.jsonl").write_text(
+            _line(f"x{i}", None, "user") + "\n", encoding="utf-8",
+        )
+    monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd: tmp_path)
+    out = chat_routes.fork_session(parent.id, {"from_uuid": "u2"})
+    new = tmp_path / f"{out['resume_session_id']}.jsonl"
+    # full lineage が新 jsonl に書かれる (= 3 行、 ノイズ x[i] は混ざらない)
+    assert _uuids(new.read_text().splitlines()) == ["u1", "a1", "u2"]
 
 
 def test_fork_endpoint_not_found_across_all_files(tmp_path, monkeypatch, isolated_state):
