@@ -145,11 +145,32 @@ def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(re
             detail="この会話のログに該当メッセージが見つかりません",
         )
 
+    # fork 元の jsonl だけでなく、 同 project dir の関連 jsonl 群も結合して source_lines に
+    # する。 claude は会話 compact / session roll で 1 会話を複数 jsonl に分割するので、
+    # from_uuid を含む jsonl だけ渡すと、 build_forked_lineage が parentUuid 鎖を遡る途中で
+    # 「親がこのファイルに無い」 と判定して打ち切る = 古い context が大量に失われる
+    # (2026-06-05 観測: 数百ターン会話の fork が 12 行 jsonl に縮んでた)。 同 project dir の
+    # jsonl は同 cwd で動いた他 session も混ざりうるが、 uuid は各 session 内で独立してて
+    # 別 session の uuid が鎖に紛れ込むことは無い (= 親子関係が成立するのは同 session 内)。
+    # 走査範囲は src_path 探索と同じ 40 ファイルに揃える (= 30 ターン要件はカバーする上限)。
     source_lines = src_path.read_text(encoding="utf-8").splitlines()
+    extra_files = 0
+    if project_dir is not None and project_dir.is_dir():
+        related = sorted(
+            (p for p in project_dir.glob("*.jsonl") if p != src_path),
+            key=lambda p: p.stat().st_mtime, reverse=True,
+        )[:40]
+        for p in related:
+            try:
+                source_lines.extend(p.read_text(encoding="utf-8").splitlines())
+                extra_files += 1
+            except OSError:
+                continue
+
     status = fork_point_status(source_lines, from_uuid)
     logger.info(
-        "fork: session=%s jsonl=%s from_uuid=%s lines=%d status=%s",
-        session_id, src_path.name, from_uuid, len(source_lines), status,
+        "fork: session=%s jsonl=%s from_uuid=%s lines=%d extra_files=%d status=%s",
+        session_id, src_path.name, from_uuid, len(source_lines), extra_files, status,
     )
     if status != "ok":
         raise HTTPException(
@@ -164,6 +185,10 @@ def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(re
         raise HTTPException(status_code=400, detail=str(e))
     if not forked:
         raise HTTPException(status_code=400, detail="分岐対象の会話が空です")
+    logger.info(
+        "fork: lineage built session=%s lines=%d -> new_jsonl=%s.jsonl lineage_rows=%d",
+        session_id, len(source_lines), new_claude_id, len(forked),
+    )
 
     # 新 jsonl は project dir (= 同 cwd hash) に置く。 新タブは agent を継承 = 同 cwd で spawn
     # するので claude --resume がこの新 jsonl を確実に見つける。

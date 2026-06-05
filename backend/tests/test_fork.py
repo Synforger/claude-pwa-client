@@ -213,6 +213,34 @@ def test_fork_endpoint_finds_uuid_in_rolled_file(tmp_path, monkeypatch, isolated
     assert _uuids(new.read_text().splitlines()) == ["u1", "a1", "u2"]
 
 
+def test_fork_endpoint_stitches_lineage_across_rolled_files(tmp_path, monkeypatch, isolated_state):
+    """claude が会話 compact / session roll で 1 会話を複数 jsonl に分割しているケース。
+    from_uuid を含む jsonl 単体では parentUuid 鎖が途中で切れる (= 親が別 jsonl) ため
+    旧版は途中で打ち切って古い context を全部失った (2026-06-05 真因)。 同 project dir の
+    関連 jsonl 群も結合して source_lines にすることで、 鎖を最後まで辿って full lineage を
+    新 jsonl に書き出す。"""
+    import jsonl_watcher  # noqa: PLC0415
+    # 古い jsonl (= rolled) に root u1,a1、 新しい jsonl (= live) に u2,a2,u3。 u2 の親 a1 は
+    # 別ファイル。 旧実装は live だけ source にして u2 から始まる短い lineage しか書けなかった。
+    rolled_lines = [
+        _line("u1", None, "user"),
+        _assistant("a1", "u1"),
+    ]
+    live_lines = [
+        _line("u2", "a1", "user"),       # 親 a1 は rolled.jsonl にある
+        _assistant("a2", "u2"),
+        _line("u3", "a2", "user"),
+    ]
+    chat_routes, parent, live = _setup_fork_env(tmp_path, monkeypatch, isolated_state, live_lines)
+    rolled = tmp_path / "rolled.jsonl"
+    rolled.write_text("\n".join(rolled_lines) + "\n", encoding="utf-8")
+    monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd: tmp_path)
+    out = chat_routes.fork_session(parent.id, {"from_uuid": "u3"})
+    new = tmp_path / f"{out['resume_session_id']}.jsonl"
+    # full lineage: rolled の u1,a1 + live の u2,a2,u3 を時系列順で 5 行揃う
+    assert _uuids(new.read_text().splitlines()) == ["u1", "a1", "u2", "a2", "u3"]
+
+
 def test_fork_endpoint_not_found_across_all_files(tmp_path, monkeypatch, isolated_state):
     from fastapi import HTTPException  # noqa: PLC0415
     import jsonl_watcher  # noqa: PLC0415
