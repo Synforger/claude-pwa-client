@@ -11,9 +11,16 @@ claude は 1 セッション = `~/.claude/projects/<cwd-hash>/<session_id>.jsonl
 """
 import json
 
-# claude が「会話の 1 発言」 として書く行 type。 これら以外 (queue-operation /
-# last-prompt / summary 等のメタ行) は uuid 鎖を持たないので lineage 復元では使わない。
-_MESSAGE_TYPES = ("user", "assistant")
+# claude が parentUuid 鎖の構成要素として書く行 type の全集合。 user / assistant 以外にも
+# system 行 (claude が note や caveat を書く)、 attachment 行 (ファイル添付情報) も鎖の中間
+# に入りうる (実機 5/24-6/5 jsonl で確認)。 これらを index から除外すると、 鎖の途中に
+# system 行が居るケースで「親が見つからない」 判定で打ち切られ、 fork lineage が leaf 1 行
+# だけに縮む事故が起きる (2026-06-05 真因)。 queue-operation / last-prompt / mode /
+# permission-mode / file-history-snapshot / summary は uuid / parentUuid を持たない純メタ
+# 行なので鎖に絡まず、 ここには含めない。
+_LINEAGE_TYPES = ("user", "assistant", "system", "attachment")
+# 後方互換 alias (= 外部 import 用 / 過去呼称)。
+_MESSAGE_TYPES = _LINEAGE_TYPES
 
 
 def _parse_lines(source_lines: list[str]) -> list[dict]:
@@ -105,7 +112,7 @@ def lineage_root_resolved(source_lines: list[str], from_uuid: str) -> bool:
     by_uuid: dict[str, dict] = {
         d["uuid"]: d
         for d in parsed
-        if d.get("type") in _MESSAGE_TYPES and d.get("uuid")
+        if d.get("type") in _LINEAGE_TYPES and d.get("uuid")
     }
     leaf, _group = _resolve_target(parsed, from_uuid)
     leaf_uuid = leaf.get("uuid") if leaf is not None else None
@@ -133,7 +140,7 @@ def _index_lines(by_uuid: dict[str, dict], lines: list[str]) -> None:
             continue
         if not isinstance(d, dict):
             continue
-        if d.get("type") in _MESSAGE_TYPES and d.get("uuid"):
+        if d.get("type") in _LINEAGE_TYPES and d.get("uuid"):
             by_uuid.setdefault(d["uuid"], d)
 
 
@@ -214,7 +221,7 @@ def build_forked_lineage(
     by_uuid: dict[str, dict] = {
         d["uuid"]: d
         for d in parsed
-        if d.get("type") in _MESSAGE_TYPES and d.get("uuid")
+        if d.get("type") in _LINEAGE_TYPES and d.get("uuid")
     }
     # from_uuid は行 uuid か message.id (= assistant バブル) のどちらか。 leaf 行を解決して、
     # その実 uuid を鎖の起点にする。
