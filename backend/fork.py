@@ -98,10 +98,9 @@ def is_clean_fork_point(source_lines: list[str], from_uuid: str) -> bool:
 def lineage_root_resolved(source_lines: list[str], from_uuid: str) -> bool:
     """from_uuid から parentUuid 鎖を辿った時、 根 (= parentUuid=null) まで到達できるか。
     True = 鎖が完走 (= 全 context が source_lines 内にある)、 False = 親が見つからない
-    時点で打ち切られる (= 別 jsonl にまたがってる、 lazy stitching で追加読みが必要)。
-    chat_routes.fork_session が「他 jsonl を順次追加しながら鎖完走まで読み込む」 ループの
-    完走判定に使う。 from_uuid 自体が無ければ False。
-    """
+    時点で打ち切られる (= 別 jsonl にまたがってる)。 主に test の意図表現 / 手動デバッグ用。
+    chat_routes は build_forked_lineage_lazy を使うのでこの関数は呼ばない (= 毎回全 parse
+    を避けるため)。"""
     parsed = _parse_lines(source_lines)
     by_uuid: dict[str, dict] = {
         d["uuid"]: d
@@ -120,6 +119,80 @@ def lineage_root_resolved(source_lines: list[str], from_uuid: str) -> bool:
         seen.add(cur)
         cur = by_uuid[cur].get("parentUuid")
     return True
+
+
+def _index_lines(by_uuid: dict[str, dict], lines: list[str]) -> None:
+    """jsonl 行群を parse して by_uuid に追加 (= 既出 uuid は上書きしない)。"""
+    for raw in lines:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            d = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(d, dict):
+            continue
+        if d.get("type") in _MESSAGE_TYPES and d.get("uuid"):
+            by_uuid.setdefault(d["uuid"], d)
+
+
+def build_forked_lineage_lazy(
+    src_lines: list[str],
+    from_uuid: str,
+    new_session_id: str,
+    fetch_more,
+) -> list[str]:
+    """鎖駆動の lazy 版 build_forked_lineage。 src_lines を起点に parentUuid 鎖を辿り、
+    親 uuid が今の index に無い時だけ fetch_more() を呼んで追加 jsonl 行を取り込む。
+    全行を一括 parse する build_forked_lineage と違い、 必要になった時だけ index を拡張
+    するので、 大量の jsonl が project dir にあっても鎖が src_lines 内で閉じるケースでは
+    追加 jsonl を 1 個も読まない (= O(必要な親数) で済む)。
+
+    fetch_more: 引数なしで呼び出して `list[str] | None` を返す callable。
+                次の jsonl の行リストを返す。 もう候補が無ければ None。
+
+    挙動:
+      - 鎖の親 uuid が index に無い → fetch_more() で 1 個ずつ追加 load
+      - fetch_more が None を返したら、 そこで鎖を確定して終了
+      - 完走 (= parentUuid=null まで到達) しても、 候補が残ってても余計な load はしない
+
+    from_uuid が src_lines に無ければ ValueError (旧 build_forked_lineage と同じ)。
+    """
+    by_uuid: dict[str, dict] = {}
+    _index_lines(by_uuid, src_lines)
+
+    # leaf 解決は src_lines 内で行う (= from_uuid を含む jsonl は src_path 単体で確定済)。
+    # message.id grouping は src_lines に対してだけ意味があるので _resolve_target は src のみ。
+    parsed_src = _parse_lines(src_lines)
+    leaf, _group = _resolve_target(parsed_src, from_uuid)
+    leaf_uuid = leaf.get("uuid") if leaf is not None else None
+    if leaf_uuid not in by_uuid:
+        raise ValueError(f"from_uuid {from_uuid!r} not found in source session")
+
+    chain: list[dict] = []
+    seen: set[str] = set()
+    cur: str | None = leaf_uuid
+    while cur is not None and cur not in seen:
+        if cur not in by_uuid:
+            # 親 uuid が今の index に無い: 次の jsonl を読み込んで再 check (= まだ追加 load
+            # しても見つからなければさらに次へ、 候補尽きるまで)。
+            extra = fetch_more()
+            if extra is None:
+                break
+            _index_lines(by_uuid, extra)
+            continue
+        seen.add(cur)
+        chain.append(by_uuid[cur])
+        cur = by_uuid[cur].get("parentUuid")
+    chain.reverse()
+
+    out: list[str] = []
+    for d in chain:
+        line = dict(d)
+        line["sessionId"] = new_session_id
+        out.append(json.dumps(line, ensure_ascii=False))
+    return out
 
 
 def build_forked_lineage(
