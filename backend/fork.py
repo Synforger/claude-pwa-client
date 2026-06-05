@@ -95,6 +95,33 @@ def is_clean_fork_point(source_lines: list[str], from_uuid: str) -> bool:
     return fork_point_status(source_lines, from_uuid) == "ok"
 
 
+def lineage_root_resolved(source_lines: list[str], from_uuid: str) -> bool:
+    """from_uuid から parentUuid 鎖を辿った時、 根 (= parentUuid=null) まで到達できるか。
+    True = 鎖が完走 (= 全 context が source_lines 内にある)、 False = 親が見つからない
+    時点で打ち切られる (= 別 jsonl にまたがってる、 lazy stitching で追加読みが必要)。
+    chat_routes.fork_session が「他 jsonl を順次追加しながら鎖完走まで読み込む」 ループの
+    完走判定に使う。 from_uuid 自体が無ければ False。
+    """
+    parsed = _parse_lines(source_lines)
+    by_uuid: dict[str, dict] = {
+        d["uuid"]: d
+        for d in parsed
+        if d.get("type") in _MESSAGE_TYPES and d.get("uuid")
+    }
+    leaf, _group = _resolve_target(parsed, from_uuid)
+    leaf_uuid = leaf.get("uuid") if leaf is not None else None
+    if leaf_uuid not in by_uuid:
+        return False
+    cur: str | None = leaf_uuid
+    seen: set[str] = set()
+    while cur is not None and cur not in seen:
+        if cur not in by_uuid:
+            return False
+        seen.add(cur)
+        cur = by_uuid[cur].get("parentUuid")
+    return True
+
+
 def build_forked_lineage(
     source_lines: list[str], from_uuid: str, new_session_id: str
 ) -> list[str]:

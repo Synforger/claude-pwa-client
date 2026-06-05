@@ -97,7 +97,7 @@ def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(re
     登録して返す。 元タブ・元 jsonl には一切触れない。
     """
     from pty_runner import jsonl_path_for_session  # noqa: PLC0415
-    from fork import build_forked_lineage, fork_point_status  # noqa: PLC0415
+    from fork import build_forked_lineage, fork_point_status, lineage_root_resolved  # noqa: PLC0415
     from jsonl_watcher import _cwd_to_project_dir  # noqa: PLC0415
 
     from_uuid = payload.get("from_uuid")
@@ -147,26 +147,28 @@ def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(re
             detail="この会話のログに該当メッセージが見つかりません",
         )
 
-    # fork 元の jsonl だけでなく、 同 project dir の関連 jsonl 群も結合して source_lines に
-    # する。 claude は会話 compact / session roll で 1 会話を複数 jsonl に分割するので、
-    # from_uuid を含む jsonl だけ渡すと、 build_forked_lineage が parentUuid 鎖を遡る途中で
-    # 「親がこのファイルに無い」 と判定して打ち切る = 古い context が大量に失われる
-    # (2026-06-05 観測: 数百ターン会話の fork が 12 行 jsonl に縮んでた)。 同 project dir の
-    # jsonl は同 cwd で動いた他 session も混ざりうるが、 uuid は各 session 内で独立してて
-    # 別 session の uuid が鎖に紛れ込むことは無い (= 親子関係が成立するのは同 session 内)。
-    # 走査範囲は src_path 探索と同じく全 jsonl。 fork は一発 POST なので I/O コストよりも
-    # context 完走の方が遥かに価値が高い (= 上限で lineage が切れる事故より、 数百 ms の
-    # 余計な read の方が圧倒的に許容)。 maintenance の自動掃除が背景で上限を引いてくれる。
+    # 第一手: from_uuid を含む jsonl 単体で lineage を組む。 1 jsonl = 1 claude session の
+    # 中で会話が閉じてればここで完走する (= ほとんどのケース)。
+    # 保険 (lazy stitching): claude が compact / session roll で会話を複数 jsonl に分散させた
+    # 場合、 parentUuid 鎖の親が src_path に無い時点で打ち切られる。 そこで「鎖が根 (= parentUuid
+    # =null) まで到達したか」 を lineage_root_resolved で確認し、 未到達なら同 cwd の他 jsonl を
+    # 新しい順に 1 つずつ追加 load して再試行する。 鎖が完走するか候補が尽きるまで繰り返す。
+    # 同 cwd の他セッション jsonl は uuid が独立しているので鎖に紛れ込まず、 余計な読みでも
+    # build_forked_lineage の正しさには影響しない (= 安全に lazy で増やせる)。
     source_lines = src_path.read_text(encoding="utf-8").splitlines()
     extra_files = 0
     if project_dir is not None and project_dir.is_dir():
-        related = sorted(
+        other_iter = iter(sorted(
             (p for p in project_dir.glob("*.jsonl") if p != src_path),
             key=lambda p: p.stat().st_mtime, reverse=True,
-        )
-        for p in related:
+        ))
+        while not lineage_root_resolved(source_lines, from_uuid):
             try:
-                source_lines.extend(p.read_text(encoding="utf-8").splitlines())
+                nxt = next(other_iter)
+            except StopIteration:
+                break  # もう候補無し = ここまでの鎖で確定
+            try:
+                source_lines.extend(nxt.read_text(encoding="utf-8").splitlines())
                 extra_files += 1
             except OSError:
                 continue
