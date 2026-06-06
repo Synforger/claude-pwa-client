@@ -6,6 +6,51 @@ import './MessageRenderer.css'
 
 const PATH_RE = /(?<![(`])(~\/[^\s`"')\]]+|\/Users\/[^\s`"')\]]+)/g
 
+// 単一メッセージの折りたたみ境界 (文字数)。 これを超えたら markdown を通さず plain text で
+// 折りたたむ (先頭プレビュー + 展開ボタン)。 2 つの役割を兼ねる:
+//   ① 重さ対策: 出力 degeneration (= 同一語の数万回反復等) で巨大メッセージが来ても、
+//      markdown が数万個の DOM ノードに展開してメインスレッドを固める事故を防ぐ
+//      (スクロール / ステータスライン更新も巻き添えで停止していた、 2026-06 実害)。
+//   ② 可視化 UX: 長い出力はデフォルトで畳んで一覧性を保つ。
+// 値の性格: Discord/WhatsApp 等の「これ以上打てないハード上限 (2k〜64k)」とは別軸で、
+// あくまで「読みやすさのために畳む境界」。 折りたたみ (全文は展開で見れる) なので短くてよい。
+// 運用判断 (2026-06): まず 10000 で運用、 鬱陶しければ調整する。
+export const MARKDOWN_MAX_CHARS = 10_000
+// 折りたたみ時の先頭プレビュー長 (= ここまで出して残りは展開ボタン)。 閾値より十分小さくして
+// 「畳まれている」 ことが分かる長さにする。
+const LARGE_PREVIEW_CHARS = 800
+
+// markdown を通さず plain text に倒すべき巨大メッセージか。 純関数 (= テスト対象)。
+export function isOversizedMessage(text) {
+  return typeof text === 'string' && text.length > MARKDOWN_MAX_CHARS
+}
+
+// 巨大テキストを markdown を介さず plain text で描画する。 既定は先頭だけ、 ボタンで全文。
+// 全文展開しても 1 個の <pre> テキストノードなので DOM ノード爆発は起きない。
+function LargeTextMessage({ text }) {
+  const [expanded, setExpanded] = useState(false)
+  const kb = Math.max(1, Math.round(text.length / 1024))
+  const truncated = !expanded && text.length > LARGE_PREVIEW_CHARS
+  const shown = truncated ? text.slice(0, LARGE_PREVIEW_CHARS) + '…' : text
+  return (
+    <div className="md-oversized">
+      <div className="md-oversized-note">
+        ⚠ Large message ({kb.toLocaleString()} KB) — shown as plain text to keep the app responsive.
+      </div>
+      <pre className="md-plain">{shown}</pre>
+      {text.length > LARGE_PREVIEW_CHARS && (
+        <button
+          type="button"
+          className="md-oversized-toggle"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? 'Collapse' : `Show full (${kb.toLocaleString()} KB)`}
+        </button>
+      )}
+    </div>
+  )
+}
+
 // remarkプラグイン: テキストノード内のファイルパスをlinkノードに変換
 function remarkFilePaths() {
   return (tree) => {
@@ -87,6 +132,11 @@ function CodeBlock({ children }) {
 }
 
 const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile }) {
+  // 巨大メッセージは markdown を通さず plain text に倒す (= degeneration 等でメインスレッドが
+  // 固まるのを防ぐ)。 streaming 中で途中まで巨大になったものも同様にガードされる。
+  if (isOversizedMessage(text)) {
+    return <LargeTextMessage text={text} />
+  }
   // streaming 中も ReactMarkdown を通す。不完全な Markdown (閉じてない表/コードブロック等) でも
   // react-markdown は例外を吐かず、暫定の見た目で描画する。途中の表やコードが視覚的に見えないよりマシ。
   return (
