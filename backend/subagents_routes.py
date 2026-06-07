@@ -95,40 +95,98 @@ def _read_meta(meta_path: Path) -> dict:
         return {"agentType": None, "description": None}
 
 
+def _running_workflow_from_journal(run_dir: Path) -> dict | None:
+    """走行中 (= マニフェスト未生成) の Workflow run を journal.jsonl から要約する。
+
+    マニフェスト wf_<id>.json は完了時にしか書かれないので、 起動直後 〜 完走前は
+    subagents/workflows/<runId>/journal.jsonl だけが存在する。 ここから「いま動いてる」
+    旨と起動済 agent 数だけ拾って一覧に出す (workflowName/taskId/phaseTitles 等の
+    マニフェスト由来項目は不明 = None)。
+    """
+    journal = run_dir / "journal.jsonl"
+    if not journal.is_file():
+        return None
+    started: set[str] = set()
+    try:
+        with journal.open() as fh:
+            for raw in fh:
+                try:
+                    ev = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if ev.get("type") == "started":
+                    aid = ev.get("agentId")
+                    if aid:
+                        started.add(aid)
+    except OSError:
+        return None
+    return {
+        "runId": run_dir.name,
+        "taskId": None,
+        "workflowName": None,
+        "status": "running",
+        "agentCount": len(started) or None,
+        "totalTokens": None,
+        "totalToolCalls": None,
+        "durationMs": None,
+        "phaseTitles": [],
+        "hasError": False,
+        "mtime": journal.stat().st_mtime,
+    }
+
+
 def _list_workflows(base: Path) -> list[dict]:
-    """workflows/<runId>.json マニフェストを読み、 各 Workflow run を 1 グループとして返す。
+    """workflows/<runId>.json マニフェスト + 走行中 run journal の両方を Workflow 一覧として返す。
+
+    マニフェスト (= 完了時生成) がある run は workflowName / agentCount / totalTokens 等の
+    リッチな要約で、 まだマニフェストが書かれていない走行中 run は subagents/workflows/<runId>/
+    journal.jsonl から「running + 起動済 agent 数」 だけ取って同じ一覧に並べる。 これにより
+    投げた直後の workflow も 🤖 パネルから見える。
 
     105 agent 規模でも 1 行に畳めるよう、 個別 agent でなく run 単位の要約 (= 名前 / 件数 /
     status / token / 所要) を出す。 agent 個別は別エンドポイントで run を drill-down する。
     """
+    runs: list[dict] = []
+    seen_run_ids: set[str] = set()
     wf_dir = base / "workflows"
-    if not wf_dir.is_dir():
-        return []
-    runs = []
-    for manifest in wf_dir.glob("wf_*.json"):
-        run_id = manifest.stem
-        if not _RUN_ID_RE.match(run_id):
-            continue
-        try:
-            d = json.loads(manifest.read_text())
-        except (OSError, json.JSONDecodeError):
-            continue
-        phases = d.get("phases") or []
-        runs.append({
-            "runId": run_id,
-            # 親チャットの Workflow tool_result が "Task ID: <taskId>" を含むので、
-            # frontend はこの taskId で run を引き当ててスコープ表示する。
-            "taskId": d.get("taskId"),
-            "workflowName": d.get("workflowName"),
-            "status": d.get("status"),
-            "agentCount": d.get("agentCount"),
-            "totalTokens": d.get("totalTokens"),
-            "totalToolCalls": d.get("totalToolCalls"),
-            "durationMs": d.get("durationMs"),
-            "phaseTitles": [p.get("title") for p in phases if isinstance(p, dict)],
-            "hasError": bool(d.get("error")),
-            "mtime": manifest.stat().st_mtime,
-        })
+    if wf_dir.is_dir():
+        for manifest in wf_dir.glob("wf_*.json"):
+            run_id = manifest.stem
+            if not _RUN_ID_RE.match(run_id):
+                continue
+            try:
+                d = json.loads(manifest.read_text())
+            except (OSError, json.JSONDecodeError):
+                continue
+            phases = d.get("phases") or []
+            runs.append({
+                "runId": run_id,
+                # 親チャットの Workflow tool_result が "Task ID: <taskId>" を含むので、
+                # frontend はこの taskId で run を引き当ててスコープ表示する。
+                "taskId": d.get("taskId"),
+                "workflowName": d.get("workflowName"),
+                "status": d.get("status"),
+                "agentCount": d.get("agentCount"),
+                "totalTokens": d.get("totalTokens"),
+                "totalToolCalls": d.get("totalToolCalls"),
+                "durationMs": d.get("durationMs"),
+                "phaseTitles": [p.get("title") for p in phases if isinstance(p, dict)],
+                "hasError": bool(d.get("error")),
+                "mtime": manifest.stat().st_mtime,
+            })
+            seen_run_ids.add(run_id)
+    # 走行中 run (= マニフェスト未生成、 journal だけ存在) を拾う
+    wf_runs_dir = base / "subagents" / "workflows"
+    if wf_runs_dir.is_dir():
+        for run_dir in wf_runs_dir.iterdir():
+            if not run_dir.is_dir():
+                continue
+            run_id = run_dir.name
+            if not _RUN_ID_RE.match(run_id) or run_id in seen_run_ids:
+                continue
+            entry = _running_workflow_from_journal(run_dir)
+            if entry is not None:
+                runs.append(entry)
     runs.sort(key=lambda x: x["mtime"], reverse=True)
     return runs
 
