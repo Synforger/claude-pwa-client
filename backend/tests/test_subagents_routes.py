@@ -175,6 +175,49 @@ def test_workflow_agent_transcript_via_wf_param(client_with_base):
     assert any(e["type"] == "assistant" for e in res.json()["events"])
 
 
+def test_list_includes_running_workflow_without_manifest(client_with_base):
+    # マニフェスト wf_<id>.json は完了時にしか書かれない。 走行中は journal.jsonl だけが
+    # 先に存在するので、 そこから「running + 起動済 agent 数」 を拾って一覧に出す。
+    client, base = client_with_base
+    run_dir = base / "subagents" / "workflows" / "wf_running-abc"
+    run_dir.mkdir(parents=True)
+    with (run_dir / "journal.jsonl").open("w") as fh:
+        fh.write(json.dumps({"type": "started", "agentId": "a1"}) + "\n")
+        fh.write(json.dumps({"type": "started", "agentId": "a2"}) + "\n")
+    res = client.get("/sessions/s1/subagents")
+    assert res.status_code == 200
+    wfs = res.json()["workflows"]
+    assert len(wfs) == 1
+    w = wfs[0]
+    assert w["runId"] == "wf_running-abc"
+    assert w["status"] == "running"
+    assert w["agentCount"] == 2
+    # マニフェスト由来項目は走行中は None
+    assert w["taskId"] is None
+    assert w["workflowName"] is None
+    assert w["phaseTitles"] == []
+
+
+def test_list_workflow_manifest_takes_precedence_over_running(client_with_base):
+    # 同じ runId にマニフェストと journal の両方がある場合 (= 完了直後) はマニフェスト側を
+    # 採用する (= status:completed 等のリッチな情報を優先)。
+    client, base = client_with_base
+    (base / "workflows" / "wf_done-xyz.json").write_text(json.dumps({
+        "runId": "wf_done-xyz", "workflowName": "deep-research",
+        "status": "completed", "agentCount": 3,
+    }))
+    run_dir = base / "subagents" / "workflows" / "wf_done-xyz"
+    run_dir.mkdir(parents=True)
+    (run_dir / "journal.jsonl").write_text(
+        json.dumps({"type": "started", "agentId": "a1"}) + "\n"
+    )
+    res = client.get("/sessions/s1/subagents")
+    wfs = res.json()["workflows"]
+    assert len(wfs) == 1
+    assert wfs[0]["status"] == "completed"
+    assert wfs[0]["agentCount"] == 3
+
+
 def test_workflow_endpoints_reject_bad_run_id(client_with_base):
     client, _ = client_with_base
     assert client.get("/sessions/s1/workflows/..%2f..%2fetc/agents").status_code in (400, 404)
