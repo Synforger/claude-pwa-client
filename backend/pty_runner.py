@@ -131,6 +131,7 @@ async def spawn_pty_session(
     initial_rows: int = 40,
     initial_cols: int = 120,
     launch_alias: str | None = None,
+    fallback_alias: str | None = None,
 ) -> PtySession:
     """claude を PTY 経由で起動して PtySession を返す。
 
@@ -228,6 +229,12 @@ async def spawn_pty_session(
     # pty_discover への遅延 import で循環回避 (= pty_discover が pty_runner の _run_tmux に依存)
     from pty_discover import register_claude_when_ready as _rcwr
     asyncio.create_task(_rcwr(session_id))
+    # autoresume が即 exit した場合の fallback watchdog (= 通常 alias を投入し直す)。
+    # `claude --resume <id>` が rc=0 即 exit すると tmux pane は zsh プロンプトに残り
+    # JSONL に何も書かれない (= フォーク resume と同型の罠)。 register_claude_when_ready が
+    # claude プロセスを検出できなければ autoresume 失敗とみなして fallback alias を打ち直す。
+    if fallback_alias and is_new_tmux_session and USE_TMUX_WRAP:
+        asyncio.create_task(_autoresume_watchdog(session_id, fallback_alias))
     return session
 
 
@@ -240,6 +247,33 @@ async def _send_launch_alias(session_id: str, alias: str, delay: float = 1.0) ->
             logger.warning("launch alias send failed session=%s alias=%s", session_id, alias)
     except Exception:
         logger.exception("_send_launch_alias error session=%s", session_id)
+
+
+async def _autoresume_watchdog(
+    session_id: str, fallback_alias: str, max_wait: float = 8.0, interval: float = 0.5,
+) -> None:
+    """`claude --resume <id>` が即 exit した時に通常 alias で再起動する watchdog。
+
+    pty_discover.find_claude_descendant で pane 子孫の claude プロセスを polling。 `max_wait`
+    秒以内に見つかれば autoresume 成功 (= 何もしない、 register_claude_when_ready が同じ経路で
+    binding する)。 見つからなければ resume 失敗扱いで tmux に通常 alias を打ち直し、 通常起動
+    に倒す (= ユーザ操作不要で前回会話無しの新規セッションとして使える状態に戻す)。
+    """
+    try:
+        from pty_discover import tmux_pane_pids, find_claude_descendant
+        deadline = asyncio.get_event_loop().time() + max_wait
+        while asyncio.get_event_loop().time() < deadline:
+            await asyncio.sleep(interval)
+            for pane_pid in tmux_pane_pids(session_id):
+                if find_claude_descendant(pane_pid) is not None:
+                    return  # autoresume 成功
+        logger.warning(
+            "autoresume watchdog: no claude after %.1fs, injecting fallback alias session=%s",
+            max_wait, session_id,
+        )
+        tmux_send_keys(session_id, text=fallback_alias, enter=True)
+    except Exception:
+        logger.exception("_autoresume_watchdog error session=%s", session_id)
 
 
 def _attach_reader(session: PtySession) -> None:

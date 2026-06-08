@@ -227,10 +227,11 @@ def _resolve_launch_alias(session_id: str) -> str | None:
     送り、 分岐元から書き出した jsonl をその時点の会話として開く。 cwd は agent 継承 (=
     親と同じ project dir) なので resume が新 jsonl を確実に見つける。
 
-    Mac / backend 再起動跨ぎ で bindings に前回の claude_sid が残っていれば、 通常 alias を
-    `claude --resume <id> || <alias>` でラップして autoresume を試みる (= 1 段目で前回会話に
-    戻る、 resume が失敗 (= rc!=0 or 即 exit) したら `||` で通常 alias が走って新規起動に倒れる)。
-    これで「前回終了済なら新セッション、 そうでなければ続きから」 が自動で吸収される。
+    Mac / backend 再起動跨ぎで bindings に前回の claude_sid が残っていれば `claude --resume
+    <id>` を返して autoresume を試みる。 即 exit で失敗した場合の fallback は spawn_pty_session
+    側の watchdog (= claude プロセスが時間内に検出されなければ通常 alias を打ち直す) で吸収する。
+    zsh の `|| alias` で繋ぐと `claude --resume` が rc=0 で即 exit するパターン (= フォーク
+    resume と同型の罠) で右辺が走らず zsh プロンプトに残るので使わない。
     """
     meta = sessions_meta.get(session_id)
     resume_id = getattr(meta, "resume_session_id", None) if meta is not None else None
@@ -243,11 +244,24 @@ def _resolve_launch_alias(session_id: str) -> str | None:
     alias = cfg.get("launch_alias")
     autoresume_id = _last_resumable_claude_sid(session_id)
     if autoresume_id and alias and CLAUDE_PATH:
-        return (
-            f"{shlex.quote(CLAUDE_PATH)} --resume {shlex.quote(autoresume_id)}"
-            f" || {alias}"
-        )
+        return f"{shlex.quote(CLAUDE_PATH)} --resume {shlex.quote(autoresume_id)}"
     return alias
+
+
+def _resolve_autoresume_fallback(session_id: str) -> str | None:
+    """autoresume が即 exit した時に投入する通常 alias を返す (= 失敗時 fallback)。
+
+    `_resolve_launch_alias` が autoresume 用の `claude --resume <id>` を返したケースに限り、
+    その失敗時にこの alias を打ち直して通常起動に倒す。 autoresume 経路でない (= 元から alias)
+    やフォーク resume (= 意図的分岐) では fallback 不要なので None。
+    """
+    meta = sessions_meta.get(session_id)
+    if meta is not None and getattr(meta, "resume_session_id", None):
+        return None
+    if _last_resumable_claude_sid(session_id) is None:
+        return None
+    cfg = _resolve_agent_cfg(session_id) or {}
+    return cfg.get("launch_alias")
 
 
 async def ensure_pty_session_for(session_id: str) -> None:
@@ -268,9 +282,11 @@ async def ensure_pty_session_for(session_id: str) -> None:
     cfg = _resolve_agent_cfg(session_id) or {}
     cwd = cfg.get("cwd")
     launch_alias = _resolve_launch_alias(session_id)
+    fallback_alias = _resolve_autoresume_fallback(session_id)
     try:
         session = await spawn_pty_session(
             session_id, cwd=cwd, launch_alias=launch_alias,
+            fallback_alias=fallback_alias,
         )
     except Exception:
         logger.exception("ensure_pty_session_for: spawn failed session=%s", session_id)
