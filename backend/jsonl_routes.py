@@ -189,9 +189,12 @@ async def _jsonl_sse(session_id: str, start_pos: int | None = None):
     for frame in _lines_to_sse(lines, pos, session_id):
         yield frame
 
-    # tail: 新規追記行を追従する (= stat/truncate/read は _read_tail に集約)
+    # tail: 新規追記行を追従する (= stat/truncate/read は _read_tail に集約)。
+    # idle が続いたら sleep を伸ばして disk I/O / CPU を減らす (= base 0.5s → 最大 2s)。
+    # 変化が来たら即 base に戻す。
+    idle_sleep = POLL_INTERVAL
     while True:
-        await asyncio.sleep(POLL_INTERVAL)
+        await asyncio.sleep(idle_sleep)
         lines, pos, status = _read_tail(path, pos)
         if status == "error":
             # ファイルが消えた (= セッション破棄等) → 終了
@@ -206,10 +209,15 @@ async def _jsonl_sse(session_id: str, start_pos: int | None = None):
                 emitted = True
         # Task 実行中は main JSONL が静かでも subagent は別ファイルで動くので毎 tick 追う。
         # 変化があれば status_event を叩いて /status SSE 経由で last_tool を push する。
-        if _refresh_subagent_status(session_id, path):
+        subagent_changed = _refresh_subagent_status(session_id, path)
+        if subagent_changed:
             st = stream_states.get(session_id)
             if st is not None:
                 st.status_event.set()
+        if emitted or subagent_changed:
+            idle_sleep = POLL_INTERVAL
+        else:
+            idle_sleep = min(idle_sleep * 1.5, 2.0)
         if not emitted:
             yield ": keep-alive\n\n"
 
@@ -262,6 +270,10 @@ async def monitor_all_sessions_loop():
     state: dict[str, tuple[Path, int]] = {}
     # sid → 最後に新規 JSONL 行を処理した monotonic 時刻 (= idle watchdog 用)。
     last_line_at: dict[str, float] = {}
+    # idle session の poll を back-off するための per-sid 状態。
+    # 変化が来たら base に戻し、 nochange が続いたら 1.5x ずつ伸ばす (上限 2s)。
+    sid_interval: dict[str, float] = {}
+    next_poll_at: dict[str, float] = {}
     logger.info("monitor_all_sessions_loop started")
     try:
         while True:
@@ -272,9 +284,17 @@ async def monitor_all_sessions_loop():
                 for stale in [s for s in state if s not in _sessions_meta]:
                     state.pop(stale, None)
                     last_line_at.pop(stale, None)
+                    sid_interval.pop(stale, None)
+                    next_poll_at.pop(stale, None)
+                now_mono = time.monotonic()
                 for sid in list(_sessions_meta.keys()):
+                    # idle back-off: 該当 sid の次 poll 時刻に達してなければスキップ
+                    if next_poll_at.get(sid, 0.0) > now_mono:
+                        continue
                     path = _latest_jsonl(sid)
                     if path is None:
+                        # path 未解決 sid は base interval で次回再試行
+                        next_poll_at[sid] = now_mono + POLL_INTERVAL
                         continue
                     prev = state.get(sid)
                     if prev is None or prev[0] != path:
@@ -313,6 +333,12 @@ async def monitor_all_sessions_loop():
                         st_w.busy = False
                         last_line_at[sid] = time.monotonic()  # 再発火を抑える
                         sessions_overview.notify()
+                    # back-off 更新: 変化があれば base、 nochange なら 1.5x ずつ伸ばす (上限 2s)
+                    if status == "ok" and lines:
+                        sid_interval[sid] = POLL_INTERVAL
+                    else:
+                        sid_interval[sid] = min(sid_interval.get(sid, POLL_INTERVAL) * 1.5, 2.0)
+                    next_poll_at[sid] = now_mono + sid_interval[sid]
                     if status != "ok":
                         continue
                     for raw in lines:

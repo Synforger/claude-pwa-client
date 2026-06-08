@@ -292,7 +292,7 @@ async def _autoresume_watchdog(
 
 def _attach_reader(session: PtySession) -> None:
     """master fd を非ブロッキングにして loop.add_reader でドレインする。"""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     fd = session.master_fd
     _make_nonblocking(fd)
 
@@ -346,7 +346,7 @@ async def _wait_for_exit(session: PtySession) -> None:
         await session.process.wait()
     finally:
         session.exit_event.set()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         try:
             loop.remove_reader(session.master_fd)
         except (ValueError, OSError):
