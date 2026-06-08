@@ -5,6 +5,13 @@ import { generateId } from '../utils/id.js'
 
 const { compressToUTF16, decompressFromUTF16 } = LZString
 
+// sid 別キー prefix (v2)。 旧 LS_MESSAGES (= 全 sid を 1 keyに詰めた lz-string 圧縮) を
+// 置き換える。 これにより推論中の sid 1 つだけ書き込む差分書込が可能になり、
+// 全セッション分の JSON.stringify + 圧縮を毎回回さなくて済む。 旧 key は migration 後も
+// しばらく残す (= rollback 安全弁)。
+const LS_MESSAGES_V2_PREFIX = `${LS_MESSAGES}_v2_`
+function v2Key(sid) { return LS_MESSAGES_V2_PREFIX + sid }
+
 // 旧 agent_a / agent_b キーは「履歴を引き継がない方針」 になったので、 検出したら
 // そのまま削除する (引き継ぎはしない)。
 function dropLegacyKeys(obj) {
@@ -51,35 +58,50 @@ function pruneOldSessions(arr) {
 // した側 (useChatStream など) は空配列 / 空文字列を期待してよい。
 export function useChatStorage(sessions) {
   const [messages, setMessages] = useState(() => {
+    const cleanArr = (arr) => arr.map(m => {
+      const base = m.id ? m : { ...m, id: generateId() }
+      if (base.askUserQuestion && !base.askUserQuestion.answered) {
+        const { askUserQuestion: _drop, ...rest } = base
+        return rest
+      }
+      return base
+    })
+    const result = {}
+    // v2 (sid 別キー) を優先的に読む。 旧 LS_MESSAGES に居て v2 に居ない sid は migration として
+    // result に取り込む (= 旧キーは消さない、 rollback 安全弁)。
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (!k || !k.startsWith(LS_MESSAGES_V2_PREFIX)) continue
+        const sid = k.slice(LS_MESSAGES_V2_PREFIX.length)
+        try {
+          const raw = localStorage.getItem(k)
+          if (!raw) continue
+          const decompressed = decompressFromUTF16(raw)
+          const arr = decompressed ? JSON.parse(decompressed) : null
+          if (Array.isArray(arr)) {
+            result[sid] = pruneOldSessions(cleanArr(arr))
+          }
+        } catch { /* skip corrupt sid */ }
+      }
+    } catch { /* localStorage 不能環境 */ }
+    // 旧 LS_MESSAGES からの migration (v2 にない sid のみ取り込み)
     try {
       const raw = localStorage.getItem(LS_MESSAGES)
       if (raw) {
         const decompressed = decompressFromUTF16(raw)
         let parsed = decompressed ? JSON.parse(decompressed) : JSON.parse(raw)
         parsed = dropLegacyKeys(parsed)
-        // ID なしメッセージへの ID 付与 (移行対応) + ロード時にも prune を適用 +
-        // state mix-up バグで「answered:false のまま塩漬け」 になった askUserQuestion を
-        // ストリップ (= バブル消す + ? バッジ消す)。 真に進行中の question は backend が
-        // session buffer から replay してくれるので、 ストリップ後に新規 injection で復活する。
-        const result = {}
         if (parsed && typeof parsed === 'object') {
           for (const [sid, arr] of Object.entries(parsed)) {
+            if (sid in result) continue // v2 が優先
             if (!Array.isArray(arr)) continue
-            const cleaned = arr.map(m => {
-              const base = m.id ? m : { ...m, id: generateId() }
-              if (base.askUserQuestion && !base.askUserQuestion.answered) {
-                const { askUserQuestion: _drop, ...rest } = base
-                return rest
-              }
-              return base
-            })
-            result[sid] = pruneOldSessions(cleaned)
+            result[sid] = pruneOldSessions(cleanArr(arr))
           }
         }
-        return result
       }
     } catch { /* ignored */ }
-    return {}
+    return result
   })
 
   const [input, setInput] = useState(() => {
@@ -117,42 +139,53 @@ export function useChatStorage(sessions) {
 
   const msgSaveTimer = useRef(null)
   const inputSaveTimer = useRef(null)
+  // sid → 前回 save した messages 参照 (== 同一参照なら dirty じゃない)。 React state の
+  // setMessages(prev => ...) は変更のあった sid だけ新オブジェクトを返す設計 (= 既存) なので、
+  // 参照比較で diff を取れる。
+  const lastSavedRef = useRef({})
 
-  // messages を localStorage に書く時は、 現存セッションぶんだけに絞り、
-  // セッション終了マーカーを境界にして「現在 + 1 個前」 までに prune する。
-  // 圧縮 (= lz-string) は重いので 1000ms debounce の後に requestIdleCallback で
-  // idle 中に走らせる。 ユーザが操作中のフレームを止めない。
+  // messages を localStorage に書く時は sid 別キー (v2) に分ける。 推論中の 1 sid だけ書き
+  // 換える時に全 sid 分の JSON.stringify + 圧縮を回さなくて済む (= reviewer 指摘 #7)。
   useEffect(() => {
     if (msgSaveTimer.current) clearTimeout(msgSaveTimer.current)
     msgSaveTimer.current = setTimeout(() => {
       const runSave = () => {
-        const toSave = {}
         const sids = sessions.map(s => s.id)
-        for (const sid of sids) {
-          const arr = pruneOldSessions(messages[sid] || [])
-          toSave[sid] = arr.slice(-MAX_MESSAGES)
-        }
-        // quota 超過時は古い方から N% ずつ削って再試行 (画像で膨らんだ時の救済)
-        for (let attempt = 0; attempt < QUOTA_RETRY_MAX; attempt++) {
-          try {
-            localStorage.setItem(LS_MESSAGES, compressToUTF16(JSON.stringify(toSave)))
-            return
-          } catch {
-            let reduced = false
-            for (const sid of sids) {
-              const arr = toSave[sid]
-              if (!arr || arr.length === 0) continue
-              const cut = Math.max(1, Math.floor(arr.length * QUOTA_RETRY_TRIM_RATIO))
-              toSave[sid] = arr.slice(cut)
-              reduced = true
-            }
-            if (!reduced) return
+        const liveSids = new Set(sids)
+        // 削除済 sid の localStorage key を掃除 (= 永続化時に絞る、 元コメント通り)
+        for (const sid of Object.keys(lastSavedRef.current)) {
+          if (!liveSids.has(sid)) {
+            try { localStorage.removeItem(v2Key(sid)) } catch { /* ignore */ }
+            delete lastSavedRef.current[sid]
           }
         }
-        console.warn('[chat-storage] quota exceeded after retries')
+        for (const sid of sids) {
+          const cur = messages[sid] || []
+          // 参照比較で dirty 判定 (= sid に変更がなければ何もしない)
+          if (lastSavedRef.current[sid] === cur) continue
+          const pruned = pruneOldSessions(cur).slice(-MAX_MESSAGES)
+          // quota 超過時は古い方から N% ずつ削って再試行
+          let toSave = pruned
+          let saved = false
+          for (let attempt = 0; attempt < QUOTA_RETRY_MAX; attempt++) {
+            try {
+              localStorage.setItem(v2Key(sid), compressToUTF16(JSON.stringify(toSave)))
+              saved = true
+              break
+            } catch {
+              if (toSave.length === 0) break
+              const cut = Math.max(1, Math.floor(toSave.length * QUOTA_RETRY_TRIM_RATIO))
+              toSave = toSave.slice(cut)
+            }
+          }
+          if (saved) {
+            lastSavedRef.current[sid] = cur
+          } else {
+            console.warn(`[chat-storage] quota exceeded for ${sid} after retries`)
+          }
+        }
       }
       // iOS Safari 18.4+ / Chrome / Firefox は requestIdleCallback あり。
-      // 旧 Safari は fallback で即時実行 (= 従来挙動)。
       if (typeof window.requestIdleCallback === 'function') {
         window.requestIdleCallback(runSave, { timeout: 5000 })
       } else {

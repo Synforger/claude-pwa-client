@@ -21,7 +21,7 @@ def _user_str(content):
 def test_count_user_prompts_counts_plain_text(tmp_path):
     p = tmp_path / "a.jsonl"
     _write_jsonl(p, [_user_str("こんにちは"), _user_str("二つ目")])
-    assert pr._count_user_prompts(p) == 2
+    assert pr._count_user_prompts(p)[0] == 2
 
 
 def test_count_user_prompts_excludes_slash_command(tmp_path):
@@ -32,7 +32,7 @@ def test_count_user_prompts_excludes_slash_command(tmp_path):
         _user_str("<command-name>/deep-research</command-name>"),
         _user_str("<command-args>query</command-args>"),
     ])
-    assert pr._count_user_prompts(p) == 1
+    assert pr._count_user_prompts(p)[0] == 1
 
 
 def test_count_command_lines_counts_command_name(tmp_path):
@@ -44,13 +44,13 @@ def test_count_command_lines_counts_command_name(tmp_path):
         _user_str("<command-args>query</command-args>"),
         _user_str("<command-name>/clear</command-name>"),
     ])
-    assert pr._count_command_lines(p) == 2
+    assert pr._count_command_lines(p)[0] == 2
 
 
 def test_count_command_lines_zero_for_plain(tmp_path):
     p = tmp_path / "a.jsonl"
     _write_jsonl(p, [_user_str("ただの発言")])
-    assert pr._count_command_lines(p) == 0
+    assert pr._count_command_lines(p)[0] == 0
 
 
 def test_counts_skip_sidechain_and_meta(tmp_path):
@@ -59,13 +59,13 @@ def test_counts_skip_sidechain_and_meta(tmp_path):
         {"type": "user", "isSidechain": True, "message": {"content": "<command-name>/x</command-name>"}},
         {"type": "user", "isMeta": True, "message": {"content": "素"}},
     ])
-    assert pr._count_user_prompts(p) == 0
-    assert pr._count_command_lines(p) == 0
+    assert pr._count_user_prompts(p)[0] == 0
+    assert pr._count_command_lines(p)[0] == 0
 
 
 def test_counts_missing_file(tmp_path):
-    assert pr._count_user_prompts(tmp_path / "nope.jsonl") == 0
-    assert pr._count_command_lines(tmp_path / "nope.jsonl") == 0
+    assert pr._count_user_prompts(tmp_path / "nope.jsonl")[0] == 0
+    assert pr._count_command_lines(tmp_path / "nope.jsonl")[0] == 0
 
 
 # --- autoresume (= Mac/backend 再起動跨ぎで前回 claude session を継続) ---
