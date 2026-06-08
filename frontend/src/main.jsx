@@ -10,14 +10,23 @@ import ErrorBoundary from './ErrorBoundary.jsx'
 // 未対応環境では何もしない。
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    // updateViaCache: 'none' で sw.js 自体を毎回 fresh fetch する (= デフォルト 'imports'
-    // だと HTTP cache 経由になり、 iOS Safari で SW 更新が大幅に遅延する事例がある)。
-    // visibility 復帰での明示 update() は外した: iOS PWA で SW update のたびに
-    // PushSubscription が失効する症状を踏んだため、 update は register 時の 1 回に絞り
-    // ブラウザの自動 update に任せる (= 「↺ アプリを更新」 ボタンで明示更新は別途可能)。
+    // updateViaCache: 'none' で sw.js 自体を毎回 fresh fetch する。
     navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
       .catch(() => { /* noop */ })
   })
+  // SW 更新時の controller swap で 1 回だけ自動リロード。 これが無いと新版 sw.js が
+  // activate されても App.jsx は古い JS のまま走り続け、 SW と App の version 不整合で
+  // SW→App の経路 (= 通知タップの open-session 受信) が無音で死ぬ (= 2026-06-09 根本原因)。
+  // 初回登録時 (= controller null → 有) の発火は無視するため、 register 前に既に
+  // controller が居たケースだけ扱う (= 本物の「更新」)。
+  if (navigator.serviceWorker.controller) {
+    let reloading = false
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloading) return
+      reloading = true
+      window.location.reload()
+    })
+  }
 }
 
 // ルーティング:

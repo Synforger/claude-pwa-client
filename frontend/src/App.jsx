@@ -270,23 +270,6 @@ export default function App() {
     } catch { /* ignore */ }
   }, [setActiveId])
 
-  // BroadcastChannel 経路 (= SW notificationclick → ここ)。 SW の matchAll が controlled
-  // client を 0 で返すケース (= iOS Safari PWA バックグラウンド復帰) でも sid が届く。
-  // postMessage 経路と二重で配信されるが、 setActiveId は同 sid なら no-op なので無害。
-  useEffect(() => {
-    if (typeof BroadcastChannel === 'undefined') return
-    let bc
-    try {
-      bc = new BroadcastChannel('pwa-notif')
-      bc.onmessage = (e) => {
-        const d = e?.data
-        if (d?.type === 'open-session' && d.sid) {
-          setActiveId(d.sid)
-        }
-      }
-    } catch { /* ignore */ }
-    return () => { if (bc) try { bc.close() } catch { /* ignore */ } }
-  }, [setActiveId])
 
   // 今 active で見ている session を SW に伝える (= sw.js の LINE 流抑制で使う)。
   // visibility=hidden の時は sid=null を送って「見てない」 扱いにする (= bg/別アプリ時に
