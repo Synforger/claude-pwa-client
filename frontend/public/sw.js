@@ -151,48 +151,31 @@ self.addEventListener('push', (event) => {
   })())
 })
 
-// SW ↔ App の双方向チャネル (= matchAll が controlled client を 0 で返すケース、
-// 特に iOS Safari PWA のバックグラウンド復帰時の経路で確実に sid を届けるため)。
-// BroadcastChannel は controller が同じでなくても同オリジン内に届く。
-const NOTIF_CHANNEL = 'pwa-notif'
-
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   const data = event.notification.data || {}
   const sid = data.sid || null
-  // backend が payload に "/?ses={sid}" を入れてくる (= 新規ウィンドウ open 用 fallback URL)。
-  const targetUrl = data.url || (sid ? `/?ses=${encodeURIComponent(sid)}` : '/')
+  // 経路は 2 つだけ:
+  //   (a) ホット = PWA が起動中: matchAll で controlled client 取得 → 全員に postMessage、
+  //       1 つを focus でフォアに引き上げる。 SW と App は controllerchange で version 整合済。
+  //   (b) コールド = PWA 完全終了: openWindow('/?ses=<sid>') で新規起動、 App.jsx は起動時に
+  //       URL param を読んで activeId を反映する。 cold start の唯一の経路なので汚さではなく仕様。
+  const targetUrl = sid ? `/?ses=${encodeURIComponent(sid)}` : '/'
   event.waitUntil((async () => {
-    // 経路 1: BroadcastChannel で sid を放流。 controlled かどうか関係なく受信できる。
-    // App が起動した瞬間に listen を貼ってるので、 PWA がバックグラウンドから戻ってきても
-    // すぐ受け取れる。 iOS PWA で controlled client が 0 になるケースの主経路。
-    if (sid) {
-      try {
-        const bc = new BroadcastChannel(NOTIF_CHANNEL)
-        bc.postMessage({ type: 'open-session', sid, ts: Date.now() })
-        bc.close()
-      } catch { /* BroadcastChannel 不対応環境は静かに無視 */ }
-    }
     const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-    // 経路 2: controlled client が居れば postMessage (= 旧経路、 BroadcastChannel が
-    // 落ちた環境のため残す)。 focused かどうかは関係なく全員に投げる。
-    if (sid) {
+    if (allClients.length > 0) {
+      if (sid) {
+        for (const client of allClients) {
+          try { client.postMessage({ type: 'open-session', sid }) } catch { /* ignore */ }
+        }
+      }
       for (const client of allClients) {
-        try { client.postMessage({ type: 'open-session', sid }) } catch { /* ignore */ }
+        if ('focus' in client) {
+          try { await client.focus(); break } catch { /* ignore */ }
+        }
       }
+      return
     }
-    // focus は最初に成功した 1 つだけ。 PWA がバックグラウンドにあればこれでフォアに戻る。
-    let focused = false
-    for (const client of allClients) {
-      if (!focused && 'focus' in client) {
-        try {
-          await client.focus()
-          focused = true
-        } catch { /* ignore */ }
-      }
-    }
-    if (focused) return
-    // 経路 3: 完全終了状態なら新規 PWA 起動 (= URL param 経路、 App.jsx が起動時に読む)。
     if (self.clients.openWindow) {
       try { await self.clients.openWindow(targetUrl) } catch { /* ignore */ }
     }

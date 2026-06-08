@@ -203,7 +203,7 @@ async def broadcast_push(
     }
     if session_id:
         payload_dict["sid"] = session_id
-        payload_dict["url"] = f"/?ses={session_id}"
+        # url は SW 側で `/?ses=<sid>` を組み立てる (= 2 経路統一、 payload 軽量化)
         # セッションごとの通知モード (both / banner / off) を SW に渡す。 SW は showNotification
         # は必ず呼びつつ silent / autoclose だけ切替える (= subscription 破棄回避は不変)。
         meta = sessions_meta.get(session_id)
