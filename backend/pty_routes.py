@@ -24,284 +24,44 @@ from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile, WebS
 from starlette.websockets import WebSocketState
 
 from chat_content import save_to_tmp
-from config import AGENTS, CLAUDE_PATH
-import re
-import shlex
+from config import AGENTS, CLAUDE_PATH  # noqa: F401  (CLAUDE_PATH は tests monkeypatch 用 re-export)
 
 from pty_runner import (
     PtySession,
-    has_tmux_session,
     jsonl_path_for_session,
     pty_sessions,
     resize_pty,
-    spawn_pty_session,
     tmux_send_keys,
     write_pty,
 )
 from state import sessions_meta
 
-
-# 素プロンプト判定用の harness XML 検出 regex は jsonl_events と共通 (= 同じ regex を別々の
-# 場所に持つと判定がズレてバグを呼ぶ。 2026-05-31 統一)。
-from jsonl_events import HARNESS_XML_RE as _HARNESS_RE, INTERRUPT_USER_RE as _INTERRUPT_RE  # noqa: E402
+# 送信確認 (= JSONL カウント + wait + 救済再送) は pty_confirm に分離。
+# session 解決 + spawn は pty_session_resolver に分離。 ここは endpoint と pump のみ持つ。
+from pty_confirm import (
+    _confirm_after_send,
+    _count_command_lines,
+    _count_in_lines,
+    _count_user_prompts,
+    _delivery_counter,
+    _is_command_line,
+    _is_plain_user_prompt,
+    _wait_count_added,
+)
+from pty_session_resolver import (
+    AUTORESUME_MAX_AGE_DAYS as _AUTORESUME_MAX_AGE_DAYS,
+    ensure_pty_session_for,
+    last_resumable_claude_sid as _last_resumable_claude_sid,
+    resolve_agent_cfg as _resolve_agent_cfg,
+    resolve_autoresume_fallback as _resolve_autoresume_fallback,
+    resolve_cwd as _resolve_cwd,
+    resolve_launch_alias as _resolve_launch_alias,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# slash command (= /deep-research, /clear 等) 専用の送信確認マーカー。 claude は slash
-# command を `<command-name>/xxx</command-name>` の user 行として JSONL に書くので、 素
-# プロンプト (= _count_user_prompts) では弾かれるこの行の出現を別途数えて確認に使う。
-_COMMAND_NAME_RE = re.compile(r"^\s*<command-name\b")
 
-
-def _count_in_lines(lines, predicate) -> int:
-    """JSONL string lines のうち predicate(parsed_dict) が True のものを数える。
-    user 行で sidechain / meta は最初に除外する (= 全 counter 共通)。"""
-    count = 0
-    for raw in lines:
-        raw = raw.strip()
-        if not raw:
-            continue
-        try:
-            d = json.loads(raw)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        if d.get("type") != "user" or d.get("isSidechain") or d.get("isMeta"):
-            continue
-        if predicate(d):
-            count += 1
-    return count
-
-
-def _is_plain_user_prompt(d: dict) -> bool:
-    """素プロンプト (= 実ユーザ発言): harness XML / interrupt marker / 空文字 を除外。"""
-    c = (d.get("message") or {}).get("content")
-    if isinstance(c, str):
-        s = c.strip()
-        return bool(s) and not _HARNESS_RE.match(s) and not _INTERRUPT_RE.match(s)
-    if isinstance(c, list):
-        texts = [b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text"]
-        return any((t or "").strip() for t in texts)
-    return False
-
-
-def _is_command_line(d: dict) -> bool:
-    """slash command の harness XML `<command-name>` 行。"""
-    c = (d.get("message") or {}).get("content")
-    return isinstance(c, str) and bool(_COMMAND_NAME_RE.match(c.strip()))
-
-
-def _count_user_prompts(path, from_pos: int = 0) -> tuple[int, int]:
-    """from_pos 以降の JSONL を読んで素プロンプト件数と次回 from_pos を返す。
-
-    旧 signature (path のみ) は file 全体を毎回読み直していたが、 wait ループ (= 50 回 poll)
-    で大型 JSONL を read し直すコストが増える。 from_pos 起点で `read_complete_lines` を使う
-    ことで初回以降は新規行だけ走査する。 初回呼び出しは from_pos=0 で従来通り (= 全読み)。"""
-    if not path:
-        return (0, 0)
-    from jsonl_tail import read_complete_lines  # noqa: PLC0415
-    try:
-        lines, end_pos = read_complete_lines(path, from_pos)
-    except OSError:
-        return (0, from_pos)
-    return (_count_in_lines(lines, _is_plain_user_prompt), end_pos)
-
-
-def _count_command_lines(path, from_pos: int = 0) -> tuple[int, int]:
-    """from_pos 以降の `<command-name>` user 行件数と次回 from_pos を返す (slash 確認用)。"""
-    if not path:
-        return (0, 0)
-    from jsonl_tail import read_complete_lines  # noqa: PLC0415
-    try:
-        lines, end_pos = read_complete_lines(path, from_pos)
-    except OSError:
-        return (0, from_pos)
-    return (_count_in_lines(lines, _is_command_line), end_pos)
-
-
-async def _wait_count_added(counter, path, initial_pos: int, timeout: float) -> bool:
-    """counter(path, pos) -> (new_count, new_pos) が new_count > 0 を返すまで wait。
-
-    initial_pos = 呼出時点のファイルサイズ (= initial_count 取得済の境界)。 以降は new_pos を
-    引き継いで差分だけ読む (= 全読みなし)。"""
-    poll = 0.1
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout
-    pos = initial_pos
-    while loop.time() < deadline:
-        n, pos = counter(path, pos)
-        if n > 0:
-            return True
-        await asyncio.sleep(poll)
-    n, _ = counter(path, pos)
-    return n > 0
-
-
-def _delivery_counter(text: str):
-    """送信本文に応じた確認カウンタを返す。 slash command は `<command-name>` 行、
-    素プロンプトは素の user 行で確認する。 返り値 (counter, is_slash)。"""
-    is_slash = bool(text) and text.lstrip().startswith("/")
-    return (_count_command_lines if is_slash else _count_user_prompts), is_slash
-
-
-async def _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slash) -> dict:
-    """送信直後の確認 + 取りこぼし救済 (= text 経路 / 添付経路 共通)。
-
-    initial_pos = 送信直前のファイルサイズ。 そこから新規 user 行 (slash なら `<command-name>`、
-    そうでなければ素プロンプト) が出るかを 4s 監視 → 出なければ Enter だけ追い打ちして 1s 再監視。
-    それでも確認できなくても再ペーストはせず ok:True を返す。"""
-    counter = _count_command_lines if is_slash else _count_user_prompts
-    if await _wait_count_added(counter, jsonl_path, initial_pos, timeout=4.0):
-        return {"ok": True, "confirmed": True}
-    logger.warning(
-        "pty_send: no prompt within 4s, retrying with Enter only: sid=%s text_len=%d slash=%s",
-        session_id, len(text or ""), is_slash,
-    )
-    tmux_send_keys(session_id, enter=True)
-    if await _wait_count_added(counter, jsonl_path, initial_pos, timeout=1.0):
-        return {"ok": True, "confirmed": True, "retried": "enter_only"}
-    logger.warning(
-        "pty_send: not confirmed within window, assume delivered (no re-paste): sid=%s slash=%s",
-        session_id, is_slash,
-    )
-    return {"ok": True, "confirmed": False}
-
-
-def _resolve_cwd(session_id: str) -> str | None:
-    """session_id から起動 cwd を解決する。
-
-    優先順:
-        1. session_id がそのまま AGENTS の key (= 直リンク `?terminal=agent_a` 等)
-        2. session_id が sessions_meta に登録済なら、 そこに紐付く agent_id 経由で
-           AGENTS から取得 (= UI でセッションタブを作る通常経路)
-        3. どちらも該当なし → None (= backend の起動 cwd で zsh が立ち上がる)
-    """
-    cfg = _resolve_agent_cfg(session_id)
-    return cfg.get("cwd") if cfg else None
-
-
-def _resolve_agent_cfg(session_id: str) -> dict | None:
-    """session_id から AGENTS の cfg dict を解決する (= cwd と launch_alias の共通解決)。"""
-    cfg = AGENTS.get(session_id)
-    if cfg:
-        return cfg
-    meta = sessions_meta.get(session_id)
-    if meta is not None:
-        return AGENTS.get(meta.agent_id)
-    return None
-
-
-# Mac / backend 再起動跨ぎで前回 claude session を自動 resume する時の鮮度上限。
-# これより古い jsonl は「もう死んだ会話」 扱いで resume せず通常起動に倒す (= 衛生面)。
-_AUTORESUME_MAX_AGE_DAYS = 30
-
-
-def _last_resumable_claude_sid(session_id: str) -> str | None:
-    """PWA タブの最終 claude session_id を bindings から引いて autoresume 可否を判定する。
-
-    Mac 再起動跨ぎで tmux server が消えると、 backend は spawn 時に新規 tmux + 新規 claude
-    を立ち上げる。 そのまま放置だと前回の会話が失われるので、 bindings に confirmed として
-    残ってる最後の claude_sid を返して呼び出し側で `claude --resume <id>` させる。
-
-    None を返す条件:
-      - bindings に該当タブの entry が無い / confirmed=false
-      - jsonl ファイルが消えている (= claude 側 cleanup / 手動削除)
-      - jsonl の最終更新が _AUTORESUME_MAX_AGE_DAYS より古い (= 死んだ会話)
-    """
-    try:
-        import jsonl_watcher  # noqa: PLC0415
-        info = jsonl_watcher.list_bindings().get(session_id)
-    except Exception:
-        logger.exception("autoresume lookup failed session=%s", session_id)
-        return None
-    if not info or not info.get("confirmed"):
-        return None
-    jsonl_path = info.get("jsonl_path")
-    if not jsonl_path:
-        return None
-    from pathlib import Path
-    import time
-    p = Path(jsonl_path)
-    if not p.is_file():
-        return None
-    if time.time() - p.stat().st_mtime > _AUTORESUME_MAX_AGE_DAYS * 86400:
-        return None
-    return p.stem
-
-
-def _resolve_launch_alias(session_id: str) -> str | None:
-    """初回 spawn で zsh prompt に送る起動コマンドを解決する。
-
-    通常タブは agent cfg の `launch_alias` (= ユーザの claude 起動 wrapper)。 フォークタブ
-    (= SessionDef.resume_session_id を持つ) は wrapper でなく `claude --resume <id>` を直接
-    送り、 分岐元から書き出した jsonl をその時点の会話として開く。 cwd は agent 継承 (=
-    親と同じ project dir) なので resume が新 jsonl を確実に見つける。
-
-    Mac / backend 再起動跨ぎで bindings に前回の claude_sid が残っていれば `claude --resume
-    <id>` を返して autoresume を試みる。 即 exit で失敗した場合の fallback は spawn_pty_session
-    側の watchdog (= claude プロセスが時間内に検出されなければ通常 alias を打ち直す) で吸収する。
-    zsh の `|| alias` で繋ぐと `claude --resume` が rc=0 で即 exit するパターン (= フォーク
-    resume と同型の罠) で右辺が走らず zsh プロンプトに残るので使わない。
-    """
-    meta = sessions_meta.get(session_id)
-    resume_id = getattr(meta, "resume_session_id", None) if meta is not None else None
-    if resume_id:
-        if not CLAUDE_PATH:
-            logger.error("fork spawn needs claude_path but it is empty session=%s", session_id)
-            return None
-        return f"{shlex.quote(CLAUDE_PATH)} --resume {shlex.quote(resume_id)}"
-    cfg = _resolve_agent_cfg(session_id) or {}
-    alias = cfg.get("launch_alias")
-    autoresume_id = _last_resumable_claude_sid(session_id)
-    if autoresume_id and alias and CLAUDE_PATH:
-        return f"{shlex.quote(CLAUDE_PATH)} --resume {shlex.quote(autoresume_id)}"
-    return alias
-
-
-def _resolve_autoresume_fallback(session_id: str) -> str | None:
-    """autoresume が即 exit した時に投入する通常 alias を返す (= 失敗時 fallback)。
-
-    `_resolve_launch_alias` が autoresume 用の `claude --resume <id>` を返したケースに限り、
-    その失敗時にこの alias を打ち直して通常起動に倒す。 autoresume 経路でない (= 元から alias)
-    やフォーク resume (= 意図的分岐) では fallback 不要なので None。
-    """
-    meta = sessions_meta.get(session_id)
-    if meta is not None and getattr(meta, "resume_session_id", None):
-        return None
-    if _last_resumable_claude_sid(session_id) is None:
-        return None
-    cfg = _resolve_agent_cfg(session_id) or {}
-    return cfg.get("launch_alias")
-
-
-async def ensure_pty_session_for(session_id: str) -> None:
-    """指定 session の tmux + claude を起動 (既にあれば何もしない)。
-
-    `/ws/pty/{sid}` (= ターミナル画面) 経由だけでなく、 `/jsonl/stream/{sid}`
-    (= チャット画面) からも呼ぶことで、 ターミナル画面を一度も開いていないタブでも
-    claude が立ち上がって JSONL が作られるようにする。
-    """
-    existing = pty_sessions.get(session_id)
-    if existing is not None and not existing.exit_event.is_set():
-        return
-    if has_tmux_session(session_id):
-        # tmux session は生きてるが backend 側に PtySession 記録が無い (= backend 再起動跨ぎ)。
-        # チャット画面側からは attach の必要なし。 JSONL は claude プロセスが書き続けてるので
-        # 解決経路 (= jsonl_path_for_session) が拾える。 spawn 重複も避ける
-        return
-    cfg = _resolve_agent_cfg(session_id) or {}
-    cwd = cfg.get("cwd")
-    launch_alias = _resolve_launch_alias(session_id)
-    fallback_alias = _resolve_autoresume_fallback(session_id)
-    try:
-        session = await spawn_pty_session(
-            session_id, cwd=cwd, launch_alias=launch_alias,
-            fallback_alias=fallback_alias,
-        )
-    except Exception:
-        logger.exception("ensure_pty_session_for: spawn failed session=%s", session_id)
-        return
-    pty_sessions[session_id] = session
 
 
 @router.websocket("/ws/pty/{session_id}")
