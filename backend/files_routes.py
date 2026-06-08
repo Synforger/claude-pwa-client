@@ -4,6 +4,7 @@
 認証情報 / シェル初期化ファイル) は読み書き両方禁止。 HOME 配下 deny list ベース。
 """
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -65,6 +66,10 @@ def put_file(path: str = Body(...), content: str = Body(...)):
     resolved = _resolve_safe(path)
     if resolved.exists() and not resolved.is_file():
         raise HTTPException(status_code=400, detail="Not a file")
+    # 書き込みサイズも GET と同じ上限で塞ぐ。 これがないと tailnet 内ユーザが HOME 配下の
+    # 任意ファイルに数 GB 書いて disk を枯渇させられる。
+    if len(content.encode("utf-8")) > FILE_SIZE_LIMIT:
+        raise HTTPException(status_code=413, detail="ファイルが大きすぎます（上限 1MB）")
     try:
         resolved.write_text(content, encoding="utf-8")
     except Exception:
@@ -93,6 +98,10 @@ def get_task_output(path: str = Query(...)):
         raise HTTPException(status_code=404, detail="File not found")
     if not resolved.is_file():
         raise HTTPException(status_code=400, detail="Not a file")
+    # /tmp は OS 共有領域なので、 自分が起動した claude プロセスが書いたファイルだけ通す
+    # (= 別ユーザ / 攻撃者制御のシンボリックリンクを介した読み取りを塞ぐ)。
+    if resolved.stat().st_uid != os.getuid():
+        raise HTTPException(status_code=403, detail="Access denied")
     if resolved.stat().st_size > FILE_SIZE_LIMIT:
         raise HTTPException(status_code=413, detail="ファイルが大きすぎます（上限 1MB）")
     try:

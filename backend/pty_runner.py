@@ -250,7 +250,8 @@ async def _send_launch_alias(session_id: str, alias: str, delay: float = 1.0) ->
 
 
 async def _autoresume_watchdog(
-    session_id: str, fallback_alias: str, max_wait: float = 8.0, interval: float = 0.5,
+    session_id: str, fallback_alias: str,
+    initial_delay: float = 2.0, max_wait: float = 10.0, interval: float = 0.5,
 ) -> None:
     """`claude --resume <id>` が即 exit した時に通常 alias で再起動する watchdog。
 
@@ -258,15 +259,28 @@ async def _autoresume_watchdog(
     秒以内に見つかれば autoresume 成功 (= 何もしない、 register_claude_when_ready が同じ経路で
     binding する)。 見つからなければ resume 失敗扱いで tmux に通常 alias を打ち直し、 通常起動
     に倒す (= ユーザ操作不要で前回会話無しの新規セッションとして使える状態に戻す)。
+
+    initial_delay = `_send_launch_alias` の delay (1s) + claude 起動 (~1s) を待ってから polling
+    を始める。 こうしないと「polling が早すぎて claude 検出失敗 → fallback alias 発火 → 既に
+    起動した claude と二重起動 → 元会話喪失」 の race を起こす。 加えて、 投入直前に
+    jsonl_watcher の binding が confirmed=true になっていれば SessionStart hook が走った証拠
+    なので fallback は不要 → 投入をキャンセル。
     """
     try:
         from pty_discover import tmux_pane_pids, find_claude_descendant
-        deadline = asyncio.get_event_loop().time() + max_wait
-        while asyncio.get_event_loop().time() < deadline:
-            await asyncio.sleep(interval)
+        import jsonl_watcher  # noqa: PLC0415
+        await asyncio.sleep(initial_delay)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max_wait
+        while loop.time() < deadline:
             for pane_pid in tmux_pane_pids(session_id):
                 if find_claude_descendant(pane_pid) is not None:
                     return  # autoresume 成功
+            await asyncio.sleep(interval)
+        # 投入直前 gate: SessionStart hook 経由で confirmed binding が更新されてれば成功扱い
+        info = jsonl_watcher.list_bindings().get(session_id)
+        if info and info.get("confirmed"):
+            return
         logger.warning(
             "autoresume watchdog: no claude after %.1fs, injecting fallback alias session=%s",
             max_wait, session_id,

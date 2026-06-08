@@ -156,10 +156,22 @@ async def _jsonl_sse(session_id: str, start_pos: int | None = None):
     from pty_routes import ensure_pty_session_for
     await ensure_pty_session_for(session_id)
 
+    # 初回起動直後 (= ensure_pty_session_for で spawn したが claude が SessionStart hook で
+    # binding を確定するまでの数秒) は path が解決できない。 即 error 返して generator を終了
+    # すると EventSource が再接続を繰り返して「ターミナルは動いてるが chat 空」 状態になる。
+    # 代わりに keep-alive を流しながら最大 15 秒 path 解決を待つ (= hook が間に合わなければ
+    # 諦めて error)。
     path = _latest_jsonl(session_id)
     if path is None:
-        yield f"data: {json.dumps({'type': 'error', 'message': 'no JSONL found for session'})}\n\n"
-        return
+        for _ in range(30):  # 0.5s × 30 = 15s
+            await asyncio.sleep(POLL_INTERVAL)
+            path = _latest_jsonl(session_id)
+            if path is not None:
+                break
+            yield ": waiting-for-jsonl\n\n"
+        if path is None:
+            yield f"data: {json.dumps({'type': 'error', 'message': 'no JSONL found for session'})}\n\n"
+            return
 
     try:
         size = path.stat().st_size
