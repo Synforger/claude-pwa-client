@@ -160,19 +160,24 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil((async () => {
     const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
     // 既存タブがあれば focus + postMessage で sid を伝える (= App が activeSid を切替)。
-    // navigate() はオリジン内 URL 変更で SPA を full reload しないので、 postMessage の方が
-    // 既存 state を保ったまま session 切替できて軽い。
+    // 重要: 既存 client 全員に postMessage して、 focus 試行は最初に成功した 1 つだけ取る。
+    // iOS Safari PWA で focused=false の controlled client にも届く必要がある (= バックグラウンド
+    // から復帰させたい時、 focus() より postMessage の方が確実に届く挙動)。
+    if (sid) {
+      for (const client of allClients) {
+        try { client.postMessage({ type: 'open-session', sid }) } catch { /* ignore */ }
+      }
+    }
+    let focused = false
     for (const client of allClients) {
-      if ('focus' in client) {
+      if (!focused && 'focus' in client) {
         try {
           await client.focus()
-          if (sid) {
-            try { client.postMessage({ type: 'open-session', sid }) } catch { /* ignore */ }
-          }
-          return
+          focused = true
         } catch { /* ignore */ }
       }
     }
+    if (focused) return
     if (self.clients.openWindow) {
       try { await self.clients.openWindow(targetUrl) } catch { /* ignore */ }
     }
