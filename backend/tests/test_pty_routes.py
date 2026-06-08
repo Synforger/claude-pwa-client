@@ -8,6 +8,7 @@ slash で別カウンタを使う (= 素は _count_user_prompts、 slash は _co
 import json
 
 import pty_routes as pr
+import pty_session_resolver as psr
 
 
 def _write_jsonl(path, lines):
@@ -123,9 +124,9 @@ def test_resolve_launch_alias_wraps_alias_with_autoresume(tmp_path, monkeypatch)
     jsonl = tmp_path / "sess-fresh.jsonl"
     jsonl.write_text("")
     _set_binding(monkeypatch, "ses_x", jsonl)
-    monkeypatch.setattr(pr, "AGENTS", {"agent_x": {"launch_alias": "my_alias"}})
-    monkeypatch.setattr(pr, "CLAUDE_PATH", "/usr/local/bin/claude")
-    monkeypatch.setattr(pr, "sessions_meta", {
+    monkeypatch.setattr(psr, "AGENTS", {"agent_x": {"launch_alias": "my_alias"}})
+    monkeypatch.setattr(psr, "CLAUDE_PATH", "/usr/local/bin/claude")
+    monkeypatch.setattr(psr, "sessions_meta", {
         "ses_x": type("M", (), {"agent_id": "agent_x", "resume_session_id": None})()
     })
     result = pr._resolve_launch_alias("ses_x")
@@ -137,9 +138,9 @@ def test_resolve_launch_alias_wraps_alias_with_autoresume(tmp_path, monkeypatch)
 def test_resolve_launch_alias_returns_plain_alias_when_no_resumable(tmp_path, monkeypatch):
     # bindings に該当なし → 既存通り素 alias だけ
     monkeypatch.setattr(jsonl_watcher, "list_bindings", lambda: {})
-    monkeypatch.setattr(pr, "AGENTS", {"agent_x": {"launch_alias": "my_alias"}})
-    monkeypatch.setattr(pr, "CLAUDE_PATH", "/usr/local/bin/claude")
-    monkeypatch.setattr(pr, "sessions_meta", {
+    monkeypatch.setattr(psr, "AGENTS", {"agent_x": {"launch_alias": "my_alias"}})
+    monkeypatch.setattr(psr, "CLAUDE_PATH", "/usr/local/bin/claude")
+    monkeypatch.setattr(psr, "sessions_meta", {
         "ses_x": type("M", (), {"agent_id": "agent_x", "resume_session_id": None})()
     })
     assert pr._resolve_launch_alias("ses_x") == "my_alias"
@@ -150,9 +151,9 @@ def test_resolve_launch_alias_fork_resume_takes_precedence(tmp_path, monkeypatch
     jsonl = tmp_path / "ignored.jsonl"
     jsonl.write_text("")
     _set_binding(monkeypatch, "ses_x", jsonl)
-    monkeypatch.setattr(pr, "AGENTS", {"agent_x": {"launch_alias": "my_alias"}})
-    monkeypatch.setattr(pr, "CLAUDE_PATH", "/usr/local/bin/claude")
-    monkeypatch.setattr(pr, "sessions_meta", {
+    monkeypatch.setattr(psr, "AGENTS", {"agent_x": {"launch_alias": "my_alias"}})
+    monkeypatch.setattr(psr, "CLAUDE_PATH", "/usr/local/bin/claude")
+    monkeypatch.setattr(psr, "sessions_meta", {
         "ses_x": type("M", (), {"agent_id": "agent_x", "resume_session_id": "fork-sid-9"})()
     })
     assert pr._resolve_launch_alias("ses_x") == "/usr/local/bin/claude --resume fork-sid-9"
