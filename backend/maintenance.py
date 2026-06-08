@@ -171,60 +171,78 @@ def cleanup_old_jsonl(
     max_bytes: int = JSONL_MAX_BYTES,
 ) -> int:
     """~/.claude/projects/*/*.jsonl を mtime 順で整理する。
-    1. mtime が keep_days 日以前のものを削除
-    2. それでも合計が max_bytes を超える場合は更に古い方から削除して quota 内に収める
+
+    1. mtime が keep_days 日以前のものを削除 (= ただし現在 PWA タブが bind 中の jsonl は除く)
+    2. それでも全体合計が max_bytes を超える場合は更に古い方から削除して quota 内に収める
+
+    quota は project 単位でなく全 project の合計で見る (= project 数だけ掛け算で蓄積するのを防ぐ)。
+    binding 中の jsonl は長期 idle でも削除しない (= backend 再起動 / Mac 再起動跨ぎで復帰した
+    アクティブセッションが「14 日無書き込み」 で削除される事故を塞ぐ)。
 
     claude CLI の会話ログは turn ごとに append され、 /clear で新ファイルが切られるが、
     自動 cleanup が無いので無限に蓄積する (= 実機で 468 MB / 168 ファイルの蓄積を確認)。"""
     base = Path("~/.claude/projects/").expanduser()
     if not base.is_dir():
         return 0
+    # 現在 PWA タブが bind 中の jsonl は idle でも保護する。
+    bound_paths: set[str] = set()
+    try:
+        import jsonl_watcher  # noqa: PLC0415
+        for info in jsonl_watcher.list_bindings().values():
+            jp = info.get("jsonl_path")
+            if info.get("confirmed") and jp:
+                bound_paths.add(str(Path(jp).resolve()))
+    except Exception:
+        logger.exception("jsonl gc: failed to collect bound paths")
     cutoff = time.time() - keep_days * 86400
     deleted = 0
+    # 全 project を 1 リストに集約 (= quota は全体合計で見る)
+    all_files: list[tuple[Path, float, int]] = []
     for proj_dir in base.iterdir():
         if not proj_dir.is_dir():
             continue
-        files: list[tuple[Path, float, int]] = []
         for f in proj_dir.glob("*.jsonl"):
             try:
                 st = f.stat()
-                files.append((f, st.st_mtime, st.st_size))
+                all_files.append((f, st.st_mtime, st.st_size))
             except OSError:
                 continue
-        if not files:
-            continue
-        files.sort(key=lambda x: x[1])  # mtime 古い順
-        # Step 1: keep_days より古いものを削除
-        survivors: list[tuple[Path, float, int]] = []
-        for f, mt, sz in files:
-            if mt < cutoff:
-                try:
-                    f.unlink()
-                    deleted += 1
-                    logger.info(
-                        "jsonl gc: removed by age %s (age=%.1fd, size=%dKB)",
-                        f.name, (time.time() - mt) / 86400, sz // 1024,
-                    )
-                    continue
-                except OSError:
-                    pass
+    all_files.sort(key=lambda x: x[1])  # mtime 古い順
+    # Step 1: keep_days より古いものを削除 (bound は除外)
+    survivors: list[tuple[Path, float, int]] = []
+    for f, mt, sz in all_files:
+        if str(f.resolve()) in bound_paths:
             survivors.append((f, mt, sz))
-        # Step 2: 残量が quota 超なら古い方から削除
-        survivors.sort(key=lambda x: x[1])
-        total = sum(sz for _, _, sz in survivors)
-        for f, _mt, sz in survivors:
-            if total <= max_bytes:
-                break
+            continue
+        if mt < cutoff:
             try:
                 f.unlink()
-                total -= sz
                 deleted += 1
                 logger.info(
-                    "jsonl gc: removed by quota %s (size=%dKB, remaining=%dMB)",
-                    f.name, sz // 1024, total // (1024 * 1024),
+                    "jsonl gc: removed by age %s (age=%.1fd, size=%dKB)",
+                    f.name, (time.time() - mt) / 86400, sz // 1024,
                 )
+                continue
             except OSError:
                 pass
+        survivors.append((f, mt, sz))
+    # Step 2: 残量が全体 quota 超なら古い方から削除 (bound は除外)
+    total = sum(sz for _, _, sz in survivors)
+    for f, _mt, sz in survivors:
+        if total <= max_bytes:
+            break
+        if str(f.resolve()) in bound_paths:
+            continue
+        try:
+            f.unlink()
+            total -= sz
+            deleted += 1
+            logger.info(
+                "jsonl gc: removed by quota %s (size=%dKB, remaining=%dMB)",
+                f.name, sz // 1024, total // (1024 * 1024),
+            )
+        except OSError:
+            pass
     if deleted:
         logger.info("jsonl gc: total %d files deleted", deleted)
     return deleted
