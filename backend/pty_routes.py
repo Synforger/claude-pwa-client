@@ -181,6 +181,44 @@ def _resolve_agent_cfg(session_id: str) -> dict | None:
     return None
 
 
+# Mac / backend 再起動跨ぎで前回 claude session を自動 resume する時の鮮度上限。
+# これより古い jsonl は「もう死んだ会話」 扱いで resume せず通常起動に倒す (= 衛生面)。
+_AUTORESUME_MAX_AGE_DAYS = 30
+
+
+def _last_resumable_claude_sid(session_id: str) -> str | None:
+    """PWA タブの最終 claude session_id を bindings から引いて autoresume 可否を判定する。
+
+    Mac 再起動跨ぎで tmux server が消えると、 backend は spawn 時に新規 tmux + 新規 claude
+    を立ち上げる。 そのまま放置だと前回の会話が失われるので、 bindings に confirmed として
+    残ってる最後の claude_sid を返して呼び出し側で `claude --resume <id>` させる。
+
+    None を返す条件:
+      - bindings に該当タブの entry が無い / confirmed=false
+      - jsonl ファイルが消えている (= claude 側 cleanup / 手動削除)
+      - jsonl の最終更新が _AUTORESUME_MAX_AGE_DAYS より古い (= 死んだ会話)
+    """
+    try:
+        import jsonl_watcher  # noqa: PLC0415
+        info = jsonl_watcher.list_bindings().get(session_id)
+    except Exception:
+        logger.exception("autoresume lookup failed session=%s", session_id)
+        return None
+    if not info or not info.get("confirmed"):
+        return None
+    jsonl_path = info.get("jsonl_path")
+    if not jsonl_path:
+        return None
+    from pathlib import Path
+    import time
+    p = Path(jsonl_path)
+    if not p.is_file():
+        return None
+    if time.time() - p.stat().st_mtime > _AUTORESUME_MAX_AGE_DAYS * 86400:
+        return None
+    return p.stem
+
+
 def _resolve_launch_alias(session_id: str) -> str | None:
     """初回 spawn で zsh prompt に送る起動コマンドを解決する。
 
@@ -188,6 +226,11 @@ def _resolve_launch_alias(session_id: str) -> str | None:
     (= SessionDef.resume_session_id を持つ) は wrapper でなく `claude --resume <id>` を直接
     送り、 分岐元から書き出した jsonl をその時点の会話として開く。 cwd は agent 継承 (=
     親と同じ project dir) なので resume が新 jsonl を確実に見つける。
+
+    Mac / backend 再起動跨ぎ で bindings に前回の claude_sid が残っていれば、 通常 alias を
+    `claude --resume <id> || <alias>` でラップして autoresume を試みる (= 1 段目で前回会話に
+    戻る、 resume が失敗 (= rc!=0 or 即 exit) したら `||` で通常 alias が走って新規起動に倒れる)。
+    これで「前回終了済なら新セッション、 そうでなければ続きから」 が自動で吸収される。
     """
     meta = sessions_meta.get(session_id)
     resume_id = getattr(meta, "resume_session_id", None) if meta is not None else None
@@ -197,7 +240,14 @@ def _resolve_launch_alias(session_id: str) -> str | None:
             return None
         return f"{shlex.quote(CLAUDE_PATH)} --resume {shlex.quote(resume_id)}"
     cfg = _resolve_agent_cfg(session_id) or {}
-    return cfg.get("launch_alias")
+    alias = cfg.get("launch_alias")
+    autoresume_id = _last_resumable_claude_sid(session_id)
+    if autoresume_id and alias and CLAUDE_PATH:
+        return (
+            f"{shlex.quote(CLAUDE_PATH)} --resume {shlex.quote(autoresume_id)}"
+            f" || {alias}"
+        )
+    return alias
 
 
 async def ensure_pty_session_for(session_id: str) -> None:
