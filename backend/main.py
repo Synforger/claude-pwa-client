@@ -145,10 +145,17 @@ async def lifespan(app: FastAPI):
     # claude プロセスが書く JSONL を backend mem に確定保持する。
     import jsonl_watcher  # noqa: PLC0415, E402
     jsonl_watcher.start_watcher()
-    # 既存 tmux session (= backend 再起動跨ぎ) の claude プロセスを registry に登録
-    for sid in list(sessions_meta.keys()):
-        from pty_discover import register_claude_when_ready as _rcwr  # noqa: PLC0415
-        _asyncio.create_task(_rcwr(sid))
+    # 既存 tmux session (= backend 再起動跨ぎ) の claude プロセスを registry に登録。
+    # 一斉 create_task すると session 数 × 16 回の pgrep/ps subprocess が起動直後に殺到する
+    # ので、 各 sid を順次 stagger (= 0.2s 間隔) で起こす。
+    from pty_discover import register_claude_when_ready as _rcwr  # noqa: PLC0415
+
+    async def _staggered_register():
+        for sid in list(sessions_meta.keys()):
+            _asyncio.create_task(_rcwr(sid))
+            await _asyncio.sleep(0.2)
+
+    _asyncio.create_task(_staggered_register())
 
     # uploads/tmp: 起動時 sweep + 1 時間ごとの定期 GC (= 無停止運用でも溜め続けない)
     _prune_uploads_tmp()

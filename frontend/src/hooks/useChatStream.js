@@ -69,6 +69,10 @@ export function useChatStream({
   // event ハンドラを ref に逃がして、 EventSource は sid 変更時だけ張り直す。
   // ref 更新は render 中でなく effect で行う (= react-hooks/refs ルール)。
   const handleEventRef = useRef(null)
+  // loading は backend busy 追随で高頻度更新される。 sendMessage の deps に直入れすると毎回
+  // コールバックが再生成されて ChatInput 等が再 render するため、 ref 経由で読む。
+  const loadingRef = useRef(loading)
+  useEffect(() => { loadingRef.current = loading }, [loading])
   useEffect(() => {
     handleEventRef.current = (curSid, event) => {
       if (event.type === 'user_message') {
@@ -143,7 +147,7 @@ export function useChatStream({
     // 呼ばれて従来通り input dict を読む。
     const text = (typeof textOverride === 'string' ? textOverride : (input[sid] || '')).trim()
     const files = attachments[sid] || []
-    if ((!text && files.length === 0) || loading[sid]) return
+    if ((!text && files.length === 0) || loadingRef.current[sid]) return
     const sendText = text
     setInput(prev => ({ ...prev, [sid]: '' }))
     setLoading(prev => ({ ...prev, [sid]: true }))
@@ -232,7 +236,7 @@ export function useChatStream({
         optimisticRef.current[sid] = null
       }
     }
-  }, [sid, input, attachments, loading, setInput, setMessages, clearAttachments, scrollToBottom, isAtBottomRef, setLoading])
+  }, [sid, input, attachments, setInput, setMessages, clearAttachments, scrollToBottom, isAtBottomRef, setLoading])
 
   const stopMessage = useCallback(async () => {
     if (!sid) return
