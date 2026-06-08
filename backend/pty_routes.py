@@ -54,18 +54,12 @@ router = APIRouter()
 _COMMAND_NAME_RE = re.compile(r"^\s*<command-name\b")
 
 
-def _count_user_prompts(path) -> int:
-    """JSONL から素プロンプト (= 実ユーザ発言) の user 行数を数える。
-    tool_result / isMeta / isSidechain / harness XML は除外。 送信確認に使う。"""
-    if not path:
-        return 0
-    try:
-        with open(path, "rb") as f:
-            data = f.read()
-    except OSError:
-        return 0
+def _count_in_lines(lines, predicate) -> int:
+    """JSONL string lines のうち predicate(parsed_dict) が True のものを数える。
+    user 行で sidechain / meta は最初に除外する (= 全 counter 共通)。"""
     count = 0
-    for raw in data.split(b"\n"):
+    for raw in lines:
+        raw = raw.strip()
         if not raw:
             continue
         try:
@@ -74,63 +68,73 @@ def _count_user_prompts(path) -> int:
             continue
         if d.get("type") != "user" or d.get("isSidechain") or d.get("isMeta"):
             continue
-        msg = d.get("message") or {}
-        c = msg.get("content")
-        if isinstance(c, str):
-            s = c.strip()
-            # harness XML (slash command / local-command 等) と interrupt marker
-            # (`[Request interrupted by user]`) はユーザ発話でなく、 送信確認のカウントには
-            # 含めない (= jsonl_session_status.is_user_prompt と同じ判定軸)。
-            if s and not _HARNESS_RE.match(s) and not _INTERRUPT_RE.match(s):
-                count += 1
-        elif isinstance(c, list):
-            texts = [b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text"]
-            if any((t or "").strip() for t in texts):
-                count += 1
-    return count
-
-
-def _count_command_lines(path) -> int:
-    """slash command の送信確認用に `<command-name>` user 行の数を数える。
-    _count_user_prompts が harness XML として除外する行を、 逆にこちらが対象にする。"""
-    if not path:
-        return 0
-    try:
-        with open(path, "rb") as f:
-            data = f.read()
-    except OSError:
-        return 0
-    count = 0
-    for raw in data.split(b"\n"):
-        if not raw:
-            continue
-        try:
-            d = json.loads(raw)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        if d.get("type") != "user" or d.get("isSidechain") or d.get("isMeta"):
-            continue
-        c = (d.get("message") or {}).get("content")
-        if isinstance(c, str) and _COMMAND_NAME_RE.match(c.strip()):
+        if predicate(d):
             count += 1
     return count
 
 
-async def _wait_count_added(counter, path, initial_count: int, timeout: float) -> bool:
-    """counter(path) が initial_count から増えるのを timeout 秒まで poll する汎用 wait。"""
+def _is_plain_user_prompt(d: dict) -> bool:
+    """素プロンプト (= 実ユーザ発言): harness XML / interrupt marker / 空文字 を除外。"""
+    c = (d.get("message") or {}).get("content")
+    if isinstance(c, str):
+        s = c.strip()
+        return bool(s) and not _HARNESS_RE.match(s) and not _INTERRUPT_RE.match(s)
+    if isinstance(c, list):
+        texts = [b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text"]
+        return any((t or "").strip() for t in texts)
+    return False
+
+
+def _is_command_line(d: dict) -> bool:
+    """slash command の harness XML `<command-name>` 行。"""
+    c = (d.get("message") or {}).get("content")
+    return isinstance(c, str) and bool(_COMMAND_NAME_RE.match(c.strip()))
+
+
+def _count_user_prompts(path, from_pos: int = 0) -> tuple[int, int]:
+    """from_pos 以降の JSONL を読んで素プロンプト件数と次回 from_pos を返す。
+
+    旧 signature (path のみ) は file 全体を毎回読み直していたが、 wait ループ (= 50 回 poll)
+    で大型 JSONL を read し直すコストが増える。 from_pos 起点で `read_complete_lines` を使う
+    ことで初回以降は新規行だけ走査する。 初回呼び出しは from_pos=0 で従来通り (= 全読み)。"""
+    if not path:
+        return (0, 0)
+    from jsonl_tail import read_complete_lines  # noqa: PLC0415
+    try:
+        lines, end_pos = read_complete_lines(path, from_pos)
+    except OSError:
+        return (0, from_pos)
+    return (_count_in_lines(lines, _is_plain_user_prompt), end_pos)
+
+
+def _count_command_lines(path, from_pos: int = 0) -> tuple[int, int]:
+    """from_pos 以降の `<command-name>` user 行件数と次回 from_pos を返す (slash 確認用)。"""
+    if not path:
+        return (0, 0)
+    from jsonl_tail import read_complete_lines  # noqa: PLC0415
+    try:
+        lines, end_pos = read_complete_lines(path, from_pos)
+    except OSError:
+        return (0, from_pos)
+    return (_count_in_lines(lines, _is_command_line), end_pos)
+
+
+async def _wait_count_added(counter, path, initial_pos: int, timeout: float) -> bool:
+    """counter(path, pos) -> (new_count, new_pos) が new_count > 0 を返すまで wait。
+
+    initial_pos = 呼出時点のファイルサイズ (= initial_count 取得済の境界)。 以降は new_pos を
+    引き継いで差分だけ読む (= 全読みなし)。"""
     poll = 0.1
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
+    pos = initial_pos
     while loop.time() < deadline:
-        if counter(path) > initial_count:
+        n, pos = counter(path, pos)
+        if n > 0:
             return True
         await asyncio.sleep(poll)
-    return counter(path) > initial_count
-
-
-async def _wait_user_prompt_added(path, initial_count: int, timeout: float) -> bool:
-    """JSONL の user 行が initial_count から増えるのを timeout 秒まで poll する。"""
-    return await _wait_count_added(_count_user_prompts, path, initial_count, timeout)
+    n, _ = counter(path, pos)
+    return n > 0
 
 
 def _delivery_counter(text: str):
@@ -140,21 +144,21 @@ def _delivery_counter(text: str):
     return (_count_command_lines if is_slash else _count_user_prompts), is_slash
 
 
-async def _confirm_after_send(session_id, text, jsonl_path, counter, initial_count, is_slash) -> dict:
+async def _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slash) -> dict:
     """送信直後の確認 + 取りこぼし救済 (= text 経路 / 添付経路 共通)。
 
-    JSONL に該当 user 行が +1 されるかを 4s 監視 → 出なければ Enter だけ追い打ち (= TUI の
-    `paste again to expand` 等で Enter 1 個が吸われたケースを救済) して 1s 再監視。 それでも
-    確認できなくても再ペーストはせず ok:True を返す (= 再ペーストは slash 二重発火 / busy 中の
-    flush 遅れでの重複を招くため。 送信自体は tmux に届いている)。"""
-    if await _wait_count_added(counter, jsonl_path, initial_count, timeout=4.0):
+    initial_pos = 送信直前のファイルサイズ。 そこから新規 user 行 (slash なら `<command-name>`、
+    そうでなければ素プロンプト) が出るかを 4s 監視 → 出なければ Enter だけ追い打ちして 1s 再監視。
+    それでも確認できなくても再ペーストはせず ok:True を返す。"""
+    counter = _count_command_lines if is_slash else _count_user_prompts
+    if await _wait_count_added(counter, jsonl_path, initial_pos, timeout=4.0):
         return {"ok": True, "confirmed": True}
     logger.warning(
         "pty_send: no prompt within 4s, retrying with Enter only: sid=%s text_len=%d slash=%s",
         session_id, len(text or ""), is_slash,
     )
     tmux_send_keys(session_id, enter=True)
-    if await _wait_count_added(counter, jsonl_path, initial_count, timeout=1.0):
+    if await _wait_count_added(counter, jsonl_path, initial_pos, timeout=1.0):
         return {"ok": True, "confirmed": True, "retried": "enter_only"}
     logger.warning(
         "pty_send: not confirmed within window, assume delivered (no re-paste): sid=%s slash=%s",
@@ -459,17 +463,21 @@ async def pty_send(session_id: str, payload: dict = Body(...)) -> dict:
     confirm = bool(text) and enter
     # slash command (= /deep-research 等) は素プロンプト行を作らず `<command-name>` の
     # harness XML 行を作るので確認カウンタを切り替える。
-    counter, is_slash = _delivery_counter(text or "")
-    initial_count = 0
+    _, is_slash = _delivery_counter(text or "")
+    initial_pos = 0
     jsonl_path = None
     if confirm:
         jsonl_path = jsonl_path_for_session(session_id)
         if jsonl_path is not None:
-            initial_count = counter(jsonl_path)
+            # 送信直前の file size を境界に取り、 確認 wait はそこからの差分行だけ読む
+            try:
+                initial_pos = jsonl_path.stat().st_size
+            except OSError:
+                initial_pos = 0
     ok = tmux_send_keys(session_id, text=text, key=key, enter=enter)
     if not ok or not confirm or jsonl_path is None:
         return {"ok": ok}
-    return await _confirm_after_send(session_id, text, jsonl_path, counter, initial_count, is_slash)
+    return await _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slash)
 
 
 @router.post("/pty/{session_id}/send-with-files")
@@ -504,14 +512,19 @@ async def pty_send_with_files(
     # text 経路と同じ確認 + Enter 追い打ち救済を効かせる。 添付経路は本文が長く (= path 付き)
     # `paste again to expand` で Enter が吸われやすく、 旧実装は単発送信で確認も救済も無かった
     # ため「ターミナルに移動して手で Enter」 が必要だった。
-    counter, is_slash = _delivery_counter(full_text)
+    _, is_slash = _delivery_counter(full_text)
     jsonl_path = jsonl_path_for_session(session_id)
-    initial_count = counter(jsonl_path) if jsonl_path is not None else 0
+    initial_pos = 0
+    if jsonl_path is not None:
+        try:
+            initial_pos = jsonl_path.stat().st_size
+        except OSError:
+            initial_pos = 0
     ok = tmux_send_keys(session_id, text=full_text, enter=True)
     if not ok or jsonl_path is None:
         return {"ok": ok, "saved_files": saved_files}
     result = await _confirm_after_send(
-        session_id, full_text, jsonl_path, counter, initial_count, is_slash
+        session_id, full_text, jsonl_path, initial_pos, is_slash
     )
     result["saved_files"] = saved_files
     return result
