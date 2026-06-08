@@ -95,7 +95,7 @@ cp backend/config.example.json backend/config.json
 python backend/gen_vapid.py  # backend/vapid.json を生成
 
 # 起動
-uvicorn backend.main:app --host 0.0.0.0 --port 8000
+uvicorn backend.main:app --host 0.0.0.0 --port 8765
 ```
 
 #### フロントエンド
@@ -110,7 +110,7 @@ npm run build  # dist/ を生成、 バックエンドが配信
 
 ```bash
 # backend を tailnet 経由で HTTPS 提供 (同一オリジンで /)
-tailscale serve --bg http://localhost:8000
+tailscale serve --bg http://localhost:8765
 ```
 
 これで `https://<your-host>.tail<xxxx>.ts.net/` が backend を指す。 `tailscale serve status`
@@ -131,7 +131,7 @@ tailscale serve --bg http://localhost:8000
   <array>
     <string>/bin/bash</string>
     <string>-lc</string>
-    <string>cd /path/to/claude-pwa-client && source /path/to/miniforge/etc/profile.d/conda.sh && conda activate pwa-client && exec uvicorn backend.main:app --host 0.0.0.0 --port 8000</string>
+    <string>cd /path/to/claude-pwa-client && source /path/to/miniforge/etc/profile.d/conda.sh && conda activate pwa-client && exec uvicorn backend.main:app --host 0.0.0.0 --port 8765</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -192,7 +192,7 @@ frontend は Windows 側のブラウザから Tailscale 経由でそのままア
 
    [Service]
    WorkingDirectory=%h/claude-pwa-client
-   ExecStart=/bin/bash -lc 'source .venv/bin/activate && exec uvicorn backend.main:app --host 0.0.0.0 --port 8000'
+   ExecStart=/bin/bash -lc 'source .venv/bin/activate && exec uvicorn backend.main:app --host 0.0.0.0 --port 8765'
    Restart=always
 
    [Install]
@@ -210,7 +210,7 @@ frontend は Windows 側のブラウザから Tailscale 経由でそのままア
    ```bash
    curl -fsSL https://tailscale.com/install.sh | sh
    sudo tailscale up
-   sudo tailscale serve --bg http://localhost:8000
+   sudo tailscale serve --bg http://localhost:8765
    ```
    これで `https://<wsl-host>.tail<xxxx>.ts.net/` が backend を指す。 Windows 側にも
    Tailscale をインストールして同一 tailnet に参加させれば、 Windows のブラウザ・他端末
@@ -448,7 +448,7 @@ Tailscale 側の既知 issue として残存している
 上記で解決しない場合、 direct IP の HTTP フォールバックで暫定回避できる:
 
 ```
-http://<your-tailscale-ip>:8000
+http://<your-tailscale-ip>:8765
 ```
 
 - `<your-tailscale-ip>` は Tailscale 管理画面または `tailscale ip` で確認できる (`100.x.x.x`)

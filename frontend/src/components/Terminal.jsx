@@ -21,7 +21,7 @@ const DEFAULT_WS_BASE =
   (typeof window !== 'undefined' && window.location.protocol === 'https:'
     ? 'wss://'
     : 'ws://') +
-  (typeof window !== 'undefined' ? window.location.host : 'localhost:8000')
+  (typeof window !== 'undefined' ? window.location.host : 'localhost:8765')
 
 export default function Terminal({ sessionId, wsBase = DEFAULT_WS_BASE, onExit }) {
   const containerRef = useRef(null)

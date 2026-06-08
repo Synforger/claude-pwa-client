@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { apiUrl, apiFetch } from './api.js'
 
 // API_BASE は constants.js 由来。 test 環境 (= import.meta.env.PROD=false) では
-// 'http://localhost:8000' に解決される。
+// 'http://localhost:8765' に解決される。
 afterEach(() => vi.restoreAllMocks())
 
 describe('api helpers (apiUrl / apiFetch)', () => {

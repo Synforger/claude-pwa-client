@@ -5,7 +5,7 @@ claude CLI は `~/.claude/settings.json` の `hooks` 配下に登録された co
 (= https://code.claude.com/docs/en/hooks)。
 
 設定側 (= ユーザ環境) で `Stop` / `Notification` 等の hook に
-    curl -sS -X POST http://localhost:8000/hooks/event --data-binary @-
+    curl -sS -X POST http://localhost:8765/hooks/event --data-binary @-
 を仕込めば、 本エンドポイントが受け取って Web Push に翻訳する。 PTY 経由で動かしてる
 claude でも、 turn 完了 / 通知ダイアログ等の契機を PWA 側に届けられる。
 
@@ -88,7 +88,7 @@ async def hooks_event(request: Request) -> dict:
     詰まらせない、 後で対応イベントを増やしていく)。
 
     セキュリティ: 本 endpoint は claude CLI の `~/.claude/settings.json` hook が
-    `http://localhost:8000/hooks/event` を叩く前提。 tailnet 経由で偽 hook を投げると
+    `http://localhost:8765/hooks/event` を叩く前提。 tailnet 経由で偽 hook を投げると
     JSONL bind を任意ファイルに書き換えられる経路があるため、 接続元を localhost に限定。
     """
     client_host = request.client.host if request.client else None
