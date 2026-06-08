@@ -86,8 +86,12 @@ async function _downscaleIfLarge(file) {
   }
 }
 
-// 上限超過分を古い順に退役させる。 putImage の直後に呼ぶ。
-async function _enforceCaps(db) {
+// 上限内ならカーソル全走査を省略するための in-memory ヘッダキャッシュ。
+// セッション初回 (cache 無し) だけ全件走査、 以降は putImage / deleteImage で増減更新。
+let _capsCache = null // {count, total, recs: [{id, createdAt, size}]} | null
+
+async function _loadCapsCache(db) {
+  if (_capsCache) return _capsCache
   const recs = await new Promise((resolve, reject) => {
     const out = []
     const req = txStore(db, 'readonly').openCursor()
@@ -100,14 +104,30 @@ async function _enforceCaps(db) {
     }
     req.onerror = () => reject(req.error)
   })
-  recs.sort((a, b) => a.createdAt - b.createdAt) // 古い順
-  let count = recs.length
-  let total = recs.reduce((s, r) => s + r.size, 0)
-  for (const r of recs) {
-    if (count <= MAX_IMAGES && total <= MAX_TOTAL_BYTES) break
+  _capsCache = {
+    recs,
+    count: recs.length,
+    total: recs.reduce((s, r) => s + r.size, 0),
+  }
+  return _capsCache
+}
+
+// 上限超過分を古い順に退役させる。 putImage の直後に呼ぶ。
+// in-memory cache で上限内なら全件カーソル走査をスキップする (= putImage 毎の数十ms ブロック対策)。
+async function _enforceCaps(db, newRec) {
+  const cache = await _loadCapsCache(db)
+  if (newRec) {
+    cache.recs.push(newRec)
+    cache.count += 1
+    cache.total += newRec.size
+  }
+  if (cache.count <= MAX_IMAGES && cache.total <= MAX_TOTAL_BYTES) return
+  cache.recs.sort((a, b) => a.createdAt - b.createdAt) // 古い順
+  while ((cache.count > MAX_IMAGES || cache.total > MAX_TOTAL_BYTES) && cache.recs.length > 0) {
+    const r = cache.recs.shift()
     try { await deleteImage(r.id) } catch { /* ignore */ }
-    count -= 1
-    total -= r.size
+    cache.count -= 1
+    cache.total -= r.size
   }
 }
 
@@ -126,7 +146,7 @@ export async function putImage(file) {
     req.onsuccess = () => resolve()
     req.onerror = () => reject(req.error)
   })
-  await _enforceCaps(db).catch(() => {})
+  await _enforceCaps(db, { id, createdAt: record.createdAt, size: record.size }).catch(() => {})
   return id
 }
 
@@ -148,6 +168,15 @@ export async function deleteImage(id) {
     req.onsuccess = () => resolve()
     req.onerror = () => reject(req.error)
   })
+  // cache から該当 id を引いて size 分減算 (= caps の整合性を保つ)
+  if (_capsCache) {
+    const idx = _capsCache.recs.findIndex(r => r.id === id)
+    if (idx >= 0) {
+      _capsCache.total -= _capsCache.recs[idx].size
+      _capsCache.count -= 1
+      _capsCache.recs.splice(idx, 1)
+    }
+  }
 }
 
 export async function listImageIds() {
