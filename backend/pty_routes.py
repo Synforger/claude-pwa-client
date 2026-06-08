@@ -28,9 +28,11 @@ from config import AGENTS, CLAUDE_PATH  # noqa: F401  (CLAUDE_PATH は tests mon
 
 from pty_runner import (
     PtySession,
+    has_tmux_session,
     jsonl_path_for_session,
     pty_sessions,
     resize_pty,
+    spawn_pty_session,
     tmux_send_keys,
     write_pty,
 )
@@ -79,10 +81,24 @@ async def pty_socket(ws: WebSocket, session_id: str) -> None:
 
     session = pty_sessions.get(session_id)
     if session is None or session.exit_event.is_set():
+        # backend 再起動跨ぎ: in-memory PtySession は空でも tmux server には pwa-<sid> が
+        # 生き残ってる場合がある (= 既存 claude TUI が継続中)。 そのまま autoresume の
+        # launch_alias / fallback_alias を渡して spawn すると、 spawn_pty_session 内の
+        # is_new_tmux_session 判定が race / 失敗で True に倒れた時に、 既存 claude TUI に
+        # `claude --resume <id>` という文字列がそのまま入力されて pane を乗っ取り、
+        # 元の会話が別 jsonl に切り替わる事故が起きる (= 2026-06-08 REDACTEDタブ事故の直接原因)。
+        # 既存 tmux にぶら下がるだけの再 attach では絶対に alias を投入しないよう、
+        # ここで明示的に None を渡す (= ensure_pty_session_for は has_tmux_session で早期
+        # return するので alias 投入経路自体を踏まない、 こちらはそれと整合する経路)。
+        tmux_alive = has_tmux_session(session_id)
         cfg = _resolve_agent_cfg(session_id) or {}
         cwd = cfg.get("cwd")
-        launch_alias = _resolve_launch_alias(session_id)
-        fallback_alias = _resolve_autoresume_fallback(session_id)
+        if tmux_alive:
+            launch_alias = None
+            fallback_alias = None
+        else:
+            launch_alias = _resolve_launch_alias(session_id)
+            fallback_alias = _resolve_autoresume_fallback(session_id)
         try:
             session = await spawn_pty_session(
                 session_id, cwd=cwd, launch_alias=launch_alias,
