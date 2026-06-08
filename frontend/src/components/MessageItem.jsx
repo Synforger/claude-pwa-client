@@ -279,6 +279,68 @@ function CompactBanner({ msg }) {
   )
 }
 
+// 1 tool_use ブロックを描画する。 旧来は agent バブル内に並べた tool_use を一括ループで
+// 出していたが、 segments (= JSONL の content 順を保ったまま text と tool を混ぜる列) で
+// 1 つずつ描画するためにここに切り出した。 詳細展開 / DiffView / Linkified 結果は同等。
+function ToolBlock({ t, onOpenFile, activeSubagentTool, onOpenSubagents }) {
+  const resultText = t.result ? formatToolResultContent(t.result.content) : null
+  const truncated = resultText && resultText.length > RESULT_PREVIEW_CHARS
+  const hasDiff = !!t.diffInput
+  // Read はパスが summary に出てるので input の echo は冗長。tool-input-full は描画しない
+  const showInputFull = !hasDiff && t.name !== 'Read' && t.shortLabel && t.shortLabel !== t.label
+  // Edit/Write 成功時の "File updated successfully" みたいな確認文は冗長 (diff が見えてれば自明)。
+  // エラー時は原因が書かれてるので表示する。
+  const suppressSuccessResult = hasDiff && t.result && !t.result.is_error
+  const showResult = !!t.result && !suppressSuccessResult
+  const hasMore = hasDiff || showInputFull || showResult
+  return (
+    <details className={`tool-block ${t.result?.is_error ? 'is-error' : ''}`} open={false}>
+      <summary className={`tool-line tool-${t.name.toLowerCase()}`} title={t.label}>
+        <span className="tool-marker">{hasMore ? '▸' : '·'}</span>
+        <span className="tool-short">{t.shortLabel || t.label}</span>
+        {t.result?.is_error && <span className="tool-err-mark"> ⚠</span>}
+        {resultText && showResult && (
+          <span className="tool-meta"> · {resultText.length}文字</span>
+        )}
+        {t.name === 'Task' && !t.result && activeSubagentTool && (
+          <span className="tool-meta"> · ↳ {activeSubagentTool}</span>
+        )}
+        {(t.name === 'Task' || t.name === 'Workflow') && onOpenSubagents && (
+          <button
+            type="button"
+            className="tool-open-subagents"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpenSubagents(subagentFocus(t)) }}
+            title="サブエージェント一覧を開く"
+          >
+            🤖{!t.result && <span className="tool-running-dot" />}
+          </button>
+        )}
+      </summary>
+      {hasMore && (
+        <div className="tool-body">
+          {hasDiff ? (
+            <DiffView diffInput={t.diffInput} />
+          ) : showInputFull && (
+            <pre className="tool-input-full">{t.label}</pre>
+          )}
+          {showResult && (() => {
+            const shown = truncated ? resultText.slice(0, RESULT_PREVIEW_CHARS) + '\n…（省略）' : resultText
+            const errorClass = t.result.is_error ? 'is-error' : ''
+            if ((t.name === 'Grep' || t.name === 'Glob') && !t.result.is_error) {
+              return <LinkifiedResult text={shown} onOpenFile={onOpenFile} errorClass={errorClass} />
+            }
+            return (
+              <pre className={`tool-result-text ${errorClass}`}>
+                {shown}
+              </pre>
+            )
+          })()}
+        </div>
+      )}
+    </details>
+  )
+}
+
 function SessionEndBanner() {
   // 「セッション終了」 を区切る横線 + ラベル。 旧 chat UI と同じ見た目。
   return (
@@ -365,7 +427,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
             </span>
           )}
         </div>
-      ) : msg.role === 'agent' && (msg.tools?.length > 0 || msg.thinking || msg.askUserQuestion) ? (
+      ) : msg.role === 'agent' && (msg.segments?.length > 0 || msg.tools?.length > 0 || msg.thinking || msg.askUserQuestion) ? (
         <div className="agent-block">
           {msg.thinking && (
             <details className="thinking-block">
@@ -373,87 +435,59 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
               <pre className="thinking-text">{msg.thinking}</pre>
             </details>
           )}
-          {msg.tools?.length > 0 && (
-            <div className="tool-log">
-              {msg.tools.map((t) => {
-                const resultText = t.result ? formatToolResultContent(t.result.content) : null
-                const truncated = resultText && resultText.length > RESULT_PREVIEW_CHARS
-                const hasDiff = !!t.diffInput
-                // Read はパスが summary に出てるので input の echo は冗長。tool-input-full は描画しない
-                const showInputFull = !hasDiff && t.name !== 'Read' && t.shortLabel && t.shortLabel !== t.label
-                // Edit/Write 成功時の "File updated successfully" みたいな確認文は冗長 (diff が見えてれば自明)。
-                // エラー時は原因が書かれてるので表示する。
-                const suppressSuccessResult = hasDiff && t.result && !t.result.is_error
-                const showResult = !!t.result && !suppressSuccessResult
-                const hasMore = hasDiff || showInputFull || showResult
-                // 過去メッセージのスクロールバック中に diff / 結果が大きく開きっぱなしだと
-                // 読みにくいので、 デフォルトは全部閉じる。 必要な時だけタップで展開する。
-                const openByDefault = false
+          {/* JSONL の content blocks の順序 (= text / tool / text / tool ...) をそのまま
+              バブル列で描画する。 旧来は全 tool を先にまとめて全 text を後に出していたため、
+              ターミナル (= 公式 TUI) で見える順序とズレ、 text が tool の後ろに 1 個ずれて
+              見える問題があった。 segments は processStreamEvent が JSONL 順を保って積む。
+              segments が無い旧 msg (= 履歴復元の互換) には tools → text の旧表示を fallback。 */}
+          {msg.segments?.length > 0 ? (
+            <>
+              {msg.segments.map((seg, i) => {
+                if (seg.kind === 'text') {
+                  return (
+                    <span key={`s${i}`} className="bubble">
+                      <MessageRenderer text={seg.text} onOpenFile={onOpenFile} streaming={msg.streaming} />
+                    </span>
+                  )
+                }
+                // 同 turn 内に同じ tool_use id は出ない前提なので id を key にしてよい
                 return (
-                  <details
-                    key={t.id}
-                    className={`tool-block ${t.result?.is_error ? 'is-error' : ''}`}
-                    open={openByDefault}
-                  >
-                    <summary className={`tool-line tool-${t.name.toLowerCase()}`} title={t.label}>
-                      <span className="tool-marker">{hasMore ? '▸' : '·'}</span>
-                      <span className="tool-short">{t.shortLabel || t.label}</span>
-                      {t.result?.is_error && <span className="tool-err-mark"> ⚠</span>}
-                      {resultText && showResult && (
-                        <span className="tool-meta"> · {resultText.length}文字</span>
-                      )}
-                      {/* Task tool が進行中 (= result 未受信) でかつ status.subagent が active なら、
-                          subagent 内で今動いてる sub-tool 名を inline 併記する。 これで「Task が
-                          何をやってるか」 が普通の tool 行として観察可能 (= ActivityBar 撤去の代替)。 */}
-                      {t.name === 'Task' && !t.result && activeSubagentTool && (
-                        <span className="tool-meta"> · ↳ {activeSubagentTool}</span>
-                      )}
-                      {/* Task / Workflow は子エージェントを生やす。 タイムライン上のこの地点から
-                          🧩 (= サブエージェント一覧) へ飛べるようにする (= 「どこで分岐したか」 を
-                          残しつつ、 中身は専用パネルで深掘り)。 details の開閉とは別操作にするため
-                          preventDefault + stopPropagation。 */}
-                      {(t.name === 'Task' || t.name === 'Workflow') && onOpenSubagents && (
-                        <button
-                          type="button"
-                          className="tool-open-subagents"
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpenSubagents(subagentFocus(t)) }}
-                          title="サブエージェント一覧を開く"
-                        >
-                          🤖{!t.result && <span className="tool-running-dot" />}
-                        </button>
-                      )}
-                    </summary>
-                    {hasMore && (
-                      <div className="tool-body">
-                        {hasDiff ? (
-                          <DiffView diffInput={t.diffInput} />
-                        ) : showInputFull && (
-                          <pre className="tool-input-full">{t.label}</pre>
-                        )}
-                        {showResult && (() => {
-                          const shown = truncated ? resultText.slice(0, RESULT_PREVIEW_CHARS) + '\n…（省略）' : resultText
-                          const errorClass = t.result.is_error ? 'is-error' : ''
-                          if ((t.name === 'Grep' || t.name === 'Glob') && !t.result.is_error) {
-                            return <LinkifiedResult text={shown} onOpenFile={onOpenFile} errorClass={errorClass} />
-                          }
-                          return (
-                            <pre className={`tool-result-text ${errorClass}`}>
-                              {shown}
-                            </pre>
-                          )
-                        })()}
-                      </div>
-                    )}
-                  </details>
+                  <div key={seg.tool.id} className="tool-log">
+                    <ToolBlock
+                      t={seg.tool}
+                      onOpenFile={onOpenFile}
+                      activeSubagentTool={activeSubagentTool}
+                      onOpenSubagents={onOpenSubagents}
+                    />
+                  </div>
                 )
               })}
-              {msg.streaming && <div className="tool-line tool-pending">…</div>}
-            </div>
-          )}
-          {msg.text && (
-            <span className="bubble">
-              <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={msg.streaming} />
-            </span>
+              {msg.streaming && (
+                <div className="tool-log"><div className="tool-line tool-pending">…</div></div>
+              )}
+            </>
+          ) : (
+            <>
+              {msg.tools?.length > 0 && (
+                <div className="tool-log">
+                  {msg.tools.map((t) => (
+                    <ToolBlock
+                      key={t.id}
+                      t={t}
+                      onOpenFile={onOpenFile}
+                      activeSubagentTool={activeSubagentTool}
+                      onOpenSubagents={onOpenSubagents}
+                    />
+                  ))}
+                  {msg.streaming && <div className="tool-line tool-pending">…</div>}
+                </div>
+              )}
+              {msg.text && (
+                <span className="bubble">
+                  <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={msg.streaming} />
+                </span>
+              )}
+            </>
           )}
           {msg.askUserQuestion && (
             <AskUserQuestionBubble
