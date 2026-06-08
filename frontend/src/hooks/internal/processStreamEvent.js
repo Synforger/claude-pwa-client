@@ -223,6 +223,31 @@ export function processStreamEvent(deps, sid, event) {
     .filter(b => b.type === 'tool_use' && b.name !== 'Agent' && b.name !== 'AskUserQuestion' && b.name !== 'TodoWrite')
     .map(b => formatTool(b))
 
+  // text と tool_use を JSONL 上の順番のまま並べた segments を作る。 こうしないと
+  // claude が「やります → Bash → 次に → Bash」 の順で書いたものを、 frontend が
+  // 「Bash → Bash → やります次に」 のように tool を先にまとめてしまい、 ターミナル
+  // (= 公式 TUI) で見える順序と PWA バブルがズレる (text が tool の後ろに 1 個ずれる)。
+  // 隣接 text block は 1 segment に畳む (= claude が text を複数 block に分けて書く
+  // 稀ケースで segment が無駄に増えないように)。 thinking は冒頭の details に独立
+  // 表示するので segments には含めない。
+  const newSegments = []
+  for (const b of event.message.content) {
+    if (!b || typeof b !== 'object') continue
+    if (b.type === 'text') {
+      const t = b.text || ''
+      if (!t) continue
+      const tail = newSegments[newSegments.length - 1]
+      if (tail && tail.kind === 'text') {
+        tail.text += t
+      } else {
+        newSegments.push({ kind: 'text', text: t })
+      }
+    } else if (b.type === 'tool_use'
+        && b.name !== 'Agent' && b.name !== 'AskUserQuestion' && b.name !== 'TodoWrite') {
+      newSegments.push({ kind: 'tool', tool: formatTool(b) })
+    }
+  }
+
   // 通常受信も replay も同じロジックで処理し、 バブル単位の重複は uuid で flush 時に dedup する。
   // (event.uuid = AssistantMessage の uuid。 同じものを 2 回 replay しても 1 つの bubble に収束)
   const buf = bufFor ? bufFor(sid) : streamBufRef.current[sid]
@@ -246,10 +271,34 @@ export function processStreamEvent(deps, sid, event) {
     buf.thinking = thinkingContent || buf.thinking
     const seen = new Set((buf.newTools || []).map(t => t.id))
     buf.newTools = [...(buf.newTools || []), ...newTools.filter(t => !seen.has(t.id))]
+    // segments も同様に「追加分だけ append」 する。 tool は id 重複なら捨て、 text は
+    // 末尾が text なら結合、 そうでなければ新規 segment として append (= 多 frame に
+    // 分かれて来た text/tool の交互順序をそのまま積み上げる)。
+    const segSeen = new Set(
+      (buf.newSegments || []).filter(s => s.kind === 'tool').map(s => s.tool.id),
+    )
+    const out = [...(buf.newSegments || [])]
+    for (const s of newSegments) {
+      if (s.kind === 'tool') {
+        if (segSeen.has(s.tool.id)) continue
+        segSeen.add(s.tool.id)
+        out.push(s)
+      } else {
+        const tail = out[out.length - 1]
+        if (tail && tail.kind === 'text') {
+          // 同じ text を 2 度受け取った場合 (= replay) は重複させない
+          if (!tail.text.endsWith(s.text)) tail.text += s.text
+        } else {
+          out.push({ kind: 'text', text: s.text })
+        }
+      }
+    }
+    buf.newSegments = out
   } else {
     buf.text = textContent
     buf.thinking = thinkingContent || null
     buf.newTools = newTools
+    buf.newSegments = newSegments
   }
   buf.uuid = eventUuid
   buf.dirty = true
