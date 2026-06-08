@@ -254,6 +254,22 @@ export default function App() {
     return () => navigator.serviceWorker.removeEventListener('message', onMessage)
   }, [fetchLatest, setActiveId])
 
+  // 通知タップで PWA が完全終了状態から起動された場合、 SW の openWindow が
+  // /?ses=<sid> 付きで起動するので、 ここで URL param を読んで activeId に反映する。
+  // postMessage 経路 (= 既存 PWA をフォアに戻す) と並走する fallback (= プロセス毎新規起動)。
+  useEffect(() => {
+    try {
+      const sid = new URLSearchParams(window.location.search).get('ses')
+      if (sid) {
+        setActiveId(sid)
+        // URL から消す (= reload で復活しないように)
+        const url = new URL(window.location.href)
+        url.searchParams.delete('ses')
+        window.history.replaceState({}, '', url.pathname + (url.search || '') + url.hash)
+      }
+    } catch { /* ignore */ }
+  }, [setActiveId])
+
   // 今 active で見ている session を SW に伝える (= sw.js の LINE 流抑制で使う)。
   // visibility=hidden の時は sid=null を送って「見てない」 扱いにする (= bg/別アプリ時に
   // 通知が届くべき状態を明示)。 SW direct postMessage で backend は介さない。
