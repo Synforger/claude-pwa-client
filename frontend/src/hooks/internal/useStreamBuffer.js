@@ -17,31 +17,7 @@ import { generateId } from '../../utils/id.js'
 // - cancelAndFlush(sid)        : 予約をキャンセルして即 flush
 // - resetBuf(sid)              : 新規ターン / reconnect 開始時の初期化
 function emptyBuf() {
-  return { text: null, thinking: null, newTools: [], newSegments: [], needsNewBubble: false, uuid: null, dirty: false }
-}
-
-// 既存 bubble の segments に新規分を追記マージする。 tool は id で dedup、 text は
-// 末尾が text なら結合 (= replay の同 text 二重 append を avoid)、 そうでなければ新規 push。
-// content block の順序 (= ターミナル/TUI の発話順) をそのまま保つのが目的。
-function mergeSegments(existing, incoming) {
-  if (!incoming || incoming.length === 0) return existing || []
-  const out = (existing || []).map(s => s.kind === 'text' ? { ...s } : s)
-  const seenToolIds = new Set(out.filter(s => s.kind === 'tool').map(s => s.tool.id))
-  for (const s of incoming) {
-    if (s.kind === 'tool') {
-      if (seenToolIds.has(s.tool.id)) continue
-      seenToolIds.add(s.tool.id)
-      out.push(s)
-    } else {
-      const tail = out[out.length - 1]
-      if (tail && tail.kind === 'text') {
-        if (!tail.text.endsWith(s.text)) tail.text += s.text
-      } else {
-        out.push({ kind: 'text', text: s.text })
-      }
-    }
-  }
-  return out
+  return { text: null, thinking: null, newTools: [], needsNewBubble: false, uuid: null, dirty: false }
 }
 
 export function useStreamBuffer({ setMessages }) {
@@ -61,14 +37,12 @@ export function useStreamBuffer({ setMessages }) {
       text: buf.text,
       thinking: buf.thinking,
       newTools: [...buf.newTools],
-      newSegments: [...(buf.newSegments || [])],
       needsNewBubble: buf.needsNewBubble,
       uuid: buf.uuid,
     }
     buf.text = null
     buf.thinking = null
     buf.newTools = []
-    buf.newSegments = []
     buf.needsNewBubble = false
     buf.uuid = null
     buf.dirty = false
@@ -105,7 +79,6 @@ export function useStreamBuffer({ setMessages }) {
               text: snap.text || existing.text || '',
               thinking: snap.thinking || existing.thinking || null,
               tools: addedTools.length > 0 ? [...existingTools, ...addedTools] : existingTools,
-              segments: mergeSegments(existing.segments, snap.newSegments),
               streaming: existing.streaming,
             }
             return { ...prev, [sid]: msgs }
@@ -120,7 +93,6 @@ export function useStreamBuffer({ setMessages }) {
             text: snap.text || '',
             thinking: snap.thinking || null,
             tools: [...(snap.newTools || [])],
-            segments: [...(snap.newSegments || [])],
           }
           return { ...prev, [sid]: msgs }
         }
@@ -131,7 +103,6 @@ export function useStreamBuffer({ setMessages }) {
           text: snap.text || '',
           thinking: snap.thinking || null,
           tools: [...(snap.newTools || [])],
-          segments: [...(snap.newSegments || [])],
           streaming: true,
         }]}
       }
@@ -146,9 +117,6 @@ export function useStreamBuffer({ setMessages }) {
         const existingIds = new Set(existing.map(t => t.id))
         const toAdd = snap.newTools.filter(t => !existingIds.has(t.id))
         if (toAdd.length > 0) updated.tools = [...existing, ...toAdd]
-      }
-      if (snap.newSegments && snap.newSegments.length > 0) {
-        updated.segments = mergeSegments(updated.segments, snap.newSegments)
       }
       msgs[msgs.length - 1] = updated
       return { ...prev, [sid]: msgs }

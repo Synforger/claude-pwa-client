@@ -7,7 +7,7 @@ import { processStreamEvent } from './processStreamEvent.js'
 // processStreamEvent は副作用を deps 経由にしているので、 共有 buf を注入して検証する。
 
 function emptyBuf() {
-  return { text: null, thinking: null, newTools: [], newSegments: [], needsNewBubble: false, uuid: null, dirty: false }
+  return { text: null, thinking: null, newTools: [], needsNewBubble: false, uuid: null, dirty: false }
 }
 
 function makeDeps(buf) {
@@ -39,67 +39,6 @@ describe('processStreamEvent — same-uuid frame 集約 (中間出力 regression
     expect(buf.thinking).toBe('考え中')
     expect(buf.newTools).toHaveLength(1)
     expect(buf.uuid).toBe('X')
-  })
-
-  it('content の text と tool_use を JSONL 順のまま segments に積む (= TUI 表示順との一致)', () => {
-    // claude 側の content = [text "やります" → tool Bash → text "次に" → tool Bash] を
-    // PWA が「全 tool が先、 全 text が後」 に並べ替えてしまっていた regression を防ぐ。
-    const buf = emptyBuf()
-    const deps = makeDeps(buf)
-    processStreamEvent(deps, 's1', {
-      type: 'assistant',
-      uuid: 'M1',
-      message: { content: [
-        { type: 'text', text: 'やります' },
-        { type: 'tool_use', name: 'Bash', id: 't1', input: {} },
-        { type: 'text', text: '次に' },
-        { type: 'tool_use', name: 'Bash', id: 't2', input: {} },
-      ]},
-    })
-    expect(buf.newSegments.map(s => s.kind)).toEqual(['text', 'tool', 'text', 'tool'])
-    expect(buf.newSegments[0].text).toBe('やります')
-    expect(buf.newSegments[1].tool.id).toBe('t1')
-    expect(buf.newSegments[2].text).toBe('次に')
-    expect(buf.newSegments[3].tool.id).toBe('t2')
-  })
-
-  it('同 message.id の追加フレームで segments が順序を保って append される', () => {
-    // 1 AssistantMessage を JSONL が複数行に分けて書く (= text 行 → tool 行 → text 行) ケース。
-    // 同 rAF 窓で coalesce する時、 後続の tool_use フレームを差し込んで text を後ろに
-    // 連結する。 これで TUI の発話順 (text → tool → text) のまま積み上がる。
-    const buf = emptyBuf()
-    const deps = makeDeps(buf)
-    processStreamEvent(deps, 's1', {
-      type: 'assistant', uuid: 'M2',
-      message: { content: [{ type: 'text', text: 'やります' }] },
-    })
-    processStreamEvent(deps, 's1', {
-      type: 'assistant', uuid: 'M2',
-      message: { content: [{ type: 'tool_use', name: 'Bash', id: 't1', input: {} }] },
-    })
-    processStreamEvent(deps, 's1', {
-      type: 'assistant', uuid: 'M2',
-      message: { content: [{ type: 'text', text: '次に' }] },
-    })
-    expect(buf.newSegments.map(s => s.kind)).toEqual(['text', 'tool', 'text'])
-    expect(buf.newSegments[0].text).toBe('やります')
-    expect(buf.newSegments[2].text).toBe('次に')
-  })
-
-  it('Agent / AskUserQuestion / TodoWrite は segments に入れない', () => {
-    const buf = emptyBuf()
-    const deps = makeDeps(buf)
-    processStreamEvent(deps, 's1', {
-      type: 'assistant', uuid: 'M3',
-      message: { content: [
-        { type: 'text', text: 'やります' },
-        { type: 'tool_use', name: 'TodoWrite', id: 'x1', input: {} },
-        { type: 'tool_use', name: 'AskUserQuestion', id: 'x2', input: {} },
-        { type: 'tool_use', name: 'Bash', id: 't1', input: {} },
-      ]},
-    })
-    expect(buf.newSegments.map(s => s.kind)).toEqual(['text', 'tool'])
-    expect(buf.newSegments[1].tool.id).toBe('t1')
   })
 
   it('異なる uuid が来たら前メッセージを先に flush する', () => {
