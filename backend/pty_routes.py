@@ -20,7 +20,7 @@ import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, Body, File, Form, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
 from chat_content import save_to_tmp
@@ -43,7 +43,10 @@ from state import sessions_meta
 
 # 素プロンプト判定用の harness XML 検出 regex は jsonl_events と共通 (= 同じ regex を別々の
 # 場所に持つと判定がズレてバグを呼ぶ。 2026-05-31 統一)。
-from jsonl_events import HARNESS_XML_RE as _HARNESS_RE  # noqa: E402
+from jsonl_events import HARNESS_XML_RE as _HARNESS_RE, INTERRUPT_USER_RE as _INTERRUPT_RE  # noqa: E402
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
 
 # slash command (= /deep-research, /clear 等) 専用の送信確認マーカー。 claude は slash
 # command を `<command-name>/xxx</command-name>` の user 行として JSONL に書くので、 素
@@ -75,7 +78,10 @@ def _count_user_prompts(path) -> int:
         c = msg.get("content")
         if isinstance(c, str):
             s = c.strip()
-            if s and not _HARNESS_RE.match(s):
+            # harness XML (slash command / local-command 等) と interrupt marker
+            # (`[Request interrupted by user]`) はユーザ発話でなく、 送信確認のカウントには
+            # 含めない (= jsonl_session_status.is_user_prompt と同じ判定軸)。
+            if s and not _HARNESS_RE.match(s) and not _INTERRUPT_RE.match(s):
                 count += 1
         elif isinstance(c, list):
             texts = [b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text"]
@@ -293,14 +299,15 @@ async def ensure_pty_session_for(session_id: str) -> None:
         return
     pty_sessions[session_id] = session
 
-logger = logging.getLogger(__name__)
-
-router = APIRouter()
-
 
 @router.websocket("/ws/pty/{session_id}")
 async def pty_socket(ws: WebSocket, session_id: str) -> None:
     await ws.accept()
+    # 未知 session_id を弾く (= 任意 sid で backend cwd の zsh を起こさない)。
+    if session_id not in AGENTS and session_id not in sessions_meta:
+        await ws.send_text(json.dumps({"type": "error", "message": "unknown session"}))
+        await ws.close(code=4004, reason="unknown session")
+        return
 
     # scrollback の自動復元は無効化 (= 2026-05-21 再試行で描画破綻、 旧症状再発)。
     # capture-pane の history を流すと、 中に含まれる ANSI cursor 制御 (= claude
@@ -311,9 +318,11 @@ async def pty_socket(ws: WebSocket, session_id: str) -> None:
         cfg = _resolve_agent_cfg(session_id) or {}
         cwd = cfg.get("cwd")
         launch_alias = _resolve_launch_alias(session_id)
+        fallback_alias = _resolve_autoresume_fallback(session_id)
         try:
             session = await spawn_pty_session(
                 session_id, cwd=cwd, launch_alias=launch_alias,
+                fallback_alias=fallback_alias,
             )
         except Exception as e:
             logger.exception("PTY spawn failed session=%s", session_id)
@@ -413,6 +422,19 @@ async def _pump_from_client(ws: WebSocket, session: PtySession) -> None:
         logger.exception("_pump_from_client error session=%s", session.session_id)
 
 
+def _require_session(session_id: str) -> None:
+    """未知の session_id を弾く (= 任意 sid で新 PTY 起動 / send を許さない)。
+
+    AGENTS の直リンク or sessions_meta 登録のどちらかに居ることを要求。 これがないと
+    tailnet 内の誰でも適当な session_id を投げて backend 自身の cwd で zsh を起こせる。
+    """
+    if session_id in AGENTS:
+        return
+    if session_id in sessions_meta:
+        return
+    raise HTTPException(status_code=404, detail="Unknown session")
+
+
 @router.post("/pty/{session_id}/send")
 async def pty_send(session_id: str, payload: dict = Body(...)) -> dict:
     """chat UI からの入力を tmux session に送る (= send-keys 経路、 PTY attach 不要)。
@@ -427,6 +449,7 @@ async def pty_send(session_id: str, payload: dict = Body(...)) -> dict:
         key   (str, optional): tmux キー名 (= "Escape" で停止、 "C-c" 等)
         enter (bool, optional): 末尾に Enter (= 確定)
     """
+    _require_session(session_id)
     text = payload.get("text")
     key = payload.get("key")
     enter = bool(payload.get("enter", False))
@@ -463,6 +486,7 @@ async def pty_send_with_files(
         text  (str):              本文
         files (list[UploadFile]): 添付ファイル群 (画像 / テキスト / その他何でも)
     """
+    _require_session(session_id)
     saved = await save_to_tmp(files, session_id)
     parts: list[str] = []
     if text.strip():
