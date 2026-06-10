@@ -27,6 +27,17 @@ export function isStandalone() {
   return !!window.navigator.standalone
 }
 
+// iOS / iPadOS の Safari かどうかを判定する。 macOS Safari は touch event を持たないので
+// 弾ける。 navigator.standalone は macOS Safari でも定義されることがあって不安定なので使わない。
+export function isMobileSafari() {
+  if (typeof window === 'undefined') return false
+  const ua = window.navigator.userAgent || ''
+  if (/iPhone|iPad|iPod/.test(ua)) return true
+  // iPadOS 13+ は UA が Macintosh 風になるので touch capability で補強する
+  if (/Macintosh/.test(ua) && typeof document !== 'undefined' && 'ontouchend' in document) return true
+  return false
+}
+
 export function isPushEnabledLocally() {
   try { return localStorage.getItem(ENABLED_KEY) === '1' } catch { return false }
 }
@@ -61,13 +72,12 @@ export async function enablePush() {
   if (!isPushSupported()) {
     throw new Error('Push 通知に対応していません')
   }
-  // standalone 必須は iOS Safari の制約 (= 16.4+ でもホーム画面追加した PWA でのみ push 配信)。
-  // デスクトップブラウザ (Mac Safari/Chrome 等) や Android Chrome は通常タブでも push 受信可。
-  // iOS Safari の判定は navigator.standalone が iOS 固有 (= 他環境では undefined)。
-  const isIosSafari = typeof window !== 'undefined'
-    && typeof window.navigator !== 'undefined'
-    && 'standalone' in window.navigator
-  if (isIosSafari && !isStandalone()) {
+  // standalone 必須は iOS / iPadOS Safari の制約のみ (= 16.4+ でもホーム画面追加した PWA で
+  // のみ push 配信)。 macOS Safari / Chrome / Firefox は通常タブで push 受信可、 Sonoma 以降の
+  // 「ドックに追加」 (= PWA install) はオプション。 Android Chrome も通常タブ + PWA 両対応。
+  // iOS Safari の判定は userAgent + touch capability で行う (= navigator.standalone は
+  // macOS Safari でも定義されうるので不安定、 UA + touchend が公式 Apple 推奨パターン)。
+  if (isMobileSafari() && !isStandalone()) {
     throw new Error('iOS では「ホーム画面に追加」した PWA でのみ通知を受け取れます')
   }
 
