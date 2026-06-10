@@ -17,6 +17,7 @@
 import asyncio
 import json
 import logging
+import time
 import uuid
 
 from fastapi import APIRouter, Body, Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -403,11 +404,17 @@ async def status_stream(session_id: str, _: str = Depends(require_session)):
 
 
 def _build_sessions_overview() -> dict:
-    """全 session の busy / pending_question を 1 dict で返す (= /sessions/overview/stream payload)。
+    """全 session の busy / pending_question + last_seen_at を 1 dict で返す
+    (= /sessions/overview/stream payload)。
 
     busy は monitor_all_sessions_loop が JSONL から算出した backend 権威値 (= chat SSE の
     result 配信に依存しない)。 frontend は各 sid の busy で loading を上書きして、 青丸
-    (処理中) / 赤丸 (完了未読) / 停止ボタンを **非アクティブタブでも** live 追従させる。"""
+    (処理中) / 赤丸 (完了未読) / 停止ボタンを **非アクティブタブでも** live 追従させる。
+
+    last_seen_at は他端末がそのタブを開いた時刻 (= unix sec)。 各 client は自分の最新
+    received event timestamp と比較して、 last_seen_at が新しければ赤丸を消す
+    (= iPhone と Mac の未読同期、 2026-06-10 追加)。"""
+    from state import session_last_seen_at  # noqa: PLC0415
     out: dict[str, dict] = {}
     for sid in list(sessions_meta.keys()):
         st = stream_states.get(sid)
@@ -415,8 +422,25 @@ def _build_sessions_overview() -> dict:
         out[sid] = {
             "busy": bool(st.busy) if st is not None else False,
             "pending_question": bool(a.get("pending_question")),
+            "last_seen_at": session_last_seen_at.get(sid),
         }
     return out
+
+
+@router.post("/sessions/{session_id}/seen")
+def mark_session_seen(session_id: str) -> dict:
+    """指定 session を「今この瞬間に確認した」 とマークし、 全端末に sync 配信する。
+
+    frontend は自タブを activeSid 化したタイミング (= タブ切替時) に POST する。 backend は
+    session_last_seen_at[sid] を now で更新して sessions_overview.notify() で broadcast。
+    他端末はこの時刻と自分が見た最後のメッセージ timestamp を比較して、 last_seen_at が
+    新しければ赤丸を消す。"""
+    if session_id not in sessions_meta:
+        raise HTTPException(status_code=404, detail="Unknown session")
+    from state import session_last_seen_at  # noqa: PLC0415
+    session_last_seen_at[session_id] = time.time()
+    sessions_overview.notify()
+    return {"ok": True, "last_seen_at": session_last_seen_at[session_id]}
 
 
 @router.get("/sessions/overview/stream")
