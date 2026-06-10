@@ -335,81 +335,58 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
     return {"status": "ok", "session_id": session_id}
 
 
-def _build_status(session_id: str) -> dict:
-    """/status と /status/.../stream で共有する status payload 生成。
-
-    使用率系 (5h/7d/ctx/model) は proxy を使わず rate-limits.jsonl (= statusline 記録)
-    から取る。 取れない項目は従来の shared_status / agent_status に fallback。
-
-    model / ctx は session ごとに違うので、 この pwa session に紐づく claude_sid
-    (= 確定 binding の jsonl ファイル名) で rate-limits を絞る。 これでタブ切替時に
-    そのタブの最新ステータスラインが出る (= 別タブの値に引っ張られない)。
-    """
-    a = agent_status[session_id]
-    import jsonl_watcher  # noqa: PLC0415
-    jp = jsonl_watcher.get_jsonl_for(session_id)
-    claude_sid = jp.stem if jp else None
-    rl = read_latest_rate_limits(claude_sid)
-    return {
-        "model": rl.get("model") or a["model"],
-        "ctx_pct": rl["context_pct"] if rl.get("context_pct") is not None else a["ctx_pct"],
-        "plan_mode": a["plan_mode"],
-        "current_tool": a["current_tool"],
-        "todos": a["todos"],
-        "subagent": a["subagent"],
-        "pending_plan": a.get("pending_plan"),
-        "pending_question": a.get("pending_question"),
-        "five_hour_pct": rl["five_hour_pct"] if rl.get("five_hour_pct") is not None else shared_status["five_hour_pct"],
-        "seven_day_pct": rl["seven_day_pct"] if rl.get("seven_day_pct") is not None else shared_status["seven_day_pct"],
-        "five_hour_resets_at": rl.get("five_hour_resets_at") or shared_status["five_hour_resets_at"],
-        "seven_day_resets_at": rl.get("seven_day_resets_at") or shared_status["seven_day_resets_at"],
-        # backend プロセスの起動時刻 (= frontend がこの値の変化で「再起動された」 と検知し、
-        # 古い streaming bubble を強制的に停止扱いに固定する)。
-        "backend_start_time": backend_start_time,
-    }
-
-
-@router.get("/status/{session_id}")
-def get_status(session_id: str, _: str = Depends(require_session)):
-    return _build_status(session_id)
-
-
-@router.get("/status/{session_id}/stream")
-async def status_stream(session_id: str, _: str = Depends(require_session)):
-    """状態変化を即時 push する SSE (= 1 sid 用、 後方互換のため残す)。
-
-    新規 frontend は /sessions/status/stream を使ってください (= 全 sid を 1 接続で配信、
-    タブ切替で SSE 張り替え不要、 iOS の 1-3s 切替コストを消す経路)。"""
-    state = stream_states[session_id]
-
-    async def gen():
-        # 接続直後に snapshot を 1 chunk で送る (= retry + initial data を結合し、
-        # Starlette の小チャンク buffering を回避)。
-        initial = f"retry: 3000\n\ndata: {json.dumps(_build_status(session_id))}\n\n"
-        yield initial
-        while True:
-            try:
-                # 20 秒待っても変化無ければ keep-alive ping (= proxy idle 切断対策)
-                await asyncio.wait_for(state.status_event.wait(), timeout=20.0)
-                state.status_event.clear()
-                yield f"data: {json.dumps(_build_status(session_id))}\n\n"
-            except asyncio.TimeoutError:
-                # keep-alive 兼 status 更新: TUI 経路は status_event がほぼ発火しないので、
-                # この timeout で rate-limits 込みの最新 status を定期 push する
-                # (= 5h/7d を ~20 秒粒度で更新)。
-                yield f"data: {json.dumps(_build_status(session_id))}\n\n"
-
-    return StreamingResponse(
-        gen(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
 
 
 def _build_all_status() -> dict:
     """全 session の status を 1 dict で返す (= /sessions/status/stream payload)。
-    sid 毎に _build_status を呼ぶので、 後方互換の per-sid endpoint と完全に同じ値。"""
-    return {sid: _build_status(sid) for sid in list(sessions_meta.keys())}
+
+    rate-limits.jsonl は **1 ファイル**で全 session 共有。 sid 毎に read_latest_rate_limits
+    を呼ぶと 32KB tail を sid 数回 read + parse することになり、 重い + 一瞬古い値が
+    混じって status line がちらつく。 1 回 read + parse して、 sid 毎は dict lookup だけ
+    にする (= O(read) + O(sid) で済む)。"""
+    import jsonl_watcher  # noqa: PLC0415
+    from usage import read_all_rate_limits_tail  # noqa: PLC0415
+    parsed = read_all_rate_limits_tail()  # 32KB tail を 1 回読んで parse 済 list を返す
+    # 5h/7d/*_resets_at はアカウント共通 = 末尾行から取る
+    last = parsed[-1] if parsed else {}
+    cur_reset = last.get("seven_day_resets_at")
+    seven_day_pct = last.get("seven_day_pct")
+    # 7d% flap 吸収 (= 同 window 内 max)
+    same_window = [
+        p.get("seven_day_pct") for p in parsed
+        if p.get("seven_day_resets_at") == cur_reset
+        and isinstance(p.get("seven_day_pct"), (int, float))
+    ]
+    if same_window:
+        seven_day_pct = max(same_window)
+    # session 毎 view (= model / ctx_pct) を 1 走査で構築
+    by_sess: dict[str, dict] = {}
+    for p in parsed:
+        sid_key = p.get("session_id")
+        if sid_key:
+            by_sess[sid_key] = p  # 最後勝ち = 各 claude_sid の最新行
+    out: dict[str, dict] = {}
+    for sid in list(sessions_meta.keys()):
+        a = agent_status[sid]
+        jp = jsonl_watcher.get_jsonl_for(sid)
+        claude_sid = jp.stem if jp else None
+        sess = by_sess.get(claude_sid) if claude_sid else None
+        out[sid] = {
+            "model": (sess.get("model") if sess else None) or a["model"],
+            "ctx_pct": (sess.get("context_pct") if sess and sess.get("context_pct") is not None else a["ctx_pct"]),
+            "plan_mode": a["plan_mode"],
+            "current_tool": a["current_tool"],
+            "todos": a["todos"],
+            "subagent": a["subagent"],
+            "pending_plan": a.get("pending_plan"),
+            "pending_question": a.get("pending_question"),
+            "five_hour_pct": last.get("five_hour_pct") if last.get("five_hour_pct") is not None else shared_status["five_hour_pct"],
+            "seven_day_pct": seven_day_pct if seven_day_pct is not None else shared_status["seven_day_pct"],
+            "five_hour_resets_at": last.get("five_hour_resets_at") or shared_status["five_hour_resets_at"],
+            "seven_day_resets_at": last.get("seven_day_resets_at") or shared_status["seven_day_resets_at"],
+            "backend_start_time": backend_start_time,
+        }
+    return out
 
 
 @router.get("/sessions/status/stream")
