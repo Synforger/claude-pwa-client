@@ -8,6 +8,20 @@
   align-items: flex-end;
 }
 
+/* File preview 専用: ChatInput (= 入力欄) と重ならないように bottom を空ける。
+   markdown を見ながらメッセージを打てる「下半分プレビュー」 形にする。 inputarea の
+   高さ ~80px + safe-area-inset-bottom を実測値として固定。 ChatInput の rows が大幅に
+   変わったらここを ResizeObserver で動的化する。 z-index も下げて他 modal と衝突を避ける。 */
+.modal-overlay-preview {
+  bottom: calc(80px + env(safe-area-inset-bottom));
+  background: rgba(0,0,0,0.4);
+  z-index: 50;
+}
+.modal-overlay-preview .modal {
+  /* overlay 自体が底空け済なので modal は overlay 全高を占める (= 90dvh 上限を外す)。 */
+  height: 100%;
+}
+
 .modal {
   width: 100%;
   /* flex item の既定 min-width:auto だと、 中の折り返せない長い行 (= コードブロック) の
