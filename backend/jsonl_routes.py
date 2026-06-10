@@ -109,6 +109,7 @@ def _lines_to_sse(lines: list[str], pos: int, session_id: str) -> list[str]:
             frames.append(f"id: {pos}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n")
     if status_dirty and state is not None:
         state.status_event.set()
+        sessions_overview.notify()  # 全 sid SSE (/sessions/status/stream) にも伝播
     return frames
 
 
@@ -214,6 +215,7 @@ async def _jsonl_sse(session_id: str, start_pos: int | None = None):
             st = stream_states.get(session_id)
             if st is not None:
                 st.status_event.set()
+                sessions_overview.notify()  # 全 sid SSE にも伝播
         if emitted or subagent_changed:
             idle_sleep = POLL_INTERVAL
         else:
@@ -361,6 +363,7 @@ async def monitor_all_sessions_loop():
                             st_obj = stream_states.get(sid)
                             if st_obj is not None:
                                 st_obj.status_event.set()
+                                sessions_overview.notify()  # 全 sid SSE にも伝播
             except asyncio.CancelledError:
                 raise
             except Exception:
