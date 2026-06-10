@@ -126,7 +126,7 @@ export default function FilePreviewModal({ path, onClose }) {
   }, [onClose, editMode, handleCancel])
 
   return (
-    <div className="modal-overlay" onClick={editMode ? undefined : onClose}>
+    <div className="modal-overlay modal-overlay-preview" onClick={editMode ? undefined : onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <span className="modal-path">{path}</span>
