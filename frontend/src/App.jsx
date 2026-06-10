@@ -112,7 +112,9 @@ export default function App() {
   })
   // loading (= 停止ボタンの真値) の唯一のソース。 backend 権威 busy を 1 本の SSE で受け、
   // 全タブの停止/送信ボタン + 青丸/赤丸を駆動する (= dual-driver 排除、 単一権威)。
-  useSessionsOverview({ setLoading, optimisticRef })
+  // onPayloadRef は useSessionBadges が後段で wire する未読同期経路 (= last_seen_at)。
+  const overviewPayloadRef = useRef(null)
+  useSessionsOverview({ setLoading, optimisticRef, onPayloadRef: overviewPayloadRef })
 
   const storageInfo = useStorageQuota()
 
@@ -321,7 +323,9 @@ export default function App() {
   const currentAttachments = (activeSid && attachments[activeSid]) || []
 
   // session ごとの新着 / 処理中 / 質問待ちバッジ計算 (= active session は常に既読)
-  const { sessionBadges, unreadCount, markAsSeen } = useSessionBadges({ sids, activeSid, messages, loading })
+  const { sessionBadges, unreadCount, markAsSeen, onOverviewPayload } = useSessionBadges({ sids, activeSid, messages, loading })
+  // useSessionsOverview の payload を未読同期経路に流すための ref wire (= 順序逆転を吸収)。
+  useEffect(() => { overviewPayloadRef.current = onOverviewPayload }, [onOverviewPayload])
 
   // アプリアイコンのバッジ数字 = サイドバーで赤丸が立ってる session 数 と同期。
   // frontend が真理 (= backend の unread_count は SW push 経由の近似値、 起動後は

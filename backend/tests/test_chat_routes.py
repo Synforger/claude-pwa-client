@@ -33,8 +33,8 @@ def test_build_sessions_overview_reflects_busy(isolated_state):
     state.agent_status["ses_b"] = {"pending_question": {"questions": []}}
 
     ov = chat_routes._build_sessions_overview()
-    assert ov["ses_a"] == {"busy": True, "pending_question": False}
-    assert ov["ses_b"] == {"busy": False, "pending_question": True}
+    assert ov["ses_a"] == {"busy": True, "pending_question": False, "last_seen_at": None}
+    assert ov["ses_b"] == {"busy": False, "pending_question": True, "last_seen_at": None}
 
 
 def test_require_session_passes_for_known_id(isolated_state):

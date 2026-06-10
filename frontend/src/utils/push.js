@@ -1,5 +1,11 @@
 // Web Push 通知の登録/解除ヘルパ。
-// iOS PWA は 16.4+ かつホーム画面追加済み (display:standalone) でのみ動作する。
+//
+// プラットフォーム要件:
+//   - iOS Safari: 16.4+ かつ「ホーム画面に追加」した PWA (display:standalone) でのみ動作。
+//                 通常タブ (Safari の中) では subscribe しても push が届かない仕様。
+//   - macOS / Windows / Linux のデスクトップブラウザ (Safari / Chrome / Edge / Firefox):
+//                 通常タブで subscribe 可能、 OS 通知センターに通知される。 standalone 不要。
+//   - Android Chrome: 通常タブ + PWA どちらでも動作。
 
 import { apiFetch } from './api.js'
 
@@ -55,7 +61,13 @@ export async function enablePush() {
   if (!isPushSupported()) {
     throw new Error('Push 通知に対応していません')
   }
-  if (!isStandalone()) {
+  // standalone 必須は iOS Safari の制約 (= 16.4+ でもホーム画面追加した PWA でのみ push 配信)。
+  // デスクトップブラウザ (Mac Safari/Chrome 等) や Android Chrome は通常タブでも push 受信可。
+  // iOS Safari の判定は navigator.standalone が iOS 固有 (= 他環境では undefined)。
+  const isIosSafari = typeof window !== 'undefined'
+    && typeof window.navigator !== 'undefined'
+    && 'standalone' in window.navigator
+  if (isIosSafari && !isStandalone()) {
     throw new Error('iOS では「ホーム画面に追加」した PWA でのみ通知を受け取れます')
   }
 
