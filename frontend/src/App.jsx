@@ -523,11 +523,24 @@ export default function App() {
       {/* メッセージ一覧。 .messages は通常 flex-direction: column、 古い→新しい が上→下。
         起動 / 新着時は useAutoScroll が JS で scrollTop = scrollHeight に送って底辺維持。 */}
       <div className="messages-container">
-        {activeViewMode === 'terminal' && activeSid ? (
-          /* デバッグ用 生 xterm (= このタブだけ terminal 表示、 設定は localStorage 永続)。
-             key=activeSid で session 単位に独立 instance を保つ。 */
-          <Terminal key={activeSid} sessionId={activeSid} />
-        ) : (
+        {/* 各 sid の Terminal を mount しっぱなしにして display で切替する。
+            sid 切替 / view 切替で xterm.js + WebSocket が温存されるので、 タブを
+            戻した時の「起動 1-2 秒」 待ちがゼロになる (= 2026-06-10 改修)。
+            非 active な Terminal は display:none で隠れてるだけで WS は維持、
+            backend へ受信 stdout が flow し続けて scrollback も自然に伸びる。 */}
+        {sids.map(sid => (
+          <div
+            key={sid}
+            style={{
+              display: (activeViewMode === 'terminal' && sid === activeSid) ? 'block' : 'none',
+              position: 'absolute',
+              inset: 0,
+            }}
+          >
+            <Terminal sessionId={sid} />
+          </div>
+        ))}
+        {activeViewMode !== 'terminal' && (
           <div ref={scrollerDomRef} className="messages" onScroll={onScroll}>
             {displayMessages.map((msg) => (
               <MessageItem
