@@ -77,6 +77,19 @@ export default function ChatInput({
       <textarea
         value={localText}
         onChange={e => setLocalText(e.target.value)}
+        onKeyDown={(e) => {
+          // デスクトップ (= 物理キーボード + マウス) のみ Enter を送信に倒す。
+          // モバイル (タッチ専用) は Enter = 改行のまま、 送信は明示ボタンのみ
+          // (= 音声入力 / IME 変換中の暴発を避ける)。 判定は `pointer: fine` メディア
+          // クエリで物理ポインタの有無を見る (UA 文字列より頑健、 iPad Magic Keyboard 等の
+          // 例外ケースも自然に拾える)。 Shift+Enter / 日本語 IME 変換中は常に改行。
+          if (e.key !== 'Enter') return
+          if (e.shiftKey || e.nativeEvent.isComposing) return
+          if (!window.matchMedia || !window.matchMedia('(pointer: fine)').matches) return
+          if (inputDisabled || !activeSid) return
+          e.preventDefault()
+          handleSend()
+        }}
         placeholder={activeSession ? 'メッセージを入力...' : '左の ☰ から会話を作成してください'}
         rows={2}
         disabled={inputDisabled}
