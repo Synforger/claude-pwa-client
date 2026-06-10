@@ -23,7 +23,7 @@ import { useEffect } from 'react'
 import { apiUrl } from '../utils/api.js'
 import { applyOverviewSnapshot } from './internal/applyOverviewSnapshot.js'
 
-export function useSessionsOverview({ setLoading, optimisticRef }) {
+export function useSessionsOverview({ setLoading, optimisticRef, onPayloadRef }) {
   useEffect(() => {
     const es = new EventSource(apiUrl('/sessions/overview/stream'))
     es.onmessage = (e) => {
@@ -35,8 +35,11 @@ export function useSessionsOverview({ setLoading, optimisticRef }) {
         return
       }
       setLoading(prev => applyOverviewSnapshot(prev, payload, optimisticRef))
+      // last_seen_at 等の追加 field を別 hook に流すための副経路 (= 未読同期、 2026-06-10 追加)。
+      // ref 経由なので payload 受け取り側の hook が後段で wire される構成に対応できる。
+      if (onPayloadRef?.current) onPayloadRef.current(payload)
     }
     es.onerror = () => { /* EventSource は自動再接続 (= 一時切断は無視) */ }
     return () => es.close()
-  }, [setLoading, optimisticRef])
+  }, [setLoading, optimisticRef, onPayloadRef])
 }

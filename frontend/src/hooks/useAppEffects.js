@@ -170,6 +170,10 @@ export function useSessionBadges({ sids, activeSid, messages, loading }) {
   const [unreadDone, setUnreadDone] = useState(loadUnreadDone)
   // 前回 render 時の loading[sid]。 true→false 遷移検出用。
   const prevLoadingRef = useRef({})
+  // 自端末がこの sid を最後に見た時刻 (unix sec)。 overview の last_seen_at と比較して
+  // 「他端末で自分より後に見られたか」 を判定する。 揮発で OK (= ページ更新で初期化、
+  // 新たに開く時点で activeSid useEffect が即 POST + 自分の lastSeenLocallyRef も更新)。
+  const lastSeenLocallyRef = useRef({})
   // 起動直後の settle window。 初回 status fetch 確定で loading が一斉に true→false へ
   // 動く瞬間に、 active でない全 sid が誤って赤点灯するのを防ぐ (= この間は遷移を記録
   // するだけで赤化しない)。 状態を時間で推測する用途ではなく boot 揺らぎの吸収。
@@ -219,11 +223,37 @@ export function useSessionBadges({ sids, activeSid, messages, loading }) {
     })
   }, [sids, loading, activeSid])
 
-  // active タブに切替 / active タブの状態が動いた時に赤丸を落とす。
+  // active タブに切替 / active タブの状態が動いた時に赤丸を落とす + backend に「見た」 を POST。
+  // POST で他端末の赤丸も同期消去される (= overview SSE で last_seen_at を broadcast)。
   useEffect(() => {
     if (!activeSid) return
     setUnreadDone(prev => (prev[activeSid] ? { ...prev, [activeSid]: false } : prev))
+    // 自端末の「最後に見た時刻」 を local に記録 → overview の last_seen_at と比較する基準。
+    lastSeenLocallyRef.current[activeSid] = Date.now() / 1000
+    // backend に「見た」 を投げる (= ack されたら他端末の SSE で last_seen_at が更新される)。
+    apiFetch(`/sessions/${encodeURIComponent(activeSid)}/seen`, { method: 'POST' }).catch(() => {})
   }, [activeSid])
+
+  // overview SSE で受信した last_seen_at を見て、 「他端末で自分より後に見られた sid」 の
+  // unreadDone を消す。 これで iPhone と Mac で開いたタブの赤丸が同期する。
+  const onOverviewPayload = useCallback((payload) => {
+    if (!payload || typeof payload !== 'object') return
+    setUnreadDone(prev => {
+      let mutated = false
+      const next = { ...prev }
+      for (const [sid, info] of Object.entries(payload)) {
+        const remote = info?.last_seen_at
+        if (typeof remote !== 'number') continue
+        const local = lastSeenLocallyRef.current[sid] || 0
+        // 他端末の last_seen_at が自分の最後の閲覧より新しい = 他端末で確認された → 赤丸消す
+        if (remote > local && next[sid]) {
+          next[sid] = false
+          mutated = true
+        }
+      }
+      return mutated ? next : prev
+    })
+  }, [])
 
   // 削除された session のエントリ掃除。
   useEffect(() => {
@@ -266,7 +296,7 @@ export function useSessionBadges({ sids, activeSid, messages, loading }) {
     return { sessionBadges: badges, unreadCount: count }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSid, sessionStateSig])
-  return { sessionBadges, unreadCount, markAsSeen }
+  return { sessionBadges, unreadCount, markAsSeen, onOverviewPayload }
 }
 
 
