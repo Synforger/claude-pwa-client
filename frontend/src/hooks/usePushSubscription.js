@@ -15,6 +15,7 @@ import {
   disablePush,
   isPushSupported,
   isStandalone,
+  isMobileSafari,
   isPushEnabledLocally,
 } from '../utils/push.js'
 
@@ -32,12 +33,9 @@ async function detectActualSubscription() {
 export function usePushSubscription({ onCloseMenu } = {}) {
   const [hasRealSub, setHasRealSub] = useState(false)
   const [pushBusy, setPushBusy] = useState(false)
-  // standalone 必須は iOS Safari の制約のみ。 デスクトップブラウザ + Android Chrome は
+  // standalone 必須は iOS / iPadOS Safari の制約のみ。 デスクトップ Safari / Chrome は
   // 通常タブで OK (= 詳細は utils/push.js 冒頭)。
-  const isIosSafari = typeof window !== 'undefined'
-    && typeof window.navigator !== 'undefined'
-    && 'standalone' in window.navigator
-  const pushAvailable = isPushSupported() && (!isIosSafari || isStandalone())
+  const pushAvailable = isPushSupported() && (!isMobileSafari() || isStandalone())
   const localFlag = isPushEnabledLocally()
 
   // ON とみなすのは「希望 ON + 実 subscription あり」。 どちらかが欠けてれば実質 OFF。
