@@ -9,11 +9,12 @@
 }
 
 /* File preview 専用: ChatInput (= 入力欄) と重ならないように bottom を空ける。
-   markdown を見ながらメッセージを打てる「下半分プレビュー」 形にする。 inputarea の
-   高さ ~80px + safe-area-inset-bottom を実測値として固定。 ChatInput の rows が大幅に
-   変わったらここを ResizeObserver で動的化する。 z-index も下げて他 modal と衝突を避ける。 */
+   --chat-input-h は ChatInput が ResizeObserver で動的 set する自身の実高さ (= padding +
+   safe-area 込み)。 textarea の rows / iPad キーボード / iOS home indicator 変化に追従する。
+   未 set 時は fallback として 120px (= 多めに余白を取って被りを避ける、 PWA 初期描画間に
+   合わなくても確実に被らない方向に倒す)。 */
 .modal-overlay-preview {
-  bottom: calc(80px + env(safe-area-inset-bottom));
+  bottom: var(--chat-input-h, 120px);
   background: rgba(0,0,0,0.4);
   z-index: 50;
 }

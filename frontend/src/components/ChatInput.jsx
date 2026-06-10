@@ -64,8 +64,24 @@ export default function ChatInput({
     onSend(text)
   }
 
+  const inputAreaRef = useRef(null)
+  // 自分の実高さを CSS variable に流す: FilePreviewModal の overlay が下端を ChatInput 上端で
+  // 止めるのに使う (= 固定 80px だと送信ボタン + safe-area で足りずプレビューが被る、 実測値で
+  // 確実に避ける)。 textarea の rows 変化 / safe-area 変化に追従するため ResizeObserver。
+  useEffect(() => {
+    const el = inputAreaRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const set = () => {
+      document.documentElement.style.setProperty('--chat-input-h', `${el.offsetHeight}px`)
+    }
+    set()
+    const ro = new ResizeObserver(set)
+    ro.observe(el)
+    return () => { ro.disconnect() }
+  }, [])
+
   return (
-    <div className="inputarea">
+    <div className="inputarea" ref={inputAreaRef}>
       <input
         ref={fileInputRef}
         type="file"
