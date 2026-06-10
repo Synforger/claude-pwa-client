@@ -255,6 +255,12 @@ class OverviewBroadcaster:
 # タブの青丸/赤丸 + 停止ボタンを live 追従させる経路。 タブごとに SSE を張らずに済む)。
 sessions_overview = OverviewBroadcaster()
 
+# 各 session を「最後に確認した時刻」 を全 client 共有で持つ。 ある端末でタブを開いた
+# (= activeSid 化) 時に backend に POST → ここを更新 → sessions_overview.notify() で
+# 全 client に broadcast → 他端末は自分の unreadDone を比較してマーク前の last_seen より
+# 古い event なら赤丸を消す。 これで iPhone と Mac の未読同期が成立する。
+session_last_seen_at: dict[str, float] = {}
+
 # --- セッションごとの一時ファイル ---
 session_tmp_files: dict[str, list[Path]] = {}
 
