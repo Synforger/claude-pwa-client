@@ -117,10 +117,11 @@ def compute_ctx_pct(usage: dict, ctx_window: int = DEFAULT_CTX_WINDOW) -> int:
 
 
 def format_model_name(key: str) -> str:
-    """ResultMessage.model_usage キー (= "claude-opus-4-1-...") を「Opus 4.1.…」 形式に。"""
+    """ResultMessage.model_usage キー (= "claude-opus-4-1-..." / "claude-fable-5") を
+    「Opus 4.1」 / 「Fable 5」 形式に統一する (= 系列名 + 半角スペース + version)。"""
     key = key.replace("claude-", "")
     parts = key.split("-")
-    if len(parts) >= 3:
+    if len(parts) >= 2:
         name = parts[0].capitalize()
         version = ".".join(parts[1:])
         return f"{name} {version}"
