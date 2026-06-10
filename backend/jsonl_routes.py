@@ -216,7 +216,11 @@ async def _jsonl_sse(session_id: str, start_pos: int | None = None):
             if st is not None:
                 st.status_event.set()
                 sessions_overview.notify()  # 全 sid SSE にも伝播
-        if emitted or subagent_changed:
+        # busy 中の sid は back-off せず base 間隔のまま (= end_turn 行を即時拾って
+        # busy=false 遷移を遅延させない)。
+        st_bk = stream_states.get(session_id)
+        is_busy_now = st_bk is not None and st_bk.busy and not st_bk.user_stopped
+        if emitted or subagent_changed or is_busy_now:
             idle_sleep = POLL_INTERVAL
         else:
             idle_sleep = min(idle_sleep * 1.5, 2.0)
@@ -335,8 +339,13 @@ async def monitor_all_sessions_loop():
                         st_w.busy = False
                         last_line_at[sid] = time.monotonic()  # 再発火を抑える
                         sessions_overview.notify()
-                    # back-off 更新: 変化があれば base、 nochange なら 1.5x ずつ伸ばす (上限 2s)
+                    # back-off 更新: 変化があれば base、 nochange なら 1.5x ずつ伸ばす (上限 2s)。
+                    # **busy=true 中の sid は back-off せず即時 poll**: end_turn 到着時の
+                    # busy=false 遷移を 2s 遅延させない (= 「応答来たのに停止ボタンのまま」 抑止)。
+                    is_busy = st_w is not None and st_w.busy and not st_w.user_stopped
                     if status == "ok" and lines:
+                        sid_interval[sid] = POLL_INTERVAL
+                    elif is_busy:
                         sid_interval[sid] = POLL_INTERVAL
                     else:
                         sid_interval[sid] = min(sid_interval.get(sid, POLL_INTERVAL) * 1.5, 2.0)
