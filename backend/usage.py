@@ -10,6 +10,34 @@ from config import RATE_LIMITS_LOG_PATH
 from state import DEFAULT_CTX_WINDOW
 
 
+def read_all_rate_limits_tail() -> list[dict]:
+    """rate-limits.jsonl の末尾 32KB を 1 回読んで parse 済 list を返す (= 全 sid 共有用)。
+
+    `_build_all_status` が複数 sid 分を 1 回の SSE で配るとき、 sid 毎に
+    `read_latest_rate_limits` を呼ぶと同じ tail を sid 数回 read するので、 ここで 1 回
+    にまとめて呼び出し側が in-memory filter する。 list は古→新の時系列順。"""
+    if not RATE_LIMITS_LOG_PATH:
+        return []
+    try:
+        with open(RATE_LIMITS_LOG_PATH, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 32768))
+            tail = f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return []
+    parsed: list[dict] = []
+    for ln in tail.splitlines()[-100:]:
+        ln = ln.strip()
+        if not ln:
+            continue
+        try:
+            parsed.append(json.loads(ln))
+        except (json.JSONDecodeError, ValueError):
+            continue
+    return parsed
+
+
 def read_latest_rate_limits(claude_sid: str | None = None) -> dict:
     """rate-limits.jsonl (= statusline が記録) から 5h/7d/ctx/model を読む。
 

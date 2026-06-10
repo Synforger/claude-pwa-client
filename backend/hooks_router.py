@@ -25,7 +25,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from config import AGENTS, TMUX_SESSION_MAP_DIR
 from push import broadcast_push, notification_title_for
-from state import agent_status, sessions_meta, stream_states
+from state import agent_status, sessions_meta, sessions_overview, stream_states
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +149,7 @@ async def hooks_event(request: Request) -> dict:
                 st = stream_states.get(pwa_sid_hdr)
                 if st is not None:
                     st.status_event.set()
+                    sessions_overview.notify()  # 全 sid SSE にも伝播
                 logger.info(
                     "PreToolUse AskUserQuestion → pending_question set: pwa_sid=%s nq=%d",
                     pwa_sid_hdr, len(questions),
@@ -213,6 +214,7 @@ async def hooks_event(request: Request) -> dict:
         state = stream_states.get(pwa_session_id)
         if state is not None:
             state.status_event.set()
+            sessions_overview.notify()  # 全 sid SSE にも伝播
         # fire-and-forget: webpush 送信は数百 ms かかる場合があり、 hook の curl が
         # それを待つと claude プロセスの Stop ハンドラ完了が遅れて体感も遅くなる。
         # backend は即 200 を返して、 配信は別 task に逃がす。
