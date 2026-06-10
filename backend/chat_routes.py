@@ -286,6 +286,8 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
         # busy=false に強制されて停止ボタンが立たない逆方向のバグになる)。
         state.user_stopped = False
         state.status_event.set()
+    # 全 sid SSE (/sessions/status/stream) にも変化を伝える (= per-sid と整合)
+    sessions_overview.notify()
     return {"ok": True}
 
 
@@ -374,9 +376,10 @@ def get_status(session_id: str, _: str = Depends(require_session)):
 
 @router.get("/status/{session_id}/stream")
 async def status_stream(session_id: str, _: str = Depends(require_session)):
-    """状態変化を即時 push する SSE。 frontend は EventSource で subscribe して
-    polling 撤廃。 state.status_event が set されるたびに最新 status を yield。
-    timeout で keep-alive ping、 タブ閉じれば接続が切れて自然終了。"""
+    """状態変化を即時 push する SSE (= 1 sid 用、 後方互換のため残す)。
+
+    新規 frontend は /sessions/status/stream を使ってください (= 全 sid を 1 接続で配信、
+    タブ切替で SSE 張り替え不要、 iOS の 1-3s 切替コストを消す経路)。"""
     state = stream_states[session_id]
 
     async def gen():
@@ -395,6 +398,43 @@ async def status_stream(session_id: str, _: str = Depends(require_session)):
                 # この timeout で rate-limits 込みの最新 status を定期 push する
                 # (= 5h/7d を ~20 秒粒度で更新)。
                 yield f"data: {json.dumps(_build_status(session_id))}\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+def _build_all_status() -> dict:
+    """全 session の status を 1 dict で返す (= /sessions/status/stream payload)。
+    sid 毎に _build_status を呼ぶので、 後方互換の per-sid endpoint と完全に同じ値。"""
+    return {sid: _build_status(sid) for sid in list(sessions_meta.keys())}
+
+
+@router.get("/sessions/status/stream")
+async def all_status_stream():
+    """全 sid の status を 1 接続で配信する SSE (= タブ切替で SSE 張り替え不要)。
+
+    sessions_overview と同じ broadcaster で起きる (= 任意 sid の status_event.set() で
+    全接続が再 push)。 frontend は活用 sid を切り替えても接続をそのまま使えるので、
+    iOS Safari の 1-3s SSE 確立コストがタブ切替体験から消える。 keep-alive は 5h/7d
+    更新も兼ねて 20s tick。 payload size は sid 数 × 〜200 byte (= 10 sid で 2KB 程度)。"""
+    async def gen():
+        ev = sessions_overview.subscribe()
+        try:
+            initial = f"retry: 3000\n\ndata: {json.dumps(_build_all_status())}\n\n"
+            yield initial
+            while True:
+                try:
+                    await asyncio.wait_for(ev.wait(), timeout=20.0)
+                    ev.clear()
+                    yield f"data: {json.dumps(_build_all_status())}\n\n"
+                except asyncio.TimeoutError:
+                    # keep-alive 兼 5h/7d 更新: 20 秒粒度で全 sid を再 push
+                    yield f"data: {json.dumps(_build_all_status())}\n\n"
+        finally:
+            sessions_overview.unsubscribe(ev)
 
     return StreamingResponse(
         gen(),
