@@ -307,7 +307,94 @@ def test_compact_boundary_with_missing_metadata():
 
 
 def test_other_system_subtypes_skipped():
-    # turn_duration / api_error / stop_hook_summary 等は chat に出さない
-    for sub in ("turn_duration", "api_error", "stop_hook_summary", "away_summary"):
+    # 残り subtype (= stop_hook_summary / away_summary 等) は chat に出さない。
+    # api_error / turn_duration は別途 system_error / turn_duration として表示する
+    # (= 2026-06-12、 Fable 5 の jsonl で多発するためブラックボックス化を回避)。
+    for sub in ("stop_hook_summary", "away_summary"):
         line = {"type": "system", "subtype": sub, "uuid": f"u-{sub}"}
         assert jsonl_line_to_events(line) == [], f"failed for subtype={sub}"
+
+
+def test_system_api_error_emits_system_error_event():
+    line = {
+        "type": "system", "subtype": "api_error", "uuid": "u-err",
+        "level": "error", "timestamp": "2026-06-11T16:46:00Z",
+        "error": {
+            "formatted": "529 Overloaded",
+            "status": 529,
+            "requestId": "req_abc",
+            "isNetworkDown": False,
+        },
+        "retryInMs": 590, "retryAttempt": 2,
+    }
+    events = jsonl_line_to_events(line)
+    assert len(events) == 1
+    e = events[0]
+    assert e["type"] == "system_error"
+    assert e["formatted"] == "529 Overloaded"
+    assert e["status"] == 529
+    assert e["retryAttempt"] == 2
+
+
+def test_system_turn_duration_emits_event():
+    line = {
+        "type": "system", "subtype": "turn_duration", "uuid": "u-td",
+        "parentUuid": "p-1", "durationMs": 12345, "messageCount": 7,
+        "timestamp": "2026-06-11T13:51:24.963Z",
+    }
+    events = jsonl_line_to_events(line)
+    assert len(events) == 1
+    assert events[0]["type"] == "turn_duration"
+    assert events[0]["durationMs"] == 12345
+    assert events[0]["parentUuid"] == "p-1"
+
+
+def test_ai_title_event():
+    line = {"type": "ai-title", "aiTitle": "確認: 原典の実装状況"}
+    events = jsonl_line_to_events(line)
+    assert events == [{"type": "ai_title", "title": "確認: 原典の実装状況"}]
+
+
+def test_mode_and_permission_mode_events():
+    assert jsonl_line_to_events({"type": "mode", "mode": "plan"}) == [
+        {"type": "mode", "mode": "plan"}
+    ]
+    assert jsonl_line_to_events({"type": "permission-mode", "permissionMode": "bypassPermissions"}) == [
+        {"type": "permission_mode", "permissionMode": "bypassPermissions"}
+    ]
+
+
+def test_attachment_queued_command_emits_event():
+    line = {
+        "type": "attachment", "uuid": "u-att",
+        "attachment": {"type": "queued_command", "content": "/clear"},
+    }
+    events = jsonl_line_to_events(line)
+    assert len(events) == 1
+    assert events[0]["type"] == "attachment"
+    assert events[0]["subtype"] == "queued_command"
+
+
+def test_attachment_deferred_tools_skipped():
+    line = {
+        "type": "attachment",
+        "attachment": {"type": "deferred_tools_delta", "addedNames": ["WebFetch"]},
+    }
+    assert jsonl_line_to_events(line) == []
+
+
+def test_queue_operation_with_task_notification():
+    content = (
+        "<task-notification><task-id>a1</task-id>"
+        "<tool-use-id>tu_1</tool-use-id><status>completed</status>"
+        "<summary>Agent done</summary></task-notification>"
+    )
+    line = {
+        "type": "queue-operation", "operation": "enqueue",
+        "timestamp": "2026-06-11T16:49:57Z", "content": content,
+    }
+    events = jsonl_line_to_events(line)
+    assert len(events) == 1
+    assert events[0]["type"] == "task_notification"
+    assert events[0]["taskId"] == "a1"
+    assert events[0]["status"] == "completed"

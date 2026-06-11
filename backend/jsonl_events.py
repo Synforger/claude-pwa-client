@@ -99,7 +99,61 @@ def jsonl_line_to_events(line: dict) -> list[dict]:
         return _user_events(line)
     if line_type == "system":
         return _system_events(line)
+    if line_type == "attachment":
+        return _attachment_events(line)
+    if line_type == "queue-operation":
+        return _queue_operation_events(line)
+    if line_type == "ai-title":
+        return [{
+            "type": "ai_title",
+            "title": line.get("aiTitle") or "",
+        }]
+    if line_type == "mode":
+        return [{
+            "type": "mode",
+            "mode": line.get("mode") or "",
+        }]
+    if line_type == "permission-mode":
+        return [{
+            "type": "permission_mode",
+            "permissionMode": line.get("permissionMode") or "",
+        }]
     return []
+
+
+def _attachment_events(line: dict) -> list[dict]:
+    """`attachment` 行のうちユーザー文脈に関わるもの (= queued_command / task_reminder /
+    skill_listing) を折りたたみカードとして event 化。 deferred_tools_delta / date_change は
+    内部メタなので chat には出さない。
+    """
+    a = line.get("attachment") or {}
+    sub = a.get("type")
+    if sub in ("queued_command", "task_reminder", "skill_listing"):
+        return [{
+            "type": "attachment",
+            "uuid": line.get("uuid") or line.get("parentUuid"),
+            "subtype": sub,
+            "attachment": a,
+        }]
+    return []
+
+
+def _queue_operation_events(line: dict) -> list[dict]:
+    """`queue-operation` の enqueue 行は内容に `<task-notification>` を含むことがある
+    (= ScheduleWakeup / Cron / Monitor 等の完了通知)。 これは既存 user 行経由でも来るが、
+    Fable 5 で queue-operation 経由のみで来るケースがあるので拾う。
+    """
+    if line.get("operation") != "enqueue":
+        return []
+    content = line.get("content") or ""
+    task = parse_task_notification(content) if isinstance(content, str) else None
+    if task is None:
+        return []
+    return [{
+        "type": "task_notification",
+        "uuid": line.get("uuid") or f"queue-op-{line.get('timestamp')}",
+        **task,
+    }]
 
 
 def subagent_line_to_events(line: dict) -> list[dict]:
@@ -124,28 +178,50 @@ def subagent_line_to_events(line: dict) -> list[dict]:
 def _system_events(line: dict) -> list[dict]:
     """system 行のうち frontend にとって意味があるものだけを event 化する。
 
-    - subtype=compact_boundary: 会話圧縮の境界。 CompactBanner として横線 + 圧縮メタを
-      表示するため `compactMetadata` を frontend 互換キー (旧 SDK SystemMessage と同型) で
-      載せる。 metadata 各 field は推測 spec (= 他 system subtype が top-level に同名 field を
-      持つ整合性ベース)、 取れなければ null で banner だけ出せばよい。
-
-    他 subtype (= stop_hook_summary / api_error / turn_duration / away_summary /
-    scheduled_task_fire / 等) は chat 表示に出さないので skip。
+    対応 subtype:
+    - compact_boundary: 会話圧縮の境界 → CompactBanner 用 metadata
+    - api_error: Anthropic API 側のエラー (= 529 overloaded / 401 / network down 等)。
+      ブラックボックス化させない (= 2026-06-12 確定、 Fable 5 で多発するため必須)
+    - turn_duration: 1 ターンの処理時間メタ。 直近 assistant bubble に紐付け表示
+    - stop_hook_summary / away_summary / scheduled_task_fire 等は chat 非表示で skip
     """
     sub = line.get("subtype")
-    if sub != "compact_boundary":
-        return []
-    return [{
-        "type": "system",
-        "subtype": "compact_boundary",
-        "uuid": line.get("uuid"),
-        "compactMetadata": {
-            "trigger": line.get("trigger"),
-            "preTokens": line.get("preTokens"),
-            "postTokens": line.get("postTokens"),
+    if sub == "compact_boundary":
+        return [{
+            "type": "system",
+            "subtype": "compact_boundary",
+            "uuid": line.get("uuid"),
+            "compactMetadata": {
+                "trigger": line.get("trigger"),
+                "preTokens": line.get("preTokens"),
+                "postTokens": line.get("postTokens"),
+                "durationMs": line.get("durationMs"),
+            },
+        }]
+    if sub == "api_error":
+        err = line.get("error") or {}
+        return [{
+            "type": "system_error",
+            "uuid": line.get("uuid"),
+            "level": line.get("level") or "error",
+            "formatted": err.get("formatted") or err.get("message") or "API error",
+            "status": err.get("status"),
+            "requestId": err.get("requestId"),
+            "isNetworkDown": bool(err.get("isNetworkDown")),
+            "retryInMs": line.get("retryInMs"),
+            "retryAttempt": line.get("retryAttempt"),
+            "timestamp": line.get("timestamp"),
+        }]
+    if sub == "turn_duration":
+        return [{
+            "type": "turn_duration",
+            "uuid": line.get("uuid"),
+            "parentUuid": line.get("parentUuid"),
             "durationMs": line.get("durationMs"),
-        },
-    }]
+            "messageCount": line.get("messageCount"),
+            "timestamp": line.get("timestamp"),
+        }]
+    return []
 
 
 def _assistant_events(line: dict) -> list[dict]:
