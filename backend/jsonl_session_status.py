@@ -405,4 +405,12 @@ def mutate_agent_status(session_id: str, line: dict) -> bool:
         if pm and a.get("permission_mode") != pm:
             a["permission_mode"] = pm
             changed = True
+    elif line_type == "attachment":
+        att = line.get("attachment") or {}
+        if att.get("type") == "budget_usd":
+            for k_src, k_dst in (("used", "budget_used"), ("total", "budget_total"), ("remaining", "budget_remaining")):
+                v = att.get(k_src)
+                if v is not None and a.get(k_dst) != v:
+                    a[k_dst] = v
+                    changed = True
     return changed

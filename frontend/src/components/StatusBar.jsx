@@ -43,11 +43,13 @@ export default function StatusBar({ status, nowSec }) {
     : ''
   const modeLabel = formatMode(status.mode)
   const permLabel = formatPermissionMode(status.permission_mode)
+  const budgetLabel = formatBudget(status)
   return (
     <div className="statusbar">
       <span className="model">{cleanModel(status.model)}</span>
       {modeLabel && <span className="mode-chip">{modeLabel}</span>}
       {permLabel && <span className="perm-chip">{permLabel}</span>}
+      {budgetLabel && <span className="budget-chip">{budgetLabel}</span>}
       <span className={pctClass(fivePct)}>
         5h {Math.round(fivePct)}%{' '}
         <span className="dim">{timeUntil(status.five_hour_resets_at, nowSec)}</span>
@@ -72,4 +74,12 @@ function formatPermissionMode(pm) {
   if (pm === 'bypassPermissions') return 'bypass'
   if (pm === 'acceptEdits') return 'auto-accept'
   return pm
+}
+
+function formatBudget(s) {
+  const rem = s.budget_remaining
+  const total = s.budget_total
+  if (rem == null || total == null) return null
+  const fmt = (n) => typeof n === 'number' ? (n < 10 ? n.toFixed(2) : n.toFixed(0)) : String(n)
+  return `$${fmt(rem)}/${fmt(total)}`
 }
