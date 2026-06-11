@@ -58,6 +58,7 @@ import fsharp from 'react-syntax-highlighter/dist/esm/languages/prism/fsharp'
 import vim from 'react-syntax-highlighter/dist/esm/languages/prism/vim'
 import hcl from 'react-syntax-highlighter/dist/esm/languages/prism/hcl'
 import { apiFetch } from './utils/api.js'
+import { isFav, toggleFav, subscribeFavs } from './utils/favorites.js'
 import './Modal.css'
 
 const LANGS = {
@@ -186,6 +187,16 @@ export default function FilePreviewModal({ path, onClose }) {
   const lang = detectLang(path)
   const isEditable = TEXT_EXTENSIONS.has(ext) || BASENAME_TO_LANG[base] !== undefined || lang !== null
 
+  const [favored, setFavored] = useState(() => isFav(path))
+  useEffect(() => {
+    setFavored(isFav(path))
+    return subscribeFavs(() => setFavored(isFav(path)))
+  }, [path])
+  const handleToggleFav = useCallback(() => {
+    toggleFav(path, false, path.split('/').pop() || path)
+    setFavored(isFav(path))
+  }, [path])
+
   useEffect(() => {
     const controller = new AbortController()
     setLoading(true)
@@ -253,6 +264,14 @@ export default function FilePreviewModal({ path, onClose }) {
         <div className="modal-header">
           <span className="modal-path">{path}</span>
           <div className="modal-actions">
+            {!editMode && (
+              <button
+                className={`modal-fav-btn ${favored ? 'on' : ''}`}
+                onClick={handleToggleFav}
+                title={favored ? 'お気に入りから削除' : 'お気に入りに登録'}
+                aria-label="favorite"
+              >{favored ? '★' : '☆'}</button>
+            )}
             {!editMode && isEditable && content !== null && (
               <button className="modal-edit-btn" onClick={handleEdit}>編集</button>
             )}
