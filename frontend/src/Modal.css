@@ -82,6 +82,18 @@
   font-size: 12px;
 }
 
+.modal-fav-btn {
+  background: transparent;
+  color: var(--text-dim);
+  border: none;
+  font-size: 20px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.modal-fav-btn.on {
+  color: #f5c451;
+}
+
 .modal-save-btn {
   background: var(--accent, #4a9eff);
   color: #fff;
