@@ -233,9 +233,9 @@ export function processStreamEvent(deps, sid, event) {
     return
   }
 
-  // mode / permission_mode / ai_title は session-level (= sessions_overview SSE で
-  // 配信される) なので processStreamEvent では何もしない。 ここに来たら念のため捨てる。
-  if (event.type === 'mode' || event.type === 'permission_mode' || event.type === 'ai_title') {
+  // mode / permission_mode は session-level (= sessions_overview SSE で配信) なので
+  // processStreamEvent では何もしない。 ここに来たら念のため捨てる。
+  if (event.type === 'mode' || event.type === 'permission_mode') {
     return
   }
 

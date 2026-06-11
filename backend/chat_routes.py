@@ -380,7 +380,6 @@ def _build_all_status() -> dict:
             "subagent": a["subagent"],
             "pending_plan": a.get("pending_plan"),
             "pending_question": a.get("pending_question"),
-            "ai_title": a.get("ai_title") or "",
             "mode": a.get("mode") or "",
             "permission_mode": a.get("permission_mode") or "",
             "budget_used": a.get("budget_used"),

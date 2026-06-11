@@ -103,11 +103,6 @@ def jsonl_line_to_events(line: dict) -> list[dict]:
         return _attachment_events(line)
     if line_type == "queue-operation":
         return _queue_operation_events(line)
-    if line_type == "ai-title":
-        return [{
-            "type": "ai_title",
-            "title": line.get("aiTitle") or "",
-        }]
     if line_type == "mode":
         return [{
             "type": "mode",
