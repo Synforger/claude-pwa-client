@@ -310,6 +310,11 @@ function AttachmentCard({ msg }) {
     queued_command: '⏸ キュー中コマンド',
     task_reminder: '⏰ リマインダ',
     skill_listing: '🧰 利用可能スキル',
+    edited_text_file: '📝 ファイル編集',
+    file: '📎 ファイル添付',
+    compact_file_reference: '🗂 圧縮 file 参照',
+    command_permissions: '🔐 許可ツール',
+    auto_mode: '🤖 auto mode',
   })[msg.subtype] || `📎 ${msg.subtype}`
   const body = JSON.stringify(a, null, 2)
   return (
@@ -317,6 +322,56 @@ function AttachmentCard({ msg }) {
       <details>
         <summary>{label}</summary>
         <pre className="attachment-body">{body}</pre>
+      </details>
+    </div>
+  )
+}
+
+function PrLinkCard({ msg }) {
+  const repo = msg.prRepository || ''
+  const label = `🔗 PR #${msg.prNumber ?? '?'}${repo ? ` · ${repo}` : ''}`
+  return (
+    <div className="message system pr-link-card">
+      <a href={msg.prUrl} target="_blank" rel="noopener noreferrer" className="pr-link-anchor">
+        {label}
+      </a>
+    </div>
+  )
+}
+
+function HookErrorCard({ msg }) {
+  const dur = msg.durationMs != null ? `${msg.durationMs}ms` : null
+  return (
+    <div className="message system hook-error-card">
+      <div className="hook-error-header">
+        <span className="hook-error-icon">⚠️</span>
+        <span className="hook-error-title">
+          hook 失敗: {msg.hookName || '(unknown)'}{msg.exitCode != null ? ` (exit ${msg.exitCode})` : ''}
+        </span>
+      </div>
+      {(msg.stderr || msg.stdout || msg.command) && (
+        <details className="hook-error-details">
+          <summary>詳細</summary>
+          {msg.command && <pre className="hook-error-block"><b>command:</b> {msg.command}</pre>}
+          {msg.stderr && <pre className="hook-error-block"><b>stderr:</b> {msg.stderr}</pre>}
+          {msg.stdout && <pre className="hook-error-block"><b>stdout:</b> {msg.stdout}</pre>}
+          {dur && <pre className="hook-error-block"><b>durationMs:</b> {dur}</pre>}
+        </details>
+      )}
+    </div>
+  )
+}
+
+function SystemNoteCard({ msg }) {
+  const label = ({
+    local_command: '⌨ slash command',
+    scheduled_task_fire: '⏰ 予約実行発火',
+  })[msg.subtype] || `ℹ ${msg.subtype}`
+  return (
+    <div className="message system system-note-card">
+      <details>
+        <summary>{label}</summary>
+        <pre className="attachment-body">{msg.content || '(empty)'}</pre>
       </details>
     </div>
   )
@@ -350,6 +405,15 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
   }
   if (msg.role === 'system' && msg.kind === 'attachment') {
     return <AttachmentCard msg={msg} />
+  }
+  if (msg.role === 'system' && msg.kind === 'pr_link') {
+    return <PrLinkCard msg={msg} />
+  }
+  if (msg.role === 'system' && msg.kind === 'hook_error') {
+    return <HookErrorCard msg={msg} />
+  }
+  if (msg.role === 'system' && msg.kind === 'system_note') {
+    return <SystemNoteCard msg={msg} />
   }
   if (msg.role === '__loading__') {
     return (
