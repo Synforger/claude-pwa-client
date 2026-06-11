@@ -125,7 +125,91 @@ export function processStreamEvent(deps, sid, event) {
     return
   }
 
-  // attachment: queued_command / task_reminder / skill_listing を折りたたみカードで表示。
+  // pr_link: GitHub PR の作成記録。 タップで PR を開けるカード。
+  if (event.type === 'pr_link') {
+    cancelAndFlush(sid)
+    const uuid = event.uuid || null
+    setMessages(prev => {
+      const msgs = prev[sid] || []
+      if (uuid && msgs.some(m => m.role === 'system' && m.kind === 'pr_link' && m.uuid === uuid)) {
+        return prev
+      }
+      return {
+        ...prev,
+        [sid]: [...msgs, {
+          id: generateId(),
+          role: 'system',
+          kind: 'pr_link',
+          uuid,
+          prNumber: event.prNumber ?? null,
+          prUrl: event.prUrl || '',
+          prRepository: event.prRepository || '',
+          timestamp: event.timestamp || null,
+        }].slice(-MAX_MESSAGES),
+      }
+    })
+    return
+  }
+
+  // hook_error: hooks 実行が non-blocking で失敗した記録。 黄色 inline 警告で必ず見せる
+  // (= ブラックボックス NG、 backend hooks が落ちてる時は気付かないと困る)。
+  if (event.type === 'hook_error') {
+    cancelAndFlush(sid)
+    const uuid = event.uuid || null
+    setMessages(prev => {
+      const msgs = prev[sid] || []
+      if (uuid && msgs.some(m => m.role === 'system' && m.kind === 'hook_error' && m.uuid === uuid)) {
+        return prev
+      }
+      return {
+        ...prev,
+        [sid]: [...msgs, {
+          id: generateId(),
+          role: 'system',
+          kind: 'hook_error',
+          uuid,
+          hookName: event.hookName || '',
+          hookEvent: event.hookEvent || '',
+          exitCode: event.exitCode ?? null,
+          stderr: event.stderr || '',
+          stdout: event.stdout || '',
+          command: event.command || '',
+          durationMs: event.durationMs ?? null,
+        }].slice(-MAX_MESSAGES),
+      }
+    })
+    return
+  }
+
+  // system_note: local_command (/model 等) / scheduled_task_fire (/loop wakeup) の発火記録。
+  // 折りたたみで静かに記録。
+  if (event.type === 'system_note') {
+    cancelAndFlush(sid)
+    const uuid = event.uuid || null
+    setMessages(prev => {
+      const msgs = prev[sid] || []
+      if (uuid && msgs.some(m => m.role === 'system' && m.kind === 'system_note' && m.uuid === uuid)) {
+        return prev
+      }
+      return {
+        ...prev,
+        [sid]: [...msgs, {
+          id: generateId(),
+          role: 'system',
+          kind: 'system_note',
+          uuid,
+          subtype: event.subtype || '',
+          content: event.content || '',
+        }].slice(-MAX_MESSAGES),
+      }
+    })
+    return
+  }
+
+  // budget は session-level (= status payload に流れる) なので process では何もしない。
+  if (event.type === 'budget') return
+
+  // attachment: queued_command / task_reminder / skill_listing 他を折りたたみカードで表示。
   if (event.type === 'attachment') {
     cancelAndFlush(sid)
     const uuid = event.uuid || null

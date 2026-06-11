@@ -151,8 +151,8 @@ def test_empty_user_string_skipped():
 
 
 def test_unknown_type_skipped():
-    assert jsonl_line_to_events({"type": "attachment"}) == []
-    assert jsonl_line_to_events({"type": "pr-link"}) == []
+    # attachment / pr-link は今は専用 event を出す。 完全未知の type のみ skip 確認に絞る。
+    assert jsonl_line_to_events({"type": "totally-unknown-type"}) == []
     assert jsonl_line_to_events("not a dict") == []
 
 
@@ -381,6 +381,63 @@ def test_attachment_deferred_tools_skipped():
         "attachment": {"type": "deferred_tools_delta", "addedNames": ["WebFetch"]},
     }
     assert jsonl_line_to_events(line) == []
+
+
+def test_pr_link_event():
+    line = {
+        "type": "pr-link", "uuid": "u-pr",
+        "prNumber": 598, "prUrl": "https://github.com/org/repo/pull/598",
+        "prRepository": "org/repo", "timestamp": "2026-06-06T07:21:29Z",
+    }
+    events = jsonl_line_to_events(line)
+    assert len(events) == 1
+    assert events[0]["type"] == "pr_link"
+    assert events[0]["prNumber"] == 598
+    assert events[0]["prUrl"].endswith("/598")
+
+
+def test_hook_non_blocking_error_emits_event():
+    line = {
+        "type": "attachment", "uuid": "u-h",
+        "attachment": {
+            "type": "hook_non_blocking_error",
+            "hookName": "SessionStart:startup", "hookEvent": "SessionStart",
+            "exitCode": 7, "stderr": "boom", "command": "curl ...",
+            "durationMs": 49,
+        },
+    }
+    events = jsonl_line_to_events(line)
+    assert len(events) == 1
+    assert events[0]["type"] == "hook_error"
+    assert events[0]["exitCode"] == 7
+    assert events[0]["hookName"] == "SessionStart:startup"
+
+
+def test_budget_usd_emits_budget_event():
+    line = {
+        "type": "attachment",
+        "attachment": {"type": "budget_usd", "used": 1.5, "total": 10, "remaining": 8.5},
+    }
+    events = jsonl_line_to_events(line)
+    assert events == [{"type": "budget", "used": 1.5, "total": 10, "remaining": 8.5}]
+
+
+def test_attachment_extra_subtypes_emit_attachment_card():
+    for sub in ("edited_text_file", "file", "compact_file_reference", "command_permissions", "auto_mode"):
+        line = {"type": "attachment", "uuid": f"u-{sub}", "attachment": {"type": sub}}
+        events = jsonl_line_to_events(line)
+        assert len(events) == 1, f"failed for {sub}"
+        assert events[0]["type"] == "attachment"
+        assert events[0]["subtype"] == sub
+
+
+def test_system_local_command_and_scheduled_emit_note():
+    for sub in ("local_command", "scheduled_task_fire"):
+        line = {"type": "system", "subtype": sub, "uuid": f"u-{sub}", "content": "x"}
+        events = jsonl_line_to_events(line)
+        assert len(events) == 1
+        assert events[0]["type"] == "system_note"
+        assert events[0]["subtype"] == sub
 
 
 def test_queue_operation_with_task_notification():

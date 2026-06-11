@@ -118,20 +118,61 @@ def jsonl_line_to_events(line: dict) -> list[dict]:
             "type": "permission_mode",
             "permissionMode": line.get("permissionMode") or "",
         }]
+    if line_type == "pr-link":
+        return [{
+            "type": "pr_link",
+            "uuid": line.get("uuid") or f"pr-{line.get('timestamp')}-{line.get('prNumber')}",
+            "prNumber": line.get("prNumber"),
+            "prUrl": line.get("prUrl") or "",
+            "prRepository": line.get("prRepository") or "",
+            "timestamp": line.get("timestamp"),
+        }]
     return []
 
 
 def _attachment_events(line: dict) -> list[dict]:
-    """`attachment` 行のうちユーザー文脈に関わるもの (= queued_command / task_reminder /
-    skill_listing) を折りたたみカードとして event 化。 deferred_tools_delta / date_change は
-    内部メタなので chat には出さない。
+    """`attachment` 行を event 化。 中身を見たい subtype は専用 event を出し、 残りは
+    汎用 attachment カードに畳む。 deferred_tools_delta / date_change は内部メタなので skip。
     """
     a = line.get("attachment") or {}
     sub = a.get("type")
-    if sub in ("queued_command", "task_reminder", "skill_listing"):
+    uuid = line.get("uuid") or line.get("parentUuid")
+
+    # hooks エラーは黄色 inline 警告で必ず出す (= ブラックボックス NG)。
+    if sub == "hook_non_blocking_error":
+        return [{
+            "type": "hook_error",
+            "uuid": uuid,
+            "hookName": a.get("hookName") or "",
+            "hookEvent": a.get("hookEvent") or "",
+            "toolUseID": a.get("toolUseID") or "",
+            "exitCode": a.get("exitCode"),
+            "stderr": a.get("stderr") or "",
+            "stdout": a.get("stdout") or "",
+            "command": a.get("command") or "",
+            "durationMs": a.get("durationMs"),
+            "timestamp": line.get("timestamp"),
+        }]
+
+    # 予算情報は session-level に流して StatusBar に出す (= chat には出さない)。
+    if sub == "budget_usd":
+        return [{
+            "type": "budget",
+            "used": a.get("used"),
+            "total": a.get("total"),
+            "remaining": a.get("remaining"),
+        }]
+
+    # その他: 表示価値のある subtype は汎用 attachment カードに流し込む。
+    # 内部専用 (deferred_tools_delta / date_change) は chat 非表示。
+    if sub in (
+        "queued_command", "task_reminder", "skill_listing",
+        "edited_text_file", "file", "compact_file_reference",
+        "command_permissions", "auto_mode",
+    ):
         return [{
             "type": "attachment",
-            "uuid": line.get("uuid") or line.get("parentUuid"),
+            "uuid": uuid,
             "subtype": sub,
             "attachment": a,
         }]
@@ -219,6 +260,18 @@ def _system_events(line: dict) -> list[dict]:
             "parentUuid": line.get("parentUuid"),
             "durationMs": line.get("durationMs"),
             "messageCount": line.get("messageCount"),
+            "timestamp": line.get("timestamp"),
+        }]
+    # local_command: `/model claude-opus4-7` 等 slash command の実行記録。
+    # scheduled_task_fire: `/loop` wakeup 等で claude が起きた時の発火 record。
+    # どちらも折りたたみ system カードに畳む (= ブラックボックス回避だが目立たせない)。
+    if sub in ("local_command", "scheduled_task_fire"):
+        return [{
+            "type": "system_note",
+            "uuid": line.get("uuid"),
+            "subtype": sub,
+            "content": line.get("content") or "",
+            "level": line.get("level") or "info",
             "timestamp": line.get("timestamp"),
         }]
     return []
