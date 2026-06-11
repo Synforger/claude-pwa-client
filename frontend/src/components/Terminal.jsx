@@ -66,7 +66,7 @@ export default function Terminal({ sessionId, wsBase = DEFAULT_WS_BASE, onExit }
     const MAX_BACKOFF = 10_000
     let reconnectTimer = null
 
-    const connect = () => {
+    const connect = (isReconnect = false) => {
       if (cancelled) return
       const ws = new WebSocket(`${wsBase}/ws/pty/${encodeURIComponent(sessionId)}`)
       ws.binaryType = 'arraybuffer'
@@ -74,11 +74,14 @@ export default function Terminal({ sessionId, wsBase = DEFAULT_WS_BASE, onExit }
 
       ws.addEventListener('open', () => {
         backoffMs = 500
+        // 再接続時は既存バッファを全消し → Ctrl-L で TUI に現状描画させる。
+        // 消さずに Ctrl-L だけ送ると、 redraw された画面が既存内容の下に積み重なる
+        // (= disconnect 連発で同じ画面が 2、 3 倍に重複する事故、 2026-06-11 報告)。
+        if (isReconnect) terminal.reset()
         const dims = getDimensions()
         if (dims) {
           ws.send(JSON.stringify({ type: 'resize', rows: dims.rows, cols: dims.cols }))
         }
-        // Nudge the shell to redraw so a re-attach paints the current state.
         ws.send(new TextEncoder().encode('\x0c'))
       })
 
@@ -107,7 +110,7 @@ export default function Terminal({ sessionId, wsBase = DEFAULT_WS_BASE, onExit }
         )
         reconnectTimer = setTimeout(() => {
           backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF)
-          connect()
+          connect(true)
         }, backoffMs)
       }
 
