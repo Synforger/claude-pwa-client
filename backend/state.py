@@ -199,6 +199,14 @@ def _make_agent_status(agent_id: str) -> dict:
         # 無いので None で立て、 JSONL の AskUserQuestion tool_use 行で補完する。
         # {tool_use_id: str|None, questions: [...]} または None
         "pending_question": None,
+        # Fable 5 系の jsonl が出す session-level メタ (= mode / permission-mode / ai-title)。
+        # Opus 系 jsonl では出ないので空のまま (= 既存挙動と互換)。
+        # ai_title: claude が自動生成するセッションタイトル (= タブ自動命名)
+        # mode: normal / plan 等
+        # permission_mode: default / bypassPermissions / acceptEdits 等
+        "ai_title": "",
+        "mode": "",
+        "permission_mode": "",
     }
 
 
