@@ -207,6 +207,11 @@ def _make_agent_status(agent_id: str) -> dict:
         "ai_title": "",
         "mode": "",
         "permission_mode": "",
+        # USD ベースの予算 (= /budget や課金ステータスで claude が記録)。 attachment
+        # budget_usd 行で更新する。 None なら未記録。
+        "budget_used": None,
+        "budget_total": None,
+        "budget_remaining": None,
     }
 
 
