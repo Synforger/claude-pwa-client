@@ -113,6 +113,20 @@ async def pty_socket(ws: WebSocket, session_id: str) -> None:
             return
         pty_sessions[session_id] = session
 
+    # 切断中に session.output_queue へ溜まった backlog (= claude TUI のヘッダ定期
+    # redraw / カーソル点滅等の incremental refresh) を捨てる。 そのまま流すと
+    # 再接続後の xterm に「同じ画面が 2-3 回重なる」 描画事故になる (= 2026-06-12 報告)。
+    # 復元は client 側の Ctrl-L 送信で TUI に最新画面を 1 度だけ描かせる経路に任せる。
+    drained = 0
+    while not session.output_queue.empty():
+        try:
+            session.output_queue.get_nowait()
+            drained += 1
+        except asyncio.QueueEmpty:
+            break
+    if drained:
+        logger.info("pty_socket: drained %d backlog chunks before pump session=%s", drained, session_id)
+
     pump_out = asyncio.create_task(_pump_to_client(ws, session))
     pump_in = asyncio.create_task(_pump_from_client(ws, session))
 
