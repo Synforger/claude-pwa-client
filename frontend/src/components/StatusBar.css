@@ -32,4 +32,23 @@
 .pct.green { color: var(--green); }
 .pct.yellow { color: var(--yellow); }
 .pct.red { color: var(--red); }
+
+/* mode / permission_mode のチップ (= Fable 5 jsonl の session-level メタ可視化) */
+.mode-chip, .perm-chip {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.mode-chip {
+  background: rgba(120, 160, 220, 0.18);
+  color: #88b4f0;
+}
+.perm-chip {
+  background: rgba(220, 140, 80, 0.18);
+  color: #f0a866;
+}
 .dim { color: var(--text-dim); }

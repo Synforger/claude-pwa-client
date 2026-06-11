@@ -93,22 +93,34 @@ export function processStreamEvent(deps, sid, event) {
     return
   }
 
-  // turn_duration: 1 ターンの処理時間。 parentUuid (= 直近 assistant message の uuid) と
-  // 紐付けて該当 bubble の meta に durationMs を載せる。 該当が無ければ捨てる。
+  // turn_duration: 1 ターンの処理時間。 既存 MetaLine が meta.duration_ms を表示するので、
+  // 直近 agent bubble (= parentUuid と uuid が一致) の meta.duration_ms に書き込む。
+  // Fable 5 で result event の duration_ms が来なくなった分の代替経路。
   if (event.type === 'turn_duration') {
     const parentUuid = event.parentUuid
     const durationMs = event.durationMs
-    if (!parentUuid || typeof durationMs !== 'number') return
+    if (typeof durationMs !== 'number') return
     setMessages(prev => {
       const cur = prev[sid] || []
-      let mutated = false
-      const updated = cur.map(m => {
-        if (m.role !== 'agent' || m.uuid !== parentUuid) return m
-        if (m.turnDurationMs === durationMs) return m
-        mutated = true
-        return { ...m, turnDurationMs: durationMs, turnMessageCount: event.messageCount ?? null }
-      })
-      return mutated ? { ...prev, [sid]: updated } : prev
+      // parentUuid 指定があればそれを優先、 なければ最後の agent に当てる
+      let targetIdx = -1
+      if (parentUuid) {
+        for (let i = cur.length - 1; i >= 0; i--) {
+          if (cur[i].role === 'agent' && cur[i].uuid === parentUuid) { targetIdx = i; break }
+        }
+      }
+      if (targetIdx < 0) {
+        for (let i = cur.length - 1; i >= 0; i--) {
+          if (cur[i].role === 'agent') { targetIdx = i; break }
+        }
+      }
+      if (targetIdx < 0) return prev
+      const t = cur[targetIdx]
+      const meta = { ...(t.meta || {}), duration_ms: durationMs }
+      if (t.meta?.duration_ms === durationMs) return prev
+      const msgs = cur.slice()
+      msgs[targetIdx] = { ...t, meta }
+      return { ...prev, [sid]: msgs }
     })
     return
   }
