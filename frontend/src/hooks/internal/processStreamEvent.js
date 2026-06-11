@@ -63,6 +63,86 @@ export function processStreamEvent(deps, sid, event) {
     return
   }
 
+  // system_error: Anthropic API のエラー (= 529 overloaded / 401 / network down 等)。
+  // ブラックボックス化させずに赤い inline カードで見せる (= 2026-06-12、 Fable 5 で多発)。
+  if (event.type === 'system_error') {
+    cancelAndFlush(sid)
+    const uuid = event.uuid || null
+    setMessages(prev => {
+      const msgs = prev[sid] || []
+      if (uuid && msgs.some(m => m.role === 'system' && m.kind === 'api_error' && m.uuid === uuid)) {
+        return prev
+      }
+      return {
+        ...prev,
+        [sid]: [...msgs, {
+          id: generateId(),
+          role: 'system',
+          kind: 'api_error',
+          uuid,
+          formatted: event.formatted || 'API error',
+          status: event.status ?? null,
+          requestId: event.requestId || null,
+          isNetworkDown: !!event.isNetworkDown,
+          retryInMs: typeof event.retryInMs === 'number' ? event.retryInMs : null,
+          retryAttempt: typeof event.retryAttempt === 'number' ? event.retryAttempt : null,
+          timestamp: event.timestamp || null,
+        }].slice(-MAX_MESSAGES),
+      }
+    })
+    return
+  }
+
+  // turn_duration: 1 ターンの処理時間。 parentUuid (= 直近 assistant message の uuid) と
+  // 紐付けて該当 bubble の meta に durationMs を載せる。 該当が無ければ捨てる。
+  if (event.type === 'turn_duration') {
+    const parentUuid = event.parentUuid
+    const durationMs = event.durationMs
+    if (!parentUuid || typeof durationMs !== 'number') return
+    setMessages(prev => {
+      const cur = prev[sid] || []
+      let mutated = false
+      const updated = cur.map(m => {
+        if (m.role !== 'agent' || m.uuid !== parentUuid) return m
+        if (m.turnDurationMs === durationMs) return m
+        mutated = true
+        return { ...m, turnDurationMs: durationMs, turnMessageCount: event.messageCount ?? null }
+      })
+      return mutated ? { ...prev, [sid]: updated } : prev
+    })
+    return
+  }
+
+  // attachment: queued_command / task_reminder / skill_listing を折りたたみカードで表示。
+  if (event.type === 'attachment') {
+    cancelAndFlush(sid)
+    const uuid = event.uuid || null
+    setMessages(prev => {
+      const msgs = prev[sid] || []
+      if (uuid && msgs.some(m => m.role === 'system' && m.kind === 'attachment' && m.uuid === uuid)) {
+        return prev
+      }
+      return {
+        ...prev,
+        [sid]: [...msgs, {
+          id: generateId(),
+          role: 'system',
+          kind: 'attachment',
+          uuid,
+          subtype: event.subtype || 'unknown',
+          attachment: event.attachment || {},
+        }].slice(-MAX_MESSAGES),
+      }
+    })
+    return
+  }
+
+  // mode / permission_mode / ai_title は session-level (= sessions_overview SSE で
+  // 配信される) なので processStreamEvent では何もしない。 ここに来たら念のため捨てる。
+  if (event.type === 'mode' || event.type === 'permission_mode' || event.type === 'ai_title') {
+    return
+  }
+
   // task_notification: background task (= Monitor / バックグラウンド Bash) の完了通知。
   // user バブルでなく中央寄せの system カードとして差し込む (= 「自分が送った」 風の誤表示を解消)。
   if (event.type === 'task_notification') {

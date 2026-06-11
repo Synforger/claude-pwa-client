@@ -279,6 +279,49 @@ function CompactBanner({ msg }) {
   )
 }
 
+function ApiErrorCard({ msg }) {
+  const retrySec = typeof msg.retryInMs === 'number' && msg.retryInMs > 0
+    ? `${(msg.retryInMs / 1000).toFixed(1)}s 後にリトライ`
+    : null
+  const attempt = typeof msg.retryAttempt === 'number' && msg.retryAttempt > 0
+    ? `(${msg.retryAttempt} 回目)`
+    : null
+  return (
+    <div className="message system api-error-card">
+      <div className="api-error-header">
+        <span className="api-error-icon">⚠️</span>
+        <span className="api-error-title">{msg.isNetworkDown ? 'ネットワーク切断' : `API エラー${msg.status ? ` (${msg.status})` : ''}`}</span>
+      </div>
+      <div className="api-error-body">{msg.formatted}</div>
+      {(retrySec || attempt || msg.requestId) && (
+        <div className="api-error-meta">
+          {retrySec && <span>{retrySec}</span>}
+          {attempt && <span>{attempt}</span>}
+          {msg.requestId && <span className="api-error-req">{msg.requestId}</span>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AttachmentCard({ msg }) {
+  const a = msg.attachment || {}
+  const label = ({
+    queued_command: '⏸ キュー中コマンド',
+    task_reminder: '⏰ リマインダ',
+    skill_listing: '🧰 利用可能スキル',
+  })[msg.subtype] || `📎 ${msg.subtype}`
+  const body = JSON.stringify(a, null, 2)
+  return (
+    <div className="message system attachment-card">
+      <details>
+        <summary>{label}</summary>
+        <pre className="attachment-body">{body}</pre>
+      </details>
+    </div>
+  )
+}
+
 function SessionEndBanner() {
   // 「セッション終了」 を区切る横線 + ラベル。 旧 chat UI と同じ見た目。
   return (
@@ -301,6 +344,12 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
   }
   if (msg.role === 'system' && msg.kind === 'task') {
     return <TaskNotification msg={msg} />
+  }
+  if (msg.role === 'system' && msg.kind === 'api_error') {
+    return <ApiErrorCard msg={msg} />
+  }
+  if (msg.role === 'system' && msg.kind === 'attachment') {
+    return <AttachmentCard msg={msg} />
   }
   if (msg.role === '__loading__') {
     return (
