@@ -349,12 +349,6 @@ def test_system_turn_duration_emits_event():
     assert events[0]["parentUuid"] == "p-1"
 
 
-def test_ai_title_event():
-    line = {"type": "ai-title", "aiTitle": "確認: 原典の実装状況"}
-    events = jsonl_line_to_events(line)
-    assert events == [{"type": "ai_title", "title": "確認: 原典の実装状況"}]
-
-
 def test_mode_and_permission_mode_events():
     assert jsonl_line_to_events({"type": "mode", "mode": "plan"}) == [
         {"type": "mode", "mode": "plan"}

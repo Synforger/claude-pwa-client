@@ -390,11 +390,6 @@ def mutate_agent_status(session_id: str, line: dict) -> bool:
                 if pq and pq.get("tool_use_id") == tu_id:
                     a["pending_question"] = None
                     changed = True
-    elif line_type == "ai-title":
-        title = (line.get("aiTitle") or "").strip()
-        if title and a.get("ai_title") != title:
-            a["ai_title"] = title
-            changed = True
     elif line_type == "mode":
         m = line.get("mode") or ""
         if m and a.get("mode") != m:
