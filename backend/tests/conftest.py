@@ -1,7 +1,7 @@
 """pytest 共通 setup。
 
 - `backend/` を sys.path に注入することで、 test ファイル側で
-  `from usage import _parse_reset` のように直 import できるようにする。
+  `from core.usage import _parse_reset` のように直 import できるようにする。
 - `isolated_state` fixture: state.py の module-level dict を test 内で安全に
   mutate するための snapshot / restore 仕組み。 第一弾の pure 関数 test では
   実質出番ないが、 register_session 等 global state を触る test 群で必須になる。

@@ -7,7 +7,7 @@
 """
 import json
 
-from fork import build_forked_lineage, is_clean_fork_point
+from core.fork import build_forked_lineage, is_clean_fork_point
 
 
 def _line(uuid, parent, type_, **extra):
@@ -125,12 +125,12 @@ GROUPED = [
 
 def test_status_resolves_message_id_to_clean_group():
     # frontend が送る from_uuid = message.id。 group に tool_use が無いので ok
-    from fork import fork_point_status  # noqa: PLC0415
+    from core.fork import fork_point_status  # noqa: PLC0415
     assert fork_point_status(GROUPED, "msg_X") == "ok"
 
 
 def test_status_message_id_group_with_tool_use_is_dirty():
-    from fork import fork_point_status  # noqa: PLC0415
+    from core.fork import fork_point_status  # noqa: PLC0415
     lines = GROUPED + [_asst_mid("a3", "a2", "msg_X", [{"type": "tool_use", "name": "Read", "id": "t"}])]
     # 同 message.id に tool_use 行が混ざれば dirty
     assert fork_point_status(lines, "msg_X") == "dirty"
@@ -215,7 +215,7 @@ def test_fork_endpoint_finds_uuid_in_rolled_file(tmp_path, monkeypatch, isolated
 
 def test_lineage_root_resolved_returns_true_when_chain_completes():
     """parentUuid 鎖が根 (= null) まで到達してれば True。 build_forked_lineage の完走判定に使う。"""
-    from fork import lineage_root_resolved  # noqa: PLC0415
+    from core.fork import lineage_root_resolved  # noqa: PLC0415
     lines = [
         _line("u1", None, "user"),
         _assistant("a1", "u1"),
@@ -226,7 +226,7 @@ def test_lineage_root_resolved_returns_true_when_chain_completes():
 
 def test_lineage_root_resolved_returns_false_when_parent_missing():
     """親 uuid がファイル内に無ければ False = 別 jsonl にまたがってる、 lazy stitching が要る印。"""
-    from fork import lineage_root_resolved  # noqa: PLC0415
+    from core.fork import lineage_root_resolved  # noqa: PLC0415
     lines = [
         _line("u2", "a1", "user"),       # 親 a1 は別 jsonl にある想定
         _assistant("a2", "u2"),
@@ -235,7 +235,7 @@ def test_lineage_root_resolved_returns_false_when_parent_missing():
 
 
 def test_lineage_root_resolved_returns_false_when_from_uuid_absent():
-    from fork import lineage_root_resolved  # noqa: PLC0415
+    from core.fork import lineage_root_resolved  # noqa: PLC0415
     assert lineage_root_resolved([_line("u1", None, "user")], "ghost") is False
 
 
@@ -270,7 +270,7 @@ def test_fork_endpoint_stitches_lineage_across_rolled_files(tmp_path, monkeypatc
 def test_build_forked_lineage_lazy_self_contained_does_not_call_fetch_more():
     """src_lines 内で鎖が完走するケース、 fetch_more は 1 回も呼ばれない。 large project dir で
     無関係な jsonl を読まない (= fork が重くならない) ことの最小単位の担保。"""
-    from fork import build_forked_lineage_lazy  # noqa: PLC0415
+    from core.fork import build_forked_lineage_lazy  # noqa: PLC0415
     src = [
         _line("u1", None, "user"),
         _assistant("a1", "u1"),
@@ -288,7 +288,7 @@ def test_build_forked_lineage_lazy_self_contained_does_not_call_fetch_more():
 def test_build_forked_lineage_lazy_pulls_only_needed_files():
     """親 uuid が src_lines に無い時だけ fetch_more が呼ばれ、 親が見つかった時点で停止。
     候補 jsonl が複数あっても鎖完走後は呼ばれない。"""
-    from fork import build_forked_lineage_lazy  # noqa: PLC0415
+    from core.fork import build_forked_lineage_lazy  # noqa: PLC0415
     src = [
         _line("u2", "a1", "user"),       # 親 a1 は src に無い
         _assistant("a2", "u2"),
@@ -308,7 +308,7 @@ def test_build_forked_lineage_lazy_walks_through_system_rows():
     """parentUuid 鎖の中間に type='system' 行があっても完走する。 実機 jsonl で claude が
     note / caveat を system 行として鎖に挟むケースを実装が見逃してた (2026-06-05 真因、
     1475 行あるべき lineage が leaf 1 行だけになってた)。"""
-    from fork import build_forked_lineage_lazy  # noqa: PLC0415
+    from core.fork import build_forked_lineage_lazy  # noqa: PLC0415
     src = [
         _line("u1", None, "user"),
         _line("s1", "u1", "system"),       # 鎖の中間に system 行
@@ -321,7 +321,7 @@ def test_build_forked_lineage_lazy_walks_through_system_rows():
 
 def test_build_forked_lineage_lazy_walks_through_attachment_rows():
     """type='attachment' (= ファイル添付情報) も鎖の中間に入るケースを抜け落とさない。"""
-    from fork import build_forked_lineage_lazy  # noqa: PLC0415
+    from core.fork import build_forked_lineage_lazy  # noqa: PLC0415
     src = [
         _line("u1", None, "user"),
         _line("at1", "u1", "attachment"),
@@ -333,7 +333,7 @@ def test_build_forked_lineage_lazy_walks_through_attachment_rows():
 
 def test_build_forked_lineage_lazy_stops_when_fetch_returns_none():
     """fetch_more が None を返したら、 そこまでの鎖で確定する (= 無限ループしない)。"""
-    from fork import build_forked_lineage_lazy  # noqa: PLC0415
+    from core.fork import build_forked_lineage_lazy  # noqa: PLC0415
     src = [_line("u2", "a1", "user")]  # 親 a1 はどこにも無い
     out = build_forked_lineage_lazy(src, "u2", "NEW", lambda: None)
     assert _uuids(out) == ["u2"]  # 鎖は u2 だけで打ち切り

@@ -21,7 +21,7 @@ from jsonl.events import HARNESS_XML_RE, INTERRUPT_USER_RE
 from jsonl.plan_choices import capture_plan_choices
 from jsonl.tail import parse_jsonl_timestamp
 from state import agent_status, sessions_overview, stream_states
-from usage import compute_ctx_pct, format_model_name
+from core.usage import compute_ctx_pct, format_model_name
 
 
 # sid → 直近 user 発話 (= turn 開始) の unix epoch。 stop_reason 確定行を見たら

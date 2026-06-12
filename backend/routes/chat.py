@@ -24,7 +24,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, WebSocket, WebSocke
 from fastapi.responses import StreamingResponse
 
 from config import AGENTS
-from usage import read_latest_rate_limits
+from core.usage import read_latest_rate_limits
 from state import (
     agent_status,
     atomic_write_text,
@@ -98,7 +98,7 @@ def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(re
     登録して返す。 元タブ・元 jsonl には一切触れない。
     """
     from terminal.runner import jsonl_path_for_session  # noqa: PLC0415
-    from fork import build_forked_lineage_lazy, fork_point_status  # noqa: PLC0415
+    from core.fork import build_forked_lineage_lazy, fork_point_status  # noqa: PLC0415
     from jsonl.watcher import _cwd_to_project_dir  # noqa: PLC0415
 
     from_uuid = payload.get("from_uuid")
@@ -345,7 +345,7 @@ def _build_all_status() -> dict:
     混じって status line がちらつく。 1 回 read + parse して、 sid 毎は dict lookup だけ
     にする (= O(read) + O(sid) で済む)。"""
     import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
-    from usage import read_all_rate_limits_tail  # noqa: PLC0415
+    from core.usage import read_all_rate_limits_tail  # noqa: PLC0415
     parsed = read_all_rate_limits_tail()  # 32KB tail を 1 回読んで parse 済 list を返す
     # 5h/7d/*_resets_at はアカウント共通 = 末尾行から取る
     last = parsed[-1] if parsed else {}

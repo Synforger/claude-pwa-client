@@ -78,7 +78,7 @@ import routes.hooks as hooks_router  # noqa: E402
 import jsonl.routes as jsonl_routes  # noqa: E402
 import terminal.routes as pty_routes  # noqa: E402
 import terminal.runner as pty_runner  # noqa: E402
-import push  # noqa: E402
+import core.push as push  # noqa: E402
 import routes.subagents as subagents_routes  # noqa: E402
 
 
@@ -163,7 +163,7 @@ async def lifespan(app: FastAPI):
 
     # サスティナビリティ整備: stale tmux session kill / 古い JSONL 削除 / statusline map
     # cleanup を起動時に 1 回 + 24 時間ごとに実行 (= 放置すると無限蓄積する分の自動整理)。
-    import maintenance  # noqa: PLC0415, E402
+    import core.maintenance as maintenance  # noqa: PLC0415, E402
     try:
         startup_summary = maintenance.run_all_maintenance()
         logger.info("startup maintenance: %s", startup_summary)
