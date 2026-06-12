@@ -42,13 +42,11 @@ export default function StatusBar({ status, nowSec }) {
     ? formatResetWeekdayTime(status.seven_day_resets_at)
     : ''
   const modeLabel = formatMode(status.mode)
-  const permLabel = formatPermissionMode(status.permission_mode)
   const budgetLabel = formatBudget(status)
   return (
     <div className="statusbar">
       <span className="model">{cleanModel(status.model)}</span>
       {modeLabel && <span className="mode-chip">{modeLabel}</span>}
-      {permLabel && <span className="perm-chip">{permLabel}</span>}
       {budgetLabel && <span className="budget-chip">{budgetLabel}</span>}
       <span className={pctClass(fivePct)}>
         5h {Math.round(fivePct)}%{' '}
@@ -67,13 +65,6 @@ function formatMode(m) {
   if (!m || m === 'normal') return null
   if (m === 'plan') return 'plan'
   return m
-}
-function formatPermissionMode(pm) {
-  if (!pm) return null
-  if (pm === 'default') return null
-  if (pm === 'bypassPermissions') return 'bypass'
-  if (pm === 'acceptEdits') return 'auto-accept'
-  return pm
 }
 
 function formatBudget(s) {
