@@ -8,12 +8,15 @@ sidechain を混ぜない方針 (= jsonl_events が skip) なので、 中身を
 subagent の先頭行に親 turn を指す安定キーが無く (parentUuid=None 実績)、 Task tool_use id ↔
 agentId の素直な対応が取れないため。
 """
+import asyncio
 import json
 import logging
 import re
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
 from jsonl.events import subagent_line_to_events
 from terminal.runner import jsonl_path_for_session
@@ -198,17 +201,11 @@ def _list_workflows(base: Path) -> list[dict]:
     return runs
 
 
-@router.get("/sessions/{session_id}/subagents")
-def list_subagents(session_id: str):
-    """セッションの Task subagent (フラット) + Workflow run (グループ) 一覧を新しい順で返す。"""
-    base = _session_base(session_id)
-    if base is None:
-        return {"subagents": [], "workflows": []}
+def _build_subagents_payload(base: Path) -> dict:
+    """セッションの Task subagent (フラット) + Workflow run (グループ) 一覧 payload を組む。"""
     subdir = base / "subagents"
     items = []
     if subdir.is_dir():
-        # 非再帰 glob: Workflow agent (= subagents/workflows/<run>/) は拾わない。 それらは
-        # _list_workflows + run drill-down 側で扱うため、 ここはフラットな Task subagent のみ。
         for jsonl_file in subdir.glob("agent-*.jsonl"):
             agent_id = jsonl_file.stem
             if not _AGENT_ID_RE.match(agent_id):
@@ -225,6 +222,78 @@ def list_subagents(session_id: str):
             })
     items.sort(key=lambda x: x["mtime"], reverse=True)
     return {"subagents": items, "workflows": _list_workflows(base)}
+
+
+def _dir_signature(base: Path) -> tuple:
+    """subagents / workflows ディレクトリの「変化検知用シグネチャ」 を返す。
+    ファイル名 + mtime + size の組で、 ファイル追加 / 既存 jsonl の追記を漏れなく検知する。
+    """
+    sigs: list = []
+    sa_dir = base / "subagents"
+    if sa_dir.is_dir():
+        for f in sa_dir.glob("agent-*.jsonl"):
+            try:
+                st = f.stat()
+                sigs.append(("a", f.name, st.st_mtime, st.st_size))
+            except OSError:
+                continue
+    wf_dir = base / "workflows"
+    if wf_dir.is_dir():
+        for f in wf_dir.glob("wf_*.json"):
+            try:
+                sigs.append(("w", f.name, f.stat().st_mtime))
+            except OSError:
+                continue
+    wf_runs = base / "subagents" / "workflows"
+    if wf_runs.is_dir():
+        for d in wf_runs.iterdir():
+            if not d.is_dir():
+                continue
+            journal = d / "journal.jsonl"
+            if journal.is_file():
+                try:
+                    sigs.append(("r", d.name, journal.stat().st_mtime, journal.stat().st_size))
+                except OSError:
+                    continue
+    return tuple(sorted(sigs))
+
+
+@router.get("/sessions/{session_id}/subagents")
+def list_subagents(session_id: str):
+    """セッションの Task subagent (フラット) + Workflow run (グループ) 一覧を新しい順で返す。"""
+    base = _session_base(session_id)
+    if base is None:
+        return {"subagents": [], "workflows": []}
+    return _build_subagents_payload(base)
+
+
+@router.get("/sessions/{session_id}/subagents/stream")
+async def subagents_stream(session_id: str):
+    """subagents / workflows ディレクトリの変化を 1 秒間隔で検知し、 変化があれば最新
+    payload を SSE で push する。 polling より精密 (= 走り終わった直後にチップが切替)。
+    """
+    base = _session_base(session_id)
+    if base is None:
+        raise HTTPException(status_code=404, detail="session not found")
+
+    async def gen():
+        # 初回は即送信
+        last_sig = _dir_signature(base)
+        yield f"data: {json.dumps(_build_subagents_payload(base))}\n\n"
+        # 30 秒に 1 度は heartbeat も流して NAT / proxy のアイドルタイムアウト回避
+        last_heartbeat = time.monotonic()
+        while True:
+            await asyncio.sleep(1.0)
+            sig = _dir_signature(base)
+            if sig != last_sig:
+                last_sig = sig
+                yield f"data: {json.dumps(_build_subagents_payload(base))}\n\n"
+                last_heartbeat = time.monotonic()
+            elif time.monotonic() - last_heartbeat >= 30.0:
+                yield ":heartbeat\n\n"
+                last_heartbeat = time.monotonic()
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 @router.get("/sessions/{session_id}/workflows/{run_id}/agents")
