@@ -408,6 +408,15 @@ def mutate_agent_status(session_id: str, line: dict) -> bool:
                 if v is not None and a.get(k_dst) != v:
                     a[k_dst] = v
                     changed = True
+        elif att.get("type") == "task_reminder":
+            # task_reminder の content は現在の task list 全体の snapshot (= claude TUI が
+            # 毎ターン再掲)。 最新を真値として agent_status.tasks を丸ごと差し替える。
+            items = att.get("content") if isinstance(att.get("content"), list) else []
+            # 値 (= subject/status/etc) が変わった時だけ flag を立てる
+            old = a.get("tasks") or []
+            if items != old:
+                a["tasks"] = items
+                changed = True
     elif line_type == "pr-link":
         repo = line.get("prRepository") or ""
         num = line.get("prNumber")

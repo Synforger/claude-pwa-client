@@ -358,15 +358,13 @@ def test_mode_and_permission_mode_events():
     ]
 
 
-def test_attachment_queued_command_emits_event():
+def test_attachment_queued_command_skipped():
+    # 2026-06-12 棚卸し以降は内部メタとして chat 非表示。
     line = {
         "type": "attachment", "uuid": "u-att",
         "attachment": {"type": "queued_command", "content": "/clear"},
     }
-    events = jsonl_line_to_events(line)
-    assert len(events) == 1
-    assert events[0]["type"] == "attachment"
-    assert events[0]["subtype"] == "queued_command"
+    assert jsonl_line_to_events(line) == []
 
 
 def test_attachment_deferred_tools_skipped():
@@ -416,13 +414,24 @@ def test_budget_usd_emits_budget_event():
     assert events == [{"type": "budget", "used": 1.5, "total": 10, "remaining": 8.5}]
 
 
-def test_attachment_extra_subtypes_emit_attachment_card():
-    for sub in ("edited_text_file", "file", "compact_file_reference", "command_permissions", "auto_mode"):
+def test_attachment_file_emits_card():
+    line = {"type": "attachment", "uuid": "u-file", "attachment": {"type": "file"}}
+    events = jsonl_line_to_events(line)
+    assert len(events) == 1
+    assert events[0]["type"] == "attachment"
+    assert events[0]["subtype"] == "file"
+
+
+def test_attachment_internal_subtypes_skipped():
+    # 2026-06-12 棚卸し: ユーザー手動添付 (file) と警告 (hook_non_blocking_error) /
+    # 予算 (budget_usd) / 専用集約 (task_reminder) 以外はチャット非表示。
+    for sub in (
+        "edited_text_file", "skill_listing", "compact_file_reference",
+        "command_permissions", "auto_mode", "queued_command",
+        "deferred_tools_delta", "date_change",
+    ):
         line = {"type": "attachment", "uuid": f"u-{sub}", "attachment": {"type": sub}}
-        events = jsonl_line_to_events(line)
-        assert len(events) == 1, f"failed for {sub}"
-        assert events[0]["type"] == "attachment"
-        assert events[0]["subtype"] == sub
+        assert jsonl_line_to_events(line) == [], f"failed for {sub}"
 
 
 def test_system_local_command_and_scheduled_emit_note():

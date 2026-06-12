@@ -158,20 +158,13 @@ def _attachment_events(line: dict) -> list[dict]:
             "remaining": a.get("remaining"),
         }]
 
-    # task_reminder は itemCount=0 のとき空通知 (= タスク無しの定期チェック) で頻発する
-    # 純ノイズなので chat に出さない。 中身があるときだけ流す。
-    if sub == "task_reminder":
-        items = a.get("content") if isinstance(a.get("content"), list) else []
-        if not items and not a.get("itemCount"):
-            return []
-
-    # その他: 表示価値のある subtype は汎用 attachment カードに流し込む。
-    # 内部専用 (deferred_tools_delta / date_change) は chat 非表示。
-    if sub in (
-        "queued_command", "task_reminder", "skill_listing",
-        "edited_text_file", "file", "compact_file_reference",
-        "command_permissions", "auto_mode",
-    ):
+    # chat に出すのはユーザー手動添付の `file` のみ。
+    # task_reminder は session_status 経路で agent_status.tasks に流し込んで専用パネルに
+    # 集約する (= 同じ snapshot を毎ターン chat に貼らない)。
+    # その他 subtype (skill_listing / edited_text_file / compact_file_reference /
+    # command_permissions / auto_mode / queued_command / deferred_tools_delta /
+    # date_change) は内部メタ寄りなので chat には出さない (2026-06-12 棚卸し)。
+    if sub == "file":
         return [{
             "type": "attachment",
             "uuid": uuid,

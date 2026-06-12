@@ -214,6 +214,11 @@ def _make_agent_status(agent_id: str) -> dict:
         # 集める)。 (prRepository, prNumber) で dedup、 古い順。 StatusBar の 🔗 chip
         # で表示する。
         "pr_links": [],
+        # このセッションの task list (= attachment task_reminder の content スナップショット)。
+        # claude TUI が毎ターン現状を再掲してくるので、 最新値で上書きする運用。
+        # 各 entry: { id, subject, description, activeForm, status, blocks, blockedBy }。
+        # 📋 専用パネルで表示する。
+        "tasks": [],
     }
 
 
