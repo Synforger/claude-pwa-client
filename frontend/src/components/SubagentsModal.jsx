@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import MessageRenderer from '../MessageRenderer.jsx'
 import { formatTool } from '../utils/format.js'
-import { apiFetch } from '../utils/api.js'
+import { apiFetch, apiUrl } from '../utils/api.js'
 import '../overlays/Modal.css'
 import './SubagentsModal.css'
 
@@ -152,24 +152,27 @@ export default function SubagentsModal({ sid, focus, onClose }) {
   const [agent, setAgent] = useState(null)    // transcript 表示中の agent
   const focusedRef = useRef(false)            // focus 自動遷移を 1 回だけ行う
 
-  const load = useCallback(() => {
-    const controller = new AbortController()
-    setError(null)
-    apiFetch(`/sessions/${encodeURIComponent(sid)}/subagents`, { signal: controller.signal })
-      .then(r => (r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`)))
-      .then(d => setData({ subagents: d.subagents || [], workflows: d.workflows || [] }))
-      .catch(e => { if (e.name !== 'AbortError') setError('一覧を読めませんでした') })
-    return () => controller.abort()
-  }, [sid])
-
-  useEffect(() => load(), [load])
-
-  // モーダル開いてる間は 5 秒間隔で再 fetch。 走り終わったサブエージェントが
-  // running のまま固まって見える問題を解消する (= 2026-06-12 報告)。
+  // SSE 接続: backend が subagents/workflows ディレクトリを 1 秒間隔で監視、 変化を検知
+  // したら最新 payload を push する。 polling より精密で、 走り終わった瞬間に done に
+  // 切り替わる。 接続切れは EventSource が auto-reconnect (= 3 秒)。
   useEffect(() => {
-    const id = setInterval(load, 5000)
-    return () => clearInterval(id)
-  }, [load])
+    setError(null)
+    let evt
+    try {
+      evt = new EventSource(apiUrl(`/sessions/${encodeURIComponent(sid)}/subagents/stream`))
+      evt.onmessage = (e) => {
+        if (!e.data) return
+        try {
+          const d = JSON.parse(e.data)
+          setData({ subagents: d.subagents || [], workflows: d.workflows || [] })
+        } catch { /* ignore */ }
+      }
+      evt.onerror = () => setError('一覧を読めませんでした')
+    } catch {
+      setError('一覧を読めませんでした')
+    }
+    return () => { if (evt) try { evt.close() } catch { /* ignore */ } }
+  }, [sid])
 
   // チップから渡された focus で、 一覧ロード後に該当 run / agent へ 1 回だけ自動遷移する。
   //   - workflowTaskId : tool_result の "Task ID" が manifest.taskId と一致する run を開く
@@ -206,7 +209,7 @@ export default function SubagentsModal({ sid, focus, onClose }) {
         <div className="modal-header">
           <span className="modal-path">Subagents</span>
           <div className="modal-actions">
-            {!run && !agent && <button className="sa-refresh" onClick={load} title="更新">↻</button>}
+            {/* SSE で常時 live 同期するため手動 reload ボタンは不要 (2026-06-12) */}
             <button className="modal-close" onClick={onClose}>✕</button>
           </div>
         </div>
