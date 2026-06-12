@@ -57,8 +57,8 @@ import ocaml from 'react-syntax-highlighter/dist/esm/languages/prism/ocaml'
 import fsharp from 'react-syntax-highlighter/dist/esm/languages/prism/fsharp'
 import vim from 'react-syntax-highlighter/dist/esm/languages/prism/vim'
 import hcl from 'react-syntax-highlighter/dist/esm/languages/prism/hcl'
-import { apiFetch } from './utils/api.js'
-import { isFav, toggleFav, subscribeFavs } from './utils/favorites.js'
+import { apiFetch } from '../utils/api.js'
+import { isFav, toggleFav, subscribeFavs } from '../utils/favorites.js'
 import './Modal.css'
 
 const LANGS = {
