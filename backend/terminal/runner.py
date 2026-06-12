@@ -132,6 +132,7 @@ async def spawn_pty_session(
     initial_cols: int = 120,
     launch_alias: str | None = None,
     fallback_alias: str | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> PtySession:
     """claude を PTY 経由で起動して PtySession を返す。
 
@@ -183,9 +184,19 @@ async def spawn_pty_session(
         # `-e` は tmux 3.2+ で対応、 reattach 時は無視される (= 既存 env を優先)。
         # `-x/-y` は新規 session の初期サイズ (= 既存 attach 時は無視され、 接続後に
         # frontend の resize → refresh-client -C で client サイズに補正される)。
+        # agent cfg の `env` (= 例 CLAUDE_CONFIG_DIR で別 Claude OAuth プロファイル指定) も
+        # tmux session env として注入する。 -e は既存 session への reattach 時は無視される
+        # ので、 同タブで env を後から切り替えるなら kill_tmux_session で session 自体を
+        # 落とす必要がある (= 切替後の起動分から有効)。
+        env_args: list[str] = ["-e", f"PWA_SID={session_id}"]
+        if extra_env:
+            for k, v in extra_env.items():
+                if v is None or k == "PWA_SID":
+                    continue
+                env_args.extend(["-e", f"{k}={v}"])
         argv = [
             TMUX_BIN, "-CC", "new-session", "-A", "-s", tmux_name,
-            "-e", f"PWA_SID={session_id}",
+            *env_args,
             "-x", str(initial_cols), "-y", str(initial_rows),
             *PTY_INITIAL_ARGV,
         ]

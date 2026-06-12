@@ -149,6 +149,7 @@ async def ensure_pty_session_for(session_id: str) -> None:
         session = await spawn_pty_session(
             session_id, cwd=cwd, launch_alias=launch_alias,
             fallback_alias=fallback_alias,
+            extra_env=cfg.get("env") if isinstance(cfg.get("env"), dict) else None,
         )
     except Exception:
         logger.exception("ensure_pty_session_for: spawn failed session=%s", session_id)
