@@ -9,6 +9,17 @@ function displayShort(path) {
   return path.replace(/^\/Users\/[^/]+/, '~')
 }
 
+function parentPath(p) {
+  if (!p || p === '~' || p === '/') return null
+  // backend が解決済みの絶対 path も `~` 起点の表示も両方扱う
+  const trimmed = p.replace(/\/+$/, '')
+  const idx = trimmed.lastIndexOf('/')
+  if (idx < 0) return null
+  const parent = trimmed.slice(0, idx)
+  if (parent === '' || parent === '~') return '~'
+  return parent
+}
+
 export default function FileTreePanel({ onOpenFile, onClose, initialPath }) {
   const [currentPath, setCurrentPath] = useState(initialPath || HOME)
   const [entries, setEntries] = useState([])
@@ -55,10 +66,16 @@ export default function FileTreePanel({ onOpenFile, onClose, initialPath }) {
   }
 
   const handleBack = () => {
-    if (history.length === 0) return
-    const prev = history[history.length - 1]
-    setHistory(h => h.slice(0, -1))
-    loadDir(prev)
+    // 履歴があれば pop、 無くてもルート (~) より上でなければ親へ移動する
+    // (= お気に入りから initialPath で開いた時も親へ遡れる)。
+    if (history.length > 0) {
+      const prev = history[history.length - 1]
+      setHistory(h => h.slice(0, -1))
+      loadDir(prev)
+      return
+    }
+    const parent = parentPath(currentPath)
+    if (parent && parent !== currentPath) loadDir(parent)
   }
 
   useEffect(() => subscribeFavs(setFavs), [])
@@ -84,7 +101,11 @@ export default function FileTreePanel({ onOpenFile, onClose, initialPath }) {
       <div className="tree-panel" onClick={e => e.stopPropagation()}>
         <div className="tree-header">
           <div className="tree-nav">
-            <button className="tree-back" onClick={handleBack} disabled={history.length === 0}>←</button>
+            <button
+              className="tree-back"
+              onClick={handleBack}
+              disabled={history.length === 0 && !parentPath(currentPath)}
+            >←</button>
             <span className="tree-path">{displayPath}</span>
           </div>
           <button
