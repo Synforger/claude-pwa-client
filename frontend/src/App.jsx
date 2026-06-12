@@ -453,18 +453,9 @@ export default function App() {
             💬
           </button>
         )}
-        {/* サブエージェント (= Task で起動した子 agent) の一覧 + transcript を見るモーダル。
-            親 chat には sidechain を出さないので、 中身を遡りたい時はここから開く。 */}
-        {activeViewMode === 'chat' && activeSid && (
-          <button
-            className="topbar-icon-btn"
-            onClick={() => { setSubagentsFocus(null); setSubagentsOpen(true) }}
-            aria-label="サブエージェント"
-            title="サブエージェント一覧"
-          >
-            🤖
-          </button>
-        )}
+        {/* topbar 右側のアイコン群。 並びは左→右で ⭐ お気に入り → 📋 タスク →
+            🤖 サブエージェント → (📑 plan 承認、 条件付き) → 🖥 モニター。 つまり右からは
+            モニター / サブエージェント / タスク / お気に入りの順 (2026-06-12 確定)。 */}
         {activeViewMode === 'chat' && activeSid && (
           <button
             className="topbar-icon-btn"
@@ -483,6 +474,18 @@ export default function App() {
             title="タスク一覧"
           >
             📋
+          </button>
+        )}
+        {/* サブエージェント (= Task で起動した子 agent) の一覧 + transcript を見るモーダル。
+            親 chat には sidechain を出さないので、 中身を遡りたい時はここから開く。 */}
+        {activeViewMode === 'chat' && activeSid && (
+          <button
+            className="topbar-icon-btn"
+            onClick={() => { setSubagentsFocus(null); setSubagentsOpen(true) }}
+            aria-label="サブエージェント"
+            title="サブエージェント一覧"
+          >
+            🤖
           </button>
         )}
         {/* ExitPlanMode 承認待ち: 🤖 の隣に常駐する 📑 ボタン。 pending_plan がある時のみ表示、
