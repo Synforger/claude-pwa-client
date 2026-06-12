@@ -294,6 +294,46 @@ def mutate_agent_status(session_id: str, line: dict) -> bool:
 
     if line_type == "assistant":
         msg = line.get("message") or {}
+        # TaskCreate / TaskUpdate の tool_use を見て agent_status.tasks を即時反映する。
+        # task_reminder は次ターンでしか再掲されないので、 TaskCreate 直後にパネル開いても
+        # 何も出ない罠を避ける (= 2026-06-12 修正)。
+        content_now = msg.get("content") or []
+        if isinstance(content_now, list):
+            tasks_changed_local = False
+            tasks = [dict(t) for t in (a.get("tasks") or [])]
+            for block in content_now:
+                if not isinstance(block, dict) or block.get("type") != "tool_use":
+                    continue
+                tname = block.get("name")
+                tinput = block.get("input") or {}
+                if tname == "TaskCreate":
+                    subject = tinput.get("subject") or ""
+                    if subject and not any(t.get("subject") == subject for t in tasks):
+                        tasks.append({
+                            "id": str(len(tasks) + 1),
+                            "subject": subject,
+                            "description": tinput.get("description") or "",
+                            "activeForm": tinput.get("activeForm") or "",
+                            "status": "pending",
+                            "blocks": [], "blockedBy": [],
+                        })
+                        tasks_changed_local = True
+                elif tname == "TaskUpdate":
+                    tid = tinput.get("taskId")
+                    if tid is None:
+                        continue
+                    tid = str(tid)
+                    for t in tasks:
+                        if str(t.get("id")) == tid:
+                            for k in ("status", "subject", "description", "activeForm"):
+                                v = tinput.get(k)
+                                if v is not None and t.get(k) != v:
+                                    t[k] = v
+                                    tasks_changed_local = True
+                            break
+            if tasks_changed_local:
+                a["tasks"] = tasks
+                changed = True
         # model 表示用 (= StatusBar 5h/7d/ctx と並ぶ model 名)
         model_raw = msg.get("model")
         if model_raw:
