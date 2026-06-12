@@ -158,6 +158,13 @@ def _attachment_events(line: dict) -> list[dict]:
             "remaining": a.get("remaining"),
         }]
 
+    # task_reminder は itemCount=0 のとき空通知 (= タスク無しの定期チェック) で頻発する
+    # 純ノイズなので chat に出さない。 中身があるときだけ流す。
+    if sub == "task_reminder":
+        items = a.get("content") if isinstance(a.get("content"), list) else []
+        if not items and not a.get("itemCount"):
+            return []
+
     # その他: 表示価値のある subtype は汎用 attachment カードに流し込む。
     # 内部専用 (deferred_tools_delta / date_change) は chat 非表示。
     if sub in (

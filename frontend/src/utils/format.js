@@ -36,28 +36,30 @@ export function formatTool(block) {
       shortLabel = truncate(label)
       break
     case 'Read':
-      label = `read  ${input?.file_path ?? ''}`
+      label = `📄 read  ${input?.file_path ?? ''}`
       shortLabel = truncate(label)
       break
     case 'Write':
-      label = `write ${input?.file_path ?? ''}`
+      label = `✏️ write ${input?.file_path ?? ''}`
       shortLabel = truncate(label)
       break
-    case 'Edit':
-      label = `edit  ${input?.file_path ?? ''}`
+    case 'Edit': {
+      const all = input?.replace_all ? ' (all)' : ''
+      label = `✏️ edit  ${input?.file_path ?? ''}${all}`
       shortLabel = truncate(label)
       break
+    }
     case 'Glob':
-      label = `glob  ${input?.pattern ?? ''}`
+      label = `🔍 glob  ${input?.pattern ?? ''}`
       shortLabel = truncate(label)
       break
     case 'Grep':
-      label = `grep  ${input?.pattern ?? ''}`
+      label = `🔍 grep  ${input?.pattern ?? ''}`
       shortLabel = truncate(label)
       break
     case 'WebSearch': {
       const q = input?.query ?? ''
-      shortLabel = truncate(`search "${q}"`)
+      shortLabel = truncate(`🌐 search "${q}"`)
       // 展開時は query 全文 + ドメイン制限 (あれば)
       const lines = [`search "${q}"`]
       if (Array.isArray(input?.allowed_domains) && input.allowed_domains.length > 0) {
@@ -71,7 +73,7 @@ export function formatTool(block) {
     }
     case 'WebFetch': {
       const url = input?.url ?? ''
-      shortLabel = truncate(`fetch ${url}`)
+      shortLabel = truncate(`🌐 fetch ${url}`)
       const lines = [`fetch ${url}`]
       if (input?.prompt) {
         lines.push('', `prompt:`, input.prompt)
@@ -123,7 +125,7 @@ export function formatTool(block) {
       // input: { command, description, timeout_ms, persistent }
       const desc = input?.description ?? ''
       const cmd = input?.command ?? ''
-      shortLabel = `👁 monitor: ${truncate(desc || cmd, SHORT_LABEL_MAX - 12)}`
+      shortLabel = `👁 monitor ${truncate(desc || cmd, SHORT_LABEL_MAX - 12)}`
       const lines = []
       if (desc) lines.push(`description: ${desc}`)
       if (cmd) lines.push('', 'command:', cmd)
@@ -142,7 +144,7 @@ export function formatTool(block) {
       const desc = input?.description ?? ''
       const sub = input?.subagent_type ?? 'general-purpose'
       subagentDescription = desc || null
-      shortLabel = `🤖 agent[${sub}]: ${truncate(desc, SHORT_LABEL_MAX - sub.length - 12)}`
+      shortLabel = `🤖 agent[${sub}] ${truncate(desc, SHORT_LABEL_MAX - sub.length - 12)}`
       const lines = [`agent: ${sub}`, `description: ${desc}`]
       if (input?.model) lines.push(`model: ${input.model}`)
       if (input?.isolation) lines.push(`isolation: ${input.isolation}`)
@@ -155,7 +157,7 @@ export function formatTool(block) {
       // input: { cron, prompt, recurring, durable }
       const cron = input?.cron ?? ''
       const prompt = input?.prompt ?? ''
-      shortLabel = `⏰ cron[${cron}]: ${truncate(prompt, SHORT_LABEL_MAX - cron.length - 12)}`
+      shortLabel = `⏰ cron[${cron}] ${truncate(prompt, SHORT_LABEL_MAX - cron.length - 12)}`
       const lines = [`schedule: ${cron}`]
       if (input?.recurring === false) lines.push('recurring: false (one-shot)')
       if (input?.durable) lines.push('durable: true (survives restart)')
@@ -164,7 +166,7 @@ export function formatTool(block) {
       break
     }
     case 'CronDelete': {
-      shortLabel = `🗑 cron delete: ${input?.id ?? '?'}`
+      shortLabel = `⏰ cron del ${input?.id ?? '?'}`
       label = `delete cron job id=${input?.id ?? '?'}`
       break
     }
@@ -177,7 +179,7 @@ export function formatTool(block) {
       // input: { delaySeconds, reason, prompt }
       const sec = input?.delaySeconds ?? '?'
       const reason = input?.reason ?? ''
-      shortLabel = `⏱ wakeup +${sec}s: ${truncate(reason, SHORT_LABEL_MAX - 16)}`
+      shortLabel = `⏰ wakeup +${sec}s ${truncate(reason, SHORT_LABEL_MAX - 16)}`
       const lines = [`delay: ${sec}s`, `reason: ${reason}`]
       if (input?.prompt) lines.push('', 'prompt:', input.prompt)
       label = lines.join('\n')
@@ -191,7 +193,7 @@ export function formatTool(block) {
     case 'EnterWorktree': {
       // input: { name?, path? }
       const what = input?.name || input?.path || '(auto-named)'
-      shortLabel = `🌳 worktree: ${truncate(what, SHORT_LABEL_MAX - 14)}`
+      shortLabel = `🌳 worktree ${truncate(what, SHORT_LABEL_MAX - 14)}`
       const lines = [`isolated worktree`]
       if (input?.name) lines.push(`name: ${input.name}`)
       if (input?.path) lines.push(`path: ${input.path}`)
@@ -201,7 +203,7 @@ export function formatTool(block) {
     case 'ExitWorktree': {
       // input: { action, discard_changes }
       const action = input?.action ?? '?'
-      shortLabel = `🌳 worktree exit: ${action}`
+      shortLabel = `🌳 worktree exit ${action}`
       const lines = [`action: ${action}`]
       if (input?.discard_changes) lines.push('discard_changes: true')
       label = lines.join('\n')
@@ -209,7 +211,7 @@ export function formatTool(block) {
     }
     case 'PushNotification': {
       const msg = input?.message ?? ''
-      shortLabel = `🔔 push: ${truncate(msg, SHORT_LABEL_MAX - 8)}`
+      shortLabel = `🔔 push ${truncate(msg, SHORT_LABEL_MAX - 8)}`
       label = `push notification:\n${msg}`
       break
     }
@@ -218,7 +220,7 @@ export function formatTool(block) {
       const p = input?.notebook_path ?? ''
       const base = p.split('/').pop()
       const mode = input?.edit_mode || 'replace'
-      shortLabel = `📓 notebook ${mode}: ${truncate(base, SHORT_LABEL_MAX - 16)}`
+      shortLabel = `📓 notebook ${mode} ${truncate(base, SHORT_LABEL_MAX - 16)}`
       const lines = [`path: ${p}`, `mode: ${mode}`]
       if (input?.cell_id) lines.push(`cell_id: ${input.cell_id}`)
       if (input?.cell_type) lines.push(`cell_type: ${input.cell_type}`)
@@ -240,36 +242,34 @@ export function formatTool(block) {
       // input: { skill, args? }
       const s = input?.skill ?? '?'
       const args = input?.args ?? ''
-      shortLabel = `⚡ /${s}${args ? ' ' + truncate(args, SHORT_LABEL_MAX - s.length - 4) : ''}`
+      shortLabel = `⚡ skill /${s}${args ? ' ' + truncate(args, SHORT_LABEL_MAX - s.length - 10) : ''}`
       label = `/${s}${args ? ' ' + args : ''}`
       break
     }
     case 'TaskOutput': {
       const tid = input?.task_id ?? '?'
-      shortLabel = `📄 task output: ${tid.slice(0, 12)}`
+      shortLabel = `🤖 task output ${tid.slice(0, 12)}`
       label = `get output of task ${tid}` + (input?.block ? ` (blocking)` : ` (non-blocking)`)
       break
     }
     case 'TaskStop': {
       const tid = input?.task_id ?? input?.shell_id ?? '?'
-      shortLabel = `🛑 task stop: ${tid.slice(0, 12)}`
+      shortLabel = `🤖 task stop ${tid.slice(0, 12)}`
       label = `stop background task ${tid}`
       break
     }
     case 'TaskCreate': {
-      // input: { subject, description, activeForm } (= セッション TODO の登録)
       const subj = input?.subject ?? ''
-      shortLabel = `📋 +task: ${truncate(subj, SHORT_LABEL_MAX - 9)}`
+      shortLabel = `📋 task + ${truncate(subj, SHORT_LABEL_MAX - 10)}`
       const lines = [`create task: ${subj}`]
       if (input?.description) lines.push('', input.description)
       label = lines.join('\n')
       break
     }
     case 'TaskUpdate': {
-      // input: { taskId, status?, subject?, ... }
       const tid = input?.taskId ?? '?'
       const st = input?.status
-      shortLabel = st ? `📋 task ${tid} → ${st}` : `📋 task ${tid} update`
+      shortLabel = st ? `📋 task #${tid} → ${st}` : `📋 task #${tid} update`
       const lines = [`update task ${tid}`]
       if (st) lines.push(`status: ${st}`)
       if (input?.subject) lines.push(`subject: ${input.subject}`)
@@ -278,7 +278,7 @@ export function formatTool(block) {
       break
     }
     case 'TaskGet': {
-      shortLabel = `📋 task get: ${input?.taskId ?? '?'}`
+      shortLabel = `📋 task get #${input?.taskId ?? '?'}`
       label = `get task ${input?.taskId ?? '?'}`
       break
     }
@@ -289,17 +289,14 @@ export function formatTool(block) {
       break
     }
     case 'ToolSearch': {
-      // input: { query, max_results } (= deferred tool のスキーマ取得)
       const q = input?.query ?? ''
-      shortLabel = `🔎 tool search: ${truncate(q, SHORT_LABEL_MAX - 16)}`
+      shortLabel = `🔍 tool search ${truncate(q, SHORT_LABEL_MAX - 16)}`
       label = `tool search: ${q}` + (input?.max_results ? `\nmax_results: ${input.max_results}` : '')
       break
     }
     case 'Workflow': {
-      // input: { script?, scriptPath?, name?, args? }。 script は巨大な JS なので出さず、
-      // 予定義名 / scriptPath を出す (= inline script は名前が無いので汎用表記)。
       const wfName = input?.name || input?.scriptPath || '(inline script)'
-      shortLabel = `🤖 workflow: ${truncate(wfName, SHORT_LABEL_MAX - 12)}`
+      shortLabel = `🔀 workflow ${truncate(wfName, SHORT_LABEL_MAX - 12)}`
       const lines = [`workflow: ${wfName}`]
       if (input?.args !== undefined) lines.push('', 'args:', JSON.stringify(input.args, null, 2))
       label = lines.join('\n')
@@ -314,17 +311,15 @@ export function formatTool(block) {
     }
     default: {
       // MCP tools (= mcp__<server>__<method>) or other未知 tool。
-      // 名前を整形してから入力 hint を出す。
       const displayName = name.startsWith('mcp__')
         ? name.replace(/^mcp__/, '').replace(/__/g, '.')
         : name
       label = `[${displayName}] ${JSON.stringify(input ?? {})}`
-      // Extract the first string-valued field as a human-readable hint
       const firstString = input && typeof input === 'object'
         ? Object.values(input).find(v => typeof v === 'string' && v.length > 0)
         : null
       shortLabel = firstString
-        ? `🔧 ${displayName}: ${truncate(firstString, SHORT_LABEL_MAX - displayName.length - 4)}`
+        ? `🔧 ${displayName} ${truncate(firstString, SHORT_LABEL_MAX - displayName.length - 4)}`
         : `🔧 ${displayName}`
     }
   }
