@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import time
 
-from jsonl_tail import parse_jsonl_timestamp
+from jsonl.tail import parse_jsonl_timestamp
 from push import broadcast_push, notification_title_for
 
 

@@ -52,7 +52,7 @@ def _pwa_session_for_claude_sid(claude_sid: str | None) -> str | None:
     if not claude_sid:
         return None
     try:
-        import jsonl_watcher  # noqa: PLC0415
+        import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
         bindings = jsonl_watcher.list_bindings()
     except Exception:
         logger.exception("_pwa_session_for_claude_sid: list_bindings failed")
@@ -123,7 +123,7 @@ async def hooks_event(request: Request) -> dict:
     # (= Desktop App 公式と PWA の取り違えを構造的に不可能にする)。
     bound_path = None
     if pwa_sid_hdr and transcript and pwa_sid_hdr in sessions_meta:
-        import jsonl_watcher  # noqa: PLC0415
+        import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
         bound_path = jsonl_watcher.confirm_bind(pwa_sid_hdr, claude_sid or "", transcript)
 
     # SessionStart: PWA タブ起動時に発火する確定 binding 経路。 PWA spawn 時に tmux

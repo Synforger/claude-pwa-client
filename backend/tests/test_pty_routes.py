@@ -72,7 +72,7 @@ def test_counts_missing_file(tmp_path):
 # --- autoresume (= Mac/backend 再起動跨ぎで前回 claude session を継続) ---
 
 import time
-import jsonl_watcher
+import jsonl.watcher as jsonl_watcher
 
 
 def _set_binding(monkeypatch, sid, jsonl_path, confirmed=True):
