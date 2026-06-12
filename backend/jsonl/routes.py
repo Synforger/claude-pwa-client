@@ -41,7 +41,7 @@ from jsonl.tail import (
     read_tail as _read_tail,
 )
 from terminal.runner import jsonl_path_for_session
-from state import sessions_overview, stream_states
+from state import agent_status, sessions_overview, stream_states
 
 
 logger = logging.getLogger(__name__)
@@ -309,6 +309,20 @@ async def monitor_all_sessions_loop():
                             state[sid] = (path, path.stat().st_size)
                         except OSError:
                             pass
+                        # path 切替時 (= /clear / resume / フォーク等で claude session が
+                        # 入れ替わった時) は jsonl 由来の蓄積メタを空に戻す。 これで前 session
+                        # の PR や task list が新 session に持ち越されない (2026-06-12)。
+                        if prev is not None and prev[0] != path:
+                            a = agent_status.get(sid)
+                            if a is not None:
+                                if a.get("pr_links"):
+                                    a["pr_links"] = []
+                                if a.get("tasks"):
+                                    a["tasks"] = []
+                                st_reset = stream_states.get(sid)
+                                if st_reset is not None:
+                                    st_reset.status_event.set()
+                                    sessions_overview.notify()
                         # busy は過去行を通知しない代わりに末尾から現在値を 1 回算出する
                         # (= backend 起動時に推論中だった session も正しく busy=True にする)。
                         st = stream_states.get(sid)
