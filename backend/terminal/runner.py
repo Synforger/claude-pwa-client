@@ -556,7 +556,7 @@ def jsonl_path_for_session(session_id: str) -> Path | None:
     `_register_claude_when_ready` 経由で binding を登録、 watchdog が新規 JSONL の
     birth event を見て紐付ける。 紐付け未完なら None。
     """
-    import jsonl_watcher
+    import jsonl.watcher as jsonl_watcher
     return jsonl_watcher.get_jsonl_for(session_id)
 
 
