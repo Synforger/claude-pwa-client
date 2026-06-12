@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-import hooks_router
+import routes.hooks as hooks_router
 import jsonl.watcher as jsonl_watcher
 
 

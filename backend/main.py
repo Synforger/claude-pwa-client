@@ -72,14 +72,14 @@ logger = logging.getLogger(__name__)
 from config import CORS_ALLOW_ORIGINS, UPLOADS_TMP  # noqa: E402
 from state import sessions_meta  # noqa: E402
 
-import chat_routes  # noqa: E402
-import files_routes  # noqa: E402
-import hooks_router  # noqa: E402
+import routes.chat as chat_routes  # noqa: E402
+import routes.files as files_routes  # noqa: E402
+import routes.hooks as hooks_router  # noqa: E402
 import jsonl.routes as jsonl_routes  # noqa: E402
 import terminal.routes as pty_routes  # noqa: E402
 import terminal.runner as pty_runner  # noqa: E402
 import push  # noqa: E402
-import subagents_routes  # noqa: E402
+import routes.subagents as subagents_routes  # noqa: E402
 
 
 def _truncate_if_oversized(path: Path, max_bytes: int) -> None:
