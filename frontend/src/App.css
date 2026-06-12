@@ -149,6 +149,11 @@
   border-top: 1px solid var(--border);
   background: var(--bg2);
   flex-shrink: 0;
+  /* ChatInput と ⋯ popup を 1 つの stacking context にまとめ、 ファイルプレビュー /
+     ファイルツリーより常に上に出す (= ディレクトリ見ながら / md 開きながら入力可)。
+     吹き出し系 (= plan / picker / confirm = 200+) はこの上を通る。 */
+  position: relative;
+  z-index: 60;
 }
 
 textarea {

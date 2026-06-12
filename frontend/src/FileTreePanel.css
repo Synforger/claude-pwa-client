@@ -3,7 +3,9 @@
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.5);
-  z-index: 100;
+  /* ChatInput (z=60) より下、 ファイルプレビュー (z=50) と同等。
+     ツリーを開いたまま下のメッセージ欄でテキスト打てるようにする。 */
+  z-index: 40;
   display: flex;
   align-items: stretch;
 }
