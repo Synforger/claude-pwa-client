@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { loadFavs, removeFav, subscribeFavs } from './utils/favorites.js'
+import { loadFavs, removeFav, subscribeFavs } from '../utils/favorites.js'
 import './FileTreePanel.css'
 
 function displayShort(path) {
