@@ -125,36 +125,9 @@ export function processStreamEvent(deps, sid, event) {
     return
   }
 
-  // pr_link: GitHub PR の作成記録。 タップで PR を開ける。
-  // claude TUI は同じ PR を毎ターン jsonl に記録する (= 1 session に 100+ 行) ので、
-  // (repository, prNumber) で dedup して 1 つだけ表示する。
-  if (event.type === 'pr_link') {
-    cancelAndFlush(sid)
-    const repo = event.prRepository || ''
-    const num = event.prNumber ?? null
-    setMessages(prev => {
-      const msgs = prev[sid] || []
-      const dup = msgs.some(m =>
-        m.role === 'system' && m.kind === 'pr_link' &&
-        m.prRepository === repo && m.prNumber === num
-      )
-      if (dup) return prev
-      return {
-        ...prev,
-        [sid]: [...msgs, {
-          id: generateId(),
-          role: 'system',
-          kind: 'pr_link',
-          uuid: event.uuid || null,
-          prNumber: num,
-          prUrl: event.prUrl || '',
-          prRepository: repo,
-          timestamp: event.timestamp || null,
-        }].slice(-MAX_MESSAGES),
-      }
-    })
-    return
-  }
+  // pr_link は agent_status.pr_links に集約して StatusBar の 🔗 chip で見せる経路に
+  // 移したのでチャット履歴には積まない (= 1 session に 100+ 行流れる仕様への対策)。
+  if (event.type === 'pr_link') return
 
   // hook_error: hooks 実行が non-blocking で失敗した記録。 黄色 inline 警告で必ず見せる
   // (= ブラックボックス NG、 backend hooks が落ちてる時は気付かないと困る)。

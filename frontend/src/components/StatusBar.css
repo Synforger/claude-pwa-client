@@ -61,4 +61,63 @@
   background: rgba(100, 180, 130, 0.18);
   color: #7fcf99;
 }
+
+/* PR chip + dropdown。 セッション内で言及された PR を 1 箇所に集約。 */
+.pr-chip-wrap {
+  position: relative;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.pr-chip {
+  background: rgba(100, 180, 130, 0.18);
+  color: #7fcf99;
+  border: none;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pr-chip-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 240px;
+  max-height: 280px;
+  overflow-y: auto;
+  /* StatusBar より下のあらゆる層 (= ChatInput / file tree / preview) を貫通して見せる */
+  z-index: 300;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+.pr-chip-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  text-decoration: none;
+  color: var(--text);
+  font-size: 12px;
+}
+.pr-chip-item:hover {
+  background: var(--bg3);
+}
+.pr-chip-num {
+  color: #7fcf99;
+  font-weight: 600;
+}
+.pr-chip-repo {
+  color: var(--text-dim);
+  font-size: 11px;
+  word-break: break-all;
+}
 .dim { color: var(--text-dim); }

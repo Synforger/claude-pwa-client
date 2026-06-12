@@ -385,6 +385,7 @@ def _build_all_status() -> dict:
             "budget_used": a.get("budget_used"),
             "budget_total": a.get("budget_total"),
             "budget_remaining": a.get("budget_remaining"),
+            "pr_links": a.get("pr_links") or [],
             "five_hour_pct": last.get("five_hour_pct") if last.get("five_hour_pct") is not None else shared_status["five_hour_pct"],
             "seven_day_pct": seven_day_pct if seven_day_pct is not None else shared_status["seven_day_pct"],
             "five_hour_resets_at": last.get("five_hour_resets_at") or shared_status["five_hour_resets_at"],
