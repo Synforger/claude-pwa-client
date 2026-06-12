@@ -164,6 +164,13 @@ export default function SubagentsModal({ sid, focus, onClose }) {
 
   useEffect(() => load(), [load])
 
+  // モーダル開いてる間は 5 秒間隔で再 fetch。 走り終わったサブエージェントが
+  // running のまま固まって見える問題を解消する (= 2026-06-12 報告)。
+  useEffect(() => {
+    const id = setInterval(load, 5000)
+    return () => clearInterval(id)
+  }, [load])
+
   // チップから渡された focus で、 一覧ロード後に該当 run / agent へ 1 回だけ自動遷移する。
   //   - workflowTaskId : tool_result の "Task ID" が manifest.taskId と一致する run を開く
   //   - agentDesc      : Task の description が一致する subagent の transcript を直接開く
