@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import MessageRenderer from '../MessageRenderer.jsx'
 import { formatTool } from '../utils/format.js'
 import { apiFetch } from '../utils/api.js'
-import '../Modal.css'
+import '../overlays/Modal.css'
 import './SubagentsModal.css'
 
 // サブエージェント (= Task で起動した子 agent) + Workflow run の一覧と transcript を見るモーダル。
