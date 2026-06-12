@@ -53,6 +53,7 @@ const FilePreviewModal = lazy(() => import('./FilePreviewModal.jsx'))
 const SubagentsModal = lazy(() => import('./components/SubagentsModal.jsx'))
 const FileTreePanel = lazy(() => import('./FileTreePanel.jsx'))
 const FavoritesQuickPicker = lazy(() => import('./FavoritesQuickPicker.jsx'))
+const TasksModal = lazy(() => import('./TasksModal.jsx'))
 // SessionDrawer は drawerOpen=true の時のみ render = 遅延 load 妥当 (= 初回 paint 早く)
 const SessionDrawer = lazy(() => import('./components/SessionDrawer.jsx'))
 // 画面共有 (= moonlight-web-stream を iframe 埋め込み)。 開いた時だけ load。
@@ -129,6 +130,7 @@ export default function App() {
   const [previewPath, setPreviewPath] = useState(null)
   const [treeOpen, setTreeOpen] = useState(null)
   const [favsPickerOpen, setFavsPickerOpen] = useState(false)
+  const [tasksOpen, setTasksOpen] = useState(false)
   const [subagentsOpen, setSubagentsOpen] = useState(false)
   // 🧩 を開く時のスコープ記述子 (= Task チップなら該当 agent、 Workflow チップなら該当 run に直行)。
   const [subagentsFocus, setSubagentsFocus] = useState(null)
@@ -473,6 +475,16 @@ export default function App() {
             ⭐
           </button>
         )}
+        {activeViewMode === 'chat' && activeSid && (
+          <button
+            className="topbar-icon-btn"
+            onClick={() => setTasksOpen(true)}
+            aria-label="タスク"
+            title="タスク一覧"
+          >
+            📋
+          </button>
+        )}
         {/* ExitPlanMode 承認待ち: 🤖 の隣に常駐する 📑 ボタン。 pending_plan がある時のみ表示、
             脈動ドットで承認待ちを示し、 タップで PlanApprovalBubble を開く。 旧来の自動全画面
             overlay は画面を遮るのでやめた (2026-06-04 改修)。 */}
@@ -679,6 +691,12 @@ export default function App() {
             onOpenFile={(path) => setPreviewPath(path)}
             onOpenDir={(path) => setTreeOpen(path)}
             onClose={() => setFavsPickerOpen(false)}
+          />
+        )}
+        {tasksOpen && (
+          <TasksModal
+            tasks={status?.tasks || []}
+            onClose={() => setTasksOpen(false)}
           />
         )}
       </Suspense>
