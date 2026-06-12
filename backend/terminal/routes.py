@@ -103,6 +103,7 @@ async def pty_socket(ws: WebSocket, session_id: str) -> None:
             session = await spawn_pty_session(
                 session_id, cwd=cwd, launch_alias=launch_alias,
                 fallback_alias=fallback_alias,
+                extra_env=cfg.get("env") if isinstance(cfg.get("env"), dict) else None,
             )
         except Exception as e:
             logger.exception("PTY spawn failed session=%s", session_id)

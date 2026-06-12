@@ -11,6 +11,15 @@
       "model": "Sonnet",
       "display_name": "Agent B",
       "launch_alias": "agent_b"
+    },
+    "agent_a_work": {
+      "cwd": "/path/to/agent_a",
+      "model": "Opus",
+      "display_name": "Agent A (work)",
+      "launch_alias": "agent_a",
+      "env": {
+        "CLAUDE_CONFIG_DIR": "/Users/you/.claude-work"
+      }
     }
   },
   "claude_path": "/path/to/claude",
