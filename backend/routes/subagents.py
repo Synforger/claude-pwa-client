@@ -51,13 +51,19 @@ def _scan_agent_file(path: Path) -> dict:
     """agent jsonl を 1 パスして status / last_tool を求める。
 
     - last_tool: 最後に現れた tool_use の name (= 実行中なら「今やってる処理」)
-    - done: 末尾の assistant 行が確定 stop_reason (= tool_use 以外) を持つ (= 最終応答を出した)
+    - done: 最後に出た **確定 stop_reason** (= tool_use 以外) より後に tool_result が無い
+
+    旧実装は assistant 行のたびに done を再評価 → 直後の null stop_reason 行で
+    false に上書きされる罠があり、 走り終わったエージェントが running のまま固まる
+    ことがあった。 1 パス回して「最後の確定 stop_reason の index」 と「最後の
+    tool_result の index」 を比較する方式に変更 (2026-06-12)。
     """
     last_tool: str | None = None
-    done = False
+    last_stop_idx = -1
+    last_tool_result_idx = -1
     try:
         with path.open() as fh:
-            for raw in fh:
+            for i, raw in enumerate(fh):
                 try:
                     line = json.loads(raw)
                 except json.JSONDecodeError:
@@ -72,15 +78,16 @@ def _scan_agent_file(path: Path) -> dict:
                                 last_tool = name
                 if line.get("type") == "assistant":
                     sr = msg.get("stop_reason")
-                    done = bool(sr and sr != "tool_use")
-                else:
-                    # tool_result 等の後続行があれば「最終応答の後にまだ動いてる」 = 未完に戻す
-                    if isinstance(content, list) and any(
-                        isinstance(b, dict) and b.get("type") == "tool_result" for b in content
-                    ):
-                        done = False
+                    if sr and sr != "tool_use":
+                        last_stop_idx = i
+                elif isinstance(content, list) and any(
+                    isinstance(b, dict) and b.get("type") == "tool_result" for b in content
+                ):
+                    last_tool_result_idx = i
     except OSError:
         pass
+    # 確定 stop_reason があって、 その後に tool_result が無ければ完了
+    done = last_stop_idx >= 0 and last_stop_idx > last_tool_result_idx
     return {"lastTool": last_tool, "done": done}
 
 
