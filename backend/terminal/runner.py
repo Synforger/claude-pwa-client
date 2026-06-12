@@ -268,7 +268,7 @@ async def _autoresume_watchdog(
     """
     try:
         from pty_discover import tmux_pane_pids, find_claude_descendant
-        import jsonl_watcher  # noqa: PLC0415
+        import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
         await asyncio.sleep(initial_delay)
         loop = asyncio.get_running_loop()
         deadline = loop.time() + max_wait

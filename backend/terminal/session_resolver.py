@@ -63,7 +63,7 @@ def last_resumable_claude_sid(session_id: str) -> str | None:
       - jsonl の最終更新が AUTORESUME_MAX_AGE_DAYS より古い (= 死んだ会話)
     """
     try:
-        import jsonl_watcher  # noqa: PLC0415
+        import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
         info = jsonl_watcher.list_bindings().get(session_id)
     except Exception:
         logger.exception("autoresume lookup failed session=%s", session_id)

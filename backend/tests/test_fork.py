@@ -200,7 +200,7 @@ def test_fork_endpoint_requires_from_uuid(tmp_path, monkeypatch, isolated_state)
 def test_fork_endpoint_finds_uuid_in_rolled_file(tmp_path, monkeypatch, isolated_state):
     """claude が session id をロールして、 from_uuid が live でなく project dir 内の別
     (= 古い) jsonl に居るケース。 cwd 内全 jsonl を走査して見つける。"""
-    import jsonl_watcher  # noqa: PLC0415
+    import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
     chat_routes, parent, live = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
     # live (OLD.jsonl) には無い uuid を、 古いファイルに置く
     rolled = tmp_path / "rolled.jsonl"
@@ -245,7 +245,7 @@ def test_fork_endpoint_stitches_lineage_across_rolled_files(tmp_path, monkeypatc
     旧版は途中で打ち切って古い context を全部失った (2026-06-05 真因)。 同 project dir の
     関連 jsonl 群も結合して source_lines にすることで、 鎖を最後まで辿って full lineage を
     新 jsonl に書き出す。"""
-    import jsonl_watcher  # noqa: PLC0415
+    import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
     # 古い jsonl (= rolled) に root u1,a1、 新しい jsonl (= live) に u2,a2,u3。 u2 の親 a1 は
     # 別ファイル。 旧実装は live だけ source にして u2 から始まる短い lineage しか書けなかった。
     rolled_lines = [
@@ -342,7 +342,7 @@ def test_build_forked_lineage_lazy_stops_when_fetch_returns_none():
 def test_fork_endpoint_lazy_stops_reading_when_root_resolved(tmp_path, monkeypatch, isolated_state):
     """src_path 単体で鎖が完走するケースでは他 jsonl を 1 個も読まない (= lazy 振る舞い検証)。
     無関係な大きい jsonl が project dir にあっても fork POST は src_path だけ触る。"""
-    import jsonl_watcher  # noqa: PLC0415
+    import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
     # src_path に full lineage (= root から leaf まで揃ってる)
     full = [
         _line("u1", None, "user"),
@@ -364,7 +364,7 @@ def test_fork_endpoint_lazy_stops_reading_when_root_resolved(tmp_path, monkeypat
 
 def test_fork_endpoint_not_found_across_all_files(tmp_path, monkeypatch, isolated_state):
     from fastapi import HTTPException  # noqa: PLC0415
-    import jsonl_watcher  # noqa: PLC0415
+    import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
     chat_routes, parent, _ = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
     monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd: tmp_path)
     try:
@@ -384,7 +384,7 @@ import asyncio  # noqa: E402
 
 def test_delete_fork_session_removes_its_jsonl(tmp_path, monkeypatch, isolated_state):
     import chat_routes  # noqa: PLC0415
-    import jsonl_watcher  # noqa: PLC0415
+    import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
     chat_routes, parent, src = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
     monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd: tmp_path)
     # フォーク作成 → 新 jsonl がある状態を確認
@@ -421,7 +421,7 @@ def test_delete_normal_session_does_not_touch_jsonl(tmp_path, monkeypatch, isola
 
 def test_restart_fork_session_promotes_to_normal_tab(tmp_path, monkeypatch, isolated_state):
     import chat_routes  # noqa: PLC0415
-    import jsonl_watcher  # noqa: PLC0415
+    import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
     chat_routes, parent, _src = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
     monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd: tmp_path)
     forked = chat_routes.fork_session(parent.id, {"from_uuid": "u2"})

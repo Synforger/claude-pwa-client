@@ -187,7 +187,7 @@ def cleanup_old_jsonl(
     # 現在 PWA タブが bind 中の jsonl は idle でも保護する。
     bound_paths: set[str] = set()
     try:
-        import jsonl_watcher  # noqa: PLC0415
+        import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
         for info in jsonl_watcher.list_bindings().values():
             jp = info.get("jsonl_path")
             if info.get("confirmed") and jp:
@@ -404,7 +404,7 @@ def restart_sunshine_if_bloated() -> bool:
 
 def run_all_maintenance() -> dict:
     """全 cleanup を 1 回実行 + 結果サマリを返す。 起動時と定期 loop の両方で呼ぶ。"""
-    from jsonl_session_status import cleanup_orphan_turn_starts  # noqa: PLC0415
+    from jsonl.session_status import cleanup_orphan_turn_starts  # noqa: PLC0415
     return {
         "killed_tmux": cleanup_stale_tmux_sessions(),
         "killed_idle_pwa": cleanup_idle_pwa_sessions(),

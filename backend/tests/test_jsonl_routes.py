@@ -4,7 +4,7 @@
 両方が依存する subtle なファイル tail ロジック (= 部分行の持ち越し、 truncate 検知、
 初回 replay の行絞り)。 ファイルだけで完結する純粋関数なので fixture は tmp_path のみ。
 """
-import jsonl_routes as jr
+import jsonl.routes as jr
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +254,7 @@ def _write_jsonl(path, lines):
 def test_busy_after_idle_settles_missing_terminal_marker(tmp_path):
     # 末尾が assistant 応答 (content あり) なのに stop_reason 欠落 → idle 判定では settled=False。
     # (= claude-code #22566 / monitor 取りこぼしのバックストップ)
-    from jsonl_session_status import busy_after_idle, compute_busy_from_tail
+    from jsonl.session_status import busy_after_idle, compute_busy_from_tail
     p = tmp_path / "s.jsonl"
     _write_jsonl(p, [
         {"type": "user", "message": {"content": "go"}},
@@ -268,7 +268,7 @@ def test_busy_after_idle_settles_missing_terminal_marker(tmp_path):
 
 def test_busy_after_idle_keeps_tool_use_busy(tmp_path):
     # 末尾が tool_use (= 長時間ツール実行中) は idle でも busy 維持 (誤って送信ボタンに戻さない)
-    from jsonl_session_status import busy_after_idle
+    from jsonl.session_status import busy_after_idle
     p = tmp_path / "s.jsonl"
     _write_jsonl(p, [
         {"type": "user", "message": {"content": "go"}},
@@ -279,7 +279,7 @@ def test_busy_after_idle_keeps_tool_use_busy(tmp_path):
 
 
 def test_busy_after_idle_terminal_is_false(tmp_path):
-    from jsonl_session_status import busy_after_idle
+    from jsonl.session_status import busy_after_idle
     p = tmp_path / "s.jsonl"
     _write_jsonl(p, [
         {"type": "user", "message": {"content": "go"}},
