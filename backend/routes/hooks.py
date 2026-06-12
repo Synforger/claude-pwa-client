@@ -24,7 +24,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 
 from config import AGENTS, TMUX_SESSION_MAP_DIR
-from push import broadcast_push, notification_title_for
+from core.push import broadcast_push, notification_title_for
 from state import agent_status, sessions_meta, sessions_overview, stream_states
 
 logger = logging.getLogger(__name__)

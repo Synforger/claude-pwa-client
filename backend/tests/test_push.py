@@ -1,5 +1,5 @@
 """push.py の Markdown sanitization / 通知整形系 pure 関数の unit test。"""
-from push import (
+from core.push import (
     _MD_TABLE_ROW_RE,
     _table_row_to_inline,
     sanitize_notif_body,
