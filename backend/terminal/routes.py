@@ -26,7 +26,7 @@ from starlette.websockets import WebSocketState
 from chat_content import save_to_tmp
 from config import AGENTS, CLAUDE_PATH  # noqa: F401  (CLAUDE_PATH は tests monkeypatch 用 re-export)
 
-from pty_runner import (
+from terminal.runner import (
     PtySession,
     has_tmux_session,
     jsonl_path_for_session,
@@ -40,7 +40,7 @@ from state import sessions_meta
 
 # 送信確認 (= JSONL カウント + wait + 救済再送) は pty_confirm に分離。
 # session 解決 + spawn は pty_session_resolver に分離。 ここは endpoint と pump のみ持つ。
-from pty_confirm import (
+from terminal.confirm import (
     _confirm_after_send,
     _count_command_lines,
     _count_in_lines,
@@ -50,7 +50,7 @@ from pty_confirm import (
     _is_plain_user_prompt,
     _wait_count_added,
 )
-from pty_session_resolver import (
+from terminal.session_resolver import (
     AUTORESUME_MAX_AGE_DAYS as _AUTORESUME_MAX_AGE_DAYS,
     ensure_pty_session_for,
     last_resumable_claude_sid as _last_resumable_claude_sid,

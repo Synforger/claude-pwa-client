@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import re
 
-from pty_runner import capture_tmux_scrollback
+from terminal.runner import capture_tmux_scrollback
 from state import agent_status, stream_states
 
 

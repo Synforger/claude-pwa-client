@@ -49,7 +49,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from config import CLAUDE_PATH
-from control_mode import (
+from terminal.control_mode import (
     ControlModeLineBuffer,
     build_refresh_client_line,
     build_send_keys_lines,

@@ -7,8 +7,8 @@ slash で別カウンタを使う (= 素は _count_user_prompts、 slash は _co
 """
 import json
 
-import pty_routes as pr
-import pty_session_resolver as psr
+import terminal.routes as pr
+import terminal.session_resolver as psr
 
 
 def _write_jsonl(path, lines):

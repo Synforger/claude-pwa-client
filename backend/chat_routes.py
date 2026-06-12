@@ -97,7 +97,7 @@ def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(re
     `claude --resume` で開く新タブ (= SessionDef、 parent_id + resume_session_id 付き) を
     登録して返す。 元タブ・元 jsonl には一切触れない。
     """
-    from pty_runner import jsonl_path_for_session  # noqa: PLC0415
+    from terminal.runner import jsonl_path_for_session  # noqa: PLC0415
     from fork import build_forked_lineage_lazy, fork_point_status  # noqa: PLC0415
     from jsonl_watcher import _cwd_to_project_dir  # noqa: PLC0415
 
@@ -228,9 +228,9 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
     """claude プロセスを kill + 新規 spawn する (= /clear と違ってプロセスメモリも完全解放)。
     新 claude_sid に切り替わるが SessionStart hook で bindings 更新されるので、 PWA タブは
     シームレスに続けて使える。 長期稼働で claude プロセスメモリが累積する問題への対策。"""
-    from pty_runner import kill_tmux_session, pty_sessions  # noqa: PLC0415
+    from terminal.runner import kill_tmux_session, pty_sessions  # noqa: PLC0415
     import jsonl_watcher  # noqa: PLC0415
-    from pty_routes import ensure_pty_session_for  # noqa: PLC0415
+    from terminal.routes import ensure_pty_session_for  # noqa: PLC0415
     # kill 経路は delete_session と同じだが、 sessions_meta は維持して即 spawn し直す
     try:
         kill_tmux_session(session_id)
@@ -300,7 +300,7 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
     fork_agent_id = getattr(meta, "agent_id", None) if meta is not None else None
     # PTY + tmux + JSONL binding を一括 cleanup
     try:
-        from pty_runner import kill_tmux_session, pty_sessions  # noqa: PLC0415
+        from terminal.runner import kill_tmux_session, pty_sessions  # noqa: PLC0415
         import jsonl_watcher  # noqa: PLC0415
         kill_tmux_session(session_id)
         pty_sessions.pop(session_id, None)
