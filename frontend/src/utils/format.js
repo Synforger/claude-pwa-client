@@ -36,30 +36,30 @@ export function formatTool(block) {
       shortLabel = truncate(label)
       break
     case 'Read':
-      label = `📄 read  ${input?.file_path ?? ''}`
+      label = `read  ${input?.file_path ?? ''}`
       shortLabel = truncate(label)
       break
     case 'Write':
-      label = `✏️ write ${input?.file_path ?? ''}`
+      label = `write ${input?.file_path ?? ''}`
       shortLabel = truncate(label)
       break
     case 'Edit': {
       const all = input?.replace_all ? ' (all)' : ''
-      label = `✏️ edit  ${input?.file_path ?? ''}${all}`
+      label = `edit  ${input?.file_path ?? ''}${all}`
       shortLabel = truncate(label)
       break
     }
     case 'Glob':
-      label = `🔍 glob  ${input?.pattern ?? ''}`
+      label = `glob  ${input?.pattern ?? ''}`
       shortLabel = truncate(label)
       break
     case 'Grep':
-      label = `🔍 grep  ${input?.pattern ?? ''}`
+      label = `grep  ${input?.pattern ?? ''}`
       shortLabel = truncate(label)
       break
     case 'WebSearch': {
       const q = input?.query ?? ''
-      shortLabel = truncate(`🌐 search "${q}"`)
+      shortLabel = truncate(`search "${q}"`)
       // 展開時は query 全文 + ドメイン制限 (あれば)
       const lines = [`search "${q}"`]
       if (Array.isArray(input?.allowed_domains) && input.allowed_domains.length > 0) {
@@ -73,7 +73,7 @@ export function formatTool(block) {
     }
     case 'WebFetch': {
       const url = input?.url ?? ''
-      shortLabel = truncate(`🌐 fetch ${url}`)
+      shortLabel = truncate(`fetch ${url}`)
       const lines = [`fetch ${url}`]
       if (input?.prompt) {
         lines.push('', `prompt:`, input.prompt)
@@ -220,7 +220,7 @@ export function formatTool(block) {
       const p = input?.notebook_path ?? ''
       const base = p.split('/').pop()
       const mode = input?.edit_mode || 'replace'
-      shortLabel = `📓 notebook ${mode} ${truncate(base, SHORT_LABEL_MAX - 16)}`
+      shortLabel = `notebook ${mode}  ${truncate(base, SHORT_LABEL_MAX - 12)}`
       const lines = [`path: ${p}`, `mode: ${mode}`]
       if (input?.cell_id) lines.push(`cell_id: ${input.cell_id}`)
       if (input?.cell_type) lines.push(`cell_type: ${input.cell_type}`)
