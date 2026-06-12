@@ -19,10 +19,18 @@ Claude Code をスマートフォンから操作するための PWA クライア
   fan-out (= 多数の子エージェント) でも 1 行に畳む。 チャットログの該当チップから対象へ直接遷移できる
 - **通知センター自動同期**: PWA を開く / フォアグラウンド復帰のタイミングで OS 通知センター ・
   アプリバッジ ・ backend 未読カウンタを同期掃除
-- **ファイルプレビュー**: チャット内のパスをタップして Markdown ・ シンタックスハイライト表示
-- **ファイルツリー**: サーバ上のディレクトリをパネルで閲覧
+- **ファイルプレビュー**: チャット内のパスをタップして Markdown ・ シンタックスハイライト表示。
+  50 以上の言語に対応した行番号付きハイライト、 Dockerfile ・ Makefile ・ .zshrc 等の
+  拡張子なしファイルも basename で判定する
+- **ファイルツリー + お気に入り**: サーバ上のディレクトリを ⋯ → ツリーパネルで閲覧。
+  各エントリ右側の ☆ で dir / file を localStorage にお気に入り登録、 トップバーの ⭐
+  ボタンから専用ピッカーで 1 タップ移動できる。 ファイルプレビュー画面からも登録可
+- **タスクパネル**: トップバーの 📋 ボタンで現在セッションの `TaskCreate` 由来 task 一覧
+  (pending / in_progress / completed の状態マーク付き) を表示
 - **画像 / テキスト添付**: マルチパートで送信し、 履歴に永続化
-- **ステータスバー**: 使用モデル ・ 5h usage ・ 7d usage ・ context 使用率をリアルタイム表示
+- **ステータスバー**: 使用モデル ・ プランモード / 残予算 ・ 5h usage ・ 7d usage ・
+  context 使用率をリアルタイム表示。 右端の 🔗 N チップから当セッションで言及された
+  全 PR を一覧 ・ GitHub へ直行
 - **会話のフォーク (分岐)**: 任意のメッセージから新タブで分岐する。 起点までの会話を引き継いだ
   まま別方向に試せる。 親 ・ 子はドロワーで階層表示、 フォークタブを閉じると専用 jsonl も掃除する
 - **メッセージ履歴永続化**: lz-string で圧縮して localStorage に保存
@@ -508,39 +516,57 @@ VITE_API_BASE=https://<your-host>.tail<xxxx>.ts.net
 claude-pwa-client/
 ├── backend/                       # FastAPI バックエンド (Python)
 │   ├── main.py                    # エントリポイント + ルータ集約 + lifespan task
-│   ├── pty_runner.py              # claude を実 PTY + tmux で起動・駆動
-│   ├── pty_discover.py            # tmux pane 配下の claude プロセス探索
-│   ├── pty_routes.py              # /ws/pty (ターミナル) + /pty/{sid}/send (入力経路)
-│   ├── control_mode.py            # tmux control mode (-CC) プロトコルパーサ
-│   ├── jsonl_routes.py            # /jsonl/stream の SSE 配信 + 全 session tail loop
-│   ├── jsonl_tail.py              # JSONL tail プリミティブ (純粋関数)
-│   ├── jsonl_events.py            # JSONL 1 行 → chat UI イベント変換
-│   ├── jsonl_session_status.py    # busy / agent_status / subagent の更新
-│   ├── jsonl_notifications.py     # 停止要因の検出と Web Push 配信
-│   ├── jsonl_plan_choices.py      # ExitPlanMode の選択肢抽出
-│   ├── jsonl_watcher.py           # ~/.claude/projects 監視で session ↔ JSONL を紐付け
-│   ├── fork.py                    # 会話フォーク (parentUuid 鎖の lineage 切り出し)
-│   ├── chat_routes.py             # session メタ / status / overview SSE / /views/ws / /stop
-│   ├── hooks_router.py            # /hooks/event (localhost only、 claude CLI hooks → Web Push)
-│   ├── files_routes.py            # /file, /files/tree, /task-output
-│   ├── subagents_routes.py        # subagent / workflow 一覧 + 個別 transcript
-│   ├── push.py                    # Web Push + 通知履歴 + SSE listener
-│   ├── usage.py                   # 使用率 (5h / 7d / ctx) 組み立て
-│   ├── chat_content.py            # 添付ファイル保存 (uploads/tmp)
 │   ├── state.py                   # プロセス共有状態
+│   ├── config.py                  # 設定読み込み + AGENTS 定義
+│   ├── chat_content.py            # 添付ファイル保存 (uploads/tmp)
+│   ├── pty_discover.py            # tmux pane 配下の claude プロセス探索
+│   ├── terminal/                  # PTY + tmux + control mode 層
+│   │   ├── routes.py              # /ws/pty (ターミナル) + /pty/{sid}/send (入力経路)
+│   │   ├── runner.py              # claude を実 PTY + tmux で起動・駆動
+│   │   ├── confirm.py             # 送信確認 (jsonl カウント + wait + 救済再送)
+│   │   ├── session_resolver.py    # session 設定の解決 (autoresume / alias)
+│   │   └── control_mode.py        # tmux control mode (-CC) プロトコルパーサ
+│   ├── jsonl/                     # ~/.claude/projects 監視 + JSONL → イベント変換層
+│   │   ├── routes.py              # /jsonl/stream の SSE 配信 + 全 session tail loop
+│   │   ├── tail.py                # JSONL tail プリミティブ (純粋関数)
+│   │   ├── events.py              # JSONL 1 行 → chat UI イベント変換
+│   │   ├── session_status.py      # busy / agent_status / tasks / pr_links 更新
+│   │   ├── notifications.py       # 停止要因の検出と Web Push 配信
+│   │   ├── plan_choices.py        # ExitPlanMode の選択肢抽出
+│   │   └── watcher.py             # ~/.claude/projects 監視で session ↔ JSONL を紐付け
+│   ├── routes/                    # HTTP / WS 各エンドポイント
+│   │   ├── chat.py                # session メタ / status / overview SSE / /views/ws / /stop
+│   │   ├── files.py               # /file, /files/tree, /task-output
+│   │   ├── subagents.py           # subagent / workflow 一覧 + 個別 transcript
+│   │   └── hooks.py               # /hooks/event (localhost only、 claude CLI hooks → Web Push)
+│   ├── core/                      # 横断ヘルパ
+│   │   ├── push.py                # Web Push + 通知履歴 + SSE listener
+│   │   ├── usage.py               # 使用率 (5h / 7d / ctx) 組み立て
+│   │   ├── maintenance.py         # 起動時/定期 GC (tmux/jsonl/log/cache)
+│   │   └── fork.py                # 会話フォーク (parentUuid 鎖の lineage 切り出し)
+│   ├── tests/                     # pytest (249 ケース)
 │   ├── config.example.json
 │   └── requirements.txt
 └── frontend/                      # React + Vite
     ├── src/
     │   ├── App.jsx                # ルートコンポーネント (タブ / チャット / 画面共有等)
+    │   ├── overlays/              # 全画面/サイドモーダル類
+    │   │   ├── FilePreviewModal.jsx   # md + 多言語シンタックスハイライト + 編集 + ⭐
+    │   │   ├── FileTreePanel.jsx      # ディレクトリ閲覧 + 行内 ☆ で fav 登録
+    │   │   ├── FavoritesQuickPicker.jsx # トップバー ⭐ から開く軽量ピッカー
+    │   │   ├── TasksModal.jsx         # トップバー 📋 から開く task list 表示
+    │   │   └── Modal.css / FileTreePanel.css / TasksModal.css
     │   ├── components/
-    │   │   ├── MoonlightFrame.jsx # 画面共有 iframe
+    │   │   ├── ChatInput.jsx      # メッセージ入力 + ⋯ メニュー (= 添付 / ツリー)
+    │   │   ├── StatusBar.jsx      # モデル / mode / 残予算 / 5h / 7d / ctx / 🔗 PR chip
     │   │   ├── SessionDrawer.jsx  # セッション一覧ドロワー
-    │   │   ├── StatusBar.jsx      # 使用率表示
     │   │   ├── MessageItem.jsx    # 単一メッセージのレンダリング
+    │   │   ├── Terminal.jsx       # xterm.js + /ws/pty
+    │   │   ├── SubagentsModal.jsx # サブエージェント / workflow ビューア
+    │   │   ├── MoonlightFrame.jsx # 画面共有 iframe
     │   │   └── ...
     │   ├── hooks/                 # チャット / SSE / 永続化 hook 群
-    │   └── utils/
+    │   └── utils/                 # api / format / favorites / id / storage 等
     └── public/
         ├── manifest.template.json # PWA manifest (env から値注入)
         └── sw.js                  # Service Worker (Web Push 受信)
