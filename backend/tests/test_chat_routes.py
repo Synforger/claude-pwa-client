@@ -18,7 +18,7 @@ def _setup_session(state, sid="ses_cfg"):
 
 def test_build_sessions_overview_reflects_busy(isolated_state):
     """全session overview payload が各 session の busy / pending_question を反映する (= 案B)。"""
-    import chat_routes
+    import routes.chat as chat_routes
     from state import StreamState
     state = isolated_state
     state.sessions_meta.clear()
@@ -38,7 +38,7 @@ def test_build_sessions_overview_reflects_busy(isolated_state):
 
 
 def test_require_session_passes_for_known_id(isolated_state):
-    import chat_routes
+    import routes.chat as chat_routes
     import state
 
     sid = "ses_known"
@@ -48,7 +48,7 @@ def test_require_session_passes_for_known_id(isolated_state):
 
 
 def test_require_session_raises_404_for_unknown(isolated_state):
-    import chat_routes
+    import routes.chat as chat_routes
 
     with pytest.raises(HTTPException) as exc:
         chat_routes.require_session("ses_does_not_exist")
@@ -58,7 +58,7 @@ def test_require_session_raises_404_for_unknown(isolated_state):
 def test_mark_user_stopped_sets_flag_and_clears_busy(isolated_state):
     """/views/ws の stop メッセージで呼ばれる _mark_user_stopped が user_stopped=True を
     立て busy を False に強制する。"""
-    import chat_routes
+    import routes.chat as chat_routes
     state = isolated_state
     sid = _setup_session(state)
     state.stream_states[sid].busy = True
@@ -71,7 +71,7 @@ def test_mark_user_stopped_sets_flag_and_clears_busy(isolated_state):
 
 def test_mark_user_stopped_returns_false_for_unknown_sid(isolated_state):
     """state が無い sid は False を返すだけで例外を出さない (= 多重 stop 耐性)。"""
-    import chat_routes
+    import routes.chat as chat_routes
     state = isolated_state
     state.stream_states.pop("ses_orphan", None)
     assert chat_routes._mark_user_stopped("ses_orphan") is False
