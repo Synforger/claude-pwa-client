@@ -14,6 +14,8 @@
    未 set 時は fallback として 120px (= 多めに余白を取って被りを避ける、 PWA 初期描画間に
    合わなくても確実に被らない方向に倒す)。 */
 .modal-overlay-preview {
+  /* ChatInput (z=60) より下、 FileTree (z=40) と同じ層に並ぶ。 入力欄は常に上に貫通。 */
+  z-index: 40;
   bottom: var(--chat-input-h, 120px);
   background: rgba(0,0,0,0.4);
   z-index: 50;
