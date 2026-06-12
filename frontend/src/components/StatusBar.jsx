@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 import { pctClass, timeUntil, formatResetWeekdayTime } from '../utils/format.js'
-import { apiFetch } from '../utils/api.js'
 import './StatusBar.css'
 
 // 7d window のリセットタイミング: Anthropic 仕様は **rolling 7-day window**
@@ -60,52 +59,7 @@ export default function StatusBar({ status, nowSec }) {
       </span>
       <span className={pctClass(status.ctx_pct)}>ctx {Math.round(status.ctx_pct || 0)}%</span>
       <PrLinksChip links={Array.isArray(status.pr_links) ? status.pr_links : []} />
-      <AccountChip />
     </div>
-  )
-}
-
-// 個人 / 仕事 アカウント切替チップ。 タップ 1 つで keychain credentials を入れ替えて
-// 全 tmux session を kill → autoresume で新アカウントの claude が既存 jsonl を再開する。
-// 試作段階なので確認 dialog は出す。
-function AccountChip() {
-  const [profile, setProfile] = useState(null)
-  const [busy, setBusy] = useState(false)
-  const fetchState = () => {
-    apiFetch('/account')
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then(d => setProfile(d.profile))
-      .catch(() => { /* unauthenticated or no profiles */ })
-  }
-  useEffect(fetchState, [])
-  if (!profile) return null
-  const other = profile === 'personal' ? 'work' : 'personal'
-  const onSwitch = async () => {
-    if (busy) return
-    if (!window.confirm(`Switch to ${other} account?\n(All running tabs will resume on the new credentials.)`)) return
-    setBusy(true)
-    try {
-      const r = await apiFetch('/account/switch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target: other }),
-      })
-      const d = await r.json().catch(() => ({}))
-      if (d.changed) setProfile(d.profile)
-      else fetchState()
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <button
-      type="button"
-      className={`acct-chip acct-${profile} ${busy ? 'busy' : ''}`}
-      onClick={onSwitch}
-      title={`${profile} (tap to switch to ${other})`}
-    >
-      {profile === 'work' ? '🏢 work' : '👤 personal'}
-    </button>
   )
 }
 
