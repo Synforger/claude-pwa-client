@@ -147,7 +147,7 @@ def test_build_lineage_from_message_id_uses_group_leaf():
 
 def _setup_fork_env(tmp_path, monkeypatch, isolated_state, source_lines=SAMPLE):
     """親 session + source jsonl を用意し、 jsonl_path 解決を tmp に差し替える。"""
-    import chat_routes  # noqa: PLC0415
+    import routes.chat as chat_routes  # noqa: PLC0415
     import terminal.runner as pty_runner  # noqa: PLC0415
     from config import AGENTS  # noqa: PLC0415
     state = isolated_state
@@ -383,7 +383,7 @@ import asyncio  # noqa: E402
 
 
 def test_delete_fork_session_removes_its_jsonl(tmp_path, monkeypatch, isolated_state):
-    import chat_routes  # noqa: PLC0415
+    import routes.chat as chat_routes  # noqa: PLC0415
     import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
     chat_routes, parent, src = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
     monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd: tmp_path)
@@ -403,7 +403,7 @@ def test_delete_fork_session_removes_its_jsonl(tmp_path, monkeypatch, isolated_s
 def test_delete_normal_session_does_not_touch_jsonl(tmp_path, monkeypatch, isolated_state):
     """通常タブ (= resume_session_id 無し) の DELETE では project dir の jsonl を絶対に触らない。
     フォーク GC ロジックが暴発しないかの安全弁テスト。"""
-    import chat_routes  # noqa: PLC0415
+    import routes.chat as chat_routes  # noqa: PLC0415
     chat_routes, parent, src = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
     asyncio.get_event_loop().run_until_complete(
         chat_routes.delete_session(parent.id, _="ok")
@@ -420,7 +420,7 @@ def test_delete_normal_session_does_not_touch_jsonl(tmp_path, monkeypatch, isola
 
 
 def test_restart_fork_session_promotes_to_normal_tab(tmp_path, monkeypatch, isolated_state):
-    import chat_routes  # noqa: PLC0415
+    import routes.chat as chat_routes  # noqa: PLC0415
     import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
     chat_routes, parent, _src = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
     monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd: tmp_path)
@@ -450,7 +450,7 @@ def test_restart_fork_session_promotes_to_normal_tab(tmp_path, monkeypatch, isol
 
 def test_restart_normal_session_keeps_meta_unchanged(tmp_path, monkeypatch, isolated_state):
     """通常タブ (= resume_session_id 無し) の restart では meta を一切触らない安全弁テスト。"""
-    import chat_routes  # noqa: PLC0415
+    import routes.chat as chat_routes  # noqa: PLC0415
     chat_routes, parent, _ = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
     async def _noop(_sid):
         return None

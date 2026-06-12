@@ -3,7 +3,7 @@ import pytest
 from fastapi import HTTPException
 
 from config import HOME
-from files_routes import _resolve_safe
+from routes.files import _resolve_safe
 
 
 def test_resolve_safe_inside_home():
@@ -72,7 +72,7 @@ def test_resolve_safe_allows_ordinary_paths():
 def _task_output_client():
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    import files_routes
+    import routes.files as files_routes
     app = FastAPI()
     app.include_router(files_routes.router)
     return TestClient(app)
@@ -80,7 +80,7 @@ def _task_output_client():
 
 def test_task_output_reads_tmp_task_file(tmp_path, monkeypatch):
     # 意図: /tmp/claude-<uid>/.../tasks/<id>.output の中身を読める (= HOME 外でも専用経路で許可)
-    import files_routes
+    import routes.files as files_routes
     real = tmp_path / "claude-501" / "proj" / "sess" / "tasks" / "abc123.output"
     real.parent.mkdir(parents=True)
     real.write_text("task log here\nexit 0\n")
