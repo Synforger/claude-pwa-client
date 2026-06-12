@@ -231,7 +231,7 @@ async def _jsonl_sse(session_id: str, start_pos: int | None = None):
 @router.get("/jsonl/_debug/bindings")
 async def jsonl_debug_bindings() -> dict:
     """debug: 現在 backend mem に持ってる watcher binding 一覧。"""
-    import jsonl_watcher
+    import jsonl.watcher as jsonl_watcher
     return jsonl_watcher.list_bindings()
 
 
