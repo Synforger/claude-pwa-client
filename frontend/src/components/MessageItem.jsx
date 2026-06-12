@@ -332,18 +332,6 @@ function AttachmentCard({ msg }) {
   )
 }
 
-function PrLinkCard({ msg }) {
-  const repo = msg.prRepository || ''
-  const label = `🔗 pr #${msg.prNumber ?? '?'}${repo ? `  ${repo}` : ''}`
-  return (
-    <div className="message system pr-link-card">
-      <a href={msg.prUrl} target="_blank" rel="noopener noreferrer" className="tool-line tool-pr-link">
-        {label}
-      </a>
-    </div>
-  )
-}
-
 function HookErrorCard({ msg }) {
   const dur = msg.durationMs != null ? `${msg.durationMs}ms` : null
   const short = `⚠️ hook failed  ${msg.hookName || '(unknown)'}${msg.exitCode != null ? `  exit ${msg.exitCode}` : ''}`
@@ -403,9 +391,6 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
   }
   if (msg.role === 'system' && msg.kind === 'attachment') {
     return <AttachmentCard msg={msg} />
-  }
-  if (msg.role === 'system' && msg.kind === 'pr_link') {
-    return <PrLinkCard msg={msg} />
   }
   if (msg.role === 'system' && msg.kind === 'hook_error') {
     return <HookErrorCard msg={msg} />

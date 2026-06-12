@@ -408,4 +408,13 @@ def mutate_agent_status(session_id: str, line: dict) -> bool:
                 if v is not None and a.get(k_dst) != v:
                     a[k_dst] = v
                     changed = True
+    elif line_type == "pr-link":
+        repo = line.get("prRepository") or ""
+        num = line.get("prNumber")
+        url = line.get("prUrl") or ""
+        if num is not None:
+            pr_links = a.get("pr_links") or []
+            if not any(p.get("prRepository") == repo and p.get("prNumber") == num for p in pr_links):
+                a["pr_links"] = [*pr_links, {"prRepository": repo, "prNumber": num, "prUrl": url}]
+                changed = True
     return changed

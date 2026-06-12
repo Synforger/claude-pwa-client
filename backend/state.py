@@ -210,6 +210,10 @@ def _make_agent_status(agent_id: str) -> dict:
         "budget_used": None,
         "budget_total": None,
         "budget_remaining": None,
+        # このセッションで言及された PR の一覧 (= jsonl の pr-link 行から重複排除して
+        # 集める)。 (prRepository, prNumber) で dedup、 古い順。 StatusBar の 🔗 chip
+        # で表示する。
+        "pr_links": [],
     }
 
 
