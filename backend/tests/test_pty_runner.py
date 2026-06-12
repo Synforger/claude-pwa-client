@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-import pty_runner
+import terminal.runner as pty_runner
 
 
 @pytest.fixture

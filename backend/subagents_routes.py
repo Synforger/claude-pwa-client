@@ -16,7 +16,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
 from jsonl_events import subagent_line_to_events
-from pty_runner import jsonl_path_for_session
+from terminal.runner import jsonl_path_for_session
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

@@ -40,7 +40,7 @@ from jsonl_tail import (
     read_complete_lines as _read_complete_lines,
     read_tail as _read_tail,
 )
-from pty_runner import jsonl_path_for_session
+from terminal.runner import jsonl_path_for_session
 from state import sessions_overview, stream_states
 
 
@@ -154,7 +154,7 @@ def _initial_offset(path: Path) -> int:
 async def _jsonl_sse(session_id: str, start_pos: int | None = None):
     # チャット画面のみ開いてターミナル画面に切り替えていないタブでも claude を起動させる。
     # 既に tmux + claude が動いていれば no-op。
-    from pty_routes import ensure_pty_session_for
+    from terminal.routes import ensure_pty_session_for
     await ensure_pty_session_for(session_id)
 
     # 初回起動直後 (= ensure_pty_session_for で spawn したが claude が SessionStart hook で

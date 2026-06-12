@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 from config import AGENTS, CLAUDE_PATH
-from pty_runner import has_tmux_session, pty_sessions, spawn_pty_session
+from terminal.runner import has_tmux_session, pty_sessions, spawn_pty_session
 from state import sessions_meta
 
 logger = logging.getLogger(__name__)
