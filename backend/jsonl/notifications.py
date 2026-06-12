@@ -16,7 +16,7 @@ import asyncio
 import time
 
 from jsonl.tail import parse_jsonl_timestamp
-from push import broadcast_push, notification_title_for
+from core.push import broadcast_push, notification_title_for
 
 
 # 推論が止まる原因として通知すべき stop_reason → ユーザ向けラベル。 旧 SDK 経路で
