@@ -76,8 +76,8 @@ import chat_routes  # noqa: E402
 import files_routes  # noqa: E402
 import hooks_router  # noqa: E402
 import jsonl_routes  # noqa: E402
-import pty_routes  # noqa: E402
-import pty_runner  # noqa: E402
+import terminal.routes as pty_routes  # noqa: E402
+import terminal.runner as pty_runner  # noqa: E402
 import push  # noqa: E402
 import subagents_routes  # noqa: E402
 

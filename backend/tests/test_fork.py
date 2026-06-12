@@ -148,7 +148,7 @@ def test_build_lineage_from_message_id_uses_group_leaf():
 def _setup_fork_env(tmp_path, monkeypatch, isolated_state, source_lines=SAMPLE):
     """親 session + source jsonl を用意し、 jsonl_path 解決を tmp に差し替える。"""
     import chat_routes  # noqa: PLC0415
-    import pty_runner  # noqa: PLC0415
+    import terminal.runner as pty_runner  # noqa: PLC0415
     from config import AGENTS  # noqa: PLC0415
     state = isolated_state
     monkeypatch.setattr(state, "save_sessions_meta", lambda: None)
@@ -428,11 +428,11 @@ def test_restart_fork_session_promotes_to_normal_tab(tmp_path, monkeypatch, isol
     fork_jsonl = tmp_path / f"{forked['resume_session_id']}.jsonl"
     assert fork_jsonl.exists()
     # ensure_pty_session_for と内部副作用は noop に差し替え (= restart の通常タブ化部分のみを検証)
-    from pty_routes import ensure_pty_session_for as real_spawn  # noqa: F401, PLC0415
+    from terminal.routes import ensure_pty_session_for as real_spawn  # noqa: F401, PLC0415
     async def _noop(_sid):
         return None
-    import pty_routes  # noqa: PLC0415
-    import pty_runner  # noqa: PLC0415
+    import terminal.routes as pty_routes  # noqa: PLC0415
+    import terminal.runner as pty_runner  # noqa: PLC0415
     monkeypatch.setattr(pty_routes, "ensure_pty_session_for", _noop)
     monkeypatch.setattr(pty_runner, "kill_tmux_session", lambda sid: True)
     # restart 実行
@@ -454,8 +454,8 @@ def test_restart_normal_session_keeps_meta_unchanged(tmp_path, monkeypatch, isol
     chat_routes, parent, _ = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
     async def _noop(_sid):
         return None
-    import pty_routes  # noqa: PLC0415
-    import pty_runner  # noqa: PLC0415
+    import terminal.routes as pty_routes  # noqa: PLC0415
+    import terminal.runner as pty_runner  # noqa: PLC0415
     monkeypatch.setattr(pty_routes, "ensure_pty_session_for", _noop)
     monkeypatch.setattr(pty_runner, "kill_tmux_session", lambda sid: True)
     asyncio.get_event_loop().run_until_complete(

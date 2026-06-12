@@ -45,7 +45,7 @@ async def register_claude_when_ready(
 def tmux_pane_pids(session_id: str) -> list[int]:
     """指定 PWA session の tmux session に属する pane の PID 一覧。"""
     # pty_runner との循環 import を避けるため遅延 import (= 関数の最初の呼出時のみ評価)
-    from pty_runner import USE_TMUX_WRAP, _run_tmux, _tmux_session_name
+    from terminal.runner import USE_TMUX_WRAP, _run_tmux, _tmux_session_name
     if not USE_TMUX_WRAP:
         return []
     r = _run_tmux("list-panes", "-t", _tmux_session_name(session_id), "-F", "#{pane_pid}", text=True)
