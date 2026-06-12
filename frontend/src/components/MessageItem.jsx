@@ -305,17 +305,16 @@ function ApiErrorCard({ msg }) {
 }
 
 function attachmentShort(sub, a) {
-  // bash 操作と同じ短ラベル方針: 英語小文字、 絵文字なし、 monospace。
   switch (sub) {
-    case 'edited_text_file': return `edited  ${a.filename || ''}`
-    case 'file':             return `attach  ${a.filename || ''}`
-    case 'compact_file_reference': return `compact ref  ${a.displayPath || a.filename || ''}`
-    case 'queued_command':   return `queued  ${a.content || a.command || ''}`
-    case 'task_reminder':    return `task reminder`
-    case 'skill_listing':    return `skill listing`
-    case 'command_permissions': return `perms  ${Array.isArray(a.allowedTools) ? `${a.allowedTools.length} tools` : ''}`
-    case 'auto_mode':        return `auto mode`
-    default:                 return sub
+    case 'edited_text_file':       return `📎 edited file  ${a.filename || ''}`
+    case 'file':                   return `📎 attached file  ${a.filename || ''}`
+    case 'compact_file_reference': return `📎 compact ref  ${a.displayPath || a.filename || ''}`
+    case 'queued_command':         return `📎 queued  ${a.content || a.command || ''}`
+    case 'task_reminder':          return `📎 task reminder  ${a.itemCount ?? ''}`
+    case 'skill_listing':          return `📎 skills  ${Array.isArray(a.skills) ? `${a.skills.length} available` : ''}`
+    case 'command_permissions':    return `📎 perms  ${Array.isArray(a.allowedTools) ? `${a.allowedTools.length} tools` : ''}`
+    case 'auto_mode':              return `📎 auto mode`
+    default:                       return `📎 ${sub}`
   }
 }
 
@@ -326,7 +325,7 @@ function AttachmentCard({ msg }) {
   return (
     <div className="message system attachment-card">
       <details>
-        <summary><span className="tool-line tool-attach">attachment  {short}</span></summary>
+        <summary><span className="tool-line tool-attach">{short}</span></summary>
         <pre className="attachment-body">{body}</pre>
       </details>
     </div>
@@ -335,7 +334,7 @@ function AttachmentCard({ msg }) {
 
 function PrLinkCard({ msg }) {
   const repo = msg.prRepository || ''
-  const label = `pr #${msg.prNumber ?? '?'}${repo ? `  ${repo}` : ''}`
+  const label = `🔗 pr #${msg.prNumber ?? '?'}${repo ? `  ${repo}` : ''}`
   return (
     <div className="message system pr-link-card">
       <a href={msg.prUrl} target="_blank" rel="noopener noreferrer" className="tool-line tool-pr-link">
@@ -347,7 +346,7 @@ function PrLinkCard({ msg }) {
 
 function HookErrorCard({ msg }) {
   const dur = msg.durationMs != null ? `${msg.durationMs}ms` : null
-  const short = `hook failed  ${msg.hookName || '(unknown)'}${msg.exitCode != null ? `  exit ${msg.exitCode}` : ''}`
+  const short = `⚠️ hook failed  ${msg.hookName || '(unknown)'}${msg.exitCode != null ? `  exit ${msg.exitCode}` : ''}`
   return (
     <div className="message system hook-error-card">
       <details>
@@ -363,13 +362,13 @@ function HookErrorCard({ msg }) {
 
 function SystemNoteCard({ msg }) {
   const short = ({
-    local_command: 'slash command',
-    scheduled_task_fire: 'scheduled wakeup',
-  })[msg.subtype] || msg.subtype
+    local_command: 'ℹ slash command',
+    scheduled_task_fire: 'ℹ scheduled wakeup',
+  })[msg.subtype] || `ℹ ${msg.subtype}`
   return (
     <div className="message system system-note-card">
       <details>
-        <summary><span className="tool-line tool-system-note">system  {short}</span></summary>
+        <summary><span className="tool-line tool-system-note">{short}</span></summary>
         <pre className="attachment-body">{msg.content || '(empty)'}</pre>
       </details>
     </div>

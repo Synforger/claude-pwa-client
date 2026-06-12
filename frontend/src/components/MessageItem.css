@@ -238,6 +238,12 @@
   cursor: pointer;
   user-select: none;
 }
+/* Safari / iOS は list-style では三角を消せないので ::-webkit-details-marker も明示 */
+.message.attachment-card details > summary::-webkit-details-marker,
+.message.system-note-card details > summary::-webkit-details-marker,
+.message.hook-error-card details > summary::-webkit-details-marker {
+  display: none;
+}
 .message.attachment-card .tool-attach { color: #d8d8d8; opacity: 0.85; }
 .message.system-note-card .tool-system-note { color: #d8d8d8; opacity: 0.85; }
 .message.hook-error-card .tool-hook-error {
