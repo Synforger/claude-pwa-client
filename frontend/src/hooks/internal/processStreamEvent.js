@@ -125,25 +125,30 @@ export function processStreamEvent(deps, sid, event) {
     return
   }
 
-  // pr_link: GitHub PR の作成記録。 タップで PR を開けるカード。
+  // pr_link: GitHub PR の作成記録。 タップで PR を開ける。
+  // claude TUI は同じ PR を毎ターン jsonl に記録する (= 1 session に 100+ 行) ので、
+  // (repository, prNumber) で dedup して 1 つだけ表示する。
   if (event.type === 'pr_link') {
     cancelAndFlush(sid)
-    const uuid = event.uuid || null
+    const repo = event.prRepository || ''
+    const num = event.prNumber ?? null
     setMessages(prev => {
       const msgs = prev[sid] || []
-      if (uuid && msgs.some(m => m.role === 'system' && m.kind === 'pr_link' && m.uuid === uuid)) {
-        return prev
-      }
+      const dup = msgs.some(m =>
+        m.role === 'system' && m.kind === 'pr_link' &&
+        m.prRepository === repo && m.prNumber === num
+      )
+      if (dup) return prev
       return {
         ...prev,
         [sid]: [...msgs, {
           id: generateId(),
           role: 'system',
           kind: 'pr_link',
-          uuid,
-          prNumber: event.prNumber ?? null,
+          uuid: event.uuid || null,
+          prNumber: num,
           prUrl: event.prUrl || '',
-          prRepository: event.prRepository || '',
+          prRepository: repo,
           timestamp: event.timestamp || null,
         }].slice(-MAX_MESSAGES),
       }
