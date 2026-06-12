@@ -17,9 +17,9 @@ import json
 import time
 from pathlib import Path
 
-from jsonl_events import HARNESS_XML_RE, INTERRUPT_USER_RE
-from jsonl_plan_choices import capture_plan_choices
-from jsonl_tail import parse_jsonl_timestamp
+from jsonl.events import HARNESS_XML_RE, INTERRUPT_USER_RE
+from jsonl.plan_choices import capture_plan_choices
+from jsonl.tail import parse_jsonl_timestamp
 from state import agent_status, sessions_overview, stream_states
 from usage import compute_ctx_pct, format_model_name
 

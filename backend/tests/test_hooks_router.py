@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 import hooks_router
-import jsonl_watcher
+import jsonl.watcher as jsonl_watcher
 
 
 @pytest.fixture

@@ -99,7 +99,7 @@ def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(re
     """
     from terminal.runner import jsonl_path_for_session  # noqa: PLC0415
     from fork import build_forked_lineage_lazy, fork_point_status  # noqa: PLC0415
-    from jsonl_watcher import _cwd_to_project_dir  # noqa: PLC0415
+    from jsonl.watcher import _cwd_to_project_dir  # noqa: PLC0415
 
     from_uuid = payload.get("from_uuid")
     if not from_uuid or not isinstance(from_uuid, str):
@@ -229,7 +229,7 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
     新 claude_sid に切り替わるが SessionStart hook で bindings 更新されるので、 PWA タブは
     シームレスに続けて使える。 長期稼働で claude プロセスメモリが累積する問題への対策。"""
     from terminal.runner import kill_tmux_session, pty_sessions  # noqa: PLC0415
-    import jsonl_watcher  # noqa: PLC0415
+    import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
     from terminal.routes import ensure_pty_session_for  # noqa: PLC0415
     # kill 経路は delete_session と同じだが、 sessions_meta は維持して即 spawn し直す
     try:
@@ -252,7 +252,7 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
         meta.resume_session_id = None
         save_sessions_meta()
         try:
-            from jsonl_watcher import _cwd_to_project_dir  # noqa: PLC0415
+            from jsonl.watcher import _cwd_to_project_dir  # noqa: PLC0415
             cwd = (AGENTS.get(meta.agent_id) or {}).get("cwd")
             project_dir = _cwd_to_project_dir(cwd) if cwd else None
             if project_dir is not None:
@@ -301,7 +301,7 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
     # PTY + tmux + JSONL binding を一括 cleanup
     try:
         from terminal.runner import kill_tmux_session, pty_sessions  # noqa: PLC0415
-        import jsonl_watcher  # noqa: PLC0415
+        import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
         kill_tmux_session(session_id)
         pty_sessions.pop(session_id, None)
         jsonl_watcher.unregister(session_id)
@@ -319,7 +319,7 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
     # 元タブの jsonl (= claude が普段使ってる alias 起動由来) はここでは絶対に触らない。
     if fork_resume_id and fork_agent_id:
         try:
-            from jsonl_watcher import _cwd_to_project_dir  # noqa: PLC0415
+            from jsonl.watcher import _cwd_to_project_dir  # noqa: PLC0415
             cwd = (AGENTS.get(fork_agent_id) or {}).get("cwd")
             project_dir = _cwd_to_project_dir(cwd) if cwd else None
             if project_dir is not None:
@@ -344,7 +344,7 @@ def _build_all_status() -> dict:
     を呼ぶと 32KB tail を sid 数回 read + parse することになり、 重い + 一瞬古い値が
     混じって status line がちらつく。 1 回 read + parse して、 sid 毎は dict lookup だけ
     にする (= O(read) + O(sid) で済む)。"""
-    import jsonl_watcher  # noqa: PLC0415
+    import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
     from usage import read_all_rate_limits_tail  # noqa: PLC0415
     parsed = read_all_rate_limits_tail()  # 32KB tail を 1 回読んで parse 済 list を返す
     # 5h/7d/*_resets_at はアカウント共通 = 末尾行から取る

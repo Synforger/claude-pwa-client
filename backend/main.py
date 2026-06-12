@@ -75,7 +75,7 @@ from state import sessions_meta  # noqa: E402
 import chat_routes  # noqa: E402
 import files_routes  # noqa: E402
 import hooks_router  # noqa: E402
-import jsonl_routes  # noqa: E402
+import jsonl.routes as jsonl_routes  # noqa: E402
 import terminal.routes as pty_routes  # noqa: E402
 import terminal.runner as pty_runner  # noqa: E402
 import push  # noqa: E402
@@ -143,7 +143,7 @@ async def lifespan(app: FastAPI):
 
     # JSONL watcher: ~/.claude/projects/ を fsevents で監視して、 各 PWA session の
     # claude プロセスが書く JSONL を backend mem に確定保持する。
-    import jsonl_watcher  # noqa: PLC0415, E402
+    import jsonl.watcher as jsonl_watcher  # noqa: PLC0415, E402
     jsonl_watcher.start_watcher()
     # 既存 tmux session (= backend 再起動跨ぎ) の claude プロセスを registry に登録。
     # 一斉 create_task すると session 数 × 16 回の pgrep/ps subprocess が起動直後に殺到する
@@ -190,7 +190,7 @@ async def lifespan(app: FastAPI):
             # cancel 後の CancelledError は想定通り、 それ以外の例外は無視 (= shutdown 続行)。
             pass
     await pty_runner.shutdown_all()
-    import jsonl_watcher  # noqa: PLC0415, E402
+    import jsonl.watcher as jsonl_watcher  # noqa: PLC0415, E402
     jsonl_watcher.stop_watcher()
 
 
