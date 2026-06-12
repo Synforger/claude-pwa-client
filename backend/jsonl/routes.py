@@ -23,9 +23,9 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from jsonl_events import jsonl_line_to_events
-from jsonl_notifications import maybe_push_blockers as _maybe_push_blockers
-from jsonl_session_status import (
+from jsonl.events import jsonl_line_to_events
+from jsonl.notifications import maybe_push_blockers as _maybe_push_blockers
+from jsonl.session_status import (
     attach_duration_to_result as _attach_duration_to_result,
     busy_after_idle as _busy_after_idle,
     compute_busy_from_tail as _compute_busy_from_tail,
@@ -36,7 +36,7 @@ from jsonl_session_status import (
     track_turn_start as _track_turn_start,
     update_busy as _update_busy,
 )
-from jsonl_tail import (
+from jsonl.tail import (
     read_complete_lines as _read_complete_lines,
     read_tail as _read_tail,
 )
