@@ -304,23 +304,29 @@ function ApiErrorCard({ msg }) {
   )
 }
 
+function attachmentShort(sub, a) {
+  // bash 操作と同じ短ラベル方針: 英語小文字、 絵文字なし、 monospace。
+  switch (sub) {
+    case 'edited_text_file': return `edited  ${a.filename || ''}`
+    case 'file':             return `attach  ${a.filename || ''}`
+    case 'compact_file_reference': return `compact ref  ${a.displayPath || a.filename || ''}`
+    case 'queued_command':   return `queued  ${a.content || a.command || ''}`
+    case 'task_reminder':    return `task reminder`
+    case 'skill_listing':    return `skill listing`
+    case 'command_permissions': return `perms  ${Array.isArray(a.allowedTools) ? `${a.allowedTools.length} tools` : ''}`
+    case 'auto_mode':        return `auto mode`
+    default:                 return sub
+  }
+}
+
 function AttachmentCard({ msg }) {
   const a = msg.attachment || {}
-  const label = ({
-    queued_command: '⏸ キュー中コマンド',
-    task_reminder: '⏰ リマインダ',
-    skill_listing: '🧰 利用可能スキル',
-    edited_text_file: '📝 ファイル編集',
-    file: '📎 ファイル添付',
-    compact_file_reference: '🗂 圧縮 file 参照',
-    command_permissions: '🔐 許可ツール',
-    auto_mode: '🤖 auto mode',
-  })[msg.subtype] || `📎 ${msg.subtype}`
+  const short = attachmentShort(msg.subtype, a)
   const body = JSON.stringify(a, null, 2)
   return (
     <div className="message system attachment-card">
       <details>
-        <summary>{label}</summary>
+        <summary><span className="tool-line tool-attach">attachment  {short}</span></summary>
         <pre className="attachment-body">{body}</pre>
       </details>
     </div>
@@ -329,10 +335,10 @@ function AttachmentCard({ msg }) {
 
 function PrLinkCard({ msg }) {
   const repo = msg.prRepository || ''
-  const label = `🔗 PR #${msg.prNumber ?? '?'}${repo ? ` · ${repo}` : ''}`
+  const label = `pr #${msg.prNumber ?? '?'}${repo ? `  ${repo}` : ''}`
   return (
     <div className="message system pr-link-card">
-      <a href={msg.prUrl} target="_blank" rel="noopener noreferrer" className="pr-link-anchor">
+      <a href={msg.prUrl} target="_blank" rel="noopener noreferrer" className="tool-line tool-pr-link">
         {label}
       </a>
     </div>
@@ -341,36 +347,29 @@ function PrLinkCard({ msg }) {
 
 function HookErrorCard({ msg }) {
   const dur = msg.durationMs != null ? `${msg.durationMs}ms` : null
+  const short = `hook failed  ${msg.hookName || '(unknown)'}${msg.exitCode != null ? `  exit ${msg.exitCode}` : ''}`
   return (
     <div className="message system hook-error-card">
-      <div className="hook-error-header">
-        <span className="hook-error-icon">⚠️</span>
-        <span className="hook-error-title">
-          hook 失敗: {msg.hookName || '(unknown)'}{msg.exitCode != null ? ` (exit ${msg.exitCode})` : ''}
-        </span>
-      </div>
-      {(msg.stderr || msg.stdout || msg.command) && (
-        <details className="hook-error-details">
-          <summary>詳細</summary>
-          {msg.command && <pre className="hook-error-block"><b>command:</b> {msg.command}</pre>}
-          {msg.stderr && <pre className="hook-error-block"><b>stderr:</b> {msg.stderr}</pre>}
-          {msg.stdout && <pre className="hook-error-block"><b>stdout:</b> {msg.stdout}</pre>}
-          {dur && <pre className="hook-error-block"><b>durationMs:</b> {dur}</pre>}
-        </details>
-      )}
+      <details>
+        <summary><span className="tool-line tool-hook-error">{short}</span></summary>
+        {msg.command && <pre className="hook-error-block"><b>command:</b> {msg.command}</pre>}
+        {msg.stderr && <pre className="hook-error-block"><b>stderr:</b> {msg.stderr}</pre>}
+        {msg.stdout && <pre className="hook-error-block"><b>stdout:</b> {msg.stdout}</pre>}
+        {dur && <pre className="hook-error-block"><b>durationMs:</b> {dur}</pre>}
+      </details>
     </div>
   )
 }
 
 function SystemNoteCard({ msg }) {
-  const label = ({
-    local_command: '⌨ slash command',
-    scheduled_task_fire: '⏰ 予約実行発火',
-  })[msg.subtype] || `ℹ ${msg.subtype}`
+  const short = ({
+    local_command: 'slash command',
+    scheduled_task_fire: 'scheduled wakeup',
+  })[msg.subtype] || msg.subtype
   return (
     <div className="message system system-note-card">
       <details>
-        <summary>{label}</summary>
+        <summary><span className="tool-line tool-system-note">system  {short}</span></summary>
         <pre className="attachment-body">{msg.content || '(empty)'}</pre>
       </details>
     </div>

@@ -214,48 +214,34 @@
   overflow: auto;
 }
 
-/* PR リンクカード (= GitHub PR が作られた時の記録) */
-.message.pr-link-card {
-  margin: 4px 0;
-}
-.pr-link-anchor {
-  display: inline-block;
-  padding: 6px 12px;
-  background: rgba(100, 180, 130, 0.15);
-  border: 1px solid rgba(100, 180, 130, 0.4);
-  border-radius: 6px;
-  color: #7fcf99;
-  font-size: 13px;
-  text-decoration: none;
-}
-.pr-link-anchor:hover { background: rgba(100, 180, 130, 0.25); }
-
-/* hooks 失敗カード (= non-blocking エラー、 黄色警告) */
-.message.hook-error-card {
+/* PR / hook / system_note 系は tool ログと同じ視覚言語 (= monospace + 緑 / 白 / 黄)。
+   bash 操作と並んでも違和感が出ないよう、 装飾は最小限に保つ。 */
+.message.pr-link-card,
+.message.hook-error-card,
+.message.system-note-card,
+.message.attachment-card {
   flex-direction: column;
   align-items: stretch;
-  margin: 6px 0;
-  background: rgba(230, 180, 60, 0.08);
-  border: 1px solid rgba(230, 180, 60, 0.4);
-  border-radius: 8px;
-  padding: 8px 12px;
+  margin: 2px 0;
+  padding: 0 2px;
 }
-.hook-error-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-  font-size: 12px;
-  color: #e6b43c;
+.message.pr-link-card .tool-pr-link {
+  color: var(--green);
+  text-decoration: none;
 }
-.hook-error-details {
-  margin-top: 6px;
-  font-size: 11px;
-  color: var(--text-dim);
-}
-.hook-error-details summary {
+.message.pr-link-card .tool-pr-link:hover { text-decoration: underline; }
+
+.message.attachment-card details > summary,
+.message.system-note-card details > summary,
+.message.hook-error-card details > summary {
+  list-style: none;
   cursor: pointer;
   user-select: none;
+}
+.message.attachment-card .tool-attach { color: #d8d8d8; opacity: 0.85; }
+.message.system-note-card .tool-system-note { color: #d8d8d8; opacity: 0.85; }
+.message.hook-error-card .tool-hook-error {
+  color: #e6b43c;
 }
 .hook-error-block {
   margin: 4px 0;
@@ -263,27 +249,10 @@
   background: var(--bg1, var(--bg3));
   border-radius: 4px;
   font-family: Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-dim);
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-/* system_note (= slash command / scheduled wakeup) は attachment と同じ折りたたみ系 */
-.message.system-note-card {
-  flex-direction: column;
-  align-items: stretch;
-  margin: 4px 0;
-}
-.message.system-note-card details {
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 10px;
-  font-size: 12px;
-  color: var(--text-dim);
-}
-.message.system-note-card summary {
-  cursor: pointer;
-  user-select: none;
 }
 
 /* Task / Workflow チップから 🧩 サブエージェント一覧へ飛ぶボタン */
