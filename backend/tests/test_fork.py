@@ -206,7 +206,7 @@ def test_fork_endpoint_finds_uuid_in_rolled_file(tmp_path, monkeypatch, isolated
     rolled = tmp_path / "rolled.jsonl"
     rolled.write_text("\n".join(SAMPLE) + "\n", encoding="utf-8")
     live.write_text(_line("zz", None, "user") + "\n", encoding="utf-8")  # live は別内容
-    monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd: tmp_path)
+    monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd, account_id=None: tmp_path)
     out = chat_routes.fork_session(parent.id, {"from_uuid": "u2"})
     assert out["parent_id"] == parent.id
     new = tmp_path / f"{out['resume_session_id']}.jsonl"
@@ -260,7 +260,7 @@ def test_fork_endpoint_stitches_lineage_across_rolled_files(tmp_path, monkeypatc
     chat_routes, parent, live = _setup_fork_env(tmp_path, monkeypatch, isolated_state, live_lines)
     rolled = tmp_path / "rolled.jsonl"
     rolled.write_text("\n".join(rolled_lines) + "\n", encoding="utf-8")
-    monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd: tmp_path)
+    monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd, account_id=None: tmp_path)
     out = chat_routes.fork_session(parent.id, {"from_uuid": "u3"})
     new = tmp_path / f"{out['resume_session_id']}.jsonl"
     # full lineage: rolled の u1,a1 + live の u2,a2,u3 を時系列順で 5 行揃う
@@ -355,7 +355,7 @@ def test_fork_endpoint_lazy_stops_reading_when_root_resolved(tmp_path, monkeypat
         (tmp_path / f"noise-{i}.jsonl").write_text(
             _line(f"x{i}", None, "user") + "\n", encoding="utf-8",
         )
-    monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd: tmp_path)
+    monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd, account_id=None: tmp_path)
     out = chat_routes.fork_session(parent.id, {"from_uuid": "u2"})
     new = tmp_path / f"{out['resume_session_id']}.jsonl"
     # full lineage が新 jsonl に書かれる (= 3 行、 ノイズ x[i] は混ざらない)
@@ -366,7 +366,7 @@ def test_fork_endpoint_not_found_across_all_files(tmp_path, monkeypatch, isolate
     from fastapi import HTTPException  # noqa: PLC0415
     import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
     chat_routes, parent, _ = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
-    monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd: tmp_path)
+    monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd, account_id=None: tmp_path)
     try:
         chat_routes.fork_session(parent.id, {"from_uuid": "ghost-uuid"})
     except HTTPException as e:
@@ -386,7 +386,7 @@ def test_delete_fork_session_removes_its_jsonl(tmp_path, monkeypatch, isolated_s
     import routes.chat as chat_routes  # noqa: PLC0415
     import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
     chat_routes, parent, src = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
-    monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd: tmp_path)
+    monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd, account_id=None: tmp_path)
     # フォーク作成 → 新 jsonl がある状態を確認
     forked = chat_routes.fork_session(parent.id, {"from_uuid": "u2"})
     new_path = tmp_path / f"{forked['resume_session_id']}.jsonl"
@@ -423,7 +423,7 @@ def test_restart_fork_session_promotes_to_normal_tab(tmp_path, monkeypatch, isol
     import routes.chat as chat_routes  # noqa: PLC0415
     import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
     chat_routes, parent, _src = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
-    monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd: tmp_path)
+    monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd, account_id=None: tmp_path)
     forked = chat_routes.fork_session(parent.id, {"from_uuid": "u2"})
     fork_jsonl = tmp_path / f"{forked['resume_session_id']}.jsonl"
     assert fork_jsonl.exists()
