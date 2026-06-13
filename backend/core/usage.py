@@ -38,18 +38,22 @@ def read_all_rate_limits_tail() -> list[dict]:
     return parsed
 
 
-def read_latest_rate_limits(claude_sid: str | None = None) -> dict:
+def read_latest_rate_limits(
+    claude_sid: str | None = None,
+    account_id: str | None = None,
+) -> dict:
     """rate-limits.jsonl (= statusline が記録) から 5h/7d/ctx/model を読む。
 
     proxy を一切使わず、 claude CLI 自身が statusline subprocess に渡す使用率を
     ファイル経由で拾う。 ファイル末尾だけ読んで軽く済ませる。 値が取れなければ空 dict
     (= 呼び出し側は既存 shared_status / agent_status を維持)。
 
-    rate-limits.jsonl は **全 claude セッション共有**の 1 ファイルで、 各行に `session_id`
-    (= claude_sid) を持つ。 5h/7d はアカウント全体なので最新行 (= どの session でも可) を使うが、
-    **model / ctx は session ごと**なので、 claude_sid 指定時はその session の最新行から取る
-    (= タブを切り替えたらそのタブの最新ステータスラインを出す)。 該当行が tail 内に無ければ
-    model/ctx は None で返し、 呼び出し側が per-session agent_status に fallback する。
+    rate-limits.jsonl は全 claude セッション共有の 1 ファイルだが、 各行は
+    `session_id` (= claude_sid) と `account_id` (= personal / work / ...) を持つ。
+    **5h/7d はアカウント別に Anthropic 側で計測される**ので、 必ず account_id でフィルタ
+    した最新行を使う (= 個人タブで会社の使用率が混ざるのを防ぐ)。 model / ctx は
+    session ごとなので claude_sid 一致の最新行を採る。 該当無しなら None を返して
+    呼び出し側 (= per-session agent_status) に fallback させる。
     """
     if not RATE_LIMITS_LOG_PATH:
         return {}
@@ -66,29 +70,36 @@ def read_latest_rate_limits(claude_sid: str | None = None) -> dict:
     if not lines:
         return {}
     parsed: list[dict] = []
-    for ln in lines[-100:]:
+    for ln in lines[-200:]:
         try:
             parsed.append(json.loads(ln))
         except (json.JSONDecodeError, ValueError):
             continue
     if not parsed:
         return {}
-    last = parsed[-1]  # アカウント全体の指標 (= 5h/7d) はどの session の行でも同じ
+    # account_id 指定時はその account の record だけ使う。 record に account_id 欄が
+    # 無い旧版は "personal" 扱い (= 単一 OAuth 運用との後方互換)。
+    if account_id:
+        scoped = [p for p in parsed if (p.get("account_id") or "personal") == account_id]
+    else:
+        scoped = parsed
+    if not scoped:
+        return {}
+    last = scoped[-1]  # アカウント別の集計 (= 5h/7d) は同 account 内最新行
     # model / ctx は session ごと。 claude_sid 指定時はその session の最新行から取る。
     if claude_sid:
         sess = next(
-            (p for p in reversed(parsed) if p.get("session_id") == claude_sid), None
+            (p for p in reversed(scoped) if p.get("session_id") == claude_sid), None
         )
     else:
         sess = last
-    # 7d% flap 吸収: Anthropic 側集計が 85%↔1% で一時的に揺らぐ (= 2026-05-29 早朝に観測)。
-    # 同じ seven_day_resets_at を共有する直近行の中で max を採り、 単調側に寄せて瞬間的な
-    # 下振れを潰す。 resets_at が変わった行 (= 正常な window リセット) は別 window なので
-    # 対象外にして、 リセット直後の正当な下振れまで max で隠さない。
+    # 7d% flap 吸収: Anthropic 側集計が 85%↔1% で一時的に揺らぐ。 同じ
+    # seven_day_resets_at を共有する直近行の中で max を採り単調側に寄せる。 account
+    # filter 済の scoped 内だけで計算 = 他 account の値は混ざらない。
     cur_reset = last.get("seven_day_resets_at")
     seven_day_pct = last.get("seven_day_pct")
     same_window = [
-        p.get("seven_day_pct") for p in parsed
+        p.get("seven_day_pct") for p in scoped
         if p.get("seven_day_resets_at") == cur_reset
         and isinstance(p.get("seven_day_pct"), (int, float))
     ]
