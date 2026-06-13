@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { apiFetch } from '../utils/api.js'
 import './SessionDrawer.css'
 
 // ⋯ メニューを押した時、 viewport 下端からどれくらい離れていれば「上方向に展開する」 と
@@ -46,6 +47,7 @@ export default function SessionDrawer({
   onTogglePush,
 }) {
   const [agentPicker, setAgentPicker] = useState(false) // + ボタン押下後の agent 選択メニュー
+  const [accounts, setAccounts] = useState([])
   const [menuFor, setMenuFor] = useState(null)          // ⋯ メニュー出してる session_id
   const [menuFlipUp, setMenuFlipUp] = useState(false)   // 画面下端なら上方向に展開
   const [renameFor, setRenameFor] = useState(null)      // リネーム inline 編集中の session_id
@@ -111,9 +113,29 @@ export default function SessionDrawer({
     return () => document.removeEventListener('mousedown', handler)
   }, [globalMenuOpen])
 
-  const handleCreate = (agentId) => {
+  const [pickedAgent, setPickedAgent] = useState(null)
+
+  // 新規会話ダイアログを開いた時にアカウント候補を取得 (= /accounts、 通常 personal 1 つ
+  // しか無ければ選択肢自体をスキップして agent → 即作成のフロー)。
+  useEffect(() => {
+    if (!agentPicker || accounts.length > 0) return
+    apiFetch('/accounts')
+      .then(r => r.ok ? r.json() : [])
+      .then(a => setAccounts(Array.isArray(a) ? a : []))
+      .catch(() => setAccounts([]))
+  }, [agentPicker, accounts.length])
+
+  const handleAgentPick = (agentId) => {
+    if (accounts.length <= 1) {
+      handleCreate(agentId, null)
+      return
+    }
+    setPickedAgent(agentId)
+  }
+  const handleCreate = (agentId, accountId) => {
     setAgentPicker(false)
-    onCreate(agentId)
+    setPickedAgent(null)
+    onCreate(agentId, accountId)
     onClose()
   }
 
@@ -204,20 +226,36 @@ export default function SessionDrawer({
             <button className="drawer-new" onClick={() => setAgentPicker(true)}>
               + 新規会話
             </button>
-          ) : (
+          ) : pickedAgent === null ? (
             <div className="agent-picker">
               <div className="agent-picker-label">agent を選択:</div>
               {agents.map(a => (
                 <button
                   key={a.id}
                   className="agent-picker-item"
-                  onClick={() => handleCreate(a.id)}
+                  onClick={() => handleAgentPick(a.id)}
                 >
                   {a.display_name}
                 </button>
               ))}
               <button className="agent-picker-cancel" onClick={() => setAgentPicker(false)}>
                 キャンセル
+              </button>
+            </div>
+          ) : (
+            <div className="agent-picker">
+              <div className="agent-picker-label">アカウントを選択:</div>
+              {accounts.map(acc => (
+                <button
+                  key={acc.id}
+                  className="agent-picker-item"
+                  onClick={() => handleCreate(pickedAgent, acc.id)}
+                >
+                  {acc.display_name}
+                </button>
+              ))}
+              <button className="agent-picker-cancel" onClick={() => setPickedAgent(null)}>
+                戻る
               </button>
             </div>
           )}
