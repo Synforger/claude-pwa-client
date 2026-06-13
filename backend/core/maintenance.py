@@ -180,9 +180,14 @@ def cleanup_old_jsonl(
     アクティブセッションが「14 日無書き込み」 で削除される事故を塞ぐ)。
 
     claude CLI の会話ログは turn ごとに append され、 /clear で新ファイルが切られるが、
-    自動 cleanup が無いので無限に蓄積する (= 実機で 468 MB / 168 ファイルの蓄積を確認)。"""
-    base = Path("~/.claude/projects/").expanduser()
-    if not base.is_dir():
+    自動 cleanup が無いので無限に蓄積する (= 実機で 468 MB / 168 ファイルの蓄積を確認)。
+
+    複数アカウント (= ACCOUNTS で CLAUDE_CONFIG_DIR を指定) の場合は、 各アカウントの
+    projects dir を全部対象に走査する (= quota は全アカウント合計で見る)。
+    """
+    from config import CLAUDE_PROJECTS_DIRS  # noqa: PLC0415
+    bases = [b for b in CLAUDE_PROJECTS_DIRS if b.is_dir()]
+    if not bases:
         return 0
     # 現在 PWA タブが bind 中の jsonl は idle でも保護する。
     bound_paths: set[str] = set()
@@ -198,15 +203,16 @@ def cleanup_old_jsonl(
     deleted = 0
     # 全 project を 1 リストに集約 (= quota は全体合計で見る)
     all_files: list[tuple[Path, float, int]] = []
-    for proj_dir in base.iterdir():
-        if not proj_dir.is_dir():
-            continue
-        for f in proj_dir.glob("*.jsonl"):
-            try:
-                st = f.stat()
-                all_files.append((f, st.st_mtime, st.st_size))
-            except OSError:
+    for base in bases:
+        for proj_dir in base.iterdir():
+            if not proj_dir.is_dir():
                 continue
+            for f in proj_dir.glob("*.jsonl"):
+                try:
+                    st = f.stat()
+                    all_files.append((f, st.st_mtime, st.st_size))
+                except OSError:
+                    continue
     all_files.sort(key=lambda x: x[1])  # mtime 古い順
     # Step 1: keep_days より古いものを削除 (bound は除外)
     survivors: list[tuple[Path, float, int]] = []
