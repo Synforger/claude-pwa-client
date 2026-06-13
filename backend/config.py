@@ -20,6 +20,39 @@ AGENTS: dict = config["agents"]
 # のように追加する。
 ACCOUNTS: dict = config.get("accounts") or {"personal": {"display_name": "個人", "env": {}}}
 
+
+def _projects_dirs_from_accounts() -> list[Path]:
+    """ACCOUNTS の env.CLAUDE_CONFIG_DIR から projects ディレクトリ候補を集める。
+    デフォルト `~/.claude/projects` は常に含める (= account_id=None 互換)。
+    """
+    dirs: list[Path] = [Path.home() / ".claude" / "projects"]
+    for cfg in ACCOUNTS.values():
+        env = (cfg or {}).get("env") or {}
+        d = env.get("CLAUDE_CONFIG_DIR")
+        if d:
+            p = Path(d).expanduser() / "projects"
+            if p not in dirs:
+                dirs.append(p)
+    return dirs
+
+
+# 監視・検索対象の Claude projects ディレクトリ群。 personal (= 通常 ~/.claude/projects)
+# に加えて、 ACCOUNTS で CLAUDE_CONFIG_DIR が指定されてれば ~/.claude-work/projects 等も
+# 含む。 jsonl_watcher / maintenance / fork はこの list を走査して該当 dir を選ぶ。
+CLAUDE_PROJECTS_DIRS: list[Path] = _projects_dirs_from_accounts()
+
+
+def projects_dir_for_account(account_id: str | None) -> Path:
+    """session の account_id から projects ディレクトリを返す。 該当が無ければ personal
+    (= ~/.claude/projects) にフォールバック。
+    """
+    if account_id:
+        env = (ACCOUNTS.get(account_id) or {}).get("env") or {}
+        d = env.get("CLAUDE_CONFIG_DIR")
+        if d:
+            return Path(d).expanduser() / "projects"
+    return Path.home() / ".claude" / "projects"
+
 # --- ファイル系 ---
 # uploads_tmp は config.json で上書き可能。
 UPLOADS_TMP = Path(config.get("uploads_tmp", str(HOME / ".claude-pwa-client" / "uploads" / "tmp"))).expanduser()
