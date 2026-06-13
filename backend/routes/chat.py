@@ -353,30 +353,39 @@ def _build_all_status() -> dict:
     import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
     from core.usage import read_all_rate_limits_tail  # noqa: PLC0415
     parsed = read_all_rate_limits_tail()  # 32KB tail を 1 回読んで parse 済 list を返す
-    # 5h/7d/*_resets_at はアカウント共通 = 末尾行から取る
-    last = parsed[-1] if parsed else {}
-    cur_reset = last.get("seven_day_resets_at")
-    seven_day_pct = last.get("seven_day_pct")
-    # 7d% flap 吸収 (= 同 window 内 max)
-    same_window = [
-        p.get("seven_day_pct") for p in parsed
-        if p.get("seven_day_resets_at") == cur_reset
-        and isinstance(p.get("seven_day_pct"), (int, float))
-    ]
-    if same_window:
-        seven_day_pct = max(same_window)
-    # session 毎 view (= model / ctx_pct) を 1 走査で構築
+    # account 別に集計 (= 並走中の個人 / 会社で 5h / 7d が混ざらないように)。
+    # rate-limits.jsonl の各 record は account_id ("personal" / "work" / ...) を持つ。
+    # 旧版で account_id 欠落の record は "personal" 扱い (= 単一 OAuth 運用との互換)。
+    by_acct: dict[str, list[dict]] = {}
     by_sess: dict[str, dict] = {}
     for p in parsed:
+        acct = p.get("account_id") or "personal"
+        by_acct.setdefault(acct, []).append(p)
         sid_key = p.get("session_id")
         if sid_key:
             by_sess[sid_key] = p  # 最後勝ち = 各 claude_sid の最新行
+    def _acct_view(acct: str) -> tuple[dict, float | int | None]:
+        ps = by_acct.get(acct) or []
+        if not ps:
+            return {}, None
+        last_p = ps[-1]
+        cur_reset = last_p.get("seven_day_resets_at")
+        same_window = [
+            p.get("seven_day_pct") for p in ps
+            if p.get("seven_day_resets_at") == cur_reset
+            and isinstance(p.get("seven_day_pct"), (int, float))
+        ]
+        seven_pct = max(same_window) if same_window else last_p.get("seven_day_pct")
+        return last_p, seven_pct
     out: dict[str, dict] = {}
     for sid in list(sessions_meta.keys()):
+        meta = sessions_meta[sid]
+        acct = meta.account_id or "personal"
         a = agent_status[sid]
         jp = jsonl_watcher.get_jsonl_for(sid)
         claude_sid = jp.stem if jp else None
         sess = by_sess.get(claude_sid) if claude_sid else None
+        last_acct, seven_day_pct_acct = _acct_view(acct)
         out[sid] = {
             "model": (sess.get("model") if sess else None) or a["model"],
             "ctx_pct": (sess.get("context_pct") if sess and sess.get("context_pct") is not None else a["ctx_pct"]),
@@ -393,10 +402,11 @@ def _build_all_status() -> dict:
             "budget_remaining": a.get("budget_remaining"),
             "pr_links": a.get("pr_links") or [],
             "tasks": a.get("tasks") or [],
-            "five_hour_pct": last.get("five_hour_pct") if last.get("five_hour_pct") is not None else shared_status["five_hour_pct"],
-            "seven_day_pct": seven_day_pct if seven_day_pct is not None else shared_status["seven_day_pct"],
-            "five_hour_resets_at": last.get("five_hour_resets_at") or shared_status["five_hour_resets_at"],
-            "seven_day_resets_at": last.get("seven_day_resets_at") or shared_status["seven_day_resets_at"],
+            "five_hour_pct": last_acct.get("five_hour_pct") if last_acct.get("five_hour_pct") is not None else shared_status["five_hour_pct"],
+            "seven_day_pct": seven_day_pct_acct if seven_day_pct_acct is not None else shared_status["seven_day_pct"],
+            "five_hour_resets_at": last_acct.get("five_hour_resets_at") or shared_status["five_hour_resets_at"],
+            "seven_day_resets_at": last_acct.get("seven_day_resets_at") or shared_status["seven_day_resets_at"],
+            "account_id": acct,
             "backend_start_time": backend_start_time,
         }
     return out
