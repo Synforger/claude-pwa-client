@@ -11,12 +11,15 @@
       "model": "Sonnet",
       "display_name": "Agent B",
       "launch_alias": "agent_b"
+    }
+  },
+  "accounts": {
+    "personal": {
+      "display_name": "個人",
+      "env": {}
     },
-    "agent_a_work": {
-      "cwd": "/path/to/agent_a",
-      "model": "Opus",
-      "display_name": "Agent A (work)",
-      "launch_alias": "agent_a",
+    "work": {
+      "display_name": "会社",
       "env": {
         "CLAUDE_CONFIG_DIR": "/Users/you/.claude-work"
       }

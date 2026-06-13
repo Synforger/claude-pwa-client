@@ -533,7 +533,7 @@ export default function App() {
             agents={agents}
             activeId={activeId}
             onSelect={selectSession}
-            onCreate={(agentId) => createSession(agentId)}
+            onCreate={(agentId, accountId) => createSession(agentId, accountId)}
             onRename={renameSession}
             onSetNotifyMode={setNotifyMode}
             onDelete={(sid) => setConfirmDelete(sid)}

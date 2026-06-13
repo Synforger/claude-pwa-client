@@ -63,11 +63,15 @@ def list_sessions():
 
 @router.post("/sessions")
 def create_session(payload: dict = Body(...)):
+    from config import ACCOUNTS  # noqa: PLC0415
     agent_id = payload.get("agent_id")
     title = payload.get("title")
+    account_id = payload.get("account_id")
     if not agent_id or agent_id not in AGENTS:
         raise HTTPException(status_code=400, detail="agent_id が無効です")
-    meta = register_session(agent_id, title)
+    if account_id is not None and account_id not in ACCOUNTS:
+        raise HTTPException(status_code=400, detail="account_id が無効です")
+    meta = register_session(agent_id, title, account_id=account_id)
     return meta.to_dict()
 
 
@@ -506,6 +510,18 @@ def list_agents():
     return [
         {"id": name, "display_name": cfg.get("display_name", name.upper())}
         for name, cfg in AGENTS.items()
+    ]
+
+
+@router.get("/accounts")
+def list_accounts():
+    """セッション作成時の「アカウント」 (= 個人 / 会社 OAuth 切替) 選択肢を返す。
+    候補が 1 つ (= 通常 personal だけ) のとき、 frontend は選択肢自体を出さなくて良い。
+    """
+    from config import ACCOUNTS  # noqa: PLC0415
+    return [
+        {"id": name, "display_name": cfg.get("display_name", name)}
+        for name, cfg in ACCOUNTS.items()
     ]
 
 
