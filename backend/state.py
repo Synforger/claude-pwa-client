@@ -63,6 +63,10 @@ class SessionDef:
     # build_forked_lineage で書き出した新 jsonl のファイル名 (= 新 claude session uuid)。
     # 通常タブ (= alias 起動) は None。
     resume_session_id: str | None = None
+    # どの Claude OAuth プロファイルでこのタブを起動するか (= config.json accounts の key)。
+    # spawn 時に accounts[account_id].env を CLAUDE_CONFIG_DIR 含む tmux env として注入する。
+    # 既存タブとの互換性のため None = personal 相当 (= 通常 ~/.claude/) として扱う。
+    account_id: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +77,7 @@ class SessionDef:
             "notify_mode": self.notify_mode,
             "parent_id": self.parent_id,
             "resume_session_id": self.resume_session_id,
+            "account_id": self.account_id,
         }
 
 
@@ -120,6 +125,7 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
                 notify_mode=mode if mode in NOTIFY_MODES else "both",
                 parent_id=entry.get("parent_id"),
                 resume_session_id=entry.get("resume_session_id"),
+                account_id=entry.get("account_id"),
             )
     else:
         # 初期化: agent ごと 1 セッションを生成する
@@ -308,11 +314,14 @@ def register_session(
     title: str | None = None,
     parent_id: str | None = None,
     resume_session_id: str | None = None,
+    account_id: str | None = None,
 ) -> SessionDef:
     """新規セッションを登録して全状態 dict を初期化する。 永続化まで行う。
 
     parent_id / resume_session_id はフォーク (= 会話分岐) で生まれたタブにのみ渡す
     (= 出自と、 初回 spawn で resume する claude session id)。
+    account_id は config.json accounts の key (= 個人 / 会社 OAuth の選択)。 None は
+    personal 相当 (= 通常 ~/.claude/) として扱う。
     """
     if agent_id not in AGENTS:
         raise ValueError(f"Unknown agent_id: {agent_id}")
@@ -323,6 +332,7 @@ def register_session(
     meta = SessionDef(
         id=sid, agent_id=agent_id, title=title, created_at=int(time.time()),
         parent_id=parent_id, resume_session_id=resume_session_id,
+        account_id=account_id,
     )
     sessions_meta[sid] = meta
     stream_states[sid] = StreamState(agent_id=agent_id)

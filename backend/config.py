@@ -12,6 +12,14 @@ with open(CONFIG_PATH) as f:
 # --- agent 定義 ---
 AGENTS: dict = config["agents"]
 
+# --- Claude OAuth プロファイル ("アカウント") 定義 ---
+# 各タブが起動時にどの ~/.claude / ~/.claude-work を使うかを SessionDef.account_id で
+# 指定し、 spawn 時に accounts[account_id].env を tmux env として注入する。 デフォルトは
+# personal (= 通常の ~/.claude 経路 = env 空) のみ。 会社アカウントを使う場合は
+# config.json で `accounts: {personal: {...}, work: {env: {CLAUDE_CONFIG_DIR: ...}}}`
+# のように追加する。
+ACCOUNTS: dict = config.get("accounts") or {"personal": {"display_name": "個人", "env": {}}}
+
 # --- ファイル系 ---
 # uploads_tmp は config.json で上書き可能。
 UPLOADS_TMP = Path(config.get("uploads_tmp", str(HOME / ".claude-pwa-client" / "uploads" / "tmp"))).expanduser()

@@ -65,8 +65,9 @@ export function useSessions() {
     })
   }, [])
 
-  const createSession = useCallback(async (agentId, title) => {
+  const createSession = useCallback(async (agentId, accountId, title) => {
     const body = { agent_id: agentId }
+    if (accountId) body.account_id = accountId
     if (title) body.title = title
     let meta
     try {
