@@ -25,7 +25,11 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-_CLAUDE_PROJECTS = Path.home() / ".claude" / "projects"
+from config import CLAUDE_PROJECTS_DIRS as _CLAUDE_PROJECTS_DIRS
+
+# 後方互換: 旧 `_CLAUDE_PROJECTS` 名で参照してた経路は personal (= dirs[0]) を返す。
+# 新規コードは _CLAUDE_PROJECTS_DIRS を走査して該当 dir を選ぶこと。
+_CLAUDE_PROJECTS = _CLAUDE_PROJECTS_DIRS[0]
 # binding を JSON で persist する file。 backend 再起動跨ぎで confirmed binding を
 # 保持する。 file が破損 / 読めなければ空起動。
 _PERSIST_PATH = Path(__file__).resolve().parent.parent / "logs" / "jsonl_bindings.json"
@@ -55,8 +59,19 @@ def _cwd_to_project_dirname(cwd: str) -> str:
     return cwd.replace("/", "-").replace(".", "-")
 
 
-def _cwd_to_project_dir(cwd: str) -> Path:
+def _cwd_to_project_dir(cwd: str, account_id: str | None = None) -> Path:
+    """cwd → projects ディレクトリ。 account_id が指定されてれば該当アカウントの
+    projects dir を返す。 指定なしなら personal (= 後方互換)。
+    """
+    if account_id:
+        from config import projects_dir_for_account  # noqa: PLC0415
+        return projects_dir_for_account(account_id) / _cwd_to_project_dirname(cwd)
     return _CLAUDE_PROJECTS / _cwd_to_project_dirname(cwd)
+
+
+def _candidate_project_dirs(cwd: str) -> list[Path]:
+    """全 accounts の projects dir 配下の `<cwd>` 候補を返す。 jsonl 検索時に使う。"""
+    return [d / _cwd_to_project_dirname(cwd) for d in _CLAUDE_PROJECTS_DIRS]
 
 
 def register_pending(
@@ -243,7 +258,11 @@ def _load_bindings() -> None:
 def start_watcher() -> None:
     """起動時に persist 済の confirmed binding を復元する。 ファイル監視はしない
     (= 紐付けは hook 駆動の confirm_bind に一本化、 確率窓マッチを廃止したため)。"""
-    _CLAUDE_PROJECTS.mkdir(parents=True, exist_ok=True)
+    for d in _CLAUDE_PROJECTS_DIRS:
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            logger.warning("failed to mkdir projects dir: %s", d)
     _load_bindings()
     logger.info("jsonl_watcher initialized (hook-driven bindings, %d restored)", len(_bindings))
 
