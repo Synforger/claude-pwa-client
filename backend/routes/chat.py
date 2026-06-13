@@ -118,7 +118,9 @@ def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(re
     # 一意なので確実に当たる)。
     live = jsonl_path_for_session(session_id)
     cwd = (AGENTS.get(parent.agent_id) or {}).get("cwd")
-    project_dir = _cwd_to_project_dir(cwd) if cwd else (live.parent if live else None)
+    # account_id でアカウント別の projects dir を選ぶ。 これがないと会社タブが personal の
+    # ~/.claude/projects/ を見て該当ファイル無し → 「会話が見つからない」 で失敗する。
+    project_dir = _cwd_to_project_dir(cwd, account_id=parent.account_id) if cwd else (live.parent if live else None)
 
     candidates: list = []
     if live is not None and live.exists():
