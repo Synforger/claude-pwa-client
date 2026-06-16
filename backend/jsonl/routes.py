@@ -60,7 +60,8 @@ POLL_INTERVAL = 0.5
 # 通常 (= 終端 stop_reason 行が書かれる) は monitor が即 busy=False にするので発火しない。
 # 終端マーカー欠落 (claude-code #22566) / monitor の取りこぼし のバックストップ。 長時間の
 # ツール実行 (= 末尾が tool_use) は busy_after_idle が True を返すので誤って解除しない。
-WATCHDOG_IDLE_SEC = 15.0
+# 体感即時化のため 15→5 に短縮 (= 2026-06-16、 watchdog コスト = 末尾 32KB の read+parse のみで軽い)。
+WATCHDOG_IDLE_SEC = 5.0
 
 
 def _latest_jsonl(session_id: str) -> Path | None:
@@ -387,6 +388,17 @@ async def monitor_all_sessions_loop():
                             if st_obj is not None:
                                 st_obj.status_event.set()
                                 sessions_overview.notify()  # 全 sid SSE にも伝播
+                    # self-heal: 上記の ad hoc な update_busy は 1 行ずつ追って上書きする
+                    # 設計なので、 行を 1 つでも取りこぼすと busy 状態が現実の jsonl 末尾と
+                    # 乖離したまま永続する。 全行処理直後に末尾真値で再構築して、 ad hoc 値と
+                    # 食い違っていたら上書きする (= 「停止ボタンずっと出てる」 の構造的潰し、
+                    # 2026-06-16)。 user_stopped 中は触らない。
+                    st_h = stream_states.get(sid)
+                    if st_h is not None and not st_h.user_stopped:
+                        truth_busy = _compute_busy_from_tail(path)
+                        if truth_busy != st_h.busy:
+                            st_h.busy = truth_busy
+                            sessions_overview.notify()
             except asyncio.CancelledError:
                 raise
             except Exception:
