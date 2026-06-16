@@ -567,22 +567,28 @@ export default function App() {
             <Terminal sessionId={sid} />
           </div>
         ))}
-        {activeViewMode !== 'terminal' && (
-          <div ref={scrollerDomRef} className="messages" onScroll={onScroll}>
-            {displayMessages.map((msg) => (
-              <MessageItem
-                key={msg.id}
-                msg={msg}
-                onOpenFile={handleOpenPath}
-                onAnswer={handleAnswer}
-                apiKeySource={activeSid ? apiKeySource[activeSid] : null}
-                activeSubagentTool={status?.subagent?.last_tool || null}
-                onOpenSubagents={(focus) => { setSubagentsFocus(focus || null); setSubagentsOpen(true) }}
-                onFork={activeSid ? ((uuid) => forkSession(activeSid, uuid)) : null}
-              />
-            ))}
-          </div>
-        )}
+        {/* chat も Terminal と対称に mount しっぱなしで display 切替する。
+            terminal モードへ行っても DOM が unmount されないので、 戻った時に
+            scroll 位置 / 画像 / プレビューの内部状態がそのまま残る (= 2026-06-16)。 */}
+        <div
+          ref={scrollerDomRef}
+          className="messages"
+          onScroll={onScroll}
+          style={activeViewMode === 'terminal' ? { display: 'none' } : undefined}
+        >
+          {displayMessages.map((msg) => (
+            <MessageItem
+              key={msg.id}
+              msg={msg}
+              onOpenFile={handleOpenPath}
+              onAnswer={handleAnswer}
+              apiKeySource={activeSid ? apiKeySource[activeSid] : null}
+              activeSubagentTool={status?.subagent?.last_tool || null}
+              onOpenSubagents={(focus) => { setSubagentsFocus(focus || null); setSubagentsOpen(true) }}
+              onFork={activeSid ? ((uuid) => forkSession(activeSid, uuid)) : null}
+            />
+          ))}
+        </div>
 
         {activeViewMode !== 'terminal' && showScrollBtn && (
           <button className="scroll-btn" onClick={() => scrollToBottom()} aria-label="最新メッセージへ">
