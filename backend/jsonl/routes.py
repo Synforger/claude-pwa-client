@@ -388,22 +388,6 @@ async def monitor_all_sessions_loop():
                             if st_obj is not None:
                                 st_obj.status_event.set()
                                 sessions_overview.notify()  # 全 sid SSE にも伝播
-                    # self-heal: ad hoc な update_busy が end_turn 行を取りこぼして busy=True が
-                    # 永続する事象 (= 「ずっと停止ボタン」、 2026-06-16) のバックストップ。
-                    # **方向は true → false のみ**: false → true への上書きは行わない。
-                    # 理由は claude TUI が新 turn 開始時に preamble メタ行 (last-prompt /
-                    # ai-title / mode / permission-mode) を先に書き、 素ユーザ user 行と
-                    # assistant 行は遅延書込する事象があり、 この瞬間 compute_busy_from_tail は
-                    # 前 turn の確定 stop_reason を拾って False を返す。 false → true 上書きを
-                    # 許すと、 ad hoc が PTY / hook 経由で正しく立てた busy=True が真値 False
-                    # で潰されて「推論中なのに送信ボタンのまま」 になる (= 2026-06-20)。
-                    # 新 turn 開始の検出は ad hoc 経路 (user 行 / tool_use assistant 行を
-                    # 1 行ずつ拾う) に任せる、 self-heal は完了の取りこぼしだけ救う。
-                    st_h = stream_states.get(sid)
-                    if st_h is not None and st_h.busy and not st_h.user_stopped:
-                        if not _compute_busy_from_tail(path):
-                            st_h.busy = False
-                            sessions_overview.notify()
             except asyncio.CancelledError:
                 raise
             except Exception:
