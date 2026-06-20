@@ -149,7 +149,9 @@ export function formatTool(block) {
       if (input?.model) lines.push(`model: ${input.model}`)
       if (input?.isolation) lines.push(`isolation: ${input.isolation}`)
       if (input?.run_in_background) lines.push(`background: true`)
-      if (input?.prompt) lines.push('', 'prompt:', input.prompt)
+      // prompt 本文は chat 側で非表示 (= 🤖 chip → subagent panel に詳細経路あり、
+      // inline 展開で全文出すと長文で会話が埋もれる、 2026-06-20)
+      if (input?.prompt) lines.push('', `prompt: ${input.prompt.length} chars (= 🤖 から開く)`)
       label = lines.join('\n')
       break
     }
