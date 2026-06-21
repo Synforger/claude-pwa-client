@@ -19,14 +19,23 @@
  * 停止ボタン経路は backend に /views/ws で意思を送り、 backend が user_stopped を立てて
  * busy=false を強制 + 全 client に push するので、 frontend 側で別フラグは持たない。
  */
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { apiUrl } from '../utils/api.js'
 import { applyOverviewSnapshot } from './internal/applyOverviewSnapshot.js'
+import { registerConnection, notifyConnectionChange } from './useConnectionStatus.js'
 
 export function useSessionsOverview({ setLoading, optimisticRef, onPayloadRef }) {
+  const esRef = useRef(null)
   useEffect(() => {
     const es = new EventSource(apiUrl('/sessions/overview/stream'))
+    esRef.current = es
+    const unreg = registerConnection(() => {
+      const e = esRef.current
+      return !!e && e.readyState === 1
+    })
+    es.onopen = () => notifyConnectionChange()
     es.onmessage = (e) => {
+      notifyConnectionChange()
       if (!e.data) return
       let payload
       try {
@@ -39,7 +48,7 @@ export function useSessionsOverview({ setLoading, optimisticRef, onPayloadRef })
       // ref 経由なので payload 受け取り側の hook が後段で wire される構成に対応できる。
       if (onPayloadRef?.current) onPayloadRef.current(payload)
     }
-    es.onerror = () => { /* EventSource は自動再接続 (= 一時切断は無視) */ }
-    return () => es.close()
+    es.onerror = () => notifyConnectionChange() /* EventSource は自動再接続 */
+    return () => { unreg(); es.close(); esRef.current = null }
   }, [setLoading, optimisticRef, onPayloadRef])
 }
