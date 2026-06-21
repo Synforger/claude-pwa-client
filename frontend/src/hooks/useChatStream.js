@@ -9,8 +9,12 @@ import { reconcileUserMessage } from './internal/reconcileUserMessage.js'
 import { useConnectionStatus } from './useConnectionStatus.js'
 
 // session_id → JSONL byte offset の永続化。 タブ切替 / リロードを跨いで「ここまで読んだ」 を
-// 保持し、 新規 EventSource 接続時に `?from=<offset>` で渡す。 backend は offset 以降の
-// 完全行だけ流すので、 初回 replay の重さがほぼゼロになる。
+// 保持し、 新規 EventSource 接続時に `?from=<sid>:<offset>,...` で渡す (= F-15)。 backend は
+// offset 以降の完全行だけ流すので、 初回 replay の重さがほぼゼロになる。
+//
+// F-15 以前は 1 sid あたり 1 EventSource を張り、 activeSid 切替で接続を張り直していた
+// (= 1-3s 待ち)。 F-15 で `/jsonl/stream/all` に統合し、 接続自体を活性 sid 切替で**閉じない**
+// ので、 タブ切替時に活性 sid の最新 message が即時表示される。
 function loadOffsets() {
   const parsed = lsGet(LS_JSONL_OFFSET)
   return parsed && typeof parsed === 'object' ? parsed : {}
@@ -18,6 +22,19 @@ function loadOffsets() {
 
 function persistOffsets(offsets) {
   lsSet(LS_JSONL_OFFSET, offsets)
+}
+
+// `{sid: offset}` → `sid1:off1,sid2:off2,...` query string (= /jsonl/stream/all の ?from)。
+// null / undefined / 非整数値の sid は skip (= backend が初回扱いで _initial_offset を使う)。
+function buildFromQuery(offsets) {
+  const parts = []
+  for (const [sid, off] of Object.entries(offsets || {})) {
+    if (!sid) continue
+    const n = Number(off)
+    if (!Number.isFinite(n) || n < 0) continue
+    parts.push(`${sid}:${Math.floor(n)}`)
+  }
+  return parts.join(',')
 }
 
 // chat 1 セッションの送受信・状態管理を束ねる公開フック (= TUI / JSONL 版)。
@@ -114,23 +131,35 @@ export function useChatStream({
     }
   })
 
+  // F-15: 全 sid を 1 接続で受ける統合 EventSource。 activeSid 変化では再接続しない
+  // (= 接続コスト + 1-3s 待ち を消す)。 接続再構築は明示 trigger (= endSession→reconnectKey
+  // 経由) のみ。 event 振分は event.sid を真値とし、 setMessages は event.sid 別キーに対して
+  // 行う (= activeSession 以外の sid も backend が publish 次第 frontend に反映される、
+  // useStreamBuffer も Map 化済で sid 並走 OK)。
   useEffect(() => {
-    if (!sid) return undefined
-    buffer.resetBuf(sid)
-    const from = offsetRef.current[sid]
-    const url = from != null
-      ? apiUrl(`/jsonl/stream/${encodeURIComponent(sid)}?from=${encodeURIComponent(from)}`)
-      : apiUrl(`/jsonl/stream/${encodeURIComponent(sid)}`)
+    const from = buildFromQuery(offsetRef.current)
+    const url = from
+      ? apiUrl(`/jsonl/stream/all?from=${encodeURIComponent(from)}`)
+      : apiUrl('/jsonl/stream/all')
     const es = new EventSource(url)
     es.onmessage = (e) => {
-      if (e.lastEventId) {
-        offsetRef.current[sid] = e.lastEventId
-        // 連続イベントで毎回 localStorage write すると重いので 1s debounce。
-        if (offsetPersistTimerRef.current) clearTimeout(offsetPersistTimerRef.current)
-        offsetPersistTimerRef.current = setTimeout(() => {
-          offsetPersistTimerRef.current = null
-          persistOffsets(offsetRef.current)
-        }, 1000)
+      // SSE id は `<sid>:<pos>` 形式。 backend が live publish 時に同 id を送ってくる
+      // (= EventSource の自動再接続は Last-Event-ID 1 件しか戻せないが、 ?from は frontend
+      // 側 offsetRef を真値として再構築するので、 ここでは offsetRef を都度更新する)。
+      if (e.lastEventId && e.lastEventId.includes(':')) {
+        const idx = e.lastEventId.lastIndexOf(':')
+        const evSid = e.lastEventId.slice(0, idx)
+        const evPos = e.lastEventId.slice(idx + 1)
+        const n = Number(evPos)
+        if (evSid && Number.isFinite(n) && n >= 0) {
+          offsetRef.current[evSid] = Math.floor(n)
+          // 連続イベントで毎回 localStorage write すると重いので 1s debounce。
+          if (offsetPersistTimerRef.current) clearTimeout(offsetPersistTimerRef.current)
+          offsetPersistTimerRef.current = setTimeout(() => {
+            offsetPersistTimerRef.current = null
+            persistOffsets(offsetRef.current)
+          }, 1000)
+        }
       }
       if (!e.data) return
       let event
@@ -139,14 +168,28 @@ export function useChatStream({
       } catch {
         return
       }
-      handleEventRef.current?.(sid, event)
+      // event.sid は backend が monitor 経路で必ず埋める (= jsonl_routes._process_new_lines
+      // 内 event.setdefault("sid", sid))。 万一欠落していたら現 activeSid に振る (= 旧挙動と
+      // 互換、 replay event は backend 側で sid を埋め済)。
+      const evSid = event.sid || sid
+      if (!evSid) return
+      handleEventRef.current?.(evSid, event)
     }
     es.onerror = () => { /* EventSource は自動再接続 (= Last-Event-ID で差分) */ }
     return () => {
       es.close()
+    }
+  }, [reconnectKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // activeSid 切替時の buffer reset。 接続自体は閉じない (= F-15 で /all 経路に統合)、
+  // ただし activeSid の useStreamBuffer の表示 buffer は新しいタブ用に初期化する。
+  useEffect(() => {
+    if (!sid) return undefined
+    buffer.resetBuf(sid)
+    return () => {
       buffer.cancelAndFlush(sid)
     }
-  }, [sid, reconnectKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sid]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // chat UI の操作 → tmux session にキー送信 (= 出力 SSE と分離)。
   const sendToPty = useCallback(async (targetSid, body) => {
