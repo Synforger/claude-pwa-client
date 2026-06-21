@@ -100,7 +100,7 @@ cp backend/config.example.json backend/config.json
 # config.json を編集してエージェントの cwd / claude コマンドパス等を設定
 
 # Web Push 用の VAPID 鍵生成 (1 度だけ)
-python backend/gen_vapid.py  # backend/vapid.json を生成
+python -m backend.cli.gen_vapid  # backend/vapid.json を生成
 
 # 起動
 uvicorn backend.main:app --host 0.0.0.0 --port 8765
@@ -196,7 +196,7 @@ frontend は Windows 側のブラウザから Tailscale 経由でそのままア
    pip install -r backend/requirements.txt
    cp backend/config.example.json backend/config.json
    # config.json の claude_path は `which claude` の結果と揃える
-   python backend/gen_vapid.py
+   python -m backend.cli.gen_vapid
    (cd frontend && npm install && npm run build)
    ```
 
