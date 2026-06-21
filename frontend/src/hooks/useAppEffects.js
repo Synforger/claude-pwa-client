@@ -2,21 +2,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LS_SESSION_ACTIVITY } from '../constants.js'
 import { apiFetch } from '../utils/api.js'
-import { lsGet, lsSet } from '../utils/storage.js'
+import { lsGet, lsSet, lsSetDebounced } from '../utils/storage.js'
 import { clearAllNotifications } from '../utils/badge.js'
 
 
 // --- session を開いた時に既読化 (= backend 側の通知履歴を消す) ---
 // アプリバッジ数字は App.jsx で useSessionBadges.unreadCount → setBadge 経路で
 // 同期するので、 ここでは backend の read-all を投げるだけ (= push 通知センター用)。
+//
+// activeSid 高速切替 (= 100ms 以下で 4 タブ往復するケース) で POST が N 連発するのを
+// 防ぐため 150ms debounce (= F-20)。 last-wins で「結果的に最後に居座った sid」 だけ
+// 1 回 POST する。 unmount 時は pending を破棄 (= 切替直後にアンマウントしたら投げない)。
+const READ_DEBOUNCE_MS = 150
 export function useReadOnSessionOpen(activeSid) {
   useEffect(() => {
     if (!activeSid) return
-    apiFetch(`/notifications/read-all`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: activeSid }),
-    }).catch(() => { /* ignore */ })
+    const timer = setTimeout(() => {
+      apiFetch(`/notifications/read-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: activeSid }),
+      }).catch(() => { /* ignore */ })
+    }, READ_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
   }, [activeSid])
 }
 
@@ -174,18 +182,20 @@ export function useSessionBadges({ sids, activeSid, messages, loading }) {
   // 「他端末で自分より後に見られたか」 を判定する。 揮発で OK (= ページ更新で初期化、
   // 新たに開く時点で activeSid useEffect が即 POST + 自分の lastSeenLocallyRef も更新)。
   const lastSeenLocallyRef = useRef({})
-  // 起動直後の settle window。 初回 status fetch 確定で loading が一斉に true→false へ
-  // 動く瞬間に、 active でない全 sid が誤って赤点灯するのを防ぐ (= この間は遷移を記録
-  // するだけで赤化しない)。 状態を時間で推測する用途ではなく boot 揺らぎの吸収。
-  const bootSettleUntilRef = useRef(Date.now() + 1500)
+  // 起動直後の settle gate。 初回 overview payload を 1 回受信するまで loading 遷移
+  // から赤丸化しない (= F-13)。 旧 1500ms 固定では backend 起動遅延で payload が 1.5s
+  // 以上来なかった時に誤判定する可能性があった。 「初回 payload 受信」 は
+  // onOverviewPayload が必ず呼ばれる経路 (= useSessionsOverview 経由) なので確実な signal。
+  const bootSettledRef = useRef(false)
 
   // messages の最新 ref (= pending question 判定用)
   const messagesRef = useRef(messages)
   useEffect(() => { messagesRef.current = messages }, [messages])
 
-  // localStorage 永続化
+  // localStorage 永続化。 unreadDone は loading 遷移 / activeSid 切替で短時間に連発する
+  // ため debounce (= F-46)。 中間 value は捨てて末尾 1 回だけ書く。
   useEffect(() => {
-    lsSet(LS_UNREAD_DONE, unreadDone)
+    lsSetDebounced(LS_UNREAD_DONE, unreadDone)
   }, [unreadDone])
 
   // 明示的既読化: session click 時に呼ばれる。 activeSid useEffect の前に
@@ -211,8 +221,8 @@ export function useSessionBadges({ sids, activeSid, messages, loading }) {
       }
     }
     prevLoadingRef.current = next
-    // boot settle 中は遷移を記録するだけ (= 赤化しない)。
-    if (Date.now() < bootSettleUntilRef.current) return
+    // boot settle: 初回 overview payload を受けるまで赤化しない (= F-13)。
+    if (!bootSettledRef.current) return
     if (flips.length === 0) return
     setUnreadDone(p => {
       const out = { ...p }
@@ -225,19 +235,28 @@ export function useSessionBadges({ sids, activeSid, messages, loading }) {
 
   // active タブに切替 / active タブの状態が動いた時に赤丸を落とす + backend に「見た」 を POST。
   // POST で他端末の赤丸も同期消去される (= overview SSE で last_seen_at を broadcast)。
+  //
+  // 高速切替時の POST 連発を防ぐため 150ms debounce (= F-21、 F-20 と同方針)。
+  // local 状態 (= 赤丸消す / lastSeenLocally 更新) は即時、 backend POST だけ末尾 1 回。
   useEffect(() => {
     if (!activeSid) return
     setUnreadDone(prev => (prev[activeSid] ? { ...prev, [activeSid]: false } : prev))
     // 自端末の「最後に見た時刻」 を local に記録 → overview の last_seen_at と比較する基準。
     lastSeenLocallyRef.current[activeSid] = Date.now() / 1000
-    // backend に「見た」 を投げる (= ack されたら他端末の SSE で last_seen_at が更新される)。
-    apiFetch(`/sessions/${encodeURIComponent(activeSid)}/seen`, { method: 'POST' }).catch(() => {})
+    const timer = setTimeout(() => {
+      // backend に「見た」 を投げる (= ack されたら他端末の SSE で last_seen_at が更新される)。
+      apiFetch(`/sessions/${encodeURIComponent(activeSid)}/seen`, { method: 'POST' }).catch(() => {})
+    }, 150)
+    return () => clearTimeout(timer)
   }, [activeSid])
 
   // overview SSE で受信した last_seen_at を見て、 「他端末で自分より後に見られた sid」 の
   // unreadDone を消す。 これで iPhone と Mac で開いたタブの赤丸が同期する。
+  //
+  // 初回 payload 受信で boot settle (= F-13)。 以後 loading 遷移は赤化反映される。
   const onOverviewPayload = useCallback((payload) => {
     if (!payload || typeof payload !== 'object') return
+    bootSettledRef.current = true
     setUnreadDone(prev => {
       let mutated = false
       const next = { ...prev }
