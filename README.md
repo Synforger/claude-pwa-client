@@ -106,6 +106,14 @@ python backend/gen_vapid.py  # backend/vapid.json を生成
 uvicorn backend.main:app --host 0.0.0.0 --port 8765
 ```
 
+> **開発時の注意**: backend のサブパッケージ構成や import 構造を変更した時は、
+> 古い `__pycache__/*.pyc` が import 事故 (= 旧名 module が残って ImportError)
+> の温床になる。 再起動前に下記で purge する:
+>
+> ```bash
+> find backend -name __pycache__ -type d -exec rm -rf {} +
+> ```
+
 #### フロントエンド
 
 ```bash
