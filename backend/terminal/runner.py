@@ -45,6 +45,7 @@ import struct
 import subprocess
 import termios
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -112,6 +113,12 @@ class PtySession:
     control_mode: bool = False
     _reader_attached: bool = False
     _cmbuf: ControlModeLineBuffer = field(default_factory=ControlModeLineBuffer)
+    # backend-F-49: zsh prompt が画面に出た瞬間に set する signal。 `_send_launch_alias`
+    # が固定 1s sleep でなくこれを await することで、 遅い端末でも prompt 出現を待って
+    # 確実に alias を投入、 速い端末では即時投入できる。 prompt 検出は `_enqueue_output`
+    # で bracketed-paste enable sequence (= `\x1b[?2004h`、 zsh の標準 prompt 末尾) を
+    # 見たら set。 backend-F-49 ヒューリスティック (= 100% 確実ではないので timeout fallback あり)。
+    prompt_ready: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 def _set_winsize(fd: int, rows: int, cols: int) -> None:
@@ -234,7 +241,7 @@ async def spawn_pty_session(
     # 新規 tmux session かつ launch_alias 指定時のみ、 zsh prompt 出現を待ってから alias 送出。
     # 既存 reattach では中で既に claude が走ってる可能性が高いので何もしない。
     if launch_alias and is_new_tmux_session and USE_TMUX_WRAP:
-        asyncio.create_task(_send_launch_alias(session_id, launch_alias))
+        asyncio.create_task(_send_launch_alias(session_id, launch_alias, session=session))
     # 新規 tmux session でも reattach でも、 claude プロセス起動 (= launch_alias 後の数秒、
     # 既存セッションなら即時) を待って backend mem の binding に登録する
     # pty_discover への遅延 import で循環回避 (= pty_discover が pty_runner の _run_tmux に依存)
@@ -249,10 +256,33 @@ async def spawn_pty_session(
     return session
 
 
-async def _send_launch_alias(session_id: str, alias: str, delay: float = 1.0) -> None:
-    """zsh -il の起動完了 (= prompt 表示) を `delay` 秒待ってから tmux に alias+Enter を送る。"""
+async def _send_launch_alias(
+    session_id: str, alias: str,
+    session: "PtySession | None" = None,
+    max_wait: float = 3.0,
+    fallback_delay: float = 1.0,
+) -> None:
+    """zsh -il の起動完了 (= prompt 表示) を待ってから tmux に alias+Enter を送る。
+
+    backend-F-49: 旧版は固定 1s sleep の決め打ちで、 遅い端末では prompt 前に alias が
+    流れて欠落、 速い端末では無駄に待つ二重損だった。 control mode buffer から zsh の
+    bracketed-paste enable (= prompt 末尾の `\\x1b[?2004h`) を検出して
+    `session.prompt_ready` が set されたら即時送る。 検出経路が無い場合 (= session 引数
+    無し or control_mode 無し) は従来通り fallback_delay 秒 sleep する。 検出経路はあるが
+    max_wait 内に signal が来なければ「prompt 検出失敗」 として打診的に送る (= 端末が
+    zsh 以外の case)。
+    """
     try:
-        await asyncio.sleep(delay)
+        if session is not None and session.control_mode:
+            try:
+                await asyncio.wait_for(session.prompt_ready.wait(), timeout=max_wait)
+            except asyncio.TimeoutError:
+                logger.info(
+                    "launch alias: prompt_ready not set within %.1fs session=%s (sending anyway)",
+                    max_wait, session_id,
+                )
+        else:
+            await asyncio.sleep(fallback_delay)
         ok = tmux_send_keys(session_id, text=alias, enter=True)
         if not ok:
             logger.warning("launch alias send failed session=%s alias=%s", session_id, alias)
@@ -338,7 +368,14 @@ def _attach_reader(session: PtySession) -> None:
 
 
 def _enqueue_output(session: PtySession, data: bytes) -> None:
-    """client 向け出力 queue に積む。 満杯なら最古を 1 個捨てて入れる (= 読み遅れ吸収)。"""
+    """client 向け出力 queue に積む。 満杯なら最古を 1 個捨てて入れる (= 読み遅れ吸収)。
+
+    backend-F-49: zsh prompt が描画された signal を立てる (= bracketed-paste enable
+    `\\x1b[?2004h` は zsh プロンプト末尾で必ず出る制御列、 prompt theme に依存しない)。
+    `_send_launch_alias` がこれを await して alias 投入タイミングを精密化する。
+    """
+    if not session.prompt_ready.is_set() and b"\x1b[?2004h" in data:
+        session.prompt_ready.set()
     try:
         session.output_queue.put_nowait(data)
     except asyncio.QueueFull:
@@ -489,23 +526,53 @@ def tmux_send_keys(
     if not has_tmux_session(session_id):
         return False
     tmux_name = _tmux_session_name(session_id)
+    arg_sets, chained_enter = _build_send_keys_chain(tmux_name, text=text, key=key, enter=enter)
+    if not arg_sets:
+        return False
+    ok = True
+    for args in arg_sets:
+        r = _run_tmux(*args)
+        if r is None or r.returncode != 0:
+            ok = False
+            logger.warning("tmux send-keys failed session=%s cmd=%s", session_id, args[-2:])
+    # chained_enter は将来 caller 側で「Enter が text と同梱されたか」 を判断したい時の
+    # 拡張点 (= 現状未使用、 互換のため内部利用)。
+    _ = chained_enter
+    return ok
+
+
+def _build_send_keys_chain(
+    tmux_name: str,
+    text: str | None = None,
+    key: str | None = None,
+    enter: bool = False,
+) -> tuple[list[list[str]], bool]:
+    """tmux_send_keys が流す subprocess 引数 set を組み立てる純粋 helper (= backend-F-53)。
+
+    旧版は tmux_send_keys 関数内に組立 + 実行 + 戻り値処理 が混ざっていて、 chain の
+    どこに Enter が同梱されたか (= chained_enter) を flag 変数で書き戻すスタイルだった。
+    組立だけを抽出すると test 可能 + chained_enter を tuple で素直に返せる。
+
+    返り値: (arg_sets, chained_enter)
+        arg_sets: tmux subprocess に流す引数列のリスト (順次実行)
+        chained_enter: text 同梱で Enter を入れたか (= 別途 Enter コマンド要否の合図)
+
+    text 送信:
+      - 複数行 text は paste-buffer 経路 (= claude TUI で `[Pasted text #N]` プレースホルダ
+        化)。 1 行 text は素の send-keys -l (= paste-buffer は 2 回送る必要があり 1 行で
+        やると「重複 paste」 になるため避ける)。
+      - text と Enter が 2 subprocess に分かれると paste の pane feed 完了前に Enter が
+        届いて取りこぼされる実機ケースがあるため、 tmux の `;` chain で 1 invocation に
+        まとめる (= tmux server 内の queue で順次処理が保証される)。
+    """
     arg_sets: list[list[str]] = []
-    # text 送信:
-    #   - paste-buffer に `-p` を付けて bracketed paste mode で送る (= TUI が paste 全体を
-    #     一塊として認識、 paste 内の改行を確定として扱わない)。 これがないと、 長文中の
-    #     改行で claude TUI が途中で確定したり、 普通の連続キー入力扱いになる。
-    #   - text と Enter が 2 subprocess に分かれていると、 paste の pane feed が完了する
-    #     前に Enter が届いて取りこぼされる実機ケースがあるため、 tmux のコマンドチェーン
-    #     `;` で 1 invocation にまとめる (= tmux server 内の queue で順次処理が保証される)。
     chained_enter = False
     if text:
-        text_args = None
-        # 改行を含む text のみ paste-buffer 経路 (= claude TUI で `[Pasted text #N]`
-        # プレースホルダ化される対象)。 single-line は素の send-keys -l で安全に送れる上、
-        # paste-buffer を 2 回送る経路に乗せると 2 回目が「重複 paste」 になってしまうので
-        # 構造的に避ける。
+        text_args: list[str] | None = None
         if "\n" in text:
-            buf_name = f"pwa-paste-{int(time.time() * 1_000_000)}"
+            # backend-F-51: time.time() * 1_000_000 は同一 μs を 2 度返す race があるので
+            # uuid4 ハッシュ 8 字に切替 (= 2^32 衝突率で実質衝突無し)。
+            buf_name = f"pwa-paste-{uuid.uuid4().hex[:8]}"
             try:
                 proc = subprocess.run(
                     ["tmux", "load-buffer", "-b", buf_name, "-"],
@@ -516,9 +583,8 @@ def tmux_send_keys(
                 if proc.returncode == 0:
                     # claude TUI の bracketed paste は 1 回目で `[Pasted text #N]` プレース
                     # ホルダにまとめられ、 そこから展開して送信するには「同じ paste をもう
-                    # 一度」 送る必要がある (= TUI が "paste again to expand" と明示、 実機
-                    # capture で確認)。 paste-buffer を 2 回チェーンする: 1 回目は -d なしで
-                    # buffer 保持、 2 回目に -d で削除。
+                    # 一度」 送る必要がある (= TUI が "paste again to expand" と明示)。
+                    # paste-buffer を 2 回チェーン: 1 回目は -d なしで buffer 保持、 2 回目に -d で削除。
                     text_args = [
                         "paste-buffer", "-p", "-b", buf_name, "-t", tmux_name,
                         ";",
@@ -536,15 +602,26 @@ def tmux_send_keys(
         arg_sets.append(["send-keys", "-t", tmux_name, key])
     if enter and not chained_enter:
         arg_sets.append(["send-keys", "-t", tmux_name, "Enter"])
-    if not arg_sets:
-        return False
-    ok = True
-    for args in arg_sets:
-        r = _run_tmux(*args)
-        if r is None or r.returncode != 0:
-            ok = False
-            logger.warning("tmux send-keys failed session=%s cmd=%s", session_id, args[-2:])
-    return ok
+    return arg_sets, chained_enter
+
+
+def get_pane_cursor_y(session_id: str) -> int | None:
+    """pane の現在カーソル行 (= y 座標) を `display-message -p` で取得する (= backend-F-22)。
+
+    `_confirm_after_send` の Enter 救済前に呼んで、 「prompt 行に居る (= 入力されてない)」
+    か「下に降りた (= text が入って改行/折り返しがあった)」 を区別する。 取得失敗 (= tmux
+    が応答しない / session 不在) は None を返し、 caller は従来挙動 (= 救済を打つ) に倒す。
+    """
+    if not USE_TMUX_WRAP:
+        return None
+    r = _run_tmux(
+        "display-message", "-p", "-t", _tmux_session_name(session_id), "#{cursor_y}",
+        text=True,
+    )
+    if r is None or r.returncode != 0:
+        return None
+    s = r.stdout.strip()
+    return int(s) if s.isdigit() else None
 
 
 def kill_tmux_session(session_id: str) -> bool:

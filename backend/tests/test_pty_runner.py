@@ -143,6 +143,98 @@ def test_resize_pty_control_mode_emits_refresh_client():
         os.close(w)
 
 
+# --- backend-F-53: _build_send_keys_chain helper -----------------------------
+
+
+def test_build_send_keys_chain_single_line_text_no_enter():
+    args, chained = pty_runner._build_send_keys_chain("pwa-x", text="hello")
+    assert chained is False
+    assert args == [["send-keys", "-t", "pwa-x", "-l", "hello"]]
+
+
+def test_build_send_keys_chain_text_with_enter_chained():
+    """Enter は text と同じ subprocess の `;` chain に入る (= paste race 防止)。"""
+    args, chained = pty_runner._build_send_keys_chain("pwa-x", text="hi", enter=True)
+    assert chained is True
+    # 1 invocation の中に text と Enter が同居
+    assert args[0] == [
+        "send-keys", "-t", "pwa-x", "-l", "hi",
+        ";", "send-keys", "-t", "pwa-x", "Enter",
+    ]
+
+
+def test_build_send_keys_chain_key_only():
+    args, chained = pty_runner._build_send_keys_chain("pwa-x", key="Escape")
+    assert chained is False
+    assert args == [["send-keys", "-t", "pwa-x", "Escape"]]
+
+
+def test_build_send_keys_chain_enter_only():
+    """text 無し + key 無し + enter のみ (= 救済 Enter 経路) は別 invocation で Enter。"""
+    args, chained = pty_runner._build_send_keys_chain("pwa-x", enter=True)
+    assert chained is False
+    assert args == [["send-keys", "-t", "pwa-x", "Enter"]]
+
+
+def test_build_send_keys_chain_empty_no_args():
+    args, chained = pty_runner._build_send_keys_chain("pwa-x")
+    assert args == []
+    assert chained is False
+
+
+# --- backend-F-22: get_pane_cursor_y ----------------------------------------
+
+
+def test_get_pane_cursor_y_returns_none_when_no_wrap(monkeypatch):
+    monkeypatch.setattr(pty_runner, "USE_TMUX_WRAP", False)
+    assert pty_runner.get_pane_cursor_y("anything") is None
+
+
+def test_get_pane_cursor_y_parses_stdout(monkeypatch):
+    """tmux が `3\\n` を返したら 3 を返す。 失敗時 (= rc!=0) は None。"""
+    import types as _types
+    monkeypatch.setattr(pty_runner, "USE_TMUX_WRAP", True)
+    monkeypatch.setattr(
+        pty_runner, "_run_tmux",
+        lambda *args, **kw: _types.SimpleNamespace(returncode=0, stdout="3\n"),
+    )
+    assert pty_runner.get_pane_cursor_y("any") == 3
+    monkeypatch.setattr(
+        pty_runner, "_run_tmux",
+        lambda *args, **kw: _types.SimpleNamespace(returncode=1, stdout=""),
+    )
+    assert pty_runner.get_pane_cursor_y("any") is None
+
+
+# --- backend-F-49: prompt_ready signal --------------------------------------
+
+
+def test_enqueue_output_sets_prompt_ready_on_bracketed_paste():
+    """zsh が prompt 末尾で出す `\\x1b[?2004h` を _enqueue_output が見たら prompt_ready set。"""
+    session = pty_runner.PtySession(
+        session_id="px",
+        process=None,  # type: ignore[arg-type]
+        master_fd=-1,
+        output_queue=asyncio.Queue(),
+        exit_event=asyncio.Event(),
+    )
+    assert not session.prompt_ready.is_set()
+    pty_runner._enqueue_output(session, b"prompt> \x1b[?2004h")
+    assert session.prompt_ready.is_set()
+
+
+def test_enqueue_output_does_not_set_prompt_ready_for_plain_text():
+    session = pty_runner.PtySession(
+        session_id="px2",
+        process=None,  # type: ignore[arg-type]
+        master_fd=-1,
+        output_queue=asyncio.Queue(),
+        exit_event=asyncio.Event(),
+    )
+    pty_runner._enqueue_output(session, b"random data")
+    assert not session.prompt_ready.is_set()
+
+
 def test_spawn_cat_roundtrip(restore_env, restore_pty_sessions, monkeypatch):
     """`/bin/cat` を代用 spawn して PTY ポンプ全体を検証。
 
