@@ -17,8 +17,8 @@ import json
 import time
 from pathlib import Path
 
-from backend.jsonl.events import HARNESS_XML_RE, INTERRUPT_USER_RE
 from backend.jsonl.plan_choices import capture_plan_choices
+from backend.jsonl.predicates import is_user_prompt as _is_user_prompt_pred
 from backend.jsonl.tail import parse_jsonl_timestamp
 from backend.state import agent_status, sessions_overview, stream_states
 from backend.core.usage import compute_ctx_pct, format_model_name
@@ -41,43 +41,12 @@ def cleanup_orphan_turn_starts() -> int:
     return len(stale)
 
 
-def is_user_prompt(line: dict) -> bool:
-    """素プロンプト (= 実ユーザ発言の user 行) か。 tool_result の user 行 (= content が
-    list で type=tool_result) や isMeta / isSidechain は除外する。
-
-    さらに claude TUI が user 行として書く harness 内部表現
-    (= `<command-name>/clear</command-name>` / `<local-command-stdout>...</local-command-stdout>`
-    等。 ターミナルから slash command や shell コマンドを打った時に発生) も除外する。
-    これらをユーザ発話扱いすると、 チャットに何も送ってないのに busy=True が立って停止ボタンが
-    アクティブになる事象を引き起こす (2026-05-31 修正)。 harness XML 検出は jsonl_events と
-    共通 (= 同じ regex を 2 箇所で持つと判定がズレるため)。
-
-    `[Request interrupted by user]` も同様に除外する。 これは claude が中断完了を marker として
-    user 行に書くもので、 新プロンプトではない (= claude プロセスは既に turn を畳んでいて、
-    終端 stop_reason 行も来ない)。 ユーザ発話扱いすると busy=True が再点火し、 result が
-    永遠に来ないため停止ボタンが送信ボタンに戻らない (2026-06-04 真因確定)。"""
-    if line.get("type") != "user" or line.get("isSidechain") or line.get("isMeta"):
-        return False
-    content = (line.get("message") or {}).get("content")
-    if isinstance(content, str):
-        s = content.strip()
-        if not s:
-            return False
-        if HARNESS_XML_RE.match(s) or INTERRUPT_USER_RE.match(s):
-            return False
-        return True
-    if isinstance(content, list):
-        for b in content:
-            if not isinstance(b, dict) or b.get("type") != "text":
-                continue
-            t = (b.get("text") or "").strip()
-            if not t:
-                continue
-            if HARNESS_XML_RE.match(t) or INTERRUPT_USER_RE.match(t):
-                continue
-            return True
-        return False
-    return False
+# 旧版は本 module で `is_user_prompt` を独自実装していたが、 terminal/confirm.py の
+# `_is_plain_user_prompt` と判定がズレる潜在 race があった (= backend-F-05)。 真値は
+# `backend.jsonl.predicates.is_user_prompt` に集約済み、 ここは委譲する re-export。
+# 旧来の `from backend.jsonl.session_status import is_user_prompt` 経路 (= routes.py /
+# test) の後方互換も担保する。
+is_user_prompt = _is_user_prompt_pred
 
 
 def track_turn_start(session_id: str, line: dict) -> None:
