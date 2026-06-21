@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useRef } from 'react'
 import { API_BASE } from '../constants.js'
+import { registerConnection, notifyConnectionChange } from './useConnectionStatus.js'
 
 function toWsUrl(path) {
   const base = API_BASE || window.location.origin
@@ -39,6 +40,11 @@ export function useViewsWs(activeSid) {
     if (typeof window === 'undefined') return
     let cancelled = false
     let reconnectTimer = null
+    // 全 SSE/WS 集約用 (= F-45)。 probe は wsRef を介して現在 ws の readyState を見る。
+    const unregConn = registerConnection(() => {
+      const ws = wsRef.current
+      return !!ws && ws.readyState === WebSocket.OPEN
+    })
 
     const connect = () => {
       if (cancelled || document.hidden) return
@@ -54,10 +60,12 @@ export function useViewsWs(activeSid) {
       }
       wsRef.current = ws
       ws.onopen = () => {
+        notifyConnectionChange()
         try { ws.send(JSON.stringify({ sid: sidRef.current || null })) } catch { /* ignore */ }
       }
       ws.onclose = () => {
         if (wsRef.current === ws) wsRef.current = null
+        notifyConnectionChange()
         if (cancelled || document.hidden) return
         // 短い backoff で再接続 (= visible 中のみ)
         reconnectTimer = setTimeout(connect, 3000)
@@ -80,6 +88,7 @@ export function useViewsWs(activeSid) {
 
     return () => {
       cancelled = true
+      unregConn()
       document.removeEventListener('visibilitychange', onVis)
       if (reconnectTimer) clearTimeout(reconnectTimer)
       const ws = wsRef.current
