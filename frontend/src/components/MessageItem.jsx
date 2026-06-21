@@ -1,8 +1,8 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import MessageRenderer from './MessageRenderer.jsx'
 import AskUserQuestionBubble from './AskUserQuestionBubble.jsx'
-import TaskNotification from './TaskNotification.jsx'
 import AttachedImages from './AttachedImages.jsx'
+import { getMessageEntry } from '../messageRegistry.js'
 import { formatToolResultContent, formatCost, formatDuration, formatModelName, formatTokens } from '../utils/format.js'
 import { diffLines, compactDiff } from '../utils/diff.js'
 import { apiFetch } from '../utils/api.js'
@@ -251,152 +251,21 @@ function MetaLine({ meta, streaming, apiKeySource, trailing }) {
   )
 }
 
-// 会話圧縮 (compact_boundary) 用バナー。SDK からは事後通知しか来ないので
-// 「圧縮完了」の表示のみ。pre→post のトークン減少と所要時間を添える。
-function formatCompactTokens(n) {
-  if (n == null) return null
-  if (n < 1000) return String(n)
-  if (n < 10000) return (n / 1000).toFixed(1) + 'k'
-  return Math.round(n / 1000) + 'k'
-}
-function CompactBanner({ msg }) {
-  const parts = []
-  if (msg.trigger) parts.push(msg.trigger)
-  if (msg.preTokens != null && msg.postTokens != null) {
-    parts.push(`${formatCompactTokens(msg.preTokens)} → ${formatCompactTokens(msg.postTokens)} tokens`)
-  }
-  const dur = formatDuration(msg.durationMs)
-  if (dur) parts.push(dur)
-  const detail = parts.length > 0 ? ` (${parts.join(' · ')})` : ''
-  return (
-    <div className="message system compact-banner">
-      <span className="compact-line">
-        <span className="compact-rule" />
-        <span className="compact-label">会話を圧縮しました{detail}</span>
-        <span className="compact-rule" />
-      </span>
-    </div>
-  )
-}
-
-function ApiErrorCard({ msg }) {
-  const retrySec = typeof msg.retryInMs === 'number' && msg.retryInMs > 0
-    ? `${(msg.retryInMs / 1000).toFixed(1)}s 後にリトライ`
-    : null
-  const attempt = typeof msg.retryAttempt === 'number' && msg.retryAttempt > 0
-    ? `(${msg.retryAttempt} 回目)`
-    : null
-  return (
-    <div className="message system api-error-card">
-      <div className="api-error-header">
-        <span className="api-error-icon">⚠️</span>
-        <span className="api-error-title">{msg.isNetworkDown ? 'ネットワーク切断' : `API エラー${msg.status ? ` (${msg.status})` : ''}`}</span>
-      </div>
-      <div className="api-error-body">{msg.formatted}</div>
-      {(retrySec || attempt || msg.requestId) && (
-        <div className="api-error-meta">
-          {retrySec && <span>{retrySec}</span>}
-          {attempt && <span>{attempt}</span>}
-          {msg.requestId && <span className="api-error-req">{msg.requestId}</span>}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function attachmentShort(sub, a) {
-  switch (sub) {
-    case 'edited_text_file':       return `📎 edited file  ${a.filename || ''}`
-    case 'file':                   return `📎 attached file  ${a.filename || ''}`
-    case 'compact_file_reference': return `📎 compact ref  ${a.displayPath || a.filename || ''}`
-    case 'queued_command':         return `📎 queued  ${a.content || a.command || ''}`
-    case 'task_reminder':          return `📎 task reminder  ${a.itemCount ?? ''}`
-    case 'skill_listing':          return `📎 skills  ${Array.isArray(a.skills) ? `${a.skills.length} available` : ''}`
-    case 'command_permissions':    return `📎 perms  ${Array.isArray(a.allowedTools) ? `${a.allowedTools.length} tools` : ''}`
-    case 'auto_mode':              return `📎 auto mode`
-    default:                       return `📎 ${sub}`
-  }
-}
-
-function AttachmentCard({ msg }) {
-  const a = msg.attachment || {}
-  const short = attachmentShort(msg.subtype, a)
-  const body = JSON.stringify(a, null, 2)
-  return (
-    <div className="message system attachment-card">
-      <details>
-        <summary><span className="tool-line tool-attach">{short}</span></summary>
-        <pre className="attachment-body">{body}</pre>
-      </details>
-    </div>
-  )
-}
-
-function HookErrorCard({ msg }) {
-  const dur = msg.durationMs != null ? `${msg.durationMs}ms` : null
-  const short = `⚠️ hook failed  ${msg.hookName || '(unknown)'}${msg.exitCode != null ? `  exit ${msg.exitCode}` : ''}`
-  return (
-    <div className="message system hook-error-card">
-      <details>
-        <summary><span className="tool-line tool-hook-error">{short}</span></summary>
-        {msg.command && <pre className="hook-error-block"><b>command:</b> {msg.command}</pre>}
-        {msg.stderr && <pre className="hook-error-block"><b>stderr:</b> {msg.stderr}</pre>}
-        {msg.stdout && <pre className="hook-error-block"><b>stdout:</b> {msg.stdout}</pre>}
-        {dur && <pre className="hook-error-block"><b>durationMs:</b> {dur}</pre>}
-      </details>
-    </div>
-  )
-}
-
-function SystemNoteCard({ msg }) {
-  const short = ({
-    local_command: 'ℹ slash command',
-    scheduled_task_fire: 'ℹ scheduled wakeup',
-  })[msg.subtype] || `ℹ ${msg.subtype}`
-  return (
-    <div className="message system system-note-card">
-      <details>
-        <summary><span className="tool-line tool-system-note">{short}</span></summary>
-        <pre className="attachment-body">{msg.content || '(empty)'}</pre>
-      </details>
-    </div>
-  )
-}
-
-function SessionEndBanner() {
-  // 「セッション終了」 を区切る横線 + ラベル。 旧 chat UI と同じ見た目。
-  return (
-    <div className="message system compact-banner">
-      <span className="compact-line">
-        <span className="compact-rule" />
-        <span className="compact-label">セッション終了</span>
-        <span className="compact-rule" />
-      </span>
-    </div>
-  )
-}
-
 const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKeySource, activeSubagentTool, onOpenSubagents, onFork }) {
-  if (msg.role === 'system' && msg.kind === 'compact') {
-    return <CompactBanner msg={msg} />
-  }
-  if (msg.role === 'system' && msg.kind === 'session_end') {
-    return <SessionEndBanner />
-  }
-  if (msg.role === 'system' && msg.kind === 'task') {
-    return <TaskNotification msg={msg} />
-  }
-  if (msg.role === 'system' && msg.kind === 'api_error') {
-    return <ApiErrorCard msg={msg} />
-  }
-  if (msg.role === 'system' && msg.kind === 'attachment') {
-    return <AttachmentCard msg={msg} />
-  }
-  if (msg.role === 'system' && msg.kind === 'hook_error') {
-    return <HookErrorCard msg={msg} />
-  }
-  if (msg.role === 'system' && msg.kind === 'system_note') {
-    return <SystemNoteCard msg={msg} />
+  // system kind は messageRegistry に「fromEvent + Render」 ペアで集約しており、
+  // ここでは generic lookup で表示コンポーネントを引くだけ (= F-04 consumer)。
+  // 新しい system kind を増やす時は messageRegistry に Render を 1 個足すだけで配線完了、
+  // この switch を膨らませる必要は無い。
+  if (msg.role === 'system') {
+    const entry = getMessageEntry(msg.kind)
+    if (entry && entry.Render) {
+      const Render = entry.Render
+      return <Render msg={msg} />
+    }
+    // 未知 kind は安全側に倒して何も描画しない (= 旧実装も該当 if が無ければ素通りで
+    // 下の通常分岐に落ちて空 message を出していたが、 system は通常分岐に乗らない方が
+    // 安全。 万が一 build 側が registry 未登録 kind を投げ込んだ場合は黙って捨てる)。
+    return null
   }
   if (msg.role === '__loading__') {
     return (
