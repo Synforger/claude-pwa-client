@@ -1,0 +1,165 @@
+# Architecture
+
+> backend / frontend のサブパッケージ構成、 依存方向、 中立基盤 (= `paths.py` /
+> `protocol.py` 等)、 1 sid を束ねる `SessionState` + `asyncio.Lock` の意義をまとめる。
+> README の「ディレクトリ構成」 は対外向け俯瞰、 本書はその上で **なぜその切り方か** /
+> **何を import してよく何を禁忌か** を真値として宣言する。
+
+## 全体像
+
+```
+[スマートフォン]                    [ホスト機]
+                                  ┌─────────────────────────────────────┐
+   PWA (Safari/Chrome) ─────┐     │ FastAPI backend (= 単一プロセス)        │
+       │                    │     │   ├ terminal/  (= PTY + tmux 駆動)      │
+       │                    ├──▶  │   ├ jsonl/     (= ~/.claude tail)       │
+       │                    │     │   ├ routes/    (= HTTP / SSE / WS)      │
+   ホーム画面追加 → PWA       │     │   ├ core/     (= push / usage / GC)    │
+                            │     │   └ state.py  (= プロセス共有状態 + 集約)│
+                            │     │                                          │
+                            │     │ moonlight-web-stream                    │ ← 任意 (Path B)
+                            │     │   └ Sunshine                            │
+                            │     └─────────────────────────────────────────┘
+                            │              ↕ Tailscale (= tailnet 内 only)
+                            └──────────────┘
+```
+
+backend は **シングルプロセス FastAPI** を前提に組まれる。 state は module-level dict +
+1 sid あたり 1 `SessionState` の二重 view で持ち、 read-modify-write race を
+`asyncio.Lock` で防ぐ (= 後述)。 マルチプロセス / マルチノードへスケールする
+設計ではない (= 個人ホスト 1 台 + Tailscale tailnet 内の前提と整合)。
+
+## backend サブパッケージ責務
+
+backend は **4 つのサブパッケージ** + **2 つの中立基盤 module** で構成する。 各
+サブパッケージは他サブパッケージを**横方向に import しない**ことを原則とし、
+共通利用したい helper は中立基盤に降ろす (= 循環 import / 段数狂い path bug の防止)。
+
+| package | 責務 | 主な file |
+|---|---|---|
+| `terminal/` | claude TUI を実 PTY + tmux で起動・駆動する入力経路。 control mode (`-CC`) パーサ、 送信確認 + 救済再送 を持つ | `runner.py` / `routes.py` (`/ws/pty` + `/pty/{sid}/send`) / `confirm.py` / `control_mode.py` / `session_resolver.py` |
+| `jsonl/` | `~/.claude/projects/<cwd-hash>/<claude_session_id>.jsonl` を tail し、 chat UI 用 event 形式 (= `processStreamEvent` 入力) に変換する出力経路 | `tail.py` (純粋関数) / `events.py` (`jsonl_line_to_events`) / `routes.py` (`/jsonl/stream/{sid}`) / `watcher.py` / `session_status.py` / `notifications.py` / `plan_choices.py` |
+| `routes/` | HTTP / SSE / WS の各 endpoint を session / chat / overview / files / hooks / subagents / accounts 単位で分割保持 | `sessions.py` / `chat.py` / `overview.py` (`/sessions/status/stream` + `/sessions/overview/stream` + `/views/ws`) / `files.py` / `hooks.py` / `subagents.py` / `accounts.py` |
+| `core/` | 横断ヘルパ。 Web Push、 使用率 (5h / 7d / ctx) 組み立て、 起動時/定期 GC、 会話フォーク (parentUuid lineage 切り出し) | `push.py` / `usage.py` / `maintenance.py` / `fork.py` |
+
+### 中立基盤 (= 全 package から import 可)
+
+| module | 役割 |
+|---|---|
+| `paths.py` | backend 配下の全 file path (= `DATA_DIR` / `SECRETS_DIR` / `LOGS_DIR` / `SESSION_META_PATH` / `VAPID_PATH` / `SUBSCRIPTIONS_PATH` 等) の single source of truth。 各 module で `Path(__file__).parent[.parent]` を書くとサブパッケージ化や file 移動で段数が狂って "vapid.json が見つからない" 系の事故が再発するため、 path 追加 / 移動は必ずここを起点にする |
+| `state.py` | プロセス共有状態 (`sessions_meta` / `stream_states` / `agent_status` / `session_states` / `views_by_conn` / `sessions_overview` broadcaster 等)。 session 操作 helper (`register_session` / `unregister_session` / `rename_session` / `set_notify_mode` / `demote_fork_to_normal`) も同梱 |
+| `config.py` | `config.json` の遅延 lookup (= PEP 562 `__getattr__`)。 test 中の `monkeypatch.setattr` で config 切替できるよう **module 上端で AGENTS を bind しない**。 各 module は `import backend.config as _config` → `_config.AGENTS` の都度引きを徹底する |
+| `pty_discover.py` | tmux pane 配下の claude プロセス探索 (= terminal が直接使うが、 lsof / ps 経由の OS 依存層を単独 file に隔離) |
+| `chat_content.py` | 添付ファイル保存 (uploads/tmp)。 terminal の `/pty/{sid}/send-with-files` が呼ぶ |
+
+## 依存方向 DAG
+
+```
+                       ┌────────────────────────────┐
+                       │  main.py (= entrypoint)    │
+                       │  + lifespan task           │
+                       └─────────────┬──────────────┘
+                                     │ include_router(...)
+        ┌────────────────┬───────────┼─────────────┬──────────────┐
+        ▼                ▼           ▼             ▼              ▼
+   terminal/        jsonl/        routes/      core/push      core/maintenance
+   (PTY 駆動)       (tail/SSE)    (HTTP/SSE/WS) (Web Push)    (GC loop)
+        │                │           │             │
+        │                │           │             │
+        └────────┬───────┴──────┬────┴──────┬──────┘
+                 ▼              ▼           ▼
+              state.py     chat_content   pty_discover
+              (共有状態)    (添付保存)     (プロセス探索)
+                 │              │           │
+                 └──────────────▼───────────┘
+                          paths.py + config.py
+                          (中立基盤)
+```
+
+**禁忌の依存方向**:
+
+- `state.py` は `usage.py` を import しない (= 逆方向、 `usage → state` のみ。 module init 時の循環 import 回避)
+- `terminal/` ↔ `jsonl/` を直接 import しない (= 入出力分離。 共有が必要なら state 経由)
+- `routes/*` は他 `routes/*` を import しない (= 横断 helper は state / core に降ろす)
+- `paths.py` は何も import しない (= 末端の宣言だけ)
+
+## SessionState + asyncio.Lock の意義
+
+state.py の中核設計判断。 旧設計は `sessions_meta` / `stream_states` / `agent_status` /
+`session_tmp_files` / `session_last_seen_at` の **5 dict** を sid キーで並走させ、
+`asyncio.Lock` も無く GIL 任せで read-modify-write していた。 `tasks` 配列の lost update、
+`pr_links` 重複追加、 overview push 中の上書き race 等の温床になっていた
+(= backend-F-07 / F-16 / F-37 / F-38)。
+
+### 解決
+
+1 sid あたり 1 `SessionState` を生成し、 旧 5 dict と**同一 field object を参照する
+parallel view** として保持する。 `SessionState` 自身が `asyncio.Lock` を所有する:
+
+```python
+@dataclass
+class SessionState:
+    meta: SessionDef
+    stream: StreamState
+    status: dict[str, Any]            # = agent_status[sid] の参照を共有
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    tmp_files: list[Path] = field(default_factory=list)
+    last_seen_at: float | None = None
+```
+
+副 path consumer は以下のパターンで atomic 化する:
+
+```python
+async with state.get_session(sid).lock:
+    status = state.get_session(sid).status
+    status["pr_links"].append(...)
+```
+
+旧 dict 群を**残したまま**で SessionState を追加するのは、 副 path consumer
+(= routes/* / jsonl/* で 30 箇所超) の段階的移行のため。 `register_session` /
+`unregister_session` で**両 view を同期**することで、 移行が完了する前でも
+壊れない (= round 2 で副 path 直接 dataclass 化を別途扱う)。
+
+### `AgentStatus` dataclass
+
+`agent_status[sid]` の中身は旧来素 dict factory `_make_agent_status` で、 field 名
+typo と不揃いの default が広い consumer に潜む構造だった。 `AgentStatus` dataclass に
+昇格し factory 1 箇所 / field 名 静的検査 / default 一元 を担保しつつ、 既存
+`agent_status[sid][key]` 経由 read/write 互換のため `to_dict()` で plain dict を吐き、
+module-level `agent_status` には **dict の方** を入れる (= 副 path 直接 dataclass 化は
+別 round)。
+
+### `OverviewBroadcaster`
+
+`/sessions/overview/stream` の fan-out。 旧実装は単一 `asyncio.Event` を全接続で共有し、
+1 接続の generator が `clear()` した瞬間に他接続の `wait` が起きそこねて push を落とす
+race があった (= iPhone 2 台同時運用で「片方だけ停止ボタンが stuck」 の一因)。 接続
+ごとに `Event` を分け、 broadcaster が一括 `notify` する設計に変更済。
+
+## frontend 構成
+
+React + Vite。 全 UI は `App.jsx` をルートとし、 4 つのディレクトリで責務分割する。
+
+| ディレクトリ | 責務 | 規約 |
+|---|---|---|
+| `overlays/` | 全画面 / 全幅を覆う一時 UI (= modal / drawer / 全画面プレビュー / popover quick picker)。 普段は閉じていて操作で開閉する | `App.jsx` 側で `lazy(() => import('./overlays/<Name>.jsx'))` + `<Suspense fallback={null}>` 配下に置く (= 初回 paint に乗らない、 開いた時だけ chunk fetch)。 ESC = `hooks/useEscape.js`、 outside-click = `hooks/useOutsideClick.js`。 詳細規約は `frontend/src/overlays/_README.md` |
+| `components/` | **常時 mount** される本文の構成要素。 ChatInput / StatusBar / ActivityBar / MessageItem / Terminal / MoonlightFrame / SubagentsModal 等 | 表示位置が固定で「覆いかぶさらない」 ものはここ (= iframe 系も `components/`) |
+| `hooks/` | チャット / SSE / 永続化 hook 群 (= `useStatus` / `useSessionsOverview` / `useChatStream` / `useViewsWs` / `useSessions` / `useAppEffects` / `usePushSubscription` / `useStorageQuota` / `useTerminal` / `useOverlays` 等) | `internal/` 配下に各 hook の純粋関数化された helper (= `processStreamEvent.js` / `useStreamBuffer.js` / `applyOverviewSnapshot.js` / `reconcileUserMessage.js`)。 ここを直接 import する consumer は同一 hook の実装のみ |
+| `tools/` | tool block 整形 handler の registry (= `_registry.js` + family file `fileOps.js` / `web.js` / `cron.js` / `task.js` / `todoPlan.js` / `worktree.js` / `agent.js` / `misc.js`) | tool 1 個 = `export const <Name> = { format(input) { ... } }` を family file に書く → `_registry.js` に import + lookup 行 1 つ。 registry 未登録は `utils/format.js::formatTool()` の default fallback で `[displayName] <JSON>` 表示 |
+
+### registry 系の単一情報源
+
+| registry | 役割 |
+|---|---|
+| `frontend/src/tools/_registry.js` | tool 名 → handler の lookup table。 `utils/format.js::formatTool()` がここを引いて `handler.format(input)` に丸投げ |
+| `frontend/src/messageRegistry.js` | `system_*` / `attachment` / `task_notification` 等の system kind ごとの `fromEvent(event)` + `Render` を 1 箇所集約。 旧来は MessageItem.jsx 側の巨大 switch + processStreamEvent 側の重複 append パターンに分散していた |
+| `frontend/src/hooks/internal/processStreamEvent.js` | SSE event の `type` 分岐の単一窓口。 messageRegistry / appendSystemMessage / useStreamBuffer に dispatch する |
+
+新 system kind / 新 SSE event type / 新 tool 表示の追加手順は `docs/extending.md` 参照。
+
+## 参考
+
+- 4 SSE / WS 経路 (= status / overview / chat / views_ws) の責任分担 = `docs/streams.md`
+- SSE event の wire shape (= `jsonl_line_to_events` ↔ `processStreamEvent` の中央仕様) = `docs/sse-event-shape.md`
+- 拡張ガイド (= 新 tool / 新 SSE event / 新 modal / 新 account / 新 push channel) = `docs/extending.md`
+- overlays vs components の境界規約 = `frontend/src/overlays/_README.md`
