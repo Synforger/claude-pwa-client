@@ -37,6 +37,7 @@ from backend.jsonl.session_status import (
     update_busy as _update_busy,
 )
 from backend.jsonl.tail import (
+    initial_offset as _initial_offset_impl,
     read_complete_lines as _read_complete_lines,
     read_tail as _read_tail,
 )
@@ -115,41 +116,10 @@ def _lines_to_sse(lines: list[str], pos: int, session_id: str) -> list[str]:
 
 
 def _initial_offset(path: Path) -> int:
-    """初回 replay の開始バイト位置。 直近 INITIAL_REPLAY_LINES 行ぶんに絞る。
-
-    末尾から固定 chunk ずつ遡って改行を数え、 「末尾から N 個目の改行の直後」 を返す。
-    ファイル全体をメモリに読まないので大きい JSONL でも O(末尾) で済む。 改行が
-    INITIAL_REPLAY_LINES 個以下なら 0 (= 全件 replay)。 旧実装 (= 全読み + rfind) と
-    同じ境界 (= count <= N → 0、 count > N → N 個目直後) を保つ。
-    """
-    try:
-        size = path.stat().st_size
-    except OSError:
-        return 0
-    if size == 0:
-        return 0
-    chunk_size = 64 * 1024
-    found = 0
-    candidate = 0  # 末尾から N 個目の改行直後。 N+1 個目が見つかったら (= count > N) 返す
-    pos = size
-    try:
-        with open(path, "rb") as f:
-            while pos > 0:
-                read_size = min(chunk_size, pos)
-                pos -= read_size
-                f.seek(pos)
-                chunk = f.read(read_size)
-                for i in range(len(chunk) - 1, -1, -1):
-                    if chunk[i] != 0x0A:  # b"\n"
-                        continue
-                    found += 1
-                    if found == INITIAL_REPLAY_LINES:
-                        candidate = pos + i + 1
-                    elif found > INITIAL_REPLAY_LINES:
-                        return candidate
-    except OSError:
-        return 0
-    return 0
+    """thin wrapper: tail.initial_offset(path, INITIAL_REPLAY_LINES) (= backend-F-41 で移送済)。
+    既存 test (test_jsonl_routes.py) との後方互換のために残す。 新規 consumer は
+    `backend.jsonl.tail.initial_offset` を直接 import すること。"""
+    return _initial_offset_impl(path, INITIAL_REPLAY_LINES)
 
 
 async def _jsonl_sse(session_id: str, start_pos: int | None = None):
