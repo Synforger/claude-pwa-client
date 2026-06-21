@@ -79,8 +79,12 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   検証に利用する。 未設定または不正パスの場合は起動を拒否する。 conda 等で PATH が
   通らない環境では明示する
 - `uploads_tmp`: 添付ファイルの一時保存先ディレクトリ
-- `rate_limits_log`: claude CLI の rate limit 情報を記録する JSONL の path。 ステータスバー
-  の 5h / 7d usage 表示に使われる
+- `rate_limits_log`: 使用率 (5h / 7d / context) を記録する JSONL の path。 **このファイルを
+  書くのは claude の statusline スクリプト** (= claude が statusline subprocess に渡す
+  `rate_limits` を 1 行ずつ追記する)。 backend はこれを読んでステータスバーに表示する。
+  statusline 側の書き込み path と必ず一致させること。 表示専用の statusline だと書き込まれず
+  ステータスバーが空になる (設定手順は [setup/path-a-chat.md](setup/path-a-chat.md) の
+  「ステータスバーを有効にする」 を参照)
 - `tmux_session_map_dir`: tmux session 名と PWA session id の対応を保存するディレクトリ
 - `vapid_sub`: Web Push の `sub` クレーム (連絡先 mailto:)
 - `notification_title`: Web Push 通知のタイトル文字列
