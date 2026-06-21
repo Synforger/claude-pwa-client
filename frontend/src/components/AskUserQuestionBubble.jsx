@@ -19,6 +19,10 @@ function AskUserQuestionBubble({ askUserQuestion, onAnswer }) {
   const multi = !!q?.multiSelect
   const [selected, setSelected] = useState(() => (multi ? [] : null))
   const [freeText, setFreeText] = useState('')
+  // F-52: single 選択は誤タップ防止のため 2 段階確認。 1 タップ目で highlight (= pending)、
+  // 2 タップ目 (同じ選択肢) で送信。 別選択肢タップで pending を切り替え (= 確定はしない)。
+  // multi の場合は元から「☑ で選び → 送信ボタンで確定」 の 2 段階なので不要。
+  const [pendingSingle, setPendingSingle] = useState(null)
 
   if (!q) return null
 
@@ -58,8 +62,14 @@ function AskUserQuestionBubble({ askUserQuestion, onAnswer }) {
   const handleOptionClick = (label) => {
     if (multi) {
       setSelected(prev => prev.includes(label) ? prev.filter(x => x !== label) : [...prev, label])
-    } else {
+      return
+    }
+    // single 経路: 同じ選択肢を 2 度目タップで送信、 別選択肢タップは pending 差し替え。
+    if (pendingSingle === label) {
+      setPendingSingle(null)
       submit(label)
+    } else {
+      setPendingSingle(label)
     }
   }
 
@@ -83,17 +93,19 @@ function AskUserQuestionBubble({ askUserQuestion, onAnswer }) {
       {options.length > 0 && (
         <div className={`ask-options ${multi ? 'multi' : 'single'}`}>
           {options.map((opt, i) => {
-            const isSelected = multi && selected.includes(opt.label)
+            const isMultiSelected = multi && selected.includes(opt.label)
+            const isPending = !multi && pendingSingle === opt.label
             return (
               <button
                 key={i}
-                className={`ask-option ${isSelected ? 'selected' : ''}`}
+                className={`ask-option ${isMultiSelected ? 'selected' : ''} ${isPending ? 'pending' : ''}`}
                 onClick={() => handleOptionClick(opt.label)}
-                title={opt.description}
+                title={isPending ? 'もう一度タップで送信' : opt.description}
               >
-                {multi && <span className="ask-check">{isSelected ? '☑' : '☐'}</span>}
+                {multi && <span className="ask-check">{isMultiSelected ? '☑' : '☐'}</span>}
                 <span className="ask-option-label">{opt.label}</span>
                 {opt.description && <span className="ask-option-desc"> · {opt.description}</span>}
+                {isPending && <span className="ask-pending-hint"> · もう一度タップで送信</span>}
               </button>
             )
           })}
