@@ -6,41 +6,29 @@ Claude Code をスマートフォンから操作するための PWA クライア
 
 ## 主な機能
 
-- **チャット**: 複数のセッションを並走させ、 タブで切り替え。 SSE で逐次表示
-- **バックグラウンド継続**: 画面を閉じてもホスト側で処理が継続し、 復帰時に自動再接続して
-  差分を受信
-- **Web Push 通知**: `AskUserQuestion` 等のプロアクティブな問い合わせを iOS / Android に通知。
-  セッションごとに ⋯ メニューから通知モード (音 + バナー / バナーのみ / オフ) を切り替えられる
-- **Proactive 自動配信**: `Monitor` / `cron` / `ScheduleWakeup` 等で agent が自発した turn を
-  持続 SSE で即時表示する。 バックグラウンドタスクの完了はチャット内に折りたたみカードで表示し、
-  タップで出力ログを展開する
-- **サブエージェント / ワークフロー閲覧**: `Task` で起動した子エージェントや `Workflow` 実行の
-  transcript を専用パネルで一覧 ・ 個別閲覧する。 ワークフローは実行単位でまとめ、 大規模な
-  fan-out (= 多数の子エージェント) でも 1 行に畳む。 チャットログの該当チップから対象へ直接遷移できる
-- **通知センター自動同期**: PWA を開く / フォアグラウンド復帰のタイミングで OS 通知センター ・
-  アプリバッジ ・ backend 未読カウンタを同期掃除
-- **ファイルプレビュー**: チャット内のパスをタップして Markdown ・ シンタックスハイライト表示。
-  50 以上の言語に対応した行番号付きハイライト、 Dockerfile ・ Makefile ・ .zshrc 等の
-  拡張子なしファイルも basename で判定する
-- **ファイルツリー + お気に入り**: サーバ上のディレクトリを ⋯ → ツリーパネルで閲覧。
-  各エントリ右側の ☆ で dir / file を localStorage にお気に入り登録、 トップバーの ⭐
-  ボタンから専用ピッカーで 1 タップ移動できる。 ファイルプレビュー画面からも登録可
-- **タスクパネル**: トップバーの 📋 ボタンで現在セッションの `TaskCreate` 由来 task 一覧
-  (pending / in_progress / completed の状態マーク付き) を表示
-- **画像 / テキスト添付**: マルチパートで送信し、 履歴に永続化
-- **ステータスバー**: 使用モデル ・ プランモード / 残予算 ・ 5h usage ・ 7d usage ・
-  context 使用率をリアルタイム表示。 右端の 🔗 N チップから当セッションで言及された
-  全 PR を一覧 ・ GitHub へ直行
-- **会話のフォーク (分岐)**: 任意のメッセージから新タブで分岐する。 起点までの会話を引き継いだ
-  まま別方向に試せる。 親 ・ 子はドロワーで階層表示、 フォークタブを閉じると専用 jsonl も掃除する
+- **チャット**: 複数セッション並走 + タブ切替 + SSE 逐次表示
+- **バックグラウンド継続**: 画面を閉じてもホスト側で処理継続、 復帰時に自動再接続して差分受信
+- **Web Push 通知**: `AskUserQuestion` 等のプロアクティブ問い合わせを iOS / Android に通知。
+  セッションごとに通知モード切替可
+- **Proactive 自動配信**: `Monitor` / `cron` / `ScheduleWakeup` 等で agent 自発の turn を即時表示
+- **サブエージェント / ワークフロー閲覧**: `Task` / `Workflow` の transcript を専用パネルで閲覧
+- **通知センター自動同期**: PWA 復帰時に OS 通知 / バッジ / backend 未読カウンタを同期
+- **ファイルプレビュー**: パスをタップして Markdown + 50+ 言語シンタックスハイライト表示
+- **ファイルツリー + お気に入り**: ⋯ メニューからツリー閲覧、 ☆ でお気に入り登録 + 1 タップ移動
+- **タスクパネル**: 📋 ボタンで `TaskCreate` 由来 task 一覧表示
+- **画像 / テキスト添付**: マルチパート送信 + 履歴永続化
+- **ステータスバー**: モデル / プランモード / 残予算 / 5h usage / 7d usage / context 使用率
+  をリアルタイム表示 + 当セッション言及 PR 一覧チップ
+- **会話のフォーク**: 任意メッセージから新タブで分岐、 親 ・ 子をドロワーで階層表示
 - **メッセージ履歴永続化**: lz-string で圧縮して localStorage に保存
+- **マルチアカウント**: `accounts` 設定で個人 / 会社等を切り替え (詳細は [docs/config.md](docs/config.md))
 
 ### 追加機能 (任意セットアップ)
 
 - **デスクトップ画面共有**: [Sunshine](https://github.com/LizardByte/Sunshine) +
-  [moonlight-web-stream](https://github.com/MrCreativ3001/moonlight-web-stream) を経由して
-  ホスト機のデスクトップを PWA 内で映し、 タッチで遠隔操作する。 Sunshine は Windows /
-  Linux / macOS で動作する (本リポでの動作確認は macOS)。 セットアップは後述
+  [moonlight-web-stream](https://github.com/MrCreativ3001/moonlight-web-stream) 経由でホスト機
+  デスクトップを PWA 内に映してタッチ遠隔操作する。 詳細は
+  [docs/setup/path-b-screenshare.md](docs/setup/path-b-screenshare.md)
 
 ## アーキテクチャ
 
@@ -59,431 +47,82 @@ Claude Code をスマートフォンから操作するための PWA クライア
                             └──────────────┘
 ```
 
-- backend はホスト機で常駐し、 `claude` CLI を **実 PTY (疑似端末) + tmux** で起動する。
-  ターミナルで `claude` を起動する時とまったく同じ TUI 形式の経路を取り、 SDK や
-  `--print` 等の非対話モードは使わない。 出力は claude が書く会話ログ (JSONL) を tail
-  して SSE でチャット UI に配信し、 入力は tmux 経由でセッションへ送出する
-  (出力 = JSONL tail / 入力 = キー送出 の分離設計)
-- 手元の Claude Code サブスクリプション (Pro / Max) でそのまま動作する。 別途の API キー
-  や従量課金は不要 (`claude` CLI 自身の認証経路をそのまま利用)
-- スマートフォンからは Tailscale 経由でホスト機の HTTPS にアクセスする
-- インターネット公開はせず、 Tailscale tailnet 内のみで疎通する
-
-## セットアップ
-
-2 段階構成。 **Path A** はチャット + 通知のみのシンプル版、 **Path B** はそれに加えて
-デスクトップ画面共有まで含む上位版。
-
-### Path A: チャット + 通知
-
-必要なもの:
-
-- ホスト機 (macOS / Linux。 Windows の場合は WSL2 経由。 後述の **Windows (WSL2)** 節参照)
-- Python 3.11+ (conda 推奨)
-- Node.js (フロントエンドビルド用)
-- Tailscale (ホスト機とスマートフォン両方にインストールし、 同一 tailnet に参加させる)
-- Claude Code CLI (`claude` コマンド、 認証済み)
-
-#### バックエンド
-
-```bash
-git clone https://github.com/<your-handle>/claude-pwa-client.git
-cd claude-pwa-client
-
-# Python 環境
-conda create -n pwa-client python=3.11
-conda activate pwa-client
-pip install -r backend/requirements.txt
-
-# 設定ファイル
-cp backend/config.example.json backend/config.json
-# config.json を編集してエージェントの cwd / claude コマンドパス等を設定
-
-# Web Push 用の VAPID 鍵生成 (1 度だけ)
-python -m backend.cli.gen_vapid  # backend/vapid.json を生成
-
-# 起動
-uvicorn backend.main:app --host 0.0.0.0 --port 8765
-```
-
-> **開発時の注意**: backend のサブパッケージ構成や import 構造を変更した時は、
-> 古い `__pycache__/*.pyc` が import 事故 (= 旧名 module が残って ImportError)
-> の温床になる。 再起動前に下記で purge する:
->
-> ```bash
-> find backend -name __pycache__ -type d -exec rm -rf {} +
-> ```
-
-#### フロントエンド
-
-```bash
-cd frontend
-npm install
-npm run build  # dist/ を生成、 バックエンドが配信
-```
-
-#### Tailscale で tailnet 内に公開
-
-```bash
-# backend を tailnet 経由で HTTPS 提供 (同一オリジンで /)
-tailscale serve --bg http://localhost:8765
-```
-
-これで `https://<your-host>.tail<xxxx>.ts.net/` が backend を指す。 `tailscale serve status`
-で接続状態を確認できる。
-
-#### backend を常駐起動する (macOS LaunchAgent)
-
-`uvicorn` を毎回手動起動する代わりに、 macOS なら LaunchAgent で常駐させる。
-`~/Library/LaunchAgents/com.example.claudepwa.plist`:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>com.example.claudepwa</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/bin/bash</string>
-    <string>-lc</string>
-    <string>cd /path/to/claude-pwa-client && source /path/to/miniforge/etc/profile.d/conda.sh && conda activate pwa-client && exec uvicorn backend.main:app --host 0.0.0.0 --port 8765</string>
-  </array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/path/to/claude-pwa-client/logs/backend.out</string>
-  <key>StandardErrorPath</key><string>/path/to/claude-pwa-client/logs/backend.err</string>
-</dict>
-</plist>
-```
-
-```bash
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.example.claudepwa.plist
-```
-
-backend はアプリ内で `RotatingFileHandler` を構成しているため、 上記の `StandardOutPath`
-は `uvicorn` 起動行および致命例外を拾う補助用。 メインログは `logs/backend.access.log` /
-`logs/backend.error.log` に 5 MB × 3 世代で自動ローテートされる。
-
-Linux では systemd user service で同等の常駐構成を取れる。 Windows は後述の
-**Windows (WSL2)** 節を参照。
-
-#### Windows (WSL2)
-
-backend は POSIX 前提の機能 (PTY / tmux / lsof) を利用するため Windows ネイティブでは
-動作しない。 Windows で利用する場合は WSL2 (Ubuntu) の中で Linux 版 backend を動かす。
-frontend は Windows 側のブラウザから Tailscale 経由でそのままアクセスできる。
-
-1. **WSL2 のインストール** (PowerShell を管理者で起動):
-   ```powershell
-   wsl --install -d Ubuntu
-   ```
-   再起動後に Ubuntu が立ち上がるのでユーザを作成する。
-
-2. **Ubuntu 内で依存をインストール** (macOS 手順と同等、 `brew` の代わりに `apt`):
-   ```bash
-   sudo apt update
-   sudo apt install -y python3 python3-venv python3-pip nodejs npm tmux git curl
-   # claude CLI のインストールは公式手順に従う:
-   # https://docs.claude.com/en/docs/claude-code
-   ```
-
-3. **リポジトリと backend / frontend のセットアップ** (Path A と同手順):
-   ```bash
-   git clone https://github.com/<your-handle>/claude-pwa-client.git
-   cd claude-pwa-client
-   python3 -m venv .venv && source .venv/bin/activate
-   pip install -r backend/requirements.txt
-   cp backend/config.example.json backend/config.json
-   # config.json の claude_path は `which claude` の結果と揃える
-   python -m backend.cli.gen_vapid
-   (cd frontend && npm install && npm run build)
-   ```
-
-4. **systemd user service で常駐起動**
-   (`~/.config/systemd/user/claudepwa.service`):
-   ```ini
-   [Unit]
-   Description=Claude PWA backend
-
-   [Service]
-   WorkingDirectory=%h/claude-pwa-client
-   ExecStart=/bin/bash -lc 'source .venv/bin/activate && exec uvicorn backend.main:app --host 0.0.0.0 --port 8765'
-   Restart=always
-
-   [Install]
-   WantedBy=default.target
-   ```
-   有効化:
-   ```bash
-   systemctl --user daemon-reload
-   systemctl --user enable --now claudepwa.service
-   # Ubuntu シェルを閉じた後も backend を継続させる:
-   loginctl enable-linger $USER
-   ```
-
-5. **Tailscale を WSL2 内にインストール** (WSL を Linux ホストとして tailnet に参加させる):
-   ```bash
-   curl -fsSL https://tailscale.com/install.sh | sh
-   sudo tailscale up
-   sudo tailscale serve --bg http://localhost:8765
-   ```
-   これで `https://<wsl-host>.tail<xxxx>.ts.net/` が backend を指す。 Windows 側にも
-   Tailscale をインストールして同一 tailnet に参加させれば、 Windows のブラウザ・他端末
-   からも疎通する。
-
-   参考: WSL2 のネットワークモードを `mirrored` に設定すれば Windows ホストの Tailscale を
-   共有することも可能だが、 設定が増えるため WSL 内に直接 Tailscale を入れる構成の方が
-   簡素かつ安定する。
-
-#### スマートフォンから接続
-
-1. Tailscale でホスト機の MagicDNS 名を確認する (例: `your-host.tail<xxxx>.ts.net`)
-2. スマートフォンで `https://<your-host>.tail<xxxx>.ts.net/` を開く
-3. iOS Safari の場合は 共有 → ホーム画面に追加 で PWA 化する
-4. 通知を有効化する場合は ⋯ メニューの「通知を有効にする」を選択する
-   (iOS 16.4+ かつホーム画面追加済みであることが必須)
-
-### Path B: デスクトップ画面共有 (任意)
-
-> このセクションは Rust nightly での自前ビルドが必要なため、 デスクトップ画面共有が
-> 不要であれば Path A だけで完結する。
->
-> Sunshine は Windows / Linux / macOS で動作するためホスト OS は問わない。 以下の例は
-> macOS をベースに記述しており、 他 OS では同等のパッケージマネージャ / 権限設定に
-> 読み替える (本リポでの動作確認は macOS)。
-
-Path A の構成に Sunshine + moonlight-web-stream を追加すると、 PWA の 🖥 ボタンから
-ホスト機のデスクトップ画面共有とタッチによる遠隔操作が利用できる。
-
-#### Sunshine (画面キャプチャ + Moonlight プロトコルサーバ)
-
-```bash
-# macOS の例 (Windows は scoop / インストーラ、 Linux は apt / rpm / AUR を利用):
-brew tap LizardByte/homebrew
-brew install sunshine-beta
-
-# 初回起動して config UI でユーザ作成 + アプリ登録 ("Desktop" がデフォルトで入る)
-sunshine
-# ブラウザで https://localhost:47990 → 管理者アカウント作成
-```
-
-ホスト OS 側で画面キャプチャと入力注入の許可を Sunshine に与える:
-
-- **macOS**: System Settings → プライバシーとセキュリティ で「画面録画」と「入力監視 /
-  アクセシビリティ」の両方に Sunshine を追加する。 後者はブラウザからのタップ ・ キー入力
-  をホストに注入するために必須で、 未設定の場合は画面は映るが操作が効かない
-- **Windows**: 通常は追加設定不要 (UAC レベルで実行される)
-- **Linux**: X11 / Wayland のキャプチャ設定が必要 (Sunshine 公式ドキュメント参照)
-
-自動起動の例 (macOS LaunchAgent、 `~/Library/LaunchAgents/dev.lizardbyte.sunshine.plist`):
-
-```xml
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>dev.lizardbyte.sunshine</string>
-  <key>ProgramArguments</key>
-  <array><string>/opt/homebrew/bin/sunshine</string></array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>EnvironmentVariables</key>
-  <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string></dict>
-</dict>
-</plist>
-```
-
-`launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.lizardbyte.sunshine.plist` で
-有効化する。 Linux は systemd user service、 Windows はサービス登録で同等の常駐構成が
-取れる。
-
-> **Note (macOS) — Sunshine の encoder hang 対策**: `launchctl kickstart -k` (SIGTERM)
-> での再起動時に、 ScreenCaptureKit / VideoToolbox のリソースが graceful shutdown 中に
-> 中途解放され、 respawn 後の encoder 初期化でハングする事例がある。 復旧手順は
-> `kill -9 <sunshine pid>` で SIGKILL → KeepAlive による 10 秒後の respawn でクリーン
-> な状態で起動する。 OS 再起動経由では発生しない。
-
-#### moonlight-web-stream (Sunshine ↔ ブラウザの WebRTC ブリッジ)
-
-公式リリースが無い OS では Rust から自前ビルドする。
-
-```bash
-# Rust nightly のインストール (macOS の例。 他 OS は rustup 公式手順)
-brew install rustup
-rustup default nightly
-
-# clone + build (cargo / npm が必要)
-git clone --recurse-submodules https://github.com/MrCreativ3001/moonlight-web-stream.git
-cd moonlight-web-stream
-cargo build --release
-npm install
-npm run build
-cp -r dist static   # release mode は static/ を参照する
-
-# 起動
-./target/release/web-server
-```
-
-`server/config.json` の `web_server` セクション:
-
-```json
-{
-  "web_server": {
-    "url_path_prefix": "/moonlight",
-    "default_user_id": <ペアリング後に決まる user_id>
-  }
-}
-```
-
-- `url_path_prefix = /moonlight` で Tailscale Serve の `/moonlight` プロキシと整合させる
-- `default_user_id` を設定すると PWA の iframe が認証なしで起動できる (URL 共有のみで
-  接続可能)
-
-**自動起動** (macOS LaunchAgent 例、 `~/Library/LaunchAgents/com.example.moonlight-web-stream.plist`):
-
-```xml
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>com.example.moonlight-web-stream</string>
-  <key>ProgramArguments</key>
-  <array><string>/path/to/moonlight-web-stream/target/release/web-server</string></array>
-  <key>WorkingDirectory</key><string>/path/to/moonlight-web-stream</string>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-</dict>
-</plist>
-```
-
-**ペアリング** (初回のみ):
-
-1. ブラウザで `http://localhost:8080/` を開きユーザを作成する
-2. Hosts に localhost を追加 → Pair で PIN が表示される
-3. Sunshine Web UI (`https://localhost:47990`) → PIN タブで上記 PIN を入力 → Send
-4. moonlight-web-stream 側で「Paired」表示になれば完了
-
-> **Note — ペアリングが壊れた場合の復旧**: ホスト再起動の挙動で moonlight-web-stream の
-> `data.json` 内 `pair_info` と Sunshine の `named_devices` 内 cert が不整合になる場合
-> がある。 復旧手順は data.json の hosts エントリを空にして moonlight-web-stream を
-> 再起動し、 PWA から Add Host → Pair → Sunshine admin で PIN 入力、 の流れで再構築する。
-
-#### Tailscale Serve で同一オリジン公開
-
-PWA から `/moonlight/` 配下にリバースプロキシで届かせるため Tailscale Serve を設定する
-(Path A で backend を `/` に提供済みの前提、 追加で `/moonlight` をマウント):
-
-```bash
-tailscale serve --bg --set-path=/moonlight http://localhost:8080/moonlight
-```
-
-これで `https://<your-host>.tail<xxxx>.ts.net/moonlight/...` の同一オリジンで
-moonlight-web-stream にアクセスでき、 PWA の iframe / CORS / Cookie 制約を回避できる。
-
-#### 音声を PWA に流す (任意、 macOS 例)
-
-Sunshine がキャプチャできる audio sink を別途用意する。 macOS では通常出力を直接 Sunshine
-に渡せないため、 [BlackHole](https://github.com/ExistentialAudio/BlackHole) 等の仮想
-オーディオデバイスを経由する:
-
-```bash
-brew install blackhole-2ch
-```
-
-`~/.config/sunshine/sunshine.conf` に:
-
-```
-audio_sink = BlackHole 2ch
-```
-
-この設定のままだとホスト本体のスピーカーから音が出なくなる (出力先が BlackHole に固定
-されるため)。 「PWA 接続中だけ BlackHole に切り替え、 接続終了時に元の出力に戻す」 を
-LaunchAgent と `switchaudio-osx` を用いた常駐スクリプトで自動化できる:
-
-```bash
-brew install switchaudio-osx
-```
-
-`~/Library/Application Support/sunshine-audio-switch/switch.sh` (抜粋):
-
-```bash
-#!/bin/bash
-LOG="$HOME/.config/sunshine/sunshine.log"
-TARGET="BlackHole 2ch"
-STATE="/tmp/sunshine-audio-prev"
-SWITCH="/opt/homebrew/bin/SwitchAudioSource"
-tail -n0 -F "$LOG" | while IFS= read -r line; do
-  case "$line" in
-    *"New streaming session started"*)
-      PREV=$("$SWITCH" -c); [ "$PREV" != "$TARGET" ] && { printf '%s' "$PREV" > "$STATE"; "$SWITCH" -s "$TARGET"; } ;;
-    *"CLIENT DISCONNECTED"*)
-      [ -f "$STATE" ] && { "$SWITCH" -s "$(cat $STATE)"; rm -f "$STATE"; } ;;
-  esac
-done
-```
-
-これを `com.example.sunshine-audio-switch.plist` として LaunchAgent 化し常駐させる。
-
-Windows / Linux では OS のループバックオーディオで直接キャプチャできる場合が多く、 仮想
-デバイスが不要なケースが多い (Sunshine 公式ドキュメントの OS 別注記を参照)。
+- backend はホスト機で常駐し、 `claude` CLI を **実 PTY + tmux** で起動 (SDK / `--print`
+  非対話モードは使わない)。 出力は JSONL tail → SSE、 入力は tmux 経由
+- 手元の Claude Code サブスクリプション (Pro / Max) でそのまま動作 (API キー / 従量課金不要)
+- スマートフォンからは Tailscale 経由でホスト機の HTTPS にアクセス、 インターネット公開はしない
+
+詳細なレイヤ構成と SSE / JSONL / tmux 経路の責務分割は
+[docs/architecture.md](docs/architecture.md) を参照。
 
 ## セキュリティモデル
 
 本リポジトリは個人ホスト機を Tailscale tailnet 内に限定公開する前提で設計している。
 インターネット公開を想定した認証 / 認可機構は持たない。 「tailnet 内に到達できる主体は
-ホスト機にログインしているのと同等の権限を持つ」 という前提を置き、 その上で以下の境界を
-最小限守る:
+ホスト機にログインしているのと同等の権限を持つ」 という前提のもと、 以下の境界を最小限守る:
 
-- **`/file` (GET/PUT) は HOME 配下に制限 + 秘密ファイル deny list**: SSH 鍵 (`~/.ssh/`,
-  `*.pem`, `id_rsa` 等)、 クラウド認証情報 (`~/.aws/`, `~/.gnupg/`, `~/.docker/`,
-  `~/.kube/`, `~/.config/gh/`)、 シェル初期化ファイル (`~/.zshrc`, `~/.bashrc` 等)、
-  シェル履歴 (`~/.zsh_history`, `~/.bash_history`)、 `~/.netrc` を読み書き禁止
-- **`/hooks/event` は localhost のみ受け付け**: claude CLI の hook は loopback で叩く前提。
-  tailnet 経由で偽 hook を送られて JSONL bind を任意ファイルに書き換える経路を塞ぐ
-- **Markdown レンダラの URL は react-markdown 標準 sanitizer を通す**: `javascript:` /
-  `data:` 等の危険スキームをブロック。 内部の `cpc-file://` だけ pass-through
-- **Web Push の subscription / VAPID 鍵は `backend/` 配下の JSON に保存**: 個人 Mac 1
-  ユーザ運用前提、 同マシン上に別ユーザを置くなら `chmod 600` 等で別途絞る
+- **`/file` (GET/PUT) は HOME 配下に制限 + 秘密ファイル deny list**: SSH 鍵
+  (`~/.ssh/`, `*.pem`, `id_rsa`)、 クラウド認証情報 (`~/.aws/`, `~/.gnupg/`, `~/.docker/`,
+  `~/.kube/`, `~/.config/gh/`)、 シェル初期化ファイル (`~/.zshrc`, `~/.bashrc`)、
+  シェル履歴、 `~/.netrc` を読み書き禁止
+- **`/hooks/event` は localhost のみ受付**: claude CLI hook は loopback 前提
+- **Markdown レンダラの URL は react-markdown 標準 sanitizer 経由**: `javascript:` /
+  `data:` 等の危険スキームをブロック (内部 `cpc-file://` のみ pass-through)
+- **Web Push の subscription / VAPID 鍵は `backend/` 配下の JSON に保存**
 
 WebSocket (`/ws/pty/{sid}`, `/views/ws`, `/jsonl/stream/{sid}`) や `/sessions/*` HTTP は
-認証なしで、 tailnet ACL に委ねている。 公開や multi-tenant 化する場合は別途
-middleware 層の認証が必要。
+認証なしで tailnet ACL に委ねている。 公開 / multi-tenant 化する場合は別途 middleware 認証
+が必要。
 
-## Troubleshooting
+## セットアップ
 
-### Chromium 系ブラウザで HTTPS 証明書エラー (`NET::ERR_CERTIFICATE_TRANSPARENCY_REQUIRED` 等)
+2 段階構成:
 
-Tailscale が発行する Let's Encrypt 証明書周辺で Chromium 系ブラウザが拒否するケースが
-Tailscale 側の既知 issue として残存している
-([tailscale/tailscale#16179](https://github.com/tailscale/tailscale/issues/16179))。
-以下を順に試す:
+- **Path A** (= チャット + 通知のみ): [docs/setup/path-a-chat.md](docs/setup/path-a-chat.md)
+- **Path B** (= 上記 + デスクトップ画面共有): [docs/setup/path-b-screenshare.md](docs/setup/path-b-screenshare.md)
+- **Windows (WSL2)** の場合: [docs/setup/windows-wsl.md](docs/setup/windows-wsl.md)
 
-1. **シークレット / プライベートウィンドウで開き直す** (過去の cert state を回避する。
-   上記 issue で workaround として有効報告あり)
-2. **Tailscale 管理画面で HTTPS Certificates が有効か確認する**
-   ([Tailscale docs](https://tailscale.com/docs/how-to/set-up-https-certificates))
-3. **OS の時刻が正しいか確認する** (時刻ズレが大きいと CT 検証に失敗する)
+ざっくり最短経路 (Path A、 macOS / Linux):
 
-上記で解決しない場合、 direct IP の HTTP フォールバックで暫定回避できる:
+```bash
+git clone https://github.com/<your-handle>/claude-pwa-client.git
+cd claude-pwa-client
 
+# backend
+conda create -n pwa-client python=3.11 && conda activate pwa-client
+pip install -r backend/requirements.txt
+cp backend/config.example.json backend/config.json   # 編集
+python -m backend.cli.gen_vapid                      # backend/vapid.json 生成
+uvicorn backend.main:app --host 0.0.0.0 --port 8765
+
+# frontend
+(cd frontend && npm install && npm run build)
+
+# tailnet 公開
+tailscale serve --bg http://localhost:8765
 ```
-http://<your-tailscale-ip>:8765
-```
 
-- `<your-tailscale-ip>` は Tailscale 管理画面または `tailscale ip` で確認できる (`100.x.x.x`)
-- tailnet 内の通信は WireGuard で暗号化されているため、 HTTPS を剥がしても tailnet 内では
-  実害が出ない
-- HTTP URL のままでもホーム画面追加 (PWA 化) は可能
+スマートフォンで `https://<your-host>.tail<xxxx>.ts.net/` を開き、 iOS Safari なら
+共有 → ホーム画面に追加で PWA 化。 通知は ⋯ メニュー → 「通知を有効にする」 (iOS 16.4+ +
+ホーム画面追加済が必須)。
 
 ## 設定ファイル
 
-### `backend/config.json`
+`backend/config.json` の骨格 (`backend/config.example.json` から複製):
 
 ```json
 {
   "agents": {
-    "session_default": {
-      "cwd": "/path/to/workdir",
+    "agent_a": {
+      "cwd": "/path/to/agent_a",
       "model": "Opus",
-      "launch_alias": "my_alias"
+      "display_name": "Agent A",
+      "launch_alias": "agent_a"
     }
+  },
+  "accounts": {
+    "personal": { "display_name": "個人", "env": {} },
+    "work": { "display_name": "会社", "env": { "CLAUDE_CONFIG_DIR": "/Users/you/.claude-work" } }
   },
   "claude_path": "/path/to/claude",
   "rate_limits_log": "/path/to/rate-limits.jsonl",
@@ -492,31 +131,14 @@ http://<your-tailscale-ip>:8765
 }
 ```
 
-- `claude_path`: `claude` コマンドの絶対パス (`which claude` で確認)。 PTY 起動時の存在
-  検証に利用する。 未設定または不正パスの場合は起動を拒否する。 conda 等で PATH が
-  通らない環境では明示する
-- 各エージェントの `cwd` に配置された `CLAUDE.md` は `claude` 起動時に自動ロードされる
-- `launch_alias` (任意): タブを新規作成した際に tmux pane へ自動入力する文字列。
-  `~/.zshrc` 等に `alias my_alias='cd /path/to/workdir && claude'` のような起動ラッパを
-  定義しておくと、 タブを開いた直後に claude TUI まで自動で立ち上がる。 未指定の場合は
-  シェルプロンプトで停止し手動入力を待つ。 既存 tmux session への再接続時 (backend 再起動
-  跨ぎ / タブ切替後) は claude が継続稼働している前提で何も送信しない
-- `cors_allow_origins`: 通常は `[]` (backend が同一オリジンで frontend を配信するため
-  CORS は不要)。 Vite dev server からアクセスする場合は `["http://localhost:5173"]` 等を
-  設定する
+各フィールド (= `agents` / `accounts` / `claude_path` / `launch_alias` 等) と
+`frontend/.env.local` の詳細は [docs/config.md](docs/config.md) を参照。
 
-### `frontend/.env` / `frontend/.env.local`
+## Troubleshooting
 
-- **`frontend/.env`**: リポジトリにコミットされる既定値 (アプリ名 / アイコン等)
-- **`frontend/.env.local`**: gitignore 済の個人用オーバーライド。 例:
-
-```
-VITE_API_BASE=https://<your-host>.tail<xxxx>.ts.net
-```
-
-`VITE_API_BASE` が未設定の場合は同一オリジンの相対 URL になる (backend が frontend を
-配信する標準構成では設定不要)。 backend と frontend を別オリジンで運用する場合のみ
-明示的に設定する。
+代表的なつまずきポイントと復旧手順は [docs/troubleshoot.md](docs/troubleshoot.md) に集約
+(Chromium 系の HTTPS 証明書エラー、 Sunshine encoder hang、 moonlight ペアリング破損、
+`__pycache__` import 事故、 等)。
 
 ## ディレクトリ構成
 
@@ -526,17 +148,20 @@ claude-pwa-client/
 │   ├── main.py                    # エントリポイント + ルータ集約 + lifespan task
 │   ├── state.py                   # プロセス共有状態
 │   ├── config.py                  # 設定読み込み + AGENTS 定義
+│   ├── paths.py                   # パス解決ヘルパ (HOME 配下制限 / deny list)
+│   ├── protocol.py                # 共通プロトコル定義
 │   ├── chat_content.py            # 添付ファイル保存 (uploads/tmp)
 │   ├── pty_discover.py            # tmux pane 配下の claude プロセス探索
+│   ├── cli/                       # スタンドアロン CLI (= gen_vapid 等)
 │   ├── terminal/                  # PTY + tmux + control mode 層
-│   │   ├── routes.py              # /ws/pty (ターミナル) + /pty/{sid}/send (入力経路)
+│   │   ├── routes.py              # /ws/pty + /pty/{sid}/send
 │   │   ├── runner.py              # claude を実 PTY + tmux で起動・駆動
 │   │   ├── confirm.py             # 送信確認 (jsonl カウント + wait + 救済再送)
 │   │   ├── session_resolver.py    # session 設定の解決 (autoresume / alias)
 │   │   └── control_mode.py        # tmux control mode (-CC) プロトコルパーサ
 │   ├── jsonl/                     # ~/.claude/projects 監視 + JSONL → イベント変換層
-│   │   ├── routes.py              # /jsonl/stream の SSE 配信 + 全 session tail loop
-│   │   ├── tail.py                # JSONL tail プリミティブ (純粋関数)
+│   │   ├── routes.py              # /jsonl/stream SSE 配信 + 全 session tail loop
+│   │   ├── tail.py                # JSONL tail プリミティブ
 │   │   ├── events.py              # JSONL 1 行 → chat UI イベント変換
 │   │   ├── session_status.py      # busy / agent_status / tasks / pr_links 更新
 │   │   ├── notifications.py       # 停止要因の検出と Web Push 配信
@@ -546,7 +171,7 @@ claude-pwa-client/
 │   │   ├── chat.py                # session メタ / status / overview SSE / /views/ws / /stop
 │   │   ├── files.py               # /file, /files/tree, /task-output
 │   │   ├── subagents.py           # subagent / workflow 一覧 + 個別 transcript
-│   │   └── hooks.py               # /hooks/event (localhost only、 claude CLI hooks → Web Push)
+│   │   └── hooks.py               # /hooks/event (localhost only)
 │   ├── core/                      # 横断ヘルパ
 │   │   ├── push.py                # Web Push + 通知履歴 + SSE listener
 │   │   ├── usage.py               # 使用率 (5h / 7d / ctx) 組み立て
@@ -555,42 +180,49 @@ claude-pwa-client/
 │   ├── tests/                     # pytest
 │   ├── config.example.json
 │   └── requirements.txt
-└── frontend/                      # React + Vite
-    ├── src/
-    │   ├── App.jsx                # ルートコンポーネント (タブ / チャット / 画面共有等)
-    │   ├── overlays/              # 全画面/サイドモーダル類
-    │   │   ├── FilePreviewModal.jsx   # md + 多言語シンタックスハイライト + 編集 + ⭐
-    │   │   ├── FileTreePanel.jsx      # ディレクトリ閲覧 + 行内 ☆ で fav 登録
-    │   │   ├── FavoritesQuickPicker.jsx # トップバー ⭐ から開く軽量ピッカー
-    │   │   ├── TasksModal.jsx         # トップバー 📋 から開く task list 表示
-    │   │   └── Modal.css / FileTreePanel.css / TasksModal.css
-    │   ├── components/
-    │   │   ├── ChatInput.jsx      # メッセージ入力 + ⋯ メニュー (= 添付 / ツリー)
-    │   │   ├── StatusBar.jsx      # モデル / mode / 残予算 / 5h / 7d / ctx / 🔗 PR chip
-    │   │   ├── SessionDrawer.jsx  # セッション一覧ドロワー
-    │   │   ├── MessageItem.jsx    # 単一メッセージのレンダリング
-    │   │   ├── Terminal.jsx       # xterm.js + /ws/pty
-    │   │   ├── SubagentsModal.jsx # サブエージェント / workflow ビューア
-    │   │   ├── MoonlightFrame.jsx # 画面共有 iframe
-    │   │   └── ...
-    │   ├── hooks/                 # チャット / SSE / 永続化 hook 群
-    │   └── utils/                 # api / format / favorites / id / storage 等
-    └── public/
-        ├── manifest.template.json # PWA manifest (env から値注入)
-        └── sw.js                  # Service Worker (Web Push 受信)
+├── frontend/                      # React + Vite
+│   ├── src/
+│   │   ├── App.jsx                # ルートコンポーネント
+│   │   ├── overlays/              # 全画面 / サイドモーダル類
+│   │   ├── components/            # ChatInput / StatusBar / Terminal / SubagentsModal 等
+│   │   │   ├── MessageRenderer.jsx
+│   │   │   └── ErrorBoundary.jsx
+│   │   ├── messageRegistry/       # MessageItem の system kind → Render lookup
+│   │   ├── SystemMessages/        # system 系メッセージの個別レンダリング
+│   │   ├── tools/                 # formatTool の per-tool ハンドラ
+│   │   ├── hooks/                 # チャット / SSE / 永続化 hook 群
+│   │   └── utils/                 # api / format / favorites / id / storage 等
+│   └── public/
+│       ├── manifest.template.json # PWA manifest
+│       └── sw.js                  # Service Worker (Web Push 受信)
+└── docs/                          # 詳細ドキュメント (下記 docs index 参照)
 ```
+
+## docs index
+
+| file | 内容 |
+|---|---|
+| [docs/setup/path-a-chat.md](docs/setup/path-a-chat.md) | Path A セットアップ (チャット + 通知): 依存 / backend / frontend / Tailscale / LaunchAgent / スマホ接続 |
+| [docs/setup/path-b-screenshare.md](docs/setup/path-b-screenshare.md) | Path B 追加セットアップ: Sunshine / moonlight-web-stream ビルド / ペアリング / 音声経路 |
+| [docs/setup/windows-wsl.md](docs/setup/windows-wsl.md) | Windows (WSL2) 上での backend / frontend / Tailscale 構成 |
+| [docs/config.md](docs/config.md) | `backend/config.json` (`agents` / `accounts` / `claude_path` / `launch_alias` 等) + `frontend/.env.local` 詳細 |
+| [docs/troubleshoot.md](docs/troubleshoot.md) | HTTPS 証明書エラー / encoder hang / ペアリング破損 / `__pycache__` 等 |
+| [docs/architecture.md](docs/architecture.md) | レイヤ構成と責務分割 (terminal / jsonl / routes / core) |
+| [docs/streams.md](docs/streams.md) | SSE / WebSocket ストリームの設計 (`/jsonl/stream`, `/views/ws`, `/ws/pty`) |
+| [docs/extending.md](docs/extending.md) | 新規 message kind / tool / system message を追加する手順 |
+| [docs/sse-event-shape.md](docs/sse-event-shape.md) | SSE イベントの shape 仕様 |
+| [docs/sunshine-runbook.md](docs/sunshine-runbook.md) | Sunshine 運用 runbook |
 
 ## ライセンス
 
 Apache License 2.0 (`LICENSE` および `NOTICE` を参照)。
 
-Sunshine / moonlight-web-stream は GPL-3.0 ライセンスだが、 本リポジトリはこれらを
-バンドル ・ リンクしていない。 別プロセスとして起動し HTTP / WebRTC 経由で連携するため、
-本リポジトリ自体に GPL の copyleft は波及しない (FSF GPL FAQ「プロセス分離は通常
-derivative work には当たらない」に依拠)。
+Sunshine / moonlight-web-stream は GPL-3.0 ライセンスだが、 本リポジトリはこれらをバンドル
+・ リンクしていない。 別プロセスとして起動し HTTP / WebRTC 経由で連携するため、 本リポジトリ
+自体に GPL の copyleft は波及しない (FSF GPL FAQ「プロセス分離は通常 derivative work には
+当たらない」に依拠)。
 
-派生物では `NOTICE` を保持し、 改変した主要ファイルにその旨を明記すること
-(Apache-2.0 §4)。
+派生物では `NOTICE` を保持し、 改変した主要ファイルにその旨を明記すること (Apache-2.0 §4)。
 
 ## 謝辞
 
