@@ -23,7 +23,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     build: {
-      // 初回 download を縮める chunk 分割。 react / @capacitor は安定で再利用可、
+      // 初回 download を縮める chunk 分割。 react は安定で再利用可、
       // markdown 系は遅延 load 候補なので別 chunk に逃がして main を軽くする。
       rollupOptions: {
         output: {
@@ -39,7 +39,6 @@ export default defineConfig(({ mode }) => {
                 id.includes('hast') ||
                 id.includes('refractor') ||
                 id.includes('prismjs')) return 'markdown'
-            if (id.includes('@capacitor')) return 'capacitor'
             if (id.includes('lz-string')) return 'lz'
             if (id.includes('react-dom') || id.includes('/react/')) return 'react-vendor'
             return undefined
