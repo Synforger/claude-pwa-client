@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense, Component } from 'react'
 import './App.css'
 import MessageItem from './components/MessageItem.jsx'
 import Terminal from './components/Terminal.jsx'
@@ -46,6 +46,79 @@ function collectActiveImageIds(msgDict) {
     }
   }
   return active
+}
+
+// F-60 (= 2026-06-21): lazy modal の chunk fetch が失敗した時 (= deploy 直後の hash drift /
+// network blip / SW cache 破損) の最小 ErrorBoundary。 既存の src/ErrorBoundary.jsx は
+// 全画面置換 (= リロード / データ消去 + リロードの 2 ボタン) で、 lazy modal 1 つの読込
+// 失敗で全画面差替えは過剰。 ここは「失敗した modal だけ閉じる + 軽い update 促し」 で
+// 留め、 ユーザの裏で動いてる chat / streaming を生存させる方針。 fallback は inline で
+// 小さい文 + 「↺ アプリ更新」 ボタンだけ出す (= window.location.reload() に倒す)。
+class LazyBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false }
+  }
+  static getDerivedStateFromError() { return { hasError: true } }
+  componentDidCatch(error, info) { console.error('[LazyBoundary]', error, info) }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+        }}>
+          <div style={{
+            background: '#1a1a1a',
+            color: '#ccc',
+            padding: '20px 24px',
+            borderRadius: 8,
+            border: '1px solid #444',
+            maxWidth: 320,
+            textAlign: 'center',
+            fontSize: 13,
+            lineHeight: 1.5,
+          }}>
+            <p style={{ margin: '0 0 14px' }}>画面の読込に失敗しました</p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+              <button
+                type="button"
+                onClick={() => this.setState({ hasError: false })}
+                style={{
+                  padding: '6px 14px',
+                  background: '#2a2a2a',
+                  color: '#ccc',
+                  border: '1px solid #444',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontSize: 13,
+                }}
+              >閉じる</button>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                style={{
+                  padding: '6px 14px',
+                  background: '#3a5a8c',
+                  color: '#fff',
+                  border: '1px solid #4a6a9c',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontSize: 13,
+                }}
+              >↺ アプリ更新</button>
+            </div>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
 }
 
 const FilePreviewModal = lazy(() => import('./overlays/FilePreviewModal.jsx'))
@@ -530,13 +603,16 @@ export default function App() {
       {/* 画面共有 iframe (= moonlight-web-stream を埋め込み、 Mac の Sunshine と
           連携)。 desktopOpen=true かつ moonlightAvailable の時だけ render。 */}
       {desktopOpen && moonlightAvailable && (
-        <Suspense fallback={null}>
-          <MoonlightFrame />
-        </Suspense>
+        <LazyBoundary>
+          <Suspense fallback={null}>
+            <MoonlightFrame />
+          </Suspense>
+        </LazyBoundary>
       )}
 
       {ov.drawer && (
-        <Suspense fallback={null}>
+        <LazyBoundary>
+          <Suspense fallback={null}>
           <SessionDrawer
             open={ov.drawer}
             onClose={() => ov.setDrawer(false)}
@@ -555,7 +631,8 @@ export default function App() {
             pushBusy={pushBusy}
             onTogglePush={handleTogglePush}
           />
-        </Suspense>
+          </Suspense>
+        </LazyBoundary>
       )}
 
       {/* メッセージ一覧。 .messages は通常 flex-direction: column、 古い→新しい が上→下。
@@ -695,34 +772,54 @@ export default function App() {
         onConfirm={handleDeleteSession}
       />
 
-      <Suspense fallback={null}>
-        {ov.previewPath && (
-          <FilePreviewModal path={ov.previewPath} onClose={() => ov.setPreviewPath(null)} />
-        )}
-        {ov.treeOpen && (
-          <FileTreePanel
-            initialPath={ov.treeOpen}
-            onOpenFile={handleOpenPath}
-            onClose={() => ov.setTreeOpen(null)}
-          />
-        )}
-        {ov.subagents && activeSid && (
-          <SubagentsModal sid={activeSid} focus={ov.subagentsFocus} onClose={() => ov.setSubagents(false)} />
-        )}
-        {ov.favs && (
-          <FavoritesQuickPicker
-            onOpenFile={(path) => ov.setPreviewPath(path)}
-            onOpenDir={(path) => ov.setTreeOpen(path)}
-            onClose={() => ov.setFavs(false)}
-          />
-        )}
-        {ov.tasks && (
-          <TasksModal
-            tasks={status?.tasks || []}
-            onClose={() => ov.setTasks(false)}
-          />
-        )}
-      </Suspense>
+      {/* F-60: 各 lazy modal を 1 つずつ LazyBoundary + Suspense で wrap。 chunk fetch 失敗 /
+          初回 render error が他 modal を巻き込まずに局所閉じできるように分離する。 */}
+      {ov.previewPath && (
+        <LazyBoundary>
+          <Suspense fallback={null}>
+            <FilePreviewModal path={ov.previewPath} onClose={() => ov.setPreviewPath(null)} />
+          </Suspense>
+        </LazyBoundary>
+      )}
+      {ov.treeOpen && (
+        <LazyBoundary>
+          <Suspense fallback={null}>
+            <FileTreePanel
+              initialPath={ov.treeOpen}
+              onOpenFile={handleOpenPath}
+              onClose={() => ov.setTreeOpen(null)}
+            />
+          </Suspense>
+        </LazyBoundary>
+      )}
+      {ov.subagents && activeSid && (
+        <LazyBoundary>
+          <Suspense fallback={null}>
+            <SubagentsModal sid={activeSid} focus={ov.subagentsFocus} onClose={() => ov.setSubagents(false)} />
+          </Suspense>
+        </LazyBoundary>
+      )}
+      {ov.favs && (
+        <LazyBoundary>
+          <Suspense fallback={null}>
+            <FavoritesQuickPicker
+              onOpenFile={(path) => ov.setPreviewPath(path)}
+              onOpenDir={(path) => ov.setTreeOpen(path)}
+              onClose={() => ov.setFavs(false)}
+            />
+          </Suspense>
+        </LazyBoundary>
+      )}
+      {ov.tasks && (
+        <LazyBoundary>
+          <Suspense fallback={null}>
+            <TasksModal
+              tasks={status?.tasks || []}
+              onClose={() => ov.setTasks(false)}
+            />
+          </Suspense>
+        </LazyBoundary>
+      )}
     </div>
   )
 }
