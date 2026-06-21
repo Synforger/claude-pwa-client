@@ -29,7 +29,7 @@ from backend.jsonl.session_status import (
     apply_immediate_stop as _apply_immediate_stop,
     apply_pending_question as _apply_pending_question,
 )
-from backend.state import agent_status, sessions_meta, sessions_overview, stream_states
+from backend.state import sessions_meta
 
 logger = logging.getLogger(__name__)
 
@@ -146,18 +146,20 @@ async def hooks_event(request: Request) -> dict:
         tool_name = payload.get("tool_name")
         tool_input = payload.get("tool_input") or {}
         if tool_name == "AskUserQuestion" and pwa_sid_hdr:
+            # backend-F-69: hook の pending_question mutate は
+            # session_status.apply_pending_question に集約 (= merge ロジック)。 hook が
+            # tool_use_id=None で立て、 JSONL tail (= mutate_agent_status の
+            # AskUserQuestion 分岐) が同 questions + 真の tool_use_id で来て補完する
+            # 正常経路は変わらず、 hook 重複到着で既知 id を None で潰す race のみ消える。
+            # status_event.set / sessions_overview.notify は helper 内部で実施。
             questions = tool_input.get("questions") or []
-            a = agent_status.get(pwa_sid_hdr)
-            if a is not None and questions:
-                a["pending_question"] = {"tool_use_id": None, "questions": questions}
-                st = stream_states.get(pwa_sid_hdr)
-                if st is not None:
-                    st.status_event.set()
-                    sessions_overview.notify()  # 全 sid SSE にも伝播
-                logger.info(
-                    "PreToolUse AskUserQuestion → pending_question set: pwa_sid=%s nq=%d",
-                    pwa_sid_hdr, len(questions),
-                )
+            if questions and isinstance(questions, list):
+                applied = _apply_pending_question(pwa_sid_hdr, questions, tool_use_id=None)
+                if applied:
+                    logger.info(
+                        "PreToolUse AskUserQuestion → pending_question merged: pwa_sid=%s nq=%d",
+                        pwa_sid_hdr, len(questions),
+                    )
         return {"ok": True, "observed": tool_name}
 
     if event == "SessionStart":
