@@ -15,13 +15,76 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from enum import Enum
 from pathlib import Path
 
+from backend.jsonl.events import INTERRUPT_USER_RE
 from backend.jsonl.plan_choices import capture_plan_choices
 from backend.jsonl.predicates import is_user_prompt as _is_user_prompt_pred
 from backend.jsonl.tail import parse_jsonl_timestamp
 from backend.state import agent_status, sessions_overview, stream_states
 from backend.core.usage import compute_ctx_pct, format_model_name
+
+
+# --- busy 判定の共通分類器 (= backend-F-04) -----------------------------------
+# 旧版は `update_busy` (= 進行更新) / `compute_busy_from_tail` (= 末尾再計算) /
+# `busy_after_idle` (= idle watchdog) が 1 行 → 状態の分岐を**それぞれの場所で
+# 自前に書いて**いた (= stop_reason 文字列の比較が 3 箇所、 user 行判定経路も 3 箇所、
+# tool_use / 中断 marker の扱いが微妙にズレていた)。 1 行 dict → Enum の純粋関数 1 本に
+# 集約することで「busy 遷移ルール」 を 1 箇所で表現する。
+class LineKind(Enum):
+    """JSONL 1 行を busy 判定の観点で分類した kind。"""
+    START = "start"              # 素ユーザ発話 (= turn 開始) — busy=True
+    END = "end"                  # assistant の確定 stop_reason (!= tool_use) — busy=False
+    IN_PROGRESS = "in_progress"  # assistant の stop_reason == "tool_use" — busy=True
+    INTERRUPT = "interrupt"      # `[Request interrupted by user]` marker — busy=False (= 中断完了)
+    OTHER = "other"              # 上記いずれでもない (= mode / attachment / tool_result 等)
+
+
+def classify_jsonl_line(line: dict) -> LineKind:
+    """JSONL 1 行を busy 観点で分類する純粋関数 (= backend-F-04)。
+
+    分類規則:
+    - assistant 行で stop_reason=="tool_use" → IN_PROGRESS (= ツール継続中、 busy 維持)
+    - assistant 行で stop_reason が他の確定値 → END (= turn 完了、 busy=False)
+    - assistant 行で stop_reason 欠落 → OTHER (= 末尾 partial の可能性、 caller が判断)
+    - user 行で INTERRUPT marker 単独 → INTERRUPT (= 中断完了、 busy=False)
+    - user 行で素プロンプト (= predicates.is_user_prompt) → START (= turn 開始)
+    - その他 (sidechain / meta / tool_result / mode 等) → OTHER
+
+    INTERRUPT を START と分離する理由: `[Request interrupted by user]` は claude が
+    中断完了 marker として書くもので、 応答 stop_reason 行が来ない (2026-06-04 真因)。
+    predicates.is_user_prompt は INTERRUPT を弾くので、 ここで明示的に separate kind に
+    することで「中断が観測された」 という情報を caller (= busy_after_idle 等) に渡せる。
+    """
+    if not isinstance(line, dict):
+        return LineKind.OTHER
+    ltype = line.get("type")
+    if ltype == "assistant":
+        sr = (line.get("message") or {}).get("stop_reason")
+        if sr == "tool_use":
+            return LineKind.IN_PROGRESS
+        if sr:
+            return LineKind.END
+        return LineKind.OTHER
+    if ltype == "user" and not line.get("isSidechain") and not line.get("isMeta"):
+        # INTERRUPT marker 単独行を検出 (= predicates.is_user_prompt は False を返す)
+        content = (line.get("message") or {}).get("content")
+        if isinstance(content, str):
+            if INTERRUPT_USER_RE.match(content.strip()):
+                return LineKind.INTERRUPT
+        elif isinstance(content, list):
+            # 単一 text block で INTERRUPT marker のみ ↔ それ以外の text が混ざるなら通常判定
+            text_blocks = [b for b in content if isinstance(b, dict) and b.get("type") == "text"]
+            if text_blocks and all(
+                INTERRUPT_USER_RE.match((b.get("text") or "").strip())
+                for b in text_blocks
+                if (b.get("text") or "").strip()
+            ) and any((b.get("text") or "").strip() for b in text_blocks):
+                return LineKind.INTERRUPT
+        if _is_user_prompt_pred(line):
+            return LineKind.START
+    return LineKind.OTHER
 
 
 # sid → 直近 user 発話 (= turn 開始) の unix epoch。 stop_reason 確定行を見たら
@@ -62,25 +125,27 @@ def update_busy(session_id: str, line: dict) -> None:
     """JSONL 1 行から session の busy (= turn 進行中か) を更新する。 変化したら
     sessions_overview.notify() で /sessions/overview/stream に push させる。
 
-    素ユーザ発話 → busy=True (推論開始)。 assistant 行は stop_reason で判定:
-    `tool_use` (= ツール継続中) は busy=True、 それ以外の確定 stop_reason
-    (end_turn / max_tokens / refusal 等) は busy=False (= turn 完了)。 jsonl_events の
-    result 合成と同一基準で、 SSE result 配信を経由しないので取りこぼさない。"""
+    遷移ルールは `classify_jsonl_line` で集約:
+    - START (= 素ユーザ発話) → busy=True + user_stopped 解除
+    - END (= 確定 stop_reason 非 tool_use) → busy=False
+    - IN_PROGRESS (= stop_reason=="tool_use") → busy=True 維持 (= 既に True なら無変化)
+    - INTERRUPT (= `[Request interrupted by user]` marker) → busy=False
+    - OTHER → 変化なし
+    user_stopped (= ユーザが Stop ボタン押下) は busy=False を強制 (= 次 START で解除)。
+    """
     st = stream_states.get(session_id)
     if st is None:
         return
+    kind = classify_jsonl_line(line)
     new = st.busy
-    if line.get("type") == "assistant":
-        sr = (line.get("message") or {}).get("stop_reason")
-        if sr == "tool_use":
-            new = True
-        elif sr:
-            new = False
-    elif is_user_prompt(line):
+    if kind == LineKind.START:
         new = True
-        # 素ユーザ発話 = turn の再開意思。 sticky だった「停止」 を解除する。
         st.user_stopped = False
-    # ユーザが Stop を押した状態は busy=False を強制 (= 次の素ユーザ発話で解除)。
+    elif kind == LineKind.END or kind == LineKind.INTERRUPT:
+        new = False
+    elif kind == LineKind.IN_PROGRESS:
+        new = True
+    # OTHER は据置 (= busy 変化を起こさない)
     if st.user_stopped:
         new = False
     if new != st.busy:
@@ -88,28 +153,40 @@ def update_busy(session_id: str, line: dict) -> None:
         sessions_overview.notify()
 
 
-def compute_busy_from_tail(path: Path, tail_bytes: int = 32768) -> bool:
-    """JSONL 末尾を読んで現在の busy を算出する (= monitor 初回 / path 切替時の初期化用)。
-    後ろから最初に当たった確定シグナル (assistant の stop_reason or 素ユーザ発話) で決める。"""
+def _read_tail_lines(path: Path, tail_bytes: int) -> list[dict] | None:
+    """末尾 tail_bytes を読んで JSONL 行を dict 化 (= 失敗時 None)。
+    compute_busy_from_tail / busy_after_idle が共有する低レベル read。"""
     try:
         size = path.stat().st_size
         with open(path, "rb") as f:
             f.seek(max(0, size - tail_bytes))
             data = f.read()
     except OSError:
-        return False
-    for raw in reversed([ln for ln in data.split(b"\n") if ln.strip()]):
+        return None
+    out: list[dict] = []
+    for raw in data.split(b"\n"):
+        if not raw.strip():
+            continue
         try:
-            d = json.loads(raw)
+            out.append(json.loads(raw))
         except (json.JSONDecodeError, ValueError):
             continue
-        if d.get("type") == "assistant":
-            sr = (d.get("message") or {}).get("stop_reason")
-            if sr == "tool_use":
-                return True
-            if sr:
-                return False
-        elif is_user_prompt(d):
+    return out
+
+
+def compute_busy_from_tail(path: Path, tail_bytes: int = 32768) -> bool:
+    """JSONL 末尾を読んで現在の busy を算出する (= monitor 初回 / path 切替時の初期化用)。
+    後ろから最初に当たった分類シグナル (= classify_jsonl_line 経由) で決める。"""
+    lines = _read_tail_lines(path, tail_bytes)
+    if not lines:
+        return False
+    for d in reversed(lines):
+        kind = classify_jsonl_line(d)
+        if kind == LineKind.IN_PROGRESS:
+            return True
+        if kind == LineKind.END or kind == LineKind.INTERRUPT:
+            return False
+        if kind == LineKind.START:
             return True
     return False
 
@@ -118,32 +195,26 @@ def busy_after_idle(path: Path, tail_bytes: int = 32768) -> bool:
     """idle watchdog 用の busy 再判定。 monitor が busy=True のまま長時間 JSONL が静かな時に呼ぶ。
 
     通常の tail 判定 (compute_busy_from_tail) との違いは 1 点だけ:
-    **末尾の決定的 assistant 行が stop_reason を持たない**場合、 通常判定は「partial かも」 と
-    見て古い行へ走査を続けるが、 idle 判定では**終端マーカー欠落 (= claude-code #22566 で
-    観測される、 応答は書かれたのに stop_reason 行が永続しない事象) とみなして settled=False**
-    を返す。 長時間 (= 呼び出し側の閾値) 新規行ゼロなら streaming 途中ではあり得ず、 応答済み
-    と判断できるため安全。 `tool_use` 末尾 (= 長時間かかるツール実行中) は busy=True を維持する
-    ので、 ツール実行中に誤って送信ボタンへ戻すことはない。"""
-    try:
-        size = path.stat().st_size
-        with open(path, "rb") as f:
-            f.seek(max(0, size - tail_bytes))
-            data = f.read()
-    except OSError:
+    **末尾の決定的 assistant 行が stop_reason を持たない** (= LineKind.OTHER で assistant)
+    場合、 通常判定は「partial かも」 と見て古い行へ走査を続けるが、 idle 判定では**終端
+    マーカー欠落 (= claude-code #22566) とみなして settled=False** を返す。 長時間 新規行
+    ゼロなら streaming 途中ではあり得ず、 応答済みと判断できるため安全。 IN_PROGRESS
+    (= `tool_use` 末尾、 長時間ツール実行中) は busy=True を維持するので、 ツール実行中に
+    誤って送信ボタンへ戻すことはない。"""
+    lines = _read_tail_lines(path, tail_bytes)
+    if not lines:
         return False
-    for raw in reversed([ln for ln in data.split(b"\n") if ln.strip()]):
-        try:
-            d = json.loads(raw)
-        except (json.JSONDecodeError, ValueError):
-            continue
+    for d in reversed(lines):
+        kind = classify_jsonl_line(d)
+        if kind == LineKind.IN_PROGRESS:
+            return True
         if d.get("type") == "assistant":
-            sr = (d.get("message") or {}).get("stop_reason")
-            if sr == "tool_use":
-                return True   # ツール実行中 (= 長時間でも busy 維持)
-            # 終端 stop_reason、 または marker 欠落 (idle なので応答済みと判断) は settled
+            # END / OTHER (= stop_reason 欠落) ともに idle 時は settled とみなす
             return False
-        if is_user_prompt(d):
-            return True       # ユーザ発話後で応答開始前 (= まだ in-flight)
+        if kind == LineKind.INTERRUPT:
+            return False
+        if kind == LineKind.START:
+            return True
     return False
 
 
