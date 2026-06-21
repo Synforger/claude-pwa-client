@@ -30,8 +30,6 @@ import re
 HARNESS_XML_RE = re.compile(
     r"^\s*<(command-name|command-message|command-args|local-command-[a-z-]+)\b"
 )
-# 後方互換 (旧 module-private 名)。 新規参照は HARNESS_XML_RE を使う。
-_HARNESS_XML_RE = HARNESS_XML_RE
 
 
 # harness が background task (= Monitor / バックグラウンド Bash 等) の完了時に user 行として
@@ -337,7 +335,7 @@ def _user_events(line: dict) -> list[dict]:
         if task is not None:
             return [{"type": "task_notification", "uuid": line.get("uuid"), **task}]
         # claude TUI の slash command / stdout 内部表現は user 発話ではないので chat には出さない
-        if _HARNESS_XML_RE.match(text):
+        if HARNESS_XML_RE.match(text):
             return []
         return [{"type": "user_message", "text": content, "uuid": line.get("uuid")}]
 
