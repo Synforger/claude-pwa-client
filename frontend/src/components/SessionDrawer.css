@@ -151,6 +151,36 @@
   border-color: var(--accent);
   color: var(--accent);
 }
+/* /accounts fetch 失敗時 (= F-40): 取得失敗の文言 + 再試行ボタンを picker 内に挟む */
+.agent-picker-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  background: rgba(220, 80, 80, 0.10);
+  border: 1px solid rgba(220, 80, 80, 0.30);
+  border-radius: 4px;
+  color: #f08080;
+  font-size: 12px;
+}
+.agent-picker-retry {
+  background: var(--bg3);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.agent-picker-retry:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.agent-picker-retry:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .agent-picker-cancel {
   background: none;
   color: var(--text-dim);
