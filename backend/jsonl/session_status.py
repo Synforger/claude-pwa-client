@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections import OrderedDict
 from enum import Enum
 from pathlib import Path
 
@@ -91,6 +92,47 @@ def classify_jsonl_line(line: dict) -> LineKind:
 # (現在の確定行の timestamp - 開始) を duration_ms として result event に inject する。
 # プロセス内 dict なので backend 再起動で消える、 中断中の turn は duration 取得不可。
 _turn_started_at: dict[str, float] = {}
+
+
+# ExitPlanMode の二重起動防止用に「処理済 tool_use_id」 を sid ごとに bounded set で
+# 保持する (= backend-F-14)。 旧版は a["pending_plan"]["tool_use_id"] と一致したら skip
+# する gate のみで、 pending_plan が clear (= ユーザ承認 / 別 plan で上書き) された後に
+# 同 tool_id が再到着 (= SSE / monitor の path 切替 race 等) すると capture を再起動して
+# しまう穴があった。 OrderedDict + maxlen で「直近 64 個」 だけ覚えておく (= 過去 turn の
+# 古い id は自然に押し出される、 メモリ単調増加しない)。
+_PROCESSED_EXIT_PLAN_LIMIT = 64
+_processed_exit_plan_ids: dict[str, OrderedDict[str, None]] = {}
+
+
+def _remember_exit_plan(session_id: str, tool_use_id: str) -> bool:
+    """ExitPlanMode の tool_use_id を sid ごとの bounded set に記録する。
+
+    既に記録済なら False (= 二重到着 = capture を再起動しない)、 新規なら True を返す。
+    set は OrderedDict + maxlen で実装、 古い順に押し出される。"""
+    if not tool_use_id:
+        return True  # id 不明は弾けないので素通し (= 旧挙動と同じ)
+    seen = _processed_exit_plan_ids.setdefault(session_id, OrderedDict())
+    if tool_use_id in seen:
+        seen.move_to_end(tool_use_id)
+        return False
+    seen[tool_use_id] = None
+    while len(seen) > _PROCESSED_EXIT_PLAN_LIMIT:
+        seen.popitem(last=False)
+    return True
+
+
+def cleanup_orphan_exit_plan_ids() -> int:
+    """`sessions_meta` に存在しない sid の `_processed_exit_plan_ids` entry を掃除する。
+
+    呼び出し元 (= backend/core/maintenance.run_all_maintenance の summary に登録) は
+    W1-C scope 外 path (= backend/core/*) のため別 round で結線する。 maxlen 64 で
+    per-sid 上限があり、 そもそも unbounded ではないので未呼出でも実害は無い。
+    """
+    from backend.state import sessions_meta  # noqa: PLC0415
+    stale = [sid for sid in _processed_exit_plan_ids if sid not in sessions_meta]
+    for sid in stale:
+        _processed_exit_plan_ids.pop(sid, None)
+    return len(stale)
 
 
 def cleanup_orphan_turn_starts() -> int:
@@ -489,9 +531,13 @@ def mutate_agent_status(session_id: str, line: dict) -> bool:
                 tool_id = block.get("id")
                 inp = block.get("input") or {}
                 if name == "ExitPlanMode":
-                    cur = a.get("pending_plan") or {}
-                    if cur.get("tool_use_id") == tool_id:
-                        # 既に同 tool_id で処理済 (= SSE / monitor 両経路で呼ばれた)、 capture を二重起動しない
+                    # backend-F-14: bounded set で「処理済 tool_use_id」 を覚えておき、
+                    # pending_plan が clear (= ユーザ承認 / 別 plan で上書き) された後に
+                    # 同 tool_id が再到着しても capture を二重起動しない。 旧版の
+                    # `a["pending_plan"]["tool_use_id"] == tool_id` gate は pending_plan
+                    # 生存中の SSE / monitor 二重 mutate しか弾けず、 clear 後の重複に
+                    # 穴があった。
+                    if not _remember_exit_plan(session_id, tool_id):
                         continue
                 if name == "TodoWrite":
                     todos = inp.get("todos")
