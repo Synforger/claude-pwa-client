@@ -33,8 +33,23 @@ const KEEP_PREV_SESSIONS = 1 // 「1 個前の終了済みセッション」 ま
 const QUOTA_RETRY_TRIM_RATIO = 0.1
 const QUOTA_RETRY_MAX = 10
 
-function pruneOldSessions(arr) {
+// 各 sid の「直近 session_end マーカー数」 を ref 保持して、 数が KEEP_PREV_SESSIONS + 1
+// 未満なら線形走査をスキップする (= F-27)。 旧実装は save の度に sid 毎の全配列を走査
+// していて非効率だった。 マーカーが少ない sid (= 大多数) は走査自体が空振り。
+function countSessionEnds(arr) {
+  if (!Array.isArray(arr)) return 0
+  let n = 0
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i]?.role === 'system' && arr[i]?.kind === 'session_end') n++
+  }
+  return n
+}
+
+function pruneOldSessions(arr, knownEndCount) {
   if (!Array.isArray(arr) || arr.length === 0) return arr
+  // マーカーが KEEP+1 未満なら削るものは無いので即 return (= F-27、 線形走査回避)
+  const endCount = typeof knownEndCount === 'number' ? knownEndCount : countSessionEnds(arr)
+  if (endCount < KEEP_PREV_SESSIONS + 1) return arr
   // 末尾から走査して N+1 個目のマーカーの位置を探す (= そこ以前を捨てる)
   // 例: KEEP_PREV_SESSIONS=1 なら、 末尾から 2 個目の session_end マーカーより前を捨てる
   const targetMarkerIndex = KEEP_PREV_SESSIONS + 1
@@ -117,6 +132,12 @@ export function useChatStorage(sessions) {
 
   // sessions が変わったタイミングで、 知らない session_id 用の空エントリを補う
   // (ない場合の `messages[sid]` アクセスを `[]` で安全に受けるため)
+  //
+  // F-28: 起動後に backend sessions list が初めて入ってきた時 (= sessions 初回非空)、
+  // localStorage v2 key の中で backend に無い sid を即時 remove する。 旧実装は
+  // 起動時に全 v2 key を decompress してメモリ展開していたので、 退役 session のデータが
+  // 残り続けると起動コストが線形に膨らんでいた。 backend を真値として一度合流させれば
+  // 起動時メモリも以後の save 対象もスリムになる。 1 度だけ実行 (= cleanupDoneRef)。
   useEffect(() => {
     setMessages(prev => {
       let changed = false
@@ -135,6 +156,35 @@ export function useChatStorage(sessions) {
       }
       return changed ? next : prev
     })
+    // backend list 突合 cleanup (= F-28、 1 回だけ)
+    if (sessions.length > 0 && !cleanupDoneRef.current) {
+      cleanupDoneRef.current = true
+      const live = new Set(sessions.map(s => s.id))
+      try {
+        const toRemove = []
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i)
+          if (!k || !k.startsWith(LS_MESSAGES_V2_PREFIX)) continue
+          const sid = k.slice(LS_MESSAGES_V2_PREFIX.length)
+          if (!live.has(sid)) toRemove.push(k)
+        }
+        for (const k of toRemove) {
+          try { localStorage.removeItem(k) } catch { /* ignore */ }
+        }
+        // 同時にメモリ側 messages からも消す (= save loop で残骸を見ない)
+        if (toRemove.length > 0) {
+          setMessages(prev => {
+            const next = { ...prev }
+            let changed = false
+            for (const k of toRemove) {
+              const sid = k.slice(LS_MESSAGES_V2_PREFIX.length)
+              if (sid in next) { delete next[sid]; changed = true }
+            }
+            return changed ? next : prev
+          })
+        }
+      } catch { /* localStorage 不能環境 */ }
+    }
   }, [sessions])
 
   const msgSaveTimer = useRef(null)
@@ -143,6 +193,10 @@ export function useChatStorage(sessions) {
   // setMessages(prev => ...) は変更のあった sid だけ新オブジェクトを返す設計 (= 既存) なので、
   // 参照比較で diff を取れる。
   const lastSavedRef = useRef({})
+  // sid → 直近の session_end count (= F-27 の線形走査回避用キャッシュ)
+  const endCountRef = useRef({})
+  // backend sessions list との 1 回 cleanup 済みフラグ (= F-28)
+  const cleanupDoneRef = useRef(false)
 
   // messages を localStorage に書く時は sid 別キー (v2) に分ける。 推論中の 1 sid だけ書き
   // 換える時に全 sid 分の JSON.stringify + 圧縮を回さなくて済む (= reviewer 指摘 #7)。
@@ -163,7 +217,10 @@ export function useChatStorage(sessions) {
           const cur = messages[sid] || []
           // 参照比較で dirty 判定 (= sid に変更がなければ何もしない)
           if (lastSavedRef.current[sid] === cur) continue
-          const pruned = pruneOldSessions(cur).slice(-MAX_MESSAGES)
+          // F-27: マーカー数を再計算 (= dirty な sid のみ)、 これを pruneOldSessions に渡す
+          const endCount = countSessionEnds(cur)
+          endCountRef.current[sid] = endCount
+          const pruned = pruneOldSessions(cur, endCount).slice(-MAX_MESSAGES)
           // quota 超過時は古い方から N% ずつ削って再試行
           let toSave = pruned
           let saved = false
@@ -186,8 +243,11 @@ export function useChatStorage(sessions) {
         }
       }
       // iOS Safari 18.4+ / Chrome / Firefox は requestIdleCallback あり。
+      // F-26: timeout を 5000 → 2000ms に短縮。 5s だと一度ブロックした時に他 IO の
+      // ヘッドルームを大きく食う、 2s なら save 自体は idle に倒しつつ詰まり時の
+      // 強制実行までを許容範囲に収められる。
       if (typeof window.requestIdleCallback === 'function') {
-        window.requestIdleCallback(runSave, { timeout: 5000 })
+        window.requestIdleCallback(runSave, { timeout: 2000 })
       } else {
         runSave()
       }
