@@ -1,6 +1,7 @@
 import { generateId } from '../../utils/id.js'
 import { formatTool } from '../../utils/format.js'
 import { MAX_MESSAGES } from '../../constants.js'
+import { getMessageEntry } from '../../messageRegistry.js'
 
 // SSE イベント (1 行 JSON) を受け取って、buffer / messages state に反映する純粋関数。
 // 副作用は deps 経由で渡された setter / ref で行う (テスト時に差し替え可能)。
@@ -15,6 +16,34 @@ import { MAX_MESSAGES } from '../../constants.js'
 //   ask_user_question   — AskUserQuestion バブル
 //   user (tool_result)  — 既存 tool_use に結果を紐付ける
 //   assistant           — text / thinking / tool_use → buffer に積む
+
+// 共通 system message append helper (= F-04 / F-05)。
+//
+// 旧実装は 6 ブロック (compact / api_error / hook_error / system_note / attachment / task) で
+// `cancelAndFlush → uuid 既知判定 → setMessages` のパターンを手書き重複していた。 ここに集約。
+//
+// F-08: 過去は `[...arr, X].slice(-MAX)` を毎回呼んでいたので、 大半のケース (= arr.length <
+// MAX) でも新配列を 2 度作っていた。 必要時のみ先頭を捨てる形に変更。 上限到達後の挙動は同一。
+function appendSystemMessage(setMessages, sid, kind, extra) {
+  setMessages(prev => {
+    const arr = prev[sid] || []
+    const uuid = extra.uuid || null
+    if (uuid && arr.some(m => m.role === 'system' && m.kind === kind && m.uuid === uuid)) {
+      return prev
+    }
+    const msg = { id: generateId(), role: 'system', kind, uuid, ...extra }
+    let next
+    if (arr.length >= MAX_MESSAGES) {
+      // 上限到達: 先頭を 1 件落として末尾に新規。 1 回の slice + push で済ませる。
+      next = arr.slice(arr.length - MAX_MESSAGES + 1)
+      next.push(msg)
+    } else {
+      next = [...arr, msg]
+    }
+    return { ...prev, [sid]: next }
+  })
+}
+
 export function processStreamEvent(deps, sid, event) {
   const {
     setMessages,
@@ -39,27 +68,8 @@ export function processStreamEvent(deps, sid, event) {
   // compact_boundary: 会話圧縮タイミング。 メタを system バブルとして差し込む。
   if (event.type === 'system' && event.subtype === 'compact_boundary') {
     cancelAndFlush(sid)
-    const meta = event.compactMetadata || {}
-    const uuid = event.uuid || null
-    setMessages(prev => {
-      const msgs = prev[sid] || []
-      if (uuid && msgs.some(m => m.role === 'system' && m.kind === 'compact' && m.uuid === uuid)) {
-        return prev
-      }
-      return {
-        ...prev,
-        [sid]: [...msgs, {
-          id: generateId(),
-          role: 'system',
-          kind: 'compact',
-          uuid,
-          trigger: meta.trigger || null,
-          preTokens: typeof meta.preTokens === 'number' ? meta.preTokens : null,
-          postTokens: typeof meta.postTokens === 'number' ? meta.postTokens : null,
-          durationMs: typeof meta.durationMs === 'number' ? meta.durationMs : null,
-        }].slice(-MAX_MESSAGES),
-      }
-    })
+    const entry = getMessageEntry('compact')
+    appendSystemMessage(setMessages, sid, 'compact', { uuid: event.uuid || null, ...entry.fromEvent(event) })
     return
   }
 
@@ -67,29 +77,8 @@ export function processStreamEvent(deps, sid, event) {
   // ブラックボックス化させずに赤い inline カードで見せる (= 2026-06-12、 Fable 5 で多発)。
   if (event.type === 'system_error') {
     cancelAndFlush(sid)
-    const uuid = event.uuid || null
-    setMessages(prev => {
-      const msgs = prev[sid] || []
-      if (uuid && msgs.some(m => m.role === 'system' && m.kind === 'api_error' && m.uuid === uuid)) {
-        return prev
-      }
-      return {
-        ...prev,
-        [sid]: [...msgs, {
-          id: generateId(),
-          role: 'system',
-          kind: 'api_error',
-          uuid,
-          formatted: event.formatted || 'API error',
-          status: event.status ?? null,
-          requestId: event.requestId || null,
-          isNetworkDown: !!event.isNetworkDown,
-          retryInMs: typeof event.retryInMs === 'number' ? event.retryInMs : null,
-          retryAttempt: typeof event.retryAttempt === 'number' ? event.retryAttempt : null,
-          timestamp: event.timestamp || null,
-        }].slice(-MAX_MESSAGES),
-      }
-    })
+    const entry = getMessageEntry('api_error')
+    appendSystemMessage(setMessages, sid, 'api_error', { uuid: event.uuid || null, ...entry.fromEvent(event) })
     return
   }
 
@@ -133,29 +122,8 @@ export function processStreamEvent(deps, sid, event) {
   // (= ブラックボックス NG、 backend hooks が落ちてる時は気付かないと困る)。
   if (event.type === 'hook_error') {
     cancelAndFlush(sid)
-    const uuid = event.uuid || null
-    setMessages(prev => {
-      const msgs = prev[sid] || []
-      if (uuid && msgs.some(m => m.role === 'system' && m.kind === 'hook_error' && m.uuid === uuid)) {
-        return prev
-      }
-      return {
-        ...prev,
-        [sid]: [...msgs, {
-          id: generateId(),
-          role: 'system',
-          kind: 'hook_error',
-          uuid,
-          hookName: event.hookName || '',
-          hookEvent: event.hookEvent || '',
-          exitCode: event.exitCode ?? null,
-          stderr: event.stderr || '',
-          stdout: event.stdout || '',
-          command: event.command || '',
-          durationMs: event.durationMs ?? null,
-        }].slice(-MAX_MESSAGES),
-      }
-    })
+    const entry = getMessageEntry('hook_error')
+    appendSystemMessage(setMessages, sid, 'hook_error', { uuid: event.uuid || null, ...entry.fromEvent(event) })
     return
   }
 
@@ -163,24 +131,8 @@ export function processStreamEvent(deps, sid, event) {
   // 折りたたみで静かに記録。
   if (event.type === 'system_note') {
     cancelAndFlush(sid)
-    const uuid = event.uuid || null
-    setMessages(prev => {
-      const msgs = prev[sid] || []
-      if (uuid && msgs.some(m => m.role === 'system' && m.kind === 'system_note' && m.uuid === uuid)) {
-        return prev
-      }
-      return {
-        ...prev,
-        [sid]: [...msgs, {
-          id: generateId(),
-          role: 'system',
-          kind: 'system_note',
-          uuid,
-          subtype: event.subtype || '',
-          content: event.content || '',
-        }].slice(-MAX_MESSAGES),
-      }
-    })
+    const entry = getMessageEntry('system_note')
+    appendSystemMessage(setMessages, sid, 'system_note', { uuid: event.uuid || null, ...entry.fromEvent(event) })
     return
   }
 
@@ -190,24 +142,8 @@ export function processStreamEvent(deps, sid, event) {
   // attachment: queued_command / task_reminder / skill_listing 他を折りたたみカードで表示。
   if (event.type === 'attachment') {
     cancelAndFlush(sid)
-    const uuid = event.uuid || null
-    setMessages(prev => {
-      const msgs = prev[sid] || []
-      if (uuid && msgs.some(m => m.role === 'system' && m.kind === 'attachment' && m.uuid === uuid)) {
-        return prev
-      }
-      return {
-        ...prev,
-        [sid]: [...msgs, {
-          id: generateId(),
-          role: 'system',
-          kind: 'attachment',
-          uuid,
-          subtype: event.subtype || 'unknown',
-          attachment: event.attachment || {},
-        }].slice(-MAX_MESSAGES),
-      }
-    })
+    const entry = getMessageEntry('attachment')
+    appendSystemMessage(setMessages, sid, 'attachment', { uuid: event.uuid || null, ...entry.fromEvent(event) })
     return
   }
 
@@ -221,26 +157,8 @@ export function processStreamEvent(deps, sid, event) {
   // user バブルでなく中央寄せの system カードとして差し込む (= 「自分が送った」 風の誤表示を解消)。
   if (event.type === 'task_notification') {
     cancelAndFlush(sid)
-    const uuid = event.uuid || null
-    setMessages(prev => {
-      const msgs = prev[sid] || []
-      if (uuid && msgs.some(m => m.role === 'system' && m.kind === 'task' && m.uuid === uuid)) {
-        return prev
-      }
-      return {
-        ...prev,
-        [sid]: [...msgs, {
-          id: generateId(),
-          role: 'system',
-          kind: 'task',
-          uuid,
-          summary: event.summary || null,
-          status: event.status || null,
-          outputFile: event.outputFile || null,
-          exitCode: typeof event.exitCode === 'number' ? event.exitCode : null,
-        }].slice(-MAX_MESSAGES),
-      }
-    })
+    const entry = getMessageEntry('task')
+    appendSystemMessage(setMessages, sid, 'task', { uuid: event.uuid || null, ...entry.fromEvent(event) })
     return
   }
 
