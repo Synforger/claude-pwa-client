@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useState } from 'react'
-import MessageRenderer from '../MessageRenderer.jsx'
+import MessageRenderer from './MessageRenderer.jsx'
 import AskUserQuestionBubble from './AskUserQuestionBubble.jsx'
 import TaskNotification from './TaskNotification.jsx'
 import AttachedImages from './AttachedImages.jsx'
