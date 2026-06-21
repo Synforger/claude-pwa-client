@@ -15,11 +15,12 @@ from backend.state import session_tmp_files
 
 logger = logging.getLogger(__name__)
 
-# backend-F-59: 1 ファイルあたり 1 MiB 上限。 入口で fail-fast することで、 disk write を
+# backend-F-59: 1 ファイルあたり 20 MiB 上限。 入口で fail-fast することで、 disk write を
 # 走らせる前に拒否する (= 旧版は f.size を見ずに `await f.read()` で受け切ってから書き出して
 # いたので、 攻撃的 client が 100 MB の multipart を投げると mem ピーク + disk 占有が起きた)。
-# 上限は実用的な「添付ファイル」 サイズ (= スクショ + テキスト) に合わせて控えめに置く。
-FILE_SIZE_LIMIT = 1 * 1024 * 1024
+# 上限は iPhone 写真 (= 数 MB) + 高解像度スクショを通すサイズに合わせる (= 1 MiB だと
+# 常用画像が軒並み 413 で reject される事故が出たので 2026-06-21 緩和)。
+FILE_SIZE_LIMIT = 20 * 1024 * 1024
 
 
 async def save_to_tmp(files: list[UploadFile], session_id: str) -> list[dict]:
