@@ -316,13 +316,19 @@ export default function App() {
     markAsSeen(sid)
   }, [setActiveId, markAsSeen])
 
+  // F-01 (= 2026-06-21): dep を `messages` (= 全 sid 入り dict) → `activeMsgs` (= activeSid の
+  // slice) に絞り、 他 sid の flush で displayMessages が recompute されないようにする。
+  // useChatStorage の setMessages updater は変更のあった sid だけ新オブジェクトを返す設計
+  // (= 既存 useChatStream / useChatStorage の仕様、 参照比較で diff を取れる) なので、
+  // active sid に書込み無ければ activeMsgs は同参照で recompute skip される。
+  const activeMsgs = activeSid ? (messages[activeSid] || null) : null
   const displayMessages = useMemo(() => {
     if (!activeSid) return []
     // 直近 N 件のみ render する。 古い履歴は state / localStorage には残っているが DOM に
     // 出さない (= 過去が積み上がって scrollHeight が膨らみ、 scroll が途中で止まる /
     // 「↓ボタン」 で底まで届かない症状の根本対策)。 N は実体感で調整可能。
     const DISPLAY_LIMIT = 100
-    const allMsgs = messages[activeSid] || []
+    const allMsgs = activeMsgs || []
     const msgs = allMsgs.length > DISPLAY_LIMIT ? allMsgs.slice(-DISPLAY_LIMIT) : allMsgs
     // AskUserQuestion のライブ表示: backend が PreToolUse hook で立てた pending_question を
     // messages 末尾にバブルとして差し込む (= overlay でなく既存の chat 流れに乗せる)。
@@ -348,7 +354,7 @@ export default function App() {
       }]
     }
     return base
-  }, [messages, loading, activeSid, status?.pending_question])
+  }, [activeMsgs, loading, activeSid, status?.pending_question])
 
   const handleEndSession = () => {
     ov.setMenu(false)
@@ -400,6 +406,32 @@ export default function App() {
   // ユーザーは次に送る文を編集しておけるように許可 — 送信ボタンは loading 中は停止ボタン
   // に切り替わるので、 推論完了 → 自動で送信ボタンに戻る → ユーザーが押す、 で流れる。
   const inputDisabled = !activeSid
+
+  // F-11 (= 2026-06-21): Terminal を mount する sid を「viewMode='terminal' 経験ある sid」 を
+  // LRU N=3 で cap する (= 旧実装は全 sid 一律 mount で、 hidden 中も WS 受信 + xterm.write
+  // を回し続けて CPU + 電力 + メモリを食う温床)。 chat モードしか使ってない sid は
+  // Terminal 自体 mount しない (= 必要になった瞬間 = viewMode 'terminal' 切替で mount)。
+  // 直近 N 個を温存することで、 「2-3 タブ間を行き来する典型操作」 では再起動コストゼロを
+  // 維持しつつ、 古い tab の Terminal は構造的に手放す。
+  const TERM_MOUNT_LRU = 3
+  const [termMountedSids, setTermMountedSids] = useState([])
+  useEffect(() => {
+    if (!activeSid) return
+    if (activeViewMode !== 'terminal') return
+    setTermMountedSids(prev => {
+      if (prev[0] === activeSid) return prev
+      const next = [activeSid, ...prev.filter(s => s !== activeSid)]
+      return next.length > TERM_MOUNT_LRU ? next.slice(0, TERM_MOUNT_LRU) : next
+    })
+  }, [activeSid, activeViewMode])
+  // session 削除で消えた sid を mount list からも掃除
+  useEffect(() => {
+    const live = new Set(sids)
+    setTermMountedSids(prev => {
+      const filtered = prev.filter(s => live.has(s))
+      return filtered.length === prev.length ? prev : filtered
+    })
+  }, [sids])
 
   return (
     <div className="app">
@@ -529,23 +561,26 @@ export default function App() {
       {/* メッセージ一覧。 .messages は通常 flex-direction: column、 古い→新しい が上→下。
         起動 / 新着時は useAutoScroll が JS で scrollTop = scrollHeight に送って底辺維持。 */}
       <div className="messages-container">
-        {/* 各 sid の Terminal を mount しっぱなしにして display で切替する。
-            sid 切替 / view 切替で xterm.js + WebSocket が温存されるので、 タブを
-            戻した時の「起動 1-2 秒」 待ちがゼロになる (= 2026-06-10 改修)。
-            非 active な Terminal は display:none で隠れてるだけで WS は維持、
-            backend へ受信 stdout が flow し続けて scrollback も自然に伸びる。 */}
-        {sids.map(sid => (
-          <div
-            key={sid}
-            style={{
-              display: (activeViewMode === 'terminal' && sid === activeSid) ? 'block' : 'none',
-              position: 'absolute',
-              inset: 0,
-            }}
-          >
-            <Terminal sessionId={sid} />
-          </div>
-        ))}
+        {/* F-11 改修 (= 2026-06-21): Terminal は「viewMode='terminal' 経験 sid を LRU N=3」
+            に絞って mount。 切替で「起動 1-2 秒」 待ちゼロの旧設計優位性は、 直近 3 sid
+            の温存で実用上保たれる。 非 active な Terminal は display:none + visible={false}
+            で WS は維持しつつ xterm.write を skip (= Terminal 内部で buffer に積み、 復帰時
+            flush)。 chat モードしか触ってない sid は Terminal 自体 mount しない。 */}
+        {termMountedSids.map(sid => {
+          const isVisible = activeViewMode === 'terminal' && sid === activeSid
+          return (
+            <div
+              key={sid}
+              style={{
+                display: isVisible ? 'block' : 'none',
+                position: 'absolute',
+                inset: 0,
+              }}
+            >
+              <Terminal sessionId={sid} visible={isVisible} />
+            </div>
+          )
+        })}
         {/* chat も Terminal と対称に mount しっぱなしで display 切替する。
             terminal モードへ行っても DOM が unmount されないので、 戻った時に
             scroll 位置 / 画像 / プレビューの内部状態がそのまま残る (= 2026-06-16)。 */}
