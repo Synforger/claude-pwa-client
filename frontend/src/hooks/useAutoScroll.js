@@ -22,6 +22,17 @@ const PROGRAMMATIC_SCROLL_GUARD_MS = 200
 //   - 新着メッセージ追従は isAtBottom 中のみ JS で再 scroll、 そうでなければ hasNew=true
 //
 // 起動 / タブ切替時は useLayoutEffect で paint 前に底へ flush (= 前 session の scroll 残留防止)。
+//
+// 遅延 layout 追従戦略 (= F-09 改修、 2026-06-21):
+//   旧: setTimeout を [50,150,400,1000,2500] ms の 5 段で打って毎回再 scroll。 同期 1 回 +
+//       rAF retry + ResizeObserver で「実 layout 確定タイミング」 を捉える方が正確かつ
+//       無駄が少ない。 5 段 timeout は paint 結果に関わらず時間で叩くので、 ユーザが間に
+//       上スクロールしたら isAtBottomRef=false で no-op になるが、 timeout 自体は走り続け
+//       無駄な setTimeout を抱えていた。
+//   新: 同期で 1 回 + rAF で 1 回 + ResizeObserver が以後の layout 拡大を全て拾う。 RO の
+//       observe は scroll container 自身 (= 子要素は冗長で、 children が増えるたび observe
+//       する fan-out も不要、 親 1 つで子の拡大は全部拾える)。 ResizeObserver は実 layout
+//       変化時にしか発火しないので、 無関係な setTimeout は廃止。
 export function useAutoScroll({ messages, activeSession, viewMode }) {
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const [hasNew, setHasNew] = useState(false)
@@ -49,11 +60,9 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
   }, [])
 
   // 公開: 「↓ 最新へ」 ボタン or send 直後に呼ぶ用。
-  // 1 回 scrollTop = scrollHeight にしただけでは、 Markdown / code highlight / 画像 /
-  // details 展開等の遅延 layout で scrollHeight が paint 後に伸びるケースに追従できず
-  // 「途中までしかスクロールされない」 症状が出る。 sid 切替時 (= useLayoutEffect) と同じく
-  // 複数 timing で再 scroll する。 isAtBottomRef は guard 中 true 維持なので、 ユーザが
-  // 意図的に途中で上スクロールしない限り底辺まで届く。
+  // 同期 1 回 + rAF 1 回。 以後の遅延 layout (= Markdown / code highlight / 画像 /
+  // details 展開) は ResizeObserver effect 側の observer が拾って自動追従する
+  // (= F-09 統合)。 isAtBottomRef は guard 中 true 維持。
   const scrollToBottom = useCallback(() => {
     const el = scrollerDomRef.current
     if (!el) return
@@ -65,21 +74,15 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
     scrollEndTimerRef.current = setTimeout(() => {
       programmaticScrollRef.current = false
     }, PROGRAMMATIC_SCROLL_GUARD_MS)
-    // 遅延 layout 追従: 1 回目で底に届かなかった場合に複数 timing で再 scroll する
-    for (const ms of [50, 150, 400, 1000, 2500]) {
-      setTimeout(() => {
-        const e = scrollerDomRef.current
-        if (e && isAtBottomRef.current) e.scrollTop = e.scrollHeight
-      }, ms)
-    }
+    // 直後の paint 後にもう 1 回 (= 同 tick で scrollHeight が確定しないケース吸収)
+    requestAnimationFrame(() => {
+      const e = scrollerDomRef.current
+      if (e && isAtBottomRef.current) e.scrollTop = e.scrollHeight
+    })
   }, [])
 
   // 起動 / タブ切替: paint 前に底へ flush (= 前 session の scroll 残留防止)。
-  // 加えて、 JSONL 初回 replay (= 数百〜2000 行が EventSource で順次到着) や
-  // localStorage 復元後の画像 / Markdown / コードブロックの遅延 layout で
-  // scrollHeight が paint 後にも伸び続ける。 複数 timing で末尾追従中の場合だけ
-  // 底辺へ寄せ直して、 「タブ切替したけど最下部じゃない」 を取り逃さない。
-  // ユーザが意図的に上スクロールしたら scrollToBottomIfFollowing 側で no-op になる。
+  // 同期 + rAF 1 回。 以後の長い遅延 layout は ResizeObserver effect が拾う。
   useLayoutEffect(() => {
     if (!sid) return
     // ターミナル画面では DOM が xterm 側、 messages container は表示外なので scroll しない。
@@ -91,10 +94,8 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
     setHasNew(false)
     msgLengthRef.current[sid] = (messages[sid] || []).length
     scrollToBottomSync()
-    const ids = [50, 150, 400, 1000, 2500].map(ms =>
-      setTimeout(scrollToBottomIfFollowing, ms)
-    )
-    return () => ids.forEach(clearTimeout)
+    const rafId = requestAnimationFrame(scrollToBottomIfFollowing)
+    return () => cancelAnimationFrame(rafId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sid, viewMode])
 
@@ -128,25 +129,22 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
 
   // scroll 容器の子要素 layout が遅延確定する (= Markdown / コードブロック / 画像 / details
   // 展開等) ケースに追従するための ResizeObserver。 isAtBottom 中なら scrollHeight が伸びる
-  // たびに底辺へ送り直す。 初回マウント / タブ切替の「scrollHeight が後から伸びて底辺まで
-  // 届かない」 問題と、 SSE で長文 AM が伸び続けるケースを同時に解消する。
+  // たびに底辺へ送り直す。 旧実装は children を 1 つずつ observe + MutationObserver で
+  // 新規 child を追加 observe していたが、 親 container 1 つを observe するだけで子の
+  // 拡大は scrollHeight 変化として拾える (= F-09 / F-10 整理、 fan-out 廃止)。
   useEffect(() => {
     const el = scrollerDomRef.current
     if (!el || typeof ResizeObserver === 'undefined') return
+    let lastHeight = -1
     const ro = new ResizeObserver(() => {
+      // 実値が変化した時だけ反応 (= F-10、 RO 二重発火連鎖を抑える)。
+      const h = el.scrollHeight
+      if (h === lastHeight) return
+      lastHeight = h
       if (isAtBottomRef.current) scrollToBottomSync()
     })
     ro.observe(el)
-    // 子要素のサイズ変化も拾う (= 直接の resize でない場合)
-    for (const child of el.children) ro.observe(child)
-    // 子の追加 / 削除に追従するため、 MutationObserver で children を監視
-    const mo = new MutationObserver((muts) => {
-      for (const m of muts) {
-        for (const n of m.addedNodes) if (n.nodeType === 1) ro.observe(n)
-      }
-    })
-    mo.observe(el, { childList: true })
-    return () => { ro.disconnect(); mo.disconnect() }
+    return () => ro.disconnect()
   }, [scrollToBottomSync, sid])
 
   const onScroll = useCallback(() => {
