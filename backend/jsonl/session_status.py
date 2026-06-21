@@ -317,6 +317,96 @@ def refresh_subagent_status(session_id: str, jsonl_path: Path) -> bool:
     return False
 
 
+# --- hook / JSONL 共通の AskUserQuestion / Stop 即時 mutate helper -----------
+# 旧設計は hooks.py が agent_status を直 mutate (= F-12 Stop で current_tool=None /
+# F-69 PreToolUse で pending_question 立て) し、 JSONL tail (= mutate_agent_status) が
+# 後から id 補完 / 同じ field を上書きする 2 経路並走だった。 hook が先勝ちすると
+# pending_question.tool_use_id が None 固定で固まったり、 同 questions の重複到着で
+# 既知 id が消える race があった (= backend-F-69)。
+#
+# ここに集約する `apply_pending_question` / `apply_immediate_stop` は merge ロジック
+# 入りで、 hook も JSONL tail も**同じ関数**を呼ぶ。 hook 経由は「JSONL tail を待たない
+# 即時起こし trigger」、 JSONL 経由は「id 補完 + 整合性確定」 の役割になる (= 同じ
+# state へ向かう 2 入力が merge で収束)。 status_event.set / sessions_overview.notify
+# も内部で完結し、 caller は何回呼んでも idempotent。
+
+def apply_pending_question(
+    session_id: str,
+    questions: list,
+    tool_use_id: str | None = None,
+) -> bool:
+    """AskUserQuestion の pending_question を merge ロジックで立てる (= backend-F-69)。
+
+    merge 規則:
+    - 既存 pending_question なし → 新規 (questions + tool_use_id) を set
+    - 既存 questions と新着 questions が同じ → tool_use_id だけ補完
+      (= hook が None で立てた後 JSONL tool_use 行で id 来る正常経路、 旧来挙動を維持)
+      また hook の重複到着で既知 id を消さない (= None で上書きしない)
+    - 既存 questions と新着 questions が異なる → 新規 (= 別質問に切り替わった)
+    - 既存 tool_use_id != None かつ新着 tool_use_id != None かつ id 違い → 新規
+      (= 連続して別質問が来た正常経路)
+
+    変化があれば True を返す + status_event.set + sessions_overview.notify。
+    questions が空なら何もせず False (= 無意味な mutate を弾く)。
+    """
+    if session_id not in agent_status:
+        return False
+    if not questions:
+        return False
+    a = agent_status[session_id]
+    cur = a.get("pending_question")
+    new: dict
+    if cur is None:
+        new = {"tool_use_id": tool_use_id, "questions": questions}
+    else:
+        cur_qs = cur.get("questions")
+        cur_id = cur.get("tool_use_id")
+        if cur_qs == questions:
+            # 同じ質問: id だけ補完。 既知 id を None で上書きしない (= hook 重複保護)
+            merged_id = cur_id if (tool_use_id is None and cur_id is not None) else (tool_use_id or cur_id)
+            if merged_id == cur_id:
+                return False  # 変化なし
+            new = {"tool_use_id": merged_id, "questions": cur_qs}
+        else:
+            new = {"tool_use_id": tool_use_id, "questions": questions}
+    if cur == new:
+        return False
+    a["pending_question"] = new
+    st = stream_states.get(session_id)
+    if st is not None:
+        st.status_event.set()
+        sessions_overview.notify()
+    return True
+
+
+def apply_immediate_stop(session_id: str) -> bool:
+    """Stop hook 経由で turn 完了を即時反映する (= backend-F-12)。
+
+    旧 hooks.py は agent_status を直 mutate して current_tool / subagent を落としていた。
+    JSONL tail (= mutate_agent_status の stop_reason 確定経路) も同じ field を落とすので、
+    本関数は「JSONL tail 到着を待たない加速」 役。 mutate 経路は session_status 1 本に
+    絞り、 hook はこの関数を呼ぶだけ。
+
+    変化があれば True を返す + status_event.set + sessions_overview.notify。
+    """
+    if session_id not in agent_status:
+        return False
+    a = agent_status[session_id]
+    changed = False
+    if a.get("current_tool") is not None:
+        a["current_tool"] = None
+        changed = True
+    if a.get("subagent") is not None:
+        a["subagent"] = None
+        changed = True
+    if changed:
+        st = stream_states.get(session_id)
+        if st is not None:
+            st.status_event.set()
+            sessions_overview.notify()
+    return changed
+
+
 def mutate_agent_status(session_id: str, line: dict) -> bool:
     """JSONL 1 行から agent_status を更新する。 変化があれば True を返す
     (= caller が status_event.set() するための合図)。
@@ -426,13 +516,16 @@ def mutate_agent_status(session_id: str, line: dict) -> bool:
                     a["plan_mode"] = True
                     changed = True
                 elif name == "AskUserQuestion":
-                    # PreToolUse hook で先に立てた pending_question に、 JSONL 由来の
-                    # tool_use_id を補完する (= hook payload には id が無い)。 これで
-                    # 回答 tool_result との突合 (= clear 判定) ができる。
-                    pq = a.get("pending_question")
-                    if pq is not None and pq.get("tool_use_id") is None:
-                        a["pending_question"] = {**pq, "tool_use_id": tool_id}
-                        changed = True
+                    # backend-F-69: hook 側で `pending_question` を立てる仕様 (= 先勝ち
+                    # で上書き) を merge ロジックに切替済。 hook と JSONL tail のどちらが
+                    # 先に来ても同じ state に収束する (= 同 questions なら id 補完、
+                    # 異なれば新規)。 apply_pending_question が status_event.set /
+                    # sessions_overview.notify を内包するため、 ここでは戻り値だけ
+                    # changed に伝播する。
+                    qs_in = inp.get("questions") or []
+                    if isinstance(qs_in, list) and qs_in:
+                        if apply_pending_question(session_id, qs_in, tool_use_id=tool_id):
+                            changed = True
                 # current_tool: ActivityBar / 旧 SDK 経路と同型の「今走ってる tool」 情報
                 a["current_tool"] = {
                     "name": name,
