@@ -1,5 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { pctClass, timeUntil, formatResetWeekdayTime } from '../utils/format.js'
+import { useOutsideClick } from '../hooks/useOutsideClick.js'
+import { useConnectionStatus } from '../hooks/useConnectionStatus.js'
 import './StatusBar.css'
 
 // 7d window のリセットタイミング: Anthropic 仕様は **rolling 7-day window**
@@ -28,11 +30,41 @@ function cleanModel(m) {
   return s.replace(/\s*\(1M context\)/i, ' 1M').replace(/\s*\([^)]*\)/g, '').trim()
 }
 
-export default function StatusBar({ status, nowSec }) {
+// 「現在時刻 (秒)」 を 30 秒間隔で持つ。 hidden 中は止めて電力消費を抑え、 visible 復帰
+// 時は即同期して古い数字を見せない。 旧 App.jsx で持っていた state を StatusBar 内に
+// 閉じ込めた (= F-12)。 後方互換: 呼出側から nowSec prop を渡されたらそちら優先 (= 旧
+// 経路の段階的廃止用、 W2-A 側で prop / state 削除完了後にこの fallback も外す予定)。
+function useNowSec() {
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000))
+  useEffect(() => {
+    let id = null
+    const tick = () => setNowSec(Math.floor(Date.now() / 1000))
+    const start = () => {
+      if (id != null) return
+      tick()
+      id = setInterval(tick, 30000)
+    }
+    const stop = () => {
+      if (id != null) { clearInterval(id); id = null }
+    }
+    const onVis = () => { document.hidden ? stop() : start() }
+    if (typeof document === 'undefined') return undefined
+    if (!document.hidden) start()
+    document.addEventListener('visibilitychange', onVis)
+    return () => { stop(); document.removeEventListener('visibilitychange', onVis) }
+  }, [])
+  return nowSec
+}
+
+export default function StatusBar({ status, nowSec: nowSecProp }) {
+  const internalNowSec = useNowSec()
+  const nowSec = nowSecProp ?? internalNowSec
+  const isOnline = useConnectionStatus()
   if (!status) {
     return (
       <div className="statusbar">
         <span className="dim">---</span>
+        {!isOnline && <span className="offline-chip" title="サーバへの接続が切れています">⚠ オフライン</span>}
       </div>
     )
   }
@@ -59,6 +91,7 @@ export default function StatusBar({ status, nowSec }) {
       </span>
       <span className={pctClass(status.ctx_pct)}>ctx {Math.round(status.ctx_pct || 0)}%</span>
       <PrLinksChip links={Array.isArray(status.pr_links) ? status.pr_links : []} />
+      {!isOnline && <span className="offline-chip" title="サーバへの接続が切れています">⚠ オフライン</span>}
     </div>
   )
 }
@@ -68,18 +101,9 @@ export default function StatusBar({ status, nowSec }) {
 function PrLinksChip({ links }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
-  useEffect(() => {
-    if (!open) return undefined
-    const onDoc = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    document.addEventListener('touchstart', onDoc)
-    return () => {
-      document.removeEventListener('mousedown', onDoc)
-      document.removeEventListener('touchstart', onDoc)
-    }
-  }, [open])
+  // outside-click / touchstart で閉じる集約 hook (= F-29)。 touchstart は別 hook 呼び。
+  useOutsideClick(ref, () => setOpen(false), { enabled: open })
+  useOutsideClick(ref, () => setOpen(false), { enabled: open, eventName: 'touchstart' })
   if (!links.length) return null
   return (
     <span className="pr-chip-wrap" ref={ref}>
