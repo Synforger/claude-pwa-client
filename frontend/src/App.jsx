@@ -49,7 +49,7 @@ function collectActiveImageIds(msgDict) {
 }
 
 // F-60 (= 2026-06-21): lazy modal の chunk fetch が失敗した時 (= deploy 直後の hash drift /
-// network blip / SW cache 破損) の最小 ErrorBoundary。 既存の src/ErrorBoundary.jsx は
+// network blip / SW cache 破損) の最小 ErrorBoundary。 既存の components/ErrorBoundary.jsx は
 // 全画面置換 (= リロード / データ消去 + リロードの 2 ボタン) で、 lazy modal 1 つの読込
 // 失敗で全画面差替えは過剰。 ここは「失敗した modal だけ閉じる + 軽い update 促し」 で
 // 留め、 ユーザの裏で動いてる chat / streaming を生存させる方針。 fallback は inline で
