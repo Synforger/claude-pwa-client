@@ -1,20 +1,22 @@
 """tmux pane 配下の claude プロセスを探索して jsonl_watcher に登録する。
 
 tmux session が生成されてから子 zsh / wrapper / claude が立ち上がるまで時間差があるので、
-polling で claude プロセス (pid / cwd / 起動時刻) を捕まえて binding 登録する。 探索手順:
+polling で claude プロセス (pid / cwd / 起動時刻) を捕まえて binding 登録する。
 
-  tmux pane PID → pgrep -P で子孫 BFS → ps comm が 'claude' → ps lstart で起動時刻 →
-  lsof で cwd → jsonl_watcher.register_pending
-
-pty_runner からの spawn 直後 + backend 再起動跨ぎ (= 既存 tmux session の再アタッチ) で
-呼ばれる。 pty_runner との循環 import を避けるため `_run_tmux` は遅延 import する。
+backend-F-24: 旧版は per-descendant で `pgrep -P` + `ps -p comm=` を呼び、 さらに見つけた
+claude に対し `ps -p lstart=` + `lsof -d cwd` を別 subprocess で呼んでいた (= BFS depth 分
+の `pgrep` + n 個の `ps` を毎 polling で fork)。 psutil は 1 系統に集約されるので、 全 BFS
++ start_time + cwd を Python 内で 1 ループにできる (= subprocess fork 数 大幅削減 + tight loop
+の overhead 解消)。 psutil は package として既に backend env に入っている (= requirements.txt
+で固定)。
 """
 from __future__ import annotations
 
 import asyncio
-import subprocess
 import time
 from pathlib import Path
+
+import psutil
 
 
 async def register_claude_when_ready(
@@ -31,13 +33,10 @@ async def register_claude_when_ready(
     while time.time() < deadline:
         await asyncio.sleep(interval)
         for pane_pid in tmux_pane_pids(session_id):
-            claude_pid = find_claude_descendant(pane_pid)
-            if claude_pid is None:
+            info = _find_claude_descendant_info(pane_pid)
+            if info is None:
                 continue
-            start_time = process_start_time(claude_pid)
-            cwd = process_cwd(claude_pid)
-            if start_time is None or cwd is None:
-                continue
+            claude_pid, start_time, cwd = info
             jsonl_watcher.register_pending(session_id, claude_pid, cwd, start_time)
             return
 
@@ -54,74 +53,68 @@ def tmux_pane_pids(session_id: str) -> list[int]:
     return [int(s) for s in r.stdout.split() if s.strip().isdigit()]
 
 
-def find_claude_descendant(root_pid: int, max_depth: int = 6) -> int | None:
-    """BFS で子孫プロセスを辿り、 ps の comm の basename が 'claude' のものを返す。"""
-    queue: list[tuple[int, int]] = [(root_pid, 0)]
+def _find_claude_descendant_info(
+    root_pid: int, max_depth: int = 6,
+) -> tuple[int, float, str] | None:
+    """BFS で子孫プロセスを psutil で辿り、 name() の basename == 'claude' を返す。
+
+    返り値 = (pid, create_time, cwd)。 cwd 取得失敗 (= 権限 / プロセス即終了) は None で skip。
+    旧 find_claude_descendant + process_start_time + process_cwd を 1 関数に統合
+    (= backend-F-24)、 psutil の 1 系統で start_time / cwd まで一気に取る。
+    """
+    try:
+        root = psutil.Process(root_pid)
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return None
+    queue: list[tuple[psutil.Process, int]] = [(root, 0)]
     while queue:
-        pid, depth = queue.pop(0)
+        proc, depth = queue.pop(0)
         if depth >= max_depth:
             continue
         try:
-            result = subprocess.run(
-                ["pgrep", "-P", str(pid)],
-                capture_output=True, text=True, timeout=2,
-            )
-        except (subprocess.TimeoutExpired, OSError):
+            children = proc.children()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
-        if result.returncode != 0:
-            continue
-        for child_str in result.stdout.split():
-            child_str = child_str.strip()
-            if not child_str.isdigit():
-                continue
-            child_pid = int(child_str)
+        for child in children:
             try:
-                ps = subprocess.run(
-                    ["ps", "-p", str(child_pid), "-o", "comm="],
-                    capture_output=True, text=True, timeout=2,
-                )
-            except (subprocess.TimeoutExpired, OSError):
+                name = child.name()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
-            comm = ps.stdout.strip()
-            if comm and Path(comm).name == "claude":
-                return child_pid
-            queue.append((child_pid, depth + 1))
+            if name and Path(name).name == "claude":
+                try:
+                    start_time = float(child.create_time())
+                    cwd = child.cwd()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+                if cwd:
+                    return (child.pid, start_time, cwd)
+            queue.append((child, depth + 1))
     return None
 
 
+def find_claude_descendant(root_pid: int, max_depth: int = 6) -> int | None:
+    """旧 API 互換 wrapper (= autoresume_watchdog が pid だけ欲しい時に使う)。
+
+    内部は _find_claude_descendant_info を呼んで pid だけ返す。 backend-F-24 で内部実装は
+    psutil 1 ループ化済 (= 旧 pgrep + ps 連打は廃止)。
+    """
+    info = _find_claude_descendant_info(root_pid, max_depth=max_depth)
+    return info[0] if info is not None else None
+
+
 def process_start_time(pid: int) -> float | None:
-    """`ps -o lstart=` で取得した起動時刻文字列を unix epoch に変換。"""
+    """互換 API: psutil 経由で create_time を返す。 旧 ps lstart より精度高い (= unix
+    epoch float そのまま)。"""
     try:
-        result = subprocess.run(
-            ["ps", "-p", str(pid), "-o", "lstart="],
-            capture_output=True, text=True, timeout=2,
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        return None
-    if result.returncode != 0:
-        return None
-    s = result.stdout.strip()
-    if not s:
-        return None
-    # macOS lstart 形式: "Sun May 24 20:24:00 2026"
-    try:
-        return time.mktime(time.strptime(s, "%a %b %d %H:%M:%S %Y"))
-    except ValueError:
+        return float(psutil.Process(pid).create_time())
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
         return None
 
 
 def process_cwd(pid: int) -> str | None:
-    """lsof で cwd エントリを取得。 macOS は /proc が無いので lsof 経由。"""
+    """互換 API: psutil 経由で cwd を返す (= macOS は内部で lsof 相当を呼ぶ)。 旧 lsof
+    fork 経路より軽い。"""
     try:
-        result = subprocess.run(
-            ["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
-            capture_output=True, text=True, timeout=2,
-        )
-    except (subprocess.TimeoutExpired, OSError):
+        return psutil.Process(pid).cwd() or None
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
         return None
-    if result.returncode != 0:
-        return None
-    for line in result.stdout.split("\n"):
-        if line.startswith("n"):
-            return line[1:]
-    return None
