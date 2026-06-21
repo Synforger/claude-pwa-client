@@ -3,6 +3,9 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+// 頻出 10 言語は eager (= 開いた瞬間にハイライト可能、 初期 bundle に乗る)。
+// 残り ~40 言語は detectLang で必要になった時だけ動的 import (= F-49、 50 言語全部 eager
+// から「使うものだけ取り寄せる」 戦略に切替。 初期 chunk から ~80% の prism 言語を外す)。
 import python from 'react-syntax-highlighter/dist/esm/languages/prism/python'
 import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript'
 import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript'
@@ -10,67 +13,89 @@ import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx'
 import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx'
 import json from 'react-syntax-highlighter/dist/esm/languages/prism/json'
 import css from 'react-syntax-highlighter/dist/esm/languages/prism/css'
-import scss from 'react-syntax-highlighter/dist/esm/languages/prism/scss'
-import sass from 'react-syntax-highlighter/dist/esm/languages/prism/sass'
-import less from 'react-syntax-highlighter/dist/esm/languages/prism/less'
-import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup'
-import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
-import toml from 'react-syntax-highlighter/dist/esm/languages/prism/toml'
-import ini from 'react-syntax-highlighter/dist/esm/languages/prism/ini'
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
-import batch from 'react-syntax-highlighter/dist/esm/languages/prism/batch'
-import powershell from 'react-syntax-highlighter/dist/esm/languages/prism/powershell'
-import docker from 'react-syntax-highlighter/dist/esm/languages/prism/docker'
-import makefile from 'react-syntax-highlighter/dist/esm/languages/prism/makefile'
-import cmake from 'react-syntax-highlighter/dist/esm/languages/prism/cmake'
-import nginx from 'react-syntax-highlighter/dist/esm/languages/prism/nginx'
-import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql'
-import graphql from 'react-syntax-highlighter/dist/esm/languages/prism/graphql'
-import protobuf from 'react-syntax-highlighter/dist/esm/languages/prism/protobuf'
-import diff from 'react-syntax-highlighter/dist/esm/languages/prism/diff'
-import git from 'react-syntax-highlighter/dist/esm/languages/prism/git'
+import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
 import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown'
-import latex from 'react-syntax-highlighter/dist/esm/languages/prism/latex'
-import c from 'react-syntax-highlighter/dist/esm/languages/prism/c'
-import cpp from 'react-syntax-highlighter/dist/esm/languages/prism/cpp'
-import csharp from 'react-syntax-highlighter/dist/esm/languages/prism/csharp'
-import java from 'react-syntax-highlighter/dist/esm/languages/prism/java'
-import kotlin from 'react-syntax-highlighter/dist/esm/languages/prism/kotlin'
-import scala from 'react-syntax-highlighter/dist/esm/languages/prism/scala'
-import go from 'react-syntax-highlighter/dist/esm/languages/prism/go'
-import rust from 'react-syntax-highlighter/dist/esm/languages/prism/rust'
-import swift from 'react-syntax-highlighter/dist/esm/languages/prism/swift'
-import objectivec from 'react-syntax-highlighter/dist/esm/languages/prism/objectivec'
-import dart from 'react-syntax-highlighter/dist/esm/languages/prism/dart'
-import ruby from 'react-syntax-highlighter/dist/esm/languages/prism/ruby'
-import php from 'react-syntax-highlighter/dist/esm/languages/prism/php'
-import lua from 'react-syntax-highlighter/dist/esm/languages/prism/lua'
-import perl from 'react-syntax-highlighter/dist/esm/languages/prism/perl'
-import r from 'react-syntax-highlighter/dist/esm/languages/prism/r'
-import julia from 'react-syntax-highlighter/dist/esm/languages/prism/julia'
-import haskell from 'react-syntax-highlighter/dist/esm/languages/prism/haskell'
-import elixir from 'react-syntax-highlighter/dist/esm/languages/prism/elixir'
-import erlang from 'react-syntax-highlighter/dist/esm/languages/prism/erlang'
-import clojure from 'react-syntax-highlighter/dist/esm/languages/prism/clojure'
-import elm from 'react-syntax-highlighter/dist/esm/languages/prism/elm'
-import ocaml from 'react-syntax-highlighter/dist/esm/languages/prism/ocaml'
-import fsharp from 'react-syntax-highlighter/dist/esm/languages/prism/fsharp'
-import vim from 'react-syntax-highlighter/dist/esm/languages/prism/vim'
-import hcl from 'react-syntax-highlighter/dist/esm/languages/prism/hcl'
 import { apiFetch } from '../utils/api.js'
 import { isFav, toggleFav, subscribeFavs } from '../utils/favorites.js'
+import { useEscape } from '../hooks/useEscape.js'
+import ConfirmDialog from '../components/ConfirmDialog.jsx'
 import './Modal.css'
 
-const LANGS = {
-  python, javascript, typescript, jsx, tsx, json, css, scss, sass, less,
-  markup, yaml, toml, ini, bash, batch, powershell, docker, makefile, cmake,
-  nginx, sql, graphql, protobuf, diff, git, markdown, latex,
-  c, cpp, csharp, java, kotlin, scala, go, rust, swift, objectivec, dart,
-  ruby, php, lua, perl, r, julia, haskell, elixir, erlang, clojure, elm,
-  ocaml, fsharp, vim, hcl,
+// eager 言語 (= 頻出 10 個)。 初期 bundle に乗る。
+const EAGER_LANGS = {
+  python, javascript, typescript, jsx, tsx, json, css, bash, yaml, markdown,
 }
-for (const [name, lang] of Object.entries(LANGS)) {
+// すでに registerLanguage 済の言語名 set (= 再 register を避ける + 動的 load 済 track)。
+const registeredLangs = new Set()
+for (const [name, lang] of Object.entries(EAGER_LANGS)) {
   SyntaxHighlighter.registerLanguage(name, lang)
+  registeredLangs.add(name)
+}
+
+// lazy 言語 → dynamic import 関数。 Vite は dynamic import の引数を解析して個別 chunk に
+// 分けてくれる。 detectLang が返す名前 = この map の key。
+// 未掲載の言語名は「ハイライトなし pre 表示」 にフォールバック (= 過剰最適化を防ぐ)。
+const LAZY_LANG_LOADERS = {
+  scss: () => import('react-syntax-highlighter/dist/esm/languages/prism/scss'),
+  sass: () => import('react-syntax-highlighter/dist/esm/languages/prism/sass'),
+  less: () => import('react-syntax-highlighter/dist/esm/languages/prism/less'),
+  markup: () => import('react-syntax-highlighter/dist/esm/languages/prism/markup'),
+  toml: () => import('react-syntax-highlighter/dist/esm/languages/prism/toml'),
+  ini: () => import('react-syntax-highlighter/dist/esm/languages/prism/ini'),
+  batch: () => import('react-syntax-highlighter/dist/esm/languages/prism/batch'),
+  powershell: () => import('react-syntax-highlighter/dist/esm/languages/prism/powershell'),
+  docker: () => import('react-syntax-highlighter/dist/esm/languages/prism/docker'),
+  makefile: () => import('react-syntax-highlighter/dist/esm/languages/prism/makefile'),
+  cmake: () => import('react-syntax-highlighter/dist/esm/languages/prism/cmake'),
+  nginx: () => import('react-syntax-highlighter/dist/esm/languages/prism/nginx'),
+  sql: () => import('react-syntax-highlighter/dist/esm/languages/prism/sql'),
+  graphql: () => import('react-syntax-highlighter/dist/esm/languages/prism/graphql'),
+  protobuf: () => import('react-syntax-highlighter/dist/esm/languages/prism/protobuf'),
+  diff: () => import('react-syntax-highlighter/dist/esm/languages/prism/diff'),
+  git: () => import('react-syntax-highlighter/dist/esm/languages/prism/git'),
+  latex: () => import('react-syntax-highlighter/dist/esm/languages/prism/latex'),
+  c: () => import('react-syntax-highlighter/dist/esm/languages/prism/c'),
+  cpp: () => import('react-syntax-highlighter/dist/esm/languages/prism/cpp'),
+  csharp: () => import('react-syntax-highlighter/dist/esm/languages/prism/csharp'),
+  java: () => import('react-syntax-highlighter/dist/esm/languages/prism/java'),
+  kotlin: () => import('react-syntax-highlighter/dist/esm/languages/prism/kotlin'),
+  scala: () => import('react-syntax-highlighter/dist/esm/languages/prism/scala'),
+  go: () => import('react-syntax-highlighter/dist/esm/languages/prism/go'),
+  rust: () => import('react-syntax-highlighter/dist/esm/languages/prism/rust'),
+  swift: () => import('react-syntax-highlighter/dist/esm/languages/prism/swift'),
+  objectivec: () => import('react-syntax-highlighter/dist/esm/languages/prism/objectivec'),
+  dart: () => import('react-syntax-highlighter/dist/esm/languages/prism/dart'),
+  ruby: () => import('react-syntax-highlighter/dist/esm/languages/prism/ruby'),
+  php: () => import('react-syntax-highlighter/dist/esm/languages/prism/php'),
+  lua: () => import('react-syntax-highlighter/dist/esm/languages/prism/lua'),
+  perl: () => import('react-syntax-highlighter/dist/esm/languages/prism/perl'),
+  r: () => import('react-syntax-highlighter/dist/esm/languages/prism/r'),
+  julia: () => import('react-syntax-highlighter/dist/esm/languages/prism/julia'),
+  haskell: () => import('react-syntax-highlighter/dist/esm/languages/prism/haskell'),
+  elixir: () => import('react-syntax-highlighter/dist/esm/languages/prism/elixir'),
+  erlang: () => import('react-syntax-highlighter/dist/esm/languages/prism/erlang'),
+  clojure: () => import('react-syntax-highlighter/dist/esm/languages/prism/clojure'),
+  elm: () => import('react-syntax-highlighter/dist/esm/languages/prism/elm'),
+  ocaml: () => import('react-syntax-highlighter/dist/esm/languages/prism/ocaml'),
+  fsharp: () => import('react-syntax-highlighter/dist/esm/languages/prism/fsharp'),
+  vim: () => import('react-syntax-highlighter/dist/esm/languages/prism/vim'),
+  hcl: () => import('react-syntax-highlighter/dist/esm/languages/prism/hcl'),
+}
+
+// lazy load + register。 既に登録済 / loader 未登録なら no-op。
+async function ensureLangRegistered(name) {
+  if (!name || registeredLangs.has(name)) return true
+  const loader = LAZY_LANG_LOADERS[name]
+  if (!loader) return false
+  try {
+    const mod = await loader()
+    SyntaxHighlighter.registerLanguage(name, mod.default)
+    registeredLangs.add(name)
+    return true
+  } catch {
+    return false
+  }
 }
 
 const EXT_TO_LANG = {
@@ -187,6 +212,11 @@ export default function FilePreviewModal({ path, onClose }) {
   const lang = detectLang(path)
   const isEditable = TEXT_EXTENSIONS.has(ext) || BASENAME_TO_LANG[base] !== undefined || lang !== null
 
+  // F-50: window.confirm を ConfirmDialog 化。 modal 内 modal なので Escape はキャンセル扱い。
+  const [saveConfirm, setSaveConfirm] = useState(false)
+  // F-49: lang ハイライタが register 済になったかの flag。 lazy 言語は async load 後に true。
+  const [langReady, setLangReady] = useState(() => false)
+
   const [favored, setFavored] = useState(() => isFav(path))
   useEffect(() => {
     setFavored(isFav(path))
@@ -196,6 +226,18 @@ export default function FilePreviewModal({ path, onClose }) {
     toggleFav(path, false, path.split('/').pop() || path)
     setFavored(isFav(path))
   }, [path])
+
+  // lang が変わった時 (= path 切替) に必要なハイライタを動的 load。 register 済 / eager は即 true。
+  useEffect(() => {
+    let cancelled = false
+    if (!lang) { setLangReady(true); return undefined }
+    if (registeredLangs.has(lang)) { setLangReady(true); return undefined }
+    setLangReady(false)
+    ensureLangRegistered(lang).then(() => {
+      if (!cancelled) setLangReady(true)
+    })
+    return () => { cancelled = true }
+  }, [lang])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -224,8 +266,9 @@ export default function FilePreviewModal({ path, onClose }) {
     setSaveError(null)
   }, [])
 
-  const handleSave = useCallback(async () => {
-    if (!window.confirm(`このファイルを上書き保存しますか?\n${path}`)) return
+  // 保存実行 (= ConfirmDialog で「はい」 が押された後の本体)。
+  const performSave = useCallback(async () => {
+    setSaveConfirm(false)
     setSaving(true)
     setSaveError(null)
     try {
@@ -247,16 +290,14 @@ export default function FilePreviewModal({ path, onClose }) {
     }
   }, [path, editText])
 
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        if (editMode) handleCancel()
-        else onClose()
-      }
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onClose, editMode, handleCancel])
+  const handleSave = useCallback(() => setSaveConfirm(true), [])
+
+  // Escape の挙動 (= F-29 集約): saveConfirm > editMode > 通常 で 1 段ずつ畳む。
+  useEscape(() => {
+    if (saveConfirm) setSaveConfirm(false)
+    else if (editMode) handleCancel()
+    else onClose()
+  })
 
   return (
     <div className="modal-overlay modal-overlay-preview" onClick={editMode ? undefined : onClose}>
@@ -305,7 +346,7 @@ export default function FilePreviewModal({ path, onClose }) {
                   {content}
                 </ReactMarkdown>
               </div>
-            ) : lang ? (
+            ) : lang && langReady ? (
               <SyntaxHighlighter
                 language={lang}
                 style={oneDark}
@@ -315,10 +356,17 @@ export default function FilePreviewModal({ path, onClose }) {
                 {content}
               </SyntaxHighlighter>
             ) : (
+              // lang 不明 or lazy load 待ち中はハイライト無しで先に出す (= load 完了で再 render)。
               <pre className="file-content">{content}</pre>
             )
           )}
         </div>
+        <ConfirmDialog
+          open={saveConfirm}
+          text={`このファイルを上書き保存しますか?\n${path}`}
+          onCancel={() => setSaveConfirm(false)}
+          onConfirm={performSave}
+        />
       </div>
     </div>
   )
