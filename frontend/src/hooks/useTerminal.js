@@ -18,6 +18,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
+import { CanvasAddon } from '@xterm/addon-canvas'
 import '@xterm/xterm/css/xterm.css'
 
 const DEFAULT_THEME = {
@@ -192,14 +193,25 @@ export function useTerminal(containerRef, options) {
 
       try {
         const webglAddon = new WebglAddon()
-        // iOS Safari can lose its WebGL context; dispose on loss so the
-        // canvas renderer takes over instead of the screen freezing.
+        // iOS Safari can lose its WebGL context; on loss explicitly switch to
+        // the canvas renderer (F-32). Without an explicit Canvas addon the
+        // DOM renderer takes over by default, which is slower and visibly
+        // glitchy on long-running terminals; loading CanvasAddon keeps a
+        // hardware-accelerated 2D path active until the WebGL context recovers
+        // or the terminal is recreated.
         webglAddon.onContextLoss(() => {
           try { webglAddon.dispose() } catch { /* noop */ }
+          try {
+            terminal.loadAddon(new CanvasAddon())
+          } catch { /* CanvasAddon unavailable — fall through to DOM renderer */ }
         })
         terminal.loadAddon(webglAddon)
       } catch {
-        // WebGL unavailable — canvas/DOM renderer is the default fallback.
+        // WebGL unavailable — try canvas renderer explicitly, then fall back to
+        // the DOM renderer if even canvas fails.
+        try {
+          terminal.loadAddon(new CanvasAddon())
+        } catch { /* noop, DOM renderer default */ }
       }
 
       try { fitAddon.fit() } catch { /* noop */ }
