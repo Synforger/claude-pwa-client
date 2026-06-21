@@ -72,7 +72,7 @@ function isLetterKey(id) {
   return id.length === 1 && id >= 'a' && id <= 'z'
 }
 
-export default function IOSKeyboard({ onKey, perKeyColors = {} }) {
+export default function OnScreenKeyboard({ onKey, perKeyColors = {} }) {
   const {
     isShifted,
     pressedKeys,

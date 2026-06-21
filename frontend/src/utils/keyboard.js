@@ -1,6 +1,6 @@
 /**
  * キー ID + modifier 状態 → PTY に送る escape sequence への変換。
- * オンスクリーンキーボード (IOSKeyboard) 用。
+ * オンスクリーンキーボード (OnScreenKeyboard) 用。
  * Adapted from clsh (https://github.com/my-claude-utils/clsh), MIT. TS → JS に移植。
  */
 

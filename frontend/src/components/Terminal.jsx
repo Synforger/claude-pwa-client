@@ -15,7 +15,7 @@
  */
 import { useEffect, useRef, useState, useCallback, memo } from 'react'
 import { useTerminal } from '../hooks/useTerminal.js'
-import IOSKeyboard from './IOSKeyboard.jsx'
+import OnScreenKeyboard from './OnScreenKeyboard.jsx'
 
 const DEFAULT_WS_BASE =
   (typeof window !== 'undefined' && window.location.protocol === 'https:'
@@ -255,7 +255,7 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
           >⌨ {showKbd ? '隠す' : 'キーボード'}</button>
         </div>
       </div>
-      {showKbd && <IOSKeyboard onKey={sendRaw} />}
+      {showKbd && <OnScreenKeyboard onKey={sendRaw} />}
     </div>
   )
 }

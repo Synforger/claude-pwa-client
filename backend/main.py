@@ -8,7 +8,7 @@
 - chat_routes.py   session メタ / status / config エンドポイント
 - pty_routes.py    /ws/pty/{session_id} WebSocket + /pty/{sid}/send (= 入力経路)
 - jsonl_routes.py  /jsonl/stream/{sid} SSE (= JSONL tail で出力配信) + blocker 監視
-- hooks_router.py  /hooks/event (= claude CLI hooks → Web Push)
+- hooks_routes.py  /hooks/event (= claude CLI hooks → Web Push)
 - files_routes.py  ファイル系エンドポイント
 - push.py          Web Push 配信 + エンドポイント
 """
@@ -88,7 +88,7 @@ import backend.jsonl.watcher as jsonl_watcher  # noqa: E402
 import backend.pty_discover as pty_discover  # noqa: E402
 import backend.routes.chat as chat_routes  # noqa: E402
 import backend.routes.files as files_routes  # noqa: E402
-import backend.routes.hooks as hooks_router  # noqa: E402
+import backend.routes.hooks as hooks_routes  # noqa: E402
 import backend.routes.subagents as subagents_routes  # noqa: E402
 import backend.terminal.routes as pty_routes  # noqa: E402
 import backend.terminal.runner as pty_runner  # noqa: E402
@@ -226,7 +226,7 @@ if CORS_ALLOW_ORIGINS:
 
 app.include_router(chat_routes.router)
 app.include_router(files_routes.router)
-app.include_router(hooks_router.router)
+app.include_router(hooks_routes.router)
 app.include_router(jsonl_routes.router)
 app.include_router(pty_routes.router)
 app.include_router(push.router)
