@@ -1,331 +1,41 @@
-const SHORT_LABEL_MAX = 60
+import { getToolHandler } from '../tools/_registry.js'
+import { truncate, SHORT_LABEL_MAX } from '../tools/_shared.js'
 
-// 折りたたみサマリ用の文字列切り詰め。超過時は末尾を … に置換。
-function truncate(str, max = SHORT_LABEL_MAX) {
-  if (!str) return ''
-  return str.length > max ? str.slice(0, max) + '…' : str
+// formatTool は tool 名から tools/ 配下の handler を引き、 個別 format を呼ぶだけ。
+// 表示の作り込みは各 handler (= frontend/src/tools/<family>.js の named export) 側に
+// 閉じる。 新 tool を生やしたい時は対応 family file に 1 export + _registry.js に
+// 1 行足すだけで配線完了 (= F-08 / F-57 registry 化)。
+//
+// registry に登録の無い tool 名は default 経路 (= MCP の mcp__<server>__<method> + その他
+// 未知 tool) で「[displayName] <JSON>」 表示にフォールバック。
+function defaultFormat(name, input) {
+  const displayName = name.startsWith('mcp__')
+    ? name.replace(/^mcp__/, '').replace(/__/g, '.')
+    : name
+  const label = `[${displayName}] ${JSON.stringify(input ?? {})}`
+  const firstString = input && typeof input === 'object'
+    ? Object.values(input).find(v => typeof v === 'string' && v.length > 0)
+    : null
+  const shortLabel = firstString
+    ? `🔧 ${displayName} ${truncate(firstString, SHORT_LABEL_MAX - displayName.length - 4)}`
+    : `🔧 ${displayName}`
+  return { label, shortLabel }
 }
 
 export function formatTool(block) {
   const { id, name, input } = block
-  let label = ''
-  let shortLabel = ''
-  // Edit / Write は diff 描画のため input を保持する
-  let diffInput = null
-  // Task の description は subagent の meta.description と一致するので、 🧩 スコープ表示の
-  // 引き当てキーとして保持する (= タップで該当 agent の transcript に直行)。
-  let subagentDescription = null
-  if (name === 'Edit' && input && typeof input === 'object') {
-    diffInput = {
-      kind: 'edit',
-      file_path: input.file_path,
-      old_string: input.old_string ?? '',
-      new_string: input.new_string ?? '',
-      replace_all: !!input.replace_all,
-    }
-  } else if (name === 'Write' && input && typeof input === 'object') {
-    diffInput = {
-      kind: 'write',
-      file_path: input.file_path,
-      content: input.content ?? '',
-    }
+  const handler = getToolHandler(name)
+  const out = handler ? handler.format(input) : defaultFormat(name, input)
+  return {
+    id,
+    name,
+    label: out.label ?? '',
+    shortLabel: out.shortLabel ?? '',
+    diffInput: out.diffInput ?? null,
+    // Task / Agent の description は subagent の meta.description と一致するので、 🧩
+    // スコープ表示の引き当てキーとして保持する (= タップで該当 agent の transcript に直行)。
+    subagentDescription: out.subagentDescription ?? null,
   }
-  switch (name) {
-    case 'Bash':
-      label = `$ ${input?.command ?? ''}`
-      shortLabel = truncate(label)
-      break
-    case 'Read':
-      label = `read  ${input?.file_path ?? ''}`
-      shortLabel = truncate(label)
-      break
-    case 'Write':
-      label = `write ${input?.file_path ?? ''}`
-      shortLabel = truncate(label)
-      break
-    case 'Edit': {
-      const all = input?.replace_all ? ' (all)' : ''
-      label = `edit  ${input?.file_path ?? ''}${all}`
-      shortLabel = truncate(label)
-      break
-    }
-    case 'Glob':
-      label = `glob  ${input?.pattern ?? ''}`
-      shortLabel = truncate(label)
-      break
-    case 'Grep':
-      label = `grep  ${input?.pattern ?? ''}`
-      shortLabel = truncate(label)
-      break
-    case 'WebSearch': {
-      const q = input?.query ?? ''
-      shortLabel = truncate(`search "${q}"`)
-      // 展開時は query 全文 + ドメイン制限 (あれば)
-      const lines = [`search "${q}"`]
-      if (Array.isArray(input?.allowed_domains) && input.allowed_domains.length > 0) {
-        lines.push(`  allowed: ${input.allowed_domains.join(', ')}`)
-      }
-      if (Array.isArray(input?.blocked_domains) && input.blocked_domains.length > 0) {
-        lines.push(`  blocked: ${input.blocked_domains.join(', ')}`)
-      }
-      label = lines.join('\n')
-      break
-    }
-    case 'WebFetch': {
-      const url = input?.url ?? ''
-      shortLabel = truncate(`fetch ${url}`)
-      const lines = [`fetch ${url}`]
-      if (input?.prompt) {
-        lines.push('', `prompt:`, input.prompt)
-      }
-      label = lines.join('\n')
-      break
-    }
-    case 'TodoWrite': {
-      // input: { todos: [{ content, status, activeForm }] }
-      // status: 'pending' | 'in_progress' | 'completed'
-      const todos = Array.isArray(input?.todos) ? input.todos : []
-      const n = todos.length
-      const doing = todos.filter(t => t?.status === 'in_progress').length
-      const done = todos.filter(t => t?.status === 'completed').length
-      shortLabel = doing > 0
-        ? `📋 ${n} todos (${doing} doing)`
-        : done === n && n > 0
-          ? `📋 ${n} todos (all done)`
-          : `📋 ${n} todos`
-      const lines = todos.map(t => {
-        const mark = t?.status === 'completed' ? '✓'
-          : t?.status === 'in_progress' ? '◉'
-          : '○'
-        return `  ${mark} ${t?.content ?? ''}`
-      })
-      label = `todo update (${n} items)\n${lines.join('\n')}`
-      break
-    }
-    case 'ExitPlanMode': {
-      // input: { plan }
-      const plan = (input?.plan ?? '').toString()
-      const firstLine = plan.split('\n').find(l => l.trim()) || ''
-      shortLabel = `📑 plan: ${truncate(firstLine, SHORT_LABEL_MAX - 10)}`
-      label = `plan:\n${plan}`
-      break
-    }
-    case 'AskUserQuestion': {
-      // input: { questions: [{ question, header, options, multiSelect }] }
-      // 専用バブル (AskUserQuestionBubble) で UI 提示してるので、 tool-log では簡略のみ。
-      const questions = Array.isArray(input?.questions) ? input.questions : []
-      const first = questions[0]
-      const q = first?.question ?? ''
-      shortLabel = `❓ ${truncate(q, SHORT_LABEL_MAX - 4)}`
-      const headers = questions.map(qq => qq?.header || qq?.question || '').filter(Boolean)
-      label = `ask user: ${questions.length} question(s)\n${headers.map(h => `  • ${h}`).join('\n')}`
-      break
-    }
-    case 'Monitor': {
-      // input: { command, description, timeout_ms, persistent }
-      const desc = input?.description ?? ''
-      const cmd = input?.command ?? ''
-      shortLabel = `👁 monitor ${truncate(desc || cmd, SHORT_LABEL_MAX - 12)}`
-      const lines = []
-      if (desc) lines.push(`description: ${desc}`)
-      if (cmd) lines.push('', 'command:', cmd)
-      if (input?.timeout_ms) lines.push('', `timeout: ${input.timeout_ms}ms`)
-      if (input?.persistent) lines.push(`persistent: true`)
-      label = lines.join('\n')
-      break
-    }
-    case 'Agent':
-    case 'Task': {
-      // 旧 SDK は 'Agent'、 現行 SDK (Claude Code) は 'Task' で来る。 同じ input schema:
-      //   { description, prompt, subagent_type, model?, isolation?, run_in_background? }
-      // 名前差異だけ吸収して同じ表示にする。 = サブエージェントへの依頼内容 (description /
-      // prompt) を tool-log で「ちゃんと投げた」 が一目で分かるように、 詳細展開で全 prompt
-      // も見られる形に揃える。
-      const desc = input?.description ?? ''
-      const sub = input?.subagent_type ?? 'general-purpose'
-      subagentDescription = desc || null
-      shortLabel = `🤖 agent[${sub}] ${truncate(desc, SHORT_LABEL_MAX - sub.length - 12)}`
-      const lines = [`agent: ${sub}`, `description: ${desc}`]
-      if (input?.model) lines.push(`model: ${input.model}`)
-      if (input?.isolation) lines.push(`isolation: ${input.isolation}`)
-      if (input?.run_in_background) lines.push(`background: true`)
-      // prompt 本文は chat 側で非表示 (= 🤖 chip → subagent panel に詳細経路あり、
-      // inline 展開で全文出すと長文で会話が埋もれる、 2026-06-20)
-      if (input?.prompt) lines.push('', `prompt: ${input.prompt.length} chars (= 🤖 から開く)`)
-      label = lines.join('\n')
-      break
-    }
-    case 'CronCreate': {
-      // input: { cron, prompt, recurring, durable }
-      const cron = input?.cron ?? ''
-      const prompt = input?.prompt ?? ''
-      shortLabel = `⏰ cron[${cron}] ${truncate(prompt, SHORT_LABEL_MAX - cron.length - 12)}`
-      const lines = [`schedule: ${cron}`]
-      if (input?.recurring === false) lines.push('recurring: false (one-shot)')
-      if (input?.durable) lines.push('durable: true (survives restart)')
-      if (prompt) lines.push('', 'prompt:', prompt)
-      label = lines.join('\n')
-      break
-    }
-    case 'CronDelete': {
-      shortLabel = `⏰ cron del ${input?.id ?? '?'}`
-      label = `delete cron job id=${input?.id ?? '?'}`
-      break
-    }
-    case 'CronList': {
-      shortLabel = `⏰ cron list`
-      label = `list all scheduled cron jobs`
-      break
-    }
-    case 'ScheduleWakeup': {
-      // input: { delaySeconds, reason, prompt }
-      const sec = input?.delaySeconds ?? '?'
-      const reason = input?.reason ?? ''
-      shortLabel = `⏰ wakeup +${sec}s ${truncate(reason, SHORT_LABEL_MAX - 16)}`
-      const lines = [`delay: ${sec}s`, `reason: ${reason}`]
-      if (input?.prompt) lines.push('', 'prompt:', input.prompt)
-      label = lines.join('\n')
-      break
-    }
-    case 'EnterPlanMode': {
-      shortLabel = `📑 plan mode ON`
-      label = `enter plan mode (= read-only, no edits until ExitPlanMode)`
-      break
-    }
-    case 'EnterWorktree': {
-      // input: { name?, path? }
-      const what = input?.name || input?.path || '(auto-named)'
-      shortLabel = `🌳 worktree ${truncate(what, SHORT_LABEL_MAX - 14)}`
-      const lines = [`isolated worktree`]
-      if (input?.name) lines.push(`name: ${input.name}`)
-      if (input?.path) lines.push(`path: ${input.path}`)
-      label = lines.join('\n')
-      break
-    }
-    case 'ExitWorktree': {
-      // input: { action, discard_changes }
-      const action = input?.action ?? '?'
-      shortLabel = `🌳 worktree exit ${action}`
-      const lines = [`action: ${action}`]
-      if (input?.discard_changes) lines.push('discard_changes: true')
-      label = lines.join('\n')
-      break
-    }
-    case 'PushNotification': {
-      const msg = input?.message ?? ''
-      shortLabel = `🔔 push ${truncate(msg, SHORT_LABEL_MAX - 8)}`
-      label = `push notification:\n${msg}`
-      break
-    }
-    case 'NotebookEdit': {
-      // input: { notebook_path, cell_id?, cell_type?, edit_mode?, new_source }
-      const p = input?.notebook_path ?? ''
-      const base = p.split('/').pop()
-      const mode = input?.edit_mode || 'replace'
-      shortLabel = `notebook ${mode}  ${truncate(base, SHORT_LABEL_MAX - 12)}`
-      const lines = [`path: ${p}`, `mode: ${mode}`]
-      if (input?.cell_id) lines.push(`cell_id: ${input.cell_id}`)
-      if (input?.cell_type) lines.push(`cell_type: ${input.cell_type}`)
-      label = lines.join('\n')
-      break
-    }
-    case 'RemoteTrigger': {
-      // input: { action, trigger_id?, body? }
-      const action = input?.action ?? '?'
-      const tid = input?.trigger_id ?? ''
-      shortLabel = `🔗 remote ${action}${tid ? ' ' + tid : ''}`
-      const lines = [`action: ${action}`]
-      if (tid) lines.push(`trigger_id: ${tid}`)
-      if (input?.body) lines.push('', 'body:', JSON.stringify(input.body, null, 2))
-      label = lines.join('\n')
-      break
-    }
-    case 'Skill': {
-      // input: { skill, args? }
-      const s = input?.skill ?? '?'
-      const args = input?.args ?? ''
-      shortLabel = `⚡ skill /${s}${args ? ' ' + truncate(args, SHORT_LABEL_MAX - s.length - 10) : ''}`
-      label = `/${s}${args ? ' ' + args : ''}`
-      break
-    }
-    case 'TaskOutput': {
-      const tid = input?.task_id ?? '?'
-      shortLabel = `🤖 task output ${tid.slice(0, 12)}`
-      label = `get output of task ${tid}` + (input?.block ? ` (blocking)` : ` (non-blocking)`)
-      break
-    }
-    case 'TaskStop': {
-      const tid = input?.task_id ?? input?.shell_id ?? '?'
-      shortLabel = `🤖 task stop ${tid.slice(0, 12)}`
-      label = `stop background task ${tid}`
-      break
-    }
-    case 'TaskCreate': {
-      const subj = input?.subject ?? ''
-      shortLabel = `📋 task + ${truncate(subj, SHORT_LABEL_MAX - 10)}`
-      const lines = [`create task: ${subj}`]
-      if (input?.description) lines.push('', input.description)
-      label = lines.join('\n')
-      break
-    }
-    case 'TaskUpdate': {
-      const tid = input?.taskId ?? '?'
-      const st = input?.status
-      shortLabel = st ? `📋 task #${tid} → ${st}` : `📋 task #${tid} update`
-      const lines = [`update task ${tid}`]
-      if (st) lines.push(`status: ${st}`)
-      if (input?.subject) lines.push(`subject: ${input.subject}`)
-      if (input?.description) lines.push('', input.description)
-      label = lines.join('\n')
-      break
-    }
-    case 'TaskGet': {
-      shortLabel = `📋 task get #${input?.taskId ?? '?'}`
-      label = `get task ${input?.taskId ?? '?'}`
-      break
-    }
-    case 'TaskList': {
-      const filt = input?.status ? ` (status=${input.status})` : ''
-      shortLabel = `📋 task list${filt}`
-      label = `list tasks${filt}`
-      break
-    }
-    case 'ToolSearch': {
-      const q = input?.query ?? ''
-      shortLabel = `🔍 tool search ${truncate(q, SHORT_LABEL_MAX - 16)}`
-      label = `tool search: ${q}` + (input?.max_results ? `\nmax_results: ${input.max_results}` : '')
-      break
-    }
-    case 'Workflow': {
-      const wfName = input?.name || input?.scriptPath || '(inline script)'
-      shortLabel = `🔀 workflow ${truncate(wfName, SHORT_LABEL_MAX - 12)}`
-      const lines = [`workflow: ${wfName}`]
-      if (input?.args !== undefined) lines.push('', 'args:', JSON.stringify(input.args, null, 2))
-      label = lines.join('\n')
-      break
-    }
-    case 'ShareOnboardingGuide': {
-      const mode = input?.mode || 'check'
-      shortLabel = `📤 share onboarding (${mode})`
-      label = `share onboarding guide, mode=${mode}`
-      if (input?.short_code) label += `, short_code=${input.short_code}`
-      break
-    }
-    default: {
-      // MCP tools (= mcp__<server>__<method>) or other未知 tool。
-      const displayName = name.startsWith('mcp__')
-        ? name.replace(/^mcp__/, '').replace(/__/g, '.')
-        : name
-      label = `[${displayName}] ${JSON.stringify(input ?? {})}`
-      const firstString = input && typeof input === 'object'
-        ? Object.values(input).find(v => typeof v === 'string' && v.length > 0)
-        : null
-      shortLabel = firstString
-        ? `🔧 ${displayName} ${truncate(firstString, SHORT_LABEL_MAX - displayName.length - 4)}`
-        : `🔧 ${displayName}`
-    }
-  }
-  return { id, name, label, shortLabel, diffInput, subagentDescription }
 }
 
 export function formatCost(usd) {
