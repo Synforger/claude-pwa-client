@@ -1,11 +1,8 @@
 config.json
 backend/config.json
-backend/sessions.json
-backend/sessions.json.bak
 backend/session_meta.json
 backend/vapid.json
 backend/subscriptions.json
-backend/notifications.json
 backend/data/
 backend/secrets/
 /.env
@@ -20,7 +17,6 @@ logs/
 .worktrees/
 
 # scripts/ 配下は環境依存ヘルパ (= sunshine セットアップ等)、 公開リポでは管理しない。
-# 例外: 公開リポ運用に直接使うツール (= 例 penalty-bench.py) は明示 unignore。
+# 例外: 公開リポ運用に直接使うツール (= 例 ws-pty-smoketest.py) は明示 unignore。
 scripts/*
-!scripts/penalty-bench.py
 !scripts/ws-pty-smoketest.py
