@@ -21,6 +21,11 @@ const SETTINGS_URL = '/moonlight/'
 const API_HOSTS = '/moonlight/api/hosts'
 const API_APPS = '/moonlight/api/apps'
 
+// 注入する <style> の識別子 (= F-33)。 iframe 内に複数回 onLoad が走った場合 (= HMR /
+// src 切替 / navigation で再 load) に同一 style が積み重なって描画が壊れるのを防ぐため、
+// 同一 id を持つ古い <style> を消してから新規 append する。
+const INJECTED_STYLE_ID = 'cpc-moonlight-injected-style'
+
 // iframe 内に注入する CSS。 video を iframe の「上端 35px を空けた下側全部」 にぴったり
 // 配置 (= 上 35px はサイドバー矢印 + ⚙ ⛶ 用に確保、 video と矢印は重ならない)。
 // fullscreen 時は無視 (= moonlight 標準の中央揃えで OK)。
@@ -113,12 +118,17 @@ export default function MoonlightFrame() {
 
   // iframe load 時に CSS を注入 (= 同一オリジンなので contentDocument にアクセス可能)。
   // fullscreen 時 / settings モード時はスキップ。
+  // F-33: 注入前に同一 id の旧 <style> を取り除く (= 連続 onLoad で style が積み重なって
+  // 「!important が更新されない」 「未反映状態」 になるのを防ぐ)。
   const handleIframeLoad = () => {
     if (full || inSettings) return
     try {
       const doc = iframeRef.current?.contentDocument
       if (!doc) return
+      const prev = doc.getElementById(INJECTED_STYLE_ID)
+      if (prev) prev.remove()
       const style = doc.createElement('style')
+      style.id = INJECTED_STYLE_ID
       style.textContent = VIDEO_BOTTOM_ALIGN_CSS
       doc.head.appendChild(style)
     } catch { /* ignore (= cross-origin 等) */ }
