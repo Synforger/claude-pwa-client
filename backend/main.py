@@ -68,17 +68,30 @@ setup_uvicorn_access_log()
 logger = logging.getLogger(__name__)
 
 # --- アプリ内モジュール ---
-from backend.config import CORS_ALLOW_ORIGINS, UPLOADS_TMP  # noqa: E402
+# 2026-06-21 (backend-F-35): lifespan 内に散らばっていた関数内 import を全部
+# ここに集約。 旧版は循環 import 回避を理由に function-local import を多用して
+# いたが、 backend.paths / backend.state / backend.core.* の依存方向が確定した
+# 現在は不要。 起動 path で動的解決する import が残ると静的解析 (= unused/
+# unresolved warn) のノイズになる。
+from backend.config import (  # noqa: E402
+    CORS_ALLOW_ORIGINS,
+    UPLOADS_TMP,
+    validate_runtime_paths,
+)
 from backend.state import sessions_meta  # noqa: E402
 
+import backend.core.maintenance as maintenance  # noqa: E402
+import backend.core.push as push  # noqa: E402
+from backend.core.usage import rate_limits_log_health  # noqa: E402
+import backend.jsonl.routes as jsonl_routes  # noqa: E402
+import backend.jsonl.watcher as jsonl_watcher  # noqa: E402
+import backend.pty_discover as pty_discover  # noqa: E402
 import backend.routes.chat as chat_routes  # noqa: E402
 import backend.routes.files as files_routes  # noqa: E402
 import backend.routes.hooks as hooks_router  # noqa: E402
-import backend.jsonl.routes as jsonl_routes  # noqa: E402
+import backend.routes.subagents as subagents_routes  # noqa: E402
 import backend.terminal.routes as pty_routes  # noqa: E402
 import backend.terminal.runner as pty_runner  # noqa: E402
-import backend.core.push as push  # noqa: E402
-import backend.routes.subagents as subagents_routes  # noqa: E402
 
 
 def _truncate_if_oversized(path: Path, max_bytes: int) -> None:
@@ -120,6 +133,18 @@ async def _uploads_tmp_gc_loop(interval_sec: float = 3600.0) -> None:
 async def lifespan(app: FastAPI):
     # 起動: 古い tmp ファイル / 大きすぎるエラーログの掃除 + 各種 background task 起動
 
+    # 起動時 sanity check (= backend-F-67): 重要な設定 / path の欠落を log に固定。
+    # 失敗しても起動は続ける (= 個人運用、 ログを見て直す前提)。
+    try:
+        validate_runtime_paths()
+        ok, reason = rate_limits_log_health()
+        if ok:
+            logger.info("rate-limits log: %s", reason)
+        else:
+            logger.warning("rate-limits log check: %s", reason)
+    except Exception:
+        logger.exception("startup sanity check failed")
+
     # tmux server の status bar を全 session で OFF にする (= 端末画面下の緑バー除去)。
     # `-g` でサーバ全体に効くので、 既存 session も新規 session も等しく status off。
     # tmux 未起動 / 未インストール時は黙って失敗させる。
@@ -134,41 +159,36 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.debug("tmux status off failed", exc_info=True)
 
-    import asyncio as _asyncio
-
     # 常時 tail: PWA 接続有無に関係なく全 sid の JSONL を監視して、 AskUserQuestion /
     # stop_reason 異常を Web Push に流す (= jsonl_routes SSE 経路と独立)。
-    blocker_monitor_task = _asyncio.create_task(jsonl_routes.monitor_all_sessions_loop())
+    blocker_monitor_task = asyncio.create_task(jsonl_routes.monitor_all_sessions_loop())
 
     # JSONL watcher: ~/.claude/projects/ を fsevents で監視して、 各 PWA session の
     # claude プロセスが書く JSONL を backend mem に確定保持する。
-    import backend.jsonl.watcher as jsonl_watcher  # noqa: PLC0415, E402
     jsonl_watcher.start_watcher()
     # 既存 tmux session (= backend 再起動跨ぎ) の claude プロセスを registry に登録。
     # 一斉 create_task すると session 数 × 16 回の pgrep/ps subprocess が起動直後に殺到する
     # ので、 各 sid を順次 stagger (= 0.2s 間隔) で起こす。
-    from backend.pty_discover import register_claude_when_ready as _rcwr  # noqa: PLC0415
 
     async def _staggered_register():
         for sid in list(sessions_meta.keys()):
-            _asyncio.create_task(_rcwr(sid))
-            await _asyncio.sleep(0.2)
+            asyncio.create_task(pty_discover.register_claude_when_ready(sid))
+            await asyncio.sleep(0.2)
 
-    _asyncio.create_task(_staggered_register())
+    asyncio.create_task(_staggered_register())
 
     # uploads/tmp: 起動時 sweep + 1 時間ごとの定期 GC (= 無停止運用でも溜め続けない)
     _prune_uploads_tmp()
-    uploads_gc_task = _asyncio.create_task(_uploads_tmp_gc_loop())
+    uploads_gc_task = asyncio.create_task(_uploads_tmp_gc_loop())
 
     # サスティナビリティ整備: stale tmux session kill / 古い JSONL 削除 / statusline map
     # cleanup を起動時に 1 回 + 24 時間ごとに実行 (= 放置すると無限蓄積する分の自動整理)。
-    import backend.core.maintenance as maintenance  # noqa: PLC0415, E402
     try:
         startup_summary = maintenance.run_all_maintenance()
         logger.info("startup maintenance: %s", startup_summary)
     except Exception:
         logger.exception("startup maintenance failed")
-    maintenance_task = _asyncio.create_task(maintenance.maintenance_loop())
+    maintenance_task = asyncio.create_task(maintenance.maintenance_loop())
 
     # backend.error.log / backend.access.log は RotatingFileHandler で自動 rotate。
     # launchd の StandardOutPath (= backend.log) / StandardErrorPath (= backend.boot.log) は
@@ -189,7 +209,6 @@ async def lifespan(app: FastAPI):
             # cancel 後の CancelledError は想定通り、 それ以外の例外は無視 (= shutdown 続行)。
             pass
     await pty_runner.shutdown_all()
-    import backend.jsonl.watcher as jsonl_watcher  # noqa: PLC0415, E402
     jsonl_watcher.stop_watcher()
 
 
