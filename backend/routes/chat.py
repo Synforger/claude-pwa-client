@@ -1,585 +1,72 @@
-"""チャット送受信・状態問い合わせ系のエンドポイント群。
+"""旧 chat_routes 集約点 (= backend-F-28 / crosscut-F-04 で 3 分割した後の互換 shim)。
 
-セッション (UI 上の 1 タブ = 1 議題) を一意キー session_id で扱う。
+旧 585 行の `backend.routes.chat` には CRUD + フォーク + restart + 全 sid SSE +
+views/ws + agents / accounts list がすべて入っていたが、 責務別に
+`routes/sessions.py` / `routes/overview.py` / `routes/accounts.py` に分割した。
 
-含まれるルート:
-- GET  /status/{session_id}           ステータス取得 (+ /stream で SSE push)
-- GET  /sessions                      セッション一覧
-- POST /sessions                      新規セッション作成 (body: {agent_id, title?})
-- PATCH /sessions/{session_id}        title 変更 (body: {title})
-- DELETE /sessions/{session_id}       セッション削除
-- GET  /agents                        agent 種別一覧 (作成時の選択肢)
-- GET/PATCH /sessions/{session_id}/config  model / effort 上書き
-
-チャット送受信そのものは PTY 経路 (pty_routes /pty/{sid}/send) + JSONL SSE
-(jsonl_routes /jsonl/stream/{sid}) が担う。 ここは session メタ / status / config 専任。
+互換性 invariants (= 既存 test + 既存 import 経路は素通りで動く):
+- `from backend.routes.chat import router` は 3 router を 1 つに include した
+  集約 router を返す (= main.py からの単一 include が変わらない)。 main.py 側で
+  3 router を個別 include する形にも段階移行可能だが、 まずは 1 router で互換維持。
+- `chat_routes.fork_session(...)` / `chat_routes.delete_session(...)` /
+  `chat_routes.restart_session(...)` / `chat_routes.require_session(...)` /
+  `chat_routes._mark_user_stopped(...)` / `chat_routes._build_sessions_overview()`
+  などの直接呼び出し test は、 ここで re-export してそのまま素通させる。
 """
-import asyncio
-import json
-import logging
-import time
-import uuid
+from __future__ import annotations
 
-from fastapi import APIRouter, Body, Depends, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter
 
-from backend.config import AGENTS
-from backend.core.usage import read_latest_rate_limits
-from backend.state import (
-    agent_status,
-    atomic_write_text,
-    backend_start_time,
-    register_session,
-    rename_session,
-    save_sessions_meta,
-    set_notify_mode,
-    session_tmp_files,
-    sessions_meta,
-    sessions_overview,
-    shared_status,
-    stream_states,
-    unregister_session,
-    views_by_conn,
+from backend.routes.accounts import (
+    list_accounts,
+    list_agents,
+    router as _accounts_router,
+)
+from backend.routes.overview import (
+    _build_all_status,
+    _build_sessions_overview,
+    _mark_user_stopped,
+    all_status_stream,
+    mark_session_seen,
+    router as _overview_router,
+    sessions_overview_stream,
+    views_ws,
+)
+from backend.routes.sessions import (
+    create_session,
+    delete_session,
+    fork_session,
+    list_sessions,
+    patch_session,
+    require_session,
+    restart_session,
+    router as _sessions_router,
 )
 
-logger = logging.getLogger(__name__)
+__all__ = [
+    "router",
+    "require_session",
+    "list_sessions",
+    "create_session",
+    "patch_session",
+    "fork_session",
+    "restart_session",
+    "delete_session",
+    "list_agents",
+    "list_accounts",
+    "all_status_stream",
+    "sessions_overview_stream",
+    "mark_session_seen",
+    "views_ws",
+    "_build_all_status",
+    "_build_sessions_overview",
+    "_mark_user_stopped",
+]
 
+# 集約 router: main.py から `include_router(chat_routes.router)` 1 行で
+# 旧来全 endpoint を受け取れる互換維持。 main.py を「3 router を個別 include する」
+# 形に書き換えるのは段階移行で可能 (= 副 path consumer の rewire と独立で安全)。
 router = APIRouter()
-
-
-def require_session(session_id: str) -> str:
-    """path の session_id が存在しなければ 404 を投げる FastAPI 依存。 各 endpoint で
-    重複していた存在チェックを 1 箇所に集約する (= Depends(require_session) で受ける)。"""
-    if session_id not in sessions_meta:
-        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
-    return session_id
-
-
-# --- セッション CRUD ---
-@router.get("/sessions")
-def list_sessions():
-    return [m.to_dict() for m in sessions_meta.values()]
-
-
-@router.post("/sessions")
-def create_session(payload: dict = Body(...)):
-    from backend.config import ACCOUNTS  # noqa: PLC0415
-    agent_id = payload.get("agent_id")
-    title = payload.get("title")
-    account_id = payload.get("account_id")
-    if not agent_id or agent_id not in AGENTS:
-        raise HTTPException(status_code=400, detail="agent_id が無効です")
-    if account_id is not None and account_id not in ACCOUNTS:
-        raise HTTPException(status_code=400, detail="account_id が無効です")
-    meta = register_session(agent_id, title, account_id=account_id)
-    return meta.to_dict()
-
-
-@router.patch("/sessions/{session_id}")
-def patch_session(session_id: str, payload: dict = Body(...), _: str = Depends(require_session)):
-    title = payload.get("title")
-    notify_mode = payload.get("notify_mode")
-    touched = False
-    if isinstance(title, str) and title.strip():
-        rename_session(session_id, title.strip())
-        touched = True
-    if notify_mode is not None:
-        if not set_notify_mode(session_id, notify_mode):
-            raise HTTPException(status_code=400, detail="notify_mode は both / banner / off")
-        touched = True
-    if not touched:
-        raise HTTPException(status_code=400, detail="title または notify_mode が必要")
-    return sessions_meta[session_id].to_dict()
-
-
-@router.post("/sessions/{session_id}/fork")
-def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(require_session)):
-    """会話を任意メッセージから分岐する (= フォーク)。
-
-    body: {from_uuid}。 from_uuid を leaf に parentUuid 鎖を根まで遡った lineage を、 新しい
-    claude session の jsonl として元と同じ project dir に書き出す。 その session を
-    `claude --resume` で開く新タブ (= SessionDef、 parent_id + resume_session_id 付き) を
-    登録して返す。 元タブ・元 jsonl には一切触れない。
-    """
-    from backend.terminal.runner import jsonl_path_for_session  # noqa: PLC0415
-    from backend.core.fork import build_forked_lineage_lazy, fork_point_status  # noqa: PLC0415
-    from backend.jsonl.watcher import _cwd_to_project_dir  # noqa: PLC0415
-
-    from_uuid = payload.get("from_uuid")
-    if not from_uuid or not isinstance(from_uuid, str):
-        raise HTTPException(status_code=400, detail="from_uuid が必要です")
-
-    parent = sessions_meta[session_id]
-
-    # from_uuid を含む jsonl を探す。 claude は途中で session id をロール (= compact / 継続)
-    # することがあり、 画面に残る古いメッセージは前のファイルに居る一方、 jsonl_path_for_session
-    # は今 open 中の新ファイルを返す。 そのため「今のファイルだけ」 でなく同じ cwd の project dir
-    # 内の全 jsonl を新しい順に走査して、 uuid を実際に含むファイルを source にする (= uuid は
-    # 一意なので確実に当たる)。
-    live = jsonl_path_for_session(session_id)
-    cwd = (AGENTS.get(parent.agent_id) or {}).get("cwd")
-    # account_id でアカウント別の projects dir を選ぶ。 これがないと会社タブが personal の
-    # ~/.claude/projects/ を見て該当ファイル無し → 「会話が見つからない」 で失敗する。
-    project_dir = _cwd_to_project_dir(cwd, account_id=parent.account_id) if cwd else (live.parent if live else None)
-
-    candidates: list = []
-    if live is not None and live.exists():
-        candidates.append(live)
-    if project_dir is not None and project_dir.is_dir():
-        others = sorted(
-            (p for p in project_dir.glob("*.jsonl") if p != live),
-            key=lambda p: p.stat().st_mtime, reverse=True,
-        )
-        candidates.extend(others)  # 全部走査。 ハード上限 (旧 40 / 拡張 200) は長期 cwd で
-        # 「祖先 uuid が範囲外」 で lineage を中途半端に打ち切る事故の元だったので撤廃。
-        # 自然な上限は maintenance.cleanup_old_jsonl (= 14 日 / 500MB 自動掃除) が引いてくれる。
-
-    needle = from_uuid.encode("utf-8")
-    src_path = None
-    for p in candidates:
-        try:
-            if needle in p.read_bytes():
-                src_path = p
-                break
-        except OSError:
-            continue
-
-    if src_path is None:
-        logger.warning(
-            "fork: from_uuid not found session=%s uuid=%s scanned=%d dir=%s",
-            session_id, from_uuid, len(candidates), project_dir,
-        )
-        raise HTTPException(
-            status_code=404,
-            detail="この会話のログに該当メッセージが見つかりません",
-        )
-
-    # まず src_path 単体で fork point の妥当性 (= tool 行で切れてないか) を確認。
-    # 大半のフォークは src_path の中で会話が閉じてて、 ここで全部完結する。
-    src_lines = src_path.read_text(encoding="utf-8").splitlines()
-    status = fork_point_status(src_lines, from_uuid)
-    if status != "ok":
-        raise HTTPException(
-            status_code=400,
-            detail="この位置からは分岐できません (= user 発言か完了したターンのみ)",
-        )
-
-    # lazy stitching: build_forked_lineage_lazy が鎖を辿りながら、 親 uuid が src_lines に
-    # 無い時だけ fetch_more で次の jsonl を 1 個取りに来る。 鎖が src_lines 内で閉じれば
-    # 追加 jsonl は読まれない (= 大半のケース)。 同 cwd の他 jsonl は新しい順に提供。
-    other_iter = None
-    if project_dir is not None and project_dir.is_dir():
-        other_iter = iter(sorted(
-            (p for p in project_dir.glob("*.jsonl") if p != src_path),
-            key=lambda p: p.stat().st_mtime, reverse=True,
-        ))
-    extra_files: list[str] = []
-
-    def fetch_more():
-        if other_iter is None:
-            return None
-        try:
-            nxt = next(other_iter)
-        except StopIteration:
-            return None
-        try:
-            lines = nxt.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            return []  # 1 ファイルだけ読み損ねても次へ進めるよう空 list を返す
-        extra_files.append(nxt.name)
-        return lines
-
-    new_claude_id = str(uuid.uuid4())
-    try:
-        forked = build_forked_lineage_lazy(src_lines, from_uuid, new_claude_id, fetch_more)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    if not forked:
-        raise HTTPException(status_code=400, detail="分岐対象の会話が空です")
-    logger.info(
-        "fork: session=%s src=%s from_uuid=%s extra_files=%d -> new_jsonl=%s.jsonl rows=%d",
-        session_id, src_path.name, from_uuid, len(extra_files),
-        new_claude_id, len(forked),
-    )
-
-    # 新 jsonl は project dir (= 同 cwd hash) に置く。 新タブは agent を継承 = 同 cwd で spawn
-    # するので claude --resume がこの新 jsonl を確実に見つける。
-    dest = src_path.parent / f"{new_claude_id}.jsonl"
-    atomic_write_text(dest, "\n".join(forked) + "\n")
-
-    new_meta = register_session(
-        parent.agent_id,
-        title=f"{parent.title} fork",
-        parent_id=session_id,
-        resume_session_id=new_claude_id,
-    )
-    return new_meta.to_dict()
-
-
-def _mark_user_stopped(session_id: str) -> bool:
-    """ユーザ Stop 意思を backend の権威 state に書く。 /views/ws の stop メッセージ
-    から呼ばれる (= HTTP POST 経由は廃止、 WebSocket で確実に届ける構造)。"""
-    st = stream_states.get(session_id)
-    if st is None:
-        return False
-    st.user_stopped = True
-    if st.busy:
-        st.busy = False
-    sessions_overview.notify()
-    return True
-
-
-@router.post("/sessions/{session_id}/restart")
-async def restart_session(session_id: str, _: str = Depends(require_session)):
-    """claude プロセスを kill + 新規 spawn する (= /clear と違ってプロセスメモリも完全解放)。
-    新 claude_sid に切り替わるが SessionStart hook で bindings 更新されるので、 PWA タブは
-    シームレスに続けて使える。 長期稼働で claude プロセスメモリが累積する問題への対策。"""
-    from backend.terminal.runner import kill_tmux_session, pty_sessions  # noqa: PLC0415
-    import backend.jsonl.watcher as jsonl_watcher  # noqa: PLC0415
-    from backend.terminal.routes import ensure_pty_session_for  # noqa: PLC0415
-    # kill 経路は delete_session と同じだが、 sessions_meta は維持して即 spawn し直す
-    try:
-        kill_tmux_session(session_id)
-        pty_sessions.pop(session_id, None)
-        jsonl_watcher.unregister(session_id)
-    except Exception:
-        logger.debug("restart kill phase failed for %s", session_id, exc_info=True)
-    # フォーク産タブを通常タブ化する。 restart のセマンティクスは「文脈リセット + プロセス
-    # リセット」 で、 fork タブの resume_session_id を残したままだと再 spawn で
-    # `claude --resume <同一 id>` が走り、 claude CLI が重複起動を検知して即 exit (rc=0) する
-    # = ターミナルが何も変わらず終了しない (2026-06-04 確認)。 fork の親文脈引き継ぎは初回
-    # spawn で完了した役目なので、 restart のタイミングで resume_session_id を落として通常
-    # タブと完全に同じ launch_alias 起動経路に合流させる。 役目を終えた fork jsonl は同時に
-    # 掃除する (= delete_session の GC と同型、 蓄積させない)。 parent_id は派生履歴として
-    # 残し、 ドロワー上の親子インデント表示は維持する。
-    meta = sessions_meta.get(session_id)
-    fork_resume_id = getattr(meta, "resume_session_id", None) if meta is not None else None
-    if meta is not None and fork_resume_id:
-        meta.resume_session_id = None
-        save_sessions_meta()
-        try:
-            from backend.jsonl.watcher import _cwd_to_project_dir  # noqa: PLC0415
-            cwd = (AGENTS.get(meta.agent_id) or {}).get("cwd")
-            project_dir = _cwd_to_project_dir(cwd) if cwd else None
-            if project_dir is not None:
-                fork_jsonl = project_dir / f"{fork_resume_id}.jsonl"
-                if fork_jsonl.exists():
-                    fork_jsonl.unlink(missing_ok=True)
-                    logger.info(
-                        "fork: gc jsonl on restart session=%s file=%s",
-                        session_id, fork_jsonl.name,
-                    )
-        except Exception:
-            logger.debug("fork jsonl gc on restart failed for %s", session_id, exc_info=True)
-    # 新規 spawn (= 同 PWA_SID で tmux 再生成 + claude 再起動 + SessionStart hook で
-    # 新 claude_sid を confirm_bind)
-    try:
-        await ensure_pty_session_for(session_id)
-    except Exception:
-        logger.exception("restart spawn phase failed for %s", session_id)
-        return {"ok": False, "reason": "spawn_failed"}
-    # agent_status の進行中フラグをリセット (= 新プロセスなので何も保留してない)
-    a = agent_status.get(session_id)
-    if a is not None:
-        a["current_tool"] = None
-        a["pending_question"] = None
-        a["pending_plan"] = None
-        a["subagent"] = None
-        a["plan_mode"] = False
-    state = stream_states.get(session_id)
-    if state is not None:
-        # 新プロセス = 過去の Stop 意思は無効化 (= 残ったまま sticky だと新 turn が永久に
-        # busy=false に強制されて停止ボタンが立たない逆方向のバグになる)。
-        state.user_stopped = False
-        state.status_event.set()
-    # 全 sid SSE (/sessions/status/stream) にも変化を伝える (= per-sid と整合)
-    sessions_overview.notify()
-    return {"ok": True}
-
-
-@router.delete("/sessions/{session_id}")
-async def delete_session(session_id: str, _: str = Depends(require_session)):
-    # フォーク産タブはここで掴んでおく (= unregister 後だと meta が消えて辿れない)。
-    # resume_session_id は build_forked_lineage で書き出した新 jsonl のファイル名。
-    meta = sessions_meta.get(session_id)
-    fork_resume_id = getattr(meta, "resume_session_id", None) if meta is not None else None
-    fork_agent_id = getattr(meta, "agent_id", None) if meta is not None else None
-    # PTY + tmux + JSONL binding を一括 cleanup
-    try:
-        from backend.terminal.runner import kill_tmux_session, pty_sessions  # noqa: PLC0415
-        import backend.jsonl.watcher as jsonl_watcher  # noqa: PLC0415
-        kill_tmux_session(session_id)
-        pty_sessions.pop(session_id, None)
-        jsonl_watcher.unregister(session_id)
-    except Exception:
-        logger.debug("session cleanup failed for %s", session_id, exc_info=True)
-    # 一時ファイルをクリーンアップ
-    for p in session_tmp_files.pop(session_id, []):
-        try:
-            p.unlink(missing_ok=True)
-        except Exception:
-            logger.debug("tmp file unlink failed: %s", p, exc_info=True)
-    # フォーク産 jsonl の GC: 削除時にこのタブが生成した新 jsonl も消す。
-    # build_forked_lineage は parentUuid 鎖を全部新ファイルに書き出す (= 自己完結) ので、
-    # 孫フォークがあっても孫の jsonl 単体で resume できる。 親 fork jsonl を消して問題ない。
-    # 元タブの jsonl (= claude が普段使ってる alias 起動由来) はここでは絶対に触らない。
-    if fork_resume_id and fork_agent_id:
-        try:
-            from backend.jsonl.watcher import _cwd_to_project_dir  # noqa: PLC0415
-            cwd = (AGENTS.get(fork_agent_id) or {}).get("cwd")
-            project_dir = _cwd_to_project_dir(cwd) if cwd else None
-            if project_dir is not None:
-                fork_jsonl = project_dir / f"{fork_resume_id}.jsonl"
-                if fork_jsonl.exists():
-                    fork_jsonl.unlink(missing_ok=True)
-                    logger.info(
-                        "fork: gc jsonl session=%s file=%s", session_id, fork_jsonl.name,
-                    )
-        except Exception:
-            logger.debug("fork jsonl gc failed for %s", session_id, exc_info=True)
-    unregister_session(session_id)
-    return {"status": "ok", "session_id": session_id}
-
-
-
-
-def _build_all_status() -> dict:
-    """全 session の status を 1 dict で返す (= /sessions/status/stream payload)。
-
-    rate-limits.jsonl は **1 ファイル**で全 session 共有。 sid 毎に read_latest_rate_limits
-    を呼ぶと 32KB tail を sid 数回 read + parse することになり、 重い + 一瞬古い値が
-    混じって status line がちらつく。 1 回 read + parse して、 sid 毎は dict lookup だけ
-    にする (= O(read) + O(sid) で済む)。"""
-    import backend.jsonl.watcher as jsonl_watcher  # noqa: PLC0415
-    from backend.core.usage import read_all_rate_limits_tail  # noqa: PLC0415
-    parsed = read_all_rate_limits_tail()  # 32KB tail を 1 回読んで parse 済 list を返す
-    # account 別に集計 (= 並走中の個人 / 会社で 5h / 7d が混ざらないように)。
-    # rate-limits.jsonl の各 record は account_id ("personal" / "work" / ...) を持つ。
-    # 旧版で account_id 欠落の record は "personal" 扱い (= 単一 OAuth 運用との互換)。
-    by_acct: dict[str, list[dict]] = {}
-    by_sess: dict[str, dict] = {}
-    for p in parsed:
-        acct = p.get("account_id") or "personal"
-        by_acct.setdefault(acct, []).append(p)
-        sid_key = p.get("session_id")
-        if sid_key:
-            by_sess[sid_key] = p  # 最後勝ち = 各 claude_sid の最新行
-    def _acct_view(acct: str) -> tuple[dict, float | int | None]:
-        ps = by_acct.get(acct) or []
-        if not ps:
-            return {}, None
-        last_p = ps[-1]
-        cur_reset = last_p.get("seven_day_resets_at")
-        same_window = [
-            p.get("seven_day_pct") for p in ps
-            if p.get("seven_day_resets_at") == cur_reset
-            and isinstance(p.get("seven_day_pct"), (int, float))
-        ]
-        seven_pct = max(same_window) if same_window else last_p.get("seven_day_pct")
-        return last_p, seven_pct
-    out: dict[str, dict] = {}
-    for sid in list(sessions_meta.keys()):
-        meta = sessions_meta[sid]
-        acct = meta.account_id or "personal"
-        a = agent_status[sid]
-        jp = jsonl_watcher.get_jsonl_for(sid)
-        claude_sid = jp.stem if jp else None
-        sess = by_sess.get(claude_sid) if claude_sid else None
-        last_acct, seven_day_pct_acct = _acct_view(acct)
-        out[sid] = {
-            "model": (sess.get("model") if sess else None) or a["model"],
-            "ctx_pct": (sess.get("context_pct") if sess and sess.get("context_pct") is not None else a["ctx_pct"]),
-            "plan_mode": a["plan_mode"],
-            "current_tool": a["current_tool"],
-            "todos": a["todos"],
-            "subagent": a["subagent"],
-            "pending_plan": a.get("pending_plan"),
-            "pending_question": a.get("pending_question"),
-            "mode": a.get("mode") or "",
-            "permission_mode": a.get("permission_mode") or "",
-            "budget_used": a.get("budget_used"),
-            "budget_total": a.get("budget_total"),
-            "budget_remaining": a.get("budget_remaining"),
-            "pr_links": a.get("pr_links") or [],
-            "tasks": a.get("tasks") or [],
-            "five_hour_pct": last_acct.get("five_hour_pct") if last_acct.get("five_hour_pct") is not None else shared_status["five_hour_pct"],
-            "seven_day_pct": seven_day_pct_acct if seven_day_pct_acct is not None else shared_status["seven_day_pct"],
-            "five_hour_resets_at": last_acct.get("five_hour_resets_at") or shared_status["five_hour_resets_at"],
-            "seven_day_resets_at": last_acct.get("seven_day_resets_at") or shared_status["seven_day_resets_at"],
-            "account_id": acct,
-            "backend_start_time": backend_start_time,
-        }
-    return out
-
-
-@router.get("/sessions/status/stream")
-async def all_status_stream():
-    """全 sid の status を 1 接続で配信する SSE (= タブ切替で SSE 張り替え不要)。
-
-    sessions_overview と同じ broadcaster で起きる (= 任意 sid の status_event.set() で
-    全接続が再 push)。 frontend は活用 sid を切り替えても接続をそのまま使えるので、
-    iOS Safari の 1-3s SSE 確立コストがタブ切替体験から消える。 keep-alive は 5h/7d
-    更新も兼ねて 20s tick。 payload size は sid 数 × 〜200 byte (= 10 sid で 2KB 程度)。"""
-    async def gen():
-        ev = sessions_overview.subscribe()
-        try:
-            initial = f"retry: 3000\n\ndata: {json.dumps(_build_all_status())}\n\n"
-            yield initial
-            while True:
-                try:
-                    await asyncio.wait_for(ev.wait(), timeout=20.0)
-                    ev.clear()
-                    yield f"data: {json.dumps(_build_all_status())}\n\n"
-                except asyncio.TimeoutError:
-                    # keep-alive 兼 5h/7d 更新: 20 秒粒度で全 sid を再 push
-                    yield f"data: {json.dumps(_build_all_status())}\n\n"
-        finally:
-            sessions_overview.unsubscribe(ev)
-
-    return StreamingResponse(
-        gen(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-def _build_sessions_overview() -> dict:
-    """全 session の busy / pending_question + last_seen_at を 1 dict で返す
-    (= /sessions/overview/stream payload)。
-
-    busy は monitor_all_sessions_loop が JSONL から算出した backend 権威値 (= chat SSE の
-    result 配信に依存しない)。 frontend は各 sid の busy で loading を上書きして、 青丸
-    (処理中) / 赤丸 (完了未読) / 停止ボタンを **非アクティブタブでも** live 追従させる。
-
-    last_seen_at は他端末がそのタブを開いた時刻 (= unix sec)。 各 client は自分の最新
-    received event timestamp と比較して、 last_seen_at が新しければ赤丸を消す
-    (= iPhone と Mac の未読同期、 2026-06-10 追加)。"""
-    from backend.state import session_last_seen_at  # noqa: PLC0415
-    out: dict[str, dict] = {}
-    for sid in list(sessions_meta.keys()):
-        st = stream_states.get(sid)
-        a = agent_status.get(sid) or {}
-        out[sid] = {
-            "busy": bool(st.busy) if st is not None else False,
-            "pending_question": bool(a.get("pending_question")),
-            "last_seen_at": session_last_seen_at.get(sid),
-        }
-    return out
-
-
-@router.post("/sessions/{session_id}/seen")
-def mark_session_seen(session_id: str) -> dict:
-    """指定 session を「今この瞬間に確認した」 とマークし、 全端末に sync 配信する。
-
-    frontend は自タブを activeSid 化したタイミング (= タブ切替時) に POST する。 backend は
-    session_last_seen_at[sid] を now で更新して sessions_overview.notify() で broadcast。
-    他端末はこの時刻と自分が見た最後のメッセージ timestamp を比較して、 last_seen_at が
-    新しければ赤丸を消す。"""
-    if session_id not in sessions_meta:
-        raise HTTPException(status_code=404, detail="Unknown session")
-    from backend.state import session_last_seen_at  # noqa: PLC0415
-    session_last_seen_at[session_id] = time.time()
-    sessions_overview.notify()
-    return {"ok": True, "last_seen_at": session_last_seen_at[session_id]}
-
-
-@router.get("/sessions/overview/stream")
-async def sessions_overview_stream():
-    """全 session の busy / pending を 1 本で push する SSE (= 案 B)。
-
-    タブごとに SSE を張らず 1 接続で全 session をカバーするので、 session 数が増えても
-    接続は 1 本のまま (= リソース増加なし)。 sessions_overview.notify() のたびに最新 snapshot
-    を yield。 20 秒の timeout で keep-alive 兼 定期同期。
-
-    接続ごとに専用 Event を購読するので、 複数デバイス同時でも 1 接続の clear() が他接続の
-    push を奪わない (= 旧 単一 Event 共有時の取りこぼしを解消)。"""
-    async def gen():
-        # 接続ごとに専用 Event を購読 (= 複数デバイス同時でも push を取りこぼさない)。
-        ev = sessions_overview.subscribe()
-        try:
-            # 接続直後に snapshot を 1 chunk で送る (= retry + 初期 data を結合)。
-            yield f"retry: 3000\n\ndata: {json.dumps(_build_sessions_overview())}\n\n"
-            while True:
-                try:
-                    await asyncio.wait_for(ev.wait(), timeout=20.0)
-                    ev.clear()
-                    yield f"data: {json.dumps(_build_sessions_overview())}\n\n"
-                except asyncio.TimeoutError:
-                    yield f"data: {json.dumps(_build_sessions_overview())}\n\n"
-        finally:
-            sessions_overview.unsubscribe(ev)
-
-    return StreamingResponse(
-        gen(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-@router.get("/agents")
-def list_agents():
-    """セッション作成時の選択肢として agent 種別一覧を返す。"""
-    return [
-        {"id": name, "display_name": cfg.get("display_name", name.upper())}
-        for name, cfg in AGENTS.items()
-    ]
-
-
-@router.get("/accounts")
-def list_accounts():
-    """セッション作成時の「アカウント」 (= 個人 / 会社 OAuth 切替) 選択肢を返す。
-    候補が 1 つ (= 通常 personal だけ) のとき、 frontend は選択肢自体を出さなくて良い。
-    """
-    from backend.config import ACCOUNTS  # noqa: PLC0415
-    return [
-        {"id": name, "display_name": cfg.get("display_name", name)}
-        for name, cfg in ACCOUNTS.items()
-    ]
-
-
-# 旧: session 別 model / effort / fast 切替 endpoint (= ⋯ メニューの ModelEffortPicker
-# 用)。 2026-05-31 撤去。 設計方針「制御はターミナル」 に揃え、 切替はターミナルから
-# `/model <name>` `/effort <level>` `/fast` を直打ちする (= picker で切替えても結局
-# 切替確認プロンプトが出てターミナル操作が要る、 多くの場合 default 固定で十分)。
-
-
-@router.websocket("/views/ws")
-async def views_ws(ws: WebSocket):
-    """frontend が「今どの session を見ているか」 を realtime に backend に伝える経路。
-
-    接続中の間 sid を保持し、 broadcast_push の `is_session_viewed` 判定に使う。
-    TCP FIN / iOS が PWA bg 化時に socket を切るタイミングで自動削除されるので、
-    stale state 永久抑制バグが構造的に起きない。
-
-    プロトコル: client が JSON メッセージで随時送信:
-      - `{"sid": "ses_xxx" | null}`: 今見ている sid を更新 (タブ切替で再送)
-      - `{"type": "stop", "sid": "ses_xxx"}`: Stop ボタン押下の権威記録。 backend が
-        user_stopped=True を立てて busy を強制 false に。 WebSocket 経由なので HTTP の
-        POST 失敗 race が原理的に無い (= 接続中なら TCP 保証で届く)。
-    """
-    # conn_id は uuid (= id(ws) は GC 後再利用で別接続と衝突する余地があるため不採用)。
-    conn_id = uuid.uuid4().hex
-    try:
-        await ws.accept()
-        while True:
-            text = await ws.receive_text()
-            try:
-                payload = json.loads(text)
-            except (ValueError, TypeError):
-                continue
-            if not isinstance(payload, dict):
-                continue
-            msg_type = payload.get("type")
-            sid = payload.get("sid")
-            if msg_type == "stop" and isinstance(sid, str) and sid:
-                _mark_user_stopped(sid)
-                continue
-            # default: view 更新
-            if isinstance(sid, str) and sid:
-                views_by_conn[conn_id] = sid
-            else:
-                views_by_conn.pop(conn_id, None)
-    except WebSocketDisconnect:
-        pass
-    finally:
-        views_by_conn.pop(conn_id, None)
+router.include_router(_sessions_router)
+router.include_router(_overview_router)
+router.include_router(_accounts_router)
