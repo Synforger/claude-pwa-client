@@ -62,7 +62,6 @@ export function useChatStream({
     setApiKeySource,
     cancelAndFlush: buffer.cancelAndFlush,
     scheduleFlush: buffer.scheduleFlush,
-    streamBufRef: buffer.streamBufRef,
     bufFor: buffer.bufFor,
   }
 

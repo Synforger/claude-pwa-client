@@ -50,7 +50,6 @@ export function processStreamEvent(deps, sid, event) {
     setApiKeySource,
     cancelAndFlush,
     scheduleFlush,
-    streamBufRef,
     bufFor,
   } = deps
 
@@ -297,7 +296,7 @@ export function processStreamEvent(deps, sid, event) {
 
   // 通常受信も replay も同じロジックで処理し、 バブル単位の重複は uuid で flush 時に dedup する。
   // (event.uuid = AssistantMessage の uuid。 同じものを 2 回 replay しても 1 つの bubble に収束)
-  const buf = bufFor ? bufFor(sid) : streamBufRef.current[sid]
+  const buf = bufFor(sid)
   const eventUuid = event.uuid || null
   // 同 message.id の追加 frame か (= JSONL は 1 AssistantMessage を複数行に分割し、
   // 各行は 1 block の delta — thinking 行 / text 行 / tool_use 行が別々に来る)。

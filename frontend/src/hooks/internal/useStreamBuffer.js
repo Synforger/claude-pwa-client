@@ -8,29 +8,54 @@ import { generateId } from '../../utils/id.js'
 // セッションごとに独立した buffer を持つ。 セッション (= session_id) は動的に
 // 増減するので、 `bufFor(sid)` で lazy 初期化する。
 //
-// 公開する ref:
-// - streamBufRef                 : 受信中の最新スナップショット (session_id → buf)
-//
 // 公開関数:
+// - bufFor(sid)                : 該当 sid の buf を取得 (= lazy 作成)、 直接 mutate する用
 // - flushStreamBuf(sid)        : バッファを setState に反映
 // - scheduleFlush(sid)         : rAF で 1 回だけ flush を予約
 // - cancelAndFlush(sid)        : 予約をキャンセルして即 flush
 // - resetBuf(sid)              : 新規ターン / reconnect 開始時の初期化
+//
+// F-02 / F-06: 同 uuid bubble の findIndex 走査は messages 配列全長 (最大 MAX_MESSAGES) を
+// なめていたが、 同 message.id の追加 frame は時間的に近接して到着するので、 末尾近傍
+// (= UUID_LOOKUP_WINDOW 件) のみ走査で実用的に常に hit する。 重い conversation で
+// 全長 1000+ 件を毎 rAF 走査するコストを削る。
+const UUID_LOOKUP_WINDOW = 30
+
 function emptyBuf() {
   return { text: null, thinking: null, newTools: [], needsNewBubble: false, uuid: null, dirty: false }
 }
 
+// 末尾 N 件以内で uuid 一致 bubble を探す。 見つからなければ -1 (= 新規 bubble として
+// 扱う、 fallback)。 古い uuid (= 30 件以上前) との偶発衝突は実害なし (= 同 uuid の
+// 追加 frame は SDK が時間近接で書くので、 古い frame 復活ケースは構造的に出ない)。
+function findRecentByUuid(msgs, uuid) {
+  if (!uuid) return -1
+  const start = Math.max(0, msgs.length - UUID_LOOKUP_WINDOW)
+  for (let i = msgs.length - 1; i >= start; i--) {
+    if (msgs[i].uuid === uuid) return i
+  }
+  return -1
+}
+
 export function useStreamBuffer({ setMessages }) {
-  const streamBufRef = useRef({})
+  // Map<sid, buf>。 dict 互換の proxy (= `streamBufRef.current[sid]`) を外向きに維持しつつ
+  // 内部は Map で持つ (= F-02 趣旨の「Map 化」、 sid 出入りの多い長時間 session で
+  // delete/in 検査を O(1) に明示)。
+  const streamBufMap = useRef(new Map())
   const rafIdRef = useRef({})
 
+
   const bufFor = (sid) => {
-    if (!streamBufRef.current[sid]) streamBufRef.current[sid] = emptyBuf()
-    return streamBufRef.current[sid]
+    let buf = streamBufMap.current.get(sid)
+    if (!buf) {
+      buf = emptyBuf()
+      streamBufMap.current.set(sid, buf)
+    }
+    return buf
   }
 
   const flushStreamBuf = (sid) => {
-    const buf = streamBufRef.current[sid]
+    const buf = streamBufMap.current.get(sid)
     if (!buf || !buf.dirty) return
 
     const snap = {
@@ -67,7 +92,9 @@ export function useStreamBuffer({ setMessages }) {
         // 上書きでなくマージなのが重要: 旧実装は tools = [...snap.newTools] で
         // 既存 tool を消してた → multi-frame の 2 個目で 1 個目が消える bug。
         if (snap.uuid) {
-          const existIdx = msgs.findIndex(m => m.uuid === snap.uuid)
+          // F-06: 直近 30 件のみ走査 (= 同 uuid の追加 frame は時間近接で着くので
+          // 末尾窓内に必ず居る。 全長走査だと長い conversation で重い)。
+          const existIdx = findRecentByUuid(msgs, snap.uuid)
           if (existIdx >= 0) {
             const existing = msgs[existIdx]
             const existingTools = existing.tools || []
@@ -140,11 +167,10 @@ export function useStreamBuffer({ setMessages }) {
   }
 
   const resetBuf = (sid) => {
-    streamBufRef.current[sid] = emptyBuf()
+    streamBufMap.current.set(sid, emptyBuf())
   }
 
   return {
-    streamBufRef,
     flushStreamBuf,
     scheduleFlush,
     cancelAndFlush,
