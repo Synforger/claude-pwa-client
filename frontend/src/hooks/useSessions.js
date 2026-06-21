@@ -118,15 +118,25 @@ export function useSessions() {
     try {
       await apiFetch(`/sessions/${id}`, { method: 'DELETE' })
     } catch { /* backend 未到達でもローカル状態は消す */ }
-    // 現在の sessions / activeId を直接読んで外で計算する (updater 内に副作用を持たない)。
-    // React の StrictMode で updater が 2 回実行されても安全。
-    const wasActive = sessions.some(s => s.id === id) && activeId === id
-    const nextSessions = sessions.filter(s => s.id !== id)
-    setSessions(nextSessions)
-    if (wasActive) {
-      setActiveId(nextSessions.length > 0 ? nextSessions[0].id : null)
-    }
-  }, [sessions, activeId])
+    // setSessions / setActiveId の updater 内で計算 (= F-42、 deps を [] にして
+    // 参照が変化するたびに useCallback identity が動くのを抑える)。 React は updater
+    // 関数を StrictMode で 2 回呼ぶ場合があるが、 純関数 (= 副作用なし) なら安全。
+    let nextSessions = null
+    let wasActive = false
+    setSessions(prev => {
+      wasActive = prev.some(s => s.id === id) // 注: activeId 判定は次の updater で
+      nextSessions = prev.filter(s => s.id !== id)
+      return nextSessions
+    })
+    setActiveId(prevActive => {
+      if (prevActive === id && nextSessions) {
+        return nextSessions.length > 0 ? nextSessions[0].id : null
+      }
+      return prevActive
+    })
+    // wasActive は今後 caller で使う可能性に備えるが現状未利用。 lint 黙らせ。
+    void wasActive
+  }, [])
 
   const renameSession = useCallback(async (id, title) => {
     const trimmed = (title || '').trim()
