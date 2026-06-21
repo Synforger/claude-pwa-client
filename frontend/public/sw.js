@@ -4,12 +4,74 @@
 // showNotification を呼べば OS 通知として表示される。
 // アプリが完全終了していても OS が SW を起こしてくれるので届く。
 
+// アプリシェル (HTML / JS / CSS) のキャッシュ世代名。 version を上げると activate で旧世代を
+// 全削除する (= 確実な刷新経路)。 sw.js は backend が no-cache で配信するので、 新しい sw.js は
+// PWA 起動時に必ず取得される → install → activate で旧キャッシュ一掃 → 最新 bundle に入れ替わる。
+const SHELL_CACHE = 'claude-pwa-shell-v1'
+
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting())
 })
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim())
+  event.waitUntil((async () => {
+    // 旧世代の shell キャッシュを全削除 (= version 切替時の刷新)。
+    const keys = await caches.keys()
+    await Promise.all(keys.filter((k) => k !== SHELL_CACHE).map((k) => caches.delete(k)))
+    await self.clients.claim()
+  })())
+})
+
+// アプリシェルの fetch 戦略 (= 2026-06-22 追加、 iOS PWA の HTTP キャッシュ固着対策)。
+// 元は push 専用 SW で fetch 介入が無く、 アセット更新が iOS の HTTP キャッシュ (immutable)
+// 任せ → 古い bundle が永久に張り付き、 新 build を取りに行かない問題があった。
+// 下記は **キャッシュ対象を静的アセットだけに絞る allowlist 型**。 API / SSE / WS / 非 GET は
+// 一切 respondWith せず素通り (= ストリーム系を壊さない不変条件)。
+//   - navigation (index.html) : network-first + cache:'reload' (= HTTP キャッシュを跨いで必ず
+//     最新 HTML を取得 → 最新ハッシュの assets を参照させる)。 オフライン時のみ cache fallback。
+//   - hashed assets (/assets/*) / manifest / アイコン : cache-first (= 内容不変なので一度取れば
+//     良い。 新ハッシュ名は cache miss → fetch で自動取得)。
+self.addEventListener('fetch', (event) => {
+  const req = event.request
+  if (req.method !== 'GET') return
+  const url = new URL(req.url)
+  if (url.origin !== self.location.origin) return
+
+  // HTML ナビゲーション = network-first (= HTTP キャッシュを無視して最新を取る)。
+  if (req.mode === 'navigate') {
+    event.respondWith((async () => {
+      try {
+        const fresh = await fetch(req, { cache: 'reload' })
+        const cache = await caches.open(SHELL_CACHE)
+        cache.put(req, fresh.clone())
+        return fresh
+      } catch {
+        const cached = await caches.match(req)
+        return cached || Response.error()
+      }
+    })())
+    return
+  }
+
+  // 静的アセットだけ cache-first。 それ以外 (= API / SSE / WS) は介入しない。
+  const isShellAsset =
+    url.pathname.startsWith('/assets/') ||
+    url.pathname === '/manifest.json' ||
+    url.pathname.endsWith('.svg') ||
+    url.pathname.endsWith('.png') ||
+    url.pathname.endsWith('.ico')
+  if (!isShellAsset) return
+
+  event.respondWith((async () => {
+    const cached = await caches.match(req)
+    if (cached) return cached
+    const fresh = await fetch(req)
+    if (fresh && fresh.ok) {
+      const cache = await caches.open(SHELL_CACHE)
+      cache.put(req, fresh.clone())
+    }
+    return fresh
+  })())
 })
 
 // 各 client (= タブ) が「今どの session を見ているか」 を保持。 App.jsx が active-session
