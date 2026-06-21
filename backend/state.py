@@ -417,6 +417,75 @@ class OverviewBroadcaster:
 # タブの青丸/赤丸 + 停止ボタンを live 追従させる経路。 タブごとに SSE を張らずに済む)。
 sessions_overview = OverviewBroadcaster()
 
+
+# --- JSONL event broadcaster (= F-02 / F-06) ---------------------------------
+# JSONL 1 行から jsonl_line_to_events で生成した event を全 SSE 接続へ fan-out する
+# pub/sub。 monitor_all_sessions_loop が**単一経路で**event 生成 + mutator 適用 +
+# publish を担う。 SSE consumer (= /jsonl/stream/{sid} / /jsonl/stream/all) は
+# broadcaster の Queue を listen するだけで、 自前で mutator を呼ばない (= F-06 で
+# dual-driver mutate を解消)。
+#
+# subscriber key:
+#   - sid string  : その sid だけの event を受ける (= 旧 per-sid SSE 互換)
+#   - "all"       : 全 sid の event を受ける (= F-15 一括接続)
+#
+# Queue は asyncio.Queue で容量無制限 (= 通常 burst で数十 event、 backend 内 producer
+# のみ)。 切断時は SSE generator 側で unsubscribe する。
+ALL_SUBSCRIBER_KEY = "all"
+
+
+class JsonlEventBroadcaster:
+    """JSONL event を sid / "all" subscriber に fan-out する pub/sub。
+
+    publish(sid, event) で 1 event を流すと:
+      - subscribers[sid] の全 Queue に event を put
+      - subscribers["all"] の全 Queue にも (event + sid 同梱) を put
+
+    publish 側で sid を event payload に重ねる責務は持たない (caller が event に
+    sid を埋めるか、 "all" subscriber 側で sid を見たいなら別途 wrap が必要)。
+    実装の単純さのため、 "all" 経路用に publish は sid を 2nd 引数として put する
+    形 (= 内部 tuple) ではなく、 caller が event dict に "sid" field を埋めてから
+    publish する規約とする。 caller (= monitor 経路) は jsonl_routes._process_new_lines
+    が event dict に sid を埋めた上で publish する。
+    """
+
+    def __init__(self) -> None:
+        self._subs: dict[str, set[asyncio.Queue]] = {}
+
+    def subscribe(self, key: str) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue()
+        self._subs.setdefault(key, set()).add(q)
+        return q
+
+    def unsubscribe(self, key: str, q: asyncio.Queue) -> None:
+        s = self._subs.get(key)
+        if s is None:
+            return
+        s.discard(q)
+        if not s:
+            self._subs.pop(key, None)
+
+    def publish(self, sid: str, event: dict) -> None:
+        """1 event を sid + "all" subscriber へ fan-out。 同一 event 参照を全 Queue に
+        put するので、 consumer は event を mutate しないこと (= read-only 扱い)。"""
+        for q in list(self._subs.get(sid, ())):
+            try:
+                q.put_nowait(event)
+            except asyncio.QueueFull:
+                pass
+        for q in list(self._subs.get(ALL_SUBSCRIBER_KEY, ())):
+            try:
+                q.put_nowait(event)
+            except asyncio.QueueFull:
+                pass
+
+    def subscriber_count(self, key: str) -> int:
+        """test / debug 用 (= active subscriber 数)。"""
+        return len(self._subs.get(key, ()))
+
+
+jsonl_event_broadcaster = JsonlEventBroadcaster()
+
 # 各 session を「最後に確認した時刻」 を全 client 共有で持つ。 ある端末でタブを開いた
 # (= activeSid 化) 時に backend に POST → ここを更新 → sessions_overview.notify() で
 # 全 client に broadcast → 他端末は自分の unreadDone を比較してマーク前の last_seen より
