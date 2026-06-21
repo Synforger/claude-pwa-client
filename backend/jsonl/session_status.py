@@ -282,6 +282,33 @@ def attach_duration_to_result(session_id: str, line: dict, events: list[dict]) -
             ev["duration_ms"] = duration_ms
 
 
+# --- tasks 比較正規化 (= backend-F-57) ----------------------------------------
+# task_reminder の snapshot を agent_status.tasks に丸ごと差し替える経路で、 旧版は
+# `items != old` の dict 全 field 比較だった。 claude TUI が再掲する snapshot に余計な
+# 内部 field (= timestamp / 内部メタ) が紛れたり、 順序が入れ替わったりすると、 本質的に
+# 同じ task 集合でも status_event 過剰発火 → frontend 不要再描画 (= 数 ms 損失 + 体感の
+# 「忙しい感」) を招いていた。 表示に効く field だけで正規化 signature を作って比較する。
+_TASK_SIG_FIELDS = ("id", "subject", "description", "activeForm", "status")
+
+
+def _tasks_signature(tasks: list) -> list[tuple]:
+    """task list を比較用 signature (= tuple list) に正規化する。
+
+    各 task から表示に効く field だけを抽出し、 id 昇順で sort する (= 順序揺らぎを
+    吸収)。 id 無し / 型不正 entry は ("", ...) として安全に通す。 None / 空 list は
+    空 list を返す。
+    """
+    if not tasks:
+        return []
+    sigs: list[tuple] = []
+    for t in tasks:
+        if not isinstance(t, dict):
+            continue
+        sigs.append(tuple(str(t.get(f) or "") for f in _TASK_SIG_FIELDS))
+    sigs.sort()
+    return sigs
+
+
 # --- subagent 進行中の表示 (= 0-6) ---
 # Task tool 実行中、 claude は各サブエージェントの transcript をメイン JSONL ではなく
 # <jsonl>/<session-id>/subagents/agent-<id>.jsonl に別ファイルで書く (= v2.1.x 形式、
@@ -631,9 +658,12 @@ def mutate_agent_status(session_id: str, line: dict) -> bool:
             # task_reminder の content は現在の task list 全体の snapshot (= claude TUI が
             # 毎ターン再掲)。 最新を真値として agent_status.tasks を丸ごと差し替える。
             items = att.get("content") if isinstance(att.get("content"), list) else []
-            # 値 (= subject/status/etc) が変わった時だけ flag を立てる
             old = a.get("tasks") or []
-            if items != old:
+            # backend-F-57: dict 全 field 比較 (= items != old) では task_reminder に余計な
+            # field (= 順序違い / 内部メタ追加) で false positive を起こし、 status_event の
+            # 過剰発火 + frontend の不要再描画を招いていた。 ID + 表示 field だけで正規化
+            # 比較する。
+            if _tasks_signature(items) != _tasks_signature(old):
                 a["tasks"] = items
                 changed = True
     elif line_type == "pr-link":
