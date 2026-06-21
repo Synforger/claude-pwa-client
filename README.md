@@ -106,6 +106,14 @@ tailscale serve --bg http://localhost:8765
 共有 → ホーム画面に追加で PWA 化。 通知は ⋯ メニュー → 「通知を有効にする」 (iOS 16.4+ +
 ホーム画面追加済が必須)。
 
+> **詰まりやすい 2 点** (= 上の最短経路だけだと抜けやすい):
+> - **チャットが表示されない** → claude の **hook 設定** (PWA タブと jsonl の紐付け) が必要
+> - **ステータスバーが空** → 使用率を記録する **statusline 設定** が必要 (表示専用 statusline では出ない)
+>
+> どちらも [docs/setup/path-a-chat.md](docs/setup/path-a-chat.md) に手順がある。 加えて
+> `claude` を **PATH に通す** + `launch_alias` 対応の **shell alias 定義** + **`jq` / `tmux`**
+> が前提。
+
 ## 設定ファイル
 
 `backend/config.json` の骨格 (`backend/config.example.json` から複製):
