@@ -32,7 +32,7 @@ from backend.config import CLAUDE_PROJECTS_DIRS as _CLAUDE_PROJECTS_DIRS
 _CLAUDE_PROJECTS = _CLAUDE_PROJECTS_DIRS[0]
 # binding を JSON で persist する file。 backend 再起動跨ぎで confirmed binding を
 # 保持する。 file が破損 / 読めなければ空起動。
-_PERSIST_PATH = Path(__file__).resolve().parent.parent / "logs" / "jsonl_bindings.json"
+from backend.paths import JSONL_BINDINGS_PATH as _PERSIST_PATH  # noqa: E402
 
 
 @dataclass
