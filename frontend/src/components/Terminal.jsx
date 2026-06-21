@@ -13,7 +13,7 @@
  *     - binary frames: stdin bytes (= keystrokes / paste)
  *     - text frames (JSON): { type: "resize", rows, cols }
  */
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, memo } from 'react'
 import { useTerminal } from '../hooks/useTerminal.js'
 import IOSKeyboard from './IOSKeyboard.jsx'
 
@@ -23,7 +23,10 @@ const DEFAULT_WS_BASE =
     : 'ws://') +
   (typeof window !== 'undefined' ? window.location.host : 'localhost:8765')
 
-export default function Terminal({ sessionId, wsBase = DEFAULT_WS_BASE, onExit }) {
+// F-11 hidden buffer cap (= module level const、 useEffect dep 警告回避目的でも module 化が綺麗)。
+const HIDDEN_BUF_MAX_BYTES = 1024 * 1024  // 1MB
+
+function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = true }) {
   const containerRef = useRef(null)
   const { terminal, getDimensions, scrollToBottom } = useTerminal(containerRef)
 
@@ -33,6 +36,30 @@ export default function Terminal({ sessionId, wsBase = DEFAULT_WS_BASE, onExit }
   // フルオンスクリーンキーボード (= 矢印 / Ctrl / Tab / 記号等、 物理キーボードの無い
   // モバイルで TUI を直操作するため) の表示トグル。 縦を食うので既定 OFF。
   const [showKbd, setShowKbd] = useState(false)
+
+  // F-11 (= 2026-06-21): hidden Terminal (= 別 tab を表示中で display:none) は xterm.write を
+  // skip + buffer に積み、 visible 復帰時にまとめて flush する。 hidden 中も WS 自体は維持する
+  // (= 切替で「起動 1-2 秒」 待ちを作らない既存設計を温存)。 旧実装は hidden でも
+  // 毎 byte xterm.write を回しており WebGL 再描画 / scrollback 追記 / RingBuffer 操作が
+  // CPU + 電力を食う原因 (= 多 sid で hidden 表示中 Terminal 数だけ線形)。
+  // - visible === true  : 即時 write、 buffer はからのまま
+  // - visible === false : buffer に push (= 最大 1MB cap で oldest 廃棄、 ANSI 整合性は
+  //   visible 復帰時に Ctrl-L で取り直すため許容)
+  const visibleRef = useRef(visible)
+  const hiddenBufRef = useRef([])
+  const hiddenBufBytesRef = useRef(0)
+  useEffect(() => {
+    visibleRef.current = visible
+    if (!visible) return undefined
+    // visible 復帰: buffer を flush して内部表示を同期。 ターミナル無いと no-op。
+    if (!terminal || hiddenBufRef.current.length === 0) return undefined
+    for (const chunk of hiddenBufRef.current) {
+      terminal.write(chunk)
+    }
+    hiddenBufRef.current = []
+    hiddenBufBytesRef.current = 0
+    return undefined
+  }, [visible, terminal])
 
   // Common byte/string sink to the live WS — used by control-key buttons and
   // the input bar. No-ops while the socket is not open.
@@ -100,7 +127,18 @@ export default function Terminal({ sessionId, wsBase = DEFAULT_WS_BASE, onExit }
           } catch { /* ignore */ }
           return
         }
-        terminal.write(new Uint8Array(ev.data))
+        // F-11: visible 中は即 write、 hidden 中は buffer に積む (= cap 超過は oldest 廃棄)。
+        const bytes = new Uint8Array(ev.data)
+        if (visibleRef.current) {
+          terminal.write(bytes)
+        } else {
+          hiddenBufRef.current.push(bytes)
+          hiddenBufBytesRef.current += bytes.byteLength
+          while (hiddenBufBytesRef.current > HIDDEN_BUF_MAX_BYTES && hiddenBufRef.current.length > 1) {
+            const dropped = hiddenBufRef.current.shift()
+            hiddenBufBytesRef.current -= dropped.byteLength
+          }
+        }
       })
 
       const scheduleReconnect = (reason) => {
@@ -221,6 +259,14 @@ export default function Terminal({ sessionId, wsBase = DEFAULT_WS_BASE, onExit }
     </div>
   )
 }
+
+// F-01 (= 2026-06-21): React.memo で wrap、 App.jsx が messages flush 等で再 render しても
+// Terminal は props (= sessionId / wsBase / onExit / visible) が変わらない限り再 render しない。
+// 旧実装は App.jsx 再 render で全 sid Terminal も巻き込まれて reconciliation コストが
+// 走っていた (= xterm.js 自体は ref で隠れて re-mount しないが、 React 木の比較は走る)。
+// props は全部 primitive / mount 時固定なので shallow compare で十分。
+const Terminal = memo(TerminalImpl)
+export default Terminal
 
 const inputStyle = {
   flex: 1,
