@@ -7,7 +7,17 @@
 """
 import json
 
-from backend.core.fork import build_forked_lineage, is_clean_fork_point
+from backend.core.fork import build_forked_lineage_lazy, is_clean_fork_point
+
+
+def build_forked_lineage(source_lines, from_uuid, new_session_id):
+    """test ヘルパ: 自己完結 (= src_lines だけで鎖完走) を想定した lazy 版の薄いラッパ。
+
+    旧 build_forked_lineage は production code から消えたが、 純ロジック test では
+    src_lines が自己完結している前提で書かれており、 fetch_more は呼ばれない。
+    lazy 版に no-op fetch_more を渡すだけで挙動は等価 (= ValueError 含む)。
+    """
+    return build_forked_lineage_lazy(source_lines, from_uuid, new_session_id, lambda: None)
 
 
 def _line(uuid, parent, type_, **extra):
