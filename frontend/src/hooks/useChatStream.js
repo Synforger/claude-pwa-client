@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import { LS_JSONL_OFFSET } from '../constants.js'
 import { apiFetch, apiUrl } from '../utils/api.js'
 import { lsGet, lsSet } from '../utils/storage.js'
@@ -6,6 +6,7 @@ import { generateId } from '../utils/id.js'
 import { useStreamBuffer } from './internal/useStreamBuffer.js'
 import { processStreamEvent } from './internal/processStreamEvent.js'
 import { reconcileUserMessage } from './internal/reconcileUserMessage.js'
+import { useConnectionStatus } from './useConnectionStatus.js'
 
 // session_id → JSONL byte offset の永続化。 タブ切替 / リロードを跨いで「ここまで読んだ」 を
 // 保持し、 新規 EventSource 接続時に `?from=<offset>` で渡す。 backend は offset 以降の
@@ -36,6 +37,17 @@ export function useChatStream({
   attachments, clearAttachments,
   scrollToBottom, isAtBottomRef,
   sendStopIntent,
+  // F-36: 送信失敗時に呼ばれる callback (= ChatInput.localText 復元用、 ChatInput が内部
+  // state で打鍵を抱えるようになって setInput dict 経由では届かないケースの保険)。
+  // 旧来の setInput 経路は二重保険として残す。
+  onSendFailed,
+  // F-16: stopMessage が WS 切断中 (= sendStopIntent silent fail) で発火した時の通知。
+  // ChatInput 側 (= W2-D) で disabled + tooltip 表示に使う。 backend に HTTP POST stop
+  // endpoint が無い (= overview.py で「HTTP POST 経由は廃止」) ので fallback として
+  // WS 再接続を待ってリトライする必要があるが、 frontend 側だけでは完遂困難なため、
+  // ここでは通知 + 楽観的に再試行スケジュールだけ立てる (= partial 対応、 backend 側
+  // endpoint 追加は別途)。
+  onStopUnavailable,
 }) {
   const sid = activeSession?.id || null
   const [loading, setLoading] = useState({})
@@ -65,14 +77,22 @@ export function useChatStream({
     bufFor: buffer.bufFor,
   }
 
+  // F-45 / 自分が backend と疎通可能か (= 全 SSE / WS 集約)。 stop 押下時の fallback 判定に
+  // 使う (F-16)。 1 本でも open ならオンライン。 不明 (= 起動直後) は true 扱い。
+  const isOnline = useConnectionStatus()
+  const isOnlineRef = useRef(isOnline)
+
   // event ハンドラを ref に逃がして、 EventSource は sid 変更時だけ張り直す。
-  // ref 更新は render 中でなく effect で行う (= react-hooks/refs ルール)。
+  // F-07: ref 同期は paint 前に確定させたいので useLayoutEffect。 ref 代入の useEffect は
+  // commit 後に走る = 「最初の paint 直後に届いた event」 で 1 frame 前の closure を読む
+  // 微小窓があった。 useLayoutEffect なら commit と同 frame で必ず最新が入る。
   const handleEventRef = useRef(null)
   // loading は backend busy 追随で高頻度更新される。 sendMessage の deps に直入れすると毎回
   // コールバックが再生成されて ChatInput 等が再 render するため、 ref 経由で読む。
   const loadingRef = useRef(loading)
-  useEffect(() => { loadingRef.current = loading }, [loading])
-  useEffect(() => {
+  useLayoutEffect(() => { loadingRef.current = loading }, [loading])
+  useLayoutEffect(() => { isOnlineRef.current = isOnline }, [isOnline])
+  useLayoutEffect(() => {
     handleEventRef.current = (curSid, event) => {
       if (event.type === 'user_message') {
         buffer.cancelAndFlush(curSid)
@@ -211,8 +231,13 @@ export function useChatStream({
         result = { ok: false }
       }
       if (!result.ok) {
-        // input に text を戻す (= ユーザが再入力済みなら prev を尊重)
+        // input に text を戻す (= ユーザが再入力済みなら prev を尊重)。
+        // F-36: ChatInput が内部 state (= localText) で打鍵を抱える設計に移行したので、
+        // setInput dict 経由では UI に反映されないケースがある。 onSendFailed callback で
+        // ChatInput 側に直接 text を戻す経路を提供 (= W2-D が ChatInput 側で wire)。
+        // 旧 setInput 経路も二重保険で残す (= 後方互換)。
         setInput(prev => ({ ...prev, [sid]: prev[sid] || text }))
+        try { onSendFailed?.(sid, text) } catch { /* ignore consumer error */ }
         setMessages(prev => {
           const msgs = [...(prev[sid] || [])]
           // 末尾の空 streaming agent bubble を撤去 (= 推論されてないので)
@@ -235,7 +260,33 @@ export function useChatStream({
         optimisticRef.current[sid] = null
       }
     }
-  }, [sid, input, attachments, setInput, setMessages, clearAttachments, scrollToBottom, isAtBottomRef, setLoading])
+  }, [sid, input, attachments, setInput, setMessages, clearAttachments, scrollToBottom, isAtBottomRef, setLoading, onSendFailed])
+
+  // F-16: WS 切断中に押された stopMessage を最大 N 回 / 一定 backoff で再試行する。
+  // backend に HTTP POST stop fallback endpoint が無い (= overview.py で「HTTP POST 経由は
+  // 廃止」 と明記) ため、 WS 復活を polling で待つしかない。 復活した瞬間に sendStopIntent
+  // を再送 + onStopUnavailable を解除する形 (= partial 対応、 endpoint 追加は backend 課題)。
+  const stopRetryTimerRef = useRef(null)
+  const scheduleStopRetry = useCallback((targetSid) => {
+    if (stopRetryTimerRef.current) clearTimeout(stopRetryTimerRef.current)
+    let attempts = 0
+    const tick = () => {
+      stopRetryTimerRef.current = null
+      attempts += 1
+      if (isOnlineRef.current && sendStopIntent) {
+        try { sendStopIntent(targetSid) } catch { /* ignore */ }
+        return
+      }
+      if (attempts >= 10) return // 約 30s (= 3s * 10) で諦め、 ユーザ操作待ち
+      stopRetryTimerRef.current = setTimeout(tick, 3000)
+    }
+    stopRetryTimerRef.current = setTimeout(tick, 3000)
+  }, [sendStopIntent])
+
+  // unmount 時にタイマー解放
+  useEffect(() => () => {
+    if (stopRetryTimerRef.current) clearTimeout(stopRetryTimerRef.current)
+  }, [])
 
   const stopMessage = useCallback(async () => {
     if (!sid) return
@@ -244,8 +295,16 @@ export function useChatStream({
     //   (b) /views/ws で Stop 意思を backend に送る = StreamState.user_stopped=true で
     //       busy 強制 false。 WS 経由で TCP 保証付き (= 旧 HTTP POST 経路の到達失敗 race を
     //       根本治療)。 全 client が overview SSE で即時に「停止」 を観測。
+    // F-16: WS 切断中なら sendStopIntent は silent fail する (= useViewsWs 内で readyState !==
+    // OPEN なら何もしない設計)。 全接続が落ちているならユーザに「stop 反映できなかった」 を
+    // 通知 + WS 復活を待って再送するスケジュールを立てる。 (a) の PTY Esc は HTTP なので
+    // online なら届くため、 物理停止だけは成功する可能性が高い。
     sendToPty(sid, { key: 'Escape' }).catch(() => {})
     sendStopIntent?.(sid)
+    if (!isOnlineRef.current) {
+      try { onStopUnavailable?.(sid) } catch { /* ignore consumer error */ }
+      scheduleStopRetry(sid)
+    }
     setLoading(prev => ({ ...prev, [sid]: false }))
     // 停止意図を楽観保持 (= want:'idle')。 backend が user_stopped→busy=false を返すまで、
     // 古い busy=true snapshot に上書きされて停止ボタンへ戻るのを防ぐ (= 1 押下で送信へ)。
@@ -258,7 +317,7 @@ export function useChatStream({
       if (!last?.streaming) return prev
       return { ...prev, [sid]: [...arr.slice(0, -1), { ...last, streaming: false }] }
     })
-  }, [sid, sendToPty, sendStopIntent, setMessages])
+  }, [sid, sendToPty, sendStopIntent, setMessages, onStopUnavailable, scheduleStopRetry])
 
   const sendAnswer = useCallback(async (targetSid, tool_use_id, answer, isFree = false, optionCount = 0) => {
     // AskUserQuestion の回答を tmux 経由で claude TUI に送る。
