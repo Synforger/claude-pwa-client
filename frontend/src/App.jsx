@@ -8,8 +8,10 @@ import StorageWarning from './components/StorageWarning.jsx'
 import ConfirmDialog from './components/ConfirmDialog.jsx'
 import PlanApprovalBubble from './components/PlanApprovalBubble.jsx'
 import { apiFetch } from './utils/api.js'
-import { lsGet, lsSet } from './utils/storage.js'
 import { useStatus } from './hooks/useStatus.js'
+import { useOverlays } from './hooks/useOverlays.js'
+import { useViewMode } from './hooks/useViewMode.js'
+import { useOutsideClick } from './hooks/useOutsideClick.js'
 import { useAttachments } from './hooks/useAttachments.js'
 import { useChatStorage } from './hooks/useChatStorage.js'
 import { useAutoScroll } from './hooks/useAutoScroll.js'
@@ -78,15 +80,8 @@ export default function App() {
   const activeSid = activeSession?.id || null
 
   const { messages, setMessages, input, setInput } = useChatStorage(sessions)
-  // タブごとの表示モード (= 'chat' | 'terminal')。 デバッグ用に生 xterm を見たいタブだけ
-  // terminal にし、 localStorage で永続化する (= そのタブはターミナル、 別タブは chat)。
-  const [viewModes, setViewModes] = useState(() => lsGet('cpc_view_modes') || {})
-  useEffect(() => { lsSet('cpc_view_modes', viewModes) }, [viewModes])
-  const activeViewMode = activeSid ? (viewModes[activeSid] || 'chat') : 'chat'
-  // toggle ヘルパは「現在 mode → 反転 mode」 を計算する純粋関数として残し、
-  // 実際の setViewModes 呼出は呼び出し側で行う (= topbar の 💬 戻るボタンと同じ
-  // 「set 直書き」 経路に統一して、 useCallback closure 経由で動かない疑惑を消す)。
-  const flippedViewMode = activeViewMode === 'terminal' ? 'chat' : 'terminal'
+  // タブごとの表示モード (= 'chat' | 'terminal') + localStorage 永続化を hook 化 (= F-03)。
+  const { activeViewMode, flippedViewMode, setActiveViewMode } = useViewMode(activeSid)
   const { attachments, fileInputRef, handleFileSelect, removeAttachment, clearAttachments } = useAttachments(activeSession)
   const status = useStatus(activeSession)
   const {
@@ -121,16 +116,11 @@ export default function App() {
   const { sortedSessions } = useSessionActivity(messages, sessions)
 
   const [storageWarnDismissed, setStorageWarnDismissed] = useState(false)
-  const [drawerOpen, setDrawerOpen] = useState(false)
+  // overlay / modal / dialog 系 local state を 1 hook に集約 (= F-03、 useOverlays.js)。
+  // desktopOpen / planOpen は派生制御 (= visibility 連動 / status auto-close) があるので
+  // hook には入れず App.jsx に残置 (= 設計判断は useOverlays.js 冒頭 docstring 参照)。
+  const ov = useOverlays()
   const [desktopOpen, setDesktopOpen] = useState(false)  // 画面共有 (Mac デスクトップ) overlay
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [previewPath, setPreviewPath] = useState(null)
-  const [treeOpen, setTreeOpen] = useState(null)
-  const [favsPickerOpen, setFavsPickerOpen] = useState(false)
-  const [tasksOpen, setTasksOpen] = useState(false)
-  const [subagentsOpen, setSubagentsOpen] = useState(false)
-  // 🧩 を開く時のスコープ記述子 (= Task チップなら該当 agent、 Workflow チップなら該当 run に直行)。
-  const [subagentsFocus, setSubagentsFocus] = useState(null)
   // ExitPlanMode 承認ダイアログの開閉。 旧仕様は pending_plan が出た瞬間に全画面 overlay
   // が自動展開する設計だったが、 「画面を遮らずにヘッダーに常駐して、 開きたい時だけ開く」
   // 形に変更 (2026-06-04)。 topbar の 📑 ボタンが pending_plan の在席を示し、
@@ -142,9 +132,6 @@ export default function App() {
   useEffect(() => {
     if (!status?.pending_plan && planOpen) setPlanOpen(false)
   }, [status?.pending_plan, planOpen])
-  const [confirmEnd, setConfirmEnd] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(null) // 削除確認中の session_id
-  const [confirmStop, setConfirmStop] = useState(false)
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000))
   // 30 秒ごとに時刻表示を更新。 ただし hidden 中は止める (= 見えてないので無駄、 iOS は
   // background でも setInterval が呼ばれる時間帯があり電力消費要因になる)。
@@ -291,31 +278,22 @@ export default function App() {
 
   const handleOpenPath = useCallback((path) => {
     if (path.endsWith('/')) {
-      setTreeOpen(path)
+      ov.setTreeOpen(path)
     } else {
-      setPreviewPath(path)
+      ov.setPreviewPath(path)
     }
-  }, [])
+  }, [ov])
 
   const handleAnswer = useCallback((tool_use_id, answer, isFree, optionCount) => {
     if (!activeSid) return
     sendAnswer(activeSid, tool_use_id, answer, isFree, optionCount)
   }, [sendAnswer, activeSid])
 
-  // click-outside listener: menu open/close で add/remove を繰り返さず、 mount 時 1 回登録。
-  // menuOpen の値は ref 経由で読み取り、 dep 変化での listener 付け外し race を消す。
-  const menuOpenRef = useRef(menuOpen)
-  useEffect(() => { menuOpenRef.current = menuOpen }, [menuOpen])
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (!menuOpenRef.current) return
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setMenuOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
+  // click-outside listener: ChatInput 内の ⋯ メニューを外側 click/tap で閉じる。
+  // 旧手書き useEffect (= menuOpenRef 経由で listener を mount 時 1 回張替) を W2-C で
+  // 用意した useOutsideClick hook 経由に置換 (= F-29 集約済 hook を活用、 enabled で
+  // menu 閉時は listener 自体張らない)。
+  useOutsideClick(menuRef, () => ov.setMenu(false), { enabled: ov.menu })
 
   const sids = useMemo(() => sessions.map(s => s.id), [sessions])
   const currentAttachments = (activeSid && attachments[activeSid]) || []
@@ -373,15 +351,15 @@ export default function App() {
   }, [messages, loading, activeSid, status?.pending_question])
 
   const handleEndSession = () => {
-    setMenuOpen(false)
-    setConfirmEnd(false)
+    ov.setMenu(false)
+    ov.setConfirmEnd(false)
     endSession()
   }
 
   const handleDeleteSession = async () => {
-    if (!confirmDelete) return
-    const sid = confirmDelete
-    setConfirmDelete(null)
+    if (!ov.confirmDelete) return
+    const sid = ov.confirmDelete
+    ov.setConfirmDelete(null)
     await removeSession(sid)
     // F-35 (= 2026-06-21): setMessages updater 内で「sid 削除後」 の全 messages から
     // imageIds snapshot を取り、 そのまま gcImages に渡す。 旧実装は setMessages 後に
@@ -404,7 +382,7 @@ export default function App() {
 
   // Web Push 購読状態 (= 環境制約・トグル・連打防止) は専用 hook に集約。
   const { pushEnabled, pushBroken, pushBusy, pushAvailable, handleTogglePush } = usePushSubscription({
-    onCloseMenu: () => setMenuOpen(false),
+    onCloseMenu: () => ov.setMenu(false),
   })
 
   // IndexedDB 画像の orphan GC: 起動時 1 回 + セッション削除トリガで増分掃除。
@@ -437,7 +415,7 @@ export default function App() {
 
       {/* ヘッダ: ハンバーガー + セッション名 + 画面共有 */}
       <header className="topbar">
-        <button className="hamburger" onClick={() => setDrawerOpen(true)} aria-label="会話一覧">
+        <button className="hamburger" onClick={() => ov.setDrawer(true)} aria-label="会話一覧">
           ☰
         </button>
         <span className="topbar-title">{activeSession?.title || '会話なし'}</span>
@@ -447,7 +425,7 @@ export default function App() {
         {activeViewMode === 'terminal' && activeSid && (
           <button
             className="topbar-icon-btn"
-            onClick={() => setViewModes(prev => ({ ...prev, [activeSid]: 'chat' }))}
+            onClick={() => setActiveViewMode('chat')}
             aria-label="チャット表示に戻す"
             title="チャット表示に戻す"
           >
@@ -460,7 +438,7 @@ export default function App() {
         {activeViewMode === 'chat' && activeSid && (
           <button
             className="topbar-icon-btn"
-            onClick={() => setFavsPickerOpen(true)}
+            onClick={() => ov.setFavs(true)}
             aria-label="お気に入り"
             title="お気に入りに飛ぶ"
           >
@@ -470,7 +448,7 @@ export default function App() {
         {activeViewMode === 'chat' && activeSid && (
           <button
             className="topbar-icon-btn"
-            onClick={() => setTasksOpen(true)}
+            onClick={() => ov.setTasks(true)}
             aria-label="タスク"
             title="タスク一覧"
           >
@@ -482,7 +460,7 @@ export default function App() {
         {activeViewMode === 'chat' && activeSid && (
           <button
             className="topbar-icon-btn"
-            onClick={() => { setSubagentsFocus(null); setSubagentsOpen(true) }}
+            onClick={() => { ov.setSubagentsFocus(null); ov.setSubagents(true) }}
             aria-label="サブエージェント"
             title="サブエージェント一覧"
           >
@@ -525,11 +503,11 @@ export default function App() {
         </Suspense>
       )}
 
-      {drawerOpen && (
+      {ov.drawer && (
         <Suspense fallback={null}>
           <SessionDrawer
-            open={drawerOpen}
-            onClose={() => setDrawerOpen(false)}
+            open={ov.drawer}
+            onClose={() => ov.setDrawer(false)}
             sessions={sortedSessions}
             agents={agents}
             activeId={activeId}
@@ -537,7 +515,7 @@ export default function App() {
             onCreate={(agentId, accountId) => createSession(agentId, accountId)}
             onRename={renameSession}
             onSetNotifyMode={setNotifyMode}
-            onDelete={(sid) => setConfirmDelete(sid)}
+            onDelete={(sid) => ov.setConfirmDelete(sid)}
             sessionBadges={sessionBadges}
             pushAvailable={pushAvailable}
             pushEnabled={pushEnabled}
@@ -585,7 +563,7 @@ export default function App() {
               onAnswer={handleAnswer}
               apiKeySource={activeSid ? apiKeySource[activeSid] : null}
               activeSubagentTool={status?.subagent?.last_tool || null}
-              onOpenSubagents={(focus) => { setSubagentsFocus(focus || null); setSubagentsOpen(true) }}
+              onOpenSubagents={(focus) => { ov.setSubagentsFocus(focus || null); ov.setSubagents(true) }}
               onFork={activeSid ? ((uuid) => forkSession(activeSid, uuid)) : null}
             />
           ))}
@@ -626,14 +604,14 @@ export default function App() {
           fileInputRef={fileInputRef}
           onFileSelect={handleFileSelect}
           menuRef={menuRef}
-          menuOpen={menuOpen}
-          setMenuOpen={setMenuOpen}
-          onOpenTree={() => setTreeOpen('~')}
+          menuOpen={ov.menu}
+          setMenuOpen={ov.setMenu}
+          onOpenTree={() => ov.setTreeOpen('~')}
           activeViewMode={activeViewMode}
-          onToggleView={() => { if (activeSid) setViewModes(prev => ({ ...prev, [activeSid]: flippedViewMode })) }}
-          onEndSession={() => setConfirmEnd(true)}
+          onToggleView={() => setActiveViewMode(flippedViewMode)}
+          onEndSession={() => ov.setConfirmEnd(true)}
           showStopButton={showStopButton}
-          onStop={() => setConfirmStop(true)}
+          onStop={() => ov.setConfirmStop(true)}
           onSend={(text) => sendMessage(text)}
           currentAttachments={currentAttachments}
         />
@@ -658,19 +636,19 @@ export default function App() {
       )}
 
       <ConfirmDialog
-        open={confirmEnd}
+        open={ov.confirmEnd}
         text="このセッションを終了しますか?"
-        onCancel={() => setConfirmEnd(false)}
+        onCancel={() => ov.setConfirmEnd(false)}
         onConfirm={handleEndSession}
       />
       <ConfirmDialog
-        open={confirmStop}
+        open={ov.confirmStop}
         text="推論を停止しますか?"
-        onCancel={() => setConfirmStop(false)}
-        onConfirm={() => { setConfirmStop(false); stopMessage() }}
+        onCancel={() => ov.setConfirmStop(false)}
+        onConfirm={() => { ov.setConfirmStop(false); stopMessage() }}
       />
       <ConfirmDialog
-        open={!!confirmDelete}
+        open={!!ov.confirmDelete}
         text={
           <>
             この会話を削除しますか？
@@ -678,35 +656,35 @@ export default function App() {
             <span className="dim">会話履歴も削除されます。 元に戻せません。</span>
           </>
         }
-        onCancel={() => setConfirmDelete(null)}
+        onCancel={() => ov.setConfirmDelete(null)}
         onConfirm={handleDeleteSession}
       />
 
       <Suspense fallback={null}>
-        {previewPath && (
-          <FilePreviewModal path={previewPath} onClose={() => setPreviewPath(null)} />
+        {ov.previewPath && (
+          <FilePreviewModal path={ov.previewPath} onClose={() => ov.setPreviewPath(null)} />
         )}
-        {treeOpen && (
+        {ov.treeOpen && (
           <FileTreePanel
-            initialPath={treeOpen}
+            initialPath={ov.treeOpen}
             onOpenFile={handleOpenPath}
-            onClose={() => setTreeOpen(null)}
+            onClose={() => ov.setTreeOpen(null)}
           />
         )}
-        {subagentsOpen && activeSid && (
-          <SubagentsModal sid={activeSid} focus={subagentsFocus} onClose={() => setSubagentsOpen(false)} />
+        {ov.subagents && activeSid && (
+          <SubagentsModal sid={activeSid} focus={ov.subagentsFocus} onClose={() => ov.setSubagents(false)} />
         )}
-        {favsPickerOpen && (
+        {ov.favs && (
           <FavoritesQuickPicker
-            onOpenFile={(path) => setPreviewPath(path)}
-            onOpenDir={(path) => setTreeOpen(path)}
-            onClose={() => setFavsPickerOpen(false)}
+            onOpenFile={(path) => ov.setPreviewPath(path)}
+            onOpenDir={(path) => ov.setTreeOpen(path)}
+            onClose={() => ov.setFavs(false)}
           />
         )}
-        {tasksOpen && (
+        {ov.tasks && (
           <TasksModal
             tasks={status?.tasks || []}
-            onClose={() => setTasksOpen(false)}
+            onClose={() => ov.setTasks(false)}
           />
         )}
       </Suspense>
