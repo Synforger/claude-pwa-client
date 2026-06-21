@@ -318,12 +318,16 @@ def _tasks_signature(tasks: list) -> list[tuple]:
 _SUBAGENT_TAIL_BYTES = 65536
 
 
-def latest_subagent_tool(jsonl_path: Path, since: float) -> str | None:
-    """jsonl_path 対応の subagents/ で mtime 最新かつ since 以降に更新された
-    agent-*.jsonl を読み、 最後の assistant tool_use 名を返す。 無ければ None。
+def scan_subagent_tail(jsonl_path: Path, since: float) -> tuple[Path, list[dict]] | None:
+    """subagents/ の mtime 最新 agent-*.jsonl を末尾 1 パスで scan し、 (path, records)
+    を返す pure 共通基盤 (= backend-F-18)。
 
-    since で絞るのは、 同一 session の subagents/ に過去 Task の古い agent ファイルが
-    残るため (= 現 Task の started_at 以降に書かれたものだけを対象にして stale 表示を防ぐ)。
+    records: 末尾 _SUBAGENT_TAIL_BYTES に出てきた assistant tool_use ブロックを {name,
+    id, input?} 形で時系列収集したもの (= 最後の要素が最新)。 失敗 / 候補無しは None。
+
+    旧 latest_subagent_tool は name だけを返す薄い API で、 routes/subagents.py 側
+    `_scan_agent_file` が同じ tail 読み + 行 parse を別実装で持っていた。 ここに集約
+    することで subagents 側 consumer (= W1-D round 2-b 担当) も再利用できる。
     """
     subdir = jsonl_path.parent / jsonl_path.stem / "subagents"
     try:
@@ -338,14 +342,14 @@ def latest_subagent_tool(jsonl_path: Path, since: float) -> str | None:
         newest = max(candidates, key=lambda p: p.stat().st_mtime)
         size = newest.stat().st_size
         with open(newest, "rb") as f:
-            # 毎 tick 全読みを避け、 末尾チャンクだけ読む (= 最後の tool_use が末尾近くに居る)。
+            # 毎 tick 全読みを避け、 末尾チャンクだけ読む (= 最後の tool_use が末尾近くに居る)
             if size > _SUBAGENT_TAIL_BYTES:
                 f.seek(size - _SUBAGENT_TAIL_BYTES)
                 f.readline()  # seek 直後の途中行を捨てる
             data = f.read()
     except OSError:
         return None
-    last_tool: str | None = None
+    records: list[dict] = []
     for raw in data.decode("utf-8", errors="replace").split("\n"):
         raw = raw.strip()
         if not raw:
@@ -360,8 +364,29 @@ def latest_subagent_tool(jsonl_path: Path, since: float) -> str | None:
             if isinstance(block, dict) and block.get("type") == "tool_use":
                 name = block.get("name")
                 if name:
-                    last_tool = name
-    return last_tool
+                    records.append({
+                        "name": name,
+                        "id": block.get("id"),
+                        "input": block.get("input") or {},
+                    })
+    return newest, records
+
+
+def latest_subagent_tool(jsonl_path: Path, since: float) -> str | None:
+    """jsonl_path 対応の subagents/ で mtime 最新かつ since 以降に更新された
+    agent-*.jsonl を読み、 最後の assistant tool_use 名を返す。 無ければ None。
+
+    since で絞るのは、 同一 session の subagents/ に過去 Task の古い agent ファイルが
+    残るため (= 現 Task の started_at 以降に書かれたものだけを対象にして stale 表示を
+    防ぐ)。 scan は共通基盤 scan_subagent_tail に委譲 (= backend-F-18)。
+    """
+    result = scan_subagent_tail(jsonl_path, since)
+    if result is None:
+        return None
+    _, records = result
+    if not records:
+        return None
+    return records[-1].get("name")
 
 
 def refresh_subagent_status(session_id: str, jsonl_path: Path) -> bool:
