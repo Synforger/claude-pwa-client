@@ -16,26 +16,46 @@ function TaskNotification({ msg }) {
   const label = msg.summary || 'background task'
   const canExpand = !!msg.outputFile
 
+  // F-51: exitCode 未確定 (= まだ走っているか、 終了報告が届く前) のうちは tail が増え
+  // 続けるので cache せず、 開くたび再 fetch する。 確定 (= exitCode != null) 後の content
+  // は cache を再利用 (= 値が変わらないため)。 確定後でも明示的に「再読込」 を押せば
+  // 強制 refetch する (= 出力ファイルが手で書き換わった場合の救済)。
+  const isFinal = msg.exitCode != null
+
+  async function loadOutput() {
+    if (!msg.outputFile) return
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await apiFetch(`/task-output?path=${encodeURIComponent(msg.outputFile)}`)
+      if (!res.ok) {
+        setError(`出力を読めませんでした (${res.status})`)
+      } else {
+        const data = await res.json()
+        setContent(typeof data?.content === 'string' ? data.content : '')
+      }
+    } catch {
+      setError('出力の取得に失敗しました')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   async function toggle() {
     const next = !open
     setOpen(next)
-    // 初回展開時のみ fetch (= 以降は cache 済の content を再利用)
-    if (next && content == null && error == null && msg.outputFile) {
-      setLoading(true)
-      try {
-        const res = await apiFetch(`/task-output?path=${encodeURIComponent(msg.outputFile)}`)
-        if (!res.ok) {
-          setError(`出力を読めませんでした (${res.status})`)
-        } else {
-          const data = await res.json()
-          setContent(typeof data?.content === 'string' ? data.content : '')
-        }
-      } catch {
-        setError('出力の取得に失敗しました')
-      } finally {
-        setLoading(false)
-      }
+    if (!next) return
+    // (a) 初回 open (= content/error がまだ無い) は必ず fetch
+    // (b) 未確定 task は開くたび毎回 refetch (= tail が増えうるので cache 不可)
+    if (msg.outputFile && (content == null && error == null || !isFinal)) {
+      await loadOutput()
     }
+  }
+
+  // 確定後の「再読込」 ボタン用 handler (= toggle と独立)。
+  const handleReload = async (e) => {
+    e.stopPropagation()
+    await loadOutput()
   }
 
   return (
@@ -56,7 +76,20 @@ function TaskNotification({ msg }) {
             {loading && <span className="task-note-dim">読み込み中…</span>}
             {error && <span className="task-note-dim">{error}</span>}
             {!loading && !error && (
-              <pre className="task-note-output">{content || '(出力は空です)'}</pre>
+              <>
+                <pre className="task-note-output">{content || '(出力は空です)'}</pre>
+                {msg.outputFile && (
+                  <button
+                    type="button"
+                    className="task-note-reload"
+                    onClick={handleReload}
+                    disabled={loading}
+                    title="出力ファイルを再読み込み"
+                  >
+                    ↻ 再読込
+                  </button>
+                )}
+              </>
             )}
           </div>
         )}
