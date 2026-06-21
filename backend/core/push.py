@@ -26,8 +26,8 @@ try:
 except ImportError:
     _HAS_WEBPUSH = False
 
-from config import AGENTS, NOTIFICATION_TITLE_DEFAULT, VAPID_SUB
-from state import atomic_write_text, is_session_viewed, sessions_meta
+from backend.config import AGENTS, NOTIFICATION_TITLE_DEFAULT, VAPID_SUB
+from backend.state import atomic_write_text, is_session_viewed, sessions_meta
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

@@ -3,8 +3,8 @@ unit test。 すべて side-effect なしで、 fixture も不要。
 """
 import json
 
-import core.usage as usage
-from core.usage import compute_ctx_pct, format_model_name, read_latest_rate_limits
+import backend.core.usage as usage
+from backend.core.usage import compute_ctx_pct, format_model_name, read_latest_rate_limits
 
 
 # ============================================================================

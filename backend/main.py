@@ -69,17 +69,17 @@ setup_uvicorn_access_log()
 logger = logging.getLogger(__name__)
 
 # --- アプリ内モジュール ---
-from config import CORS_ALLOW_ORIGINS, UPLOADS_TMP  # noqa: E402
-from state import sessions_meta  # noqa: E402
+from backend.config import CORS_ALLOW_ORIGINS, UPLOADS_TMP  # noqa: E402
+from backend.state import sessions_meta  # noqa: E402
 
-import routes.chat as chat_routes  # noqa: E402
-import routes.files as files_routes  # noqa: E402
-import routes.hooks as hooks_router  # noqa: E402
-import jsonl.routes as jsonl_routes  # noqa: E402
-import terminal.routes as pty_routes  # noqa: E402
-import terminal.runner as pty_runner  # noqa: E402
-import core.push as push  # noqa: E402
-import routes.subagents as subagents_routes  # noqa: E402
+import backend.routes.chat as chat_routes  # noqa: E402
+import backend.routes.files as files_routes  # noqa: E402
+import backend.routes.hooks as hooks_router  # noqa: E402
+import backend.jsonl.routes as jsonl_routes  # noqa: E402
+import backend.terminal.routes as pty_routes  # noqa: E402
+import backend.terminal.runner as pty_runner  # noqa: E402
+import backend.core.push as push  # noqa: E402
+import backend.routes.subagents as subagents_routes  # noqa: E402
 
 
 def _truncate_if_oversized(path: Path, max_bytes: int) -> None:
@@ -143,12 +143,12 @@ async def lifespan(app: FastAPI):
 
     # JSONL watcher: ~/.claude/projects/ を fsevents で監視して、 各 PWA session の
     # claude プロセスが書く JSONL を backend mem に確定保持する。
-    import jsonl.watcher as jsonl_watcher  # noqa: PLC0415, E402
+    import backend.jsonl.watcher as jsonl_watcher  # noqa: PLC0415, E402
     jsonl_watcher.start_watcher()
     # 既存 tmux session (= backend 再起動跨ぎ) の claude プロセスを registry に登録。
     # 一斉 create_task すると session 数 × 16 回の pgrep/ps subprocess が起動直後に殺到する
     # ので、 各 sid を順次 stagger (= 0.2s 間隔) で起こす。
-    from pty_discover import register_claude_when_ready as _rcwr  # noqa: PLC0415
+    from backend.pty_discover import register_claude_when_ready as _rcwr  # noqa: PLC0415
 
     async def _staggered_register():
         for sid in list(sessions_meta.keys()):
@@ -163,7 +163,7 @@ async def lifespan(app: FastAPI):
 
     # サスティナビリティ整備: stale tmux session kill / 古い JSONL 削除 / statusline map
     # cleanup を起動時に 1 回 + 24 時間ごとに実行 (= 放置すると無限蓄積する分の自動整理)。
-    import core.maintenance as maintenance  # noqa: PLC0415, E402
+    import backend.core.maintenance as maintenance  # noqa: PLC0415, E402
     try:
         startup_summary = maintenance.run_all_maintenance()
         logger.info("startup maintenance: %s", startup_summary)
@@ -190,7 +190,7 @@ async def lifespan(app: FastAPI):
             # cancel 後の CancelledError は想定通り、 それ以外の例外は無視 (= shutdown 続行)。
             pass
     await pty_runner.shutdown_all()
-    import jsonl.watcher as jsonl_watcher  # noqa: PLC0415, E402
+    import backend.jsonl.watcher as jsonl_watcher  # noqa: PLC0415, E402
     jsonl_watcher.stop_watcher()
 
 

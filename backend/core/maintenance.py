@@ -21,7 +21,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from config import TMUX_SESSION_MAP_DIR
+from backend.config import TMUX_SESSION_MAP_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ def cleanup_stale_tmux_sessions() -> int:
     PWA タブを UI から削除した時点で sessions_meta から消えるが、 backend 経路を経ずに
     削除されたケース (= 旧バックエンドの残骸 / 手動削除) で tmux session だけ残るのを掃除。"""
     try:
-        from state import sessions_meta
+        from backend.state import sessions_meta
     except ImportError:
         return 0
     try:
@@ -185,14 +185,14 @@ def cleanup_old_jsonl(
     複数アカウント (= ACCOUNTS で CLAUDE_CONFIG_DIR を指定) の場合は、 各アカウントの
     projects dir を全部対象に走査する (= quota は全アカウント合計で見る)。
     """
-    from config import CLAUDE_PROJECTS_DIRS  # noqa: PLC0415
+    from backend.config import CLAUDE_PROJECTS_DIRS  # noqa: PLC0415
     bases = [b for b in CLAUDE_PROJECTS_DIRS if b.is_dir()]
     if not bases:
         return 0
     # 現在 PWA タブが bind 中の jsonl は idle でも保護する。
     bound_paths: set[str] = set()
     try:
-        import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
+        import backend.jsonl.watcher as jsonl_watcher  # noqa: PLC0415
         for info in jsonl_watcher.list_bindings().values():
             jp = info.get("jsonl_path")
             if info.get("confirmed") and jp:
@@ -410,7 +410,7 @@ def restart_sunshine_if_bloated() -> bool:
 
 def run_all_maintenance() -> dict:
     """全 cleanup を 1 回実行 + 結果サマリを返す。 起動時と定期 loop の両方で呼ぶ。"""
-    from jsonl.session_status import cleanup_orphan_turn_starts  # noqa: PLC0415
+    from backend.jsonl.session_status import cleanup_orphan_turn_starts  # noqa: PLC0415
     return {
         "killed_tmux": cleanup_stale_tmux_sessions(),
         "killed_idle_pwa": cleanup_idle_pwa_sessions(),

@@ -1,7 +1,8 @@
 """pytest 共通 setup。
 
-- `backend/` を sys.path に注入することで、 test ファイル側で
-  `from core.usage import _parse_reset` のように直 import できるようにする。
+- repo root を sys.path に注入することで、 test ファイル側で
+  `from backend.core.usage import _parse_reset` のように backend package
+  経由で import できるようにする。
 - `isolated_state` fixture: state.py の module-level dict を test 内で安全に
   mutate するための snapshot / restore 仕組み。 第一弾の pure 関数 test では
   実質出番ないが、 register_session 等 global state を触る test 群で必須になる。
@@ -12,8 +13,8 @@ import sys
 
 import pytest
 
-BACKEND = pathlib.Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(BACKEND))
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(REPO_ROOT))
 
 
 # state.py の module-level に存在する dict 群。
@@ -31,12 +32,12 @@ def isolated_state(monkeypatch, tmp_path):
     test 間で global state が漏れて偽の pass/fail を起こさないための保険。
 
     あわせて永続化先 SESSION_META_PATH を tmp_path に飛ばす。 個別 test の
-    monkeypatch では救えないケース (= chat_routes 側が `from state import
+    monkeypatch では救えないケース (= chat_routes 側が `from backend.state import
     save_sessions_meta` で bind した参照を呼ぶと state 属性差し替えを素通りする)
     があり、 実機 backend/session_meta.json に test 用の "Chat" / "Chat fork" が
     書き込まれて UI ドロワーにゴーストタブが残る事故が起きた (2026-06-04 観測)。
     永続化先そのものを tmp に向けることで bind 経路に関係なく実機を汚さない。"""
-    import state
+    from backend import state
 
     monkeypatch.setattr(state, "SESSION_META_PATH", tmp_path / "session_meta.json")
     snapshots = {name: copy.deepcopy(getattr(state, name)) for name in _STATE_GLOBALS}
