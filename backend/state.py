@@ -8,10 +8,18 @@
 - セッション定義 (`sessions_meta`): 永続化、 session_meta.json
 - ストリームごとの状態 (`stream_states`)
 - ステータスキャッシュ (`agent_status`, `shared_status`)
+- セッション単位の `SessionState` (= 2026-06-21、 backend-F-07): 上の dict 群
+  を 1 sid あたり 1 instance に束ねた view。 `asyncio.Lock` も SessionState
+  内に持つので、 副 path から `async with state.get_session(sid).lock:` で
+  read-modify-write を atomic 化できる。 既存の module-level dict 群は
+  破壊互換のためそのまま残してあり (= 副 path consumer 移行は別 round 担当)、
+  両 view が**同一 object を参照**するよう register / unregister で同期する。
 
 異なるモジュールから書き換えたい値は dict や dataclass にラップして
 import 越しに mutate できる形にしている。
 """
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -19,7 +27,9 @@ import os
 import time
 import uuid
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
+from typing import Any
 
 import backend.config as _config
 
@@ -55,7 +65,18 @@ DEFAULT_CTX_WINDOW = 1_000_000
 # --- セッション定義 (= UI 上の 1 タブ) ---
 # セッションごとの通知モード (= ⋯ メニューで切替)。 Web Push の制約上「音のみ (バナー無し)」 は
 # 作れないので 3 値: both=音+バナー / banner=消音バナー / off=このセッションは通知しない。
-NOTIFY_MODES = ("both", "banner", "off")
+#
+# 2026-06-21 (crosscut-F-20): str ベースの Enum に昇格して typo を弾く。 旧来の
+# `NOTIFY_MODES` tuple API は値 (= "both"/"banner"/"off") を返したまま温存し、
+# 永続化形式 (= session_meta.json) も string の "both" / "banner" / "off" のまま
+# (= frontend / sw.js consumer 修正は別 wave 担当のため、 wire format 不変)。
+class NotifyMode(str, Enum):
+    BOTH = "both"
+    BANNER = "banner"
+    OFF = "off"
+
+
+NOTIFY_MODES: tuple[str, ...] = tuple(m.value for m in NotifyMode)
 
 
 @dataclass
@@ -149,24 +170,36 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
                 title=_default_title(agent_id, per_agent_idx[agent_id]),
                 created_at=now,
             )
-        _persist_meta(sessions_meta)  # 永続化 (起動時 1 回のみ)
+        # 永続化 (起動時 1 回のみ) — module 変数 sessions_meta はまだ未定義なので
+        # 同じ payload を inline で書く (= save_sessions_meta() は module 変数 bind 後にのみ呼べる)
+        atomic_write_text(
+            SESSION_META_PATH,
+            json.dumps(
+                [m.to_dict() for m in sessions_meta.values()],
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
 
     return sessions_meta
 
 
-def _persist_meta(meta: dict[str, SessionDef]) -> None:
+def save_sessions_meta() -> None:
+    """sessions_meta を session_meta.json に永続化する (= 唯一の write 経路)。
+
+    旧版は `_persist_meta(meta)` と `save_sessions_meta()` の 2 関数が並走して
+    実質同じ処理を 2 行で書き分けていた (= backend-F-39)。 引数違いで分けるほど
+    の差は無く、 _persist_meta は _load_sessions_meta 内の初期化 1 回でしか
+    呼ばれないので、 統合して 1 関数にした。
+    """
     atomic_write_text(
         SESSION_META_PATH,
         json.dumps(
-            [m.to_dict() for m in meta.values()],
+            [m.to_dict() for m in sessions_meta.values()],
             ensure_ascii=False,
             indent=2,
         ),
     )
-
-
-def save_sessions_meta() -> None:
-    _persist_meta(sessions_meta)
 
 
 sessions_meta = _load_sessions_meta()
@@ -193,53 +226,147 @@ class StreamState:
     user_stopped: bool = False
 
 
+@dataclass
+class AgentStatus:
+    """セッションごとの「ステータスキャッシュ」 を 1 instance に集約した dataclass
+    (= 2026-06-21、 backend-F-16 / F-37 / F-38)。
+
+    旧来の `_make_agent_status` は素 dict factory で、 field 名 typo / 不揃いの
+    default が広い consumer (= routes / jsonl / hooks) に潜む構造だった。 dataclass
+    化で **factory 1 箇所 / field 名 静的検査 / default 一元** を担保しつつ、
+    既存の `agent_status[sid][key]` 経由 read/write 互換のために `to_dict()` で
+    plain dict を吐き、 module-level `agent_status` には dict の方を入れる。
+    副 path consumer (= routes/* / jsonl/*) の dataclass 直接化は round 2 担当。
+    """
+    ctx_pct: int = 0
+    ctx_window: int = DEFAULT_CTX_WINDOW
+    model: str = ""
+    plan_mode: bool = False
+    current_tool: dict | None = None
+    todos: list | None = None
+    subagent: dict | None = None
+    # ExitPlanMode の承認待ち情報。 tool_use 発火で set / tool_result で clear。
+    # frontend が PlanApprovalBubble を表示するためのソース。
+    # {tool_use_id: str, plan: str, choices: [{key: str, label: str}, ...]} または None
+    pending_plan: dict | None = None
+    # AskUserQuestion のライブ表示用。 claude は AskUserQuestion で停止中、 会話ログ
+    # (JSONL) を回答までディスクに flush しないので、 JSONL tail では質問をライブ検出
+    # できない。 そこで PreToolUse hook (= 質問表示時にリアルタイム発火) で立て、
+    # 回答後 flush の JSONL tool_result で clear する。 tool_use_id は hook payload に
+    # 無いので None で立て、 JSONL の AskUserQuestion tool_use 行で補完する。
+    # {tool_use_id: str|None, questions: [...]} または None
+    pending_question: dict | None = None
+    # Fable 5 系の jsonl が出す session-level メタ。 Opus 系 jsonl では出ないので
+    # 空のまま (= 既存挙動と互換)。
+    # mode: normal / plan 等
+    # permission_mode: default / bypassPermissions / acceptEdits 等
+    mode: str = ""
+    permission_mode: str = ""
+    # USD ベースの予算 (= /budget や課金ステータスで claude が記録)。 attachment
+    # budget_usd 行で更新する。 None なら未記録。
+    budget_used: float | None = None
+    budget_total: float | None = None
+    budget_remaining: float | None = None
+    # このセッションで言及された PR の一覧 (= jsonl の pr-link 行から重複排除して
+    # 集める)。 (prRepository, prNumber) で dedup、 古い順。 StatusBar の 🔗 chip
+    # で表示する。
+    pr_links: list = field(default_factory=list)
+    # このセッションの task list (= attachment task_reminder の content スナップショット)。
+    # claude TUI が毎ターン現状を再掲してくるので、 最新値で上書きする運用。
+    # 各 entry: { id, subject, description, activeForm, status, blocks, blockedBy }。
+    # 📋 専用パネルで表示する。
+    tasks: list = field(default_factory=list)
+
+    @classmethod
+    def for_agent(cls, agent_id: str) -> "AgentStatus":
+        """AGENTS[agent_id].model を初期 model にして factory する。"""
+        cfg = _agents().get(agent_id) or {}
+        return cls(model=cfg.get("model", ""))
+
+    def to_dict(self) -> dict[str, Any]:
+        """`agent_status` dict store に格納する plain dict。 dict / list は
+        参照を共有して欲しいので shallow copy せず元の field をそのまま渡す
+        (= 旧来挙動と同じ。 mutate された list/dict は dataclass 経由でも見える)。"""
+        return {
+            "ctx_pct": self.ctx_pct,
+            "ctx_window": self.ctx_window,
+            "model": self.model,
+            "plan_mode": self.plan_mode,
+            "current_tool": self.current_tool,
+            "todos": self.todos,
+            "subagent": self.subagent,
+            "pending_plan": self.pending_plan,
+            "pending_question": self.pending_question,
+            "mode": self.mode,
+            "permission_mode": self.permission_mode,
+            "budget_used": self.budget_used,
+            "budget_total": self.budget_total,
+            "budget_remaining": self.budget_remaining,
+            "pr_links": self.pr_links,
+            "tasks": self.tasks,
+        }
+
+
 def _make_agent_status(agent_id: str) -> dict:
-    cfg = _agents().get(agent_id) or {}
-    return {
-        "ctx_pct": 0,
-        "ctx_window": DEFAULT_CTX_WINDOW,
-        "model": cfg.get("model", ""),
-        "plan_mode": False,
-        "current_tool": None,
-        "todos": None,
-        "subagent": None,
-        # ExitPlanMode の承認待ち情報。 tool_use 発火で set / tool_result で clear。
-        # frontend が PlanApprovalBubble を表示するためのソース。
-        # {tool_use_id: str, plan: str, choices: [{key: str, label: str}, ...]} または None
-        "pending_plan": None,
-        # AskUserQuestion のライブ表示用。 claude は AskUserQuestion で停止中、 会話ログ
-        # (JSONL) を回答までディスクに flush しないので、 JSONL tail では質問をライブ検出
-        # できない。 そこで PreToolUse hook (= 質問表示時にリアルタイム発火) で立て、
-        # 回答後 flush の JSONL tool_result で clear する。 tool_use_id は hook payload に
-        # 無いので None で立て、 JSONL の AskUserQuestion tool_use 行で補完する。
-        # {tool_use_id: str|None, questions: [...]} または None
-        "pending_question": None,
-        # Fable 5 系の jsonl が出す session-level メタ。 Opus 系 jsonl では出ないので
-        # 空のまま (= 既存挙動と互換)。
-        # mode: normal / plan 等
-        # permission_mode: default / bypassPermissions / acceptEdits 等
-        "mode": "",
-        "permission_mode": "",
-        # USD ベースの予算 (= /budget や課金ステータスで claude が記録)。 attachment
-        # budget_usd 行で更新する。 None なら未記録。
-        "budget_used": None,
-        "budget_total": None,
-        "budget_remaining": None,
-        # このセッションで言及された PR の一覧 (= jsonl の pr-link 行から重複排除して
-        # 集める)。 (prRepository, prNumber) で dedup、 古い順。 StatusBar の 🔗 chip
-        # で表示する。
-        "pr_links": [],
-        # このセッションの task list (= attachment task_reminder の content スナップショット)。
-        # claude TUI が毎ターン現状を再掲してくるので、 最新値で上書きする運用。
-        # 各 entry: { id, subject, description, activeForm, status, blocks, blockedBy }。
-        # 📋 専用パネルで表示する。
-        "tasks": [],
-    }
+    """旧 factory 互換 wrapper。 内部は AgentStatus dataclass を経由するので
+    field の追加 / default 変更は dataclass 1 箇所で済む。"""
+    return AgentStatus.for_agent(agent_id).to_dict()
 
 
 stream_states: dict[str, StreamState] = {
     sid: StreamState(agent_id=meta.agent_id) for sid, meta in sessions_meta.items()
 }
+
+
+# --- SessionState (= 1 sid を束ねた集約 view、 backend-F-07) ---
+@dataclass
+class SessionState:
+    """1 sid 分の state を束ねる集約 dataclass。
+
+    旧設計は `sessions_meta` / `stream_states` / `agent_status` /
+    `session_tmp_files` / `session_last_seen_at` の 5 dict を sid で並走させ
+    `asyncio.Lock` も無く、 read-modify-write race (= tasks 配列の lost update /
+    pr_links の重複等) が GIL 任せだった。 ここでは 1 sid あたり 1 SessionState
+    を作って lock を所有させる。 既存 dict 群は同じ field object を共有する
+    parallel view (= 副 path consumer 移行は別 round で扱う互換のため温存)。
+
+    使い方 (round 2 で副 path 移行後の想定):
+        async with state.get_session(sid).lock:
+            status = state.get_session(sid).status  # dict 参照
+            status["pr_links"].append(...)
+
+    今 wave 時点の利用者: round 2 sub-agent (= W1-A / W1-C / W1-D) が wrap する
+    consumer。 backend 中央は本 round で wiring (= register/unregister 同期 +
+    helper) だけを揃える。
+    """
+    meta: SessionDef
+    stream: StreamState
+    # `agent_status` dict と参照を共有する。 dataclass 化済の AgentStatus
+    # field 名で field 名整合を担保したいが、 副 path consumer 互換のため
+    # store は plain dict (= AgentStatus.to_dict()) のまま残す。
+    status: dict[str, Any]
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    tmp_files: list[Path] = field(default_factory=list)
+    # 最後にこの sid を「見た」 時刻 (= /views POST から更新)。 None は未閲覧。
+    last_seen_at: float | None = None
+
+
+# 実体は file 下部 (`_init_session_states` 呼び出し) で agent_status / sessions_meta /
+# stream_states が出揃った後に埋める (= 評価順依存を回避)。
+session_states: dict[str, SessionState] = {}
+
+
+def get_session(session_id: str) -> SessionState | None:
+    """SessionState を引く。 round 2 で副 path から
+    `async with state.get_session(sid).lock:` する際の入口。"""
+    return session_states.get(session_id)
+
+
+def get_or_create_lock(session_id: str) -> asyncio.Lock:
+    """既存 session の Lock を返す。 session_id が未登録なら ad-hoc Lock を作る
+    (= test の monkeypatch ベース consumer がカウンタ操作で先走るケース保護)。"""
+    s = session_states.get(session_id)
+    return s.lock if s is not None else asyncio.Lock()
 
 # /views/ws 接続ごとに「今その client が見ている session_id」 を保持。 接続切断 (TCP FIN /
 # iOS が PWA bg 化時に socket を切る) で自動削除されるので stale 概念が発生しない。
@@ -311,6 +438,30 @@ agent_status: dict[str, dict] = {
     sid: _make_agent_status(meta.agent_id) for sid, meta in sessions_meta.items()
 }
 
+
+def _build_session_state(sid: str) -> SessionState:
+    """既存 dict 群 (= sessions_meta / stream_states / agent_status / session_tmp_files /
+    session_last_seen_at) と field 参照を**共有**する SessionState を生成。
+    SessionState 側で list/dict を mutate しても旧 dict 経由でも見え、 逆も成立する。"""
+    tmp = session_tmp_files.setdefault(sid, [])
+    return SessionState(
+        meta=sessions_meta[sid],
+        stream=stream_states[sid],
+        status=agent_status[sid],
+        tmp_files=tmp,
+        last_seen_at=session_last_seen_at.get(sid),
+    )
+
+
+def _init_session_states() -> None:
+    session_states.clear()
+    for sid in sessions_meta:
+        session_states[sid] = _build_session_state(sid)
+
+
+_init_session_states()
+
+
 # backend プロセスの起動時刻 (= /status payload に含めて frontend が再起動を検知)。
 # LaunchAgent KeepAlive で自動再起動した場合に、 frontend 側で stale な streaming bubble を
 # 停止扱いに固定するためのシグナル。
@@ -346,6 +497,7 @@ def register_session(
     sessions_meta[sid] = meta
     stream_states[sid] = StreamState(agent_id=agent_id)
     agent_status[sid] = _make_agent_status(agent_id)
+    session_states[sid] = _build_session_state(sid)
     save_sessions_meta()
     return meta
 
@@ -358,6 +510,8 @@ def unregister_session(session_id: str) -> bool:
     stream_states.pop(session_id, None)
     agent_status.pop(session_id, None)
     session_tmp_files.pop(session_id, None)
+    session_last_seen_at.pop(session_id, None)
+    session_states.pop(session_id, None)
     save_sessions_meta()
     return True
 
@@ -370,11 +524,16 @@ def rename_session(session_id: str, title: str) -> bool:
     return True
 
 
-def set_notify_mode(session_id: str, mode: str) -> bool:
-    """セッションの通知モード (both / banner / off) を設定して永続化する。"""
-    if session_id not in sessions_meta or mode not in NOTIFY_MODES:
+def set_notify_mode(session_id: str, mode: str | NotifyMode) -> bool:
+    """セッションの通知モード (both / banner / off) を設定して永続化する。
+    NotifyMode Enum も string も受ける (= crosscut-F-20 で Enum 化、 wire 形式は string)。
+    """
+    if session_id not in sessions_meta:
         return False
-    sessions_meta[session_id].notify_mode = mode
+    value = mode.value if isinstance(mode, NotifyMode) else mode
+    if value not in NOTIFY_MODES:
+        return False
+    sessions_meta[session_id].notify_mode = value
     save_sessions_meta()
     return True
 
