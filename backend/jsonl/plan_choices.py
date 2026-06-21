@@ -25,43 +25,31 @@ def _strip_ansi(s: str) -> str:
     return _ANSI_RE.sub("", s)
 
 
-async def capture_plan_choices(session_id: str, tool_use_id: str) -> None:
-    """ExitPlanMode tool_use 直後に tmux 画面を capture して選択肢テキストを抽出する。
+# 選択肢抽出 polling のパラメータ (= backend-F-13)。 旧版は固定 0.5s 待ってから 1 回
+# capture していたが、 claude TUI の prompt 描画が早く済むケース (= 50-150ms) でも
+# 強制 500ms 待ち合わせていた。 100ms × 最大 10 回 polling で早期確定させる
+# (= 抽出 OK 即 return、 上限到達まで失敗なら fallback の固定 2 択へ)。
+_POLL_INTERVAL_S = 0.1
+_POLL_MAX_ATTEMPTS = 10
 
-    抽出失敗時は agent_status.pending_plan.choices = [] のまま (frontend が fallback の
-    固定 2 択 (1=Approve / 3=No) を出す)。
-    """
-    await asyncio.sleep(0.5)
-    a = agent_status.get(session_id)
-    if a is None:
-        return
-    pending = a.get("pending_plan")
-    if not pending or pending.get("tool_use_id") != tool_use_id:
-        return  # 既に resolved or 別 plan に上書き
-    try:
-        raw = capture_tmux_scrollback(session_id, lines=120)
-    except Exception:
-        raw = b""
-    if not raw:
-        return
-    text = _strip_ansi(raw.decode("utf-8", errors="replace"))
-    # 直近の choice 行を抽出 (= 末尾近くにある番号付き行)
-    choices = []
-    seen_keys = set()
+
+def _extract_choices_from_pane(text: str) -> list[dict]:
+    """tmux scrollback テキスト (= ANSI 除去済) から末尾の連続番号付き選択肢を抽出する。
+    旧 capture_plan_choices インライン処理を pure 関数に切り出して polling 内で再利用する。"""
+    choices: list[dict] = []
+    seen_keys: set[str] = set()
     for m in _PLAN_CHOICE_RE.finditer(text):
         key, label = m.group(1), m.group(2)
         if key in seen_keys:
             continue
         seen_keys.add(key)
-        # label の末尾に「 (esc to interrupt)」 等の補助文言が混ざる場合があるので捨てる
+        # label 末尾の「 (esc to interrupt)」 等の補助文言を捨てる
         label = label.split("(")[0].strip()
         if label:
             choices.append({"key": key, "label": label})
-    # 「1. ... / 2. ... / 3. ...」 のように **連続した番号**だけ採用 (= 過去画面の番号付き
-    # リストが混ざるのを防ぐ)。 末尾近くから連続な keys を取る
     if len(choices) >= 2:
-        # 末尾から「N, N-1, N-2 ...」 と降順で連続するブロックを抽出
-        tail = []
+        # 末尾から「N, N-1, N-2 ...」 と降順で連続するブロックだけ採用
+        tail: list[dict] = []
         for c in reversed(choices):
             if not tail:
                 tail.append(c)
@@ -73,11 +61,38 @@ async def capture_plan_choices(session_id: str, tool_use_id: str) -> None:
                 break
         tail.reverse()
         choices = tail
+    return choices
 
-    # state が他に上書きされてないか再確認 → set
-    pending = a.get("pending_plan")
-    if pending and pending.get("tool_use_id") == tool_use_id:
-        a["pending_plan"] = {**pending, "choices": choices}
-        state = stream_states.get(session_id)
-        if state is not None:
-            state.status_event.set()
+
+async def capture_plan_choices(session_id: str, tool_use_id: str) -> None:
+    """ExitPlanMode tool_use 直後に tmux 画面を capture して選択肢テキストを抽出する。
+
+    backend-F-13: 旧 0.5s 固定 sleep を 100ms × 10 回 polling に変更。 prompt 描画が
+    早いケースで体感を ~400ms 短縮する。 choices >= 2 確定で即 return、 上限到達まで
+    失敗なら何もせず終了 (= frontend が fallback の固定 2 択 (1=Approve / 3=No) を出す)。
+    """
+    a = agent_status.get(session_id)
+    if a is None:
+        return
+    for _ in range(_POLL_MAX_ATTEMPTS):
+        await asyncio.sleep(_POLL_INTERVAL_S)
+        pending = a.get("pending_plan")
+        if not pending or pending.get("tool_use_id") != tool_use_id:
+            return  # 既に resolved or 別 plan に上書き
+        try:
+            raw = capture_tmux_scrollback(session_id, lines=120)
+        except Exception:
+            raw = b""
+        if not raw:
+            continue
+        text = _strip_ansi(raw.decode("utf-8", errors="replace"))
+        choices = _extract_choices_from_pane(text)
+        # 連続番号 >= 2 が取れたら確定。 取れなければ次 tick で再試行 (TUI 描画待ち)。
+        if len(choices) >= 2:
+            pending = a.get("pending_plan")
+            if pending and pending.get("tool_use_id") == tool_use_id:
+                a["pending_plan"] = {**pending, "choices": choices}
+                state = stream_states.get(session_id)
+                if state is not None:
+                    state.status_event.set()
+            return
