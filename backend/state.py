@@ -21,7 +21,16 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from backend.config import AGENTS
+import backend.config as _config
+
+
+def _agents() -> dict:
+    """`backend.config.AGENTS` を都度 lookup (= config.py の遅延化 PEP 562
+    `__getattr__` 経由)。 module 上端で bind すると test 中の `monkeypatch` で
+    config を切り替えても古い dict を見続けてしまうため、 呼び出しごとに引く。
+    test 側は `monkeypatch.setattr(backend.state, "_agents", lambda: {...})`
+    で挙動を差し替えられる。"""
+    return _config.AGENTS
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +91,7 @@ class SessionDef:
 
 
 def _default_title(agent_id: str, index: int) -> str:
-    cfg = AGENTS.get(agent_id) or {}
+    cfg = _agents().get(agent_id) or {}
     base = cfg.get("display_name") or agent_id.upper()
     return f"{base}-{index}"
 
@@ -113,7 +122,7 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
             aid = entry.get("agent_id")
             title = entry.get("title") or aid or "session"
             created = entry.get("created_at") or int(time.time())
-            if not sid or aid not in AGENTS:
+            if not sid or aid not in _agents():
                 # agent_id が config から消えてる (= 過去 session のまま config 更新で消失)、
                 # その session は UI に出せないので skip。 観測のため warn を残す。
                 if sid:
@@ -131,7 +140,7 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
         # 初期化: agent ごと 1 セッションを生成する
         per_agent_idx: dict[str, int] = {}
         now = int(time.time())
-        for agent_id in AGENTS:
+        for agent_id in _agents():
             sid = _new_session_id()
             per_agent_idx[agent_id] = per_agent_idx.get(agent_id, 0) + 1
             sessions_meta[sid] = SessionDef(
@@ -185,7 +194,7 @@ class StreamState:
 
 
 def _make_agent_status(agent_id: str) -> dict:
-    cfg = AGENTS.get(agent_id) or {}
+    cfg = _agents().get(agent_id) or {}
     return {
         "ctx_pct": 0,
         "ctx_window": DEFAULT_CTX_WINDOW,
@@ -323,7 +332,7 @@ def register_session(
     account_id は config.json accounts の key (= 個人 / 会社 OAuth の選択)。 None は
     personal 相当 (= 通常 ~/.claude/) として扱う。
     """
-    if agent_id not in AGENTS:
+    if agent_id not in _agents():
         raise ValueError(f"Unknown agent_id: {agent_id}")
     sid = _new_session_id()
     if not title:
