@@ -76,7 +76,8 @@ def test_seven_day_pct_takes_max_within_same_window(tmp_path, monkeypatch):
         {"seven_day_pct": 85, "seven_day_resets_at": 1000, "five_hour_pct": 30},
         {"seven_day_pct": 1, "seven_day_resets_at": 1000, "five_hour_pct": 31},
     ])
-    monkeypatch.setattr(usage, "RATE_LIMITS_LOG_PATH", path)
+    monkeypatch.setattr(usage, "_config",
+                        type("Stub", (), {"RATE_LIMITS_LOG_PATH": path}))
     out = read_latest_rate_limits()
     assert out["seven_day_pct"] == 85
     assert out["five_hour_pct"] == 31  # 5h は最終行の生値
@@ -88,7 +89,8 @@ def test_seven_day_pct_not_masked_across_reset(tmp_path, monkeypatch):
         {"seven_day_pct": 85, "seven_day_resets_at": 1000},
         {"seven_day_pct": 2, "seven_day_resets_at": 2000},
     ])
-    monkeypatch.setattr(usage, "RATE_LIMITS_LOG_PATH", path)
+    monkeypatch.setattr(usage, "_config",
+                        type("Stub", (), {"RATE_LIMITS_LOG_PATH": path}))
     out = read_latest_rate_limits()
     assert out["seven_day_pct"] == 2
 
@@ -100,7 +102,8 @@ def test_model_ctx_filtered_by_session(tmp_path, monkeypatch):
         {"session_id": "sidA", "model": "Opus 4.8", "context_pct": 40, "five_hour_pct": 10},
         {"session_id": "sidB", "model": "Haiku 4.5", "context_pct": 5, "five_hour_pct": 11},
     ])
-    monkeypatch.setattr(usage, "RATE_LIMITS_LOG_PATH", path)
+    monkeypatch.setattr(usage, "_config",
+                        type("Stub", (), {"RATE_LIMITS_LOG_PATH": path}))
     out_a = read_latest_rate_limits("sidA")
     assert out_a["model"] == "Opus 4.8" and out_a["context_pct"] == 40
     assert out_a["five_hour_pct"] == 11  # 5h はアカウント全体 = 最新行
@@ -113,7 +116,77 @@ def test_model_ctx_none_when_session_absent(tmp_path, monkeypatch):
     path = _write_rate_limits(tmp_path, [
         {"session_id": "sidA", "model": "Opus 4.8", "context_pct": 40, "five_hour_pct": 10},
     ])
-    monkeypatch.setattr(usage, "RATE_LIMITS_LOG_PATH", path)
+    monkeypatch.setattr(usage, "_config",
+                        type("Stub", (), {"RATE_LIMITS_LOG_PATH": path}))
     out = read_latest_rate_limits("sidX")
     assert out["model"] is None and out["context_pct"] is None
     assert out["five_hour_pct"] == 10  # 5h は取れる
+
+
+# ============================================================================
+# read_all_rate_limits_tail + latest_from_tail 統合 (= backend-F-11)
+# ============================================================================
+
+def test_latest_from_tail_is_pure_no_io(tmp_path, monkeypatch):
+    # tail を 1 度 read して、 sid 違いで何度でも filter できる (file I/O 無し)
+    path = _write_rate_limits(tmp_path, [
+        {"session_id": "sA", "model": "Opus", "context_pct": 10},
+        {"session_id": "sB", "model": "Sonnet", "context_pct": 20},
+    ])
+    monkeypatch.setattr(usage, "_config",
+                        type("Stub", (), {"RATE_LIMITS_LOG_PATH": path}))
+    tail = usage.read_all_rate_limits_tail()
+    a = usage.latest_from_tail(tail, claude_sid="sA")
+    b = usage.latest_from_tail(tail, claude_sid="sB")
+    assert a["model"] == "Opus" and a["context_pct"] == 10
+    assert b["model"] == "Sonnet" and b["context_pct"] == 20
+
+
+def test_read_latest_rate_limits_delegates_to_tail(tmp_path, monkeypatch):
+    path = _write_rate_limits(tmp_path, [{"session_id": "sX", "model": "Opus"}])
+    monkeypatch.setattr(usage, "_config",
+                        type("Stub", (), {"RATE_LIMITS_LOG_PATH": path}))
+    # read_latest_rate_limits() = read_all_rate_limits_tail() + latest_from_tail()
+    direct = usage.read_latest_rate_limits("sX")
+    via_two_step = usage.latest_from_tail(usage.read_all_rate_limits_tail(), "sX")
+    assert direct == via_two_step
+
+
+# ============================================================================
+# rate_limits_log_health (= backend-F-67 起動時 sanity)
+# ============================================================================
+
+def test_rate_limits_log_health_unconfigured(monkeypatch):
+    monkeypatch.setattr(usage, "_config",
+                        type("Stub", (), {"RATE_LIMITS_LOG_PATH": ""}))
+    ok, reason = usage.rate_limits_log_health()
+    assert ok is False
+    assert "not configured" in reason
+
+
+def test_rate_limits_log_health_missing_parent(monkeypatch, tmp_path):
+    bogus = tmp_path / "does_not_exist" / "rate-limits.jsonl"
+    monkeypatch.setattr(usage, "_config",
+                        type("Stub", (), {"RATE_LIMITS_LOG_PATH": str(bogus)}))
+    ok, reason = usage.rate_limits_log_health()
+    assert ok is False
+    assert "parent" in reason
+
+
+def test_rate_limits_log_health_ok_file_absent(monkeypatch, tmp_path):
+    p = tmp_path / "rate-limits.jsonl"
+    monkeypatch.setattr(usage, "_config",
+                        type("Stub", (), {"RATE_LIMITS_LOG_PATH": str(p)}))
+    ok, reason = usage.rate_limits_log_health()
+    assert ok is True
+    assert "not yet created" in reason
+
+
+def test_rate_limits_log_health_ok_file_present(monkeypatch, tmp_path):
+    p = tmp_path / "rate-limits.jsonl"
+    p.write_text("{}\n")
+    monkeypatch.setattr(usage, "_config",
+                        type("Stub", (), {"RATE_LIMITS_LOG_PATH": str(p)}))
+    ok, reason = usage.rate_limits_log_health()
+    assert ok is True
+    assert "path ok" in reason
