@@ -1,0 +1,9 @@
+/* F-53: AttachedImages の skeleton placeholder アニメーション。
+   .msg-image / .attach-images 本体は MessageItem.css 側で定義済 (= 別 owner)。
+   ここでは IndexedDB から ObjectURL を作る短時間に出す skeleton 用の keyframes だけを
+   定義する。 inline style の background-position だけでは animation 再生されないので、
+   keyframes を module-scope (= 実質 global) で 1 度宣言する。 */
+@keyframes cpc-img-skeleton {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
