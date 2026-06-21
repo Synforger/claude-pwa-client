@@ -224,3 +224,60 @@ def test_workflow_endpoints_reject_bad_run_id(client_with_base):
     assert client.get(
         "/sessions/s1/subagents/agent-aaa/transcript", params={"wf": "../escape"},
     ).status_code == 400
+
+
+# --- backend-F-17: ETag (= file mtime+size) + If-None-Match → 304 ----------
+
+
+def test_transcript_returns_etag_header(client_with_session):
+    """transcript 200 応答に ETag header が付く。"""
+    client, subdir = client_with_session
+    _write_agent(subdir, "agent-aaa", description="X", lines=[
+        _assistant(text="hi", stop_reason="end_turn"),
+    ])
+    res = client.get("/sessions/s1/subagents/agent-aaa/transcript")
+    assert res.status_code == 200
+    etag = res.headers.get("etag")
+    assert etag and etag.startswith('W/"')
+
+
+def test_transcript_304_on_matching_if_none_match(client_with_session):
+    """If-None-Match に同 ETag を送ると 304 (= body 無し)。"""
+    client, subdir = client_with_session
+    _write_agent(subdir, "agent-bbb", description="Y", lines=[
+        _assistant(text="hi", stop_reason="end_turn"),
+    ])
+    res1 = client.get("/sessions/s1/subagents/agent-bbb/transcript")
+    etag = res1.headers["etag"]
+    res2 = client.get(
+        "/sessions/s1/subagents/agent-bbb/transcript",
+        headers={"If-None-Match": etag},
+    )
+    assert res2.status_code == 304
+    # 304 でも ETag は返す (= HTTP RFC 準拠)
+    assert res2.headers.get("etag") == etag
+    # 304 は body 無し (= 空)
+    assert res2.content == b""
+
+
+def test_transcript_changes_etag_on_file_mutation(client_with_session):
+    """transcript が append されたら ETag が変わる (= 304 が誤って続かない)。"""
+    client, subdir = client_with_session
+    _write_agent(subdir, "agent-ccc", description="Z", lines=[
+        _assistant(text="line1", stop_reason="end_turn"),
+    ])
+    res1 = client.get("/sessions/s1/subagents/agent-ccc/transcript")
+    etag1 = res1.headers["etag"]
+    # 同 file に追記 (= 走行中 transcript の append-only 想定)
+    f = subdir / "agent-ccc.jsonl"
+    with f.open("a") as fh:
+        fh.write('{"type": "assistant", "isSidechain": true, '
+                 '"message": {"role": "assistant", "content": [{"type": "text", "text": "more"}], '
+                 '"stop_reason": "end_turn"}}\n')
+    res2 = client.get(
+        "/sessions/s1/subagents/agent-ccc/transcript",
+        headers={"If-None-Match": etag1},
+    )
+    # 内容が変わったので 304 にならず 200 + 新 ETag
+    assert res2.status_code == 200
+    assert res2.headers["etag"] != etag1

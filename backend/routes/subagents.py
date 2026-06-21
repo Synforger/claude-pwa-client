@@ -15,8 +15,8 @@ import re
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from backend.jsonl.events import subagent_line_to_events
 from backend.terminal.runner import jsonl_path_for_session
@@ -269,8 +269,14 @@ def list_subagents(session_id: str):
 
 @router.get("/sessions/{session_id}/subagents/stream")
 async def subagents_stream(session_id: str):
-    """subagents / workflows ディレクトリの変化を 1 秒間隔で検知し、 変化があれば最新
-    payload を SSE で push する。 polling より精密 (= 走り終わった直後にチップが切替)。
+    """subagents / workflows ディレクトリの変化を watchfiles で検知し、 変化があれば最新
+    payload を SSE で push する (= backend-F-16)。
+
+    旧版は固定 1s polling で _dir_signature を毎秒呼び (= stat 多数 + tuple 比較)、 走り
+    終わった直後の表示切替に 1s ぴったり遅延が出ていた。 watchfiles の awatch を subdir +
+    workflow run dir に張って fsevents (macOS) 駆動の wake-up で 100 ms 程度で push する。
+    watchfiles 未導入環境 (= ImportError) は従来の 1s polling に safe fallback。 30s
+    heartbeat は維持 (= NAT / proxy アイドルタイムアウト回避)。
     """
     base = _session_base(session_id)
     if base is None:
@@ -280,20 +286,70 @@ async def subagents_stream(session_id: str):
         # 初回は即送信
         last_sig = _dir_signature(base)
         yield f"data: {json.dumps(_build_subagents_payload(base))}\n\n"
-        # 30 秒に 1 度は heartbeat も流して NAT / proxy のアイドルタイムアウト回避
         last_heartbeat = time.monotonic()
-        while True:
-            await asyncio.sleep(1.0)
-            sig = _dir_signature(base)
-            if sig != last_sig:
-                last_sig = sig
-                yield f"data: {json.dumps(_build_subagents_payload(base))}\n\n"
-                last_heartbeat = time.monotonic()
-            elif time.monotonic() - last_heartbeat >= 30.0:
-                yield ":heartbeat\n\n"
-                last_heartbeat = time.monotonic()
+        # watch 対象は subagents/ と subagents/workflows/<run>/ と workflows/<wf>.json。
+        # 配下が動的生成されるので親 dir に対して recursive=True で張る。
+        watch_targets: list[Path] = []
+        sa_dir = base / "subagents"
+        wf_dir = base / "workflows"
+        if sa_dir.is_dir():
+            watch_targets.append(sa_dir)
+        if wf_dir.is_dir():
+            watch_targets.append(wf_dir)
+        try:
+            from watchfiles import awatch  # noqa: PLC0415
+        except ImportError:
+            logger.info("watchfiles unavailable; subagents stream falls back to 1s polling")
+            awatch = None
+        if awatch is None or not watch_targets:
+            # fallback: 旧経路 (= 1s polling)
+            while True:
+                await asyncio.sleep(1.0)
+                sig = _dir_signature(base)
+                if sig != last_sig:
+                    last_sig = sig
+                    yield f"data: {json.dumps(_build_subagents_payload(base))}\n\n"
+                    last_heartbeat = time.monotonic()
+                elif time.monotonic() - last_heartbeat >= 30.0:
+                    yield ":heartbeat\n\n"
+                    last_heartbeat = time.monotonic()
+            return  # noqa: pragma: no cover
+        # watchfiles 経路: change 待ちと heartbeat timer を並走させる
+        loop_deadline_step = 5.0  # 5s ごとに heartbeat 判定で wake up
+        try:
+            async for _ in _awatch_with_heartbeat(awatch, watch_targets, loop_deadline_step):
+                sig = _dir_signature(base)
+                if sig != last_sig:
+                    last_sig = sig
+                    yield f"data: {json.dumps(_build_subagents_payload(base))}\n\n"
+                    last_heartbeat = time.monotonic()
+                elif time.monotonic() - last_heartbeat >= 30.0:
+                    yield ":heartbeat\n\n"
+                    last_heartbeat = time.monotonic()
+        except asyncio.CancelledError:
+            raise
 
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+async def _awatch_with_heartbeat(awatch, dirs: list[Path], step: float):
+    """awatch を回しつつ `step` 秒ごとに必ず 1 回 wake up して heartbeat 判定の機会を与える。
+
+    awatch 単独では change が無い限り永遠に止まるので、 30s heartbeat を打てない。
+    `asyncio.wait_for` で短い timeout を被せて、 タイムアウトを heartbeat 判定の wake と
+    みなして yield する (= caller 側は signature 不変なら heartbeat を出す)。
+    recursive=True で配下の動的生成 (= subagents/workflows/<run>/ 作成) も拾う。
+    """
+    gen = awatch(*dirs, step=200, recursive=True)
+    while True:
+        try:
+            await asyncio.wait_for(gen.__anext__(), timeout=step)
+        except asyncio.TimeoutError:
+            yield None
+            continue
+        except StopAsyncIteration:
+            return
+        yield None
 
 
 @router.get("/sessions/{session_id}/workflows/{run_id}/agents")
@@ -359,11 +415,19 @@ def _journal_result_label(result) -> str | None:
 
 
 @router.get("/sessions/{session_id}/subagents/{agent_id}/transcript")
-def get_subagent_transcript(session_id: str, agent_id: str, wf: str | None = None):
+def get_subagent_transcript(
+    session_id: str, agent_id: str, request: Request, wf: str | None = None,
+):
     """個別サブエージェントの transcript を表示用 event 列に変換して返す。
 
     wf (= Workflow run id) 指定時は subagents/workflows/<wf>/ 配下を読む (= Workflow agent)。
     未指定なら subagents/ 直下 (= 通常の Task subagent)。
+
+    backend-F-17: ETag (= file mtime + size) を生成し、 client が `If-None-Match` で同値を
+    送ってきたら 304 で本文を返さない。 transcript は run 終了後は **不変** なので、 frontend
+    が再表示で同 transcript を引いた時の往復を 304 で抑える (= 大きいときは数十 KB の JSON 再
+    生成 + 転送が消える)。 走行中 transcript は append-only なので mtime + size が単調変化、
+    304 で stale を返す race も無い。
     """
     if not _AGENT_ID_RE.match(agent_id):
         raise HTTPException(status_code=400, detail="Invalid agent id")
@@ -377,11 +441,19 @@ def get_subagent_transcript(session_id: str, agent_id: str, wf: str | None = Non
     else:
         parent = subdir
     jsonl_file = parent / f"{agent_id}.jsonl"
-    # resolve 後に想定ディレクトリ配下か再検査 (= agent_id / wf 正規表現で防ぐが二重防御)
     if not jsonl_file.resolve().is_relative_to(parent.resolve()):
         raise HTTPException(status_code=403, detail="Access denied")
     if not jsonl_file.is_file():
         raise HTTPException(status_code=404, detail="Transcript not found")
+    try:
+        stat = jsonl_file.stat()
+    except OSError:
+        raise HTTPException(status_code=500, detail="Internal error")
+    # mtime は ns 精度 + size byte 数で 32 hex 化。 mtime 整数化 (= ns) で float 揺らぎ回避。
+    etag = f'W/"{int(stat.st_mtime_ns):x}-{stat.st_size:x}"'
+    inm = request.headers.get("if-none-match", "").strip()
+    if inm and inm == etag:
+        return Response(status_code=304, headers={"ETag": etag})
     events: list[dict] = []
     try:
         with jsonl_file.open() as fh:
@@ -397,4 +469,7 @@ def get_subagent_transcript(session_id: str, agent_id: str, wf: str | None = Non
         logger.exception("failed to read subagent transcript: %s", jsonl_file)
         raise HTTPException(status_code=500, detail="Internal error")
     meta = _read_meta(jsonl_file.with_suffix(".meta.json"))
-    return {"agentId": agent_id, **meta, "events": events}
+    return JSONResponse(
+        content={"agentId": agent_id, **meta, "events": events},
+        headers={"ETag": etag},
+    )
