@@ -37,8 +37,10 @@ export default function ChatInput({
   const prevSidRef = useRef(null)
   // 親 input dict 最新値の ref。 useEffect の deps で input を持つと打鍵中に effect が走るので、
   // ref で読みつつ deps は activeSid だけにする。
+  // F-37: render 中の直接代入は React の純粋 render 規約違反 (= StrictMode 二重 render や
+  // 将来の concurrent 機能で挙動が壊れうる)。 input が変わった時の effect で同期する。
   const inputRef = useRef(input)
-  inputRef.current = input
+  useEffect(() => { inputRef.current = input }, [input])
 
   useEffect(() => {
     const prevSid = prevSidRef.current
