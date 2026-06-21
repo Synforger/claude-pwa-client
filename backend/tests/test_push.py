@@ -84,3 +84,37 @@ def test_table_row_strips_cells():
 def test_table_row_drops_empty_cells():
     # 意図: || で生まれる空セルは捨てて出力に出さない
     assert _apply_table_row("| a |  | b |") == "a / b"
+
+
+# ============================================================================
+# subscription gc atomicity (= backend-F-47): save 失敗時の rollback
+# ============================================================================
+
+def test_atomic_remove_dead_rollback_on_save_failure(monkeypatch):
+    import backend.core.push as push_mod
+    monkeypatch.setattr(push_mod, "subscriptions",
+                        [{"endpoint": "https://a"}, {"endpoint": "https://b"}])
+
+    def _boom():
+        raise OSError("disk full")
+
+    monkeypatch.setattr(push_mod, "_save_subscriptions", _boom)
+    push_mod._atomic_remove_dead_subscriptions([{"endpoint": "https://a"}])
+    # save 失敗で in-memory は巻き戻る (= 旧状態を維持)
+    assert {s["endpoint"] for s in push_mod.subscriptions} == {"https://a", "https://b"}
+
+
+def test_atomic_remove_dead_commits_on_success(monkeypatch):
+    import backend.core.push as push_mod
+    monkeypatch.setattr(push_mod, "subscriptions",
+                        [{"endpoint": "https://a"}, {"endpoint": "https://b"}])
+
+    saved = []
+
+    def _ok():
+        saved.append(list(push_mod.subscriptions))
+
+    monkeypatch.setattr(push_mod, "_save_subscriptions", _ok)
+    push_mod._atomic_remove_dead_subscriptions([{"endpoint": "https://a"}])
+    assert push_mod.subscriptions == [{"endpoint": "https://b"}]
+    assert saved == [[{"endpoint": "https://b"}]]

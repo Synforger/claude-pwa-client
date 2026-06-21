@@ -16,7 +16,6 @@ import json
 import logging
 import re
 import threading
-from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException
 
@@ -26,9 +25,23 @@ try:
 except ImportError:
     _HAS_WEBPUSH = False
 
-from backend.config import AGENTS, NOTIFICATION_TITLE_DEFAULT, VAPID_SUB
+import backend.config as _config
 from backend.paths import SUBSCRIPTIONS_PATH, VAPID_PATH
-from backend.state import atomic_write_text, is_session_viewed, sessions_meta
+from backend.state import (
+    NOTIFY_MODES,
+    NotifyMode,
+    atomic_write_text,
+    is_session_viewed,
+    sessions_meta,
+)
+
+# pywebpush は同期 API + I/O 主体。 fan-out が大量サブスクに広がると、
+# 単発で thread を起こすと OS 側で thread pool が枯れる + 同一 endpoint
+# server に対する並列 connection が爆発する (= APNs / FCM 側で 429)。
+# 4 並列に絞って backpressure を効かせる (= backend-F-27)。 4 は経験則
+# (= 個人 PWA で iPhone + Mac + Android で 3-4 sub が現実値) で、 数が
+# 増えても per-send が軽いので体感差は出ない。
+_WEBPUSH_CONCURRENCY = 4
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -73,6 +86,28 @@ def _load_subscriptions() -> list[dict]:
 
 def _save_subscriptions() -> None:
     atomic_write_text(SUBSCRIPTIONS_PATH, json.dumps(subscriptions, indent=2))
+
+
+def _atomic_remove_dead_subscriptions(dead: list[dict]) -> None:
+    """死亡 subscription を「変更 → save 成功 / 失敗 → revert」 で消す
+    (= 2026-06-21、 backend-F-47)。
+
+    旧版は in-place remove → 永続化 try なし、 atomic_write_text が IO で
+    落ちると `subscriptions` (in-memory) からは消えてるのに disk には旧
+    list が残り、 再起動で復活する地雷だった。 一時 snapshot を取って、
+    save 成功時のみ in-memory も commit する staged commit パターンに改める。
+    """
+    before = list(subscriptions)
+    dead_keys = {_sub_key(d) for d in dead if _sub_key(d) is not None}
+    keep = [s for s in subscriptions if _sub_key(s) not in dead_keys]
+    subscriptions[:] = keep
+    try:
+        _save_subscriptions()
+    except OSError:
+        # 永続化失敗: in-memory も巻き戻して disk と整合させる (= 次回 push で
+        # 410 が再発するが、 永続的に inconsistent な状態は作らない)。
+        subscriptions[:] = before
+        logger.exception("subscription gc: revert in-memory removal due to save failure")
 
 
 vapid_config: dict | None = _load_vapid()
@@ -152,9 +187,9 @@ def notification_title_for(session_id: str) -> str:
     if meta:
         if meta.title:
             return _trim_title(meta.title)
-        cfg = AGENTS.get(meta.agent_id) or {}
-        return cfg.get("notification_title") or NOTIFICATION_TITLE_DEFAULT
-    return NOTIFICATION_TITLE_DEFAULT
+        cfg = _config.AGENTS.get(meta.agent_id) or {}
+        return cfg.get("notification_title") or _config.NOTIFICATION_TITLE_DEFAULT
+    return _config.NOTIFICATION_TITLE_DEFAULT
 
 
 async def broadcast_push(
@@ -179,7 +214,7 @@ async def broadcast_push(
         return
 
     body_clean = sanitize_notif_body(message)
-    notif_title = title or NOTIFICATION_TITLE_DEFAULT
+    notif_title = title or _config.NOTIFICATION_TITLE_DEFAULT
 
     # 未読カウンタを +1 して payload に載せる (= sw.js が setAppBadge に使う、 端末側で
     # 再 fetch せずに badge 更新できる)。 sync handler との race を避けるため lock 配下で atomic に。
@@ -204,10 +239,20 @@ async def broadcast_push(
         # url は SW 側で `/?ses=<sid>` を組み立てる (= 2 経路統一、 payload 軽量化)
         # セッションごとの通知モード (both / banner / off) を SW に渡す。 SW は showNotification
         # は必ず呼びつつ silent / autoclose だけ切替える (= subscription 破棄回避は不変)。
+        # 2026-06-21: notify_mode 抽出は SessionDef field 直 read で軽量化 (= backend-F-46、
+        # 旧来 dict get → dataclass field アクセス 1 hop)。 不正値 fallback は NotifyMode で正規化。
         meta = sessions_meta.get(session_id)
-        payload_dict["notify_mode"] = meta.notify_mode if meta is not None else "both"
+        mode_value = meta.notify_mode if meta is not None else NotifyMode.BOTH.value
+        if mode_value not in NOTIFY_MODES:
+            mode_value = NotifyMode.BOTH.value
+        payload_dict["notify_mode"] = mode_value
     payload = json.dumps(payload_dict, ensure_ascii=False)
     dead: list[dict] = []
+
+    # 2026-06-21 (backend-F-27): pywebpush は同期 API。 端末 sub 数が増えても
+    # 同時並列を上限で絞り、 APNs / FCM への connection 爆発と thread pool
+    # 枯渇を防ぐ (= Semaphore は asyncio.gather の中で取る、 thread 化前に獲得)。
+    sem = asyncio.Semaphore(_WEBPUSH_CONCURRENCY)
 
     def _send_one(sub: dict) -> None:
         try:
@@ -215,7 +260,7 @@ async def broadcast_push(
                 subscription_info=sub,
                 data=payload,
                 vapid_private_key=private_b64,
-                vapid_claims={"sub": VAPID_SUB},
+                vapid_claims={"sub": _config.VAPID_SUB},
                 ttl=60,
             )
         except WebPushException as e:
@@ -229,16 +274,14 @@ async def broadcast_push(
         except Exception:
             logger.exception("webpush send error")
 
-    # pywebpush は同期 API なので thread pool に逃がす
-    await asyncio.gather(*(asyncio.to_thread(_send_one, s) for s in list(subscriptions)))
+    async def _bounded_send(sub: dict) -> None:
+        async with sem:
+            await asyncio.to_thread(_send_one, sub)
+
+    await asyncio.gather(*(_bounded_send(s) for s in list(subscriptions)))
 
     if dead:
-        for d in dead:
-            try:
-                subscriptions.remove(d)
-            except ValueError:
-                pass
-        _save_subscriptions()
+        _atomic_remove_dead_subscriptions(dead)
 
 
 # --- 未読カウンタ API (= 通知履歴は持たない、 badge 同期用の数値だけ) ---
@@ -302,6 +345,9 @@ def push_subscribe(subscription: dict = Body(...)):
     key = _sub_key(subscription)
     if not key:
         raise HTTPException(status_code=400, detail="Invalid subscription (missing endpoint)")
+    # 2026-06-21 (backend-F-47 series): save 失敗で in-memory と disk が乖離
+    # しないよう、 snapshot を取って save 成功時にだけ in-memory 確定する。
+    before = list(subscriptions)
     # endpoint で重複排除
     for i, s in enumerate(subscriptions):
         if _sub_key(s) == key:
@@ -309,7 +355,12 @@ def push_subscribe(subscription: dict = Body(...)):
             break
     else:
         subscriptions.append(subscription)
-    _save_subscriptions()
+    try:
+        _save_subscriptions()
+    except OSError as exc:
+        subscriptions[:] = before
+        logger.exception("push_subscribe: save failed; rolling back")
+        raise HTTPException(status_code=500, detail="subscription save failed") from exc
     return {"ok": True, "count": len(subscriptions)}
 
 
@@ -318,8 +369,13 @@ def push_unsubscribe(subscription: dict = Body(...)):
     key = _sub_key(subscription)
     if not key:
         raise HTTPException(status_code=400, detail="Invalid subscription (missing endpoint)")
-    before = len(subscriptions)
+    before = list(subscriptions)
     subscriptions[:] = [s for s in subscriptions if _sub_key(s) != key]
-    if len(subscriptions) != before:
-        _save_subscriptions()
+    if len(subscriptions) != len(before):
+        try:
+            _save_subscriptions()
+        except OSError as exc:
+            subscriptions[:] = before
+            logger.exception("push_unsubscribe: save failed; rolling back")
+            raise HTTPException(status_code=500, detail="subscription save failed") from exc
     return {"ok": True, "count": len(subscriptions)}
