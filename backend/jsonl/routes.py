@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -246,136 +247,292 @@ async def jsonl_stream(session_id: str, request: Request):
 
 
 # --- 常時 tail (= PWA 接続有無に関係なく動く push 発火経路) ---
-# backend の lifespan task として全 PWA session の JSONL を polling し、
-# AskUserQuestion 発火 / stop_reason 異常を検出して Web Push を飛ばす。
-# SSE 経路 (= /jsonl/stream) の _maybe_push_blockers 呼び出しは廃止済 (= 二重発火回避)。
+# backend の lifespan task として全 PWA session の JSONL を tail し、 AskUserQuestion
+# 発火 / stop_reason 異常を検出して Web Push を飛ばす。 SSE 経路 (= /jsonl/stream) の
+# _maybe_push_blockers 呼び出しは廃止済 (= 二重発火回避)。
+
+# F-65: 1 sid の per-tick 処理で連続して例外が出た時に一時的に poll をスキップさせる
+# (= 該当 sid の JSONL が壊れてる等で毎 tick 同じ例外を吐き続けるのを抑制)。 N 回連続
+# 失敗で QUARANTINE_SEC 静かにする → 復帰したら counter を 0 に戻す。 backend 全体を
+# 落とさず poison 1 sid だけ隔離する設計。
+_QUARANTINE_THRESHOLD = 5
+_QUARANTINE_SEC = 30.0
+
+
+@dataclass
+class SessionTailState:
+    """1 sid 分の monitor 状態を集約する dataclass (= backend-F-03)。
+
+    旧 `monitor_all_sessions_loop` は 5 つの per-sid dict (= state / last_line_at /
+    sid_interval / next_poll_at + failure counter) を並走させて 397 行の inner ループに
+    展開していた。 1 sid あたり 1 instance にまとめて method 呼び出し可能にすることで、
+    SessionTailer pattern を最小コストで導入する。 既存挙動は完全互換。
+    """
+    path: Path | None = None
+    offset: int = 0
+    last_line_at: float = field(default_factory=time.monotonic)
+    interval: float = POLL_INTERVAL
+    next_poll_at: float = 0.0
+    # F-65: 連続失敗 counter。 _QUARANTINE_THRESHOLD で QUARANTINE_SEC 沈黙
+    consecutive_failures: int = 0
+
+
+def _reset_jsonl_session_metadata(sid: str) -> None:
+    """path 切替時 (= /clear / resume / フォーク等で claude session が入れ替わった時)
+    の蓄積メタ reset。 PR / task list が前 session から持ち越されないようにする
+    (2026-06-12)。"""
+    a = agent_status.get(sid)
+    if a is not None:
+        if a.get("pr_links"):
+            a["pr_links"] = []
+        if a.get("tasks"):
+            a["tasks"] = []
+        st_reset = stream_states.get(sid)
+        if st_reset is not None:
+            st_reset.status_event.set()
+            sessions_overview.notify()
+
+
+def _initialize_sid_tail(sid: str, tstate: SessionTailState, path: Path) -> None:
+    """初回 or path 切替時の末尾再同期。 過去行を再通知しないよう offset = 現 size に
+    置き、 末尾から現在値で busy を 1 回算出する (= backend 起動時に推論中だった session
+    も正しく busy=True にする)。"""
+    prev_path = tstate.path
+    try:
+        tstate.offset = path.stat().st_size
+    except OSError:
+        return
+    tstate.path = path
+    if prev_path is not None and prev_path != path:
+        _reset_jsonl_session_metadata(sid)
+    st = stream_states.get(sid)
+    if st is not None:
+        new_busy = _compute_busy_from_tail(path)
+        if st.user_stopped:
+            new_busy = False
+        if new_busy != st.busy:
+            st.busy = new_busy
+            sessions_overview.notify()
+    tstate.last_line_at = time.monotonic()
+
+
+def _process_new_lines(sid: str, lines: list[str]) -> None:
+    """tail で取れた新規完全行を 1 sid 分処理する。 旧 inner loop の per-line 部分を
+    切り出した pure-ish function。 mutate / push 発火を行う。"""
+    for raw in lines:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            obj = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        _maybe_push_blockers(sid, obj)
+        _update_busy(sid, obj)
+        # agent_status (= current_tool / todos / pending_question / pending_plan /
+        # model / ctx_pct) も backend 側で常時更新する。 SSE 接続中の session しか
+        # 更新されないと、 非アクティブタブの AskUserQuestion / ExitPlanMode が
+        # overview SSE の pending_* フラグに反映されない (= hook 経路だけが頼り)。
+        # idempotent + 二重発火 gate 済なので SSE 経路と並走しても害なし。
+        if _mutate_agent_status(sid, obj):
+            st_obj = stream_states.get(sid)
+            if st_obj is not None:
+                st_obj.status_event.set()
+                sessions_overview.notify()  # 全 sid SSE にも伝播
+
+
+def _tick_sid(sid: str, tstate: SessionTailState, now_mono: float) -> None:
+    """1 sid 分の per-tick 処理 (= 旧 inner loop body)。 F-65 quarantine 経路では本関数を
+    例外で抜け、 caller の monitor_all_sessions_loop で counter を increment する。"""
+    path = _latest_jsonl(sid)
+    if path is None:
+        tstate.next_poll_at = now_mono + POLL_INTERVAL
+        return
+    if tstate.path is None or tstate.path != path:
+        _initialize_sid_tail(sid, tstate, path)
+        return
+    lines, new_pos, status = _read_tail(path, tstate.offset)
+    if status == "error":
+        return
+    tstate.offset = new_pos
+    if status == "ok" and lines:
+        tstate.last_line_at = time.monotonic()
+    # idle watchdog: busy のまま長時間 静かなら file 真値で再判定 (= 終端マーカー欠落 /
+    # 取りこぼしのバックストップ)。 user_stopped 中は触らない。
+    st_w = stream_states.get(sid)
+    if (
+        st_w is not None and st_w.busy and not st_w.user_stopped
+        and time.monotonic() - tstate.last_line_at >= WATCHDOG_IDLE_SEC
+        and not _busy_after_idle(path)
+    ):
+        st_w.busy = False
+        tstate.last_line_at = time.monotonic()  # 再発火を抑える
+        sessions_overview.notify()
+    # back-off 更新: next_interval helper (= backend-F-42) に集約。 busy=true 中の sid
+    # は back-off せず即時 poll (= end_turn 到着時の busy=false 遷移を 2s 遅延させない)。
+    is_busy = st_w is not None and st_w.busy and not st_w.user_stopped
+    made_progress = (status == "ok" and bool(lines)) or is_busy
+    tstate.interval = next_interval(tstate.interval, made_progress)
+    tstate.next_poll_at = now_mono + tstate.interval
+    if status != "ok":
+        return
+    _process_new_lines(sid, lines)
+
+
+# F-01: 信号源 (= watchfiles の awatch から得た「変更があった jsonl path」 set)。
+# monitor が awatch task を別途回し、 信号で next_poll_at を即時 advance させる
+# (= 既存 polling と並走する fallback 設計、 watchfiles 起動失敗時も 0.5s polling で
+# 自己回復する安全側の設計)。
+_watch_signal_paths: set[Path] = set()
+_watch_signal_lock: asyncio.Lock | None = None
+
+
+def _get_watch_signal_lock() -> asyncio.Lock:
+    """awatch task と monitor の signal 共有 lock を遅延生成 (= test の event loop
+    隔離保護)。"""
+    global _watch_signal_lock
+    if _watch_signal_lock is None:
+        _watch_signal_lock = asyncio.Lock()
+    return _watch_signal_lock
+
+
+async def _watch_jsonl_paths_loop():
+    """watchfiles で全 sid の jsonl_path 親 dir 群を監視し、 変更があった path を
+    `_watch_signal_paths` に積む (= backend-F-01 / F-16)。 monitor がこれを per-tick
+    で吸い出して next_poll_at[sid] を即時 advance する。
+
+    watchfiles 未到達の path (= claude が path 解決前) は次の per-sid initialize で
+    polling 経路が拾うので、 awatch failure は致命的でない。 例外時は loop を再起動。
+    """
+    try:
+        from watchfiles import awatch  # noqa: PLC0415
+    except ImportError:
+        logger.warning("watchfiles unavailable; falling back to pure polling")
+        return
+    logger.info("_watch_jsonl_paths_loop started (watchfiles driver)")
+    while True:
+        try:
+            # 監視対象 dir 群 (= 全 sid の jsonl 親 dir)。 sid 追加 / path 切替で随時
+            # 変わるので、 awatch を「現存 path 群」 で起動し、 path 変動時は loop を
+            # 短く回して再起動する。
+            from backend.state import sessions_meta as _sm  # noqa: PLC0415
+            dirs: set[Path] = set()
+            for sid in list(_sm.keys()):
+                p = _latest_jsonl(sid)
+                if p is not None:
+                    dirs.add(p.parent)
+            if not dirs:
+                await asyncio.sleep(POLL_INTERVAL)
+                continue
+            # awatch は内部で 100ms polling (= macOS fsevents ベース) なので一般に体感
+            # 即時。 step=100ms 指定で wake up を加速。
+            async for changes in awatch(*dirs, step=100, recursive=False):
+                lock = _get_watch_signal_lock()
+                async with lock:
+                    for _evt_type, raw_path in changes:
+                        _watch_signal_paths.add(Path(raw_path))
+                # 既存 dirs に追加 sid が出てきたら awatch を再起動する必要があるため、
+                # 一定間隔で外側 while に戻して dirs を再評価する。 5 回 change 受けたら
+                # break。 信号は while 外でも吸われるので取りこぼし無し。
+                if len(_watch_signal_paths) > 50:
+                    break
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("_watch_jsonl_paths_loop iteration failed; retrying")
+            await asyncio.sleep(1.0)
+
+
+def _drain_watch_signals_to_state(states: dict[str, SessionTailState], sid_by_path: dict[Path, str]) -> None:
+    """awatch の信号 set から「changed sid」 を解決して next_poll_at を即時 advance
+    する。 watchfiles が拾った change から数 ms で monitor が tail に進む経路 (= F-01)。"""
+    if not _watch_signal_paths:
+        return
+    # asyncio.Lock を sync で取得しないために集合を交換する手法 (= GIL で原子的に空 set
+    # と差し替え) を取る。 take は別の参照、 _watch_signal_paths はクリアされる。
+    take = _watch_signal_paths.copy()
+    _watch_signal_paths.clear()
+    now_mono = time.monotonic()
+    for p in take:
+        sid = sid_by_path.get(p)
+        if sid is None:
+            continue
+        ts = states.get(sid)
+        if ts is not None:
+            ts.next_poll_at = now_mono  # 次 tick 即発火
+
+
 async def monitor_all_sessions_loop():
     """全 PWA session の JSONL を常時 tail し、 推論を止める要因を検出して push 発火する。
 
     起動時は各 sid を末尾 offset から開始する (= backend 起動前の過去行は通知しない)。
     `/clear` 等で claude_sid が切り替わると `_latest_jsonl` が新 path を返すので、
-    そのときは新 path の末尾から再開する。 file が縮んだ (rotate / truncate) 場合も
-    同様に末尾再同期。
+    そのときは新 path の末尾から再同期する。 file が縮んだ (rotate / truncate) 場合も同様。
 
-    State: state[sid] = (path, byte_offset)。 SSE 経路の `offsetRef` とは独立した
-    バックエンド内の追跡 (= frontend の localStorage が消えても影響を受けない)。
+    内部 state: states[sid] = SessionTailState (= path / offset / last_line_at /
+    interval / next_poll_at / consecutive_failures、 backend-F-03 で集約)。 SSE 経路の
+    `offsetRef` とは独立した backend 内追跡 (= frontend の localStorage が消えても影響
+    無し)。 F-65: per-sid 連続失敗 counter で poison 1 sid を一時 quarantine する。
+    F-01: watchfiles awatch task を別途起動し、 信号で next_poll_at を advance する。
     """
-    state: dict[str, tuple[Path, int]] = {}
-    # sid → 最後に新規 JSONL 行を処理した monotonic 時刻 (= idle watchdog 用)。
-    last_line_at: dict[str, float] = {}
-    # idle session の poll を back-off するための per-sid 状態。
-    # 変化が来たら base に戻し、 nochange が続いたら 1.5x ずつ伸ばす (上限 2s)。
-    sid_interval: dict[str, float] = {}
-    next_poll_at: dict[str, float] = {}
+    states: dict[str, SessionTailState] = {}
     logger.info("monitor_all_sessions_loop started")
+    # F-01: watchfiles 駆動の wake-up task を並走 (= fallback として polling は維持)。
+    watcher_task = asyncio.create_task(_watch_jsonl_paths_loop())
     try:
         while True:
             try:
                 await asyncio.sleep(POLL_INTERVAL)
                 from backend.state import sessions_meta as _sessions_meta  # 動的参照
                 # 削除済み session の追跡 entry を刈り取る (= 無停止運用での単調増加防止)
-                for stale in [s for s in state if s not in _sessions_meta]:
-                    state.pop(stale, None)
-                    last_line_at.pop(stale, None)
-                    sid_interval.pop(stale, None)
-                    next_poll_at.pop(stale, None)
+                for stale in [s for s in states if s not in _sessions_meta]:
+                    states.pop(stale, None)
+                # F-01: watchfiles の信号を吸い出して next_poll_at を advance する。
+                sid_by_path: dict[Path, str] = {}
+                for sid, ts in states.items():
+                    if ts.path is not None:
+                        sid_by_path[ts.path] = sid
+                _drain_watch_signals_to_state(states, sid_by_path)
                 now_mono = time.monotonic()
                 for sid in list(_sessions_meta.keys()):
-                    # idle back-off: 該当 sid の次 poll 時刻に達してなければスキップ
-                    if next_poll_at.get(sid, 0.0) > now_mono:
+                    tstate = states.get(sid)
+                    if tstate is None:
+                        tstate = SessionTailState()
+                        states[sid] = tstate
+                    # F-65: quarantine 中なら sleep 中扱いで skip
+                    if tstate.next_poll_at > now_mono:
                         continue
-                    path = _latest_jsonl(sid)
-                    if path is None:
-                        # path 未解決 sid は base interval で次回再試行
-                        next_poll_at[sid] = now_mono + POLL_INTERVAL
-                        continue
-                    prev = state.get(sid)
-                    if prev is None or prev[0] != path:
-                        # 初回 or path 切替: 末尾から開始 (= 過去行を再通知しない)
-                        try:
-                            state[sid] = (path, path.stat().st_size)
-                        except OSError:
-                            pass
-                        # path 切替時 (= /clear / resume / フォーク等で claude session が
-                        # 入れ替わった時) は jsonl 由来の蓄積メタを空に戻す。 これで前 session
-                        # の PR や task list が新 session に持ち越されない (2026-06-12)。
-                        if prev is not None and prev[0] != path:
-                            a = agent_status.get(sid)
-                            if a is not None:
-                                if a.get("pr_links"):
-                                    a["pr_links"] = []
-                                if a.get("tasks"):
-                                    a["tasks"] = []
-                                st_reset = stream_states.get(sid)
-                                if st_reset is not None:
-                                    st_reset.status_event.set()
-                                    sessions_overview.notify()
-                        # busy は過去行を通知しない代わりに末尾から現在値を 1 回算出する
-                        # (= backend 起動時に推論中だった session も正しく busy=True にする)。
-                        st = stream_states.get(sid)
-                        if st is not None:
-                            new_busy = _compute_busy_from_tail(path)
-                            if st.user_stopped:
-                                new_busy = False
-                            if new_busy != st.busy:
-                                st.busy = new_busy
-                                sessions_overview.notify()
-                        last_line_at[sid] = time.monotonic()
-                        continue
-                    lines, new_pos, status = _read_tail(path, prev[1])
-                    if status == "error":
-                        continue
-                    # truncated → 末尾再同期 (new_pos=size) / ok → 進行 / nochange → 据置
-                    state[sid] = (path, new_pos)
-                    if status == "ok" and lines:
-                        last_line_at[sid] = time.monotonic()
-                    # idle watchdog: busy のまま長時間 静かなら file 真値で再判定 (= 終端マーカー
-                    # 欠落 / 取りこぼしのバックストップ)。 user_stopped 中は触らない。
-                    st_w = stream_states.get(sid)
-                    if (
-                        st_w is not None and st_w.busy and not st_w.user_stopped
-                        and time.monotonic() - last_line_at.get(sid, time.monotonic()) >= WATCHDOG_IDLE_SEC
-                        and not _busy_after_idle(path)
-                    ):
-                        st_w.busy = False
-                        last_line_at[sid] = time.monotonic()  # 再発火を抑える
-                        sessions_overview.notify()
-                    # back-off 更新: next_interval helper (= backend-F-42) に集約。
-                    # **busy=true 中の sid は back-off せず即時 poll**: end_turn 到着時の
-                    # busy=false 遷移を 2s 遅延させない (= 「応答来たのに停止ボタンのまま」 抑止)。
-                    is_busy = st_w is not None and st_w.busy and not st_w.user_stopped
-                    made_progress = (status == "ok" and bool(lines)) or is_busy
-                    sid_interval[sid] = next_interval(
-                        sid_interval.get(sid, POLL_INTERVAL), made_progress
-                    )
-                    next_poll_at[sid] = now_mono + sid_interval[sid]
-                    if status != "ok":
-                        continue
-                    for raw in lines:
-                        raw = raw.strip()
-                        if not raw:
-                            continue
-                        try:
-                            obj = json.loads(raw)
-                        except json.JSONDecodeError:
-                            continue
-                        _maybe_push_blockers(sid, obj)
-                        _update_busy(sid, obj)
-                        # agent_status (= current_tool / todos / pending_question /
-                        # pending_plan / model / ctx_pct) も backend 側で常時更新する。
-                        # SSE 接続中の session しか更新されないと、 非アクティブタブの
-                        # AskUserQuestion / ExitPlanMode が overview SSE の pending_*
-                        # フラグに反映されない (= hook 経路だけが頼り)。 idempotent + 二重発火
-                        # gate 済みなので SSE 経路と並走しても害なし。
-                        if _mutate_agent_status(sid, obj):
-                            st_obj = stream_states.get(sid)
-                            if st_obj is not None:
-                                st_obj.status_event.set()
-                                sessions_overview.notify()  # 全 sid SSE にも伝播
+                    try:
+                        _tick_sid(sid, tstate, now_mono)
+                        # 成功 (= 例外無し) → failure counter を 0 へ
+                        if tstate.consecutive_failures:
+                            tstate.consecutive_failures = 0
+                    except Exception:
+                        # F-65: 1 sid 分の per-tick で例外発生 → counter increment、
+                        # 閾値到達で quarantine。 backend 全体は落とさず poison 1 sid だけ
+                        # 隔離する。
+                        tstate.consecutive_failures += 1
+                        if tstate.consecutive_failures >= _QUARANTINE_THRESHOLD:
+                            tstate.next_poll_at = now_mono + _QUARANTINE_SEC
+                            tstate.interval = POLL_INTERVAL
+                            logger.exception(
+                                "monitor: sid=%s quarantined for %.0fs after %d consecutive failures",
+                                sid, _QUARANTINE_SEC, tstate.consecutive_failures,
+                            )
+                        else:
+                            logger.exception(
+                                "monitor: sid=%s tick failed (count=%d)",
+                                sid, tstate.consecutive_failures,
+                            )
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.exception("monitor_all_sessions_loop iteration failed")
+                logger.exception("monitor_all_sessions_loop outer iteration failed")
     except asyncio.CancelledError:
         logger.info("monitor_all_sessions_loop cancelled")
+        watcher_task.cancel()
+        try:
+            await watcher_task
+        except (asyncio.CancelledError, Exception):
+            pass
         raise
