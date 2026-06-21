@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import MessageRenderer from '../MessageRenderer.jsx'
+import MessageRenderer from './MessageRenderer.jsx'
 import { formatTool } from '../utils/format.js'
 import { apiFetch, apiUrl } from '../utils/api.js'
 import { useEscape } from '../hooks/useEscape.js'
