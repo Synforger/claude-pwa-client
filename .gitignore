@@ -6,6 +6,8 @@ backend/session_meta.json
 backend/vapid.json
 backend/subscriptions.json
 backend/notifications.json
+backend/data/
+backend/secrets/
 /.env
 frontend/public/manifest.json
 frontend/public/local-icons/

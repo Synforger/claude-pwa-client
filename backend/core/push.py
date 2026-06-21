@@ -27,13 +27,11 @@ except ImportError:
     _HAS_WEBPUSH = False
 
 from backend.config import AGENTS, NOTIFICATION_TITLE_DEFAULT, VAPID_SUB
+from backend.paths import SUBSCRIPTIONS_PATH, VAPID_PATH
 from backend.state import atomic_write_text, is_session_viewed, sessions_meta
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-VAPID_PATH = Path(__file__).parent.parent / "vapid.json"
-SUBSCRIPTIONS_PATH = Path(__file__).parent.parent / "subscriptions.json"
 
 # 未読カウンタ: broadcast_push のたびに +1、 PWA を開いた時の /notifications/read-all や
 # /notifications/sync で 0 リセット。 通知履歴本体は保持しない (= 2026-05-16 改修で

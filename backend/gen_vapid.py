@@ -1,21 +1,19 @@
-"""VAPID 鍵ペアを生成して backend/vapid.json に書き出す。
+"""VAPID 鍵ペアを生成して backend/secrets/vapid.json に書き出す。
 
 Web Push 機能を使うには 1 度だけこのスクリプトを実行する。
 出力ファイルは gitignore 済み (公開リポでの鍵漏洩を防ぐため)。
 
 使い方:
-    python gen_vapid.py [--force]
+    python -m backend.gen_vapid [--force]
 """
 import argparse
 import base64
 import json
-from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
-
-VAPID_PATH = Path(__file__).parent / "vapid.json"
+from backend.paths import VAPID_PATH
 
 
 def b64url(data: bytes) -> str:

@@ -34,7 +34,7 @@ def atomic_write_text(path: Path, content: str) -> None:
     os.replace(tmp, path)
 
 # --- 永続化パス ---
-SESSION_META_PATH = Path(__file__).parent / "session_meta.json"
+from backend.paths import SESSION_META_PATH  # noqa: E402, F401
 
 # SDK が ResultMessage.model_usage で contextWindow を返してくれない / agent_status にもまだ
 # 入ってない初回の fallback 値。 Sonnet / Opus の最大コンテキスト相当 (= 1M tokens)。

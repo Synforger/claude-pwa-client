@@ -29,8 +29,7 @@ from fastapi.staticfiles import StaticFiles
 # 加えて uvicorn の access log (= 通常 stdout に流れて LaunchAgent の StandardOutPath で
 # backend.log に永続 append されてた、 過去 18MB まで膨らんだ実績) も同じ機構に流す
 # (= setup_uvicorn_access_log() で別 file に rotation 付きで投入)。
-LOG_DIR = Path(__file__).parent.parent / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+from backend.paths import LOGS_DIR as LOG_DIR  # noqa: E402
 ERROR_LOG_PATH = LOG_DIR / "backend.error.log"
 ACCESS_LOG_PATH = LOG_DIR / "backend.access.log"
 LOG_MAX_BYTES = 5 * 1024 * 1024   # 5MB / file
@@ -216,7 +215,7 @@ app.include_router(subagents_routes.router)
 
 
 # --- 静的ファイル配信 (Vite ビルド成果物) ---
-FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+from backend.paths import FRONTEND_DIST  # noqa: E402
 
 
 class CacheControlledStaticFiles(StaticFiles):

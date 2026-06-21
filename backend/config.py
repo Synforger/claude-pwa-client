@@ -2,9 +2,9 @@
 import json
 from pathlib import Path
 
-HOME = Path.home()
+from backend.paths import CONFIG_PATH
 
-CONFIG_PATH = Path(__file__).parent / "config.json"
+HOME = Path.home()
 
 with open(CONFIG_PATH) as f:
     config = json.load(f)
