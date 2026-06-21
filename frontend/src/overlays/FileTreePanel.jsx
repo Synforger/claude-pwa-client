@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch } from '../utils/api.js'
 import { loadFavs, toggleFav as toggleFavStore, removeFav as removeFavStore, subscribeFavs } from '../utils/favorites.js'
+import { lsSetDebounced } from '../utils/storage.js'
 import './FileTreePanel.css'
 
 const HOME = '~'
@@ -30,13 +31,28 @@ export default function FileTreePanel({ onOpenFile, onClose, initialPath }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [favs, setFavs] = useState(() => loadFavs())
+  // 永続化形式: lsSetDebounced は JSON で書く → 旧 raw string '0' / '1' との両方を読む。
+  // boolean を JSON 化 (= "true" / "false") した値も認識する。 default = true (= 開く)。
   const [favsOpen, setFavsOpen] = useState(() => {
-    try { return localStorage.getItem('cpc.fileTree.favsOpen') !== '0' } catch { return true }
+    try {
+      const raw = localStorage.getItem('cpc.fileTree.favsOpen')
+      if (raw == null) return true
+      // 旧 raw 形式: '0' / '1'
+      if (raw === '0') return false
+      if (raw === '1') return true
+      // 新 JSON 形式: 'true' / 'false'
+      try { return JSON.parse(raw) !== false } catch { return true }
+    } catch { return true }
   })
+  // 連打しても末尾値だけ commit する debounce 化 (= F-46)。 単発操作だが pagehide で
+  // 確実に書き戻すので「閉じたまま閉じる」 系の取りこぼしも防げる。 lsSetDebounced は
+  // JSON.stringify するので '1'/'0' は JSON string として保存される (= 既存 raw 値とは
+  // 形式が違う)。 read 側はそのまま `!== '0'` で raw 比較しており「`"0"` (JSON) も `0` も
+  // 一致しない = true」 になるので、 単に boolean を直接保存して読み側もそれに合わせる。
   const toggleFavsOpen = () => {
     setFavsOpen(prev => {
       const next = !prev
-      try { localStorage.setItem('cpc.fileTree.favsOpen', next ? '1' : '0') } catch { /* noop */ }
+      lsSetDebounced('cpc.fileTree.favsOpen', next)
       return next
     })
   }
