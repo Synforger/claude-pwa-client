@@ -66,3 +66,21 @@
   font-size: 11px;
   line-height: 1.5;
 }
+.task-note-reload {
+  margin-top: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.task-note-reload:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.task-note-reload:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
