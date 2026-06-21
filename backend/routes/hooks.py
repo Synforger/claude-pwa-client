@@ -25,7 +25,7 @@ from typing import Awaitable, Callable, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 
-from backend.config import AGENTS, TMUX_SESSION_MAP_DIR
+from backend.config import AGENTS
 from backend.core.push import broadcast_push, notification_title_for
 import backend.jsonl.watcher as jsonl_watcher  # backend-F-40: 旧版は関数内 import で循環回避
 from backend.jsonl.session_status import (
@@ -42,9 +42,6 @@ from backend.state import sessions_meta
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-_TMUX_MAP = Path(TMUX_SESSION_MAP_DIR).expanduser() if TMUX_SESSION_MAP_DIR else None
 
 
 def _pwa_session_for_claude_sid(claude_sid: str | None) -> str | None:
