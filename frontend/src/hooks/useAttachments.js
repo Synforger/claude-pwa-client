@@ -31,18 +31,24 @@ export function useAttachments(activeSession) {
     if (!sid) return
     const files = Array.from(e.target.files || [])
     e.target.value = ''
-    const newItems = await Promise.all(files.map(async file => {
+    // F-31: putImage は IndexedDB の readwrite tx + _enforceCaps を内部で叩くので、
+    // Promise.all で並列に走らせると tx が重なって lock 待ちが発生し、 cap 計算も
+    // race する。 直列ループにすれば tx は順に commit され、 cap 評価も常に直前の
+    // commit 反映済みで安定する。 画像数は通常 1-5 程度なので直列化のレイテンシ
+    // 増は実用上無視可能。
+    const newItems = []
+    for (const file of files) {
       const isImage = SUPPORTED_IMAGE_TYPES.includes(file.type)
       let imageId = null
       if (isImage) {
         try { imageId = await putImage(file) } catch { /* 失敗時は imageRefs 無しで送る */ }
       }
-      return {
+      newItems.push({
         file,
         url: isImage ? URL.createObjectURL(file) : null,
         imageId,
-      }
-    }))
+      })
+    }
     setAttachments(prev => ({
       ...prev,
       [sid]: [...(prev[sid] || []), ...newItems],
