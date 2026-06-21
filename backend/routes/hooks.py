@@ -25,6 +25,10 @@ from fastapi import APIRouter, HTTPException, Request
 
 from backend.config import AGENTS, TMUX_SESSION_MAP_DIR
 from backend.core.push import broadcast_push, notification_title_for
+from backend.jsonl.session_status import (
+    apply_immediate_stop as _apply_immediate_stop,
+    apply_pending_question as _apply_pending_question,
+)
 from backend.state import agent_status, sessions_meta, sessions_overview, stream_states
 
 logger = logging.getLogger(__name__)
@@ -204,17 +208,13 @@ async def hooks_event(request: Request) -> dict:
         # 載せる (= 2026-05-24 実機ダンプで確認、 spec で `output` ではない)。
         body_raw = payload.get("last_assistant_message") or payload.get("output") or ""
         body = _truncate(body_raw) if body_raw else "(turn 完了)"
-        # turn 完了の即時通知: agent_status の current_tool / subagent を解放 + status SSE を
-        # 即発火することで、 JSONL の result 行 tail 待ち (= 数百 ms-数秒) を待たずに
-        # PWA 側の停止ボタン → 送信ボタン切替を ms 単位で確定させる。
-        a = agent_status.get(pwa_session_id)
-        if a is not None:
-            a["current_tool"] = None
-            a["subagent"] = None
-        state = stream_states.get(pwa_session_id)
-        if state is not None:
-            state.status_event.set()
-            sessions_overview.notify()  # 全 sid SSE にも伝播
+        # turn 完了の即時化 (= backend-F-12): agent_status の current_tool / subagent
+        # mutate は session_status.apply_immediate_stop に集約し、 ここは「JSONL tail
+        # 到着を待たない加速 trigger」 として helper を呼ぶだけ。 mutate 経路が hook と
+        # JSONL tail (= mutate_agent_status の stop_reason 確定経路) で 2 本だった race
+        # を session_status 1 本に絞る。 helper 内部で status_event.set /
+        # sessions_overview.notify まで完結する。
+        _apply_immediate_stop(pwa_session_id)
         # fire-and-forget: webpush 送信は数百 ms かかる場合があり、 hook の curl が
         # それを待つと claude プロセスの Stop ハンドラ完了が遅れて体感も遅くなる。
         # backend は即 200 を返して、 配信は別 task に逃がす。
