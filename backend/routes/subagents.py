@@ -19,6 +19,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from backend.jsonl.events import subagent_line_to_events
+from backend.jsonl.session_status import scan_single_agent_file
 from backend.terminal.runner import jsonl_path_for_session
 
 logger = logging.getLogger(__name__)
@@ -51,47 +52,15 @@ def _subagents_dir(session_id: str) -> Path | None:
 
 
 def _scan_agent_file(path: Path) -> dict:
-    """agent jsonl を 1 パスして status / last_tool を求める。
+    """agent jsonl を 1 パスして status / last_tool を求める (= backend-F-18 で
+    `backend.jsonl.session_status.scan_single_agent_file` に集約済の thin wrapper)。
 
-    - last_tool: 最後に現れた tool_use の name (= 実行中なら「今やってる処理」)
-    - done: 最後に出た **確定 stop_reason** (= tool_use 以外) より後に tool_result が無い
-
-    旧実装は assistant 行のたびに done を再評価 → 直後の null stop_reason 行で
-    false に上書きされる罠があり、 走り終わったエージェントが running のまま固まる
-    ことがあった。 1 パス回して「最後の確定 stop_reason の index」 と「最後の
-    tool_result の index」 を比較する方式に変更 (2026-06-12)。
+    旧実装は本 file 内に独自 scan を持っており、 `latest_subagent_tool` 系と末尾 read +
+    行 parse を別実装で重複保持していた (= 同じ logic が 2 箇所、 同じ罠を 2 度踏みうる
+    構造)。 共通基盤へ委譲して 1 箇所で表現する。
     """
-    last_tool: str | None = None
-    last_stop_idx = -1
-    last_tool_result_idx = -1
-    try:
-        with path.open() as fh:
-            for i, raw in enumerate(fh):
-                try:
-                    line = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                msg = line.get("message") or {}
-                content = msg.get("content")
-                if isinstance(content, list):
-                    for b in content:
-                        if isinstance(b, dict) and b.get("type") == "tool_use":
-                            name = b.get("name")
-                            if name:
-                                last_tool = name
-                if line.get("type") == "assistant":
-                    sr = msg.get("stop_reason")
-                    if sr and sr != "tool_use":
-                        last_stop_idx = i
-                elif isinstance(content, list) and any(
-                    isinstance(b, dict) and b.get("type") == "tool_result" for b in content
-                ):
-                    last_tool_result_idx = i
-    except OSError:
-        pass
-    # 確定 stop_reason があって、 その後に tool_result が無ければ完了
-    done = last_stop_idx >= 0 and last_stop_idx > last_tool_result_idx
-    return {"lastTool": last_tool, "done": done}
+    scan = scan_single_agent_file(path)
+    return {"lastTool": scan["lastTool"], "done": scan["done"]}
 
 
 def _read_meta(meta_path: Path) -> dict:

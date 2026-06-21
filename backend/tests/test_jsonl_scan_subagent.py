@@ -9,6 +9,7 @@ import os
 
 from backend.jsonl.session_status import (
     latest_subagent_tool,
+    scan_single_agent_file,
     scan_subagent_tail,
 )
 
@@ -94,3 +95,69 @@ def test_latest_subagent_tool_delegates(tmp_path):
         ("Read", "t1"), ("Write", "t2"), ("Bash", "t3"),
     ], mtime=1000)
     assert latest_subagent_tool(jsonl, since=0) == "Bash"
+
+
+# --- scan_single_agent_file: backend-F-18 export for routes/subagents.py ---
+
+def _write_agent_with_stop(path, *, tools, stop_reason):
+    """末尾 assistant 行に stop_reason を持たせた agent jsonl を書く。"""
+    lines = []
+    for name, tid in tools:
+        lines.append(json.dumps({
+            "type": "assistant", "isSidechain": True,
+            "message": {"content": [{
+                "type": "tool_use", "name": name, "id": tid, "input": {},
+            }]},
+        }))
+    lines.append(json.dumps({
+        "type": "assistant", "isSidechain": True,
+        "message": {"content": [{"type": "text", "text": "done"}],
+                    "stop_reason": stop_reason},
+    }))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n")
+
+
+def test_scan_single_agent_file_done_after_end_turn(tmp_path):
+    p = tmp_path / "subagents" / "agent-a.jsonl"
+    _write_agent_with_stop(p, tools=[("Read", "t1"), ("Bash", "t2")], stop_reason="end_turn")
+    r = scan_single_agent_file(p)
+    assert r["lastTool"] == "Bash"
+    assert r["done"] is True
+
+
+def test_scan_single_agent_file_running_when_tool_use_only(tmp_path):
+    p = tmp_path / "subagents" / "agent-b.jsonl"
+    _write_agent_with_stop(p, tools=[("Grep", "t1")], stop_reason="tool_use")
+    r = scan_single_agent_file(p)
+    # stop_reason=="tool_use" は終端でない → done=False
+    assert r["lastTool"] == "Grep"
+    assert r["done"] is False
+
+
+def test_scan_single_agent_file_handles_missing_file(tmp_path):
+    r = scan_single_agent_file(tmp_path / "nope.jsonl")
+    assert r["lastTool"] is None
+    assert r["done"] is False
+    assert r["lines_read"] == 0
+
+
+def test_scan_single_agent_file_skips_bad_json(tmp_path):
+    p = tmp_path / "subagents" / "agent-c.jsonl"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("not json\n" + json.dumps({
+        "type": "assistant", "isSidechain": True,
+        "message": {"content": [{"type": "tool_use", "name": "Read", "id": "t1"}]},
+    }) + "\n")
+    r = scan_single_agent_file(p)
+    assert r["lastTool"] == "Read"
+
+
+def test_routes_subagents_uses_new_api(tmp_path, monkeypatch):
+    """routes/subagents.py の `_scan_agent_file` は scan_single_agent_file 経由で
+    旧 logic と同等の戻り値を返す (= drop-in 互換)。"""
+    import backend.routes.subagents as subagents_routes
+    p = tmp_path / "subagents" / "agent-d.jsonl"
+    _write_agent_with_stop(p, tools=[("Read", "t1")], stop_reason="end_turn")
+    out = subagents_routes._scan_agent_file(p)
+    assert out == {"lastTool": "Read", "done": True}
