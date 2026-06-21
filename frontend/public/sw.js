@@ -130,6 +130,20 @@ self.addEventListener('push', (event) => {
           showType: reg ? typeof reg.showNotification : 'no-reg',
           scope: reg ? reg.scope : null,
         })
+        // F-19 (= 2026-06-21): 失効を検出したら回復を試みる。
+        //   1. registration.update() で新しい SW を取得し直す (= 軽量回復経路、 register
+        //      失敗なら何もしない)
+        //   2. 全 client に 'sw-broken' postMessage を投げて App 側 (= usePushSubscription)
+        //      に SW unregister + reload させる (= 確実な回復経路)
+        // 1 で治れば 2 の reload も結果的に害なし (= 新 reg を取りに行くだけ)、 1 で治らず
+        // 2 だけが効くケースもある。 どちらか効けば次回 push は通る。
+        try { if (reg && typeof reg.update === 'function') reg.update() } catch { /* ignore */ }
+        try {
+          const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+          for (const c of clients) {
+            try { c.postMessage({ type: 'sw-broken', reason: 'showNotification-missing' }) } catch { /* ignore */ }
+          }
+        } catch { /* ignore */ }
         return
       }
       await reg.showNotification(data.title || 'Notification', {
