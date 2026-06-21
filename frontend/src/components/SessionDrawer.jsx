@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch } from '../utils/api.js'
+import { useOutsideClick } from '../hooks/useOutsideClick.js'
 import './SessionDrawer.css'
 
 // ⋯ メニューを押した時、 viewport 下端からどれくらい離れていれば「上方向に展開する」 と
@@ -48,6 +49,9 @@ export default function SessionDrawer({
 }) {
   const [agentPicker, setAgentPicker] = useState(false) // + ボタン押下後の agent 選択メニュー
   const [accounts, setAccounts] = useState([])
+  // accounts fetch の失敗状態 (= F-40)。 null = まだ試してない / 'loading' / 'error' / 'ok'。
+  // 失敗時に retry ボタンを出し、 30 秒経過したら自動 1 回 retry する。
+  const [accountsStatus, setAccountsStatus] = useState(null)
   const [menuFor, setMenuFor] = useState(null)          // ⋯ メニュー出してる session_id
   const [menuFlipUp, setMenuFlipUp] = useState(false)   // 画面下端なら上方向に展開
   const [renameFor, setRenameFor] = useState(null)      // リネーム inline 編集中の session_id
@@ -101,31 +105,58 @@ export default function SessionDrawer({
     }
   }, [open])
 
-  // 総合メニュー外クリックで閉じる
-  useEffect(() => {
-    if (!globalMenuOpen) return
-    const handler = (e) => {
-      if (globalMenuRef.current && !globalMenuRef.current.contains(e.target)) {
-        setGlobalMenuOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [globalMenuOpen])
+  // 総合メニュー外クリックで閉じる (= F-29 集約)
+  useOutsideClick(globalMenuRef, () => setGlobalMenuOpen(false), { enabled: globalMenuOpen })
 
   const [pickedAgent, setPickedAgent] = useState(null)
 
   // 新規会話ダイアログを開いた時にアカウント候補を取得 (= /accounts、 通常 personal 1 つ
   // しか無ければ選択肢自体をスキップして agent → 即作成のフロー)。
+  // F-40: 失敗時は error 状態を残し、 ユーザに retry ボタンを出す。 同時に 30 秒経過で
+  // 1 回だけ自動 retry を試みる (= 一時的な network 切れを救う)。
+  // useCallback で参照固定 → useEffect deps に安全に入れられる。
+  const fetchAccounts = useCallback((signal) => {
+    setAccountsStatus('loading')
+    return apiFetch('/accounts', signal ? { signal } : undefined)
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then(a => {
+        if (signal?.aborted) return
+        setAccounts(Array.isArray(a) ? a : [])
+        setAccountsStatus('ok')
+      })
+      .catch(e => {
+        if (e?.name === 'AbortError') return
+        setAccounts([])
+        setAccountsStatus('error')
+      })
+  }, [])
   useEffect(() => {
-    if (!agentPicker || accounts.length > 0) return
-    apiFetch('/accounts')
-      .then(r => r.ok ? r.json() : [])
-      .then(a => setAccounts(Array.isArray(a) ? a : []))
-      .catch(() => setAccounts([]))
-  }, [agentPicker, accounts.length])
+    if (!agentPicker) return undefined
+    // 初回 (= 未試行) だけここで fetch する。 error からの再試行は (a) 30 秒 timer or
+    // (b) ユーザの再試行ボタン (= picker UI) で別経路から呼ぶ。 loading / ok / error 中は
+    // この effect は何もしない (= 再 fire ループを避ける)。
+    if (accountsStatus !== null) return undefined
+    const controller = new AbortController()
+    fetchAccounts(controller.signal)
+    return () => controller.abort()
+  }, [agentPicker, accountsStatus, fetchAccounts])
+  // 失敗から 30 秒経ったら自動 retry を 1 回だけ。 連続失敗時は手動 retry に委ねる。
+  useEffect(() => {
+    if (accountsStatus !== 'error' || !agentPicker) return undefined
+    const id = setTimeout(() => {
+      const controller = new AbortController()
+      fetchAccounts(controller.signal)
+    }, 30000)
+    return () => clearTimeout(id)
+  }, [accountsStatus, agentPicker, fetchAccounts])
 
   const handleAgentPick = (agentId) => {
+    // accounts 取得が失敗状態の時はアカウントを 1 つに決め切れないので picker を出して
+    // retry の機会を与える (= F-40)。 fetch 成功で 0 or 1 件なら従来通り即作成。
+    if (accountsStatus === 'error') {
+      setPickedAgent(agentId)
+      return
+    }
     if (accounts.length <= 1) {
       handleCreate(agentId, null)
       return
@@ -161,21 +192,25 @@ export default function SessionDrawer({
 
   // フォークタブ (= parent_id を持つ) を親の直下にインデント表示する (= C 案)。 兄弟内の
   // 並びは渡された順 (= created_at 降順) を保つ。 親が消えてる孤児はトップレベル扱い。
-  const idSet = new Set(sessions.map(s => s.id))
-  const childrenByParent = {}
-  for (const s of sessions) {
-    const key = (s.parent_id && idSet.has(s.parent_id)) ? s.parent_id : '__root__'
-    if (!childrenByParent[key]) childrenByParent[key] = []
-    childrenByParent[key].push(s)
-  }
-  const orderedSessions = []
-  const walkTree = (list, depth) => {
-    for (const s of list) {
-      orderedSessions.push({ session: s, depth })
-      if (childrenByParent[s.id]) walkTree(childrenByParent[s.id], depth + 1)
+  // F-38: sessions が変わった時だけ tree を組み直す (= 再 render 毎の object 構築を回避)。
+  const orderedSessions = useMemo(() => {
+    const idSet = new Set(sessions.map(s => s.id))
+    const childrenByParent = {}
+    for (const s of sessions) {
+      const key = (s.parent_id && idSet.has(s.parent_id)) ? s.parent_id : '__root__'
+      if (!childrenByParent[key]) childrenByParent[key] = []
+      childrenByParent[key].push(s)
     }
-  }
-  walkTree(childrenByParent['__root__'] || [], 0)
+    const result = []
+    const walkTree = (list, depth) => {
+      for (const s of list) {
+        result.push({ session: s, depth })
+        if (childrenByParent[s.id]) walkTree(childrenByParent[s.id], depth + 1)
+      }
+    }
+    walkTree(childrenByParent['__root__'] || [], 0)
+    return result
+  }, [sessions])
 
   return (
     <>
@@ -245,6 +280,21 @@ export default function SessionDrawer({
           ) : (
             <div className="agent-picker">
               <div className="agent-picker-label">アカウントを選択:</div>
+              {accountsStatus === 'error' && (
+                <div className="agent-picker-error">
+                  <span>アカウント一覧を取得できませんでした</span>
+                  <button
+                    className="agent-picker-retry"
+                    onClick={() => {
+                      const controller = new AbortController()
+                      fetchAccounts(controller.signal)
+                    }}
+                    disabled={accountsStatus === 'loading'}
+                  >
+                    {accountsStatus === 'loading' ? '取得中…' : '再試行'}
+                  </button>
+                </div>
+              )}
               {accounts.map(acc => (
                 <button
                   key={acc.id}
@@ -254,6 +304,15 @@ export default function SessionDrawer({
                   {acc.display_name}
                 </button>
               ))}
+              {accountsStatus === 'error' && (
+                <button
+                  className="agent-picker-item"
+                  onClick={() => handleCreate(pickedAgent, null)}
+                  title="アカウント指定なしで作成 (= backend が default を選ぶ)"
+                >
+                  既定アカウントで作成
+                </button>
+              )}
               <button className="agent-picker-cancel" onClick={() => setPickedAgent(null)}>
                 戻る
               </button>
