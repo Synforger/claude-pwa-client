@@ -372,6 +372,62 @@ def scan_subagent_tail(jsonl_path: Path, since: float) -> tuple[Path, list[dict]
     return newest, records
 
 
+def scan_single_agent_file(path: Path, since_offset: int = 0) -> dict:
+    """1 つの agent-*.jsonl を全パスして status / last_tool を求める (= backend-F-18 export)。
+
+    drop-in for `backend/routes/subagents.py:_scan_agent_file`: 戻り値は
+    `{"lastTool": str|None, "done": bool, "lines_read": int}` で、 旧 1 関数の意味論を
+    1 file scan API として export する。 since_offset は将来 incremental scan 化する
+    時の差分対応のための placeholder (= 現実装は file 先頭から読む、 0 で旧挙動と互換)。
+
+    判定規則 (= 旧 _scan_agent_file と同一):
+    - last_tool: 最後に現れた tool_use の name
+    - done: 最後に出た **確定 stop_reason** (= tool_use 以外) より後に tool_result が無い
+
+    旧実装は assistant 行のたびに done を再評価 → 直後の null stop_reason 行で
+    false に上書きされる罠があり、 走り終わったエージェントが running のまま固まる
+    ことがあった。 1 パス回して「最後の確定 stop_reason の index」 と「最後の
+    tool_result の index」 を比較する方式 (2026-06-12 修正と同型)。
+    """
+    last_tool: str | None = None
+    last_stop_idx = -1
+    last_tool_result_idx = -1
+    lines_read = 0
+    try:
+        with path.open() as fh:
+            if since_offset:
+                try:
+                    fh.seek(since_offset)
+                except OSError:
+                    pass
+            for i, raw in enumerate(fh):
+                lines_read += 1
+                try:
+                    line = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                msg = line.get("message") or {}
+                content = msg.get("content")
+                if isinstance(content, list):
+                    for b in content:
+                        if isinstance(b, dict) and b.get("type") == "tool_use":
+                            name = b.get("name")
+                            if name:
+                                last_tool = name
+                if line.get("type") == "assistant":
+                    sr = msg.get("stop_reason")
+                    if sr and sr != "tool_use":
+                        last_stop_idx = i
+                elif isinstance(content, list) and any(
+                    isinstance(b, dict) and b.get("type") == "tool_result" for b in content
+                ):
+                    last_tool_result_idx = i
+    except OSError:
+        pass
+    done = last_stop_idx >= 0 and last_stop_idx > last_tool_result_idx
+    return {"lastTool": last_tool, "done": done, "lines_read": lines_read}
+
+
 def latest_subagent_tool(jsonl_path: Path, since: float) -> str | None:
     """jsonl_path 対応の subagents/ で mtime 最新かつ since 以降に更新された
     agent-*.jsonl を読み、 最後の assistant tool_use 名を返す。 無ければ None。
