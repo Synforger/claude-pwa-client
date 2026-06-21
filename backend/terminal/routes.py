@@ -155,14 +155,23 @@ async def pty_socket(ws: WebSocket, session_id: str) -> None:
 
 
 async def _pump_to_client(ws: WebSocket, session: PtySession) -> None:
-    """PTY 出力 queue → client へバイナリで流す。"""
+    """PTY 出力 queue → client へバイナリで流す。
+
+    backend-F-15: 旧版は `wait_for(queue.get(), timeout=0.5)` で 0.5s ごとに wake up
+    する polling 経路で、 idle 時にも CPU を浪費し、 さらに「子 exit を 0.5s 遅れて検知
+    する」 タイムラグもあった。 asyncio.wait(FIRST_COMPLETED) で queue.get と
+    exit_event.wait を並走させ、 idle wake-up 0 / exit 検知ゼロ遅延に変える。
+    backend-F-26: WS 切断後の send は starlette が "Unexpected ASGI message
+    'websocket.send'" の RuntimeError を投げる。 それだけ debug、 他の RuntimeError は
+    exception で残す (= 旧版は全部 debug で潰してたので別の RuntimeError も静かに死んでた)。
+    """
+    queue_task: asyncio.Task | None = None
+    exit_task: asyncio.Task | None = None
     try:
         while True:
-            # client が既に切断済なら静かに終わる (= 閉じた WS への send を試みない)。
             if ws.client_state != WebSocketState.CONNECTED:
                 return
             if session.exit_event.is_set() and session.output_queue.empty():
-                # 子終了通知を 1 度だけ送って終わる
                 try:
                     await ws.send_text(json.dumps({
                         "type": "exit",
@@ -171,21 +180,40 @@ async def _pump_to_client(ws: WebSocket, session: PtySession) -> None:
                 except (WebSocketDisconnect, RuntimeError):
                     pass
                 return
-            try:
-                data = await asyncio.wait_for(session.output_queue.get(), timeout=0.5)
-            except asyncio.TimeoutError:
-                continue
-            await ws.send_bytes(data)
+            # queue / exit のどちらか先着で wake up (= F-15)。 タスクは再利用せず毎回作る
+            # (= asyncio.Queue.get / Event.wait は cancel 可、 cancel コストは無視できる)。
+            queue_task = asyncio.create_task(session.output_queue.get())
+            exit_task = asyncio.create_task(session.exit_event.wait())
+            done, pending = await asyncio.wait(
+                [queue_task, exit_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for t in pending:
+                t.cancel()
+            if queue_task in done:
+                try:
+                    data = queue_task.result()
+                except Exception:
+                    continue
+                await ws.send_bytes(data)
+            # exit_task が先着なら次 iter で exit_event/empty 判定に流す
+            queue_task = None
+            exit_task = None
     except WebSocketDisconnect:
         return
     except RuntimeError as e:
-        # WS が閉じた後の send は starlette が "Unexpected ASGI message 'websocket.send'"
-        # の RuntimeError を投げる。 異常ではなく client 切断の一種なので、 exception ログ
-        # ではなく debug で静かに終える (= 2026-05-28 に 8 回以上ログを噴いた汚染源)。
-        logger.debug("_pump_to_client: ws closed mid-send session=%s: %s", session.session_id, e)
-        return
+        if "Unexpected ASGI message" in str(e):
+            # 既知の WS 切断後 send race (= 2026-05-28 に 8 回以上ログ噴いた汚染源)。 debug で静かに。
+            logger.debug("_pump_to_client: ws closed mid-send session=%s: %s", session.session_id, e)
+            return
+        # 別 RuntimeError は埋もれさせない (= 黙殺で別 bug を見落とすのを防ぐ、 F-26)
+        logger.exception("_pump_to_client unexpected RuntimeError session=%s", session.session_id)
     except Exception:
         logger.exception("_pump_to_client error session=%s", session.session_id)
+    finally:
+        for t in (queue_task, exit_task):
+            if t is not None and not t.done():
+                t.cancel()
 
 
 async def _pump_from_client(ws: WebSocket, session: PtySession) -> None:
