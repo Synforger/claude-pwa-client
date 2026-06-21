@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from 'react'
+import React, { useRef, useState, useCallback, useDeferredValue, useMemo } from 'react'
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { visit } from 'unist-util-visit'
@@ -131,9 +131,24 @@ function CodeBlock({ children }) {
   )
 }
 
-const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile }) {
+const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile, streaming }) {
+  // F-24: streaming 中は text が毎 rAF 更新されて重い markdown 再 parse が連続する。
+  // useDeferredValue で markdown レンダリングを 1 段遅延させ、 入力 (= scroll / tap) を
+  // 優先描画する。 streaming 完了後は最終 text で同期に追い付く。
+  const deferredText = useDeferredValue(text)
+
+  // F-23: streaming 中はファイルパスのリンク化を skip する (= 不完全パスを毎フレーム
+  // 探索して visit する処理は streaming 1 文字ごとに発火するので重い)。 完了後の最終
+  // text で 1 回だけ走らせれば見た目は同じ。 remarkPlugins 配列は memo 化して
+  // ReactMarkdown 内部の effect を毎回再評価させない。
+  const plugins = useMemo(
+    () => (streaming ? [remarkGfm] : [remarkGfm, remarkFilePaths]),
+    [streaming],
+  )
+
   // 巨大メッセージは markdown を通さず plain text に倒す (= degeneration 等でメインスレッドが
   // 固まるのを防ぐ)。 streaming 中で途中まで巨大になったものも同様にガードされる。
+  // deferred ではなく現在 text で判定 (= 巨大化を遅らせず即時に重い経路を切る)。
   if (isOversizedMessage(text)) {
     return <LargeTextMessage text={text} />
   }
@@ -141,7 +156,7 @@ const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile }
   // react-markdown は例外を吐かず、暫定の見た目で描画する。途中の表やコードが視覚的に見えないよりマシ。
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, remarkFilePaths]}
+      remarkPlugins={plugins}
       urlTransform={(url) => {
         // cpc-file:// は内部で onOpenFile に流す独自スキーム = pass-through。
         // それ以外は react-markdown 既定の sanitizer を使い、 javascript: / data:
@@ -175,7 +190,7 @@ const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile }
         },
       }}
     >
-      {text}
+      {deferredText}
     </ReactMarkdown>
   )
 })
