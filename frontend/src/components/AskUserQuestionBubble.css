@@ -101,6 +101,19 @@ details.ask-question.answered[open] > .ask-summary::before {
   border-color: rgba(120, 170, 255, 0.7);
 }
 
+/* F-52: single 選択肢の pending highlight (= 1 タップ目)。 もう一度同じボタンを押すと送信。 */
+.ask-option.pending {
+  background: rgba(245, 200, 100, 0.18);
+  border-color: rgba(245, 200, 100, 0.7);
+  box-shadow: 0 0 0 2px rgba(245, 200, 100, 0.20);
+}
+.ask-pending-hint {
+  color: #f0c97a;
+  font-size: 11px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .ask-option:disabled {
   cursor: default;
 }
