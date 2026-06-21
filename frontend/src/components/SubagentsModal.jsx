@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import MessageRenderer from '../MessageRenderer.jsx'
 import { formatTool } from '../utils/format.js'
 import { apiFetch, apiUrl } from '../utils/api.js'
+import { useEscape } from '../hooks/useEscape.js'
 import '../overlays/Modal.css'
 import './SubagentsModal.css'
 
@@ -188,16 +189,12 @@ export default function SubagentsModal({ sid, focus, onClose }) {
     }
   }, [focus, data])
 
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key !== 'Escape') return
-      if (agent) setAgent(null)
-      else if (run) setRun(null)
-      else onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onClose, run, agent])
+  // Escape の動作 = 戻る (= drill-down → 一覧 → 閉じる) の階層下げ (= F-29 集約)
+  useEscape(() => {
+    if (agent) setAgent(null)
+    else if (run) setRun(null)
+    else onClose()
+  })
 
   const subagents = data?.subagents || []
   const workflows = data?.workflows || []
