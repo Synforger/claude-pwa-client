@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { apiUrl } from '../utils/api.js'
+import { registerConnection, notifyConnectionChange } from './useConnectionStatus.js'
 
 // 全 session の status を 1 本の SSE (/sessions/status/stream) で受信し、 activeSid に
 // 対応するエントリを返す。
@@ -22,20 +23,29 @@ export function useStatus(activeSession) {
 
   useEffect(() => {
     let evt = null
+    // EventSource は readyState 1=OPEN。 各 SSE / WS 共通の生死 signal に流す (= F-45)。
+    const unreg = registerConnection(() => {
+      const e = evtRef.current
+      return !!e && e.readyState === 1
+    })
     try {
       evt = new EventSource(apiUrl('/sessions/status/stream'))
+      evt.onopen = () => notifyConnectionChange()
       evt.onmessage = (e) => {
+        notifyConnectionChange()
         if (!e.data) return
         try {
           const data = JSON.parse(e.data)
           if (data && typeof data === 'object') setAllStatus(data)
         } catch { /* ignore parse error */ }
       }
+      evt.onerror = () => notifyConnectionChange()
       evtRef.current = evt
     } catch {
       /* EventSource not supported */
     }
     return () => {
+      unreg()
       if (evt) try { evt.close() } catch { /* ignore */ }
       evtRef.current = null
     }
