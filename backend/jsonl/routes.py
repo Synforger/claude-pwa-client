@@ -57,6 +57,24 @@ INITIAL_REPLAY_LINES = 500
 # tail の polling 間隔 (秒)。
 POLL_INTERVAL = 0.5
 
+# idle 時の back-off 上限秒。 SSE / monitor とも同じ値を使う (= backend-F-42 で統合)。
+_IDLE_MAX_INTERVAL = 2.0
+# back-off の伸び率 (= 変化なし時、 current * GROWTH で次回間隔を伸ばす)。
+_IDLE_GROWTH = 1.5
+
+
+def next_interval(current: float, made_progress: bool) -> float:
+    """idle back-off helper (= backend-F-42)。 旧 SSE 配信 (`_jsonl_sse`) と push 監視
+    (`monitor_all_sessions_loop`) で「変化あれば base / 無ければ 1.5x ずつ伸ばす (上限 2s)」
+    の同じロジックが 2 箇所に書かれていた。 ここに集約する。
+
+    made_progress=True (= 行追加された / busy 維持中) は次 tick も base 間隔で叩く、
+    False (= 完全 idle) なら current を 1.5 倍に伸ばす (上限 _IDLE_MAX_INTERVAL)。
+    """
+    if made_progress:
+        return POLL_INTERVAL
+    return min(current * _IDLE_GROWTH, _IDLE_MAX_INTERVAL)
+
 # idle watchdog: busy=True のまま JSONL がこの秒数以上 静かなら file 真値で busy を照合し直す。
 # 通常 (= 終端 stop_reason 行が書かれる) は monitor が即 busy=False にするので発火しない。
 # 終端マーカー欠落 (claude-code #22566) / monitor の取りこぼし のバックストップ。 長時間の
@@ -188,13 +206,11 @@ async def _jsonl_sse(session_id: str, start_pos: int | None = None):
                 st.status_event.set()
                 sessions_overview.notify()  # 全 sid SSE にも伝播
         # busy 中の sid は back-off せず base 間隔のまま (= end_turn 行を即時拾って
-        # busy=false 遷移を遅延させない)。
+        # busy=false 遷移を遅延させない)。 back-off ロジック自体は next_interval helper
+        # に集約 (= backend-F-42、 monitor 側も同じ helper を共有)。
         st_bk = stream_states.get(session_id)
         is_busy_now = st_bk is not None and st_bk.busy and not st_bk.user_stopped
-        if emitted or subagent_changed or is_busy_now:
-            idle_sleep = POLL_INTERVAL
-        else:
-            idle_sleep = min(idle_sleep * 1.5, 2.0)
+        idle_sleep = next_interval(idle_sleep, emitted or subagent_changed or is_busy_now)
         if not emitted:
             yield ": keep-alive\n\n"
 
@@ -324,16 +340,14 @@ async def monitor_all_sessions_loop():
                         st_w.busy = False
                         last_line_at[sid] = time.monotonic()  # 再発火を抑える
                         sessions_overview.notify()
-                    # back-off 更新: 変化があれば base、 nochange なら 1.5x ずつ伸ばす (上限 2s)。
+                    # back-off 更新: next_interval helper (= backend-F-42) に集約。
                     # **busy=true 中の sid は back-off せず即時 poll**: end_turn 到着時の
                     # busy=false 遷移を 2s 遅延させない (= 「応答来たのに停止ボタンのまま」 抑止)。
                     is_busy = st_w is not None and st_w.busy and not st_w.user_stopped
-                    if status == "ok" and lines:
-                        sid_interval[sid] = POLL_INTERVAL
-                    elif is_busy:
-                        sid_interval[sid] = POLL_INTERVAL
-                    else:
-                        sid_interval[sid] = min(sid_interval.get(sid, POLL_INTERVAL) * 1.5, 2.0)
+                    made_progress = (status == "ok" and bool(lines)) or is_busy
+                    sid_interval[sid] = next_interval(
+                        sid_interval.get(sid, POLL_INTERVAL), made_progress
+                    )
                     next_poll_at[sid] = now_mono + sid_interval[sid]
                     if status != "ok":
                         continue
