@@ -1,5 +1,6 @@
 import { memo, useEffect, useState } from 'react'
 import { getImageURL } from '../utils/imageStore.js'
+import './AttachedImages.css'
 
 // user メッセージの画像表示。 imageRefs (= IndexedDB の ID 配列) から URL を取り出し、
 // 表示中だけ ObjectURL を保持してアンマウント時に revoke する。
@@ -34,8 +35,35 @@ function AttachedImagesImpl({ imageRefs, imageUrls }) {
   // 旧 message だけ imageUrls フォールバックを使う。 両者を merge して並べる旧実装は
   // リロード後に「失効 URL = ?表示」 と「IndexedDB 復元 URL = 正常表示」 が
   // 並列に出て二重 + 片方が ? になる原因だった。
+  // F-53: IndexedDB から URL を作る間 (= 最初の数フレーム) は refUrls が全部 null になり
+  // 旧実装は何も描画しなかった。 添付枚数分の placeholder skeleton を即出して、 fetch
+  // 完了で skeleton が消え画像が現れる体験にする (= 初回 render での「何も無い」 を消す)。
   const hasRefs = imageRefs && imageRefs.length > 0
-  const allUrls = hasRefs ? refUrls.filter(Boolean) : (imageUrls || [])
+  if (hasRefs) {
+    return (
+      <div className="attach-images">
+        {refUrls.map((url, j) => (
+          url
+            ? <img key={j} src={url} className="msg-image" alt="" />
+            : <div
+                key={j}
+                className="msg-image"
+                // skeleton スタイルは inline で持つ (= MessageItem.css は W2-B スコープなので
+                // 衝突回避。 IndexedDB load 完了で img に差し替わる短時間だけ表示される)。
+                style={{
+                  background: 'linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.10) 50%, rgba(255,255,255,0.04) 100%)',
+                  backgroundSize: '200% 100%',
+                  animation: 'cpc-img-skeleton 1.2s linear infinite',
+                  minWidth: 80,
+                  minHeight: 80,
+                }}
+                aria-hidden="true"
+              />
+        ))}
+      </div>
+    )
+  }
+  const allUrls = imageUrls || []
   if (allUrls.length === 0) return null
   return (
     <div className="attach-images">
