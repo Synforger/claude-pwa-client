@@ -4,7 +4,7 @@
 行バッファ / send-keys・refresh-client 組み立てを固定する。 移植元 clsh のパーサとの
 挙動同値を担保する。
 """
-from terminal.control_mode import (
+from backend.terminal.control_mode import (
     ControlModeLineBuffer,
     build_refresh_client_line,
     build_send_keys_lines,

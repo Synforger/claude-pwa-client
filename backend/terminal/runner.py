@@ -48,8 +48,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from config import CLAUDE_PATH
-from terminal.control_mode import (
+from backend.config import CLAUDE_PATH
+from backend.terminal.control_mode import (
     ControlModeLineBuffer,
     build_refresh_client_line,
     build_send_keys_lines,
@@ -238,7 +238,7 @@ async def spawn_pty_session(
     # 新規 tmux session でも reattach でも、 claude プロセス起動 (= launch_alias 後の数秒、
     # 既存セッションなら即時) を待って backend mem の binding に登録する
     # pty_discover への遅延 import で循環回避 (= pty_discover が pty_runner の _run_tmux に依存)
-    from pty_discover import register_claude_when_ready as _rcwr
+    from backend.pty_discover import register_claude_when_ready as _rcwr
     asyncio.create_task(_rcwr(session_id))
     # autoresume が即 exit した場合の fallback watchdog (= 通常 alias を投入し直す)。
     # `claude --resume <id>` が rc=0 即 exit すると tmux pane は zsh プロンプトに残り
@@ -278,8 +278,8 @@ async def _autoresume_watchdog(
     なので fallback は不要 → 投入をキャンセル。
     """
     try:
-        from pty_discover import tmux_pane_pids, find_claude_descendant
-        import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
+        from backend.pty_discover import tmux_pane_pids, find_claude_descendant
+        import backend.jsonl.watcher as jsonl_watcher  # noqa: PLC0415
         await asyncio.sleep(initial_delay)
         loop = asyncio.get_running_loop()
         deadline = loop.time() + max_wait
@@ -567,7 +567,7 @@ def jsonl_path_for_session(session_id: str) -> Path | None:
     `_register_claude_when_ready` 経由で binding を登録、 watchdog が新規 JSONL の
     birth event を見て紐付ける。 紐付け未完なら None。
     """
-    import jsonl.watcher as jsonl_watcher
+    import backend.jsonl.watcher as jsonl_watcher
     return jsonl_watcher.get_jsonl_for(session_id)
 
 

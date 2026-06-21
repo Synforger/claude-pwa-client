@@ -25,7 +25,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-from config import CLAUDE_PROJECTS_DIRS as _CLAUDE_PROJECTS_DIRS
+from backend.config import CLAUDE_PROJECTS_DIRS as _CLAUDE_PROJECTS_DIRS
 
 # 後方互換: 旧 `_CLAUDE_PROJECTS` 名で参照してた経路は personal (= dirs[0]) を返す。
 # 新規コードは _CLAUDE_PROJECTS_DIRS を走査して該当 dir を選ぶこと。
@@ -64,7 +64,7 @@ def _cwd_to_project_dir(cwd: str, account_id: str | None = None) -> Path:
     projects dir を返す。 指定なしなら personal (= 後方互換)。
     """
     if account_id:
-        from config import projects_dir_for_account  # noqa: PLC0415
+        from backend.config import projects_dir_for_account  # noqa: PLC0415
         return projects_dir_for_account(account_id) / _cwd_to_project_dirname(cwd)
     return _CLAUDE_PROJECTS / _cwd_to_project_dirname(cwd)
 

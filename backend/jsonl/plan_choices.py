@@ -10,8 +10,8 @@ from __future__ import annotations
 import asyncio
 import re
 
-from terminal.runner import capture_tmux_scrollback
-from state import agent_status, stream_states
+from backend.terminal.runner import capture_tmux_scrollback
+from backend.state import agent_status, stream_states
 
 
 # ANSI escape を剥がして plain text にする (= tmux capture-pane の出力に色 / cursor 制御が

@@ -23,9 +23,9 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from jsonl.events import jsonl_line_to_events
-from jsonl.notifications import maybe_push_blockers as _maybe_push_blockers
-from jsonl.session_status import (
+from backend.jsonl.events import jsonl_line_to_events
+from backend.jsonl.notifications import maybe_push_blockers as _maybe_push_blockers
+from backend.jsonl.session_status import (
     attach_duration_to_result as _attach_duration_to_result,
     busy_after_idle as _busy_after_idle,
     compute_busy_from_tail as _compute_busy_from_tail,
@@ -36,12 +36,12 @@ from jsonl.session_status import (
     track_turn_start as _track_turn_start,
     update_busy as _update_busy,
 )
-from jsonl.tail import (
+from backend.jsonl.tail import (
     read_complete_lines as _read_complete_lines,
     read_tail as _read_tail,
 )
-from terminal.runner import jsonl_path_for_session
-from state import agent_status, sessions_overview, stream_states
+from backend.terminal.runner import jsonl_path_for_session
+from backend.state import agent_status, sessions_overview, stream_states
 
 
 logger = logging.getLogger(__name__)
@@ -155,7 +155,7 @@ def _initial_offset(path: Path) -> int:
 async def _jsonl_sse(session_id: str, start_pos: int | None = None):
     # チャット画面のみ開いてターミナル画面に切り替えていないタブでも claude を起動させる。
     # 既に tmux + claude が動いていれば no-op。
-    from terminal.routes import ensure_pty_session_for
+    from backend.terminal.routes import ensure_pty_session_for
     await ensure_pty_session_for(session_id)
 
     # 初回起動直後 (= ensure_pty_session_for で spawn したが claude が SessionStart hook で
@@ -232,7 +232,7 @@ async def _jsonl_sse(session_id: str, start_pos: int | None = None):
 @router.get("/jsonl/_debug/bindings")
 async def jsonl_debug_bindings() -> dict:
     """debug: 現在 backend mem に持ってる watcher binding 一覧。"""
-    import jsonl.watcher as jsonl_watcher
+    import backend.jsonl.watcher as jsonl_watcher
     return jsonl_watcher.list_bindings()
 
 
@@ -286,7 +286,7 @@ async def monitor_all_sessions_loop():
         while True:
             try:
                 await asyncio.sleep(POLL_INTERVAL)
-                from state import sessions_meta as _sessions_meta  # 動的参照
+                from backend.state import sessions_meta as _sessions_meta  # 動的参照
                 # 削除済み session の追跡 entry を刈り取る (= 無停止運用での単調増加防止)
                 for stale in [s for s in state if s not in _sessions_meta]:
                     state.pop(stale, None)

@@ -23,10 +23,10 @@ import logging
 from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
-from chat_content import save_to_tmp
-from config import AGENTS, CLAUDE_PATH  # noqa: F401  (CLAUDE_PATH は tests monkeypatch 用 re-export)
+from backend.chat_content import save_to_tmp
+from backend.config import AGENTS, CLAUDE_PATH  # noqa: F401  (CLAUDE_PATH は tests monkeypatch 用 re-export)
 
-from terminal.runner import (
+from backend.terminal.runner import (
     PtySession,
     has_tmux_session,
     jsonl_path_for_session,
@@ -36,11 +36,11 @@ from terminal.runner import (
     tmux_send_keys,
     write_pty,
 )
-from state import sessions_meta
+from backend.state import sessions_meta
 
 # 送信確認 (= JSONL カウント + wait + 救済再送) は pty_confirm に分離。
 # session 解決 + spawn は pty_session_resolver に分離。 ここは endpoint と pump のみ持つ。
-from terminal.confirm import (
+from backend.terminal.confirm import (
     _confirm_after_send,
     _count_command_lines,
     _count_in_lines,
@@ -50,7 +50,7 @@ from terminal.confirm import (
     _is_plain_user_prompt,
     _wait_count_added,
 )
-from terminal.session_resolver import (
+from backend.terminal.session_resolver import (
     AUTORESUME_MAX_AGE_DAYS as _AUTORESUME_MAX_AGE_DAYS,
     ensure_pty_session_for,
     last_resumable_claude_sid as _last_resumable_claude_sid,
@@ -100,7 +100,7 @@ async def pty_socket(ws: WebSocket, session_id: str) -> None:
             launch_alias = _resolve_launch_alias(session_id)
             fallback_alias = _resolve_autoresume_fallback(session_id)
         try:
-            from config import ACCOUNTS  # noqa: PLC0415
+            from backend.config import ACCOUNTS  # noqa: PLC0415
             meta = sessions_meta.get(session_id)
             acct_env = (ACCOUNTS.get(meta.account_id) or {}).get("env") if meta and meta.account_id else None
             # agent cfg.env (= 旧経路、 共有 env) と account.env (= タブ毎) をマージ。 account 優先

@@ -21,7 +21,7 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from config import AGENTS
+from backend.config import AGENTS
 
 logger = logging.getLogger(__name__)
 

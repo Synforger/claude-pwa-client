@@ -10,8 +10,8 @@ from pathlib import Path
 
 from fastapi import UploadFile
 
-from config import UPLOADS_TMP
-from state import session_tmp_files
+from backend.config import UPLOADS_TMP
+from backend.state import session_tmp_files
 
 logger = logging.getLogger(__name__)
 
