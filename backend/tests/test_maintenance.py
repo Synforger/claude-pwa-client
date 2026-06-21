@@ -8,7 +8,7 @@ import signal
 import subprocess
 import time
 
-import core.maintenance as m
+import backend.core.maintenance as m
 
 
 def test_footprint_parse_units():

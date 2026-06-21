@@ -15,9 +15,9 @@ import shlex
 import time
 from pathlib import Path
 
-from config import AGENTS, CLAUDE_PATH
-from terminal.runner import has_tmux_session, pty_sessions, spawn_pty_session
-from state import sessions_meta
+from backend.config import AGENTS, CLAUDE_PATH
+from backend.terminal.runner import has_tmux_session, pty_sessions, spawn_pty_session
+from backend.state import sessions_meta
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ def last_resumable_claude_sid(session_id: str) -> str | None:
       - jsonl の最終更新が AUTORESUME_MAX_AGE_DAYS より古い (= 死んだ会話)
     """
     try:
-        import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
+        import backend.jsonl.watcher as jsonl_watcher  # noqa: PLC0415
         info = jsonl_watcher.list_bindings().get(session_id)
     except Exception:
         logger.exception("autoresume lookup failed session=%s", session_id)
@@ -146,8 +146,8 @@ async def ensure_pty_session_for(session_id: str) -> None:
     launch_alias = resolve_launch_alias(session_id)
     fallback_alias = resolve_autoresume_fallback(session_id)
     try:
-        from config import ACCOUNTS  # noqa: PLC0415
-        from state import sessions_meta  # noqa: PLC0415
+        from backend.config import ACCOUNTS  # noqa: PLC0415
+        from backend.state import sessions_meta  # noqa: PLC0415
         meta = sessions_meta.get(session_id)
         acct_env = (ACCOUNTS.get(meta.account_id) or {}).get("env") if meta and meta.account_id else None
         agent_env = cfg.get("env") if isinstance(cfg.get("env"), dict) else {}

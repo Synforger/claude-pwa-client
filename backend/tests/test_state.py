@@ -1,5 +1,5 @@
 """state.py の pure 関数の unit test。 第一弾は _default_title のみ。"""
-import state
+from backend import state
 
 
 def test_default_title_uses_display_name(monkeypatch):

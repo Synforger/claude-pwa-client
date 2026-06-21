@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-import routes.hooks as hooks_router
-import jsonl.watcher as jsonl_watcher
+import backend.routes.hooks as hooks_router
+import backend.jsonl.watcher as jsonl_watcher
 
 
 @pytest.fixture

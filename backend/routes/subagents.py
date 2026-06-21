@@ -18,8 +18,8 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from jsonl.events import subagent_line_to_events
-from terminal.runner import jsonl_path_for_session
+from backend.jsonl.events import subagent_line_to_events
+from backend.terminal.runner import jsonl_path_for_session
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

@@ -9,7 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import routes.subagents as subagents_routes
+import backend.routes.subagents as subagents_routes
 
 
 def _write_agent(subdir, agent_id, *, description, lines):

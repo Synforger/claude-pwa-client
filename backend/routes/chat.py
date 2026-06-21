@@ -23,9 +23,9 @@ import uuid
 from fastapi import APIRouter, Body, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
-from config import AGENTS
-from core.usage import read_latest_rate_limits
-from state import (
+from backend.config import AGENTS
+from backend.core.usage import read_latest_rate_limits
+from backend.state import (
     agent_status,
     atomic_write_text,
     backend_start_time,
@@ -63,7 +63,7 @@ def list_sessions():
 
 @router.post("/sessions")
 def create_session(payload: dict = Body(...)):
-    from config import ACCOUNTS  # noqa: PLC0415
+    from backend.config import ACCOUNTS  # noqa: PLC0415
     agent_id = payload.get("agent_id")
     title = payload.get("title")
     account_id = payload.get("account_id")
@@ -101,9 +101,9 @@ def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(re
     `claude --resume` で開く新タブ (= SessionDef、 parent_id + resume_session_id 付き) を
     登録して返す。 元タブ・元 jsonl には一切触れない。
     """
-    from terminal.runner import jsonl_path_for_session  # noqa: PLC0415
-    from core.fork import build_forked_lineage_lazy, fork_point_status  # noqa: PLC0415
-    from jsonl.watcher import _cwd_to_project_dir  # noqa: PLC0415
+    from backend.terminal.runner import jsonl_path_for_session  # noqa: PLC0415
+    from backend.core.fork import build_forked_lineage_lazy, fork_point_status  # noqa: PLC0415
+    from backend.jsonl.watcher import _cwd_to_project_dir  # noqa: PLC0415
 
     from_uuid = payload.get("from_uuid")
     if not from_uuid or not isinstance(from_uuid, str):
@@ -234,9 +234,9 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
     """claude プロセスを kill + 新規 spawn する (= /clear と違ってプロセスメモリも完全解放)。
     新 claude_sid に切り替わるが SessionStart hook で bindings 更新されるので、 PWA タブは
     シームレスに続けて使える。 長期稼働で claude プロセスメモリが累積する問題への対策。"""
-    from terminal.runner import kill_tmux_session, pty_sessions  # noqa: PLC0415
-    import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
-    from terminal.routes import ensure_pty_session_for  # noqa: PLC0415
+    from backend.terminal.runner import kill_tmux_session, pty_sessions  # noqa: PLC0415
+    import backend.jsonl.watcher as jsonl_watcher  # noqa: PLC0415
+    from backend.terminal.routes import ensure_pty_session_for  # noqa: PLC0415
     # kill 経路は delete_session と同じだが、 sessions_meta は維持して即 spawn し直す
     try:
         kill_tmux_session(session_id)
@@ -258,7 +258,7 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
         meta.resume_session_id = None
         save_sessions_meta()
         try:
-            from jsonl.watcher import _cwd_to_project_dir  # noqa: PLC0415
+            from backend.jsonl.watcher import _cwd_to_project_dir  # noqa: PLC0415
             cwd = (AGENTS.get(meta.agent_id) or {}).get("cwd")
             project_dir = _cwd_to_project_dir(cwd) if cwd else None
             if project_dir is not None:
@@ -306,8 +306,8 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
     fork_agent_id = getattr(meta, "agent_id", None) if meta is not None else None
     # PTY + tmux + JSONL binding を一括 cleanup
     try:
-        from terminal.runner import kill_tmux_session, pty_sessions  # noqa: PLC0415
-        import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
+        from backend.terminal.runner import kill_tmux_session, pty_sessions  # noqa: PLC0415
+        import backend.jsonl.watcher as jsonl_watcher  # noqa: PLC0415
         kill_tmux_session(session_id)
         pty_sessions.pop(session_id, None)
         jsonl_watcher.unregister(session_id)
@@ -325,7 +325,7 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
     # 元タブの jsonl (= claude が普段使ってる alias 起動由来) はここでは絶対に触らない。
     if fork_resume_id and fork_agent_id:
         try:
-            from jsonl.watcher import _cwd_to_project_dir  # noqa: PLC0415
+            from backend.jsonl.watcher import _cwd_to_project_dir  # noqa: PLC0415
             cwd = (AGENTS.get(fork_agent_id) or {}).get("cwd")
             project_dir = _cwd_to_project_dir(cwd) if cwd else None
             if project_dir is not None:
@@ -350,8 +350,8 @@ def _build_all_status() -> dict:
     を呼ぶと 32KB tail を sid 数回 read + parse することになり、 重い + 一瞬古い値が
     混じって status line がちらつく。 1 回 read + parse して、 sid 毎は dict lookup だけ
     にする (= O(read) + O(sid) で済む)。"""
-    import jsonl.watcher as jsonl_watcher  # noqa: PLC0415
-    from core.usage import read_all_rate_limits_tail  # noqa: PLC0415
+    import backend.jsonl.watcher as jsonl_watcher  # noqa: PLC0415
+    from backend.core.usage import read_all_rate_limits_tail  # noqa: PLC0415
     parsed = read_all_rate_limits_tail()  # 32KB tail を 1 回読んで parse 済 list を返す
     # account 別に集計 (= 並走中の個人 / 会社で 5h / 7d が混ざらないように)。
     # rate-limits.jsonl の各 record は account_id ("personal" / "work" / ...) を持つ。
@@ -454,7 +454,7 @@ def _build_sessions_overview() -> dict:
     last_seen_at は他端末がそのタブを開いた時刻 (= unix sec)。 各 client は自分の最新
     received event timestamp と比較して、 last_seen_at が新しければ赤丸を消す
     (= iPhone と Mac の未読同期、 2026-06-10 追加)。"""
-    from state import session_last_seen_at  # noqa: PLC0415
+    from backend.state import session_last_seen_at  # noqa: PLC0415
     out: dict[str, dict] = {}
     for sid in list(sessions_meta.keys()):
         st = stream_states.get(sid)
@@ -477,7 +477,7 @@ def mark_session_seen(session_id: str) -> dict:
     新しければ赤丸を消す。"""
     if session_id not in sessions_meta:
         raise HTTPException(status_code=404, detail="Unknown session")
-    from state import session_last_seen_at  # noqa: PLC0415
+    from backend.state import session_last_seen_at  # noqa: PLC0415
     session_last_seen_at[session_id] = time.time()
     sessions_overview.notify()
     return {"ok": True, "last_seen_at": session_last_seen_at[session_id]}
@@ -530,7 +530,7 @@ def list_accounts():
     """セッション作成時の「アカウント」 (= 個人 / 会社 OAuth 切替) 選択肢を返す。
     候補が 1 つ (= 通常 personal だけ) のとき、 frontend は選択肢自体を出さなくて良い。
     """
-    from config import ACCOUNTS  # noqa: PLC0415
+    from backend.config import ACCOUNTS  # noqa: PLC0415
     return [
         {"id": name, "display_name": cfg.get("display_name", name)}
         for name, cfg in ACCOUNTS.items()

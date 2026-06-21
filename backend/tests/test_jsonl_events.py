@@ -3,7 +3,7 @@
 claude の JSONL 1 行が processStreamEvent.js の期待する event 形式に正しく
 変換されることを、 行種別ごとに確認する。
 """
-from jsonl.events import jsonl_line_to_events, parse_task_notification
+from backend.jsonl.events import jsonl_line_to_events, parse_task_notification
 
 
 def test_assistant_tool_use_passthrough():

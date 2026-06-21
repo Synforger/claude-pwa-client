@@ -7,8 +7,8 @@ slash で別カウンタを使う (= 素は _count_user_prompts、 slash は _co
 """
 import json
 
-import terminal.routes as pr
-import terminal.session_resolver as psr
+import backend.terminal.routes as pr
+import backend.terminal.session_resolver as psr
 
 
 def _write_jsonl(path, lines):
@@ -72,7 +72,7 @@ def test_counts_missing_file(tmp_path):
 # --- autoresume (= Mac/backend 再起動跨ぎで前回 claude session を継続) ---
 
 import time
-import jsonl.watcher as jsonl_watcher
+import backend.jsonl.watcher as jsonl_watcher
 
 
 def _set_binding(monkeypatch, sid, jsonl_path, confirmed=True):

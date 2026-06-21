@@ -6,8 +6,8 @@ rate-limits.jsonl (= statusline 記録) の読み取りと、 usage からの co
 """
 import json
 
-from config import RATE_LIMITS_LOG_PATH
-from state import DEFAULT_CTX_WINDOW
+from backend.config import RATE_LIMITS_LOG_PATH
+from backend.state import DEFAULT_CTX_WINDOW
 
 
 def read_all_rate_limits_tail() -> list[dict]:

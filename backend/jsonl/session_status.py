@@ -17,11 +17,11 @@ import json
 import time
 from pathlib import Path
 
-from jsonl.events import HARNESS_XML_RE, INTERRUPT_USER_RE
-from jsonl.plan_choices import capture_plan_choices
-from jsonl.tail import parse_jsonl_timestamp
-from state import agent_status, sessions_overview, stream_states
-from core.usage import compute_ctx_pct, format_model_name
+from backend.jsonl.events import HARNESS_XML_RE, INTERRUPT_USER_RE
+from backend.jsonl.plan_choices import capture_plan_choices
+from backend.jsonl.tail import parse_jsonl_timestamp
+from backend.state import agent_status, sessions_overview, stream_states
+from backend.core.usage import compute_ctx_pct, format_model_name
 
 
 # sid → 直近 user 発話 (= turn 開始) の unix epoch。 stop_reason 確定行を見たら
@@ -34,7 +34,7 @@ def cleanup_orphan_turn_starts() -> int:
     """`sessions_meta` に存在しない sid の `_turn_started_at` entry を掃除する。
     Stop / 削除等で pop されずに残った turn 開始時刻が、 プロセス無停止運用で累積する
     のを 1 日 1 回 (maintenance loop) で刈る。 削除件数を返す。"""
-    from state import sessions_meta  # noqa: PLC0415
+    from backend.state import sessions_meta  # noqa: PLC0415
     stale = [sid for sid in _turn_started_at if sid not in sessions_meta]
     for sid in stale:
         _turn_started_at.pop(sid, None)

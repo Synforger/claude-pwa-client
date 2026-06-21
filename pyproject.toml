@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-pwa-client-backend"
+version = "0.1.0"
+description = "FastAPI backend for the Claude PWA client (PTY + JSONL tail driver for Claude Code)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+dependencies = [
+    # 詳細版は backend/requirements.txt で管理。
+    # pyproject では backend を編集可能 install するための骨組みのみ。
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["backend*"]
+exclude = ["backend.tests*", "backend.__pycache__*"]
