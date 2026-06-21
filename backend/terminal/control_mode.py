@@ -21,6 +21,13 @@ from __future__ import annotations
 # send-keys -H 1 コマンドあたりの最大バイト数 (= コマンド行が長くなりすぎないよう分割)。
 MAX_HEX_CHUNK = 512
 
+# backend-F-25: ControlModeLineBuffer._buf の上限 (= 1 MiB)。 通常は %output ごとに改行で
+# flush されるので積みっぱなしになることは無いが、 異常系 (= 大量データに改行が含まれない
+# 病的 stream / control client 接続の壊れ方) で buf が単調増加すると backend mem を食い
+# 潰す。 上限超過時は最古を捨てて末尾優先で残し (= 最新の行が完結しやすい)、 WARNING を
+# 出して観測可能にする。
+_BUF_MAX_BYTES = 1 * 1024 * 1024
+
 
 def decode_tmux_octal(encoded: str) -> bytes:
     """tmux の octal エンコード文字列を生バイト列に復元する。
@@ -117,9 +124,22 @@ class ControlModeLineBuffer:
 
     def __init__(self) -> None:
         self._buf = ""
+        self._buf_overflow_logged = False
 
     def feed(self, data: bytes) -> list[dict]:
         self._buf += data.decode("latin-1")
+        # backend-F-25: 上限超過時は最古を切り詰めて末尾優先で残す。 latin-1 は 1 文字 1 バイト
+        # 換算なので len(str) == byte 数として安全。
+        if len(self._buf) > _BUF_MAX_BYTES:
+            drop = len(self._buf) - _BUF_MAX_BYTES
+            self._buf = self._buf[drop:]
+            if not self._buf_overflow_logged:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "ControlModeLineBuffer overflow: dropped %d bytes (cap=%d)",
+                    drop, _BUF_MAX_BYTES,
+                )
+                self._buf_overflow_logged = True
         events: list[dict] = []
         while True:
             nl = self._buf.find("\n")
