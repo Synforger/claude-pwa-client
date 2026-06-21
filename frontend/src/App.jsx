@@ -29,10 +29,7 @@ import { setBadge } from './utils/badge.js'
 import { gcImages } from './utils/imageStore.js'
 import { usePushSubscription } from './hooks/usePushSubscription.js'
 import { useViewsWs } from './hooks/useViewsWs.js'
-import { enablePush, isPushEnabledLocally } from './utils/push.js'
 import ChatInput from './components/ChatInput.jsx'
-// session 削除後の IndexedDB orphan 画像掃除を遅延する時間 (= setMessages の state 反映を待つ)。
-const IMAGE_GC_AFTER_DELETE_MS = 300
 // 起動時の初回 GC 遅延 (= localStorage 復元 + 初期 fetch の messages 確定を待つ)。
 const IMAGE_GC_INITIAL_MS = 5000
 
@@ -191,6 +188,10 @@ export default function App() {
   // (= LaunchAgent KeepAlive で自動復活 or 手動 kickstart)。 中断された turn が
   // 「永遠に推論中」 のまま見えないように、 全 session の最後の streaming bubble を
   // 強制的に停止扱いに固定 + loading state を全 reset する。
+  //
+  // F-22 (= 2026-06-21): この effect は chat reset 専任に絞る (= push 関連は usePushSubscription
+  // に一本化、 backend 再起動による subscription 同期は usePushSubscription の visibility +
+  // interval ping が拾うので二重呼出不要)。
   const lastBackendStartRef = useRef(null)
   useEffect(() => {
     if (!status?.backend_start_time) return
@@ -198,8 +199,7 @@ export default function App() {
     lastBackendStartRef.current = status.backend_start_time
     const sameAsLast = prev === status.backend_start_time
     if (sameAsLast) return
-    // backend 再起動 or 初回 mount の同期化処理。 既存処理は backend 再起動時のみ意味
-    // を持つので prev !== null ガードを残す:
+    // backend 再起動時のみ意味を持つので prev !== null ガードを残す:
     //   - loading 全 reset
     //   - 楽観的 pendingSend deadline も全 reset (= 残ってると停止ボタンが居座る)
     //   - 各 session 末尾の streaming bubble を false に固定 (= 永遠の推論中表示を消す)
@@ -220,12 +220,6 @@ export default function App() {
         }
         return next
       })
-    }
-    // PushSubscription の再発行は初回 mount 時も実行する (= リロード後に backend と
-    // subscription が乖離してても自動で同期する)。 enablePush は idempotent (= 同 endpoint
-    // なら backend 側で upsert) なので mount のたびに呼んでも害なし。
-    if (isPushEnabledLocally()) {
-      enablePush().catch(() => { /* 失敗時は UI ボタンで手動再有効化 */ })
     }
     // optimisticRef は ref なので deps 不要 (= ref.current 書き込みは再 render を起こさない)。
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -389,16 +383,23 @@ export default function App() {
     const sid = confirmDelete
     setConfirmDelete(null)
     await removeSession(sid)
+    // F-35 (= 2026-06-21): setMessages updater 内で「sid 削除後」 の全 messages から
+    // imageIds snapshot を取り、 そのまま gcImages に渡す。 旧実装は setMessages 後に
+    // 300ms setTimeout で messagesRefForGc.current を読んでいたが、 同 tick で別 sid が
+    // streaming flush して ref が更新されると、 setTimeout 内では sid 削除前の状態を
+    // 見てしまい (= 削除済 sid の画像 ref を active 扱いして) GC が無効化される race
+    // があった。 updater 内 snapshot なら sid 削除と active 集合の計算が必ず同 state で
+    // 揃う (= sid 削除前後どちらでも一貫した snapshot)。
+    let activeAfterDelete = null
     setMessages(prev => {
       const next = { ...prev }
       delete next[sid]
+      activeAfterDelete = [...collectActiveImageIds(next)]
       return next
     })
-    // セッション削除で参照が一気に消えるので IndexedDB の orphan 画像も掃除する。
-    // 削除後 messagesRefForGc が反映されるのを少し待ってから走らせる。
-    setTimeout(() => {
-      gcImages([...collectActiveImageIds(messagesRefForGc.current)]).catch(() => {})
-    }, IMAGE_GC_AFTER_DELETE_MS)
+    if (activeAfterDelete) {
+      gcImages(activeAfterDelete).catch(() => {})
+    }
   }
 
   // Web Push 購読状態 (= 環境制約・トグル・連打防止) は専用 hook に集約。
