@@ -261,6 +261,70 @@ def test_unknown_pwa_sid_header_does_not_bind(fake_bindings, captured_pushes, mo
     assert jsonl_watcher.get_jsonl_for("ses_intruder") is None
 
 
+# --- backend-F-30 / crosscut-F-15: HOOK_HANDLERS registry ------------------
+
+
+def test_registry_has_all_known_events():
+    """既知 event (= Stop / Notification / SessionStart / PreToolUse) が registry に登録済。"""
+    assert set(hooks_router.HOOK_HANDLERS.keys()) == {
+        "Stop", "Notification", "SessionStart", "PreToolUse",
+    }
+    # mutate 系 (= Stop / Notification) は needs_pwa_session=True
+    assert hooks_router.HOOK_HANDLERS["Stop"].needs_pwa_session is True
+    assert hooks_router.HOOK_HANDLERS["Notification"].needs_pwa_session is True
+    # early 系 (= 自己解決経路) は needs_pwa_session=False
+    assert hooks_router.HOOK_HANDLERS["SessionStart"].needs_pwa_session is False
+    assert hooks_router.HOOK_HANDLERS["PreToolUse"].needs_pwa_session is False
+
+
+def test_registry_dispatcher_routes_unknown_event_to_ack():
+    """registry に無い event は ignored ack で 200 OK (= claude hook 詰まらせない)。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    client = TestClient(app)
+    res = client.post("/hooks/event", json={"hook_event_name": "FutureEvent"})
+    assert res.status_code == 200
+    body = res.json()
+    # 未対応 event は (a) non_pwa_session で前段ガード or (b) ignored: <event> で抜ける
+    assert body["ok"] is True
+    assert "ignored" in body
+
+
+def test_handler_can_be_registered_at_runtime(monkeypatch):
+    """新 hook を 1 行 register で増やせる (= 設計目的の回帰防止)。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    seen: list[dict] = []
+
+    async def _h(ctx):
+        seen.append({"event": ctx.event, "payload": ctx.payload})
+        return {"ok": True, "custom": "yes"}
+
+    monkeypatch.setitem(
+        hooks_router.HOOK_HANDLERS, "CustomEvent",
+        hooks_router._HookSpec(handler=_h, needs_pwa_session=False),
+    )
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    client = TestClient(app)
+    res = client.post("/hooks/event", json={"hook_event_name": "CustomEvent", "x": 1})
+    assert res.json() == {"ok": True, "custom": "yes"}
+    assert seen and seen[0]["event"] == "CustomEvent"
+
+
+# --- backend-F-40: jsonl_watcher module-level import (= 関数内 import 廃止) ---
+
+
+def test_jsonl_watcher_is_module_level_attribute():
+    """hooks_router.jsonl_watcher は module-level import で常に attribute として在る。"""
+    import backend.jsonl.watcher as wm
+    assert hooks_router.jsonl_watcher is wm
+
+
 def test_endpoint_rejects_non_local_client():
     """tailnet 等の非 localhost からの hook 偽造を 403 で拒否する。"""
     from fastapi import FastAPI
