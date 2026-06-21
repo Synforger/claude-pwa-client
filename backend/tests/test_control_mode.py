@@ -154,3 +154,19 @@ class TestControlModeLineBuffer:
         buf = ControlModeLineBuffer()
         events = buf.feed(b"%output %0 x\n")
         assert events == [{"type": "output", "pane": "%0", "data": b"x"}]
+
+    def test_buffer_overflow_drops_old_data(self):
+        """backend-F-25: 1 MiB 超過時は最古を捨てて末尾優先で残し、 WARNING を 1 回だけ吐く。"""
+        from backend.terminal import control_mode as cm
+        buf = cm.ControlModeLineBuffer()
+        # 改行を含まない 1.5 MiB の garbage を流し込む (= flush されず buf 滞留)
+        big = b"x" * (1_500_000)
+        buf.feed(big)
+        # cap (1 MiB) を超えない
+        assert len(buf._buf) <= cm._BUF_MAX_BYTES
+        # 末尾優先で残ったか (= 最後の x はそのまま)
+        assert buf._buf.endswith("x")
+        assert buf._buf_overflow_logged is True
+        # 2 度目の overflow でも overflow_logged は True のまま (= 重複 log 抑制)
+        buf.feed(b"y" * 1_500_000)
+        assert len(buf._buf) <= cm._BUF_MAX_BYTES

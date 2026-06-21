@@ -17,9 +17,9 @@ import json
 import logging
 import re
 
-from backend.jsonl.events import HARNESS_XML_RE as _HARNESS_RE, INTERRUPT_USER_RE as _INTERRUPT_RE
+from backend.jsonl.predicates import is_user_prompt as _is_user_prompt_pred
 from backend.jsonl.tail import read_complete_lines
-from backend.terminal.runner import tmux_send_keys
+from backend.terminal.runner import get_pane_cursor_y, tmux_send_keys
 
 logger = logging.getLogger(__name__)
 
@@ -48,15 +48,15 @@ def _count_in_lines(lines, predicate) -> int:
 
 
 def _is_plain_user_prompt(d: dict) -> bool:
-    """素プロンプト (= 実ユーザ発言): harness XML / interrupt marker / 空文字 を除外。"""
-    c = (d.get("message") or {}).get("content")
-    if isinstance(c, str):
-        s = c.strip()
-        return bool(s) and not _HARNESS_RE.match(s) and not _INTERRUPT_RE.match(s)
-    if isinstance(c, list):
-        texts = [b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text"]
-        return any((t or "").strip() for t in texts)
-    return False
+    """素プロンプト (= 実ユーザ発言): harness XML / interrupt marker / 空文字 を除外。
+
+    W1-C 引継: 旧版は events.HARNESS_XML_RE / INTERRUPT_USER_RE を直 import して独自実装
+    していたが、 session_status.is_user_prompt と判定がズレる潜在 race があった
+    (= backend-F-05)。 真値は predicates.is_user_prompt に集約済みなのでそこに委譲する。
+    `_count_in_lines` が事前に type=="user" / sidechain / meta を弾いてるが、 predicates
+    も同じ gate を持つので redundant でも安全。
+    """
+    return _is_user_prompt_pred(d)
 
 
 def _is_command_line(d: dict) -> bool:
@@ -121,13 +121,27 @@ async def _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slas
 
     initial_pos = 送信直前のファイルサイズ。 そこから新規 user 行 (slash なら `<command-name>`、
     そうでなければ素プロンプト) が出るかを 4s 監視 → 出なければ Enter だけ追い打ちして 1s 再監視。
-    それでも確認できなくても再ペーストはせず ok:True を返す。"""
+    それでも確認できなくても再ペーストはせず ok:True を返す。
+
+    backend-F-22: Enter 救済前に tmux pane の cursor_y を見て、 prompt 行に居る (= text
+    が pane に渡ってない、 送信失敗) のか、 行が降りてる (= text 入力中、 Enter で確定
+    すべき) のかを区別する。 cursor_y == 0 なら救済 Enter は無意味 (= 空 Enter で空行を
+    挿入するだけ) なので skip。 取得失敗 (= 旧経路 / tmux 不在 等) は従来挙動どおり Enter
+    を打つ (= 安全側)。"""
     counter = _count_command_lines if is_slash else _count_user_prompts
     if await _wait_count_added(counter, jsonl_path, initial_pos, timeout=4.0):
         return {"ok": True, "confirmed": True}
+    cursor_y = get_pane_cursor_y(session_id)
+    if cursor_y == 0:
+        logger.warning(
+            "pty_send: no prompt within 4s and cursor at row 0 (text not buffered): "
+            "sid=%s text_len=%d slash=%s",
+            session_id, len(text or ""), is_slash,
+        )
+        return {"ok": True, "confirmed": False, "reason": "cursor_home"}
     logger.warning(
-        "pty_send: no prompt within 4s, retrying with Enter only: sid=%s text_len=%d slash=%s",
-        session_id, len(text or ""), is_slash,
+        "pty_send: no prompt within 4s, retrying with Enter only: sid=%s text_len=%d slash=%s cursor_y=%s",
+        session_id, len(text or ""), is_slash, cursor_y,
     )
     tmux_send_keys(session_id, enter=True)
     if await _wait_count_added(counter, jsonl_path, initial_pos, timeout=1.0):
