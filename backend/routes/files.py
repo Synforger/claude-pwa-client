@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException, Query
 
-from config import FILE_SIZE_LIMIT, HOME
+from backend.config import FILE_SIZE_LIMIT, HOME
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

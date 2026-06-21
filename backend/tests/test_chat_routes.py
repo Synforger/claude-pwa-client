@@ -10,7 +10,7 @@ from fastapi import HTTPException
 
 
 def _setup_session(state, sid="ses_cfg"):
-    from state import StreamState
+    from backend.state import StreamState
     state.sessions_meta[sid] = object()
     state.stream_states[sid] = StreamState()
     return sid
@@ -18,8 +18,8 @@ def _setup_session(state, sid="ses_cfg"):
 
 def test_build_sessions_overview_reflects_busy(isolated_state):
     """全session overview payload が各 session の busy / pending_question を反映する (= 案B)。"""
-    import routes.chat as chat_routes
-    from state import StreamState
+    import backend.routes.chat as chat_routes
+    from backend.state import StreamState
     state = isolated_state
     state.sessions_meta.clear()
     state.stream_states.clear()
@@ -38,8 +38,8 @@ def test_build_sessions_overview_reflects_busy(isolated_state):
 
 
 def test_require_session_passes_for_known_id(isolated_state):
-    import routes.chat as chat_routes
-    import state
+    import backend.routes.chat as chat_routes
+    from backend import state
 
     sid = "ses_known"
     # require_session は membership だけ見る (= 値は何でもよい)
@@ -48,7 +48,7 @@ def test_require_session_passes_for_known_id(isolated_state):
 
 
 def test_require_session_raises_404_for_unknown(isolated_state):
-    import routes.chat as chat_routes
+    import backend.routes.chat as chat_routes
 
     with pytest.raises(HTTPException) as exc:
         chat_routes.require_session("ses_does_not_exist")
@@ -58,7 +58,7 @@ def test_require_session_raises_404_for_unknown(isolated_state):
 def test_mark_user_stopped_sets_flag_and_clears_busy(isolated_state):
     """/views/ws の stop メッセージで呼ばれる _mark_user_stopped が user_stopped=True を
     立て busy を False に強制する。"""
-    import routes.chat as chat_routes
+    import backend.routes.chat as chat_routes
     state = isolated_state
     sid = _setup_session(state)
     state.stream_states[sid].busy = True
@@ -71,7 +71,7 @@ def test_mark_user_stopped_sets_flag_and_clears_busy(isolated_state):
 
 def test_mark_user_stopped_returns_false_for_unknown_sid(isolated_state):
     """state が無い sid は False を返すだけで例外を出さない (= 多重 stop 耐性)。"""
-    import routes.chat as chat_routes
+    import backend.routes.chat as chat_routes
     state = isolated_state
     state.stream_states.pop("ses_orphan", None)
     assert chat_routes._mark_user_stopped("ses_orphan") is False
@@ -79,7 +79,7 @@ def test_mark_user_stopped_returns_false_for_unknown_sid(isolated_state):
 
 def test_is_session_viewed_via_views_by_conn(isolated_state):
     """views_by_conn に sid を持つ接続があれば is_session_viewed が True を返す。"""
-    from state import is_session_viewed, views_by_conn
+    from backend.state import is_session_viewed, views_by_conn
     views_by_conn.clear()
     assert is_session_viewed("ses_x") is False
     views_by_conn["conn-uuid-1"] = "ses_x"

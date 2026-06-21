@@ -17,9 +17,9 @@ import json
 import logging
 import re
 
-from jsonl.events import HARNESS_XML_RE as _HARNESS_RE, INTERRUPT_USER_RE as _INTERRUPT_RE
-from jsonl.tail import read_complete_lines
-from terminal.runner import tmux_send_keys
+from backend.jsonl.events import HARNESS_XML_RE as _HARNESS_RE, INTERRUPT_USER_RE as _INTERRUPT_RE
+from backend.jsonl.tail import read_complete_lines
+from backend.terminal.runner import tmux_send_keys
 
 logger = logging.getLogger(__name__)
 

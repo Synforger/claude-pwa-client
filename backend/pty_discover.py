@@ -26,7 +26,7 @@ async def register_claude_when_ready(
     `max_wait` 秒以内に claude プロセスが見つからなければ諦める (= 既存 zsh のみで claude
     起動しないケース等)。
     """
-    import jsonl.watcher as jsonl_watcher  # 循環 import 回避のため遅延 import
+    import backend.jsonl.watcher as jsonl_watcher  # 循環 import 回避のため遅延 import
     deadline = time.time() + max_wait
     while time.time() < deadline:
         await asyncio.sleep(interval)
@@ -45,7 +45,7 @@ async def register_claude_when_ready(
 def tmux_pane_pids(session_id: str) -> list[int]:
     """指定 PWA session の tmux session に属する pane の PID 一覧。"""
     # pty_runner との循環 import を避けるため遅延 import (= 関数の最初の呼出時のみ評価)
-    from terminal.runner import USE_TMUX_WRAP, _run_tmux, _tmux_session_name
+    from backend.terminal.runner import USE_TMUX_WRAP, _run_tmux, _tmux_session_name
     if not USE_TMUX_WRAP:
         return []
     r = _run_tmux("list-panes", "-t", _tmux_session_name(session_id), "-F", "#{pane_pid}", text=True)
