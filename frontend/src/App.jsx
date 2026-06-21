@@ -169,6 +169,10 @@ export default function App() {
   // Stop は HTTP POST から WS 経由に移行 (= 失敗時 race の根本治療)。 useChatStream より
   // 先に呼ぶ必要があるのは sendStopIntent を stopMessage に渡すため。
   const { sendStopIntent } = useViewsWs(activeSid)
+  // F-36: 送信失敗時に localText を ChatInput 内部 state に戻すための buffer。
+  // F-16: stop が WS 切断で届かない時の UI 通知用 flag。
+  const [sendFailedText, setSendFailedText] = useState(null)
+  const [stopUnavailableSid, setStopUnavailableSid] = useState(null)
   const { loading, setLoading, apiKeySource, sendMessage, sendAnswer, stopMessage, fetchLatest, endSession, optimisticRef } = useChatStream({
     activeSession,
     setMessages,
@@ -176,6 +180,8 @@ export default function App() {
     attachments, clearAttachments,
     scrollToBottom, isAtBottomRef,
     sendStopIntent,
+    onSendFailed: (sid, text) => { if (sid === activeSid) setSendFailedText(text) },
+    onStopUnavailable: (sid) => setStopUnavailableSid(sid),
   })
   // loading (= 停止ボタンの真値) の唯一のソース。 backend 権威 busy を 1 本の SSE で受け、
   // 全タブの停止/送信ボタン + 青丸/赤丸を駆動する (= dual-driver 排除、 単一権威)。
@@ -205,27 +211,6 @@ export default function App() {
   useEffect(() => {
     if (!status?.pending_plan && planOpen) setPlanOpen(false)
   }, [status?.pending_plan, planOpen])
-  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000))
-  // 30 秒ごとに時刻表示を更新。 ただし hidden 中は止める (= 見えてないので無駄、 iOS は
-  // background でも setInterval が呼ばれる時間帯があり電力消費要因になる)。
-  // visible 復帰時は即同期して、 ユーザが古い数字を見る瞬間を作らない。
-  useEffect(() => {
-    let id = null
-    const tick = () => setNowSec(Math.floor(Date.now() / 1000))
-    const start = () => {
-      if (id != null) return
-      tick()
-      id = setInterval(tick, 30000)
-    }
-    const stop = () => {
-      if (id != null) { clearInterval(id); id = null }
-    }
-    const onVis = () => { document.hidden ? stop() : start() }
-    if (!document.hidden) start()
-    document.addEventListener('visibilitychange', onVis)
-    return () => { stop(); document.removeEventListener('visibilitychange', onVis) }
-  }, [])
-
   // 画面共有 (= Sunshine ストリーム) は見てる間だけ生かす。 PWA がバックグラウンド /
   // 画面ロックに入ったら iframe を unmount して WebRTC を切る (= moonlight streamer が
   // 終了し Sunshine のエンコードが止まる)。 これをしないと閉じ忘れたまま放置で
@@ -508,10 +493,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <StatusBar
-        status={status}
-        nowSec={nowSec}
-      />
+      <StatusBar status={status} />
       <StorageWarning
         info={storageInfo}
         dismissed={storageWarnDismissed}
@@ -726,6 +708,10 @@ export default function App() {
           onStop={() => ov.setConfirmStop(true)}
           onSend={(text) => sendMessage(text)}
           currentAttachments={currentAttachments}
+          sendFailedText={sendFailedText}
+          onSendFailedConsumed={() => setSendFailedText(null)}
+          stopUnavailable={stopUnavailableSid === activeSid}
+          onStopRecovered={() => setStopUnavailableSid(null)}
         />
       )}
 

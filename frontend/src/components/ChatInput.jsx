@@ -29,6 +29,10 @@ export default function ChatInput({
   onStop,
   onSend,
   currentAttachments,
+  sendFailedText,
+  onSendFailedConsumed,
+  stopUnavailable,
+  onStopRecovered,
 }) {
   // 表示は controlled、 親 input dict ではなく内部 state で更新する。
   const [localText, setLocalText] = useState('')
@@ -55,6 +59,22 @@ export default function ChatInput({
     // localText は依存に入れない (= 打鍵のたびに effect が走るのを避ける)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSid, setInput])
+
+  // F-36: useChatStream から「送信失敗で text を返す」 通知を受けたら localText に戻す。
+  // 親が sendFailedText を null に戻すまで 1 回だけ apply (= 同 text で連続失敗の race 回避)。
+  useEffect(() => {
+    if (typeof sendFailedText === 'string') {
+      setLocalText(prev => (prev ? prev : sendFailedText))
+      onSendFailedConsumed?.()
+    }
+  }, [sendFailedText, onSendFailedConsumed])
+
+  // F-16: stop が WS 切断で届かなかった時、 useChatStream が背後で復活 polling して
+  // 再送を試みる。 ChatInput 側は disable + tooltip で「接続待ち」 を可視化。 復活したら
+  // 親が stopUnavailable を false に戻す。
+  useEffect(() => {
+    if (stopUnavailable && !showStopButton) onStopRecovered?.()
+  }, [stopUnavailable, showStopButton, onStopRecovered])
 
   const handleSend = () => {
     if (!activeSid) return
@@ -145,7 +165,13 @@ export default function ChatInput({
           ⋯
         </button>
         {showStopButton ? (
-          <button onClick={onStop} className="stop" aria-label="停止">■</button>
+          <button
+            onClick={onStop}
+            disabled={stopUnavailable}
+            title={stopUnavailable ? '接続復帰待ち (再送中)' : '停止'}
+            className={`stop ${stopUnavailable ? 'pending' : ''}`}
+            aria-label="停止"
+          >■</button>
         ) : (
           <button
             onClick={handleSend}
