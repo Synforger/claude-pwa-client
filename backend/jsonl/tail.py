@@ -65,3 +65,43 @@ def read_tail(path: Path, pos: int) -> tuple[list[str], int, str]:
         return [], pos, "nochange"
     lines, new_pos = read_complete_lines(path, pos)
     return lines, new_pos, "ok"
+
+
+def initial_offset(path: Path, max_lines: int) -> int:
+    """初回 replay の開始バイト位置 (= 直近 max_lines 行ぶんに絞る、 backend-F-41)。
+
+    末尾から固定 chunk ずつ遡って改行を数え、 「末尾から N 個目の改行の直後」 を返す。
+    ファイル全体をメモリに読まないので大きい JSONL でも O(末尾) で済む。 改行が
+    max_lines 個以下なら 0 (= 全件 replay)。 旧 jsonl/routes._initial_offset (=
+    INITIAL_REPLAY_LINES = 500 固定値) と同じ境界 (= count <= N → 0、 count > N → N
+    個目直後) を保つ。 routes 内に閉じていたものを tail.py に移送して unit test 厚く
+    する + subagents.py 等の他 consumer からも再利用可能にする。
+    """
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return 0
+    if size == 0:
+        return 0
+    chunk_size = 64 * 1024
+    found = 0
+    candidate = 0  # 末尾から N 個目の改行直後。 N+1 個目が見つかったら (= count > N) 返す
+    pos = size
+    try:
+        with open(path, "rb") as f:
+            while pos > 0:
+                read_size = min(chunk_size, pos)
+                pos -= read_size
+                f.seek(pos)
+                chunk = f.read(read_size)
+                for i in range(len(chunk) - 1, -1, -1):
+                    if chunk[i] != 0x0A:  # b"\n"
+                        continue
+                    found += 1
+                    if found == max_lines:
+                        candidate = pos + i + 1
+                    elif found > max_lines:
+                        return candidate
+    except OSError:
+        return 0
+    return 0
