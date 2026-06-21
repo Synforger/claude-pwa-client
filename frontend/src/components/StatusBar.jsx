@@ -32,8 +32,7 @@ function cleanModel(m) {
 
 // 「現在時刻 (秒)」 を 30 秒間隔で持つ。 hidden 中は止めて電力消費を抑え、 visible 復帰
 // 時は即同期して古い数字を見せない。 旧 App.jsx で持っていた state を StatusBar 内に
-// 閉じ込めた (= F-12)。 後方互換: 呼出側から nowSec prop を渡されたらそちら優先 (= 旧
-// 経路の段階的廃止用、 W2-A 側で prop / state 削除完了後にこの fallback も外す予定)。
+// 閉じ込めた (= F-12)。
 function useNowSec() {
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000))
   useEffect(() => {
@@ -56,9 +55,8 @@ function useNowSec() {
   return nowSec
 }
 
-export default function StatusBar({ status, nowSec: nowSecProp }) {
-  const internalNowSec = useNowSec()
-  const nowSec = nowSecProp ?? internalNowSec
+export default function StatusBar({ status }) {
+  const nowSec = useNowSec()
   const isOnline = useConnectionStatus()
   if (!status) {
     return (
