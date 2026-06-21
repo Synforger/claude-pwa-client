@@ -92,7 +92,7 @@ cd claude-pwa-client
 conda create -n pwa-client python=3.11 && conda activate pwa-client
 pip install -r backend/requirements.txt
 cp backend/config.example.json backend/config.json   # 編集
-python -m backend.cli.gen_vapid                      # backend/vapid.json 生成
+python -m backend.cli.gen_vapid                      # backend/secrets/vapid.json 生成
 uvicorn backend.main:app --host 0.0.0.0 --port 8765
 
 # frontend
