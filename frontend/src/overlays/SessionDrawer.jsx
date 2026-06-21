@@ -71,15 +71,34 @@ export default function SessionDrawer({
   const handleReset = async () => {
     setResetBusy(true)
     try {
-      if ('serviceWorker' in navigator) {
-        const regs = await navigator.serviceWorker.getRegistrations()
-        await Promise.all(regs.map(r => r.update().catch(() => {})))
-      }
+      // 1. Cache Storage を全削除 (= 新 sw.js の fetch ハンドラが管理する shell キャッシュを一掃)。
       if (typeof caches !== 'undefined') {
         const keys = await caches.keys()
         await Promise.all(keys.map(k => caches.delete(k).catch(() => {})))
       }
+      // 2. 新 sw.js を取得し、 install → activate が完了するまで待つ (= 待たずに reload すると
+      //    古い SW のままリロードして「効かない」 race があった)。 unregister はしない
+      //    (= PushSubscription を維持、 update() で新版に差し替える)。 最大 5s で打ち切り。
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations()
+        await Promise.all(regs.map(async (r) => {
+          try {
+            await r.update()
+            const incoming = r.installing || r.waiting
+            if (incoming && incoming.state !== 'activated') {
+              await new Promise((resolve) => {
+                const done = setTimeout(resolve, 5000)
+                incoming.addEventListener('statechange', () => {
+                  if (incoming.state === 'activated') { clearTimeout(done); resolve() }
+                })
+              })
+            }
+          } catch { /* ignore */ }
+        }))
+      }
     } catch { /* ignore */ }
+    // 3. cache-bust クエリ付きでハードリロード (= navigation を必ず新規リクエスト化)。
+    //    新 SW の network-first (cache:'reload') と合わさって最新 index.html → 最新 assets を取る。
     const url = new URL(window.location.href)
     url.searchParams.set('_r', String(Date.now()))
     window.location.replace(url.toString())
@@ -133,13 +152,17 @@ export default function SessionDrawer({
   useEffect(() => {
     if (!agentPicker) return undefined
     // 初回 (= 未試行) だけここで fetch する。 error からの再試行は (a) 30 秒 timer or
-    // (b) ユーザの再試行ボタン (= picker UI) で別経路から呼ぶ。 loading / ok / error 中は
-    // この effect は何もしない (= 再 fire ループを避ける)。
+    // (b) ユーザの再試行ボタン (= picker UI) で別経路から呼ぶ。
     if (accountsStatus !== null) return undefined
     const controller = new AbortController()
     fetchAccounts(controller.signal)
     return () => controller.abort()
-  }, [agentPicker, accountsStatus, fetchAccounts])
+    // deps は agentPicker のみ。 accountsStatus を入れると fetchAccounts 内の
+    // setAccountsStatus('loading') でこの effect が再実行され、 cleanup の abort() が fetch
+    // 自身を中断 → status が 'loading' で固定し「アカウント取得中…」 から進めなくなる
+    // (= 2026-06-22 実機で発覚した abort race)。 fetch トリガーは picker が開いた瞬間で十分。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentPicker])
   // 失敗から 30 秒経ったら自動 retry を 1 回だけ。 連続失敗時は手動 retry に委ねる。
   useEffect(() => {
     if (accountsStatus !== 'error' || !agentPicker) return undefined
@@ -151,13 +174,12 @@ export default function SessionDrawer({
   }, [accountsStatus, agentPicker, fetchAccounts])
 
   const handleAgentPick = (agentId) => {
-    // accounts 取得が失敗状態の時はアカウントを 1 つに決め切れないので picker を出して
-    // retry の機会を与える (= F-40)。 fetch 成功で 0 or 1 件なら従来通り即作成。
-    if (accountsStatus === 'error') {
-      setPickedAgent(agentId)
-      return
-    }
-    if (accounts.length <= 1) {
+    // account 選択を省いて即作成するのは「fetch 完了済 (= 'ok') かつ候補 0/1 件」 の時だけ。
+    // loading / 未試行 (null) / error / 複数候補は picker 画面に進める。 これにより、 fetch が
+    // まだ完了してない状態で agent をタップした時に accounts=[] を「候補 0 件」 と誤判定して
+    // 即作成してしまう race を防ぐ (= account が複数あるのに選択が出ない原因だった。 agent が
+    // 1 つだと開いた直後にタップするので特に起きやすい)。 picker 進入後の自動判定は下の useEffect。
+    if (accountsStatus === 'ok' && accounts.length <= 1) {
       handleCreate(agentId, null)
       return
     }
@@ -169,6 +191,15 @@ export default function SessionDrawer({
     onCreate(agentId, accountId)
     onClose()
   }
+  // picker 画面に進んだ後 (= loading 中にタップした) で accounts fetch が完了し、 候補が
+  // 0/1 件だった場合は account 選択を出さず自動で作成する (= race 救済)。 候補が複数なら
+  // 何もせず picker のアカウント一覧を見せる。
+  useEffect(() => {
+    if (pickedAgent !== null && accountsStatus === 'ok' && accounts.length <= 1) {
+      handleCreate(pickedAgent, null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickedAgent, accountsStatus, accounts.length])
 
   const handleSelect = (sid) => {
     if (renameFor) return // リネーム中は切替させない
@@ -280,6 +311,9 @@ export default function SessionDrawer({
           ) : (
             <div className="agent-picker">
               <div className="agent-picker-label">アカウントを選択:</div>
+              {(accountsStatus === 'loading' || accountsStatus === null) && (
+                <div className="agent-picker-loading">アカウント取得中…</div>
+              )}
               {accountsStatus === 'error' && (
                 <div className="agent-picker-error">
                   <span>アカウント一覧を取得できませんでした</span>
