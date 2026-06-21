@@ -1,120 +1,15 @@
-"""maintenance.restart_sunshine_if_bloated の判定分岐 + footprint parser の regression
-+ cleanup_idle_pwa_sessions の閾値・attached/non-pwa 除外。
+"""cleanup_idle_pwa_sessions の閾値・attached/non-pwa 除外 + tmux format verify
+(= backend-F-32) の unit test。
 
-外部コマンド (pgrep / footprint / os.kill / tmux) は monkeypatch でスタブし、
-「配信中はスキップ」「閾値未満はスキップ」「肥大化 + idle のみ kill」を固定する。
+Sunshine restart / streamer ゾンビ reap は 2026-06-21 (backend-F-33) で backend
+から外出し済 (= docs/sunshine-runbook.md + LaunchAgent 別経路)、 そのため本
+モジュールの旧 Sunshine 系 test は削除済み。
 """
-import signal
+import logging
 import subprocess
 import time
 
 import backend.core.maintenance as m
-
-
-def test_footprint_parse_units():
-    # 旧表記 (phys_footprint: ...)
-    assert m._FOOTPRINT_RE.search("phys_footprint: 30 GB").groups() == ("30", "GB")
-    assert m._FOOTPRINT_RE.search("    phys_footprint: 38 MB").groups() == ("38", "MB")
-    # 新表記 (Footprint: ..., capital F、 接頭辞なし)。 macOS が出すヘッダ行をそのまま再現。
-    sample = "sunshine [16114]: 64-bit    Footprint: 40 GB (16384 bytes per page)"
-    assert m._FOOTPRINT_RE.search(sample).groups() == ("40", "GB")
-
-
-def _patch(monkeypatch, *, sunshine_pid, streamer_pid, footprint_bytes, killed):
-    def fake_pgrep(pattern, *, exact=False):
-        if "sunshine" in pattern:
-            return sunshine_pid
-        if "streamer" in pattern:
-            return streamer_pid
-        return None
-
-    monkeypatch.setattr(m, "_pgrep_one", fake_pgrep)
-    monkeypatch.setattr(m, "_phys_footprint_bytes", lambda pid: footprint_bytes)
-    monkeypatch.setattr(m.os, "kill", lambda pid, sig: killed.append((pid, sig)))
-    # 新導入の streamer ゾンビ判定はテスト本体で別途上書きする時以外は noop / streamer_pid 互換で。
-    monkeypatch.setattr(m, "_reap_zombie_streamers", lambda: 0)
-    monkeypatch.setattr(m, "_has_live_streamer", lambda: streamer_pid is not None)
-
-
-def test_skip_when_sunshine_absent(monkeypatch):
-    killed = []
-    _patch(monkeypatch, sunshine_pid=None, streamer_pid=None,
-           footprint_bytes=99 * 1024**3, killed=killed)
-    assert m.restart_sunshine_if_bloated() is False
-    assert killed == []
-
-
-def test_skip_when_streaming(monkeypatch):
-    """配信中 (= streamer 在席) は肥大化していても使用中ペアを壊さないため触らない。"""
-    killed = []
-    _patch(monkeypatch, sunshine_pid=100, streamer_pid=200,
-           footprint_bytes=99 * 1024**3, killed=killed)
-    assert m.restart_sunshine_if_bloated() is False
-    assert killed == []
-
-
-def test_skip_when_under_threshold(monkeypatch):
-    killed = []
-    _patch(monkeypatch, sunshine_pid=100, streamer_pid=None,
-           footprint_bytes=m.SUNSHINE_FOOTPRINT_MAX_BYTES - 1, killed=killed)
-    assert m.restart_sunshine_if_bloated() is False
-    assert killed == []
-
-
-def test_kill_when_bloated_and_idle(monkeypatch):
-    killed = []
-    _patch(monkeypatch, sunshine_pid=100, streamer_pid=None,
-           footprint_bytes=m.SUNSHINE_FOOTPRINT_MAX_BYTES + 1, killed=killed)
-    assert m.restart_sunshine_if_bloated() is True
-    assert killed == [(100, signal.SIGKILL)]
-
-
-def test_skip_when_footprint_unavailable(monkeypatch):
-    killed = []
-    _patch(monkeypatch, sunshine_pid=100, streamer_pid=None,
-           footprint_bytes=None, killed=killed)
-    assert m.restart_sunshine_if_bloated() is False
-    assert killed == []
-
-
-def test_zombie_streamer_does_not_block_sunshine_kill(monkeypatch):
-    """配信終了後に reap されなかった streamer (= elapsed が閾値超え) が居ても、 ゾンビ
-    として先に reap した上で sunshine 肥大化なら kill する。 旧版が永遠にスキップして
-    sunshine が 40GB まで膨らんだ 2026-06-04 の再発防止 (= 真因 #1)。"""
-    killed = []
-    reaped = []
-
-    def fake_pgrep(pattern, *, exact=False):
-        if "sunshine" in pattern:
-            return 100
-        return None
-
-    monkeypatch.setattr(m, "_pgrep_one", fake_pgrep)
-    monkeypatch.setattr(m, "_phys_footprint_bytes",
-                        lambda pid: m.SUNSHINE_FOOTPRINT_MAX_BYTES + 1)
-    monkeypatch.setattr(m.os, "kill", lambda pid, sig: killed.append((pid, sig)))
-    monkeypatch.setattr(m, "_reap_zombie_streamers",
-                        lambda: reaped.append("reap") or 1)
-    # ゾンビ reap 後は live streamer 無し
-    monkeypatch.setattr(m, "_has_live_streamer", lambda: False)
-    assert m.restart_sunshine_if_bloated() is True
-    assert reaped == ["reap"]  # 必ず ゾンビ reap が先に走る
-    assert killed == [(100, signal.SIGKILL)]
-
-
-def test_live_streamer_still_protects_sunshine(monkeypatch):
-    """elapsed が短い streamer (= 本当に配信中) が居れば、 肥大化していても sunshine
-    には触らない。 ゾンビ判定の閾値導入で誤って配信中の sunshine を kill しない安全弁。"""
-    killed = []
-    monkeypatch.setattr(m, "_pgrep_one",
-                        lambda pattern, exact=False: 100 if "sunshine" in pattern else None)
-    monkeypatch.setattr(m, "_phys_footprint_bytes",
-                        lambda pid: m.SUNSHINE_FOOTPRINT_MAX_BYTES + 1)
-    monkeypatch.setattr(m.os, "kill", lambda pid, sig: killed.append((pid, sig)))
-    monkeypatch.setattr(m, "_reap_zombie_streamers", lambda: 0)
-    monkeypatch.setattr(m, "_has_live_streamer", lambda: True)
-    assert m.restart_sunshine_if_bloated() is False
-    assert killed == []
 
 
 def _patch_tmux(monkeypatch, *, list_stdout, kill_calls):
@@ -160,3 +55,73 @@ def test_idle_kill_tmux_timeout(monkeypatch):
 
     monkeypatch.setattr(m.subprocess, "run", fake_run)
     assert m.cleanup_idle_pwa_sessions(idle_days=7) == 0
+
+
+# ============================================================================
+# backend-F-32: tmux list-sessions format verify + warn
+# ============================================================================
+
+def test_idle_kill_warns_on_unexpected_field_count(monkeypatch, caplog):
+    """tmux 出力の field 数が期待値 (3) と違う行は skip + warn ログ。
+    旧版は黙って skip するだけで tmux side の format 仕様変更を見逃す構造だった。
+    """
+    list_stdout = "pwa-ses_short\t0\n"  # field=2 (= 期待 3)
+    kill_calls: list[str] = []
+    _patch_tmux(monkeypatch, list_stdout=list_stdout, kill_calls=kill_calls)
+    with caplog.at_level(logging.WARNING, logger=m.__name__):
+        result = m.cleanup_idle_pwa_sessions(idle_days=7)
+    assert result == 0
+    assert kill_calls == []
+    assert any("unexpected tmux list-sessions row" in rec.message for rec in caplog.records)
+
+
+def test_idle_kill_warns_on_empty_session_name(monkeypatch, caplog):
+    """field 数は正しいが session_name が空のケースも warn する。"""
+    now = time.time()
+    stale = now - 10 * 86400
+    list_stdout = f"\t0\t{stale:.0f}\n"
+    kill_calls: list[str] = []
+    _patch_tmux(monkeypatch, list_stdout=list_stdout, kill_calls=kill_calls)
+    with caplog.at_level(logging.WARNING, logger=m.__name__):
+        result = m.cleanup_idle_pwa_sessions(idle_days=7)
+    assert result == 0
+    assert kill_calls == []
+    assert any("suspicious session_name" in rec.message for rec in caplog.records)
+
+
+# ============================================================================
+# backend-F-33: Sunshine 関連 symbol は削除済
+# ============================================================================
+
+def test_sunshine_helpers_no_longer_present():
+    """Sunshine restart / streamer ゾンビ reap は backend 外で管理する設計に
+    切り替えた (= docs/sunshine-runbook.md)。 backend module からは消えていること。"""
+    for name in (
+        "restart_sunshine_if_bloated",
+        "_reap_zombie_streamers",
+        "_has_live_streamer",
+        "_phys_footprint_bytes",
+        "_pgrep_one",
+        "SUNSHINE_FOOTPRINT_MAX_BYTES",
+        "STREAMER_ZOMBIE_SECONDS",
+        "_FOOTPRINT_RE",
+        "_FOOTPRINT_UNITS",
+    ):
+        assert not hasattr(m, name), f"backend-F-33: {name!r} should be removed"
+
+
+def test_run_all_maintenance_no_sunshine_key(monkeypatch):
+    """run_all_maintenance のサマリ dict にも restarted_sunshine は含まれない。"""
+    # subprocess 系を全部 noop で安全に走らせる
+    monkeypatch.setattr(m, "cleanup_stale_tmux_sessions", lambda: 0)
+    monkeypatch.setattr(m, "cleanup_idle_pwa_sessions", lambda: 0)
+    monkeypatch.setattr(m, "cleanup_stale_statusline_map", lambda: 0)
+    monkeypatch.setattr(m, "cleanup_old_jsonl", lambda: 0)
+    import backend.jsonl.session_status as ss
+    monkeypatch.setattr(ss, "cleanup_orphan_turn_starts", lambda: 0)
+    summary = m.run_all_maintenance()
+    assert "restarted_sunshine" not in summary
+    assert set(summary.keys()) == {
+        "killed_tmux", "killed_idle_pwa", "removed_statusline_map",
+        "removed_jsonl", "orphan_turn_starts",
+    }
