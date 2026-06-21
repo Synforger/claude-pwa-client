@@ -552,7 +552,7 @@ claude-pwa-client/
 │   │   ├── usage.py               # 使用率 (5h / 7d / ctx) 組み立て
 │   │   ├── maintenance.py         # 起動時/定期 GC (tmux/jsonl/log/cache)
 │   │   └── fork.py                # 会話フォーク (parentUuid 鎖の lineage 切り出し)
-│   ├── tests/                     # pytest (249 ケース)
+│   ├── tests/                     # pytest
 │   ├── config.example.json
 │   └── requirements.txt
 └── frontend/                      # React + Vite
