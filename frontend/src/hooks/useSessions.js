@@ -116,8 +116,19 @@ export function useSessions() {
 
   const removeSession = useCallback(async (id) => {
     try {
-      await apiFetch(`/sessions/${id}`, { method: 'DELETE' })
-    } catch { /* backend 未到達でもローカル状態は消す */ }
+      const r = await apiFetch(`/sessions/${id}`, { method: 'DELETE' })
+      if (!r || !r.ok) {
+        // backend に届かなかった or 拒否された場合は UI 上は消えても backend 側に session が
+        // 残る (= 次回 /sessions GET で復活する「ゴーストタブ」)。 silent でなく console に
+        // 残して、 ユーザは「消したのに戻ってきた」 を見て初めて気付くしかなかった状況を
+        // 解消する (= 2026-06-22 silent-failure sweep)。
+        // eslint-disable-next-line no-console
+        console.warn('[sessions] delete failed:', id, r?.status)
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('[sessions] delete request errored:', id, e)
+    }
     // setSessions / setActiveId の updater 内で計算 (= F-42、 deps を [] にして
     // 参照が変化するたびに useCallback identity が動くのを抑える)。 React は updater
     // 関数を StrictMode で 2 回呼ぶ場合があるが、 純関数 (= 副作用なし) なら安全。
@@ -144,24 +155,38 @@ export function useSessions() {
     // 楽観更新
     setSessions(prev => prev.map(s => s.id === id ? { ...s, title: trimmed } : s))
     try {
-      await apiFetch(`/sessions/${id}`, {
+      const r = await apiFetch(`/sessions/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: trimmed }),
       })
-    } catch { /* ignore: ローカルは既に反映済み */ }
+      if (!r || !r.ok) {
+        // eslint-disable-next-line no-console
+        console.warn('[sessions] rename failed:', id, r?.status)
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('[sessions] rename request errored:', id, e)
+    }
   }, [])
 
   const setNotifyMode = useCallback(async (id, mode) => {
     // 楽観更新 (= ⋯ メニューの選択を即反映)
     setSessions(prev => prev.map(s => s.id === id ? { ...s, notify_mode: mode } : s))
     try {
-      await apiFetch(`/sessions/${id}`, {
+      const r = await apiFetch(`/sessions/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notify_mode: mode }),
       })
-    } catch { /* ignore: ローカルは既に反映済み */ }
+      if (!r || !r.ok) {
+        // eslint-disable-next-line no-console
+        console.warn('[sessions] notify_mode set failed:', id, mode, r?.status)
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('[sessions] notify_mode set errored:', id, mode, e)
+    }
   }, [])
 
   return {
