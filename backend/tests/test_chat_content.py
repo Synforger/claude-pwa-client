@@ -68,3 +68,30 @@ def test_save_to_tmp_zero_size_is_skipped(tmp_path, monkeypatch):
     files = [_upload("empty.txt", b"", "text/plain")]
     saved = _run(cc.save_to_tmp(files, "ses_x"))
     assert saved == []
+
+
+def test_save_to_tmp_size_none_still_uploads(tmp_path, monkeypatch):
+    """size=None (= iOS Safari 等 multipart の Content-Length を per-part で送らない client)
+    でも upload を成立させる。 旧実装は `if not f.size: continue` で silent skip しており、
+    画像が「成功した風」 で消える事故の原因だった (= 2026-06-22 fix)。"""
+    monkeypatch.setattr(cc, "UPLOADS_TMP", tmp_path / "tmp")
+    monkeypatch.setattr(cc, "session_tmp_files", {})
+    data = b"\x89PNG\r\n\x1a\n" + b"x" * 1000  # PNG っぽいダミー
+    headers = Headers({"content-type": "image/png"})
+    f = UploadFile(file=io.BytesIO(data), filename="photo.png", size=None, headers=headers)
+    saved = _run(cc.save_to_tmp([f], "ses_x"))
+    assert len(saved) == 1
+    assert saved[0]["name"] == "photo.png"
+    assert saved[0]["mime"] == "image/png"
+
+
+def test_save_to_tmp_size_none_oversize_caught_after_read(tmp_path, monkeypatch):
+    """size=None かつ実バイト数が limit 超え = read 後 check で 413。"""
+    monkeypatch.setattr(cc, "UPLOADS_TMP", tmp_path / "tmp")
+    monkeypatch.setattr(cc, "session_tmp_files", {})
+    big = b"x" * (cc.FILE_SIZE_LIMIT + 1)
+    headers = Headers({"content-type": "application/octet-stream"})
+    f = UploadFile(file=io.BytesIO(big), filename="big.bin", size=None, headers=headers)
+    with pytest.raises(HTTPException) as exc:
+        _run(cc.save_to_tmp([f], "ses_x"))
+    assert exc.value.status_code == 413

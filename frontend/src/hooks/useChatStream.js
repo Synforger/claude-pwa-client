@@ -251,13 +251,25 @@ export function useChatStream({
       for (const item of files) {
         form.append('files', item.file)
       }
+      let uploadOk = true
       try {
-        await apiFetch(`/pty/${encodeURIComponent(sid)}/send-with-files`, {
+        const r = await apiFetch(`/pty/${encodeURIComponent(sid)}/send-with-files`, {
           method: 'POST',
           body: form,
         })
-      } catch { /* 送信失敗は握りつぶす、 次操作で復帰 */ }
-      clearAttachments(sid)
+        if (!r || !r.ok) {
+          uploadOk = false
+          // backend が 413 (= サイズ超過) / 500 等で fail。 中身を 1 行 alert で見せる
+          // (= 旧実装は catch で全部握りつぶしていたので、 画像が silent に消えてた = F-XX、 2026-06-22)。
+          let detail = `HTTP ${r?.status ?? '???'}`
+          try { detail = (await r.json())?.detail || detail } catch { /* ignore */ }
+          alert(`添付ファイル送信に失敗: ${detail}`)
+        }
+      } catch (e) {
+        uploadOk = false
+        alert(`添付ファイル送信に失敗: ${e?.message || e}`)
+      }
+      if (uploadOk) clearAttachments(sid)
     } else {
       // 送信本文 (text + Enter): backend が JSONL に user 行が +1 されるかを最大 2s 監視 →
       // なければ 1 回自動再送 → さらに 1.5s 待つ → ok/ng を返す。 ng (= claude TUI に届かなかった)
