@@ -707,7 +707,10 @@ export default function App() {
 
       <ActivityBar status={status} />
 
-      {activeViewMode !== 'terminal' && (
+      {/* ChatInput は常時 mount。 terminal view では CSS hide で消すだけにする
+          (= 2026-06-22)。 旧実装は条件レンダで unmount していたので、 chat → terminal →
+          chat と戻ると ChatInput 内部 state (= localText) が消えて書きかけが失われていた。 */}
+      <div style={{ display: activeViewMode === 'terminal' ? 'none' : undefined }}>
         <ChatInput
           activeSid={activeSid}
           activeSession={activeSession}
@@ -732,7 +735,7 @@ export default function App() {
           stopUnavailable={stopUnavailableSid === activeSid}
           onStopRecovered={handleStopRecovered}
         />
-      )}
+      </div>
 
       {/* ExitPlanMode 承認プロンプト。 topbar の 📑 ボタンタップで開く明示 open 制御。
           pending_plan が消えたら自動で閉じる (= 承認が反映されたら片付ける)。 */}
