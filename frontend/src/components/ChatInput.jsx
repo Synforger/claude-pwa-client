@@ -8,9 +8,12 @@
 // 永続化 (localStorage) と sendMessage 経路は flush 後の input dict を参照するので、 ユーザ
 // 体感では従来と同じ。 強制リロード時に未 flush の打鍵途中文字は失われる、 これは draft 保存
 // しない明示挙動。
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
-export default function ChatInput({
+// streaming flush で App が再 render しても、 ChatInput の props が参照同値なら shallow
+// equal で skip させる (= 打鍵 jank 対策、 2026-06-22)。 App 側で callback を useCallback、
+// 空の currentAttachments を共通 sentinel に揃えてあるので memo が効く。
+function ChatInputInner({
   activeSid,
   activeSession,
   input,
@@ -186,3 +189,6 @@ export default function ChatInput({
     </div>
   )
 }
+
+const ChatInput = React.memo(ChatInputInner)
+export default ChatInput
