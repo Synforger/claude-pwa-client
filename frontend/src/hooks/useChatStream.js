@@ -203,14 +203,35 @@ export function useChatStream({
   // 状態になる事がある。 onerror が発火しないので reconnectKey bump 経路に乗らない →
   // 新着が来ない = チャットが少し前で止まる症状の主因。 visibility が visible に変わったら
   // 確実に新接続を取り直して、 offsetRef ベースで未受信 event を replay 取得する。
+  // + 2026-06-23: hidden 遷移時に offsetRef を同期で localStorage に flush する。 旧実装は
+  // event 受信ごとに 1s debounce していたため、 bg 突入が debounce 中だと offset が
+  // 旧値のまま落ちる → 復帰時の `?from=` が古い offset を渡して replay 始点ズレ →
+  // 「最新メッセージが見えない / 古いものに戻る」 事象の主因の 1 つ。
   useEffect(() => {
+    const flushOffsets = () => {
+      if (offsetPersistTimerRef.current) {
+        clearTimeout(offsetPersistTimerRef.current)
+        offsetPersistTimerRef.current = null
+      }
+      try { persistOffsets(offsetRef.current) } catch { /* ignore */ }
+    }
     const onVis = () => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'hidden') {
+        flushOffsets()
+      } else if (document.visibilityState === 'visible') {
         setReconnectKey(k => k + 1)
       }
     }
     document.addEventListener('visibilitychange', onVis)
-    return () => document.removeEventListener('visibilitychange', onVis)
+    window.addEventListener('pagehide', flushOffsets)
+    window.addEventListener('beforeunload', flushOffsets)
+    window.addEventListener('freeze', flushOffsets)
+    return () => {
+      document.removeEventListener('visibilitychange', onVis)
+      window.removeEventListener('pagehide', flushOffsets)
+      window.removeEventListener('beforeunload', flushOffsets)
+      window.removeEventListener('freeze', flushOffsets)
+    }
   }, [])
 
   // activeSid 切替時の buffer reset。 接続自体は閉じない (= F-15 で /all 経路に統合)、
