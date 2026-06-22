@@ -36,6 +36,7 @@ from backend.state import (
 )
 from backend.terminal.runner import kill_tmux_session, pty_sessions
 import backend.jsonl.watcher as jsonl_watcher
+from backend.jsonl import history as session_history
 
 logger = logging.getLogger(__name__)
 
@@ -213,6 +214,15 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
     """claude プロセスを kill + 新規 spawn する (= /clear と違ってプロセスメモリも完全解放)。
     新 claude_sid に切り替わるが SessionStart hook で bindings 更新されるので、 PWA タブは
     シームレスに続けて使える。 長期稼働で claude プロセスメモリが累積する問題への対策。"""
+    # kill する前に現 claude_sid を履歴に積む (= 事故時の復旧源、 pwa_sid あたり最新 3 件保持)。
+    # binding が落ちてる場合は no-op になる (= record_end が None を弾く)。
+    try:
+        cur = jsonl_watcher.get_jsonl_for(session_id)
+        if cur is not None:
+            cur_sid = cur.stem  # claude jsonl ファイル名 = claude_sid
+            session_history.record_end(session_id, cur_sid, jsonl_path=str(cur))
+    except Exception:
+        logger.debug("session_history record skipped for %s", session_id, exc_info=True)
     # kill 経路は delete_session と同じだが、 sessions_meta は維持して即 spawn し直す
     try:
         kill_tmux_session(session_id)
@@ -258,6 +268,14 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
     # 全 sid SSE (/sessions/status/stream) にも変化を伝える (= per-sid と整合)
     sessions_overview.notify()
     return {"ok": True}
+
+
+@router.get("/sessions/{session_id}/history")
+async def get_session_history(session_id: str, _: str = Depends(require_session)):
+    """pwa_sid の直近 claude_sid 履歴 (= 最新 3 件、 新しい順) を返す。 restart 直前に
+    記録された claude_sid + ended_at + jsonl_path を持つ。 binding が事故で消えた時の
+    復旧 UI 用 (= backend ログ grep より速く前 sid に辿れる経路)。"""
+    return {"entries": session_history.get(session_id)}
 
 
 @router.delete("/sessions/{session_id}")
