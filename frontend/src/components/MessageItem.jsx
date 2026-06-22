@@ -338,6 +338,15 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
               <pre className="thinking-text">{msg.thinking}</pre>
             </details>
           )}
+          {/* 2026-06-22: 旧実装は tools → text 順だったが、 claude の実応答は
+              「説明テキスト → Bash 等の tool 実行」 の流れが大半。 順序逆転で「Bash の後に
+              そのことを説明するメッセージが出る」 ように見えるバグになっていた。 text を
+              先に描画して実応答順に揃える。 */}
+          {msg.text && (
+            <span className="bubble">
+              <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={msg.streaming} />
+            </span>
+          )}
           {msg.tools?.length > 0 && (
             <div className="tool-log">
               {msg.tools.map((t) => {
@@ -414,11 +423,6 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
               })}
               {msg.streaming && <div className="tool-line tool-pending">…</div>}
             </div>
-          )}
-          {msg.text && (
-            <span className="bubble">
-              <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={msg.streaming} />
-            </span>
           )}
           {msg.askUserQuestion && (
             <AskUserQuestionBubble
