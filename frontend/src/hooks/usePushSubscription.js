@@ -100,7 +100,12 @@ export function usePushSubscription({ onCloseMenu } = {}) {
           try {
             await enablePushOnce()
             if (!cancelled) setHasRealSub(true)
-          } catch { /* 失敗時は次の ping で再試行 */ }
+          } catch (e) {
+            // 次の 60s ping で再試行されるので silent でも回復はするが、 ずっと失敗してると
+            // 通知が来ない状態が続く → 診断ログを残す (= 2026-06-22 silent-failure sweep)。
+            // eslint-disable-next-line no-console
+            console.warn('[push] enablePushOnce failed, will retry next ping:', e)
+          }
         }
       } finally {
         syncing = false
