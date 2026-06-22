@@ -51,14 +51,6 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
     el.scrollTop = el.scrollHeight
   }, [])
 
-  // sid 切替 / 初期マウント後の遅延 layout 追従用。 ユーザが既に上スクロールしてれば
-  // (= isAtBottomRef=false) 何もしない、 末尾追従中だけ底辺へ寄せ直す。
-  const scrollToBottomIfFollowing = useCallback(() => {
-    const el = scrollerDomRef.current
-    if (!el || !isAtBottomRef.current) return
-    el.scrollTop = el.scrollHeight
-  }, [])
-
   // 公開: 「↓ 最新へ」 ボタン or send 直後に呼ぶ用。
   // 同期 1 回 + rAF 1 回。 以後の遅延 layout (= Markdown / code highlight / 画像 /
   // details 展開) は ResizeObserver effect 側の observer が拾って自動追従する
@@ -82,20 +74,21 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
   }, [])
 
   // 起動 / タブ切替: paint 前に底へ flush (= 前 session の scroll 残留防止)。
-  // 同期 + rAF 1 回。 以後の長い遅延 layout は ResizeObserver effect が拾う。
+  // scrollToBottom 経由 (= programmaticScrollRef ガード + 自前 rAF retry) で行う。
+  // 旧実装は scrollToBottomSync (= ガード無し) で叩いていたが、 直後の onScroll が
+  // markdown 遅延展開中の scrollHeight - scrollTop - clientHeight > 30 を拾って
+  // isAtBottomRef を false に flip → ResizeObserver による以後の追従も効かなくなる
+  // → タブ切替で「上に戻る」 症状を起こしていた (= 2026-06-22)。
   useLayoutEffect(() => {
     if (!sid) return
     // ターミナル画面では DOM が xterm 側、 messages container は表示外なので scroll しない。
     // 同じ effect を chat / terminal 切替ごとに走らせて、 terminal → chat に戻った時にも
     // 最新位置へ寄せ直す (= 「ターミナルに移って戻ったら最新に行かない」 症状の解消)。
     if (viewMode && viewMode !== 'chat') return
-    isAtBottomRef.current = true
     setShowScrollBtn(false)
     setHasNew(false)
     msgLengthRef.current[sid] = (messages[sid] || []).length
-    scrollToBottomSync()
-    const rafId = requestAnimationFrame(scrollToBottomIfFollowing)
-    return () => cancelAnimationFrame(rafId)
+    scrollToBottom()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sid, viewMode])
 
