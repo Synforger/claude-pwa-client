@@ -316,7 +316,13 @@ export default function App() {
         url.searchParams.delete('ses')
         window.history.replaceState({}, '', url.pathname + (url.search || '') + url.hash)
       }
-    } catch { /* ignore */ }
+    } catch (e) {
+      // 通知タップで起動した時の deep link 解釈失敗 = 該当 session に飛ばないだけ
+      // (= top fallback)。 silent でも復帰経路はあるが、 何度も起きるなら通知 → 起動の
+      // フローが壊れてる signal なので診断ログを残す (= 2026-06-22)。
+      // eslint-disable-next-line no-console
+      console.warn('[deep-link] URL ?ses= parse failed:', e)
+    }
   }, [setActiveId])
 
 

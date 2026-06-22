@@ -127,7 +127,13 @@ export function useChatStream({
       // フラグ (=「推論中…」 表示) を落とすのには引き続き使う (ボタン状態とは別軸)。
       try {
         processStreamEvent(eventDeps, curSid, event)
-      } catch { /* 1 event の失敗で stream を落とさない */ }
+      } catch (e) {
+        // 1 event の失敗で stream は落とさないが、 silent skip だと「表示が壊れた」
+        // のに grep する手がかりが無くなる。 console.warn で event type + error を残す
+        // (= 2026-06-22 silent-failure sweep)。
+        // eslint-disable-next-line no-console
+        console.warn('[chat] event handler threw, dropping this event:', event?.type, e)
+      }
     }
   })
 
@@ -421,8 +427,18 @@ export function useChatStream({
     // 新 claude_sid に切り替わるが backend の SessionStart hook で bindings が更新されるので
     // PWA タブはそのまま続けて使える。 旧 JSONL は disk に残るので --resume で復元可能。
     try {
-      await apiFetch(`/sessions/${encodeURIComponent(sid)}/restart`, { method: 'POST' })
-    } catch { /* 失敗しても次操作で復帰 */ }
+      const r = await apiFetch(`/sessions/${encodeURIComponent(sid)}/restart`, { method: 'POST' })
+      if (!r || !r.ok) {
+        // セッション終了は backend の kill + spawn 経路、 ここが落ちると claude プロセスが
+        // 残ったまま UI だけ「終わったつもり」 になる事故源。 ユーザに見せる
+        // (= 2026-06-22 silent-failure sweep)。
+        let detail = `HTTP ${r?.status ?? '???'}`
+        try { detail = (await r.json())?.detail || detail } catch { /* ignore parse */ }
+        alert(`セッション終了に失敗: ${detail}`)
+      }
+    } catch (e) {
+      alert(`セッション終了に失敗: ${e?.message || e}`)
+    }
     // 停止フラグを解除 (= 新プロセスで turn を再開できる状態にする)
     // UI 上のセッション区切りを messages に挿入 (= MessageItem の system/kind=session_end 経路)
     setMessages(prev => ({
