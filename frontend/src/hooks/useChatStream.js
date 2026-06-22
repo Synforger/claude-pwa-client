@@ -181,7 +181,18 @@ export function useChatStream({
       if (!evSid) return
       handleEventRef.current?.(evSid, event)
     }
-    es.onerror = () => { /* EventSource は自動再接続 (= Last-Event-ID で差分) */ }
+    es.onerror = () => {
+      // EventSource は通常自動再接続するが readyState===2 (CLOSED) は永久死亡。
+      // この場合 chat 流入が無言で止まる (= 新着が来ない、 stream 経由の loading=false 復帰も
+      // 来ない) ので、 reconnectKey を bump して手動で張り直す。 connecting 中は warn だけ
+      // 残してブラウザの自動再接続を待つ (= 2026-06-22 lifecycle sweep)。
+      // eslint-disable-next-line no-console
+      console.warn('[chat] EventSource error, readyState=', es.readyState)
+      if (es.readyState === 2) {
+        // CLOSED: 親 useEffect の cleanup で旧 es は close 済になるので setReconnectKey で十分。
+        setReconnectKey(k => k + 1)
+      }
+    }
     return () => {
       es.close()
     }
@@ -269,6 +280,7 @@ export function useChatStream({
         form.append('files', item.file)
       }
       let uploadOk = true
+      let uploadErrDetail = ''
       try {
         const r = await apiFetch(`/pty/${encodeURIComponent(sid)}/send-with-files`, {
           method: 'POST',
@@ -276,17 +288,42 @@ export function useChatStream({
         })
         if (!r || !r.ok) {
           uploadOk = false
-          // backend が 413 (= サイズ超過) / 500 等で fail。 中身を 1 行 alert で見せる
-          // (= 旧実装は catch で全部握りつぶしていたので、 画像が silent に消えてた = F-XX、 2026-06-22)。
-          let detail = `HTTP ${r?.status ?? '???'}`
-          try { detail = (await r.json())?.detail || detail } catch { /* ignore */ }
-          alert(`添付ファイル送信に失敗: ${detail}`)
+          uploadErrDetail = `HTTP ${r?.status ?? '???'}`
+          try { uploadErrDetail = (await r.json())?.detail || uploadErrDetail } catch { /* ignore parse */ }
         }
       } catch (e) {
         uploadOk = false
-        alert(`添付ファイル送信に失敗: ${e?.message || e}`)
+        uploadErrDetail = e?.message || String(e)
       }
-      if (uploadOk) clearAttachments(sid)
+      if (uploadOk) {
+        clearAttachments(sid)
+      } else {
+        // 添付送信失敗時の UI 復旧 (= 2026-06-22 lifecycle sweep):
+        // 旧実装は alert だけで楽観 user bubble + 空 streaming agent bubble + loading=true が
+        // 残ったまま → 「…」 永続表示 + 送信ボタン無効化 stuck で reload しないと回復不能だった。
+        // テキスト送信失敗経路 (= 下の !result.ok 分岐) と同じ cleanup を行う。
+        setInput(prev => ({ ...prev, [sid]: prev[sid] || text }))
+        try { onSendFailed?.(sid, text) } catch { /* ignore consumer error */ }
+        setMessages(prev => {
+          const msgs = [...(prev[sid] || [])]
+          while (msgs.length) {
+            const tail = msgs[msgs.length - 1]
+            if (tail.role === 'agent' && tail.streaming && !tail.text && !tail.thinking && (!tail.tools || !tail.tools.length)) {
+              msgs.pop()
+            } else break
+          }
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            if (msgs[i].role === 'user' && msgs[i].optimistic) {
+              msgs[i] = { ...msgs[i], sendFailed: true }
+              break
+            }
+          }
+          return { ...prev, [sid]: msgs }
+        })
+        setLoading(prev => ({ ...prev, [sid]: false }))
+        optimisticRef.current[sid] = null
+        alert(`添付ファイル送信に失敗: ${uploadErrDetail}`)
+      }
     } else {
       // 送信本文 (text + Enter): backend が JSONL に user 行が +1 されるかを最大 2s 監視 →
       // なければ 1 回自動再送 → さらに 1.5s 待つ → ok/ng を返す。 ng (= claude TUI に届かなかった)
