@@ -198,79 +198,110 @@ export function useChatStorage(sessions) {
   // backend sessions list との 1 回 cleanup 済みフラグ (= F-28)
   const cleanupDoneRef = useRef(false)
 
-  // messages を localStorage に書く時は sid 別キー (v2) に分ける。 推論中の 1 sid だけ書き
-  // 換える時に全 sid 分の JSON.stringify + 圧縮を回さなくて済む (= reviewer 指摘 #7)。
+  // messages / input 保存ロジックを ref に逃がして、 debounce 経路 + pagehide / hidden 経路の
+  // 両方から呼べるようにする (= 2026-06-22)。 旧実装は setTimeout 1s + requestIdleCallback の
+  // 二段遅延 → iOS PWA をバックグラウンドにすると JS suspend で save が走らず、 戻った時に
+  // 古いキャッシュが表示される事故源だった。
+  const messagesRef = useRef(messages)
+  const sessionsRef = useRef(sessions)
+  const inputRef2 = useRef(input)
+  useEffect(() => { messagesRef.current = messages }, [messages])
+  useEffect(() => { sessionsRef.current = sessions }, [sessions])
+  useEffect(() => { inputRef2.current = input }, [input])
+
+  const runMsgSave = useRef(() => {
+    const sids = sessionsRef.current.map(s => s.id)
+    const liveSids = new Set(sids)
+    const cur_messages = messagesRef.current
+    // 削除済 sid の localStorage key を掃除 (= 永続化時に絞る、 元コメント通り)
+    for (const sid of Object.keys(lastSavedRef.current)) {
+      if (!liveSids.has(sid)) {
+        try { localStorage.removeItem(v2Key(sid)) } catch { /* ignore */ }
+        delete lastSavedRef.current[sid]
+      }
+    }
+    for (const sid of sids) {
+      const cur = cur_messages[sid] || []
+      // 参照比較で dirty 判定 (= sid に変更がなければ何もしない)
+      if (lastSavedRef.current[sid] === cur) continue
+      // F-27: マーカー数を再計算 (= dirty な sid のみ)、 これを pruneOldSessions に渡す
+      const endCount = countSessionEnds(cur)
+      endCountRef.current[sid] = endCount
+      const pruned = pruneOldSessions(cur, endCount).slice(-MAX_MESSAGES)
+      // quota 超過時は古い方から N% ずつ削って再試行
+      let toSave = pruned
+      let saved = false
+      for (let attempt = 0; attempt < QUOTA_RETRY_MAX; attempt++) {
+        try {
+          localStorage.setItem(v2Key(sid), compressToUTF16(JSON.stringify(toSave)))
+          saved = true
+          break
+        } catch {
+          if (toSave.length === 0) break
+          const cut = Math.max(1, Math.floor(toSave.length * QUOTA_RETRY_TRIM_RATIO))
+          toSave = toSave.slice(cut)
+        }
+      }
+      if (saved) {
+        lastSavedRef.current[sid] = cur
+      } else {
+        // eslint-disable-next-line no-console
+        console.warn(`[chat-storage] quota exceeded for ${sid} after retries`)
+      }
+    }
+  })
+
+  const runInputSave = useRef(() => {
+    const toSave = {}
+    for (const s of sessionsRef.current) {
+      toSave[s.id] = inputRef2.current[s.id] || ''
+    }
+    try { localStorage.setItem(LS_INPUT, JSON.stringify(toSave)) } catch { /* ignore */ }
+  })
+
+  // 通常経路 = setTimeout + requestIdleCallback で描画と競合させない遅延 save。
   useEffect(() => {
     if (msgSaveTimer.current) clearTimeout(msgSaveTimer.current)
     msgSaveTimer.current = setTimeout(() => {
-      const runSave = () => {
-        const sids = sessions.map(s => s.id)
-        const liveSids = new Set(sids)
-        // 削除済 sid の localStorage key を掃除 (= 永続化時に絞る、 元コメント通り)
-        for (const sid of Object.keys(lastSavedRef.current)) {
-          if (!liveSids.has(sid)) {
-            try { localStorage.removeItem(v2Key(sid)) } catch { /* ignore */ }
-            delete lastSavedRef.current[sid]
-          }
-        }
-        for (const sid of sids) {
-          const cur = messages[sid] || []
-          // 参照比較で dirty 判定 (= sid に変更がなければ何もしない)
-          if (lastSavedRef.current[sid] === cur) continue
-          // F-27: マーカー数を再計算 (= dirty な sid のみ)、 これを pruneOldSessions に渡す
-          const endCount = countSessionEnds(cur)
-          endCountRef.current[sid] = endCount
-          const pruned = pruneOldSessions(cur, endCount).slice(-MAX_MESSAGES)
-          // quota 超過時は古い方から N% ずつ削って再試行
-          let toSave = pruned
-          let saved = false
-          for (let attempt = 0; attempt < QUOTA_RETRY_MAX; attempt++) {
-            try {
-              localStorage.setItem(v2Key(sid), compressToUTF16(JSON.stringify(toSave)))
-              saved = true
-              break
-            } catch {
-              if (toSave.length === 0) break
-              const cut = Math.max(1, Math.floor(toSave.length * QUOTA_RETRY_TRIM_RATIO))
-              toSave = toSave.slice(cut)
-            }
-          }
-          if (saved) {
-            lastSavedRef.current[sid] = cur
-          } else {
-            console.warn(`[chat-storage] quota exceeded for ${sid} after retries`)
-          }
-        }
-      }
-      // iOS Safari 18.4+ / Chrome / Firefox は requestIdleCallback あり。
-      // F-26: timeout を 5000 → 2000ms に短縮。 5s だと一度ブロックした時に他 IO の
-      // ヘッドルームを大きく食う、 2s なら save 自体は idle に倒しつつ詰まり時の
-      // 強制実行までを許容範囲に収められる。
       if (typeof window.requestIdleCallback === 'function') {
-        window.requestIdleCallback(runSave, { timeout: 2000 })
+        window.requestIdleCallback(() => runMsgSave.current(), { timeout: 2000 })
       } else {
-        runSave()
+        runMsgSave.current()
       }
     }, 1000)
   }, [messages, sessions])
 
   useEffect(() => {
     if (inputSaveTimer.current) clearTimeout(inputSaveTimer.current)
-    // input は ChatInput タブ切替時にしか変わらない (= 打鍵中は ChatInput 内部 state)
-    // なので発火頻度は低いが、 save 自体は idle 時に倒して描画と競合させない。
-    const run = () => {
-      const toSave = {}
-      for (const s of sessions) {
-        toSave[s.id] = input[s.id] || ''
-      }
-      try { localStorage.setItem(LS_INPUT, JSON.stringify(toSave)) } catch { /* ignore */ }
-    }
     const ric = window.requestIdleCallback
     inputSaveTimer.current = setTimeout(() => {
-      if (ric) ric(run, { timeout: 1500 })
-      else run()
+      if (ric) ric(() => runInputSave.current(), { timeout: 1500 })
+      else runInputSave.current()
     }, 500)
   }, [input, sessions])
+
+  // pagehide / visibilitychange-hidden で即時 flush (= 2026-06-22 iOS PWA bg 対策)。
+  // 旧実装は 1s setTimeout + requestIdleCallback で save を遅らせていたため、 iOS PWA を
+  // バックグラウンドにすると JS が suspend して save が走らず、 戻った時に少し前のキャッシュ
+  // が表示される事故が起きていた。 hidden 遷移で同期 save を強制する (= ブラウザは pagehide
+  // を suspend 前に必ず発火させる仕様、 setTimeout を超えない確実な書き出し経路)。
+  useEffect(() => {
+    const flushAll = () => {
+      if (msgSaveTimer.current) { clearTimeout(msgSaveTimer.current); msgSaveTimer.current = null }
+      if (inputSaveTimer.current) { clearTimeout(inputSaveTimer.current); inputSaveTimer.current = null }
+      try { runMsgSave.current() } catch { /* ignore */ }
+      try { runInputSave.current() } catch { /* ignore */ }
+    }
+    const onVis = () => { if (document.visibilityState === 'hidden') flushAll() }
+    window.addEventListener('pagehide', flushAll)
+    window.addEventListener('beforeunload', flushAll)
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      window.removeEventListener('pagehide', flushAll)
+      window.removeEventListener('beforeunload', flushAll)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [])
 
   return { messages, setMessages, input, setInput }
 }

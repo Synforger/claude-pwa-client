@@ -198,6 +198,21 @@ export function useChatStream({
     }
   }, [reconnectKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // iOS PWA バックグラウンドからの復帰時に EventSource を強制再接続 (= 2026-06-22)。
+  // iOS は PWA を background にすると socket を suspend し、 戻った時に「OPEN のまま実は死んでる」
+  // 状態になる事がある。 onerror が発火しないので reconnectKey bump 経路に乗らない →
+  // 新着が来ない = チャットが少し前で止まる症状の主因。 visibility が visible に変わったら
+  // 確実に新接続を取り直して、 offsetRef ベースで未受信 event を replay 取得する。
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'visible') {
+        setReconnectKey(k => k + 1)
+      }
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [])
+
   // activeSid 切替時の buffer reset。 接続自体は閉じない (= F-15 で /all 経路に統合)、
   // ただし activeSid の useStreamBuffer の表示 buffer は新しいタブ用に初期化する。
   useEffect(() => {
