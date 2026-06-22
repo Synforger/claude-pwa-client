@@ -40,6 +40,10 @@ CONFIG_PATH = BACKEND_DIR / "config.json"
 SESSION_META_PATH = DATA_DIR / "session_meta.json"
 SUBSCRIPTIONS_PATH = DATA_DIR / "subscriptions.json"
 JSONL_BINDINGS_PATH = DATA_DIR / "jsonl_bindings.json"
+# pwa_sid → 直近 N (= 既定 3) 件の claude_sid 履歴。 restart (= セッション終了ボタン) で
+# kill する直前にその時点の claude_sid を記録 → binding が事故で消えた / 古い backup に
+# 戻った時の復旧源として使う。 N 件で打ち切るので無限肥大しない。
+SESSION_HISTORY_PATH = DATA_DIR / "session_history.json"
 VAPID_PATH = SECRETS_DIR / "vapid.json"
 
 
