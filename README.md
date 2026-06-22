@@ -146,7 +146,7 @@ tailscale serve --bg http://localhost:8765
 
 代表的なつまずきポイントと復旧手順は [docs/troubleshoot.md](docs/troubleshoot.md) に集約
 (Chromium 系の HTTPS 証明書エラー、 Sunshine encoder hang、 moonlight ペアリング破損、
-`__pycache__` import 事故、 等)。
+`__pycache__` import 事故、 PWA bundle 更新の流れ、 セッション終了後の claude_sid 復旧、 等)。
 
 ## ディレクトリ構成
 
@@ -175,8 +175,11 @@ claude-pwa-client/
 │   │   ├── notifications.py       # 停止要因の検出と Web Push 配信
 │   │   ├── plan_choices.py        # ExitPlanMode の選択肢抽出
 │   │   └── watcher.py             # ~/.claude/projects 監視で session ↔ JSONL を紐付け
-│   ├── routes/                    # HTTP / WS 各エンドポイント
-│   │   ├── chat.py                # session メタ / status / overview SSE / /views/ws / /stop
+│   ├── routes/                    # HTTP / WS 各エンドポイント (= chat.py から分割済)
+│   │   ├── sessions.py            # /sessions CRUD / fork / restart / history
+│   │   ├── overview.py            # /sessions/status/stream + /sessions/overview/stream + /views/ws
+│   │   ├── accounts.py            # /accounts (personal / work)
+│   │   ├── chat.py                # /stop など旧 chat 残り (shim 化済)
 │   │   ├── files.py               # /file, /files/tree, /task-output
 │   │   ├── subagents.py           # subagent / workflow 一覧 + 個別 transcript
 │   │   └── hooks.py               # /hooks/event (localhost only)
