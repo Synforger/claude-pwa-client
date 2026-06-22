@@ -7,7 +7,7 @@
 // アプリシェル (HTML / JS / CSS) のキャッシュ世代名。 version を上げると activate で旧世代を
 // 全削除する (= 確実な刷新経路)。 sw.js は backend が no-cache で配信するので、 新しい sw.js は
 // PWA 起動時に必ず取得される → install → activate で旧キャッシュ一掃 → 最新 bundle に入れ替わる。
-const SHELL_CACHE = 'claude-pwa-shell-v1'
+const SHELL_CACHE = 'claude-pwa-shell-v2'
 
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting())
@@ -22,32 +22,36 @@ self.addEventListener('activate', (event) => {
   })())
 })
 
-// アプリシェルの fetch 戦略 (= 2026-06-22 追加、 iOS PWA の HTTP キャッシュ固着対策)。
-// 元は push 専用 SW で fetch 介入が無く、 アセット更新が iOS の HTTP キャッシュ (immutable)
-// 任せ → 古い bundle が永久に張り付き、 新 build を取りに行かない問題があった。
-// 下記は **キャッシュ対象を静的アセットだけに絞る allowlist 型**。 API / SSE / WS / 非 GET は
-// 一切 respondWith せず素通り (= ストリーム系を壊さない不変条件)。
-//   - navigation (index.html) : network-first + cache:'reload' (= HTTP キャッシュを跨いで必ず
-//     最新 HTML を取得 → 最新ハッシュの assets を参照させる)。 オフライン時のみ cache fallback。
-//   - hashed assets (/assets/*) / manifest / アイコン : cache-first (= 内容不変なので一度取れば
-//     良い。 新ハッシュ名は cache miss → fetch で自動取得)。
+// アプリシェルの fetch 戦略 (= 2026-06-22 改定、 「起動毎に再読み込み」 → 状態リセット問題対策)。
+// 旧 network-first は起動毎に index.html を fresh 取得 → 新 build があれば即反映 という設計だったが、
+// 結果として「毎起動時に bundle が変わる可能性があり PWA を再マウントしてる感覚」 を与えていた。
+// **「アプリを更新」 ボタンが唯一の刷新経路**という UX 不変条件に合わせ、 navigation も cache-first
+// にする。 SessionDrawer.handleReset が caches 全削除 + SW update + hard reload で刷新するので、
+// それ以外の launch では一切 network 取得しない (= state を保持して即起動)。
+//   - navigation (index.html) : cache-first (= キャッシュあれば再 fetch しない、 初回 / cache miss
+//     のみ network)。 これにより常駐状態がリセットされない。
+//   - hashed assets (/assets/*) / manifest / アイコン : cache-first (= 内容不変)。
+//   - API / SSE / WS / 非 GET : 一切 respondWith せず素通り (= ストリーム系を壊さない)。
 self.addEventListener('fetch', (event) => {
   const req = event.request
   if (req.method !== 'GET') return
   const url = new URL(req.url)
   if (url.origin !== self.location.origin) return
 
-  // HTML ナビゲーション = network-first (= HTTP キャッシュを無視して最新を取る)。
+  // HTML ナビゲーション = cache-first (= 起動毎の再 fetch を避けて状態保持)。
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
+      const cached = await caches.match(req)
+      if (cached) return cached
       try {
-        const fresh = await fetch(req, { cache: 'reload' })
-        const cache = await caches.open(SHELL_CACHE)
-        cache.put(req, fresh.clone())
+        const fresh = await fetch(req)
+        if (fresh && fresh.ok) {
+          const cache = await caches.open(SHELL_CACHE)
+          cache.put(req, fresh.clone())
+        }
         return fresh
       } catch {
-        const cached = await caches.match(req)
-        return cached || Response.error()
+        return Response.error()
       }
     })())
     return
