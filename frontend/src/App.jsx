@@ -131,6 +131,10 @@ const SessionDrawer = lazy(() => import('./overlays/SessionDrawer.jsx'))
 // 画面共有 (= moonlight-web-stream を iframe 埋め込み)。 開いた時だけ load。
 const MoonlightFrame = lazy(() => import('./components/MoonlightFrame.jsx'))
 
+// ChatInput.currentAttachments の安定 sentinel。 attachments[sid] が空の時に毎 render で
+// 新しい `[]` を作ると ChatInput が memo を抜けるので、 共通参照を返す。
+const EMPTY_ARR = []
+
 export default function App() {
   // セッション (= UI 上のタブ = 1 議題) 管理
   const {
@@ -347,6 +351,18 @@ export default function App() {
     sendAnswer(activeSid, tool_use_id, answer, isFree, optionCount)
   }, [sendAnswer, activeSid])
 
+  // ChatInput に渡すコールバック群を useCallback で参照固定 (= 2026-06-22)。 旧実装は
+  // 各 prop が inline arrow で App 再 render 毎に新関数 → ChatInput が React.memo skip
+  // できず、 streaming flush の度に textarea を含む input ツリーが再 render され打鍵 jank
+  // を起こしていた。
+  const handleOpenTree = useCallback(() => ov.setTreeOpen('~'), [ov])
+  const handleToggleView = useCallback(() => setActiveViewMode(flippedViewMode), [setActiveViewMode, flippedViewMode])
+  const handleEndSessionClick = useCallback(() => ov.setConfirmEnd(true), [ov])
+  const handleStopClick = useCallback(() => ov.setConfirmStop(true), [ov])
+  const handleSendClick = useCallback((text) => sendMessage(text), [sendMessage])
+  const handleSendFailedConsumed = useCallback(() => setSendFailedText(null), [])
+  const handleStopRecovered = useCallback(() => setStopUnavailableSid(null), [])
+
   // click-outside listener: ChatInput 内の ⋯ メニューを外側 click/tap で閉じる。
   // 旧手書き useEffect (= menuOpenRef 経由で listener を mount 時 1 回張替) を W2-C で
   // 用意した useOutsideClick hook 経由に置換 (= F-29 集約済 hook を活用、 enabled で
@@ -354,7 +370,10 @@ export default function App() {
   useOutsideClick(menuRef, () => ov.setMenu(false), { enabled: ov.menu })
 
   const sids = useMemo(() => sessions.map(s => s.id), [sessions])
-  const currentAttachments = (activeSid && attachments[activeSid]) || []
+  // ChatInput は React.memo 化済 (= streaming 中の打鍵 jank 対策)。 props 参照を安定させる
+  // ため、 attachments[activeSid] が undefined なら共通の EMPTY_ARR を返す (= 毎 render で
+  // 新しい `[]` を作らない → ChatInput が memo skip できる)。
+  const currentAttachments = (activeSid && attachments[activeSid]) || EMPTY_ARR
 
   // session ごとの新着 / 処理中 / 質問待ちバッジ計算 (= active session は常に既読)
   const { sessionBadges, unreadCount, markAsSeen, onOverviewPayload } = useSessionBadges({ sids, activeSid, messages, loading })
@@ -700,18 +719,18 @@ export default function App() {
           menuRef={menuRef}
           menuOpen={ov.menu}
           setMenuOpen={ov.setMenu}
-          onOpenTree={() => ov.setTreeOpen('~')}
+          onOpenTree={handleOpenTree}
           activeViewMode={activeViewMode}
-          onToggleView={() => setActiveViewMode(flippedViewMode)}
-          onEndSession={() => ov.setConfirmEnd(true)}
+          onToggleView={handleToggleView}
+          onEndSession={handleEndSessionClick}
           showStopButton={showStopButton}
-          onStop={() => ov.setConfirmStop(true)}
-          onSend={(text) => sendMessage(text)}
+          onStop={handleStopClick}
+          onSend={handleSendClick}
           currentAttachments={currentAttachments}
           sendFailedText={sendFailedText}
-          onSendFailedConsumed={() => setSendFailedText(null)}
+          onSendFailedConsumed={handleSendFailedConsumed}
           stopUnavailable={stopUnavailableSid === activeSid}
-          onStopRecovered={() => setStopUnavailableSid(null)}
+          onStopRecovered={handleStopRecovered}
         />
       )}
 
