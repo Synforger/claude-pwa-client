@@ -209,7 +209,18 @@ export function useChatStream({
     // 呼ばれて従来通り input dict を読む。
     const text = (typeof textOverride === 'string' ? textOverride : (input[sid] || '')).trim()
     const files = attachments[sid] || []
-    if ((!text && files.length === 0) || loadingRef.current[sid]) return
+    if (!text && files.length === 0) return
+    // loading 中 (= 前 turn 未完 or 楽観 busy が stuck) の送信は silent skip しない。
+    // 旧実装は ChatInput が text を localText からクリアした後に sendMessage が return →
+    // 入力テキストが消失する事故 (2026-06-22)。 入力欄に書き戻し + 1 行 alert で
+    // 「届かなかった」 を明示する。 stop ボタンが立ってる状況なので、 ユーザは停止 → 再送が
+    // 自然な経路。
+    if (loadingRef.current[sid]) {
+      setInput(prev => ({ ...prev, [sid]: prev[sid] || text }))
+      try { onSendFailed?.(sid, text) } catch { /* ignore consumer error */ }
+      alert('前のターンが処理中です。 停止ボタンで止めてから再送してください。')
+      return
+    }
     const sendText = text
     setInput(prev => ({ ...prev, [sid]: '' }))
     setLoading(prev => ({ ...prev, [sid]: true }))
