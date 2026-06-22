@@ -222,14 +222,18 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
             cur_sid = cur.stem  # claude jsonl ファイル名 = claude_sid
             session_history.record_end(session_id, cur_sid, jsonl_path=str(cur))
     except Exception:
-        logger.debug("session_history record skipped for %s", session_id, exc_info=True)
+        # 履歴記録の失敗は復旧経路を 1 本失うので、 debug ではなく warning で残す
+        # (= 2026-06-22 silent-failure sweep)。
+        logger.warning("session_history record failed for %s", session_id, exc_info=True)
     # kill 経路は delete_session と同じだが、 sessions_meta は維持して即 spawn し直す
     try:
         kill_tmux_session(session_id)
         pty_sessions.pop(session_id, None)
         jsonl_watcher.unregister(session_id)
     except Exception:
-        logger.debug("restart kill phase failed for %s", session_id, exc_info=True)
+        # kill 失敗 = claude プロセスが残ったまま spawn する経路に進み二重起動の race を起こす
+        # 可能性がある。 warning で残す (= 2026-06-22)。
+        logger.warning("restart kill phase failed for %s", session_id, exc_info=True)
     # フォーク産タブを通常タブ化する (= state.demote_fork_to_normal、 backend-F-44)。
     # restart のセマンティクスは「文脈リセット + プロセスリセット」 で、 fork タブの
     # resume_session_id を残したままだと再 spawn で `claude --resume <同一 id>` が走り、
@@ -291,7 +295,9 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
         pty_sessions.pop(session_id, None)
         jsonl_watcher.unregister(session_id)
     except Exception:
-        logger.debug("session cleanup failed for %s", session_id, exc_info=True)
+        # delete 経路の kill 失敗 = backend に session が残るゴースト化の原因。 warning で
+        # 残す (= 2026-06-22)。
+        logger.warning("session cleanup failed for %s", session_id, exc_info=True)
     # 一時ファイルをクリーンアップ
     for p in session_tmp_files.pop(session_id, []):
         try:
