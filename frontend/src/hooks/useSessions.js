@@ -37,10 +37,10 @@ export function useSessions() {
     lsSet(LS_SESSIONS_META, sessions)
   }, [sessions])
   useEffect(() => {
-    try {
-      if (activeId) localStorage.setItem(LS_ACTIVE_SESSION, activeId)
-      else localStorage.removeItem(LS_ACTIVE_SESSION)
-    } catch { /* ignore */ }
+    // 注: activeId が null になっても removeItem しない (= 次回起動で復元できるよう保持)。
+    // 起動直後に sessions 取得前で一瞬 null になる経路があり、 そこで消すと次回 top fallback に落ちる。
+    if (!activeId) return
+    try { localStorage.setItem(LS_ACTIVE_SESSION, activeId) } catch { /* ignore */ }
   }, [activeId])
 
   // 起動時に backend の真値を取得して同期
