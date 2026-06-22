@@ -53,8 +53,28 @@ export function reconcileUserMessage(cur, eventText, eventUuid) {
     return next
   }
 
+  // [追加 dedup] 直近 LOOKBACK_DEDUP 件の non-optimistic user message に同 text があれば
+  // 重複扱いで append しない (= 2026-06-23、 SSE replay で uuid が揺らいだり in-memory 側が
+  // uuid を持ってない時に step [1] を抜けて append → localStorage 保存 → 次回 reload で
+  // また同じ dup が出る自己強化ループ対策)。 K=8 は「直前に同じテキストを user が連投する」
+  // 正当ケースを取りこぼさない安全マージン。
+  const LOOKBACK_DEDUP = 8
+  const start = Math.max(0, cur.length - LOOKBACK_DEDUP)
+  for (let i = cur.length - 1; i >= start; i--) {
+    const m = cur[i]
+    if (m.role === 'user' && !m.optimistic && m.text === text) {
+      return cur
+    }
+  }
+
+  // [安全弁] eventUuid が無い event は replay / 同期事故の症候なので append 拒否
+  // (= dedup できない event を blind append すると上記自己強化ループの種になる)。
+  if (!eventUuid) {
+    return cur
+  }
+
   return [
     ...cur,
-    { id: generateId(), uuid: eventUuid || null, role: 'user', text },
+    { id: generateId(), uuid: eventUuid, role: 'user', text },
   ].slice(-MAX_MESSAGES)
 }

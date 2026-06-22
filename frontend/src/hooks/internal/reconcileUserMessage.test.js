@@ -46,4 +46,26 @@ describe('reconcileUserMessage', () => {
     expect(next[0].optimistic).toBe(false)
     expect(next[0].fileNames).toEqual(['a.png'])
   })
+
+  it('直近に同 text の confirmed user message があれば uuid 違いでも append しない (= replay dedup)', () => {
+    const confirmed = (text, uuid) => ({ id: text, role: 'user', text, uuid, optimistic: false })
+    const cur = [
+      confirmed('first', 'u-old-1'),
+      { id: 'agent1', role: 'agent', text: 'response', uuid: 'a1' },
+      confirmed('hello', 'u-old-2'),
+      { id: 'agent2', role: 'agent', text: 'response2', uuid: 'a2' },
+    ]
+    // 復帰時の replay で同 text・違う uuid の event が来ても last LOOKBACK 件内に
+    // 同 text の confirmed が居れば dedup される
+    const next = reconcileUserMessage(cur, 'hello', 'u-new-replay')
+    expect(next).toBe(cur)
+  })
+
+  it('eventUuid なしの event は dedup できないので append しない (= 安全弁)', () => {
+    const cur = [{ id: 'a', role: 'user', text: 'older', uuid: 'u1', optimistic: false }]
+    // event.uuid が undefined / null / '' で来た場合
+    expect(reconcileUserMessage(cur, 'brand new text', undefined)).toBe(cur)
+    expect(reconcileUserMessage(cur, 'brand new text', null)).toBe(cur)
+    expect(reconcileUserMessage(cur, 'brand new text', '')).toBe(cur)
+  })
 })
