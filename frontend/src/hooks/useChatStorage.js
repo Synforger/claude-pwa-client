@@ -260,15 +260,19 @@ export function useChatStorage(sessions) {
   })
 
   // 通常経路 = setTimeout + requestIdleCallback で描画と競合させない遅延 save。
+  // F-XX (= 2026-06-23): debounce を 1000ms → 250ms に短縮。 1s だと iOS PWA が bg に入った
+  // タイミングで pending save を抱えたまま suspend / kill されることが頻発し、 復帰時に
+  // 最大 1s 分の最新メッセージが失われていた。 250ms なら描画と競合しない範囲で
+  // ほぼ即時 save、 失われ得る最大幅も 0.25s に圧縮できる (= 1 turn 分は確実に守れる)。
   useEffect(() => {
     if (msgSaveTimer.current) clearTimeout(msgSaveTimer.current)
     msgSaveTimer.current = setTimeout(() => {
       if (typeof window.requestIdleCallback === 'function') {
-        window.requestIdleCallback(() => runMsgSave.current(), { timeout: 2000 })
+        window.requestIdleCallback(() => runMsgSave.current(), { timeout: 1000 })
       } else {
         runMsgSave.current()
       }
-    }, 1000)
+    }, 250)
   }, [messages, sessions])
 
   useEffect(() => {
@@ -277,14 +281,16 @@ export function useChatStorage(sessions) {
     inputSaveTimer.current = setTimeout(() => {
       if (ric) ric(() => runInputSave.current(), { timeout: 1500 })
       else runInputSave.current()
-    }, 500)
+    }, 250)
   }, [input, sessions])
 
-  // pagehide / visibilitychange-hidden で即時 flush (= 2026-06-22 iOS PWA bg 対策)。
-  // 旧実装は 1s setTimeout + requestIdleCallback で save を遅らせていたため、 iOS PWA を
-  // バックグラウンドにすると JS が suspend して save が走らず、 戻った時に少し前のキャッシュ
-  // が表示される事故が起きていた。 hidden 遷移で同期 save を強制する (= ブラウザは pagehide
-  // を suspend 前に必ず発火させる仕様、 setTimeout を超えない確実な書き出し経路)。
+  // pagehide / freeze / visibilitychange-hidden で即時 flush (= 2026-06-23 iOS PWA bg 対策、
+  // 旧 2026-06-22 修正の不足分):
+  // - pagehide / beforeunload : 旧来からの suspend 直前イベント
+  // - freeze                  : iOS 16+ で pagehide の前に / 代わりに発火するケースがあり
+  //                              ここを取りこぼすと kill 時に最新キャッシュが落ちる
+  // - visibilitychange→hidden : 確実な早期 trigger (= bg ボタンタップで即発火、 pagehide は
+  //                              実際に画面が消えるまで待たれる場合がある)
   useEffect(() => {
     const flushAll = () => {
       if (msgSaveTimer.current) { clearTimeout(msgSaveTimer.current); msgSaveTimer.current = null }
@@ -295,10 +301,12 @@ export function useChatStorage(sessions) {
     const onVis = () => { if (document.visibilityState === 'hidden') flushAll() }
     window.addEventListener('pagehide', flushAll)
     window.addEventListener('beforeunload', flushAll)
+    window.addEventListener('freeze', flushAll)
     document.addEventListener('visibilitychange', onVis)
     return () => {
       window.removeEventListener('pagehide', flushAll)
       window.removeEventListener('beforeunload', flushAll)
+      window.removeEventListener('freeze', flushAll)
       document.removeEventListener('visibilitychange', onVis)
     }
   }, [])
