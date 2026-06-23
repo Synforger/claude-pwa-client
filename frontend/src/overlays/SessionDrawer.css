@@ -193,7 +193,9 @@
 .drawer-list {
   flex: 1;
   overflow-y: auto;
-  padding: 6px 0;
+  /* ChatInput (= z=60) の裏に最下部が隠れる症状の根治 (= 2026-06-24)。
+     詳細は FileTreePanel.css `.tree-body` の同種コメント参照。 */
+  padding: 6px 0 calc(var(--chat-input-h, 120px) + 8px);
 }
 .drawer-empty {
   padding: 20px 16px;
