@@ -459,6 +459,23 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
       )}
     </div>
   )
-})
+}, areEqual)
+
+// custom equality (= 2026-06-23 perf sweep)。 default shallow と同等の比較を明示し、
+// 将来 props 追加時の memo skip 漏れを抑える。 activeSubagentTool は subagent ライブ表示で
+// streaming 中ですら ほぼ不変 (= tool 切替時のみ変化) なので、 ここで早期 skip すれば
+// MessageRenderer の markdown 再 parse を全件抑えられる。 msg 参照 + callback 参照 + 軸 props
+// のみ比較。 onFork は activeSid 切替時にしか変わらないので参照比較で十分。
+function areEqual(prev, next) {
+  return (
+    prev.msg === next.msg
+    && prev.onOpenFile === next.onOpenFile
+    && prev.onAnswer === next.onAnswer
+    && prev.apiKeySource === next.apiKeySource
+    && prev.activeSubagentTool === next.activeSubagentTool
+    && prev.onOpenSubagents === next.onOpenSubagents
+    && prev.onFork === next.onFork
+  )
+}
 
 export default MessageItem
