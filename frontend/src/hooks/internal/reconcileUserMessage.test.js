@@ -47,25 +47,34 @@ describe('reconcileUserMessage', () => {
     expect(next[0].fileNames).toEqual(['a.png'])
   })
 
-  it('直近に同 text の confirmed user message があれば uuid 違いでも append しない (= replay dedup)', () => {
-    const confirmed = (text, uuid) => ({ id: text, role: 'user', text, uuid, optimistic: false })
-    const cur = [
-      confirmed('first', 'u-old-1'),
-      { id: 'agent1', role: 'agent', text: 'response', uuid: 'a1' },
-      confirmed('hello', 'u-old-2'),
-      { id: 'agent2', role: 'agent', text: 'response2', uuid: 'a2' },
-    ]
-    // 復帰時の replay で同 text・違う uuid の event が来ても last LOOKBACK 件内に
-    // 同 text の confirmed が居れば dedup される
-    const next = reconcileUserMessage(cur, 'hello', 'u-new-replay')
-    expect(next).toBe(cur)
+  it('同 uuid の既知 event なら dedup する (= 唯一の正当な dedup 経路)', () => {
+    const cur = [{ id: 'a', role: 'user', text: 'hello', uuid: 'u-known', optimistic: false }]
+    // 同じ uuid の event が再送 / replay されたら no-op
+    expect(reconcileUserMessage(cur, 'hello', 'u-known')).toBe(cur)
   })
 
-  it('eventUuid なしの event は dedup できないので append しない (= 安全弁)', () => {
+  it('fork lineage 内の「同 text 別 uuid」 user message が replay されたら正しく append する (= 2026-06-23 退行 fix)', () => {
+    // fork は親 jsonl の lineage をコピーするので、 8 件以内に同 text の user message が
+    // 並ぶケースは普通にある (= 同じ言葉で複数回投げた会話を fork した時等)。 旧版
+    // (= 5826538) の LOOKBACK_DEDUP は ここで誤発火 → 2 件目以降が消える → 「fork タブに
+    // 反映されない」 退行を起こしていた。 新版は uuid が異なる以上は正当な別 message として扱う。
+    const confirmed = (text, uuid) => ({ id: uuid, role: 'user', text, uuid, optimistic: false })
+    const cur = [
+      confirmed('やり直して', 'u-fork-1'),
+      { id: 'a1', role: 'agent', text: '了解', uuid: 'a1' },
+      confirmed('やり直して', 'u-fork-2'),
+      { id: 'a2', role: 'agent', text: '再実行します', uuid: 'a2' },
+    ]
+    const next = reconcileUserMessage(cur, 'やり直して', 'u-fork-3')
+    expect(next).not.toBe(cur)
+    expect(next).toHaveLength(5)
+    expect(next[4]).toMatchObject({ role: 'user', text: 'やり直して', uuid: 'u-fork-3' })
+  })
+
+  it('eventUuid なしの event も append する (= 旧 5826508 の安全弁撤回、 ghost resurface は useChatStorage 側で塞ぐ)', () => {
     const cur = [{ id: 'a', role: 'user', text: 'older', uuid: 'u1', optimistic: false }]
-    // event.uuid が undefined / null / '' で来た場合
-    expect(reconcileUserMessage(cur, 'brand new text', undefined)).toBe(cur)
-    expect(reconcileUserMessage(cur, 'brand new text', null)).toBe(cur)
-    expect(reconcileUserMessage(cur, 'brand new text', '')).toBe(cur)
+    const next = reconcileUserMessage(cur, 'brand new text', undefined)
+    expect(next).toHaveLength(2)
+    expect(next[1]).toMatchObject({ role: 'user', text: 'brand new text', uuid: null })
   })
 })
