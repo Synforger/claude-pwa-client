@@ -131,7 +131,7 @@ export function useChatStream({
         // 1 event の失敗で stream は落とさないが、 silent skip だと「表示が壊れた」
         // のに grep する手がかりが無くなる。 console.warn で event type + error を残す
         // (= 2026-06-22 silent-failure sweep)。
-        // eslint-disable-next-line no-console
+         
         console.warn('[chat] event handler threw, dropping this event:', event?.type, e)
       }
     }
@@ -186,7 +186,7 @@ export function useChatStream({
       // この場合 chat 流入が無言で止まる (= 新着が来ない、 stream 経由の loading=false 復帰も
       // 来ない) ので、 reconnectKey を bump して手動で張り直す。 connecting 中は warn だけ
       // 残してブラウザの自動再接続を待つ (= 2026-06-22 lifecycle sweep)。
-      // eslint-disable-next-line no-console
+       
       console.warn('[chat] EventSource error, readyState=', es.readyState)
       if (es.readyState === 2) {
         // CLOSED: 親 useEffect の cleanup で旧 es は close 済になるので setReconnectKey で十分。

@@ -122,11 +122,11 @@ export function useSessions() {
         // 残る (= 次回 /sessions GET で復活する「ゴーストタブ」)。 silent でなく console に
         // 残して、 ユーザは「消したのに戻ってきた」 を見て初めて気付くしかなかった状況を
         // 解消する (= 2026-06-22 silent-failure sweep)。
-        // eslint-disable-next-line no-console
+         
         console.warn('[sessions] delete failed:', id, r?.status)
       }
     } catch (e) {
-      // eslint-disable-next-line no-console
+       
       console.warn('[sessions] delete request errored:', id, e)
     }
     // setSessions / setActiveId の updater 内で計算 (= F-42、 deps を [] にして
@@ -161,11 +161,11 @@ export function useSessions() {
         body: JSON.stringify({ title: trimmed }),
       })
       if (!r || !r.ok) {
-        // eslint-disable-next-line no-console
+         
         console.warn('[sessions] rename failed:', id, r?.status)
       }
     } catch (e) {
-      // eslint-disable-next-line no-console
+       
       console.warn('[sessions] rename request errored:', id, e)
     }
   }, [])
@@ -180,11 +180,11 @@ export function useSessions() {
         body: JSON.stringify({ notify_mode: mode }),
       })
       if (!r || !r.ok) {
-        // eslint-disable-next-line no-console
+         
         console.warn('[sessions] notify_mode set failed:', id, mode, r?.status)
       }
     } catch (e) {
-      // eslint-disable-next-line no-console
+       
       console.warn('[sessions] notify_mode set errored:', id, mode, e)
     }
   }, [])
