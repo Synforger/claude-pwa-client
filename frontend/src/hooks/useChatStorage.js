@@ -73,14 +73,21 @@ function pruneOldSessions(arr, knownEndCount) {
 // した側 (useChatStream など) は空配列 / 空文字列を期待してよい。
 export function useChatStorage(sessions) {
   const [messages, setMessages] = useState(() => {
-    const cleanArr = (arr) => arr.map(m => {
-      const base = m.id ? m : { ...m, id: generateId() }
-      if (base.askUserQuestion && !base.askUserQuestion.answered) {
-        const { askUserQuestion: _drop, ...rest } = base
-        return rest
-      }
-      return base
-    })
+    const cleanArr = (arr) => arr
+      // optimistic は「送信直後、 JSONL replay で確定するまで」 の一時状態。
+      // この flag が立ったまま localStorage に保存されると、 次回 load で uuid を持たない
+      // ghost user バブルが復活し、 SSE replay 経路の dedup ロジックを破る (= 2026-06-23
+      // 「old user message resurface」 の元 bug の構造的根治、 reconcileUserMessage 側の
+      // LOOKBACK_DEDUP 後付けに頼らず load 時点で弾く)。
+      .filter(m => !(m && m.optimistic === true))
+      .map(m => {
+        const base = m.id ? m : { ...m, id: generateId() }
+        if (base.askUserQuestion && !base.askUserQuestion.answered) {
+          const { askUserQuestion: _drop, ...rest } = base
+          return rest
+        }
+        return base
+      })
     const result = {}
     // v2 (sid 別キー) を優先的に読む。 旧 LS_MESSAGES に居て v2 に居ない sid は migration として
     // result に取り込む (= 旧キーは消さない、 rollback 安全弁)。
@@ -224,10 +231,15 @@ export function useChatStorage(sessions) {
       const cur = cur_messages[sid] || []
       // 参照比較で dirty 判定 (= sid に変更がなければ何もしない)
       if (lastSavedRef.current[sid] === cur) continue
+      // optimistic 状態の user バブルは「JSONL 確定前の一時表示」 であって永続化対象では
+      // ない。 ここで弾かないと bg 突入 / kill で uuid 無し ghost が localStorage に残り、
+      // 次回 load 後の SSE replay で「同 text 別 uuid」 の event を dedup できず ghost が
+      // resurface する (= 2026-06-23 元 bug の構造的根治)。
+      const persistable = cur.filter(m => !(m && m.optimistic === true))
       // F-27: マーカー数を再計算 (= dirty な sid のみ)、 これを pruneOldSessions に渡す
-      const endCount = countSessionEnds(cur)
+      const endCount = countSessionEnds(persistable)
       endCountRef.current[sid] = endCount
-      const pruned = pruneOldSessions(cur, endCount).slice(-MAX_MESSAGES)
+      const pruned = pruneOldSessions(persistable, endCount).slice(-MAX_MESSAGES)
       // quota 超過時は古い方から N% ずつ削って再試行
       let toSave = pruned
       let saved = false
