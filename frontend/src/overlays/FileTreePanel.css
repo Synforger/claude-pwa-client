@@ -57,6 +57,12 @@
 .tree-body {
   flex: 1;
   overflow-y: auto;
+  /* ChatInput (= z=60) の裏に最下部が隠れてスクロールも届かない症状の根治 (= 2026-06-24)。
+     ChatInput が ResizeObserver で `--chat-input-h` を export しているので、 scroll 領域の
+     下端を ChatInput の上端で止める。 fallback 120px は textarea 標準高 + padding +
+     safe-area 実測値 (= FilePreviewModal と同じ参考実装)。 本 css は TasksModal /
+     FavoritesQuickPicker からも再利用されているので 3 panel が同時に治る。 */
+  padding-bottom: calc(var(--chat-input-h, 120px) + 8px);
 }
 
 .tree-loading {
