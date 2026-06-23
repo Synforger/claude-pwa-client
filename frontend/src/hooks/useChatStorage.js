@@ -257,7 +257,6 @@ export function useChatStorage(sessions) {
       if (saved) {
         lastSavedRef.current[sid] = cur
       } else {
-        // eslint-disable-next-line no-console
         console.warn(`[chat-storage] quota exceeded for ${sid} after retries`)
       }
     }

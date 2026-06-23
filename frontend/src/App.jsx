@@ -369,6 +369,29 @@ export default function App() {
   const handleSendFailedConsumed = useCallback(() => setSendFailedText(null), [])
   const handleStopRecovered = useCallback(() => setStopUnavailableSid(null), [])
 
+  // MessageItem 全件再 render 防止 (= 2026-06-23 perf sweep)。 旧実装は <MessageItem> に inline
+  // arrow で onOpenSubagents / onFork を渡しており、 App が再 render するたびに新参照 →
+  // React.memo が shallow compare で全件 skip 失敗 → MessageRenderer (= react-markdown + Prism)
+  // が全件再 parse して streaming 中の打鍵 jank の主因になっていた。 useCallback で参照固定。
+  const handleOpenSubagents = useCallback((focus) => {
+    ov.setSubagentsFocus(focus || null)
+    ov.setSubagents(true)
+  }, [ov])
+  const handleFork = useCallback((uuid) => {
+    if (!activeSid) return
+    forkSession(activeSid, uuid)
+  }, [activeSid, forkSession])
+  // activeSubagentTool は status object から抜き出した primitive (= string | null)、 参照同値で
+  // memo skip が効くように memoize。 status は polling で毎回新参照になるが、 中身の last_tool が
+  // 不変なら同 string が返る。
+  const activeSubagentTool = status?.subagent?.last_tool || null
+  // apiKeySource[activeSid] も primitive 想定だが、 念のため activeSid を絡めた memo を作って
+  // App 再 render で参照が揺れないようにする。
+  const activeApiKeySource = useMemo(
+    () => (activeSid ? (apiKeySource[activeSid] ?? null) : null),
+    [activeSid, apiKeySource],
+  )
+
   // click-outside listener: ChatInput 内の ⋯ メニューを外側 click/tap で閉じる。
   // 旧手書き useEffect (= menuOpenRef 経由で listener を mount 時 1 回張替) を W2-C で
   // 用意した useOutsideClick hook 経由に置換 (= F-29 集約済 hook を活用、 enabled で
@@ -680,10 +703,10 @@ export default function App() {
               msg={msg}
               onOpenFile={handleOpenPath}
               onAnswer={handleAnswer}
-              apiKeySource={activeSid ? apiKeySource[activeSid] : null}
-              activeSubagentTool={status?.subagent?.last_tool || null}
-              onOpenSubagents={(focus) => { ov.setSubagentsFocus(focus || null); ov.setSubagents(true) }}
-              onFork={activeSid ? ((uuid) => forkSession(activeSid, uuid)) : null}
+              apiKeySource={activeApiKeySource}
+              activeSubagentTool={activeSubagentTool}
+              onOpenSubagents={handleOpenSubagents}
+              onFork={activeSid ? handleFork : null}
             />
           ))}
         </div>
