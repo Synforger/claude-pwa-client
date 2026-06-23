@@ -12,6 +12,16 @@ const { compressToUTF16, decompressFromUTF16 } = LZString
 const LS_MESSAGES_V2_PREFIX = `${LS_MESSAGES}_v2_`
 function v2Key(sid) { return LS_MESSAGES_V2_PREFIX + sid }
 
+// 2026-06-24 server-of-truth 純化: localStorage 永続化境界の唯一の真値。 load (cleanArr) と
+// save (runMsgSave) の両端で同関数を通すことで「user message は uuid 付き確定のみ persist」
+// という制約を構造的に守る。 user 以外の role (agent / system) は通常通り通す。
+// 詳細設計 = reconcileUserMessage.js 冒頭コメント参照。
+export function isPersistableMessage(m) {
+  if (!m) return false
+  if (m.role === 'user') return !!m.uuid && !m.optimistic && !m.sendFailed
+  return true
+}
+
 // 旧 agent_a / agent_b キーは「履歴を引き継がない方針」 になったので、 検出したら
 // そのまま削除する (引き継ぎはしない)。
 function dropLegacyKeys(obj) {
@@ -74,12 +84,7 @@ function pruneOldSessions(arr, knownEndCount) {
 export function useChatStorage(sessions) {
   const [messages, setMessages] = useState(() => {
     const cleanArr = (arr) => arr
-      // optimistic は「送信直後、 JSONL replay で確定するまで」 の一時状態。
-      // この flag が立ったまま localStorage に保存されると、 次回 load で uuid を持たない
-      // ghost user バブルが復活し、 SSE replay 経路の dedup ロジックを破る (= 2026-06-23
-      // 「old user message resurface」 の元 bug の構造的根治、 reconcileUserMessage 側の
-      // LOOKBACK_DEDUP 後付けに頼らず load 時点で弾く)。
-      .filter(m => !(m && m.optimistic === true))
+      .filter(isPersistableMessage)
       .map(m => {
         const base = m.id ? m : { ...m, id: generateId() }
         if (base.askUserQuestion && !base.askUserQuestion.answered) {
@@ -231,11 +236,7 @@ export function useChatStorage(sessions) {
       const cur = cur_messages[sid] || []
       // 参照比較で dirty 判定 (= sid に変更がなければ何もしない)
       if (lastSavedRef.current[sid] === cur) continue
-      // optimistic 状態の user バブルは「JSONL 確定前の一時表示」 であって永続化対象では
-      // ない。 ここで弾かないと bg 突入 / kill で uuid 無し ghost が localStorage に残り、
-      // 次回 load 後の SSE replay で「同 text 別 uuid」 の event を dedup できず ghost が
-      // resurface する (= 2026-06-23 元 bug の構造的根治)。
-      const persistable = cur.filter(m => !(m && m.optimistic === true))
+      const persistable = cur.filter(isPersistableMessage)
       // F-27: マーカー数を再計算 (= dirty な sid のみ)、 これを pruneOldSessions に渡す
       const endCount = countSessionEnds(persistable)
       endCountRef.current[sid] = endCount

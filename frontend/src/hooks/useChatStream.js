@@ -278,6 +278,10 @@ export function useChatStream({
     setInput(prev => ({ ...prev, [sid]: '' }))
     setLoading(prev => ({ ...prev, [sid]: true }))
     optimisticRef.current[sid] = { want: 'busy', startedAt: Date.now() }
+    // 楽観 bubble の id は固定して保持。 後段の SEND_TIMEOUT watcher と HTTP fail 経路の
+    // 両方が同じ bubble を狙い撃ちで sendFailed 化 / pop できるようにする
+    // (= reconcileUserMessage 側で confirm 時に id を popped から継承する設計と整合)。
+    const optimisticUserId = generateId()
     // 楽観 user bubble + 空 streaming agent bubble を即挿入。 添付があれば user bubble に
     // 表示用の imageUrls / fileNames を載せる (= MessageItem の user-block 経路で render)。
     // imageUrls は ObjectURL なのでアプリリロード後は消えるが、 当該セッション中は見える。
@@ -291,7 +295,7 @@ export function useChatStream({
         [sid]: [
           ...cur,
           {
-            id: generateId(),
+            id: optimisticUserId,
             role: 'user',
             text,
             optimistic: true,
@@ -307,6 +311,36 @@ export function useChatStream({
     })
     if (isAtBottomRef) isAtBottomRef.current = true
     scrollToBottom()
+    // SEND_TIMEOUT_MS: HTTP 200 が返ったのに claude が JSONL に user 行を書かない silent fail
+    // 用の保険 (= 2026-06-24 server-of-truth 純化、 即時 HTTP fail は既存 !result.ok / !uploadOk
+    // 経路で別途処理されるのでここの timeout は届かない)。 通常 200-500ms で来るので 15s は
+    // 余裕、 backend kickstart 直後や busy 時の遅延も吸収する。 timeout 発火時は対象 bubble
+    // を id で findIndex して sendFailed 化 (= ephemeral、 localStorage 側 filter で除外)、
+    // input に text を戻して再送可能にする。
+    const SEND_TIMEOUT_MS = 15000
+    const failBubble = (extraInput) => {
+      setMessages(prev => {
+        const arr = prev[sid] || []
+        const idx = arr.findIndex(m => m && m.id === optimisticUserId)
+        if (idx < 0) return prev // 既に reconcile で消費済 (= 正常確定)
+        const target = arr[idx]
+        if (!target.optimistic || target.sendFailed) return prev
+        const next = [...arr]
+        next[idx] = { ...target, sendFailed: true }
+        while (next.length) {
+          const tail = next[next.length - 1]
+          if (tail.role === 'agent' && tail.streaming && !tail.text && !tail.thinking && (!tail.tools || !tail.tools.length)) {
+            next.pop()
+          } else break
+        }
+        return { ...prev, [sid]: next }
+      })
+      setLoading(prev => ({ ...prev, [sid]: false }))
+      optimisticRef.current[sid] = null
+      if (extraInput) setInput(prev => ({ ...prev, [sid]: prev[sid] || text }))
+      try { onSendFailed?.(sid, text) } catch { /* ignore consumer error */ }
+    }
+    const failTimerId = setTimeout(() => { failBubble(true) }, SEND_TIMEOUT_MS)
     if (files.length > 0) {
       // multipart: backend がファイルを uploads/tmp に保存して path を本文に追記して
       // tmux に送る (= claude が Read tool で読む)。
@@ -334,30 +368,12 @@ export function useChatStream({
       if (uploadOk) {
         clearAttachments(sid)
       } else {
-        // 添付送信失敗時の UI 復旧 (= 2026-06-22 lifecycle sweep):
+        // 添付送信失敗時の UI 復旧 (= 2026-06-22 lifecycle sweep + 2026-06-24 共通化):
         // 旧実装は alert だけで楽観 user bubble + 空 streaming agent bubble + loading=true が
         // 残ったまま → 「…」 永続表示 + 送信ボタン無効化 stuck で reload しないと回復不能だった。
-        // テキスト送信失敗経路 (= 下の !result.ok 分岐) と同じ cleanup を行う。
-        setInput(prev => ({ ...prev, [sid]: prev[sid] || text }))
-        try { onSendFailed?.(sid, text) } catch { /* ignore consumer error */ }
-        setMessages(prev => {
-          const msgs = [...(prev[sid] || [])]
-          while (msgs.length) {
-            const tail = msgs[msgs.length - 1]
-            if (tail.role === 'agent' && tail.streaming && !tail.text && !tail.thinking && (!tail.tools || !tail.tools.length)) {
-              msgs.pop()
-            } else break
-          }
-          for (let i = msgs.length - 1; i >= 0; i--) {
-            if (msgs[i].role === 'user' && msgs[i].optimistic) {
-              msgs[i] = { ...msgs[i], sendFailed: true }
-              break
-            }
-          }
-          return { ...prev, [sid]: msgs }
-        })
-        setLoading(prev => ({ ...prev, [sid]: false }))
-        optimisticRef.current[sid] = null
+        // 共通 failBubble へ集約 (= 2026-06-24)、 SEND_TIMEOUT watcher も解除する。
+        clearTimeout(failTimerId)
+        failBubble(true)
         alert(`添付ファイル送信に失敗: ${uploadErrDetail}`)
       }
     } else {
@@ -376,33 +392,11 @@ export function useChatStream({
         result = { ok: false }
       }
       if (!result.ok) {
-        // input に text を戻す (= ユーザが再入力済みなら prev を尊重)。
-        // F-36: ChatInput が内部 state (= localText) で打鍵を抱える設計に移行したので、
-        // setInput dict 経由では UI に反映されないケースがある。 onSendFailed callback で
-        // ChatInput 側に直接 text を戻す経路を提供 (= W2-D が ChatInput 側で wire)。
-        // 旧 setInput 経路も二重保険で残す (= 後方互換)。
-        setInput(prev => ({ ...prev, [sid]: prev[sid] || text }))
-        try { onSendFailed?.(sid, text) } catch { /* ignore consumer error */ }
-        setMessages(prev => {
-          const msgs = [...(prev[sid] || [])]
-          // 末尾の空 streaming agent bubble を撤去 (= 推論されてないので)
-          while (msgs.length) {
-            const tail = msgs[msgs.length - 1]
-            if (tail.role === 'agent' && tail.streaming && !tail.text && !tail.thinking && (!tail.tools || !tail.tools.length)) {
-              msgs.pop()
-            } else break
-          }
-          // 末尾の楽観 user bubble に sendFailed: true を付ける (= MessageItem が ⚠ を出す)
-          for (let i = msgs.length - 1; i >= 0; i--) {
-            if (msgs[i].role === 'user' && msgs[i].optimistic) {
-              msgs[i] = { ...msgs[i], sendFailed: true }
-              break
-            }
-          }
-          return { ...prev, [sid]: msgs }
-        })
-        setLoading(prev => ({ ...prev, [sid]: false }))
-        optimisticRef.current[sid] = null
+        // HTTP 即時 fail = 共通 failBubble へ集約 (= 2026-06-24)、 SEND_TIMEOUT watcher も解除。
+        // 旧来の setInput 経路は failBubble 内に内包済 (= F-36 ChatInput.localText の onSendFailed
+        // callback も同関数内で呼ぶ)。
+        clearTimeout(failTimerId)
+        failBubble(true)
       }
     }
   }, [sid, input, attachments, setInput, setMessages, clearAttachments, scrollToBottom, isAtBottomRef, setLoading, onSendFailed])
