@@ -1,0 +1,2 @@
+{"type": "user", "uuid": "u-0001", "message": {"role": "user", "content": "Hello, claude."}, "timestamp": "2026-06-28T15:00:00Z"}
+{"type": "assistant", "uuid": "a-0001", "message": {"id": "msg_01", "role": "assistant", "content": [{"type": "text", "text": "Hi! How can I help?"}], "stop_reason": "end_turn", "model": "claude-opus-4-7", "usage": {"input_tokens": 12, "output_tokens": 8}}, "parentUuid": "u-0001", "timestamp": "2026-06-28T15:00:01Z"}
