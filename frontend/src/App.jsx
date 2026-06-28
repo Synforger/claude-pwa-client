@@ -6,7 +6,7 @@ import ActivityBar from './components/ActivityBar.jsx'
 import StatusBar from './features/status-bar/StatusBar.jsx'
 import StorageWarning from './components/StorageWarning.jsx'
 import ConfirmDialog from './components/ConfirmDialog.jsx'
-import PlanApprovalBubble from './components/PlanApprovalBubble.jsx'
+import PlanApprovalBubble from './features/plan-approval/PlanApprovalBubble.jsx'
 import { apiFetch } from './utils/api.js'
 import { useStatus } from './features/status-bar/useStatus.js'
 import { useOverlays } from './hooks/useOverlays.js'
@@ -129,7 +129,7 @@ const TasksModal = lazy(() => import('./overlays/TasksModal.jsx'))
 // SessionDrawer は drawerOpen=true の時のみ render = 遅延 load 妥当 (= 初回 paint 早く)
 const SessionDrawer = lazy(() => import('./features/session-drawer/SessionDrawer.jsx'))
 // 画面共有 (= moonlight-web-stream を iframe 埋め込み)。 開いた時だけ load。
-const MoonlightFrame = lazy(() => import('./components/MoonlightFrame.jsx'))
+const MoonlightFrame = lazy(() => import('./features/screenshare/MoonlightFrame.jsx'))
 
 // ChatInput.currentAttachments の安定 sentinel。 attachments[sid] が空の時に毎 render で
 // 新しい `[]` を作ると ChatInput が memo を抜けるので、 共通参照を返す。
