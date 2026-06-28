@@ -20,7 +20,7 @@ contracts/
 │   ├── http-endpoints.yaml         28 endpoint の method + path + req/res schema + 認証
 │   └── lifecycle.yaml              reconnect / bg→fg / kill 復帰の状態遷移
 ├── codegen/                        生成 script
-│   ├── gen-python.py               yaml → backend/jsonl/events_generated.py (pydantic v2)
+│   ├── gen-python.py               yaml → backend/_generated/{events,ws_channels,http_endpoints}.py (pydantic v2、 ADR-016)
 │   └── gen-types.mjs               yaml → frontend/src/types.d.ts (TypeScript)
 └── tests/
     ├── sse-replay/                 contract 検証用 JSONL fixture (= 入力)
@@ -58,7 +58,7 @@ npm run validate
 # 内部展開: node codegen/validate.mjs (= ajv API 直叩き、 ajv-cli は脆弱性多 chain で不採用、 0 vulnerabilities)
 
 # 2. codegen (= 両側生成)
-python codegen/gen-python.py   # → ../backend/jsonl/events_generated.py
+python codegen/gen-python.py --out ../backend/_generated   # → backend/_generated/{events,ws_channels,http_endpoints}.py (= ADR-016 統一配置)
 npm run codegen:types          # → ../frontend/src/types.d.ts
 
 # 3. contract test (= backend tests/contracts/)
@@ -78,7 +78,7 @@ cd ../contracts && python codegen/gen-python.py --strict tests/negative/*.yaml  
 
 - `frontend/src/transport/` 経由でしか backend に触れない (= lint `no-restricted-syntax` で `fetch` / `new WebSocket` / `new EventSource` 直書きを transport/ 配下以外で禁止)
 - `frontend/src/ports/` interface が contracts/ 生成 type を import (= hexagonal、 ADR-010)
-- `backend/jsonl/events.py` は `events_generated.py` の pydantic model を import して shape 保証
+- `backend/jsonl/events.py` は `backend/_generated/events.py` の pydantic model を import して shape 保証
 
 ## 関連
 
