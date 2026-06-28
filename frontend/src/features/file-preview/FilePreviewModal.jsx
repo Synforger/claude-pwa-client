@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useSyncExternalStore } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -20,6 +20,11 @@ import { apiFetch } from '../../utils/api.js'
 import { isFav, toggleFav, subscribeFavs } from '../file-tree/favorites.js'
 import { useEscape } from '../../hooks/useEscape.js'
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
+import {
+  subscribe as subscribeUi,
+  getSnapshot as getUiSnapshot,
+  setOverlay,
+} from '../../state/ui.js'
 import '../../styles/Modal.css'
 
 // eager 言語 (= 頻出 10 個)。 初期 bundle に乗る。
@@ -197,7 +202,21 @@ const TEXT_EXTENSIONS = new Set([
   'txt', 'log', 'csv', 'tsv', 'lock', 'list', 'text',
 ])
 
-export default function FilePreviewModal({ path, onClose }) {
+// W2 Phase E1: OverlayHost 経由 render に対応するため props を全廃 (= props 自己解決契約)。
+// path = `ui.overlays.previewPath` を subscribe、 onClose = `setOverlay('previewPath', null)` 直呼出。
+// path が null (= 閉) の時は OverlayHost が render しない契約だが、 念のため safety 内部 early return。
+export default function FilePreviewModal() {
+  const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
+  const path = ui.overlays.previewPath
+  const onClose = useCallback(() => setOverlay('previewPath', null), [])
+  if (!path) return null
+
+  return <FilePreviewModalBody path={path} onClose={onClose} />
+}
+
+// 既存 body はそのまま中身を保持する閉じた function に分離 (= path 変化で内部 state を確実に
+// reset するため、 path を key にしても良いが本体改変最小化方針で wrapper + body 分離を採用)。
+function FilePreviewModalBody({ path, onClose }) {
   const [content, setContent] = useState(null)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)

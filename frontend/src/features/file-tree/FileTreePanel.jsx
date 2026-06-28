@@ -1,7 +1,12 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useSyncExternalStore } from 'react'
 import { apiFetch } from '../../utils/api.js'
 import { loadFavs, toggleFav as toggleFavStore, removeFav as removeFavStore, subscribeFavs } from './favorites.js'
 import { lsSetDebounced } from '../../utils/storage.js'
+import {
+  subscribe as subscribeUi,
+  getSnapshot as getUiSnapshot,
+  setOverlay,
+} from '../../state/ui.js'
 import './FileTreePanel.css'
 
 const HOME = '~'
@@ -24,7 +29,24 @@ function parentPath(p) {
   return parent
 }
 
-export default function FileTreePanel({ onOpenFile, onClose, initialPath }) {
+// W2 Phase E1: OverlayHost 経由 render に対応するため props を全廃 (= props 自己解決契約)。
+// initialPath = `ui.overlays.treeOpen` を subscribe、
+// onOpenFile = path 末尾 '/' 判定で `setOverlay('treeOpen', path)` / `setOverlay('previewPath', path)` 切替 (= 旧 AppShell handleOpenPath 移送)、
+// onClose = `setOverlay('treeOpen', null)` 直呼出。
+export default function FileTreePanel() {
+  const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
+  const initialPath = ui.overlays.treeOpen
+  const onOpenFile = useCallback((path) => {
+    if (path.endsWith('/')) setOverlay('treeOpen', path)
+    else setOverlay('previewPath', path)
+  }, [])
+  const onClose = useCallback(() => setOverlay('treeOpen', null), [])
+  if (!initialPath) return null
+
+  return <FileTreePanelBody initialPath={initialPath} onOpenFile={onOpenFile} onClose={onClose} />
+}
+
+function FileTreePanelBody({ onOpenFile, onClose, initialPath }) {
   const [currentPath, setCurrentPath] = useState(initialPath || HOME)
   const [entries, setEntries] = useState([])
   const [history, setHistory] = useState([])
