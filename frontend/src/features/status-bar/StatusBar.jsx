@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { pctClass, timeUntil, formatResetWeekdayTime } from '../../utils/format.js'
 import { useOutsideClick } from '../../hooks/useOutsideClick.js'
-import { useConnectionStatus } from '../../hooks/useConnectionStatus.js'
+import { useConnectionStatus } from '../../transport/connectionStatus.js'
 import './StatusBar.css'
 
 // 7d window のリセットタイミング: Anthropic 仕様は **rolling 7-day window**
