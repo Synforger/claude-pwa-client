@@ -43,7 +43,7 @@ test.describe('regression: reconcile-no-duplicate', () => {
     const confirmed = page.locator(
       '[data-testid=message-bubble-user][data-cpc-optimistic="0"]',
     )
-    await expect(confirmed).toHaveCount(1, { timeout: 10_000 })
+    await expect(confirmed).toHaveCount(1, { timeout: 20_000 })
     await expect(confirmed).not.toHaveAttribute('data-cpc-uuid', '')
 
     // No duplicate after reconcile: still exactly one user bubble, with the

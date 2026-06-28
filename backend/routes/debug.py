@@ -243,6 +243,41 @@ async def post_e2e_seed(request: Request, body: E2eSeedRequest) -> E2eSeedRespon
     )
 
 
+class PendingPlanInjectRequest(BaseModel):
+    plan: str = Field("e2e plan body")
+    tool_use_id: str = Field("tool_e2e_plan")
+    choices: list[dict[str, Any]] = Field(default_factory=list)
+
+
+@router.post("/e2e/inject-pending-plan/{session_id}")
+async def post_e2e_inject_pending_plan(
+    request: Request,
+    session_id: str,
+    body: PendingPlanInjectRequest,
+) -> dict:
+    """ADR-022 follow-up: write pending_plan straight into agent_status[sid].
+
+    The status SSE pump reads from agent_status, so the next tick delivers
+    the change to whatever client is subscribed - same path as the real
+    capture_plan_choices result but without needing a tmux pane.
+    """
+    _ensure_localhost(request)
+    _ensure_e2e_enabled()
+    from backend.state import agent_status, sessions_overview
+    if session_id not in agent_status:
+        raise HTTPException(status_code=409, detail="no session")
+    agent_status[session_id]["pending_plan"] = {
+        "tool_use_id": body.tool_use_id,
+        "plan": body.plan,
+        "choices": body.choices,
+    }
+    # Wake the /sessions/status/stream broadcaster so subscribers get the new
+    # snapshot on the next event loop tick instead of waiting for the 20s
+    # keep-alive to roll around.
+    sessions_overview.notify()
+    return {"ok": True}
+
+
 class PtyWriteRequest(BaseModel):
     bytes_b64: str = Field(..., description="base64-encoded bytes to enqueue on the WS output side")
 

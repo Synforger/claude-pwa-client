@@ -36,6 +36,16 @@ export function useReadOnSessionOpen(activeSid) {
 export function useMoonlightAvailable() {
   const [available, setAvailable] = useState(false)
   useEffect(() => {
+    // e2e seam: scenarios that need the screenshare toggle visible without a
+    // real Sunshine + moonlight reverse proxy can flip a localStorage flag.
+    try {
+      if (typeof window !== 'undefined' && localStorage.getItem('cpc_e2e_moonlight') === '1') {
+        setAvailable(true)
+        return undefined
+      }
+    } catch {
+      // localStorage may throw under strict privacy modes; treat as unset.
+    }
     let cancelled = false
     ;(async () => {
       try {
