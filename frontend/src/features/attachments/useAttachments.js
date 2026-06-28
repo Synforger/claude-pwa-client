@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { SUPPORTED_IMAGE_TYPES } from '../constants.js'
-import { putImage } from '../utils/imageStore.js'
+import { SUPPORTED_IMAGE_TYPES } from '../../constants.js'
+import { putImage } from './imageStore.js'
 
 // セッション (session_id) ごとの添付ファイル状態。 dict は lazy 拡張する。
 export function useAttachments(activeSession) {
