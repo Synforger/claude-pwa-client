@@ -228,6 +228,8 @@ def rotate_and_purge(today: date | None = None) -> dict[str, int]:
                 gz_files[0].unlink()
                 stats["removed_watermark"] += 1
             except OSError:
+                # benign: watermark cleanup is best-effort; if unlink races with another
+                # process we leave the file and the next maintenance tick retries.
                 pass
 
     return stats

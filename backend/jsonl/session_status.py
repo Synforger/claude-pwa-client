@@ -399,6 +399,8 @@ def scan_single_agent_file(path: Path, since_offset: int = 0) -> dict:
                 try:
                     fh.seek(since_offset)
                 except OSError:
+                    # benign: optimistic seek to last-known offset; failure means we read
+                    # from the start which is slower but always correct.
                     pass
             for i, raw in enumerate(fh):
                 lines_read += 1
@@ -423,6 +425,8 @@ def scan_single_agent_file(path: Path, since_offset: int = 0) -> dict:
                 ):
                     last_tool_result_idx = i
     except OSError:
+        # benign: JSONL was unlinked/rotated mid-scan — defaults below (last_stop_idx=-1,
+        # last_tool_result_idx=-1) yield done=False, which is the safe answer for callers.
         pass
     done = last_stop_idx >= 0 and last_stop_idx > last_tool_result_idx
     return {"lastTool": last_tool, "done": done, "lines_read": lines_read}

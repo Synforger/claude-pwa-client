@@ -109,6 +109,16 @@ export default defineConfig([
     },
   },
 
+  // v2 配下 silent catch 禁止 (= ADR-012 完了判定 § 3、 frontend 版「except: pass benign 化」 と対称)。
+  // `catch {}` や `catch (_) {}` は無自覚な error 握り潰しの温床。 意図的に握る場合は body に
+  // ESLint disable コメント or 何らかの説明的 statement を入れる運用にする。
+  {
+    files: ['src/{domain,ports,contracts,transport,state,registry,features,layout,debug}/**/*.{js,jsx,ts,tsx}'],
+    rules: {
+      'no-empty': ['error', { allowEmptyCatch: false }],
+    },
+  },
+
   // v2 配下 import direction 強制 (= eslint-plugin-boundaries、 ADR-010)
   {
     files: ['src/{domain,ports,contracts,transport,state,registry,features,layout,debug}/**/*.{js,jsx,ts,tsx}'],

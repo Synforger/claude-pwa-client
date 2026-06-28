@@ -206,7 +206,9 @@ async def lifespan(app: FastAPI):
         try:
             await _t
         except (asyncio.CancelledError, Exception):
-            # cancel 後の CancelledError は想定通り、 それ以外の例外は無視 (= shutdown 続行)。
+            # benign: shutdown path. CancelledError is the expected outcome of cancel(),
+            # any other exception during task teardown is swallowed so the rest of the
+            # shutdown sequence (pty_runner.shutdown_all + watcher.stop) still runs.
             pass
     await pty_runner.shutdown_all()
     jsonl_watcher.stop_watcher()
