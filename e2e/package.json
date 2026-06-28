@@ -1,0 +1,15 @@
+{
+  "name": "claude-pwa-client-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "v2 e2e scenarios (playwright, regression + golden path coverage of feature-inventory)",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}
