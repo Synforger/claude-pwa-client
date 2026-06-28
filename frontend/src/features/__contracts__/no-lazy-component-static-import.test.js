@@ -108,7 +108,7 @@ describe('W2 Phase E1 chunk-split contract: overlayRegistry Component spec は�
     }
   }
 
-  it('Component spec を持つ entry が 7 件 (= E-1 で 4 件 + E-2 で 3 件追加、 全 overlay 移行完了)', () => {
-    expect(totalSpecs).toBe(7)
+  it('Component spec を持つ entry が 8 件 (= E-1 で 4 件 + E-2 で 3 件 + F-4 で confirmDelete 1 件追加)', () => {
+    expect(totalSpecs).toBe(8)
   })
 })
