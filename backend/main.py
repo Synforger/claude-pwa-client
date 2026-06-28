@@ -206,13 +206,24 @@ async def lifespan(app: FastAPI):
         try:
             await _t
         except (asyncio.CancelledError, Exception):
-            # cancel 後の CancelledError は想定通り、 それ以外の例外は無視 (= shutdown 続行)。
+            # benign: shutdown path. CancelledError is the expected outcome of cancel(),
+            # any other exception during task teardown is swallowed so the rest of the
+            # shutdown sequence (pty_runner.shutdown_all + watcher.stop) still runs.
             pass
     await pty_runner.shutdown_all()
     jsonl_watcher.stop_watcher()
 
 
 app = FastAPI(lifespan=lifespan)
+
+# ADR-012 observability: W3C traceparent middleware を全 endpoint に適用。
+# 受信 request の `traceparent` を ContextVar に set + response header に echo、 全 SSE event /
+# log entry が 同 trace_id で結合可能になる。 純 ASGI middleware なので SSE / StreamingResponse
+# でも contextvars 伝播が壊れない (= starlette.BaseHTTPMiddleware の既知問題回避)。
+from backend.observability.correlation import install as _install_correlation  # noqa: E402
+from backend.observability.server_timing import install as _install_server_timing  # noqa: E402
+_install_correlation(app)
+_install_server_timing(app)
 
 # frontend は backend で配信される設計なので、 通常運用では同一オリジン = CORS 不要。
 # config に明示指定があった時だけ middleware を有効化 (= dev で vite から叩く等)。
@@ -231,6 +242,11 @@ app.include_router(jsonl_routes.router)
 app.include_router(pty_routes.router)
 app.include_router(push.router)
 app.include_router(subagents_routes.router)
+
+# ADR-012 /debug/* (= state / metrics / log / replay)。 localhost + Host header allowlist の
+# 2 段防御で外からは触れない。 production build でも router を含む (= 開発者の手元 PC で機能)。
+from backend.routes import debug as debug_routes  # noqa: E402
+app.include_router(debug_routes.router)
 
 
 # --- 静的ファイル配信 (Vite ビルド成果物) ---

@@ -293,6 +293,8 @@ async def _jsonl_sse_all(start_pos_map: dict[str, int]):
         try:
             await ensure_pty_session_for(sid)
         except Exception:
+            # benign: per-sid PTY spawn is best-effort during /jsonl/stream/all warmup;
+            # one failure must not block warmup for the remaining sessions.
             pass
 
     # 2) 各 sid の file replay (= 接続時に過去 N 行を吐く)。
@@ -696,5 +698,7 @@ async def monitor_all_sessions_loop():
         try:
             await watcher_task
         except (asyncio.CancelledError, Exception):
+            # benign: shutdown path — `raise` below re-raises the original CancelledError,
+            # so any leftover exception from the watcher coroutine teardown is silenced.
             pass
         raise
