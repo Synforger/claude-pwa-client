@@ -300,10 +300,10 @@ export default function FilePreviewModal({ path, onClose }) {
   })
 
   return (
-    <div className="modal-overlay modal-overlay-preview" onClick={editMode ? undefined : onClose}>
+    <div className="modal-overlay modal-overlay-preview" onClick={editMode ? undefined : onClose} data-testid="file-preview-modal">
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <span className="modal-path">{path}</span>
+          <span className="modal-path" data-testid="file-preview-path">{path}</span>
           <div className="modal-actions">
             {!editMode && (
               <button

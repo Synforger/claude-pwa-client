@@ -116,7 +116,7 @@ export default function FileTreePanel({ onOpenFile, onClose, initialPath }) {
   const currentIsFav = isFav(currentPath)
 
   return (
-    <div className="tree-overlay" onClick={onClose}>
+    <div className="tree-overlay" onClick={onClose} data-testid="file-tree-modal">
       <div className="tree-panel" onClick={e => e.stopPropagation()}>
         <div className="tree-header">
           <div className="tree-nav">

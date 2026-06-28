@@ -75,10 +75,10 @@ export default function StatusBar({ status }) {
   const modeLabel = formatMode(status.mode)
   const budgetLabel = formatBudget(status)
   return (
-    <div className="statusbar">
-      <span className="model">{cleanModel(status.model)}</span>
-      {modeLabel && <span className="mode-chip">{modeLabel}</span>}
-      {budgetLabel && <span className="budget-chip">{budgetLabel}</span>}
+    <div className="statusbar" data-testid="status-bar">
+      <span className="model" data-testid="status-bar-model">{cleanModel(status.model)}</span>
+      {modeLabel && <span className="mode-chip" data-testid="status-bar-mode">{modeLabel}</span>}
+      {budgetLabel && <span className="budget-chip" data-testid="status-bar-budget">{budgetLabel}</span>}
       <span className={pctClass(fivePct)}>
         5h {Math.round(fivePct)}%{' '}
         <span className="dim">{timeUntil(status.five_hour_resets_at, nowSec)}</span>

@@ -48,7 +48,7 @@ export default function PlanApprovalBubble({ pendingPlan, onChoose, onClose }) {
   }
 
   return (
-    <div className="plan-approval-overlay" onClick={handleOverlayClick}>
+    <div className="plan-approval-overlay" onClick={handleOverlayClick} data-testid="plan-approval-bubble">
       <div className="plan-approval-dialog">
         <div className="plan-approval-titlebar">
           <span className="plan-approval-title">📑 plan 承認待ち</span>
@@ -75,6 +75,8 @@ export default function PlanApprovalBubble({ pendingPlan, onChoose, onClose }) {
               className={`plan-approval-choice ${sending === c.key ? 'sending' : ''}`}
               disabled={!!sending}
               onClick={() => handle(c.key)}
+              data-testid="plan-approval-choice"
+              data-cpc-choice={c.key}
             >
               <span className="plan-approval-key">{c.key}</span>
               <span className="plan-approval-label">{c.label}</span>

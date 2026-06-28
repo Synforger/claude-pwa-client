@@ -134,6 +134,7 @@ function ChatInputInner({
         placeholder={activeSession ? 'メッセージを入力...' : '左の ☰ から会話を作成してください'}
         rows={2}
         disabled={inputDisabled}
+        data-testid="chat-input"
       />
       <div className="buttons" ref={menuRef}>
         {menuOpen && (
@@ -174,6 +175,7 @@ function ChatInputInner({
             title={stopUnavailable ? '接続復帰待ち (再送中)' : '停止'}
             className={`stop ${stopUnavailable ? 'pending' : ''}`}
             aria-label="停止"
+            data-testid="chat-stop-button"
           >■</button>
         ) : (
           <button
@@ -181,6 +183,7 @@ function ChatInputInner({
             disabled={!activeSession || (!localText.trim() && currentAttachments.length === 0)}
             className="send"
             aria-label="送信"
+            data-testid="chat-send-button"
           >
             送信
           </button>
