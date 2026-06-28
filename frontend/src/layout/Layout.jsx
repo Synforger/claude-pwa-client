@@ -1,35 +1,51 @@
-// 全体配置 (= drawer / chat panel / terminal pane の grid + viewport breakpoint)。
-// App.jsx は薄い entry に、 配置 / routing は本 file に集約 (= 設計書 § 3-1 v2 ディレクトリツリー)。
-//
-// Phase E 段階: features/ がまだ未実装のため、 子要素 (= drawer / panel / pane) は Phase F で
-// features/*/index.js を import + isEnabled(name) で wiring する。 現状は構造のみ定義、 features
-// 配置点を JSX 上で明示。
-
+// 全体配置 owner (= W2 Phase F-6、 2026-06-29)。 旧 layout/AppShell.jsx を完全削除し、
+// 配置責務を本 file に集約 (= 完了判定 1)。 副作用は features/app-effects/AppEffects.jsx、
+// 各責務 (= chat / terminal / topbar / overlay / storage warn) は各 feature wrapper が所有する。
+// features/*/index.js は side-effect import で全部 load (= ADR-010 self-register、 § 9-6 step 5)、
+// StorageWarning.css は intra-layer import で本 file が単一所有 (= features 側からは触らない)。
 import { useSyncExternalStore } from 'react'
-import { getSnapshot as getUiSnapshot, subscribe as subscribeUi } from '../state/ui.js'
-import { getSnapshot as getSessionsSnapshot, subscribe as subscribeSessions } from '../state/sessions.js'
+import { subscribe as subscribeSessions, getSnapshot as getSessionsSnapshot } from '../state/sessions.js'
+import '../features/chat/index.js'
+import '../features/session-drawer/index.js'
+import '../features/status-bar/index.js'
+import '../features/file-preview/index.js'
+import '../features/file-tree/index.js'
+import '../features/ask-user-question/index.js'
+import '../features/plan-approval/index.js'
+import '../features/screenshare/index.js'
+import '../features/subagents/index.js'
+import '../features/tasks/index.js'
+import '../features/push-notify/index.js'
+import '../features/attachments/index.js'
+import '../features/ios-native/index.js'
+import '../features/terminal/index.js'
+import '../features/fork/index.js'
+import '../features/topbar/index.js'
+import '../features/dialogs/index.js'
+import '../features/app-effects/index.js'
 import ChatPanel from './ChatPanel.jsx'
 import TerminalPane from './TerminalPane.jsx'
+import OverlayHost from './OverlayHost.jsx'
+import Topbar from '../features/topbar/Topbar.jsx'
+import StorageWarningHost from '../features/status-bar/StorageWarningHost.jsx'
+import AppEffects from '../features/app-effects/AppEffects.jsx'
+import '../App.css'
+import './StorageWarning.css'
 
 export default function Layout() {
-  const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
+  // ChatPanel / TerminalPane は always-mount + 内部 display:none gate (= Phase F-1, F-2 確定方針、
+  // viewMode 判定は各 component が自前 subscribe で解決)、 sid だけ 1 経路で渡す (= chat 状態 +
+  // xterm.js lifecycle 保持)。
   const sessions = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
-
   const activeSid = sessions.activeId
-  const viewMode = activeSid ? (ui.viewModes[activeSid] || 'chat') : 'chat'
-
   return (
-    <div className="cpc-layout">
-      {/* drawer は features/session-drawer/ が Phase F で register、 ここでは flag を見て条件描画 */}
-      {ui.overlays.drawer && <div className="cpc-drawer-slot" data-feature="session-drawer" />}
-
-      <main className="cpc-main">
-        {activeSid && viewMode === 'chat' && <ChatPanel sid={activeSid} />}
-        {activeSid && viewMode === 'terminal' && <TerminalPane sid={activeSid} />}
-      </main>
-
-      {/* overlay 系 (= modal / panel) は features 側で portal、 ここでは sentinel のみ */}
-      <div className="cpc-overlay-root" data-overlay-portal />
+    <div className="app">
+      <StorageWarningHost />
+      <Topbar />
+      <TerminalPane sid={activeSid} />
+      <ChatPanel sid={activeSid} />
+      <OverlayHost />
+      <AppEffects />
     </div>
   )
 }

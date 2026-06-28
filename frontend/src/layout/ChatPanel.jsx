@@ -35,7 +35,6 @@ import ChatInput from '../features/chat/ChatInput.jsx'
 import MessageList from '../features/chat/MessageList.jsx'
 import AttachmentsBar from '../features/chat/AttachmentsBar.jsx'
 import PlanApprovalBubble from '../features/plan-approval/PlanApprovalBubble.jsx'
-import ConfirmDialog from '../shared/ConfirmDialog.jsx'
 
 // 起動時の初回 GC 遅延 (= localStorage 復元 + 初期 fetch の messages 確定を待つ)。
 const IMAGE_GC_INITIAL_MS = 5000
@@ -96,7 +95,10 @@ export default function ChatPanel({ sid }) {
   // F-16: stop が WS 切断で届かない時の UI 通知用 flag。
   const [sendFailedText, setSendFailedText] = useState(null)
   const [stopUnavailableSid, setStopUnavailableSid] = useState(null)
-  const { loading, setLoading, apiKeySource, sendMessage, sendAnswer, stopMessage, fetchLatest, endSession, optimisticRef } = useChatStream({
+  // W2 Phase F-4 残 (= 2026-06-29): endSession / stopMessage は features/dialogs/ConfirmEndDialog +
+  // ConfirmStopDialog が useChatStream の module-level export 経由で直接呼ぶ経路に移行済。 ChatPanel
+  // 内では参照しないので destructure しない (= 同 hook の mount で module-level impl が wire される)。
+  const { loading, setLoading, apiKeySource, sendMessage, sendAnswer, fetchLatest, optimisticRef } = useChatStream({
     activeSession,
     setMessages,
     input, setInput,
@@ -254,11 +256,9 @@ export default function ChatPanel({ sid }) {
     return base
   }, [activeMsgs, loading, activeSid, status?.pending_question])
 
-  const handleEndSession = () => {
-    setOverlay('menu', false)
-    setOverlay('confirmEnd', false)
-    endSession()
-  }
+  // W2 Phase F-4 残 (= 2026-06-29): handleEndSession は features/dialogs/ConfirmEndDialog.jsx に
+  // 物理移送、 ChatPanel からは参照ゼロ化。 confirmEnd / confirmStop ダイアログ本体も同様に
+  // OverlayHost 経由 render へ移行 (= 末尾 ConfirmDialog 2 件退役)。
 
   // IndexedDB 画像の orphan GC: 起動時 1 回 + セッション削除トリガで増分掃除。
   // dep は [] でよい (= 起動時 1 回しか走らせない、 起動から 5 秒待って messages 確定後に実行)。
@@ -358,18 +358,10 @@ export default function ChatPanel({ sid }) {
         />
       )}
 
-      <ConfirmDialog
-        open={ui.overlays.confirmEnd}
-        text="このセッションを終了しますか?"
-        onCancel={() => setOverlay('confirmEnd', false)}
-        onConfirm={handleEndSession}
-      />
-      <ConfirmDialog
-        open={ui.overlays.confirmStop}
-        text="推論を停止しますか?"
-        onCancel={() => setOverlay('confirmStop', false)}
-        onConfirm={() => { setOverlay('confirmStop', false); stopMessage() }}
-      />
+      {/* W2 Phase F-4 残 (= 2026-06-29): confirmEnd / confirmStop ダイアログは
+          features/dialogs/ConfirmEndDialog.jsx + ConfirmStopDialog.jsx + OverlayHost 経由
+          に物理移送、 ChatPanel からは render ゼロ。 useChatStream の module-level export
+          (= endSession / stopMessage) を hook mount 時に wire することで、 dialog 側から直呼出可能。 */}
     </div>
   )
 }
