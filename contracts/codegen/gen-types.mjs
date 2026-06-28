@@ -187,14 +187,27 @@ const generators = {
   http_endpoints: { yamlFile: 'http-endpoints.yaml', tsFile: 'http-endpoints.ts', fn: genHttpEndpoints },
 }
 
+// gen-python.py と同じ防衛 logic (= ADR-016 真値 file 上書き拒絶)。
+// 既存 file が `GENERATED FILE` marker を持たない時は新規上書きを拒絶 + exit 1。
+const GENERATED_MARKER = 'GENERATED FILE — do not edit by hand.'
+
+function isSafeToOverwrite(path) {
+  if (!existsSync(path)) return { safe: true, reason: 'new file' }
+  let existing
+  try { existing = readFileSync(path, 'utf8') } catch (e) { return { safe: false, reason: `cannot read existing file: ${e.message}` } }
+  if (existing.includes(GENERATED_MARKER)) return { safe: true, reason: 'existing file is generated' }
+  return { safe: false, reason: 'existing file does NOT contain GENERATED marker — refusing to overwrite a potential source-of-truth file. delete it first or pass --force-overwrite-source-of-truth' }
+}
+
 function parseArgs() {
-  const args = { out: defaultOut, only: null, check: false, single: false }
+  const args = { out: defaultOut, only: null, check: false, single: false, force: false }
   for (let i = 2; i < process.argv.length; i++) {
     const a = process.argv[i]
     if (a === '--out') args.out = resolve(process.argv[++i])
     else if (a === '--only') { args.only = args.only || []; args.only.push(process.argv[++i]) }
     else if (a === '--check') args.check = true
-    else if (a === '--single-file') args.single = true  // 全 yaml を 1 file (= types.ts) に束ねる
+    else if (a === '--single-file') args.single = true
+    else if (a === '--force-overwrite-source-of-truth') args.force = true
   }
   return args
 }
@@ -222,8 +235,10 @@ function main() {
       if (existing !== merged) { console.error(`DIFF ${outPath} differs`); process.exit(1) }
       console.log(`OK   ${outPath} matches`)
     } else {
+      const { safe, reason } = isSafeToOverwrite(outPath)
+      if (!safe && !args.force) { console.error(`REFUSE ${outPath}: ${reason}`); process.exit(1) }
       writeFileSync(outPath, merged)
-      console.log(`WROTE ${outPath}`)
+      console.log(`WROTE ${outPath} (${reason})`)
     }
     return
   }
@@ -235,11 +250,14 @@ function main() {
       const existing = existsSync(outPath) ? readFileSync(outPath, 'utf8') : ''
       if (existing !== content) { console.error(`DIFF ${outPath} differs`); differ++ } else console.log(`OK   ${outPath} matches`)
     } else {
+      const { safe, reason } = isSafeToOverwrite(outPath)
+      if (!safe && !args.force) { console.error(`REFUSE ${outPath}: ${reason}`); differ++; continue }
       writeFileSync(outPath, content)
-      console.log(`WROTE ${outPath}`)
+      console.log(`WROTE ${outPath} (${reason})`)
     }
   }
-  if (args.check && differ > 0) process.exit(1)
+  // 防衛拒絶 (REFUSE) も exit 1 とする = ADR-016 で CI 検知可能に
+  if (differ > 0) process.exit(1)
 }
 
 main()
