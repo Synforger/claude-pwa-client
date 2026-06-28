@@ -25,6 +25,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from backend.jsonl.events import jsonl_line_to_events
+from backend.observability.correlation import current_corr_id
 from backend.jsonl.notifications import maybe_push_blockers as _maybe_push_blockers
 from backend.jsonl.session_status import (
     attach_duration_to_result as _attach_duration_to_result,
@@ -102,6 +103,17 @@ def _latest_jsonl(session_id: str) -> Path | None:
     return jsonl_path_for_session(session_id)
 
 
+def _inject_envelope(event: dict, sid: str) -> dict:
+    """SSE 配信前に sid + corr_id を必ず付与する (= contracts/schema/sse-events.yaml の global required、 ADR-012)。
+
+    既に event 側で sid / corr_id が入ってれば尊重 (= 上流 (= monitor の publish) が adopted
+    した値が消えない)。 frontend は全 event でこの 2 field を前提に dispatch する。
+    """
+    event.setdefault("sid", sid)
+    event.setdefault("corr_id", current_corr_id())
+    return event
+
+
 def _lines_to_sse(lines: list[str], pos: int, session_id: str) -> list[str]:
     """JSONL 行 (文字列) のリストを SSE フレームのリストに変換する (= **replay 専用 pure 関数**)。
 
@@ -130,6 +142,7 @@ def _lines_to_sse(lines: list[str], pos: int, session_id: str) -> list[str]:
         except json.JSONDecodeError:
             continue
         for event in jsonl_line_to_events(obj):
+            _inject_envelope(event, session_id)
             frames.append(f"id: {pos}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n")
     return frames
 
@@ -220,6 +233,7 @@ async def _jsonl_sse(session_id: str, start_pos: int | None = None):
             # を維持する (= 切断 → reconnect 時の "Last-Event-ID" は pos 値)。 monitor が
             # 進めた offset は frontend が次回接続時に backend に問い直す必要は無く、 replay 経路の
             # `?from=<offset>` で旧来通り差分のみ取れる。
+            _inject_envelope(event, session_id)
             yield f"id: {pos}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
     finally:
         jsonl_event_broadcaster.unsubscribe(session_id, queue)
@@ -300,7 +314,7 @@ async def _jsonl_sse_all(start_pos_map: dict[str, int]):
         lines, new_pos = _read_complete_lines(path, pos)
         replay_pos[sid] = new_pos
         for event in _lines_to_events(lines):
-            event.setdefault("sid", sid)
+            _inject_envelope(event, sid)
             yield f"id: {sid}:{new_pos}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
 
     # 3) live: broadcaster "all" subscriber に切替。
@@ -316,6 +330,7 @@ async def _jsonl_sse_all(start_pos_map: dict[str, int]):
             # live event の SSE id には replay 末尾 pos を踏襲 (= 厳密 byte offset 整合は
             # 維持できないが、 frontend は最終的に file replay で同期し直す形)。
             pos = replay_pos.get(sid, 0)
+            _inject_envelope(event, sid)
             yield f"id: {sid}:{pos}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
     finally:
         jsonl_event_broadcaster.unsubscribe(ALL_SUBSCRIBER_KEY, queue)
