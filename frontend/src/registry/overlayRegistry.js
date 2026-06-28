@@ -11,8 +11,17 @@ const reg = createRegistry({
   onMissing: 'warn',
 })
 
-/** Entry shape: { dispatch: (action) => any, init?, mount?, unmount? }
- *  action = { type: 'open' | 'close', name, payload? } */
+/** Entry shape: { dispatch: (action) => any, Component?, init?, mount?, unmount? }
+ *  action = { type: 'open' | 'close', name, payload? }
+ *
+ *  Component (= optional): `() => Promise<{ default: ReactComponent }>` 形式の lazy spec
+ *  (= W2 Phase E1)。 OverlayHost が registry を走査して describe(name).Component を React.lazy
+ *  に渡し、 ui.overlays[name] が truthy になった瞬間に Suspense + LazyBoundary で render する。
+ *  Component spec を持たない entry (= drawer / subagents / tasks 等の E-1 残置組) は OverlayHost
+ *  が skip し、 従来通り AppShell.jsx 側の lazy + 個別 Suspense で render される (= 移行期混在 OK)。
+ *  Phase E-2 で残り 3 件も Component spec 化して AppShell から該当 render block を削除する。
+ *  _registry.js は handler shape を最小チェック (= dispatch 関数だけ必須) で受けるので、
+ *  Component は handler entry にそのまま保持され describe(name).Component で取り出せる。 */
 export const register = (name, handler, opts) => reg.register(name, handler, opts)
 export const unregister = (name) => reg.unregister(name)
 export const describe = (name) => reg.describe(name)
