@@ -382,6 +382,8 @@ def _enqueue_output(session: PtySession, data: bytes) -> None:
         try:
             _ = session.output_queue.get_nowait()
         except asyncio.QueueEmpty:
+            # benign: queue went from Full to Empty between our two checks (consumer drained
+            # in parallel); the subsequent put_nowait will succeed in that case.
             pass
         try:
             session.output_queue.put_nowait(data)
@@ -398,10 +400,14 @@ async def _wait_for_exit(session: PtySession) -> None:
         try:
             loop.remove_reader(session.master_fd)
         except (ValueError, OSError):
+            # benign: fd already removed (= concurrent shutdown) or never registered
+            # (= early exit); close path below still runs.
             pass
         try:
             os.close(session.master_fd)
         except OSError:
+            # benign: master fd may already be closed by the kernel after process exit;
+            # double-close is harmless and we proceed to log the exit code.
             pass
         logger.info(
             "PTY session=%s exited rc=%s",
@@ -591,6 +597,8 @@ def _build_send_keys_chain(
                         "paste-buffer", "-p", "-b", buf_name, "-t", tmux_name, "-d",
                     ]
             except (subprocess.TimeoutExpired, OSError):
+                # benign: tmux paste-buffer optimisation failed (slow tmux / fd race);
+                # fall back to the unconditional send-keys path below.
                 pass
         if text_args is None:
             text_args = ["send-keys", "-t", tmux_name, "-l", text]

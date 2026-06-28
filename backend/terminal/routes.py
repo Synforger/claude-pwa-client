@@ -146,11 +146,15 @@ async def pty_socket(ws: WebSocket, session_id: str) -> None:
         try:
             await task
         except (asyncio.CancelledError, Exception):
+            # benign: WS pump teardown — cancellation is the expected outcome and any
+            # straggling exception from the cancelled coroutine is irrelevant after close.
             pass
     # 子プロセスは閉じない (= 再接続できるよう生かしておく、 idle GC は別途)
     try:
         await ws.close()
     except Exception:
+        # benign: ws.close() can race with the peer hangup; either way the socket ends up
+        # closed, so we don't escalate this into the connection lifecycle.
         pass
 
 
@@ -178,6 +182,8 @@ async def _pump_to_client(ws: WebSocket, session: PtySession) -> None:
                         "returncode": session.process.returncode,
                     }))
                 except (WebSocketDisconnect, RuntimeError):
+                    # benign: peer already gone or asgi raised "Unexpected ASGI message" —
+                    # we are about to return anyway, so swallowing keeps shutdown clean.
                     pass
                 return
             # queue / exit のどちらか先着で wake up (= F-15)。 タスクは再利用せず毎回作る

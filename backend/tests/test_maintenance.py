@@ -121,7 +121,10 @@ def test_run_all_maintenance_no_sunshine_key(monkeypatch):
     monkeypatch.setattr(ss, "cleanup_orphan_turn_starts", lambda: 0)
     summary = m.run_all_maintenance()
     assert "restarted_sunshine" not in summary
+    # event_journal_rotated は W3 (ADR-012) で追加された daily rotation サマリ。 sunshine 退役と
+    # 同様に、 退役 / 新規追加した key を明示列挙する形で「黙って増えてない」 ことを担保する。
     assert set(summary.keys()) == {
         "killed_tmux", "killed_idle_pwa", "removed_statusline_map",
         "removed_jsonl", "orphan_turn_starts",
+        "event_journal_rotated",
     }
