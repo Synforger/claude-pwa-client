@@ -1,17 +1,20 @@
-// Common boilerplate: navigate to the SPA, wait for the first SSE pulse so
-// downstream `expect`s aren't racing initial load.
+// Common boilerplate: navigate to the SPA and wait long enough for the
+// chat-input to render + the unified SSE to settle. The app boots
+// transport/lifecycle.js which opens /jsonl/stream/all; the backend's tail
+// loop polls every 500ms, so anything that asserts on event delivery needs
+// the connection up before the test fires its first action.
 export async function openClient(page, { sid } = {}) {
   const url = sid ? `/?ses=${encodeURIComponent(sid)}` : '/'
   await page.goto(url, { waitUntil: 'domcontentloaded' })
-  // The app boots transport/lifecycle.js which opens the unified SSE before
-  // any chat painting. Wait for *something* to confirm the stream connected,
-  // either an SSE event landing on window or simply the body marking ready.
-  await page.waitForFunction(
-    () => document.body?.dataset?.['cpcReady'] === '1'
-      || !!document.querySelector('[data-cpc-stream-open="1"]')
-      || document.readyState === 'complete',
-    { timeout: 15_000 },
-  ).catch(() => { /* ready signal is best-effort; tests assert on real DOM */ })
+
+  // chat-input painting means React mounted and the active session resolved.
+  await page.locator('[data-testid=chat-input]').waitFor({ state: 'visible', timeout: 15_000 })
+
+  // Settle: SSE handshake + initial /sessions/overview + first JSONL tail
+  // need a moment before user actions land deterministically. 1500ms is
+  // chosen to comfortably cover the 500ms backend poll cycle plus React
+  // hydration of the message list from localStorage.
+  await page.waitForTimeout(1500)
   return page
 }
 

@@ -1,0 +1,6 @@
+{
+  "sid": "ses_e2esend01",
+  "agent_id": "agent_e2e",
+  "account_id": "e2e",
+  "title": "send-then-input-restored regression"
+}
