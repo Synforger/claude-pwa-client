@@ -549,6 +549,7 @@ def register_session(
     parent_id: str | None = None,
     resume_session_id: str | None = None,
     account_id: str | None = None,
+    sid: str | None = None,
 ) -> SessionDef:
     """新規セッションを登録して全状態 dict を初期化する。 永続化まで行う。
 
@@ -556,10 +557,13 @@ def register_session(
     (= 出自と、 初回 spawn で resume する claude session id)。
     account_id は config.json accounts の key (= 個人 / 会社 OAuth の選択)。 None は
     personal 相当 (= 通常 ~/.claude/) として扱う。
+    sid が指定された場合は新規生成せずその値で登録する (= ADR-020 e2e seed が
+    fixture 固定 sid を要求するため、 デフォルトは従来通り _new_session_id())。
     """
     if agent_id not in _agents():
         raise ValueError(f"Unknown agent_id: {agent_id}")
-    sid = _new_session_id()
+    if sid is None:
+        sid = _new_session_id()
     if not title:
         existing_count = sum(1 for m in sessions_meta.values() if m.agent_id == agent_id)
         title = _default_title(agent_id, existing_count + 1)

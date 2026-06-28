@@ -19,6 +19,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import time
+import uuid as _uuid_mod
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
@@ -78,6 +82,20 @@ async def pty_socket(ws: WebSocket, session_id: str) -> None:
     # scrollback の自動復元は無効化 (= 2026-05-21 再試行で描画破綻、 旧症状再発)。
     # capture-pane の history を流すと、 中に含まれる ANSI cursor 制御 (= claude
     # streaming 中の途中再描画指示等) が新接続側の状態と整合せず画面が壊れる。
+
+    # ADR-022 CPC_E2E mode: skip the real PTY spawn entirely. A minimal
+    # PtySession with just queue + exit_event is enough for _pump_to_client
+    # (= the WS output side). pump_from_client tolerates the missing process
+    # because the e2e harness never sends user input through this WS - it
+    # writes via /debug/e2e/pty-write instead.
+    if os.environ.get("CPC_E2E") == "1" and pty_sessions.get(session_id) is None:
+        pty_sessions[session_id] = PtySession(
+            session_id=session_id,
+            process=None,  # type: ignore[arg-type]
+            master_fd=-1,
+            output_queue=asyncio.Queue(maxsize=1024),
+            exit_event=asyncio.Event(),
+        )
 
     session = pty_sessions.get(session_id)
     if session is None or session.exit_event.is_set():
@@ -281,6 +299,29 @@ def handle_text_control(ctrl: dict) -> dict | None:
     return None
 
 
+def _e2e_inject_user_row(session_id: str, text: str) -> dict:
+    """ADR-021 e2e mode helper: synthesize a server-stamped `user` row directly
+    into the bound JSONL file. The watcher's tail loop picks it up and the
+    unified SSE pump delivers a `user_message` event, exercising the same
+    reconcileUserMessage path the real-world tmux send-keys roundtrip would.
+    """
+    jsonl_path = jsonl_path_for_session(session_id)
+    if jsonl_path is None:
+        raise HTTPException(status_code=409, detail="no binding for session (= seed missing?)")
+    user_uuid = str(_uuid_mod.uuid4())
+    ts = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    row = {
+        "type": "user",
+        "uuid": user_uuid,
+        "message": {"role": "user", "content": text},
+        "timestamp": ts,
+    }
+    jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+    with jsonl_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    return {"ok": True, "uuid": user_uuid, "e2e": True}
+
+
 def _require_session(session_id: str) -> None:
     """未知の session_id を弾く (= 任意 sid で新 PTY 起動 / send を許さない)。
 
@@ -303,6 +344,12 @@ async def pty_send(session_id: str, payload: dict = Body(...)) -> dict:
     確認できなければ ok=False で返し、 frontend に「届かなかった」 ことを通知する
     (= メッセージボックスに text を残して再送できるようにする経路)。
 
+    ADR-021 (CPC_E2E=1): bypass tmux send-keys entirely - the e2e harness has
+    no real tmux session / claude process, so we synthesize a server-stamped
+    `user` JSONL row directly. The watcher's tail loop picks it up and the
+    unified SSE delivers a user_message event, matching the real-world shape
+    that reconcileUserMessage was written for.
+
     payload:
         text  (str, optional): literal 文字列 (= プロンプト本文)
         key   (str, optional): tmux キー名 (= "Escape" で停止、 "C-c" 等)
@@ -312,6 +359,10 @@ async def pty_send(session_id: str, payload: dict = Body(...)) -> dict:
     text = payload.get("text")
     key = payload.get("key")
     enter = bool(payload.get("enter", False))
+
+    if os.environ.get("CPC_E2E") == "1" and text and enter:
+        return _e2e_inject_user_row(session_id, text)
+
     # 確認対象は「ユーザ送信本文」 = text あり + enter ありのケースのみ。
     # 自由記述以外のキー送信 (Escape 等)、 AskUserQuestion 自由記述の 1 回目 (typeNum、 enter なし)
     # 等は確認しない (= 送信完了の概念がない、 or 別経路で確認)。

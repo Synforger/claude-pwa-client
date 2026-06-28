@@ -570,7 +570,7 @@ export default function AppShell() {
 
       {/* ヘッダ: ハンバーガー + セッション名 + 画面共有 */}
       <header className="topbar">
-        <button className="hamburger" onClick={() => ov.setDrawer(true)} aria-label="会話一覧">
+        <button className="hamburger" onClick={() => ov.setDrawer(true)} aria-label="会話一覧" data-testid="drawer-toggle">
           ☰
         </button>
         <span className="topbar-title">{activeSession?.title || '会話なし'}</span>
@@ -596,6 +596,7 @@ export default function AppShell() {
             onClick={() => ov.setFavs(true)}
             aria-label="お気に入り"
             title="お気に入りに飛ぶ"
+            data-testid="favorites-open-button"
           >
             ⭐
           </button>
@@ -606,6 +607,7 @@ export default function AppShell() {
             onClick={() => ov.setTasks(true)}
             aria-label="タスク"
             title="タスク一覧"
+            data-testid="tasks-open-button"
           >
             📋
           </button>
@@ -618,6 +620,7 @@ export default function AppShell() {
             onClick={() => { ov.setSubagentsFocus(null); ov.setSubagents(true) }}
             aria-label="サブエージェント"
             title="サブエージェント一覧"
+            data-testid="subagents-open-button"
           >
             🤖
           </button>
@@ -631,6 +634,7 @@ export default function AppShell() {
             onClick={() => setPlanOpen(true)}
             aria-label="plan 承認待ち"
             title="plan 承認"
+            data-testid="plan-approval-open-button"
           >
             📑<span className="topbar-plan-dot" />
           </button>
@@ -644,6 +648,7 @@ export default function AppShell() {
             onClick={() => setDesktopOpen(prev => !prev)}
             aria-label="画面共有"
             title={desktopOpen ? '画面共有を閉じる' : '画面共有を開く (Sunshine 経由、 ペア済前提)'}
+            data-testid="screenshare-toggle"
           >
             🖥
           </button>
@@ -740,7 +745,7 @@ export default function AppShell() {
       </div>
 
       {currentAttachments.length > 0 && (
-        <div className="attachments-bar">
+        <div className="attachments-bar" data-testid="attachments-bar">
           {currentAttachments.map((item, i) => (
             <div key={i} className="attach-chip">
               {item.url ? (

@@ -25,18 +25,28 @@
 """
 from __future__ import annotations
 
+import os
 import stat
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BACKEND_DIR.parent
 
-DATA_DIR = BACKEND_DIR / "data"
-SECRETS_DIR = BACKEND_DIR / "secrets"
-LOGS_DIR = REPO_ROOT / "logs"
+
+def _env_path(name: str, default: Path) -> Path:
+    # env override をここに集中させる。 test mode (= playwright webServer) は
+    # CPC_DATA_DIR / CPC_LOGS_DIR / CPC_CONFIG_PATH / CPC_SECRETS_DIR を投げて
+    # 本番 data と隔離する。 未設定なら従来の hardcoded path。
+    raw = os.environ.get(name)
+    return Path(raw).expanduser().resolve() if raw else default
+
+
+DATA_DIR = _env_path("CPC_DATA_DIR", BACKEND_DIR / "data")
+SECRETS_DIR = _env_path("CPC_SECRETS_DIR", BACKEND_DIR / "secrets")
+LOGS_DIR = _env_path("CPC_LOGS_DIR", REPO_ROOT / "logs")
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
 
-CONFIG_PATH = BACKEND_DIR / "config.json"
+CONFIG_PATH = _env_path("CPC_CONFIG_PATH", BACKEND_DIR / "config.json")
 SESSION_META_PATH = DATA_DIR / "session_meta.json"
 SUBSCRIPTIONS_PATH = DATA_DIR / "subscriptions.json"
 JSONL_BINDINGS_PATH = DATA_DIR / "jsonl_bindings.json"

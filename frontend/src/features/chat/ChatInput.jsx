@@ -134,6 +134,7 @@ function ChatInputInner({
         placeholder={activeSession ? 'メッセージを入力...' : '左の ☰ から会話を作成してください'}
         rows={2}
         disabled={inputDisabled}
+        data-testid="chat-input"
       />
       <div className="buttons" ref={menuRef}>
         {menuOpen && (
@@ -148,6 +149,7 @@ function ChatInputInner({
               onClick={() => { onToggleView(); setMenuOpen(false) }}
               className="menu-item"
               disabled={!activeSession}
+              data-testid="view-toggle"
             >
               {activeViewMode === 'terminal' ? '💬 チャットで表示' : '⌨ ターミナルで表示'}
             </button>
@@ -164,6 +166,7 @@ function ChatInputInner({
           onClick={() => setMenuOpen(prev => !prev)}
           className={`more ${menuOpen ? 'active' : ''}`}
           aria-label="メニュー"
+          data-testid="chat-menu-toggle"
         >
           ⋯
         </button>
@@ -174,6 +177,7 @@ function ChatInputInner({
             title={stopUnavailable ? '接続復帰待ち (再送中)' : '停止'}
             className={`stop ${stopUnavailable ? 'pending' : ''}`}
             aria-label="停止"
+            data-testid="chat-stop-button"
           >■</button>
         ) : (
           <button
@@ -181,6 +185,7 @@ function ChatInputInner({
             disabled={!activeSession || (!localText.trim() && currentAttachments.length === 0)}
             className="send"
             aria-label="送信"
+            data-testid="chat-send-button"
           >
             送信
           </button>
