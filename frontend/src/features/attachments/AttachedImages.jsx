@@ -41,7 +41,7 @@ function AttachedImagesImpl({ imageRefs, imageUrls }) {
   const hasRefs = imageRefs && imageRefs.length > 0
   if (hasRefs) {
     return (
-      <div className="attach-images">
+      <div className="attach-images" data-testid="attachments">
         {refUrls.map((url, j) => (
           url
             ? <img key={j} src={url} className="msg-image" alt="" />

@@ -1,4 +1,4 @@
-import './FileTreePanel.css'
+import '../file-tree/FileTreePanel.css'
 import './TasksModal.css'
 
 const STATUS_MARK = {
@@ -30,7 +30,7 @@ export default function TasksModal({ tasks, onClose }) {
   const done = counts.completed || 0
 
   return (
-    <div className="tree-overlay" onClick={onClose}>
+    <div className="tree-overlay" onClick={onClose} data-testid="tasks-modal">
       <div className="tree-panel" onClick={e => e.stopPropagation()}>
         <div className="tree-header">
           <div className="tree-nav">
