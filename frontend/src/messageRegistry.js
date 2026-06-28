@@ -34,7 +34,7 @@ import {
   AttachmentCard,
   HookErrorCard,
   SystemNoteCard,
-} from './components/SystemMessages.jsx'
+} from './features/chat/SystemMessages.jsx'
 
 const registry = {
   // 会話圧縮タイミング。 SDK からは事後通知しか来ない (= 結果カードのみ)。
