@@ -1,12 +1,12 @@
 // features/session-drawer 配線 entry (= 設計書 § 9-6 step 5)。
+//
+// SessionDrawer.jsx は AppShell.jsx で lazy(() => import(...)) される。 配線 entry での static import
+// は chunk 分離を壊し INEFFECTIVE_DYNAMIC_IMPORT 警告の原因になるため、 entry は registry signal のみ。
+// useSessions / useSessionsOverview / applyOverviewSnapshot は AppShell.jsx から直接 import される
+// 非 lazy module で、 ここでの touch import は重複 (= 直接 import 側で module load が起きる)。
 
 import { register as registerOverlay } from '../../registry/overlayRegistry.js'
 import { register as registerStream } from '../../registry/streamRegistry.js'
-
-import './SessionDrawer.jsx'
-import './useSessions.js'
-import './useSessionsOverview.js'
-import './applyOverviewSnapshot.js'
 
 const noopDispatch = () => null
 registerOverlay('drawer', { dispatch: noopDispatch })
