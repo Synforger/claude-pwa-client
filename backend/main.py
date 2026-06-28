@@ -235,6 +235,13 @@ if CORS_ALLOW_ORIGINS:
         allow_headers=["*"],
     )
 
+@app.get("/healthz", include_in_schema=False)
+async def healthz() -> dict:
+    # 軽量 liveness probe。 SPA mount より前、 認証なし、 副作用なし。
+    # e2e (= playwright webServer の readiness url) + 監視 / LB 互換用。
+    return {"ok": True}
+
+
 app.include_router(chat_routes.router)
 app.include_router(files_routes.router)
 app.include_router(hooks_routes.router)

@@ -30,6 +30,30 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
   const containerRef = useRef(null)
   const { terminal, getDimensions, scrollToBottom } = useTerminal(containerRef)
 
+  // ADR-022 e2e seam: expose a minimal buffer snapshot helper on window so
+  // playwright scenarios can assert what xterm actually rendered (its canvas
+  // / WebGL output is otherwise opaque to the DOM). Kept in prod builds too
+  // - it is a pure read of an in-memory buffer with zero side effects, no
+  // wider surface than xterm.js itself already exposes if you have a `term`
+  // ref. Removing it would force scenarios to depend on canvas rasterisation.
+  useEffect(() => {
+    if (!terminal) return
+    window.__cpcTerm = {
+      snapshot: (rows = terminal.rows) => {
+        const buf = terminal.buffer?.active
+        if (!buf) return ''
+        const lines = []
+        const start = Math.max(0, buf.length - rows)
+        for (let i = start; i < buf.length; i++) {
+          const line = buf.getLine(i)
+          if (line) lines.push(line.translateToString(true))
+        }
+        return lines.join('\n')
+      },
+    }
+    return () => { delete window.__cpcTerm }
+  }, [terminal])
+
   const wsRef = useRef(null)
   const inputRef = useRef(null)
   const [inputValue, setInputValue] = useState('')
@@ -208,10 +232,12 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
         height: '100%',
         background: '#0e0f12',
       }}
+      data-testid="terminal-pane"
     >
       <div
         ref={containerRef}
         style={{ flex: 1, minHeight: 0, width: '100%', background: '#0e0f12' }}
+        data-testid="terminal-output"
       />
       <div
         style={{
@@ -229,6 +255,7 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
             ref={inputRef}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
+            data-testid="terminal-input"
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault()

@@ -144,7 +144,7 @@ export default function MoonlightFrame() {
   const resolvedSrc = inSettings || !streamUrl ? SETTINGS_URL : streamUrl
 
   return (
-    <div className={`moonlight-frame ${full ? 'fullscreen' : ''}`}>
+    <div className={`moonlight-frame ${full ? 'fullscreen' : ''}`} data-testid="moonlight-frame">
       {error && !inSettings && (
         <div className="moonlight-error" role="alert">
           {error}

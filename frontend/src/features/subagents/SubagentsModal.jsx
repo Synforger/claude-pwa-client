@@ -195,7 +195,7 @@ export default function SubagentsModal({ sid, focus, onClose }) {
   const isEmpty = data && subagents.length === 0 && workflows.length === 0
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={onClose} data-testid="subagents-modal">
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <span className="modal-path">Subagents</span>
