@@ -149,6 +149,7 @@ function ChatInputInner({
               onClick={() => { onToggleView(); setMenuOpen(false) }}
               className="menu-item"
               disabled={!activeSession}
+              data-testid="view-toggle"
             >
               {activeViewMode === 'terminal' ? '💬 チャットで表示' : '⌨ ターミナルで表示'}
             </button>
@@ -165,6 +166,7 @@ function ChatInputInner({
           onClick={() => setMenuOpen(prev => !prev)}
           className={`more ${menuOpen ? 'active' : ''}`}
           aria-label="メニュー"
+          data-testid="chat-menu-toggle"
         >
           ⋯
         </button>
