@@ -2,8 +2,8 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
-import Terminal from './components/Terminal.jsx'
-import ErrorBoundary from './components/ErrorBoundary.jsx'
+import Terminal from './features/terminal/Terminal.jsx'
+import ErrorBoundary from './layout/ErrorBoundary.jsx'
 
 // Service Worker 登録 (Web Push 受信用)。
 // iOS PWA は 16.4+ かつホーム画面追加済みでのみ Push を受け取れる。
