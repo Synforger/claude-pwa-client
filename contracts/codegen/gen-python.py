@@ -83,7 +83,9 @@ def emit_model(class_name: str, schema: dict[str, Any], description: str = "") -
     required = set(schema.get("required") or [])
     props = schema.get("properties") or {}
     additional = schema.get("additionalProperties")
-    extra_policy = "forbid" if additional is False else ("allow" if additional is True else "ignore")
+    # default = 'forbid' (= ADR-011 contract drift 検知を全 model 一律担保、 yaml で省略しても safe-by-default)。
+    # yaml で明示的に additionalProperties: true を指定した場合のみ 'allow'。
+    extra_policy = "allow" if additional is True else "forbid"
 
     lines = [f"class {class_name}(BaseModel):"]
     if description:
@@ -200,10 +202,39 @@ def gen_http_endpoints(src_yaml: Path) -> str:
 
 
 GENERATORS = {
+    # 出力 file 名は suffix なしで OK (= 出力 path が `_generated/` で「これは生成物」 を物理分離、
+    # ADR-016 統一配置 backend/_generated/)。
+    # 既存 真値 file を誤って上書きする事故 (= 2026-06-28 backend/jsonl/events.py 359 行を 246 行 stub で破壊)
+    # は、 file 内容に GENERATED marker がない時の上書き拒絶 (= 下の _is_safe_to_overwrite) で構造的に防ぐ。
     "events": ("sse-events.yaml", "events.py", gen_events),
     "ws_channels": ("ws-channels.yaml", "ws_channels.py", gen_ws_channels),
     "http_endpoints": ("http-endpoints.yaml", "http_endpoints.py", gen_http_endpoints),
 }
+
+GENERATED_MARKER = "GENERATED FILE — do not edit by hand."
+
+
+def _is_safe_to_overwrite(path: Path, new_content: str) -> tuple[bool, str]:
+    """既存 file が上書き安全か判定する (= 真値 file 保護、 ADR-016 上書き事故防止)。
+
+    安全 ケース:
+        - file が存在しない
+        - 既存 file に GENERATED marker がある (= 過去の生成物、 regen で OK)
+    危険 ケース (= 拒絶):
+        - 既存 file はあるが GENERATED marker がない = 真値 file の可能性大、 上書きしたら破壊
+    """
+    if not path.exists():
+        return True, "new file"
+    try:
+        existing = path.read_text()
+    except OSError as e:
+        return False, f"cannot read existing file: {e}"
+    if GENERATED_MARKER in existing:
+        return True, "existing file is generated"
+    return False, (
+        f"existing file does NOT contain GENERATED marker — refusing to overwrite a potential source-of-truth file. "
+        f"if you really want to replace it, delete it first or pass --force-overwrite-source-of-truth"
+    )
 
 
 def main() -> int:
@@ -211,6 +242,8 @@ def main() -> int:
     p.add_argument("--out", type=Path, default=DEFAULT_OUT, help="output directory (default: contracts/_generated/)")
     p.add_argument("--only", choices=list(GENERATORS.keys()), action="append", help="generate only specified module (repeatable)")
     p.add_argument("--check", action="store_true", help="compare with existing output, exit 1 if differ (= CI gate)")
+    p.add_argument("--force-overwrite-source-of-truth", action="store_true",
+                   help="本当に真値 file を上書きする時のみ指定 (= 通常使わない、 ADR-016 防衛バイパス)")
     args = p.parse_args()
 
     targets = args.only or list(GENERATORS.keys())
@@ -233,10 +266,16 @@ def main() -> int:
             else:
                 print(f"OK   {out_path} matches")
         else:
+            safe, reason = _is_safe_to_overwrite(out_path, content)
+            if not safe and not args.force_overwrite_source_of_truth:
+                sys.stderr.write(f"REFUSE {out_path}: {reason}\n")
+                differ += 1
+                continue
             out_path.write_text(content)
-            print(f"WROTE {out_path}")
+            print(f"WROTE {out_path} ({reason})")
 
-    if args.check and differ > 0:
+    # --check mode で diff があった、 もしくは normal mode で防衛拒絶 (REFUSE) があった = exit 1
+    if differ > 0:
         return 1
     return 0
 
