@@ -246,7 +246,7 @@ export default function SessionDrawer({
   return (
     <>
       {open && <div className="drawer-overlay" onClick={onClose} />}
-      <aside className={`drawer ${open ? 'open' : ''}`}>
+      <aside className={`drawer ${open ? 'open' : ''}`} data-testid="session-drawer">
         <div className="drawer-header">
           <span className="drawer-title">会話</span>
           <div className="drawer-header-actions" ref={globalMenuRef}>
@@ -289,7 +289,7 @@ export default function SessionDrawer({
 
         <div className="drawer-create">
           {!agentPicker ? (
-            <button className="drawer-new" onClick={() => setAgentPicker(true)}>
+            <button className="drawer-new" onClick={() => setAgentPicker(true)} data-testid="new-session-button">
               + 新規会話
             </button>
           ) : pickedAgent === null ? (
@@ -369,6 +369,9 @@ export default function SessionDrawer({
                 key={s.id}
                 className={`drawer-item ${isActive ? 'active' : ''} ${isFork ? 'fork' : ''}`}
                 style={depth > 0 ? { paddingLeft: `${depth * 16}px` } : undefined}
+                data-testid="session-list-item"
+                data-cpc-sid={s.id}
+                data-cpc-active={isActive ? '1' : '0'}
               >
                 {isRenaming ? (
                   <input
@@ -381,11 +384,13 @@ export default function SessionDrawer({
                       if (e.key === 'Enter') commitRename()
                       else if (e.key === 'Escape') setRenameFor(null)
                     }}
+                    data-testid="session-rename-input"
                   />
                 ) : (
                   <button
                     className="drawer-item-main"
                     onClick={() => handleSelect(s.id)}
+                    data-testid="session-list-item-select"
                   >
                     {isFork && <span className="drawer-item-fork-mark" title="フォーク">⑂</span>}
                     <span className="drawer-item-title">{s.title}</span>

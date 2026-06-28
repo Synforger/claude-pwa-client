@@ -304,6 +304,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
       className="bubble-fork"
       onClick={() => onFork(msg.uuid)}
       title="Fork the conversation from this message into a new tab"
+      data-testid="fork-button"
     >
       ⑂ fork
     </button>
@@ -313,7 +314,13 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
   const userForkRow = canForkUser ? <div className="bubble-fork-row">{forkButton}</div> : null
 
   return (
-    <div className={`message ${msg.role}`}>
+    <div
+      className={`message ${msg.role}`}
+      data-testid={`message-bubble-${msg.role}`}
+      data-cpc-role={msg.role}
+      data-cpc-uuid={msg.uuid || ''}
+      data-cpc-optimistic={msg.optimistic ? '1' : '0'}
+    >
       {msg.role === 'user' && (msg.imageRefs?.length > 0 || msg.imageUrls?.length > 0 || msg.fileNames?.length > 0) ? (
         <div className="user-block">
           <AttachedImages imageRefs={msg.imageRefs} imageUrls={msg.imageUrls} />
