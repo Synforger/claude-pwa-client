@@ -1,0 +1,2 @@
+{"type":"user","uuid":"u-bgfg-pre","message":{"role":"user","content":"baseline before bg"},"timestamp":"2026-06-28T09:00:00Z"}
+{"type":"assistant","uuid":"a-bgfg-pre","parentUuid":"u-bgfg-pre","message":{"id":"msg_bgfg_pre","role":"assistant","content":[{"type":"text","text":"baseline reply"}],"stop_reason":"end_turn","model":"claude-opus-4-7","usage":{"input_tokens":4,"output_tokens":3}},"timestamp":"2026-06-28T09:00:01Z"}
