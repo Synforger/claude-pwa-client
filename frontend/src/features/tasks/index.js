@@ -9,5 +9,10 @@ import { register as registerOverlay } from '../../registry/overlayRegistry.js'
 import { register as registerStream } from '../../registry/streamRegistry.js'
 
 const noopDispatch = () => null
-registerOverlay('tasks', { dispatch: noopDispatch })
+// W2 Phase E-2 (= 2026-06-29): Component spec で OverlayHost 経由 lazy 化。 AppShell.jsx の
+// `lazy(() => import('./TasksModal.jsx'))` を撤去、 TasksModal が引数なしで自己解決する。
+registerOverlay('tasks', {
+  dispatch: noopDispatch,
+  Component: () => import('./TasksModal.jsx'),
+})
 registerStream('task_notification', { dispatch: noopDispatch })

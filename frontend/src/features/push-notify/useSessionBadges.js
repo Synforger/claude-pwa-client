@@ -1,8 +1,18 @@
 // session ごとの新着 / 処理中 / 質問待ちバッジ計算 + app badge 連動。
 // useAppEffects.js から物理移送 (= W2 Phase C、 push 通知系の責務をここに寄せる)。
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+// W2 Phase E-2 (= 2026-06-29): unreadDone state を state/sessions.js singleton store に集約。
+// 永続化 (= LS_UNREAD_DONE) / boot settle / loading 遷移検出 / overview payload 連動の各
+// useEffect は本 hook 内に残置。 SessionDrawer の sessionBadges 自己解決のため、 純粋な
+// 派生関数 `deriveSessionBadges` を export する (= 同 hook 重複呼出による副作用二重発火を避ける)。
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import { apiFetch } from '../../utils/api.js'
 import { lsGet, lsSetDebounced } from '../../utils/storage.js'
+import {
+  subscribe as subscribeSessions,
+  getSnapshot as getSessionsSnapshot,
+  setUnreadDone,
+  clearUnreadDone,
+} from '../../state/sessions.js'
 
 
 // --- session ごとの新着 / 処理中 / 質問待ちバッジ計算 ---
@@ -18,14 +28,42 @@ const LS_UNREAD_DONE = 'cpc.unreadDone'
 // 旧バッジ仕様 (= `arr.length > lastSeen`) の orphan key を 1 回だけ掃除する。
 try { localStorage.removeItem('cpc.lastSeenLen') } catch { /* storage 無効環境は無視 */ }
 
-function loadUnreadDone() {
+let lsHydrated = false
+function hydrateFromLocalStorage() {
+  if (lsHydrated) return
+  lsHydrated = true
   const parsed = lsGet(LS_UNREAD_DONE)
-  return parsed && typeof parsed === 'object' ? parsed : {}
+  if (parsed && typeof parsed === 'object') {
+    for (const [sid, value] of Object.entries(parsed)) {
+      if (value) setUnreadDone(sid, true)
+    }
+  }
+}
+hydrateFromLocalStorage()
+
+/** SessionDrawer が sessionBadges を自己解決するための純関数 (= 同 hook を二重 mount しない
+ *  ために抽出)。 caller は 4 store (= sessions / messages / ephemeral / sessions.unreadDone)
+ *  を subscribe してこの helper に渡す。 */
+export function deriveSessionBadges({ sids, activeSid, messages, loading, unreadDone }) {
+  const badges = {}
+  let count = 0
+  for (const sid of sids) {
+    if (sid === activeSid) { badges[sid] = null; continue }
+    const arr = messages[sid] || []
+    const pending = arr.some(m => m.askUserQuestion && !m.askUserQuestion.answered)
+    if (pending) { badges[sid] = { kind: 'pending', label: '?' }; continue }
+    if (loading[sid]) { badges[sid] = { kind: 'processing', label: '●' }; continue }
+    if (unreadDone[sid]) { badges[sid] = { kind: 'new', label: '●' }; count++; continue }
+    badges[sid] = null
+  }
+  return { sessionBadges: badges, unreadCount: count }
 }
 
 export function useSessionBadges({ sids, activeSid, messages, loading }) {
-  // sid → true なら「turn 完了して未閲覧」
-  const [unreadDone, setUnreadDone] = useState(loadUnreadDone)
+  hydrateFromLocalStorage()
+  const snap = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
+  const unreadDone = snap.unreadDone
+
   // 前回 render 時の loading[sid]。 true→false 遷移検出用。
   const prevLoadingRef = useRef({})
   // 自端末がこの sid を最後に見た時刻 (unix sec)。 overview の last_seen_at と比較して
@@ -52,7 +90,8 @@ export function useSessionBadges({ sids, activeSid, messages, loading }) {
   // sync で赤丸を落とせる経路。
   const markAsSeen = useCallback((sid) => {
     if (!sid) return
-    setUnreadDone(prev => (prev[sid] ? { ...prev, [sid]: false } : prev))
+    const cur = getSessionsSnapshot().unreadDone
+    if (cur[sid]) clearUnreadDone(sid)
   }, [])
 
   // loading[sid] が true→false に変化した sid を unreadDone=true でマーク。
@@ -60,7 +99,6 @@ export function useSessionBadges({ sids, activeSid, messages, loading }) {
   useEffect(() => {
     const prev = prevLoadingRef.current
     const next = {}
-    let mutated = false
     const flips = []
     for (const sid of sids) {
       const wasLoading = !!prev[sid]
@@ -74,13 +112,10 @@ export function useSessionBadges({ sids, activeSid, messages, loading }) {
     // boot settle: 初回 overview payload を受けるまで赤化しない (= F-13)。
     if (!bootSettledRef.current) return
     if (flips.length === 0) return
-    setUnreadDone(p => {
-      const out = { ...p }
-      for (const sid of flips) {
-        if (!out[sid]) { out[sid] = true; mutated = true }
-      }
-      return mutated ? out : p
-    })
+    const cur = getSessionsSnapshot().unreadDone
+    for (const sid of flips) {
+      if (!cur[sid]) setUnreadDone(sid, true)
+    }
   }, [sids, loading, activeSid])
 
   // active タブに切替 / active タブの状態が動いた時に赤丸を落とす + backend に「見た」 を POST。
@@ -90,7 +125,8 @@ export function useSessionBadges({ sids, activeSid, messages, loading }) {
   // local 状態 (= 赤丸消す / lastSeenLocally 更新) は即時、 backend POST だけ末尾 1 回。
   useEffect(() => {
     if (!activeSid) return
-    setUnreadDone(prev => (prev[activeSid] ? { ...prev, [activeSid]: false } : prev))
+    const cur = getSessionsSnapshot().unreadDone
+    if (cur[activeSid]) clearUnreadDone(activeSid)
     // 自端末の「最後に見た時刻」 を local に記録 → overview の last_seen_at と比較する基準。
     lastSeenLocallyRef.current[activeSid] = Date.now() / 1000
     const timer = setTimeout(() => {
@@ -107,37 +143,29 @@ export function useSessionBadges({ sids, activeSid, messages, loading }) {
   const onOverviewPayload = useCallback((payload) => {
     if (!payload || typeof payload !== 'object') return
     bootSettledRef.current = true
-    setUnreadDone(prev => {
-      let mutated = false
-      const next = { ...prev }
-      for (const [sid, info] of Object.entries(payload)) {
-        const remote = info?.last_seen_at
-        if (typeof remote !== 'number') continue
-        const local = lastSeenLocallyRef.current[sid] || 0
-        // 他端末の last_seen_at が自分の最後の閲覧より新しい = 他端末で確認された → 赤丸消す
-        if (remote > local && next[sid]) {
-          next[sid] = false
-          mutated = true
-        }
+    const cur = getSessionsSnapshot().unreadDone
+    for (const [sid, info] of Object.entries(payload)) {
+      const remote = info?.last_seen_at
+      if (typeof remote !== 'number') continue
+      const local = lastSeenLocallyRef.current[sid] || 0
+      // 他端末の last_seen_at が自分の最後の閲覧より新しい = 他端末で確認された → 赤丸消す
+      if (remote > local && cur[sid]) {
+        clearUnreadDone(sid)
       }
-      return mutated ? next : prev
-    })
+    }
   }, [])
 
   // 削除された session のエントリ掃除。
   useEffect(() => {
-    setUnreadDone(prev => {
-      const sidSet = new Set(sids)
-      const next = { ...prev }
-      let changed = false
-      for (const k of Object.keys(next)) {
-        if (!sidSet.has(k)) { delete next[k]; changed = true }
-      }
-      return changed ? next : prev
-    })
+    const sidSet = new Set(sids)
+    const cur = getSessionsSnapshot().unreadDone
+    for (const k of Object.keys(cur)) {
+      if (!sidSet.has(k)) clearUnreadDone(k)
+    }
   }, [sids])
 
-  // 表示状態 signature: pending question 有無 + loading 状態 + unreadDone。
+  // sessionBadges / unreadCount: 派生は純関数に委譲。 useMemo dep は signature 化して
+  // streaming flush の参照変化だけで recompute しないよう抑える (= 旧 sessionStateSig 互換)。
   const sessionStateSig = useMemo(
     () => sids.map(sid => {
       const arr = messages[sid] || []
@@ -147,22 +175,14 @@ export function useSessionBadges({ sids, activeSid, messages, loading }) {
     [sids, messages, loading, unreadDone]
   )
 
-  // sessionBadges / unreadCount: signature が同じ間は同じ object を返す。
-  // unreadCount はアプリバッジ数字 = 赤丸が立った session 数。
   const { sessionBadges, unreadCount } = useMemo(() => {
-    const cur = messagesRef.current
-    const badges = {}
-    let count = 0
-    for (const sid of sids) {
-      if (sid === activeSid) { badges[sid] = null; continue }
-      const arr = cur[sid] || []
-      const pending = arr.some(m => m.askUserQuestion && !m.askUserQuestion.answered)
-      if (pending) { badges[sid] = { kind: 'pending', label: '?' }; continue }
-      if (loading[sid]) { badges[sid] = { kind: 'processing', label: '●' }; continue }
-      if (unreadDone[sid]) { badges[sid] = { kind: 'new', label: '●' }; count++; continue }
-      badges[sid] = null
-    }
-    return { sessionBadges: badges, unreadCount: count }
+    return deriveSessionBadges({
+      sids,
+      activeSid,
+      messages: messagesRef.current,
+      loading,
+      unreadDone,
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSid, sessionStateSig])
   return { sessionBadges, unreadCount, markAsSeen, onOverviewPayload }
