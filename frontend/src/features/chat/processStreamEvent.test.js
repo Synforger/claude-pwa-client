@@ -1,4 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
+// processStreamEvent は messageRegistry.getEntry(kind) で fromEvent / Render を引く。
+// 各 feature が自分の kind を register するのは features/<x>/index.js の side-effect import なので、
+// test では register が走らない。 該当 feature を side-effect import して registry を hydrate する。
+import './index.js'                  // features/chat の全 message kind (= compact/api_error 等) を register
+import '../tasks/index.js'           // features/tasks の task kind を register
 import { processStreamEvent } from './processStreamEvent.js'
 
 // claude は 1 つの AssistantMessage を thinking / text / tool_use の別 JSONL 行
