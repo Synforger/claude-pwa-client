@@ -19,7 +19,7 @@ import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown
 import { apiFetch } from '../../utils/api.js'
 import { isFav, toggleFav, subscribeFavs } from '../file-tree/favorites.js'
 import { useEscape } from '../../hooks/useEscape.js'
-import ConfirmDialog from '../../components/ConfirmDialog.jsx'
+import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
 import '../../styles/Modal.css'
 
 // eager 言語 (= 頻出 10 個)。 初期 bundle に乗る。
