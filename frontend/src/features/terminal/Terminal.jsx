@@ -208,10 +208,12 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
         height: '100%',
         background: '#0e0f12',
       }}
+      data-testid="terminal-pane"
     >
       <div
         ref={containerRef}
         style={{ flex: 1, minHeight: 0, width: '100%', background: '#0e0f12' }}
+        data-testid="terminal-output"
       />
       <div
         style={{
@@ -229,6 +231,7 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
             ref={inputRef}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
+            data-testid="terminal-input"
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault()

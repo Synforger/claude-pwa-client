@@ -570,7 +570,7 @@ export default function AppShell() {
 
       {/* ヘッダ: ハンバーガー + セッション名 + 画面共有 */}
       <header className="topbar">
-        <button className="hamburger" onClick={() => ov.setDrawer(true)} aria-label="会話一覧">
+        <button className="hamburger" onClick={() => ov.setDrawer(true)} aria-label="会話一覧" data-testid="drawer-toggle">
           ☰
         </button>
         <span className="topbar-title">{activeSession?.title || '会話なし'}</span>

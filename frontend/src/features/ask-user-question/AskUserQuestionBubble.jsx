@@ -86,9 +86,9 @@ function AskUserQuestionBubble({ askUserQuestion, onAnswer }) {
   }
 
   return (
-    <div className="ask-question">
+    <div className="ask-question" data-testid="ask-user-question-bubble">
       {headerText && <div className="ask-header">{headerText}</div>}
-      <div className="ask-text">{questionText}</div>
+      <div className="ask-text" data-testid="ask-user-question-text">{questionText}</div>
 
       {options.length > 0 && (
         <div className={`ask-options ${multi ? 'multi' : 'single'}`}>
