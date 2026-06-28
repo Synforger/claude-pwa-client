@@ -179,6 +179,7 @@ export default function FileTreePanel({ onOpenFile, onClose, initialPath }) {
                 key={entry.path}
                 className={`tree-entry ${entry.is_dir ? 'dir' : 'file'}`}
                 onClick={() => handleEntry(entry)}
+                data-testid="tree-entry"
               >
                 <span className="tree-icon">{entry.is_dir ? '📁' : '📄'}</span>
                 <span className="tree-name">{entry.name}</span>
