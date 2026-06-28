@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useMoonlightAvailable } from './useMoonlightAvailable.js'
 import './MoonlightFrame.css'
 
 // 画面共有 (= moonlight-web-stream を iframe で埋め込み)。
@@ -81,7 +82,19 @@ function pickApp(apps) {
   return apps.find(a => a.title === 'Desktop') || apps[0]
 }
 
+// W2 Phase E1: OverlayHost 経由 render に対応するため `moonlightAvailable` 判定を内部化
+// (= 旧 AppShell は `desktopOpen && moonlightAvailable && <MoonlightFrame />` で外部 gate
+// していた、 host 経路では desktopOpen の有無だけが OverlayHost の責務なので、 利用不可
+// 環境での early return を本 component 自身で持つ)。 topbar 🖥 button 自体は AppShell が
+// `moonlightAvailable` で表示 gate するので、 利用不可環境で desktopOpen=true まで進む経路は
+// 通常無いが、 ui state を別経路で書く実装 (= e2e / dev tool) が将来出る可能性を踏まえ防衛。
 export default function MoonlightFrame() {
+  const moonlightAvailable = useMoonlightAvailable()
+  if (!moonlightAvailable) return null
+  return <MoonlightFrameBody />
+}
+
+function MoonlightFrameBody() {
   const [full, setFull] = useState(false)
   const [inSettings, setInSettings] = useState(false)
   const [streamUrl, setStreamUrl] = useState(null)

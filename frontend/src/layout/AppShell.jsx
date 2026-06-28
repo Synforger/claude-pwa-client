@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef, useMemo, useCallback, useSyncExternalStore, lazy, Suspense, Component } from 'react'
 import '../App.css'
+// W2 Phase E1: 4 overlay (= previewPath / treeOpen / favs / desktopOpen) の lazy + Suspense + render
+// は OverlayHost に集約済。 AppShell では本 component 1 行配置のみで足りる (= 中央非依存)。
+// SessionDrawer / SubagentsModal / TasksModal の 3 件は E-2 で OverlayHost 移行、 それまで本 file
+// で従来通り lazy + 個別 LazyBoundary + props 渡しを維持 (= 移行期混在 OK の設計)。
+import OverlayHost from './OverlayHost.jsx'
 
 // features/* self-register (= ADR-010、 設計書 § 9-6 step 5)。 各 entry が
 // streamRegistry / messageRegistry / overlayRegistry / pushRegistry / featureRegistry に
@@ -155,15 +160,16 @@ class LazyBoundary extends Component {
   }
 }
 
-const FilePreviewModal = lazy(() => import('../features/file-preview/FilePreviewModal.jsx'))
+// W2 Phase E1: 4 overlay (= FilePreviewModal / FileTreePanel / FavoritesQuickPicker / MoonlightFrame)
+// の lazy() は OverlayHost 経由に移行済 (= features/<x>/index.js の registerOverlay の Component
+// spec で lazy 化、 OverlayHost が registry 走査 → React.lazy で wrap)。 ここに残るのは E-2 で
+// OverlayHost 移行予定の 3 件 (= SubagentsModal / TasksModal / SessionDrawer)、 useSessions /
+// useSessionBadges / useSessionActivity が plain useState なので OverlayHost 経由にすると
+// instance 分裂で race を起こす → state singleton 化を E-2 で先行させた後に移行する。
 const SubagentsModal = lazy(() => import('../features/subagents/SubagentsModal.jsx'))
-const FileTreePanel = lazy(() => import('../features/file-tree/FileTreePanel.jsx'))
-const FavoritesQuickPicker = lazy(() => import('../features/file-tree/FavoritesQuickPicker.jsx'))
 const TasksModal = lazy(() => import('../features/tasks/TasksModal.jsx'))
 // SessionDrawer は drawerOpen=true の時のみ render = 遅延 load 妥当 (= 初回 paint 早く)
 const SessionDrawer = lazy(() => import('../features/session-drawer/SessionDrawer.jsx'))
-// 画面共有 (= moonlight-web-stream を iframe 埋め込み)。 開いた時だけ load。
-const MoonlightFrame = lazy(() => import('../features/screenshare/MoonlightFrame.jsx'))
 
 // ChatInput.currentAttachments の安定 sentinel。 attachments[sid] が空の時に毎 render で
 // 新しい `[]` を作ると ChatInput が memo を抜けるので、 共通参照を返す。
@@ -253,9 +259,12 @@ export default function AppShell() {
   const [storageWarnDismissed, setStorageWarnDismissed] = useState(false)
   // overlay 11 系 (= drawer / menu / favs / tasks / subagents (+ Focus) / previewPath / treeOpen /
   // confirmEnd / confirmStop / confirmDelete) は state/ui.js.overlays.* に統合済 (= W2 Phase B、
-  // 旧 useOverlays 廃止)。 読み = `ui.overlays.X`、 書き = `setOverlay('X', value)`。 desktopOpen /
-  // planOpen は派生制御 (= visibility 連動 / status auto-close) があるので state 統合せず本 file 残置。
-  const [desktopOpen, setDesktopOpen] = useState(false)  // 画面共有 (Mac デスクトップ) overlay
+  // 旧 useOverlays 廃止)。 読み = `ui.overlays.X`、 書き = `setOverlay('X', value)`。
+  // W2 Phase E1: desktopOpen も ui.overlays.desktopOpen に統合 (= OverlayHost が registry 走査で
+  // MoonlightFrame を render するため state を ui store 経由に揃える必要がある)。 派生制御
+  // (= visibility 連動で hidden 時に閉じる) は下の useEffect で setOverlay 直書きに置換済。
+  // planOpen は status auto-close (= pending_plan が消えたら閉じる) ロジック付きで OverlayHost
+  // 対象外 (= AppShell の独立 dialog として残置)。
   // ExitPlanMode 承認ダイアログの開閉。 旧仕様は pending_plan が出た瞬間に全画面 overlay
   // が自動展開する設計だったが、 「画面を遮らずにヘッダーに常駐して、 開きたい時だけ開く」
   // 形に変更 (2026-06-04)。 topbar の 📑 ボタンが pending_plan の在席を示し、
@@ -273,7 +282,7 @@ export default function AppShell() {
   // Sunshine が延々エンコードし続け CPU + メモリを食い潰す (= ゾンビストリーム観測実績
   // あり)。 復帰時は自動再開せず、 ユーザが 🖥 を再タップして開き直す。
   useEffect(() => {
-    const onHidden = () => { if (document.hidden) setDesktopOpen(false) }
+    const onHidden = () => { if (document.hidden) setOverlay('desktopOpen', false) }
     document.addEventListener('visibilitychange', onHidden)
     return () => document.removeEventListener('visibilitychange', onHidden)
   }, [])
@@ -679,10 +688,10 @@ export default function AppShell() {
             表示。 chat + 通知だけのユーザにはアイコン自体出さない (= 押しても 404)。 */}
         {moonlightAvailable && (
           <button
-            className={`screen-toggle ${desktopOpen ? 'active' : ''}`}
-            onClick={() => setDesktopOpen(prev => !prev)}
+            className={`screen-toggle ${ui.overlays.desktopOpen ? 'active' : ''}`}
+            onClick={() => setOverlay('desktopOpen', !ui.overlays.desktopOpen)}
             aria-label="画面共有"
-            title={desktopOpen ? '画面共有を閉じる' : '画面共有を開く (Sunshine 経由、 ペア済前提)'}
+            title={ui.overlays.desktopOpen ? '画面共有を閉じる' : '画面共有を開く (Sunshine 経由、 ペア済前提)'}
             data-testid="screenshare-toggle"
           >
             🖥
@@ -690,15 +699,10 @@ export default function AppShell() {
         )}
       </header>
 
-      {/* 画面共有 iframe (= moonlight-web-stream を埋め込み、 Mac の Sunshine と
-          連携)。 desktopOpen=true かつ moonlightAvailable の時だけ render。 */}
-      {desktopOpen && moonlightAvailable && (
-        <LazyBoundary>
-          <Suspense fallback={null}>
-            <MoonlightFrame />
-          </Suspense>
-        </LazyBoundary>
-      )}
+      {/* W2 Phase E1: 画面共有 iframe (MoonlightFrame) は OverlayHost 経由で render。
+          AppShell からは個別 LazyBoundary / Suspense / moonlightAvailable gate を撤去、
+          state/ui.js の overlays.desktopOpen + MoonlightFrame 内部の useMoonlightAvailable
+          early return に集約済。 配置 = AppShell render tree 末尾の <OverlayHost />。 */}
 
       {ui.overlays.drawer && (
         <LazyBoundary>
@@ -870,40 +874,13 @@ export default function AppShell() {
       />
 
       {/* F-60: 各 lazy modal を 1 つずつ LazyBoundary + Suspense で wrap。 chunk fetch 失敗 /
-          初回 render error が他 modal を巻き込まずに局所閉じできるように分離する。 */}
-      {ui.overlays.previewPath && (
-        <LazyBoundary>
-          <Suspense fallback={null}>
-            <FilePreviewModal path={ui.overlays.previewPath} onClose={() => setOverlay('previewPath', null)} />
-          </Suspense>
-        </LazyBoundary>
-      )}
-      {ui.overlays.treeOpen && (
-        <LazyBoundary>
-          <Suspense fallback={null}>
-            <FileTreePanel
-              initialPath={ui.overlays.treeOpen}
-              onOpenFile={handleOpenPath}
-              onClose={() => setOverlay('treeOpen', null)}
-            />
-          </Suspense>
-        </LazyBoundary>
-      )}
+          初回 render error が他 modal を巻き込まずに局所閉じできるように分離する。
+          W2 Phase E1: previewPath / treeOpen / favs / desktopOpen の 4 件は OverlayHost 経由に
+          移行済、 ここに残るのは E-2 で移行予定の SubagentsModal / TasksModal の 2 件のみ。 */}
       {ui.overlays.subagents && activeSid && (
         <LazyBoundary>
           <Suspense fallback={null}>
             <SubagentsModal sid={activeSid} focus={ui.overlays.subagentsFocus} onClose={() => setOverlay('subagents', false)} />
-          </Suspense>
-        </LazyBoundary>
-      )}
-      {ui.overlays.favs && (
-        <LazyBoundary>
-          <Suspense fallback={null}>
-            <FavoritesQuickPicker
-              onOpenFile={(path) => setOverlay('previewPath', path)}
-              onOpenDir={(path) => setOverlay('treeOpen', path)}
-              onClose={() => setOverlay('favs', false)}
-            />
           </Suspense>
         </LazyBoundary>
       )}
@@ -917,6 +894,12 @@ export default function AppShell() {
           </Suspense>
         </LazyBoundary>
       )}
+
+      {/* W2 Phase E1: overlayRegistry に Component spec を持つ entry (= 現在 4 件:
+          previewPath / treeOpen / favs / desktopOpen) を 1 経路で lazy + Suspense + LazyBoundary
+          render する中央 host。 features/<x>/index.js が起動時 self-register、 AppShell は本
+          component 1 行配置だけで該当 overlay 群の責務を完遂する (= 中央非依存)。 */}
+      <OverlayHost />
     </div>
   )
 }
