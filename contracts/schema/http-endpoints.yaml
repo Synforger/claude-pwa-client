@@ -1,0 +1,514 @@
+# HTTP endpoints schema (= front <-> back contract、 真値)
+#
+# scope:
+#   - 28 endpoint を全件列挙 (= interface-current.md § 1 起点)
+#   - method / path / request body or query / response / 認証 / 不変条件
+#
+# 認証 (= auth field):
+#   - tailnet: tailscale 越しのみ到達可能 (= 大半)
+#   - localhost: 127.0.0.1 / ::1 のみ (= claude CLI hook 受け取り、 ADR-012 DNS rebinding 防御で Host allowlist)
+#   - uid_check: 呼び出しプロセスの uid 検査 (= /task-output で /tmp/claude-{uid}/ 配下のみ許可)
+#   - none: (= 現状なし、 将来公開 API 化時の予約)
+#
+# corr_id 伝播 (= ADR-012):
+#   - frontend → backend: HTTP header `traceparent` (= W3C trace context) + 互換 `X-Correlation-Id`
+#   - backend → SSE event: ContextVar で全 layer に伝播し event に付与
+#   - backend → response header: `Server-Timing` で phase 別 timing 露出 (= ADR-012 中優先補強)
+
+kind: http-endpoints
+version: "1.0"
+schema_version: "1.0"
+
+endpoints:
+
+  - method: GET
+    path: /sessions
+    description: "セッション一覧取得"
+    response:
+      type: array
+      items:
+        type: object
+        properties:
+          sid:         { type: string }
+          title:       { type: string }
+          agent_id:    { type: string }
+          account_id:  { type: string, nullable: true }
+          notify_mode: { type: string }
+          created_at:  { type: string }
+        required: [sid, title, agent_id]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "返却順は updated_at 降順"
+      - "削除済 session は含まない"
+    implementation: backend/routes/sessions.py
+
+  - method: POST
+    path: /sessions
+    description: "セッション新規作成"
+    request_body:
+      type: object
+      required: [agent_id]
+      properties:
+        agent_id:   { type: string }
+        title:      { type: string }
+        account_id: { type: string, nullable: true }
+    response:
+      type: object
+      properties:
+        sid: { type: string }
+      required: [sid]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "sid は server 採番 (= UUID v4)"
+      - "agent_id 不正は 400"
+    implementation: backend/routes/sessions.py
+
+  - method: PATCH
+    path: /sessions/{sid}
+    description: "title / notify_mode 更新"
+    request_body:
+      type: object
+      properties:
+        title:       { type: string }
+        notify_mode: { type: string, description: "always / mentions / never" }
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "title と notify_mode のみ更新可、 他 field は無視"
+      - "存在しない sid は 404"
+    implementation: backend/routes/sessions.py
+
+  - method: POST
+    path: /sessions/{sid}/fork
+    description: "メッセージから分岐 (= 過去 uuid から新 session を派生)"
+    request_body:
+      type: object
+      required: [from_uuid]
+      properties:
+        from_uuid: { type: string }
+    response:
+      type: object
+      properties:
+        sid: { type: string, description: "新 session id" }
+      required: [sid]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "from_uuid 不在は 404"
+      - "fork lineage は parent_id 保持、 resume_session_id は落とす (= fork 初回役目終了)"
+    implementation: backend/routes/sessions.py
+
+  - method: POST
+    path: /sessions/{sid}/restart
+    description: "claude プロセス kill + 再 spawn"
+    response:
+      type: object
+      properties:
+        ok:     { type: boolean }
+        reason: { type: string }
+      required: [ok]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "再 spawn 後の new claude_sid は SessionStart hook で confirm_bind 自動更新"
+      - "kill -TERM → 5s 待ち → kill -KILL の順"
+    implementation: backend/routes/sessions.py
+
+  - method: GET
+    path: /sessions/{sid}/history
+    description: "直近 claude_sid 履歴 (= 最新 3 件)"
+    response:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            type: object
+            properties:
+              ended_at:   { type: string }
+              claude_sid: { type: string }
+              jsonl_path: { type: string }
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "件数上限 3、 古いものから drop"
+      - "debug 用途、 通常 UI からは叩かない"
+    implementation: backend/routes/sessions.py
+
+  - method: DELETE
+    path: /sessions/{sid}
+    description: "セッション完全削除 + JSONL GC"
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "削除順序: kill claude → unbind jsonl → JSONL file delete → session metadata delete"
+      - "途中失敗時は session metadata 残し再試行可能に"
+    implementation: backend/routes/sessions.py
+
+  - method: POST
+    path: /sessions/{sid}/seen
+    description: "今このタブを見た marker (= 全端末に sync)"
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "/views/ws 接続中なら冪等、 接続なしでも seen 記録"
+      - "未読カウンタを 0 にリセット"
+    implementation: backend/routes/sessions.py
+
+  - method: GET
+    path: /agents
+    description: "session 作成時の agent 選択肢"
+    response:
+      type: array
+      items:
+        type: object
+        properties:
+          id:           { type: string }
+          display_name: { type: string }
+        required: [id, display_name]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "config.json の agents キーから配信"
+      - "順序は config 定義順を保持"
+    implementation: backend/routes/accounts.py
+
+  - method: GET
+    path: /accounts
+    description: "OAuth account 選択肢"
+    response:
+      type: array
+      items:
+        type: object
+        properties:
+          id:           { type: string }
+          display_name: { type: string }
+        required: [id, display_name]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "claude CLI 由来 (= ~/.claude/.credentials.json) を読み列挙"
+    implementation: backend/routes/accounts.py
+
+  - method: GET
+    path: /file
+    description: "HOME 配下ファイル読み取り (= deny list あり)"
+    request_query:
+      path: { type: string, description: "絶対 path or HOME 相対" }
+    response:
+      type: object
+      properties:
+        path:    { type: string }
+        content: { type: string }
+      required: [path, content]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "HOME 配下外は 403"
+      - "deny list (= .ssh / .aws / secrets) 該当は 403"
+      - "binary file は 415 で reject"
+    implementation: backend/routes/files.py
+
+  - method: PUT
+    path: /file
+    description: "HOME 配下ファイル書き込み"
+    request_body:
+      type: object
+      required: [path, content]
+      properties:
+        path:    { type: string }
+        content: { type: string }
+    response:
+      type: object
+      properties:
+        ok: { type: boolean }
+      required: [ok]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "GET /file と同じ deny list 適用"
+      - "存在しない親 dir は自動作成"
+    implementation: backend/routes/files.py
+
+  - method: GET
+    path: /task-output
+    description: "/tmp/claude-{uid}/ task 出力ログ取得"
+    request_query:
+      path: { type: string }
+    response:
+      type: object
+      properties:
+        path:    { type: string }
+        content: { type: string }
+      required: [path, content]
+    response_kind: json
+    auth: uid_check
+    invariants:
+      - "path は /tmp/claude-{uid}/ 配下のみ許可"
+      - "uid 不一致 / 配下外は 403"
+    implementation: backend/routes/files.py
+
+  - method: GET
+    path: /files/tree
+    description: "ディレクトリツリー取得"
+    request_query:
+      path: { type: string, description: "起点 dir (= 省略時は HOME)" }
+    response:
+      type: object
+      properties:
+        path: { type: string }
+        entries:
+          type: array
+          items:
+            type: object
+            properties:
+              name:   { type: string }
+              path:   { type: string }
+              is_dir: { type: boolean }
+            required: [name, path, is_dir]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "HOME 配下外は 403"
+      - "1 階層分のみ (= 再帰展開なし)"
+    implementation: backend/routes/files.py
+
+  - method: GET
+    path: /sessions/{sid}/subagents
+    description: "Task subagent + Workflow run 一覧"
+    response:
+      type: object
+      properties:
+        subagents: { type: array }
+        workflows: { type: array }
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "subagent は親 turn の tool_use_id 単位"
+      - "workflow は run_id 単位"
+    implementation: backend/routes/subagents.py
+
+  - method: GET
+    path: /sessions/{sid}/subagents/stream
+    description: "subagent リアルタイム監視 SSE"
+    response_kind: sse
+    auth: tailnet
+    invariants:
+      - "新 subagent 起動 / 完了で event 配信"
+      - "EventSource auto-reconnect 3s default"
+    implementation: backend/routes/subagents.py
+
+  - method: GET
+    path: /sessions/{sid}/workflows/{run_id}/agents
+    description: "Workflow run の agent 詳細"
+    response:
+      type: object
+      properties:
+        agents: { type: array }
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "run_id 不在は 404"
+    implementation: backend/routes/subagents.py
+
+  - method: GET
+    path: /sessions/{sid}/subagents/{agent_id}/transcript
+    description: "subagent transcript 全文 (= 通常 JSON、 -CC で SSE)"
+    response:
+      type: object
+      properties:
+        lines: { type: array, items: { type: string } }
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "agent_id 不在は 404"
+      - "transcript は line 単位"
+    implementation: backend/routes/subagents.py
+
+  - method: POST
+    path: /pty/{sid}/send
+    description: "tmux send-keys 経由のテキスト送信"
+    request_body:
+      type: object
+      properties:
+        text:  { type: string }
+        key:   { type: string, description: "send-keys 経由の特殊キー名" }
+        enter: { type: boolean, description: "末尾 Enter 送信" }
+    response:
+      type: object
+      properties:
+        ok:         { type: boolean }
+        delivered:  { type: boolean }
+        incomplete: { type: boolean }
+      required: [ok]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "text と key は択一"
+      - "delivered = JSONL line count 増分で判定 (= confirm.py)"
+      - "15s timeout で incomplete=true"
+    implementation: backend/terminal/routes.py
+
+  - method: POST
+    path: /pty/{sid}/send-with-files
+    description: "ファイル添付込みテキスト送信 (= multipart)"
+    request_body:
+      type: object
+      description: "multipart/form-data: text + files[]"
+    response:
+      type: object
+      properties:
+        ok:          { type: boolean }
+        saved_files: { type: array, items: { type: string } }
+      required: [ok]
+    response_kind: multipart
+    auth: tailnet
+    invariants:
+      - "保存先 = uploads/tmp 配下"
+      - "saved_files は backend 保存後の path 配列"
+    implementation: backend/terminal/routes.py
+
+  - method: POST
+    path: /hooks/event
+    description: "claude CLI hook 受け取り (= localhost 限定)"
+    request_body:
+      type: object
+      required: [hook_event_name, session_id]
+      properties:
+        hook_event_name: { type: string }
+        session_id:      { type: string }
+    response:
+      type: object
+      properties:
+        ok: { type: boolean }
+      required: [ok]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "127.0.0.1 / ::1 以外は 403"
+      - "Host header allowlist (= ADR-012 DNS rebinding 防御) で localhost 名指定のみ通す"
+    implementation: backend/routes/hooks.py
+
+  - method: GET
+    path: /push/vapid-public-key
+    description: "Web Push 用 VAPID 公開鍵取得"
+    response:
+      type: object
+      properties:
+        public_key: { type: string }
+      required: [public_key]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "鍵は backend/secrets/vapid.json (= cli/gen_vapid.py で生成)"
+    implementation: backend/routes/files.py
+
+  - method: POST
+    path: /push/subscribe
+    description: "Web Push subscription 登録"
+    request_body:
+      type: object
+      required: [subscription]
+      properties:
+        subscription:
+          type: object
+          description: "PushSubscription dict (= endpoint / keys / expirationTime)"
+    response:
+      type: object
+      properties:
+        ok: { type: boolean }
+      required: [ok]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "endpoint 単位で dedup"
+      - "永続化先 = data/push_subscriptions.json"
+    implementation: backend/core/push.py
+
+  - method: POST
+    path: /push/unsubscribe
+    description: "Web Push subscription 解除"
+    request_body:
+      type: object
+      required: [endpoint]
+      properties:
+        endpoint: { type: string }
+    response:
+      type: object
+      properties:
+        ok: { type: boolean }
+      required: [ok]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "存在しない endpoint も 200 (= 冪等)"
+    implementation: backend/core/push.py
+
+  - method: POST
+    path: /notifications/read-all
+    description: "未読カウンタを 0 にリセット"
+    response:
+      type: object
+      properties:
+        ok: { type: boolean }
+      required: [ok]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "app badge (= service worker 経由) もクリア"
+    implementation: backend/routes/sessions.py
+
+  - method: POST
+    path: /notifications/sync
+    description: "未読カウント同期 (= badge 用)"
+    response:
+      type: object
+      properties:
+        unread_count: { type: integer }
+      required: [unread_count]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "全 session 横断の未読合計"
+    implementation: backend/routes/sessions.py
+
+  - method: POST
+    path: /log/sw
+    description: "Service Worker からの構造化 log 受信"
+    request_body:
+      type: object
+      required: [event]
+      properties:
+        event: { type: string }
+    response:
+      type: object
+      properties:
+        ok: { type: boolean }
+      required: [ok]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "backend/observability/structured_log.py に書き込み"
+      - "frontend ↔ backend log を corr_id で結合 (= ADR-012)"
+    implementation: backend/main.py
+
+  - method: GET
+    path: /jsonl/_debug/bindings
+    description: "debug: watcher binding 一覧"
+    response:
+      type: object
+      properties: {}
+      additionalProperties:
+        type: object
+        properties:
+          jsonl_path: { type: string }
+          confirmed:  { type: boolean }
+        required: [jsonl_path, confirmed]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "debug 用、 通常 UI からは叩かない"
+      - "key = sid"
+    implementation: backend/jsonl/routes.py
