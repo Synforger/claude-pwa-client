@@ -45,14 +45,12 @@ import { useChatStream } from '../features/chat/useChatStream.js'
 import { useSessionsOverview } from '../features/session-drawer/useSessionsOverview.js'
 import { useSessions } from '../features/session-drawer/useSessions.js'
 import { useStorageQuota } from '../hooks/useStorageQuota.js'
-import {
-  useReadOnSessionOpen,
-  useDeepLink,
-  useSessionActivity,
-  useSessionBadges,
-  useNotificationClear,
-  useMoonlightAvailable,
-} from '../hooks/useAppEffects.js'
+import { useReadOnSessionOpen } from '../features/push-notify/useReadOnSessionOpen.js'
+import { useNotificationClear } from '../features/push-notify/useNotificationClear.js'
+import { useSessionBadges } from '../features/push-notify/useSessionBadges.js'
+import { useMoonlightAvailable } from '../features/screenshare/useMoonlightAvailable.js'
+import { useDeepLink } from '../features/session-drawer/useDeepLink.js'
+import { useSessionActivity } from '../features/session-drawer/useSessionActivity.js'
 import { setBadge } from '../features/push-notify/badge.js'
 import { gcImages } from '../features/attachments/imageStore.js'
 import { usePushSubscription } from '../features/push-notify/usePushSubscription.js'
@@ -281,7 +279,7 @@ export default function AppShell() {
   }, [])
   const menuRef = useRef(null)
 
-  // backend / 通知 / deep link 系の effect を hook に集約 (= useAppEffects.js)
+  // backend / 通知 / deep link 系の effect は feature ごとの hook に分散 (= W2 Phase C 移送済)
   useReadOnSessionOpen(activeSid)
   useDeepLink(setActiveId)
   useNotificationClear()
