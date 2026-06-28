@@ -25,7 +25,7 @@ const V2_LAYERS = [
 // 経由で実装、 features は ports/state/contracts に依存、 layout は features/state に依存、
 // registry は features 配線、 debug は state/transport/ports/contracts を覗く。
 const V2_IMPORT_RULES = [
-  { from: 'domain',    allow: [] },
+  { from: 'domain',    allow: ['contracts'] },
   { from: 'ports',     allow: ['domain', 'contracts'] },
   { from: 'contracts', allow: [] },
   { from: 'transport', allow: ['ports', 'domain', 'contracts'] },
