@@ -219,7 +219,9 @@ app = FastAPI(lifespan=lifespan)
 # log entry が 同 trace_id で結合可能になる。 純 ASGI middleware なので SSE / StreamingResponse
 # でも contextvars 伝播が壊れない (= starlette.BaseHTTPMiddleware の既知問題回避)。
 from backend.observability.correlation import install as _install_correlation  # noqa: E402
+from backend.observability.server_timing import install as _install_server_timing  # noqa: E402
 _install_correlation(app)
+_install_server_timing(app)
 
 # frontend は backend で配信される設計なので、 通常運用では同一オリジン = CORS 不要。
 # config に明示指定があった時だけ middleware を有効化 (= dev で vite から叩く等)。
@@ -238,6 +240,11 @@ app.include_router(jsonl_routes.router)
 app.include_router(pty_routes.router)
 app.include_router(push.router)
 app.include_router(subagents_routes.router)
+
+# ADR-012 /debug/* (= state / metrics / log / replay)。 localhost + Host header allowlist の
+# 2 段防御で外からは触れない。 production build でも router を含む (= 開発者の手元 PC で機能)。
+from backend.routes import debug as debug_routes  # noqa: E402
+app.include_router(debug_routes.router)
 
 
 # --- 静的ファイル配信 (Vite ビルド成果物) ---
