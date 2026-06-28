@@ -245,10 +245,34 @@ async def _pump_from_client(ws: WebSocket, session: PtySession) -> None:
                     payload = ctrl.get("data", "")
                     if isinstance(payload, str):
                         write_pty(session, payload.encode("utf-8"))
+                else:
+                    # 純粋 reply 系 (= ping → pong 等) は handle_text_control に集約、 副作用を伴わない
+                    # control message を pure 関数で扱えるようにする (= unit test しやすい、 ADR-013)。
+                    reply = handle_text_control(ctrl)
+                    if reply is not None:
+                        await ws.send_text(json.dumps(reply))
     except WebSocketDisconnect:
         return
     except Exception:
         logger.exception("_pump_from_client error session=%s", session.session_id)
+
+
+def handle_text_control(ctrl: dict) -> dict | None:
+    """副作用なし WS text control を解釈し、 send back する dict を返す (= 不要なら None)。
+
+    現状の対応:
+        - {"type": "ping", "ts": <int>}  →  {"type": "pong", "ts": <ts>}  (= ADR-013 heartbeat、
+          frontend transport/ws-pty.ts が 25s 間隔で送る ping に即返、 60s pong 不在で frontend が
+          force reconnect する設計の対の半分)
+
+    resize / input は PTY 副作用を伴うので呼び出し側で扱う、 ここには載せない。
+    """
+    if not isinstance(ctrl, dict):
+        return None
+    t = ctrl.get("type")
+    if t == "ping":
+        return {"type": "pong", "ts": ctrl.get("ts")}
+    return None
 
 
 def _require_session(session_id: str) -> None:
