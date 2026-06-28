@@ -1,25 +1,34 @@
-// Runs once before all playwright workers start. The webServer hook has
-// already booted the backend (or KEEP_BACKEND points us at a live one); here
-// we seed JSONL + replay fixtures into the runtime data dir so scenarios can
-// open them like real chat history.
-import { mkdirSync, copyFileSync, readdirSync, existsSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+// Seeds the canonical fixture set into the running backend (= POST
+// /debug/e2e/seed, ADR-020) before any spec runs. Scenarios add more sessions
+// at will via seedSession().
+import { readdirSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { request as createRequest } from '@playwright/test'
+import { loadFixture } from './fixture.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const E2E_ROOT = resolve(__dirname, '..')
-const RUNTIME = resolve(E2E_ROOT, 'fixtures', '_runtime')
-const RUNTIME_JSONL = resolve(RUNTIME, 'jsonl')
+const SESSIONS_DIR = resolve(__dirname, '..', 'fixtures', 'sessions')
 
-export default async function globalSetup() {
-  // Mirror fixtures/sessions/<sid>.jsonl into _runtime/jsonl/ so the backend
-  // watcher picks them up. Each fixture file is one full claude session in
-  // claude's native JSONL shape (= one event per line, server-stamped uuids).
-  const srcDir = resolve(E2E_ROOT, 'fixtures', 'sessions')
-  if (!existsSync(srcDir)) return
-  mkdirSync(RUNTIME_JSONL, { recursive: true })
-  for (const name of readdirSync(srcDir)) {
-    if (!name.endsWith('.jsonl')) continue
-    copyFileSync(join(srcDir, name), join(RUNTIME_JSONL, name))
+export default async function globalSetup(config) {
+  const baseURL = config.projects[0]?.use?.baseURL || config.use?.baseURL
+  const ctx = await createRequest.newContext({ baseURL })
+  try {
+    // Mirror every <name>.jsonl that has a matching <name>.meta.json — meta
+    // files alone never seed.
+    const names = new Set(
+      readdirSync(SESSIONS_DIR)
+        .filter((n) => n.endsWith('.meta.json'))
+        .map((n) => n.replace(/\.meta\.json$/, '')),
+    )
+    for (const name of names) {
+      const body = loadFixture(name)
+      const res = await ctx.post('/debug/e2e/seed', { data: body })
+      if (!res.ok()) {
+        throw new Error(`globalSetup seed failed for ${name}: ${res.status()} ${await res.text()}`)
+      }
+    }
+  } finally {
+    await ctx.dispose()
   }
 }

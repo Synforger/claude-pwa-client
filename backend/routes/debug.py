@@ -6,14 +6,21 @@
 
 production build でも router を含むが、 上記 2 段で外からは触れない設計。 開発者の手元 PC でだけ
 ブラウザの localhost 経由で叩ける。
+
+ADR-020 /debug/e2e/seed は更に CPC_E2E=1 env を要求する 3 段防御。
 """
 from __future__ import annotations
 
+import json
+import os
+import time
+import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.observability import inspector
 from backend.observability.event_journal import journal_path, read_range
@@ -137,3 +144,100 @@ async def post_replay(request: Request, body: ReplayRequest) -> StreamingRespons
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ----- ADR-020 e2e seed endpoint ---------------------------------------------
+# Bypasses hook-driven binding (= claude SessionStart hook) so playwright can
+# install a session + JSONL fixture in one POST. Triple-gated: localhost peer,
+# Host allowlist, and CPC_E2E=1 must be set in the backend process env. The
+# router stays registered in prod builds so any env mistake fails closed (= 404
+# without the env), matching the rest of /debug/*.
+
+
+def _ensure_e2e_enabled() -> None:
+    if os.environ.get("CPC_E2E") != "1":
+        raise HTTPException(status_code=404, detail="not found")
+
+
+class E2eSeedRequest(BaseModel):
+    sid: str = Field(..., description="pwa session id (= ses_xxx)")
+    agent_id: str = Field("agent_e2e", description="must exist in config.agents")
+    account_id: str | None = Field(None, description="resolves the claude projects dir")
+    title: str | None = None
+    notify_mode: str = Field("both", description="off | banner | both")
+    claude_sid: str | None = Field(
+        None,
+        description="filename stem under <projects>/<cwd-hash>/; UUID4 if omitted",
+    )
+    jsonl_events: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="ordered JSONL events; written verbatim, one per line",
+    )
+
+
+class E2eSeedResponse(BaseModel):
+    sid: str
+    claude_sid: str
+    jsonl_path: str
+    written_events: int
+
+
+@router.post("/e2e/seed", response_model=E2eSeedResponse)
+async def post_e2e_seed(request: Request, body: E2eSeedRequest) -> E2eSeedResponse:
+    """Seed a session_meta entry + JSONL fixture + confirmed binding in one go.
+
+    Mirrors what `POST /sessions` + claude SessionStart hook would do, but
+    without spawning tmux / claude. Playwright global-setup calls this once per
+    fixture session.
+    """
+    _ensure_localhost(request)
+    _ensure_e2e_enabled()
+
+    # Imports are local so prod builds never load these modules unless e2e is
+    # actually exercised (= keeps startup graph clean + dodges a state.py side
+    # effect for non-e2e processes).
+    from backend.config import projects_dir_for_account
+    from backend.jsonl import watcher
+    from backend.state import SessionDef, save_sessions_meta, sessions_meta
+
+    agents = (await _agents_snapshot())
+    if body.agent_id not in agents:
+        raise HTTPException(status_code=400, detail=f"unknown agent_id: {body.agent_id}")
+    agent_cwd = agents[body.agent_id].get("cwd") or str(Path.home())
+
+    claude_sid = body.claude_sid or str(uuid.uuid4())
+    projects_dir = projects_dir_for_account(body.account_id)
+    cwd_hash = watcher._cwd_to_project_dirname(agent_cwd)
+    jsonl_dir = projects_dir / cwd_hash
+    jsonl_dir.mkdir(parents=True, exist_ok=True)
+    jsonl_path = jsonl_dir / f"{claude_sid}.jsonl"
+
+    with jsonl_path.open("w", encoding="utf-8") as f:
+        for event in body.jsonl_events:
+            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+    sessions_meta[body.sid] = SessionDef(
+        id=body.sid,
+        agent_id=body.agent_id,
+        title=body.title or body.sid,
+        created_at=int(time.time()),
+        notify_mode=body.notify_mode if body.notify_mode in {"off", "banner", "both"} else "both",
+        account_id=body.account_id,
+    )
+    save_sessions_meta()
+
+    watcher.confirm_bind(body.sid, claude_sid, str(jsonl_path))
+
+    return E2eSeedResponse(
+        sid=body.sid,
+        claude_sid=claude_sid,
+        jsonl_path=str(jsonl_path),
+        written_events=len(body.jsonl_events),
+    )
+
+
+async def _agents_snapshot() -> dict[str, dict[str, Any]]:
+    # Tiny indirection so the test suite can monkeypatch agent config without
+    # reaching into backend.config internals.
+    from backend.config import AGENTS  # noqa: PLC0415
+    return AGENTS
