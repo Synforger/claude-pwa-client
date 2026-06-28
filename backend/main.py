@@ -214,6 +214,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# ADR-012 observability: W3C traceparent middleware を全 endpoint に適用。
+# 受信 request の `traceparent` を ContextVar に set + response header に echo、 全 SSE event /
+# log entry が 同 trace_id で結合可能になる。 純 ASGI middleware なので SSE / StreamingResponse
+# でも contextvars 伝播が壊れない (= starlette.BaseHTTPMiddleware の既知問題回避)。
+from backend.observability.correlation import install as _install_correlation  # noqa: E402
+_install_correlation(app)
+
 # frontend は backend で配信される設計なので、 通常運用では同一オリジン = CORS 不要。
 # config に明示指定があった時だけ middleware を有効化 (= dev で vite から叩く等)。
 if CORS_ALLOW_ORIGINS:
