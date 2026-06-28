@@ -1,0 +1,302 @@
+/**
+ * xterm.js terminal bound to backend `/ws/pty/{sessionId}` WebSocket.
+ *
+ * The xterm lifecycle (open, WebGL, font load, momentum scroll, native
+ * keyboard suppression) is delegated to the useTerminal hook so this file
+ * only owns the WebSocket wire + the on-screen input bar.
+ *
+ * Wire protocol (= matches backend/pty_routes.py):
+ *   server → client:
+ *     - binary frames: raw PTY stdout bytes → fed straight into xterm.write()
+ *     - text frames (JSON): { type: "exit" | "error", ... } control messages
+ *   client → server:
+ *     - binary frames: stdin bytes (= keystrokes / paste)
+ *     - text frames (JSON): { type: "resize", rows, cols }
+ */
+import { useEffect, useRef, useState, useCallback, memo } from 'react'
+import { useTerminal } from './useTerminal.js'
+import OnScreenKeyboard from '../ios-native/OnScreenKeyboard.jsx'
+
+const DEFAULT_WS_BASE =
+  (typeof window !== 'undefined' && window.location.protocol === 'https:'
+    ? 'wss://'
+    : 'ws://') +
+  (typeof window !== 'undefined' ? window.location.host : 'localhost:8765')
+
+// F-11 hidden buffer cap (= module level const、 useEffect dep 警告回避目的でも module 化が綺麗)。
+const HIDDEN_BUF_MAX_BYTES = 1024 * 1024  // 1MB
+
+function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = true }) {
+  const containerRef = useRef(null)
+  const { terminal, getDimensions, scrollToBottom } = useTerminal(containerRef)
+
+  const wsRef = useRef(null)
+  const inputRef = useRef(null)
+  const [inputValue, setInputValue] = useState('')
+  // フルオンスクリーンキーボード (= 矢印 / Ctrl / Tab / 記号等、 物理キーボードの無い
+  // モバイルで TUI を直操作するため) の表示トグル。 縦を食うので既定 OFF。
+  const [showKbd, setShowKbd] = useState(false)
+
+  // F-11 (= 2026-06-21): hidden Terminal (= 別 tab を表示中で display:none) は xterm.write を
+  // skip + buffer に積み、 visible 復帰時にまとめて flush する。 hidden 中も WS 自体は維持する
+  // (= 切替で「起動 1-2 秒」 待ちを作らない既存設計を温存)。 旧実装は hidden でも
+  // 毎 byte xterm.write を回しており WebGL 再描画 / scrollback 追記 / RingBuffer 操作が
+  // CPU + 電力を食う原因 (= 多 sid で hidden 表示中 Terminal 数だけ線形)。
+  // - visible === true  : 即時 write、 buffer はからのまま
+  // - visible === false : buffer に push (= 最大 1MB cap で oldest 廃棄、 ANSI 整合性は
+  //   visible 復帰時に Ctrl-L で取り直すため許容)
+  const visibleRef = useRef(visible)
+  const hiddenBufRef = useRef([])
+  const hiddenBufBytesRef = useRef(0)
+  useEffect(() => {
+    visibleRef.current = visible
+    if (!visible) return undefined
+    // visible 復帰: buffer を flush して内部表示を同期。 ターミナル無いと no-op。
+    if (!terminal || hiddenBufRef.current.length === 0) return undefined
+    for (const chunk of hiddenBufRef.current) {
+      terminal.write(chunk)
+    }
+    hiddenBufRef.current = []
+    hiddenBufBytesRef.current = 0
+    return undefined
+  }, [visible, terminal])
+
+  // Common byte/string sink to the live WS — used by control-key buttons and
+  // the input bar. No-ops while the socket is not open.
+  const sendRaw = useCallback((data) => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    if (typeof data === 'string') {
+      ws.send(new TextEncoder().encode(data))
+    } else {
+      ws.send(data)
+    }
+  }, [])
+
+  const flushInput = useCallback(
+    (withReturn) => {
+      if (inputValue) sendRaw(inputValue)
+      if (withReturn) sendRaw('\r')
+      setInputValue('')
+      inputRef.current?.focus()
+    },
+    [inputValue, sendRaw],
+  )
+
+  // WebSocket lifecycle: connect once the terminal is open, reconnect with
+  // exponential backoff on close/error, and pump stdout into xterm.
+  useEffect(() => {
+    if (!terminal) return undefined
+
+    let cancelled = false
+    let backoffMs = 500
+    const MAX_BACKOFF = 10_000
+    let reconnectTimer = null
+
+    const connect = (isReconnect = false) => {
+      if (cancelled) return
+      // TODO Phase F-terminal-ws: transport/ws-pty.ts ptyTransport.connect(sid, handler) 経由に
+      // 書換。 xterm.js lifecycle (= reset / redraw / Ctrl-L re-attach / exponential backoff) と
+      // ws-pty.ts の heartbeat / state machine を整合させる作業が必要、 W2 物理移送 commit から
+      // 切り出して別 commit で実装。 ADR-018 features → transport 直接 import は許可済。
+      // eslint-disable-next-line no-restricted-syntax
+      const ws = new WebSocket(`${wsBase}/ws/pty/${encodeURIComponent(sessionId)}`)
+      ws.binaryType = 'arraybuffer'
+      wsRef.current = ws
+
+      ws.addEventListener('open', () => {
+        backoffMs = 500
+        // 再接続時は既存バッファを全消し → Ctrl-L で TUI に現状描画させる。
+        // 消さずに Ctrl-L だけ送ると、 redraw された画面が既存内容の下に積み重なる
+        // (= disconnect 連発で同じ画面が 2、 3 倍に重複する事故、 2026-06-11 報告)。
+        if (isReconnect) terminal.reset()
+        const dims = getDimensions()
+        if (dims) {
+          ws.send(JSON.stringify({ type: 'resize', rows: dims.rows, cols: dims.cols }))
+        }
+        ws.send(new TextEncoder().encode('\x0c'))
+      })
+
+      ws.addEventListener('message', (ev) => {
+        if (typeof ev.data === 'string') {
+          try {
+            const ctrl = JSON.parse(ev.data)
+            if (ctrl.type === 'exit') {
+              terminal.write(
+                `\r\n\x1b[31m[backend reports PTY exited rc=${ctrl.returncode}]\x1b[0m\r\n`,
+              )
+              onExit?.(ctrl)
+            } else if (ctrl.type === 'error') {
+              terminal.write(`\r\n\x1b[31m[backend error: ${ctrl.message}]\x1b[0m\r\n`)
+            }
+          } catch { /* ignore */ }
+          return
+        }
+        // F-11: visible 中は即 write、 hidden 中は buffer に積む (= cap 超過は oldest 廃棄)。
+        const bytes = new Uint8Array(ev.data)
+        if (visibleRef.current) {
+          terminal.write(bytes)
+        } else {
+          hiddenBufRef.current.push(bytes)
+          hiddenBufBytesRef.current += bytes.byteLength
+          while (hiddenBufBytesRef.current > HIDDEN_BUF_MAX_BYTES && hiddenBufRef.current.length > 1) {
+            const dropped = hiddenBufRef.current.shift()
+            hiddenBufBytesRef.current -= dropped.byteLength
+          }
+        }
+      })
+
+      const scheduleReconnect = (reason) => {
+        if (cancelled) return
+        terminal.write(
+          `\r\n\x1b[2m[disconnected: ${reason}, retry in ${String(Math.round(backoffMs / 100) / 10)}s]\x1b[0m\r\n`,
+        )
+        reconnectTimer = setTimeout(() => {
+          backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF)
+          connect(true)
+        }, backoffMs)
+      }
+
+      ws.addEventListener('close', (ev) => scheduleReconnect(`close ${String(ev.code)}`))
+      ws.addEventListener('error', () => {
+        try { ws.close() } catch { /* noop */ }
+      })
+    }
+
+    // Send resize updates whenever xterm reflows (= fit() recomputed cols/rows).
+    const onResizeDisposable = terminal.onResize((size) => {
+      const ws = wsRef.current
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'resize', rows: size.rows, cols: size.cols }))
+      }
+    })
+
+    connect()
+
+    return () => {
+      cancelled = true
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      onResizeDisposable.dispose()
+      try { wsRef.current?.close() } catch { /* noop */ }
+      wsRef.current = null
+    }
+  }, [terminal, sessionId, wsBase, onExit, getDimensions])
+
+  // Keystrokes from a physical keyboard (if any) → WS direct. The on-screen
+  // input bar bypasses this and uses sendRaw directly.
+  useEffect(() => {
+    if (!terminal) return undefined
+    const disposable = terminal.onData((data) => {
+      scrollToBottom()
+      const ws = wsRef.current
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(new TextEncoder().encode(data))
+      }
+    })
+    return () => disposable.dispose()
+  }, [terminal, scrollToBottom])
+
+  // Container padding-free wrapper: WebGL canvas is positioned from the host
+  // origin, so any padding shifts the canvas by ~1 cell. Apply outer spacing
+  // on the parent if needed instead of here.
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        width: '100%',
+        height: '100%',
+        background: '#0e0f12',
+      }}
+    >
+      <div
+        ref={containerRef}
+        style={{ flex: 1, minHeight: 0, width: '100%', background: '#0e0f12' }}
+      />
+      <div
+        style={{
+          flexShrink: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+          padding: '6px 6px 8px',
+          background: '#15171c',
+          borderTop: '1px solid #2a2d35',
+        }}
+      >
+        <div style={{ display: 'flex', gap: 6 }}>
+          <input
+            ref={inputRef}
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                flushInput(true)
+              }
+            }}
+            autoCapitalize="off"
+            autoCorrect="off"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="入力 → Send で確定"
+            style={inputStyle}
+          />
+          <button
+            type="button"
+            onClick={() => flushInput(true)}
+            style={{ ...keyBtnStyle, background: '#3a5a8c', color: '#fff', minWidth: 56 }}
+          >Send</button>
+        </div>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          <button type="button" onClick={() => sendRaw('\x1b')} style={keyBtnStyle}>Esc</button>
+          <button type="button" onClick={() => sendRaw('\r')} style={keyBtnStyle}>Enter</button>
+          <button type="button" onClick={() => sendRaw('\x03')} style={keyBtnStyle}>Ctrl-C</button>
+          <button type="button" onClick={() => sendRaw('\t')} style={keyBtnStyle}>Tab</button>
+          <button
+            type="button"
+            onClick={() => setShowKbd((v) => !v)}
+            style={{ ...keyBtnStyle, marginLeft: 'auto', background: showKbd ? '#3a5a8c' : '#2a2d35', color: '#fff' }}
+          >⌨ {showKbd ? '隠す' : 'キーボード'}</button>
+        </div>
+      </div>
+      {showKbd && <OnScreenKeyboard onKey={sendRaw} />}
+    </div>
+  )
+}
+
+// F-01 (= 2026-06-21): React.memo で wrap、 App.jsx が messages flush 等で再 render しても
+// Terminal は props (= sessionId / wsBase / onExit / visible) が変わらない限り再 render しない。
+// 旧実装は App.jsx 再 render で全 sid Terminal も巻き込まれて reconciliation コストが
+// 走っていた (= xterm.js 自体は ref で隠れて re-mount しないが、 React 木の比較は走る)。
+// props は全部 primitive / mount 時固定なので shallow compare で十分。
+const Terminal = memo(TerminalImpl)
+export default Terminal
+
+const inputStyle = {
+  flex: 1,
+  minWidth: 0,
+  background: '#0e0f12',
+  color: '#e6e6e6',
+  border: '1px solid #2a2d35',
+  borderRadius: 4,
+  padding: '6px 8px',
+  fontFamily: 'Menlo, monospace',
+  // 16px keeps iOS Safari from auto-zooming on input focus. viewport meta
+  // also sets user-scalable=no but older iOS versions ignore that.
+  fontSize: 16,
+}
+
+const keyBtnStyle = {
+  background: '#2a2d35',
+  color: '#e6e6e6',
+  border: '1px solid #3a3d45',
+  borderRadius: 4,
+  padding: '6px 10px',
+  fontSize: 13,
+  fontFamily: 'Menlo, monospace',
+  cursor: 'pointer',
+  flexShrink: 0,
+  minWidth: 38,
+  touchAction: 'manipulation',
+}

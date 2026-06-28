@@ -26,7 +26,7 @@
 //   2) Render に表示 component を書く
 //   3) (build 経路がある時のみ) `appendSystemMessage(setMessages, sid, kind, fromEvent(event))`
 //      を呼ぶ 1 行で配線完了
-import TaskNotification from './components/TaskNotification.jsx'
+import TaskNotification from './features/tasks/TaskNotification.jsx'
 import {
   CompactBanner,
   SessionEndBanner,
@@ -34,7 +34,7 @@ import {
   AttachmentCard,
   HookErrorCard,
   SystemNoteCard,
-} from './components/SystemMessages.jsx'
+} from './features/chat/SystemMessages.jsx'
 
 const registry = {
   // 会話圧縮タイミング。 SDK からは事後通知しか来ない (= 結果カードのみ)。
