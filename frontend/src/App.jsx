@@ -121,7 +121,7 @@ class LazyBoundary extends Component {
   }
 }
 
-const FilePreviewModal = lazy(() => import('./overlays/FilePreviewModal.jsx'))
+const FilePreviewModal = lazy(() => import('./features/file-preview/FilePreviewModal.jsx'))
 const SubagentsModal = lazy(() => import('./overlays/SubagentsModal.jsx'))
 const FileTreePanel = lazy(() => import('./overlays/FileTreePanel.jsx'))
 const FavoritesQuickPicker = lazy(() => import('./overlays/FavoritesQuickPicker.jsx'))
