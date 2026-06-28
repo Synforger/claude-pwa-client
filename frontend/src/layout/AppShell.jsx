@@ -1,9 +1,8 @@
-import { useState, useEffect, useRef, useMemo, useCallback, useSyncExternalStore, lazy, Suspense, Component } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react'
 import '../App.css'
-// W2 Phase E1: 4 overlay (= previewPath / treeOpen / favs / desktopOpen) の lazy + Suspense + render
-// は OverlayHost に集約済。 AppShell では本 component 1 行配置のみで足りる (= 中央非依存)。
-// SessionDrawer / SubagentsModal / TasksModal の 3 件は E-2 で OverlayHost 移行、 それまで本 file
-// で従来通り lazy + 個別 LazyBoundary + props 渡しを維持 (= 移行期混在 OK の設計)。
+// W2 Phase E2 (= 2026-06-29): 全 7 overlay (= previewPath / treeOpen / favs / desktopOpen +
+// SessionDrawer / SubagentsModal / TasksModal) の lazy + Suspense + render は OverlayHost に
+// 完全集約。 AppShell は本 component 1 行配置だけで overlay 群の責務を完遂する (= 中央非依存)。
 import OverlayHost from './OverlayHost.jsx'
 
 // features/* self-register (= ADR-010、 設計書 § 9-6 step 5)。 各 entry が
@@ -87,106 +86,26 @@ function collectActiveImageIds(msgDict) {
   return active
 }
 
-// F-60 (= 2026-06-21): lazy modal の chunk fetch が失敗した時 (= deploy 直後の hash drift /
-// network blip / SW cache 破損) の最小 ErrorBoundary。 既存の components/ErrorBoundary.jsx は
-// 全画面置換 (= リロード / データ消去 + リロードの 2 ボタン) で、 lazy modal 1 つの読込
-// 失敗で全画面差替えは過剰。 ここは「失敗した modal だけ閉じる + 軽い update 促し」 で
-// 留め、 ユーザの裏で動いてる chat / streaming を生存させる方針。 fallback は inline で
-// 小さい文 + 「↺ アプリ更新」 ボタンだけ出す (= window.location.reload() に倒す)。
-class LazyBoundary extends Component {
-  constructor(props) {
-    super(props)
-    this.state = { hasError: false }
-  }
-  static getDerivedStateFromError() { return { hasError: true } }
-  componentDidCatch(error, info) { console.error('[LazyBoundary]', error, info) }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(0,0,0,0.6)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-        }}>
-          <div style={{
-            background: '#1a1a1a',
-            color: '#ccc',
-            padding: '20px 24px',
-            borderRadius: 8,
-            border: '1px solid #444',
-            maxWidth: 320,
-            textAlign: 'center',
-            fontSize: 13,
-            lineHeight: 1.5,
-          }}>
-            <p style={{ margin: '0 0 14px' }}>画面の読込に失敗しました</p>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-              <button
-                type="button"
-                onClick={() => this.setState({ hasError: false })}
-                style={{
-                  padding: '6px 14px',
-                  background: '#2a2a2a',
-                  color: '#ccc',
-                  border: '1px solid #444',
-                  borderRadius: 4,
-                  cursor: 'pointer',
-                  fontSize: 13,
-                }}
-              >閉じる</button>
-              <button
-                type="button"
-                onClick={() => window.location.reload()}
-                style={{
-                  padding: '6px 14px',
-                  background: '#3a5a8c',
-                  color: '#fff',
-                  border: '1px solid #4a6a9c',
-                  borderRadius: 4,
-                  cursor: 'pointer',
-                  fontSize: 13,
-                }}
-              >↺ アプリ更新</button>
-            </div>
-          </div>
-        </div>
-      )
-    }
-    return this.props.children
-  }
-}
-
-// W2 Phase E1: 4 overlay (= FilePreviewModal / FileTreePanel / FavoritesQuickPicker / MoonlightFrame)
-// の lazy() は OverlayHost 経由に移行済 (= features/<x>/index.js の registerOverlay の Component
-// spec で lazy 化、 OverlayHost が registry 走査 → React.lazy で wrap)。 ここに残るのは E-2 で
-// OverlayHost 移行予定の 3 件 (= SubagentsModal / TasksModal / SessionDrawer)、 useSessions /
-// useSessionBadges / useSessionActivity が plain useState なので OverlayHost 経由にすると
-// instance 分裂で race を起こす → state singleton 化を E-2 で先行させた後に移行する。
-const SubagentsModal = lazy(() => import('../features/subagents/SubagentsModal.jsx'))
-const TasksModal = lazy(() => import('../features/tasks/TasksModal.jsx'))
-// SessionDrawer は drawerOpen=true の時のみ render = 遅延 load 妥当 (= 初回 paint 早く)
-const SessionDrawer = lazy(() => import('../features/session-drawer/SessionDrawer.jsx'))
+// W2 Phase E2 (= 2026-06-29): LazyBoundary + 3 overlay (= SessionDrawer / SubagentsModal /
+// TasksModal) の lazy() は OverlayHost に集約済。 AppShell には残らない。
 
 // ChatInput.currentAttachments の安定 sentinel。 attachments[sid] が空の時に毎 render で
 // 新しい `[]` を作ると ChatInput が memo を抜けるので、 共通参照を返す。
 const EMPTY_ARR = []
 
 export default function AppShell() {
-  // セッション (= UI 上のタブ = 1 議題) 管理
+  // セッション (= UI 上のタブ = 1 議題) 管理。 W2 Phase E-2 (= 2026-06-29): 内部 state を
+  // state/sessions.js singleton store に集約済。 SessionDrawer 等の他 component は store を
+  // 直接 subscribe するため、 ここからの props 受渡は SessionDrawer 撤去で激減。
+  // AppShell が引き続き必要なのは: sessions / activeId (= chat / Terminal / topbar 経路)、
+  // setActiveId (= deep link / SW postMessage)、 forkSession (= MessageItem onFork)、
+  // removeSession (= confirmDelete handler)。
   const {
     sessions,
     activeId,
     setActiveId,
-    agents,
-    createSession,
     forkSession,
     removeSession,
-    renameSession,
-    setNotifyMode,
   } = useSessions()
 
   const activeSession = useMemo(
@@ -253,8 +172,10 @@ export default function AppShell() {
 
   const storageInfo = useStorageQuota()
 
-  // ドロワー並び順 / session 活動時刻
-  const { sortedSessions } = useSessionActivity(messages, sessions)
+  // session 活動時刻の追跡 (= sessionActivity を state/sessions.js store に書込む副作用)。
+  // sortedSessions の派生は SessionDrawer が store を直接 subscribe して内製するため、
+  // ここでは戻り値を捨てる (= 副作用専任の hook 呼出)。
+  useSessionActivity(messages, sessions)
 
   const [storageWarnDismissed, setStorageWarnDismissed] = useState(false)
   // overlay 11 系 (= drawer / menu / favs / tasks / subagents (+ Focus) / previewPath / treeOpen /
@@ -468,8 +389,12 @@ export default function AppShell() {
   // 新しい `[]` を作らない → ChatInput が memo skip できる)。
   const currentAttachments = (activeSid && attachments[activeSid]) || EMPTY_ARR
 
-  // session ごとの新着 / 処理中 / 質問待ちバッジ計算 (= active session は常に既読)
-  const { sessionBadges, unreadCount, markAsSeen, onOverviewPayload } = useSessionBadges({ sids, activeSid, messages, loading })
+  // session ごとの新着 / 処理中 / 質問待ちバッジ計算 (= active session は常に既読)。
+  // W2 Phase E-2: sessionBadges 自体は SessionDrawer が store + deriveSessionBadges helper で
+  // 自前計算する (= props 渡し撤去)。 AppShell は本 hook を unreadCount → setBadge 経路と
+  // overview payload wire のためだけに呼出。 内部で unreadDone を state/sessions.js に書込み、
+  // SessionDrawer は store を subscribe して同じ unreadDone を読む (= 単一権威)。
+  const { unreadCount, onOverviewPayload } = useSessionBadges({ sids, activeSid, messages, loading })
   // useSessionsOverview の payload を未読同期経路に流すための ref wire (= 順序逆転を吸収)。
   useEffect(() => { overviewPayloadRef.current = onOverviewPayload }, [onOverviewPayload])
 
@@ -479,12 +404,6 @@ export default function AppShell() {
   useEffect(() => {
     setBadge(unreadCount)
   }, [unreadCount])
-  // session を tap した時に activeSid 切替と同時に markAsSeen を呼ぶことで、
-  // useEffect の遅延を待たずに「赤丸が確実に消える」 状態を作る。
-  const selectSession = useCallback((sid) => {
-    setActiveId(sid)
-    markAsSeen(sid)
-  }, [setActiveId, markAsSeen])
 
   // F-01 (= 2026-06-21): dep を `messages` (= 全 sid 入り dict) → `activeMsgs` (= activeSid の
   // slice) に絞り、 他 sid の flush で displayMessages が recompute されないようにする。
@@ -557,9 +476,11 @@ export default function AppShell() {
   }
 
   // Web Push 購読状態 (= 環境制約・トグル・連打防止) は専用 hook に集約。
-  const { pushEnabled, pushBroken, pushBusy, pushAvailable, handleTogglePush } = usePushSubscription({
-    onCloseMenu: () => setOverlay('menu', false),
-  })
+  // W2 Phase E-2: enable/disable トグル UI は SessionDrawer 内蔵 (= usePushSubscription を内製
+  // 呼出) に移行。 AppShell では戻り値を使わないが、 本 hook が持つ visibility / interval ping
+  // の副作用 (= SW subscription auto-resubscribe / sw-broken handling) は drawer 開閉に関係なく
+  // 常駐させたいため、 引数なしで mount 専用に呼出続ける。
+  usePushSubscription()
 
   // IndexedDB 画像の orphan GC: 起動時 1 回 + セッション削除トリガで増分掃除。
   // dep は [] でよい (= 起動時 1 回しか走らせない、 起動から 5 秒待って messages 確定後に実行)。
@@ -704,30 +625,7 @@ export default function AppShell() {
           state/ui.js の overlays.desktopOpen + MoonlightFrame 内部の useMoonlightAvailable
           early return に集約済。 配置 = AppShell render tree 末尾の <OverlayHost />。 */}
 
-      {ui.overlays.drawer && (
-        <LazyBoundary>
-          <Suspense fallback={null}>
-          <SessionDrawer
-            open={ui.overlays.drawer}
-            onClose={() => setOverlay('drawer', false)}
-            sessions={sortedSessions}
-            agents={agents}
-            activeId={activeId}
-            onSelect={selectSession}
-            onCreate={(agentId, accountId) => createSession(agentId, accountId)}
-            onRename={renameSession}
-            onSetNotifyMode={setNotifyMode}
-            onDelete={(sid) => setOverlay('confirmDelete', sid)}
-            sessionBadges={sessionBadges}
-            pushAvailable={pushAvailable}
-            pushEnabled={pushEnabled}
-            pushBroken={pushBroken}
-            pushBusy={pushBusy}
-            onTogglePush={handleTogglePush}
-          />
-          </Suspense>
-        </LazyBoundary>
-      )}
+      {/* W2 Phase E2: SessionDrawer は OverlayHost 経由 render (= ui.overlays.drawer + Component spec)。 */}
 
       {/* メッセージ一覧。 .messages は通常 flex-direction: column、 古い→新しい が上→下。
         起動 / 新着時は useAutoScroll が JS で scrollTop = scrollHeight に送って底辺維持。 */}
@@ -873,32 +771,10 @@ export default function AppShell() {
         onConfirm={handleDeleteSession}
       />
 
-      {/* F-60: 各 lazy modal を 1 つずつ LazyBoundary + Suspense で wrap。 chunk fetch 失敗 /
-          初回 render error が他 modal を巻き込まずに局所閉じできるように分離する。
-          W2 Phase E1: previewPath / treeOpen / favs / desktopOpen の 4 件は OverlayHost 経由に
-          移行済、 ここに残るのは E-2 で移行予定の SubagentsModal / TasksModal の 2 件のみ。 */}
-      {ui.overlays.subagents && activeSid && (
-        <LazyBoundary>
-          <Suspense fallback={null}>
-            <SubagentsModal sid={activeSid} focus={ui.overlays.subagentsFocus} onClose={() => setOverlay('subagents', false)} />
-          </Suspense>
-        </LazyBoundary>
-      )}
-      {ui.overlays.tasks && (
-        <LazyBoundary>
-          <Suspense fallback={null}>
-            <TasksModal
-              tasks={status?.tasks || []}
-              onClose={() => setOverlay('tasks', false)}
-            />
-          </Suspense>
-        </LazyBoundary>
-      )}
-
-      {/* W2 Phase E1: overlayRegistry に Component spec を持つ entry (= 現在 4 件:
-          previewPath / treeOpen / favs / desktopOpen) を 1 経路で lazy + Suspense + LazyBoundary
-          render する中央 host。 features/<x>/index.js が起動時 self-register、 AppShell は本
-          component 1 行配置だけで該当 overlay 群の責務を完遂する (= 中央非依存)。 */}
+      {/* W2 Phase E2: overlayRegistry に Component spec を持つ entry (= 7 件: previewPath /
+          treeOpen / favs / desktopOpen + drawer / subagents / tasks) を 1 経路で lazy + Suspense
+          + LazyBoundary render する中央 host。 features/<x>/index.js が起動時 self-register、
+          AppShell は本 component 1 行配置だけで該当 overlay 群の責務を完遂する (= 中央非依存)。 */}
       <OverlayHost />
     </div>
   )
