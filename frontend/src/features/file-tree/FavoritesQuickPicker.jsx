@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { loadFavs, removeFav, subscribeFavs } from './favorites.js'
+import { setOverlay } from '../../state/ui.js'
 import './FileTreePanel.css'
 
 function displayShort(path) {
@@ -8,7 +9,14 @@ function displayShort(path) {
 
 // ⭐ ボタンから開くポップアップ。 ファイルツリーを経由せずお気に入りだけを縦並び表示し、
 // タップで dir なら FileTreePanel に、 file なら FilePreviewModal に飛ばす。
-export default function FavoritesQuickPicker({ onOpenFile, onOpenDir, onClose }) {
+//
+// W2 Phase E1: OverlayHost 経由 render に対応するため props を全廃 (= props 自己解決契約)。
+// onOpenFile / onOpenDir / onClose を全部 setOverlay 直呼出に切り替え (= 旧 AppShell 内 inline
+// callback を本 component 内に移送、 onClose 経路は `setOverlay('favs', false)`)。
+export default function FavoritesQuickPicker() {
+  const onOpenFile = useCallback((path) => setOverlay('previewPath', path), [])
+  const onOpenDir = useCallback((path) => setOverlay('treeOpen', path), [])
+  const onClose = useCallback(() => setOverlay('favs', false), [])
   const [favs, setFavs] = useState(() => loadFavs())
   useEffect(() => subscribeFavs(setFavs), [])
 
