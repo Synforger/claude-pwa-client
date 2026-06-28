@@ -559,24 +559,35 @@ async def _check_jsonl_bindings() -> dict[str, Any]:
 
 
 async def _check_claude_jsonl_files() -> dict[str, Any]:
-    """For each session_meta entry, look up the binding's transcript and verify
-    the jsonl file actually exists under the resolved account's projects dir."""
+    """For each *bound* session, verify the recorded transcript still exists
+    on disk. Sessions without any binding are "未起動タブ" (= the user has
+    never opened a claude on them yet) — those are expected to be missing,
+    not a fault. Only previously-confirmed bindings whose jsonl has vanished
+    count as broken."""
     from backend.jsonl.watcher import list_bindings
     from backend.state import sessions_meta
     bindings = list_bindings()
-    missing: list[str] = []
-    have: int = 0
+    broken: list[str] = []
+    not_started: list[str] = []
+    healthy: int = 0
     for sid in sessions_meta:
-        jp = (bindings.get(sid) or {}).get("jsonl_path")
-        if jp and Path(jp).is_file():
-            have += 1
+        b = bindings.get(sid)
+        jp = (b or {}).get("jsonl_path")
+        if jp:
+            if Path(jp).is_file():
+                healthy += 1
+            else:
+                # binding was confirmed at some point but the file disappeared
+                broken.append(sid)
         else:
-            missing.append(sid)
+            # never started, or binding never confirmed (= no hook fired yet)
+            not_started.append(sid)
     return {
-        "ok": not missing,
+        "ok": not broken,
         "session_count": len(sessions_meta),
-        "with_jsonl": have,
-        "missing_sids": missing,
+        "with_healthy_jsonl": healthy,
+        "broken_bindings": broken,
+        "not_started_sids": not_started,
     }
 
 
