@@ -198,7 +198,7 @@ async def post_e2e_seed(request: Request, body: E2eSeedRequest) -> E2eSeedRespon
     # effect for non-e2e processes).
     from backend.config import projects_dir_for_account
     from backend.jsonl import watcher
-    from backend.state import SessionDef, save_sessions_meta, sessions_meta
+    from backend.state import register_session, sessions_meta
 
     agents = (await _agents_snapshot())
     if body.agent_id not in agents:
@@ -216,15 +216,21 @@ async def post_e2e_seed(request: Request, body: E2eSeedRequest) -> E2eSeedRespon
         for event in body.jsonl_events:
             f.write(json.dumps(event, ensure_ascii=False) + "\n")
 
-    sessions_meta[body.sid] = SessionDef(
-        id=body.sid,
+    # Re-seeding the same sid is idempotent: drop the previous registration so
+    # register_session reinitialises every companion dict (stream_states /
+    # agent_status / session_states), matching what a fresh /sessions POST
+    # would produce.
+    if body.sid in sessions_meta:
+        sessions_meta.pop(body.sid, None)
+    register_session(
         agent_id=body.agent_id,
         title=body.title or body.sid,
-        created_at=int(time.time()),
-        notify_mode=body.notify_mode if body.notify_mode in {"off", "banner", "both"} else "both",
         account_id=body.account_id,
+        sid=body.sid,
     )
-    save_sessions_meta()
+    # notify_mode override (register_session leaves it at "both" by default).
+    if body.notify_mode in {"off", "banner", "both"}:
+        sessions_meta[body.sid].notify_mode = body.notify_mode
 
     watcher.confirm_bind(body.sid, claude_sid, str(jsonl_path))
 
