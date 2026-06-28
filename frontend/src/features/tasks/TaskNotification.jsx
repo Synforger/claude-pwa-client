@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { apiFetch } from '../utils/api.js'
+import { apiFetch } from '../../utils/api.js'
 import './TaskNotification.css'
 
 // background task (= Monitor / バックグラウンド Bash 等) の完了通知を表す中央寄せの system カード。
