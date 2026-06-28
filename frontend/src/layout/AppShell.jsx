@@ -24,10 +24,10 @@ import '../features/ios-native/index.js'
 import '../features/terminal/index.js'
 import '../features/fork/index.js'
 
-import Terminal from '../features/terminal/Terminal.jsx'
 import StorageWarning from './StorageWarning.jsx'
 import ConfirmDialog from '../shared/ConfirmDialog.jsx'
 import ChatPanel from './ChatPanel.jsx'
+import TerminalPane from './TerminalPane.jsx'
 import {
   subscribe as subscribeUi,
   getSnapshot as getUiSnapshot,
@@ -163,28 +163,10 @@ export default function AppShell() {
   // Web Push 購読状態 (= 環境制約・トグル・連打防止) は専用 hook に集約。
   usePushSubscription()
 
-  // F-11 (= 2026-06-21): Terminal を mount する sid を「viewMode='terminal' 経験ある sid」 を
-  // LRU N=3 で cap する。
-  const TERM_MOUNT_LRU = 3
-  const [termMountedSids, setTermMountedSids] = useState([])
-  useEffect(() => {
-    if (!activeSid) return
-    if (activeViewMode !== 'terminal') return
-    setTermMountedSids(prev => {
-      if (prev[0] === activeSid) return prev
-      const next = [activeSid, ...prev.filter(s => s !== activeSid)]
-      return next.length > TERM_MOUNT_LRU ? next.slice(0, TERM_MOUNT_LRU) : next
-    })
-  }, [activeSid, activeViewMode])
-  // session 削除で消えた sid を mount list からも掃除
-  const sids = useMemo(() => sessions.map(s => s.id), [sessions])
-  useEffect(() => {
-    const live = new Set(sids)
-    setTermMountedSids(prev => {
-      const filtered = prev.filter(s => live.has(s))
-      return filtered.length === prev.length ? prev : filtered
-    })
-  }, [sids])
+  // W2 Phase F-2 (= 2026-06-29): Terminal LRU mount 経路は features/terminal/TerminalMount.jsx に
+  // 集約、 wrapper は layout/TerminalPane.jsx (= always-mount + 内部 display:none gate)。 AppShell は
+  // TerminalPane を 1 行配置するだけで terminal 領域の責務を完遂する (= 旧 LRU mount state +
+  // F-11 LRU effect + session 削除 cleanup effect + render block 全削除済)。
 
   return (
     <div className="app">
@@ -274,26 +256,11 @@ export default function AppShell() {
         )}
       </header>
 
-      {/* Terminal LRU mount。 viewMode='terminal' 経験 sid を最大 N 個保持、 active sid だけ表示。
-          旧 AppShell の `<div className="messages-container">` から chat 経路を ChatPanel へ移送した
-          結果、 ここは Terminal 専用 wrapper (= position:relative で absolute 子要素をホスト)。 */}
-      <div style={{ position: 'relative', flex: 1, minHeight: 0, display: activeViewMode === 'terminal' ? 'block' : 'none' }}>
-        {termMountedSids.map(sid => {
-          const isVisible = activeViewMode === 'terminal' && sid === activeSid
-          return (
-            <div
-              key={sid}
-              style={{
-                display: isVisible ? 'block' : 'none',
-                position: 'absolute',
-                inset: 0,
-              }}
-            >
-              <Terminal sessionId={sid} visible={isVisible} />
-            </div>
-          )
-        })}
-      </div>
+      {/* W2 Phase F-2 (= 2026-06-29): terminal 領域の always-mount owner。 LRU + visible gate +
+          Terminal 本体描画は features/terminal/TerminalMount.jsx + layout/TerminalPane.jsx が担う。
+          AppShell からは sid props を渡すだけで、 内部で state/ui.js + state/sessions.js を自前
+          subscribe して LRU を回す (= 旧 AppShell の LRU mount state + 2 useEffect 退役)。 */}
+      <TerminalPane sid={activeSid} />
 
       {/* W2 Phase F-1: chat 経路の自己完結 owner。 hidden 制御は ChatPanel 内部で activeViewMode を
           subscribe して display 切替する (= always mount = chat 状態の lifecycle を保つ)。 */}
