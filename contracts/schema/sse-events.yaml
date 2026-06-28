@@ -1,0 +1,388 @@
+# SSE event schema (= front <-> back contract、 真値)
+#
+# scope:
+#   - /jsonl/stream/{sid} と /jsonl/stream/all で配信される 17 event 型を全件列挙
+#   - 各 event の必須 / optional field、 invariants (= 不変条件)、 発火 trigger を明示
+#   - SSE envelope は backend (= backend/jsonl/routes.py) が `sid` と `corr_id` を必ず付与する (= ADR-012)
+#
+# 未定義 event の扱い (= ADR-011 graceful handle):
+#   - frontend は本 schema に未定義の event を受信したら log warn + 描画 skip、 throw 禁止
+#   - schema_version 不一致時も同様 (= Vercel AI SDK v4->v5 破壊的変更教訓、 Anthropic 流儀)
+#   - backend は新 event 追加時に本 yaml に entry 追加 + codegen 再走らせ + schema_version bump
+#
+# corr_id 必須化 (= ADR-012、 全 event 共通):
+#   - W3C `traceparent` 互換、 trace_id 頭 8 文字を corr_id として使用
+#   - backend SSE pump で必ず `event.corr_id = current_corr_id()` を付与
+#   - frontend ↔ backend log 結合のため全 event に強制
+#
+# sid 必須化 (= /jsonl/stream/all envelope):
+#   - /jsonl/stream/all は複数 session の event を 1 接続に多重化するため event に sid 付与必須
+#   - /jsonl/stream/{sid} (= 1 session 専用) でも統一性のため backend 側で付与する
+
+kind: sse-events
+version: "1.0"
+schema_version: "1.0"
+
+events:
+
+  user_message:
+    description: "ユーザ発話 (= claude が JSONL の user 行に書いた瞬間)"
+    type: object
+    required: [sid, uuid, text, corr_id]
+    properties:
+      sid:        { type: string, description: "session id (= UI 上のタブ ID)" }
+      uuid:       { type: string, description: "server 生成、 dedup key" }
+      text:       { type: string, description: "ユーザ発話本文" }
+      corr_id:    { type: string, description: "W3C trace_id 頭 8 文字、 log 結合用" }
+      parentUuid: { type: string, nullable: true, description: "親 message uuid (= fork lineage)" }
+      content:    { type: object, description: "raw JSONL content (= tool_result 含む list / string 両対応)" }
+      ts:         { type: integer, description: "epoch ms" }
+    additionalProperties: false
+    invariants:
+      - "uuid は server 生成、 frontend は dedup key としてのみ使用 (= 採番禁止)"
+      - "同一 (sid, uuid) の重複受信は no-op (= reconnect replay 安全性)"
+      - "text 一致 / 部分一致 dedup は禁止 (= 同一 text 別 turn が起きうる)"
+      - "harness XML (= <command-name> / <local-command-*>) は user_message に変換せず skip"
+      - "[request interrupted by user] marker は user_message に変換せず skip"
+    trigger: "backend/jsonl/watcher.py が JSONL user 行を検知 → events.py:jsonl_line_to_events"
+    consumer: "useChatStream → processStreamEvent (= user バブル append)"
+    render_target: "chat"
+
+  assistant:
+    description: "claude 応答 (= text / thinking / tool_use ブロック含む)"
+    type: object
+    required: [sid, uuid, message, corr_id]
+    properties:
+      sid:        { type: string }
+      uuid:       { type: string, description: "Anthropic message.id (= 同 message の delta frame 集約用)" }
+      corr_id:    { type: string }
+      message:
+        type: object
+        required: [content]
+        properties:
+          content:
+            type: array
+            description: "text / thinking / tool_use ブロック list"
+            items:
+              type: object
+              properties:
+                type: { enum: [text, thinking, tool_use] }
+              additionalProperties: true
+        additionalProperties: true
+      parentUuid: { type: string, nullable: true }
+      meta:       { type: object, description: "duration_ms 等の補助メタ" }
+    additionalProperties: false
+    invariants:
+      - "1 Anthropic message を複数 JSONL 行に分けて書く場合あり、 uuid (= message.id) で bubble 集約"
+      - "parent_tool_use_id 付き (= sub-agent 経由) は親 chat に出さず skip"
+      - "tool_use の Agent / AskUserQuestion / TodoWrite は assistant tools list から除外"
+    trigger: "JSONL assistant 行 → events.py:_assistant_events"
+    consumer: "useChatStream → processStreamEvent (= buffer に積み rAF flush)"
+    render_target: "chat"
+
+  result:
+    description: "ターン完了メタ (= usage / stop_reason / model)"
+    type: object
+    required: [sid, stop_reason, corr_id]
+    properties:
+      sid:           { type: string }
+      uuid:          { type: string, description: "親 assistant bubble の uuid" }
+      corr_id:       { type: string }
+      stop_reason:   { type: string, description: "end_turn / max_tokens / refusal / pause_turn / model_context_window_exceeded 等" }
+      usage:         { type: object, description: "input_tokens / output_tokens / cache_*" }
+      modelUsage:    { type: object, description: "model 名 -> usage 写像" }
+      stop_details:  { type: object, nullable: true, description: "refusal 時の詳細 (= 4.8 で公開化)" }
+      is_error:      { type: boolean, description: "stop_reason == refusal で true" }
+      total_cost_usd: { type: number }
+      num_turns:     { type: integer }
+      duration_ms:   { type: integer }
+    additionalProperties: false
+    invariants:
+      - "stop_reason == 'tool_use' の時は result event を出さない (= turn 継続中)"
+      - "result を受け取った直近 agent bubble の streaming flag は false にする"
+      - "is_error == true は refusal、 MessageItem が danger chip 出す"
+    trigger: "events.py:_assistant_events が assistant 行の stop_reason != tool_use 時に合成"
+    consumer: "processStreamEvent (= meta 反映 + streaming flag 落とし)"
+    render_target: "chat"
+
+  ask_user_question:
+    description: "AskUserQuestion tool 呼び出し (= ユーザに選択肢提示)"
+    type: object
+    required: [tool_use_id, input, corr_id, sid]
+    properties:
+      sid:         { type: string }
+      corr_id:     { type: string }
+      tool_use_id: { type: string, description: "Anthropic tool_use id (= 回答時の紐付け key)" }
+      input:
+        type: object
+        description: "AskUserQuestion の questions array を含む"
+        properties:
+          questions:
+            type: array
+            items: { type: object }
+    additionalProperties: false
+    invariants:
+      - "同一 tool_use_id の event を再受信したら no-op (= reconnect replay で過去質問が復活しない)"
+      - "回答済 (= answered=true) を新 agent message が来た後に上書きしない"
+      - "質問出現時点で streaming flag は false にする (= turn は止まり回答待ち)"
+    trigger: "events.py:_assistant_events が tool_use name=AskUserQuestion を検知"
+    consumer: "processStreamEvent (= AskUserQuestionBubble 表示)"
+    render_target: "chat"
+
+  task_notification:
+    description: "background task (= Monitor / バックグラウンド Bash / ScheduleWakeup / Cron) の完了通知"
+    type: object
+    required: [uuid, taskId, status, corr_id, sid]
+    properties:
+      sid:         { type: string }
+      uuid:        { type: string }
+      corr_id:     { type: string }
+      taskId:      { type: string }
+      toolUseId:   { type: string }
+      outputFile:  { type: string }
+      status:      { type: string, description: "completed / failed / cancelled 等" }
+      summary:     { type: string }
+      exitCode:    { type: integer, nullable: true, description: "summary 末尾の (exit code N) から抽出" }
+    additionalProperties: false
+    invariants:
+      - "user バブルとして表示しない (= 中央寄せ system カードで表示)"
+      - "user 行経由 (= events.py:_user_events) + queue-operation 経由 (= _queue_operation_events) 両方ありうる"
+      - "exitCode != 0 は赤表示"
+    trigger: "events.py:parse_task_notification が <task-notification> XML を検知"
+    consumer: "processStreamEvent (= TaskNotification カード表示)"
+    render_target: "chat"
+
+  system:
+    description: "system banner (= compact_boundary / init 等の境界情報)"
+    type: object
+    required: [subtype, corr_id, sid]
+    properties:
+      sid:        { type: string }
+      uuid:       { type: string }
+      corr_id:    { type: string }
+      subtype:    { enum: [compact_boundary, init] }
+      compactMetadata:
+        type: object
+        description: "subtype == compact_boundary のみ"
+        properties:
+          trigger:     { type: string }
+          preTokens:   { type: integer }
+          postTokens:  { type: integer }
+          durationMs:  { type: integer }
+      apiKeySource: { type: string, description: "subtype == init のみ (= /login / ANTHROPIC_API_KEY 等)" }
+    additionalProperties: false
+    invariants:
+      - "未対応 subtype は frontend で log warn + 描画 skip"
+      - "compact_boundary は CompactBanner で表示"
+      - "init は apiKeySource を state に記録するのみ、 描画なし"
+    trigger: "JSONL system 行 → events.py:_system_events"
+    consumer: "processStreamEvent (= CompactBanner / apiKeySource state 更新)"
+    render_target: "chat"
+
+  system_error:
+    description: "Anthropic API error (= 529 overloaded / 401 unauthorized / network down 等)"
+    type: object
+    required: [formatted, level, corr_id, sid]
+    properties:
+      sid:           { type: string }
+      uuid:          { type: string }
+      corr_id:       { type: string }
+      level:         { enum: [info, warn, error] }
+      formatted:     { type: string, description: "ユーザ向け表示文字列" }
+      status:        { type: integer, nullable: true, description: "HTTP status code" }
+      requestId:     { type: string }
+      isNetworkDown: { type: boolean }
+      retryInMs:     { type: integer, nullable: true }
+      retryAttempt:  { type: integer, nullable: true }
+      timestamp:     { type: string }
+    additionalProperties: false
+    invariants:
+      - "必ず赤 inline カードで表示 (= ブラックボックス化禁止、 Fable 5 で多発)"
+      - "isNetworkDown == true は接続切れ banner"
+    trigger: "JSONL system 行で subtype == api_error → events.py:_system_events"
+    consumer: "processStreamEvent (= ApiError カード表示)"
+    render_target: "chat"
+
+  hook_error:
+    description: "claude CLI hook 実行の non-blocking 失敗記録"
+    type: object
+    required: [hookName, hookEvent, corr_id, sid]
+    properties:
+      sid:         { type: string }
+      uuid:        { type: string }
+      corr_id:     { type: string }
+      hookName:    { type: string }
+      hookEvent:   { type: string, description: "PreToolUse / PostToolUse / UserPromptSubmit 等" }
+      toolUseID:   { type: string }
+      exitCode:    { type: integer, nullable: true }
+      stderr:      { type: string }
+      stdout:      { type: string }
+      command:     { type: string }
+      durationMs:  { type: integer, nullable: true }
+      timestamp:   { type: string }
+    additionalProperties: false
+    invariants:
+      - "必ず黄色 inline 警告で表示 (= ブラックボックス NG、 hooks 落ちてる時に気付けないと困る)"
+      - "non-blocking なので turn 自体は継続"
+    trigger: "JSONL attachment 行で subtype == hook_non_blocking_error → events.py:_attachment_events"
+    consumer: "processStreamEvent (= HookError カード表示)"
+    render_target: "chat"
+
+  system_note:
+    description: "slash command (/model 等) / scheduled task fire (/loop wakeup 等) の発火記録"
+    type: object
+    required: [subtype, content, corr_id, sid]
+    properties:
+      sid:       { type: string }
+      uuid:      { type: string }
+      corr_id:   { type: string }
+      subtype:   { enum: [local_command, scheduled_task_fire] }
+      content:   { type: string }
+      level:     { enum: [info, warn, error] }
+      timestamp: { type: string }
+    additionalProperties: false
+    invariants:
+      - "折りたたみ system カードで静かに記録 (= ブラックボックス回避だが目立たせない)"
+    trigger: "JSONL system 行で subtype in (local_command, scheduled_task_fire) → events.py:_system_events"
+    consumer: "processStreamEvent (= SystemNote カード表示)"
+    render_target: "chat"
+
+  attachment:
+    description: "ユーザ手動ファイル添付 (= user メッセージに紐付く file 添付)"
+    type: object
+    required: [uuid, subtype, attachment, corr_id, sid]
+    properties:
+      sid:        { type: string }
+      uuid:       { type: string }
+      corr_id:    { type: string }
+      subtype:    { enum: [file] }
+      attachment:
+        type: object
+        description: "raw attachment dict (= path / mime / size 等)"
+    additionalProperties: false
+    invariants:
+      - "chat に出すのは subtype == file のみ"
+      - "task_reminder / skill_listing / edited_text_file / compact_file_reference / command_permissions / auto_mode / queued_command / deferred_tools_delta / date_change は backend 側で skip (= chat 非表示、 内部メタ)"
+    trigger: "JSONL attachment 行で subtype == file → events.py:_attachment_events"
+    consumer: "processStreamEvent (= attachment カード表示)"
+    render_target: "chat"
+
+  budget:
+    description: "予算情報 (= 5h / 7d limit に対する現在使用額)"
+    type: object
+    required: [corr_id, sid]
+    properties:
+      sid:       { type: string }
+      corr_id:   { type: string }
+      used:      { type: number, description: "現在使用 USD" }
+      total:     { type: number, description: "上限 USD" }
+      remaining: { type: number, description: "残 USD" }
+    additionalProperties: false
+    invariants:
+      - "chat には出さない、 session-level state に流して StatusBar で表示"
+    trigger: "JSONL attachment 行で subtype == budget_usd → events.py:_attachment_events"
+    consumer: "useStatus 経由で StatusBar 表示"
+    render_target: "status_bar"
+
+  mode:
+    description: "/plan on / off 等のモード切替"
+    type: object
+    required: [mode, corr_id, sid]
+    properties:
+      sid:     { type: string }
+      corr_id: { type: string }
+      mode:    { type: string, description: "default / plan / 等" }
+    additionalProperties: false
+    invariants:
+      - "chat には出さない、 sessions_overview 経由で session-level に流す"
+    trigger: "JSONL mode 行 → events.py:jsonl_line_to_events"
+    consumer: "useSessionsOverview (= activity bar mode 表示)"
+    render_target: "status_bar"
+
+  permission_mode:
+    description: "permission mode 切替 (= acceptAll / acceptEdits / plan / default)"
+    type: object
+    required: [permissionMode, corr_id, sid]
+    properties:
+      sid:            { type: string }
+      corr_id:        { type: string }
+      permissionMode: { type: string }
+    additionalProperties: false
+    invariants:
+      - "chat には出さない、 session-level state に反映"
+    trigger: "JSONL permission-mode 行 → events.py:jsonl_line_to_events"
+    consumer: "useSessionsOverview"
+    render_target: "status_bar"
+
+  pr_link:
+    description: "PR 作成 / 紐付け記録 (= 親 turn で PR 操作が発生した記録)"
+    type: object
+    required: [uuid, prNumber, prUrl, prRepository, corr_id, sid]
+    properties:
+      sid:           { type: string }
+      uuid:          { type: string }
+      corr_id:       { type: string }
+      prNumber:      { type: integer }
+      prUrl:         { type: string }
+      prRepository:  { type: string }
+      timestamp:     { type: string }
+    additionalProperties: false
+    invariants:
+      - "chat 履歴に積まない (= 1 session に 100+ 行流れる仕様への対策)"
+      - "agent_status.pr_links に集約して StatusBar の link chip で表示"
+    trigger: "JSONL pr-link 行 → events.py:jsonl_line_to_events"
+    consumer: "useStatus (= StatusBar pr_links chip)"
+    render_target: "status_bar"
+
+  turn_duration:
+    description: "1 ターンの処理時間メタ (= Fable 5 で result event の duration_ms 欠落分の代替経路)"
+    type: object
+    required: [durationMs, corr_id, sid]
+    properties:
+      sid:          { type: string }
+      uuid:         { type: string }
+      corr_id:      { type: string }
+      parentUuid:   { type: string, nullable: true, description: "親 agent bubble uuid (= meta 反映先)" }
+      durationMs:   { type: integer }
+      messageCount: { type: integer }
+      timestamp:    { type: string }
+    additionalProperties: false
+    invariants:
+      - "parentUuid 優先で agent bubble の meta.duration_ms に書き込む"
+      - "parentUuid 不在時は最後の agent bubble に当てる"
+      - "同値再受信は no-op (= 冪等)"
+    trigger: "JSONL system 行で subtype == turn_duration → events.py:_system_events"
+    consumer: "processStreamEvent (= 直近 agent bubble の MetaLine duration_ms)"
+    render_target: "chat"
+
+  stop_hook_summary:
+    description: "stop hook (= turn 完了時の集約 hook) の summary、 batch メタ"
+    type: object
+    required: [corr_id, sid]
+    properties:
+      sid:     { type: string }
+      corr_id: { type: string }
+      summary: { type: string }
+    additionalProperties: false
+    invariants:
+      - "chat には出さない (= batch 集約用、 producer は今後も出すが consumer は skip)"
+      - "dead code 候補 / 退役対象 (= W3 横断仕上げ or W5 完了照合で削除判断)"
+    trigger: "JSONL system 行で subtype == stop_hook_summary"
+    consumer: "(= 現状 skip、 将来 batch summary 表示用予備)"
+    render_target: "skip"
+
+  away_summary:
+    description: "away (= 離席中) hook の集約 summary、 batch メタ"
+    type: object
+    required: [corr_id, sid]
+    properties:
+      sid:     { type: string }
+      corr_id: { type: string }
+      summary: { type: string }
+    additionalProperties: false
+    invariants:
+      - "chat には出さない (= batch 集約用)"
+      - "dead code 候補 / 退役対象"
+    trigger: "JSONL system 行で subtype == away_summary"
+    consumer: "(= 現状 skip)"
+    render_target: "skip"
