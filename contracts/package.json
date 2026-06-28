@@ -1,0 +1,19 @@
+{
+  "name": "claude-pwa-client-contracts",
+  "private": true,
+  "version": "0.0.0",
+  "description": "front <-> back contract schema (= yaml 真値 + codegen + validate)。 v2 contracts/ 専用、 backend / frontend いずれにも属さない中立 layer",
+  "type": "module",
+  "scripts": {
+    "validate": "node codegen/validate.mjs",
+    "validate:strict": "node codegen/validate.mjs --strict",
+    "validate:negative": "node codegen/validate-negative.mjs",
+    "validate:all": "npm run validate && npm run validate:negative",
+    "codegen:types": "node codegen/gen-types.mjs"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "js-yaml": "^4.1.0"
+  }
+}
