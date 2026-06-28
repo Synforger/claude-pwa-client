@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense, Comp
 import './App.css'
 import MessageItem from './features/chat/MessageItem.jsx'
 import Terminal from './components/Terminal.jsx'
-import ActivityBar from './components/ActivityBar.jsx'
+import ActivityBar from './features/tasks/ActivityBar.jsx'
 import StatusBar from './features/status-bar/StatusBar.jsx'
 import StorageWarning from './components/StorageWarning.jsx'
 import ConfirmDialog from './components/ConfirmDialog.jsx'
@@ -122,10 +122,10 @@ class LazyBoundary extends Component {
 }
 
 const FilePreviewModal = lazy(() => import('./features/file-preview/FilePreviewModal.jsx'))
-const SubagentsModal = lazy(() => import('./overlays/SubagentsModal.jsx'))
-const FileTreePanel = lazy(() => import('./overlays/FileTreePanel.jsx'))
-const FavoritesQuickPicker = lazy(() => import('./overlays/FavoritesQuickPicker.jsx'))
-const TasksModal = lazy(() => import('./overlays/TasksModal.jsx'))
+const SubagentsModal = lazy(() => import('./features/subagents/SubagentsModal.jsx'))
+const FileTreePanel = lazy(() => import('./features/file-tree/FileTreePanel.jsx'))
+const FavoritesQuickPicker = lazy(() => import('./features/file-tree/FavoritesQuickPicker.jsx'))
+const TasksModal = lazy(() => import('./features/tasks/TasksModal.jsx'))
 // SessionDrawer は drawerOpen=true の時のみ render = 遅延 load 妥当 (= 初回 paint 早く)
 const SessionDrawer = lazy(() => import('./features/session-drawer/SessionDrawer.jsx'))
 // 画面共有 (= moonlight-web-stream を iframe 埋め込み)。 開いた時だけ load。

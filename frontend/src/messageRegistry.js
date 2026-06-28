@@ -26,7 +26,7 @@
 //   2) Render に表示 component を書く
 //   3) (build 経路がある時のみ) `appendSystemMessage(setMessages, sid, kind, fromEvent(event))`
 //      を呼ぶ 1 行で配線完了
-import TaskNotification from './components/TaskNotification.jsx'
+import TaskNotification from './features/tasks/TaskNotification.jsx'
 import {
   CompactBanner,
   SessionEndBanner,

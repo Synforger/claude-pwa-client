@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import { apiFetch } from '../utils/api.js'
-import { loadFavs, toggleFav as toggleFavStore, removeFav as removeFavStore, subscribeFavs } from '../utils/favorites.js'
-import { lsSetDebounced } from '../utils/storage.js'
+import { apiFetch } from '../../utils/api.js'
+import { loadFavs, toggleFav as toggleFavStore, removeFav as removeFavStore, subscribeFavs } from './favorites.js'
+import { lsSetDebounced } from '../../utils/storage.js'
 import './FileTreePanel.css'
 
 const HOME = '~'

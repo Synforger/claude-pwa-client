@@ -17,10 +17,10 @@ import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
 import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
 import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown'
 import { apiFetch } from '../../utils/api.js'
-import { isFav, toggleFav, subscribeFavs } from '../../utils/favorites.js'
+import { isFav, toggleFav, subscribeFavs } from '../file-tree/favorites.js'
 import { useEscape } from '../../hooks/useEscape.js'
 import ConfirmDialog from '../../components/ConfirmDialog.jsx'
-import './Modal.css'
+import '../../styles/Modal.css'
 
 // eager 言語 (= 頻出 10 個)。 初期 bundle に乗る。
 const EAGER_LANGS = {
