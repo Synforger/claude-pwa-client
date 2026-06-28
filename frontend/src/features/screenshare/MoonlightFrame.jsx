@@ -50,6 +50,9 @@ const VIDEO_BOTTOM_ALIGN_CSS = `
 // hosts ndjson の 1 行目だけ parse して GetHostsResponse を返す
 // (= 後続行は同じ host の詳細更新で、 初回 cache 値で十分)。
 async function fetchHosts() {
+  // ADR-010 注: transport/http.ts apiFetch は backend (= claude-pwa-client API_BASE) 集約専用、
+  // Sunshine moonlight-web-stream の 3rd-party endpoint は scope 外なので生 fetch を使う。
+  // eslint-disable-next-line no-restricted-syntax
   const res = await fetch(API_HOSTS, { credentials: 'same-origin' })
   if (!res.ok) throw new Error(`hosts ${res.status}`)
   const text = await res.text()
@@ -59,6 +62,8 @@ async function fetchHosts() {
 }
 
 async function fetchApps(hostId) {
+  // 同上: Sunshine 3rd-party endpoint。
+  // eslint-disable-next-line no-restricted-syntax
   const res = await fetch(`${API_APPS}?host_id=${hostId}`, { credentials: 'same-origin' })
   if (!res.ok) throw new Error(`apps ${res.status}`)
   return res.json()
