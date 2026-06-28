@@ -25,6 +25,18 @@ function persistOffsets(offsets) {
   lsSet(LS_JSONL_OFFSET, offsets)
 }
 
+// W2 Phase F-4 (= 2026-06-29): ChatPanel.jsx 内 useChatStream の戻り値 (= endSession /
+// stopMessage 関数) を、 features/dialogs/ConfirmEndDialog.jsx / ConfirmStopDialog.jsx から
+// 直接呼べる経路として module-level に export する。 hook 内部 closure (= sid / setMessages /
+// offsetRef 等) に access するため、 useChatStream mount 時に下記 ref を実装で wire し、
+// unmount で nullify する (= 旧 endSession / stopMessage の useCallback 戻り値そのものを再利用、
+// ロジック改変ゼロ)。 ChatPanel.jsx は本 phase で該当 dialog block を退役するので、
+// hook 戻り値経由の endSession / stopMessage 参照は features/dialogs 経由に統一される。
+let _endSessionImpl = null
+let _stopMessageImpl = null
+export function endSession() { return _endSessionImpl?.() }
+export function stopMessage() { return _stopMessageImpl?.() }
+
 // (= 旧 buildFromQuery / apiUrl 直書きは transport/sse.ts singleton に移管済、 v2 では本 file は
 //   subscribe するだけで offset / ?from query 組立を持たない)。
 
@@ -398,7 +410,7 @@ export function useChatStream({
     if (stopRetryTimerRef.current) clearTimeout(stopRetryTimerRef.current)
   }, [])
 
-  const stopMessage = useCallback(async () => {
+  const stopMessageCb = useCallback(async () => {
     if (!sid) return
     // 並行で 2 つ:
     //   (a) PTY に Esc を送る = claude TUI の中断 (= 物理停止)
@@ -458,7 +470,7 @@ export function useChatStream({
     })
   }, [sendToPty, setMessages, setLoading])
 
-  const endSession = useCallback(async () => {
+  const endSessionCb = useCallback(async () => {
     if (!sid) return
     // セッション終了 = claude プロセスを kill + 新規 spawn する (= /clear と違って
     // プロセスメモリも完全解放、 ターミナル描画の重さ / CPU 高負荷の根本対策)。
@@ -500,15 +512,28 @@ export function useChatStream({
     scrollToBottom()
   }, [scrollToBottom])
 
+  // W2 Phase F-4 (= 2026-06-29): module-level endSession / stopMessage 経路 (= features/dialogs
+  // 経由の onConfirm) に最新の hook closure 実装を wire する。 ChatPanel.jsx は本 hook を 1 経路
+  // のみ mount するので、 single-writer 前提で wire/unwire を素朴に行う。 unmount で nullify、
+  // call 側は `?.()` で no-op に。
+  useEffect(() => {
+    _endSessionImpl = endSessionCb
+    _stopMessageImpl = stopMessageCb
+    return () => {
+      if (_endSessionImpl === endSessionCb) _endSessionImpl = null
+      if (_stopMessageImpl === stopMessageCb) _stopMessageImpl = null
+    }
+  }, [endSessionCb, stopMessageCb])
+
   return {
     loading,
     setLoading,
     apiKeySource,
     sendMessage,
     sendAnswer,
-    stopMessage,
+    stopMessage: stopMessageCb,
     fetchLatest,
-    endSession,
+    endSession: endSessionCb,
     optimisticRef,
   }
 }
