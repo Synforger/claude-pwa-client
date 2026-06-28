@@ -1,6 +1,32 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { apiFetch } from '../../utils/api.js'
 import { useOutsideClick } from '../../hooks/useOutsideClick.js'
+import {
+  subscribe as subscribeSessions,
+  getSnapshot as getSessionsSnapshot,
+  setActiveId as storeSetActiveId,
+  clearUnreadDone,
+} from '../../state/sessions.js'
+import {
+  subscribe as subscribeMessages,
+  getSnapshot as getMessagesSnapshot,
+} from '../../state/messages.js'
+import {
+  subscribe as subscribeEphemeral,
+  getSnapshot as getEphemeralSnapshot,
+} from '../../state/ephemeral.js'
+import {
+  subscribe as subscribeUi,
+  getSnapshot as getUiSnapshot,
+  setOverlay,
+} from '../../state/ui.js'
+import {
+  createSession,
+  renameSession,
+  setNotifyMode,
+} from './useSessions.js'
+import { deriveSessionBadges } from '../push-notify/useSessionBadges.js'
+import { usePushSubscription } from '../push-notify/usePushSubscription.js'
 import './SessionDrawer.css'
 
 // ⋯ メニューを押した時、 viewport 下端からどれくらい離れていれば「上方向に展開する」 と
@@ -13,40 +39,67 @@ const MENU_FLIP_UP_THRESHOLD_PX = 140
 // - badges: pending(?)、 processing(●青)、 new(●赤) を項目右に表示
 // - ヘッダの ⋯ : ドロワー総合メニュー (通知 ON/OFF、 リセット等の PWA レベル設定)
 //
-// props:
-//   open                : ドロワーが開いてるか
-//   onClose             : 閉じる callback
-//   sessions            : [{id, agent_id, title, created_at}, ...]
-//   agents              : [{id, display_name}, ...] (作成時の選択肢)
-//   activeId            : 現在 active な session_id
-//   onSelect(sid)       : 切替
-//   onCreate(agentId)   : 新規作成
-//   onRename(sid, t)    : リネーム
-//   onDelete(sid)       : 削除 (確認ダイアログ表示は呼出側責任)
-//   sessionBadges       : {sid: {kind, label} | null}
-//   pushAvailable       : 通知が使える環境か (iOS PWA standalone 等)
-//   pushEnabled         : 通知 ON/OFF 状態 (= 希望 ON + 実 subscription あり)
-//   pushBroken          : 希望 ON だが実 subscription 失効中 (= UI で再有効化を促す)
-//   pushBusy            : 通知切替処理中
-//   onTogglePush        : 通知 ON/OFF 切替 callback
-export default function SessionDrawer({
-  open,
-  onClose,
-  sessions,
-  agents,
-  activeId,
-  onSelect,
-  onCreate,
-  onRename,
-  onSetNotifyMode,
-  onDelete,
-  sessionBadges = {},
-  pushAvailable = false,
-  pushEnabled = false,
-  pushBroken = false,
-  pushBusy = false,
-  onTogglePush,
-}) {
+// W2 Phase E-2 (= 2026-06-29): props 自己解決化。 OverlayHost が引数なしで lazy + Suspense で
+// render し、 本 component は state/sessions.js + state/messages.js + state/ephemeral.js +
+// state/ui.js を直接 subscribe する。 mutation API (= createSession / renameSession /
+// setNotifyMode) は useSessions.js export を直呼出。 push 系は usePushSubscription を内蔵。
+export default function SessionDrawer() {
+  // store 直接 subscribe (= sessions list / activeId / agents / sessionActivity / unreadDone)
+  const sessionsSnap = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
+  const messages = useSyncExternalStore(subscribeMessages, getMessagesSnapshot)
+  const ephem = useSyncExternalStore(subscribeEphemeral, getEphemeralSnapshot)
+  // ui state: overlays.drawer は OverlayHost が gating するので render 時点で常に truthy。
+  // ただし内部 effect (= popup 閉じる等) は本来の open prop と同じ意味付けで使うため、 別名で持つ。
+  const uiSnap = useSyncExternalStore(subscribeUi, getUiSnapshot)
+  const open = !!uiSnap.overlays.drawer
+
+  const sessions = sessionsSnap.sessions
+  const activeId = sessionsSnap.activeId
+  const agents = sessionsSnap.agents
+  const sessionActivity = sessionsSnap.sessionActivity
+  const unreadDone = sessionsSnap.unreadDone
+  const loading = ephem.loading
+
+  // 並び順: 「最終活動時刻」 降順、 未活動は created_at fallback (= useSessionActivity から移送)
+  const sortedSessions = useMemo(
+    () => [...sessions].sort((a, b) => {
+      const ta = (sessionActivity[a.id]?.ts) || ((a.created_at || 0) * 1000)
+      const tb = (sessionActivity[b.id]?.ts) || ((b.created_at || 0) * 1000)
+      return tb - ta
+    }),
+    [sessions, sessionActivity]
+  )
+
+  // sessionBadges: AppShell の useSessionBadges が持つ副作用 (= POST seen / loading→flip /
+  // localStorage 永続化 / boot settle) は AppShell 側で実行され続けるため、 ここでは派生のみ。
+  const sids = useMemo(() => sortedSessions.map(s => s.id), [sortedSessions])
+  const sessionBadges = useMemo(
+    () => deriveSessionBadges({ sids, activeSid: activeId, messages, loading, unreadDone }).sessionBadges,
+    [sids, activeId, messages, loading, unreadDone]
+  )
+
+  // 各種 callback (= 旧 AppShell からの props を内蔵化)
+  const onClose = useCallback(() => setOverlay('drawer', false), [])
+  const onSelect = useCallback((sid) => {
+    storeSetActiveId(sid)
+    // markAsSeen 等価 (= 旧 selectSession の即時赤丸消し、 AppShell useSessionBadges の
+    // 150ms debounce useEffect より先に sync で落とす)
+    const cur = getSessionsSnapshot().unreadDone
+    if (cur[sid]) clearUnreadDone(sid)
+  }, [])
+  const onCreate = useCallback((agentId, accountId) => createSession(agentId, accountId), [])
+  const onRename = useCallback((id, title) => renameSession(id, title), [])
+  const onSetNotifyMode = useCallback((id, mode) => setNotifyMode(id, mode), [])
+  const onDelete = useCallback((sid) => setOverlay('confirmDelete', sid), [])
+
+  // Push 状態を本 component で直接 hook (= usePushSubscription)。 onCloseMenu は SessionDrawer
+  // の global メニューを閉じる callback を渡す。
+  const [globalMenuOpen, setGlobalMenuOpen] = useState(false)  // ヘッダ ⋯ の総合メニュー
+  const {
+    pushEnabled, pushBroken, pushBusy, pushAvailable, handleTogglePush,
+  } = usePushSubscription({ onCloseMenu: () => setGlobalMenuOpen(false) })
+  const onTogglePush = handleTogglePush
+
   const [agentPicker, setAgentPicker] = useState(false) // + ボタン押下後の agent 選択メニュー
   const [accounts, setAccounts] = useState([])
   // accounts fetch の失敗状態 (= F-40)。 null = まだ試してない / 'loading' / 'error' / 'ok'。
@@ -57,7 +110,6 @@ export default function SessionDrawer({
   const [renameFor, setRenameFor] = useState(null)      // リネーム inline 編集中の session_id
   const [renameValue, setRenameValue] = useState('')
   const renameInputRef = useRef(null)
-  const [globalMenuOpen, setGlobalMenuOpen] = useState(false)  // ヘッダ ⋯ の総合メニュー
   const [resetBusy, setResetBusy] = useState(false)
   const globalMenuRef = useRef(null)
   const isLastSession = sessions.length <= 1
@@ -225,9 +277,9 @@ export default function SessionDrawer({
   // 並びは渡された順 (= created_at 降順) を保つ。 親が消えてる孤児はトップレベル扱い。
   // F-38: sessions が変わった時だけ tree を組み直す (= 再 render 毎の object 構築を回避)。
   const orderedSessions = useMemo(() => {
-    const idSet = new Set(sessions.map(s => s.id))
+    const idSet = new Set(sortedSessions.map(s => s.id))
     const childrenByParent = {}
-    for (const s of sessions) {
+    for (const s of sortedSessions) {
       const key = (s.parent_id && idSet.has(s.parent_id)) ? s.parent_id : '__root__'
       if (!childrenByParent[key]) childrenByParent[key] = []
       childrenByParent[key].push(s)
@@ -241,7 +293,7 @@ export default function SessionDrawer({
     }
     walkTree(childrenByParent['__root__'] || [], 0)
     return result
-  }, [sessions])
+  }, [sortedSessions])
 
   return (
     <>

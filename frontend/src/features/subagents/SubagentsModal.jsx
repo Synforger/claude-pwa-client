@@ -1,9 +1,18 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react'
 import MessageRenderer from '../chat/MessageRenderer.jsx'
 import { formatTool } from '../../utils/format.js'
 import { apiFetch } from '../../utils/api.js'
 import { useEscape } from '../../hooks/useEscape.js'
 import { subagentsSse } from '../../transport/sse-subagents.ts'
+import {
+  subscribe as subscribeSessions,
+  getSnapshot as getSessionsSnapshot,
+} from '../../state/sessions.js'
+import {
+  subscribe as subscribeUi,
+  getSnapshot as getUiSnapshot,
+  setOverlay,
+} from '../../state/ui.js'
 import '../../styles/Modal.css'
 import './SubagentsModal.css'
 
@@ -147,7 +156,20 @@ function WorkflowAgentsView({ sid, run, onBack, onOpenAgent }) {
   )
 }
 
-export default function SubagentsModal({ sid, focus, onClose }) {
+export default function SubagentsModal() {
+  // W2 Phase E-2 自己解決: sid = activeId / focus = ui.overlays.subagentsFocus / onClose = setOverlay
+  // (= AppShell からの props 渡しを撤去、 OverlayHost が引数なしで render する)。
+  const sessionsSnap = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
+  const uiSnap = useSyncExternalStore(subscribeUi, getUiSnapshot)
+  const sid = sessionsSnap.activeId
+  const focus = uiSnap.overlays.subagentsFocus
+  const onClose = () => setOverlay('subagents', false)
+  // activeSid 不在時は何も render しない (= 旧 AppShell ガード `&& activeSid` と同等)
+  if (!sid) return null
+  return <SubagentsModalInner sid={sid} focus={focus} onClose={onClose} />
+}
+
+function SubagentsModalInner({ sid, focus, onClose }) {
   const [data, setData] = useState(null)  // {subagents, workflows}
   const [error, setError] = useState(null)
   const [run, setRun] = useState(null)        // drill-down 中の Workflow run

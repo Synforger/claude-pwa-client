@@ -1,3 +1,10 @@
+import { useSyncExternalStore, useMemo } from 'react'
+import {
+  subscribe as subscribeSessions,
+  getSnapshot as getSessionsSnapshot,
+} from '../../state/sessions.js'
+import { setOverlay } from '../../state/ui.js'
+import { useStatus } from '../status-bar/useStatus.js'
 import '../file-tree/FileTreePanel.css'
 import './TasksModal.css'
 
@@ -18,7 +25,19 @@ const STATUS_CLASS = {
 // 📋 ボタンから開く専用パネル。 backend が attachment task_reminder の content を
 // agent_status.tasks に流し込んだものをそのまま縦リストで見せる。 タップで描画 / 編集
 // する経路はなく、 現状把握専用。
-export default function TasksModal({ tasks, onClose }) {
+// W2 Phase E-2 (= 2026-06-29): props 自己解決化 (= activeSession を sessions store から派生、
+// useStatus 直呼出で tasks を解決、 onClose は setOverlay 直書き)。
+export default function TasksModal() {
+  const sessionsSnap = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
+  const activeId = sessionsSnap.activeId
+  const activeSession = useMemo(
+    () => sessionsSnap.sessions.find(s => s.id === activeId) || null,
+    [sessionsSnap.sessions, activeId],
+  )
+  const status = useStatus(activeSession)
+  const tasks = status?.tasks || []
+  const onClose = () => setOverlay('tasks', false)
+
   const list = Array.isArray(tasks) ? tasks : []
   const counts = list.reduce((acc, t) => {
     const s = t?.status || 'pending'

@@ -9,7 +9,12 @@ import { register as registerOverlay } from '../../registry/overlayRegistry.js'
 import { register as registerStream } from '../../registry/streamRegistry.js'
 
 const noopDispatch = () => null
-registerOverlay('drawer', { dispatch: noopDispatch })
+// W2 Phase E-2 (= 2026-06-29): Component spec で OverlayHost 経由 lazy 化。 AppShell.jsx の
+// `lazy(() => import('./SessionDrawer.jsx'))` を撤去、 SessionDrawer が引数なしで自己解決する。
+registerOverlay('drawer', {
+  dispatch: noopDispatch,
+  Component: () => import('./SessionDrawer.jsx'),
+})
 
 // mode / permission_mode は session-level state、 status bar とどちらが宿主にするかは
 // 将来検討。 W2 では session-drawer 側で wiring signal を立てる。
