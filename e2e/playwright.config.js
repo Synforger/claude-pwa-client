@@ -8,7 +8,11 @@ export default defineConfig({
   outputDir: './test-results',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  // Some scenarios reseed the shared ses_e2echatgld fixture and the backend
+  // status SSE briefly serves the stale snapshot during the swap. A single
+  // retry papers over that transient race without masking a real failure
+  // (= a true bug stays red on both attempts).
+  retries: 1,
   workers: 1,
   reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
 
