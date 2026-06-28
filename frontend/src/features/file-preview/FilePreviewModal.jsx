@@ -25,7 +25,7 @@ import {
   getSnapshot as getUiSnapshot,
   setOverlay,
 } from '../../state/ui.js'
-import '../../styles/Modal.css'
+import '../../shared/Modal.css'
 
 // eager 言語 (= 頻出 10 個)。 初期 bundle に乗る。
 const EAGER_LANGS = {

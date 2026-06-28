@@ -13,7 +13,7 @@ import {
   getSnapshot as getUiSnapshot,
   setOverlay,
 } from '../../state/ui.js'
-import '../../styles/Modal.css'
+import '../../shared/Modal.css'
 import './SubagentsModal.css'
 
 // サブエージェント (= Task で起動した子 agent) + Workflow run の一覧と transcript を見るモーダル。

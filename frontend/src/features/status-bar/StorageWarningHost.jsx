@@ -1,16 +1,13 @@
-// StorageWarning の自己完結 host (= W2 Phase F-4、 2026-06-29)。 旧 AppShell.jsx の
+// StorageWarning の自己完結 host (= W2 Phase F-4 + 残骸 sweep、 2026-06-29)。 旧 AppShell.jsx の
 // `useStorageQuota` 呼出 + `storageWarnDismissed` useState + `<StorageWarning ... />` render を
-// 物理移送、 ロジック改変ゼロ。 AppShell からは <StorageWarningHost /> 1 行配置のみ。
+// 物理移送、 ロジック改変ゼロ。 Layout からは <StorageWarningHost /> 1 行配置のみ。
 //
-// 注: features → layout 層は ADR-010 / eslint-plugin-boundaries で禁止されているため、
-// shared component (= layout/StorageWarning.jsx) を import せず、 JSX (= 14 行) を物理移送する。
-// CSS (= layout/StorageWarning.css) は AppShell.jsx が intra-layer side-effect import で
-// 引き続き load する (= boundaries 制約回避、 .storage-warn 系 class 定義は重複させない)。
-// 旧 layout/StorageWarning.jsx 本体は本 phase では touch せず、 退役は別 phase に明示先送り
-// (= dead file 化のみ)。
+// CSS は同 dir 内に同居 (= 残骸 sweep で `layout/StorageWarning.css` から `features/status-bar/StorageWarning.css`
+// に移送、 ADR-010 features 自己完結性を真に達成)。 旧 `layout/StorageWarning.jsx` 本体は Phase F-6 で削除済。
 
 import { useState } from 'react'
 import { useStorageQuota } from './useStorageQuota.js'
+import './StorageWarning.css'
 
 // しきい値: 85% で表示。 タップで隠せる (セッション中だけ)。 旧 layout/StorageWarning.jsx と同値。
 const WARN_RATIO = 0.85
