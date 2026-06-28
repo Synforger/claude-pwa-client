@@ -8,7 +8,7 @@
 //   (= 1 ファイル 7 サブコンポーネント、 後で機能ごとに分けたい時に細分化しやすい単位)。
 // - TaskNotification は元から専用ファイルなので registry 側で直接 import する。
 // - format helper (= formatDuration) は utils/format.js から引く。
-import { formatDuration } from '../utils/format.js'
+import { formatDuration } from '../../utils/format.js'
 
 // 会話圧縮 (compact_boundary) 用バナー。SDK からは事後通知しか来ないので
 // 「圧縮完了」の表示のみ。pre→post のトークン減少と所要時間を添える。

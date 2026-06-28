@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import LZString from 'lz-string'
-import { LEGACY_AGENT_TO_SESSION, LS_MESSAGES, LS_INPUT, MAX_MESSAGES } from '../constants.js'
-import { generateId } from '../utils/id.js'
+import { LEGACY_AGENT_TO_SESSION, LS_MESSAGES, LS_INPUT, MAX_MESSAGES } from '../../constants.js'
+import { generateId } from '../../utils/id.js'
 
 const { compressToUTF16, decompressFromUTF16 } = LZString
 
