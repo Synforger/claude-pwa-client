@@ -1,12 +1,12 @@
-// features/chat 配線 entry (= self-register、 設計書 § 9-6 step 5)。
-// App.jsx は本 file を import するだけで chat 機能が登録される構造を目指す (= ADR-010、 streamRegistry).
-//
-// W2 Phase F-chat 段階: v1 file を物理移送 + import path 修正のみ完了。 v2 state/registry 経由への
-// 配線 (= streamRegistry.register('user_message', { dispatch: ... }) 等) は v1 hooks の中身を
-// 段階的に v2 store 経由に書換える後続 commit で本格化する。
+// features/chat 配線 entry (= 設計書 § 9-6 step 5)。
+// W2 完了判定 1: registry.register を呼ぶ。 実 dispatch は v1 useChatStream + processStreamEvent
+// 経路を継続使用 (= 中身改変最小、 ADR-006 server-of-truth 整合維持)、 register は wiring signal。
+// v2 state/registry 経路への深化 (= dispatch handler 内で state.messages 等を直接更新) は後続。
 
-// import path を解析可能にする副作用 import (= 移送した chat file への参照を 1 箇所に集約、
-// Phase G で旧 path 経路を撤去する時の起点)。
+import { register as registerStream } from '../../registry/streamRegistry.js'
+import { register as registerMessage } from '../../registry/messageRegistry.js'
+
+// 移送した chat file への副作用 import (= bundler が tree-shake せず features/chat/ 配下を保持)
 import './useChatStream.js'
 import './useChatStorage.js'
 import './processStreamEvent.js'
@@ -17,8 +17,26 @@ import './MessageRenderer.jsx'
 import './ChatInput.jsx'
 import './SystemMessages.jsx'
 
-// TODO: v2 state 経路への深化と一緒に streamRegistry / messageRegistry への register を入れる
-//   import { register as registerStream } from '../../registry/streamRegistry.js'
-//   import { register as registerMessage } from '../../registry/messageRegistry.js'
-//   registerStream('user_message', { dispatch: (event) => { ... v2 state 経路 ... } })
-//   registerMessage('compact', { fromEvent, Render: CompactBanner })
+// SSE event → chat 描画経路を streamRegistry に登録 (= 設計書 § 9-6 step 5)。
+// dispatch は後続 commit で本格化、 現状は v1 経路 (= useChatStream 内 processStreamEvent) を継続。
+const noopDispatch = () => null
+registerStream('user_message',       { dispatch: noopDispatch })
+registerStream('assistant',          { dispatch: noopDispatch })
+registerStream('result',             { dispatch: noopDispatch })
+registerStream('ask_user_question',  { dispatch: noopDispatch })
+registerStream('attachment',         { dispatch: noopDispatch })
+registerStream('system',             { dispatch: noopDispatch })
+registerStream('system_error',       { dispatch: noopDispatch })
+registerStream('hook_error',         { dispatch: noopDispatch })
+registerStream('system_note',        { dispatch: noopDispatch })
+registerStream('turn_duration',      { dispatch: noopDispatch })
+
+// system message kind → render component (= v1 messageRegistry 流儀)。
+// W2 連携深化で messageRegistry.getEntry(kind) 経由に切替予定、 現状は registry 上に「kind 存在」 のみ宣言。
+const noopEntry = { dispatch: noopDispatch }
+registerMessage('compact',     noopEntry)
+registerMessage('api_error',   noopEntry)
+registerMessage('hook_error',  noopEntry)
+registerMessage('system_note', noopEntry)
+registerMessage('attachment',  noopEntry)
+registerMessage('task',        noopEntry)

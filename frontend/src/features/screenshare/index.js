@@ -1,2 +1,7 @@
+// features/screenshare 配線 entry。
+
+import { register as registerFeature } from '../../registry/featureRegistry.js'
+
 import './MoonlightFrame.jsx'
-// TODO: featureRegistry.register('screenshare', { requires: [], ... }) を後続 commit で
+
+registerFeature('screenshare', { dispatch: () => null })
