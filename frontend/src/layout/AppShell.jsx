@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense, Component } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback, useSyncExternalStore, lazy, Suspense, Component } from 'react'
 import '../App.css'
 
 // features/* self-register (= ADR-010、 設計書 § 9-6 step 5)。 各 entry が
@@ -29,8 +29,14 @@ import ConfirmDialog from '../shared/ConfirmDialog.jsx'
 import PlanApprovalBubble from '../features/plan-approval/PlanApprovalBubble.jsx'
 import { apiFetch } from '../utils/api.js'
 import { useStatus } from '../features/status-bar/useStatus.js'
-import { useOverlays } from '../hooks/useOverlays.js'
-import { useViewMode } from '../hooks/useViewMode.js'
+import {
+  subscribe as subscribeUi,
+  getSnapshot as getUiSnapshot,
+  setOverlay,
+  setViewMode,
+  hydrate as hydrateUi,
+} from '../state/ui.js'
+import { lsGet, lsSet } from '../utils/storage.js'
 import { useOutsideClick } from '../hooks/useOutsideClick.js'
 import { useAttachments } from '../features/attachments/useAttachments.js'
 import { useChatStorage } from '../features/chat/useChatStorage.js'
@@ -54,6 +60,16 @@ import { useViewsWs } from '../hooks/useViewsWs.js'
 import ChatInput from '../features/chat/ChatInput.jsx'
 // 起動時の初回 GC 遅延 (= localStorage 復元 + 初期 fetch の messages 確定を待つ)。
 const IMAGE_GC_INITIAL_MS = 5000
+
+// viewModes (= タブごとの chat/terminal 表示モード) の localStorage 永続化キー (= 旧 useViewMode 継承)。
+// state/ui.js は persistence 非対応、 ここで hydrate + write を担う。 module load 時に 1 回 hydrate
+// しておくことで AppShell の first render で `ui.viewModes` が即座に正しい値になる
+// (= 旧 useViewMode の `useState(() => lsGet(LS_KEY) || {})` 同等の挙動を再現)。
+const VIEW_MODES_LS_KEY = 'cpc_view_modes'
+try {
+  const persisted = lsGet(VIEW_MODES_LS_KEY)
+  if (persisted && typeof persisted === 'object') hydrateUi({ viewModes: persisted })
+} catch { /* hydrate 失敗は viewModes={} で起動して継続 (= 旧 hook の try/lsGet と同方針) */ }
 
 // messages dict から全 imageRefs を抽出するヘルパ (= IndexedDB GC で active 集合作成に使う)。
 function collectActiveImageIds(msgDict) {
@@ -177,8 +193,26 @@ export default function AppShell() {
   const activeSid = activeSession?.id || null
 
   const { messages, setMessages, input, setInput } = useChatStorage(sessions)
-  // タブごとの表示モード (= 'chat' | 'terminal') + localStorage 永続化を hook 化 (= F-03)。
-  const { activeViewMode, flippedViewMode, setActiveViewMode } = useViewMode(activeSid)
+  // UI 局所 state (= overlays / viewModes / scroll / keyboard) を state/ui.js から 1 経路で pull
+  // (= ADR-017 + W2 Phase B、 旧 useOverlays / useViewMode の二重管理を解消)。 個別 selector は
+  // 作らず、 単発 useSyncExternalStore で full snapshot を取って下流で .overlays.xxx / .viewModes[sid]
+  // と読む (= 性能最適化は本 phase scope 外、 必要になったら selector hook に切り出す)。
+  const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
+  // タブごとの表示モード ('chat' | 'terminal')。 旧 useViewMode 派生値を ui.viewModes から再構築。
+  // 旧 hook は localStorage 永続化 + flippedViewMode + setActiveViewMode を内包していたが、 真値は
+  // state/ui.js に統合、 永続化は本 file 下部の useEffect、 派生は useMemo + useCallback で再現する。
+  const activeViewMode = useMemo(
+    () => (activeSid ? (ui.viewModes[activeSid] || 'chat') : 'chat'),
+    [activeSid, ui.viewModes],
+  )
+  const flippedViewMode = activeViewMode === 'terminal' ? 'chat' : 'terminal'
+  const setActiveViewMode = useCallback((mode) => {
+    if (!activeSid) return
+    setViewMode(activeSid, mode)
+  }, [activeSid])
+  // viewModes を localStorage に書き戻す (= 旧 useViewMode の `useEffect(() => lsSet(KEY, viewModes))`
+  // と同等)。 hydrate は module load 時に済ませているので、 ここは write 専任。
+  useEffect(() => { lsSet(VIEW_MODES_LS_KEY, ui.viewModes) }, [ui.viewModes])
   const { attachments, fileInputRef, handleFileSelect, removeAttachment, clearAttachments } = useAttachments(activeSession)
   const status = useStatus(activeSession)
   const {
@@ -219,10 +253,10 @@ export default function AppShell() {
   const { sortedSessions } = useSessionActivity(messages, sessions)
 
   const [storageWarnDismissed, setStorageWarnDismissed] = useState(false)
-  // overlay / modal / dialog 系 local state を 1 hook に集約 (= F-03、 useOverlays.js)。
-  // desktopOpen / planOpen は派生制御 (= visibility 連動 / status auto-close) があるので
-  // hook には入れず App.jsx に残置 (= 設計判断は useOverlays.js 冒頭 docstring 参照)。
-  const ov = useOverlays()
+  // overlay 11 系 (= drawer / menu / favs / tasks / subagents (+ Focus) / previewPath / treeOpen /
+  // confirmEnd / confirmStop / confirmDelete) は state/ui.js.overlays.* に統合済 (= W2 Phase B、
+  // 旧 useOverlays 廃止)。 読み = `ui.overlays.X`、 書き = `setOverlay('X', value)`。 desktopOpen /
+  // planOpen は派生制御 (= visibility 連動 / status auto-close) があるので state 統合せず本 file 残置。
   const [desktopOpen, setDesktopOpen] = useState(false)  // 画面共有 (Mac デスクトップ) overlay
   // ExitPlanMode 承認ダイアログの開閉。 旧仕様は pending_plan が出た瞬間に全画面 overlay
   // が自動展開する設計だったが、 「画面を遮らずにヘッダーに常駐して、 開きたい時だけ開く」
@@ -366,11 +400,11 @@ export default function AppShell() {
 
   const handleOpenPath = useCallback((path) => {
     if (path.endsWith('/')) {
-      ov.setTreeOpen(path)
+      setOverlay('treeOpen', path)
     } else {
-      ov.setPreviewPath(path)
+      setOverlay('previewPath', path)
     }
-  }, [ov])
+  }, [])
 
   const handleAnswer = useCallback((tool_use_id, answer, isFree, optionCount) => {
     if (!activeSid) return
@@ -381,22 +415,25 @@ export default function AppShell() {
   // 各 prop が inline arrow で App 再 render 毎に新関数 → ChatInput が React.memo skip
   // できず、 streaming flush の度に textarea を含む input ツリーが再 render され打鍵 jank
   // を起こしていた。
-  const handleOpenTree = useCallback(() => ov.setTreeOpen('~'), [ov])
+  const handleOpenTree = useCallback(() => setOverlay('treeOpen', '~'), [])
   const handleToggleView = useCallback(() => setActiveViewMode(flippedViewMode), [setActiveViewMode, flippedViewMode])
-  const handleEndSessionClick = useCallback(() => ov.setConfirmEnd(true), [ov])
-  const handleStopClick = useCallback(() => ov.setConfirmStop(true), [ov])
+  const handleEndSessionClick = useCallback(() => setOverlay('confirmEnd', true), [])
+  const handleStopClick = useCallback(() => setOverlay('confirmStop', true), [])
   const handleSendClick = useCallback((text) => sendMessage(text), [sendMessage])
   const handleSendFailedConsumed = useCallback(() => setSendFailedText(null), [])
   const handleStopRecovered = useCallback(() => setStopUnavailableSid(null), [])
+  // ChatInput.setMenuOpen は React.memo 安定参照で渡したいので useCallback で固定。
+  // 旧実装は `setMenuOpen={ov.setMenu}` で useState setter 参照 (= 安定) を直渡ししていた。
+  const handleSetMenuOpen = useCallback((v) => setOverlay('menu', v), [])
 
   // MessageItem 全件再 render 防止 (= 2026-06-23 perf sweep)。 旧実装は <MessageItem> に inline
   // arrow で onOpenSubagents / onFork を渡しており、 App が再 render するたびに新参照 →
   // React.memo が shallow compare で全件 skip 失敗 → MessageRenderer (= react-markdown + Prism)
   // が全件再 parse して streaming 中の打鍵 jank の主因になっていた。 useCallback で参照固定。
   const handleOpenSubagents = useCallback((focus) => {
-    ov.setSubagentsFocus(focus || null)
-    ov.setSubagents(true)
-  }, [ov])
+    setOverlay('subagentsFocus', focus || null)
+    setOverlay('subagents', true)
+  }, [])
   const handleFork = useCallback((uuid) => {
     if (!activeSid) return
     forkSession(activeSid, uuid)
@@ -416,7 +453,7 @@ export default function AppShell() {
   // 旧手書き useEffect (= menuOpenRef 経由で listener を mount 時 1 回張替) を W2-C で
   // 用意した useOutsideClick hook 経由に置換 (= F-29 集約済 hook を活用、 enabled で
   // menu 閉時は listener 自体張らない)。
-  useOutsideClick(menuRef, () => ov.setMenu(false), { enabled: ov.menu })
+  useOutsideClick(menuRef, () => setOverlay('menu', false), { enabled: ui.overlays.menu })
 
   const sids = useMemo(() => sessions.map(s => s.id), [sessions])
   // ChatInput は React.memo 化済 (= streaming 中の打鍵 jank 対策)。 props 参照を安定させる
@@ -483,15 +520,15 @@ export default function AppShell() {
   }, [activeMsgs, loading, activeSid, status?.pending_question])
 
   const handleEndSession = () => {
-    ov.setMenu(false)
-    ov.setConfirmEnd(false)
+    setOverlay('menu', false)
+    setOverlay('confirmEnd', false)
     endSession()
   }
 
   const handleDeleteSession = async () => {
-    if (!ov.confirmDelete) return
-    const sid = ov.confirmDelete
-    ov.setConfirmDelete(null)
+    const sid = ui.overlays.confirmDelete
+    if (!sid) return
+    setOverlay('confirmDelete', null)
     await removeSession(sid)
     // F-35 (= 2026-06-21): setMessages updater 内で「sid 削除後」 の全 messages から
     // imageIds snapshot を取り、 そのまま gcImages に渡す。 旧実装は setMessages 後に
@@ -514,7 +551,7 @@ export default function AppShell() {
 
   // Web Push 購読状態 (= 環境制約・トグル・連打防止) は専用 hook に集約。
   const { pushEnabled, pushBroken, pushBusy, pushAvailable, handleTogglePush } = usePushSubscription({
-    onCloseMenu: () => ov.setMenu(false),
+    onCloseMenu: () => setOverlay('menu', false),
   })
 
   // IndexedDB 画像の orphan GC: 起動時 1 回 + セッション削除トリガで増分掃除。
@@ -570,7 +607,7 @@ export default function AppShell() {
 
       {/* ヘッダ: ハンバーガー + セッション名 + 画面共有 */}
       <header className="topbar">
-        <button className="hamburger" onClick={() => ov.setDrawer(true)} aria-label="会話一覧" data-testid="drawer-toggle">
+        <button className="hamburger" onClick={() => setOverlay('drawer', true)} aria-label="会話一覧" data-testid="drawer-toggle">
           ☰
         </button>
         <span className="topbar-title">{activeSession?.title || '会話なし'}</span>
@@ -593,7 +630,7 @@ export default function AppShell() {
         {activeViewMode === 'chat' && activeSid && (
           <button
             className="topbar-icon-btn"
-            onClick={() => ov.setFavs(true)}
+            onClick={() => setOverlay('favs', true)}
             aria-label="お気に入り"
             title="お気に入りに飛ぶ"
             data-testid="favorites-open-button"
@@ -604,7 +641,7 @@ export default function AppShell() {
         {activeViewMode === 'chat' && activeSid && (
           <button
             className="topbar-icon-btn"
-            onClick={() => ov.setTasks(true)}
+            onClick={() => setOverlay('tasks', true)}
             aria-label="タスク"
             title="タスク一覧"
             data-testid="tasks-open-button"
@@ -617,7 +654,7 @@ export default function AppShell() {
         {activeViewMode === 'chat' && activeSid && (
           <button
             className="topbar-icon-btn"
-            onClick={() => { ov.setSubagentsFocus(null); ov.setSubagents(true) }}
+            onClick={() => { setOverlay('subagentsFocus', null); setOverlay('subagents', true) }}
             aria-label="サブエージェント"
             title="サブエージェント一覧"
             data-testid="subagents-open-button"
@@ -665,12 +702,12 @@ export default function AppShell() {
         </LazyBoundary>
       )}
 
-      {ov.drawer && (
+      {ui.overlays.drawer && (
         <LazyBoundary>
           <Suspense fallback={null}>
           <SessionDrawer
-            open={ov.drawer}
-            onClose={() => ov.setDrawer(false)}
+            open={ui.overlays.drawer}
+            onClose={() => setOverlay('drawer', false)}
             sessions={sortedSessions}
             agents={agents}
             activeId={activeId}
@@ -678,7 +715,7 @@ export default function AppShell() {
             onCreate={(agentId, accountId) => createSession(agentId, accountId)}
             onRename={renameSession}
             onSetNotifyMode={setNotifyMode}
-            onDelete={(sid) => ov.setConfirmDelete(sid)}
+            onDelete={(sid) => setOverlay('confirmDelete', sid)}
             sessionBadges={sessionBadges}
             pushAvailable={pushAvailable}
             pushEnabled={pushEnabled}
@@ -774,8 +811,8 @@ export default function AppShell() {
           fileInputRef={fileInputRef}
           onFileSelect={handleFileSelect}
           menuRef={menuRef}
-          menuOpen={ov.menu}
-          setMenuOpen={ov.setMenu}
+          menuOpen={ui.overlays.menu}
+          setMenuOpen={handleSetMenuOpen}
           onOpenTree={handleOpenTree}
           activeViewMode={activeViewMode}
           onToggleView={handleToggleView}
@@ -810,19 +847,19 @@ export default function AppShell() {
       )}
 
       <ConfirmDialog
-        open={ov.confirmEnd}
+        open={ui.overlays.confirmEnd}
         text="このセッションを終了しますか?"
-        onCancel={() => ov.setConfirmEnd(false)}
+        onCancel={() => setOverlay('confirmEnd', false)}
         onConfirm={handleEndSession}
       />
       <ConfirmDialog
-        open={ov.confirmStop}
+        open={ui.overlays.confirmStop}
         text="推論を停止しますか?"
-        onCancel={() => ov.setConfirmStop(false)}
-        onConfirm={() => { ov.setConfirmStop(false); stopMessage() }}
+        onCancel={() => setOverlay('confirmStop', false)}
+        onConfirm={() => { setOverlay('confirmStop', false); stopMessage() }}
       />
       <ConfirmDialog
-        open={!!ov.confirmDelete}
+        open={!!ui.overlays.confirmDelete}
         text={
           <>
             この会話を削除しますか？
@@ -830,54 +867,54 @@ export default function AppShell() {
             <span className="dim">会話履歴も削除されます。 元に戻せません。</span>
           </>
         }
-        onCancel={() => ov.setConfirmDelete(null)}
+        onCancel={() => setOverlay('confirmDelete', null)}
         onConfirm={handleDeleteSession}
       />
 
       {/* F-60: 各 lazy modal を 1 つずつ LazyBoundary + Suspense で wrap。 chunk fetch 失敗 /
           初回 render error が他 modal を巻き込まずに局所閉じできるように分離する。 */}
-      {ov.previewPath && (
+      {ui.overlays.previewPath && (
         <LazyBoundary>
           <Suspense fallback={null}>
-            <FilePreviewModal path={ov.previewPath} onClose={() => ov.setPreviewPath(null)} />
+            <FilePreviewModal path={ui.overlays.previewPath} onClose={() => setOverlay('previewPath', null)} />
           </Suspense>
         </LazyBoundary>
       )}
-      {ov.treeOpen && (
+      {ui.overlays.treeOpen && (
         <LazyBoundary>
           <Suspense fallback={null}>
             <FileTreePanel
-              initialPath={ov.treeOpen}
+              initialPath={ui.overlays.treeOpen}
               onOpenFile={handleOpenPath}
-              onClose={() => ov.setTreeOpen(null)}
+              onClose={() => setOverlay('treeOpen', null)}
             />
           </Suspense>
         </LazyBoundary>
       )}
-      {ov.subagents && activeSid && (
+      {ui.overlays.subagents && activeSid && (
         <LazyBoundary>
           <Suspense fallback={null}>
-            <SubagentsModal sid={activeSid} focus={ov.subagentsFocus} onClose={() => ov.setSubagents(false)} />
+            <SubagentsModal sid={activeSid} focus={ui.overlays.subagentsFocus} onClose={() => setOverlay('subagents', false)} />
           </Suspense>
         </LazyBoundary>
       )}
-      {ov.favs && (
+      {ui.overlays.favs && (
         <LazyBoundary>
           <Suspense fallback={null}>
             <FavoritesQuickPicker
-              onOpenFile={(path) => ov.setPreviewPath(path)}
-              onOpenDir={(path) => ov.setTreeOpen(path)}
-              onClose={() => ov.setFavs(false)}
+              onOpenFile={(path) => setOverlay('previewPath', path)}
+              onOpenDir={(path) => setOverlay('treeOpen', path)}
+              onClose={() => setOverlay('favs', false)}
             />
           </Suspense>
         </LazyBoundary>
       )}
-      {ov.tasks && (
+      {ui.overlays.tasks && (
         <LazyBoundary>
           <Suspense fallback={null}>
             <TasksModal
               tasks={status?.tasks || []}
-              onClose={() => ov.setTasks(false)}
+              onClose={() => setOverlay('tasks', false)}
             />
           </Suspense>
         </LazyBoundary>
