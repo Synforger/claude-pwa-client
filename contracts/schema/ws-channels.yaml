@@ -1,0 +1,117 @@
+# WebSocket channel schema (= front <-> back contract、 真値)
+#
+# scope:
+#   - 2 channel (= /ws/pty/{sid}、 /views/ws) を全件列挙
+#   - direction / frame format / input / output / lifecycle / invariants を明示
+#   - ADR-013 (= PWA Lifecycle) の heartbeat 25s + timeout 60s 仕様を明文化
+#
+# heartbeat policy (= ADR-013):
+#   - iOS Safari の inactivity TCP drop / dead-but-OPEN への構造的対策
+#   - client が 25 秒間隔で ping 送信、 server は pong 即返、 60 秒 pong 不在で client が force reconnect
+#   - 「pid live だが描画が固まる」 現象を window.dispatchEvent('cpc:fg') 経由で回復
+#
+# UTF-8 boundary safety (= ADR-013):
+#   - PTY stdout は binary frame 主経路、 frontend は bytes そのまま xterm.js に writeUtf8 で渡す
+#   - text 経由は ANSI escape sequence boundary risk があるため副次経路
+#   - bytes / text 両方を listener に渡すが、 feature/terminal は bytes 経路を選ぶ
+
+kind: ws-channels
+version: "1.0"
+schema_version: "1.0"
+
+channels:
+
+  pty:
+    path: /ws/pty/{sid}
+    direction: bidirectional
+    frame_format: mixed
+    client_to_server:
+      - kind: binary
+        description: "stdin bytes (= UTF-8 sequence、 ユーザキーボード入力)"
+      - kind: text
+        description: "control / heartbeat JSON"
+        schema:
+          oneOf:
+            - type: object
+              required: [type, rows, cols]
+              properties:
+                type: { const: resize }
+                rows: { type: integer }
+                cols: { type: integer }
+              additionalProperties: false
+            - type: object
+              required: [type, ts]
+              properties:
+                type: { const: ping }
+                ts:   { type: integer, description: "client epoch ms (= pong で echo back)" }
+              additionalProperties: false
+    server_to_client:
+      - kind: binary
+        description: "PTY stdout bytes (= xterm.js writeUtf8 直渡し)"
+      - kind: text
+        description: "control / heartbeat JSON"
+        schema:
+          oneOf:
+            - type: object
+              required: [type]
+              properties:
+                type:    { enum: [exit, error] }
+                message: { type: string }
+              additionalProperties: false
+            - type: object
+              required: [type, ts]
+              properties:
+                type: { const: pong }
+                ts:   { type: integer, description: "client から受信した ts を echo" }
+              additionalProperties: false
+    lifecycle:
+      connect: "client open → server tmux attach (= 既存) or spawn (= 新規) → output queue backlog drain → pump_out / pump_in 並走"
+      reconnect: "exponential backoff 500ms -> 10s with jitter"
+      heartbeat: "client ping 25s with pong timeout 60s (= ADR-013、 iOS dead-but-OPEN 検知)"
+      on_reconnect: "reset terminal + Ctrl-L 送信 (= TUI 自力再描画 / ANSI 同期)"
+      bg_fg: "cpc:fg event で再接続、 features/terminal が listen して force reconnect"
+      disconnect: "close code 4000 = heartbeat timeout / 1000 = normal / その他 = 異常切断"
+    auth: tailnet
+    invariants:
+      - "binary frame は xterm.js writeUtf8(Uint8Array) で直渡し、 UTF-8 multi-byte boundary を decoder.decode(bytes, {stream:true}) で保持"
+      - "control mode (-CC) 解釈は backend (= terminal/control_mode.py) が完了済の text frame で送る"
+      - "60 秒 pong 不在で client が ws.close(4000, 'heartbeat-timeout') 発火 → reconnect サイクル"
+      - "再接続時の reset + Ctrl-L で TUI 状態をサーバ側真値から再構築"
+      - "kill -9 復帰時は backend (= terminal/runner.py) が spawn 経路で新 PTY 起動"
+
+  views:
+    path: /views/ws
+    direction: bidirectional
+    frame_format: text
+    client_to_server:
+      - kind: text
+        description: "今どの sid を見てるか / stop intent"
+        schema:
+          oneOf:
+            - type: object
+              required: [sid]
+              properties:
+                sid: { type: string, nullable: true, description: "null = 全タブ非表示" }
+              additionalProperties: false
+            - type: object
+              required: [type, sid]
+              properties:
+                type: { const: stop }
+                sid:  { type: string }
+              additionalProperties: false
+    server_to_client:
+      - kind: text
+        description: "応答無し (= 接続生存 = 視認中、 sessions_overview 経路で各端末に伝播)"
+    lifecycle:
+      connect: "document.visibilitychange == visible で client open"
+      reconnect: "3s backoff (= visible 中のみ retry)"
+      heartbeat: "なし (= 接続自体が visible signal、 短命接続なので不要)"
+      on_reconnect: "現在の activeSid を即送信"
+      bg_fg: "visible = open、 hidden = close (= bg ではそもそも接続しない)"
+      disconnect: "client close = bg 遷移、 server close = 異常 (= reconnect)"
+    auth: tailnet
+    invariants:
+      - "visible 中のみ接続、 bg では close (= サーバ負荷 + バッテリー対策)"
+      - "activeSid 変化時に即新 sid を送信 (= タブ切替 0 遅延の前提)"
+      - "stop intent は features/terminal の stop ボタン押下時に sid 指定で送る"
+      - "応答メッセージなし = sessions_overview SSE 経由で他端末に視認状態が伝播"
