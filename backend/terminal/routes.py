@@ -83,6 +83,20 @@ async def pty_socket(ws: WebSocket, session_id: str) -> None:
     # capture-pane の history を流すと、 中に含まれる ANSI cursor 制御 (= claude
     # streaming 中の途中再描画指示等) が新接続側の状態と整合せず画面が壊れる。
 
+    # ADR-022 CPC_E2E mode: skip the real PTY spawn entirely. A minimal
+    # PtySession with just queue + exit_event is enough for _pump_to_client
+    # (= the WS output side). pump_from_client tolerates the missing process
+    # because the e2e harness never sends user input through this WS - it
+    # writes via /debug/e2e/pty-write instead.
+    if os.environ.get("CPC_E2E") == "1" and pty_sessions.get(session_id) is None:
+        pty_sessions[session_id] = PtySession(
+            session_id=session_id,
+            process=None,  # type: ignore[arg-type]
+            master_fd=-1,
+            output_queue=asyncio.Queue(maxsize=1024),
+            exit_event=asyncio.Event(),
+        )
+
     session = pty_sessions.get(session_id)
     if session is None or session.exit_event.is_set():
         # backend 再起動跨ぎ: in-memory PtySession は空でも tmux server には pwa-<sid> が

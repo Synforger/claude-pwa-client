@@ -11,6 +11,7 @@ ADR-020 /debug/e2e/seed は更に CPC_E2E=1 env を要求する 3 段防御。
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import time
@@ -240,6 +241,37 @@ async def post_e2e_seed(request: Request, body: E2eSeedRequest) -> E2eSeedRespon
         jsonl_path=str(jsonl_path),
         written_events=len(body.jsonl_events),
     )
+
+
+class PtyWriteRequest(BaseModel):
+    bytes_b64: str = Field(..., description="base64-encoded bytes to enqueue on the WS output side")
+
+
+@router.post("/e2e/pty-write/{session_id}")
+async def post_e2e_pty_write(request: Request, session_id: str, body: PtyWriteRequest) -> dict:
+    """ADR-022 e2e WS injection: enqueue bytes on a fake PTY session's output queue.
+
+    The websocket /ws/pty/{sid} handler in CPC_E2E mode skips spawn and
+    installs a queue-only PtySession; pump_to_client then forwards anything
+    we put on the queue to every attached client. Scenarios use this to
+    drive UTF-8 boundary tests, ANSI tests, etc., without booting a real PTY.
+    """
+    import base64
+    _ensure_localhost(request)
+    _ensure_e2e_enabled()
+    from backend.terminal.runner import pty_sessions
+    session = pty_sessions.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=409, detail="no pty session (= /ws/pty not connected yet?)")
+    try:
+        data = base64.b64decode(body.bytes_b64, validate=True)
+    except (ValueError, Exception) as exc:
+        raise HTTPException(status_code=400, detail=f"bad base64: {exc}") from exc
+    try:
+        session.output_queue.put_nowait(data)
+    except asyncio.QueueFull:
+        raise HTTPException(status_code=503, detail="pty queue full") from None
+    return {"ok": True, "queued": len(data)}
 
 
 async def _agents_snapshot() -> dict[str, dict[str, Any]]:
