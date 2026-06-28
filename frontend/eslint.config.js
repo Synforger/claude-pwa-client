@@ -32,7 +32,11 @@ const V2_IMPORT_RULES = [
   { from: 'state',     allow: ['domain', 'contracts'] },
   { from: 'registry',  allow: ['ports', 'domain', 'contracts', 'state'] },
   { from: 'features',  allow: ['ports', 'domain', 'state', 'contracts', 'registry', 'transport'] },
-  { from: 'layout',    allow: ['features', 'state'] },
+  // W2 Phase E1 (= 2026-06-29): layout/OverlayHost.jsx が overlayRegistry を走査して open 中
+  // overlay を 1 経路 lazy render するため、 layout → registry を allow に追加。 layout (= AppShell /
+  // OverlayHost) は registry の describe/list を read 経由で使うのみ (= dispatch は features 側責務)、
+  // 双方向依存にはならない (= registry → layout は依然 NG)。
+  { from: 'layout',    allow: ['features', 'state', 'registry'] },
   { from: 'debug',     allow: ['state', 'transport', 'contracts', 'ports'] },
 ]
 
