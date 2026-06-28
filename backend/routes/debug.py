@@ -208,6 +208,19 @@ async def post_e2e_seed(request: Request, body: E2eSeedRequest) -> E2eSeedRespon
 
     claude_sid = body.claude_sid or str(uuid.uuid4())
     projects_dir = projects_dir_for_account(body.account_id)
+    # Safety net: refuse to write into the operator's real ~/.claude/projects.
+    # The launcher is supposed to point the e2e account at an isolated dir
+    # (= fixtures/_runtime/.claude); if it didn't, fail loud instead of
+    # silently scattering fixture JSONL into live chat history.
+    real_home_claude = (Path.home() / ".claude" / "projects").resolve()
+    if projects_dir.resolve() == real_home_claude:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "refusing to seed into the real ~/.claude/projects. "
+                "Set accounts.<account>.env.CLAUDE_CONFIG_DIR to an isolated dir."
+            ),
+        )
     cwd_hash = watcher._cwd_to_project_dirname(agent_cwd)
     jsonl_dir = projects_dir / cwd_hash
     jsonl_dir.mkdir(parents=True, exist_ok=True)
