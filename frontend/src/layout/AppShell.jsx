@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react'
+import { useState, useEffect, useMemo, useCallback, useSyncExternalStore } from 'react'
 import '../App.css'
 // W2 Phase E2 (= 2026-06-29): 全 7 overlay (= previewPath / treeOpen / favs / desktopOpen +
 // SessionDrawer / SubagentsModal / TasksModal) の lazy + Suspense + render は OverlayHost に
@@ -24,15 +24,10 @@ import '../features/ios-native/index.js'
 import '../features/terminal/index.js'
 import '../features/fork/index.js'
 
-import MessageItem from '../features/chat/MessageItem.jsx'
 import Terminal from '../features/terminal/Terminal.jsx'
-import ActivityBar from '../features/tasks/ActivityBar.jsx'
-import StatusBar from '../features/status-bar/StatusBar.jsx'
 import StorageWarning from './StorageWarning.jsx'
 import ConfirmDialog from '../shared/ConfirmDialog.jsx'
-import PlanApprovalBubble from '../features/plan-approval/PlanApprovalBubble.jsx'
-import { apiFetch } from '../utils/api.js'
-import { useStatus } from '../features/status-bar/useStatus.js'
+import ChatPanel from './ChatPanel.jsx'
 import {
   subscribe as subscribeUi,
   getSnapshot as getUiSnapshot,
@@ -40,28 +35,15 @@ import {
   setViewMode,
   hydrate as hydrateUi,
 } from '../state/ui.js'
+import { useStatus } from '../features/status-bar/useStatus.js'
 import { lsGet, lsSet } from '../utils/storage.js'
-import { useOutsideClick } from '../hooks/useOutsideClick.js'
-import { useAttachments } from '../features/attachments/useAttachments.js'
-import { useChatStorage } from '../features/chat/useChatStorage.js'
-import { useAutoScroll } from '../features/chat/useAutoScroll.js'
-import { useChatStream } from '../features/chat/useChatStream.js'
-import { useSessionsOverview } from '../features/session-drawer/useSessionsOverview.js'
 import { useSessions } from '../features/session-drawer/useSessions.js'
 import { useStorageQuota } from '../features/status-bar/useStorageQuota.js'
 import { useReadOnSessionOpen } from '../features/push-notify/useReadOnSessionOpen.js'
 import { useNotificationClear } from '../features/push-notify/useNotificationClear.js'
-import { useSessionBadges } from '../features/push-notify/useSessionBadges.js'
 import { useMoonlightAvailable } from '../features/screenshare/useMoonlightAvailable.js'
 import { useDeepLink } from '../features/session-drawer/useDeepLink.js'
-import { useSessionActivity } from '../features/session-drawer/useSessionActivity.js'
-import { setBadge } from '../features/push-notify/badge.js'
-import { gcImages } from '../features/attachments/imageStore.js'
 import { usePushSubscription } from '../features/push-notify/usePushSubscription.js'
-import { useViewsWs } from '../features/session-drawer/useViewsWs.js'
-import ChatInput from '../features/chat/ChatInput.jsx'
-// 起動時の初回 GC 遅延 (= localStorage 復元 + 初期 fetch の messages 確定を待つ)。
-const IMAGE_GC_INITIAL_MS = 5000
 
 // viewModes (= タブごとの chat/terminal 表示モード) の localStorage 永続化キー (= 旧 useViewMode 継承)。
 // state/ui.js は persistence 非対応、 ここで hydrate + write を担う。 module load 時に 1 回 hydrate
@@ -73,38 +55,15 @@ try {
   if (persisted && typeof persisted === 'object') hydrateUi({ viewModes: persisted })
 } catch { /* hydrate 失敗は viewModes={} で起動して継続 (= 旧 hook の try/lsGet と同方針) */ }
 
-// messages dict から全 imageRefs を抽出するヘルパ (= IndexedDB GC で active 集合作成に使う)。
-function collectActiveImageIds(msgDict) {
-  const active = new Set()
-  for (const sid of Object.keys(msgDict)) {
-    for (const m of msgDict[sid] || []) {
-      if (m.imageRefs && Array.isArray(m.imageRefs)) {
-        for (const id of m.imageRefs) active.add(id)
-      }
-    }
-  }
-  return active
-}
-
-// W2 Phase E2 (= 2026-06-29): LazyBoundary + 3 overlay (= SessionDrawer / SubagentsModal /
-// TasksModal) の lazy() は OverlayHost に集約済。 AppShell には残らない。
-
-// ChatInput.currentAttachments の安定 sentinel。 attachments[sid] が空の時に毎 render で
-// 新しい `[]` を作ると ChatInput が memo を抜けるので、 共通参照を返す。
-const EMPTY_ARR = []
-
 export default function AppShell() {
-  // セッション (= UI 上のタブ = 1 議題) 管理。 W2 Phase E-2 (= 2026-06-29): 内部 state を
-  // state/sessions.js singleton store に集約済。 SessionDrawer 等の他 component は store を
-  // 直接 subscribe するため、 ここからの props 受渡は SessionDrawer 撤去で激減。
-  // AppShell が引き続き必要なのは: sessions / activeId (= chat / Terminal / topbar 経路)、
-  // setActiveId (= deep link / SW postMessage)、 forkSession (= MessageItem onFork)、
-  // removeSession (= confirmDelete handler)。
+  // セッション (= UI 上のタブ = 1 議題) 管理。 W2 Phase F-1 (= 2026-06-29): chat 経路 hook 群は
+  // ChatPanel.jsx に物理移送、 AppShell は topbar / Terminal / session-level dialog の責務のみ。
+  // useSessions は singleton store を購読する hook なので、 ChatPanel と双方で呼ばれても state は
+  // 共有される (= 二重 instance 化リスク無し)。
   const {
     sessions,
     activeId,
     setActiveId,
-    forkSession,
     removeSession,
   } = useSessions()
 
@@ -115,20 +74,13 @@ export default function AppShell() {
   // 全箇所共通の active セッション ID。 activeSession?.id を毎度書かない統一形。
   const activeSid = activeSession?.id || null
 
-  const { messages, setMessages, input, setInput } = useChatStorage(sessions)
-  // UI 局所 state (= overlays / viewModes / scroll / keyboard) を state/ui.js から 1 経路で pull
-  // (= ADR-017 + W2 Phase B、 旧 useOverlays / useViewMode の二重管理を解消)。 個別 selector は
-  // 作らず、 単発 useSyncExternalStore で full snapshot を取って下流で .overlays.xxx / .viewModes[sid]
-  // と読む (= 性能最適化は本 phase scope 外、 必要になったら selector hook に切り出す)。
+  // UI 局所 state (= overlays / viewModes / scroll / keyboard) を state/ui.js から 1 経路で pull。
   const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
   // タブごとの表示モード ('chat' | 'terminal')。 旧 useViewMode 派生値を ui.viewModes から再構築。
-  // 旧 hook は localStorage 永続化 + flippedViewMode + setActiveViewMode を内包していたが、 真値は
-  // state/ui.js に統合、 永続化は本 file 下部の useEffect、 派生は useMemo + useCallback で再現する。
   const activeViewMode = useMemo(
     () => (activeSid ? (ui.viewModes[activeSid] || 'chat') : 'chat'),
     [activeSid, ui.viewModes],
   )
-  const flippedViewMode = activeViewMode === 'terminal' ? 'chat' : 'terminal'
   const setActiveViewMode = useCallback((mode) => {
     if (!activeSid) return
     setViewMode(activeSid, mode)
@@ -136,78 +88,25 @@ export default function AppShell() {
   // viewModes を localStorage に書き戻す (= 旧 useViewMode の `useEffect(() => lsSet(KEY, viewModes))`
   // と同等)。 hydrate は module load 時に済ませているので、 ここは write 専任。
   useEffect(() => { lsSet(VIEW_MODES_LS_KEY, ui.viewModes) }, [ui.viewModes])
-  const { attachments, fileInputRef, handleFileSelect, removeAttachment, clearAttachments } = useAttachments(activeSession)
+  // topbar の 📑 ボタン (= plan 承認待ち) は status.pending_plan で出すかを判定し、 click で
+  // ui.overlays.planOpen を立てる。 PlanApprovalBubble 本体の render + auto-close は ChatPanel が
+  // 担う (= W2 Phase F-1)。
   const status = useStatus(activeSession)
-  const {
-    scrollerDomRef,
-    isAtBottomRef,
-    showScrollBtn,
-    hasNew,
-    scrollToBottom,
-    onScroll,
-  } = useAutoScroll({ messages, activeSession, viewMode: activeViewMode })
-  // 「今この sid を見てる」 + Stop 意思を WebSocket で backend に通知。
-  // Stop は HTTP POST から WS 経由に移行 (= 失敗時 race の根本治療)。 useChatStream より
-  // 先に呼ぶ必要があるのは sendStopIntent を stopMessage に渡すため。
-  const { sendStopIntent } = useViewsWs(activeSid)
-  // F-36: 送信失敗時に localText を ChatInput 内部 state に戻すための buffer。
-  // F-16: stop が WS 切断で届かない時の UI 通知用 flag。
-  const [sendFailedText, setSendFailedText] = useState(null)
-  const [stopUnavailableSid, setStopUnavailableSid] = useState(null)
-  const { loading, setLoading, apiKeySource, sendMessage, sendAnswer, stopMessage, fetchLatest, endSession, optimisticRef } = useChatStream({
-    activeSession,
-    setMessages,
-    input, setInput,
-    attachments, clearAttachments,
-    scrollToBottom, isAtBottomRef,
-    sendStopIntent,
-    onSendFailed: (sid, text) => { if (sid === activeSid) setSendFailedText(text) },
-    onStopUnavailable: (sid) => setStopUnavailableSid(sid),
-  })
-  // loading (= 停止ボタンの真値) の唯一のソース。 backend 権威 busy を 1 本の SSE で受け、
-  // 全タブの停止/送信ボタン + 青丸/赤丸を駆動する (= dual-driver 排除、 単一権威)。
-  // onPayloadRef は useSessionBadges が後段で wire する未読同期経路 (= last_seen_at)。
-  const overviewPayloadRef = useRef(null)
-  useSessionsOverview({ setLoading, optimisticRef, onPayloadRef: overviewPayloadRef })
 
   const storageInfo = useStorageQuota()
-
-  // session 活動時刻の追跡 (= sessionActivity を state/sessions.js store に書込む副作用)。
-  // sortedSessions の派生は SessionDrawer が store を直接 subscribe して内製するため、
-  // ここでは戻り値を捨てる (= 副作用専任の hook 呼出)。
-  useSessionActivity(messages, sessions)
 
   const [storageWarnDismissed, setStorageWarnDismissed] = useState(false)
   // overlay 11 系 (= drawer / menu / favs / tasks / subagents (+ Focus) / previewPath / treeOpen /
   // confirmEnd / confirmStop / confirmDelete) は state/ui.js.overlays.* に統合済 (= W2 Phase B、
   // 旧 useOverlays 廃止)。 読み = `ui.overlays.X`、 書き = `setOverlay('X', value)`。
-  // W2 Phase E1: desktopOpen も ui.overlays.desktopOpen に統合 (= OverlayHost が registry 走査で
-  // MoonlightFrame を render するため state を ui store 経由に揃える必要がある)。 派生制御
-  // (= visibility 連動で hidden 時に閉じる) は下の useEffect で setOverlay 直書きに置換済。
-  // planOpen は status auto-close (= pending_plan が消えたら閉じる) ロジック付きで OverlayHost
-  // 対象外 (= AppShell の独立 dialog として残置)。
-  // ExitPlanMode 承認ダイアログの開閉。 旧仕様は pending_plan が出た瞬間に全画面 overlay
-  // が自動展開する設計だったが、 「画面を遮らずにヘッダーに常駐して、 開きたい時だけ開く」
-  // 形に変更 (2026-06-04)。 topbar の 📑 ボタンが pending_plan の在席を示し、
-  // タップでこのダイアログを開く。 pending_plan が消えたら自動で閉じる。
-  const [planOpen, setPlanOpen] = useState(false)
-  // pending_plan が消えたら自動でダイアログも閉じる (= 承認後に手動で X するのを省く)。
-  // この useEffect は planOpen 宣言より後に置くこと。 依存配列はレンダー中に同期評価される
-  // ので、 宣言前に書くと planOpen が TDZ に入り ReferenceError で全画面クラッシュする。
-  useEffect(() => {
-    if (!status?.pending_plan && planOpen) setPlanOpen(false)
-  }, [status?.pending_plan, planOpen])
-  // 画面共有 (= Sunshine ストリーム) は見てる間だけ生かす。 PWA がバックグラウンド /
-  // 画面ロックに入ったら iframe を unmount して WebRTC を切る (= moonlight streamer が
-  // 終了し Sunshine のエンコードが止まる)。 これをしないと閉じ忘れたまま放置で
-  // Sunshine が延々エンコードし続け CPU + メモリを食い潰す (= ゾンビストリーム観測実績
-  // あり)。 復帰時は自動再開せず、 ユーザが 🖥 を再タップして開き直す。
+  // 画面共有 (= Sunshine ストリーム) は見てる間だけ生かす。 PWA がバックグラウンド / 画面ロック
+  // に入ったら iframe を unmount して WebRTC を切る。 復帰時は自動再開せず、 ユーザが 🖥 を再タップ
+  // して開き直す。
   useEffect(() => {
     const onHidden = () => { if (document.hidden) setOverlay('desktopOpen', false) }
     document.addEventListener('visibilitychange', onHidden)
     return () => document.removeEventListener('visibilitychange', onHidden)
   }, [])
-  const menuRef = useRef(null)
 
   // backend / 通知 / deep link 系の effect は feature ごとの hook に分散 (= W2 Phase C 移送済)
   useReadOnSessionOpen(activeSid)
@@ -215,102 +114,25 @@ export default function AppShell() {
   useNotificationClear()
   const moonlightAvailable = useMoonlightAvailable()
 
-  // backend 再起動検知: status.backend_start_time が変化したら backend が再起動された
-  // (= LaunchAgent KeepAlive で自動復活 or 手動 kickstart)。 中断された turn が
-  // 「永遠に推論中」 のまま見えないように、 全 session の最後の streaming bubble を
-  // 強制的に停止扱いに固定 + loading state を全 reset する。
-  //
-  // F-22 (= 2026-06-21): この effect は chat reset 専任に絞る (= push 関連は usePushSubscription
-  // に一本化、 backend 再起動による subscription 同期は usePushSubscription の visibility +
-  // interval ping が拾うので二重呼出不要)。
-  const lastBackendStartRef = useRef(null)
-  useEffect(() => {
-    if (!status?.backend_start_time) return
-    const prev = lastBackendStartRef.current
-    lastBackendStartRef.current = status.backend_start_time
-    const sameAsLast = prev === status.backend_start_time
-    if (sameAsLast) return
-    // backend 再起動時のみ意味を持つので prev !== null ガードを残す:
-    //   - loading 全 reset
-    //   - 楽観的 pendingSend deadline も全 reset (= 残ってると停止ボタンが居座る)
-    //   - 各 session 末尾の streaming bubble を false に固定 (= 永遠の推論中表示を消す)
-    if (prev !== null) {
-      setLoading({})
-      optimisticRef.current = {}
-      setMessages(p => {
-        const next = {}
-        for (const sid of Object.keys(p)) {
-          const arr = p[sid] || []
-          if (arr.length === 0) { next[sid] = arr; continue }
-          const last = arr[arr.length - 1]
-          if (last?.streaming) {
-            next[sid] = [...arr.slice(0, -1), { ...last, streaming: false }]
-          } else {
-            next[sid] = arr
-          }
-        }
-        return next
-      })
-    }
-    // optimisticRef は ref なので deps 不要 (= ref.current 書き込みは再 render を起こさない)。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status?.backend_start_time, setLoading, setMessages])
-
-  // 停止ボタンの表示判定 = backend 権威 loading の**派生**(参照実装の「ボタンは導出、 独立
-  // boolean を持たない」 原則)。 loading[sid] は useSessionsOverview が backend busy + 送信直後
-  // の楽観フラグから唯一管理する。 旧来の now タイマー / isPendingSend (= 1500ms 窓) は撤去。
-  //   - loading[activeSid]        : ターン進行中 (= 推論中) → 停止
-  //   - status?.pending_question  : AskUserQuestion 回答待ち → 停止 (= 質問中の誤送信を防ぐ)
-  const showStopButton = !!(
-    activeSid
-    && (loading[activeSid] || status?.pending_question)
-  )
-
-  // SW からの「push-received」 メッセージで即座に fetchLatest を発火させる。
-  // status polling (idle 30 秒) の隙間で proactive turn が完了/進行してても、
-  // Web Push 受信 → SW postMessage → ここで fetchLatest → SSE 接続で取得、 のフローで
-  // 取りこぼしを防ぐ。
-  useEffect(() => {
-    if (!('serviceWorker' in navigator)) return
-    const onMessage = (event) => {
-      const d = event.data
-      if (d?.type === 'push-received') {
-        fetchLatest()
-      } else if (d?.type === 'open-session' && d.sid) {
-        // 通知タップで送られてくる。 該当 session をフォアグラウンドに切替。
-        setActiveId(d.sid)
-      }
-    }
-    navigator.serviceWorker.addEventListener('message', onMessage)
-    return () => navigator.serviceWorker.removeEventListener('message', onMessage)
-  }, [fetchLatest, setActiveId])
-
   // 通知タップで PWA が完全終了状態から起動された場合、 SW の openWindow が
   // /?ses=<sid> 付きで起動するので、 ここで URL param を読んで activeId に反映する。
-  // postMessage 経路 (= 既存 PWA をフォアに戻す) と並走する fallback (= プロセス毎新規起動)。
   useEffect(() => {
     try {
       const sid = new URLSearchParams(window.location.search).get('ses')
       if (sid) {
         setActiveId(sid)
-        // URL から消す (= reload で復活しないように)
         const url = new URL(window.location.href)
         url.searchParams.delete('ses')
         window.history.replaceState({}, '', url.pathname + (url.search || '') + url.hash)
       }
     } catch (e) {
-      // 通知タップで起動した時の deep link 解釈失敗 = 該当 session に飛ばないだけ
-      // (= top fallback)。 silent でも復帰経路はあるが、 何度も起きるなら通知 → 起動の
-      // フローが壊れてる signal なので診断ログを残す (= 2026-06-22)。
-       
+
       console.warn('[deep-link] URL ?ses= parse failed:', e)
     }
   }, [setActiveId])
 
 
   // 今 active で見ている session を SW に伝える (= sw.js の LINE 流抑制で使う)。
-  // visibility=hidden の時は sid=null を送って「見てない」 扱いにする (= bg/別アプリ時に
-  // 通知が届くべき状態を明示)。 SW direct postMessage で backend は介さない。
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return
     const post = () => {
@@ -326,184 +148,23 @@ export default function AppShell() {
     return () => document.removeEventListener('visibilitychange', post)
   }, [activeSid])
 
-  const handleOpenPath = useCallback((path) => {
-    if (path.endsWith('/')) {
-      setOverlay('treeOpen', path)
-    } else {
-      setOverlay('previewPath', path)
-    }
-  }, [])
-
-  const handleAnswer = useCallback((tool_use_id, answer, isFree, optionCount) => {
-    if (!activeSid) return
-    sendAnswer(activeSid, tool_use_id, answer, isFree, optionCount)
-  }, [sendAnswer, activeSid])
-
-  // ChatInput に渡すコールバック群を useCallback で参照固定 (= 2026-06-22)。 旧実装は
-  // 各 prop が inline arrow で App 再 render 毎に新関数 → ChatInput が React.memo skip
-  // できず、 streaming flush の度に textarea を含む input ツリーが再 render され打鍵 jank
-  // を起こしていた。
-  const handleOpenTree = useCallback(() => setOverlay('treeOpen', '~'), [])
-  const handleToggleView = useCallback(() => setActiveViewMode(flippedViewMode), [setActiveViewMode, flippedViewMode])
-  const handleEndSessionClick = useCallback(() => setOverlay('confirmEnd', true), [])
-  const handleStopClick = useCallback(() => setOverlay('confirmStop', true), [])
-  const handleSendClick = useCallback((text) => sendMessage(text), [sendMessage])
-  const handleSendFailedConsumed = useCallback(() => setSendFailedText(null), [])
-  const handleStopRecovered = useCallback(() => setStopUnavailableSid(null), [])
-  // ChatInput.setMenuOpen は React.memo 安定参照で渡したいので useCallback で固定。
-  // 旧実装は `setMenuOpen={ov.setMenu}` で useState setter 参照 (= 安定) を直渡ししていた。
-  const handleSetMenuOpen = useCallback((v) => setOverlay('menu', v), [])
-
-  // MessageItem 全件再 render 防止 (= 2026-06-23 perf sweep)。 旧実装は <MessageItem> に inline
-  // arrow で onOpenSubagents / onFork を渡しており、 App が再 render するたびに新参照 →
-  // React.memo が shallow compare で全件 skip 失敗 → MessageRenderer (= react-markdown + Prism)
-  // が全件再 parse して streaming 中の打鍵 jank の主因になっていた。 useCallback で参照固定。
-  const handleOpenSubagents = useCallback((focus) => {
-    setOverlay('subagentsFocus', focus || null)
-    setOverlay('subagents', true)
-  }, [])
-  const handleFork = useCallback((uuid) => {
-    if (!activeSid) return
-    forkSession(activeSid, uuid)
-  }, [activeSid, forkSession])
-  // activeSubagentTool は status object から抜き出した primitive (= string | null)、 参照同値で
-  // memo skip が効くように memoize。 status は polling で毎回新参照になるが、 中身の last_tool が
-  // 不変なら同 string が返る。
-  const activeSubagentTool = status?.subagent?.last_tool || null
-  // apiKeySource[activeSid] も primitive 想定だが、 念のため activeSid を絡めた memo を作って
-  // App 再 render で参照が揺れないようにする。
-  const activeApiKeySource = useMemo(
-    () => (activeSid ? (apiKeySource[activeSid] ?? null) : null),
-    [activeSid, apiKeySource],
-  )
-
-  // click-outside listener: ChatInput 内の ⋯ メニューを外側 click/tap で閉じる。
-  // 旧手書き useEffect (= menuOpenRef 経由で listener を mount 時 1 回張替) を W2-C で
-  // 用意した useOutsideClick hook 経由に置換 (= F-29 集約済 hook を活用、 enabled で
-  // menu 閉時は listener 自体張らない)。
-  useOutsideClick(menuRef, () => setOverlay('menu', false), { enabled: ui.overlays.menu })
-
-  const sids = useMemo(() => sessions.map(s => s.id), [sessions])
-  // ChatInput は React.memo 化済 (= streaming 中の打鍵 jank 対策)。 props 参照を安定させる
-  // ため、 attachments[activeSid] が undefined なら共通の EMPTY_ARR を返す (= 毎 render で
-  // 新しい `[]` を作らない → ChatInput が memo skip できる)。
-  const currentAttachments = (activeSid && attachments[activeSid]) || EMPTY_ARR
-
-  // session ごとの新着 / 処理中 / 質問待ちバッジ計算 (= active session は常に既読)。
-  // W2 Phase E-2: sessionBadges 自体は SessionDrawer が store + deriveSessionBadges helper で
-  // 自前計算する (= props 渡し撤去)。 AppShell は本 hook を unreadCount → setBadge 経路と
-  // overview payload wire のためだけに呼出。 内部で unreadDone を state/sessions.js に書込み、
-  // SessionDrawer は store を subscribe して同じ unreadDone を読む (= 単一権威)。
-  const { unreadCount, onOverviewPayload } = useSessionBadges({ sids, activeSid, messages, loading })
-  // useSessionsOverview の payload を未読同期経路に流すための ref wire (= 順序逆転を吸収)。
-  useEffect(() => { overviewPayloadRef.current = onOverviewPayload }, [onOverviewPayload])
-
-  // アプリアイコンのバッジ数字 = サイドバーで赤丸が立ってる session 数 と同期。
-  // frontend が真理 (= backend の unread_count は SW push 経由の近似値、 起動後は
-  // frontend が即座に正値で上書き)。
-  useEffect(() => {
-    setBadge(unreadCount)
-  }, [unreadCount])
-
-  // F-01 (= 2026-06-21): dep を `messages` (= 全 sid 入り dict) → `activeMsgs` (= activeSid の
-  // slice) に絞り、 他 sid の flush で displayMessages が recompute されないようにする。
-  // useChatStorage の setMessages updater は変更のあった sid だけ新オブジェクトを返す設計
-  // (= 既存 useChatStream / useChatStorage の仕様、 参照比較で diff を取れる) なので、
-  // active sid に書込み無ければ activeMsgs は同参照で recompute skip される。
-  const activeMsgs = activeSid ? (messages[activeSid] || null) : null
-  const displayMessages = useMemo(() => {
-    if (!activeSid) return []
-    // 直近 N 件のみ render する。 古い履歴は state / localStorage には残っているが DOM に
-    // 出さない (= 過去が積み上がって scrollHeight が膨らみ、 scroll が途中で止まる /
-    // 「↓ボタン」 で底まで届かない症状の根本対策)。 N は実体感で調整可能。
-    const DISPLAY_LIMIT = 100
-    const allMsgs = activeMsgs || []
-    const msgs = allMsgs.length > DISPLAY_LIMIT ? allMsgs.slice(-DISPLAY_LIMIT) : allMsgs
-    // AskUserQuestion のライブ表示: backend が PreToolUse hook で立てた pending_question を
-    // messages 末尾にバブルとして差し込む (= overlay でなく既存の chat 流れに乗せる)。
-    // 回答後は JSONL flush で本物の回答済みバブルが messages に入り、 同時に backend が
-    // pending_question を clear するので、 このライブバブルは自然に消える。
-    const pq = status?.pending_question
-    const base = (loading[activeSid] && !msgs.some(m => m.streaming) && !pq)
-      ? [...msgs, { id: '__loading__', role: '__loading__' }]
-      : msgs
-    if (pq) {
-      return [...base, {
-        id: '__pending_question__',
-        role: 'agent',
-        text: '',
-        tools: [],
-        streaming: false,
-        askUserQuestion: {
-          tool_use_id: pq.tool_use_id,
-          questions: pq.questions,
-          answered: false,
-          selectedAnswer: null,
-        },
-      }]
-    }
-    return base
-  }, [activeMsgs, loading, activeSid, status?.pending_question])
-
-  const handleEndSession = () => {
-    setOverlay('menu', false)
-    setOverlay('confirmEnd', false)
-    endSession()
-  }
-
   const handleDeleteSession = async () => {
     const sid = ui.overlays.confirmDelete
     if (!sid) return
     setOverlay('confirmDelete', null)
     await removeSession(sid)
-    // F-35 (= 2026-06-21): setMessages updater 内で「sid 削除後」 の全 messages から
-    // imageIds snapshot を取り、 そのまま gcImages に渡す。 旧実装は setMessages 後に
-    // 300ms setTimeout で messagesRefForGc.current を読んでいたが、 同 tick で別 sid が
-    // streaming flush して ref が更新されると、 setTimeout 内では sid 削除前の状態を
-    // 見てしまい (= 削除済 sid の画像 ref を active 扱いして) GC が無効化される race
-    // があった。 updater 内 snapshot なら sid 削除と active 集合の計算が必ず同 state で
-    // 揃う (= sid 削除前後どちらでも一貫した snapshot)。
-    let activeAfterDelete = null
-    setMessages(prev => {
-      const next = { ...prev }
-      delete next[sid]
-      activeAfterDelete = [...collectActiveImageIds(next)]
-      return next
-    })
-    if (activeAfterDelete) {
-      gcImages(activeAfterDelete).catch(() => {})
-    }
+    // F-1 注: 旧 AppShell では setMessages で sid を dict から落として gcImages を即時呼出して
+    // いたが、 messages / setMessages は ChatPanel が所有するようになったため、 ここでは追加 cleanup
+    // を行わない。 useChatStorage.runMsgSave が sessions 更新を契機に v2 localStorage key を自動
+    // remove するので永続化側は同等。 orphan IDB 画像は ChatPanel 内の起動時 1 回 GC + 次回再起動時
+    // の GC で回収される (= 即時性は失うが整合性は保たれる、 review 確認事項参照)。
   }
 
   // Web Push 購読状態 (= 環境制約・トグル・連打防止) は専用 hook に集約。
-  // W2 Phase E-2: enable/disable トグル UI は SessionDrawer 内蔵 (= usePushSubscription を内製
-  // 呼出) に移行。 AppShell では戻り値を使わないが、 本 hook が持つ visibility / interval ping
-  // の副作用 (= SW subscription auto-resubscribe / sw-broken handling) は drawer 開閉に関係なく
-  // 常駐させたいため、 引数なしで mount 専用に呼出続ける。
   usePushSubscription()
 
-  // IndexedDB 画像の orphan GC: 起動時 1 回 + セッション削除トリガで増分掃除。
-  // dep は [] でよい (= 起動時 1 回しか走らせない、 起動から 5 秒待って messages 確定後に実行)。
-  const messagesRefForGc = useRef(messages)
-  useEffect(() => { messagesRefForGc.current = messages }, [messages])
-  useEffect(() => {
-    const id = setTimeout(() => {
-      gcImages([...collectActiveImageIds(messagesRefForGc.current)]).catch(() => {})
-    }, IMAGE_GC_INITIAL_MS)
-    return () => clearTimeout(id)
-  }, [])
-
-  // 入力欄は active session が無い時だけ disabled。 loading[activeSid] (= 推論中) でも
-  // ユーザーは次に送る文を編集しておけるように許可 — 送信ボタンは loading 中は停止ボタン
-  // に切り替わるので、 推論完了 → 自動で送信ボタンに戻る → ユーザーが押す、 で流れる。
-  const inputDisabled = !activeSid
-
   // F-11 (= 2026-06-21): Terminal を mount する sid を「viewMode='terminal' 経験ある sid」 を
-  // LRU N=3 で cap する (= 旧実装は全 sid 一律 mount で、 hidden 中も WS 受信 + xterm.write
-  // を回し続けて CPU + 電力 + メモリを食う温床)。 chat モードしか使ってない sid は
-  // Terminal 自体 mount しない (= 必要になった瞬間 = viewMode 'terminal' 切替で mount)。
-  // 直近 N 個を温存することで、 「2-3 タブ間を行き来する典型操作」 では再起動コストゼロを
-  // 維持しつつ、 古い tab の Terminal は構造的に手放す。
+  // LRU N=3 で cap する。
   const TERM_MOUNT_LRU = 3
   const [termMountedSids, setTermMountedSids] = useState([])
   useEffect(() => {
@@ -516,6 +177,7 @@ export default function AppShell() {
     })
   }, [activeSid, activeViewMode])
   // session 削除で消えた sid を mount list からも掃除
+  const sids = useMemo(() => sessions.map(s => s.id), [sessions])
   useEffect(() => {
     const live = new Set(sids)
     setTermMountedSids(prev => {
@@ -526,7 +188,6 @@ export default function AppShell() {
 
   return (
     <div className="app">
-      <StatusBar status={status} />
       <StorageWarning
         info={storageInfo}
         dismissed={storageWarnDismissed}
@@ -540,8 +201,7 @@ export default function AppShell() {
         </button>
         <span className="topbar-title">{activeSession?.title || '会話なし'}</span>
         {/* terminal モード時の chat 復帰ボタン: ⋯メニュー経由が hit test 等で詰まっても
-            ここから確実に戻れるよう topbar に独立表示。 chat モード時は出さない
-            (= ターミナル表示への切替は ⋯メニュー側でやる、 戻る経路だけ常駐保証する設計)。 */}
+            ここから確実に戻れるよう topbar に独立表示。 chat モード時は出さない。 */}
         {activeViewMode === 'terminal' && activeSid && (
           <button
             className="topbar-icon-btn"
@@ -553,8 +213,7 @@ export default function AppShell() {
           </button>
         )}
         {/* topbar 右側のアイコン群。 並びは左→右で ⭐ お気に入り → 📋 タスク →
-            🤖 サブエージェント → (📑 plan 承認、 条件付き) → 🖥 モニター。 つまり右からは
-            モニター / サブエージェント / タスク / お気に入りの順 (2026-06-12 確定)。 */}
+            🤖 サブエージェント → (📑 plan 承認、 条件付き) → 🖥 モニター。 */}
         {activeViewMode === 'chat' && activeSid && (
           <button
             className="topbar-icon-btn"
@@ -577,8 +236,6 @@ export default function AppShell() {
             📋
           </button>
         )}
-        {/* サブエージェント (= Task で起動した子 agent) の一覧 + transcript を見るモーダル。
-            親 chat には sidechain を出さないので、 中身を遡りたい時はここから開く。 */}
         {activeViewMode === 'chat' && activeSid && (
           <button
             className="topbar-icon-btn"
@@ -591,12 +248,12 @@ export default function AppShell() {
           </button>
         )}
         {/* ExitPlanMode 承認待ち: 🤖 の隣に常駐する 📑 ボタン。 pending_plan がある時のみ表示、
-            脈動ドットで承認待ちを示し、 タップで PlanApprovalBubble を開く。 旧来の自動全画面
-            overlay は画面を遮るのでやめた (2026-06-04 改修)。 */}
+            脈動ドットで承認待ちを示し、 タップで PlanApprovalBubble (= ChatPanel 内) を開く
+            (= ui.overlays.planOpen 経由)。 */}
         {activeViewMode === 'chat' && activeSid && status?.pending_plan && (
           <button
             className="topbar-icon-btn topbar-plan-btn"
-            onClick={() => setPlanOpen(true)}
+            onClick={() => setOverlay('planOpen', true)}
             aria-label="plan 承認待ち"
             title="plan 承認"
             data-testid="plan-approval-open-button"
@@ -604,9 +261,6 @@ export default function AppShell() {
             📑<span className="topbar-plan-dot" />
           </button>
         )}
-        {/* 画面共有 (= moonlight-web-stream を iframe で埋め込み) ON/OFF。
-            backend で /moonlight/ プロキシが有効な場合 (= Path B セットアップ済) だけ
-            表示。 chat + 通知だけのユーザにはアイコン自体出さない (= 押しても 404)。 */}
         {moonlightAvailable && (
           <button
             className={`screen-toggle ${ui.overlays.desktopOpen ? 'active' : ''}`}
@@ -620,21 +274,10 @@ export default function AppShell() {
         )}
       </header>
 
-      {/* W2 Phase E1: 画面共有 iframe (MoonlightFrame) は OverlayHost 経由で render。
-          AppShell からは個別 LazyBoundary / Suspense / moonlightAvailable gate を撤去、
-          state/ui.js の overlays.desktopOpen + MoonlightFrame 内部の useMoonlightAvailable
-          early return に集約済。 配置 = AppShell render tree 末尾の <OverlayHost />。 */}
-
-      {/* W2 Phase E2: SessionDrawer は OverlayHost 経由 render (= ui.overlays.drawer + Component spec)。 */}
-
-      {/* メッセージ一覧。 .messages は通常 flex-direction: column、 古い→新しい が上→下。
-        起動 / 新着時は useAutoScroll が JS で scrollTop = scrollHeight に送って底辺維持。 */}
-      <div className="messages-container">
-        {/* F-11 改修 (= 2026-06-21): Terminal は「viewMode='terminal' 経験 sid を LRU N=3」
-            に絞って mount。 切替で「起動 1-2 秒」 待ちゼロの旧設計優位性は、 直近 3 sid
-            の温存で実用上保たれる。 非 active な Terminal は display:none + visible={false}
-            で WS は維持しつつ xterm.write を skip (= Terminal 内部で buffer に積み、 復帰時
-            flush)。 chat モードしか触ってない sid は Terminal 自体 mount しない。 */}
+      {/* Terminal LRU mount。 viewMode='terminal' 経験 sid を最大 N 個保持、 active sid だけ表示。
+          旧 AppShell の `<div className="messages-container">` から chat 経路を ChatPanel へ移送した
+          結果、 ここは Terminal 専用 wrapper (= position:relative で absolute 子要素をホスト)。 */}
+      <div style={{ position: 'relative', flex: 1, minHeight: 0, display: activeViewMode === 'terminal' ? 'block' : 'none' }}>
         {termMountedSids.map(sid => {
           const isVisible = activeViewMode === 'terminal' && sid === activeSid
           return (
@@ -650,114 +293,12 @@ export default function AppShell() {
             </div>
           )
         })}
-        {/* chat も Terminal と対称に mount しっぱなしで display 切替する。
-            terminal モードへ行っても DOM が unmount されないので、 戻った時に
-            scroll 位置 / 画像 / プレビューの内部状態がそのまま残る (= 2026-06-16)。 */}
-        <div
-          ref={scrollerDomRef}
-          className="messages"
-          onScroll={onScroll}
-          style={activeViewMode === 'terminal' ? { display: 'none' } : undefined}
-        >
-          {displayMessages.map((msg) => (
-            <MessageItem
-              key={msg.id}
-              msg={msg}
-              onOpenFile={handleOpenPath}
-              onAnswer={handleAnswer}
-              apiKeySource={activeApiKeySource}
-              activeSubagentTool={activeSubagentTool}
-              onOpenSubagents={handleOpenSubagents}
-              onFork={activeSid ? handleFork : null}
-            />
-          ))}
-        </div>
-
-        {activeViewMode !== 'terminal' && showScrollBtn && (
-          <button className="scroll-btn" onClick={() => scrollToBottom()} aria-label="最新メッセージへ">
-            ↓
-            {hasNew && <span className="scroll-dot" />}
-          </button>
-        )}
       </div>
 
-      {currentAttachments.length > 0 && (
-        <div className="attachments-bar" data-testid="attachments-bar">
-          {currentAttachments.map((item, i) => (
-            <div key={i} className="attach-chip">
-              {item.url ? (
-                <img src={item.url} className="attach-thumb" alt="" />
-              ) : (
-                <span className="attach-name">📄 {item.file.name}</span>
-              )}
-              <button className="attach-remove" onClick={() => removeAttachment(activeSid, i)} aria-label="添付を削除">×</button>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* W2 Phase F-1: chat 経路の自己完結 owner。 hidden 制御は ChatPanel 内部で activeViewMode を
+          subscribe して display 切替する (= always mount = chat 状態の lifecycle を保つ)。 */}
+      <ChatPanel sid={activeSid} />
 
-      <ActivityBar status={status} />
-
-      {/* ChatInput は常時 mount。 terminal view では CSS hide で消すだけにする
-          (= 2026-06-22)。 旧実装は条件レンダで unmount していたので、 chat → terminal →
-          chat と戻ると ChatInput 内部 state (= localText) が消えて書きかけが失われていた。 */}
-      <div style={{ display: activeViewMode === 'terminal' ? 'none' : undefined }}>
-        <ChatInput
-          activeSid={activeSid}
-          activeSession={activeSession}
-          input={input}
-          setInput={setInput}
-          inputDisabled={inputDisabled}
-          fileInputRef={fileInputRef}
-          onFileSelect={handleFileSelect}
-          menuRef={menuRef}
-          menuOpen={ui.overlays.menu}
-          setMenuOpen={handleSetMenuOpen}
-          onOpenTree={handleOpenTree}
-          activeViewMode={activeViewMode}
-          onToggleView={handleToggleView}
-          onEndSession={handleEndSessionClick}
-          showStopButton={showStopButton}
-          onStop={handleStopClick}
-          onSend={handleSendClick}
-          currentAttachments={currentAttachments}
-          sendFailedText={sendFailedText}
-          onSendFailedConsumed={handleSendFailedConsumed}
-          stopUnavailable={stopUnavailableSid === activeSid}
-          onStopRecovered={handleStopRecovered}
-        />
-      </div>
-
-      {/* ExitPlanMode 承認プロンプト。 topbar の 📑 ボタンタップで開く明示 open 制御。
-          pending_plan が消えたら自動で閉じる (= 承認が反映されたら片付ける)。 */}
-      {planOpen && status?.pending_plan && (
-        <PlanApprovalBubble
-          pendingPlan={status.pending_plan}
-          onClose={() => setPlanOpen(false)}
-          onChoose={async (key) => {
-            if (!activeSid) return
-            await apiFetch(`/pty/${encodeURIComponent(activeSid)}/send`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text: key, enter: true }),
-            }).catch(() => {})
-            setPlanOpen(false)
-          }}
-        />
-      )}
-
-      <ConfirmDialog
-        open={ui.overlays.confirmEnd}
-        text="このセッションを終了しますか?"
-        onCancel={() => setOverlay('confirmEnd', false)}
-        onConfirm={handleEndSession}
-      />
-      <ConfirmDialog
-        open={ui.overlays.confirmStop}
-        text="推論を停止しますか?"
-        onCancel={() => setOverlay('confirmStop', false)}
-        onConfirm={() => { setOverlay('confirmStop', false); stopMessage() }}
-      />
       <ConfirmDialog
         open={!!ui.overlays.confirmDelete}
         text={
