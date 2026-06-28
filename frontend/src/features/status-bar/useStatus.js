@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { registerConnection, notifyConnectionChange } from '../../hooks/useConnectionStatus.js'
+import { registerConnection, notifyConnectionChange } from '../../transport/connectionStatus.js'
 import { sessionsStatusSse } from '../../transport/sse-sessions-status.ts'
 
 // 全 session の status を transport/sse-sessions-status.ts singleton (= ADR-019) で受信し、
