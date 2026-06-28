@@ -14,8 +14,8 @@
  *     - text frames (JSON): { type: "resize", rows, cols }
  */
 import { useEffect, useRef, useState, useCallback, memo } from 'react'
-import { useTerminal } from '../hooks/useTerminal.js'
-import OnScreenKeyboard from './OnScreenKeyboard.jsx'
+import { useTerminal } from './useTerminal.js'
+import OnScreenKeyboard from '../ios-native/OnScreenKeyboard.jsx'
 
 const DEFAULT_WS_BASE =
   (typeof window !== 'undefined' && window.location.protocol === 'https:'
@@ -95,6 +95,11 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
 
     const connect = (isReconnect = false) => {
       if (cancelled) return
+      // TODO Phase F-terminal-ws: transport/ws-pty.ts ptyTransport.connect(sid, handler) 経由に
+      // 書換。 xterm.js lifecycle (= reset / redraw / Ctrl-L re-attach / exponential backoff) と
+      // ws-pty.ts の heartbeat / state machine を整合させる作業が必要、 W2 物理移送 commit から
+      // 切り出して別 commit で実装。 ADR-018 features → transport 直接 import は許可済。
+      // eslint-disable-next-line no-restricted-syntax
       const ws = new WebSocket(`${wsBase}/ws/pty/${encodeURIComponent(sessionId)}`)
       ws.binaryType = 'arraybuffer'
       wsRef.current = ws

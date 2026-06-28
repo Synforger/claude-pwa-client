@@ -10,7 +10,7 @@
  *   Row 5 (30px): opt ⌘ [space] ← ↑↓ → ⏎              (modifier + space + 矢印 + return)
  *   Row 6 (30px): tab caps ctrl [ ] ; ' , . / \ |       (特殊ターミナルキー)
  */
-import { useKeyboardState } from '../hooks/useKeyboardState.js'
+import { useKeyboardState } from './useKeyboardState.js'
 
 const ROW_1 = [
   { id: '`', label: '`', shiftLabel: '~', width: 1 },
