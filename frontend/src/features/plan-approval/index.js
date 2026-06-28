@@ -1,2 +1,7 @@
+// features/plan-approval 配線 entry。
+
+import { register as registerFeature } from '../../registry/featureRegistry.js'
+
 import './PlanApprovalBubble.jsx'
-// TODO: registerStream('mode', ...) / registerStream('permission_mode', ...) を後続 commit で
+
+registerFeature('plan-approval', { dispatch: () => null })

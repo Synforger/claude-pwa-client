@@ -1,2 +1,7 @@
+// features/subagents 配線 entry。
+
+import { register as registerOverlay } from '../../registry/overlayRegistry.js'
+
 import './SubagentsModal.jsx'
-// TODO: registerOverlay('subagents', { dispatch: ... }) を後続 commit で
+
+registerOverlay('subagents', { dispatch: () => null })
