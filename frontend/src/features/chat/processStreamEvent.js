@@ -1,7 +1,7 @@
 import { generateId } from '../../utils/id.js'
 import { formatTool } from '../../utils/format.js'
 import { MAX_MESSAGES } from '../../constants.js'
-import { getMessageEntry } from '../../messageRegistry.js'
+import { getEntry as getMessageEntry } from '../../registry/messageRegistry.js'
 
 // SSE イベント (1 行 JSON) を受け取って、buffer / messages state に反映する純粋関数。
 // 副作用は deps 経由で渡された setter / ref で行う (テスト時に差し替え可能)。
