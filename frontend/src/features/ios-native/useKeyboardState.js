@@ -4,7 +4,7 @@
  * Adapted from clsh (https://github.com/my-claude-utils/clsh), MIT. TS → JS に移植。
  */
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { keyToEscapeSequence } from '../utils/keyboard.js'
+import { keyToEscapeSequence } from '../../utils/keyboard.js'
 
 const FLASH_DURATION = 150
 const REPEAT_DELAY = 400      // 連続入力が始まるまでの遅延 (ms)

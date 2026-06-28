@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import MessageRenderer from './MessageRenderer.jsx'
 import AskUserQuestionBubble from '../ask-user-question/AskUserQuestionBubble.jsx'
-import AttachedImages from '../../components/AttachedImages.jsx'
+import AttachedImages from '../attachments/AttachedImages.jsx'
 import { getMessageEntry } from '../../messageRegistry.js'
 import { formatToolResultContent, formatCost, formatDuration, formatModelName, formatTokens } from '../../utils/format.js'
 import { diffLines, compactDiff } from '../../utils/diff.js'

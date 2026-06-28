@@ -1,5 +1,5 @@
 import { memo, useEffect, useState } from 'react'
-import { getImageURL } from '../utils/imageStore.js'
+import { getImageURL } from './imageStore.js'
 import './AttachedImages.css'
 
 // user メッセージの画像表示。 imageRefs (= IndexedDB の ID 配列) から URL を取り出し、

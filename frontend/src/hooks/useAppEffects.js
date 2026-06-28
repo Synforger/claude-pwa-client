@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LS_SESSION_ACTIVITY } from '../constants.js'
 import { apiFetch } from '../utils/api.js'
 import { lsGet, lsSet, lsSetDebounced } from '../utils/storage.js'
-import { clearAllNotifications } from '../utils/badge.js'
+import { clearAllNotifications } from '../features/push-notify/badge.js'
 
 
 // --- session を開いた時に既読化 (= backend 側の通知履歴を消す) ---
