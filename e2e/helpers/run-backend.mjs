@@ -28,6 +28,14 @@ mkdirSync(DATA_DIR, { recursive: true })
 mkdirSync(LOGS_DIR, { recursive: true })
 mkdirSync(SECRETS_DIR, { recursive: true, mode: 0o700 })
 
+// Isolate the e2e account's claude config dir to fixtures/_runtime/.claude
+// so the resolved projects dir is fixtures/_runtime/.claude/projects, NOT
+// the operator's real ~/.claude/projects. Without this override
+// backend.config._projects_dirs_from_accounts falls back to $HOME/.claude
+// and the seed channel happily writes JSONL into the real chat tree.
+const E2E_CLAUDE_DIR = resolve(RUNTIME, '.claude')
+mkdirSync(E2E_CLAUDE_DIR, { recursive: true })
+
 const config = {
   agents: {
     agent_e2e: {
@@ -38,7 +46,10 @@ const config = {
     },
   },
   accounts: {
-    e2e: { display_name: 'E2E', env: {} },
+    e2e: {
+      display_name: 'E2E',
+      env: { CLAUDE_CONFIG_DIR: E2E_CLAUDE_DIR },
+    },
   },
   claude_path: '/usr/bin/true',
   cors_allow_origins: ['*'],
