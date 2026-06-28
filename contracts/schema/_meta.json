@@ -29,7 +29,7 @@
         "items": { "$ref": "#/$defs/fieldSchema" },
         "properties": { "type": "object", "additionalProperties": { "$ref": "#/$defs/fieldSchema" } },
         "required": { "type": "array", "items": { "type": "string" } },
-        "additionalProperties": { "type": "boolean" },
+        "additionalProperties": { "oneOf": [ { "type": "boolean" }, { "$ref": "#/$defs/fieldSchema" } ] },
         "oneOf": { "type": "array", "items": { "$ref": "#/$defs/fieldSchema" } },
         "anyOf": { "type": "array", "items": { "$ref": "#/$defs/fieldSchema" } },
         "format": { "type": "string" },
