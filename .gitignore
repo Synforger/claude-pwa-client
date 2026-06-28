@@ -3,6 +3,8 @@ backend/config.json
 backend/session_meta.json
 backend/vapid.json
 backend/subscriptions.json
+backend/sessions.json
+backend/sessions.json.*
 backend/data/
 backend/secrets/
 /.env
@@ -20,3 +22,4 @@ logs/
 # 例外: 公開リポ運用に直接使うツール (= 例 ws-pty-smoketest.py) は明示 unignore。
 scripts/*
 !scripts/ws-pty-smoketest.py
+!scripts/healthcheck.sh
