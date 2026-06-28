@@ -107,3 +107,67 @@ export function getAllSseStates(): Record<string, State> {
 export function listSseNames(): string[] {
   return Array.from(REGISTRY.keys())
 }
+
+// ----- per-sid SSE (= ADR-019 拡張、 W2 Phase F-subagents 発端) -----
+// 静的 path (= /sessions/overview/stream) と違い、 /sessions/{sid}/subagents/stream は sid によって
+// URL が変わる。 全 sid の singleton を起動時に立てるのは無駄なので、 sid 単位で lazy 起動 + 参照
+// カウンタで自動 close する factory を別途用意する。
+
+interface PerSidSseFactory {
+  /** sid で SSE を立てて handler を貼る。 同 sid 再 subscribe は idempotent (= 同 EventSource を共有)。 */
+  subscribe(sid: string, handler: Handler): () => void
+}
+
+interface PerSidOptions {
+  name: string
+  /** sid を埋め込む path template (= 例 '/sessions/{sid}/subagents/stream')。 `{sid}` を encodeURIComponent(sid) で置換。 */
+  pathTemplate: string
+  transform?: (raw: unknown) => unknown
+}
+
+const PER_SID_REGISTRY = new Map<string, PerSidFactoryInternal>()
+interface PerSidFactoryInternal {
+  name: string
+  pathTemplate: string
+  conns: Map<string, { instance: SseInstance; refs: number }>
+}
+
+export function createPerSidSseSubscriber(opts: PerSidOptions): PerSidSseFactory {
+  const meta: PerSidFactoryInternal = { name: opts.name, pathTemplate: opts.pathTemplate, conns: new Map() }
+  PER_SID_REGISTRY.set(opts.name, meta)
+
+  function subscribe(sid: string, handler: Handler): () => void {
+    let entry = meta.conns.get(sid)
+    if (!entry) {
+      const instance = createSseSubscriber({
+        name: `${opts.name}:${sid}`,
+        path: opts.pathTemplate.replace('{sid}', encodeURIComponent(sid)),
+        transform: opts.transform,
+      })
+      entry = { instance, refs: 0 }
+      meta.conns.set(sid, entry)
+    }
+    entry.refs += 1
+    const unsub = entry.instance.subscribe(handler)
+    return () => {
+      unsub()
+      entry.refs -= 1
+      if (entry.refs <= 0) {
+        entry.instance.stop()
+        meta.conns.delete(sid)
+      }
+    }
+  }
+
+  return { subscribe }
+}
+
+/** observability 用: per-sid factory ごとに sid 一覧と state を返す。 */
+export function getAllPerSidSseStates(): Record<string, Record<string, State>> {
+  const out: Record<string, Record<string, State>> = {}
+  for (const [name, meta] of PER_SID_REGISTRY.entries()) {
+    out[name] = {}
+    for (const [sid, entry] of meta.conns.entries()) out[name][sid] = entry.instance.state
+  }
+  return out
+}
