@@ -1,4 +1,4 @@
-import './FileTreePanel.css'
+import '../file-tree/FileTreePanel.css'
 import './TasksModal.css'
 
 const STATUS_MARK = {
