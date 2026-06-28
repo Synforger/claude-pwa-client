@@ -5,6 +5,7 @@
 // history is never touched. SIGINT / SIGTERM tear the child down cleanly.
 import { spawn } from 'node:child_process'
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -65,24 +66,45 @@ const env = {
   PYTHONUNBUFFERED: '1',
 }
 
-const useConda = !process.env.CPC_E2E_NO_CONDA
-const args = useConda
-  ? ['run', '--no-capture-output', '-n', 'pwa-client',
-     'uvicorn', 'backend.main:app', '--host', '127.0.0.1', '--port', PORT]
-  : ['-m', 'uvicorn', 'backend.main:app', '--host', '127.0.0.1', '--port', PORT]
-const cmd = useConda ? 'conda' : 'python3'
+// Single-stage spawn: resolve the python binary up front so SIGTERM reaches
+// uvicorn directly. `conda run` adds an opaque shim layer that swallows
+// signals (= orphans uvicorn on teardown), so we bypass it.
+//
+// Resolution order:
+//   1. $CPC_E2E_PYTHON                       (= explicit override)
+//   2. $CONDA_PREFIX_PWA_CLIENT/bin/python3  (= conda env path env override)
+//   3. miniforge3/envs/pwa-client/bin/python3.11 / python3 (= conventional)
+//   4. `python3` on PATH                     (= last resort)
+const candidates = [
+  process.env.CPC_E2E_PYTHON,
+  process.env.CONDA_PREFIX_PWA_CLIENT && `${process.env.CONDA_PREFIX_PWA_CLIENT}/bin/python3`,
+  `${homedir()}/miniforge3/envs/pwa-client/bin/python3.11`,
+  `${homedir()}/miniforge3/envs/pwa-client/bin/python3`,
+  `${homedir()}/miniconda3/envs/pwa-client/bin/python3`,
+  `${homedir()}/anaconda3/envs/pwa-client/bin/python3`,
+].filter(Boolean)
+const pythonBin = candidates.find((p) => existsSync(p)) || 'python3'
 
-const child = spawn(cmd, args, {
+const child = spawn(pythonBin, [
+  '-m', 'uvicorn', 'backend.main:app',
+  '--host', '127.0.0.1', '--port', PORT,
+], {
   cwd: REPO_ROOT,
   env,
   stdio: ['ignore', 'inherit', 'inherit'],
 })
 
+let shuttingDown = false
 const shutdown = (sig) => {
+  if (shuttingDown) return
+  shuttingDown = true
   try { child.kill(sig) } catch (_) { /* benign: child already gone */ }
+  // hard fallback if uvicorn ignores SIGTERM (= during long shutdown hooks)
+  setTimeout(() => { try { child.kill('SIGKILL') } catch (_) {} }, 5_000).unref()
 }
 process.on('SIGINT', () => shutdown('SIGINT'))
 process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('exit', () => { try { child.kill('SIGTERM') } catch (_) {} })
 
 child.on('exit', (code, sig) => {
   process.exitCode = code ?? (sig ? 1 : 0)
