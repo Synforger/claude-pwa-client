@@ -1,0 +1,124 @@
+# Lifecycle schema (= 全 transport の状態遷移真値)
+#
+# scope:
+#   - SSE (= jsonl_chat / sessions_status / sessions_overview / subagents_stream) + WS (= pty / views) の状態機械
+#   - reconnect / bg→fg / kill 復帰 / heartbeat / iOS BFCache の transition を機械可読化
+#   - frontend/src/transport/lifecycle.js が本 yaml の transition に従って実装される真値
+#
+# 採用 ADR:
+#   - ADR-013: heartbeat 25s + timeout 60s、 beforeunload 廃止 + pageshow.persisted 採用 (= BFCache 対応)
+#   - ADR-012: corr_id (= W3C traceparent) は全 transport 共通の log 結合 key
+#
+# 状態名規約:
+#   - idle: 接続前 (= init)
+#   - connecting: open 要求送信中
+#   - open: 確立済 + 通常通信中
+#   - degraded: heartbeat 不在 / pong timeout 等で異常検知中
+#   - reconnecting: close 後 backoff 待ち
+#   - closed: 意図的 close (= bg 遷移 / unmount)
+
+kind: lifecycle
+version: "1.0"
+schema_version: "1.0"
+
+transports:
+
+  sse_jsonl:
+    description: "/jsonl/stream/all (= 全 session 統合 chat、 F-15 到達点) + /jsonl/stream/{sid} (= 単一 session)。 同設計"
+    states: [idle, connecting, open, reconnecting, closed]
+    transitions:
+      - { from: idle,         to: connecting,   trigger: "EventSource open()" }
+      - { from: connecting,   to: open,         trigger: "onopen" }
+      - { from: connecting,   to: reconnecting, trigger: "onerror with readyState=CLOSED", action: "auto-reconnect (= EventSource default 3s)" }
+      - { from: open,         to: reconnecting, trigger: "onerror with readyState=CLOSED", action: "Last-Event-ID で byte offset 差分復帰" }
+      - { from: reconnecting, to: connecting,   trigger: "backoff elapsed", timeout_ms: 3000 }
+      - { from: open,         to: closed,       trigger: "es.close() (= bg/unmount)" }
+      - { from: open,         to: open,         trigger: "cpc:fg event", action: "sse.bumpReconnect() で接続作り直し" }
+    invariants:
+      - "lastEventId に 'sid:offset' 形式で per-sid 差分位置を記録"
+      - "iOS 7-day storage cap で offset 消失時は backend が「初回扱い + uuid dedup」 fallback で構造耐性"
+      - "未定義 event 型は graceful handle (= log warn + 描画 skip、 throw 禁止、 ADR-011)"
+      - "schema_version 不一致時も graceful handle"
+
+  sse_sessions_status:
+    description: "/sessions/status/stream (= 全 sid status snapshot)"
+    states: [idle, connecting, open, reconnecting, closed]
+    transitions:
+      - { from: idle,         to: connecting,   trigger: "EventSource open()" }
+      - { from: connecting,   to: open,         trigger: "onopen" }
+      - { from: open,         to: reconnecting, trigger: "onerror", action: "auto-reconnect、 full snapshot で収束性確保" }
+      - { from: reconnecting, to: connecting,   trigger: "backoff elapsed", timeout_ms: 3000 }
+      - { from: open,         to: closed,       trigger: "es.close()" }
+    invariants:
+      - "snapshot 配信 (= 差分でなく毎回 full)、 reconnect 直後でも状態整合"
+
+  sse_sessions_overview:
+    description: "/sessions/overview/stream (= busy / pending_question)"
+    states: [idle, connecting, open, reconnecting, closed]
+    transitions:
+      - { from: idle,         to: connecting,   trigger: "EventSource open()" }
+      - { from: connecting,   to: open,         trigger: "onopen" }
+      - { from: open,         to: reconnecting, trigger: "onerror" }
+      - { from: reconnecting, to: connecting,   trigger: "backoff elapsed", timeout_ms: 3000 }
+      - { from: open,         to: closed,       trigger: "es.close()" }
+    invariants:
+      - "optimisticRef で 'busy 未解消' stuck 防止 (= 旧 bug の構造対策)"
+      - "snapshot 配信 (= 差分でなく毎回 full)"
+
+  ws_pty:
+    description: "/ws/pty/{sid} (= xterm.js PTY 制御、 heartbeat 必須、 ADR-013)"
+    states: [idle, connecting, open, degraded, reconnecting, closed]
+    transitions:
+      - { from: idle,         to: connecting,   trigger: "WebSocket open()" }
+      - { from: connecting,   to: open,         trigger: "onopen", action: "startHeartbeat (= 25s 間隔 ping)" }
+      - { from: open,         to: degraded,     trigger: "lastPong age > 60s", action: "log warn (= dead-but-OPEN 検知)" }
+      - { from: degraded,     to: reconnecting, trigger: "force close ws.close(4000, 'heartbeat-timeout')" }
+      - { from: open,         to: reconnecting, trigger: "onclose code != 1000" }
+      - { from: reconnecting, to: connecting,   trigger: "exponential backoff elapsed (= 500ms → 10s with jitter)" }
+      - { from: open,         to: closed,       trigger: "意図 close (= unmount)" }
+      - { from: open,         to: open,         trigger: "cpc:fg event", action: "features/terminal が force reconnect" }
+    invariants:
+      - "heartbeat = client ping 25s 間隔 + server pong 即返、 60s pong 不在で force reconnect (= ADR-013)"
+      - "再接続時は terminal reset + Ctrl-L 送信で TUI 自力描画"
+      - "binary frame は xterm.js writeUtf8 直渡し (= UTF-8 multi-byte boundary 安全)"
+
+  ws_views:
+    description: "/views/ws (= activeSid realtime sync、 visible 中のみ接続)"
+    states: [idle, connecting, open, reconnecting, closed]
+    transitions:
+      - { from: idle,         to: connecting,   trigger: "document.visibilitychange == visible" }
+      - { from: connecting,   to: open,         trigger: "onopen", action: "現在の activeSid を即送信" }
+      - { from: open,         to: reconnecting, trigger: "onerror (= visible 中の異常切断)" }
+      - { from: reconnecting, to: connecting,   trigger: "backoff elapsed", timeout_ms: 3000 }
+      - { from: open,         to: closed,       trigger: "document.visibilitychange == hidden (= bg 遷移)" }
+      - { from: closed,       to: connecting,   trigger: "document.visibilitychange == visible (= fg 復帰)" }
+    invariants:
+      - "visible 中のみ接続、 bg では接続自体しない (= サーバ負荷 + バッテリー対策)"
+      - "heartbeat なし (= 接続自体が visible signal)"
+      - "activeSid 変化時に即新 sid を送信 (= タブ切替 0 遅延の前提)"
+
+  http_send:
+    description: "POST /pty/{sid}/send (= 送信成功判定の lifecycle)"
+    states: [pending, delivered, timeout, error]
+    transitions:
+      - { from: pending,   to: delivered, trigger: "user_message event の user_prompt count 増 + JSONL flush wait" }
+      - { from: pending,   to: timeout,   trigger: "15s 経過 (= SEND_TIMEOUT)", timeout_ms: 15000 }
+      - { from: pending,   to: error,     trigger: "HTTP 4xx / 5xx" }
+    invariants:
+      - "frontend は楽観的に user bubble 表示、 timeout / error で revert + 赤表示"
+      - "delivered 判定は backend confirm.py (= line count + wait)"
+      - "SEND_TIMEOUT 中の SSE で同 text の user_message が来たら delivered 扱い (= 楽観 revert 防止、 6bd5b1f 修正経路)"
+
+  page_lifecycle:
+    description: "ブラウザ page lifecycle (= visibility / pagehide / pageshow / freeze、 BFCache 対応、 ADR-013)"
+    states: [visible, hidden, frozen, bfcache]
+    transitions:
+      - { from: visible,  to: hidden,   trigger: "document.visibilitychange == hidden", action: "sse.flushOffsets + wsViews.stop + dispatch cpc:bg" }
+      - { from: hidden,   to: visible,  trigger: "document.visibilitychange == visible", action: "sse.bumpReconnect + wsViews.start + dispatch cpc:fg" }
+      - { from: hidden,   to: frozen,   trigger: "freeze event", action: "sse.flushOffsets" }
+      - { from: hidden,   to: bfcache,  trigger: "pagehide with persisted=true", action: "sse.flushOffsets (= wsViews は close しない、 復帰を待つ)" }
+      - { from: bfcache,  to: visible,  trigger: "pageshow with persisted=true", action: "transport rebuild 必須 (= sse.bumpReconnect + wsViews.start + dispatch cpc:fg)" }
+    invariants:
+      - "beforeunload listener 廃止 (= BFCache 阻害、 ADR-013)"
+      - "pagehide で wsViews.stop するのは persisted=false の時のみ"
+      - "BFCache 復帰時は EventSource / WebSocket とも frozen 状態のため必ず rebuild"

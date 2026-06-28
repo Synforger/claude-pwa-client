@@ -1,0 +1,2 @@
+{"type": "weird_event_we_dont_know", "uuid": "x-0001", "payload": "this event type is intentionally not in sse-events.yaml"}
+{"type": "another_undefined_kind", "uuid": "x-0002", "blob": {"nested": true}}

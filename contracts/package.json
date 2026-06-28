@@ -7,6 +7,8 @@
   "scripts": {
     "validate": "node codegen/validate.mjs",
     "validate:strict": "node codegen/validate.mjs --strict",
+    "validate:negative": "node codegen/validate-negative.mjs",
+    "validate:all": "npm run validate && npm run validate:negative",
     "codegen:types": "node codegen/gen-types.mjs"
   },
   "devDependencies": {

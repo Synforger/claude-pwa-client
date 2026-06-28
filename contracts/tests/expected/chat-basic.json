@@ -1,0 +1,27 @@
+{
+  "_description": "chat-basic.jsonl 入力に対する期待 SSE event 列。 sid + corr_id は backend SSE pump が付与するため fixture には含めない (= Phase 3 backend test 側で「sid と corr_id が 必ず 付いてる」 ことを assert する)。",
+  "events": [
+    {
+      "type": "user_message",
+      "uuid": "u-0001",
+      "text": "Hello, claude."
+    },
+    {
+      "type": "assistant",
+      "uuid": "msg_01",
+      "message": {
+        "content": [
+          { "type": "text", "text": "Hi! How can I help?" }
+        ]
+      }
+    },
+    {
+      "type": "result",
+      "stop_reason": "end_turn",
+      "usage": { "input_tokens": 12, "output_tokens": 8 },
+      "modelUsage": { "claude-opus-4-7": {} },
+      "is_error": false,
+      "stop_details": null
+    }
+  ]
+}
