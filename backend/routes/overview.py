@@ -314,6 +314,8 @@ async def views_ws(ws: WebSocket):
             else:
                 views_by_conn.pop(conn_id, None)
     except WebSocketDisconnect:
+        # benign: normal client-side close of /views/ws; the finally clause below
+        # removes our entry from views_by_conn, no further bookkeeping needed.
         pass
     finally:
         views_by_conn.pop(conn_id, None)

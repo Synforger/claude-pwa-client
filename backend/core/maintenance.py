@@ -87,6 +87,8 @@ def cleanup_stale_tmux_sessions() -> int:
             logger.info("maintenance: killed stale tmux session %s", name)
             killed += 1
         except (subprocess.TimeoutExpired, OSError):
+            # benign: best-effort cleanup of stale tmux session; if subprocess timed out
+            # or tmux is already gone we skip this iteration and keep purging the rest.
             pass
     return killed
 
@@ -147,6 +149,8 @@ def cleanup_idle_pwa_sessions(idle_days: int = IDLE_SESSION_KILL_DAYS) -> int:
             )
             killed += 1
         except (subprocess.TimeoutExpired, OSError):
+            # benign: best-effort kill of idle pwa session; subprocess errors mean the
+            # tmux pane is already gone — continue with the next candidate.
             pass
     return killed
 
@@ -180,6 +184,8 @@ def cleanup_stale_statusline_map() -> int:
             logger.info("maintenance: removed stale statusline map %s", f.name)
             removed += 1
         except OSError:
+            # benign: best-effort unlink of stale statusline file; race with another writer
+            # or read-only fs is harmless — leave it for the next maintenance tick.
             pass
     return removed
 
@@ -247,6 +253,8 @@ def cleanup_old_jsonl(
                 )
                 continue
             except OSError:
+                # benign: JSONL unlink race with the watcher; if removal fails, keep the
+                # file in the survivor set and try again on the next gc pass.
                 pass
         survivors.append((f, mt, sz))
     # Step 2: 残量が全体 quota 超なら古い方から削除 (bound は除外)
@@ -265,6 +273,8 @@ def cleanup_old_jsonl(
                 f.name, sz // 1024, total // (1024 * 1024),
             )
         except OSError:
+            # benign: deleting oldest JSONL hit a race; skip and continue collapsing the
+            # quota — next pass will retry the same file.
             pass
     if deleted:
         logger.info("jsonl gc: total %d files deleted", deleted)
