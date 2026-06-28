@@ -30,7 +30,6 @@ import Topbar from '../features/topbar/Topbar.jsx'
 import StorageWarningHost from '../features/status-bar/StorageWarningHost.jsx'
 import AppEffects from '../features/app-effects/AppEffects.jsx'
 import '../App.css'
-import './StorageWarning.css'
 
 export default function Layout() {
   // ChatPanel / TerminalPane は always-mount + 内部 display:none gate (= Phase F-1, F-2 確定方針、
