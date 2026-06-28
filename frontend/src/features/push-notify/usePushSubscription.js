@@ -31,7 +31,7 @@ import {
   isStandalone,
   isMobileSafari,
   isPushEnabledLocally,
-} from '../utils/push.js'
+} from './push.js'
 
 async function detectActualSubscription() {
   try {
