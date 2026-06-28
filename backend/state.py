@@ -472,11 +472,16 @@ class JsonlEventBroadcaster:
             try:
                 q.put_nowait(event)
             except asyncio.QueueFull:
+                # benign: subscriber is too slow; dropping events for that one consumer is
+                # intentional (= broadcaster is fan-out best-effort, fast subscribers must
+                # not be penalized). The consumer eventually reconnects + replays via file.
                 pass
         for q in list(self._subs.get(ALL_SUBSCRIBER_KEY, ())):
             try:
                 q.put_nowait(event)
             except asyncio.QueueFull:
+                # benign: same as the per-sid branch above — drop for the slow consumer
+                # only, let the rest receive the event.
                 pass
 
     def subscriber_count(self, key: str) -> int:
