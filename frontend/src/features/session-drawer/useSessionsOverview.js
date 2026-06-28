@@ -20,35 +20,23 @@
  * busy=false を強制 + 全 client に push するので、 frontend 側で別フラグは持たない。
  */
 import { useEffect, useRef } from 'react'
-import { apiUrl } from '../utils/api.js'
-import { applyOverviewSnapshot } from './internal/applyOverviewSnapshot.js'
-import { registerConnection, notifyConnectionChange } from './useConnectionStatus.js'
+import { applyOverviewSnapshot } from './applyOverviewSnapshot.js'
+import { registerConnection, notifyConnectionChange } from '../../hooks/useConnectionStatus.js'
+import { sessionsOverviewSse } from '../../transport/sse-sessions-overview.ts'
 
 export function useSessionsOverview({ setLoading, optimisticRef, onPayloadRef }) {
-  const esRef = useRef(null)
+  const liveRef = useRef(false)
   useEffect(() => {
-    const es = new EventSource(apiUrl('/sessions/overview/stream'))
-    esRef.current = es
-    const unreg = registerConnection(() => {
-      const e = esRef.current
-      return !!e && e.readyState === 1
-    })
-    es.onopen = () => notifyConnectionChange()
-    es.onmessage = (e) => {
+    // /sessions/overview/stream は transport/sse-sessions-overview.ts singleton が所有 (= ADR-019)。
+    // ここは subscribe するだけ、 EventSource lifecycle / 再接続 / state は transport 側で扱う。
+    const unreg = registerConnection(() => liveRef.current)
+    const unsub = sessionsOverviewSse.subscribe(payload => {
+      liveRef.current = true
       notifyConnectionChange()
-      if (!e.data) return
-      let payload
-      try {
-        payload = JSON.parse(e.data)
-      } catch {
-        return
-      }
       setLoading(prev => applyOverviewSnapshot(prev, payload, optimisticRef))
       // last_seen_at 等の追加 field を別 hook に流すための副経路 (= 未読同期、 2026-06-10 追加)。
-      // ref 経由なので payload 受け取り側の hook が後段で wire される構成に対応できる。
       if (onPayloadRef?.current) onPayloadRef.current(payload)
-    }
-    es.onerror = () => notifyConnectionChange() /* EventSource は自動再接続 */
-    return () => { unreg(); es.close(); esRef.current = null }
+    })
+    return () => { unreg(); unsub(); liveRef.current = false }
   }, [setLoading, optimisticRef, onPayloadRef])
 }

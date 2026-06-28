@@ -16,8 +16,8 @@ import { useAttachments } from './hooks/useAttachments.js'
 import { useChatStorage } from './features/chat/useChatStorage.js'
 import { useAutoScroll } from './hooks/useAutoScroll.js'
 import { useChatStream } from './features/chat/useChatStream.js'
-import { useSessionsOverview } from './hooks/useSessionsOverview.js'
-import { useSessions } from './hooks/useSessions.js'
+import { useSessionsOverview } from './features/session-drawer/useSessionsOverview.js'
+import { useSessions } from './features/session-drawer/useSessions.js'
 import { useStorageQuota } from './hooks/useStorageQuota.js'
 import {
   useReadOnSessionOpen,
@@ -127,7 +127,7 @@ const FileTreePanel = lazy(() => import('./overlays/FileTreePanel.jsx'))
 const FavoritesQuickPicker = lazy(() => import('./overlays/FavoritesQuickPicker.jsx'))
 const TasksModal = lazy(() => import('./overlays/TasksModal.jsx'))
 // SessionDrawer は drawerOpen=true の時のみ render = 遅延 load 妥当 (= 初回 paint 早く)
-const SessionDrawer = lazy(() => import('./overlays/SessionDrawer.jsx'))
+const SessionDrawer = lazy(() => import('./features/session-drawer/SessionDrawer.jsx'))
 // 画面共有 (= moonlight-web-stream を iframe 埋め込み)。 開いた時だけ load。
 const MoonlightFrame = lazy(() => import('./components/MoonlightFrame.jsx'))
 

@@ -3,9 +3,9 @@ import {
   LS_ACTIVE_SESSION,
   LS_LEGACY_ACTIVE_AGENT,
   LS_SESSIONS_META,
-} from '../constants.js'
-import { apiFetch } from '../utils/api.js'
-import { lsGet, lsSet } from '../utils/storage.js'
+} from '../../constants.js'
+import { apiFetch } from '../../utils/api.js'
+import { lsGet, lsSet } from '../../utils/storage.js'
 
 // セッション (= UI 上の 1 タブ = 1 議題) のリストと、 現在 active な session_id を管理する。
 // backend `/sessions` を真値とし、 起動時に GET でローカルの localStorage と同期する。

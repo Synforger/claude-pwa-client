@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { apiFetch } from '../utils/api.js'
-import { useOutsideClick } from '../hooks/useOutsideClick.js'
+import { apiFetch } from '../../utils/api.js'
+import { useOutsideClick } from '../../hooks/useOutsideClick.js'
 import './SessionDrawer.css'
 
 // ⋯ メニューを押した時、 viewport 下端からどれくらい離れていれば「上方向に展開する」 と
