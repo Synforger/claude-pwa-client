@@ -21,7 +21,7 @@
  */
 import { useEffect, useRef } from 'react'
 import { applyOverviewSnapshot } from './applyOverviewSnapshot.js'
-import { registerConnection, notifyConnectionChange } from '../../hooks/useConnectionStatus.js'
+import { registerConnection, notifyConnectionChange } from '../../transport/connectionStatus.js'
 import { sessionsOverviewSse } from '../../transport/sse-sessions-overview.ts'
 
 export function useSessionsOverview({ setLoading, optimisticRef, onPayloadRef }) {
