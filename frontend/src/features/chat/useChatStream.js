@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
-import { LS_JSONL_OFFSET } from '../constants.js'
-import { apiFetch, apiUrl } from '../utils/api.js'
-import { lsGet, lsSet } from '../utils/storage.js'
-import { generateId } from '../utils/id.js'
-import { useStreamBuffer } from './internal/useStreamBuffer.js'
-import { processStreamEvent } from './internal/processStreamEvent.js'
-import { reconcileUserMessage } from './internal/reconcileUserMessage.js'
-import { useConnectionStatus } from './useConnectionStatus.js'
+import { LS_JSONL_OFFSET } from '../../constants.js'
+import { apiFetch } from '../../utils/api.js'
+import { lsGet, lsSet } from '../../utils/storage.js'
+import { generateId } from '../../utils/id.js'
+import { useStreamBuffer } from './useStreamBuffer.js'
+import { processStreamEvent } from './processStreamEvent.js'
+import { reconcileUserMessage } from './reconcileUserMessage.js'
+import { useConnectionStatus } from '../../hooks/useConnectionStatus.js'
+import { sseTransport } from '../../transport/sse.ts'
 
 // session_id → JSONL byte offset の永続化。 タブ切替 / リロードを跨いで「ここまで読んだ」 を
 // 保持し、 新規 EventSource 接続時に `?from=<sid>:<offset>,...` で渡す (= F-15)。 backend は
@@ -24,18 +25,8 @@ function persistOffsets(offsets) {
   lsSet(LS_JSONL_OFFSET, offsets)
 }
 
-// `{sid: offset}` → `sid1:off1,sid2:off2,...` query string (= /jsonl/stream/all の ?from)。
-// null / undefined / 非整数値の sid は skip (= backend が初回扱いで _initial_offset を使う)。
-function buildFromQuery(offsets) {
-  const parts = []
-  for (const [sid, off] of Object.entries(offsets || {})) {
-    if (!sid) continue
-    const n = Number(off)
-    if (!Number.isFinite(n) || n < 0) continue
-    parts.push(`${sid}:${Math.floor(n)}`)
-  }
-  return parts.join(',')
-}
+// (= 旧 buildFromQuery / apiUrl 直書きは transport/sse.ts singleton に移管済、 v2 では本 file は
+//   subscribe するだけで offset / ?from query 組立を持たない)。
 
 // chat 1 セッションの送受信・状態管理を束ねる公開フック (= TUI / JSONL 版)。
 //
@@ -155,60 +146,19 @@ export function useChatStream({
   // 経由) のみ。 event 振分は event.sid を真値とし、 setMessages は event.sid 別キーに対して
   // 行う (= activeSession 以外の sid も backend が publish 次第 frontend に反映される、
   // useStreamBuffer も Map 化済で sid 並走 OK)。
+  // F-15 統合 SSE は v2 では transport/sse.ts (= sseTransport singleton) が所有する。
+  // offset 管理 + EventSource 再接続 + sid 別 dispatch は本 transport が担当、 ここは
+  // subscribe するだけ (= ADR-010 ports/transport 経由、 ADR-012 corr_id envelope global required).
+  // 旧 cpc_jsonl_offset (= v1 offsetRef + persistOffsets) は v2 transport/sse.ts 内で
+  // cpc_v2_jsonl_offsets に移管済、 useChatStream 内の offsetRef は当面残置 (= 後続 v2 state 連携
+  // 深化で state/transport.js の offsets に統合予定、 現状は dead だが無害)。
   useEffect(() => {
-    const from = buildFromQuery(offsetRef.current)
-    const url = from
-      ? apiUrl(`/jsonl/stream/all?from=${encodeURIComponent(from)}`)
-      : apiUrl('/jsonl/stream/all')
-    const es = new EventSource(url)
-    es.onmessage = (e) => {
-      // SSE id は `<sid>:<pos>` 形式。 backend が live publish 時に同 id を送ってくる
-      // (= EventSource の自動再接続は Last-Event-ID 1 件しか戻せないが、 ?from は frontend
-      // 側 offsetRef を真値として再構築するので、 ここでは offsetRef を都度更新する)。
-      if (e.lastEventId && e.lastEventId.includes(':')) {
-        const idx = e.lastEventId.lastIndexOf(':')
-        const evSid = e.lastEventId.slice(0, idx)
-        const evPos = e.lastEventId.slice(idx + 1)
-        const n = Number(evPos)
-        if (evSid && Number.isFinite(n) && n >= 0) {
-          offsetRef.current[evSid] = Math.floor(n)
-          // 連続イベントで毎回 localStorage write すると重いので 1s debounce。
-          if (offsetPersistTimerRef.current) clearTimeout(offsetPersistTimerRef.current)
-          offsetPersistTimerRef.current = setTimeout(() => {
-            offsetPersistTimerRef.current = null
-            persistOffsets(offsetRef.current)
-          }, 1000)
-        }
-      }
-      if (!e.data) return
-      let event
-      try {
-        event = JSON.parse(e.data)
-      } catch {
-        return
-      }
-      // event.sid は backend が monitor 経路で必ず埋める (= jsonl_routes._process_new_lines
-      // 内 event.setdefault("sid", sid))。 万一欠落していたら現 activeSid に振る (= 旧挙動と
-      // 互換、 replay event は backend 側で sid を埋め済)。
+    const unsub = sseTransport.subscribe(event => {
       const evSid = event.sid || sid
       if (!evSid) return
       handleEventRef.current?.(evSid, event)
-    }
-    es.onerror = () => {
-      // EventSource は通常自動再接続するが readyState===2 (CLOSED) は永久死亡。
-      // この場合 chat 流入が無言で止まる (= 新着が来ない、 stream 経由の loading=false 復帰も
-      // 来ない) ので、 reconnectKey を bump して手動で張り直す。 connecting 中は warn だけ
-      // 残してブラウザの自動再接続を待つ (= 2026-06-22 lifecycle sweep)。
-       
-      console.warn('[chat] EventSource error, readyState=', es.readyState)
-      if (es.readyState === 2) {
-        // CLOSED: 親 useEffect の cleanup で旧 es は close 済になるので setReconnectKey で十分。
-        setReconnectKey(k => k + 1)
-      }
-    }
-    return () => {
-      es.close()
-    }
+    })
+    return () => { unsub() }
   }, [reconnectKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // iOS PWA バックグラウンドからの復帰時に EventSource を強制再接続 (= 2026-06-22)。

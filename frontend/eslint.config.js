@@ -31,7 +31,7 @@ const V2_IMPORT_RULES = [
   { from: 'transport', allow: ['ports', 'domain', 'contracts'] },
   { from: 'state',     allow: ['domain', 'contracts'] },
   { from: 'registry',  allow: ['ports', 'domain', 'contracts', 'state'] },
-  { from: 'features',  allow: ['ports', 'domain', 'state', 'contracts', 'registry'] },
+  { from: 'features',  allow: ['ports', 'domain', 'state', 'contracts', 'registry', 'transport'] },
   { from: 'layout',    allow: ['features', 'state'] },
   { from: 'debug',     allow: ['state', 'transport', 'contracts', 'ports'] },
 ]
