@@ -10,8 +10,8 @@
  * heartbeat は不要 (= 接続生存自体がシグナル)、 ディレイは TCP レベルで最小。
  */
 import { useCallback, useEffect, useRef } from 'react'
-import { API_BASE } from '../constants.js'
-import { registerConnection, notifyConnectionChange } from './useConnectionStatus.js'
+import { API_BASE } from '../../constants.js'
+import { registerConnection, notifyConnectionChange } from '../../transport/connectionStatus.js'
 
 function toWsUrl(path) {
   const base = API_BASE || window.location.origin
@@ -54,6 +54,7 @@ export function useViewsWs(activeSid) {
       }
       let ws
       try {
+        // eslint-disable-next-line no-restricted-syntax -- transitional: useViewsWs を transport/ws-views.ts singleton 配線へ寄せる移行は別 Phase。 現状は features/ 直書きを許容 (= 物理移送のみ、 内部ロジック不変、 ADR-018 経路上の暫定例外)。
         ws = new WebSocket(toWsUrl('/views/ws'))
       } catch {
         return

@@ -6,7 +6,7 @@ import { generateId } from '../../utils/id.js'
 import { useStreamBuffer } from './useStreamBuffer.js'
 import { processStreamEvent } from './processStreamEvent.js'
 import { reconcileUserMessage } from './reconcileUserMessage.js'
-import { useConnectionStatus } from '../../hooks/useConnectionStatus.js'
+import { useConnectionStatus } from '../../transport/connectionStatus.js'
 import { sseTransport } from '../../transport/sse.ts'
 
 // session_id → JSONL byte offset の永続化。 タブ切替 / リロードを跨いで「ここまで読んだ」 を

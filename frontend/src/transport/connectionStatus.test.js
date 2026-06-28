@@ -3,7 +3,7 @@ import {
   registerConnection,
   notifyConnectionChange,
   __resetConnectionRegistry,
-} from './useConnectionStatus.js'
+} from './connectionStatus.js'
 
 // hook 本体 (useConnectionStatus) は react render が必要なので、 ここでは
 // registry の挙動だけを純粋に検証する (= 重要な集約ロジック)。
