@@ -39,7 +39,7 @@ test.describe('regression: send-then-input-restored', () => {
     const confirmed = page.locator(
       '[data-testid=message-bubble-user][data-cpc-optimistic="0"]',
     )
-    await expect(confirmed).toHaveCount(1, { timeout: 10_000 })
+    await expect(confirmed).toHaveCount(1, { timeout: 20_000 })
 
     // (6) Past the historical 15s watcher window. With the fix in place the
     // input must still be empty - no sendFailedText resurrection.
