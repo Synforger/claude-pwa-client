@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import MessageRenderer from '../features/chat/MessageRenderer.jsx'
-import { formatTool } from '../utils/format.js'
-import { apiFetch, apiUrl } from '../utils/api.js'
-import { useEscape } from '../hooks/useEscape.js'
-import './Modal.css'
+import MessageRenderer from '../chat/MessageRenderer.jsx'
+import { formatTool } from '../../utils/format.js'
+import { apiFetch } from '../../utils/api.js'
+import { useEscape } from '../../hooks/useEscape.js'
+import { subagentsSse } from '../../transport/sse-subagents.ts'
+import '../../styles/Modal.css'
 import './SubagentsModal.css'
 
 // サブエージェント (= Task で起動した子 agent) + Workflow run の一覧と transcript を見るモーダル。
@@ -158,21 +159,14 @@ export default function SubagentsModal({ sid, focus, onClose }) {
   // 切り替わる。 接続切れは EventSource が auto-reconnect (= 3 秒)。
   useEffect(() => {
     setError(null)
-    let evt
-    try {
-      evt = new EventSource(apiUrl(`/sessions/${encodeURIComponent(sid)}/subagents/stream`))
-      evt.onmessage = (e) => {
-        if (!e.data) return
-        try {
-          const d = JSON.parse(e.data)
-          setData({ subagents: d.subagents || [], workflows: d.workflows || [] })
-        } catch { /* ignore */ }
+    // /sessions/{sid}/subagents/stream は transport/sse-subagents.ts per-sid factory (= ADR-019) で
+    // 立てる。 subscribe は sid 単位で同 EventSource 共有 (= refs カウンタ)、 unsubscribe で自動 close。
+    const unsub = subagentsSse.subscribe(sid, (d) => {
+      if (d && typeof d === 'object') {
+        setData({ subagents: d.subagents || [], workflows: d.workflows || [] })
       }
-      evt.onerror = () => setError('一覧を読めませんでした')
-    } catch {
-      setError('一覧を読めませんでした')
-    }
-    return () => { if (evt) try { evt.close() } catch { /* ignore */ } }
+    })
+    return () => { unsub() }
   }, [sid])
 
   // チップから渡された focus で、 一覧ロード後に該当 run / agent へ 1 回だけ自動遷移する。
