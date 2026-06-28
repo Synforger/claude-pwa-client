@@ -1,0 +1,5 @@
+# 期待: meta-schema validate で exit 1 (= sse-events kind なのに events key 欠落、 oneOf 不一致)
+kind: sse-events
+version: "1.0"
+schema_version: "1.0"
+# events: ここに events 定義があるべき、 author が忘れた版を模擬
