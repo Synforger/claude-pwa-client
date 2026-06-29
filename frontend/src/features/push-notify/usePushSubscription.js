@@ -22,8 +22,15 @@
  * F-19 (= 2026-06-21): sw.js が showNotification 失効を検出した時に postMessage で
  * 'sw-broken' を送ってくる。 受信したら本 hook が SW を unregister + reload して
  * 確実に新しい registration を取り直す (= 失効が起きた SW を構造的に捨てる)。
+ *
+ * J-2 (= 2026-06-29、 ADR-026 末尾「将来 task」 2 件目): hook 内 useState 4 個を撤廃 →
+ * state/push.js singleton store + useSyncExternalStore に差し替え。 旧設計では AppEffects
+ * と SessionDrawer の 2 経路で hook が並走し、 state が独立 instance に分裂 + 副作用
+ * listener (= visibility / interval / SW broken) が全 instance で重複発火していた。
+ * `mountEffects: true` で渡された 1 instance だけが listener を張る (= AppEffects 側を hub
+ * 配置)、 他 instance は store subscribe + toggle 操作のみ。
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import {
   enablePush,
   disablePush,
@@ -32,6 +39,14 @@ import {
   isMobileSafari,
   isPushEnabledLocally,
 } from './push.js'
+import {
+  subscribe as subscribePush,
+  getSnapshot as getPushSnapshot,
+  setPushAvailable,
+  setPushEnabled,
+  setPushBroken,
+  setPushBusy,
+} from '../../state/push.js'
 
 async function detectActualSubscription() {
   try {
@@ -46,7 +61,8 @@ async function detectActualSubscription() {
 
 // module-level inflight guard。 enablePush は backend で idempotent upsert されるが、
 // 並列で 3 経路 (= mount / visibility 復帰 / interval) から同時に呼ばれると無駄な
-// VAPID 鍵生成 + subscribe を毎回走らせるので、 1 本だけに絞る。
+// VAPID 鍵生成 + subscribe を毎回走らせるので、 1 本だけに絞る。 J-2 で hook 多重 mount
+// 問題は singleton store で解いたが、 本 guard は backend POST 重複抑止の最後の保険として残置。
 let enableInflight = null
 async function enablePushOnce() {
   if (enableInflight) return enableInflight
@@ -56,25 +72,39 @@ async function enablePushOnce() {
   return enableInflight
 }
 
-export function usePushSubscription({ onCloseMenu } = {}) {
-  const [hasRealSub, setHasRealSub] = useState(false)
-  const [pushBusy, setPushBusy] = useState(false)
-  // localFlag は他タブで動く可能性があるため state 化、 sync 内で常に最新値を読み直す。
-  const [localFlag, setLocalFlag] = useState(() => isPushEnabledLocally())
-  // standalone 必須は iOS / iPadOS Safari の制約のみ。 デスクトップ Safari / Chrome は
-  // 通常タブで OK (= 詳細は utils/push.js 冒頭)。
-  const pushAvailable = isPushSupported() && (!isMobileSafari() || isStandalone())
+function computeAvailable() {
+  return isPushSupported() && (!isMobileSafari() || isStandalone())
+}
 
-  // ON とみなすのは「希望 ON + 実 subscription あり」。 どちらかが欠けてれば実質 OFF。
-  const pushEnabled = localFlag && hasRealSub
-  // 希望 ON だが実 subscription が無い = 失効状態。 UI で再有効化を促す。
-  const pushBroken = localFlag && !hasRealSub && pushAvailable
+// 現環境の available + 現在の localStorage フラグから enabled/broken を再計算して store に反映する。
+// AppEffects 側 instance (= mountEffects:true) の sync 内で都度呼ばれる。
+function applyStateFromEnvironment(hasRealSub) {
+  const available = computeAvailable()
+  const localFlag = isPushEnabledLocally()
+  setPushAvailable(available)
+  setPushEnabled(localFlag && hasRealSub)
+  setPushBroken(localFlag && !hasRealSub && available)
+}
 
-  // 実 subscription の状態を「mount + visibility 復帰 + 1 分おき」 で同期 + 失効してたら
-  // 毎回自動修復を試す。 iOS Safari は長時間放置で PushSubscription を OS が破棄する
-  // ことがあるので、 visibility 復帰を待たず裏で先回り修復してユーザに「⚠失効」 を
-  // 見せない。 enablePushOnce は module-level guard で多重起動を抑える (= F-17)。
+/**
+ * @param {object} [opts]
+ * @param {() => void} [opts.onCloseMenu] toggle 時にメニューを閉じる callback (= SessionDrawer 用)
+ * @param {boolean} [opts.mountEffects] true で副作用 listener (= visibility / interval / SW broken)
+ *   を張る。 1 経路に集約するため AppEffects 側 1 instance のみ true で呼出、 他 (= SessionDrawer)
+ *   は default = false で subscribe + toggle のみ。
+ */
+export function usePushSubscription({ onCloseMenu, mountEffects = false } = {}) {
+  const snap = useSyncExternalStore(subscribePush, getPushSnapshot)
+
+  // available は環境固定だが、 mountEffects=false 側でも初期表示前に store 反映しておく
+  // (= SessionDrawer が AppEffects より先に render されるケースで `!pushAvailable` が
+  // 一瞬 true になって UI が消えるのを避ける)。 同値 setter は store 内で no-op。
   useEffect(() => {
+    setPushAvailable(computeAvailable())
+  }, [])
+
+  useEffect(() => {
+    if (!mountEffects) return
     let cancelled = false
     let syncing = false
     const sync = async () => {
@@ -84,26 +114,25 @@ export function usePushSubscription({ onCloseMenu } = {}) {
       if (syncing) return
       syncing = true
       try {
-        // F-18: 都度 localStorage を読み直す (= 他タブで変化した可能性に追従)
-        const curLocalFlag = isPushEnabledLocally()
-        setLocalFlag(curLocalFlag)
         const have = await detectActualSubscription()
         if (cancelled) return
-        setHasRealSub(have)
+        applyStateFromEnvironment(have)
+        const available = computeAvailable()
+        const curLocalFlag = isPushEnabledLocally()
         if (
           !have &&
           curLocalFlag &&
-          pushAvailable &&
+          available &&
           typeof Notification !== 'undefined' &&
           Notification.permission === 'granted'
         ) {
           try {
             await enablePushOnce()
-            if (!cancelled) setHasRealSub(true)
+            if (!cancelled) applyStateFromEnvironment(true)
           } catch (e) {
             // 次の 60s ping で再試行されるので silent でも回復はするが、 ずっと失敗してると
             // 通知が来ない状態が続く → 診断ログを残す (= 2026-06-22 silent-failure sweep)。
-             
+
             console.warn('[push] enablePushOnce failed, will retry next ping:', e)
           }
         }
@@ -118,14 +147,11 @@ export function usePushSubscription({ onCloseMenu } = {}) {
 
     // F-19: sw.js から「showNotification 失効を検出」 の postMessage が来たら、
     // SW を unregister + reload で確実に新規 registration を取得し直す。
-    // 旧設計では sw.js 内 diagLog だけで止まっていて、 失効した SW がそのまま居座って
-    // 3 回 silent push 連続 → OS による PushSubscription 強制破棄、 という事故ルートを
-    // 残していた。 unregister + reload で SW lifecycle をリセットすれば確実に治る。
     let swBrokenHandled = false
     const onSwMessage = (event) => {
       const d = event.data
       if (!d || d.type !== 'sw-broken') return
-      if (swBrokenHandled) return // 同 page で 2 回走らせない
+      if (swBrokenHandled) return
       swBrokenHandled = true
       ;(async () => {
         try {
@@ -136,8 +162,6 @@ export function usePushSubscription({ onCloseMenu } = {}) {
             }
           }
         } catch { /* ignore */ }
-        // 完全リロードで新 SW を再 install。 visibility 中だけ実行 (= hidden だと
-        // iOS が処理しない可能性、 復帰時に再 trigger)。
         if (!document.hidden) {
           try { window.location.reload() } catch { /* ignore */ }
         }
@@ -155,23 +179,19 @@ export function usePushSubscription({ onCloseMenu } = {}) {
         navigator.serviceWorker.removeEventListener('message', onSwMessage)
       }
     }
-  // pushAvailable は実行中に変わらない前提 (= mount 時固定)。
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [mountEffects])
 
   const handleTogglePush = async () => {
-    if (pushBusy) return
+    if (getPushSnapshot().busy) return
     setPushBusy(true)
     onCloseMenu?.()
     try {
-      if (pushEnabled) {
+      if (getPushSnapshot().enabled) {
         await disablePush()
-        setHasRealSub(false)
-        setLocalFlag(isPushEnabledLocally())
+        applyStateFromEnvironment(false)
       } else {
         await enablePushOnce()
-        setHasRealSub(true)
-        setLocalFlag(isPushEnabledLocally())
+        applyStateFromEnvironment(true)
       }
     } catch (e) {
       alert(e?.message || '通知設定の変更に失敗しました')
@@ -180,5 +200,11 @@ export function usePushSubscription({ onCloseMenu } = {}) {
     }
   }
 
-  return { pushEnabled, pushBroken, pushBusy, pushAvailable, handleTogglePush }
+  return {
+    pushAvailable: snap.available,
+    pushEnabled: snap.enabled,
+    pushBroken: snap.broken,
+    pushBusy: snap.busy,
+    handleTogglePush,
+  }
 }
