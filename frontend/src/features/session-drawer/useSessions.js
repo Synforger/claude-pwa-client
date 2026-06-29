@@ -11,6 +11,8 @@ import {
   getSnapshot,
   setSessions,
   appendSession,
+  removeSession as storeRemoveSession,
+  patchSession as storePatchSession,
   setActiveId as storeSetActiveId,
   setAgents,
 } from '../../state/sessions.js'
@@ -144,21 +146,26 @@ export async function removeSession(id) {
     console.warn('[sessions] delete request errored:', id, e)
   }
   // 旧実装は setSessions / setActiveId の updater 内で同 tick 計算していた (= F-42)。
-  // store API は値ベースなので getSnapshot で現状を読んで filter してから write する。
+  // Phase J-1 (= 2026-06-29) で store の `removeSession(id)` 直呼出に置換 (= 旧 Phase E-2 は
+  // store 内部が `.sid` filter で no-op だったため `setSessions(...filter)` で回避していた)。
+  // 削除後の activeId fallback だけ呼出側で算出する (= store は activeId を触らない設計)。
   const cur = getSnapshot()
-  const next = cur.sessions.filter(s => s.id !== id)
-  if (next.length !== cur.sessions.length) setSessions(next)
+  if (!cur.sessions.some(s => s.id === id)) {
+    // backend は 404 等で消えてるかもしれないが store 側に居ない → no-op
+    return
+  }
+  storeRemoveSession(id)
   if (cur.activeId === id) {
-    storeSetActiveId(next.length > 0 ? next[0].id : null)
+    const remaining = cur.sessions.filter(s => s.id !== id)
+    storeSetActiveId(remaining.length > 0 ? remaining[0].id : null)
   }
 }
 
 export async function renameSession(id, title) {
   const trimmed = (title || '').trim()
   if (!trimmed) return
-  // 楽観更新
-  const cur = getSnapshot()
-  setSessions(cur.sessions.map(s => s.id === id ? { ...s, title: trimmed } : s))
+  // 楽観更新 (= Phase J-1 で store の patchSession(id, patch) 直呼出に置換)
+  storePatchSession(id, { title: trimmed })
   try {
     const r = await apiFetch(`/sessions/${id}`, {
       method: 'PATCH',
@@ -176,9 +183,8 @@ export async function renameSession(id, title) {
 }
 
 export async function setNotifyMode(id, mode) {
-  // 楽観更新 (= ⋯ メニューの選択を即反映)
-  const cur = getSnapshot()
-  setSessions(cur.sessions.map(s => s.id === id ? { ...s, notify_mode: mode } : s))
+  // 楽観更新 (= ⋯ メニューの選択を即反映、 Phase J-1 で patchSession 直呼出に置換)
+  storePatchSession(id, { notify_mode: mode })
   try {
     const r = await apiFetch(`/sessions/${id}`, {
       method: 'PATCH',
