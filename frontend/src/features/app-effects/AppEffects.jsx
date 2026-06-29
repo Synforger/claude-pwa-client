@@ -99,8 +99,10 @@ export default function AppEffects() {
     return () => document.removeEventListener('visibilitychange', post)
   }, [activeSid])
 
-  // Web Push 購読状態 (= 環境制約・トグル・連打防止) は専用 hook に集約。
-  usePushSubscription()
+  // Web Push 購読状態 (= 環境制約・トグル・連打防止) は state/push.js singleton store + 専用 hook に集約。
+  // mountEffects:true で副作用 listener (= visibility / interval / SW broken) の hub を本 instance に集約
+  // (= J-2、 SessionDrawer 側は default = listener なしの subscribe のみ)。
+  usePushSubscription({ mountEffects: true })
 
   return null
 }
