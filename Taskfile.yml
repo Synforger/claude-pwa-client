@@ -252,6 +252,35 @@ tasks:
     cmds:
       - bash .tooling/local-ci/anon-scan.sh
 
+  audit:
+    desc: Full security audit (= pip-audit + npm audit + gitleaks full history + anon-scan)
+    cmds:
+      - |
+        echo "=== pip-audit (backend Python transitive) ==="
+        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
+          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream pip install --quiet pip-audit
+          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream pip-audit
+        else
+          .venv/bin/pip install --quiet pip-audit
+          .venv/bin/pip-audit
+        fi
+      - |
+        echo ""
+        echo "=== npm audit (frontend prod + dev) ==="
+        cd frontend && npm audit
+      - |
+        echo ""
+        echo "=== gitleaks (full history secret scan) ==="
+        if command -v gitleaks >/dev/null 2>&1; then
+          gitleaks detect --no-banner
+        else
+          echo "WARN: gitleaks not installed (brew install gitleaks)"
+        fi
+      - |
+        echo ""
+        echo "=== anon-scan (full tree, personal identifier scan) ==="
+        bash .tooling/local-ci/anon-scan.sh
+
   clean:
     desc: Purge __pycache__ + node_modules cache + frontend dist
     cmds:

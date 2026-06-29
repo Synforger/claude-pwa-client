@@ -36,6 +36,9 @@ EXCLUDES=(
     'venv'
     '__pycache__'
     '.next'
+    'logs'         # runtime log (gitignored) — local PATH / pwa_sid noise
+    'backend/data' # runtime state (gitignored) — session meta / jsonl_bindings / history
+    'backend/secrets' # vapid.json etc. (gitignored)
 )
 EXCLUDE_GLOBS=(
     '*.lock'
@@ -48,6 +51,7 @@ EXCLUDE_GLOBS=(
     'anon-check.yml'
     'anon-scan.sh'
     'LICENSE'
+    'config.json'  # backend/config.json (gitignored personal config) — example は別名で hit せず
 )
 
 scan_with_perl() {
