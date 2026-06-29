@@ -33,3 +33,10 @@ The GPL components above are not statically linked or bundled into this
 repository. They are accessed as external processes via HTTP / WebRTC, so
 the GPL copyleft does not propagate (FSF GPL FAQ: process separation is
 not typically a derivative work).
+
+Specifically for moonlight-web-stream: the PWA frontend embeds its UI via
+an <iframe src="/moonlight/"> after Tailscale Serve reverse-proxies the
+moonlight-web-stream's own web server (= a separate process the user
+builds + runs themselves; this repo ships neither source nor binaries of
+it). iframe embedding creates a separate document context and qualifies
+as aggregation rather than a derivative work under the GPL.
