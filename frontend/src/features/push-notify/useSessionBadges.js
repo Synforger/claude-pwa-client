@@ -28,6 +28,23 @@ const LS_UNREAD_DONE = 'cpc.unreadDone'
 // 旧バッジ仕様 (= `arr.length > lastSeen`) の orphan key を 1 回だけ掃除する。
 try { localStorage.removeItem('cpc.lastSeenLen') } catch { /* storage 無効環境は無視 */ }
 
+// Phase J-6 (= ADR-026 follow-up、 strict mode tearing 予防 + 既存設計の strict-safe 性を明文化):
+//
+// React StrictMode は development で各 component を 2 回 mount/unmount/remount するため、
+// useSyncExternalStore の getSnapshot が initial render 中に複数回呼ばれることがある。 もし
+// hook の useEffect 内で store mutation を伴う hydrate を行うと、 初回 render と 2 回目 render の
+// 間に store 値が変わって tearing (= 描画と取得値の不整合) が発生する古典的 anti-pattern。
+//
+// 本 file の解は: hydrate を **module load 時に 1 回**だけ実行する (= 下記 `hydrateFromLocalStorage()`
+// 呼出 + `lsHydrated` flag) → React render に入る前に store は hydrated 状態に確定し、
+// useSyncExternalStore は全 render で同一 snapshot を取れる。 hook mount 時の再呼出 (= 下記 line 63)
+// は `lsHydrated` で no-op、 strict mode の 2 回 mount でも安全。
+//
+// 維持すべき不変条件:
+//   - `lsHydrated` flag は絶対に残す (= 削除すると 2 回 mount で hydrate 2 回 = tearing 復活)
+//   - module load 時の 1 回呼出 (line 42) を残す (= useEffect mount に倒すと initial render で
+//     unreadDone が空、 2 回目 render で hydrated 値 = tearing)
+//   - hook 内呼出は冗長な保険、 削除しても module 1 回呼出があれば動く
 let lsHydrated = false
 function hydrateFromLocalStorage() {
   if (lsHydrated) return
