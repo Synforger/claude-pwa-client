@@ -559,13 +559,27 @@ export function useChatStream({
         { id: generateId(), role: 'system', kind: 'session_end', ts: Date.now() },
       ],
     }))
-    // 旧 JSONL を読み続けないよう offset をクリア (= 新 claude_sid に切り替わったら新 JSONL の
-    // 末尾近くから tail 開始させる)。 SessionStart hook で binding 更新まで少し待つ。
-    delete offsetRef.current[sid]
-    persistOffsets(offsetRef.current)
-    setTimeout(() => {
-      setReconnectKey(k => k + 1)
-    }, 2000)
+    // EventSource は切らない (= 2026-06-29 fix、 真因解析後)。
+    //
+    // 旧設計: `setTimeout(2000ms)` → setReconnectKey bump → useEffect cleanup で
+    // sseTransport.handlers.size===0 → stop() で EventSource close → 再 subscribe で
+    // 新 EventSource 開始、 backend が `?from=<旧 offset>` 受信 → 新 jsonl size と
+    // 比較で「別 file」 判定 → `_initial_offset` で先頭 replay → 2s 間に書かれた
+    // 全行 (= system init + alias + 初回応答) を **batch で 1 度に yield**。 結果、
+    // chat が「最後にまとめて出る」 観測症状になっていた (= 2026-06-29 真因確定)。
+    //
+    // 新設計: EventSource は維持。 backend の monitor (= `monitor_all_sessions_loop`)
+    // が SessionStart hook 後の `_latest_jsonl(sid)` で新 jsonl path を取得し、
+    // `_tick_sid` 内の path 切替検出 (= `tstate.path != path`) で `_initialize_sid_tail`
+    // を呼んで `tstate.offset = path.stat().st_size` (= 新 file の末尾) にする。
+    // 過去行は意図的に skip、 以降書かれる新行のみ `_process_new_lines` →
+    // `jsonl_event_broadcaster.publish` で broadcaster Queue に流れる → 既存
+    // EventSource subscriber に 1 行ずつ streaming で届く。
+    //
+    // 旧 `offsetRef` (= v1 経路、 sseTransport の `LS_OFFSETS` とは別 source) の
+    // クリアは無意味 (= 既に dead code 化、 sseTransport.offsets には影響しない)。
+    // setReconnectKey も撤去 (= EventSource 切断 trigger を踏まなくなるので reconnect
+    // は不要)。
   }, [sid, setMessages])
 
   // 常時 tail + EventSource 自動再接続なので明示 fetch は不要。 scroll だけ最新へ寄せる。
