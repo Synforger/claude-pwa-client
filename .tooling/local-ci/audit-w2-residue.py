@@ -27,9 +27,31 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent.parent
 SRC = REPO / "frontend" / "src"
+ALLOWLIST_PATH = Path(__file__).with_name("audit-w2-residue-allowlist.txt")
 
 
 # ---------------- helpers ----------------
+
+
+def load_allowlist() -> set[tuple[str, str, str]]:
+    """allowlist file から (audit, file, name) tuple set を返す。 line は無視 (= 0 扱い)."""
+    out: set[tuple[str, str, str]] = set()
+    if not ALLOWLIST_PATH.exists():
+        return out
+    for raw in ALLOWLIST_PATH.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(":", 3)
+        if len(parts) < 4:
+            continue
+        audit, file, _line_no, name = parts[0], parts[1], parts[2], parts[3]
+        out.add((audit, file, name))
+    return out
+
+
+def is_allowed(audit: str, finding: dict, allowlist: set) -> bool:
+    return (audit, finding["file"], finding["name"]) in allowlist
 
 def read(p: Path) -> str:
     try:
@@ -235,21 +257,30 @@ def print_section(title: str, items: list[dict]) -> None:
 
 
 def main() -> int:
+    allowlist = load_allowlist()
     stores = collect_store_surface()
-    print(f"# W2 residue audit — {len(stores)} state stores scanned\n")
+    print(f"# W2 residue audit — {len(stores)} state stores scanned, "
+          f"{len(allowlist)} allowlist entries\n")
     for sname, surface in stores.items():
         print(f"  state/{sname}.js: {len(surface['keys'])} INITIAL keys, "
               f"{len(surface['setters'])} setter exports")
 
-    a = audit_a(stores)
-    b = audit_b(stores)
-    c = audit_c()
+    raw_a = audit_a(stores)
+    raw_b = audit_b(stores)
+    raw_c = audit_c()
+
+    # allowlist で suppress
+    a = [f for f in raw_a if not is_allowed("A", f, allowlist)]
+    b = [f for f in raw_b if not is_allowed("B", f, allowlist)]
+    c = [f for f in raw_c if not is_allowed("C", f, allowlist)]
+    suppressed = (len(raw_a) - len(a)) + (len(raw_b) - len(b)) + (len(raw_c) - len(c))
 
     print_section("Audit A: state double-management (= J-9 同型)", a)
     print_section("Audit B: store-orphan setter exports", b)
     print_section("Audit C: CSS position:absolute anchor (= J-8 同型 heuristic)", c)
 
-    print(f"\n# summary: A={len(a)} / B={len(b)} / C={len(c)}")
+    print(f"\n# summary: A={len(a)} / B={len(b)} / C={len(c)}  "
+          f"(allowlist suppressed {suppressed})")
     return 0
 
 
