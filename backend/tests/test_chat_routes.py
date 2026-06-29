@@ -96,10 +96,27 @@ def test_is_session_viewed_via_views_by_conn(isolated_state):
 # --- backend-F-28 / crosscut-F-04: 3 分割後の互換 ---
 def test_chat_router_includes_all_three_subrouters(isolated_state):
     """旧 chat.router 経由で list_sessions / status SSE / list_agents が全部到達できる
-    (= 3 分割後も main.py の include は単一でよい互換)。"""
+    (= 3 分割後も main.py の include は単一でよい互換)。
+
+    fastapi 0.138+ では `include_router` の結果が `_IncludedRouter` wrapper になり
+    `path` を直接持たないため、 1 段下の sub-router まで再帰して paths を集める
+    (= 2026-06-29 fastapi 0.135 → 0.138 bump 時の test 互換修正)。
+    """
     import backend.routes.chat as chat_routes
-    # APIRouter.routes は path 文字列を持つ。 3 分割後の代表 endpoint がそろってる
-    paths = {getattr(r, "path", None) for r in chat_routes.router.routes}
+    paths: set[str] = set()
+    for r in chat_routes.router.routes:
+        path = getattr(r, "path", None)
+        if path:
+            paths.add(path)
+        # fastapi 0.138+ では include_router の結果が `_IncludedRouter` wrapper、
+        # 元の APIRouter を `.original_router` で公開する。 routes はそっち経由で展開。
+        original = getattr(r, "original_router", None)
+        sub_routes = getattr(original, "routes", None) if original is not None else None
+        if sub_routes:
+            for sub in sub_routes:
+                sp = getattr(sub, "path", None)
+                if sp:
+                    paths.add(sp)
     assert "/sessions" in paths  # sessions.py
     assert "/sessions/status/stream" in paths  # overview.py
     assert "/agents" in paths  # accounts.py

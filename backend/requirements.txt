@@ -1,15 +1,19 @@
-fastapi
-uvicorn[standard]
-python-multipart
+# --- 下限 version は 2026-06-29 security audit (pip-audit) で確定 ---
+# transitive 経路 (= mcp / claude-agent-sdk 経由) の aiohttp / starlette 等も
+# CVE 持ちだったが、 `task setup` (= 内部で pip install --upgrade) を使えば
+# transitive 込み最新化される。
+fastapi>=0.138
+uvicorn[standard]>=0.49
+python-multipart>=0.0.32  # CVE-2026-42561 / 53538 / 53539 / 53540
 pywebpush>=2.0.0
-cryptography>=42
+cryptography>=49           # GHSA-537c-gmf6-5ccf
 watchdog>=4
-watchfiles>=0.21
+watchfiles>=1.2
 psutil>=5.9  # backend-F-24: pty_discover の pgrep/ps/lsof fork 連打を 1 ループ化
 structlog>=26  # ADR-012 observability: contextvars merge + JSON renderer + redact processor
 
-# dev / lint / test (= task lint, task test:unit)
+# dev / lint / test (= task lint, task test)
 flake8>=7
 black>=24
-pytest>=8
+pytest>=9
 httpx  # starlette TestClient (= backend/tests/) が実行時に要求する
