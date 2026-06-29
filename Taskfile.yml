@@ -51,11 +51,11 @@ tasks:
         # CONDA_EXE (= conda install で必ず export される) を直接叩いて env を作る / 入る。
         if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
           "$CONDA_EXE" env list | awk '{print $1}' | grep -qx "{{.CONDA_ENV}}" || "$CONDA_EXE" create -y -n {{.CONDA_ENV}} python=3.11
-          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream pip install -r backend/requirements.txt
+          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream pip install --upgrade -r backend/requirements.txt
         else
           echo "CONDA_EXE not set; falling back to python3 -m venv .venv"
           test -d .venv || python3 -m venv .venv
-          .venv/bin/pip install -r backend/requirements.txt
+          .venv/bin/pip install --upgrade -r backend/requirements.txt
         fi
       - cd frontend && npm install
       - |
