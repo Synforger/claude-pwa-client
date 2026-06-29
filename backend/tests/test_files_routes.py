@@ -49,8 +49,8 @@ def test_resolve_safe_dotdot_escape_raises():
     "~/.bash_profile",
     "~/.zsh_history",
     "~/.bash_history",
-    "REDACTED_PATH/work/key.pem",
-    "REDACTED_PATH",
+    "~/somewhere/key.pem",
+    "~/somewhere/cert.p12",
     "~/something/id_ed25519",
     "REDACTED_PATH/gh/hosts.yml",
 ])

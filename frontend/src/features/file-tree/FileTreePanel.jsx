@@ -17,7 +17,7 @@ function displayShort(path) {
 
 function parentPath(p) {
   if (!p || p === '~' || p === '/') return null
-  // HOME (= REDACTED_PATH) は `~` と等価。 backend は HOME 外を 403 で弾くので、
+  // HOME (= the macOS home dir) は `~` と等価。 backend は HOME 外を 403 で弾くので、
   // これ以上遡ろうとすると「読み込みエラー」 が出てしまう。
   if (/^\/Users\/[^/]+\/?$/.test(p)) return null
   // backend が解決済みの絶対 path も `~` 起点の表示も両方扱う
