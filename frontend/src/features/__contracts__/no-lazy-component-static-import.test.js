@@ -1,6 +1,6 @@
 // W2 完成判定 contract: lazy 対象 component が配線 entry (= features/*/index.js) から static import されてないこと。
 //
-// 背景: ADR-010 self-register と docs/architecture/extending.md (c) lazy chunk 分割は両立する設計だが、 配線 entry
+// 背景: ADR-010 self-register と docs/internals/architecture/extending.md (c) lazy chunk 分割は両立する設計だが、 配線 entry
 // (= features/<x>/index.js) が lazy 対象 component を static import すると vite が dynamic import を
 // 相殺し INEFFECTIVE_DYNAMIC_IMPORT 警告を出して chunk 分離が壊れる。 過去にこの構造で main bundle が
 // 33kB+ 膨らんでいた (= 2026-06-29 修正)、 grep 構造 gate で再発防止する。
