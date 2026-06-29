@@ -1,16 +1,28 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect, useCallback, useSyncExternalStore } from 'react'
 import { SUPPORTED_IMAGE_TYPES } from '../../constants.js'
 import { putImage } from './imageStore.js'
+import {
+  subscribe as subscribeEphemeral,
+  getSnapshot as getEphemeralSnapshot,
+  setAttachments as storeSetAttachments,
+} from '../../state/ephemeral.js'
 
 // セッション (session_id) ごとの添付ファイル状態。 dict は lazy 拡張する。
+//
+// Phase J-11 (= 2026-06-29、 audit-w2-residue 第 1 弾): J-9 と同型の状態二重管理を解消。
+// 旧 useState({}) (= ChatPanel 内のみ生きる local state) → state/ephemeral.js singleton 直結。
+// store の setAttachments(sid, items) は single-sid のみ更新するので、 mutation 関数側で
+// 該当 sid の最新 items を計算して直呼出する。 ChatPanel 経由の戻り値 shape は不変。
 export function useAttachments(activeSession) {
-  const [attachments, setAttachments] = useState({})
+  const ephem = useSyncExternalStore(subscribeEphemeral, getEphemeralSnapshot)
+  const attachments = ephem.attachments
   const fileInputRef = useRef(null)
   const attachmentsRef = useRef(attachments)
 
   useEffect(() => { attachmentsRef.current = attachments }, [attachments])
 
-  // アンマウント時に未送信 BlobURL を解放 (全セッション分)
+  // アンマウント時に未送信 BlobURL を解放 (全セッション分)。 store 自体は維持 (= 他 mount
+  // instance がいる可能性あり)、 BlobURL の release のみ実施。
   useEffect(() => {
     return () => {
       const dict = attachmentsRef.current
@@ -49,23 +61,19 @@ export function useAttachments(activeSession) {
         imageId,
       })
     }
-    setAttachments(prev => ({
-      ...prev,
-      [sid]: [...(prev[sid] || []), ...newItems],
-    }))
+    const cur = getEphemeralSnapshot().attachments[sid] || []
+    storeSetAttachments(sid, [...cur, ...newItems])
   }
 
   const removeAttachment = (sid, index) => {
-    setAttachments(prev => {
-      const cur = [...(prev[sid] || [])]
-      const removed = cur.splice(index, 1)
-      if (removed[0]?.url) URL.revokeObjectURL(removed[0].url)
-      return { ...prev, [sid]: cur }
-    })
+    const cur = [...(getEphemeralSnapshot().attachments[sid] || [])]
+    const removed = cur.splice(index, 1)
+    if (removed[0]?.url) URL.revokeObjectURL(removed[0].url)
+    storeSetAttachments(sid, cur)
   }
 
   const clearAttachments = useCallback((sid) => {
-    setAttachments(prev => ({ ...prev, [sid]: [] }))
+    storeSetAttachments(sid, [])
   }, [])
 
   return {
