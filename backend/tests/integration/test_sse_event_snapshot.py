@@ -8,7 +8,7 @@ JSONL 1 行 → `jsonl_line_to_events` → SSE wire payload の変換を、
 
 scaffold としては最小 3 ケース (= assistant text / user message / result)
 だけ入れて、 後続 wave で新 type / 新 field を足すたびにここに 1 ケース
-追加する。 docs/protocol/streams.md § event wire shape とミラー関係。
+追加する。 docs/internals/protocol/streams.md § event wire shape とミラー関係。
 
 snapshot 戦略:
 - 厳密一致でなく、 「必須 field の存在」 と「type」 「主要 payload」 を
