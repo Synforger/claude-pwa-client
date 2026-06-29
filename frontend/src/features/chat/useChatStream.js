@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useSyncExternalStore } from 'react'
 import { LS_JSONL_OFFSET } from '../../constants.js'
 import { apiFetch } from '../../utils/api.js'
 import { lsGet, lsSet } from '../../utils/storage.js'
@@ -8,6 +8,12 @@ import { processStreamEvent } from './processStreamEvent.js'
 import { reconcileUserMessage } from './reconcileUserMessage.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
 import { sseTransport } from '../../transport/sse.ts'
+import {
+  subscribe as subscribeEphemeral,
+  getSnapshot as getEphemeralSnapshot,
+  setLoading as storeSetLoading,
+  clearLoading as storeClearLoading,
+} from '../../state/ephemeral.js'
 
 // session_id → JSONL byte offset の永続化。 タブ切替 / リロードを跨いで「ここまで読んだ」 を
 // 保持し、 新規 EventSource 接続時に `?from=<sid>:<offset>,...` で渡す (= F-15)。 backend は
@@ -77,7 +83,35 @@ export function useChatStream({
   onStopUnavailable,
 }) {
   const sid = activeSession?.id || null
-  const [loading, setLoading] = useState({})
+
+  // Phase J-9 (= 2026-06-29): loading state を state/ephemeral.js singleton に統合 (= 旧 useState
+  // 内部 dict、 ChatPanel のみ見えてた → 統一で SessionDrawer の sessionBadges も同 loading を読める)。
+  // setLoading wrapper は (a) updater function (= setLoading(prev => next))、 (b) 全クリア (= setLoading({}))、
+  // (c) per-sid dict 直渡し の 3 形態を support して既存呼出 (= useSessionsOverview / 内部 setLoading 呼出群)
+  // を無修正で通す。 内部で store の setLoading(sid, value) / clearLoading() に dispatch する。
+  const ephem = useSyncExternalStore(subscribeEphemeral, getEphemeralSnapshot)
+  const loading = ephem.loading
+  const setLoading = useCallback((arg) => {
+    if (typeof arg === 'function') {
+      const prev = getEphemeralSnapshot().loading
+      const next = arg(prev)
+      if (!next || typeof next !== 'object') return
+      const sids = new Set([...Object.keys(prev), ...Object.keys(next)])
+      for (const s of sids) {
+        if (prev[s] !== next[s]) storeSetLoading(s, !!next[s])
+      }
+    } else if (arg && typeof arg === 'object') {
+      if (Object.keys(arg).length === 0) {
+        storeClearLoading()
+      } else {
+        const prev = getEphemeralSnapshot().loading
+        for (const [s, v] of Object.entries(arg)) {
+          if (prev[s] !== v) storeSetLoading(s, !!v)
+        }
+      }
+    }
+  }, [])
+
   const [apiKeySource, setApiKeySource] = useState({})
   // 送信/停止 直後の楽観意図。 `{[sid]: {want:'busy'|'idle', seen}}`。
   //   - 送信時 want='busy' (停止ボタンを出す)、 停止時 want='idle' (送信ボタンを出す)。
@@ -446,7 +480,7 @@ export function useChatStream({
       if (!last?.streaming) return prev
       return { ...prev, [sid]: [...arr.slice(0, -1), { ...last, streaming: false }] }
     })
-  }, [sid, sendToPty, sendStopIntent, setMessages, onStopUnavailable, scheduleStopRetry])
+  }, [sid, sendToPty, sendStopIntent, setMessages, setLoading, onStopUnavailable, scheduleStopRetry])
 
   const sendAnswer = useCallback(async (targetSid, tool_use_id, answer, isFree = false, optionCount = 0) => {
     // AskUserQuestion の回答を tmux 経由で claude TUI に送る。

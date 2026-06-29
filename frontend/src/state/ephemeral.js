@@ -67,6 +67,14 @@ export function setLoading(sid, isLoading) {
   })
 }
 
+/** Phase J-9 (= 2026-06-29): backend 再起動検知時等の全クリア (= useChatStream の旧 setLoading({}) 経路)。 */
+export function clearLoading() {
+  store.setState(prev => {
+    if (Object.keys(prev.loading).length === 0) return prev
+    return { ...prev, loading: {} }
+  })
+}
+
 export function setApiKeySource(sid, source) {
   store.setState(prev => ({ ...prev, apiKeySource: { ...prev.apiKeySource, [sid]: source } }))
 }
