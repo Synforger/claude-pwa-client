@@ -139,7 +139,10 @@ def emit():
       "Python dependency (= MCP / tool dispatch 経路) |")
     p("| Sunshine | GPL-3.0 | LizardByte | Path B 限定、 HTTP / WebRTC 連携 |")
     p("| moonlight-web-stream | GPL-3.0 | MrCreativ3001 | "
-      "Path B 限定、 HTTP / WebRTC 連携 |")
+      "Path B 限定、 ユーザが個別 build した web server を `<iframe src=\"/moonlight/\">` で読み込み "
+      "(= 本リポは source / binary 非同梱、 iframe は separate document context = aggregation) |")
+    p("| Moonlight (Game Streaming, native client) | GPL-3.0 | Moonlight Game Streaming Project | "
+      "**使用しない** (= PWA はブラウザ完結、 native client は経路に居ない) |")
     p("| Tailscale | BSD-3-Clause (client) | Tailscale Inc. | "
       "tailnet 経由配信、 本リポは tailnet 参加のみ |")
     p("")
