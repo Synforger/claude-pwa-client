@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LaunchAgent template for claude-pwa-client backend (macOS).
+
+  使い方:
+    1. task install-service  (= 本 file を ~/Library/LaunchAgents/ にコピーする)
+    2. 下記 5 箇所を **自環境の絶対 path に書き換える**:
+         - ProgramArguments の `/path/to/claude-pwa-client`
+         - ProgramArguments の `/path/to/miniforge` (= conda の base prefix、
+           例: `REDACTED_PATH or `/opt/homebrew/Caskroom/miniforge/base`)
+         - ProgramArguments の `pwa-client` (= `CONDA_ENV` を変えてれば合わせる)
+         - ProgramArguments の `--port 8765` (= 自分の PORT)
+         - StandardOutPath / StandardErrorPath の `/path/to/claude-pwa-client/logs/...`
+    3. launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.claudepwa.client.plist
+    4. task status
+
+  backend は内部で `RotatingFileHandler` を構成してるので、 StandardOutPath は
+  uvicorn 起動行 + 致命例外を拾う補助用。 メインログは logs/backend.access.log /
+  logs/backend.error.log に 5MB × 3 世代で自動ローテートされる。
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.claudepwa.client</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>cd /path/to/claude-pwa-client && source /path/to/miniforge/etc/profile.d/conda.sh && conda activate pwa-client && exec uvicorn backend.main:app --host 0.0.0.0 --port 8765</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/path/to/claude-pwa-client/logs/backend.out</string>
+  <key>StandardErrorPath</key>
+  <string>/path/to/claude-pwa-client/logs/backend.err</string>
+</dict>
+</plist>

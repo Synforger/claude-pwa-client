@@ -1,8 +1,8 @@
 # Claude PWA Client
 
-Claude Code をスマートフォンから操作するための PWA クライアント。 ホストマシン上で動かす
-バックエンドに Tailscale 経由で iPhone / Android のブラウザから接続し、 ホーム画面に追加して
-スタンドアロン PWA として利用する。
+> **Unofficial third-party client for Claude Code. Not affiliated with Anthropic.**
+
+[Claude Code](https://docs.claude.com/en/docs/claude-code) (Anthropic 公式 CLI) をスマートフォンから操作するための PWA クライアント。 ホストマシン上で動かすバックエンドに Tailscale 経由で iPhone / Android のブラウザから接続し、 ホーム画面に追加してスタンドアロン PWA として利用する。 backend は `claude` CLI を実 PTY + tmux で subprocess 起動するため Anthropic Usage Policy の枠内で動く (= subscription / API key の choice はユーザに委ねる、 token を抽出しない設計)。
 
 ## 主な機能
 
@@ -76,43 +76,53 @@ WebSocket (`/ws/pty/{sid}`, `/views/ws`, `/jsonl/stream/{sid}`) や `/sessions/*
 
 ## セットアップ
 
+利用者向け動線は `task` コマンドに統一済 (= [go-task](https://taskfile.dev) 必須、 macOS は `brew install go-task/tap/go-task`)。 `task --list` で全 task 一覧。
+
 2 段階構成:
 
 - **Path A** (= チャット + 通知のみ): [docs/setup/path-a-chat.md](docs/setup/path-a-chat.md)
 - **Path B** (= 上記 + デスクトップ画面共有): [docs/setup/path-b-screenshare.md](docs/setup/path-b-screenshare.md)
 - **Windows (WSL2)** の場合: [docs/setup/windows-wsl.md](docs/setup/windows-wsl.md)
 
-ざっくり最短経路 (Path A、 macOS / Linux):
+### 前提 (= 詰まりやすい 4 点、 task setup の前に潰す)
+
+1. **`claude` CLI を PATH に通す** + agent ごとの **`launch_alias` shell alias** (例: `alias agent_a='cd /path/to/agent_a && claude'`) を `~/.zshrc` 等に定義 (= 詳細は [docs/setup/path-a-chat.md § claude の PATH と起動 alias](docs/setup/path-a-chat.md))
+2. **claude hook 設定** = `~/.claude/settings.json` に backend `/hooks/event` POST を仕込まないと chat に履歴が出ない (= [path-a-chat.md § PWA 連携の hook](docs/setup/path-a-chat.md))
+3. **statusline 設定** = `rate_limits` を JSONL に追記する statusline でないと StatusBar が空 (= [path-a-chat.md § ステータスバーを有効にする](docs/setup/path-a-chat.md))
+4. **`jq` / `tmux`** 必須 + **Tailscale** をホスト + スマホ両方にインストールして同一 tailnet に参加
+
+### 最短経路 (Path A、 macOS / Linux)
 
 ```bash
-git clone https://github.com/<your-handle>/claude-pwa-client.git
+git clone https://github.com/Synforger/claude-pwa-client.git
 cd claude-pwa-client
 
-# backend
-conda create -n pwa-client python=3.11 && conda activate pwa-client
-pip install -r backend/requirements.txt
-cp backend/config.example.json backend/config.json   # 編集
-python -m backend.cli.gen_vapid                      # backend/secrets/vapid.json 生成
-uvicorn backend.main:app --host 0.0.0.0 --port 8765
+# 1. 全 setup 1 発 (= conda env / pip / npm / config / VAPID / git hooks)
+task setup
+# → backend/config.json を編集 (= agents / claude_path / accounts)
 
-# frontend
-(cd frontend && npm install && npm run build)
+# 2. frontend ビルド + backend 起動 (foreground、 Ctrl-C で停止)
+task build
+task run
 
-# tailnet 公開
-tailscale serve --bg http://localhost:8765
+# 別 shell で tailnet 公開
+task tailscale-serve
 ```
 
-スマートフォンで `https://<your-host>.tail<xxxx>.ts.net/` を開き、 iOS Safari なら
-共有 → ホーム画面に追加で PWA 化。 通知は ⋯ メニュー → 「通知を有効にする」 (iOS 16.4+ +
-ホーム画面追加済が必須)。
+スマートフォンで `https://<your-host>.tail<xxxx>.ts.net/` を開き、 iOS Safari なら共有 → ホーム画面に追加で PWA 化。 通知は ⋯ メニュー → 「通知を有効にする」 (iOS 16.4+ + ホーム画面追加済が必須)。
 
-> **詰まりやすい 2 点** (= 上の最短経路だけだと抜けやすい):
-> - **チャットが表示されない** → claude の **hook 設定** (PWA タブと jsonl の紐付け) が必要
-> - **ステータスバーが空** → 使用率を記録する **statusline 設定** が必要 (表示専用 statusline では出ない)
->
-> どちらも [docs/setup/path-a-chat.md](docs/setup/path-a-chat.md) に手順がある。 加えて
-> `claude` を **PATH に通す** + `launch_alias` 対応の **shell alias 定義** + **`jq` / `tmux`**
-> が前提。
+### 常駐運用 (= LaunchAgent、 macOS 推奨)
+
+```bash
+task install-service      # ~/Library/LaunchAgents/<label>.plist を配置 + 編集案内
+# plist 内の絶対 path を編集してから:
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.claudepwa.client.plist
+task status               # LaunchAgent + port + /debug/healthcheck 12 項目を 1 発確認
+```
+
+### PC 再起動後の動線
+
+LaunchAgent KeepAlive で自動起動するはずなので、 まず `task status` で生死確認。 反応無ければ `task restart` で kickstart、 ログは `task logs`。 細かい復旧手順は [docs/ops/troubleshoot.md](docs/ops/troubleshoot.md)。
 
 ## 設定ファイル
 
@@ -191,22 +201,27 @@ claude-pwa-client/
 │   ├── tests/                     # pytest
 │   ├── config.example.json
 │   └── requirements.txt
-├── frontend/                      # React + Vite
+├── frontend/                      # React + Vite (= W2 architecture、 ADR-026 着地済)
 │   ├── src/
-│   │   ├── App.jsx                # ルートコンポーネント
-│   │   ├── overlays/              # 全画面 / サイドモーダル類
-│   │   ├── components/            # ChatInput / StatusBar / Terminal / SubagentsModal 等
-│   │   │   ├── MessageRenderer.jsx
-│   │   │   └── ErrorBoundary.jsx
-│   │   ├── messageRegistry/       # MessageItem の system kind → Render lookup
-│   │   ├── SystemMessages/        # system 系メッセージの個別レンダリング
-│   │   ├── tools/                 # formatTool の per-tool ハンドラ
-│   │   ├── hooks/                 # チャット / SSE / 永続化 hook 群
+│   │   ├── main.jsx               # entry
+│   │   ├── App.jsx                # 10 行 shell (= ErrorBoundary + Layout を return するだけ)
+│   │   ├── layout/                # 配置層 (= Layout / ChatPanel / TerminalPane / OverlayHost / ErrorBoundary)
+│   │   ├── features/              # 19 機能 (= chat / session-drawer / topbar / status-bar / dialogs / app-effects / ask-user-question / attachments / file-preview / file-tree / fork / ios-native / plan-approval / push-notify / screenshare / subagents / tasks / terminal + __contracts__)
+│   │   ├── state/                 # 6 store singleton (= ephemeral / sessions / ui / messages / push / persistence) + _store.js factory
+│   │   ├── registry/              # 5 registry (= feature / message / overlay / push / stream)
+│   │   ├── transport/             # backend 接続 (= SSE / WS singleton)
+│   │   ├── domain/                # 純粋 TS layer (= Session / Message / Tool / Event + invariants)
+│   │   ├── ports/                 # 型 only interface (= hexagonal 境界)
+│   │   ├── shared/                # feature 跨ぎの共有 component (= ConfirmDialog / Modal.css 等)
+│   │   ├── hooks/                 # generic DOM utility (= useEscape / useOutsideClick の 2 件のみ)
+│   │   ├── contracts/             # codegen 出力 (= events / ws_channels / http_endpoints の .ts/.py)
+│   │   ├── tools/                 # tool block 整形 handler (= _registry.js + family file)
 │   │   └── utils/                 # api / format / favorites / id / storage 等
 │   └── public/
 │       ├── manifest.template.json # PWA manifest
-│       └── sw.js                  # Service Worker (Web Push 受信)
-└── docs/                          # 詳細ドキュメント (下記 docs index 参照)
+│       └── sw.js                  # Service Worker (= Web Push 受信)
+├── docs/                          # 詳細ドキュメント (= docs/README.md 参照)
+└── Taskfile.yml                   # task コマンド entry (= task --list で全 task)
 ```
 
 ## 開発フロー (= ローカルチェックのみ、 GitHub Actions 不使用)
@@ -217,7 +232,7 @@ claude-pwa-client/
 git config --local core.hooksPath .githooks
 ```
 
-これだけで commit 時に以下が staged 範囲に応じて自動で走る:
+これだけで commit 時に以下が staged 範囲に応じて自動で走る (= 手動で全件回したい時は `task lint` / `task test` / `task anon:scan`):
 
 1. **anon-scan** (= `.tooling/local-ci/anon-scan.sh`): 個人識別子 / 旧雇用主 / ホスト名の混入チェック (全 commit)
 2. **flake8** (= staged Python のみ): 構文 / 未定義名 / f-string などの致命チェック
@@ -225,6 +240,10 @@ git config --local core.hooksPath .githooks
 4. **audit-w2-residue** (= `.tooling/local-ci/audit-w2-residue.py`): `frontend/src/state/` `features/` `layout/` `*.css` のいずれかが staged の時のみ。 状態二重管理 / orphan setter / CSS absolute anchor の 3 種を機械検出 (= W2 architecture residue 用)
 
 意図的に gate を回避したい時は `--no-verify`。 既知の偽陽性は `.tooling/local-ci/audit-w2-residue-allowlist.txt` に追記。
+
+## ロードマップ
+
+進行中 / 検討中の作業は [ROADMAP.md](ROADMAP.md) 参照。
 
 ## docs index
 
