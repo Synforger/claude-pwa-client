@@ -209,6 +209,23 @@ claude-pwa-client/
 └── docs/                          # 詳細ドキュメント (下記 docs index 参照)
 ```
 
+## 開発フロー (= ローカルチェックのみ、 GitHub Actions 不使用)
+
+このリポは品質ゲートを全部ローカル `.githooks/` に置く運用。 GitHub Actions の workflow は使わない (= 配信先が個人 / 1 端末で、 PR ごとに remote ランナー回す価値が薄い + 失効した workflow の維持コストを避ける)。 clone 後の活性化:
+
+```bash
+git config --local core.hooksPath .githooks
+```
+
+これだけで commit 時に以下が staged 範囲に応じて自動で走る:
+
+1. **anon-scan** (= `.tooling/local-ci/anon-scan.sh`): 個人識別子 / 旧雇用主 / ホスト名の混入チェック (全 commit)
+2. **flake8** (= staged Python のみ): 構文 / 未定義名 / f-string などの致命チェック
+3. **eslint** (= staged JS/JSX/TS/TSX のみ): `frontend/node_modules/eslint` 存在時のみ
+4. **audit-w2-residue** (= `.tooling/local-ci/audit-w2-residue.py`): `frontend/src/state/` `features/` `layout/` `*.css` のいずれかが staged の時のみ。 状態二重管理 / orphan setter / CSS absolute anchor の 3 種を機械検出 (= W2 architecture residue 用)
+
+意図的に gate を回避したい時は `--no-verify`。 既知の偽陽性は `.tooling/local-ci/audit-w2-residue-allowlist.txt` に追記。
+
 ## docs index
 
 | file | 内容 |
