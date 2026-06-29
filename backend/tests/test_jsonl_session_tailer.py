@@ -110,7 +110,13 @@ def test_drain_watch_signals_no_signals_noop(tmp_path):
 
 # --- F-03 SessionTailer: _initialize_sid_tail / _tick_sid 基本動作 ---------
 
-def test_initialize_sid_tail_seeks_to_end(isolated_state, tmp_path):
+def test_initialize_sid_tail_starts_from_zero(isolated_state, tmp_path):
+    """2026-06-30 stream-from-zero: 初回 bind / path 切替時に offset=0 から読む。
+    旧版は `offset = st_size` で path 切替前に書かれた行を skip していたが、 path 切替
+    検知が monitor の次 tick 待ちの間に claude が boot + user/tool/agent を一気に
+    書き終えるケースで全部巻き添え skip され、 「結果が来るまで何も表示されず、 来た
+    瞬間に batch 表示」 という UX 退行が出ていた。 chat 非表示行 (= isMeta / isSidechain
+    / system init 等) は events.py の filter で除外。"""
     sid = "ses_init"
     _make_state_for(sid)
     p = tmp_path / "x.jsonl"
@@ -118,7 +124,7 @@ def test_initialize_sid_tail_seeks_to_end(isolated_state, tmp_path):
     ts = jr.SessionTailState()
     jr._initialize_sid_tail(sid, ts, p)
     assert ts.path == p
-    assert ts.offset == p.stat().st_size  # 末尾から開始 (= 過去行を再通知しない)
+    assert ts.offset == 0  # path 内全行を後段の _tick_sid で読む
 
 
 def test_initialize_sid_tail_resets_metadata_on_path_switch(isolated_state, tmp_path):
@@ -154,6 +160,52 @@ def test_tick_sid_processes_new_lines(isolated_state, tmp_path, monkeypatch):
         f.write(_json.dumps({"type": "user", "message": {"content": "go"}}) + "\n")
     jr._tick_sid(sid, ts, now_mono=200.0)
     assert state_mod.stream_states[sid].busy is True
+
+
+def test_path_switch_streams_existing_lines(isolated_state, tmp_path, monkeypatch):
+    """2026-06-30 stream-from-zero: path 切替検知時に新 path 内に既に書かれた行を
+    `_process_new_lines` 経由で全部 publish する (= 旧設計の skip 解消)。 restart 後の
+    boot + user 初発 + tool_use/tool_result + assistant final の race-window 巻き添え
+    skip を直す核 fix の挙動固定。"""
+    sid = "ses_switch_stream"
+    _make_state_for(sid)
+    p_old = tmp_path / "old.jsonl"
+    p_old.write_bytes(b"")
+    p_new = tmp_path / "new.jsonl"
+    # 新 path に既に 3 行書かれた状態で path 切替が起きるシナリオ (= claude boot 後の
+    # 一連の追記が monitor の path 切替検知より先行するケース)。
+    import json as _json
+    p_new.write_text("".join(
+        _json.dumps({"type": t, "message": {"content": c}, "uuid": f"u{i}"}) + "\n"
+        for i, (t, c) in enumerate([("user", "hi"), ("user", "go"), ("user", "done")])
+    ), encoding="utf-8")
+    monkeypatch.setattr(jr, "_latest_jsonl", lambda s: p_new if s == sid else None)
+    captured: list[str] = []
+    monkeypatch.setattr(jr, "_process_new_lines", lambda _sid, lines: captured.extend(lines))
+    # tstate は旧 path で初期化済、 切替 trigger は _tick_sid 内 path 比較
+    ts = jr.SessionTailState(path=p_old, offset=0)
+    # 1 tick 目: _initialize_sid_tail で path=p_new / offset=0、 _process_new_lines は
+    # 同 tick 内では呼ばれない (= initialize は path 切替 detect で return する設計)
+    jr._tick_sid(sid, ts, now_mono=100.0)
+    assert ts.path == p_new
+    assert ts.offset == 0
+    # 2 tick 目: 通常 tail 経路で offset=0 から全 3 行 publish
+    jr._tick_sid(sid, ts, now_mono=200.0)
+    assert len(captured) == 3
+    assert ts.offset == p_new.stat().st_size
+
+
+def test_request_sid_tail_reset_pops_state(isolated_state, tmp_path):
+    """2026-06-30: restart / fork endpoint から呼ぶ `request_sid_tail_reset` は
+    `_sid_tail_reset_pending` set に sid を積み、 monitor loop が次 tick で当該 sid を
+    `states` から落とす → 初回 bind 扱いで offset=0 から読む経路に合流。 本 test は
+    set への積み挙動だけ固定する (= monitor loop の drain 部分は inner loop なので
+    integration 経路で覆われる)。"""
+    jr._sid_tail_reset_pending.clear()
+    jr.request_sid_tail_reset("ses_reset_a")
+    jr.request_sid_tail_reset("ses_reset_b")
+    assert jr._sid_tail_reset_pending == {"ses_reset_a", "ses_reset_b"}
+    jr._sid_tail_reset_pending.clear()
 
 
 def test_tick_sid_unresolved_path_backs_off(isolated_state, monkeypatch):

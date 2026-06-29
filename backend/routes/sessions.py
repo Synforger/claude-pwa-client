@@ -217,6 +217,15 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
         parent_id=session_id,
         resume_session_id=new_claude_id,
     )
+    # 新タブの monitor tail を初回 bind 扱いに固定 (= 2026-06-30 stream-from-zero)。
+    # fork は backend が事前に lineage 全行を書いた新 jsonl を register してから claude
+    # が `--resume <new_claude_id>` で起動し boot 行 / 新規 user/agent を追記する 2 段経路。
+    # tail を初回 bind にしておかないと、 path 切替検知の旧設計 (= offset=st_size) で
+    # 親 lineage 全行が skip される (= 新タブ開いても会話履歴が見えない) + claude boot
+    # 後の最初の応答も st_size 採用窓で巻き添え skip される race を踏む。 reset 経由で
+    # offset=0 → events.py filter で boot banner 除外 → lineage + 新規行が live で届く。
+    from backend.jsonl.routes import request_sid_tail_reset  # noqa: PLC0415
+    request_sid_tail_reset(new_meta.id)
     # 新タブ作成時点で PTY spawn + launch_alias 投入を完了させる (= create_session 経路と同じ
     # 横展開、 2026-06-30)。 旧実装は spawn を呼ばず、 fork 後にユーザが「ターミナル表示」 を
     # 押して /ws/pty/{new_sid} 接続するまで spawn しないので、 chat view 単独では claude が
@@ -265,6 +274,15 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
     # (= delete_session の GC と同型、 蓄積させない)。 parent_id は派生履歴として残し、
     # ドロワー上の親子インデント表示は維持する。
     state.demote_fork_to_normal(session_id)
+    # monitor tail を初回 bind 扱いに戻す (= 2026-06-30 stream-from-zero、 詳細は
+    # `backend/jsonl/routes.py` `_initialize_sid_tail` docstring)。 旧版は path 切替
+    # 検知時に offset=st_size で「既に書かれた行を skip」 する設計で、 restart 後の
+    # 新 claude が boot banner / user 初発 / tool_use/tool_result / assistant final を
+    # 一気に書き終えるケースで全部巻き添え skip され「結果が来るまで何も表示されない、
+    # 来た瞬間に batch 表示」 という UX 退行になっていた。 reset 後は次 monitor tick で
+    # offset=0 から path 内全行を publish、 chat 非表示対象は events.py の filter で除外。
+    from backend.jsonl.routes import request_sid_tail_reset  # noqa: PLC0415
+    request_sid_tail_reset(session_id)
     # 新規 spawn (= 同 PWA_SID で tmux 再生成 + claude 再起動 + SessionStart hook で
     # 新 claude_sid を confirm_bind)。 ensure_pty_session_for は terminal.routes に居て
     # main.py 経由で chat router 登録より後で import される ↔ chat 早期 import の循環

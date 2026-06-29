@@ -434,14 +434,25 @@ def _reset_jsonl_session_metadata(sid: str) -> None:
 
 
 def _initialize_sid_tail(sid: str, tstate: SessionTailState, path: Path) -> None:
-    """初回 or path 切替時の末尾再同期。 過去行を再通知しないよう offset = 現 size に
-    置き、 末尾から現在値で busy を 1 回算出する (= backend 起動時に推論中だった session
-    も正しく busy=True にする)。"""
+    """初回 or path 切替時の path 取付。 旧版は `offset = path.stat().st_size` で path
+    切替前に書かれていた全行を skip する設計だったが、 path 切替検知が monitor の次 tick
+    待ちのため、 その窓に claude が boot banner + user 初発 + tool_use/tool_result +
+    assistant final を一気に書き終えるケースで全部巻き添え skip され、 「結果が来るまで
+    chat に何も表示されない、 来た瞬間にまとめて batch 表示」 という reproducible な
+    UX 退行になっていた (= 2026-06-30 真因確定、 PR #37 で塞いだ EventSource reconnect
+    経路とは別の root cause)。
+
+    新設計 = path 切替時は **offset=0** から読む。 chat 非表示対象 (= isMeta /
+    isSidechain / system init / queue-operation 等) は `backend/jsonl/events.py`
+    `jsonl_line_to_events` の filter で event 化されないので chat に漏れない。 fork
+    で lineage 複製された新 jsonl の過去行や backend restart 後の全 jsonl も live で
+    publish されるが、 frontend dedup (= user は `reconcileUserMessage` の uuid 一致
+    全長 dedup、 agent は `useStreamBuffer.findRecentByUuid` を Map<uuid,index> 全長
+    lookup 化) で重複表示なし。"""
     prev_path = tstate.path
-    try:
-        tstate.offset = path.stat().st_size
-    except OSError:
+    if not path.exists():
         return
+    tstate.offset = 0
     tstate.path = path
     if prev_path is not None and prev_path != path:
         _reset_jsonl_session_metadata(sid)
@@ -454,6 +465,21 @@ def _initialize_sid_tail(sid: str, tstate: SessionTailState, path: Path) -> None
             st.busy = new_busy
             sessions_overview.notify()
     tstate.last_line_at = time.monotonic()
+
+
+# restart / fork 経由で claude session が入れ替わる時に monitor 側の tstate を初回
+# bind 扱いに戻すためのシグナル。 endpoint 側から sid を add すると、 monitor loop が
+# 次 tick 開始時に当該 sid の tstate を pop して新規初期化 (= prev_path is None 経路)
+# する。 endpoint と monitor の event loop は同一だが lock-free で安全 (= add は set
+# 操作、 monitor は pop で取り出して即 clear)。
+_sid_tail_reset_pending: set[str] = set()
+
+
+def request_sid_tail_reset(sid: str) -> None:
+    """restart_session / fork_session 等の endpoint から呼ぶ。 次の monitor tick で
+    当該 sid の SessionTailState を破棄して初回 bind と同じ経路 (= offset=0 から path
+    内全行 publish) を踏ませる。 stream-from-zero 設計の入口 (= 2026-06-30)。"""
+    _sid_tail_reset_pending.add(sid)
 
 
 def _process_new_lines(sid: str, lines: list[str]) -> None:
@@ -651,6 +677,14 @@ async def monitor_all_sessions_loop():
                 # 削除済み session の追跡 entry を刈り取る (= 無停止運用での単調増加防止)
                 for stale in [s for s in states if s not in _sessions_meta]:
                     states.pop(stale, None)
+                # restart / fork 経由の reset 要求を吸い出す (= 2026-06-30 stream-from-zero
+                # 設計、 当該 sid を states から落とすと次の `_tick_sid` で `prev_path is
+                # None` 経路に入り `_initialize_sid_tail` が offset=0 から読む)。
+                if _sid_tail_reset_pending:
+                    drained = list(_sid_tail_reset_pending)
+                    _sid_tail_reset_pending.clear()
+                    for sid in drained:
+                        states.pop(sid, None)
                 # F-01: watchfiles の信号を吸い出して next_poll_at を advance する。
                 sid_by_path: dict[Path, str] = {}
                 for sid, ts in states.items():
