@@ -252,6 +252,17 @@ tasks:
     cmds:
       - bash .tooling/local-ci/anon-scan.sh
 
+  audit:deep:
+    desc: Deep anon audit across 10 sources (= history + commit msg + branches + tags + author + GitHub PR/Issue/desc/release)
+    cmds:
+      - bash .tooling/local-ci/anon-sync-truth.sh
+      - bash .tooling/local-ci/anon-audit-deep.sh
+
+  audit:sync-truth:
+    desc: Pull anon-words.txt from the operator's master truth (= ANON_TRUTH_PATH env or platform default)
+    cmds:
+      - bash .tooling/local-ci/anon-sync-truth.sh
+
   audit:
     desc: Full security audit (= pip-audit + npm audit + gitleaks full history + anon-scan)
     cmds:
