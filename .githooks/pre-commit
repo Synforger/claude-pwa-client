@@ -62,3 +62,43 @@ if [ -n "${staged_js}" ]; then
         echo "warning: frontend/node_modules/eslint missing; skipping frontend lint. Run: cd frontend && npm install"
     fi
 fi
+
+# -----------------------------------------------------------------------------
+# 4. W2 residue audit: detect J-7/J-8/J-9 shape regressions (state double-
+#    management, orphan setters, css absolute without relative ancestor).
+#    Runs only when staged files touch the surfaces the audit cares about
+#    (state/, features/, layout/, *.css under frontend/src/) — backend or
+#    docs-only commits skip. The script self-scans frontend/src/ so its
+#    runtime is proportional to the tree, not the staged set; conditioning
+#    on staged files keeps the hook fast for non-frontend work.
+# -----------------------------------------------------------------------------
+audit_trigger="$(git diff --cached --name-only --diff-filter=ACMRT | grep -E '^frontend/src/(state/|features/|layout/|.*\.css$)' || true)"
+if [ -n "${audit_trigger}" ]; then
+    AUDIT="${REPO_ROOT}/.tooling/local-ci/audit-w2-residue.py"
+    if [ -x "${AUDIT}" ]; then
+        # Capture full output, run a parse on the summary line.
+        audit_out="$(python3 "${AUDIT}" 2>&1)" || {
+            echo "${audit_out}"
+            echo ""
+            echo "audit-w2-residue.py failed to run. Fix the script or commit with --no-verify if intentional."
+            exit 1
+        }
+        # Summary line: "# summary: A=N / B=N / C=N  (allowlist suppressed M)"
+        summary="$(echo "${audit_out}" | grep -E '^# summary:' || true)"
+        nonzero="$(echo "${summary}" | grep -oE '[ABC]=[0-9]+' | grep -v '=0$' || true)"
+        if [ -n "${nonzero}" ]; then
+            echo "${audit_out}"
+            echo ""
+            echo "audit-w2-residue.py found new W2 residue findings:"
+            echo "  ${nonzero}"
+            echo ""
+            echo "Either:"
+            echo "  - fix the underlying issue (= preferred, see Phase J PRs for examples)"
+            echo "  - add the finding to .tooling/local-ci/audit-w2-residue-allowlist.txt with a comment"
+            echo "  - commit with --no-verify if intentional and tracked elsewhere"
+            exit 1
+        fi
+    else
+        echo "warning: ${AUDIT} not found / not executable; skipping W2 residue audit."
+    fi
+fi
