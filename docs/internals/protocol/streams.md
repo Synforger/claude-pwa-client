@@ -101,7 +101,7 @@ Stop ボタン経路も WS で通す。 HTTP POST 経路だと送信失敗 race 
 
 ## event wire shape (= `/jsonl/stream/*` で流れる event)
 
-backend `backend/jsonl/events.py::jsonl_line_to_events` が JSONL 1 行から組み立て、 SSE で配信する event 群の wire shape を一括宣言する。 frontend `frontend/src/features/chat/processStreamEvent.js` がこれを type で分岐して描画する。 backend と frontend のどちらか片方だけ変更すると drift して silent な未描画になるため、 新規 event type を追加する時は **本ファイル → backend → frontend** の順で更新する (= 詳細は `architecture/extending.md (b)`)。
+backend `backend/jsonl/events.py::jsonl_line_to_events` が JSONL 1 行から組み立て、 SSE で配信する event 群の wire shape を一括宣言する。 frontend `frontend/src/features/chat/processStreamEvent.js` がこれを type で分岐して描画する。 backend と frontend のどちらか片方だけ変更すると drift して silent な未描画になるため、 新規 event type を追加する時は **本ファイル → backend → frontend** の順で更新する (= 詳細は `../architecture/extending.md (b)`)。
 
 ### 共通フィールド
 
@@ -162,6 +162,6 @@ backend `backend/jsonl/events.py::jsonl_line_to_events` が JSONL 1 行から組
 
 ## 変更時の注意
 
-- 新 SSE event type を追加する時は **本 file § event wire shape → backend events.py → backend test snapshot → frontend processStreamEvent → registry/messageRegistry** の順 (= 拡張ガイド = `architecture/extending.md (b)`)
+- 新 SSE event type を追加する時は **本 file § event wire shape → backend events.py → backend test snapshot → frontend processStreamEvent → registry/messageRegistry** の順 (= 拡張ガイド = `../architecture/extending.md (b)`)
 - overview / status の payload shape を変える時は backend + frontend の同時更新が必須 (= 部分受け取り fallback は持たない設計、 silent drift が起きる)
 - 新経路を増やす時は **本書の 1 表に 1 行追加** を必ず行う (= drift の根源は表に載らない経路、 で起こる)
