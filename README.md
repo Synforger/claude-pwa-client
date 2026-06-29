@@ -265,14 +265,13 @@ git config --local core.hooksPath .githooks
 
 ## ライセンス
 
-Apache License 2.0 (`LICENSE` および `NOTICE` を参照)。
+Apache License 2.0 (`LICENSE` / `NOTICE` 参照)。
 
-Sunshine / moonlight-web-stream は GPL-3.0 ライセンスだが、 本リポジトリはこれらをバンドル
-・ リンクしていない。 別プロセスとして起動し HTTP / WebRTC 経由で連携するため、 本リポジトリ
-自体に GPL の copyleft は波及しない (FSF GPL FAQ「プロセス分離は通常 derivative work には
-当たらない」に依拠)。
+依存 OSS の license audit (2026-06-29): backend Python deps + frontend npm production deps は全て **permissive** (MIT / BSD / Apache-2.0 / ISC / MPL-2.0 weak copyleft / PSF / CC0-1.0)、 strong copyleft (GPL / AGPL / LGPL / SSPL) はゼロ。 全 dependency の per-package listing + license summary は [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) 参照。
 
-派生物では `NOTICE` を保持し、 改変した主要ファイルにその旨を明記すること (Apache-2.0 §4)。
+Sunshine / moonlight-web-stream は GPL-3.0 だが、 本リポジトリはこれらをバンドル / リンクせず、 別プロセスとして起動し HTTP / WebRTC 経由で連携するため GPL copyleft は波及しない (= FSF GPL FAQ「プロセス分離は通常 derivative work には当たらない」 に依拠)。
+
+派生物では `NOTICE` を保持し、 改変した主要ファイルにその旨を明記すること (Apache-2.0 §4)。 依存追加 / 削除 / version bump 時は `task gen-notices` で `THIRD_PARTY_NOTICES.md` を再生成。
 
 ## 謝辞
 
