@@ -639,6 +639,9 @@ async def _check_tmux_pty_sessions() -> dict[str, Any]:
     try:
         open_fd = len(list(Path("/dev/fd").iterdir()))
     except OSError:
+        # benign: /dev/fd 列挙は debug endpoint の best-effort 補助情報、
+        # 取れなければ -1 のまま return する設計 (= 観測経路で例外を投げると
+        # healthcheck dashboard が壊れる方が損失大)。
         pass
     return {
         "ok": True,

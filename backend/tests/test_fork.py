@@ -439,7 +439,7 @@ def test_restart_fork_session_promotes_to_normal_tab(tmp_path, monkeypatch, isol
     assert fork_jsonl.exists()
     # ensure_pty_session_for と内部副作用は noop に差し替え (= restart の通常タブ化部分のみを検証)
     from backend.terminal.routes import ensure_pty_session_for as real_spawn  # noqa: F401, PLC0415
-    async def _noop(_sid):
+    async def _noop(_sid, **_kwargs):
         return None
     import backend.terminal.routes as pty_routes  # noqa: PLC0415
     import backend.terminal.runner as pty_runner  # noqa: PLC0415
@@ -462,7 +462,7 @@ def test_restart_normal_session_keeps_meta_unchanged(tmp_path, monkeypatch, isol
     """通常タブ (= resume_session_id 無し) の restart では meta を一切触らない安全弁テスト。"""
     import backend.routes.chat as chat_routes  # noqa: PLC0415
     chat_routes, parent, _ = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
-    async def _noop(_sid):
+    async def _noop(_sid, **_kwargs):
         return None
     import backend.terminal.routes as pty_routes  # noqa: PLC0415
     import backend.terminal.runner as pty_runner  # noqa: PLC0415
@@ -474,3 +474,50 @@ def test_restart_normal_session_keeps_meta_unchanged(tmp_path, monkeypatch, isol
     from backend.state import sessions_meta  # noqa: PLC0415
     assert sessions_meta[parent.id].resume_session_id is None  # 元から None
     assert sessions_meta[parent.id].parent_id is None  # 通常タブのまま
+
+
+def test_restart_passes_prefer_fresh_to_ensure_pty(tmp_path, monkeypatch, isolated_state):
+    """restart は ensure_pty_session_for を `prefer_fresh=True` で呼ぶ (= autoresume race 回避)。
+
+    直前 claude プロセスの shutdown 前に `claude --resume <直前 sid>` が走ると重複起動検知で
+    rc=0 即 exit する race を防ぐため、 restart 経路は autoresume を skip して通常 alias 直行
+    する設計 (= 2026-06-29 root cause 修正)。
+    """
+    import backend.routes.chat as chat_routes  # noqa: PLC0415
+    chat_routes, parent, _ = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
+    captured = {}
+    async def _spy(sid, **kwargs):
+        captured["sid"] = sid
+        captured["kwargs"] = kwargs
+    import backend.terminal.routes as pty_routes  # noqa: PLC0415
+    import backend.terminal.runner as pty_runner  # noqa: PLC0415
+    monkeypatch.setattr(pty_routes, "ensure_pty_session_for", _spy)
+    monkeypatch.setattr(pty_runner, "kill_tmux_session", lambda sid: True)
+    asyncio.get_event_loop().run_until_complete(
+        chat_routes.restart_session(parent.id, _="ok")
+    )
+    assert captured["sid"] == parent.id
+    assert captured["kwargs"].get("prefer_fresh") is True
+
+
+def test_create_session_invokes_ensure_pty(tmp_path, monkeypatch, isolated_state):
+    """POST /sessions (= 新規タブ作成) は ensure_pty_session_for を呼ぶ (= 新 sid spawn 完結)。
+
+    `/jsonl/stream/all` の起動 sweep は接続時点の sessions_meta snapshot しか見ないので、
+    接続継続中に新 sid を追加しても spawn が走らない → 「ターミナルを表示」 を押すまで
+    chat view 単独では起動が完結しない症状を、 create_session 自身が ensure を踏むことで根治
+    (= 2026-06-29 修正)。 prefer_fresh は default の False (= 通常経路、 autoresume 許可)。
+    """
+    import backend.routes.sessions as sess_routes  # noqa: PLC0415
+    captured = {}
+    async def _spy(sid, **kwargs):
+        captured["sid"] = sid
+        captured["kwargs"] = kwargs
+    import backend.terminal.routes as pty_routes  # noqa: PLC0415
+    monkeypatch.setattr(pty_routes, "ensure_pty_session_for", _spy)
+    result = asyncio.get_event_loop().run_until_complete(
+        sess_routes.create_session({"agent_id": "agent_a", "title": "fresh"})
+    )
+    assert captured["sid"] == result["id"]
+    # prefer_fresh は明示しない (= default False、 通常経路で autoresume 許可)
+    assert captured["kwargs"].get("prefer_fresh", False) is False

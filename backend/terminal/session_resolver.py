@@ -81,7 +81,7 @@ def last_resumable_claude_sid(session_id: str) -> str | None:
     return p.stem
 
 
-def resolve_launch_alias(session_id: str) -> str | None:
+def resolve_launch_alias(session_id: str, *, prefer_fresh: bool = False) -> str | None:
     """初回 spawn で zsh prompt に送る起動コマンドを解決する。
 
     通常タブは agent cfg の `launch_alias` (= ユーザの claude 起動 wrapper)。 フォークタブ
@@ -94,6 +94,13 @@ def resolve_launch_alias(session_id: str) -> str | None:
     側の watchdog (= claude プロセスが時間内に検出されなければ通常 alias を打ち直す) で吸収する。
     zsh の `|| alias` で繋ぐと `claude --resume` が rc=0 で即 exit するパターン (= フォーク
     resume と同型の罠) で右辺が走らず zsh プロンプトに残るので使わない。
+
+    `prefer_fresh=True` で autoresume 経路を skip して通常 alias に直行する。 restart
+    (= 文脈リセット + プロセスリセット) 経路から呼ぶ用途で、 直前 claude プロセスが完全
+    shutdown する前に `claude --resume <直前 sid>` を投入すると重複起動検知で rc=0 即 exit
+    する race を回避する (= log 観測で spawn → 2ms exited rc=0 → watchdog の 2s 待ちに
+    間に合わず alias 打ち直し届かず chat 起動失敗、 2026-06-29 確認)。 fork resume
+    (= 意図的分岐) は prefer_fresh 関係なく resume_session_id 経路が優先される。
     """
     meta = sessions_meta.get(session_id)
     resume_id = getattr(meta, "resume_session_id", None) if meta is not None else None
@@ -104,19 +111,23 @@ def resolve_launch_alias(session_id: str) -> str | None:
         return f"{shlex.quote(CLAUDE_PATH)} --resume {shlex.quote(resume_id)}"
     cfg = resolve_agent_cfg(session_id) or {}
     alias = cfg.get("launch_alias")
-    autoresume_id = last_resumable_claude_sid(session_id)
-    if autoresume_id and alias and CLAUDE_PATH:
-        return f"{shlex.quote(CLAUDE_PATH)} --resume {shlex.quote(autoresume_id)}"
+    if not prefer_fresh:
+        autoresume_id = last_resumable_claude_sid(session_id)
+        if autoresume_id and alias and CLAUDE_PATH:
+            return f"{shlex.quote(CLAUDE_PATH)} --resume {shlex.quote(autoresume_id)}"
     return alias
 
 
-def resolve_autoresume_fallback(session_id: str) -> str | None:
+def resolve_autoresume_fallback(session_id: str, *, prefer_fresh: bool = False) -> str | None:
     """autoresume が即 exit した時に投入する通常 alias を返す (= 失敗時 fallback)。
 
     `resolve_launch_alias` が autoresume 用の `claude --resume <id>` を返したケースに限り、
     その失敗時にこの alias を打ち直して通常起動に倒す。 autoresume 経路でない (= 元から alias)
-    やフォーク resume (= 意図的分岐) では fallback 不要なので None。
+    やフォーク resume (= 意図的分岐) では fallback 不要なので None。 prefer_fresh=True は
+    そもそも autoresume を踏まないので fallback も不要。
     """
+    if prefer_fresh:
+        return None
     meta = sessions_meta.get(session_id)
     if meta is not None and getattr(meta, "resume_session_id", None):
         return None
@@ -126,12 +137,16 @@ def resolve_autoresume_fallback(session_id: str) -> str | None:
     return cfg.get("launch_alias")
 
 
-async def ensure_pty_session_for(session_id: str) -> None:
+async def ensure_pty_session_for(session_id: str, *, prefer_fresh: bool = False) -> None:
     """指定 session の tmux + claude を起動 (既にあれば何もしない)。
 
-    `/ws/pty/{sid}` (= ターミナル画面) 経由だけでなく、 `/jsonl/stream/{sid}`
-    (= チャット画面) からも呼ぶことで、 ターミナル画面を一度も開いていないタブでも
-    claude が立ち上がって JSONL が作られるようにする。
+    `/ws/pty/{sid}` (= ターミナル画面) 経由だけでなく、 `/jsonl/stream/{sid}` /
+    `/jsonl/stream/all` (= チャット画面) や POST /sessions (= 新規タブ作成) からも呼ぶ
+    ことで、 ターミナル画面を一度も開いていないタブでも claude が立ち上がって JSONL が
+    作られるようにする。
+
+    `prefer_fresh=True` は restart 経路用 (= autoresume race 回避)、 詳細は
+    `resolve_launch_alias` の docstring 参照。
     """
     existing = pty_sessions.get(session_id)
     if existing is not None and not existing.exit_event.is_set():
@@ -143,8 +158,8 @@ async def ensure_pty_session_for(session_id: str) -> None:
         return
     cfg = resolve_agent_cfg(session_id) or {}
     cwd = cfg.get("cwd")
-    launch_alias = resolve_launch_alias(session_id)
-    fallback_alias = resolve_autoresume_fallback(session_id)
+    launch_alias = resolve_launch_alias(session_id, prefer_fresh=prefer_fresh)
+    fallback_alias = resolve_autoresume_fallback(session_id, prefer_fresh=prefer_fresh)
     try:
         from backend.config import ACCOUNTS  # noqa: PLC0415
         from backend.state import sessions_meta  # noqa: PLC0415

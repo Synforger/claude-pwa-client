@@ -40,7 +40,7 @@ def test_per_sid_sse_replays_from_file_and_subscribes(isolated_state, monkeypatc
                                   "message": {"content": "hello"}}) + "\n")
     monkeypatch.setattr(jr, "_latest_jsonl", lambda _sid: jpath)
     # ensure_pty_session_for は副作用無しでスキップ
-    async def _noop(_sid):
+    async def _noop(_sid, **_kwargs):
         return None
     monkeypatch.setattr("backend.terminal.routes.ensure_pty_session_for", _noop)
 
@@ -90,7 +90,7 @@ def test_all_sse_fans_out_multiple_sids(isolated_state, monkeypatch, tmp_path):
         return tmp_path / f"{sid}.jsonl"
     monkeypatch.setattr(jr, "_latest_jsonl", _latest)
 
-    async def _noop(_sid):
+    async def _noop(_sid, **_kwargs):
         return None
     monkeypatch.setattr("backend.terminal.routes.ensure_pty_session_for", _noop)
 
