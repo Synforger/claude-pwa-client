@@ -39,7 +39,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r backend/requirements.txt
 cp backend/config.example.json backend/config.json
 # config.json の claude_path は `which claude` の結果と揃える
-# 詳細は ../config.md を参照
+# 詳細は ../reference/config.md を参照
 python -m backend.cli.gen_vapid
 (cd frontend && npm install && npm run build)
 ```

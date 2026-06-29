@@ -21,7 +21,7 @@ Claude Code をスマートフォンから操作するための PWA クライア
   をリアルタイム表示 + 当セッション言及 PR 一覧チップ
 - **会話のフォーク**: 任意メッセージから新タブで分岐、 親 ・ 子をドロワーで階層表示
 - **メッセージ履歴永続化**: lz-string で圧縮して localStorage に保存
-- **マルチアカウント**: `accounts` 設定で個人 / 会社等を切り替え (詳細は [docs/config.md](docs/config.md))
+- **マルチアカウント**: `accounts` 設定で個人 / 会社等を切り替え (詳細は [docs/reference/config.md](docs/reference/config.md))
 
 ### 追加機能 (任意セットアップ)
 
@@ -53,7 +53,7 @@ Claude Code をスマートフォンから操作するための PWA クライア
 - スマートフォンからは Tailscale 経由でホスト機の HTTPS にアクセス、 インターネット公開はしない
 
 詳細なレイヤ構成と SSE / JSONL / tmux 経路の責務分割は
-[docs/architecture.md](docs/architecture.md) を参照。
+[docs/architecture/overview.md](docs/architecture/overview.md) を参照。
 
 ## セキュリティモデル
 
@@ -140,11 +140,11 @@ tailscale serve --bg http://localhost:8765
 ```
 
 各フィールド (= `agents` / `accounts` / `claude_path` / `launch_alias` 等) と
-`frontend/.env.local` の詳細は [docs/config.md](docs/config.md) を参照。
+`frontend/.env.local` の詳細は [docs/reference/config.md](docs/reference/config.md) を参照。
 
 ## Troubleshooting
 
-代表的なつまずきポイントと復旧手順は [docs/troubleshoot.md](docs/troubleshoot.md) に集約
+代表的なつまずきポイントと復旧手順は [docs/ops/troubleshoot.md](docs/ops/troubleshoot.md) に集約
 (Chromium 系の HTTPS 証明書エラー、 Sunshine encoder hang、 moonlight ペアリング破損、
 `__pycache__` import 事故、 PWA bundle 更新の流れ、 セッション終了後の claude_sid 復旧、 等)。
 
@@ -228,18 +228,21 @@ git config --local core.hooksPath .githooks
 
 ## docs index
 
+詳細は [docs/README.md](docs/README.md) を参照。 主要 file:
+
 | file | 内容 |
 |---|---|
 | [docs/setup/path-a-chat.md](docs/setup/path-a-chat.md) | Path A セットアップ (チャット + 通知): 依存 / backend / frontend / Tailscale / LaunchAgent / スマホ接続 |
 | [docs/setup/path-b-screenshare.md](docs/setup/path-b-screenshare.md) | Path B 追加セットアップ: Sunshine / moonlight-web-stream ビルド / ペアリング / 音声経路 |
 | [docs/setup/windows-wsl.md](docs/setup/windows-wsl.md) | Windows (WSL2) 上での backend / frontend / Tailscale 構成 |
-| [docs/config.md](docs/config.md) | `backend/config.json` (`agents` / `accounts` / `claude_path` / `launch_alias` 等) + `frontend/.env.local` 詳細 |
-| [docs/troubleshoot.md](docs/troubleshoot.md) | HTTPS 証明書エラー / encoder hang / ペアリング破損 / `__pycache__` 等 |
-| [docs/architecture.md](docs/architecture.md) | レイヤ構成と責務分割 (terminal / jsonl / routes / core) |
-| [docs/streams.md](docs/streams.md) | SSE / WebSocket ストリームの設計 (`/jsonl/stream`, `/views/ws`, `/ws/pty`) |
-| [docs/extending.md](docs/extending.md) | 新規 message kind / tool / system message を追加する手順 |
-| [docs/sse-event-shape.md](docs/sse-event-shape.md) | SSE イベントの shape 仕様 |
-| [docs/sunshine-runbook.md](docs/sunshine-runbook.md) | Sunshine 運用 runbook |
+| [docs/reference/config.md](docs/reference/config.md) | `backend/config.json` (`agents` / `accounts` / `claude_path` / `launch_alias` 等) + `frontend/.env.local` 詳細 |
+| [docs/reference/data-schemas.md](docs/reference/data-schemas.md) | `backend/data/*.json` + `secrets/vapid.json` の schema + backup 対象範囲 |
+| [docs/ops/troubleshoot.md](docs/ops/troubleshoot.md) | HTTPS 証明書エラー / encoder hang / ペアリング破損 / `__pycache__` 等 |
+| [docs/ops/sunshine.md](docs/ops/sunshine.md) | Sunshine 運用 runbook (= phys_footprint リーク対策) |
+| [docs/architecture/overview.md](docs/architecture/overview.md) | backend / frontend 構成 (= 19 features + 6 store + 5 registry)、 依存方向 DAG、 SessionState + asyncio.Lock |
+| [docs/architecture/state-stores.md](docs/architecture/state-stores.md) | frontend 6 store の責務 + どの feature が subscribe するか |
+| [docs/architecture/extending.md](docs/architecture/extending.md) | 新規 message kind / tool / system message / overlay / account / push channel を追加する手順 |
+| [docs/protocol/streams.md](docs/protocol/streams.md) | 4 SSE + 2 WS の責任分担 + `/jsonl/stream/*` event wire shape |
 
 ## ライセンス
 
