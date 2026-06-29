@@ -6,7 +6,6 @@ import {
   appendSession,
   removeSession,
   patchSession,
-  setStatusFor,
   setSessionActivity,
   setUnreadDone,
   clearUnreadDone,
@@ -24,8 +23,6 @@ function reset() {
     sessions: [],
     activeId: null,
     agents: [],
-    accounts: [],
-    status: {},
     sessionActivity: {},
     unreadDone: {},
   })
@@ -34,12 +31,11 @@ function reset() {
 describe('state/sessions.js setter contract (= .id キー統一)', () => {
   beforeEach(() => { reset() })
 
-  it('removeSession は .id キーで session を消す + cascade で status/activity/unread も掃除', () => {
+  it('removeSession は .id キーで session を消す + cascade で activity/unread も掃除', () => {
     setSessions([
       { id: 'a', title: 'A' },
       { id: 'b', title: 'B' },
     ])
-    setStatusFor('a', { state: 'idle' })
     setSessionActivity('a', { length: 3, ts: 100 })
     setUnreadDone('a', true)
 
@@ -47,7 +43,6 @@ describe('state/sessions.js setter contract (= .id キー統一)', () => {
 
     const snap = getSnapshot()
     expect(snap.sessions).toEqual([{ id: 'b', title: 'B' }])
-    expect(snap.status).not.toHaveProperty('a')
     expect(snap.sessionActivity).not.toHaveProperty('a')
     expect(snap.unreadDone).not.toHaveProperty('a')
   })
