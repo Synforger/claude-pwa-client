@@ -57,22 +57,20 @@
 
 ## セキュリティモデル
 
-本リポジトリは個人ホスト機を Tailscale tailnet 内に限定公開する前提で設計している。
-インターネット公開を想定した認証 / 認可機構は持たない。 「tailnet 内に到達できる主体は
-ホスト機にログインしているのと同等の権限を持つ」 という前提のもと、 以下の境界を最小限守る:
+本リポジトリは個人ホスト機を Tailscale tailnet 内に限定公開する前提で設計している。 インターネット公開を想定した認証 / 認可機構は持たない。 「tailnet 内に到達できる主体はホスト機にログインしているのと同等の権限を持つ」 という前提のもと、 以下の境界を最小限守る:
 
-- **`/file` (GET/PUT) は HOME 配下に制限 + 秘密ファイル deny list**: SSH 鍵
-  (`~/.ssh/`, `*.pem`, `id_rsa`)、 クラウド認証情報 (`~/.aws/`, `~/.gnupg/`, `~/.docker/`,
-  `~/.kube/`, `~/.config/gh/`)、 シェル初期化ファイル (`~/.zshrc`, `~/.bashrc`)、
-  シェル履歴、 `~/.netrc` を読み書き禁止
+- **`/file` (GET/PUT) は HOME 配下に制限 + 秘密ファイル deny list** (= `backend/routes/files.py::_DENY_RE`、 真値):
+  - SSH 関連: `~/.ssh/`、 ファイル名直 `authorized_keys` / `id_rsa` / `id_ed25519` / `id_ecdsa` / `id_dsa` / `known_hosts`
+  - クラウド認証: `~/.aws/`、 `~/.gnupg/`、 `~/.docker/`、 `~/.kube/`、 `~/.config/gh/`、 `~/.netrc`
+  - シェル init / 履歴: `~/.zshrc` / `~/.zshenv` / `~/.zprofile` / `~/.bashrc` / `~/.bash_profile` / `~/.profile` / `~/.zsh_history` / `~/.bash_history`
+  - 拡張子全般: `*.pem` / `*.key` / `*.p12` / `*.pfx`
 - **`/hooks/event` は localhost のみ受付**: claude CLI hook は loopback 前提
-- **Markdown レンダラの URL は react-markdown 標準 sanitizer 経由**: `javascript:` /
-  `data:` 等の危険スキームをブロック (内部 `cpc-file://` のみ pass-through)
-- **Web Push の subscription / VAPID 鍵は `backend/` 配下の JSON に保存**
+- **Markdown レンダラの URL は react-markdown 標準 sanitizer 経由**: `javascript:` / `data:` 等の危険スキームをブロック (内部 `cpc-file://` のみ pass-through)
+- **Web Push の subscription / VAPID 鍵は `backend/secrets/` / `backend/data/` の JSON に保存** (= gitignored、 詳細は `docs/reference/data-schemas.md`)
 
-WebSocket (`/ws/pty/{sid}`, `/views/ws`, `/jsonl/stream/{sid}`) や `/sessions/*` HTTP は
-認証なしで tailnet ACL に委ねている。 公開 / multi-tenant 化する場合は別途 middleware 認証
-が必要。
+WebSocket (`/ws/pty/{sid}`, `/views/ws`, `/jsonl/stream/{sid}`) や `/sessions/*` HTTP は認証なしで tailnet ACL に委ねている。 公開 / multi-tenant 化する場合は別途 middleware 認証が必要。
+
+脆弱性報告 + audit log + threat model 詳細は [SECURITY.md](SECURITY.md) 参照。 2026-06-29 に pip-audit / npm audit / gitleaks 全件実施済 (= dependency CVE は dep bump で全件解消、 git 履歴の private key 1 件は `git filter-repo` + force push で完全削除 + 該当鍵 revoke 済)。
 
 ## セットアップ
 
