@@ -1,0 +1,38 @@
+# iOS / Capacitor native artifacts gitignore.
+#
+# 2026-06-29 security audit で過去の ios native pairing artifact (= RSA private
+# key の .pem ファイル) が history に commit されていたことを発見、 history rewrite
+# で削除済。 同種の事故を再発させないため、 ios native build 配下の secret 系
+# 拡張子 + 標準的な native build 中間物を deny する。
+
+# ---- 鍵 / 証明書系 (= 再発防止の核心) ----
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+*.mobileprovision
+*.p8
+
+# ---- Xcode / CocoaPods 中間物 ----
+build/
+DerivedData/
+xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+Pods/
+
+# ---- Capacitor ----
+App/App/public/
+capacitor.config.json.local
+
+# ---- 環境固有 ----
+.env
+.env.local
+*.local
+
+# ---- macOS / generic ----
+.DS_Store
+*.swp

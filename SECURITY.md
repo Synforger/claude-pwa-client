@@ -56,11 +56,19 @@ See `README.md § セキュリティモデル` for the same description in Japan
 | 2026-06-29 | `npm audit` (122+ npm packages incl. dev) | 0 vulnerabilities |
 | 2026-06-29 | `gitleaks detect` (all 678 commits) | 1 RSA private key found in an iOS native pairing artifact (added May 2026, deleted in a later commit). History rewritten via `git filter-repo --invert-paths`, all refs force-pushed; the leaked key has been revoked / unpaired on the corresponding Sunshine host. Post-rewrite gitleaks rescan = clean |
 
-To run the audits locally:
+To run the full audit suite locally:
 ```bash
-task lint           # static checks
-task test           # backend + frontend tests
-pip-audit           # backend transitive dep CVEs
-(cd frontend && npm audit)
-gitleaks detect     # secret scan over full history
+task audit          # pip-audit + npm audit + gitleaks (full history) + anon-scan
 ```
+
+Or run individual checks:
+```bash
+task lint                                    # static checks
+task test                                    # backend + frontend tests
+pip-audit                                    # backend transitive dep CVEs
+(cd frontend && npm audit)                   # frontend transitive dep CVEs
+gitleaks detect --no-banner                  # secret scan over full history
+bash .tooling/local-ci/anon-scan.sh          # personal identifier scan
+```
+
+Run `task audit` periodically (= recommended every 3-6 months, or before any significant release) to catch newly-disclosed CVEs and any accidental personal-identifier leaks in newer commits.

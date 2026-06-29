@@ -64,7 +64,25 @@ if [ -n "${staged_js}" ]; then
 fi
 
 # -----------------------------------------------------------------------------
-# 4. W2 residue audit: detect J-7/J-8/J-9 shape regressions (state double-
+# 4. Secret scan over staged files. Pattern-based; catches RSA / SSH private
+#    keys and well-known token formats before they reach git history. Reuses
+#    the same gitleaks binary used in the 2026-06-29 audit. Skipped (with hint)
+#    if gitleaks isn't installed locally — install via `brew install gitleaks`.
+# -----------------------------------------------------------------------------
+if command -v gitleaks >/dev/null 2>&1; then
+    # `gitleaks protect --staged` scans only what's in the index. Exit 1 on hit.
+    gitleaks protect --staged --redact --no-banner 2>&1 || {
+        echo ""
+        echo "gitleaks found secrets in staged files. Remove them or commit with"
+        echo "--no-verify only if you have verified the match is a false positive."
+        exit 1
+    }
+else
+    echo "warning: gitleaks not installed; skipping secret scan. Run: brew install gitleaks"
+fi
+
+# -----------------------------------------------------------------------------
+# 5. W2 residue audit: detect J-7/J-8/J-9 shape regressions (state double-
 #    management, orphan setters, css absolute without relative ancestor).
 #    Runs only when staged files touch the surfaces the audit cares about
 #    (state/, features/, layout/, *.css under frontend/src/) — backend or
