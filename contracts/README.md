@@ -44,14 +44,14 @@ schema_version: "1.0"   # protocol 互換性 version (= deprecation policy、 AD
 ## セットアップ
 
 ```bash
-cd REDACTED_PATH
+cd <path-to-this-repo>/contracts
 npm install   # ajv + ajv-cli + ajv-formats + js-yaml
 ```
 
 ## codegen / validate 起動 (= W1 完了判定)
 
 ```bash
-cd REDACTED_PATH
+cd <path-to-this-repo>/contracts
 
 # 1. meta-schema validate (= yaml typo 即検知、 ADR-011)
 npm run validate

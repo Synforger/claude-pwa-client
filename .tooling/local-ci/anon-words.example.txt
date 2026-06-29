@@ -1,0 +1,13 @@
+# anon-words placeholder. The real wordlist lives in `anon-words.txt` next to
+# this file and is gitignored. Copy this example, then edit the copy:
+#
+#   cp anon-words.example.txt anon-words.txt
+#   $EDITOR anon-words.txt
+#
+# Format: 1 line = 1 PCRE fragment. Lines starting with `#` and blank lines
+# are skipped. anon-scan.sh joins fragments with `|` to form one (?i) pattern.
+
+# YourFamilyName
+# YourGivenName
+# your.email@example.com
+# your-employer-name

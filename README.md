@@ -138,7 +138,7 @@ LaunchAgent KeepAlive で自動起動するはずなので、 まず `task statu
   },
   "accounts": {
     "personal": { "display_name": "個人", "env": {} },
-    "work": { "display_name": "会社", "env": { "CLAUDE_CONFIG_DIR": "REDACTED_PATH" } }
+    "work": { "display_name": "会社", "env": { "CLAUDE_CONFIG_DIR": "<path-to-your-claude-config-dir>" } }
   },
   "claude_path": "/path/to/claude",
   "rate_limits_log": "/path/to/rate-limits.jsonl",
