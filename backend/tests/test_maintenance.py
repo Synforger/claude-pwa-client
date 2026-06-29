@@ -2,7 +2,7 @@
 (= backend-F-32) の unit test。
 
 Sunshine restart / streamer ゾンビ reap は 2026-06-21 (backend-F-33) で backend
-から外出し済 (= docs/sunshine-runbook.md + LaunchAgent 別経路)、 そのため本
+から外出し済 (= docs/ops/sunshine.md + LaunchAgent 別経路)、 そのため本
 モジュールの旧 Sunshine 系 test は削除済み。
 """
 import logging
@@ -95,7 +95,7 @@ def test_idle_kill_warns_on_empty_session_name(monkeypatch, caplog):
 
 def test_sunshine_helpers_no_longer_present():
     """Sunshine restart / streamer ゾンビ reap は backend 外で管理する設計に
-    切り替えた (= docs/sunshine-runbook.md)。 backend module からは消えていること。"""
+    切り替えた (= docs/ops/sunshine.md)。 backend module からは消えていること。"""
     for name in (
         "restart_sunshine_if_bloated",
         "_reap_zombie_streamers",

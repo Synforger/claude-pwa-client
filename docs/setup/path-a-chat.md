@@ -29,7 +29,7 @@ pip install -r backend/requirements.txt
 # 設定ファイル
 cp backend/config.example.json backend/config.json
 # config.json を編集してエージェントの cwd / claude コマンドパス等を設定
-# 詳細は ../config.md を参照
+# 詳細は ../reference/config.md を参照
 
 # Web Push 用の VAPID 鍵生成 (1 度だけ)
 python -m backend.cli.gen_vapid  # backend/secrets/vapid.json を生成
@@ -46,12 +46,12 @@ uvicorn backend.main:app --host 0.0.0.0 --port 8765
 > find backend -name __pycache__ -type d -exec rm -rf {} +
 > ```
 >
-> その他のトラブルは [../troubleshoot.md](../troubleshoot.md) を参照。
+> その他のトラブルは [../ops/troubleshoot.md](../ops/troubleshoot.md) を参照。
 
 ## claude の PATH と起動 alias
 
 backend は PWA でタブを作る時、 config.json の `launch_alias` に書いた文字列を tmux pane に
-送って claude を起動する (詳細は [../config.md](../config.md))。 そのため次の 2 つが揃って
+送って claude を起動する (詳細は [../reference/config.md](../reference/config.md))。 そのため次の 2 つが揃って
 いる必要がある:
 
 1. **`claude` が PATH 上にあること** — 無いと alias も `claude` 単体も `command not found`
@@ -199,7 +199,7 @@ tailscale serve --bg http://localhost:8765
 で接続状態を確認できる。
 
 > Chromium 系ブラウザで HTTPS 証明書エラーが出る場合は
-> [../troubleshoot.md](../troubleshoot.md) の Tailscale 証明書 section を参照。
+> [../ops/troubleshoot.md](../ops/troubleshoot.md) の Tailscale 証明書 section を参照。
 
 ## backend を常駐起動する (macOS LaunchAgent)
 

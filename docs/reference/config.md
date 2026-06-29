@@ -83,7 +83,7 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   書くのは claude の statusline スクリプト** (= claude が statusline subprocess に渡す
   `rate_limits` を 1 行ずつ追記する)。 backend はこれを読んでステータスバーに表示する。
   statusline 側の書き込み path と必ず一致させること。 表示専用の statusline だと書き込まれず
-  ステータスバーが空になる (設定手順は [setup/path-a-chat.md](setup/path-a-chat.md) の
+  ステータスバーが空になる (設定手順は [../setup/path-a-chat.md](../setup/path-a-chat.md) の
   「ステータスバーを有効にする」 を参照)
 - `tmux_session_map_dir`: tmux session 名と PWA session id の対応を保存するディレクトリ
 - `vapid_sub`: Web Push の `sub` クレーム (連絡先 mailto:)
