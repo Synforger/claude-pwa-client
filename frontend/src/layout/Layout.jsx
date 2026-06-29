@@ -27,6 +27,7 @@ import ChatPanel from './ChatPanel.jsx'
 import TerminalPane from './TerminalPane.jsx'
 import OverlayHost from './OverlayHost.jsx'
 import Topbar from '../features/topbar/Topbar.jsx'
+import StatusBar from '../features/status-bar/StatusBar.jsx'
 import StorageWarningHost from '../features/status-bar/StorageWarningHost.jsx'
 import AppEffects from '../features/app-effects/AppEffects.jsx'
 import '../App.css'
@@ -39,6 +40,10 @@ export default function Layout() {
   const activeSid = sessions.activeId
   return (
     <div className="app">
+      {/* DOM 順序は旧 AppShell.jsx と一致 (= UI 不変保証 § 9-3): StatusBar が最上位、
+          続いて StorageWarningHost、 Topbar、 ... 。 Phase J-7 で復元、 StatusBar 自身が
+          props 自己解決して Layout から直接配置できる単体 component 化。 */}
+      <StatusBar />
       <StorageWarningHost />
       <Topbar />
       <TerminalPane sid={activeSid} />
