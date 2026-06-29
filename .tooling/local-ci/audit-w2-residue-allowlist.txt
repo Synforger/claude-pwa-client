@@ -1,0 +1,36 @@
+# audit-w2-residue.py allowlist (= 既知の偽陽性を suppress)。
+#
+# Format: 1 行 1 entry、 `<audit>:<file>:<line>:<name>` で完全一致 (= line は任意で 0 = file 全体)。
+#   - audit は A / B / C
+#   - 行頭 `#` はコメント、 空行は無視
+#
+# 追加判断:
+#   - A: 名前衝突だが概念違い (= moonlight available vs Web Push available)
+#   - B: setter export だが意図的に外部公開 (= 将来配線予定、 reset 系)
+#   - C: heuristic が拾った position:absolute だが親 wrapper の relative を別 css file 経由で
+#        正しく持っているもの。 個別確認済の case は理由を comment で残す
+
+# === A: 状態二重管理 偽陽性 ===
+
+# screenshare の moonlight capability (= /moonlight/ probe 結果) と state/push.available
+# (= iOS 16.4+ Web Push 可用性) は同名だが完全に別概念。 detector の name match heuristic 限界。
+A:frontend/src/features/screenshare/useMoonlightAvailable.js:12:available
+
+# === B: 意図的に残してる setter export ===
+# (現状なし、 audit B = 0 達成済)
+
+# === C: 個別検証済の position:absolute (= 親 relative wrapper を別 css で持つもの) ===
+
+# 個別検証時点 (= 2026-06-29) で audit C 11 件全件 safe を確認、 ただし detector の同 css 内
+# heuristic で LOW として fire し続ける。 個別 case の理由は audit-w2-residue.md 参照。
+C:frontend/src/App.css:225:.action-menu
+C:frontend/src/App.css:547:.topbar-plan-dot
+C:frontend/src/App.css:649:.attach-remove
+C:frontend/src/features/chat/MessageItem.css:23:.scroll-btn
+C:frontend/src/features/chat/MessageItem.css:41:.scroll-dot
+C:frontend/src/features/chat/MessageRenderer.css:64:.md-code-copy
+C:frontend/src/features/screenshare/MoonlightFrame.css:43:.moonlight-ctrl-right
+C:frontend/src/features/screenshare/MoonlightFrame.css:75:.moonlight-error
+C:frontend/src/features/session-drawer/SessionDrawer.css:80:.drawer-global-popup
+C:frontend/src/features/status-bar/StatusBar.css:82:.pr-chip-dropdown
+C:frontend/src/features/tasks/ActivityBar.css:80:.ab-todos-bar-fill
