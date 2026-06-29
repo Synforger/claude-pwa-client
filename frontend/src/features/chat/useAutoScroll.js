@@ -1,4 +1,9 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
+import { useRef, useEffect, useLayoutEffect, useCallback, useSyncExternalStore } from 'react'
+import {
+  subscribe as subscribeUi,
+  getSnapshot as getUiSnapshot,
+  setScroll,
+} from '../../state/ui.js'
 
 // 「最新が見えてる」 と判定するボトム余白 (= px)。 数 px の指の振動を許容する目的で 30px。
 // ユーザがメッセージを戻し読みする時は最低でも 1 段スクロール (= 数十 px) するので識別可能。
@@ -34,8 +39,19 @@ const PROGRAMMATIC_SCROLL_GUARD_MS = 200
 //       する fan-out も不要、 親 1 つで子の拡大は全部拾える)。 ResizeObserver は実 layout
 //       変化時にしか発火しないので、 無関係な setTimeout は廃止。
 export function useAutoScroll({ messages, activeSession, viewMode }) {
-  const [showScrollBtn, setShowScrollBtn] = useState(false)
-  const [hasNew, setHasNew] = useState(false)
+  // Phase J-12 (= 2026-06-29): showScrollBtn / hasNew を state/ui.js.scroll singleton に統合
+  // (= 旧 useState、 audit B sweep)。 wrapper setShowScrollBtn / setHasNew は単一 field の
+  // setScroll patch dispatch、 既存呼出を無修正で通す。 isAtBottomRef は instance-local の
+  // 同期 ref なので store には載せない (= scroll callback の同期判定で必要)。
+  const uiSnap = useSyncExternalStore(subscribeUi, getUiSnapshot)
+  const showScrollBtn = uiSnap.scroll.showScrollBtn
+  const hasNew = uiSnap.scroll.hasNew
+  const setShowScrollBtn = useCallback((v) => {
+    if (getUiSnapshot().scroll.showScrollBtn !== v) setScroll({ showScrollBtn: v })
+  }, [])
+  const setHasNew = useCallback((v) => {
+    if (getUiSnapshot().scroll.hasNew !== v) setScroll({ hasNew: v })
+  }, [])
   const isAtBottomRef = useRef(true)
   const scrollerDomRef = useRef(null)
   const msgLengthRef = useRef({})
@@ -71,7 +87,7 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
       const e = scrollerDomRef.current
       if (e && isAtBottomRef.current) e.scrollTop = e.scrollHeight
     })
-  }, [])
+  }, [setHasNew])
 
   // 起動 / タブ切替: paint 前に底へ flush (= 前 session の scroll 残留防止)。
   // scrollToBottom 経由 (= programmaticScrollRef ガード + 自前 rAF retry) で行う。
@@ -109,7 +125,7 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
         setHasNew(true)
       }
     }
-  }, [messages, sid, scrollToBottomSync])
+  }, [messages, sid, scrollToBottomSync, setHasNew])
 
   // 画面回転 / キーボード表示等のレイアウト変化時は最新位置に戻す (isAtBottom 中のみ)
   useEffect(() => {
@@ -151,7 +167,7 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
     if (atBottom) setHasNew(false)
     // 同値時は React が re-render を bailout するので、 毎回 set で OK。
     setShowScrollBtn(!atBottom)
-  }, [])
+  }, [setHasNew, setShowScrollBtn])
 
   return {
     scrollerDomRef,
