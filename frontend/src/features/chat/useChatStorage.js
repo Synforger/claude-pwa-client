@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import LZString from 'lz-string'
 import { LEGACY_AGENT_TO_SESSION, LS_MESSAGES, LS_INPUT, MAX_MESSAGES } from '../../constants.js'
 import { generateId } from '../../utils/id.js'
+import { setMessagesFor, removeMessagesFor } from '../../state/messages.js'
 
 const { compressToUTF16, decompressFromUTF16 } = LZString
 
@@ -220,6 +221,29 @@ export function useChatStorage(sessions) {
   useEffect(() => { messagesRef.current = messages }, [messages])
   useEffect(() => { sessionsRef.current = sessions }, [sessions])
   useEffect(() => { inputRef2.current = input }, [input])
+
+  // Phase J-12 (= 2026-06-29、 audit-w2-residue B sweep): messages dict を state/messages.js
+  // singleton にミラー。 SessionDrawer / deriveSessionBadges が messages store を subscribe して
+  // pending question / agent reply 検出に使う (= ADR-026 server-of-truth は localStorage、
+  // store は cross-component subscribe 経路)。 setMessagesFor は uuid 付き persistable のみ
+  // 通す (= ephemeral な optimistic user bubble は除外、 badge 判定は agent.askUserQuestion
+  // 主体なので影響なし)。 lastMirrored は sid 単位の ref 比較で dirty 検知 (= save loop と同方針)。
+  const lastMirroredRef = useRef({})
+  useEffect(() => {
+    const liveSids = new Set(sessions.map(s => s.id))
+    // 新規 / 更新分を dispatch
+    for (const sid of Object.keys(messages)) {
+      if (lastMirroredRef.current[sid] === messages[sid]) continue
+      setMessagesFor(sid, messages[sid] || [])
+      lastMirroredRef.current[sid] = messages[sid]
+    }
+    // 削除分 (= 前回ミラーしたが messages dict に無い、 または backend list から落ちた)
+    for (const sid of Object.keys(lastMirroredRef.current)) {
+      if (sid in messages && liveSids.has(sid)) continue
+      removeMessagesFor(sid)
+      delete lastMirroredRef.current[sid]
+    }
+  }, [messages, sessions])
 
   const runMsgSave = useRef(() => {
     const sids = sessionsRef.current.map(s => s.id)

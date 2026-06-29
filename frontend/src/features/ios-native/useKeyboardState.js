@@ -2,9 +2,23 @@
  * オンスクリーンキーボードの共有状態 hook — modifier トグル / flash フィードバック /
  * touch・mouse ハンドラ / key repeat (押しっぱなしで連続入力)。
  * Adapted from clsh (https://github.com/my-claude-utils/clsh), MIT. TS → JS に移植。
+ *
+ * Phase J-12 (= 2026-06-29、 audit-w2-residue B sweep): 旧 useState 7 個
+ * (= shiftActive / capsLock / ctrlActive / optActive / cmdActive / pressedKeys / flashingKeys)
+ * を state/ui.js.keyboard singleton に統合。 setModifier / addPressedKey / removePressedKey /
+ * addFlashingKey / removeFlashingKey 直呼出に置換、 ui.js export を audit-clean 化。
  */
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useCallback, useRef, useEffect, useSyncExternalStore } from 'react'
 import { keyToEscapeSequence } from '../../utils/keyboard.js'
+import {
+  subscribe as subscribeUi,
+  getSnapshot as getUiSnapshot,
+  setModifier,
+  addPressedKey,
+  removePressedKey,
+  addFlashingKey,
+  removeFlashingKey,
+} from '../../state/ui.js'
 
 const FLASH_DURATION = 150
 const REPEAT_DELAY = 400      // 連続入力が始まるまでの遅延 (ms)
@@ -16,14 +30,14 @@ const MODIFIER_IDS = new Set([
 ])
 
 export function useKeyboardState({ onKey }) {
-  const [shiftActive, setShiftActive] = useState(false)
-  const [capsLock, setCapsLock] = useState(false)
-  const [ctrlActive, setCtrlActive] = useState(false)
-  const [optActive, setOptActive] = useState(false)
-  const [cmdActive, setCmdActive] = useState(false)
-  const pressedKeysRef = useRef(new Set())
-  const [pressedKeys, setPressedKeys] = useState(new Set())
-  const [flashingKeys, setFlashingKeys] = useState(new Set())
+  const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
+  const shiftActive = ui.keyboard.shift
+  const capsLock = ui.keyboard.caps
+  const ctrlActive = ui.keyboard.ctrl
+  const optActive = ui.keyboard.opt
+  const cmdActive = ui.keyboard.cmd
+  const pressedKeys = ui.keyboard.pressedKeys
+  const flashingKeys = ui.keyboard.flashingKeys
   const flashTimersRef = useRef(new Map())
 
   const repeatDelayRef = useRef(null)
@@ -41,13 +55,9 @@ export function useKeyboardState({ onKey }) {
   const flashKey = useCallback((keyId) => {
     const existing = flashTimersRef.current.get(keyId)
     if (existing) clearTimeout(existing)
-    setFlashingKeys((prev) => new Set(prev).add(keyId))
+    addFlashingKey(keyId)
     const timer = setTimeout(() => {
-      setFlashingKeys((prev) => {
-        const next = new Set(prev)
-        next.delete(keyId)
-        return next
-      })
+      removeFlashingKey(keyId)
       flashTimersRef.current.delete(keyId)
     }, FLASH_DURATION)
     flashTimersRef.current.set(keyId, timer)
@@ -56,20 +66,20 @@ export function useKeyboardState({ onKey }) {
   const handleKeyDown = useCallback(
     (keyDef) => {
       flashKey(keyDef.id)
-      if (keyDef.id === 'shift-left' || keyDef.id === 'shift-right') { setShiftActive((p) => !p); return }
-      if (keyDef.id === 'caps') { setCapsLock((p) => !p); return }
-      if (keyDef.id === 'ctrl') { setCtrlActive((p) => !p); return }
-      if (keyDef.id === 'opt-left' || keyDef.id === 'opt-right') { setOptActive((p) => !p); return }
-      if (keyDef.id === 'cmd-left' || keyDef.id === 'cmd-right') { setCmdActive((p) => !p); return }
+      if (keyDef.id === 'shift-left' || keyDef.id === 'shift-right') { setModifier('shift', !getUiSnapshot().keyboard.shift); return }
+      if (keyDef.id === 'caps') { setModifier('caps', !getUiSnapshot().keyboard.caps); return }
+      if (keyDef.id === 'ctrl') { setModifier('ctrl', !getUiSnapshot().keyboard.ctrl); return }
+      if (keyDef.id === 'opt-left' || keyDef.id === 'opt-right') { setModifier('opt', !getUiSnapshot().keyboard.opt); return }
+      if (keyDef.id === 'cmd-left' || keyDef.id === 'cmd-right') { setModifier('cmd', !getUiSnapshot().keyboard.cmd); return }
 
       const seq = keyToEscapeSequence(keyDef.id, isShifted, ctrlActive)
       if (seq) onKey(seq)
 
       // sticky modifier は 1 打鍵でリセット (caps lock は除く)
-      if (shiftActive) setShiftActive(false)
-      if (ctrlActive) setCtrlActive(false)
-      if (optActive) setOptActive(false)
-      if (cmdActive) setCmdActive(false)
+      if (shiftActive) setModifier('shift', false)
+      if (ctrlActive) setModifier('ctrl', false)
+      if (optActive) setModifier('opt', false)
+      if (cmdActive) setModifier('cmd', false)
     },
     [onKey, isShifted, ctrlActive, shiftActive, optActive, cmdActive, flashKey],
   )
@@ -94,8 +104,7 @@ export function useKeyboardState({ onKey }) {
     (keyDef) => (e) => {
       e.preventDefault()
       isTouchRef.current = true
-      pressedKeysRef.current.add(keyDef.id)
-      setPressedKeys(new Set(pressedKeysRef.current))
+      addPressedKey(keyDef.id)
       handleKeyDown(keyDef)
       if (!MODIFIER_IDS.has(keyDef.id)) startRepeat(keyDef)
     },
@@ -105,8 +114,7 @@ export function useKeyboardState({ onKey }) {
   const handleTouchEnd = useCallback(
     (keyDef) => (e) => {
       e.preventDefault()
-      pressedKeysRef.current.delete(keyDef.id)
-      setPressedKeys(new Set(pressedKeysRef.current))
+      removePressedKey(keyDef.id)
       stopRepeat()
     },
     [stopRepeat],
@@ -116,8 +124,7 @@ export function useKeyboardState({ onKey }) {
     (keyDef) => (e) => {
       if (isTouchRef.current) { isTouchRef.current = false; return }
       e.preventDefault()
-      pressedKeysRef.current.add(keyDef.id)
-      setPressedKeys(new Set(pressedKeysRef.current))
+      addPressedKey(keyDef.id)
       handleKeyDown(keyDef)
       if (!MODIFIER_IDS.has(keyDef.id)) startRepeat(keyDef)
     },
@@ -127,8 +134,7 @@ export function useKeyboardState({ onKey }) {
   const handleMouseUp = useCallback(
     (keyDef) => (e) => {
       e.preventDefault()
-      pressedKeysRef.current.delete(keyDef.id)
-      setPressedKeys(new Set(pressedKeysRef.current))
+      removePressedKey(keyDef.id)
       stopRepeat()
     },
     [stopRepeat],
