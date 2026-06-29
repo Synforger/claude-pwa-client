@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { pctClass, timeUntil, formatResetWeekdayTime } from '../../utils/format.js'
 import { useOutsideClick } from '../../hooks/useOutsideClick.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
+import { subscribe as subscribeSessions, getSnapshot as getSessionsSnapshot } from '../../state/sessions.js'
+import { useStatus } from './useStatus.js'
 import './StatusBar.css'
 
 // 7d window のリセットタイミング: Anthropic 仕様は **rolling 7-day window**
@@ -55,7 +57,19 @@ function useNowSec() {
   return nowSec
 }
 
-export default function StatusBar({ status }) {
+export default function StatusBar() {
+  // Phase J-7 (= 2026-06-29、 sweep follow-up): props 自己解決化。 旧 AppShell 流儀で ChatPanel
+  // から status を props で受けていたが、 Phase F-1 で ChatPanel 内に移送した副作用で **DOM 位置が
+  // topbar 上 → topbar 下** に変わって UX regression が出た (= UI 不変保証 § 9-3 違反)。 本 file 内で
+  // sessions store + useStatus を自前 subscribe して、 Layout.jsx 直下 (= topbar より上) に独立配置
+  // できる単体 component に戻す。 ChatPanel 経由の props 渡しは廃止。
+  const sessions = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
+  const activeSid = sessions.activeId
+  const activeSession = useMemo(
+    () => sessions.sessions.find(s => s.id === activeSid) || null,
+    [sessions.sessions, activeSid]
+  )
+  const status = useStatus(activeSession)
   const nowSec = useNowSec()
   const isOnline = useConnectionStatus()
   if (!status) {
