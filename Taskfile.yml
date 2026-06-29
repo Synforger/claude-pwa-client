@@ -2,20 +2,35 @@
 # Taskfile - claude-pwa-client unified entry point
 # =============================================================================
 # Prerequisites:
-#   - go-task CLI: `brew install go-task/tap/go-task`
-#   - backend deps: `pip install -r backend/requirements.txt` (in pwa-client conda env)
-#   - frontend deps: `cd frontend && npm install`
+#   - go-task CLI:   `brew install go-task/tap/go-task` (macOS)
+#                    Linux / Windows: https://taskfile.dev/installation/
+#   - conda (recommended) or python3 venv
 #
-# Usage:
-#   task --list             # show all tasks
-#   task lint               # backend flake8 + frontend ESLint
-#   task lint:fix           # additionally autoformat backend with black
-#   task test:unit          # pytest over backend/tests/
-#   task build              # frontend production build (dist/)
-#   task dev                # Vite dev server (frontend only, backend stays on LaunchAgent)
+# Quickstart (= 初回 setup → 起動 → 接続確認):
+#   task setup                        # conda env / pip / npm / config / VAPID / hooks まで 1 発
+#   task build                        # frontend production build
+#   task run                          # backend foreground 起動 (= dev、 Ctrl-C で停止)
+#   #   or:
+#   task install-service              # LaunchAgent 常駐 (macOS)
+#   task status                       # LaunchAgent + port + /debug/healthcheck 12 項目
+#
+# Daily ops (= PC 再起動後の動線):
+#   task status                       # backend 生死確認
+#   task restart                      # backend kickstart (= 反応無い時)
+#   task logs                         # backend error log tail
+#
+# Variables (= 自環境に合わせて上書き可、 例: PORT=8766 task status):
+#   PORT (default 8765)
+#   LAUNCH_AGENT_LABEL (default com.claudepwa.client)
+#   CONDA_ENV (default pwa-client)
 # =============================================================================
 
 version: '3'
+
+vars:
+  PORT: '{{.PORT | default "8765"}}'
+  LAUNCH_AGENT_LABEL: '{{.LAUNCH_AGENT_LABEL | default "com.claudepwa.client"}}'
+  CONDA_ENV: '{{.CONDA_ENV | default "pwa-client"}}'
 
 tasks:
   default:
@@ -23,9 +38,181 @@ tasks:
     cmds:
       - task --list
 
-  # ---------------------------------------------------------------------------
-  # Lint
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
+  # 初回 setup
+  # ===========================================================================
+
+  setup:
+    desc: One-shot setup (conda env + pip + npm + config + VAPID + git hooks)
+    cmds:
+      - task: verify-deps
+      - |
+        if command -v conda >/dev/null 2>&1; then
+          conda env list | awk '{print $1}' | grep -qx "{{.CONDA_ENV}}" || conda create -y -n {{.CONDA_ENV}} python=3.11
+          conda run -n {{.CONDA_ENV}} pip install -r backend/requirements.txt
+        else
+          echo "conda not found; falling back to python3 -m venv .venv"
+          test -d .venv || python3 -m venv .venv
+          .venv/bin/pip install -r backend/requirements.txt
+        fi
+      - cd frontend && npm install
+      - |
+        if [ ! -f backend/config.json ]; then
+          cp backend/config.example.json backend/config.json
+          echo "→ created backend/config.json from example. EDIT IT before next steps."
+        fi
+      - |
+        if [ ! -f backend/secrets/vapid.json ]; then
+          task gen-vapid
+        else
+          echo "→ vapid.json already present (skip)"
+        fi
+      - git config --local core.hooksPath .githooks
+      - |
+        echo ""
+        echo "setup complete."
+        echo "next:"
+        echo "  task build              # frontend production build"
+        echo "  task run                # backend foreground (= dev)"
+        echo "  task install-service    # backend を LaunchAgent で常駐 (macOS)"
+        echo "  task status             # backend 生死確認"
+
+  verify-deps:
+    desc: Check required binaries on PATH
+    cmds:
+      - |
+        miss=0
+        for bin in python3 node npm tmux claude; do
+          if ! command -v "$bin" >/dev/null 2>&1; then
+            echo "MISSING: $bin"; miss=1
+          fi
+        done
+        for bin in jq conda; do
+          command -v "$bin" >/dev/null 2>&1 || echo "WARN (optional): $bin not found"
+        done
+        if [ "$miss" -ne 0 ]; then
+          echo "fix the MISSING binaries above before running 'task setup'"
+          exit 1
+        fi
+        echo "deps OK"
+
+  # ===========================================================================
+  # 日常運用 (= dev)
+  # ===========================================================================
+
+  run:
+    desc: Backend uvicorn foreground (= dev; Ctrl-C で停止)
+    cmds:
+      - |
+        if command -v conda >/dev/null 2>&1; then
+          conda run --live-stream -n {{.CONDA_ENV}} uvicorn backend.main:app --host 0.0.0.0 --port {{.PORT}}
+        else
+          .venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port {{.PORT}}
+        fi
+
+  build:
+    desc: Frontend production build (= dist/、 backend が配信)
+    cmds:
+      - cd frontend && npm run build
+
+  dev:frontend:
+    desc: Frontend Vite dev server (= backend は LaunchAgent or task run 前提)
+    cmds:
+      - cd frontend && npm run dev
+
+  tailscale-serve:
+    desc: Publish backend on tailnet (= https 配信)
+    cmds:
+      - tailscale serve --bg http://localhost:{{.PORT}}
+
+  # ===========================================================================
+  # LaunchAgent (= 常駐起動、 macOS)
+  # ===========================================================================
+
+  install-service:
+    desc: Install LaunchAgent plist (= 初回のみ; manual edit が要る)
+    cmds:
+      - |
+        TARGET="$HOME/Library/LaunchAgents/{{.LAUNCH_AGENT_LABEL}}.plist"
+        if [ -f "$TARGET" ]; then
+          echo "$TARGET already exists; skip copy (= edit by hand if needed)"
+        else
+          cp docs/setup/launchd/com.claudepwa.client.plist.example "$TARGET"
+          echo "copied to $TARGET"
+        fi
+        echo ""
+        echo "next:"
+        echo "  1. edit absolute paths inside $TARGET (cwd / conda env / log dest)"
+        echo "  2. launchctl bootstrap gui/$(id -u) $TARGET"
+        echo "  3. task status"
+
+  uninstall-service:
+    desc: Bootout LaunchAgent (= 常駐停止; plist file は残置)
+    cmds:
+      - 'launchctl bootout gui/$(id -u) "$HOME/Library/LaunchAgents/{{.LAUNCH_AGENT_LABEL}}.plist" || true'
+      - echo "stopped. plist file は残置 (= 復帰時は launchctl bootstrap で再 load)"
+
+  restart:
+    desc: Kickstart LaunchAgent (= backend 再起動; PC 再起動後の手動復旧用)
+    cmds:
+      - 'launchctl kickstart -k gui/$(id -u)/{{.LAUNCH_AGENT_LABEL}}'
+      - sleep 2
+      - task: status
+
+  status:
+    desc: One-shot health probe (= LaunchAgent + port + /debug/healthcheck 12 項目)
+    cmds:
+      - |
+        echo "=== LaunchAgent ({{.LAUNCH_AGENT_LABEL}}) ==="
+        if launchctl list | awk '{print $3}' | grep -qx "{{.LAUNCH_AGENT_LABEL}}"; then
+          launchctl list | grep "{{.LAUNCH_AGENT_LABEL}}"
+        else
+          echo "(not loaded; run: task install-service)"
+        fi
+      - |
+        echo ""
+        echo "=== port {{.PORT}} listen ==="
+        lsof -nP -iTCP:{{.PORT}} -sTCP:LISTEN 2>/dev/null || echo "(nothing listening on {{.PORT}})"
+      - |
+        echo ""
+        echo "=== /debug/healthcheck (12 probes) ==="
+        PORT={{.PORT}} bash scripts/healthcheck.sh
+
+  logs:
+    desc: Tail backend error log (= Ctrl-C で停止)
+    cmds:
+      - tail -f logs/backend.error.log
+
+  # ===========================================================================
+  # 品質ゲート
+  # ===========================================================================
+
+  test:
+    desc: Run backend pytest + frontend vitest
+    cmds:
+      - task: test:backend
+      - task: test:frontend
+
+  test:backend:
+    desc: pytest over backend/tests/
+    cmds:
+      - |
+        if command -v conda >/dev/null 2>&1; then
+          conda run --live-stream -n {{.CONDA_ENV}} python -m pytest backend/tests -q
+        else
+          .venv/bin/python -m pytest backend/tests -q
+        fi
+
+  test:frontend:
+    desc: vitest over frontend/src/
+    cmds:
+      - cd frontend && npm test -- --run
+
+  test:unit:
+    desc: 'Deprecated alias for test:backend (kept for back-compat)'
+    cmds:
+      - task: test:backend
+
   lint:
     desc: Run lint for backend (flake8) and frontend (ESLint)
     cmds:
@@ -35,7 +222,12 @@ tasks:
   lint:backend:
     desc: flake8 critical-only checks over backend/
     cmds:
-      - python -m flake8 backend --jobs 1 --count --show-source --statistics
+      - |
+        if command -v conda >/dev/null 2>&1; then
+          conda run --live-stream -n {{.CONDA_ENV}} python -m flake8 backend --jobs 1 --count --show-source --statistics
+        else
+          .venv/bin/python -m flake8 backend --jobs 1 --count --show-source --statistics
+        fi
 
   lint:frontend:
     desc: ESLint over frontend/src/
@@ -45,46 +237,51 @@ tasks:
   lint:fix:
     desc: Lint and autoformat with black (backend) + ESLint (frontend)
     cmds:
-      - python -m black backend
+      - |
+        if command -v conda >/dev/null 2>&1; then
+          conda run --live-stream -n {{.CONDA_ENV}} python -m black backend
+        else
+          .venv/bin/python -m black backend
+        fi
       - cd frontend && npm run lint
 
-  # ---------------------------------------------------------------------------
-  # Test
-  # ---------------------------------------------------------------------------
-  test:unit:
-    desc: pytest over backend/tests/
-    cmds:
-      - python -m pytest backend/tests
-
-  # ---------------------------------------------------------------------------
-  # Build / dev server
-  # ---------------------------------------------------------------------------
-  build:
-    desc: Frontend production build (dist/)
-    cmds:
-      - cd frontend && npm run build
-
-  dev:
-    desc: Frontend Vite dev server (backend stays on LaunchAgent)
-    cmds:
-      - cd frontend && npm run dev
-
-  # ---------------------------------------------------------------------------
-  # Anonymity scan (= manual full-tree run; pre-commit hook already covers
-  # staged files automatically)
-  # ---------------------------------------------------------------------------
   anon:scan:
-    desc: Full-tree anonymity scan (mirrors anon-check CI workflow)
+    desc: Full-tree anonymity scan (= pre-commit hook と同じ scanner、 全 file)
     cmds:
       - bash .tooling/local-ci/anon-scan.sh
 
-  # ---------------------------------------------------------------------------
-  # Bench
-  # ---------------------------------------------------------------------------
-  bench:penalty:
-    desc: 'Per-turn 5h_pct delta over recent N turns (see docs/penalty-baseline.md)'
-    vars:
-      LOG_PATH:
-        sh: 'python3 -c "import json; print(json.load(open(\"backend/config.json\")).get(\"rate_limits_log\", \"\"))" 2>/dev/null || true'
+  clean:
+    desc: Purge __pycache__ + node_modules cache + frontend dist
     cmds:
-      - python3 scripts/penalty-bench.py "{{.LOG_PATH}}"
+      - 'find backend -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true'
+      - rm -rf frontend/dist
+      - 'find frontend/node_modules/.vite -maxdepth 0 -type d -exec rm -rf {} + 2>/dev/null || true'
+      - echo "clean done"
+
+  # ===========================================================================
+  # VAPID 鍵
+  # ===========================================================================
+
+  gen-vapid:
+    desc: Generate VAPID keypair (= 初回のみ; 既存があれば error)
+    cmds:
+      - |
+        if command -v conda >/dev/null 2>&1; then
+          conda run --live-stream -n {{.CONDA_ENV}} python -m backend.cli.gen_vapid
+        else
+          .venv/bin/python -m backend.cli.gen_vapid
+        fi
+
+  gen-vapid:force:
+    desc: '!! DANGER !! Re-generate VAPID (= 既存 push subscription 全 invalidate)'
+    cmds:
+      - |
+        echo "WARNING: all existing Web Push subscriptions will be invalidated."
+        echo "5 seconds to abort with Ctrl-C..."
+        sleep 5
+      - |
+        if command -v conda >/dev/null 2>&1; then
+          conda run --live-stream -n {{.CONDA_ENV}} python -m backend.cli.gen_vapid --force
+        else
+          .venv/bin/python -m backend.cli.gen_vapid --force
+        fi
