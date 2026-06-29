@@ -3,10 +3,9 @@
 //   - viewModes localStorage write (= ui.viewModes 変化で lsSet)
 //   - document.visibilityState=hidden で desktopOpen overlay を強制 close
 //   - useReadOnSessionOpen(activeSid) (= active タブ切替で既読化)
-//   - useDeepLink(setActiveId) (= ?ses= URL から session 切替)
+//   - useDeepLink(setActiveId) (= ?ses= URL から session 切替、 Phase J-5 で hook 一本化、
+//     旧 AppShell 由来の inline duplicate useEffect は削除済)
 //   - useNotificationClear() (= 通知クリア)
-//   - URL ?ses= 直読み + setActiveId (= 起動直後の deep-link 経路、 useDeepLink と並走、
-//     旧 AppShell から duplicate のまま移送 = 挙動再現性優先で原状維持)
 //   - SW への active-session post (= visibility 連動 + activeSid 変化)
 //   - usePushSubscription() (= Web Push 購読状態管理)
 //
@@ -65,23 +64,10 @@ export default function AppEffects() {
   useDeepLink(setActiveId)
   useNotificationClear()
 
-  // 通知タップで PWA が完全終了状態から起動された場合、 SW の openWindow が
-  // /?ses=<sid> 付きで起動するので、 ここで URL param を読んで activeId に反映する。
-  // (= 旧 AppShell から原状維持で移送、 useDeepLink と並走するが挙動同一で無害)
-  useEffect(() => {
-    try {
-      const sid = new URLSearchParams(window.location.search).get('ses')
-      if (sid) {
-        setActiveId(sid)
-        const url = new URL(window.location.href)
-        url.searchParams.delete('ses')
-        window.history.replaceState({}, '', url.pathname + (url.search || '') + url.hash)
-      }
-    } catch (e) {
-
-      console.warn('[deep-link] URL ?ses= parse failed:', e)
-    }
-  }, [setActiveId])
+  // Phase J-5 (= ADR-026 follow-up): 旧 AppShell 由来の inline `URL ?ses= 直読み + setActiveId`
+  // useEffect は useDeepLink(setActiveId) と完全に同じロジック (= URL parse → setActiveId →
+  // history.replaceState) を並走していたため削除。 通知タップでの SW openWindow → /?ses=<sid>
+  // 起動経路は useDeepLink で一本化される。
 
   // 今 active で見ている session を SW に伝える (= sw.js の LINE 流抑制で使う)。
   useEffect(() => {
