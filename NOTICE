@@ -10,12 +10,26 @@ License 2.0 to preserve this NOTICE file.
 
 ----
 
-Third-party components used at runtime (not bundled — invoked via
-separate processes / HTTP) and their licenses:
+Third-party dependency licenses (= bundled at runtime via pip / npm install):
 
-- Claude Code CLI / claude-agent-sdk    MIT     (Anthropic)
-- Sunshine                              GPL-3.0 (LizardByte)
-- moonlight-web-stream                  GPL-3.0 (MrCreativ3001)
+Full per-package listing + license summary table is in THIRD_PARTY_NOTICES.md
+at the repository root. License audit conclusion (2026-06-29): all backend
+Python deps and all frontend npm production deps are permissive (MIT / BSD /
+Apache-2.0 / ISC / MPL-2.0 weak copyleft / PSF / CC0-1.0). Zero strong
+copyleft (GPL / AGPL / LGPL / SSPL). No license incompatibility with the
+project's own Apache License 2.0.
+
+----
+
+External services / processes used at runtime (not bundled — invoked via
+separate processes / HTTP / WebRTC):
+
+- Claude Code CLI / claude-agent-sdk    MIT          (Anthropic)
+- Sunshine                              GPL-3.0      (LizardByte)
+- moonlight-web-stream                  GPL-3.0      (MrCreativ3001)
+- Tailscale (client)                    BSD-3-Clause (Tailscale Inc.)
 
 The GPL components above are not statically linked or bundled into this
-repository. They are accessed as external processes via HTTP / WebRTC.
+repository. They are accessed as external processes via HTTP / WebRTC, so
+the GPL copyleft does not propagate (FSF GPL FAQ: process separation is
+not typically a derivative work).

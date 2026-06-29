@@ -47,11 +47,13 @@ tasks:
     cmds:
       - task: verify-deps
       - |
-        if command -v conda >/dev/null 2>&1; then
-          conda env list | awk '{print $1}' | grep -qx "{{.CONDA_ENV}}" || conda create -y -n {{.CONDA_ENV}} python=3.11
-          conda run -n {{.CONDA_ENV}} pip install -r backend/requirements.txt
+        # conda は shell function なので bash subshell で `command -v conda` が false に倒れる。
+        # CONDA_EXE (= conda install で必ず export される) を直接叩いて env を作る / 入る。
+        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
+          "$CONDA_EXE" env list | awk '{print $1}' | grep -qx "{{.CONDA_ENV}}" || "$CONDA_EXE" create -y -n {{.CONDA_ENV}} python=3.11
+          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream pip install -r backend/requirements.txt
         else
-          echo "conda not found; falling back to python3 -m venv .venv"
+          echo "CONDA_EXE not set; falling back to python3 -m venv .venv"
           test -d .venv || python3 -m venv .venv
           .venv/bin/pip install -r backend/requirements.txt
         fi
@@ -104,8 +106,8 @@ tasks:
     desc: Backend uvicorn foreground (= dev; Ctrl-C で停止)
     cmds:
       - |
-        if command -v conda >/dev/null 2>&1; then
-          conda run --live-stream -n {{.CONDA_ENV}} uvicorn backend.main:app --host 0.0.0.0 --port {{.PORT}}
+        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
+          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream uvicorn backend.main:app --host 0.0.0.0 --port {{.PORT}}
         else
           .venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port {{.PORT}}
         fi
@@ -197,8 +199,8 @@ tasks:
     desc: pytest over backend/tests/
     cmds:
       - |
-        if command -v conda >/dev/null 2>&1; then
-          conda run --live-stream -n {{.CONDA_ENV}} python -m pytest backend/tests -q
+        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
+          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream python -m pytest backend/tests -q
         else
           .venv/bin/python -m pytest backend/tests -q
         fi
@@ -223,8 +225,8 @@ tasks:
     desc: flake8 critical-only checks over backend/
     cmds:
       - |
-        if command -v conda >/dev/null 2>&1; then
-          conda run --live-stream -n {{.CONDA_ENV}} python -m flake8 backend --jobs 1 --count --show-source --statistics
+        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
+          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream python -m flake8 backend --jobs 1 --count --show-source --statistics
         else
           .venv/bin/python -m flake8 backend --jobs 1 --count --show-source --statistics
         fi
@@ -238,8 +240,8 @@ tasks:
     desc: Lint and autoformat with black (backend) + ESLint (frontend)
     cmds:
       - |
-        if command -v conda >/dev/null 2>&1; then
-          conda run --live-stream -n {{.CONDA_ENV}} python -m black backend
+        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
+          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream python -m black backend
         else
           .venv/bin/python -m black backend
         fi
@@ -266,10 +268,22 @@ tasks:
     desc: Generate VAPID keypair (= 初回のみ; 既存があれば error)
     cmds:
       - |
-        if command -v conda >/dev/null 2>&1; then
-          conda run --live-stream -n {{.CONDA_ENV}} python -m backend.cli.gen_vapid
+        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
+          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream python -m backend.cli.gen_vapid
         else
           .venv/bin/python -m backend.cli.gen_vapid
+        fi
+
+  gen-notices:
+    desc: Regenerate THIRD_PARTY_NOTICES.md (= dependency 追加 / 削除 / version bump 時)
+    cmds:
+      - |
+        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
+          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream pip install --quiet pip-licenses
+          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream python3 scripts/gen-third-party-notices.py
+        else
+          .venv/bin/pip install --quiet pip-licenses
+          .venv/bin/python3 scripts/gen-third-party-notices.py
         fi
 
   gen-vapid:force:
@@ -280,8 +294,8 @@ tasks:
         echo "5 seconds to abort with Ctrl-C..."
         sleep 5
       - |
-        if command -v conda >/dev/null 2>&1; then
-          conda run --live-stream -n {{.CONDA_ENV}} python -m backend.cli.gen_vapid --force
+        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
+          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream python -m backend.cli.gen_vapid --force
         else
           .venv/bin/python -m backend.cli.gen_vapid --force
         fi
