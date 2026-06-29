@@ -74,12 +74,17 @@ export function isSystemMessage(m: Message): m is SystemMessage {
   return m.role === 'system'
 }
 
-/** 永続化可能か (= uuid 確定済の user/agent message のみ persist、 system は kind 別、 optimistic は除外)。 */
+/** 永続化可能か (= uuid 確定済の user/agent message のみ persist、 system は kind 別、 optimistic は除外)。
+ *
+ *  Phase J-16 fix: system 分岐の旧コードは `m.uuid !== null && m.uuid.length > 0` だったため、
+ *  `m.uuid` が `undefined` (= session_end のような uuid なし system banner) のとき
+ *  `undefined !== null` が true で `undefined.length` 評価に進み TypeError → ErrorBoundary 発火
+ *  (= 「セッション終了」 ボタンタップで ChatPanel ごと墜ちる事故、 2026-06-29 報告)。
+ *  全 role を user/agent と同じ `typeof string && length > 0` ガードに揃え、 uuid なし system は
+ *  非 persist (= false 返す) で 旧 v1 挙動と一致させる。
+ */
 export function isPersistableMessage(m: Message): boolean {
-  if (m.role === 'user') return typeof m.uuid === 'string' && m.uuid.length > 0
-  if (m.role === 'agent') return typeof m.uuid === 'string' && m.uuid.length > 0
-  if (m.role === 'system') return m.uuid !== null && m.uuid.length > 0
-  return false
+  return typeof m.uuid === 'string' && m.uuid.length > 0
 }
 
 /** dedup key (= sid + uuid + role)。 reconnect replay 時の重複 no-op 判定に使う。 */
