@@ -29,7 +29,6 @@ import { gcImages } from '../features/attachments/imageStore.js'
 import { useStatus } from '../features/status-bar/useStatus.js'
 import { useSessionBadges } from '../features/push-notify/useSessionBadges.js'
 import { setBadge } from '../features/push-notify/badge.js'
-import StatusBar from '../features/status-bar/StatusBar.jsx'
 import ActivityBar from '../features/tasks/ActivityBar.jsx'
 import ChatInput from '../features/chat/ChatInput.jsx'
 import MessageList from '../features/chat/MessageList.jsx'
@@ -280,7 +279,6 @@ export default function ChatPanel({ sid }) {
       data-sid={activeSid || ''}
       style={hidden ? { display: 'none' } : { display: 'contents' }}
     >
-      <StatusBar status={status} />
 
       {/* メッセージ一覧 + ↓ 最新へ。 旧 AppShell の `<div className="messages-container">` 配下を
         F-1 で features/chat/MessageList.jsx に移送 (= ロジック改変ゼロ)。 messages-container CSS
