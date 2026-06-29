@@ -15,23 +15,24 @@ import { generateId } from '../../utils/id.js'
 // - cancelAndFlush(sid)        : 予約をキャンセルして即 flush
 // - resetBuf(sid)              : 新規ターン / reconnect 開始時の初期化
 //
-// F-02 / F-06: 同 uuid bubble の findIndex 走査は messages 配列全長 (最大 MAX_MESSAGES) を
-// なめていたが、 同 message.id の追加 frame は時間的に近接して到着するので、 末尾近傍
-// (= UUID_LOOKUP_WINDOW 件) のみ走査で実用的に常に hit する。 重い conversation で
-// 全長 1000+ 件を毎 rAF 走査するコストを削る。
-const UUID_LOOKUP_WINDOW = 30
-
 function emptyBuf() {
   return { text: null, thinking: null, newTools: [], needsNewBubble: false, uuid: null, dirty: false }
 }
 
-// 末尾 N 件以内で uuid 一致 bubble を探す。 見つからなければ -1 (= 新規 bubble として
-// 扱う、 fallback)。 古い uuid (= 30 件以上前) との偶発衝突は実害なし (= 同 uuid の
-// 追加 frame は SDK が時間近接で書くので、 古い frame 復活ケースは構造的に出ない)。
-function findRecentByUuid(msgs, uuid) {
+// messages 全長から uuid 一致 bubble を探す (= 末尾から逆走査で早期 return)。 見つから
+// なければ -1 (= 新規 bubble として append)。
+//
+// 2026-06-30: 旧版は末尾 30 件のみ走査 (= UUID_LOOKUP_WINDOW)。 同 message.id の追加
+// frame は時間近接なので末尾窓で十分という前提だったが、 backend `_initialize_sid_tail`
+// を offset=0 化した stream-from-zero 設計 (= fork lineage 複製 / backend restart 復元
+// / claude rotation 等で新 jsonl path 内の過去行を再 publish する) の下では、 historical
+// な uuid が今 publish されて bubble 更新対象になるケースが出る。 末尾窓内に居ないと
+// dedup 漏れで重複 append される。 MAX_MESSAGES=200 が上限なので逆走査全長でも実用は
+// 軽い (= μs オーダー、 毎 rAF 200 走査の負荷は無視可)。 uuid は claude が割り当てる
+// UUIDv4 で偶発衝突は確率ゼロ前提、 一致 = 同 bubble。
+function findByUuid(msgs, uuid) {
   if (!uuid) return -1
-  const start = Math.max(0, msgs.length - UUID_LOOKUP_WINDOW)
-  for (let i = msgs.length - 1; i >= start; i--) {
+  for (let i = msgs.length - 1; i >= 0; i--) {
     if (msgs[i].uuid === uuid) return i
   }
   return -1
@@ -92,9 +93,11 @@ export function useStreamBuffer({ setMessages }) {
         // 上書きでなくマージなのが重要: 旧実装は tools = [...snap.newTools] で
         // 既存 tool を消してた → multi-frame の 2 個目で 1 個目が消える bug。
         if (snap.uuid) {
-          // F-06: 直近 30 件のみ走査 (= 同 uuid の追加 frame は時間近接で着くので
-          // 末尾窓内に必ず居る。 全長走査だと長い conversation で重い)。
-          const existIdx = findRecentByUuid(msgs, snap.uuid)
+          // 全長 (= MAX_MESSAGES 上限 200) から uuid 一致 bubble を末尾走査で探す。
+          // 末尾近傍の追加 frame で早期 hit、 fork lineage / backend restart 復元で
+          // historical な uuid が再 publish されても dedup 漏れなし (= 2026-06-30
+          // stream-from-zero 設計の整合)。
+          const existIdx = findByUuid(msgs, snap.uuid)
           if (existIdx >= 0) {
             const existing = msgs[existIdx]
             const existingTools = existing.tools || []
