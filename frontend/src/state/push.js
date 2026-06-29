@@ -32,9 +32,9 @@ const store = createStore(INITIAL, { name: 'push' })
 export const getSnapshot = () => store.getSnapshot()
 export const subscribe = (listener) => store.subscribe(listener)
 
-export function setPushState(patch) {
-  store.setState(prev => ({ ...prev, ...patch }))
-}
+// Phase J-12 (= 2026-06-29、 audit-w2-residue B sweep): setPushState (= patch 形式 wrapper) を retire。
+// 真の caller は test だけだった (= production code は個別 setter で書き分け)。 個別 setter で
+// 代替できるため、 store 表面を 1 件減らす方向で削除。
 export function setPushAvailable(value) {
   store.setState(prev => prev.available === value ? prev : { ...prev, available: value })
 }

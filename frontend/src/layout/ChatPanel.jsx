@@ -8,13 +8,19 @@
 // AppShell 側からの遷移ロジックで触れる必要のあるもの (= confirmDelete dialog + handleDeleteSession)
 // は AppShell に残置 (= drawer から開く dialog が terminal 表示時にも見える必要があるため、 hidden な
 // ChatPanel 配下に置けない)。 詳細は AppShell.jsx 末尾の F-1 注釈参照。
-import { useState, useEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react'
 import {
   subscribe as subscribeUi,
   getSnapshot as getUiSnapshot,
   setOverlay,
   setViewMode,
 } from '../state/ui.js'
+import {
+  subscribe as subscribeEphemeral,
+  getSnapshot as getEphemeralSnapshot,
+  setSendFailedText as storeSetSendFailedText,
+  setStopUnavailableSid as storeSetStopUnavailableSid,
+} from '../state/ephemeral.js'
 import { apiFetch } from '../utils/api.js'
 import { useOutsideClick } from '../hooks/useOutsideClick.js'
 import { useSessions } from '../features/session-drawer/useSessions.js'
@@ -92,8 +98,12 @@ export default function ChatPanel({ sid }) {
   const { sendStopIntent } = useViewsWs(activeSid)
   // F-36: 送信失敗時に localText を ChatInput 内部 state に戻すための buffer。
   // F-16: stop が WS 切断で届かない時の UI 通知用 flag。
-  const [sendFailedText, setSendFailedText] = useState(null)
-  const [stopUnavailableSid, setStopUnavailableSid] = useState(null)
+  // Phase J-12 (= 2026-06-29): 旧 useState を state/ephemeral.js singleton に統合
+  // (= audit B sweep)。 write は active sid 限定 / consume で null クリア (one-shot)、
+  // semantics は旧来通り。 ChatPanel は always-mount で 1 instance なので singleton で安全。
+  const ephem = useSyncExternalStore(subscribeEphemeral, getEphemeralSnapshot)
+  const sendFailedText = ephem.sendFailedText
+  const stopUnavailableSid = ephem.stopUnavailableSid
   // W2 Phase F-4 残 (= 2026-06-29): endSession / stopMessage は features/dialogs/ConfirmEndDialog +
   // ConfirmStopDialog が useChatStream の module-level export 経由で直接呼ぶ経路に移行済。 ChatPanel
   // 内では参照しないので destructure しない (= 同 hook の mount で module-level impl が wire される)。
@@ -104,8 +114,8 @@ export default function ChatPanel({ sid }) {
     attachments, clearAttachments,
     scrollToBottom, isAtBottomRef,
     sendStopIntent,
-    onSendFailed: (s2, text) => { if (s2 === activeSid) setSendFailedText(text) },
-    onStopUnavailable: (s2) => setStopUnavailableSid(s2),
+    onSendFailed: (s2, text) => { if (s2 === activeSid) storeSetSendFailedText(text) },
+    onStopUnavailable: (s2) => storeSetStopUnavailableSid(s2),
   })
   // loading (= 停止ボタンの真値) の唯一のソース。 backend 権威 busy を 1 本の SSE で受け、
   // 全タブの停止/送信ボタン + 青丸/赤丸を駆動する (= dual-driver 排除、 単一権威)。
@@ -195,8 +205,8 @@ export default function ChatPanel({ sid }) {
   const handleEndSessionClick = useCallback(() => setOverlay('confirmEnd', true), [])
   const handleStopClick = useCallback(() => setOverlay('confirmStop', true), [])
   const handleSendClick = useCallback((text) => sendMessage(text), [sendMessage])
-  const handleSendFailedConsumed = useCallback(() => setSendFailedText(null), [])
-  const handleStopRecovered = useCallback(() => setStopUnavailableSid(null), [])
+  const handleSendFailedConsumed = useCallback(() => storeSetSendFailedText(null), [])
+  const handleStopRecovered = useCallback(() => storeSetStopUnavailableSid(null), [])
   const handleSetMenuOpen = useCallback((v) => setOverlay('menu', v), [])
 
   const handleOpenSubagents = useCallback((focus) => {

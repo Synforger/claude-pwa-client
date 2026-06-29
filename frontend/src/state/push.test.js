@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import {
   getSnapshot,
   subscribe,
-  setPushState,
   setPushAvailable,
   setPushEnabled,
   setPushBroken,
@@ -34,11 +33,6 @@ describe('state/push.js setter contract (= singleton store)', () => {
     expect(getSnapshot()).toEqual({ available: true, enabled: true, broken: true, busy: false })
     setPushBusy(true)
     expect(getSnapshot()).toEqual({ available: true, enabled: true, broken: true, busy: true })
-  })
-
-  it('setPushState は patch 形式で複数 field を 1 経路で更新', () => {
-    setPushState({ available: true, enabled: true })
-    expect(getSnapshot()).toEqual({ available: true, enabled: true, broken: false, busy: false })
   })
 
   it('同値 setter は snapshot reference を変えない (= subscriber 通知抑止の契約)', () => {
@@ -81,7 +75,10 @@ describe('state/push.js setter contract (= singleton store)', () => {
   })
 
   it('_resetForTest は INITIAL に戻す', () => {
-    setPushState({ available: true, enabled: true, broken: true, busy: true })
+    setPushAvailable(true)
+    setPushEnabled(true)
+    setPushBroken(true)
+    setPushBusy(true)
     _resetForTest()
     expect(getSnapshot()).toEqual({
       available: false, enabled: false, broken: false, busy: false,

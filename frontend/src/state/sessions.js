@@ -8,12 +8,15 @@
 
 import { createStore } from './_store.js'
 
+// Phase J-12 (= 2026-06-29、 audit-w2-residue B sweep): accounts / status を retire。
+// 真値は SessionDrawer 内 useState (= accounts、 OAuth 切替の未配線機能用) と useStatus 経由の
+// transport singleton (= status、 backend SSE)。 store 側に持っていた field は誰も subscribe
+// しておらず、 setter (setAccounts / setStatusFor / applyStatusSnapshot) も誰も import してない
+// 完全 orphan 状態だった。
 const INITIAL = {
   sessions: [],          // SessionDef[] (= domain/Session.ts に準拠、 runtime は `.id` キー)
   activeId: null,        // string | null
   agents: [],            // Agent[] (= 起動時 1 回 GET /agents)
-  accounts: [],          // Account[] (= GET /accounts)
-  status: {},            // { [id]: SessionStatus } SSE 由来
   sessionActivity: {},   // { [id]: { length, ts } } sort 用
   unreadDone: {},        // { [id]: boolean }
 }
@@ -33,10 +36,9 @@ export function removeSession(id) {
   store.setState(prev => {
     const next = prev.sessions.filter(s => s.id !== id)
     if (next.length === prev.sessions.length) return prev
-    const status = { ...prev.status }; delete status[id]
     const activity = { ...prev.sessionActivity }; delete activity[id]
     const unread = { ...prev.unreadDone }; delete unread[id]
-    return { ...prev, sessions: next, status, sessionActivity: activity, unreadDone: unread }
+    return { ...prev, sessions: next, sessionActivity: activity, unreadDone: unread }
   })
 }
 export function patchSession(id, patch) {
@@ -55,17 +57,6 @@ export function setActiveId(id) {
 
 export function setAgents(agents) {
   store.setState(prev => ({ ...prev, agents }))
-}
-export function setAccounts(accounts) {
-  store.setState(prev => ({ ...prev, accounts }))
-}
-
-export function setStatusFor(id, status) {
-  store.setState(prev => ({ ...prev, status: { ...prev.status, [id]: status } }))
-}
-export function applyStatusSnapshot(snapshot) {
-  // snapshot = { [id]: SessionStatus } 全置き換え
-  store.setState(prev => ({ ...prev, status: snapshot || {} }))
 }
 
 export function setSessionActivity(id, value) {
