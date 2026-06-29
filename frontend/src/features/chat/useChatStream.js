@@ -144,11 +144,6 @@ export function useChatStream({
   // localStorage に永続化することで、 アプリ再起動 / リロードを跨いでも継続。
   const offsetRef = useRef(loadOffsets())
   const offsetPersistTimerRef = useRef(null)
-  // sid → 直近の sendMessage が仕掛けた SEND_TIMEOUT timer id。 SSE で対応する uuid 付き
-  // user_message が来たら handleEventRef 側で clearTimeout する (= 2026-06-24 退行 fix、
-  // 解除経路が抜けてて 15s 後に failBubble が誤発火 → input に text が戻る + loading 状態
-  // 破壊で他タブにも波及していた)。
-  const sendTimersRef = useRef({})
   // EventSource 再接続トリガ。 endSession (/clear) で新 claude_sid に切り替わるとき、
   // backend の JSONL 解決を新 sid に向けるためここを +1 して useEffect を再実行させる。
   const [reconnectKey, setReconnectKey] = useState(0)
@@ -187,14 +182,6 @@ export function useChatStream({
           const next = reconcileUserMessage(cur, event.text || '', event.uuid)
           return next === cur ? prev : { ...prev, [curSid]: next }
         })
-        // 対応する SEND_TIMEOUT watcher を解除 (= server jsonl に user 行が積まれた = 送信成功)。
-        // 解除し忘れると 15s 後に failBubble が誤発火して input に text が戻る + loading 状態
-        // を破壊する (= 2026-06-24 退行 fix の核)。
-        const t = sendTimersRef.current[curSid]
-        if (t) {
-          clearTimeout(t)
-          delete sendTimersRef.current[curSid]
-        }
         return
       }
       // 注: ここでは loading (= 停止ボタンの真値) を一切触らない。 loading は backend 権威 busy
@@ -347,13 +334,11 @@ export function useChatStream({
     })
     if (isAtBottomRef) isAtBottomRef.current = true
     scrollToBottom()
-    // SEND_TIMEOUT_MS: HTTP 200 が返ったのに claude が JSONL に user 行を書かない silent fail
-    // 用の保険 (= 2026-06-24 server-of-truth 純化、 即時 HTTP fail は既存 !result.ok / !uploadOk
-    // 経路で別途処理されるのでここの timeout は届かない)。 通常 200-500ms で来るので 15s は
-    // 余裕、 backend kickstart 直後や busy 時の遅延も吸収する。 timeout 発火時は対象 bubble
-    // を id で findIndex して sendFailed 化 (= ephemeral、 localStorage 側 filter で除外)、
-    // input に text を戻して再送可能にする。
-    const SEND_TIMEOUT_MS = 15000
+    // 配信成功判定は backend `/pty/{sid}/send` の自前 JSONL 監視 (= terminal/confirm.py
+    // `_confirm_after_send`) に一本化。 ok:False (= HTTP / 添付失敗) 時のみ failBubble を発火し、
+    // ok:True なら SSE 経由の reconcile を信じる (= 旧 SEND_TIMEOUT 15s timer は backend 確認と
+    // 二重で session-end 直後の SSE publish race を踏むと誤発火する false positive 経路だった、
+    // 2026-06-30 撤去)。
     const failBubble = (extraInput) => {
       setMessages(prev => {
         const arr = prev[sid] || []
@@ -376,13 +361,6 @@ export function useChatStream({
       if (extraInput) setInput(prev => ({ ...prev, [sid]: prev[sid] || text }))
       try { onSendFailed?.(sid, text) } catch { /* ignore consumer error */ }
     }
-    // 旧 timer が残ってたら解除 (= 連投時の watcher 重複防止、 sid 1 本に最新 1 個だけ持つ)
-    if (sendTimersRef.current[sid]) clearTimeout(sendTimersRef.current[sid])
-    const failTimerId = setTimeout(() => {
-      delete sendTimersRef.current[sid]
-      failBubble(true)
-    }, SEND_TIMEOUT_MS)
-    sendTimersRef.current[sid] = failTimerId
     if (files.length > 0) {
       // multipart: backend がファイルを uploads/tmp に保存して path を本文に追記して
       // tmux に送る (= claude が Read tool で読む)。
@@ -413,9 +391,7 @@ export function useChatStream({
         // 添付送信失敗時の UI 復旧 (= 2026-06-22 lifecycle sweep + 2026-06-24 共通化):
         // 旧実装は alert だけで楽観 user bubble + 空 streaming agent bubble + loading=true が
         // 残ったまま → 「…」 永続表示 + 送信ボタン無効化 stuck で reload しないと回復不能だった。
-        // 共通 failBubble へ集約 (= 2026-06-24)、 SEND_TIMEOUT watcher も解除する。
-        clearTimeout(failTimerId)
-        delete sendTimersRef.current[sid]
+        // 共通 failBubble へ集約 (= 2026-06-24)。
         failBubble(true)
         alert(`添付ファイル送信に失敗: ${uploadErrDetail}`)
       }
@@ -435,11 +411,9 @@ export function useChatStream({
         result = { ok: false }
       }
       if (!result.ok) {
-        // HTTP 即時 fail = 共通 failBubble へ集約 (= 2026-06-24)、 SEND_TIMEOUT watcher も解除。
+        // HTTP 即時 fail = 共通 failBubble へ集約 (= 2026-06-24)。
         // 旧来の setInput 経路は failBubble 内に内包済 (= F-36 ChatInput.localText の onSendFailed
         // callback も同関数内で呼ぶ)。
-        clearTimeout(failTimerId)
-        delete sendTimersRef.current[sid]
         failBubble(true)
       }
     }

@@ -57,13 +57,7 @@
   content-visibility: auto;
 }
 
-/* フォーク (= 会話分岐) ボタン。 agent 回答はメタ行 (= モデル名の横) に同居、 user 発言は
-   メタ行が無いので独立した行で左右寄せに合わせる。 はっきり見えるよう明るく出す。 */
-.bubble-fork-row {
-  flex-basis: 100%;
-  text-align: left;
-}
-.message.user .bubble-fork-row { text-align: right; }
+/* フォーク (= 会話分岐) ボタン。 agent 回答のメタ行 (= モデル名の横) に同居。 */
 .bubble-fork {
   padding: 0 6px;
   font-size: 11px;
