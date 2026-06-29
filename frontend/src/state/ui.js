@@ -76,6 +76,23 @@ export function removePressedKey(key) {
   })
 }
 
+// Phase J-12 (= 2026-06-29、 audit-w2-residue B sweep): flashingKeys 用 add/remove。
+// useKeyboardState の flash timer 経路で使う (= pressedKeys と symmetric API)。
+export function addFlashingKey(key) {
+  store.setState(prev => {
+    if (prev.keyboard.flashingKeys.has(key)) return prev
+    const next = new Set(prev.keyboard.flashingKeys); next.add(key)
+    return { ...prev, keyboard: { ...prev.keyboard, flashingKeys: next } }
+  })
+}
+export function removeFlashingKey(key) {
+  store.setState(prev => {
+    if (!prev.keyboard.flashingKeys.has(key)) return prev
+    const next = new Set(prev.keyboard.flashingKeys); next.delete(key)
+    return { ...prev, keyboard: { ...prev.keyboard, flashingKeys: next } }
+  })
+}
+
 export function setViewMode(sid, mode) {
   store.setState(prev => {
     if (prev.viewModes[sid] === mode) return prev
