@@ -290,15 +290,15 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
       </div>
     )
   }
-  // フォーク (= 会話分岐) の起点にできる切れ目だけにボタンを出す。 user 発言は常に安全、
-  // assistant は tool_use を保留してないテキスト回答のみ (= tool 行で切ると resume が壊れる)。
+  // フォーク (= 会話分岐) の起点にできる切れ目だけにボタンを出す。 assistant の純テキスト回答
+  // (= tool_use を保留してない、 質問待ちでない) のみ許可、 user 発言からは出さない (= 2026-06-30
+  // 利用者要望、 自分の発言を fork 起点にする UX 価値が薄く agent 応答後に fork 判断する流れに統一)。
   // meta.stop_reason は result が最後のバブルに上書き stamp するため当てにならないので使わず、
   // バブルが tool / 質問待ちを持たない (= 純テキスト回答) ことで判定する。 最終判定は backend。
-  const canForkUser = msg.role === 'user' && msg.uuid && !msg.optimistic && !msg.sendFailed
   const canForkAgent =
     msg.role === 'agent' && !msg.streaming && msg.uuid &&
     !(msg.tools?.length > 0) && !msg.askUserQuestion
-  const forkButton = onFork && (canForkUser || canForkAgent) ? (
+  const forkButton = onFork && canForkAgent ? (
     <button
       type="button"
       className="bubble-fork"
@@ -309,9 +309,8 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
       ⑂ fork
     </button>
   ) : null
-  // agent 回答はモデル名と同じメタ行に同居させる。 user 発言はメタ行が無いので独立した行で。
-  const agentForkBtn = canForkAgent ? forkButton : null
-  const userForkRow = canForkUser ? <div className="bubble-fork-row">{forkButton}</div> : null
+  // agent 回答はモデル名と同じメタ行に同居させる。
+  const agentForkBtn = forkButton
 
   return (
     <div
@@ -458,7 +457,6 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
       )}
       {/* 送信失敗 (= backend で JSONL user 行 +1 を確認できず、 再送 1 回も届かなかった)
           の表示。 text は input box に復元されているのでユーザは送り直せる。 */}
-      {userForkRow}
       {msg.role === 'user' && msg.sendFailed && (
         <div className="send-failed-note" style={{ color: '#c0392b', fontSize: '0.85em', marginTop: 4 }}>
           ⚠ Not delivered to claude — text restored in the input box
