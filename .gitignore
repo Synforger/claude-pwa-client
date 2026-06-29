@@ -23,3 +23,4 @@ logs/
 scripts/*
 !scripts/ws-pty-smoketest.py
 !scripts/healthcheck.sh
+!scripts/gen-third-party-notices.py
