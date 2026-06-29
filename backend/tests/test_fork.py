@@ -512,6 +512,41 @@ def test_restart_passes_prefer_fresh_to_ensure_pty(tmp_path, monkeypatch, isolat
     assert captured["kwargs"].get("prefer_fresh") is True
 
 
+def test_restart_requests_tail_reset(tmp_path, monkeypatch, isolated_state):
+    """2026-06-30 stream-from-zero: restart_session は monitor の SessionTailState を
+    初回 bind 扱いに戻すため `request_sid_tail_reset(sid)` を呼ぶ。 これがないと path
+    切替検知の旧経路 (= offset=st_size 採用) が残り、 claude 再 spawn 直後の boot +
+    user 初発 + tool_use/tool_result + assistant final が race-window で巻き添え skip
+    される UX 退行を踏む。"""
+    import backend.routes.chat as chat_routes  # noqa: PLC0415
+    chat_routes, parent, _ = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
+    called = []
+    import backend.jsonl.routes as jr  # noqa: PLC0415
+    monkeypatch.setattr(jr, "request_sid_tail_reset", lambda sid: called.append(sid))
+    async def _noop(_sid, **_kwargs):
+        return None
+    import backend.terminal.routes as pty_routes  # noqa: PLC0415
+    import backend.terminal.runner as pty_runner  # noqa: PLC0415
+    monkeypatch.setattr(pty_routes, "ensure_pty_session_for", _noop)
+    monkeypatch.setattr(pty_runner, "kill_tmux_session", lambda sid: True)
+    asyncio.get_event_loop().run_until_complete(
+        chat_routes.restart_session(parent.id, _="ok")
+    )
+    assert called == [parent.id]
+
+
+def test_fork_requests_tail_reset(tmp_path, monkeypatch, isolated_state):
+    """2026-06-30 stream-from-zero: fork_session も新 SessionDef 登録直後に
+    `request_sid_tail_reset(new_id)` を呼び、 lineage 複製済の新 jsonl + claude
+    `--resume` 起動後の boot / 初発を 初回 bind 経路 (= offset=0) で stream する。"""
+    chat_routes, parent, _ = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
+    called = []
+    import backend.jsonl.routes as jr  # noqa: PLC0415
+    monkeypatch.setattr(jr, "request_sid_tail_reset", lambda sid: called.append(sid))
+    out = _run(chat_routes.fork_session(parent.id, {"from_uuid": "u2"}))
+    assert called == [out["id"]]
+
+
 def test_create_session_invokes_ensure_pty(tmp_path, monkeypatch, isolated_state):
     """POST /sessions (= 新規タブ作成) は ensure_pty_session_for を呼ぶ (= 新 sid spawn 完結)。
 
