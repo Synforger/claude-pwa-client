@@ -53,7 +53,7 @@
 - スマートフォンからは Tailscale 経由でホスト機の HTTPS にアクセス、 インターネット公開はしない
 
 詳細なレイヤ構成と SSE / JSONL / tmux 経路の責務分割は
-[docs/architecture/overview.md](docs/architecture/overview.md) を参照。
+[docs/internals/architecture/overview.md](docs/internals/architecture/overview.md) を参照。
 
 ## セキュリティモデル
 
@@ -156,110 +156,14 @@ LaunchAgent KeepAlive で自動起動するはずなので、 まず `task statu
 (Chromium 系の HTTPS 証明書エラー、 Sunshine encoder hang、 moonlight ペアリング破損、
 `__pycache__` import 事故、 PWA bundle 更新の流れ、 セッション終了後の claude_sid 復旧、 等)。
 
-## ディレクトリ構成
+## ドキュメント
 
-```
-claude-pwa-client/
-├── backend/                       # FastAPI バックエンド (Python)
-│   ├── main.py                    # エントリポイント + ルータ集約 + lifespan task
-│   ├── state.py                   # プロセス共有状態
-│   ├── config.py                  # 設定読み込み + AGENTS 定義
-│   ├── paths.py                   # パス解決ヘルパ (HOME 配下制限 / deny list)
-│   ├── protocol.py                # 共通プロトコル定義
-│   ├── chat_content.py            # 添付ファイル保存 (uploads/tmp)
-│   ├── pty_discover.py            # tmux pane 配下の claude プロセス探索
-│   ├── cli/                       # スタンドアロン CLI (= gen_vapid 等)
-│   ├── terminal/                  # PTY + tmux + control mode 層
-│   │   ├── routes.py              # /ws/pty + /pty/{sid}/send
-│   │   ├── runner.py              # claude を実 PTY + tmux で起動・駆動
-│   │   ├── confirm.py             # 送信確認 (jsonl カウント + wait + 救済再送)
-│   │   ├── session_resolver.py    # session 設定の解決 (autoresume / alias)
-│   │   └── control_mode.py        # tmux control mode (-CC) プロトコルパーサ
-│   ├── jsonl/                     # ~/.claude/projects 監視 + JSONL → イベント変換層
-│   │   ├── routes.py              # /jsonl/stream SSE 配信 + 全 session tail loop
-│   │   ├── tail.py                # JSONL tail プリミティブ
-│   │   ├── events.py              # JSONL 1 行 → chat UI イベント変換
-│   │   ├── session_status.py      # busy / agent_status / tasks / pr_links 更新
-│   │   ├── notifications.py       # 停止要因の検出と Web Push 配信
-│   │   ├── plan_choices.py        # ExitPlanMode の選択肢抽出
-│   │   └── watcher.py             # ~/.claude/projects 監視で session ↔ JSONL を紐付け
-│   ├── routes/                    # HTTP / WS 各エンドポイント (= chat.py から分割済)
-│   │   ├── sessions.py            # /sessions CRUD / fork / restart / history
-│   │   ├── overview.py            # /sessions/status/stream + /sessions/overview/stream + /views/ws
-│   │   ├── accounts.py            # /accounts (personal / work)
-│   │   ├── chat.py                # /stop など旧 chat 残り (shim 化済)
-│   │   ├── files.py               # /file, /files/tree, /task-output
-│   │   ├── subagents.py           # subagent / workflow 一覧 + 個別 transcript
-│   │   └── hooks.py               # /hooks/event (localhost only)
-│   ├── core/                      # 横断ヘルパ
-│   │   ├── push.py                # Web Push + 通知履歴 + SSE listener
-│   │   ├── usage.py               # 使用率 (5h / 7d / ctx) 組み立て
-│   │   ├── maintenance.py         # 起動時/定期 GC (tmux/jsonl/log/cache)
-│   │   └── fork.py                # 会話フォーク (parentUuid 鎖の lineage 切り出し)
-│   ├── tests/                     # pytest
-│   ├── config.example.json
-│   └── requirements.txt
-├── frontend/                      # React + Vite (= W2 architecture、 ADR-026 着地済)
-│   ├── src/
-│   │   ├── main.jsx               # entry
-│   │   ├── App.jsx                # 10 行 shell (= ErrorBoundary + Layout を return するだけ)
-│   │   ├── layout/                # 配置層 (= Layout / ChatPanel / TerminalPane / OverlayHost / ErrorBoundary)
-│   │   ├── features/              # 19 機能 (= chat / session-drawer / topbar / status-bar / dialogs / app-effects / ask-user-question / attachments / file-preview / file-tree / fork / ios-native / plan-approval / push-notify / screenshare / subagents / tasks / terminal + __contracts__)
-│   │   ├── state/                 # 6 store singleton (= ephemeral / sessions / ui / messages / push / persistence) + _store.js factory
-│   │   ├── registry/              # 5 registry (= feature / message / overlay / push / stream)
-│   │   ├── transport/             # backend 接続 (= SSE / WS singleton)
-│   │   ├── domain/                # 純粋 TS layer (= Session / Message / Tool / Event + invariants)
-│   │   ├── ports/                 # 型 only interface (= hexagonal 境界)
-│   │   ├── shared/                # feature 跨ぎの共有 component (= ConfirmDialog / Modal.css 等)
-│   │   ├── hooks/                 # generic DOM utility (= useEscape / useOutsideClick の 2 件のみ)
-│   │   ├── contracts/             # codegen 出力 (= events / ws_channels / http_endpoints の .ts/.py)
-│   │   ├── tools/                 # tool block 整形 handler (= _registry.js + family file)
-│   │   └── utils/                 # api / format / favorites / id / storage 等
-│   └── public/
-│       ├── manifest.template.json # PWA manifest
-│       └── sw.js                  # Service Worker (= Web Push 受信)
-├── docs/                          # 詳細ドキュメント (= docs/README.md 参照)
-└── Taskfile.yml                   # task コマンド entry (= task --list で全 task)
-```
+- 利用者向けガイドの目次: [docs/README.md](docs/README.md)
+- セットアップ手順: [docs/setup/path-a-chat.md](docs/setup/path-a-chat.md) (Path A、 macOS / Linux 最短) / [docs/setup/path-b-screenshare.md](docs/setup/path-b-screenshare.md) (画面共有を足す) / [docs/setup/windows-wsl.md](docs/setup/windows-wsl.md) (Windows)
+- 困ったとき: [docs/ops/troubleshoot.md](docs/ops/troubleshoot.md)
+- 設定リファレンス: [docs/reference/config.md](docs/reference/config.md)
 
-## 開発フロー (= ローカルチェックのみ、 GitHub Actions 不使用)
-
-このリポは品質ゲートを全部ローカル `.githooks/` に置く運用。 GitHub Actions の workflow は使わない (= 配信先が個人 / 1 端末で、 PR ごとに remote ランナー回す価値が薄い + 失効した workflow の維持コストを避ける)。 clone 後の活性化:
-
-```bash
-git config --local core.hooksPath .githooks
-```
-
-これだけで commit 時に以下が staged 範囲に応じて自動で走る (= 手動で全件回したい時は `task lint` / `task test` / `task anon:scan`):
-
-1. **anon-scan** (= `.tooling/local-ci/anon-scan.sh`): 個人識別子 / 旧雇用主 / ホスト名の混入チェック (全 commit)
-2. **flake8** (= staged Python のみ): 構文 / 未定義名 / f-string などの致命チェック
-3. **eslint** (= staged JS/JSX/TS/TSX のみ): `frontend/node_modules/eslint` 存在時のみ
-4. **audit-w2-residue** (= `.tooling/local-ci/audit-w2-residue.py`): `frontend/src/state/` `features/` `layout/` `*.css` のいずれかが staged の時のみ。 状態二重管理 / orphan setter / CSS absolute anchor の 3 種を機械検出 (= W2 architecture residue 用)
-
-意図的に gate を回避したい時は `--no-verify`。 既知の偽陽性は `.tooling/local-ci/audit-w2-residue-allowlist.txt` に追記。
-
-## ロードマップ
-
-進行中 / 検討中の作業は [ROADMAP.md](ROADMAP.md) 参照。
-
-## docs index
-
-詳細は [docs/README.md](docs/README.md) を参照。 主要 file:
-
-| file | 内容 |
-|---|---|
-| [docs/setup/path-a-chat.md](docs/setup/path-a-chat.md) | Path A セットアップ (チャット + 通知): 依存 / backend / frontend / Tailscale / LaunchAgent / スマホ接続 |
-| [docs/setup/path-b-screenshare.md](docs/setup/path-b-screenshare.md) | Path B 追加セットアップ: Sunshine / moonlight-web-stream ビルド / ペアリング / 音声経路 |
-| [docs/setup/windows-wsl.md](docs/setup/windows-wsl.md) | Windows (WSL2) 上での backend / frontend / Tailscale 構成 |
-| [docs/reference/config.md](docs/reference/config.md) | `backend/config.json` (`agents` / `accounts` / `claude_path` / `launch_alias` 等) + `frontend/.env.local` 詳細 |
-| [docs/reference/data-schemas.md](docs/reference/data-schemas.md) | `backend/data/*.json` + `secrets/vapid.json` の schema + backup 対象範囲 |
-| [docs/ops/troubleshoot.md](docs/ops/troubleshoot.md) | HTTPS 証明書エラー / encoder hang / ペアリング破損 / `__pycache__` 等 |
-| [docs/ops/sunshine.md](docs/ops/sunshine.md) | Sunshine 運用 runbook (= phys_footprint リーク対策) |
-| [docs/architecture/overview.md](docs/architecture/overview.md) | backend / frontend 構成 (= 19 features + 6 store + 5 registry)、 依存方向 DAG、 SessionState + asyncio.Lock |
-| [docs/architecture/state-stores.md](docs/architecture/state-stores.md) | frontend 6 store の責務 + どの feature が subscribe するか |
-| [docs/architecture/extending.md](docs/architecture/extending.md) | 新規 message kind / tool / system message / overlay / account / push channel を追加する手順 |
-| [docs/protocol/streams.md](docs/protocol/streams.md) | 4 SSE + 2 WS の責任分担 + `/jsonl/stream/*` event wire shape |
+開発に参加したい人向けの内部資料は [docs/internals/](docs/internals/) (= PWA を使うだけなら読む必要はありません)。
 
 ## ライセンス
 
