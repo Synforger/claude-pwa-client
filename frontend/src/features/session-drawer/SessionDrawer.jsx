@@ -93,7 +93,9 @@ export default function SessionDrawer() {
   const onDelete = useCallback((sid) => setOverlay('confirmDelete', sid), [])
 
   // Push 状態を本 component で直接 hook (= usePushSubscription)。 onCloseMenu は SessionDrawer
-  // の global メニューを閉じる callback を渡す。
+  // の global メニューを閉じる callback を渡す。 mountEffects 未指定 (= default false) で
+  // 副作用 listener は AppEffects.jsx 側 1 instance に集約 (= J-2、 state/push.js singleton store
+  // 経由で state を共有)、 本 instance は subscribe + toggle 呼出のみ。
   const [globalMenuOpen, setGlobalMenuOpen] = useState(false)  // ヘッダ ⋯ の総合メニュー
   const {
     pushEnabled, pushBroken, pushBusy, pushAvailable, handleTogglePush,
