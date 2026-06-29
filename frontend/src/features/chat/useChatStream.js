@@ -30,10 +30,17 @@ function persistOffsets(offsets) {
 // 直接呼べる経路として module-level に export する。 hook 内部 closure (= sid / setMessages /
 // offsetRef 等) に access するため、 useChatStream mount 時に下記 ref を実装で wire し、
 // unmount で nullify する (= 旧 endSession / stopMessage の useCallback 戻り値そのものを再利用、
-// ロジック改変ゼロ)。 ChatPanel.jsx は本 phase で該当 dialog block を退役するので、
-// hook 戻り値経由の endSession / stopMessage 参照は features/dialogs 経由に統一される。
+// ロジック改変ゼロ)。
+//
+// Phase J-4 (= 2026-06-29): single-writer 前提を runtime warn で検知する future-proof を追加。
+// ChatPanel.jsx は always-mount で 1 instance のみ呼ぶ前提 (= ADR-026)、 引数 sid で任意 session
+// に対して動くため ref 配列化は overkill。 ただし将来 ChatPanel 多重 mount に変えた瞬間、 各
+// instance が module-level ref を上書きし、 unmount 順で wire / nullify が race するので、
+// `_activeMountCount > 1` の窓で console.warn を出して気づける機構にする。 多重 mount 自体は
+// 動作 (= 最後の mount が勝つ)、 ただし任意 instance の view から見ると undefined behaviour 区間。
 let _endSessionImpl = null
 let _stopMessageImpl = null
+let _activeMountCount = 0  // Phase J-4: single-writer 前提違反検知用
 export function endSession() { return _endSessionImpl?.() }
 export function stopMessage() { return _stopMessageImpl?.() }
 
@@ -512,14 +519,25 @@ export function useChatStream({
     scrollToBottom()
   }, [scrollToBottom])
 
-  // W2 Phase F-4 (= 2026-06-29): module-level endSession / stopMessage 経路 (= features/dialogs
+  // W2 Phase F-4 + J-4 (= 2026-06-29): module-level endSession / stopMessage 経路 (= features/dialogs
   // 経由の onConfirm) に最新の hook closure 実装を wire する。 ChatPanel.jsx は本 hook を 1 経路
   // のみ mount するので、 single-writer 前提で wire/unwire を素朴に行う。 unmount で nullify、
   // call 側は `?.()` で no-op に。
+  // Phase J-4: `_activeMountCount` で多重 mount を検知して runtime warn (= 設計違反気づき)。
   useEffect(() => {
+    _activeMountCount += 1
+    if (_activeMountCount > 1) {
+      console.warn(
+        `[useChatStream] multiple mount instances detected (count=${_activeMountCount}). ` +
+        `module-level endSession/stopMessage will wire to the latest mount only; ` +
+        `older instances see undefined behaviour until they unmount. ` +
+        `If ChatPanel is intentionally rendered multiple times, switch _endSessionImpl/_stopMessageImpl to a ref-list.`
+      )
+    }
     _endSessionImpl = endSessionCb
     _stopMessageImpl = stopMessageCb
     return () => {
+      _activeMountCount -= 1
       if (_endSessionImpl === endSessionCb) _endSessionImpl = null
       if (_stopMessageImpl === stopMessageCb) _stopMessageImpl = null
     }
