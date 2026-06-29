@@ -23,8 +23,12 @@ export default function MessageList({
   hasNew,
   scrollToBottom,
 }) {
+  // .messages-container は scroll-btn (= position: absolute) の基準点 (= position: relative)。
+  // 旧 AppShell では Terminal LRU mount もここに同居していたが、 F-1 で .messages + scroll-btn
+  // だけが本 component 配下に残った。 wrapper を外すと scroll-btn が祖先 (= .app or body) を
+  // 基準にして画面外 / 右下端に飛ぶ regression が出るので、 .messages-container は必ず維持する。
   return (
-    <>
+    <div className="messages-container">
       {/* chat も Terminal と対称に mount しっぱなしで display 切替する。
           terminal モードへ行っても DOM が unmount されないので、 戻った時に
           scroll 位置 / 画像 / プレビューの内部状態がそのまま残る (= 2026-06-16)。 */}
@@ -54,6 +58,6 @@ export default function MessageList({
           {hasNew && <span className="scroll-dot" />}
         </button>
       )}
-    </>
+    </div>
   )
 }
