@@ -143,8 +143,8 @@ React + Vite。 `main.jsx` → `App.jsx` (= 10 行 shell、 ErrorBoundary + Layo
 | ディレクトリ | 責務 | 規約 |
 |---|---|---|
 | `layout/` | 配置層 (= Layout / ChatPanel / TerminalPane / OverlayHost / ErrorBoundary)。 ロジックを持たず、 features 側 component を slot として置くだけ | `Layout.jsx` が features/* の `index.js` を side-effect import で self-register + Topbar / StatusBar / ChatPanel / TerminalPane / OverlayHost / AppEffects を配置。 ChatPanel / TerminalPane は **always-mount + 内部 display:none gate** で viewMode 切替時の state ロスト防止 |
-| `features/<name>/` | 機能の真の owner (= 19 機能 = app-effects / ask-user-question / attachments / chat / dialogs / file-preview / file-tree / fork / ios-native / plan-approval / push-notify / screenshare / session-drawer / status-bar / subagents / tasks / terminal / topbar + `__contracts__` test)。 各機能の component / hook / state / handler / 配線 entry が**1 フォルダで自己完結** | `index.js` = 配線 entry、 registry signal + Component lazy spec (= overlay 系のみ、 `Component: () => import('./<X>.jsx')`) を declare。 **lazy 対象 component の static import は禁止** (= chunk 分離を壊す、 contract test で gate 化、 詳細は `architecture/extending.md (c)`) |
-| `state/` | 6 領域 singleton store (= `ephemeral` / `messages` / `persistence` / `push` / `sessions` / `ui`) + createStore factory (`_store.js`、 ADR-017)。 詳細責務は `architecture/state-stores.md` 参照 | 各 feature が `useSyncExternalStore(subscribe, getSnapshot)` で読み + setter 関数直呼出で書き。 hook 二重 instantiate しても state 分裂しない (= J-2 / J-9 / J-11 / J-12 で全 useState 一掃済) |
+| `features/<name>/` | 機能の真の owner (= 19 機能 = app-effects / ask-user-question / attachments / chat / dialogs / file-preview / file-tree / fork / ios-native / plan-approval / push-notify / screenshare / session-drawer / status-bar / subagents / tasks / terminal / topbar + `__contracts__` test)。 各機能の component / hook / state / handler / 配線 entry が**1 フォルダで自己完結** | `index.js` = 配線 entry、 registry signal + Component lazy spec (= overlay 系のみ、 `Component: () => import('./<X>.jsx')`) を declare。 **lazy 対象 component の static import は禁止** (= chunk 分離を壊す、 contract test で gate 化、 詳細は `extending.md (c)`) |
+| `state/` | 6 領域 singleton store (= `ephemeral` / `messages` / `persistence` / `push` / `sessions` / `ui`) + createStore factory (`_store.js`、 ADR-017)。 詳細責務は `state-stores.md` 参照 | 各 feature が `useSyncExternalStore(subscribe, getSnapshot)` で読み + setter 関数直呼出で書き。 hook 二重 instantiate しても state 分裂しない (= J-2 / J-9 / J-11 / J-12 で全 useState 一掃済) |
 | `registry/` | 5 registry (= `featureRegistry` / `messageRegistry` / `overlayRegistry` / `pushRegistry` / `streamRegistry`) + 共通 lifecycle 契約 | `register(name, { Component?, dispatch, init?, mount?, unmount? })`、 OverlayHost が `overlayRegistry.list()` を走査して open 中 overlay を lazy + Suspense + LazyBoundary で 1 経路 render |
 | `transport/` | backend 接続層 (= `sse-*.js` / `ws-pty.js` / `ws-views.js` / `lifecycle.js` 等)。 SSE / WS の singleton 接続をここに集約 | features → transport は直接 import OK (= ADR-018)、 ports/ interface を transport が implements |
 | `domain/` | 純粋 TS layer (= `Session.ts` / `Message.ts` / `Tool.ts` / `Event.ts` + `invariants.ts` 純粋関数) | React 非依存、 worker / test / 別 entry 再利用可能。 型 only file は `types.d.ts` を持たず domain/ 配下に集約 |
@@ -162,11 +162,11 @@ React + Vite。 `main.jsx` → `App.jsx` (= 10 行 shell、 ErrorBoundary + Layo
 | `frontend/src/registry/messageRegistry.js` | `system_*` / `attachment` / `task_notification` 等の system kind ごとの `fromEvent(event)` + `Render` を 1 箇所集約。 旧来は MessageItem.jsx 側の巨大 switch + processStreamEvent 側の重複 append パターンに分散していた (W2 Phase F-1 で registry/ 配下に集約) |
 | `frontend/src/features/chat/processStreamEvent.js` | SSE event の `type` 分岐の単一窓口。 messageRegistry / appendSystemMessage / useStreamBuffer に dispatch する (W2 Phase F-1 で `hooks/internal/` から `features/chat/` 配下に移送) |
 
-新 system kind / 新 SSE event type / 新 tool 表示の追加手順は `architecture/extending.md` 参照。
+新 system kind / 新 SSE event type / 新 tool 表示の追加手順は `extending.md` 参照。
 
 ## 参考
 
-- 4 SSE + 2 WS 経路 (= status / overview / chat / chat-all / views_ws / pty_ws) の責任分担 + event wire shape = `protocol/streams.md` (旧 streams + sse-event-shape を統合)
-- state stores 6 個の責務 + subscribe 経路 = `architecture/state-stores.md`
-- 拡張ガイド (= 新 tool / 新 SSE event / 新 modal / 新 account / 新 push channel) = `architecture/extending.md`
+- 4 SSE + 2 WS 経路 (= status / overview / chat / chat-all / views_ws / pty_ws) の責任分担 + event wire shape = `../protocol/streams.md` (旧 streams + sse-event-shape を統合)
+- state stores 6 個の責務 + subscribe 経路 = `state-stores.md`
+- 拡張ガイド (= 新 tool / 新 SSE event / 新 modal / 新 account / 新 push channel) = `extending.md`
 - `backend/data/*.json` の schema = `reference/data-schemas.md`

@@ -1,40 +1,32 @@
 # Roadmap
 
-claude-pwa-client の進行中・検討中・不採用の作業を可視化する。 主に開発者 (= 自分) の整理用 + 他人が「これ作りかけか、 安定か、 取りに行くか」 判断するための入口。
+このリポは個人プロジェクトです。 「このリポは今安定して使えるのか / 何が作りかけか」 を判断するための一覧。
 
-> 個人プロジェクト (= collaborator ゼロ運用) なので GitHub Issues は使わない方針。 ここに方向性だけ宣言、 細かい todo は手元管理。
+## いま使えること
 
-## 安定 (= ready to use)
+- Tailscale 経由でスマートフォンから Claude Code を操作 (= チャット + 通知)
+- 複数セッション並走 + バックグラウンド継続
+- Web Push 通知 (iOS 16.4+ / Android、 `AskUserQuestion` や処理完了で発火)
+- 添付ファイル送信 / 履歴永続化 / 会話のフォーク
+- ステータスバー (モデル / 残予算 / 使用率)
+- マルチアカウント (個人 / 会社 を切替)
+- デスクトップ画面共有 (任意、 [setup/path-b-screenshare.md](docs/setup/path-b-screenshare.md))
 
-- **chat + 通知** (Path A): 複数セッション並走 / SSE 逐次表示 / Web Push (iOS 16.4+) / AskUserQuestion / バックグラウンド継続
-- **W2 architecture overhaul**: AppShell 解体 → Layout 55 行 + 19 features + 6 state stores + 5 registries (= 2026-06-29 着地、 28 PR sweep)
-- **PTY 起動の自動化**: chat view 単独で `task setup → task run` → 新規タブ作成 / セッション終了 (restart) で `launch_alias` が自動投入される (= 2026-06-29 race fix)
-- **配布**: synforger/claude-pwa-client public repo、 ローカル `.githooks/` 一本化 (= GitHub Actions 不使用)
-- **Security posture**: pip-audit / npm audit / gitleaks 全件 clean、 SECURITY.md + 報告 channel 配備済 (= 2026-06-29、 詳細は [SECURITY.md](SECURITY.md))
+## 今後やる予定
 
-## 進行中 / 検討中
+- iOS native の画面共有 (= 音声修正 / PiP / 入力プラグイン / 通知 extension)。 ブラウザ経由の Path B は既に動作、 これは AltStore 配布前提の native アプリ版
 
-- **iOS native (画面共有)** = Path B (Sunshine + moonlight-web-stream) の iOS PWA 完成に向けた残 phase 群:
-  - Phase 3 = audio fix (= 音声 streaming 詰まり)
-  - Phase 4 = UI 統合
-  - Phase 5 = PiP (Picture in Picture)
-  - Phase 5.5 = 入力 plugin (= touch → mouse / keyboard 変換)
-  - Phase 6 = 通知 extension (= Live Activities / Widget)
-  - 各 phase で iOS 実機 + Xcode archive 必須、 AltStore 経由配布
-- **messages store の真値逆転検討**: 現状 `localStorage` を真値、 `state/messages.js` は mirror。 store を真値に倒すと `useChatStorage` の永続化境界も hydrate 経由に書き直す大改修 (= ADR-026 後継議論として残置)
-- **W2 residue detector の精度向上**: `audit-w2-residue.py` の false positive (= moonlight 等の semantic 区別) を allowlist でなく structural に判定する余地 (= 現状 allowlist で実害ゼロのため優先度低)
+## 検討中 (= まだ着手していない)
 
-## 公開向け file
+- メッセージ履歴の真値 store 化 (= 現状は localStorage を主、 内部 store はミラー)
+- 画面共有関連の検出機構のチューニング
 
-- `SECURITY.md` = **配備済** (= 2026-06-29、 GitHub Security Advisories private report に誘導 + audit log + scope/out-of-scope 定義)
-- `.github/ISSUE_TEMPLATE` / `CONTRIBUTING.md` = collaborator ゼロ運用で形骸化リスク、 追加しない。 将来 PR / issue が来始めたら判断
-- GitHub Actions workflow = 不採用 (= ローカル `.githooks/` 一本化、 詳細は README § 開発フロー)
+## 採用しない方針
 
-## 不採用 / 撤回済
+- GitHub Issues / Actions (= 個人運用、 ローカル `.githooks/` で品質ゲートを完結)
+- SECURITY.md 以外の `.github/` ファイル (= ISSUE_TEMPLATE / CONTRIBUTING.md は collaborator ゼロで形骸化)
 
-- chat view 起動 alias config 化 = 当初検討したが既存 `config.json::agents[*].launch_alias` で十分、 重複ゼロ
-- `transport.js` state store = W2 Phase J-12 で dead 削除 (= 全 setter orphan、 接続生存 signal は `transport/lifecycle.js::registerConnection` に集約)
+## バグ報告 / 機能要望
 
-## 他人が contribute したい場合
-
-GitHub Issues は使ってないので、 PR を直接送ってもらえれば検討します。 大物 (= 数百行 diff / architecture 変更) は事前に discussion で意図確認推奨。 backend は POSIX 前提 (PTY / tmux / lsof)、 Windows ネイティブは対象外で WSL2 経由。
+- セキュリティ脆弱性: [SECURITY.md](SECURITY.md) の GitHub Security Advisories から (公開 issue は使わない)
+- 機能要望 / 一般バグ: GitHub Issues は無効化されています。 必要に応じて Pull Request を歓迎します
