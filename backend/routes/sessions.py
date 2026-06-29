@@ -100,7 +100,7 @@ def patch_session(session_id: str, payload: dict = Body(...), _: str = Depends(r
 
 
 @router.post("/sessions/{session_id}/fork")
-def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(require_session)):
+async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(require_session)):
     """会話を任意メッセージから分岐する (= フォーク)。
 
     body: {from_uuid}。 from_uuid を leaf に parentUuid 鎖を根まで遡った lineage を、 新しい
@@ -217,6 +217,16 @@ def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(re
         parent_id=session_id,
         resume_session_id=new_claude_id,
     )
+    # 新タブ作成時点で PTY spawn + launch_alias 投入を完了させる (= create_session 経路と同じ
+    # 横展開、 2026-06-30)。 旧実装は spawn を呼ばず、 fork 後にユーザが「ターミナル表示」 を
+    # 押して /ws/pty/{new_sid} 接続するまで spawn しないので、 chat view 単独では claude が
+    # 起動せず初回発話が届かない症状になっていた (= PR #29 で create/restart に入れた fix が
+    # fork 経路にだけ抜けていた)。
+    from backend.terminal.routes import ensure_pty_session_for  # noqa: PLC0415
+    try:
+        await ensure_pty_session_for(new_meta.id)
+    except Exception:
+        logger.exception("fork_session spawn phase failed for %s", new_meta.id)
     return new_meta.to_dict()
 
 

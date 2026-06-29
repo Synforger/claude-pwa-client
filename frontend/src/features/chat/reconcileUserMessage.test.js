@@ -22,7 +22,7 @@ describe('reconcileUserMessage (server-of-truth)', () => {
     expect(next[0].optimistic).toBeUndefined()
   })
 
-  it('pop 時に optimistic の id を継承する (= sendFailed watcher が hit できる前提)', () => {
+  it('pop 時に optimistic の id を継承する (= failBubble が optimisticUserId で findIndex できる前提)', () => {
     const cur = [opt('hi')]
     const next = reconcileUserMessage(cur, 'hi', 'u1')
     expect(next[0].id).toBe('opt-hi')
