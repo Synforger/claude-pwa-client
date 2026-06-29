@@ -58,7 +58,7 @@ def list_sessions():
 
 
 @router.post("/sessions")
-def create_session(payload: dict = Body(...)):
+async def create_session(payload: dict = Body(...)):
     from backend.config import ACCOUNTS  # noqa: PLC0415
     agent_id = payload.get("agent_id")
     title = payload.get("title")
@@ -68,6 +68,17 @@ def create_session(payload: dict = Body(...)):
     if account_id is not None and account_id not in ACCOUNTS:
         raise HTTPException(status_code=400, detail="account_id が無効です")
     meta = register_session(agent_id, title, account_id=account_id)
+    # 新規タブ作成時点で PTY spawn + launch_alias 投入を完了させる。 既存挙動 (=
+    # /jsonl/stream/all 接続の起動 sweep) は接続時点の sessions_meta snapshot しか
+    # 見ないので、 接続継続中に新 sid を追加しても ensure を踏まず、 「ターミナル
+    # を表示」 を押して /ws/pty/{sid} 接続時に初めて spawn が走る = chat view 単独
+    # では起動が完結しない症状の根治 (2026-06-29 確認)。 ensure 内に既存ガード
+    # (= pty_sessions / has_tmux_session 早期 return) があるので二重化 safe。
+    from backend.terminal.routes import ensure_pty_session_for  # noqa: PLC0415
+    try:
+        await ensure_pty_session_for(meta.id)
+    except Exception:
+        logger.exception("create_session spawn phase failed for %s", meta.id)
     return meta.to_dict()
 
 
@@ -250,7 +261,13 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
     # 防止のため、 ここだけ関数内 import に残す。
     from backend.terminal.routes import ensure_pty_session_for  # noqa: PLC0415
     try:
-        await ensure_pty_session_for(session_id)
+        # restart は autoresume を skip (= prefer_fresh)。 直前 claude プロセスの
+        # 完全 shutdown 前に `claude --resume <直前 sid>` が走ると重複起動検知で
+        # rc=0 即 exit する race (= log 観測で spawn → 2ms exited → watchdog の
+        # 2s 待ちに間に合わず、 launch_alias 投入届かない、 2026-06-29 確認)。
+        # restart のセマンティクス = 文脈リセット + プロセスリセットなので、
+        # 直前 sid を resume するのが意味的にも矛盾。
+        await ensure_pty_session_for(session_id, prefer_fresh=True)
     except Exception:
         logger.exception("restart spawn phase failed for %s", session_id)
         return {"ok": False, "reason": "spawn_failed"}
