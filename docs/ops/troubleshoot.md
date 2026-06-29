@@ -97,7 +97,7 @@ backend は **セッション終了ボタン (= `POST /sessions/{sid}/restart`) 
 # 1. 直近 3 件の claude_sid 候補を取得
 curl http://127.0.0.1:8765/sessions/<pwa_sid>/history
 # => {"entries": [
-#      {"claude_sid": "734cb67f-...", "ended_at": 1782066736, "jsonl_path": "/Users/.../734cb67f-....jsonl"},
+#      {"claude_sid": "734cb67f-...", "ended_at": 1782066736, "jsonl_path": "<jsonl-base>/734cb67f-....jsonl"},
 #      ...
 #    ]}
 

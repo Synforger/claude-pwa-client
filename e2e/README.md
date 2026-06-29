@@ -35,7 +35,7 @@ e2e/
 ## Run
 
 ```bash
-cd ~/repos/claude-pwa-client.v2/e2e
+cd <path-to-this-repo>/e2e
 npm ci
 npx playwright install --with-deps chromium webkit
 npm test

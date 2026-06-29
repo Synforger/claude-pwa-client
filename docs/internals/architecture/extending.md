@@ -138,7 +138,7 @@ contract test (= `features/__contracts__/no-lazy-component-static-import.test.js
    {
      "accounts": {
        "personal": { "display_name": "個人", "env": {} },
-       "work":     { "display_name": "会社", "env": { "CLAUDE_CONFIG_DIR": "/Users/you/.claude-work" } },
+       "work":     { "display_name": "会社", "env": { "CLAUDE_CONFIG_DIR": "<path-to-your-claude-config-dir>" } },
        "<new_id>": { "display_name": "<表示名>", "env": { "CLAUDE_CONFIG_DIR": "<別 ~/.claude>" } }
      }
    }

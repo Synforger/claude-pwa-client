@@ -31,7 +31,7 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
     "work": {
       "display_name": "会社",
       "env": {
-        "CLAUDE_CONFIG_DIR": "/Users/you/.claude-work"
+        "CLAUDE_CONFIG_DIR": "<path-to-your-claude-config-dir>"
       }
     }
   },
