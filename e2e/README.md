@@ -35,7 +35,7 @@ e2e/
 ## Run
 
 ```bash
-cd REDACTED_PATH
+cd <path-to-this-repo>/e2e
 npm ci
 npx playwright install --with-deps chromium webkit
 npm test

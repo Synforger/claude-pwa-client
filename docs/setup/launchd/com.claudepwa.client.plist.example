@@ -7,7 +7,7 @@
     2. 下記 5 箇所を **自環境の絶対 path に書き換える**:
          - ProgramArguments の `/path/to/claude-pwa-client`
          - ProgramArguments の `/path/to/miniforge` (= conda の base prefix、
-           例: `REDACTED_PATH or `/opt/homebrew/Caskroom/miniforge/base`)
+           例: `<path-to-miniforge>` or `/opt/homebrew/Caskroom/miniforge/base`)
          - ProgramArguments の `pwa-client` (= `CONDA_ENV` を変えてれば合わせる)
          - ProgramArguments の `--port 8765` (= 自分の PORT)
          - StandardOutPath / StandardErrorPath の `/path/to/claude-pwa-client/logs/...`
