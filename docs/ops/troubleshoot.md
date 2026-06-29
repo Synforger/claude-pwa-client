@@ -145,13 +145,13 @@ OS 再起動経由では発生しない。 SIGTERM 経路を避け SIGKILL → K
 
 ## 音声が出ない (macOS + BlackHole 構成)
 
-[Path B](./setup/path-b-screenshare.md) の音声ルーティングで BlackHole を audio_sink に
+[Path B](../setup/path-b-screenshare.md) の音声ルーティングで BlackHole を audio_sink に
 設定すると、 PWA 未接続時にもホスト本体スピーカーから音が出なくなる。 これは出力先が
 BlackHole に固定されているため。
 
 `switchaudio-osx` + LaunchAgent で「PWA 接続中だけ BlackHole に切り替え、 接続終了時に
 元の出力に戻す」常駐スクリプトを動かす運用が前提。 詳細手順は
-[Path B](./setup/path-b-screenshare.md) の「音声を PWA に流す」 section を参照。
+[Path B](../setup/path-b-screenshare.md) の「音声を PWA に流す」 section を参照。
 
 スクリプトが死んでいると BlackHole に固定されたままになるので、 `launchctl list` で
 `com.example.sunshine-audio-switch` が動いているか確認する。
