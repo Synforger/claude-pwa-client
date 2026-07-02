@@ -6,7 +6,7 @@
 // registerFeature 経由で配線、 Component lazy spec は不要 (= main bundle 同梱で OK、
 // features/__contracts__/no-lazy-component-static-import.test.js の Component spec 件数は不変)。
 
-import { useSyncExternalStore, useMemo, useCallback } from 'react'
+import { useSyncExternalStore, useMemo, useCallback, useState, useRef } from 'react'
 import {
   subscribe as subscribeUi,
   getSnapshot as getUiSnapshot,
@@ -17,6 +17,8 @@ import {
   subscribe as subscribeSessions,
   getSnapshot as getSessionsSnapshot,
 } from '../../state/sessions.js'
+import { bumpAttachmentPicker } from '../../state/ephemeral.js'
+import { useOutsideClick } from '../../hooks/useOutsideClick.js'
 import { useStatus } from '../status-bar/useStatus.js'
 import { useMoonlightAvailable } from '../screenshare/useMoonlightAvailable.js'
 
@@ -121,6 +123,71 @@ export default function Topbar() {
           🖥
         </button>
       )}
+      {activeSid && (
+        <TopbarMoreMenu
+          activeViewMode={activeViewMode}
+          setActiveViewMode={setActiveViewMode}
+        />
+      )}
     </header>
+  )
+}
+
+// ⋯ メニュー: ファイル添付 / ファイルツリー / ⌨↔💬 表示切替 / セッション終了 の集約。
+// 旧 ChatInput 右端の ⋯ からここへ物理移送 (= 2026-07-02、 入力行を Send + 停止 の 2 slot に
+// 純化するため)。 状態 (menuOpen) はローカル useState、 outside click / ESC で閉じる。
+// ファイル添付は fileInputRef を直接触らず ephemeral の attachmentPickerBump を上げ、
+// ChatPanel 側 subscribe で fileInputRef.click() を発火する疎結合設計 (= ChatPanel が持つ
+// useAttachments の hidden <input> を Topbar から知らずに済ませる、 ADR-010 props 自己解決契約)。
+function TopbarMoreMenu({ activeViewMode, setActiveViewMode }) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef(null)
+  useOutsideClick(rootRef, () => setOpen(false))
+  const close = useCallback(() => setOpen(false), [])
+  return (
+    <div className="topbar-more-root" ref={rootRef}>
+      <button
+        className="topbar-more-btn"
+        onClick={() => setOpen(v => !v)}
+        aria-label="メニュー"
+        title="メニュー"
+        data-testid="topbar-more-toggle"
+      >
+        ⋯
+      </button>
+      {open && (
+        <div className="topbar-more-popup">
+          <button
+            className="topbar-more-item"
+            onClick={() => { bumpAttachmentPicker(); close() }}
+          >
+            ファイル添付
+          </button>
+          <button
+            className="topbar-more-item"
+            onClick={() => { setOverlay('treeOpen', '~'); close() }}
+          >
+            ファイルツリー
+          </button>
+          <button
+            className="topbar-more-item"
+            onClick={() => {
+              setActiveViewMode(activeViewMode === 'terminal' ? 'chat' : 'terminal')
+              close()
+            }}
+            data-testid="view-toggle"
+          >
+            {activeViewMode === 'terminal' ? '💬 チャットで表示' : '⌨ ターミナルで表示'}
+          </button>
+          <button
+            className="topbar-more-item"
+            onClick={() => { setOverlay('confirmEnd', true); close() }}
+            style={{ color: '#ff5f57' }}
+          >
+            セッション終了
+          </button>
+        </div>
+      )}
+    </div>
   )
 }

@@ -1,6 +1,11 @@
-// 入力欄 + ⋯ アクションメニュー + 送信/停止ボタン。 App.jsx から切り出した
+// 入力欄 + 送信ボタン + 停止ボタン (条件出現)。 App.jsx から切り出した
 // プレゼンテーショナルコンポーネント (= 状態とハンドラは props で受ける)。
 // terminal 表示中は App 側で描画しない (= activeViewMode のガードは呼び出し側)。
+//
+// 2026-07-02: ⋯ アクションメニューを Topbar (= TopbarMoreMenu) に物理移設。 排他 toggle を
+// やめて「Send 常時表示 + Stop は showStopButton の時のみ隣接 slot に出現」 の配置に純化。
+// hidden <input type="file"> と onFileSelect は ChatPanel 側に引き上げ、 添付起動は Topbar →
+// ephemeral(attachmentPickerBump) → ChatPanel の疎結合経路になった。
 //
 // 打鍵中の text は親 App の input dict に毎打鍵書き戻さず、 ChatInput 内部 (= textRef +
 // localText state) で抱える (= 1 文字打つたびに App 全体が再 render する jank を解消、
@@ -19,15 +24,6 @@ function ChatInputInner({
   input,
   setInput,
   inputDisabled,
-  fileInputRef,
-  onFileSelect,
-  menuRef,
-  menuOpen,
-  setMenuOpen,
-  onOpenTree,
-  activeViewMode,
-  onToggleView,
-  onEndSession,
   showStopButton,
   onStop,
   onSend,
@@ -107,14 +103,6 @@ function ChatInputInner({
 
   return (
     <div className="inputarea" ref={inputAreaRef}>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/gif,image/webp,text/*,.py,.js,.ts,.jsx,.tsx,.md,.json,.css,.html,.yaml,.yml,.toml,.sh"
-        multiple
-        style={{ display: 'none' }}
-        onChange={onFileSelect}
-      />
       <textarea
         value={localText}
         onChange={e => setLocalText(e.target.value)}
@@ -136,41 +124,17 @@ function ChatInputInner({
         disabled={inputDisabled}
         data-testid="chat-input"
       />
-      <div className="buttons" ref={menuRef}>
-        {menuOpen && (
-          <div className="action-menu">
-            <button onClick={() => { fileInputRef.current?.click(); setMenuOpen(false) }} className="menu-item">
-              ファイル添付
-            </button>
-            <button onClick={() => { onOpenTree(); setMenuOpen(false) }} className="menu-item">
-              ファイルツリー
-            </button>
-            <button
-              onClick={() => { onToggleView(); setMenuOpen(false) }}
-              className="menu-item"
-              disabled={!activeSession}
-              data-testid="view-toggle"
-            >
-              {activeViewMode === 'terminal' ? '💬 チャットで表示' : '⌨ ターミナルで表示'}
-            </button>
-            <button
-              onClick={() => { setMenuOpen(false); onEndSession() }}
-              className="menu-item end"
-              disabled={!activeSession}
-            >
-              セッション終了
-            </button>
-          </div>
-        )}
+      <div className="buttons">
         <button
-          onClick={() => setMenuOpen(prev => !prev)}
-          className={`more ${menuOpen ? 'active' : ''}`}
-          aria-label="メニュー"
-          data-testid="chat-menu-toggle"
+          onClick={handleSend}
+          disabled={!activeSession || (!localText.trim() && currentAttachments.length === 0)}
+          className="send"
+          aria-label="送信"
+          data-testid="chat-send-button"
         >
-          ⋯
+          送信
         </button>
-        {showStopButton ? (
+        {showStopButton && (
           <button
             onClick={onStop}
             disabled={stopUnavailable}
@@ -179,16 +143,6 @@ function ChatInputInner({
             aria-label="停止"
             data-testid="chat-stop-button"
           >■</button>
-        ) : (
-          <button
-            onClick={handleSend}
-            disabled={!activeSession || (!localText.trim() && currentAttachments.length === 0)}
-            className="send"
-            aria-label="送信"
-            data-testid="chat-send-button"
-          >
-            送信
-          </button>
         )}
       </div>
     </div>

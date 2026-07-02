@@ -34,3 +34,6 @@ C:frontend/src/features/screenshare/MoonlightFrame.css:75:.moonlight-error
 C:frontend/src/features/session-drawer/SessionDrawer.css:80:.drawer-global-popup
 C:frontend/src/features/status-bar/StatusBar.css:82:.pr-chip-dropdown
 C:frontend/src/features/tasks/ActivityBar.css:80:.ab-todos-bar-fill
+# TopbarMoreMenu の dropdown popup: 親 .topbar-more-root が position:relative の anchor、
+# 意図した absolute positioning。 2026-07-02 ChatInput 側 ⋯ 移設で活性化。
+C:frontend/src/App.css:92:.topbar-more-popup

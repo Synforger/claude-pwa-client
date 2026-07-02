@@ -19,6 +19,7 @@ const INITIAL = {
   sendFailedText: null,  // string | null (= F-36 ChatInput.localText 復元用、 active sid 限定で write)
   stopUnavailableSid: null, // string | null (= F-16 stop が WS 切断中、 ChatInput tooltip 用)
   reconnectKey: 0,
+  attachmentPickerBump: 0,   // ⋯ メニュー Topbar 移設で追加。 Topbar 側 bump → ChatPanel が fileInputRef.click()
 }
 
 const store = createStore(INITIAL, { name: 'ephemeral' })
@@ -101,6 +102,14 @@ export function setSendFailedText(value) {
  *  value = sid string or null。 復活後に null に戻す。 */
 export function setStopUnavailableSid(sid) {
   store.setState(prev => prev.stopUnavailableSid === sid ? prev : { ...prev, stopUnavailableSid: sid })
+}
+
+/** ファイル添付 picker 起動 signal。 ⋯ メニューが Topbar 側に移設され、 hidden <input type="file">
+ *  は ChatPanel が持ち続けたい (= useAttachments/handleFileSelect との配線を分断しない) ので、
+ *  Topbar からは counter を bump して発火意思を渡す。 ChatPanel は subscribe して increment を
+ *  検知したら fileInputRef.current.click() を呼ぶ。 counter が増える方向のみで意味を持つ。 */
+export function bumpAttachmentPicker() {
+  store.setState(prev => ({ ...prev, attachmentPickerBump: (prev.attachmentPickerBump || 0) + 1 }))
 }
 
 export function bumpReconnectKey() {
