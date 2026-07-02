@@ -19,6 +19,7 @@ import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown
 import { apiFetch } from '../../utils/api.js'
 import { isFav, toggleFav, subscribeFavs } from '../file-tree/favorites.js'
 import { useEscape } from '../../hooks/useEscape.js'
+import { useT } from '../../i18n/t.js'
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
 import {
   subscribe as subscribeUi,
@@ -217,6 +218,7 @@ export default function FilePreviewModal() {
 // 既存 body はそのまま中身を保持する閉じた function に分離 (= path 変化で内部 state を確実に
 // reset するため、 path を key にしても良いが本体改変最小化方針で wrapper + body 分離を採用)。
 function FilePreviewModalBody({ path, onClose }) {
+  const t = useT()
   const [content, setContent] = useState(null)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -265,11 +267,11 @@ function FilePreviewModalBody({ path, onClose }) {
     setContent(null)
     apiFetch(`/file?path=${encodeURIComponent(path)}`, { signal: controller.signal })
       .then(r => {
-        if (r.status === 413) return r.json().then(d => Promise.reject(d.detail || 'ファイルが大きすぎます'))
+        if (r.status === 413) return r.json().then(d => Promise.reject(d.detail || t('file_preview.too_large')))
         return r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`)
       })
       .then(data => setContent(data.content))
-      .catch(e => { if (e.name !== 'AbortError') setError(typeof e === 'string' ? e : `読み込みエラー`) })
+      .catch(e => { if (e.name !== 'AbortError') setError(typeof e === 'string' ? e : t('file_preview.load_error')) })
       .finally(() => setLoading(false))
     return () => controller.abort()
   }, [path])
@@ -328,28 +330,28 @@ function FilePreviewModalBody({ path, onClose }) {
               <button
                 className={`modal-fav-btn ${favored ? 'on' : ''}`}
                 onClick={handleToggleFav}
-                title={favored ? 'お気に入りから削除' : 'お気に入りに登録'}
+                title={favored ? t('file_preview.favorite_remove') : t('file_preview.favorite_add')}
                 aria-label="favorite"
               >{favored ? '★' : '☆'}</button>
             )}
             {!editMode && isEditable && content !== null && (
-              <button className="modal-edit-btn" onClick={handleEdit}>編集</button>
+              <button className="modal-edit-btn" onClick={handleEdit}>{t('file_preview.edit')}</button>
             )}
             {editMode && (
               <>
                 <button className="modal-save-btn" onClick={handleSave} disabled={saving}>
-                  {saving ? '保存中...' : '保存'}
+                  {saving ? t('file_preview.saving') : t('file_preview.save')}
                 </button>
-                <button className="modal-cancel-btn" onClick={handleCancel} disabled={saving}>キャンセル</button>
+                <button className="modal-cancel-btn" onClick={handleCancel} disabled={saving}>{t('common.cancel')}</button>
               </>
             )}
             {!editMode && <button className="modal-close" onClick={onClose}>✕</button>}
           </div>
         </div>
         <div className="modal-body">
-          {loading && <span className="dim">読み込み中...</span>}
+          {loading && <span className="dim">{t('file_preview.loading')}</span>}
           {error && <span className="error">{error}</span>}
-          {saveError && <span className="error">保存エラー: {saveError}</span>}
+          {saveError && <span className="error">{t('file_preview.save_error', { detail: saveError })}</span>}
           {editMode ? (
             <textarea
               className="file-editor"
@@ -382,7 +384,7 @@ function FilePreviewModalBody({ path, onClose }) {
         </div>
         <ConfirmDialog
           open={saveConfirm}
-          text={`このファイルを上書き保存しますか?\n${path}`}
+          text={t('file_preview.overwrite_confirm', { path })}
           onCancel={() => setSaveConfirm(false)}
           onConfirm={performSave}
         />

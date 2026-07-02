@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useMoonlightAvailable } from './useMoonlightAvailable.js'
+import { useT } from '../../i18n/t.js'
 import './MoonlightFrame.css'
 
 // 画面共有 (= moonlight-web-stream を iframe で埋め込み)。
@@ -95,6 +96,7 @@ export default function MoonlightFrame() {
 }
 
 function MoonlightFrameBody() {
+  const t = useT()
   const [full, setFull] = useState(false)
   const [inSettings, setInSettings] = useState(false)
   const [streamUrl, setStreamUrl] = useState(null)
@@ -166,7 +168,7 @@ function MoonlightFrameBody() {
       <iframe
         ref={iframeRef}
         src={resolvedSrc}
-        title="画面共有"
+        title={t('screenshare.label')}
         className="moonlight-iframe"
         // moonlight-web-stream は WebRTC + WebSocket + フルスクリーン + 各種入力要、 全権限許可
         allow="autoplay; fullscreen; clipboard-read; clipboard-write; microphone; camera; gamepad; display-capture"
@@ -176,16 +178,16 @@ function MoonlightFrameBody() {
       <button
         className={`moonlight-ctrl-btn moonlight-ctrl-left ${inSettings ? 'active' : ''}`}
         onClick={() => setInSettings(prev => !prev)}
-        aria-label={inSettings ? '画面共有に戻る' : '設定を開く'}
-        title={inSettings ? '画面共有に戻る' : '設定 (= 画質 / コーデック / Mouse モード等)'}
+        aria-label={inSettings ? t('screenshare.back_to_stream') : t('screenshare.open_settings')}
+        title={inSettings ? t('screenshare.back_to_stream') : t('screenshare.settings_title')}
       >
         ⚙
       </button>
       <button
         className="moonlight-ctrl-btn moonlight-ctrl-right"
         onClick={() => setFull(prev => !prev)}
-        aria-label={full ? '元に戻す' : 'フルスクリーン'}
-        title={full ? '元に戻す' : 'フルスクリーン (= 全画面表示)'}
+        aria-label={full ? t('screenshare.exit_fullscreen') : t('screenshare.enter_fullscreen')}
+        title={full ? t('screenshare.exit_fullscreen') : t('screenshare.enter_fullscreen_title')}
       >
         ⛶
       </button>

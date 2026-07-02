@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useSyncExternalStore } from 'react'
 import { apiFetch } from '../../utils/api.js'
 import { loadFavs, toggleFav as toggleFavStore, removeFav as removeFavStore, subscribeFavs } from './favorites.js'
 import { lsSetDebounced } from '../../utils/storage.js'
+import { useT } from '../../i18n/t.js'
 import {
   subscribe as subscribeUi,
   getSnapshot as getUiSnapshot,
@@ -47,6 +48,7 @@ export default function FileTreePanel() {
 }
 
 function FileTreePanelBody({ onOpenFile, onClose, initialPath }) {
+  const t = useT()
   const [currentPath, setCurrentPath] = useState(initialPath || HOME)
   const [entries, setEntries] = useState([])
   const [history, setHistory] = useState([])
@@ -88,9 +90,9 @@ function FileTreePanelBody({ onOpenFile, onClose, initialPath }) {
         setCurrentPath(data.path)
         setEntries(data.entries)
       })
-      .catch(e => setError(`読み込みエラー (${e})`))
+      .catch(e => setError(t('file_tree.load_error', { detail: e })))
       .finally(() => setLoading(false))
-  }, [])
+  }, [t])
 
   useEffect(() => {
     setHistory([])
@@ -152,7 +154,7 @@ function FileTreePanelBody({ onOpenFile, onClose, initialPath }) {
           <button
             className={`tree-fav-toggle ${currentIsFav ? 'on' : ''}`}
             onClick={() => toggleFav(currentPath, true, displayPath.split('/').filter(Boolean).pop() || currentPath)}
-            title={currentIsFav ? 'お気に入りから削除' : 'お気に入りに登録'}
+            title={currentIsFav ? t('file_preview.favorite_remove') : t('file_preview.favorite_add')}
             aria-label="favorite-current"
           >{currentIsFav ? '★' : '☆'}</button>
           <button className="modal-close" onClick={onClose}>✕</button>
@@ -166,7 +168,7 @@ function FileTreePanelBody({ onOpenFile, onClose, initialPath }) {
               aria-expanded={favsOpen}
             >
               <span className="tree-favs-chev">{favsOpen ? '▼' : '▶'}</span>
-              <span>★ お気に入り</span>
+              <span>{t('file_tree.favorites_header')}</span>
               <span className="tree-favs-count">{favs.length}</span>
             </button>
             {favsOpen && (
@@ -192,7 +194,7 @@ function FileTreePanelBody({ onOpenFile, onClose, initialPath }) {
           </div>
         )}
         <div className="tree-body">
-          {loading && <span className="dim tree-loading">読み込み中...</span>}
+          {loading && <span className="dim tree-loading">{t('file_preview.loading')}</span>}
           {error && <span className="error tree-loading">{error}</span>}
           {entries.map(entry => {
             const favored = isFav(entry.path)
