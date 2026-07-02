@@ -1,7 +1,7 @@
 // 翻訳 helper (= t(key, vars))。 useSyncExternalStore で state/locale の lang 変化に追随して
 // 呼び出し側の component が再 render する。 未定義 key は fallback として key 自体を返す
 // (= 開発時に「翻訳もれ」 を目視で発見できる仕組み)。 {var} placeholder は vars で埋める。
-import { useSyncExternalStore } from 'react'
+import { useSyncExternalStore, useMemo } from 'react'
 import ja from './ja.json'
 import en from './en.json'
 import { subscribe, getSnapshot } from '../state/locale.js'
@@ -20,11 +20,17 @@ export function tRaw(key, vars) {
   return interpolate(value, vars)
 }
 
-/** React component 内で使う。 lang 変化で再 render される。 */
+/** React component 内で使う。 lang 変化で再 render される。
+ *  返る関数は lang が同じ限り identity 不変 (= useMemo 経由)。 これで consumer 側の
+ *  useCallback / useEffect deps に `t` を入れても、 lang 切替時のみ再評価されて無限 loop を
+ *  起こさない (= 2026-07-03 FileTreePanel 無限 fetch 事故の根治)。 */
 export function useT() {
   const lang = useSyncExternalStore(subscribe, getSnapshot).lang
-  return (key, vars) => {
-    const value = DICT[lang]?.[key] ?? DICT.ja[key] ?? key
-    return interpolate(value, vars)
-  }
+  return useMemo(
+    () => (key, vars) => {
+      const value = DICT[lang]?.[key] ?? DICT.ja[key] ?? key
+      return interpolate(value, vars)
+    },
+    [lang],
+  )
 }
