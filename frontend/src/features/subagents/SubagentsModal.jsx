@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useSyncExternalStore } from 'react'
-import MessageRenderer from '../chat/MessageRenderer.jsx'
-import { formatTool } from '../../utils/format.js'
+import TranscriptEvent from './TranscriptEvent.jsx'
 import { apiFetch } from '../../utils/api.js'
 import { useEscape } from '../../hooks/useEscape.js'
 import { subagentsSse } from '../../transport/sse-subagents.ts'
@@ -38,36 +37,6 @@ function StatusChip({ done, status }) {
   const label = status || (done ? 'done' : 'running')
   const cls = done || ['completed', 'killed', 'error'].includes(status) ? 'sa-done' : 'sa-running'
   return <span className={`sa-chip ${cls}`}>{label}</span>
-}
-
-// transcript 1 event を軽量描画する (= 親 chat の MessageItem 完全再現はしない、 要点だけ)。
-function TranscriptEvent({ event }) {
-  if (event.type === 'user_message') {
-    return (
-      <div className="sa-ev sa-ev-user">
-        <span className="sa-ev-role">▸ prompt</span>
-        <div className="sa-ev-text"><MessageRenderer text={event.text || ''} /></div>
-      </div>
-    )
-  }
-  if (event.type === 'assistant') {
-    const content = event.message?.content || []
-    const texts = content.filter(b => b.type === 'text').map(b => b.text).join('')
-    const thinking = content.filter(b => b.type === 'thinking').map(b => b.thinking).join('\n')
-    const tools = content
-      .filter(b => b.type === 'tool_use' && b.name !== 'AskUserQuestion')
-      .map(b => formatTool(b))
-    return (
-      <div className="sa-ev sa-ev-agent">
-        {thinking && <div className="sa-ev-thinking">{thinking}</div>}
-        {texts && <div className="sa-ev-text"><MessageRenderer text={texts} /></div>}
-        {tools.map(t => (
-          <div key={t.id} className="sa-ev-tool">{t.shortLabel || t.name}</div>
-        ))}
-      </div>
-    )
-  }
-  return null
 }
 
 function TranscriptView({ sid, agent, onBack }) {
