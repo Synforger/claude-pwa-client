@@ -278,8 +278,21 @@ export function useChatStream({
     } catch { /* 送信失敗は握りつぶす (= 次操作で復帰) */ }
   }, [])
 
+  // 送信 in-flight guard (= double-fire block、 race に強い同期 ref)。
+  // loadingRef は前 turn 完了までの長期 gate で ephemeral store 経由の 1 render 遅延を挟むため、
+  // 送信 POST 発火の一瞬 (= 数 ms 〜 数十 ms) の race 窓を塞げない。 具体的には
+  // 「send tap 1 → sendMessage 内で setLoading(true) → まだ next render 前 → send tap 2 →
+  // loadingRef が旧値 (false) のまま guard 素通り → 2 発目 POST」 が起きる。 backend は 2 POST を
+  // それぞれ tmux send-keys に流すので、 ターミナルにも 2 回打鍵される (= 2026-07-02 観測症状)。
+  // ここは sendMessage 入口で同期 flip し finally で解放する短命 flag で塞ぐ。 loadingRef は
+  // 引き続き「turn 中の再送を弾く UX gate + alert」 として独立に残す。
+  const sendingRef = useRef({})
+
   const sendMessage = useCallback(async (textOverride) => {
     if (!sid) return
+    if (sendingRef.current[sid]) return
+    sendingRef.current[sid] = true
+    try {
     // ChatInput が内部 state で打鍵を抱えるようになったので、 送信時には override (= 直近の
     // localText) を優先する。 タブ切替で flush 済の draft を後追い送信するケース等は引数なしで
     // 呼ばれて従来通り input dict を読む。
@@ -416,6 +429,9 @@ export function useChatStream({
         // callback も同関数内で呼ぶ)。
         failBubble(true)
       }
+    }
+    } finally {
+      sendingRef.current[sid] = false
     }
   }, [sid, input, attachments, setInput, setMessages, clearAttachments, scrollToBottom, isAtBottomRef, setLoading, onSendFailed])
 
