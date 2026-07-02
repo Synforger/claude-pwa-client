@@ -110,3 +110,26 @@ def test_task_output_rejects_traversal():
         params={"path": "REDACTED_PATH/p/s/tasks/../../../../etc/passwd"},
     )
     assert res.status_code == 403
+
+
+def test_task_output_follows_symlink_to_subagent_jsonl(tmp_path, monkeypatch):
+    # 意図: Claude Code 側の仕様で .output が ~/.claude/projects/<proj>/<sid>/subagents/agent-<id>.jsonl
+    # への symlink になった場合、 resolve 後の実体が subagent jsonl なら通す (= UID check は維持)。
+    import backend.routes.files as files_routes
+    # HOME を tmp_path に差し替えて、 実 HOME を汚さず「~/.claude/projects/.../subagents/agent-X.jsonl」 を作る
+    fake_home = tmp_path / "home"
+    projects = fake_home / ".claude" / "projects" / "-Users-x-proj" / "sid-abc"
+    subagents = projects / "subagents"
+    subagents.mkdir(parents=True)
+    real_jsonl = subagents / "agent-a123.jsonl"
+    real_jsonl.write_text('{"type":"user","message":{"content":"hi"}}\n')
+    # /tmp 側 symlink source (= claude harness の output-file が指す先)
+    tasks_dir = tmp_path / "claude-501" / "-Users-x-proj" / "sid-abc" / "tasks"
+    tasks_dir.mkdir(parents=True)
+    symlink_src = tasks_dir / "a123.output"
+    symlink_src.symlink_to(real_jsonl)
+    monkeypatch.setattr(files_routes, "HOME", fake_home)
+    client = _task_output_client()
+    res = client.get("/task-output", params={"path": str(symlink_src)})
+    assert res.status_code == 200
+    assert "hi" in res.json()["content"]
