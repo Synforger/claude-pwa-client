@@ -596,9 +596,15 @@
   padding: 8px 14px;
 }
 
-.stop:hover {
+.stop:hover:not(:disabled) {
   background: #ff5f57;
   color: #fff;
+}
+
+.stop:disabled {
+  opacity: 0.35;
+  cursor: default;
+  background: transparent;
 }
 
 /* エージェント応答ブロック（ツールログ + バブル） */
