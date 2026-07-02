@@ -70,8 +70,11 @@ def _write_rate_limits(tmp_path, rows):
     return str(p)
 
 
-def test_seven_day_pct_takes_max_within_same_window(tmp_path, monkeypatch):
-    # 同じ reset window 内の 85%↔1% flap は max(=85) に寄せる。
+def test_seven_day_pct_follows_latest_value_within_same_window(tmp_path, monkeypatch):
+    # 5h と対称に、 7d も最新行 (= Anthropic の source-of-truth) をそのまま返す。
+    # 旧実装は同 reset window 内で max を採って flap 吸収していたが、 Anthropic 側の
+    # 恒久減少 (= 集計訂正 / 特例リセット) を「flap」 として塗り潰す事故を招いたため撤去
+    # (= 2026-07-02 usage.py fix)。
     path = _write_rate_limits(tmp_path, [
         {"seven_day_pct": 85, "seven_day_resets_at": 1000, "five_hour_pct": 30},
         {"seven_day_pct": 1, "seven_day_resets_at": 1000, "five_hour_pct": 31},
@@ -79,8 +82,8 @@ def test_seven_day_pct_takes_max_within_same_window(tmp_path, monkeypatch):
     monkeypatch.setattr(usage, "_config",
                         type("Stub", (), {"RATE_LIMITS_LOG_PATH": path}))
     out = read_latest_rate_limits()
-    assert out["seven_day_pct"] == 85
-    assert out["five_hour_pct"] == 31  # 5h は最終行の生値
+    assert out["seven_day_pct"] == 1  # 最終行の生値、 max hack は撤去済
+    assert out["five_hour_pct"] == 31  # 5h は最終行の生値 (= 従来通り)
 
 
 def test_seven_day_pct_not_masked_across_reset(tmp_path, monkeypatch):
