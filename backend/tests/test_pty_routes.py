@@ -157,3 +157,72 @@ def test_resolve_launch_alias_fork_resume_takes_precedence(tmp_path, monkeypatch
         "ses_x": type("M", (), {"agent_id": "agent_x", "resume_session_id": "fork-sid-9"})()
     })
     assert pr._resolve_launch_alias("ses_x") == "/usr/local/bin/claude --resume fork-sid-9"
+
+
+# ---- pty_send C-u wipe (backend-2026-07-03) ----
+
+def test_pty_send_prepends_ctrl_u_before_text_enter(monkeypatch):
+    """POST /pty/{sid}/send で text + enter が来た時、 本文送信の直前に C-u が 1 発
+    tmux_send_keys で発火する (= 他 client の入力残骸 wipe)。 単発 key 送信 (Escape 等)
+    には wipe 前置しない (= key の意味を壊さない)。"""
+    import backend.terminal.routes as routes
+    calls: list[dict] = []
+
+    def fake_send_keys(session_id, text=None, key=None, enter=False):
+        calls.append({"text": text, "key": key, "enter": enter})
+        return True
+
+    monkeypatch.setattr(routes, "tmux_send_keys", fake_send_keys)
+    monkeypatch.setattr(routes, "_require_session", lambda _sid: None)
+    monkeypatch.setattr(routes, "jsonl_path_for_session", lambda _sid: None)
+
+    import asyncio
+    asyncio.get_event_loop() if False else None
+    asyncio.run(routes.pty_send("ses_x", {"text": "hello", "enter": True}))
+
+    # 1 発目: C-u wipe。 2 発目: 本文 + Enter。
+    assert len(calls) == 2
+    assert calls[0] == {"text": None, "key": "C-u", "enter": False}
+    assert calls[1] == {"text": "hello", "key": None, "enter": True}
+
+
+def test_pty_send_no_wipe_for_key_only(monkeypatch):
+    """単発 key (= Escape で停止 / AskUserQuestion typeNum 等) では wipe しない。"""
+    import backend.terminal.routes as routes
+    calls: list[dict] = []
+
+    def fake_send_keys(session_id, text=None, key=None, enter=False):
+        calls.append({"text": text, "key": key, "enter": enter})
+        return True
+
+    monkeypatch.setattr(routes, "tmux_send_keys", fake_send_keys)
+    monkeypatch.setattr(routes, "_require_session", lambda _sid: None)
+    monkeypatch.setattr(routes, "jsonl_path_for_session", lambda _sid: None)
+
+    import asyncio
+    asyncio.run(routes.pty_send("ses_x", {"key": "Escape"}))
+
+    # key のみ = wipe しない、 1 発だけ。
+    assert len(calls) == 1
+    assert calls[0] == {"text": None, "key": "Escape", "enter": False}
+
+
+def test_pty_send_no_wipe_for_text_without_enter(monkeypatch):
+    """AskUserQuestion 自由記述 1 回目 (= text のみ、 enter なし) も wipe しない (= 本文
+    確定してない状態で C-u を打つと選択肢移動の意図を壊す可能性)。"""
+    import backend.terminal.routes as routes
+    calls: list[dict] = []
+
+    def fake_send_keys(session_id, text=None, key=None, enter=False):
+        calls.append({"text": text, "key": key, "enter": enter})
+        return True
+
+    monkeypatch.setattr(routes, "tmux_send_keys", fake_send_keys)
+    monkeypatch.setattr(routes, "_require_session", lambda _sid: None)
+    monkeypatch.setattr(routes, "jsonl_path_for_session", lambda _sid: None)
+
+    import asyncio
+    asyncio.run(routes.pty_send("ses_x", {"text": "3", "enter": False}))
+
+    assert len(calls) == 1
+    assert calls[0] == {"text": "3", "key": None, "enter": False}

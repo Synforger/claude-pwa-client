@@ -380,6 +380,15 @@ async def pty_send(session_id: str, payload: dict = Body(...)) -> dict:
                 initial_pos = jsonl_path.stat().st_size
             except OSError:
                 initial_pos = 0
+    # 2026-07-03: text+enter (= 通常メッセージ送信) の直前に C-u (Ctrl-U、 line kill) を打つ。
+    # 他 client (= PC で直接 tmux に typing) や前回 send-keys の残骸で claude TUI 入力欄が
+    # 汚れていても wipe してから本文を送るので、 「PWA に見えている本文 = tmux に飛ぶ本文」 が
+    # 保証される。 空 line への C-u は no-op なので副作用ゼロ。 単発 key 送信 (= Escape で
+    # 停止 / AskUserQuestion typeNum 等) では wipe しない (= key の意味を壊さない)。 queue に
+    # 既に積まれた過去 message には触れない (= C-u は入力欄のみ、 Claude Code v2 の queue に
+    # 干渉しない)。
+    if confirm:
+        tmux_send_keys(session_id, key="C-u")
     ok = tmux_send_keys(session_id, text=text, key=key, enter=enter)
     if not ok or not confirm or jsonl_path is None:
         return {"ok": ok}
@@ -426,6 +435,9 @@ async def pty_send_with_files(
             initial_pos = jsonl_path.stat().st_size
         except OSError:
             initial_pos = 0
+    # pty_send と同じく wipe 前置 (= 添付経路も本文が長いので同 client 残骸に混ざる懸念は
+    # むしろ大きい)。
+    tmux_send_keys(session_id, key="C-u")
     ok = tmux_send_keys(session_id, text=full_text, enter=True)
     if not ok or jsonl_path is None:
         return {"ok": ok, "saved_files": saved_files}
