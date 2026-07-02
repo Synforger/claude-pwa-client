@@ -244,7 +244,11 @@ export default function ChatPanel({ sid }) {
     const base = (loading[activeSid] && !msgs.some(m => m.streaming) && !pq)
       ? [...msgs, { id: '__loading__', role: '__loading__' }]
       : msgs
-    if (pq) {
+    // pending_question 合成 bubble: SSE `ask_user_question` event が activeMsgs にまだ届いて
+    // ない or reconnect 直後で欠けてる時のための保険。 ただし SSE 実 bubble が既に居るなら
+    // 同 tool_use_id の 2 重描画になるので skip する (= 2026-07-03、 「AskUserQuestion 2 個
+    // 出る」 症状の直接原因)。
+    if (pq && !msgs.some(m => m.askUserQuestion?.tool_use_id === pq.tool_use_id)) {
       return [...base, {
         id: '__pending_question__',
         role: 'agent',
