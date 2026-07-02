@@ -18,13 +18,20 @@ import {
   getSnapshot as getSessionsSnapshot,
 } from '../../state/sessions.js'
 import { bumpAttachmentPicker } from '../../state/ephemeral.js'
+import {
+  subscribe as subscribeLocale,
+  getSnapshot as getLocaleSnapshot,
+  setLang,
+} from '../../state/locale.js'
 import { useOutsideClick } from '../../hooks/useOutsideClick.js'
+import { useT } from '../../i18n/t.js'
 import { useStatus } from '../status-bar/useStatus.js'
 import { useMoonlightAvailable } from '../screenshare/useMoonlightAvailable.js'
 
 export default function Topbar() {
   const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
   const sessionsState = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
+  const t = useT()
 
   const activeSession = useMemo(
     () => sessionsState.sessions.find(s => s.id === sessionsState.activeId) || null,
@@ -47,18 +54,18 @@ export default function Topbar() {
 
   return (
     <header className="topbar">
-      <button className="hamburger" onClick={() => setOverlay('drawer', true)} aria-label="会話一覧" data-testid="drawer-toggle">
+      <button className="hamburger" onClick={() => setOverlay('drawer', true)} aria-label={t('topbar.drawer_toggle')} data-testid="drawer-toggle">
         ☰
       </button>
-      <span className="topbar-title">{activeSession?.title || '会話なし'}</span>
+      <span className="topbar-title">{activeSession?.title || t('topbar.no_session')}</span>
       {/* terminal モード時の chat 復帰ボタン: ⋯メニュー経由が hit test 等で詰まっても
           ここから確実に戻れるよう topbar に独立表示。 chat モード時は出さない。 */}
       {activeViewMode === 'terminal' && activeSid && (
         <button
           className="topbar-icon-btn"
           onClick={() => setActiveViewMode('chat')}
-          aria-label="チャット表示に戻す"
-          title="チャット表示に戻す"
+          aria-label={t('topbar.back_to_chat')}
+          title={t('topbar.back_to_chat')}
         >
           💬
         </button>
@@ -69,8 +76,8 @@ export default function Topbar() {
         <button
           className="topbar-icon-btn"
           onClick={() => setOverlay('favs', true)}
-          aria-label="お気に入り"
-          title="お気に入りに飛ぶ"
+          aria-label={t('topbar.favorites_label')}
+          title={t('topbar.favorites')}
           data-testid="favorites-open-button"
         >
           ⭐
@@ -80,8 +87,8 @@ export default function Topbar() {
         <button
           className="topbar-icon-btn"
           onClick={() => setOverlay('tasks', true)}
-          aria-label="タスク"
-          title="タスク一覧"
+          aria-label={t('topbar.tasks_label')}
+          title={t('topbar.tasks')}
           data-testid="tasks-open-button"
         >
           📋
@@ -91,8 +98,8 @@ export default function Topbar() {
         <button
           className="topbar-icon-btn"
           onClick={() => { setOverlay('subagentsFocus', null); setOverlay('subagents', true) }}
-          aria-label="サブエージェント"
-          title="サブエージェント一覧"
+          aria-label={t('topbar.subagents_label')}
+          title={t('topbar.subagents')}
           data-testid="subagents-open-button"
         >
           🤖
@@ -105,8 +112,8 @@ export default function Topbar() {
         <button
           className="topbar-icon-btn topbar-plan-btn"
           onClick={() => setOverlay('planOpen', true)}
-          aria-label="plan 承認待ち"
-          title="plan 承認"
+          aria-label={t('topbar.plan_approval_label')}
+          title={t('topbar.plan_approval')}
           data-testid="plan-approval-open-button"
         >
           📑<span className="topbar-plan-dot" />
@@ -116,8 +123,8 @@ export default function Topbar() {
         <button
           className={`screen-toggle ${ui.overlays.desktopOpen ? 'active' : ''}`}
           onClick={() => setOverlay('desktopOpen', !ui.overlays.desktopOpen)}
-          aria-label="画面共有"
-          title={ui.overlays.desktopOpen ? '画面共有を閉じる' : '画面共有を開く (Sunshine 経由、 ペア済前提)'}
+          aria-label={t('topbar.screenshare_label')}
+          title={ui.overlays.desktopOpen ? t('topbar.screenshare_close') : t('topbar.screenshare_open')}
           data-testid="screenshare-toggle"
         >
           🖥
@@ -144,13 +151,15 @@ function TopbarMoreMenu({ activeViewMode, setActiveViewMode }) {
   const rootRef = useRef(null)
   useOutsideClick(rootRef, () => setOpen(false))
   const close = useCallback(() => setOpen(false), [])
+  const t = useT()
+  const currentLang = useSyncExternalStore(subscribeLocale, getLocaleSnapshot).lang
   return (
     <div className="topbar-more-root" ref={rootRef}>
       <button
         className="topbar-more-btn"
         onClick={() => setOpen(v => !v)}
-        aria-label="メニュー"
-        title="メニュー"
+        aria-label={t('topbar.menu')}
+        title={t('topbar.menu')}
         data-testid="topbar-more-toggle"
       >
         ⋯
@@ -161,13 +170,13 @@ function TopbarMoreMenu({ activeViewMode, setActiveViewMode }) {
             className="topbar-more-item"
             onClick={() => { bumpAttachmentPicker(); close() }}
           >
-            ファイル添付
+            {t('topbar.menu.file_attach')}
           </button>
           <button
             className="topbar-more-item"
             onClick={() => { setOverlay('treeOpen', '~'); close() }}
           >
-            ファイルツリー
+            {t('topbar.menu.file_tree')}
           </button>
           <button
             className="topbar-more-item"
@@ -177,14 +186,45 @@ function TopbarMoreMenu({ activeViewMode, setActiveViewMode }) {
             }}
             data-testid="view-toggle"
           >
-            {activeViewMode === 'terminal' ? '💬 チャットで表示' : '⌨ ターミナルで表示'}
+            {activeViewMode === 'terminal' ? t('topbar.menu.chat_view') : t('topbar.menu.terminal_view')}
           </button>
+          {/* 言語切替: 日本語 / English トグル (排他 2 button)、 選択済に highlight。 */}
+          <div className="topbar-more-lang-row" style={{ display: 'flex', gap: 4, padding: 6 }}>
+            <button
+              type="button"
+              className="topbar-more-item"
+              style={{
+                flex: 1,
+                textAlign: 'center',
+                background: currentLang === 'ja' ? 'var(--bg3)' : undefined,
+                color: currentLang === 'ja' ? 'var(--accent)' : undefined,
+              }}
+              onClick={() => { setLang('ja'); close() }}
+              data-testid="lang-ja"
+            >
+              {t('topbar.menu.language_ja')}
+            </button>
+            <button
+              type="button"
+              className="topbar-more-item"
+              style={{
+                flex: 1,
+                textAlign: 'center',
+                background: currentLang === 'en' ? 'var(--bg3)' : undefined,
+                color: currentLang === 'en' ? 'var(--accent)' : undefined,
+              }}
+              onClick={() => { setLang('en'); close() }}
+              data-testid="lang-en"
+            >
+              {t('topbar.menu.language_en')}
+            </button>
+          </div>
           <button
             className="topbar-more-item"
             onClick={() => { setOverlay('confirmEnd', true); close() }}
             style={{ color: '#ff5f57' }}
           >
-            セッション終了
+            {t('topbar.menu.end_session')}
           </button>
         </div>
       )}
