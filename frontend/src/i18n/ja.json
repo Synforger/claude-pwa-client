@@ -106,6 +106,8 @@
 
   "alert.attach_failed": "添付ファイル送信に失敗: {detail}",
   "alert.end_session_failed": "セッション終了に失敗: {detail}",
+  "alert.create_session_failed": "会話の作成に失敗しました: {detail}",
+  "alert.fork_failed": "フォークに失敗しました: {detail}",
 
   "message.stop.max_tokens": "⚠ トークン上限で停止",
   "message.stop.refusal": "🚫 拒否されました",
@@ -157,5 +159,15 @@
   "format.timeout": "タイムアウト",
   "format.network_error": "ネットワークエラー（サーバーに接続できません）",
   "format.send_failed": "送信失敗",
-  "format.error_generic": "エラー: {message}"
+  "format.error_generic": "エラー: {message}",
+
+  "backend.file_too_large": "ファイルが大きすぎます（上限 {limit}）",
+  "backend.invalid_agent_id": "agent_id が無効です",
+  "backend.invalid_account_id": "account_id が無効です",
+  "backend.invalid_notify_mode": "notify_mode は both / banner / off",
+  "backend.title_or_notify_required": "title または notify_mode が必要",
+  "backend.from_uuid_required": "from_uuid が必要です",
+  "backend.message_not_found": "この会話のログに該当メッセージが見つかりません",
+  "backend.cannot_fork_here": "この位置からは分岐できません (= user 発言か完了したターンのみ)",
+  "backend.empty_conversation": "分岐対象の会話が空です"
 }

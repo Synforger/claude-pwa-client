@@ -6,6 +6,8 @@ import {
 } from '../../constants.js'
 import { apiFetch } from '../../utils/api.js'
 import { lsGet, lsSet } from '../../utils/storage.js'
+import { tRaw } from '../../i18n/t.js'
+import { translateHttpErrorDetail } from '../../utils/httpError.js'
 import {
   subscribe,
   getSnapshot,
@@ -92,11 +94,15 @@ export async function createSession(agentId, accountId, title) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`
+      try { detail = translateHttpErrorDetail((await res.json())?.detail, detail) } catch { /* ignore */ }
+      throw new Error(detail)
+    }
     meta = await res.json()
   } catch (e) {
     // backend 不到達 / エラー: UI に通知して終了 (ローカルだけ作ると整合性崩れる)
-    alert(`会話の作成に失敗しました: ${e?.message || e}`)
+    alert(tRaw('alert.create_session_failed', { detail: e?.message || e }))
     return null
   }
   // 新しい順で並べたいので先頭に挿す
@@ -117,12 +123,12 @@ export async function forkSession(sourceId, fromUuid) {
     })
     if (!res.ok) {
       let detail = `HTTP ${res.status}`
-      try { detail = (await res.json())?.detail || detail } catch { /* ignore */ }
+      try { detail = translateHttpErrorDetail((await res.json())?.detail, detail) } catch { /* ignore */ }
       throw new Error(detail)
     }
     meta = await res.json()
   } catch (e) {
-    alert(`フォークに失敗しました: ${e?.message || e}`)
+    alert(tRaw('alert.fork_failed', { detail: e?.message || e }))
     return null
   }
   appendSession(meta)

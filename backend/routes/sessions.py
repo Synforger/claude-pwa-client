@@ -21,6 +21,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from backend import state
 from backend.config import AGENTS
 from backend.core.fork import build_forked_lineage_lazy, fork_point_status
+from backend.errors import raise_error
 from backend.jsonl import resolver as jsonl_resolver
 from backend.state import (
     atomic_write_text,
@@ -64,9 +65,9 @@ async def create_session(payload: dict = Body(...)):
     title = payload.get("title")
     account_id = payload.get("account_id")
     if not agent_id or agent_id not in AGENTS:
-        raise HTTPException(status_code=400, detail="agent_id が無効です")
+        raise_error(400, "invalid_agent_id", "agent_id が無効です")
     if account_id is not None and account_id not in ACCOUNTS:
-        raise HTTPException(status_code=400, detail="account_id が無効です")
+        raise_error(400, "invalid_account_id", "account_id が無効です")
     meta = register_session(agent_id, title, account_id=account_id)
     # 新規タブ作成時点で PTY spawn + launch_alias 投入を完了させる。 既存挙動 (=
     # /jsonl/stream/all 接続の起動 sweep) は接続時点の sessions_meta snapshot しか
@@ -92,10 +93,10 @@ def patch_session(session_id: str, payload: dict = Body(...), _: str = Depends(r
         touched = True
     if notify_mode is not None:
         if not set_notify_mode(session_id, notify_mode):
-            raise HTTPException(status_code=400, detail="notify_mode は both / banner / off")
+            raise_error(400, "invalid_notify_mode", "notify_mode は both / banner / off")
         touched = True
     if not touched:
-        raise HTTPException(status_code=400, detail="title または notify_mode が必要")
+        raise_error(400, "title_or_notify_required", "title または notify_mode が必要")
     return sessions_meta[session_id].to_dict()
 
 
@@ -110,7 +111,7 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
     """
     from_uuid = payload.get("from_uuid")
     if not from_uuid or not isinstance(from_uuid, str):
-        raise HTTPException(status_code=400, detail="from_uuid が必要です")
+        raise_error(400, "from_uuid_required", "from_uuid が必要です")
 
     parent = sessions_meta[session_id]
 
@@ -153,20 +154,14 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
             "fork: from_uuid not found session=%s uuid=%s scanned=%d dir=%s",
             session_id, from_uuid, len(candidates), project_dir,
         )
-        raise HTTPException(
-            status_code=404,
-            detail="この会話のログに該当メッセージが見つかりません",
-        )
+        raise_error(404, "message_not_found", "この会話のログに該当メッセージが見つかりません")
 
     # まず src_path 単体で fork point の妥当性 (= tool 行で切れてないか) を確認。
     # 大半のフォークは src_path の中で会話が閉じてて、 ここで全部完結する。
     src_lines = src_path.read_text(encoding="utf-8").splitlines()
     status = fork_point_status(src_lines, from_uuid)
     if status != "ok":
-        raise HTTPException(
-            status_code=400,
-            detail="この位置からは分岐できません (= user 発言か完了したターンのみ)",
-        )
+        raise_error(400, "cannot_fork_here", "この位置からは分岐できません (= user 発言か完了したターンのみ)")
 
     # lazy stitching: build_forked_lineage_lazy が鎖を辿りながら、 親 uuid が src_lines に
     # 無い時だけ fetch_more で次の jsonl を 1 個取りに来る。 鎖が src_lines 内で閉じれば
@@ -199,7 +194,7 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not forked:
-        raise HTTPException(status_code=400, detail="分岐対象の会話が空です")
+        raise_error(400, "empty_conversation", "分岐対象の会話が空です")
     logger.info(
         "fork: session=%s src=%s from_uuid=%s extra_files=%d -> new_jsonl=%s.jsonl rows=%d",
         session_id, src_path.name, from_uuid, len(extra_files),
