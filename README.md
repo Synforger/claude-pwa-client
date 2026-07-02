@@ -1,6 +1,6 @@
 # Claude PWA Client
 
-> **Unofficial third-party client for Claude Code. Not affiliated with Anthropic.**
+> **Unofficial third-party client for Claude Code. Not affiliated with Anthropic. Apache 2.0, provided AS IS ([LICENSE](./LICENSE)).**
 
 [Claude Code](https://docs.claude.com/en/docs/claude-code) (Anthropic 公式 CLI) をスマートフォンから操作するための PWA クライアント。 ホストマシン上で動かすバックエンドに Tailscale 経由で iPhone / Android のブラウザから接続し、 ホーム画面に追加してスタンドアロン PWA として利用する。 backend は `claude` CLI を実 PTY + tmux で subprocess 起動するため Anthropic Usage Policy の枠内で動く (= subscription / API key の choice はユーザに委ねる、 token を抽出しない設計)。
 
@@ -74,7 +74,7 @@ WebSocket (`/ws/pty/{sid}`, `/views/ws`, `/jsonl/stream/{sid}`) や `/sessions/*
 
 ## セットアップ
 
-利用者向け動線は `task` コマンドに統一済 (= [go-task](https://taskfile.dev) 必須、 macOS は `brew install go-task/tap/go-task`)。 `task --list` で全 task 一覧。
+利用者向け動線は `task` コマンドに統一済 (= [go-task](https://taskfile.dev) 必須、 macOS は `brew install go-task/tap/go-task`)。 `task --list` で全 task 一覧。 `task setup` は `~/.claude/settings.json` / shell rc 等の user-global 設定は変更しない (= 既存設定への意図しない上書き回避)。 下記前提 4 点は利用者側で対応。
 
 2 段階構成:
 
@@ -117,6 +117,8 @@ task install-service      # ~/Library/LaunchAgents/<label>.plist を配置 + 編
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.claudepwa.client.plist
 task status               # LaunchAgent + port + /debug/healthcheck 12 項目を 1 発確認
 ```
+
+Linux (= WSL2 含む) は [docs/setup/windows-wsl.md § systemd user service](docs/setup/windows-wsl.md) 参照。 Windows は WSL2 内で同手順。
 
 ### PC 再起動後の動線
 
