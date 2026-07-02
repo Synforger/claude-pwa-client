@@ -27,6 +27,12 @@ import {
 } from './useSessions.js'
 import { deriveSessionBadges } from '../push-notify/useSessionBadges.js'
 import { usePushSubscription } from '../push-notify/usePushSubscription.js'
+import {
+  subscribe as subscribeLocale,
+  getSnapshot as getLocaleSnapshot,
+  setLang,
+} from '../../state/locale.js'
+import { useT } from '../../i18n/t.js'
 import './SessionDrawer.css'
 
 // ⋯ メニューを押した時、 viewport 下端からどれくらい離れていれば「上方向に展開する」 と
@@ -52,6 +58,8 @@ export default function SessionDrawer() {
   // ただし内部 effect (= popup 閉じる等) は本来の open prop と同じ意味付けで使うため、 別名で持つ。
   const uiSnap = useSyncExternalStore(subscribeUi, getUiSnapshot)
   const open = !!uiSnap.overlays.drawer
+  const currentLang = useSyncExternalStore(subscribeLocale, getLocaleSnapshot).lang
+  const t = useT()
 
   const sessions = sessionsSnap.sessions
   const activeId = sessionsSnap.activeId
@@ -302,19 +310,19 @@ export default function SessionDrawer() {
       {open && <div className="drawer-overlay" onClick={onClose} />}
       <aside className={`drawer ${open ? 'open' : ''}`} data-testid="session-drawer">
         <div className="drawer-header">
-          <span className="drawer-title">会話</span>
+          <span className="drawer-title">{t('drawer.title')}</span>
           <div className="drawer-header-actions" ref={globalMenuRef}>
             {hasGlobalMenuItems && (
               <button
                 className="drawer-global-menu"
                 onClick={() => setGlobalMenuOpen(prev => !prev)}
-                aria-label="設定"
-                title="設定"
+                aria-label={t('drawer.settings')}
+                title={t('drawer.settings')}
               >
                 ⋯
               </button>
             )}
-            <button className="drawer-close" onClick={onClose} aria-label="閉じる">×</button>
+            <button className="drawer-close" onClick={onClose} aria-label={t('drawer.close')}>×</button>
             {globalMenuOpen && hasGlobalMenuItems && (
               <div className="drawer-global-popup" onClick={e => e.stopPropagation()}>
                 {pushAvailable && onTogglePush && (
@@ -323,19 +331,39 @@ export default function SessionDrawer() {
                     disabled={pushBusy}
                   >
                     {pushEnabled
-                      ? '🔔 通知 ON (タップで無効化)'
+                      ? t('drawer.push.on')
                       : pushBroken
-                        ? '⚠ 通知が失効しています (タップで再有効化)'
-                        : '🔕 通知 OFF (タップで有効化)'}
+                        ? t('drawer.push.broken')
+                        : t('drawer.push.off')}
                   </button>
                 )}
                 <button
                   onClick={() => { setGlobalMenuOpen(false); handleReset() }}
                   disabled={resetBusy}
-                  title="最新コードに更新 (履歴・通知許可は保持)"
+                  title={t('drawer.menu.update_app_title')}
                 >
-                  ↺ アプリを更新
+                  {t('drawer.menu.update_app')}
                 </button>
+                {/* 2026-07-03: Language toggle を Topbar ⋯ から SessionDrawer ⋯ に移設。
+                    通知 / アプリ更新と同じ「PWA レベル設定」 の並びの方が意味的に自然。 */}
+                <div className="drawer-global-lang-row">
+                  <button
+                    type="button"
+                    className={currentLang === 'ja' ? 'drawer-global-lang-active' : ''}
+                    onClick={() => { setLang('ja'); setGlobalMenuOpen(false) }}
+                    data-testid="lang-ja"
+                  >
+                    {t('topbar.menu.language_ja')}
+                  </button>
+                  <button
+                    type="button"
+                    className={currentLang === 'en' ? 'drawer-global-lang-active' : ''}
+                    onClick={() => { setLang('en'); setGlobalMenuOpen(false) }}
+                    data-testid="lang-en"
+                  >
+                    {t('topbar.menu.language_en')}
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -344,11 +372,11 @@ export default function SessionDrawer() {
         <div className="drawer-create">
           {!agentPicker ? (
             <button className="drawer-new" onClick={() => setAgentPicker(true)} data-testid="new-session-button">
-              + 新規会話
+              {t('drawer.new_conversation')}
             </button>
           ) : pickedAgent === null ? (
             <div className="agent-picker">
-              <div className="agent-picker-label">agent を選択:</div>
+              <div className="agent-picker-label">{t('drawer.pick_agent')}</div>
               {agents.map(a => (
                 <button
                   key={a.id}
@@ -359,18 +387,18 @@ export default function SessionDrawer() {
                 </button>
               ))}
               <button className="agent-picker-cancel" onClick={() => setAgentPicker(false)}>
-                キャンセル
+                {t('drawer.cancel')}
               </button>
             </div>
           ) : (
             <div className="agent-picker">
-              <div className="agent-picker-label">アカウントを選択:</div>
+              <div className="agent-picker-label">{t('drawer.pick_account')}</div>
               {(accountsStatus === 'loading' || accountsStatus === null) && (
-                <div className="agent-picker-loading">アカウント取得中…</div>
+                <div className="agent-picker-loading">{t('drawer.account.loading')}</div>
               )}
               {accountsStatus === 'error' && (
                 <div className="agent-picker-error">
-                  <span>アカウント一覧を取得できませんでした</span>
+                  <span>{t('drawer.account.load_failed')}</span>
                   <button
                     className="agent-picker-retry"
                     onClick={() => {
@@ -379,7 +407,7 @@ export default function SessionDrawer() {
                     }}
                     disabled={accountsStatus === 'loading'}
                   >
-                    {accountsStatus === 'loading' ? '取得中…' : '再試行'}
+                    {accountsStatus === 'loading' ? t('drawer.account.load_short') : t('drawer.account.retry')}
                   </button>
                 </div>
               )}
@@ -396,13 +424,13 @@ export default function SessionDrawer() {
                 <button
                   className="agent-picker-item"
                   onClick={() => handleCreate(pickedAgent, null)}
-                  title="アカウント指定なしで作成 (= backend が default を選ぶ)"
+                  title={t('drawer.account.default_hint')}
                 >
-                  既定アカウントで作成
+                  {t('drawer.account.default_button')}
                 </button>
               )}
               <button className="agent-picker-cancel" onClick={() => setPickedAgent(null)}>
-                戻る
+                {t('drawer.back')}
               </button>
             </div>
           )}
@@ -410,7 +438,7 @@ export default function SessionDrawer() {
 
         <div className="drawer-list">
           {sessions.length === 0 && (
-            <div className="drawer-empty">会話がありません。 上の「+ 新規会話」 から作成してください。</div>
+            <div className="drawer-empty">{t('drawer.empty')}</div>
           )}
           {orderedSessions.map(({ session: s, depth }) => {
             const badge = sessionBadges[s.id]
@@ -446,7 +474,7 @@ export default function SessionDrawer() {
                     onClick={() => handleSelect(s.id)}
                     data-testid="session-list-item-select"
                   >
-                    {isFork && <span className="drawer-item-fork-mark" title="フォーク">⑂</span>}
+                    {isFork && <span className="drawer-item-fork-mark" title={t('drawer.fork')}>⑂</span>}
                     <span className="drawer-item-title">{s.title}</span>
                     {badge && <span className={`tab-badge ${badge.kind}`}>{badge.label}</span>}
                   </button>
@@ -467,7 +495,7 @@ export default function SessionDrawer() {
                       setMenuFlipUp(spaceBelow < MENU_FLIP_UP_THRESHOLD_PX)
                       setMenuFor(s.id)
                     }}
-                    aria-label="メニュー"
+                    aria-label={t('drawer.menu')}
                   >
                     ⋯
                   </button>
@@ -478,15 +506,15 @@ export default function SessionDrawer() {
                     className={`drawer-item-popup ${menuFlipUp ? 'flip-up' : ''}`}
                     onClick={e => e.stopPropagation()}
                   >
-                    <button onClick={() => startRename(s.id, s.title)}>リネーム</button>
+                    <button onClick={() => startRename(s.id, s.title)}>{t('drawer.rename')}</button>
                     {onSetNotifyMode && (
                       <>
                         <div className="drawer-popup-sep" />
-                        <div className="drawer-popup-label">通知</div>
+                        <div className="drawer-popup-label">{t('drawer.notify.label')}</div>
                         {[
-                          ['both', '🔔 音 + バナー'],
-                          ['banner', '🔕 バナーのみ'],
-                          ['off', '⛔ オフ'],
+                          ['both', t('drawer.notify.mode.both')],
+                          ['banner', t('drawer.notify.mode.banner')],
+                          ['off', t('drawer.notify.mode.off')],
                         ].map(([mode, label]) => {
                           const cur = s.notify_mode || 'both'
                           return (
@@ -511,9 +539,9 @@ export default function SessionDrawer() {
                         setMenuFor(null)
                         onDelete(s.id)
                       }}
-                      title={isLastSession ? '最後の 1 個は削除できません' : ''}
+                      title={isLastSession ? t('drawer.delete_last_hint') : ''}
                     >
-                      {isLastSession ? '削除 (最後の 1 個)' : '削除'}
+                      {isLastSession ? t('drawer.delete_last') : t('drawer.delete')}
                     </button>
                   </div>
                 )}

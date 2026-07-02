@@ -4,6 +4,7 @@ import { useOutsideClick } from '../../hooks/useOutsideClick.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
 import { subscribe as subscribeSessions, getSnapshot as getSessionsSnapshot } from '../../state/sessions.js'
 import { useStatus } from './useStatus.js'
+import { useT } from '../../i18n/t.js'
 import './StatusBar.css'
 
 // 7d window のリセットタイミング: Anthropic 仕様は **rolling 7-day window**
@@ -72,11 +73,12 @@ export default function StatusBar() {
   const status = useStatus(activeSession)
   const nowSec = useNowSec()
   const isOnline = useConnectionStatus()
+  const t = useT()
   if (!status) {
     return (
       <div className="statusbar">
         <span className="dim">---</span>
-        {!isOnline && <span className="offline-chip" title="サーバへの接続が切れています">⚠ オフライン</span>}
+        {!isOnline && <span className="offline-chip" title={t('statusbar.offline_title')}>{t('statusbar.offline')}</span>}
       </div>
     )
   }
@@ -103,7 +105,7 @@ export default function StatusBar() {
       </span>
       <span className={pctClass(status.ctx_pct)}>ctx {Math.round(status.ctx_pct || 0)}%</span>
       <PrLinksChip links={Array.isArray(status.pr_links) ? status.pr_links : []} />
-      {!isOnline && <span className="offline-chip" title="サーバへの接続が切れています">⚠ オフライン</span>}
+      {!isOnline && <span className="offline-chip" title={t('statusbar.offline_title')}>{t('statusbar.offline')}</span>}
     </div>
   )
 }
