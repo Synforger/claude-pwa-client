@@ -41,22 +41,45 @@ function StatusChip({ done, status }) {
 
 function TranscriptView({ sid, agent, onBack }) {
   const [events, setEvents] = useState(null)
+  const [rawContent, setRawContent] = useState(null)  // /task-transcript が 404 の場合の raw fallback
   const [error, setError] = useState(null)
 
   useEffect(() => {
     const controller = new AbortController()
     setEvents(null)
+    setRawContent(null)
     setError(null)
-    // agent.pathOverride が来てるケース (= TaskNotification カード経由の focus) は path 起点の
-    // /task-transcript を使う。 これは symlink 追跡で subagent jsonl 実体を直接引くので、
-    // session restart 後の claude_sid drift でも 404 に倒れず履歴 subagent を開ける。 通常経路
-    // (= 一覧から drilldown) は従来通り /sessions/{sid}/subagents/{agentId}/transcript。
-    const url = agent.pathOverride
-      ? `/task-transcript?path=${encodeURIComponent(agent.pathOverride)}`
+    // agent.pathOverride (= TaskNotification カード経由の focus) は path 起点で /task-transcript
+    // を叩く。 これは symlink 追跡で subagent jsonl 実体を直接引くので、 session restart 後の
+    // claude_sid drift でも 404 に倒れず履歴 subagent を開ける。 target が subagent jsonl でない
+    // (= Monitor / Bash 由来の raw .output) 場合は 404 が返るので /task-output で raw text を
+    // モーダル内表示に fallback する。 通常経路 (= 一覧から drilldown) は従来通り sid 経路。
+    const pathOverride = agent.pathOverride
+    const primaryUrl = pathOverride
+      ? `/task-transcript?path=${encodeURIComponent(pathOverride)}`
       : `/sessions/${encodeURIComponent(sid)}/subagents/${encodeURIComponent(agent.agentId)}/transcript${agent.wf ? `?wf=${encodeURIComponent(agent.wf)}` : ''}`
-    apiFetch(url, { signal: controller.signal })
-      .then(r => (r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`)))
-      .then(data => setEvents(data.events || []))
+    apiFetch(primaryUrl, { signal: controller.signal })
+      .then(async r => {
+        if (r.ok) {
+          const data = await r.json()
+          setEvents(data.events || [])
+          return
+        }
+        // pathOverride 経路のみ、 404 は「subagent jsonl じゃない、 raw fallback へ」 のシグナル。
+        if (pathOverride && r.status === 404) {
+          const raw = await apiFetch(
+            `/task-output?path=${encodeURIComponent(pathOverride)}`,
+            { signal: controller.signal },
+          )
+          if (raw.ok) {
+            const d = await raw.json()
+            setRawContent(typeof d?.content === 'string' ? d.content : '')
+            return
+          }
+          throw new Error(`HTTP ${raw.status}`)
+        }
+        throw new Error(`HTTP ${r.status}`)
+      })
       .catch(e => { if (e.name !== 'AbortError') setError('transcript を読めませんでした') })
     return () => controller.abort()
   }, [sid, agent.agentId, agent.wf, agent.pathOverride])
@@ -69,9 +92,10 @@ function TranscriptView({ sid, agent, onBack }) {
         {agent.done !== undefined && <StatusChip done={agent.done} />}
       </div>
       {error && <span className="error">{error}</span>}
-      {events === null && !error && <span className="dim">読み込み中…</span>}
-      {events && events.length === 0 && <span className="dim">(まだ出力がありません)</span>}
+      {events === null && rawContent === null && !error && <span className="dim">読み込み中…</span>}
+      {events && events.length === 0 && rawContent === null && <span className="dim">(まだ出力がありません)</span>}
       {events && events.map((ev, i) => <TranscriptEvent key={i} event={ev} />)}
+      {rawContent !== null && <pre className="sa-raw-output">{rawContent || '(出力は空です)'}</pre>}
     </div>
   )
 }
