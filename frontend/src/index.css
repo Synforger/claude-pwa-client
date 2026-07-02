@@ -4,6 +4,14 @@
   padding: 0;
 }
 
+/* iOS Safari の自動テキスト拡大 (= narrow container + 特定行組みで発火する text auto-inflation)
+   を抑止。 これを設定しないと bubble 内メッセージが状況次第で 20px+ に膨れる (= 2026-07-03 実測)。
+   `100%` にすることで手動 zoom 用の accessibility 機能は残す (`none` はアクセシビリティ後退)。 */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 :root {
   --bg: #111;
   --bg2: #1a1a1a;
