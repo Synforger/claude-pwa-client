@@ -14,6 +14,7 @@
 // 体感では従来と同じ。 強制リロード時に未 flush の打鍵途中文字は失われる、 これは draft 保存
 // しない明示挙動。
 import React, { useEffect, useRef, useState } from 'react'
+import { useT } from '../../i18n/t.js'
 
 // streaming flush で App が再 render しても、 ChatInput の props が参照同値なら shallow
 // equal で skip させる (= 打鍵 jank 対策、 2026-06-22)。 App 側で callback を useCallback、
@@ -33,6 +34,7 @@ function ChatInputInner({
   stopUnavailable,
   onStopRecovered,
 }) {
+  const t = useT()
   // 表示は controlled、 親 input dict ではなく内部 state で更新する。
   const [localText, setLocalText] = useState('')
   // 「ここまでに親に flush 済の sid」 を覚えておき、 activeSid が切り替わった時に前タブの
@@ -119,7 +121,7 @@ function ChatInputInner({
           e.preventDefault()
           handleSend()
         }}
-        placeholder={activeSession ? 'メッセージを入力...' : '左の ☰ から会話を作成してください'}
+        placeholder={activeSession ? t('chat.input.placeholder') : t('chat.input.placeholder_no_session')}
         rows={2}
         disabled={inputDisabled}
         data-testid="chat-input"
@@ -129,18 +131,18 @@ function ChatInputInner({
           onClick={handleSend}
           disabled={!activeSession || (!localText.trim() && currentAttachments.length === 0)}
           className="send"
-          aria-label="送信"
+          aria-label={t('chat.send')}
           data-testid="chat-send-button"
         >
-          送信
+          {t('chat.send')}
         </button>
         {showStopButton && (
           <button
             onClick={onStop}
             disabled={stopUnavailable}
-            title={stopUnavailable ? '接続復帰待ち (再送中)' : '停止'}
+            title={stopUnavailable ? t('chat.stop_pending') : t('chat.stop')}
             className={`stop ${stopUnavailable ? 'pending' : ''}`}
-            aria-label="停止"
+            aria-label={t('chat.stop')}
             data-testid="chat-stop-button"
           >■</button>
         )}

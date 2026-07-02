@@ -1,4 +1,5 @@
 import { setOverlay } from '../../state/ui.js'
+import { useT } from '../../i18n/t.js'
 import './TaskNotification.css'
 
 // background task (= Monitor / バックグラウンド Bash / Task subagent) の完了通知を表す中央寄せ
@@ -6,8 +7,9 @@ import './TaskNotification.css'
 // 起点 (= taskOutputPath focus) で開く。 中身の transcript / raw 表示はモーダル側に集約したので
 // カード本文はインライン展開しない (= 会話流の視覚ノイズ削減、 2026-07-02)。
 function TaskNotification({ msg }) {
+  const t = useT()
   const isError = msg.exitCode != null && msg.exitCode !== 0
-  const label = msg.summary || 'background task'
+  const label = msg.summary || t('task_note.background_task')
   const canOpen = !!msg.outputFile
 
   const openInSubagents = () => {
@@ -24,7 +26,7 @@ function TaskNotification({ msg }) {
           className="task-note-head"
           onClick={canOpen ? openInSubagents : undefined}
           disabled={!canOpen}
-          title={canOpen ? '詳細を開く' : undefined}
+          title={canOpen ? t('task_note.open_detail') : undefined}
         >
           <span className="task-note-icon">{isError ? '⚠' : '⚙'}</span>
           <span className="task-note-label">{label}</span>

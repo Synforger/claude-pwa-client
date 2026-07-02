@@ -1,4 +1,5 @@
 import { memo, useState } from 'react'
+import { useT } from '../../i18n/t.js'
 import './AskUserQuestionBubble.css'
 
 // Claude が AskUserQuestion に渡してくる options の形が想定外のときも落ちないよう正規化
@@ -13,6 +14,7 @@ function normalizeOption(opt) {
 }
 
 function AskUserQuestionBubble({ askUserQuestion, onAnswer }) {
+  const t = useT()
   const { tool_use_id, questions, answered, selectedAnswer, lastError } = askUserQuestion
   const q = questions?.[0]
   // Hooks は早期 return より前に呼ぶ（rules-of-hooks）
@@ -32,18 +34,18 @@ function AskUserQuestionBubble({ askUserQuestion, onAnswer }) {
   // 回答済は details で折りたたみ。 options / free input は完全に非表示にして
   // 「回答済の選択肢ボタンがまた active に見える」 不安をゼロにする。
   if (answered) {
-    const summaryAnswer = selectedAnswer || '(送信中)'
+    const summaryAnswer = selectedAnswer || t('ask.answered_short')
     const summaryDisplay = summaryAnswer.length > 60
       ? summaryAnswer.slice(0, 60) + '…'
       : summaryAnswer
     return (
       <details className="ask-question answered">
-        <summary className="ask-summary">✓ 回答済: {summaryDisplay}</summary>
+        <summary className="ask-summary">{t('ask.answered', { answer: summaryDisplay })}</summary>
         <div className="ask-answered-body">
           {headerText && <div className="ask-header">{headerText}</div>}
           <div className="ask-text">{questionText}</div>
           {selectedAnswer && (
-            <div className="ask-answered-detail">回答内容: {selectedAnswer}</div>
+            <div className="ask-answered-detail">{t('ask.answered_detail', { answer: selectedAnswer })}</div>
           )}
         </div>
       </details>
@@ -106,7 +108,7 @@ function AskUserQuestionBubble({ askUserQuestion, onAnswer }) {
 
       {multi && (
         <button className="ask-submit" onClick={handleMultiSubmit} disabled={selected.length === 0}>
-          選択を送信 ({selected.length})
+          {t('ask.submit_selected', { count: selected.length })}
         </button>
       )}
 
@@ -114,7 +116,7 @@ function AskUserQuestionBubble({ askUserQuestion, onAnswer }) {
         <input
           type="text"
           className="ask-free-input"
-          placeholder="自由記述で回答..."
+          placeholder={t('chat.input.placeholder')}
           value={freeText}
           onChange={e => setFreeText(e.target.value)}
           onKeyDown={e => {
@@ -127,12 +129,12 @@ function AskUserQuestionBubble({ askUserQuestion, onAnswer }) {
           spellCheck={false}
         />
         <button className="ask-free-send" onClick={handleFreeSubmit} disabled={!freeText.trim()}>
-          送信
+          {t('chat.send')}
         </button>
       </div>
 
       {lastError && (
-        <div className="ask-error">⚠ 送信失敗: {lastError}（もう一度押して再試行）</div>
+        <div className="ask-error">{t('ask.error_prefix')} {lastError} {t('ask.error_retry_hint')}</div>
       )}
     </div>
   )

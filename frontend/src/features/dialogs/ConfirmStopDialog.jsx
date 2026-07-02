@@ -15,11 +15,13 @@ import {
   setOverlay,
 } from '../../state/ui.js'
 import { stopMessage } from '../chat/useChatStream.js'
+import { useT } from '../../i18n/t.js'
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
 
 export default function ConfirmStopDialog() {
   const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
   const open = !!ui.overlays.confirmStop
+  const t = useT()
 
   const handleCancel = useCallback(() => setOverlay('confirmStop', false), [])
   const handleConfirm = useCallback(() => {
@@ -30,7 +32,7 @@ export default function ConfirmStopDialog() {
   return (
     <ConfirmDialog
       open={open}
-      text="推論を停止しますか?"
+      text={t('confirm.stop_inference')}
       onCancel={handleCancel}
       onConfirm={handleConfirm}
     />
