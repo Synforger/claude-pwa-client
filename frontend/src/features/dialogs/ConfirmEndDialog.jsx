@@ -15,11 +15,13 @@ import {
   setOverlay,
 } from '../../state/ui.js'
 import { endSession } from '../chat/useChatStream.js'
+import { useT } from '../../i18n/t.js'
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
 
 export default function ConfirmEndDialog() {
   const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
   const open = !!ui.overlays.confirmEnd
+  const t = useT()
 
   const handleCancel = useCallback(() => setOverlay('confirmEnd', false), [])
   const handleConfirm = useCallback(() => {
@@ -32,7 +34,7 @@ export default function ConfirmEndDialog() {
   return (
     <ConfirmDialog
       open={open}
-      text="このセッションを終了しますか?"
+      text={t('confirm.end_session')}
       onCancel={handleCancel}
       onConfirm={handleConfirm}
     />
