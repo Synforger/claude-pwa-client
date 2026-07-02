@@ -13,7 +13,6 @@ import {
   subscribe as subscribeUi,
   getSnapshot as getUiSnapshot,
   setOverlay,
-  setViewMode,
 } from '../state/ui.js'
 import {
   subscribe as subscribeEphemeral,
@@ -22,7 +21,6 @@ import {
   setStopUnavailableSid as storeSetStopUnavailableSid,
 } from '../state/ephemeral.js'
 import { apiFetch } from '../utils/api.js'
-import { useOutsideClick } from '../hooks/useOutsideClick.js'
 import { useSessions } from '../features/session-drawer/useSessions.js'
 import { useSessionsOverview } from '../features/session-drawer/useSessionsOverview.js'
 import { useSessionActivity } from '../features/session-drawer/useSessionActivity.js'
@@ -76,11 +74,6 @@ export default function ChatPanel({ sid }) {
     () => (activeSid ? (ui.viewModes[activeSid] || 'chat') : 'chat'),
     [activeSid, ui.viewModes],
   )
-  const flippedViewMode = activeViewMode === 'terminal' ? 'chat' : 'terminal'
-  const setActiveViewMode = useCallback((mode) => {
-    if (!activeSid) return
-    setViewMode(activeSid, mode)
-  }, [activeSid])
   const hidden = activeViewMode === 'terminal'
 
   const { messages, setMessages, input, setInput } = useChatStorage(sessions)
@@ -132,7 +125,16 @@ export default function ChatPanel({ sid }) {
     if (!status?.pending_plan && ui.overlays.planOpen) setOverlay('planOpen', false)
   }, [status?.pending_plan, ui.overlays.planOpen])
 
-  const menuRef = useRef(null)
+  // Topbar ⋯ メニューの「ファイル添付」 が bump した時 hidden <input type="file"> を発火する。
+  // Topbar は fileInputRef を持たない (= 疎結合)、 ephemeral の counter 変化を検知して click。
+  const attachmentPickerBump = ephem.attachmentPickerBump
+  const prevAttachmentPickerBumpRef = useRef(attachmentPickerBump)
+  useEffect(() => {
+    if (prevAttachmentPickerBumpRef.current !== attachmentPickerBump) {
+      prevAttachmentPickerBumpRef.current = attachmentPickerBump
+      fileInputRef.current?.click()
+    }
+  }, [attachmentPickerBump, fileInputRef])
 
   // backend 再起動検知: status.backend_start_time が変化したら backend が再起動された
   // (= LaunchAgent KeepAlive で自動復活 or 手動 kickstart)。 中断された turn が
@@ -167,9 +169,10 @@ export default function ChatPanel({ sid }) {
   }, [status?.backend_start_time, setLoading, setMessages])
 
   // 停止ボタンの表示判定 = backend 権威 loading の派生 (= 旧 AppShell)。
+  // pending_plan (= ExitPlanMode 承認待ち) も止められる状態として拾う (2026-07-02)。
   const showStopButton = !!(
     activeSid
-    && (loading[activeSid] || status?.pending_question)
+    && (loading[activeSid] || status?.pending_question || status?.pending_plan)
   )
 
   // SW からの「push-received」 メッセージで即座に fetchLatest を発火させる。
@@ -200,14 +203,10 @@ export default function ChatPanel({ sid }) {
     sendAnswer(activeSid, tool_use_id, answer, isFree, optionCount)
   }, [sendAnswer, activeSid])
 
-  const handleOpenTree = useCallback(() => setOverlay('treeOpen', '~'), [])
-  const handleToggleView = useCallback(() => setActiveViewMode(flippedViewMode), [setActiveViewMode, flippedViewMode])
-  const handleEndSessionClick = useCallback(() => setOverlay('confirmEnd', true), [])
   const handleStopClick = useCallback(() => setOverlay('confirmStop', true), [])
   const handleSendClick = useCallback((text) => sendMessage(text), [sendMessage])
   const handleSendFailedConsumed = useCallback(() => storeSetSendFailedText(null), [])
   const handleStopRecovered = useCallback(() => storeSetStopUnavailableSid(null), [])
-  const handleSetMenuOpen = useCallback((v) => setOverlay('menu', v), [])
 
   const handleOpenSubagents = useCallback((focus) => {
     setOverlay('subagentsFocus', focus || null)
@@ -222,8 +221,6 @@ export default function ChatPanel({ sid }) {
     () => (activeSid ? (apiKeySource[activeSid] ?? null) : null),
     [activeSid, apiKeySource],
   )
-
-  useOutsideClick(menuRef, () => setOverlay('menu', false), { enabled: ui.overlays.menu })
 
   const sids = useMemo(() => sessions.map(s => s.id), [sessions])
   const currentAttachments = (activeSid && attachments[activeSid]) || EMPTY_ARR
@@ -321,21 +318,23 @@ export default function ChatPanel({ sid }) {
           (= 2026-06-22)。 旧実装は条件レンダで unmount していたので、 chat → terminal →
           chat と戻ると ChatInput 内部 state (= localText) が消えて書きかけが失われていた。 */}
       <div style={{ display: activeViewMode === 'terminal' ? 'none' : undefined }}>
+        {/* 2026-07-02: ⋯ メニュー Topbar 移設で、 hidden <input type="file"> を ChatPanel に
+            引き上げ。 添付起動は Topbar → ephemeral(attachmentPickerBump) → ChatPanel effect が
+            fileInputRef.click() を発火する経路 (= ChatInput が picker を知らずに済む疎結合)。 */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/gif,image/webp,text/*,.py,.js,.ts,.jsx,.tsx,.md,.json,.css,.html,.yaml,.yml,.toml,.sh"
+          multiple
+          style={{ display: 'none' }}
+          onChange={handleFileSelect}
+        />
         <ChatInput
           activeSid={activeSid}
           activeSession={activeSession}
           input={input}
           setInput={setInput}
           inputDisabled={inputDisabled}
-          fileInputRef={fileInputRef}
-          onFileSelect={handleFileSelect}
-          menuRef={menuRef}
-          menuOpen={ui.overlays.menu}
-          setMenuOpen={handleSetMenuOpen}
-          onOpenTree={handleOpenTree}
-          activeViewMode={activeViewMode}
-          onToggleView={handleToggleView}
-          onEndSession={handleEndSessionClick}
           showStopButton={showStopButton}
           onStop={handleStopClick}
           onSend={handleSendClick}

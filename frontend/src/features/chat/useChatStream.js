@@ -299,17 +299,9 @@ export function useChatStream({
     const text = (typeof textOverride === 'string' ? textOverride : (input[sid] || '')).trim()
     const files = attachments[sid] || []
     if (!text && files.length === 0) return
-    // loading 中 (= 前 turn 未完 or 楽観 busy が stuck) の送信は silent skip しない。
-    // 旧実装は ChatInput が text を localText からクリアした後に sendMessage が return →
-    // 入力テキストが消失する事故 (2026-06-22)。 入力欄に書き戻し + 1 行 alert で
-    // 「届かなかった」 を明示する。 stop ボタンが立ってる状況なので、 ユーザは停止 → 再送が
-    // 自然な経路。
-    if (loadingRef.current[sid]) {
-      setInput(prev => ({ ...prev, [sid]: prev[sid] || text }))
-      try { onSendFailed?.(sid, text) } catch { /* ignore consumer error */ }
-      alert('前のターンが処理中です。 停止ボタンで止めてから再送してください。')
-      return
-    }
+    // 2026-07-02: 連続送信 (queue mode) 対応で loading 中 alert block を撤去。 busy 中でも POST
+    // を通す。 tmux は keystroke を Claude の入力欄に積んで、 Claude Code v2 の queue mode が
+    // 現 turn 完了後に順次処理する。 PWA 側に queue state 管理は持たない。
     const sendText = text
     setInput(prev => ({ ...prev, [sid]: '' }))
     setLoading(prev => ({ ...prev, [sid]: true }))
@@ -326,23 +318,31 @@ export function useChatStream({
       const imageUrls = files.filter(f => f.url).map(f => f.url)
       const imageRefs = files.filter(f => f.imageId).map(f => f.imageId)
       const fileNames = files.map(f => f.file.name)
+      // 連続送信 (queue mode) 時、 tail が既に空 streaming agent bubble ならこれから続く turn の
+      // 描画枠として再利用可、 追加しない。 追加すると 3 発連投で「推論中…」 3 個スタック →
+      // turn 1 の assistant 埋め込み先が末尾になり順序破綻を招く (2026-07-02 予防)。
+      const lastMsg = cur[cur.length - 1]
+      const tailIsEmptyStreamingAgent = !!(
+        lastMsg && lastMsg.role === 'agent' && lastMsg.streaming
+        && !lastMsg.text && !lastMsg.thinking && (!lastMsg.tools || lastMsg.tools.length === 0)
+      )
+      const userBubble = {
+        id: optimisticUserId,
+        role: 'user',
+        text,
+        optimistic: true,
+        // imageUrls = ObjectURL (= 一時表示用、 リロードで失効)、
+        // imageRefs = IndexedDB key (= 永続、 リロード後 AttachedImages が復元)
+        imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
+        imageRefs: imageRefs.length > 0 ? imageRefs : undefined,
+        fileNames: fileNames.length > 0 ? fileNames : undefined,
+      }
+      const emptyAgent = { id: generateId(), role: 'agent', text: '', tools: [], streaming: true }
       return {
         ...prev,
-        [sid]: [
-          ...cur,
-          {
-            id: optimisticUserId,
-            role: 'user',
-            text,
-            optimistic: true,
-            // imageUrls = ObjectURL (= 一時表示用、 リロードで失効)、
-            // imageRefs = IndexedDB key (= 永続、 リロード後 AttachedImages が復元)
-            imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
-            imageRefs: imageRefs.length > 0 ? imageRefs : undefined,
-            fileNames: fileNames.length > 0 ? fileNames : undefined,
-          },
-          { id: generateId(), role: 'agent', text: '', tools: [], streaming: true },
-        ],
+        [sid]: tailIsEmptyStreamingAgent
+          ? [...cur, userBubble]
+          : [...cur, userBubble, emptyAgent],
       }
     })
     if (isAtBottomRef) isAtBottomRef.current = true
