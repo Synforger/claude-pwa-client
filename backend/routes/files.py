@@ -89,10 +89,33 @@ _TASK_OUTPUT_RE = re.compile(
 )
 
 
+def _is_subagent_jsonl(resolved: Path) -> bool:
+    """resolve() 済 path が `~/.claude/projects/<project>/<claude_sid>/subagents/[workflows/<runId>/]?agent-<id>.jsonl`
+    (= Claude Code が subagent 実行時に生成する構造化 transcript) の実体を指しているか。
+
+    Claude Code 側の仕様変化で `<task-notification>` の output-file が `/tmp/.../tasks/<id>.output`
+    ではなく上記 jsonl への symlink になった (= 2026-07 頃観測)。 `_TASK_OUTPUT_RE` は
+    /tmp 直系のパターンしか通さないので、 resolve() 後の実体が jsonl の場合に 403 を返して
+    frontend の TaskNotification 展開が「出力を読めませんでした 403」 で固まる。 symlink 先が
+    Claude 自身が書いた jsonl であることを構造で認めて許可する。 stat().st_uid == getuid() の
+    UID 一致 check は既存を維持するので、 攻撃者制御 symlink での外部 file 読取は依然塞がる。"""
+    try:
+        claude_projects = (HOME / ".claude" / "projects").resolve()
+    except OSError:
+        return False
+    try:
+        rel = resolved.relative_to(claude_projects)
+    except ValueError:
+        return False
+    if "subagents" not in rel.parts:
+        return False
+    return resolved.name.startswith("agent-") and resolved.suffix == ".jsonl"
+
+
 @router.get("/task-output")
 def get_task_output(path: str = Query(...)):
     resolved = Path(path).expanduser().resolve()
-    if not _TASK_OUTPUT_RE.match(str(resolved)):
+    if not (_TASK_OUTPUT_RE.match(str(resolved)) or _is_subagent_jsonl(resolved)):
         raise HTTPException(status_code=403, detail="Access denied")
     if not resolved.exists():
         raise HTTPException(status_code=404, detail="File not found")
