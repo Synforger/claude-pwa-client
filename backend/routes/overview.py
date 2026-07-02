@@ -91,14 +91,12 @@ def _build_all_status() -> dict:
         if not ps:
             return {}, None
         last_p = ps[-1]
-        cur_reset = last_p.get("seven_day_resets_at")
-        same_window = [
-            p.get("seven_day_pct") for p in ps
-            if p.get("seven_day_resets_at") == cur_reset
-            and isinstance(p.get("seven_day_pct"), (int, float))
-        ]
-        seven_pct = max(same_window) if same_window else last_p.get("seven_day_pct")
-        return last_p, seven_pct
+        # 5h と対称に、 7d も最新行 (= Anthropic の source-of-truth) をそのまま返す。
+        # 旧実装は同 seven_day_resets_at 内の max を採る flap 吸収を持っていたが、
+        # Anthropic 側の恒久減少 (= 集計訂正 / モデル追加時の特例リセット等) を「flap」 として
+        # 塗り潰し実 report が下がっても window 終わりまで pin される事故を招いた
+        # (= PR #45 で core/usage.py 側は撤去済、 本 file はコピペ実装のドリフト残)。
+        return last_p, last_p.get("seven_day_pct")
 
     out: dict[str, dict] = {}
     for sid in list(sessions_meta.keys()):
