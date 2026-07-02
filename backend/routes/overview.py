@@ -25,7 +25,7 @@ import time
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
-from backend.core.usage import read_all_rate_limits_tail
+from backend.core.usage import latest_from_tail, read_all_rate_limits_tail
 import backend.jsonl.watcher as jsonl_watcher
 from backend import state
 from backend.state import (
@@ -74,29 +74,22 @@ def _build_all_status() -> dict:
     混じって status line がちらつく。 1 回 read + parse して、 sid 毎は dict lookup だけ
     にする (= O(read) + O(sid) で済む)。"""
     parsed = _read_rate_limits_tail_cached()  # 1s memoize、 接続 burst で多重 parse しない
-    # account 別に集計 (= 並走中の個人 / 会社で 5h / 7d が混ざらないように)。
-    # rate-limits.jsonl の各 record は account_id ("personal" / "work" / ...) を持つ。
-    # 旧版で account_id 欠落の record は "personal" 扱い (= 単一 OAuth 運用との互換)。
-    by_acct: dict[str, list[dict]] = {}
+    # 各 claude_sid の最新行を dict lookup できるように map 化 (= 5h/7d 以外の per-session
+    # 値 ctx/model はこの経路から取る)。 account 別集計 (= 5h/7d) は下記 _acct_view で
+    # core/usage.latest_from_tail に委譲、 二重実装によるドリフト防止 (= PR #46/#47 経緯)。
     by_sess: dict[str, dict] = {}
     for p in parsed:
-        acct = p.get("account_id") or "personal"
-        by_acct.setdefault(acct, []).append(p)
         sid_key = p.get("session_id")
         if sid_key:
             by_sess[sid_key] = p  # 最後勝ち = 各 claude_sid の最新行
 
     def _acct_view(acct: str) -> tuple[dict, float | int | None]:
-        ps = by_acct.get(acct) or []
-        if not ps:
-            return {}, None
-        last_p = ps[-1]
-        # 5h と対称に、 7d も最新行 (= Anthropic の source-of-truth) をそのまま返す。
-        # 旧実装は同 seven_day_resets_at 内の max を採る flap 吸収を持っていたが、
-        # Anthropic 側の恒久減少 (= 集計訂正 / モデル追加時の特例リセット等) を「flap」 として
-        # 塗り潰し実 report が下がっても window 終わりまで pin される事故を招いた
-        # (= PR #45 で core/usage.py 側は撤去済、 本 file はコピペ実装のドリフト残)。
-        return last_p, last_p.get("seven_day_pct")
+        # 5h/7d/resets_at の集計は core/usage.latest_from_tail に一元化。 過去に本 file が
+        # 同ロジックを inline で持ち、 max hack の flap 吸収が usage.py 側だけ撤去されて
+        # 本 file 側に残った結果 PWA statusline が真値を追えない事故が起きた (2026-07-02)。
+        # ここは delegate に徹し、 挙動変更が要る場合は core/usage.py 側で行う。
+        view = latest_from_tail(parsed, account_id=acct)
+        return view, view.get("seven_day_pct")
 
     out: dict[str, dict] = {}
     for sid in list(sessions_meta.keys()):
