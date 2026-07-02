@@ -63,5 +63,47 @@
   "subagents.agents_load_failed": "Failed to load agent list",
   "subagents.run.done_count": "{count} agents, done {done}",
   "subagents.status.done": "done",
-  "subagents.status.running": "running"
+  "subagents.status.running": "running",
+
+  "drawer.title": "Conversations",
+  "drawer.settings": "Settings",
+  "drawer.close": "Close",
+  "drawer.new_conversation": "+ New conversation",
+  "drawer.cancel": "Cancel",
+  "drawer.back": "Back",
+  "drawer.rename": "Rename",
+  "drawer.delete": "Delete",
+  "drawer.delete_last": "Delete (last one)",
+  "drawer.delete_last_hint": "Cannot delete the last conversation",
+  "drawer.fork": "Fork",
+  "drawer.menu": "Menu",
+  "drawer.empty": "No conversations. Create one from the \"+ New conversation\" button above.",
+  "drawer.pick_agent": "Pick an agent:",
+  "drawer.pick_account": "Pick an account:",
+  "drawer.account.loading": "Loading accounts…",
+  "drawer.account.load_failed": "Failed to load account list",
+  "drawer.account.load_short": "Loading…",
+  "drawer.account.retry": "Retry",
+  "drawer.account.default_hint": "Create without account selection (backend picks the default)",
+  "drawer.account.default_button": "Create with default account",
+  "drawer.notify.label": "Notifications",
+  "drawer.notify.mode.both": "🔔 Sound + banner",
+  "drawer.notify.mode.banner": "🔕 Banner only",
+  "drawer.notify.mode.off": "⛔ Off",
+  "drawer.push.on": "🔔 Push ON (tap to disable)",
+  "drawer.push.broken": "⚠ Push subscription expired (tap to re-enable)",
+  "drawer.push.off": "🔕 Push OFF (tap to enable)",
+  "drawer.menu.update_app": "↺ Update app",
+  "drawer.menu.update_app_title": "Update to the latest code (history and notification grants are preserved)",
+
+  "statusbar.offline": "⚠ Offline",
+  "statusbar.offline_title": "Connection to the server was lost",
+
+  "tasks.modal.empty": "No TaskCreate tasks have been registered in this session yet.",
+
+  "storage.warn_hint": "Deleting unused conversations frees up space",
+  "storage.warn_text": "Storage usage {pct}% ({used} / {quota})",
+
+  "alert.attach_failed": "Failed to attach file: {detail}",
+  "alert.end_session_failed": "Failed to end session: {detail}"
 }

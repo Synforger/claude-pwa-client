@@ -112,6 +112,20 @@
 .drawer-global-popup button:disabled:hover {
   background: none;
 }
+/* 言語切替 (= 日本語 / English) 2 button 排他トグル。 通常のメニュー行と別に横並べにする。 */
+.drawer-global-lang-row {
+  display: flex;
+  gap: 4px;
+  padding: 2px 0 0;
+}
+.drawer-global-lang-row button {
+  flex: 1;
+  text-align: center;
+}
+.drawer-global-popup .drawer-global-lang-active {
+  color: var(--accent);
+  background: var(--bg3);
+}
 .drawer-create {
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);

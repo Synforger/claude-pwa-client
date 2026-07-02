@@ -15,6 +15,7 @@ import {
   clearLoading as storeClearLoading,
   setApiKeySource as storeSetApiKeySource,
 } from '../../state/ephemeral.js'
+import { tRaw } from '../../i18n/t.js'
 
 // session_id → JSONL byte offset の永続化。 タブ切替 / リロードを跨いで「ここまで読んだ」 を
 // 保持し、 新規 EventSource 接続時に `?from=<sid>:<offset>,...` で渡す (= F-15)。 backend は
@@ -406,7 +407,7 @@ export function useChatStream({
         // 残ったまま → 「…」 永続表示 + 送信ボタン無効化 stuck で reload しないと回復不能だった。
         // 共通 failBubble へ集約 (= 2026-06-24)。
         failBubble(true)
-        alert(`添付ファイル送信に失敗: ${uploadErrDetail}`)
+        alert(tRaw('alert.attach_failed', { detail: uploadErrDetail }))
       }
     } else {
       // 送信本文 (text + Enter): backend が JSONL に user 行が +1 されるかを最大 2s 監視 →
@@ -535,10 +536,10 @@ export function useChatStream({
         // (= 2026-06-22 silent-failure sweep)。
         let detail = `HTTP ${r?.status ?? '???'}`
         try { detail = (await r.json())?.detail || detail } catch { /* ignore parse */ }
-        alert(`セッション終了に失敗: ${detail}`)
+        alert(tRaw('alert.end_session_failed', { detail }))
       }
     } catch (e) {
-      alert(`セッション終了に失敗: ${e?.message || e}`)
+      alert(tRaw('alert.end_session_failed', { detail: e?.message || e }))
     }
     // 停止フラグを解除 (= 新プロセスで turn を再開できる状態にする)
     // UI 上のセッション区切りを messages に挿入 (= MessageItem の system/kind=session_end 経路)

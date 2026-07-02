@@ -5,6 +5,7 @@ import {
 } from '../../state/sessions.js'
 import { setOverlay } from '../../state/ui.js'
 import { useStatus } from '../status-bar/useStatus.js'
+import { useT } from '../../i18n/t.js'
 import '../file-tree/FileTreePanel.css'
 import './TasksModal.css'
 
@@ -28,6 +29,7 @@ const STATUS_CLASS = {
 // W2 Phase E-2 (= 2026-06-29): props 自己解決化 (= activeSession を sessions store から派生、
 // useStatus 直呼出で tasks を解決、 onClose は setOverlay 直書き)。
 export default function TasksModal() {
+  const t = useT()
   const sessionsSnap = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
   const activeId = sessionsSnap.activeId
   const activeSession = useMemo(
@@ -63,7 +65,7 @@ export default function TasksModal() {
         <div className="tree-body">
           {list.length === 0 && (
             <div className="dim tree-loading">
-              このセッションでは TaskCreate でまだタスクが登録されていません。
+              {t('tasks.modal.empty')}
             </div>
           )}
           {list.map(t => {
