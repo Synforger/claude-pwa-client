@@ -22,14 +22,11 @@ registerOverlay('tasks', {
 registerStream('task_notification', { dispatch: noopDispatch })
 
 // background task (= Monitor / バックグラウンド Bash) の完了通知。 中央寄せ system カード。
-// sid + taskId は Task/Agent 由来の subagent transcript を優先表示する経路 (= TaskNotification 内で
-// /sessions/{sid}/subagents/agent-{taskId}/transcript を試し、 hit で構造化描画、 miss で /task-output
-// raw 描画に fallback) で使う。 Monitor / Bash 由来の task では transcript が無いので fallback する。
+// 展開時の transcript / raw 取得は TaskNotification 内で outputFile を起点に行う (= /task-transcript
+// を先に叩き、 subagent jsonl 実体なら構造化描画、 それ以外は /task-output raw に fallback)。
 registerMessage('task', {
   dispatch: noopDispatch,
   fromEvent: (event) => ({
-    sid: event.sid || null,
-    taskId: event.taskId || null,
     summary: event.summary || null,
     status: event.status || null,
     outputFile: event.outputFile || null,

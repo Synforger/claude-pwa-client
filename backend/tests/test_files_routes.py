@@ -112,6 +112,48 @@ def test_task_output_rejects_traversal():
     assert res.status_code == 403
 
 
+def test_task_transcript_parses_subagent_jsonl_via_symlink(tmp_path, monkeypatch):
+    # 意図: /task-transcript は symlink 追跡後が subagent jsonl なら parse して events を返す
+    # (= /sessions 経路が claude_sid drift で 404 になる履歴 task を救う)。
+    import backend.routes.files as files_routes
+    fake_home = tmp_path / "home"
+    projects = fake_home / ".claude" / "projects" / "-Users-x-proj" / "sid-abc"
+    subagents = projects / "subagents"
+    subagents.mkdir(parents=True)
+    real_jsonl = subagents / "agent-a123.jsonl"
+    real_jsonl.write_text(
+        '{"type":"user","isSidechain":true,"message":{"role":"user","content":"hi"}}\n'
+    )
+    tasks_dir = tmp_path / "claude-501" / "-Users-x-proj" / "sid-abc" / "tasks"
+    tasks_dir.mkdir(parents=True)
+    symlink_src = tasks_dir / "a123.output"
+    symlink_src.symlink_to(real_jsonl)
+    monkeypatch.setattr(files_routes, "HOME", fake_home)
+    client = _task_output_client()
+    res = client.get("/task-transcript", params={"path": str(symlink_src)})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["agentId"] == "agent-a123"
+    assert isinstance(body["events"], list)
+    assert len(body["events"]) >= 1  # user 行が最低 1 個 event 化される
+
+
+def test_task_transcript_404_for_non_subagent_output(tmp_path, monkeypatch):
+    # 意図: /task-transcript は Monitor / Bash 由来の raw .output ファイル (subagent jsonl でない) には 404
+    # を返し、 frontend は /task-output raw 経路に fallback する。
+    import backend.routes.files as files_routes
+    real = tmp_path / "claude-501" / "proj" / "sess" / "tasks" / "abc123.output"
+    real.parent.mkdir(parents=True)
+    real.write_text("plain task log\n")
+    monkeypatch.setattr(
+        files_routes, "_TASK_OUTPUT_RE",
+        __import__("re").compile(rf"^{tmp_path}/claude-\d+/[^/]+/[^/]+/tasks/[A-Za-z0-9._-]+\.output$"),
+    )
+    client = _task_output_client()
+    res = client.get("/task-transcript", params={"path": str(real)})
+    assert res.status_code == 404
+
+
 def test_task_output_follows_symlink_to_subagent_jsonl(tmp_path, monkeypatch):
     # 意図: Claude Code 側の仕様で .output が ~/.claude/projects/<proj>/<sid>/subagents/agent-<id>.jsonl
     # への symlink になった場合、 resolve 後の実体が subagent jsonl なら通す (= UID check は維持)。

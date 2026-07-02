@@ -47,23 +47,26 @@ function TranscriptView({ sid, agent, onBack }) {
     const controller = new AbortController()
     setEvents(null)
     setError(null)
-    const wfq = agent.wf ? `?wf=${encodeURIComponent(agent.wf)}` : ''
-    apiFetch(
-      `/sessions/${encodeURIComponent(sid)}/subagents/${encodeURIComponent(agent.agentId)}/transcript${wfq}`,
-      { signal: controller.signal },
-    )
+    // agent.pathOverride が来てるケース (= TaskNotification カード経由の focus) は path 起点の
+    // /task-transcript を使う。 これは symlink 追跡で subagent jsonl 実体を直接引くので、
+    // session restart 後の claude_sid drift でも 404 に倒れず履歴 subagent を開ける。 通常経路
+    // (= 一覧から drilldown) は従来通り /sessions/{sid}/subagents/{agentId}/transcript。
+    const url = agent.pathOverride
+      ? `/task-transcript?path=${encodeURIComponent(agent.pathOverride)}`
+      : `/sessions/${encodeURIComponent(sid)}/subagents/${encodeURIComponent(agent.agentId)}/transcript${agent.wf ? `?wf=${encodeURIComponent(agent.wf)}` : ''}`
+    apiFetch(url, { signal: controller.signal })
       .then(r => (r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`)))
       .then(data => setEvents(data.events || []))
       .catch(e => { if (e.name !== 'AbortError') setError('transcript を読めませんでした') })
     return () => controller.abort()
-  }, [sid, agent.agentId, agent.wf])
+  }, [sid, agent.agentId, agent.wf, agent.pathOverride])
 
   return (
     <div className="sa-transcript">
       <button className="sa-back" onClick={onBack}>← 戻る</button>
       <div className="sa-detail-head">
-        <span className="sa-detail-desc">{agent.label || agent.description || agent.agentId}</span>
-        <StatusChip done={agent.done} />
+        <span className="sa-detail-desc">{agent.label || agent.description || agent.agentId || 'Task transcript'}</span>
+        {agent.done !== undefined && <StatusChip done={agent.done} />}
       </div>
       {error && <span className="error">{error}</span>}
       {events === null && !error && <span className="dim">読み込み中…</span>}
@@ -163,8 +166,17 @@ function SubagentsModalInner({ sid, focus, onClose }) {
   // チップから渡された focus で、 一覧ロード後に該当 run / agent へ 1 回だけ自動遷移する。
   //   - workflowTaskId : tool_result の "Task ID" が manifest.taskId と一致する run を開く
   //   - agentDesc      : Task の description が一致する subagent の transcript を直接開く
+  //   - taskOutputPath : TaskNotification カードの 🤖 ボタン経路。 outputFile (= subagent jsonl
+  //                      への symlink) を直接 pathOverride で渡し、 一覧ロードを待たずに
+  //                      TranscriptView を open する (= claude_sid drift 済み履歴 task でも到達可)
   useEffect(() => {
-    if (!focus || !data || focusedRef.current) return
+    if (!focus || focusedRef.current) return
+    if (focus.kind === 'taskOutputPath') {
+      setAgent({ pathOverride: focus.value, label: 'Task transcript' })
+      focusedRef.current = true
+      return
+    }
+    if (!data) return
     if (focus.kind === 'workflowTaskId') {
       const w = data.workflows.find(x => x.taskId === focus.value)
       if (w) { setRun(w); focusedRef.current = true }
