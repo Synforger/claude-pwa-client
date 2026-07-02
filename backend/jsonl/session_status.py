@@ -742,13 +742,22 @@ def mutate_agent_status(session_id: str, line: dict) -> bool:
         elif att.get("type") == "task_reminder":
             # task_reminder の content は現在の task list 全体の snapshot (= claude TUI が
             # 毎ターン再掲)。 最新を真値として agent_status.tasks を丸ごと差し替える。
-            items = att.get("content") if isinstance(att.get("content"), list) else []
+            raw = att.get("content")
+            items = raw if isinstance(raw, list) else []
             old = a.get("tasks") or []
-            # backend-F-57: dict 全 field 比較 (= items != old) では task_reminder に余計な
-            # field (= 順序違い / 内部メタ追加) で false positive を起こし、 status_event の
-            # 過剰発火 + frontend の不要再描画を招いていた。 ID + 表示 field だけで正規化
-            # 比較する。
-            if _tasks_signature(items) != _tasks_signature(old):
+            # 2026-07-03 実測: 全 task_reminder の ~88% が空 content で届く (= 「no update」
+            # sentinel)。 素朴に空でも wipe する旧挙動だと直前 TaskCreate で追加した task を
+            # 次ターン即消し込みしてしまい TasksModal が「登録されていません」 に戻る。 空
+            # content は「変更なし」 として skip し、 実際に task_list を運ぶ回だけ反映する。
+            # 明示的な「全 task 消去」 も TaskUpdate(status=deleted) 経路で表現されるので、
+            # 空 content を捨てて情報は失われない。
+            if not items and old:
+                pass
+            elif _tasks_signature(items) != _tasks_signature(old):
+                # backend-F-57: dict 全 field 比較 (= items != old) では task_reminder に余計な
+                # field (= 順序違い / 内部メタ追加) で false positive を起こし、 status_event の
+                # 過剰発火 + frontend の不要再描画を招いていた。 ID + 表示 field だけで正規化
+                # 比較する。
                 a["tasks"] = items
                 changed = True
     elif line_type == "pr-link":

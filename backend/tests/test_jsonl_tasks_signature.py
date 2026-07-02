@@ -82,6 +82,41 @@ def test_task_reminder_no_change_does_not_dirty_flag(isolated_state):
     assert mutate_agent_status(sid, line_b) is False
 
 
+def test_empty_task_reminder_does_not_wipe_existing_tasks(isolated_state):
+    """空 content の task_reminder (= 「no update」 sentinel) は既存 tasks を消さない
+    (= 2026-07-03、 claude harness の 88% が空で届く実測結果に対する対応)。"""
+    state = isolated_state
+    sid = "ses_tr_empty"
+    state.agent_status[sid] = {
+        "tasks": [_t("1", "a"), _t("2", "b")],
+        "current_tool": None, "todos": None, "subagent": None,
+        "pending_question": None, "pending_plan": None, "plan_mode": False,
+        "model": "", "ctx_pct": 0, "ctx_window": 1_000_000,
+        "pr_links": [], "mode": "", "permission_mode": "",
+        "budget_used": None, "budget_total": None, "budget_remaining": None,
+    }
+    line = {"type": "attachment", "attachment": {"type": "task_reminder", "content": []}}
+    # 空 content: changed=False + tasks 温存
+    assert mutate_agent_status(sid, line) is False
+    assert len(state.agent_status[sid]["tasks"]) == 2
+
+
+def test_empty_task_reminder_when_tasks_already_empty_stays_empty(isolated_state):
+    """既存 tasks=[] + 空 content: changed=False (= 過剰発火しない、 状態は空のまま)。"""
+    state = isolated_state
+    sid = "ses_tr_both_empty"
+    state.agent_status[sid] = {
+        "tasks": [], "current_tool": None, "todos": None, "subagent": None,
+        "pending_question": None, "pending_plan": None, "plan_mode": False,
+        "model": "", "ctx_pct": 0, "ctx_window": 1_000_000,
+        "pr_links": [], "mode": "", "permission_mode": "",
+        "budget_used": None, "budget_total": None, "budget_remaining": None,
+    }
+    line = {"type": "attachment", "attachment": {"type": "task_reminder", "content": []}}
+    assert mutate_agent_status(sid, line) is False
+    assert state.agent_status[sid]["tasks"] == []
+
+
 def test_task_reminder_status_change_dirty_flag(isolated_state):
     """status だけ違えば changed=True (= 本質的変化は確実に拾う)。"""
     state = isolated_state
