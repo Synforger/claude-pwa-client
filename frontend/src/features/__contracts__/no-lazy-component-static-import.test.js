@@ -114,7 +114,7 @@ describe('W2 Phase E1 chunk-split contract: overlayRegistry Component spec は�
     }
   }
 
-  it('Component spec を持つ entry が 10 件 (= E-1 で 4 件 + E-2 で 3 件 + F-4 で confirmDelete 1 件 + F-4 残で confirmEnd / confirmStop 2 件追加)', () => {
-    expect(totalSpecs).toBe(10)
+  it('Component spec を持つ entry が 11 件 (= E-1 で 4 件 + E-2 で 3 件 + F-4 で confirmDelete 1 件 + F-4 残で confirmEnd / confirmStop 2 件追加 + 2026-07-03 で taskOutputPath 1 件追加)', () => {
+    expect(totalSpecs).toBe(11)
   })
 })

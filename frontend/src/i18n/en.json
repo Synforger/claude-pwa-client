@@ -54,6 +54,7 @@
 
   "task_note.background_task": "background task",
   "task_note.open_detail": "Open detail",
+  "task_output.title": "Task output",
 
   "subagents.title": "Subagents",
   "subagents.empty": "No subagents have been launched in this session yet.",
