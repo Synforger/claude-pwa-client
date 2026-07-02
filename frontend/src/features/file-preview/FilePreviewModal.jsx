@@ -20,6 +20,7 @@ import { apiFetch } from '../../utils/api.js'
 import { isFav, toggleFav, subscribeFavs } from '../file-tree/favorites.js'
 import { useEscape } from '../../hooks/useEscape.js'
 import { useT } from '../../i18n/t.js'
+import { translateHttpErrorDetail } from '../../utils/httpError.js'
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
 import {
   subscribe as subscribeUi,
@@ -267,13 +268,14 @@ function FilePreviewModalBody({ path, onClose }) {
     setContent(null)
     apiFetch(`/file?path=${encodeURIComponent(path)}`, { signal: controller.signal })
       .then(r => {
-        if (r.status === 413) return r.json().then(d => Promise.reject(d.detail || t('file_preview.too_large')))
+        if (r.status === 413) return r.json().then(d => Promise.reject(translateHttpErrorDetail(d.detail, t('file_preview.too_large'))))
         return r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`)
       })
       .then(data => setContent(data.content))
       .catch(e => { if (e.name !== 'AbortError') setError(typeof e === 'string' ? e : t('file_preview.load_error')) })
       .finally(() => setLoading(false))
     return () => controller.abort()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path])
 
   const handleEdit = useCallback(() => {
@@ -300,7 +302,7 @@ function FilePreviewModalBody({ path, onClose }) {
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
-        throw new Error(d.detail || `HTTP ${res.status}`)
+        throw new Error(translateHttpErrorDetail(d.detail, `HTTP ${res.status}`))
       }
       setContent(editText)
       setEditMode(false)
