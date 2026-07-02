@@ -136,16 +136,16 @@ function ChatInputInner({
         >
           {t('chat.send')}
         </button>
-        {showStopButton && (
-          <button
-            onClick={onStop}
-            disabled={stopUnavailable}
-            title={stopUnavailable ? t('chat.stop_pending') : t('chat.stop')}
-            className={`stop ${stopUnavailable ? 'pending' : ''}`}
-            aria-label={t('chat.stop')}
-            data-testid="chat-stop-button"
-          >■</button>
-        )}
+        {/* 停止ボタンは常時配置、 現在の推論を止められない状態 (= !showStopButton) では disabled。
+            消えて再登場すると位置ズレでユーザが押し損ねる懸念があるため、 常時同じ場所に固定。 */}
+        <button
+          onClick={onStop}
+          disabled={!showStopButton || stopUnavailable}
+          title={stopUnavailable ? t('chat.stop_pending') : t('chat.stop')}
+          className={`stop ${stopUnavailable ? 'pending' : ''}`}
+          aria-label={t('chat.stop')}
+          data-testid="chat-stop-button"
+        >■</button>
       </div>
     </div>
   )
