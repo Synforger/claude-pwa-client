@@ -18,11 +18,6 @@ import {
   getSnapshot as getSessionsSnapshot,
 } from '../../state/sessions.js'
 import { bumpAttachmentPicker } from '../../state/ephemeral.js'
-import {
-  subscribe as subscribeLocale,
-  getSnapshot as getLocaleSnapshot,
-  setLang,
-} from '../../state/locale.js'
 import { useOutsideClick } from '../../hooks/useOutsideClick.js'
 import { useT } from '../../i18n/t.js'
 import { useStatus } from '../status-bar/useStatus.js'
@@ -152,7 +147,6 @@ function TopbarMoreMenu({ activeViewMode, setActiveViewMode }) {
   useOutsideClick(rootRef, () => setOpen(false))
   const close = useCallback(() => setOpen(false), [])
   const t = useT()
-  const currentLang = useSyncExternalStore(subscribeLocale, getLocaleSnapshot).lang
   return (
     <div className="topbar-more-root" ref={rootRef}>
       <button
@@ -188,37 +182,8 @@ function TopbarMoreMenu({ activeViewMode, setActiveViewMode }) {
           >
             {activeViewMode === 'terminal' ? t('topbar.menu.chat_view') : t('topbar.menu.terminal_view')}
           </button>
-          {/* 言語切替: 日本語 / English トグル (排他 2 button)、 選択済に highlight。 */}
-          <div className="topbar-more-lang-row" style={{ display: 'flex', gap: 4, padding: 6 }}>
-            <button
-              type="button"
-              className="topbar-more-item"
-              style={{
-                flex: 1,
-                textAlign: 'center',
-                background: currentLang === 'ja' ? 'var(--bg3)' : undefined,
-                color: currentLang === 'ja' ? 'var(--accent)' : undefined,
-              }}
-              onClick={() => { setLang('ja'); close() }}
-              data-testid="lang-ja"
-            >
-              {t('topbar.menu.language_ja')}
-            </button>
-            <button
-              type="button"
-              className="topbar-more-item"
-              style={{
-                flex: 1,
-                textAlign: 'center',
-                background: currentLang === 'en' ? 'var(--bg3)' : undefined,
-                color: currentLang === 'en' ? 'var(--accent)' : undefined,
-              }}
-              onClick={() => { setLang('en'); close() }}
-              data-testid="lang-en"
-            >
-              {t('topbar.menu.language_en')}
-            </button>
-          </div>
+          {/* 2026-07-03: Language toggle は SessionDrawer ⋯ に移設。 通知 / アプリ更新と同じ
+              「PWA レベル設定」 の並びに寄せた方が意味的に自然。 */}
           <button
             className="topbar-more-item"
             onClick={() => { setOverlay('confirmEnd', true); close() }}

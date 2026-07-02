@@ -63,5 +63,47 @@
   "subagents.agents_load_failed": "agent 一覧を読めませんでした",
   "subagents.run.done_count": "{count} agents ・ done {done}",
   "subagents.status.done": "done",
-  "subagents.status.running": "running"
+  "subagents.status.running": "running",
+
+  "drawer.title": "会話",
+  "drawer.settings": "設定",
+  "drawer.close": "閉じる",
+  "drawer.new_conversation": "+ 新規会話",
+  "drawer.cancel": "キャンセル",
+  "drawer.back": "戻る",
+  "drawer.rename": "リネーム",
+  "drawer.delete": "削除",
+  "drawer.delete_last": "削除 (最後の 1 個)",
+  "drawer.delete_last_hint": "最後の 1 個は削除できません",
+  "drawer.fork": "フォーク",
+  "drawer.menu": "メニュー",
+  "drawer.empty": "会話がありません。 上の「+ 新規会話」 から作成してください。",
+  "drawer.pick_agent": "agent を選択:",
+  "drawer.pick_account": "アカウントを選択:",
+  "drawer.account.loading": "アカウント取得中…",
+  "drawer.account.load_failed": "アカウント一覧を取得できませんでした",
+  "drawer.account.load_short": "取得中…",
+  "drawer.account.retry": "再試行",
+  "drawer.account.default_hint": "アカウント指定なしで作成 (= backend が default を選ぶ)",
+  "drawer.account.default_button": "既定アカウントで作成",
+  "drawer.notify.label": "通知",
+  "drawer.notify.mode.both": "🔔 音 + バナー",
+  "drawer.notify.mode.banner": "🔕 バナーのみ",
+  "drawer.notify.mode.off": "⛔ オフ",
+  "drawer.push.on": "🔔 通知 ON (タップで無効化)",
+  "drawer.push.broken": "⚠ 通知が失効しています (タップで再有効化)",
+  "drawer.push.off": "🔕 通知 OFF (タップで有効化)",
+  "drawer.menu.update_app": "↺ アプリを更新",
+  "drawer.menu.update_app_title": "最新コードに更新 (履歴・通知許可は保持)",
+
+  "statusbar.offline": "⚠ オフライン",
+  "statusbar.offline_title": "サーバへの接続が切れています",
+
+  "tasks.modal.empty": "このセッションでは TaskCreate でまだタスクが登録されていません。",
+
+  "storage.warn_hint": "不要な会話を削除すると解消します",
+  "storage.warn_text": "ストレージ使用率 {pct}% ({used} / {quota})",
+
+  "alert.attach_failed": "添付ファイル送信に失敗: {detail}",
+  "alert.end_session_failed": "セッション終了に失敗: {detail}"
 }
