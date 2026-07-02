@@ -7,6 +7,7 @@
 
 import { useState } from 'react'
 import { useStorageQuota } from './useStorageQuota.js'
+import { useT } from '../../i18n/t.js'
 import './StorageWarning.css'
 
 // しきい値: 85% で表示。 タップで隠せる (セッション中だけ)。 旧 layout/StorageWarning.jsx と同値。
@@ -17,6 +18,7 @@ function fmtMB(bytes) {
 }
 
 export default function StorageWarningHost() {
+  const t = useT()
   const info = useStorageQuota()
   const [dismissed, setDismissed] = useState(false)
   if (!info || dismissed) return null
@@ -26,10 +28,10 @@ export default function StorageWarningHost() {
     <div className="storage-warn">
       <span className="storage-warn-icon">⚠</span>
       <span className="storage-warn-text">
-        ストレージ使用率 {pct}% ({fmtMB(info.usage)} / {fmtMB(info.quota)})
-        <span className="storage-warn-hint">不要な会話を削除すると解消します</span>
+        {t('storage.warn_text', { pct, used: fmtMB(info.usage), quota: fmtMB(info.quota) })}
+        <span className="storage-warn-hint">{t('storage.warn_hint')}</span>
       </span>
-      <button className="storage-warn-close" onClick={() => setDismissed(true)} aria-label="閉じる">×</button>
+      <button className="storage-warn-close" onClick={() => setDismissed(true)} aria-label={t('common.close')}>×</button>
     </div>
   )
 }
