@@ -16,6 +16,7 @@ import {
   setApiKeySource as storeSetApiKeySource,
 } from '../../state/ephemeral.js'
 import { tRaw } from '../../i18n/t.js'
+import { translateHttpErrorDetail } from '../../utils/httpError.js'
 
 // session_id → JSONL byte offset の永続化。 タブ切替 / リロードを跨いで「ここまで読んだ」 を
 // 保持し、 新規 EventSource 接続時に `?from=<sid>:<offset>,...` で渡す (= F-15)。 backend は
@@ -393,7 +394,7 @@ export function useChatStream({
         if (!r || !r.ok) {
           uploadOk = false
           uploadErrDetail = `HTTP ${r?.status ?? '???'}`
-          try { uploadErrDetail = (await r.json())?.detail || uploadErrDetail } catch { /* ignore parse */ }
+          try { uploadErrDetail = translateHttpErrorDetail((await r.json())?.detail, uploadErrDetail) } catch { /* ignore parse */ }
         }
       } catch (e) {
         uploadOk = false
@@ -535,7 +536,7 @@ export function useChatStream({
         // 残ったまま UI だけ「終わったつもり」 になる事故源。 ユーザに見せる
         // (= 2026-06-22 silent-failure sweep)。
         let detail = `HTTP ${r?.status ?? '???'}`
-        try { detail = (await r.json())?.detail || detail } catch { /* ignore parse */ }
+        try { detail = translateHttpErrorDetail((await r.json())?.detail, detail) } catch { /* ignore parse */ }
         alert(tRaw('alert.end_session_failed', { detail }))
       }
     } catch (e) {

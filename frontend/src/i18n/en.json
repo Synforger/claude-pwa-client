@@ -106,6 +106,8 @@
 
   "alert.attach_failed": "Failed to attach file: {detail}",
   "alert.end_session_failed": "Failed to end session: {detail}",
+  "alert.create_session_failed": "Failed to create conversation: {detail}",
+  "alert.fork_failed": "Fork failed: {detail}",
 
   "message.stop.max_tokens": "⚠ Stopped at max tokens",
   "message.stop.refusal": "🚫 Refused",
@@ -157,5 +159,15 @@
   "format.timeout": "Timeout",
   "format.network_error": "Network error (cannot reach the server)",
   "format.send_failed": "Send failed",
-  "format.error_generic": "Error: {message}"
+  "format.error_generic": "Error: {message}",
+
+  "backend.file_too_large": "File is too large (limit {limit})",
+  "backend.invalid_agent_id": "agent_id is invalid",
+  "backend.invalid_account_id": "account_id is invalid",
+  "backend.invalid_notify_mode": "notify_mode must be both / banner / off",
+  "backend.title_or_notify_required": "title or notify_mode is required",
+  "backend.from_uuid_required": "from_uuid is required",
+  "backend.message_not_found": "The message was not found in this conversation's log",
+  "backend.cannot_fork_here": "Cannot fork at this position (only user prompts or completed turns are allowed)",
+  "backend.empty_conversation": "The source conversation is empty"
 }

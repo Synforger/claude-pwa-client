@@ -11,6 +11,7 @@ from pathlib import Path
 from fastapi import APIRouter, Body, HTTPException, Query
 
 from backend.config import FILE_SIZE_LIMIT, HOME
+from backend.errors import raise_error
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -50,7 +51,7 @@ def get_file(path: str = Query(...)):
     if not resolved.is_file():
         raise HTTPException(status_code=400, detail="Not a file")
     if resolved.stat().st_size > FILE_SIZE_LIMIT:
-        raise HTTPException(status_code=413, detail="ファイルが大きすぎます（上限 1MB）")
+        raise_error(413, "file_too_large", "ファイルが大きすぎます（上限 1MB）", limit="1MB")
     try:
         content = resolved.read_text(errors="replace")
     except Exception:
@@ -69,7 +70,7 @@ def put_file(path: str = Body(...), content: str = Body(...)):
     # 書き込みサイズも GET と同じ上限で塞ぐ。 これがないと tailnet 内ユーザが HOME 配下の
     # 任意ファイルに数 GB 書いて disk を枯渇させられる。
     if len(content.encode("utf-8")) > FILE_SIZE_LIMIT:
-        raise HTTPException(status_code=413, detail="ファイルが大きすぎます（上限 1MB）")
+        raise_error(413, "file_too_large", "ファイルが大きすぎます（上限 1MB）", limit="1MB")
     try:
         resolved.write_text(content, encoding="utf-8")
     except Exception:
@@ -135,7 +136,7 @@ def _resolve_task_output_path(path: str) -> Path:
 def get_task_output(path: str = Query(...)):
     resolved = _resolve_task_output_path(path)
     if resolved.stat().st_size > FILE_SIZE_LIMIT:
-        raise HTTPException(status_code=413, detail="ファイルが大きすぎます（上限 1MB）")
+        raise_error(413, "file_too_large", "ファイルが大きすぎます（上限 1MB）", limit="1MB")
     try:
         content = resolved.read_text(errors="replace")
     except Exception:
@@ -163,7 +164,7 @@ def get_task_transcript(path: str = Query(...)):
     if not _is_subagent_jsonl(resolved):
         raise HTTPException(status_code=404, detail="Not a subagent transcript")
     if resolved.stat().st_size > FILE_SIZE_LIMIT:
-        raise HTTPException(status_code=413, detail="ファイルが大きすぎます（上限 1MB）")
+        raise_error(413, "file_too_large", "ファイルが大きすぎます（上限 1MB）", limit="1MB")
     events: list[dict] = []
     try:
         with resolved.open() as fh:
