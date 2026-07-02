@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { apiFetch } from '../../utils/api.js'
+import { setOverlay } from '../../state/ui.js'
 import TranscriptEvent from '../subagents/TranscriptEvent.jsx'
 import './TaskNotification.css'
 
@@ -8,15 +9,14 @@ import './TaskNotification.css'
 // exit code が 0 以外なら error 色。 これにより harness の `<task-notification>` が
 // 「自分が送ったメッセージ」 風に右寄せ表示される誤表示を解消する。
 //
-// 2 段構え取得: sid + taskId があれば `/sessions/{sid}/subagents/agent-{taskId}/transcript`
-// を先に試し、 hit すれば subagent JSONL の構造化 event として描画する。 miss (= Monitor / Bash
-// 系の task で subagent 経路が無い場合、 または旧 claude harness で symlink 化されてない場合) は
-// `/task-output` に fallback して raw text を pre で出す。 これで PWA 展開時に「Agent 出力を
-// 綺麗に読める」 + 「Monitor 出力も引き続き読める」 の両立になる (= 2026-07-02 顛末、 Claude Code
-// が `<task-notification>` output-file を subagent jsonl symlink に変えた事への追随)。
+// 2 段構え取得: `/task-transcript?path=<outputFile>` を先に試し、 hit すれば symlink 追跡後の
+// subagent JSONL を parse して events で構造化表示する (= claude_sid drift でも到達可、 sid 経路
+// と違い履歴 subagent が読める)。 miss (= Monitor / Bash 系で subagent jsonl でない) は
+// `/task-output` に fallback して raw text を pre で出す。 subagent transcript が取れた場合は
+// 🤖 詳細ボタンを添えて SubagentsModal に飛べるようにする (= 長い transcript を全画面で読む導線)。
 function TaskNotification({ msg }) {
   const [open, setOpen] = useState(false)
-  const [events, setEvents] = useState(null)  // 構造化描画用 (= subagent transcript hit 時)
+  const [events, setEvents] = useState(null)  // 構造化描画用 (= /task-transcript hit 時)
   const [content, setContent] = useState(null)  // raw 描画用 (= /task-output fallback 時)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -35,25 +35,21 @@ function TaskNotification({ msg }) {
     if (!msg.outputFile) return
     setLoading(true)
     setError(null)
-    // 1. subagent transcript を先に試す (= sid + taskId が来てて、 かつ Task/Agent 由来のもの)
-    if (msg.sid && msg.taskId) {
-      try {
-        const res = await apiFetch(
-          `/sessions/${encodeURIComponent(msg.sid)}/subagents/${encodeURIComponent(`agent-${msg.taskId}`)}/transcript`,
-        )
-        if (res.ok) {
-          const data = await res.json()
-          const evs = Array.isArray(data?.events) ? data.events : []
-          if (evs.length > 0) {
-            setEvents(evs)
-            setContent(null)
-            setLoading(false)
-            return
-          }
+    // 1. `/task-transcript` を先に試す (= symlink 経由で subagent jsonl 構造化取得)
+    try {
+      const res = await apiFetch(`/task-transcript?path=${encodeURIComponent(msg.outputFile)}`)
+      if (res.ok) {
+        const data = await res.json()
+        const evs = Array.isArray(data?.events) ? data.events : []
+        if (evs.length > 0) {
+          setEvents(evs)
+          setContent(null)
+          setLoading(false)
+          return
         }
-      } catch {
-        // fall through to raw output
       }
+    } catch {
+      // fall through to raw output
     }
     // 2. fallback: raw output ファイルを読む (= Monitor / バックグラウンド Bash 等)
     try {
@@ -90,6 +86,15 @@ function TaskNotification({ msg }) {
     await loadOutput()
   }
 
+  // subagent transcript が取れてる時だけ「🤖 詳細で開く」 = SubagentsModal を outputFile 起点で開く
+  // (= taskOutputPath focus 経路、 pathOverride TranscriptView で描画)。 raw fallback 時は非表示。
+  const openInSubagents = (e) => {
+    e.stopPropagation()
+    if (!msg.outputFile) return
+    setOverlay('subagentsFocus', { kind: 'taskOutputPath', value: msg.outputFile })
+    setOverlay('subagents', true)
+  }
+
   return (
     <div className="message system task-note">
       <div className={`task-note-card${isError ? ' is-error' : ''}`}>
@@ -110,7 +115,15 @@ function TaskNotification({ msg }) {
             {!loading && !error && events && (
               <div className="task-note-transcript">
                 {events.map((ev, i) => <TranscriptEvent key={i} event={ev} />)}
-                {msg.outputFile && (
+                <div className="task-note-actions">
+                  <button
+                    type="button"
+                    className="task-note-open-modal"
+                    onClick={openInSubagents}
+                    title="サブエージェント詳細を全画面で開く"
+                  >
+                    🤖 詳細で開く
+                  </button>
                   <button
                     type="button"
                     className="task-note-reload"
@@ -120,7 +133,7 @@ function TaskNotification({ msg }) {
                   >
                     ↻ 再読込
                   </button>
-                )}
+                </div>
               </div>
             )}
             {!loading && !error && !events && (
