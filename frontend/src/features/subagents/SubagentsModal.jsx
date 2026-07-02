@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useSyncExternalStore } from 'react'
 import TranscriptEvent from './TranscriptEvent.jsx'
 import { apiFetch } from '../../utils/api.js'
 import { useEscape } from '../../hooks/useEscape.js'
+import { useT } from '../../i18n/t.js'
 import { subagentsSse } from '../../transport/sse-subagents.ts'
 import {
   subscribe as subscribeSessions,
@@ -40,6 +41,7 @@ function StatusChip({ done, status }) {
 }
 
 function TranscriptView({ sid, agent, onBack }) {
+  const t = useT()
   const [events, setEvents] = useState(null)
   const [rawContent, setRawContent] = useState(null)  // /task-transcript が 404 の場合の raw fallback
   const [error, setError] = useState(null)
@@ -80,27 +82,29 @@ function TranscriptView({ sid, agent, onBack }) {
         }
         throw new Error(`HTTP ${r.status}`)
       })
-      .catch(e => { if (e.name !== 'AbortError') setError('transcript を読めませんでした') })
+      .catch(e => { if (e.name !== 'AbortError') setError(t('subagents.transcript.load_failed')) })
     return () => controller.abort()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sid, agent.agentId, agent.wf, agent.pathOverride])
 
   return (
     <div className="sa-transcript">
-      <button className="sa-back" onClick={onBack}>← 戻る</button>
+      <button className="sa-back" onClick={onBack}>← {t('common.back')}</button>
       <div className="sa-detail-head">
-        <span className="sa-detail-desc">{agent.label || agent.description || agent.agentId || 'Task transcript'}</span>
+        <span className="sa-detail-desc">{agent.label || agent.description || agent.agentId || t('subagents.transcript.title_fallback')}</span>
         {agent.done !== undefined && <StatusChip done={agent.done} />}
       </div>
       {error && <span className="error">{error}</span>}
-      {events === null && rawContent === null && !error && <span className="dim">読み込み中…</span>}
-      {events && events.length === 0 && rawContent === null && <span className="dim">(まだ出力がありません)</span>}
+      {events === null && rawContent === null && !error && <span className="dim">{t('common.loading')}</span>}
+      {events && events.length === 0 && rawContent === null && <span className="dim">{t('subagents.transcript.empty')}</span>}
       {events && events.map((ev, i) => <TranscriptEvent key={i} event={ev} />)}
-      {rawContent !== null && <pre className="sa-raw-output">{rawContent || '(出力は空です)'}</pre>}
+      {rawContent !== null && <pre className="sa-raw-output">{rawContent || t('common.empty')}</pre>}
     </div>
   )
 }
 
 function WorkflowAgentsView({ sid, run, onBack, onOpenAgent }) {
+  const t = useT()
   const [agents, setAgents] = useState(null)
   const [error, setError] = useState(null)
 
@@ -112,21 +116,22 @@ function WorkflowAgentsView({ sid, run, onBack, onOpenAgent }) {
       { signal: controller.signal })
       .then(r => (r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`)))
       .then(data => setAgents(data.agents || []))
-      .catch(e => { if (e.name !== 'AbortError') setError('agent 一覧を読めませんでした') })
+      .catch(e => { if (e.name !== 'AbortError') setError(t('subagents.agents_load_failed')) })
     return () => controller.abort()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sid, run.runId])
 
   const doneCount = agents ? agents.filter(a => a.done).length : 0
 
   return (
     <div>
-      <button className="sa-back" onClick={onBack}>← 一覧へ</button>
+      <button className="sa-back" onClick={onBack}>← {t('common.back')}</button>
       <div className="sa-detail-head">
         <span className="sa-detail-desc">{run.workflowName || run.runId}</span>
         <StatusChip status={run.status} done />
       </div>
       <div className="sa-run-meta">
-        {agents && `${agents.length} agents ・ done ${doneCount}`}
+        {agents && t('subagents.run.done_count', { count: agents.length, done: doneCount })}
         {fmtTokens(run.totalTokens) && ` ・ ${fmtTokens(run.totalTokens)} tok`}
         {fmtDuration(run.durationMs) && ` ・ ${fmtDuration(run.durationMs)}`}
       </div>
@@ -134,7 +139,7 @@ function WorkflowAgentsView({ sid, run, onBack, onOpenAgent }) {
         <div className="sa-run-phases">{run.phaseTitles.join(' → ')}</div>
       )}
       {error && <span className="error">{error}</span>}
-      {agents === null && !error && <span className="dim">読み込み中…</span>}
+      {agents === null && !error && <span className="dim">{t('common.loading')}</span>}
       {agents && (
         <ul className="sa-list">
           {agents.map((a, i) => (
@@ -166,6 +171,7 @@ export default function SubagentsModal() {
 }
 
 function SubagentsModalInner({ sid, focus, onClose }) {
+  const t = useT()
   const [data, setData] = useState(null)  // {subagents, workflows}
   const [error, setError] = useState(null)
   const [run, setRun] = useState(null)        // drill-down 中の Workflow run
@@ -225,7 +231,7 @@ function SubagentsModalInner({ sid, focus, onClose }) {
     <div className="modal-overlay" onClick={onClose} data-testid="subagents-modal">
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <span className="modal-path">Subagents</span>
+          <span className="modal-path">{t('subagents.title')}</span>
           <div className="modal-actions">
             {/* SSE で常時 live 同期するため手動 reload ボタンは不要 (2026-06-12) */}
             <button className="modal-close" onClick={onClose}>✕</button>
@@ -238,9 +244,9 @@ function SubagentsModalInner({ sid, focus, onClose }) {
           ) : run ? (
             <WorkflowAgentsView sid={sid} run={run} onBack={() => setRun(null)} onOpenAgent={setAgent} />
           ) : data === null && !error ? (
-            <span className="dim">読み込み中…</span>
+            <span className="dim">{t('common.loading')}</span>
           ) : isEmpty ? (
-            <span className="dim">このセッションでは、 まだサブエージェントは起動していません。</span>
+            <span className="dim">{t('subagents.empty')}</span>
           ) : (
             <>
               {workflows.length > 0 && (
