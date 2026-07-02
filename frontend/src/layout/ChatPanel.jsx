@@ -167,9 +167,10 @@ export default function ChatPanel({ sid }) {
   }, [status?.backend_start_time, setLoading, setMessages])
 
   // 停止ボタンの表示判定 = backend 権威 loading の派生 (= 旧 AppShell)。
+  // pending_plan (= ExitPlanMode 承認待ち) も止められる状態として拾う。
   const showStopButton = !!(
     activeSid
-    && (loading[activeSid] || status?.pending_question)
+    && (loading[activeSid] || status?.pending_question || status?.pending_plan)
   )
 
   // SW からの「push-received」 メッセージで即座に fetchLatest を発火させる。
