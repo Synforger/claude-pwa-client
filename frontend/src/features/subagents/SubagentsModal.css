@@ -141,3 +141,17 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* /task-transcript が 404 (= subagent jsonl 以外) を返した時の /task-output raw fallback。
+   Monitor / Bash 由来の background task がここに落ちる。 */
+.sa-raw-output {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 2px solid var(--border);
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: auto;
+}
