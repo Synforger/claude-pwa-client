@@ -8,6 +8,7 @@
 //   - Android Chrome: 通常タブ + PWA どちらでも動作。
 
 import { apiFetch } from '../../utils/api.js'
+import { tRaw } from '../../i18n/t.js'
 
 const ENABLED_KEY = 'cpc_push_enabled'
 
@@ -70,7 +71,7 @@ async function getRegistration() {
 
 export async function enablePush() {
   if (!isPushSupported()) {
-    throw new Error('Push 通知に対応していません')
+    throw new Error(tRaw('push.error.unsupported'))
   }
   // standalone 必須は iOS / iPadOS Safari の制約のみ (= 16.4+ でもホーム画面追加した PWA で
   // のみ push 配信)。 macOS Safari / Chrome / Firefox は通常タブで push 受信可、 Sonoma 以降の
@@ -78,19 +79,19 @@ export async function enablePush() {
   // iOS Safari の判定は userAgent + touch capability で行う (= navigator.standalone は
   // macOS Safari でも定義されうるので不安定、 UA + touchend が公式 Apple 推奨パターン)。
   if (isMobileSafari() && !isStandalone()) {
-    throw new Error('iOS では「ホーム画面に追加」した PWA でのみ通知を受け取れます')
+    throw new Error(tRaw('push.error.ios_pwa_required'))
   }
 
   const perm = await Notification.requestPermission()
-  if (perm !== 'granted') throw new Error('通知が許可されませんでした')
+  if (perm !== 'granted') throw new Error(tRaw('push.error.permission_denied'))
 
   const keyRes = await apiFetch(`/push/vapid-public-key`)
-  if (!keyRes.ok) throw new Error('サーバ側の VAPID 鍵が未設定です')
+  if (!keyRes.ok) throw new Error(tRaw('push.error.vapid_missing'))
   const { public_key } = await keyRes.json()
-  if (!public_key) throw new Error('VAPID 公開鍵が空です')
+  if (!public_key) throw new Error(tRaw('push.error.vapid_empty'))
 
   const reg = await getRegistration()
-  if (!reg) throw new Error('Service Worker が登録されていません')
+  if (!reg) throw new Error(tRaw('push.error.sw_not_registered'))
 
   // 既存サブスクリプションがあれば再利用 (鍵変更時のみ作り直し)
   let sub = await reg.pushManager.getSubscription()
@@ -114,7 +115,7 @@ export async function enablePush() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(sub.toJSON()),
   })
-  if (!res.ok) throw new Error('サーバへのサブスクリプション登録に失敗')
+  if (!res.ok) throw new Error(tRaw('push.error.subscribe_failed'))
 
   setEnabledFlag(true)
   return true

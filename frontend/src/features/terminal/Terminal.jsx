@@ -16,6 +16,7 @@
 import { useEffect, useRef, useState, useCallback, memo } from 'react'
 import { useTerminal } from './useTerminal.js'
 import OnScreenKeyboard from '../ios-native/OnScreenKeyboard.jsx'
+import { useT } from '../../i18n/t.js'
 
 const DEFAULT_WS_BASE =
   (typeof window !== 'undefined' && window.location.protocol === 'https:'
@@ -27,6 +28,7 @@ const DEFAULT_WS_BASE =
 const HIDDEN_BUF_MAX_BYTES = 1024 * 1024  // 1MB
 
 function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = true }) {
+  const t = useT()
   const containerRef = useRef(null)
   const { terminal, getDimensions, scrollToBottom } = useTerminal(containerRef)
 
@@ -266,7 +268,7 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
             autoCorrect="off"
             autoComplete="off"
             spellCheck={false}
-            placeholder="入力 → Send で確定"
+            placeholder={t('terminal.input_placeholder')}
             style={inputStyle}
           />
           <button
@@ -284,7 +286,7 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
             type="button"
             onClick={() => setShowKbd((v) => !v)}
             style={{ ...keyBtnStyle, marginLeft: 'auto', background: showKbd ? '#3a5a8c' : '#2a2d35', color: '#fff' }}
-          >⌨ {showKbd ? '隠す' : 'キーボード'}</button>
+          >⌨ {showKbd ? t('terminal.keyboard_hide') : t('terminal.keyboard_show')}</button>
         </div>
       </div>
       {showKbd && <OnScreenKeyboard onKey={sendRaw} />}

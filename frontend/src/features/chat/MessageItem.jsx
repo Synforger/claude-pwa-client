@@ -6,6 +6,7 @@ import { getEntry as getMessageEntry } from '../../registry/messageRegistry.js'
 import { formatToolResultContent, formatCost, formatDuration, formatModelName, formatTokens } from '../../utils/format.js'
 import { diffLines, compactDiff } from '../../utils/diff.js'
 import { apiFetch } from '../../utils/api.js'
+import { useT } from '../../i18n/t.js'
 import './MessageItem.css'
 
 const RESULT_PREVIEW_CHARS = 800
@@ -186,10 +187,12 @@ function DiffView({ diffInput }) {
 
 // 通常完了 (end_turn / tool_use) 以外の停止理由をチップで強調表示
 const STOP_REASON_LABELS = {
-  max_tokens: { label: '⚠ トークン上限で停止', cls: 'warn' },
-  refusal: { label: '🚫 拒否されました', cls: 'danger' },
-  pause_turn: { label: '⏸ 一時停止', cls: 'info' },
-  model_context_window_exceeded: { label: '⚠ コンテキスト窓超過', cls: 'warn' },
+  // stop_reason label は t() で動的引き。 直接 t() をここに書けないので i18n key を持たせ
+  // 描画時に t(labelKey) する形にする (= フックの再 render で言語切替に追随)。
+  max_tokens: { labelKey: 'message.stop.max_tokens', cls: 'warn' },
+  refusal: { labelKey: 'message.stop.refusal', cls: 'danger' },
+  pause_turn: { labelKey: 'message.stop.pause_turn', cls: 'info' },
+  model_context_window_exceeded: { labelKey: 'message.stop.model_context_window_exceeded', cls: 'warn' },
 }
 
 // 4.8 の refusal は stop_details に理由を持つ。 shape は string / {reason|message|type} の
@@ -204,20 +207,21 @@ function stopDetailText(details) {
 }
 
 function StopReasonChip({ meta, streaming }) {
+  const t = useT()
   if (!meta || streaming) return null
   if (meta.is_error) {
     const detail = stopDetailText(meta.stop_details)
     const label = meta.stop_reason ? ` (${meta.stop_reason})` : ''
     return (
       <div className="stop-chip danger">
-        ⚠ エラーで停止{label}{detail ? `: ${detail}` : ''}
+        {t('message.stop.error_prefix')}{label}{detail ? `: ${detail}` : ''}
       </div>
     )
   }
   if (!meta.stop_reason || meta.stop_reason === 'end_turn' || meta.stop_reason === 'tool_use') return null
   const def = STOP_REASON_LABELS[meta.stop_reason]
   if (!def) return <div className="stop-chip info">⚠ {meta.stop_reason}</div>
-  return <div className={`stop-chip ${def.cls}`}>{def.label}</div>
+  return <div className={`stop-chip ${def.cls}`}>{t(def.labelKey)}</div>
 }
 
 function MetaLine({ meta, streaming, apiKeySource, trailing }) {
@@ -252,6 +256,8 @@ function MetaLine({ meta, streaming, apiKeySource, trailing }) {
 }
 
 const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKeySource, activeSubagentTool, onOpenSubagents, onFork }) {
+  // `t` は tool ループ変数として local scope で shadow するので、 hook 側は tt に alias。
+  const tt = useT()
   // system kind は messageRegistry に「fromEvent + Render」 ペアで集約しており、
   // ここでは generic lookup で表示コンポーネントを引くだけ (= F-04 consumer)。
   // 新しい system kind を増やす時は messageRegistry に Render を 1 個足すだけで配線完了、
@@ -397,7 +403,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
                           type="button"
                           className="tool-open-subagents"
                           onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpenSubagents(subagentFocus(t)) }}
-                          title="サブエージェント一覧を開く"
+                          title={tt('message.tool.open_subagents')}
                         >
                           🤖{!t.result && <span className="tool-running-dot" />}
                         </button>
@@ -411,7 +417,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
                           <pre className="tool-input-full">{t.label}</pre>
                         )}
                         {showResult && (() => {
-                          const shown = truncated ? resultText.slice(0, RESULT_PREVIEW_CHARS) + '\n…（省略）' : resultText
+                          const shown = truncated ? resultText.slice(0, RESULT_PREVIEW_CHARS) + tt('message.tool.result_truncated_suffix') : resultText
                           const errorClass = t.result.is_error ? 'is-error' : ''
                           if ((t.name === 'Grep' || t.name === 'Glob') && !t.result.is_error) {
                             return <LinkifiedResult text={shown} onOpenFile={onOpenFile} errorClass={errorClass} />

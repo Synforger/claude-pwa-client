@@ -105,5 +105,57 @@
   "storage.warn_text": "Storage usage {pct}% ({used} / {quota})",
 
   "alert.attach_failed": "Failed to attach file: {detail}",
-  "alert.end_session_failed": "Failed to end session: {detail}"
+  "alert.end_session_failed": "Failed to end session: {detail}",
+
+  "message.stop.max_tokens": "⚠ Stopped at max tokens",
+  "message.stop.refusal": "🚫 Refused",
+  "message.stop.pause_turn": "⏸ Paused",
+  "message.stop.model_context_window_exceeded": "⚠ Context window exceeded",
+  "message.stop.error_prefix": "⚠ Stopped with an error",
+  "message.tool.open_subagents": "Open subagent list",
+  "message.tool.result_truncated_suffix": "\n…(truncated)",
+
+  "screenshare.label": "Screen share",
+  "screenshare.back_to_stream": "Back to screen share",
+  "screenshare.open_settings": "Open settings",
+  "screenshare.settings_title": "Settings (quality / codec / mouse mode etc.)",
+  "screenshare.exit_fullscreen": "Exit fullscreen",
+  "screenshare.enter_fullscreen": "Fullscreen",
+  "screenshare.enter_fullscreen_title": "Fullscreen (full window view)",
+
+  "plan_approval.accept": "Approve (auto-accept edits)",
+  "plan_approval.reject": "Reject (keep planning)",
+  "plan_approval.no_content": "(no plan body)",
+
+  "file_preview.too_large": "File is too large",
+  "file_preview.favorite_remove": "Remove from favorites",
+  "file_preview.favorite_add": "Add to favorites",
+  "file_preview.saving": "Saving...",
+  "file_preview.save": "Save",
+  "file_preview.edit": "Edit",
+  "file_preview.loading": "Loading...",
+  "file_preview.load_error": "Failed to load",
+  "file_preview.save_error": "Save failed: {detail}",
+  "file_preview.overwrite_confirm": "Overwrite this file?\n{path}",
+  "file_tree.load_error": "Load error ({detail})",
+  "file_tree.favorites_header": "★ Favorites",
+
+  "terminal.input_placeholder": "Type here → tap Send to submit",
+  "terminal.keyboard_hide": "Hide",
+  "terminal.keyboard_show": "Keyboard",
+
+  "push.error.unsupported": "Push notifications are not supported",
+  "push.error.ios_pwa_required": "On iOS, notifications only work when the PWA is installed to the Home Screen",
+  "push.error.permission_denied": "Notification permission was denied",
+  "push.error.vapid_missing": "The server VAPID key is not configured",
+  "push.error.vapid_empty": "The VAPID public key is empty",
+  "push.error.sw_not_registered": "The service worker is not registered",
+  "push.error.subscribe_failed": "Failed to register push subscription on the server",
+
+  "format.image_placeholder": "[image]",
+  "format.offline": "Offline",
+  "format.timeout": "Timeout",
+  "format.network_error": "Network error (cannot reach the server)",
+  "format.send_failed": "Send failed",
+  "format.error_generic": "Error: {message}"
 }

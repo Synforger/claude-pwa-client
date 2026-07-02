@@ -1,5 +1,6 @@
 import { getToolHandler } from '../tools/_registry.js'
 import { truncate, SHORT_LABEL_MAX } from '../tools/_shared.js'
+import { tRaw } from '../i18n/t.js'
 
 // formatTool は tool 名から tools/ 配下の handler を引き、 個別 format を呼ぶだけ。
 // 表示の作り込みは各 handler (= frontend/src/tools/<family>.js の named export) 側に
@@ -109,7 +110,7 @@ export function formatToolResultContent(content) {
     return content
       .map(b => {
         if (b?.type === 'text') return stripAnsi(b.text ?? '')
-        if (b?.type === 'image') return '[画像]'
+        if (b?.type === 'image') return tRaw('format.image_placeholder')
         // ToolSearch の result block: tool 名だけ抜き出す (= 旧経路では JSON.stringify
         // で生表示されてた)
         if (b?.type === 'tool_reference') return b.tool_name || '[tool_reference]'
@@ -127,11 +128,11 @@ export function formatToolResultContent(content) {
 }
 
 export function describeError(e) {
-  if (!navigator.onLine) return 'オフライン'
-  if (e?.name === 'TimeoutError') return 'タイムアウト'
-  if (e instanceof TypeError) return 'ネットワークエラー（サーバーに接続できません）'
-  if (e?.message) return `エラー: ${e.message}`
-  return '送信失敗'
+  if (!navigator.onLine) return tRaw('format.offline')
+  if (e?.name === 'TimeoutError') return tRaw('format.timeout')
+  if (e instanceof TypeError) return tRaw('format.network_error')
+  if (e?.message) return tRaw('format.error_generic', { message: e.message })
+  return tRaw('format.send_failed')
 }
 
 export function pctClass(pct) {

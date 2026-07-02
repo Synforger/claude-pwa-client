@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useT } from '../../i18n/t.js'
 
 // claude TUI が ExitPlanMode で出す承認プロンプトを、 chat UI 側に持ち上げる overlay。
 // 表示する choices は backend が tmux capture-pane から動的抽出した実テキスト
@@ -15,12 +16,13 @@ import remarkGfm from 'remark-gfm'
 //   pendingPlan: { tool_use_id, plan, choices: [{key, label}, ...] }
 //   onChoose(key): ユーザが選択肢を押した時 (= backend に tmux send-keys で <key>+Enter を投入)
 //   onClose(): overlay を閉じたい時 (= 背景タップ / X / Esc / 選択肢押下後)
-const FALLBACK_CHOICES = [
-  { key: '1', label: '承認 (auto-accept edits)' },
-  { key: '3', label: '却下 (keep planning)' },
+const FALLBACK_CHOICE_KEYS = [
+  { key: '1', labelKey: 'plan_approval.accept' },
+  { key: '3', labelKey: 'plan_approval.reject' },
 ]
 
 export default function PlanApprovalBubble({ pendingPlan, onChoose, onClose }) {
+  const t = useT()
   const [sending, setSending] = useState(null)
   // pending が消えたら sending 状態もリセット
   useEffect(() => {
@@ -29,8 +31,9 @@ export default function PlanApprovalBubble({ pendingPlan, onChoose, onClose }) {
 
   const choices = useMemo(() => {
     const c = pendingPlan?.choices
-    return Array.isArray(c) && c.length > 0 ? c : FALLBACK_CHOICES
-  }, [pendingPlan])
+    if (Array.isArray(c) && c.length > 0) return c
+    return FALLBACK_CHOICE_KEYS.map(x => ({ key: x.key, label: t(x.labelKey) }))
+  }, [pendingPlan, t])
 
   if (!pendingPlan) return null
 
@@ -51,13 +54,13 @@ export default function PlanApprovalBubble({ pendingPlan, onChoose, onClose }) {
     <div className="plan-approval-overlay" onClick={handleOverlayClick} data-testid="plan-approval-bubble">
       <div className="plan-approval-dialog">
         <div className="plan-approval-titlebar">
-          <span className="plan-approval-title">📑 plan 承認待ち</span>
+          <span className="plan-approval-title">📑 {t('topbar.plan_approval_label')}</span>
           {onClose && (
             <button
               type="button"
               className="plan-approval-close"
               onClick={onClose}
-              aria-label="閉じる"
+              aria-label={t('common.close')}
             >
               ×
             </button>
@@ -65,7 +68,7 @@ export default function PlanApprovalBubble({ pendingPlan, onChoose, onClose }) {
         </div>
         <div className="plan-approval-body">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {pendingPlan.plan || '(plan 内容なし)'}
+            {pendingPlan.plan || t('plan_approval.no_content')}
           </ReactMarkdown>
         </div>
         <div className="plan-approval-choices">
