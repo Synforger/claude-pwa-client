@@ -105,5 +105,57 @@
   "storage.warn_text": "ストレージ使用率 {pct}% ({used} / {quota})",
 
   "alert.attach_failed": "添付ファイル送信に失敗: {detail}",
-  "alert.end_session_failed": "セッション終了に失敗: {detail}"
+  "alert.end_session_failed": "セッション終了に失敗: {detail}",
+
+  "message.stop.max_tokens": "⚠ トークン上限で停止",
+  "message.stop.refusal": "🚫 拒否されました",
+  "message.stop.pause_turn": "⏸ 一時停止",
+  "message.stop.model_context_window_exceeded": "⚠ コンテキスト窓超過",
+  "message.stop.error_prefix": "⚠ エラーで停止",
+  "message.tool.open_subagents": "サブエージェント一覧を開く",
+  "message.tool.result_truncated_suffix": "\n…（省略）",
+
+  "screenshare.label": "画面共有",
+  "screenshare.back_to_stream": "画面共有に戻る",
+  "screenshare.open_settings": "設定を開く",
+  "screenshare.settings_title": "設定 (= 画質 / コーデック / Mouse モード等)",
+  "screenshare.exit_fullscreen": "元に戻す",
+  "screenshare.enter_fullscreen": "フルスクリーン",
+  "screenshare.enter_fullscreen_title": "フルスクリーン (= 全画面表示)",
+
+  "plan_approval.accept": "承認 (auto-accept edits)",
+  "plan_approval.reject": "却下 (keep planning)",
+  "plan_approval.no_content": "(plan 内容なし)",
+
+  "file_preview.too_large": "ファイルが大きすぎます",
+  "file_preview.favorite_remove": "お気に入りから削除",
+  "file_preview.favorite_add": "お気に入りに登録",
+  "file_preview.saving": "保存中...",
+  "file_preview.save": "保存",
+  "file_preview.edit": "編集",
+  "file_preview.loading": "読み込み中...",
+  "file_preview.load_error": "読み込みエラー",
+  "file_preview.save_error": "保存エラー: {detail}",
+  "file_preview.overwrite_confirm": "このファイルを上書き保存しますか?\n{path}",
+  "file_tree.load_error": "読み込みエラー ({detail})",
+  "file_tree.favorites_header": "★ お気に入り",
+
+  "terminal.input_placeholder": "入力 → Send で確定",
+  "terminal.keyboard_hide": "隠す",
+  "terminal.keyboard_show": "キーボード",
+
+  "push.error.unsupported": "Push 通知に対応していません",
+  "push.error.ios_pwa_required": "iOS では「ホーム画面に追加」した PWA でのみ通知を受け取れます",
+  "push.error.permission_denied": "通知が許可されませんでした",
+  "push.error.vapid_missing": "サーバ側の VAPID 鍵が未設定です",
+  "push.error.vapid_empty": "VAPID 公開鍵が空です",
+  "push.error.sw_not_registered": "Service Worker が登録されていません",
+  "push.error.subscribe_failed": "サーバへのサブスクリプション登録に失敗",
+
+  "format.image_placeholder": "[画像]",
+  "format.offline": "オフライン",
+  "format.timeout": "タイムアウト",
+  "format.network_error": "ネットワークエラー（サーバーに接続できません）",
+  "format.send_failed": "送信失敗",
+  "format.error_generic": "エラー: {message}"
 }
