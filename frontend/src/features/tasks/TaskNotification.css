@@ -84,3 +84,32 @@
   opacity: 0.5;
   cursor: default;
 }
+.task-note-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.task-note-actions .task-note-reload {
+  margin-top: 0;
+}
+.task-note-open-modal {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.task-note-open-modal:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.task-note-transcript {
+  max-height: 480px;
+  overflow: auto;
+  padding: 4px 6px;
+  background: rgba(255, 255, 255, 0.02);
+  border-left: 2px solid var(--border);
+}
