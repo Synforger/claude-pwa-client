@@ -112,8 +112,11 @@ def _is_subagent_jsonl(resolved: Path) -> bool:
     return resolved.name.startswith("agent-") and resolved.suffix == ".jsonl"
 
 
-@router.get("/task-output")
-def get_task_output(path: str = Query(...)):
+def _resolve_task_output_path(path: str) -> Path:
+    """/task-output と /task-transcript 共通の path 検証。 resolve() 後の絶対 path が
+    task-output regex (= /tmp/claude-.../tasks/*.output) OR subagent jsonl symlink target
+    にマッチすること + 実在 + is_file + UID 一致 の 4 条件を満たすものだけ通す。 それ以外は
+    403 / 404 / 400 を raise する。"""
     resolved = Path(path).expanduser().resolve()
     if not (_TASK_OUTPUT_RE.match(str(resolved)) or _is_subagent_jsonl(resolved)):
         raise HTTPException(status_code=403, detail="Access denied")
@@ -125,6 +128,12 @@ def get_task_output(path: str = Query(...)):
     # (= 別ユーザ / 攻撃者制御のシンボリックリンクを介した読み取りを塞ぐ)。
     if resolved.stat().st_uid != os.getuid():
         raise HTTPException(status_code=403, detail="Access denied")
+    return resolved
+
+
+@router.get("/task-output")
+def get_task_output(path: str = Query(...)):
+    resolved = _resolve_task_output_path(path)
     if resolved.stat().st_size > FILE_SIZE_LIMIT:
         raise HTTPException(status_code=413, detail="ファイルが大きすぎます（上限 1MB）")
     try:
@@ -133,6 +142,43 @@ def get_task_output(path: str = Query(...)):
         logger.exception("failed to read task output: %s", resolved)
         raise HTTPException(status_code=500, detail="Internal error")
     return {"path": str(resolved), "content": content}
+
+
+@router.get("/task-transcript")
+def get_task_transcript(path: str = Query(...)):
+    """<task-notification> の output-file が subagent jsonl symlink になった Claude Code 側
+    仕様に追随する構造化 endpoint。 symlink 追跡後の実体が subagent jsonl なら parse して
+    events 配列を返す (= /sessions/{sid}/subagents/{agent_id}/transcript と同じ描画情報)。
+
+    /sessions 経路は現行 claude_sid 依存で、 session restart で drift すると 404 に倒れる。
+    こちらは outputFile 引数を symlink 追跡だけで解決するので drift しない。 出力形状は
+    /sessions transcript endpoint と揃える (= agentId / events + meta 任意)。 target が
+    subagent jsonl でない (= Monitor / Bash 由来の raw output) 場合は 404 を返して frontend
+    は /task-output raw 経路に fallback する。"""
+    from backend.jsonl.events import subagent_line_to_events  # 局所 import: routes 起動時循環回避
+    import json as _json
+    resolved = _resolve_task_output_path(path)
+    # symlink 追跡後の実体が subagent jsonl でなければ transcript 化不能。 /task-output 側の
+    # 生読み経路に落として貰うため 404。
+    if not _is_subagent_jsonl(resolved):
+        raise HTTPException(status_code=404, detail="Not a subagent transcript")
+    if resolved.stat().st_size > FILE_SIZE_LIMIT:
+        raise HTTPException(status_code=413, detail="ファイルが大きすぎます（上限 1MB）")
+    events: list[dict] = []
+    try:
+        with resolved.open() as fh:
+            for raw in fh:
+                try:
+                    line = _json.loads(raw)
+                except _json.JSONDecodeError:
+                    continue
+                events.extend(subagent_line_to_events(line))
+    except OSError:
+        logger.exception("failed to read task transcript: %s", resolved)
+        raise HTTPException(status_code=500, detail="Internal error")
+    # agent_id は agent-<id>.jsonl の stem から抽出 (= SubagentsModal 側で focus 用に使う)
+    agent_id = resolved.stem
+    return {"agentId": agent_id, "path": str(resolved), "events": events}
 
 
 @router.get("/files/tree")
