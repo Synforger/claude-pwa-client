@@ -74,20 +74,15 @@ def latest_from_tail(
         )
     else:
         sess = last
-    # 7d% flap 吸収: Anthropic 側集計が 85%↔1% で一時的に揺らぐ。 同じ
-    # seven_day_resets_at を共有する直近行の中で max を採り単調側に寄せる。
-    cur_reset = last.get("seven_day_resets_at")
-    seven_day_pct = last.get("seven_day_pct")
-    same_window = [
-        p.get("seven_day_pct") for p in scoped
-        if p.get("seven_day_resets_at") == cur_reset
-        and isinstance(p.get("seven_day_pct"), (int, float))
-    ]
-    if same_window:
-        seven_day_pct = max(same_window)
+    # 5h / 7d は Anthropic の最新値 (= last 行の値) をそのまま採る。 旧実装は 7d 側で
+    # 「同 seven_day_resets_at を共有する行の max」 を採る flap 吸収を持っていたが、 これは
+    # Anthropic 側の恒久減少 (= 集計訂正 / モデル追加時の特例リセット等) を「flap」 として
+    # 塗り潰し、 実 report が下がっても window 終わりまで高い値に pin される事故を招いた
+    # (= 2026-07-02 personal account 74% pin、 実値 12% 観測)。 source-of-truth を素直に
+    # 追い、 短時間 flap が実際に問題化した時にはその時点で個別に扱う。
     return {
         "five_hour_pct": last.get("five_hour_pct"),
-        "seven_day_pct": seven_day_pct,
+        "seven_day_pct": last.get("seven_day_pct"),
         "five_hour_resets_at": last.get("five_hour_resets_at"),
         "seven_day_resets_at": last.get("seven_day_resets_at"),
         "context_pct": sess.get("context_pct") if sess else None,
