@@ -170,7 +170,7 @@ function ChatInputInner({
         >
           ⋯
         </button>
-        {showStopButton && (
+        {showStopButton ? (
           <button
             onClick={onStop}
             disabled={stopUnavailable}
@@ -179,16 +179,17 @@ function ChatInputInner({
             aria-label="停止"
             data-testid="chat-stop-button"
           >■</button>
+        ) : (
+          <button
+            onClick={handleSend}
+            disabled={!activeSession || (!localText.trim() && currentAttachments.length === 0)}
+            className="send"
+            aria-label="送信"
+            data-testid="chat-send-button"
+          >
+            送信
+          </button>
         )}
-        <button
-          onClick={handleSend}
-          disabled={!activeSession || (!localText.trim() && currentAttachments.length === 0)}
-          className="send"
-          aria-label="送信"
-          data-testid="chat-send-button"
-        >
-          送信
-        </button>
       </div>
     </div>
   )
