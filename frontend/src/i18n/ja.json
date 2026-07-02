@@ -54,6 +54,7 @@
 
   "task_note.background_task": "background task",
   "task_note.open_detail": "詳細を開く",
+  "task_output.title": "タスク出力",
 
   "subagents.title": "Subagents",
   "subagents.empty": "このセッションでは、 まだサブエージェントは起動していません。",
