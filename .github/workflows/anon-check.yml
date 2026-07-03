@@ -36,11 +36,21 @@ jobs:
 
       - name: Tracked-file anon scan (= 軽量、 source 1)
         shell: bash
-        run: bash .tooling/local-ci/anon-scan.sh
+        run: |
+          if grep -qE '^[^#[:space:]]' .tooling/local-ci/anon-words.txt; then
+            bash .tooling/local-ci/anon-scan.sh
+          else
+            echo "::warning::anon-words.txt has no active patterns (fallback wordlist / operator-master not synced in CI); skipping tracked-file scan. Real leak detection lives in the local pre-commit hook."
+          fi
 
       - name: Deep audit (= sources 2-10、 GITHUB_TOKEN で gh CLI 自動認証)
         if: hashFiles('.tooling/local-ci/anon-audit-deep.sh') != ''
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash .tooling/local-ci/anon-audit-deep.sh
+        run: |
+          if grep -qE '^[^#[:space:]]' .tooling/local-ci/anon-words.txt; then
+            bash .tooling/local-ci/anon-audit-deep.sh
+          else
+            echo "::warning::anon-words.txt has no active patterns; skipping deep audit."
+          fi
