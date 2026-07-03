@@ -5,7 +5,7 @@
 # 通常の anon-scan.sh (= tracked file 内 literal scan) に加えて、 公開可能性
 # に関わる全 source を一気に走査する deep audit。
 #
-# 検査範囲 (= 10 source、 full mode):
+# 検査範囲 (= 11 source、 full mode):
 #   1. 全 tracked file (= anon-scan.sh 経由)
 #   2. 全 git history blob (= git log --all -p)
 #   3. 全 commit message + body
@@ -17,15 +17,15 @@
 #   9. GitHub repo description / topics / homepage
 #  10. GitHub releases (= title + body + tag)
 #
-# gh CLI 未 install / 未認証なら 7-10 を skip 警告。 git 履歴系 1-6 は git
+# gh CLI 未 install / 未認証なら 7-11 を skip 警告。 git 履歴系 1-6 は git
 # だけで実行可能。
 #
 # --range <A>..<B> (= pre-push mode):
 #   push 境界の壁として毎 push で走らせる用途。 range 内 commit だけを対象に
-#   source 2/3/6 を走らせ、 それ以外 (1/4/5/7-10) は skip する:
+#   source 2/3/6 を走らせ、 それ以外 (1/4/5/7-11) は skip する:
 #     - 1 (tracked files) は pre-commit 段階で staged 単位に scan 済で二重
 #     - 4/5 は push 境界と別軸 (= 週次 belt-and-suspenders で拾う)
-#     - 7-10 は GitHub API 依存 + push 境界と直交
+#     - 7-11 は GitHub API 依存 + push 境界と直交
 #   これにより push 前検査を数百 ms 以下に抑え、 過去 leak の repeated
 #   findings で人間 fatigue を起こさない。
 #
@@ -129,7 +129,7 @@ total=0
 # --- source 1: tracked file (= anon-scan.sh 経由) ---
 # range mode では skip (= pre-commit 段階で既に staged 単位に scan 済)
 if [ -z "${RANGE}" ]; then
-    printf '\n=== source 1/10: tracked files (= anon-scan.sh) ===\n' >&2
+    printf '\n=== source 1/11: tracked files (= anon-scan.sh) ===\n' >&2
     if bash "${SCRIPT_DIR}/anon-scan.sh" >/dev/null 2>&1; then
         log_ok "tracked files: clean"
     else
@@ -140,7 +140,7 @@ fi
 
 # --- source 2: git history blob ---
 # full mode = 全 history、 range mode = push 対象 range のみ
-printf '\n=== source 2/10: git history blob (= 全 commit の全 diff) ===\n' >&2
+printf '\n=== source 2/11: git history blob (= 全 commit の全 diff) ===\n' >&2
 if [ -n "${RANGE}" ]; then
     hits=$(git log "${RANGE}" -p 2>/dev/null | scan_perl)
 else
@@ -150,7 +150,7 @@ n=$(count_hits "git history blob" "${hits}")
 total=$((total + n))
 
 # --- source 3: commit message ---
-printf '\n=== source 3/10: commit messages ===\n' >&2
+printf '\n=== source 3/11: commit messages ===\n' >&2
 if [ -n "${RANGE}" ]; then
     hits=$(git log "${RANGE}" --pretty='format:%H %s%n%b' 2>/dev/null | scan_perl)
 else
@@ -162,7 +162,7 @@ total=$((total + n))
 # --- source 4: branch 名 ---
 # range mode では skip (= push 境界と別軸、 週次 audit で拾う)
 if [ -z "${RANGE}" ]; then
-    printf '\n=== source 4/10: branch names ===\n' >&2
+    printf '\n=== source 4/11: branch names ===\n' >&2
     hits=$(git branch -a 2>/dev/null | scan_perl)
     n=$(count_hits "branch names" "${hits}")
     total=$((total + n))
@@ -171,7 +171,7 @@ fi
 # --- source 5: tag 名 + annotation ---
 # range mode では skip
 if [ -z "${RANGE}" ]; then
-    printf '\n=== source 5/10: tag names + annotations ===\n' >&2
+    printf '\n=== source 5/11: tag names + annotations ===\n' >&2
     tag_text=$(git tag -l 2>/dev/null; for t in $(git tag -l 2>/dev/null); do git tag -l --format='%(contents)' "$t" 2>/dev/null; done)
     hits=$(printf "%s" "${tag_text}" | scan_perl)
     n=$(count_hits "tags" "${hits}")
@@ -179,7 +179,7 @@ if [ -z "${RANGE}" ]; then
 fi
 
 # --- source 6: author + committer ---
-printf '\n=== source 6/10: author + committer email / name ===\n' >&2
+printf '\n=== source 6/11: author + committer email / name ===\n' >&2
 if [ -n "${RANGE}" ]; then
     hits=$(git log "${RANGE}" --pretty='format:%an <%ae> / %cn <%ce>' 2>/dev/null | scan_perl)
 else
@@ -188,13 +188,13 @@ fi
 n=$(count_hits "author/committer" "${hits}")
 total=$((total + n))
 
-# --- source 7-10: GitHub metadata (= gh CLI 経由) ---
+# --- source 7-11: GitHub metadata (= gh CLI 経由) ---
 # range mode では skip (= 全部 push 境界と直交)
 if [ -z "${RANGE}" ]; then
     if ! command -v gh >/dev/null 2>&1; then
-        log_warn "gh CLI 未 install、 GitHub 側 source 7-10 を skip"
+        log_warn "gh CLI 未 install、 GitHub 側 source 7-11 を skip"
     elif ! gh auth status >/dev/null 2>&1; then
-        log_warn "gh CLI 未認証、 GitHub 側 source 7-10 を skip"
+        log_warn "gh CLI 未認証、 GitHub 側 source 7-11 を skip"
     else
         # repo 名を git remote から推定。 github.com / github-* SSH alias 両対応。
         # BSD sed の ERE が alternation + quantifier で詰むので python に逃す。
@@ -206,30 +206,40 @@ print(f'{m.group(1)}/{m.group(2)}' if m else '')
 ")
 
         if [ -z "${repo}" ]; then
-            log_warn "remote origin が GitHub URL でない、 GitHub 側 source 7-10 を skip"
+            log_warn "remote origin が GitHub URL でない、 GitHub 側 source 7-11 を skip"
         else
             # --- source 7: PR title/body ---
-            printf '\n=== source 7/10: GitHub PR title/body ===\n' >&2
+            printf '\n=== source 7/11: GitHub PR title/body ===\n' >&2
             hits=$(gh pr list --repo "${repo}" --state all --limit 200 --json title,body 2>/dev/null | scan_perl)
             n=$(count_hits "GitHub PRs" "${hits}")
             total=$((total + n))
 
             # --- source 8: Issue title/body ---
-            printf '\n=== source 8/10: GitHub Issues title/body ===\n' >&2
+            printf '\n=== source 8/11: GitHub Issues title/body ===\n' >&2
             hits=$(gh issue list --repo "${repo}" --state all --limit 200 --json title,body 2>/dev/null | scan_perl)
             n=$(count_hits "GitHub Issues" "${hits}")
             total=$((total + n))
 
             # --- source 9: repo description + topics + homepage ---
-            printf '\n=== source 9/10: GitHub repo description / topics / homepage ===\n' >&2
+            printf '\n=== source 9/11: GitHub repo description / topics / homepage ===\n' >&2
             hits=$(gh repo view "${repo}" --json description,topics,homepageUrl 2>/dev/null | scan_perl)
             n=$(count_hits "GitHub repo metadata" "${hits}")
             total=$((total + n))
 
             # --- source 10: releases ---
-            printf '\n=== source 10/10: GitHub releases ===\n' >&2
+            printf '\n=== source 10/11: GitHub releases ===\n' >&2
             hits=$(gh release list --repo "${repo}" --limit 100 --json name,body,tagName 2>/dev/null | scan_perl)
             n=$(count_hits "GitHub releases" "${hits}")
+            total=$((total + n))
+
+            # --- source 11: GitHub Actions run records (= displayTitle) ---
+            # `gh run` の run record は force-push で書き換わらない: 元 commit
+            # oid を保持したまま original message を title 表示する。 過去 leak
+            # scrub で history + PR title を rename しても、 ここに残ると
+            # 公開状態で参照可能 (= 実 事故を起こしたのでこの source が追加された)。
+            printf '\n=== source 11/11: GitHub Actions run records (= displayTitle) ===\n' >&2
+            hits=$(gh run list --repo "${repo}" --limit 500 --json displayTitle 2>/dev/null | scan_perl)
+            n=$(count_hits "GitHub runs" "${hits}")
             total=$((total + n))
         fi
     fi
