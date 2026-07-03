@@ -250,18 +250,13 @@ tasks:
   anon:scan:
     desc: Full-tree anonymity scan (= pre-commit hook と同じ scanner、 全 file)
     cmds:
-      - bash .tooling/local-ci/anon-scan.sh
+      - bash "$HOME/.git-hooks/scanners/anon-scan.sh"
 
   audit:deep:
-    desc: Deep anon audit across 10 sources (= history + commit msg + branches + tags + author + GitHub PR/Issue/desc/release)
+    desc: Deep anon audit across 11 sources (needs guard-dispatcher armed on this machine)
     cmds:
-      - bash .tooling/local-ci/anon-sync-truth.sh
-      - bash .tooling/local-ci/anon-audit-deep.sh
+      - bash "$HOME/.git-hooks/scanners/anon-audit-deep.sh"
 
-  audit:sync-truth:
-    desc: Pull anon-words.txt from the operator's master truth (= ANON_TRUTH_PATH env or platform default)
-    cmds:
-      - bash .tooling/local-ci/anon-sync-truth.sh
 
   audit:
     desc: Full security audit (= pip-audit + npm audit + gitleaks full history + anon-scan)
@@ -290,7 +285,7 @@ tasks:
       - |
         echo ""
         echo "=== anon-scan (full tree, personal identifier scan) ==="
-        bash .tooling/local-ci/anon-scan.sh
+        bash "$HOME/.git-hooks/scanners/anon-scan.sh"
 
   clean:
     desc: Purge __pycache__ + node_modules cache + frontend dist
