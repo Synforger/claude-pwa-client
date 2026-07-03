@@ -22,6 +22,8 @@ export interface UserMessageEvent {
   content?: Record<string, unknown>
   /** epoch ms */
   ts?: number
+  /** client 発行 Idempotency-Key。 楽観 bubble ↔ 実 bubble の厳密対応付けに使う。 backend restart / TTL 超え / 対応付け失敗時は null */
+  send_id?: string | null
 }
 
 /** claude 応答 (= text / thinking / tool_use ブロック含む) */
