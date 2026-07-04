@@ -1,32 +1,25 @@
 ---
-name: 不具合報告
-about: 不具合の報告はこちら
+name: Bug report
+about: Report something that does not work as documented
 title: ''
 labels: 'bug :bug:'
 assignees: ''
 
 ---
 
-## 不具合概要
+## Summary
 
-## 該当ページ
+<!-- What happened, in one or two sentences. -->
 
-## 発生環境
-- 環境：
-- 端末：
-- バージョン（アプリのみ）：
+## Steps to reproduce
 
-## 再現手順
-1. hoge
-2. hoge
-3. hoge
+1.
 
-## 本来の挙動
+## Expected behaviour
 
-## 修正しないとどう困るか
+## Actual behaviour
 
-## 原因
+## Environment
 
-<!-- もし分かる場合、当たりがつく場合は記載 -->
-
-## 修正案
+- OS / version:
+- Tool version (tag or commit):
