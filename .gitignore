@@ -24,4 +24,6 @@ scripts/*
 !scripts/ws-pty-smoketest.py
 !scripts/healthcheck.sh
 !scripts/gen-third-party-notices.py
+!scripts/setup-branch-protection.sh
+!scripts/post-init-github-settings.sh
 .tooling/local-ci/anon-words.txt
