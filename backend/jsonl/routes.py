@@ -25,6 +25,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from backend.jsonl.events import jsonl_line_to_events
+from backend.terminal.send_dedup import send_dedup
 from backend.observability.correlation import current_corr_id
 from backend.jsonl.notifications import maybe_push_blockers as _maybe_push_blockers
 from backend.jsonl.session_status import (
@@ -520,6 +521,17 @@ def _process_new_lines(sid: str, lines: list[str]) -> None:
             # frontend は per-sid SSE では未使用、 /all SSE で activeSid 含む全 sid 更新の
             # 振分に使う。 event 自身に sid field が予めある場合は尊重 (= 滅多にない)。
             event.setdefault("sid", sid)
+            # user_message event に client 発行 send_id を焼く。 その sid で「未 mapping
+            # 最古 send_id」 に本 JSONL uuid を対応付け、 同 send_id を event に載せる
+            # (= 楽観 bubble ↔ 実 bubble の厳密対応付け、 frontend の reconcile が
+            # 優先順位で pop する identity 経路)。 対応候補が無ければ send_id なし = null
+            # で流れる (frontend は近傍 optimistic pop の fallback に降格)。
+            if event.get("type") == "user_message":
+                jsonl_uuid = event.get("uuid")
+                if jsonl_uuid:
+                    bound = send_dedup.bind_jsonl_uuid(sid, jsonl_uuid)
+                    if bound is not None:
+                        event["send_id"] = bound
             jsonl_event_broadcaster.publish(sid, event)
 
 

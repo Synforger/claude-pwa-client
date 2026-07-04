@@ -37,6 +37,7 @@ events:
       parentUuid: { type: string, nullable: true, description: "親 message uuid (= fork lineage)" }
       content:    { type: object, description: "raw JSONL content (= tool_result 含む list / string 両対応)" }
       ts:         { type: integer, description: "epoch ms" }
+      send_id:    { type: string, nullable: true, description: "client 発行 Idempotency-Key。 楽観 bubble ↔ 実 bubble の厳密対応付けに使う。 backend restart / TTL 超え / 対応付け失敗時は null" }
     additionalProperties: false
     invariants:
       - "uuid は server 生成、 frontend は dedup key としてのみ使用 (= 採番禁止)"
@@ -44,6 +45,7 @@ events:
       - "text 一致 / 部分一致 dedup は禁止 (= 同一 text 別 turn が起きうる)"
       - "harness XML (= <command-name> / <local-command-*>) は user_message に変換せず skip"
       - "[request interrupted by user] marker は user_message に変換せず skip"
+      - "send_id は client 発行 UUID (= Idempotency-Key header)、 送信ごとに一意、 backend が JSONL uuid とマッピングして event に載せる"
     trigger: "backend/jsonl/watcher.py が JSONL user 行を検知 → events.py:jsonl_line_to_events"
     consumer: "useChatStream → processStreamEvent (= user バブル append)"
     render_target: "chat"

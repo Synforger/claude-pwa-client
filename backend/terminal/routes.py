@@ -24,7 +24,7 @@ import time
 import uuid as _uuid_mod
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
 from backend.chat_content import save_to_tmp
@@ -54,6 +54,7 @@ from backend.terminal.confirm import (
     _is_plain_user_prompt,
     _wait_count_added,
 )
+from backend.terminal.send_dedup import send_dedup
 from backend.terminal.session_resolver import (
     AUTORESUME_MAX_AGE_DAYS as _AUTORESUME_MAX_AGE_DAYS,
     ensure_pty_session_for,
@@ -336,7 +337,11 @@ def _require_session(session_id: str) -> None:
 
 
 @router.post("/pty/{session_id}/send")
-async def pty_send(session_id: str, payload: dict = Body(...)) -> dict:
+async def pty_send(
+    session_id: str,
+    payload: dict = Body(...),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> dict:
     """chat UI からの入力を tmux session に送る (= send-keys 経路、 PTY attach 不要)。
 
     送信本文 (= text + enter) の場合は、 JSONL に user 行が +1 されるかを最大 2s
@@ -350,6 +355,10 @@ async def pty_send(session_id: str, payload: dict = Body(...)) -> dict:
     unified SSE delivers a user_message event, matching the real-world shape
     that reconcileUserMessage was written for.
 
+    Idempotency-Key ヘッダは client 発行の send_id (UUID)。 同一 (sid, send_id) の
+    2 発目 POST は tmux 打鍵前に drop して `{ok: True, deduped: True}` を返す。
+    frontend の連打 / touch race / retry / continuous send 経路二重発火をここで塞ぐ。
+
     payload:
         text  (str, optional): literal 文字列 (= プロンプト本文)
         key   (str, optional): tmux キー名 (= "Escape" で停止、 "C-c" 等)
@@ -359,6 +368,14 @@ async def pty_send(session_id: str, payload: dict = Body(...)) -> dict:
     text = payload.get("text")
     key = payload.get("key")
     enter = bool(payload.get("enter", False))
+
+    # 送信本文 (= text + enter) だけを dedup 対象にする。 単発 key 送信 (= Escape で停止 /
+    # AskUserQuestion typeNum 等) は「同じ意味を持つ 2 回の別 tap」 が自然に起きるので
+    # dedup すると誤動作 (= 停止できない / 選択できない)。 confirm 対象と同じ条件。
+    dedup_target = bool(text) and enter
+    if idempotency_key and dedup_target:
+        if send_dedup.check_and_mark(session_id, idempotency_key):
+            return {"ok": True, "deduped": True}
 
     if os.environ.get("CPC_E2E") == "1" and text and enter:
         return _e2e_inject_user_row(session_id, text)
@@ -400,16 +417,22 @@ async def pty_send_with_files(
     session_id: str,
     text: str = Form(default=""),
     files: list[UploadFile] = File(default=[]),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict:
     """添付ファイル付きで text を tmux session に送る。 file は uploads/tmp に保存して
     保存先 path を本文末尾に追記する形で claude に投入する (= claude が Read tool で
     自分で読む経路、 旧 SDK 経路の base64 image 同梱と違って tmux 打鍵が軽い)。
+
+    Idempotency-Key の扱いは pty_send と同一 (= dedup 対象、 2 発目は tmux 打鍵前に drop)。
 
     payload (multipart/form-data):
         text  (str):              本文
         files (list[UploadFile]): 添付ファイル群 (画像 / テキスト / その他何でも)
     """
     _require_session(session_id)
+    if idempotency_key and send_dedup.check_and_mark(session_id, idempotency_key):
+        # 添付経路は必ず本文送信 (= 空 form も含めて enter=True 相当)、 常に dedup 対象。
+        return {"ok": True, "deduped": True, "saved_files": []}
     saved = await save_to_tmp(files, session_id)
     parts: list[str] = []
     if text.strip():

@@ -106,3 +106,46 @@ describe('reconcileUserMessage (server-of-truth)', () => {
     expect(next[1]).toMatchObject({ text: 'hello', uuid: 'u-new' })
   })
 })
+
+describe('reconcileUserMessage (send_id 経路、 2026-07-03 identity 導入)', () => {
+  const optWithSendId = (text, send_id) => ({
+    id: `opt-${text}`, role: 'user', text, optimistic: true, send_id,
+  })
+
+  it('eventSendId が一致する optimistic を末尾でなくても厳密 pop する (= 連投時の対応付けミス根絶)', () => {
+    // 連投で楽観 bubble が 2 個並んだ状態で、 先に送った側の SSE event (= send_id=s1) が
+    // 到着すると、 fallback の「近傍最後の optimistic pop」 では末尾 (= s2) を誤って
+    // pop してしまう。 send_id 一致経路が第 2 優先で走ることで対応付けが決定的になる。
+    const cur = [optWithSendId('一個目', 's1'), optWithSendId('二個目', 's2')]
+    const next = reconcileUserMessage(cur, '一個目', 'u1', 's1')
+    expect(next).toHaveLength(2)
+    // 一個目 (= s1) が対応付け先として厳密 pop され、 確定 bubble に置換される。 send_id は
+    // uuid が付いた確定後は識別に不要なので confirmed 側には含めない (= persist 汚染防止)。
+    expect(next[0]).toMatchObject({ role: 'user', text: '一個目', uuid: 'u1' })
+    expect(next[0].optimistic).toBeUndefined()
+    // 二個目 (= s2) は fallback (= 末尾近傍 pop) が起きていない証拠として optimistic のまま残る。
+    expect(next[1]).toMatchObject({ text: '二個目', send_id: 's2', optimistic: true })
+  })
+
+  it('eventSendId が該当する optimistic を持たない時は近傍 fallback に降格する (= backend restart / TTL 超えの safety net)', () => {
+    const cur = [opt('hello')]
+    const next = reconcileUserMessage(cur, 'hello', 'u1', 's-unknown')
+    expect(next).toHaveLength(1)
+    expect(next[0]).toMatchObject({ role: 'user', text: 'hello', uuid: 'u1' })
+    expect(next[0].optimistic).toBeUndefined()
+  })
+
+  it('eventSendId が既存 confirmed に一致してもフォールバックせず、 該当 optimistic のみを対象とする', () => {
+    // send_id は client 発行 identity で、 confirmed には焼かれていない前提。 万一 send_id を
+    // 焼いた confirmed が居ても pop 対象外 (optimistic フラグでガード)、 fallback で append される。
+    const cur = [{ id: 'c1', role: 'user', text: 'x', uuid: 'u0', send_id: 's1', optimistic: false }]
+    const next = reconcileUserMessage(cur, 'x', 'u1', 's1')
+    expect(next).toHaveLength(2)
+    expect(next[1]).toMatchObject({ role: 'user', text: 'x', uuid: 'u1' })
+  })
+
+  it('eventUuid 完全一致は send_id 経路より先勝ちで no-op (= replay の重複受信)', () => {
+    const cur = [{ id: 'c1', role: 'user', text: 'x', uuid: 'u1', optimistic: false }]
+    expect(reconcileUserMessage(cur, 'x', 'u1', 's1')).toBe(cur)
+  })
+})
