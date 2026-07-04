@@ -258,8 +258,6 @@ function MetaLine({ meta, streaming, apiKeySource, trailing }) {
 
 const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKeySource, activeSubagentTool, onOpenSubagents, onFork }) {
   const t = useT()
-  // `t` は tool ループ変数として local scope で shadow するので、 hook 側は tt に alias。
-  const tt = useT()
   // system kind は messageRegistry に「fromEvent + Render」 ペアで集約しており、
   // ここでは generic lookup で表示コンポーネントを引くだけ (= F-04 consumer)。
   // 新しい system kind を増やす時は messageRegistry に Render を 1 個足すだけで配線完了、
@@ -363,66 +361,65 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
           )}
           {msg.tools?.length > 0 && (
             <div className="tool-log">
-              {msg.tools.map((t) => {
-                const resultText = t.result ? formatToolResultContent(t.result.content) : null
+              {msg.tools.map((tool) => {
+                const resultText = tool.result ? formatToolResultContent(tool.result.content) : null
                 const truncated = resultText && resultText.length > RESULT_PREVIEW_CHARS
-                const hasDiff = !!t.diffInput
+                const hasDiff = !!tool.diffInput
                 // Read はパスが summary に出てるので input の echo は冗長。tool-input-full は描画しない
-                const showInputFull = !hasDiff && t.name !== 'Read' && t.shortLabel && t.shortLabel !== t.label
+                const showInputFull = !hasDiff && tool.name !== 'Read' && tool.shortLabel && tool.shortLabel !== tool.label
                 // Edit/Write 成功時の "File updated successfully" みたいな確認文は冗長 (diff が見えてれば自明)。
                 // エラー時は原因が書かれてるので表示する。
-                const suppressSuccessResult = hasDiff && t.result && !t.result.is_error
-                const showResult = !!t.result && !suppressSuccessResult
+                const suppressSuccessResult = hasDiff && tool.result && !tool.result.is_error
+                const showResult = !!tool.result && !suppressSuccessResult
                 const hasMore = hasDiff || showInputFull || showResult
                 // 過去メッセージのスクロールバック中に diff / 結果が大きく開きっぱなしだと
                 // 読みにくいので、 デフォルトは全部閉じる。 必要な時だけタップで展開する。
                 const openByDefault = false
                 return (
                   <details
-                    key={t.id}
-                    className={`tool-block ${t.result?.is_error ? 'is-error' : ''}`}
+                    key={tool.id}
+                    className={`tool-block ${tool.result?.is_error ? 'is-error' : ''}`}
                     open={openByDefault}
                   >
-                    <summary className={`tool-line tool-${t.name.toLowerCase()}`} title={t.label}>
+                    <summary className={`tool-line tool-${tool.name.toLowerCase()}`} title={tool.label}>
                       <span className="tool-marker">{hasMore ? '▸' : '·'}</span>
-                      <span className="tool-short">{t.shortLabel || t.label}</span>
-                      {t.result?.is_error && <span className="tool-err-mark"> ⚠</span>}
+                      <span className="tool-short">{tool.shortLabel || tool.label}</span>
+                      {tool.result?.is_error && <span className="tool-err-mark"> ⚠</span>}
                       {resultText && showResult && (
-                        // loop 内の `t` は tool object (= shadow)、 翻訳は tt
-                        <span className="tool-meta"> · {tt('tool.chars', { n: resultText.length })}</span>
+                        <span className="tool-meta"> · {t('tool.chars', { n: resultText.length })}</span>
                       )}
                       {/* Task tool が進行中 (= result 未受信) でかつ status.subagent が active なら、
                           subagent 内で今動いてる sub-tool 名を inline 併記する。 これで「Task が
                           何をやってるか」 が普通の tool 行として観察可能 (= ActivityBar 撤去の代替)。 */}
-                      {t.name === 'Task' && !t.result && activeSubagentTool && (
+                      {tool.name === 'Task' && !tool.result && activeSubagentTool && (
                         <span className="tool-meta"> · ↳ {activeSubagentTool}</span>
                       )}
                       {/* Task / Workflow は子エージェントを生やす。 タイムライン上のこの地点から
                           🧩 (= サブエージェント一覧) へ飛べるようにする (= 「どこで分岐したか」 を
                           残しつつ、 中身は専用パネルで深掘り)。 details の開閉とは別操作にするため
                           preventDefault + stopPropagation。 */}
-                      {(t.name === 'Task' || t.name === 'Workflow') && onOpenSubagents && (
+                      {(tool.name === 'Task' || tool.name === 'Workflow') && onOpenSubagents && (
                         <button
                           type="button"
                           className="tool-open-subagents"
                           onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpenSubagents(subagentFocus(t)) }}
-                          title={tt('message.tool.open_subagents')}
+                          title={t('message.tool.open_subagents')}
                         >
-                          🤖{!t.result && <span className="tool-running-dot" />}
+                          🤖{!tool.result && <span className="tool-running-dot" />}
                         </button>
                       )}
                     </summary>
                     {hasMore && (
                       <div className="tool-body">
                         {hasDiff ? (
-                          <DiffView diffInput={t.diffInput} />
+                          <DiffView diffInput={tool.diffInput} />
                         ) : showInputFull && (
-                          <pre className="tool-input-full">{t.label}</pre>
+                          <pre className="tool-input-full">{tool.label}</pre>
                         )}
                         {showResult && (() => {
-                          const shown = truncated ? resultText.slice(0, RESULT_PREVIEW_CHARS) + tt('message.tool.result_truncated_suffix') : resultText
-                          const errorClass = t.result.is_error ? 'is-error' : ''
-                          if ((t.name === 'Grep' || t.name === 'Glob') && !t.result.is_error) {
+                          const shown = truncated ? resultText.slice(0, RESULT_PREVIEW_CHARS) + t('message.tool.result_truncated_suffix') : resultText
+                          const errorClass = tool.result.is_error ? 'is-error' : ''
+                          if ((tool.name === 'Grep' || tool.name === 'Glob') && !tool.result.is_error) {
                             return <LinkifiedResult text={shown} onOpenFile={onOpenFile} errorClass={errorClass} />
                           }
                           return (
