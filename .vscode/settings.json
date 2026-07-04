@@ -1,0 +1,117 @@
+{
+    "window.title": "${activeEditorShort}${separator}${rootName} ${separator} [Branch: develop]",
+    "editor.rulers": [
+        88
+    ],
+    "editor.codeActionsOnSave": {
+        "source.organizeImports": "explicit""source.organizeImports": "explicit"
+    },
+    "isort.args": [
+        "--profile",
+        "black",
+    ],
+    // Linter settings
+    "flake8.enabled": true,
+    "flake8.args": [
+        "--max-line-length",
+        "88",
+        "--ignore=E203,W503,W504",
+        "--docstring-style=google",
+        "--strictness=full",
+    ],
+    "flake8.ignorePatterns": [
+        ".vscode/*.py",
+        "**/site-packages/**/*.py",
+        ".venv/**/*.py",
+        ".pytest_cache/**/*.py"
+    ],
+    "editor.formatOnSave": true,
+    "commit-message-editor.staticTemplate": [
+        "コミット種別: 要約",
+        "",
+        "本文",
+    ],
+    "commit-message-editor.dynamicTemplate": [
+        "{type}{description}",
+        "",
+        "{body}",
+    ],
+    "commit-message-editor.tokens": [
+        {
+            "label": "Type",
+            "name": "type",
+            "type": "enum",
+            "options": [
+                {
+                    "label": "",
+                    "value": ""
+                },
+                {
+                    "label": "バグ修正 (fix)",
+                    "value": "fix: ",
+                },
+                {
+                    "label": "新規 ファイル/機能追加 (add)",
+                    "value": "add: "
+                },
+                {
+                    "label": "機能修正（バグではない） (update)",
+                    "value": "update: "
+                },
+                {
+                    "label": "仕様変更 (change)",
+                    "value": "change: "
+                },
+                {
+                    "label": "仕様に影響がないコード改善(リファクタ) (refactor)",
+                    "value": "refactor: "
+                },
+                {
+                    "label": "削除（ファイル）(remove)",
+                    "value": "remove: "
+                },
+                {
+                    "label": "テスト関連 (test)",
+                    "value": "test: "
+                },
+                {
+                    "label": "変更取り消し (revert)",
+                    "value": "revert: "
+                },
+            ]
+        },
+        {
+            "label": "短い要約",
+            "name": "description",
+            "type": "text",
+            "multiline": false
+        },
+        {
+            "label": "本文",
+            "name": "body",
+            "type": "text",
+            "multiline": true,
+            "lines": 5,
+            "maxLines": 10
+        },
+    ],
+    "python.testing.unittestArgs": [
+        "-v",
+        "-s",
+        "./tests",
+        "-p",
+        "test_*.py"
+    ],
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false,
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter",
+        "editor.formatOnSave": true,
+    },
+    "isort.args": [
+        "--profile=black"
+    ],
+    "black-formatter.args": [
+        "--line-length=88"
+    ]
+}

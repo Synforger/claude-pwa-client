@@ -1,0 +1,12 @@
+# 改行は LF に正規化 (checkout も LF、 クロス PC で diff を汚さない)
+* text=auto eol=lf
+
+# PowerShell は Windows 側実行を考慮して CRLF
+*.ps1 text eol=crlf
+
+# バイナリ
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.pdf binary

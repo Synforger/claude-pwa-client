@@ -1,6 +1,6 @@
 # Data schemas (= `backend/data/*.json` + `backend/secrets/*.json` 真値)
 
-backend が runtime に持つ JSON ファイルの schema を一括宣言する。 backend 再起動 / kickstart / 移送の際に **物理 backup すべき範囲** の真値でもある (= 2026-06-29 session_meta.json 消失事故の根治、 詳細は `rules/always/standing-service-backup.md`)。
+backend が runtime に持つ JSON ファイルの schema を一括宣言する。 backend 再起動 / kickstart / 移送の際に **物理 backup すべき範囲** の真値でもある。
 
 > 真値は dataclass / 実装 = `backend/state.py::SessionDef` / `backend/jsonl/history.py` / `backend/jsonl/watcher.py` / `backend/core/push.py`。 本 doc は **「backup 範囲を機械的に判断するための形式宣言」**。 実装が変わったら本 doc も同 PR で同期する。
 
@@ -65,7 +65,7 @@ backup 先 = 同 PC の別 path (= `~/backups/<service>/<date>/` 等)、 backend
 | `ended_at` | int | unix 秒 |
 | `jsonl_path` | str | restart 直前の jsonl 絶対パス。 復旧時に `claude --resume <claude_sid>` で開く |
 
-**復旧 endpoint**: `GET /sessions/<pwa_sid>/history` (= `ops/troubleshoot.md § セッション復旧` 参照)。
+**復旧 endpoint**: `GET /sessions/<pwa_sid>/history` (= `troubleshooting/troubleshoot.md § セッション復旧` 参照)。
 
 ## `backend/data/subscriptions.json`
 
@@ -95,5 +95,5 @@ dedup キー = `endpoint`。 backend は 410/404 応答で dead subscription を
 
 ## 関連
 
-- backend 再起動 / kickstart 手順は `../ops/sunshine.md` / LaunchAgent 関連は `../setup/path-a-chat.md § backend を常駐起動する`
+- backend 再起動 / kickstart 手順は `../troubleshooting/sunshine.md` / LaunchAgent 関連は `../setup/path-a-chat.md § backend を常駐起動する`
 - 上記 backup 対象は `backend/` 配下を `find -type f` で総ざらいしてから決める (= 既知 file だけで safety net 張ったつもりになるのは事故源、 service dir 全 file を視野に)

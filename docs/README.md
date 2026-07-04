@@ -14,8 +14,8 @@ claude-pwa-client を **インストールして使うため**の文書です。
 
 | 状況 | どこを見る |
 |---|---|
-| 動かなくなった / 通知が来ない / 画面が固着する | [ops/troubleshoot.md](ops/troubleshoot.md) |
-| 画面共有 (Sunshine) のメモリリーク対策 | [ops/sunshine.md](ops/sunshine.md) |
+| 動かなくなった / 通知が来ない / 画面が固着する | [troubleshooting/troubleshoot.md](troubleshooting/troubleshoot.md) |
+| 画面共有 (Sunshine) のメモリリーク対策 | [troubleshooting/sunshine.md](troubleshooting/sunshine.md) |
 
 ## 設定リファレンス
 

@@ -47,10 +47,10 @@ backend と frontend を繋ぐリアルタイム経路は **4 本の SSE + 2 本
 | 経路 | 種別 | backend 実装 | frontend consumer | payload | 接続パターン | 役割 |
 |---|---|---|---|---|---|---|
 | `/sessions/status/stream` | SSE | `backend/routes/overview.py::all_status_stream` | `frontend/src/features/status-bar/useStatus.js` | `{ <sid>: <AgentStatus dict>, ... }` 全 sid 分の status を 1 dict | mount 1 回張りっぱなし、 activeSid 変化で再接続しない | StatusBar (モデル / mode / 残予算 / 5h / 7d / ctx / 🔗 PR chip)、 pending_question 表示、 pending_plan 表示 |
-| `/sessions/overview/stream` | SSE | `backend/routes/overview.py::sessions_overview_stream` | `frontend/src/features/session-drawer/useSessionsOverview.js` (`transport/sse-overview.js` singleton 経由) | `{ <sid>: { busy, pending, last_seen_at, unread_done }, ... }` | mount 1 回張りっぱなし、 全 client / 全タブで共有 | **停止ボタン (= `state/ephemeral.js::loading[sid]`) の唯一のソース**、 ドロワー一覧の青丸 (処理中) / 赤丸 (完了未読)、 未読 last_seen sync |
+| `/sessions/overview/stream` | SSE | `backend/routes/overview.py::sessions_overview_stream` | `frontend/src/features/session-drawer/useSessionsOverview.js` (`frontend/src/transport/sse-sessions-overview.ts` singleton 経由) | `{ <sid>: { busy, pending, last_seen_at, unread_done }, ... }` | mount 1 回張りっぱなし、 全 client / 全タブで共有 | **停止ボタン (= `state/ephemeral.js::loading[sid]`) の唯一のソース**、 ドロワー一覧の青丸 (処理中) / 赤丸 (完了未読)、 未読 last_seen sync |
 | `/jsonl/stream/{sid}` | SSE | `backend/jsonl/routes.py::jsonl_stream` | `frontend/src/features/chat/useChatStream.js` | `data: {<processStreamEvent event>}\n\n` (= 詳細は本 file § event wire shape) | activeSid 変化で再接続。 `?from=<offset>` で前回 byte offset 以降の完全行のみ流す (= 初回 replay 軽量化) | per-sid chat messages 配列の組み立て (= legacy 経路、 タブ切替で SSE 張り替え) |
 | `/jsonl/stream/all` | SSE | `backend/jsonl/routes.py::jsonl_stream_all` (= W2-F15) | `frontend/src/features/chat/useChatStream.js` (= `?from=<sid>:<off>,...` 経路) | event の `sid` field で振り分け、 SSE id = `<sid>:<pos>` | mount 1 回張りっぱなし、 タブ切替で SSE 張り替えしない | 全 sid 1 接続版。 接続時に sessions_meta 全件に `ensure_pty_session_for` を sweep (= 新規タブ作成時の spawn trigger も兼ねる、 ただし接続継続中の新 sid は捕捉漏れがあるので POST /sessions 側でも ensure する。 2026-06-29 fix) |
-| `/views/ws` | WebSocket | `backend/routes/overview.py::views_ws` | `frontend/src/features/push-notify/useViewsWs.js` | client → server: `{"sid": "ses_xxx"\|null}` (= 視認中 sid 更新) / `{"type":"stop","sid":"..."}` (= Stop 意思)。 server → client: 受信のみ (broadcast なし) | PWA visible 中だけ常時接続、 3 秒 reconnect。 接続切断 (= TCP FIN / iOS bg 化) で `views_by_conn` から自動削除 | (1) 通知抑制判定 (= `is_session_viewed(sid)` が真なら `broadcast_push` skip) (2) Stop ボタン (= HTTP POST だと race で busy=true 復活する経路を WS の TCP 保証で潰す) |
+| `/views/ws` | WebSocket | `backend/routes/overview.py::views_ws` | `frontend/src/features/session-drawer/useViewsWs.js` | client → server: `{"sid": "ses_xxx"\|null}` (= 視認中 sid 更新) / `{"type":"stop","sid":"..."}` (= Stop 意思)。 server → client: 受信のみ (broadcast なし) | PWA visible 中だけ常時接続、 3 秒 reconnect。 接続切断 (= TCP FIN / iOS bg 化) で `views_by_conn` から自動削除 | (1) 通知抑制判定 (= `is_session_viewed(sid)` が真なら `broadcast_push` skip) (2) Stop ボタン (= HTTP POST だと race で busy=true 復活する経路を WS の TCP 保証で潰す) |
 | `/ws/pty/{sid}` | WebSocket | `backend/terminal/routes.py::pty_socket` | `frontend/src/features/terminal/useTerminal.js` (= xterm.js + transport/ws-pty.js) | client → server: `{"type":"input","data":"..."}` (= tmux send-keys 転送) / `{"type":"resize", ...}`。 server → client: `{"type":"output","data":"..."}` (= PTY 出力 bytes) | viewMode='terminal' 切替時に attach、 切断中は backend が `session.output_queue` に backlog 蓄積 (drain on reconnect) | xterm.js の入出力経路。 chat view のみ使う場合は接続しない (= W2 後は POST /sessions / restart 経路で backend 側 PTY spawn が完結するので、 chat view 単独で claude 起動が走り切る) |
 
 ## 経路別の設計判断 (= なぜこの分け方か)
@@ -63,7 +63,7 @@ backend と frontend を繋ぐリアルタイム経路は **4 本の SSE + 2 本
 
 ### `/sessions/overview/stream`: backend 権威 busy の唯一のソース
 
-停止ボタン (= `loading[sid]`、 真値は `state/ephemeral.js`) は backend が JSONL の `stop_reason` から確定的に算出した `StreamState.busy` ただ 1 つ。 chat SSE (`useChatStream`) も `loading` を一切触らない (= 旧 useState 経路は J-9 で `state/ephemeral.js` singleton に統合済)。 旧来は「per-tab assistant/result で loading を上下する」 と「overview で上書き」 の dual-driver になっており、 イベント取りこぼし / 再接続 / 複数デバイスで振動していた (= 2026-06-03 根本治療)。
+停止ボタン (= `loading[sid]`、 真値は `frontend/src/state/ephemeral.js`) は backend が JSONL の `stop_reason` から確定的に算出した `StreamState.busy` ただ 1 つ。 chat SSE (`useChatStream`) も `loading` を一切触らない (= 旧 useState 経路は J-9 で `frontend/src/state/ephemeral.js` singleton に統合済)。 旧来は「per-tab assistant/result で loading を上下する」 と「overview で上書き」 の dual-driver になっており、 イベント取りこぼし / 再接続 / 複数デバイスで振動していた (= 2026-06-03 根本治療)。
 
 overview は毎回フル snapshot なので、 取りこぼし / 再接続 / 複数デバイスでも次の snapshot で必ず正しい状態に収束する (= reconcile-on-snapshot)。 楽観意図 (`optimisticRef`) は送信 / 停止 直後の逆向き古 snapshot から UI を保護する短期ウィンドウのみで、 1500ms タイマー駆動は撤去し snapshot 駆動の event ベースに揃えた。
 
@@ -93,7 +93,7 @@ Stop ボタン経路も WS で通す。 HTTP POST 経路だと送信失敗 race 
 
 ## 接続生存 signal の集約
 
-各経路は `frontend/src/transport/lifecycle.js` の `registerConnection(() => bool)` に「生きてるか」 を judge する callback を登録する。 StatusBar の接続インジケータは全経路の AND を集約表示する (= 1 本切れたら警告)。
+各経路は `frontend/src/transport/lifecycle.ts` の `registerConnection(() => bool)` に「生きてるか」 を judge する callback を登録する。 StatusBar の接続インジケータは全経路の AND を集約表示する (= 1 本切れたら警告)。
 
 各経路は `onopen` / `onmessage` で `notifyConnectionChange()` を呼んで再 evaluate を trigger する。
 

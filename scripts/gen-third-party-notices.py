@@ -1,166 +1,160 @@
 #!/usr/bin/env python3
-"""Generate THIRD_PARTY_NOTICES.md from pip-licenses + license-checker output.
-
-Run via: task gen-notices
-Requires: pip install pip-licenses (in the active env), npx license-checker-rseidelsohn
-
-Reason for in-tree script vs. pure pipeline: needs metadata normalization
-(google-crc32c LICENSE field is empty in pip metadata but the wheel ships
-Apache-2.0; license-checker emits arrays for dual-licensed packages).
 """
+gen-third-party-notices.py
+==========================
+
+Generate `THIRD_PARTY_NOTICES.md` from the currently-installed dependency
+tree. Walks the project's active language toolchains and merges per-language
+results into one alphabetical table.
+
+Supported languages (= the script auto-skips a section if the toolchain or
+the corresponding manifest is absent):
+
+- Python  via `pip-licenses` (= reads the active env's installed packages)
+- Node    via `license-checker-rseidelsohn` (= reads `frontend/` or repo root)
+
+This script is intentionally idempotent: running it twice in succession on
+an unchanged env produces an identical file (`git diff` empty).
+"""
+
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Iterable
 
-REPO = Path(__file__).resolve().parent.parent
-OUT = REPO / "THIRD_PARTY_NOTICES.md"
-
-
-def norm_lic(s: str) -> str:
-    if not s or s.strip() in ("", "UNKNOWN"):
-        return "UNKNOWN"
-    return (
-        s.replace("Apache Software License", "Apache-2.0")
-        .replace("MIT License", "MIT")
-        .replace("BSD License", "BSD-3-Clause")
-        .replace("ISC License (ISCL)", "ISC")
-        .replace("Mozilla Public License 2.0 (MPL 2.0)", "MPL-2.0")
-        .replace("Python Software Foundation License", "PSF-2.0")
-    )
+REPO_ROOT = Path(__file__).resolve().parent.parent
+OUTPUT = REPO_ROOT / "THIRD_PARTY_NOTICES.md"
 
 
-def collect_python() -> list[dict]:
-    out = subprocess.run(
-        ["pip-licenses", "--format", "json", "--no-version", "--with-urls",
-         "--with-license-file", "--no-license-path"],
-        capture_output=True, text=True, check=True,
-    )
-    pkgs = json.loads(out.stdout)
-    # google-crc32c の License 欄 empty → wheel が Apache-2.0 (確認済)
-    for p in pkgs:
-        if p["Name"] == "google-crc32c" and not (p.get("License") or "").strip():
-            p["License"] = "Apache-2.0"
-    return pkgs
+def have(name: str) -> bool:
+    return shutil.which(name) is not None
 
 
-def collect_npm() -> dict:
-    out = subprocess.run(
-        ["npx", "--yes", "license-checker-rseidelsohn", "--production", "--json"],
-        capture_output=True, text=True, check=True, cwd=str(REPO / "frontend"),
-    )
-    return json.loads(out.stdout)
+def run(cmd: list[str], cwd: Path | None = None) -> str:
+    try:
+        out = subprocess.run(
+            cmd, cwd=cwd, check=True, capture_output=True, text=True
+        )
+        return out.stdout
+    except subprocess.CalledProcessError as exc:
+        print(f"warning: {' '.join(cmd)} exited {exc.returncode}", file=sys.stderr)
+        print(exc.stderr, file=sys.stderr)
+        return ""
+    except FileNotFoundError:
+        return ""
 
 
-def emit():
-    py = collect_python()
-    npm = collect_npm()
+def python_deps() -> list[dict[str, str]]:
+    """Collect Python deps via pip-licenses (= JSON output)."""
+    if not have("pip-licenses"):
+        if have("pip"):
+            print("info: installing pip-licenses into the active env", file=sys.stderr)
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--quiet", "pip-licenses"],
+                check=False,
+            )
+        if not have("pip-licenses"):
+            return []
+    raw = run(["pip-licenses", "--format", "json", "--with-urls"])
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    return [
+        {
+            "package": entry.get("Name", ""),
+            "version": entry.get("Version", ""),
+            "license": entry.get("License", ""),
+            "source": entry.get("URL", ""),
+            "lang": "python",
+        }
+        for entry in data
+        if entry.get("Name")
+    ]
 
-    lines: list[str] = []
-    p = lines.append
 
-    p("# Third-Party Notices")
-    p("")
-    p("claude-pwa-client は以下の OSS に依存している。 全 deps のライセンスは "
-      "Apache License 2.0 (= 本リポジトリ自体のライセンス) と**互換**で、 "
-      "GPL / AGPL / LGPL / SSPL 等の strong copyleft はゼロ。")
-    p("")
-    p("> 本 file は `scripts/gen-third-party-notices.py` で自動生成 "
-      "(= `task gen-notices`)。 dependency を追加 / 削除 / version bump した時は再生成すること。")
-    p("")
-    p("## License summary")
-    p("")
-    agg: dict[tuple[str, str], list[str]] = {}
-    for entry in py:
-        L = norm_lic(entry.get("License", ""))
-        agg.setdefault(("Python", L), []).append(entry["Name"])
-    for k, v in npm.items():
-        if k == "frontend@0.0.0":
-            continue
-        lic = v.get("licenses", "UNKNOWN")
-        if isinstance(lic, list):
-            lic = "/".join(lic)
-        L = norm_lic(lic)
-        name = k.rsplit("@", 1)[0]
-        agg.setdefault(("NPM", L), []).append(name)
+def node_deps() -> list[dict[str, str]]:
+    """Collect Node deps via license-checker-rseidelsohn (= JSON output)."""
+    if not have("license-checker-rseidelsohn"):
+        if have("npm"):
+            print("info: installing license-checker-rseidelsohn globally", file=sys.stderr)
+            subprocess.run(
+                ["npm", "install", "-g", "--silent", "license-checker-rseidelsohn"],
+                check=False,
+            )
+        if not have("license-checker-rseidelsohn"):
+            return []
 
-    p("| Ecosystem | License | Count |")
-    p("|---|---|---|")
-    for (eco, lic), names in sorted(agg.items()):
-        p(f"| {eco} | {lic} | {len(names)} |")
-    p("")
+    # Search candidate roots for a node project.
+    for candidate in [REPO_ROOT, REPO_ROOT / "frontend"]:
+        if (candidate / "package.json").is_file():
+            raw = run(["license-checker-rseidelsohn", "--json", "--production"], cwd=candidate)
+            if not raw:
+                continue
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            out: list[dict[str, str]] = []
+            for key, entry in data.items():
+                name, _, version = key.rpartition("@")
+                out.append({
+                    "package": name or key,
+                    "version": version,
+                    "license": entry.get("licenses", ""),
+                    "source": entry.get("repository", ""),
+                    "lang": "node",
+                })
+            return out
+    return []
 
-    p("## Backend (Python) dependencies")
-    p("")
-    p("| Package | License | URL |")
-    p("|---|---|---|")
-    for entry in sorted(py, key=lambda x: x["Name"].lower()):
-        name = entry["Name"]
-        lic = norm_lic(entry.get("License", ""))
-        url = entry.get("URL", "") or ""
-        if url == "UNKNOWN":
-            url = ""
-        p(f"| {name} | {lic} | {url} |")
-    p("")
 
-    p("## Frontend (npm production) dependencies")
-    p("")
-    p("> devDependencies (= eslint / vitest / typescript / @vitejs/plugin-react 等) は "
-      "配布物 (= `dist/`) に含まれないため本 listing からは除外。")
-    p("")
-    p("| Package | License | URL |")
-    p("|---|---|---|")
-    for k in sorted(npm.keys(), key=str.lower):
-        if k == "frontend@0.0.0":
-            continue
-        v = npm[k]
-        lic = v.get("licenses", "UNKNOWN")
-        if isinstance(lic, list):
-            lic = "/".join(lic)
-        L = norm_lic(lic)
-        name = k.rsplit("@", 1)[0]
-        repo = v.get("repository", "") or v.get("url", "") or ""
-        p(f"| {name} | {L} | {repo} |")
-    p("")
 
-    p("## External services / processes (not bundled)")
-    p("")
-    p("以下は backend が **subprocess / HTTP で連携**するだけで、 本リポジトリに "
-      "バンドル / static link されていない。 GPL の copyleft は別プロセス連携には "
-      "波及しない (= FSF GPL FAQ 「プロセス分離は通常 derivative work には当たらない」)。")
-    p("")
-    p("| Component | License | Maintainer | 関係 |")
-    p("|---|---|---|---|")
-    p("| Claude Code CLI | Anthropic Commercial Terms | Anthropic | "
-      "backend が PTY 経由で subprocess 起動 |")
-    p("| claude-agent-sdk | MIT | Anthropic | "
-      "Python dependency (= MCP / tool dispatch 経路) |")
-    p("| Sunshine | GPL-3.0 | LizardByte | Path B 限定、 HTTP / WebRTC 連携 |")
-    p("| moonlight-web-stream | GPL-3.0 | MrCreativ3001 | "
-      "Path B 限定、 ユーザが個別 build した web server を `<iframe src=\"/moonlight/\">` で読み込み "
-      "(= 本リポは source / binary 非同梱、 iframe は separate document context = aggregation) |")
-    p("| Moonlight (Game Streaming, native client) | GPL-3.0 | Moonlight Game Streaming Project | "
-      "**使用しない** (= PWA はブラウザ完結、 native client は経路に居ない) |")
-    p("| Tailscale | BSD-3-Clause (client) | Tailscale Inc. | "
-      "tailnet 経由配信、 本リポは tailnet 参加のみ |")
-    p("")
-    p("## Weak copyleft 説明")
-    p("")
-    p("**MPL-2.0** (= pywebpush / py-vapid / certifi / pathspec) は file-level weak copyleft。 "
-      "該当 file 自体を改変した場合のみ改変版を MPL-2.0 で公開する義務があるが、 別 file から "
-      "import / dynamic link する分には影響しない (= 本リポは import 利用のみで MPL ファイルを改変していない)。")
-    p("")
+def render(rows: Iterable[dict[str, str]]) -> str:
+    rows = sorted(rows, key=lambda r: (r["lang"], r["package"].lower(), r["version"]))
+    lines = [
+        "# Third-Party Notices",
+        "",
+        "This file is **auto-generated** by `task gen-notices` (=",
+        "`_core/scripts/gen-third-party-notices.py`). Do not edit by hand;",
+        "re-run the generator and commit the diff.",
+        "",
+        "| lang | package | version | license | source |",
+        "|---|---|---|---|---|",
+    ]
+    for r in rows:
+        src = r["source"] or ""
+        if src and src.startswith("http"):
+            src = f"[link]({src})"
+        lines.append(
+            f"| {r['lang']} | {r['package']} | {r['version']} | "
+            f"{r['license'] or 'UNKNOWN'} | {src} |"
+        )
+    lines.append("")
+    return "\n".join(lines)
 
-    OUT.write_text("\n".join(lines))
-    print(f"wrote {OUT.relative_to(REPO)} ({sum(len(v) for v in agg.values())} packages total)")
+
+def main() -> int:
+    rows: list[dict[str, str]] = []
+    rows.extend(python_deps())
+    rows.extend(node_deps())
+    if not rows:
+        print(
+            "warning: no deps collected (= no Python / Node env detected).\n"
+            "Run after `task setup` so pip-licenses / npm see installed deps.",
+            file=sys.stderr,
+        )
+        return 1
+    OUTPUT.write_text(render(rows), encoding="utf-8")
+    print(f"wrote {OUTPUT.relative_to(REPO_ROOT)} ({len(rows)} entries)")
+    return 0
 
 
 if __name__ == "__main__":
-    try:
-        emit()
-    except subprocess.CalledProcessError as e:
-        print(f"command failed: {e}", file=sys.stderr)
-        print(e.stderr, file=sys.stderr)
-        sys.exit(1)
+    sys.exit(main())

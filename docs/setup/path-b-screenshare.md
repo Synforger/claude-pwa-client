@@ -52,7 +52,7 @@ sunshine
 取れる。
 
 > Sunshine の encoder hang / 再起動時のリソース解放問題は
-> [../ops/troubleshoot.md](../ops/troubleshoot.md) の Sunshine encoder hang section を参照。
+> [../troubleshooting/troubleshoot.md](../troubleshooting/troubleshoot.md) の Sunshine encoder hang section を参照。
 
 ## moonlight-web-stream (Sunshine ↔ ブラウザの WebRTC ブリッジ)
 
@@ -112,7 +112,7 @@ cp -r dist static   # release mode は static/ を参照する
 3. Sunshine Web UI (`https://localhost:47990`) → PIN タブで上記 PIN を入力 → Send
 4. moonlight-web-stream 側で「Paired」表示になれば完了
 
-> ペアリングが壊れた / cert 不整合の復旧は [../ops/troubleshoot.md](../ops/troubleshoot.md) の
+> ペアリングが壊れた / cert 不整合の復旧は [../troubleshooting/troubleshoot.md](../troubleshooting/troubleshoot.md) の
 > moonlight-web-stream ペアリング section を参照。
 
 ## Tailscale Serve で同一オリジン公開
@@ -137,7 +137,7 @@ Sunshine がキャプチャできる audio sink を別途用意する。 macOS �
 brew install blackhole-2ch
 ```
 
-`REDACTED_PATH/sunshine/sunshine.conf` に:
+`~/.config/sunshine/sunshine.conf` に:
 
 ```
 audio_sink = BlackHole 2ch
@@ -151,7 +151,7 @@ LaunchAgent と `switchaudio-osx` を用いた常駐スクリプトで自動化�
 brew install switchaudio-osx
 ```
 
-`REDACTED_PATH/sunshine-audio-switch/switch.sh` (抜粋):
+`~/.config/sunshine-audio-switch/switch.sh` (抜粋):
 
 ```bash
 #!/bin/bash

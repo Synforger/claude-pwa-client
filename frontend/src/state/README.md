@@ -94,5 +94,5 @@ const unsub = subscribeAllStores((name, value) => { /* log */ })
 
 - `../domain/` — Message / Session / Tool / Event 型と純粋関数 (= isPersistableMessage / dedupKey / forkDepth 等)。 state は domain を import して filter / 判定する。
 - `../contracts/` — codegen 出力の型。 state は domain 経由で間接的に参照。
-- `../transport/` — backend 接続 (= SSE / WS singleton)。 transport が event を受信して state.* の setter を呼ぶ。 store としての `state/transport.js` は J-12 で撤去済 (= 接続生存 signal は `transport/lifecycle.js::registerConnection` に集約)。
+- `../transport/` — backend 接続 (= SSE / WS singleton)。 transport が event を受信して state.* の setter を呼ぶ。 store としての state/transport.js は J-12 で撤去済 (= 接続生存 signal は `transport/lifecycle.js::registerConnection` に集約)。
 - `../features/` — UI 配線。 features は subscribe + getSnapshot で state を読み、 setter で書く。
