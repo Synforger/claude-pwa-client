@@ -24,6 +24,10 @@ export interface SseTransport {
   /** localStorage の offset を即 flush (= visibility hidden / freeze 時)。 */
   flushOffsets(): void
 
+  /** 指定 sid の offset を破棄する (= チャット再取得)。 次の接続で当該 sid は `?from` から
+   *  外れ、 backend が初回接続扱いで直近 N 行を file replay する (= サーバ真値からの再構築)。 */
+  resetOffset(sid: string): void
+
   /** デバッグ用: 現在の接続状態 (= idle / connecting / open / reconnecting / closed)。 lifecycle.yaml と一致。 */
   readonly state: 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed'
 }

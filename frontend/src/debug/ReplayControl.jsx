@@ -72,7 +72,7 @@ export default function ReplayControl() {
         <label>sid</label><input value={sid} onChange={e => setSid(e.target.value)} />
         <label>start_ts</label><input value={startTs} onChange={e => setStartTs(e.target.value)} placeholder="epoch sec" />
         <label>end_ts</label><input value={endTs} onChange={e => setEndTs(e.target.value)} placeholder="epoch sec" />
-        <label>speed</label><input value={speed} onChange={e => setSpeed(e.target.value)} placeholder="0=即流し / 1=実時間" />
+        <label>speed</label><input value={speed} onChange={e => setSpeed(e.target.value)} placeholder="0 = instant / 1 = realtime" />
       </div>
       <div style={{ marginTop: 8 }}>
         <button onClick={start} disabled={running}>start</button>

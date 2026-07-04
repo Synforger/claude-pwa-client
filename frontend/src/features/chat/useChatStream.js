@@ -49,9 +49,11 @@ function persistOffsets(offsets) {
 // 動作 (= 最後の mount が勝つ)、 ただし任意 instance の view から見ると undefined behaviour 区間。
 let _endSessionImpl = null
 let _stopMessageImpl = null
+let _refetchChatImpl = null
 let _activeMountCount = 0  // Phase J-4: single-writer 前提違反検知用
 export function endSession() { return _endSessionImpl?.() }
 export function stopMessage() { return _stopMessageImpl?.() }
+export function refetchChat() { return _refetchChatImpl?.() }
 
 // (= 旧 buildFromQuery / apiUrl 直書きは transport/sse.ts singleton に移管済、 v2 では本 file は
 //   subscribe するだけで offset / ?from query 組立を持たない)。
@@ -588,6 +590,21 @@ export function useChatStream({
     scrollToBottom()
   }, [scrollToBottom])
 
+  // チャット再取得 (= サーバ真値からの再構築)。 SSE event の取りこぼし / offset ズレで表示が
+  // 実 JSONL と食い違った時の手動復旧経路。 活性 sid の表示 state を捨てて offset を破棄 →
+  // SSE 再接続で backend が初回接続扱いの file replay (= 直近 N 行) を流し直す。
+  // backend 側は無変更 (= 既存の初回 replay 経路をそのまま踏む)、 他 sid の offset は保持
+  // されるので巻き添え replay は起きない。
+  const refetchChatCb = useCallback(() => {
+    if (!sid) return
+    buffer.resetBuf(sid)
+    setMessages(prev => ({ ...prev, [sid]: [] }))
+    optimisticRef.current[sid] = null
+    sseTransport.resetOffset(sid)
+    sseTransport.bumpReconnect()
+    scrollToBottom()
+  }, [sid, setMessages, scrollToBottom]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // W2 Phase F-4 + J-4 (= 2026-06-29): module-level endSession / stopMessage 経路 (= features/dialogs
   // 経由の onConfirm) に最新の hook closure 実装を wire する。 ChatPanel.jsx は本 hook を 1 経路
   // のみ mount するので、 single-writer 前提で wire/unwire を素朴に行う。 unmount で nullify、
@@ -605,12 +622,14 @@ export function useChatStream({
     }
     _endSessionImpl = endSessionCb
     _stopMessageImpl = stopMessageCb
+    _refetchChatImpl = refetchChatCb
     return () => {
       _activeMountCount -= 1
       if (_endSessionImpl === endSessionCb) _endSessionImpl = null
       if (_stopMessageImpl === stopMessageCb) _stopMessageImpl = null
+      if (_refetchChatImpl === refetchChatCb) _refetchChatImpl = null
     }
-  }, [endSessionCb, stopMessageCb])
+  }, [endSessionCb, stopMessageCb, refetchChatCb])
 
   return {
     loading,
