@@ -41,8 +41,8 @@ export default function TasksModal() {
   const onClose = () => setOverlay('tasks', false)
 
   const list = Array.isArray(tasks) ? tasks : []
-  const counts = list.reduce((acc, t) => {
-    const s = t?.status || 'pending'
+  const counts = list.reduce((acc, task) => {
+    const s = task?.status || 'pending'
     acc[s] = (acc[s] || 0) + 1
     return acc
   }, {})
@@ -68,21 +68,21 @@ export default function TasksModal() {
               {t('tasks.modal.empty')}
             </div>
           )}
-          {list.map(t => {
-            const st = t?.status || 'pending'
+          {list.map(task => {
+            const st = task?.status || 'pending'
             return (
-              <div key={t.id ?? t.subject} className={`task-row ${STATUS_CLASS[st] || ''}`}>
+              <div key={task.id ?? task.subject} className={`task-row ${STATUS_CLASS[st] || ''}`}>
                 <span className="task-mark">{STATUS_MARK[st] || '?'}</span>
                 <div className="task-body">
                   <div className="task-subject">
-                    <span className="task-id">#{t.id ?? '?'}</span>
-                    {t.subject || '(no subject)'}
+                    <span className="task-id">#{task.id ?? '?'}</span>
+                    {task.subject || '(no subject)'}
                   </div>
-                  {t.activeForm && st === 'in_progress' && (
-                    <div className="task-active">{t.activeForm}</div>
+                  {task.activeForm && st === 'in_progress' && (
+                    <div className="task-active">{task.activeForm}</div>
                   )}
-                  {t.description && (
-                    <div className="task-desc">{t.description}</div>
+                  {task.description && (
+                    <div className="task-desc">{task.description}</div>
                   )}
                 </div>
               </div>
