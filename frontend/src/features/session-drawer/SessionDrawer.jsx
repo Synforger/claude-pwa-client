@@ -33,6 +33,7 @@ import {
   setLang,
 } from '../../state/locale.js'
 import { useT } from '../../i18n/t.js'
+import { hardRefreshAppShell } from '../../utils/appRefresh.js'
 import './SessionDrawer.css'
 
 // ⋯ メニューを押した時、 viewport 下端からどれくらい離れていれば「上方向に展開する」 と
@@ -132,38 +133,8 @@ export default function SessionDrawer() {
   // 既存 PushSubscription は維持する。
   const handleReset = async () => {
     setResetBusy(true)
-    try {
-      // 1. Cache Storage を全削除 (= 新 sw.js の fetch ハンドラが管理する shell キャッシュを一掃)。
-      if (typeof caches !== 'undefined') {
-        const keys = await caches.keys()
-        await Promise.all(keys.map(k => caches.delete(k).catch(() => {})))
-      }
-      // 2. 新 sw.js を取得し、 install → activate が完了するまで待つ (= 待たずに reload すると
-      //    古い SW のままリロードして「効かない」 race があった)。 unregister はしない
-      //    (= PushSubscription を維持、 update() で新版に差し替える)。 最大 5s で打ち切り。
-      if ('serviceWorker' in navigator) {
-        const regs = await navigator.serviceWorker.getRegistrations()
-        await Promise.all(regs.map(async (r) => {
-          try {
-            await r.update()
-            const incoming = r.installing || r.waiting
-            if (incoming && incoming.state !== 'activated') {
-              await new Promise((resolve) => {
-                const done = setTimeout(resolve, 5000)
-                incoming.addEventListener('statechange', () => {
-                  if (incoming.state === 'activated') { clearTimeout(done); resolve() }
-                })
-              })
-            }
-          } catch { /* ignore */ }
-        }))
-      }
-    } catch { /* ignore */ }
-    // 3. cache-bust クエリ付きでハードリロード (= navigation を必ず新規リクエスト化)。
-    //    新 SW の network-first (cache:'reload') と合わさって最新 index.html → 最新 assets を取る。
-    const url = new URL(window.location.href)
-    url.searchParams.set('_r', String(Date.now()))
-    window.location.replace(url.toString())
+    // 刷新本体は utils/appRefresh.js (= vite:preloadError 自動復旧と共有の真値 1 箇所)。
+    await hardRefreshAppShell()
   }
   // global popup に出す項目があるか (= ⋯ ボタン自体の表示条件)。
   // リセットは常時あるので、 ⋯ ボタンは常に表示される。
