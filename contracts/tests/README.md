@@ -1,6 +1,6 @@
 # contracts/tests/ — schema 動作確認 fixture
 
-> **目的**: W1 Phase 3 (= backend `tests/contracts/`) で「実 SSE 出力 ⊂ schema」 を pytest する時の入力 / 期待 fixture。 Phase 1 では fixture 配置のみ、 照合 logic は Phase 3 で書く。
+> **目的**: W1 Phase 3 (= backend 側 tests/contracts、 Phase 3 で新設予定) で「実 SSE 出力 ⊂ schema」 を pytest する時の入力 / 期待 fixture。 Phase 1 では fixture 配置のみ、 照合 logic は Phase 3 で書く。
 
 ## ディレクトリ
 
