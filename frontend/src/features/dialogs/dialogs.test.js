@@ -4,22 +4,22 @@
 import { describe, it, expect } from 'vitest'
 
 describe('features/dialogs — smoke contract', () => {
-  it('ConfirmEndDialog.jsx は default export が関数 component', async () => {
+  it('ConfirmEndDialog.jsx default-exports a function component', async () => {
     const mod = await import('./ConfirmEndDialog.jsx')
     expect(typeof mod.default).toBe('function')
   })
 
-  it('ConfirmStopDialog.jsx は default export が関数 component', async () => {
+  it('ConfirmStopDialog.jsx default-exports a function component', async () => {
     const mod = await import('./ConfirmStopDialog.jsx')
     expect(typeof mod.default).toBe('function')
   })
 
-  it('ConfirmDeleteDialog.jsx は default export が関数 component', async () => {
+  it('ConfirmDeleteDialog.jsx default-exports a function component', async () => {
     const mod = await import('./ConfirmDeleteDialog.jsx')
     expect(typeof mod.default).toBe('function')
   })
 
-  it('index.js を import すると overlayRegistry に 3 confirm dialog 全部が Component spec 付きで register される', async () => {
+  it('importing index.js registers all three confirm dialogs in overlayRegistry with Component specs', async () => {
     await import('./index.js')
     const reg = await import('../../registry/overlayRegistry.js')
     const keys = reg.list()

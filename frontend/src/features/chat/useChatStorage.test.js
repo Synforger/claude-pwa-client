@@ -6,35 +6,35 @@ import { isPersistableMessage } from './useChatStorage.js'
 // の構造的根治はここで保証される。 reconcileUserMessage 側の dedup 簡素化と対になる境界。
 
 describe('isPersistableMessage', () => {
-  it('uuid 付き確定 user は通る', () => {
+  it('confirmed user with a uuid passes', () => {
     expect(isPersistableMessage({ role: 'user', text: 'hi', uuid: 'u1' })).toBe(true)
   })
 
-  it('optimistic user は弾く (= ephemeral 描画専用)', () => {
+  it('optimistic user is rejected (ephemeral, render-only)', () => {
     expect(isPersistableMessage({ role: 'user', text: 'hi', uuid: 'u1', optimistic: true })).toBe(false)
   })
 
-  it('sendFailed user は弾く (= 再送待ち ephemeral、 localStorage に書くと ghost 化)', () => {
+  it('sendFailed user is rejected (ephemeral awaiting resend; persisting it creates ghosts)', () => {
     expect(isPersistableMessage({ role: 'user', text: 'hi', uuid: 'u1', sendFailed: true })).toBe(false)
   })
 
-  it('uuid 欠落 user は弾く (= 重複表示の root cause、 旧キャッシュ自動掃除も兼ねる)', () => {
+  it('user without a uuid is rejected (duplicate-display root cause; also auto-cleans old caches)', () => {
     expect(isPersistableMessage({ role: 'user', text: 'hi' })).toBe(false)
     expect(isPersistableMessage({ role: 'user', text: 'hi', uuid: null })).toBe(false)
     expect(isPersistableMessage({ role: 'user', text: 'hi', uuid: '' })).toBe(false)
   })
 
-  it('agent message は uuid 有無に関係なく通る (= streaming 中も persist 対象)', () => {
+  it('agent messages pass with or without a uuid (persisted even while streaming)', () => {
     expect(isPersistableMessage({ role: 'agent', text: 'reply', uuid: 'a1' })).toBe(true)
     expect(isPersistableMessage({ role: 'agent', text: 'reply' })).toBe(true)
     expect(isPersistableMessage({ role: 'agent', text: '', streaming: true })).toBe(true)
   })
 
-  it('system message (= session_end マーカー等) は通る', () => {
+  it('system messages (session_end markers etc.) pass', () => {
     expect(isPersistableMessage({ role: 'system', kind: 'session_end', ts: 1 })).toBe(true)
   })
 
-  it('null / undefined は弾く', () => {
+  it('null / undefined are rejected', () => {
     expect(isPersistableMessage(null)).toBe(false)
     expect(isPersistableMessage(undefined)).toBe(false)
   })

@@ -28,10 +28,10 @@ function reset() {
   })
 }
 
-describe('state/sessions.js setter contract (= .id キー統一)', () => {
+describe('state/sessions.js setter contract (unified on the .id key)', () => {
   beforeEach(() => { reset() })
 
-  it('removeSession は .id キーで session を消す + cascade で activity/unread も掃除', () => {
+  it('removeSession deletes by the .id key and cascades cleanup of activity/unread', () => {
     setSessions([
       { id: 'a', title: 'A' },
       { id: 'b', title: 'B' },
@@ -47,14 +47,14 @@ describe('state/sessions.js setter contract (= .id キー統一)', () => {
     expect(snap.unreadDone).not.toHaveProperty('a')
   })
 
-  it('removeSession は存在しない id で no-op (= snapshot 同一 reference)', () => {
+  it('removeSession no-ops for a missing id (same snapshot reference)', () => {
     setSessions([{ id: 'a', title: 'A' }])
     const before = getSnapshot()
     removeSession('does-not-exist')
     expect(getSnapshot()).toBe(before)
   })
 
-  it('removeSession は .sid キーの旧オブジェクトでは消せない (= .id キーが真値である契約の証明)', () => {
+  it('removeSession cannot delete via a legacy .sid-keyed object (proof that .id is the contractual key)', () => {
     // 旧 backend response shape (= sid フィールド) を模擬して入れた場合、 store は `.id` で
     // 判定するため見つからず no-op になる。 これが正しい挙動 (= runtime は `.id` 一本)。
     setSessions([{ sid: 'legacy-1', title: 'legacy' }])
@@ -63,7 +63,7 @@ describe('state/sessions.js setter contract (= .id キー統一)', () => {
     expect(getSnapshot()).toBe(before)
   })
 
-  it('patchSession は .id キーで session を更新する', () => {
+  it('patchSession updates the session by the .id key', () => {
     setSessions([
       { id: 'a', title: 'A', notify_mode: 'always' },
       { id: 'b', title: 'B' },
@@ -75,14 +75,14 @@ describe('state/sessions.js setter contract (= .id キー統一)', () => {
     expect(snap.sessions[1]).toEqual({ id: 'b', title: 'B' })
   })
 
-  it('patchSession は存在しない id で no-op', () => {
+  it('patchSession no-ops for a missing id', () => {
     setSessions([{ id: 'a', title: 'A' }])
     const before = getSnapshot()
     patchSession('missing', { title: 'X' })
     expect(getSnapshot()).toBe(before)
   })
 
-  it('appendSession は先頭に挿す + 既存 session に影響しない', () => {
+  it('appendSession inserts at the head without touching existing sessions', () => {
     setSessions([{ id: 'a', title: 'A' }])
     appendSession({ id: 'b', title: 'B' })
     expect(getSnapshot().sessions).toEqual([
@@ -91,7 +91,7 @@ describe('state/sessions.js setter contract (= .id キー統一)', () => {
     ])
   })
 
-  it('setActiveId は同値で snapshot reference を変えない (= subscriber 通知抑止の契約)', () => {
+  it('setActiveId keeps the snapshot reference for the same value (contract: no subscriber notification)', () => {
     setActiveId('a')
     const snap1 = getSnapshot()
     setActiveId('a')
@@ -101,7 +101,7 @@ describe('state/sessions.js setter contract (= .id キー統一)', () => {
     expect(getSnapshot().activeId).toBe('b')
   })
 
-  it('clearUnreadDone は登録済 key を削除、 未登録 key は no-op', () => {
+  it('clearUnreadDone removes a registered key and no-ops for unknown keys', () => {
     setUnreadDone('a', true)
     setUnreadDone('b', true)
     clearUnreadDone('a')

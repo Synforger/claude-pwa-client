@@ -67,14 +67,14 @@ function extractComponentSpecs(indexPath) {
   return specs
 }
 
-describe('W2 chunk-split contract: lazy 対象 component は features index.js から static import されない', () => {
+describe('W2 chunk-split contract: lazy components are never statically imported from a features index.js', () => {
   const lazyTargets = extractLazyTargets()
 
-  it('layout/AppShell.jsx は削除済 (= W2 Phase F-6 完成判定、 Layout.jsx 体制に完全移行)', () => {
+  it('layout/AppShell.jsx stays deleted (W2 Phase F-6 completion; fully migrated to Layout.jsx)', () => {
     expect(existsSync(APP_SHELL)).toBe(false)
   })
 
-  it('Layout.jsx の lazy(() => import(...)) は 0 件 (= 全 overlay が Component spec 経由)', () => {
+  it('Layout.jsx contains zero lazy(() => import(...)) (every overlay goes through a Component spec)', () => {
     expect(lazyTargets.size).toBe(0)
   })
 
@@ -88,14 +88,14 @@ describe('W2 chunk-split contract: lazy 対象 component は features index.js �
     const imports = extractStaticJsxImports(indexPath)
     for (const imp of imports) {
       const fullPath = `${feat}/${imp}`
-      it(`features/${feat}/index.js は Layout lazy 対象 ${imp} を static import しない`, () => {
+      it(`features/${feat}/index.js does not statically import the Layout-lazy target ${imp}`, () => {
         expect(lazyTargets.has(fullPath)).toBe(false)
       })
     }
   }
 })
 
-describe('W2 Phase E1 chunk-split contract: overlayRegistry Component spec は同 index.js から static import されない', () => {
+describe('W2 Phase E1 chunk-split contract: overlayRegistry Component specs are never statically imported from the same index.js', () => {
   const featureDirs = readdirSync(FEATURES_DIR, { withFileTypes: true })
     .filter(d => d.isDirectory() && !d.name.startsWith('_'))
     .map(d => d.name)
@@ -108,13 +108,13 @@ describe('W2 Phase E1 chunk-split contract: overlayRegistry Component spec は�
     totalSpecs += specs.length
     const staticImports = new Set(extractStaticJsxImports(indexPath))
     for (const spec of specs) {
-      it(`features/${feat}/index.js は Component spec ${spec} を同 file で static import しない`, () => {
+      it(`features/${feat}/index.js does not statically import its own Component spec ${spec}`, () => {
         expect(staticImports.has(spec)).toBe(false)
       })
     }
   }
 
-  it('Component spec を持つ entry が 11 件 (= E-1 で 4 件 + E-2 で 3 件 + F-4 で confirmDelete 1 件 + F-4 残で confirmEnd / confirmStop 2 件追加 + 2026-07-03 で taskOutputPath 1 件追加)', () => {
+  it('exactly 11 entries carry a Component spec (4 from E-1, 3 from E-2, confirmDelete in F-4, confirmEnd/confirmStop in late F-4, taskOutputPath added 2026-07-03)', () => {
     expect(totalSpecs).toBe(11)
   })
 })

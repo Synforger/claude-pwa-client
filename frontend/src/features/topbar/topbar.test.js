@@ -5,12 +5,12 @@
 import { describe, it, expect } from 'vitest'
 
 describe('features/topbar — smoke contract', () => {
-  it('Topbar.jsx は default export が関数 component', async () => {
+  it('Topbar.jsx default-exports a function component', async () => {
     const mod = await import('./Topbar.jsx')
     expect(typeof mod.default).toBe('function')
   })
 
-  it('index.js を import すると featureRegistry に \'topbar\' が register される', async () => {
+  it('importing index.js registers topbar in featureRegistry', async () => {
     await import('./index.js')
     const reg = await import('../../registry/featureRegistry.js')
     expect(reg.list()).toContain('topbar')
