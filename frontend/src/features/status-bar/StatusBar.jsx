@@ -113,6 +113,7 @@ export default function StatusBar() {
 // PR チップ + dropdown。 タブごとに status.pr_links を受け取り、 別タブ切替時は親から
 // 新しい status が同期で渡るので flicker しない。 dropdown は閉じた状態がデフォ。
 function PrLinksChip({ links }) {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
   // outside-click / touchstart で閉じる集約 hook (= F-29)。 touchstart は別 hook 呼び。
@@ -125,7 +126,7 @@ function PrLinksChip({ links }) {
         type="button"
         className="pr-chip"
         onClick={(e) => { e.stopPropagation(); setOpen(o => !o) }}
-        aria-label={`PR 一覧 (${links.length})`}
+        aria-label={t('statusbar.pr_list', { n: links.length })}
       >
         🔗 {links.length}
       </button>

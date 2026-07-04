@@ -1,4 +1,5 @@
 import React, { useRef, useState, useCallback, useDeferredValue, useMemo } from 'react'
+import { useT } from '../../i18n/t.js'
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { visit } from 'unist-util-visit'
@@ -100,6 +101,7 @@ function remarkFilePaths() {
 // 失敗時 (= clipboard permission denied / 非 secure context) は console.error のみ、 表示は
 // 「✗」 で 1.5 秒。
 function CodeBlock({ children }) {
+  const t = useT()
   const ref = useRef(null)
   const [state, setState] = useState('idle') // 'idle' | 'copied' | 'failed'
   const timerRef = useRef(null)
@@ -123,7 +125,7 @@ function CodeBlock({ children }) {
         type="button"
         className="md-code-copy"
         onClick={onCopy}
-        aria-label="コードをコピー"
+        aria-label={t('code.copy')}
       >
         {state === 'copied' ? '✓' : state === 'failed' ? '✗' : 'copy'}
       </button>

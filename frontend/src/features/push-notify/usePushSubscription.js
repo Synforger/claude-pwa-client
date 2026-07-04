@@ -31,6 +31,7 @@
  * 配置)、 他 instance は store subscribe + toggle 操作のみ。
  */
 import { useEffect, useSyncExternalStore } from 'react'
+import { tRaw } from '../../i18n/t.js'
 import {
   enablePush,
   disablePush,
@@ -194,7 +195,7 @@ export function usePushSubscription({ onCloseMenu, mountEffects = false } = {}) 
         applyStateFromEnvironment(true)
       }
     } catch (e) {
-      alert(e?.message || '通知設定の変更に失敗しました')
+      alert(e?.message || tRaw('push.change_failed'))
     } finally {
       setPushBusy(false)
     }

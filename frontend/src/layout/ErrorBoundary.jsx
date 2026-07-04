@@ -1,4 +1,5 @@
 import { Component } from 'react'
+import { tRaw } from '../i18n/t.js'
 
 export default class ErrorBoundary extends Component {
   constructor(props) {
@@ -28,7 +29,7 @@ export default class ErrorBoundary extends Component {
           color: '#ccc',
           background: '#1a1a1a',
         }}>
-          <p style={{ margin: 0, fontSize: '14px' }}>エラーが発生しました</p>
+          <p style={{ margin: 0, fontSize: '14px' }}>{tRaw('boundary.error')}</p>
           <pre style={{
             fontSize: '11px',
             color: '#888',
@@ -51,7 +52,7 @@ export default class ErrorBoundary extends Component {
                 fontSize: '14px',
               }}
             >
-              リロード
+              {tRaw('common.reload')}
             </button>
             <button
               onClick={() => { localStorage.clear(); window.location.reload() }}
@@ -65,7 +66,7 @@ export default class ErrorBoundary extends Component {
                 fontSize: '14px',
               }}
             >
-              データ消去して再起動
+              {tRaw('boundary.reset')}
             </button>
           </div>
         </div>
