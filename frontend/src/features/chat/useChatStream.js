@@ -181,7 +181,7 @@ export function useChatStream({
         buffer.cancelAndFlush(curSid)
         setMessages(prev => {
           const cur = prev[curSid] || []
-          const next = reconcileUserMessage(cur, event.text || '', event.uuid)
+          const next = reconcileUserMessage(cur, event.text || '', event.uuid, event.send_id)
           return next === cur ? prev : { ...prev, [curSid]: next }
         })
         return
@@ -280,14 +280,10 @@ export function useChatStream({
     } catch { /* 送信失敗は握りつぶす (= 次操作で復帰) */ }
   }, [])
 
-  // 送信 in-flight guard (= double-fire block、 race に強い同期 ref)。
-  // loadingRef は前 turn 完了までの長期 gate で ephemeral store 経由の 1 render 遅延を挟むため、
-  // 送信 POST 発火の一瞬 (= 数 ms 〜 数十 ms) の race 窓を塞げない。 具体的には
-  // 「send tap 1 → sendMessage 内で setLoading(true) → まだ next render 前 → send tap 2 →
-  // loadingRef が旧値 (false) のまま guard 素通り → 2 発目 POST」 が起きる。 backend は 2 POST を
-  // それぞれ tmux send-keys に流すので、 ターミナルにも 2 回打鍵される (= 2026-07-02 観測症状)。
-  // ここは sendMessage 入口で同期 flip し finally で解放する短命 flag で塞ぐ。 loadingRef は
-  // 引き続き「turn 中の再送を弾く UX gate + alert」 として独立に残す。
+  // 送信 in-flight guard (= same-tick 二重発火保険)。
+  // 主 dedup は send_id (= Idempotency-Key) 経路が担う。 これは「同期連続 flush 中の
+  // 二重呼出」 を塞ぐ補助 lock。 finally で解放するので backend confirm 完了 (= 数百 ms〜4s)
+  // 後には次の send_id で通す (= continuous send / queue mode 意図を保持)。
   const sendingRef = useRef({})
 
   const sendMessage = useCallback(async (textOverride) => {
@@ -308,15 +304,26 @@ export function useChatStream({
     setInput(prev => ({ ...prev, [sid]: '' }))
     setLoading(prev => ({ ...prev, [sid]: true }))
     optimisticRef.current[sid] = { want: 'busy', startedAt: Date.now() }
-    // 楽観 bubble の id は固定して保持。 後段の SEND_TIMEOUT watcher と HTTP fail 経路の
-    // 両方が同じ bubble を狙い撃ちで sendFailed 化 / pop できるようにする
-    // (= reconcileUserMessage 側で confirm 時に id を popped から継承する設計と整合)。
+    // 送信 1 単位の identity (= Idempotency-Key ヘッダで backend へ送る + 楽観 bubble に焼く +
+    // SSE `user_message` event との厳密対応付け)。 全経路で 1 identity で串刺し、 局所
+    // ヒューリスティック (時間窓 idempotency / 近傍 optimistic pop) から identity 経路に格上げ。
+    const send_id = generateId()
+    // 楽観 bubble の id は固定して保持。 HTTP fail 経路が同じ bubble を狙い撃ちで sendFailed
+    // 化 / pop できるようにする (= reconcileUserMessage 側で confirm 時に id を popped から
+    // 継承する設計と整合)。
     const optimisticUserId = generateId()
+    // emptyAgent id を updater 外で確定する (= React updater pure 契約の回復)。 updater 内で
+    // generateId() を呼ぶと concurrent mode / StrictMode の updater 再 invoke で毎回別 id が
+    // 生えて「推論中…」 bubble が複製される潜在 race を根絶。
+    const emptyAgentId = generateId()
     // 楽観 user bubble + 空 streaming agent bubble を即挿入。 添付があれば user bubble に
     // 表示用の imageUrls / fileNames を載せる (= MessageItem の user-block 経路で render)。
     // imageUrls は ObjectURL なのでアプリリロード後は消えるが、 当該セッション中は見える。
     setMessages(prev => {
       const cur = prev[sid] || []
+      // updater idempotent: 同一 send_id の楽観 bubble が既に居るなら no-op。 React updater が
+      // 再 invoke されても bubble を複製しない (= 「送信」 identity で updater 冪等化)。
+      if (cur.some(m => m.send_id === send_id)) return prev
       const imageUrls = files.filter(f => f.url).map(f => f.url)
       const imageRefs = files.filter(f => f.imageId).map(f => f.imageId)
       const fileNames = files.map(f => f.file.name)
@@ -330,6 +337,7 @@ export function useChatStream({
       )
       const userBubble = {
         id: optimisticUserId,
+        send_id,
         role: 'user',
         text,
         optimistic: true,
@@ -339,7 +347,7 @@ export function useChatStream({
         imageRefs: imageRefs.length > 0 ? imageRefs : undefined,
         fileNames: fileNames.length > 0 ? fileNames : undefined,
       }
-      const emptyAgent = { id: generateId(), role: 'agent', text: '', tools: [], streaming: true }
+      const emptyAgent = { id: emptyAgentId, role: 'agent', text: '', tools: [], streaming: true }
       return {
         ...prev,
         [sid]: tailIsEmptyStreamingAgent
@@ -389,6 +397,7 @@ export function useChatStream({
       try {
         const r = await apiFetch(`/pty/${encodeURIComponent(sid)}/send-with-files`, {
           method: 'POST',
+          headers: { 'Idempotency-Key': send_id },
           body: form,
         })
         if (!r || !r.ok) {
@@ -418,7 +427,7 @@ export function useChatStream({
       try {
         const r = await apiFetch(`/pty/${encodeURIComponent(sid)}/send`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': send_id },
           body: JSON.stringify({ text: sendText, enter: true }),
         })
         result = r ? await r.json().catch(() => ({ ok: false })) : { ok: false }

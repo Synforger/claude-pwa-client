@@ -23,6 +23,7 @@ class UserMessageEvent(BaseModel):
     parentUuid: Optional[str] = None  # 親 message uuid (= fork lineage)
     content: Optional[dict[str, Any]] = None  # raw JSONL content (= tool_result 含む list / string 両対応)
     ts: Optional[int] = None  # epoch ms
+    send_id: Optional[str] = None  # client 発行 Idempotency-Key。 楽観 bubble ↔ 実 bubble の厳密対応付けに使う。 backend restart / TTL 超え / 対応付け失敗時は null
 
 
 class AssistantEvent(BaseModel):
