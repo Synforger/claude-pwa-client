@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { loadFavs, removeFav, subscribeFavs } from './favorites.js'
 import { setOverlay } from '../../state/ui.js'
+import { useT } from '../../i18n/t.js'
 import './FileTreePanel.css'
 
 function displayShort(path) {
@@ -14,6 +15,7 @@ function displayShort(path) {
 // onOpenFile / onOpenDir / onClose を全部 setOverlay 直呼出に切り替え (= 旧 AppShell 内 inline
 // callback を本 component 内に移送、 onClose 経路は `setOverlay('favs', false)`)。
 export default function FavoritesQuickPicker() {
+  const t = useT()
   const onOpenFile = useCallback((path) => setOverlay('previewPath', path), [])
   const onOpenDir = useCallback((path) => setOverlay('treeOpen', path), [])
   const onClose = useCallback(() => setOverlay('favs', false), [])
@@ -33,14 +35,14 @@ export default function FavoritesQuickPicker() {
       <div className="tree-panel" onClick={e => e.stopPropagation()}>
         <div className="tree-header">
           <div className="tree-nav">
-            <span className="tree-path">★ お気に入り</span>
+            <span className="tree-path">{t('file_tree.favorites_header')}</span>
           </div>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
         <div className="tree-body">
           {favs.length === 0 && (
             <div className="dim tree-loading">
-              まだお気に入りはありません。 ファイルツリーから ☆ をタップして登録してください。
+              {t('file_tree.favorites_empty')}
             </div>
           )}
           {favs.map(fav => (

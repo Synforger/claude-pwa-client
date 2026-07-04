@@ -142,6 +142,7 @@
   "file_preview.overwrite_confirm": "Overwrite this file?\n{path}",
   "file_tree.load_error": "Load error ({detail})",
   "file_tree.favorites_header": "★ Favorites",
+  "file_tree.favorites_empty": "No favorites yet. Tap ☆ in the file tree to add one.",
 
   "terminal.input_placeholder": "Type here → tap Send to submit",
   "terminal.keyboard_hide": "Hide",

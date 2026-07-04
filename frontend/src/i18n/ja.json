@@ -142,6 +142,7 @@
   "file_preview.overwrite_confirm": "このファイルを上書き保存しますか?\n{path}",
   "file_tree.load_error": "読み込みエラー ({detail})",
   "file_tree.favorites_header": "★ お気に入り",
+  "file_tree.favorites_empty": "まだお気に入りはありません。 ファイルツリーから ☆ をタップして登録してください。",
 
   "terminal.input_placeholder": "入力 → Send で確定",
   "terminal.keyboard_hide": "隠す",
