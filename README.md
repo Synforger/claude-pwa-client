@@ -10,7 +10,7 @@ A PWA client for operating [Claude Code](https://docs.claude.com/en/docs/claude-
 <p align="center">
   <img src="docs/images/chat.png" width="260" alt="Chat — markdown tables and code blocks rendered inline" />
   <img src="docs/images/markdown-preview.png" width="260" alt="Markdown file preview opened from a path link" />
-  <img src="docs/images/notification.jpeg" width="260" alt="Lock-screen push notification asking a question" />
+  <img src="docs/images/notification.png" width="260" alt="Lock-screen push notification asking a question" />
 </p>
 
 ## Features
