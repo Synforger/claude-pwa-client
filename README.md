@@ -25,7 +25,8 @@ A PWA client for operating [Claude Code](https://docs.claude.com/en/docs/claude-
 - **File tree + favorites**: browse the tree from the ⋯ menu, star favorites for one-tap navigation
 - **Task panel**: the 📋 button lists tasks created via `TaskCreate`
 - **Image / text attachments**: multipart upload with persisted history
-- **Status bar**: model / plan mode / remaining budget / 5h usage / 7d usage / context usage in real time, plus a chip listing PRs mentioned in the session
+- **Tool activity inline**: every tool call (Bash, Edit, Write, …) appears as a collapsible row in the conversation — tap to expand its input and result; while a subagent runs, its current sub-tool is shown on the row
+- **Status bar**: model, 5h / 7d rate-limit usage with reset times, and context usage, always on; plan mode, remaining budget, and a mentioned-PR chip appear when the session provides them
 - **Conversation forking**: branch any message into a new tab; parents and children are shown hierarchically in the drawer
 - **Persistent message history**: compressed with lz-string into localStorage
 - **Multi-account**: switch between personal / work etc. via the `accounts` config (see [docs/reference/config.md](docs/reference/config.md))
