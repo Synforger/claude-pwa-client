@@ -201,8 +201,10 @@ tasks:
       - |
         if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
           "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream python -m pytest backend/tests -q
-        else
+        elif [ -x .venv/bin/python ]; then
           .venv/bin/python -m pytest backend/tests -q
+        else
+          python3 -m pytest backend/tests -q
         fi
 
   test:frontend:
@@ -227,8 +229,10 @@ tasks:
       - |
         if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
           "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream python -m flake8 backend --jobs 1 --count --show-source --statistics
-        else
+        elif [ -x .venv/bin/python ]; then
           .venv/bin/python -m flake8 backend --jobs 1 --count --show-source --statistics
+        else
+          python3 -m flake8 backend --jobs 1 --count --show-source --statistics
         fi
 
   lint:frontend:
@@ -338,6 +342,19 @@ tasks:
   # ---------------------------------------------------------------------------
   # personal-template 品質機構 (= .tooling/local-ci/、 言語非依存)
   # ---------------------------------------------------------------------------
+  ci:
+    desc: Full quality-gate suite (lint + tests + docs freshness + version drift) — same entry point locally and in CI
+    cmds:
+      - task: lint
+      - task: test
+      - task: docs:check
+      - task: lint:versions
+
+  publish:check:
+    desc: Pre-publication gate for flipping a repo private -> public (full-history audits + OSS surface checks)
+    cmds:
+      - bash .tooling/local-ci/publish-check.sh
+
   docs:check:
     desc: Verify docs freshness (paths / task names / tree diagrams vs reality)
     cmds:
