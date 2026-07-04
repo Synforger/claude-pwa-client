@@ -5,34 +5,34 @@ function refOf(obj = {}) {
   return { current: obj }
 }
 
-describe('applyOverviewSnapshot — 停止ボタンの単一権威', () => {
-  it('optimistic なし: busy をそのまま loading に反映', () => {
+describe('applyOverviewSnapshot — single authority for the stop button', () => {
+  it('no optimistic: busy maps straight to loading', () => {
     const ref = refOf()
     expect(applyOverviewSnapshot({}, { s1: { busy: true } }, ref)).toEqual({ s1: true })
     expect(applyOverviewSnapshot({ s1: true }, { s1: { busy: false } }, ref)).toEqual({ s1: false })
   })
 
-  it('★本丸: 返信到達後 busy=false の snapshot で必ず loading=false に収束 (result 取りこぼし回復)', () => {
+  it('core case: after the reply arrives, a busy=false snapshot always converges to loading=false (recovers dropped results)', () => {
     const ref = refOf()
     const next = applyOverviewSnapshot({ s1: true }, { s1: { busy: false } }, ref)
     expect(next.s1).toBe(false)
   })
 
-  it('変化が無ければ同一参照を返す (= 無駄な再 render を起こさない)', () => {
+  it('returns the same reference when nothing changed (no wasted re-renders)', () => {
     const ref = refOf()
     const prev = { s1: true }
     expect(applyOverviewSnapshot(prev, { s1: { busy: true } }, ref)).toBe(prev)
   })
 
   // --- 送信 (want:'busy') ---
-  it('送信: busy=true 観測でターン開始確認、 フラグ解除', () => {
+  it('send: observing busy=true confirms the turn started and clears the flag', () => {
     const ref = refOf({ s1: { want: 'busy', startedAt: 1000 } })
     const next = applyOverviewSnapshot({ s1: true }, { s1: { busy: true } }, ref, 1500)
     expect(next.s1 ?? true).toBe(true)
     expect(ref.current.s1).toBe(null)
   })
 
-  it('★送信: 立ち上がり遅延中 (= 10s 以内) は busy=false の連続 snapshot でも停止ボタン保持', () => {
+  it('send: during startup lag (within 10s) consecutive busy=false snapshots keep the stop button', () => {
     // 旧仕様は「busy=false が 2 連続で諦め」 → 立ち上がり race で送信ボタン解禁の jank
     // (= 「推論中なのに送信できる」)。 新仕様は時間ベースで、 startedAt から 10s 以内は
     // 何回 busy=false が来ても保持する (= 通常の立ち上がりは確実に猶予内に busy=true)。
@@ -46,7 +46,7 @@ describe('applyOverviewSnapshot — 停止ボタンの単一権威', () => {
     expect(ref.current.s1).toEqual({ want: 'busy', startedAt: 1000 })  // 解除されない
   })
 
-  it('★送信: タイムアウト (10s 超) でやっと諦めて送信ボタンへ', () => {
+  it('send: only after the 10s timeout does it give up and return to the send button', () => {
     // 立ち上がり 10s 経っても backend busy=true が観測できない = no-op turn か PTY 経路の異常。
     // ここでようやく諦めて権威に従う (= 送信ボタンに戻す)。 停止ボタンが空打ちにならない上限。
     const ref = refOf({ s1: { want: 'busy', startedAt: 1000 } })
@@ -56,7 +56,7 @@ describe('applyOverviewSnapshot — 停止ボタンの単一権威', () => {
   })
 
   // --- 停止 (want:'idle') = 旧来の根治を維持 ---
-  it('★停止: 1 押下で送信へ — 直後の古い busy=true snapshot で停止に戻らない', () => {
+  it('stop: one press switches to send — a stale busy=true snapshot right after does not flip it back', () => {
     const ref = refOf({ s1: { want: 'idle', startedAt: 1000 } })
     let next = applyOverviewSnapshot({ s1: false }, { s1: { busy: true } }, ref, 1100)
     expect(next.s1).toBe(false)
@@ -66,14 +66,14 @@ describe('applyOverviewSnapshot — 停止ボタンの単一権威', () => {
     expect(ref.current.s1).toBe(null)
   })
 
-  it('停止: busy=false を即観測したらその場で確定・解除', () => {
+  it('stop: an immediate busy=false observation settles and clears on the spot', () => {
     const ref = refOf({ s1: { want: 'idle', startedAt: 1000 } })
     const next = applyOverviewSnapshot({ s1: false }, { s1: { busy: false } }, ref, 1100)
     expect(next.s1).toBe(false)
     expect(ref.current.s1).toBe(null)
   })
 
-  it('★停止: タイムアウト無し — backend が user_stopped→busy=false を返すまで何 snapshot busy=true でも保持', () => {
+  it('stop: no timeout — holds through any number of busy=true snapshots until the backend returns user_stopped -> busy=false', () => {
     const ref = refOf({ s1: { want: 'idle', startedAt: 1000 } })
     // 30 秒経過しても保持 (= 停止意図には WANT_BUSY_TIMEOUT_MS を適用しない)
     let next = applyOverviewSnapshot({ s1: false }, { s1: { busy: true } }, ref, 1000 + 30000)
@@ -86,7 +86,7 @@ describe('applyOverviewSnapshot — 停止ボタンの単一権威', () => {
     expect(ref.current.s1).toBe(null)
   })
 
-  it('複数 session を 1 snapshot で個別に反映', () => {
+  it('applies one snapshot to multiple sessions independently', () => {
     const ref = refOf()
     const next = applyOverviewSnapshot(
       { a: true, b: false },

@@ -30,8 +30,8 @@ function assistantEvent(block, uuid) {
   return { type: 'assistant', uuid, message: { content: [block] } }
 }
 
-describe('processStreamEvent — same-uuid frame 集約 (中間出力 regression)', () => {
-  it('後続 tool_use フレームが同 message.id の text/thinking を空で潰さない', () => {
+describe('processStreamEvent — same-uuid frame aggregation (intermediate-output regression)', () => {
+  it('a following tool_use frame does not blank out text/thinking of the same message.id', () => {
     const buf = emptyBuf()
     const deps = makeDeps(buf)
     const sid = 's1'
@@ -46,7 +46,7 @@ describe('processStreamEvent — same-uuid frame 集約 (中間出力 regression
     expect(buf.uuid).toBe('X')
   })
 
-  it('異なる uuid が来たら前メッセージを先に flush する', () => {
+  it('a different uuid flushes the previous message first', () => {
     const buf = emptyBuf()
     const deps = makeDeps(buf)
 
@@ -79,8 +79,8 @@ function toolResultEvent(tool_use_id, content) {
   return { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id, content }] } }
 }
 
-describe('processStreamEvent — AskUserQuestion の止まり解消', () => {
-  it('質問バブルは streaming:false で作られる (= 推論中インジケータを止める)', () => {
+describe('processStreamEvent — AskUserQuestion unstick behaviour', () => {
+  it('question bubbles are created with streaming:false (stops the thinking indicator)', () => {
     const { deps, get } = makeStatefulDeps({ s1: [] })
     processStreamEvent(deps, 's1', askEvent('toolu_1'))
     const bubble = get().s1.at(-1)
@@ -89,7 +89,7 @@ describe('processStreamEvent — AskUserQuestion の止まり解消', () => {
     expect(bubble.streaming).toBe(false)
   })
 
-  it('既存 agent バブルに同居する場合も streaming を false に落とす', () => {
+  it('streaming drops to false even when co-located in an existing agent bubble', () => {
     const init = { s1: [{ id: 'a', role: 'agent', text: '本文', streaming: true }] }
     const { deps, get } = makeStatefulDeps(init)
     processStreamEvent(deps, 's1', askEvent('toolu_2'))
@@ -99,7 +99,7 @@ describe('processStreamEvent — AskUserQuestion の止まり解消', () => {
     expect(bubble.streaming).toBe(false)
   })
 
-  it('tool_result が返ると該当質問バブルを answered + streaming:false に畳む (ターミナル回答救済)', () => {
+  it('a tool_result folds the matching question bubble to answered + streaming:false (rescues terminal-side answers)', () => {
     const init = {
       s1: [{
         id: 'a', role: 'agent', streaming: true,
@@ -114,7 +114,7 @@ describe('processStreamEvent — AskUserQuestion の止まり解消', () => {
     expect(bubble.askUserQuestion.selectedAnswer).toBe('選択: はい')
   })
 
-  it('チャット回答由来の selectedAnswer は tool_result で上書きしない', () => {
+  it('selectedAnswer from a chat-side answer is not overwritten by the tool_result', () => {
     const init = {
       s1: [{
         id: 'a', role: 'agent', streaming: false,
@@ -128,7 +128,7 @@ describe('processStreamEvent — AskUserQuestion の止まり解消', () => {
     expect(bubble.askUserQuestion.selectedAnswer).toBe('B')
   })
 
-  it('別 tool_use_id の tool_result では質問バブルを畳まない', () => {
+  it('a tool_result with a different tool_use_id does not fold the question bubble', () => {
     const init = {
       s1: [{
         id: 'a', role: 'agent', streaming: true,
@@ -143,7 +143,7 @@ describe('processStreamEvent — AskUserQuestion の止まり解消', () => {
   })
 })
 
-describe('processStreamEvent — task_notification (background task 完了カード)', () => {
+describe('processStreamEvent — task_notification (background-task completion card)', () => {
   function taskEvent(uuid, over = {}) {
     return {
       type: 'task_notification', uuid,
@@ -153,7 +153,7 @@ describe('processStreamEvent — task_notification (background task 完了カー
     }
   }
 
-  it('system/task バブルとして push される (= user バブルにしない)', () => {
+  it('pushed as a system/task bubble (never a user bubble)', () => {
     const { deps, get } = makeStatefulDeps({ s1: [] })
     processStreamEvent(deps, 's1', taskEvent('t1'))
     const bubble = get().s1.at(-1)
@@ -163,7 +163,7 @@ describe('processStreamEvent — task_notification (background task 完了カー
     expect(bubble.outputFile).toContain('x.output')
   })
 
-  it('同一 uuid の replay では重複追加しない', () => {
+  it('a replay of the same uuid does not append a duplicate', () => {
     const { deps, get } = makeStatefulDeps({ s1: [] })
     processStreamEvent(deps, 's1', taskEvent('t2'))
     processStreamEvent(deps, 's1', taskEvent('t2'))

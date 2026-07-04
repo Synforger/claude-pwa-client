@@ -24,7 +24,7 @@ describe('state/push.js setter contract (= singleton store)', () => {
     })
   })
 
-  it('individual setter は対応 field のみ更新', () => {
+  it('each individual setter updates only its own field', () => {
     setPushAvailable(true)
     expect(getSnapshot()).toEqual({ available: true, enabled: false, broken: false, busy: false })
     setPushEnabled(true)
@@ -35,7 +35,7 @@ describe('state/push.js setter contract (= singleton store)', () => {
     expect(getSnapshot()).toEqual({ available: true, enabled: true, broken: true, busy: true })
   })
 
-  it('同値 setter は snapshot reference を変えない (= subscriber 通知抑止の契約)', () => {
+  it('same-value setters keep the snapshot reference (contract: no subscriber notification)', () => {
     setPushAvailable(true)
     const snap1 = getSnapshot()
     setPushAvailable(true)
@@ -44,7 +44,7 @@ describe('state/push.js setter contract (= singleton store)', () => {
     expect(getSnapshot()).not.toBe(snap1)
   })
 
-  it('複数 subscribe は同一 store の同一 snapshot を読む (= singleton 保証)', () => {
+  it('multiple subscribers read the same snapshot of the same store (singleton guarantee)', () => {
     const seen1 = []
     const seen2 = []
     const unsub1 = subscribe((s) => seen1.push(s))
@@ -64,7 +64,7 @@ describe('state/push.js setter contract (= singleton store)', () => {
     unsub2()
   })
 
-  it('subscribe 解除後は listener が呼ばれない', () => {
+  it('listeners are not called after unsubscribe', () => {
     const seen = []
     const unsub = subscribe((s) => seen.push(s))
     setPushEnabled(true)
@@ -74,7 +74,7 @@ describe('state/push.js setter contract (= singleton store)', () => {
     expect(seen).toHaveLength(1)
   })
 
-  it('_resetForTest は INITIAL に戻す', () => {
+  it('_resetForTest restores INITIAL', () => {
     setPushAvailable(true)
     setPushEnabled(true)
     setPushBroken(true)

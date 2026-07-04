@@ -28,7 +28,7 @@ describe('storage helpers (lsGet / lsSet / lsRemove)', () => {
     expect(lsGet('missing')).toBeNull()
   })
 
-  it('lsGet returns the fallback for corrupt JSON (= 例外を握りつぶす)', () => {
+  it('lsGet returns the fallback for corrupt JSON (swallows the exception)', () => {
     localStorage.setItem('bad', '{not json')
     expect(lsGet('bad', {})).toEqual({})
   })

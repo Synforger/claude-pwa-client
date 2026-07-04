@@ -5,12 +5,12 @@
 import { describe, it, expect } from 'vitest'
 
 describe('features/app-effects — smoke contract', () => {
-  it('AppEffects.jsx は default export が関数 component', async () => {
+  it('AppEffects.jsx default-exports a function component', async () => {
     const mod = await import('./AppEffects.jsx')
     expect(typeof mod.default).toBe('function')
   })
 
-  it('index.js を import すると featureRegistry に \'app-effects\' が register される', async () => {
+  it('importing index.js registers app-effects in featureRegistry', async () => {
     await import('./index.js')
     const reg = await import('../../registry/featureRegistry.js')
     expect(reg.list()).toContain('app-effects')
