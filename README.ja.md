@@ -6,6 +6,13 @@
 
 [Claude Code](https://docs.claude.com/en/docs/claude-code) (Anthropic 公式 CLI) をスマートフォンから操作するための PWA クライアント。 ホストマシン上で動かすバックエンドに Tailscale 経由で iPhone / Android のブラウザから接続し、 ホーム画面に追加してスタンドアロン PWA として利用する。 backend は `claude` CLI を実 PTY + tmux で subprocess 起動するため Anthropic Usage Policy の枠内で動く (= subscription / API key の choice はユーザに委ねる、 token を抽出しない設計)。
 
+
+<p align="center">
+  <img src="docs/images/chat.png" width="260" alt="Chat — markdown tables and code blocks rendered inline" />
+  <img src="docs/images/markdown-preview.png" width="260" alt="Markdown file preview opened from a path link" />
+  <img src="docs/images/notification.jpeg" width="260" alt="Lock-screen push notification asking a question" />
+</p>
+
 ## 主な機能
 
 - **チャット**: 複数セッション並走 + タブ切替 + SSE 逐次表示
