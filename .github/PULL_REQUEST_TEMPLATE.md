@@ -1,15 +1,15 @@
-## 概要
+## Summary
 
-<!-- 何を / なぜ。 関連 Issue があれば `Closes #N` -->
+<!-- What / why. Link issues with `Closes #N`. -->
 
-## 変更内容
+## Changes
 
 -
 
-## 検証
+## Verification
 
-<!-- 該当するものを実行して結果を書く -->
+<!-- Run what applies and note the results. -->
 
 - [ ] `task docs:check`
-- [ ] `task test:unit` (または repo のテスト一式)
-- [ ] `task audit` (依存を触った場合)
+- [ ] `task test:unit` (or this repo's test suite)
+- [ ] `task audit` (if dependencies changed)

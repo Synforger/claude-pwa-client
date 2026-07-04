@@ -1,22 +1,14 @@
 ---
-name: 機能要望
-about: 機能追加・削減などを行いたい時にはこちら
+name: Feature request
+about: Suggest an improvement or a new capability
 title: ''
-labels: 'feature request :point_up:'
+labels: 'enhancement'
 assignees: ''
 
 ---
 
-## 期限
+## What problem does this solve?
 
-## 概要
+## Proposed solution
 
-## 該当ページ
-
-## 背景と目的
-
-## 最終的なゴール
-
-## 仕様
-
-## 参考
+## Alternatives considered
