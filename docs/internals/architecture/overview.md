@@ -138,7 +138,7 @@ race があった (= iPhone 2 台同時運用で「片方だけ停止ボタン�
 
 ## frontend 構成 (= W2 architecture 真の完成、 2026-06-29)
 
-React + Vite。 `main.jsx` → `App.jsx` (= 10 行 shell、 ErrorBoundary + Layout を return するだけ) → `layout/Layout.jsx` (= 55 行本体、 features の side-effect import + 配置のみ) → 各 features が真の責務 owner。 旧 `AppShell.jsx` (= 887 行) は W2 Phase F-4/F-5/F-6 で完全削除済 (ADR-026)、 contract test で再導入 gate 化。
+React + Vite。 `main.jsx` → `App.jsx` (= 10 行 shell、 ErrorBoundary + Layout を return するだけ) → `frontend/src/layout/Layout.jsx` (= 55 行本体、 features の side-effect import + 配置のみ) → 各 features が真の責務 owner。 旧 `AppShell.jsx` (= 887 行) は W2 Phase F-4/F-5/F-6 で完全削除済 (ADR-026)、 contract test で再導入 gate 化。
 
 | ディレクトリ | 責務 | 規約 |
 |---|---|---|
@@ -160,7 +160,7 @@ React + Vite。 `main.jsx` → `App.jsx` (= 10 行 shell、 ErrorBoundary + Layo
 |---|---|
 | `frontend/src/tools/_registry.js` | tool 名 → handler の lookup table。 `utils/format.js::formatTool()` がここを引いて `handler.format(input)` に丸投げ |
 | `frontend/src/registry/messageRegistry.js` | `system_*` / `attachment` / `task_notification` 等の system kind ごとの `fromEvent(event)` + `Render` を 1 箇所集約。 旧来は MessageItem.jsx 側の巨大 switch + processStreamEvent 側の重複 append パターンに分散していた (W2 Phase F-1 で registry/ 配下に集約) |
-| `frontend/src/features/chat/processStreamEvent.js` | SSE event の `type` 分岐の単一窓口。 messageRegistry / appendSystemMessage / useStreamBuffer に dispatch する (W2 Phase F-1 で `hooks/internal/` から `features/chat/` 配下に移送) |
+| `frontend/src/features/chat/processStreamEvent.js` | SSE event の `type` 分岐の単一窓口。 messageRegistry / appendSystemMessage / useStreamBuffer に dispatch する (W2 Phase F-1 で 旧 hooks/internal から `frontend/src/features/chat/` 配下に移送) |
 
 新 system kind / 新 SSE event type / 新 tool 表示の追加手順は `extending.md` 参照。
 
@@ -169,4 +169,4 @@ React + Vite。 `main.jsx` → `App.jsx` (= 10 行 shell、 ErrorBoundary + Layo
 - 4 SSE + 2 WS 経路 (= status / overview / chat / chat-all / views_ws / pty_ws) の責任分担 + event wire shape = `../protocol/streams.md` (旧 streams + sse-event-shape を統合)
 - state stores 6 個の責務 + subscribe 経路 = `state-stores.md`
 - 拡張ガイド (= 新 tool / 新 SSE event / 新 modal / 新 account / 新 push channel) = `extending.md`
-- `backend/data/*.json` の schema = `reference/data-schemas.md`
+- `backend/data/*.json` の schema = `docs/reference/data-schemas.md`

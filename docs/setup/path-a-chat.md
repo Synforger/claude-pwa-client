@@ -45,7 +45,7 @@ task run    # foreground、 Ctrl-C で停止 (= dev)
 > uvicorn backend.main:app --host 0.0.0.0 --port 8765
 > ```
 
-> **開発時の注意**: backend のサブパッケージ構成や import 構造を変更した時は、 古い `__pycache__/*.pyc` が import 事故の温床になる。 `task clean` で purge。 その他のトラブルは [../ops/troubleshoot.md](../ops/troubleshoot.md) 参照。
+> **開発時の注意**: backend のサブパッケージ構成や import 構造を変更した時は、 古い `__pycache__/*.pyc` が import 事故の温床になる。 `task clean` で purge。 その他のトラブルは [../troubleshooting/troubleshoot.md](../troubleshooting/troubleshoot.md) 参照。
 
 ## claude の PATH と起動 alias
 
@@ -194,7 +194,7 @@ task tailscale-serve    # = tailscale serve --bg http://localhost:8765
 これで `https://<your-host>.tail<xxxx>.ts.net/` が backend を指す。 `tailscale serve status` で接続状態を確認できる。
 
 > Chromium 系ブラウザで HTTPS 証明書エラーが出る場合は
-> [../ops/troubleshoot.md](../ops/troubleshoot.md) の Tailscale 証明書 section を参照。
+> [../troubleshooting/troubleshoot.md](../troubleshooting/troubleshoot.md) の Tailscale 証明書 section を参照。
 
 ## backend を常駐起動する (macOS LaunchAgent)
 

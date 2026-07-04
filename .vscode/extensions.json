@@ -1,0 +1,18 @@
+{
+    "recommendations": [
+        "mhutchie.git-graph",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.black-formatter",
+        "ms-python.flake8",
+        "ms-python.isort",
+        "eamodio.gitlens",
+        "njpwerner.autodocstring",
+        "adam-bender.commit-message-editor",
+        "shardulm94.trailing-spaces",
+        "usernamehw.errorlens",
+        "ms-azuretools.vscode-docker",
+        "tamasfe.even-better-toml",
+        "ms-toolsai.jupyter"
+    ]
+}

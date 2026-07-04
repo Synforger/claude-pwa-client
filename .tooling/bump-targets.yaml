@@ -1,0 +1,32 @@
+# =============================================================================
+# personal-template / version bump targets
+# =============================================================================
+# Single source of truth for the project version + which files
+# `version-bump.sh` / `release-cut.sh` rewrite when the version changes.
+#
+# Add one entry per file that carries your project version. Removing a
+# ships a snippet in its README explaining what to append). Removing an
+# stack later means removing its entry here by hand.
+#
+# Placeholders inside search / replace:
+#   {OLD}         = e.g. "0.1.13"
+#   {NEW}         = e.g. "0.1.14"
+#   {OLD_MAJOR}   = e.g. "0"
+#   {OLD_MINOR}   = e.g. "1"
+#   {OLD_PATCH}   = e.g. "13"
+#   {NEW_MAJOR}   = e.g. "0"
+#   {NEW_MINOR}   = e.g. "1"
+#   {NEW_PATCH}   = e.g. "14"
+#
+# Adding a new file: pick the smallest pattern that uniquely identifies the
+# version literal, prefer keeping the surrounding line literal so a stray
+# match elsewhere in the file cannot fire by accident.
+# =============================================================================
+
+current_version: "0.1.0"
+
+targets:
+  - file: pyproject.toml
+    replacements:
+      - search: 'version = "{OLD}"'
+        replace: 'version = "{NEW}"'

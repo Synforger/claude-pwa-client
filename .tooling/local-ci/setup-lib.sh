@@ -13,8 +13,7 @@
 #                                  back to _core/.tooling/versions.yaml).
 #   check_command <name>           Return 0 if <name> is on PATH, 1 otherwise.
 #   get_version <name>             Print the binary's semver string to stdout.
-#                                  Supports bash / git / python / node / rust /
-#                                  swift / kotlin / cmake / dotnet (= cs).
+#                                  Supports bash / git / python / node / jq.
 #                                  Empty string on unknown tool / parse miss.
 #   version_satisfies <actual> <constraint>
 #                                  Return 0 if <actual> meets <constraint>.
@@ -111,22 +110,17 @@ get_version() {
         git)    out="$(LANG=C LC_ALL=C git --version 2>/dev/null | sed -nE 's/.*git version ([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/p')" ;;
         python) out="$(LANG=C LC_ALL=C python3 --version 2>&1 | sed -nE 's/Python ([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/p')" ;;
         node)   out="$(LANG=C LC_ALL=C node --version 2>/dev/null | sed -nE 's/^v?([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/p')" ;;
-        rust)   out="$(LANG=C LC_ALL=C rustc --version 2>/dev/null | sed -nE 's/^rustc ([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/p')" ;;
-        swift)  out="$(LANG=C LC_ALL=C swift --version 2>/dev/null | head -1 | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/p')" ;;
-        kotlin) out="$(LANG=C LC_ALL=C kotlin -version 2>&1 | sed -nE 's/.*Kotlin version ([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/p' | head -1)" ;;
-        cmake)  out="$(LANG=C LC_ALL=C cmake --version 2>/dev/null | head -1 | sed -nE 's/cmake version ([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/p')" ;;
-        cs|dotnet) out="$(LANG=C LC_ALL=C dotnet --version 2>/dev/null | sed -nE 's/^([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/p')" ;;
+        jq)     out="$(LANG=C LC_ALL=C jq --version 2>/dev/null | sed -nE 's/^jq-([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/p')" ;;
         *)      out="" ;;
     esac
     printf '%s' "${out}"
 }
 
 # binary_name <key>
-# Maps a versions.yaml key to its executable name. Most are 1:1; cs uses
-# dotnet, python uses python3.
+# Maps a versions.yaml key to its executable name. Most are 1:1; python
+# uses python3.
 binary_name() {
     case "$1" in
-        cs)     echo "dotnet" ;;
         python) echo "python3" ;;
         *)      echo "$1" ;;
     esac

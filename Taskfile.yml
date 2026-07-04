@@ -334,3 +334,42 @@ tasks:
         else
           .venv/bin/python -m backend.cli.gen_vapid --force
         fi
+
+  # ---------------------------------------------------------------------------
+  # personal-template 品質機構 (= .tooling/local-ci/、 言語非依存)
+  # ---------------------------------------------------------------------------
+  docs:check:
+    desc: Verify docs freshness (paths / task names / tree diagrams vs reality)
+    cmds:
+      - bash .tooling/local-ci/docs-check.sh
+
+  doctor:
+    desc: Full diagnostic — toolchain floor + hooks/machine armament in one pass
+    cmds:
+      - bash .tooling/local-ci/doctor.sh
+      - if [ -f "$HOME/.git-hooks/doctor.sh" ]; then bash "$HOME/.git-hooks/doctor.sh"; else echo "guard-dispatcher not armed on this machine (machine-wide hooks missing)"; fi
+
+  lint:versions:
+    desc: Detect downstream toolchain drift vs .tooling/versions.yaml truth
+    cmds:
+      - bash .tooling/local-ci/lint-versions.sh
+
+  version:bump:
+    desc: Bump version in bump-targets.yaml + listed files (LEVEL=patch|minor|major, DRY_RUN=1 for plan-only)
+    cmds:
+      - LEVEL='{{.LEVEL | default "patch"}}' DRY_RUN='{{.DRY_RUN | default "0"}}' bash .tooling/local-ci/version-bump.sh
+
+  release:cut:
+    desc: Bump version + commit + tag + push (LEVEL=patch|minor|major, SKIP_PUSH=1 to keep local, DRY_RUN=1 for plan-only)
+    cmds:
+      - LEVEL='{{.LEVEL | default "patch"}}' SKIP_PUSH='{{.SKIP_PUSH | default "0"}}' DRY_RUN='{{.DRY_RUN | default "0"}}' bash .tooling/local-ci/release-cut.sh
+
+  pr:create:
+    desc: Create a GitHub PR with the title/body anon-scanned first (TITLE= BODY_FILE= [BASE=main], needs guard-dispatcher)
+    cmds:
+      - bash "$HOME/.git-hooks/scripts/pr-create.sh" --title "{{.TITLE}}" --body-file "{{.BODY_FILE}}" --base "{{.BASE | default "main"}}"
+
+  setup:branch-protection:
+    desc: Setup branch protection rules for the main branch
+    cmds:
+      - bash scripts/setup-branch-protection.sh

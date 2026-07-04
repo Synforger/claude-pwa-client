@@ -72,14 +72,14 @@ claude が `tool_use` で呼ぶ任意の tool block を chat UI で見栄え良�
 
 中央モーダル / サイドドロワー / 全画面プレビュー / popover ピッカーを追加する。
 v2 architecture では overlay は `frontend/src/features/<name>/` 配下に置く (= ADR-010
-self-register、 旧 `frontend/src/overlays/` は廃止)。
+self-register、 旧 overlays ディレクトリ方式は廃止)。
 
 ### 手順 (= W2 真の完成済、 ADR-026)
 
 1. **`frontend/src/features/<name>/<Name>.jsx`** を新規作成 (= 命名 `<Name>.jsx` +
    `<Name>.css` 同居)。 共通枠の CSS は `frontend/src/shared/Modal.css` を import する。
    component 内で必要 state は `useSyncExternalStore(subscribe, getSnapshot)` で
-   `state/ui.js` / `state/sessions.js` 等から自前 pull、 onClose 等は `setOverlay('<key>', false)`
+   `frontend/src/state/ui.js` / `frontend/src/state/sessions.js` 等から自前 pull、 onClose 等は `setOverlay('<key>', false)`
    等の state setter を直呼出 (= props 受け取り禁止、 props drilling 廃止済)
 2. **`frontend/src/features/<name>/index.js`** で配線 entry を declare:
    ```js
@@ -90,12 +90,12 @@ self-register、 旧 `frontend/src/overlays/` は廃止)。
    })
    ```
    **配線 entry から component を static import しない** (= 下記「(c) 注意点」 参照)
-3. **`layout/Layout.jsx`** に `import '../features/<name>/index.js'` 1 行追加 (= self-register)。
+3. **`frontend/src/layout/Layout.jsx`** に `import '../features/<name>/index.js'` 1 行追加 (= self-register)。
    render は `<OverlayHost />` (= Layout.jsx で既配置) が overlayRegistry を走査して
    open 中 overlay を lazy + Suspense + LazyBoundary で 1 経路 render するので、 個別 component を
    Layout.jsx に書く必要はない (= 「`AppShell.jsx` に lazy + Suspense を書く」 旧設計は ADR-026 で廃止)
-4. **`state/ui.js`** の `INITIAL.overlays` に `<key>: false` (= boolean) or `<key>: null` (= payload あり) を追加。
-   ESC 閉じは `hooks/useEscape.js`、 outside-click は `hooks/useOutsideClick.js` を component 内で直呼出
+4. **`frontend/src/state/ui.js`** の `INITIAL.overlays` に `<key>: false` (= boolean) or `<key>: null` (= payload あり) を追加。
+   ESC 閉じは `frontend/src/hooks/useEscape.js`、 outside-click は `frontend/src/hooks/useOutsideClick.js` を component 内で直呼出
 
 ### (c) 注意点 = 配線 entry の static import 禁止 (= ADR-025、 contract test 強制)
 
@@ -111,9 +111,9 @@ self-register、 旧 `frontend/src/overlays/` は廃止)。
 書いてはいけないもの:
 - `import './<Name>.jsx'` のように Component を static import する行 (= chunk 分離が壊れる)
 
-contract test (= `features/__contracts__/no-lazy-component-static-import.test.js`)
+contract test (= `frontend/src/features/__contracts__/no-lazy-component-static-import.test.js`)
 が各 features/<x>/index.js の Component lazy spec と static import の交差を vitest で gate 化、
-さらに `layout/AppShell.jsx` の存在 (= 削除済) と Layout.jsx の Component spec 数を assert する。
+さらに削除済 AppShell.jsx が再導入されていないこと と Layout.jsx の Component spec 数を assert する。
 配線 entry を編集したら必ず `npx vitest run src/features/__contracts__/` 緑を確認。
 
 ### overlay として `features/` に置かないもの
@@ -144,7 +144,7 @@ contract test (= `features/__contracts__/no-lazy-component-static-import.test.js
    }
    ```
 2. backend 再起動 (= `config.py` は遅延 lookup なので再起動後の次タブから反映)
-3. frontend では新タブ作成 UI (= `frontend/src/hooks/useSessions.js` 経由) が
+3. frontend では新タブ作成 UI (= `frontend/src/features/session-drawer/useSessions.js` 経由) が
    `/accounts` endpoint (`backend/routes/accounts.py`) から自動で選択肢を引く
 4. **コード変更不要** (= `state.SessionDef.account_id` が任意の string を受ける設計、
    spawn 時に `accounts[account_id].env` を tmux env として注入する)

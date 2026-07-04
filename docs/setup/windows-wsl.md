@@ -46,7 +46,7 @@ python -m backend.cli.gen_vapid
 
 ## 4. systemd user service で常駐起動
 
-`REDACTED_PATH/systemd/user/claudepwa.service`:
+`~/.config/systemd/user/claudepwa.service`:
 
 ```ini
 [Unit]
