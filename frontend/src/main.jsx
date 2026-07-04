@@ -4,6 +4,22 @@ import './index.css'
 import App from './App.jsx'
 import Terminal from './features/terminal/Terminal.jsx'
 import ErrorBoundary from './layout/ErrorBoundary.jsx'
+import { hardRefreshAppShell } from './utils/appRefresh.js'
+
+// deploy 後の旧 client 自己修復: lazy chunk の dynamic import 失敗 (= deploy で旧 hash の
+// chunk がサーバから消えた) を Vite の vite:preloadError で受け、 「アプリを更新」 と同じ
+// 刷新経路を自動発火する。 ユーザには全画面エラーの代わりに 1 回の自動 reload に見える。
+// 60s 内の再発は素通し (= 刷新で直らない別問題を無限 reload loop にしない、 その場合は
+// ErrorBoundary に落ちて可視化される)。
+window.addEventListener('vite:preloadError', (event) => {
+  const KEY = 'cpc_auto_refresh_at'
+  let last = 0
+  try { last = Number(sessionStorage.getItem(KEY) || 0) } catch { /* private mode 等 */ }
+  if (Date.now() - last < 60_000) return
+  try { sessionStorage.setItem(KEY, String(Date.now())) } catch { /* ignore */ }
+  event.preventDefault()
+  hardRefreshAppShell()
+})
 
 // Service Worker 登録 (Web Push 受信用)。
 // iOS PWA は 16.4+ かつホーム画面追加済みでのみ Push を受け取れる。
