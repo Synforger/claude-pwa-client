@@ -1,18 +1,16 @@
 ---
-name: 技術的課題
-about: 技術的課題の報告はこちら
+name: Technical debt
+about: Flag an internal quality issue (no user-facing behaviour change)
 title: ''
-labels: 'enhancement :rocket:'
+labels: 'technical debt'
 assignees: ''
 
 ---
 
-## 概要
+## Where
 
-## 背景
+<!-- File / module / mechanism. -->
 
-## 修正しないとどう困るか又は良くなるのか
+## Why it is debt
 
-## 対応策
-
-<!-- 現時点で思いつくものがあれば記載 -->
+## Suggested direction
