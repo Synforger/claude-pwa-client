@@ -20,3 +20,11 @@ server/config.json
 e2e/fixtures/_runtime
 _runtime/jsonl/
 fixtures/_runtime/data/
+# runtime / user-created files (gitignored; exist only on an operating host)
+backend/config.json
+backend/data/jsonl_bindings.json
+backend/data/session_history.json
+backend/data/subscriptions.json
+backend/secrets/vapid.json
+logs/backend.access.log
+logs/backend.error.log

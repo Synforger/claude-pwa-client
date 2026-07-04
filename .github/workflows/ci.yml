@@ -1,0 +1,40 @@
+name: CI
+
+# Mirror of the local gate suite — the checks themselves live in the
+# Taskfile / .tooling and run offline; this workflow only gives GitHub
+# a trigger to run the same `task ci` on pull requests, so external
+# contributors get a status check without owning the guard machinery.
+#
+# Visibility guard: public-repo runner minutes are free; on a private
+# repository this workflow refuses to run so it can never consume the
+# plan's minute quota. Local gates remain the source of truth there.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install go-task
+        run: sudo sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+      - name: Install backend deps
+        run: python3 -m pip install -r backend/requirements.txt && python3 -m pip install pytest flake8
+      - name: Install frontend deps
+        run: cd frontend && npm ci
+      - name: Run the local gate suite
+        run: task ci
