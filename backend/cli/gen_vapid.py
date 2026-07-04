@@ -30,7 +30,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if VAPID_PATH.exists() and not args.force:
-        print(f"{VAPID_PATH} は既に存在します。上書きするには --force を付けてください。")
+        print(f"{VAPID_PATH} already exists. Pass --force to overwrite.")
         return
 
     private_key = ec.generate_private_key(ec.SECP256R1())
@@ -56,8 +56,8 @@ def main() -> None:
     }
     VAPID_PATH.write_text(json.dumps(payload, indent=2))
     VAPID_PATH.chmod(0o600)
-    print(f"VAPID 鍵を生成しました: {VAPID_PATH}")
-    print(f"public_key (フロント config に渡す): {public_b64}")
+    print(f"Generated VAPID keys: {VAPID_PATH}")
+    print(f"public_key (pass to the frontend config): {public_b64}")
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ import {
   getSnapshot as getSessionsSnapshot,
 } from '../../state/sessions.js'
 import { bumpAttachmentPicker } from '../../state/ephemeral.js'
+import { refetchChat } from '../chat/useChatStream.js'
 import { useOutsideClick } from '../../hooks/useOutsideClick.js'
 import { useT } from '../../i18n/t.js'
 import { useStatus } from '../status-bar/useStatus.js'
@@ -181,6 +182,16 @@ function TopbarMoreMenu({ activeViewMode, setActiveViewMode }) {
             data-testid="view-toggle"
           >
             {activeViewMode === 'terminal' ? t('topbar.menu.chat_view') : t('topbar.menu.terminal_view')}
+          </button>
+          {/* チャット再取得: SSE 取りこぼし / offset ズレで表示が実 JSONL と食い違った時の
+              手動復旧。 実装は features/chat (= refetchChat module export、 endSession と同じ
+              流儀) で、 Topbar は呼ぶだけ。 */}
+          <button
+            className="topbar-more-item"
+            onClick={() => { refetchChat(); close() }}
+            data-testid="refetch-chat"
+          >
+            {t('topbar.menu.refetch_chat')}
           </button>
           {/* 2026-07-03: Language toggle は SessionDrawer ⋯ に移設。 通知 / アプリ更新と同じ
               「PWA レベル設定」 の並びに寄せた方が意味的に自然。 */}

@@ -9,6 +9,7 @@
 // - TaskNotification は元から専用ファイルなので registry 側で直接 import する。
 // - format helper (= formatDuration) は utils/format.js から引く。
 import { formatDuration } from '../../utils/format.js'
+import { useT } from '../../i18n/t.js'
 
 // 会話圧縮 (compact_boundary) 用バナー。SDK からは事後通知しか来ないので
 // 「圧縮完了」の表示のみ。pre→post のトークン減少と所要時間を添える。
@@ -20,6 +21,7 @@ function formatCompactTokens(n) {
 }
 
 export function CompactBanner({ msg }) {
+  const t = useT()
   const parts = []
   if (msg.trigger) parts.push(msg.trigger)
   if (msg.preTokens != null && msg.postTokens != null) {
@@ -32,7 +34,7 @@ export function CompactBanner({ msg }) {
     <div className="message system compact-banner">
       <span className="compact-line">
         <span className="compact-rule" />
-        <span className="compact-label">会話を圧縮しました{detail}</span>
+        <span className="compact-label">{t('system.compacted')}{detail}</span>
         <span className="compact-rule" />
       </span>
     </div>
@@ -40,12 +42,13 @@ export function CompactBanner({ msg }) {
 }
 
 export function SessionEndBanner() {
+  const t = useT()
   // 「セッション終了」 を区切る横線 + ラベル。 旧 chat UI と同じ見た目。
   return (
     <div className="message system compact-banner">
       <span className="compact-line">
         <span className="compact-rule" />
-        <span className="compact-label">セッション終了</span>
+        <span className="compact-label">{t('system.session_end')}</span>
         <span className="compact-rule" />
       </span>
     </div>
@@ -53,17 +56,18 @@ export function SessionEndBanner() {
 }
 
 export function ApiErrorCard({ msg }) {
+  const t = useT()
   const retrySec = typeof msg.retryInMs === 'number' && msg.retryInMs > 0
-    ? `${(msg.retryInMs / 1000).toFixed(1)}s 後にリトライ`
+    ? t('system.retry_in', { sec: (msg.retryInMs / 1000).toFixed(1) })
     : null
   const attempt = typeof msg.retryAttempt === 'number' && msg.retryAttempt > 0
-    ? `(${msg.retryAttempt} 回目)`
+    ? t('system.attempt', { n: msg.retryAttempt })
     : null
   return (
     <div className="message system api-error-card">
       <div className="api-error-header">
         <span className="api-error-icon">⚠️</span>
-        <span className="api-error-title">{msg.isNetworkDown ? 'ネットワーク切断' : `API エラー${msg.status ? ` (${msg.status})` : ''}`}</span>
+        <span className="api-error-title">{msg.isNetworkDown ? t('system.network_down') : `${t('system.api_error')}${msg.status ? ` (${msg.status})` : ''}`}</span>
       </div>
       <div className="api-error-body">{msg.formatted}</div>
       {(retrySec || attempt || msg.requestId) && (
