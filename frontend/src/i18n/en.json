@@ -33,6 +33,7 @@
   "topbar.menu.file_tree": "File tree",
   "topbar.menu.terminal_view": "⌨ Terminal view",
   "topbar.menu.chat_view": "💬 Chat view",
+  "topbar.menu.refetch_chat": "↻ Reload chat",
   "topbar.menu.end_session": "End session",
   "topbar.menu.language_ja": "日本語",
   "topbar.menu.language_en": "English",

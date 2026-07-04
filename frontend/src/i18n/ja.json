@@ -33,6 +33,7 @@
   "topbar.menu.file_tree": "ファイルツリー",
   "topbar.menu.terminal_view": "⌨ ターミナルで表示",
   "topbar.menu.chat_view": "💬 チャットで表示",
+  "topbar.menu.refetch_chat": "↻ チャットを再取得",
   "topbar.menu.end_session": "セッション終了",
   "topbar.menu.language_ja": "日本語",
   "topbar.menu.language_en": "English",

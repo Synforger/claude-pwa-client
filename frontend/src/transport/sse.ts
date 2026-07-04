@@ -78,6 +78,11 @@ class SseTransportImpl implements SseTransport {
     saveOffsets(this.offsets)
   }
 
+  resetOffset(sid: string): void {
+    delete this.offsets[sid]
+    saveOffsets(this.offsets)
+  }
+
   private onMessage(ev: MessageEvent<string>): void {
     let event: AnySseEvent
     try { event = JSON.parse(ev.data) as AnySseEvent } catch { return }
