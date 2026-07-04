@@ -1,6 +1,7 @@
 // 子 agent / workflow / question 系 (AskUserQuestion / Monitor / Agent / Task / Workflow)。
 // Agent と Task は旧 SDK / 現行 SDK の名前差異なので同じ shape で扱う。
 import { truncate, SHORT_LABEL_MAX } from './_shared.js'
+import { tRaw } from '../i18n/t.js'
 
 export const AskUserQuestion = {
   format(input) {
@@ -46,7 +47,7 @@ function formatAgent(input) {
   if (input?.run_in_background) lines.push(`background: true`)
   // prompt 本文は chat 側で非表示 (= 🤖 chip → subagent panel に詳細経路あり、
   // inline 展開で全文出すと長文で会話が埋もれる、 2026-06-20)
-  if (input?.prompt) lines.push('', `prompt: ${input.prompt.length} chars (= 🤖 から開く)`)
+  if (input?.prompt) lines.push('', `prompt: ${input.prompt.length} chars (${tRaw('tools.agent_open_hint')})`)
   return {
     label: lines.join('\n'),
     shortLabel: `🤖 agent[${sub}] ${truncate(desc, SHORT_LABEL_MAX - sub.length - 12)}`,

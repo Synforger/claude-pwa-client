@@ -86,7 +86,7 @@ def projects_dir_for_account(account_id: str | None) -> Path:
 
 def _accounts() -> dict[str, Any]:
     return get_config().get("accounts") or {
-        "personal": {"display_name": "個人", "env": {}}
+        "personal": {"display_name": "Personal", "env": {}}
     }
 
 
@@ -100,7 +100,7 @@ def validate_runtime_paths() -> None:
     if not cfg:
         logger.warning(
             "runtime check: config.json is empty; agents / accounts / "
-            "webpush 等の起動経路は no-op になります。"
+            "webpush startup paths will be no-ops."
         )
         return
     if "agents" not in cfg or not cfg.get("agents"):

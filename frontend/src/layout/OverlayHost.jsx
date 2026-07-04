@@ -13,6 +13,7 @@
 // LazyBoundary は AppShell.jsx から移送 (= F-60 互換、 chunk fetch 失敗時に該当 modal だけ閉じる)。
 
 import { lazy, Suspense, Component, useMemo, useSyncExternalStore } from 'react'
+import { tRaw } from '../i18n/t.js'
 import { list, describe } from '../registry/overlayRegistry.js'
 import { subscribe as subscribeUi, getSnapshot as getUiSnapshot } from '../state/ui.js'
 
@@ -49,7 +50,7 @@ class LazyBoundary extends Component {
             fontSize: 13,
             lineHeight: 1.5,
           }}>
-            <p style={{ margin: '0 0 14px' }}>画面の読込に失敗しました</p>
+            <p style={{ margin: '0 0 14px' }}>{tRaw('overlay.load_failed')}</p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
               <button
                 type="button"
@@ -63,7 +64,7 @@ class LazyBoundary extends Component {
                   cursor: 'pointer',
                   fontSize: 13,
                 }}
-              >閉じる</button>
+              >{tRaw('common.close')}</button>
               <button
                 type="button"
                 onClick={() => window.location.reload()}
@@ -76,7 +77,7 @@ class LazyBoundary extends Component {
                   cursor: 'pointer',
                   fontSize: 13,
                 }}
-              >↺ アプリ更新</button>
+              >↺ {tRaw('overlay.app_update')}</button>
             </div>
           </div>
         </div>

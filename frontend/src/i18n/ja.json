@@ -8,12 +8,10 @@
   "common.loading": "読み込み中…",
   "common.empty": "(出力は空です)",
   "common.language": "言語",
-
   "confirm.yes": "はい",
   "confirm.no": "いいえ",
   "confirm.end_session": "このセッションを終了しますか?",
   "confirm.stop_inference": "推論を停止しますか?",
-
   "topbar.no_session": "会話なし",
   "topbar.drawer_toggle": "会話一覧",
   "topbar.back_to_chat": "チャット表示に戻す",
@@ -33,10 +31,10 @@
   "topbar.menu.file_tree": "ファイルツリー",
   "topbar.menu.terminal_view": "⌨ ターミナルで表示",
   "topbar.menu.chat_view": "💬 チャットで表示",
+  "topbar.menu.refetch_chat": "↻ チャットを再取得",
   "topbar.menu.end_session": "セッション終了",
   "topbar.menu.language_ja": "日本語",
   "topbar.menu.language_en": "English",
-
   "chat.input.placeholder": "メッセージを入力...",
   "chat.input.placeholder_no_session": "左の ☰ から会話を作成してください",
   "chat.send": "送信",
@@ -44,18 +42,15 @@
   "chat.stop_pending": "接続復帰待ち (再送中)",
   "chat.session.end_failed": "セッション終了に失敗: {detail}",
   "chat.attach_failed": "添付ファイル送信に失敗: {detail}",
-
   "ask.answered": "✓ 回答済: {answer}",
   "ask.answered_short": "(送信中)",
   "ask.answered_detail": "回答内容: {answer}",
   "ask.submit_selected": "選択を送信 ({count})",
   "ask.error_prefix": "⚠ 送信失敗:",
   "ask.error_retry_hint": "（もう一度押して再試行）",
-
   "task_note.background_task": "background task",
   "task_note.open_detail": "詳細を開く",
   "task_output.title": "タスク出力",
-
   "subagents.title": "Subagents",
   "subagents.empty": "このセッションでは、 まだサブエージェントは起動していません。",
   "subagents.transcript.title_fallback": "Task transcript",
@@ -65,7 +60,6 @@
   "subagents.run.done_count": "{count} agents ・ done {done}",
   "subagents.status.done": "done",
   "subagents.status.running": "running",
-
   "drawer.title": "会話",
   "drawer.settings": "設定",
   "drawer.close": "閉じる",
@@ -96,20 +90,15 @@
   "drawer.push.off": "🔕 通知 OFF (タップで有効化)",
   "drawer.menu.update_app": "↺ アプリを更新",
   "drawer.menu.update_app_title": "最新コードに更新 (履歴・通知許可は保持)",
-
   "statusbar.offline": "⚠ オフライン",
   "statusbar.offline_title": "サーバへの接続が切れています",
-
   "tasks.modal.empty": "このセッションでは TaskCreate でまだタスクが登録されていません。",
-
   "storage.warn_hint": "不要な会話を削除すると解消します",
   "storage.warn_text": "ストレージ使用率 {pct}% ({used} / {quota})",
-
   "alert.attach_failed": "添付ファイル送信に失敗: {detail}",
   "alert.end_session_failed": "セッション終了に失敗: {detail}",
   "alert.create_session_failed": "会話の作成に失敗しました: {detail}",
   "alert.fork_failed": "フォークに失敗しました: {detail}",
-
   "message.stop.max_tokens": "⚠ トークン上限で停止",
   "message.stop.refusal": "🚫 拒否されました",
   "message.stop.pause_turn": "⏸ 一時停止",
@@ -117,7 +106,6 @@
   "message.stop.error_prefix": "⚠ エラーで停止",
   "message.tool.open_subagents": "サブエージェント一覧を開く",
   "message.tool.result_truncated_suffix": "\n…（省略）",
-
   "screenshare.label": "画面共有",
   "screenshare.back_to_stream": "画面共有に戻る",
   "screenshare.open_settings": "設定を開く",
@@ -125,11 +113,9 @@
   "screenshare.exit_fullscreen": "元に戻す",
   "screenshare.enter_fullscreen": "フルスクリーン",
   "screenshare.enter_fullscreen_title": "フルスクリーン (= 全画面表示)",
-
   "plan_approval.accept": "承認 (auto-accept edits)",
   "plan_approval.reject": "却下 (keep planning)",
   "plan_approval.no_content": "(plan 内容なし)",
-
   "file_preview.too_large": "ファイルが大きすぎます",
   "file_preview.favorite_remove": "お気に入りから削除",
   "file_preview.favorite_add": "お気に入りに登録",
@@ -143,11 +129,9 @@
   "file_tree.load_error": "読み込みエラー ({detail})",
   "file_tree.favorites_header": "★ お気に入り",
   "file_tree.favorites_empty": "まだお気に入りはありません。 ファイルツリーから ☆ をタップして登録してください。",
-
   "terminal.input_placeholder": "入力 → Send で確定",
   "terminal.keyboard_hide": "隠す",
   "terminal.keyboard_show": "キーボード",
-
   "push.error.unsupported": "Push 通知に対応していません",
   "push.error.ios_pwa_required": "iOS では「ホーム画面に追加」した PWA でのみ通知を受け取れます",
   "push.error.permission_denied": "通知が許可されませんでした",
@@ -155,14 +139,12 @@
   "push.error.vapid_empty": "VAPID 公開鍵が空です",
   "push.error.sw_not_registered": "Service Worker が登録されていません",
   "push.error.subscribe_failed": "サーバへのサブスクリプション登録に失敗",
-
   "format.image_placeholder": "[画像]",
   "format.offline": "オフライン",
   "format.timeout": "タイムアウト",
   "format.network_error": "ネットワークエラー（サーバーに接続できません）",
   "format.send_failed": "送信失敗",
   "format.error_generic": "エラー: {message}",
-
   "backend.file_too_large": "ファイルが大きすぎます（上限 {limit}）",
   "backend.invalid_agent_id": "agent_id が無効です",
   "backend.invalid_account_id": "account_id が無効です",
@@ -171,5 +153,26 @@
   "backend.from_uuid_required": "from_uuid が必要です",
   "backend.message_not_found": "この会話のログに該当メッセージが見つかりません",
   "backend.cannot_fork_here": "この位置からは分岐できません (= user 発言か完了したターンのみ)",
-  "backend.empty_conversation": "分岐対象の会話が空です"
+  "backend.empty_conversation": "分岐対象の会話が空です",
+  "push.change_failed": "通知設定の変更に失敗しました",
+  "tools.agent_open_hint": "🤖 から開く",
+  "attachments.remove": "添付を削除",
+  "diff.relative_lines": "行番号は相対",
+  "chat.thinking": "推論中…",
+  "chat.scroll_latest": "最新メッセージへ",
+  "tool.chars": "{n}文字",
+  "code.copy": "コードをコピー",
+  "system.compacted": "会話を圧縮しました",
+  "system.session_end": "セッション終了",
+  "system.retry_in": "{sec}s 後にリトライ",
+  "system.attempt": "({n} 回目)",
+  "system.network_down": "ネットワーク切断",
+  "system.api_error": "API エラー",
+  "dialog.delete_confirm": "この会話を削除しますか？",
+  "dialog.delete_note": "会話履歴も削除されます。 元に戻せません。",
+  "statusbar.pr_list": "PR 一覧 ({n})",
+  "boundary.error": "エラーが発生しました",
+  "boundary.reset": "データ消去して再起動",
+  "overlay.load_failed": "画面の読込に失敗しました",
+  "overlay.app_update": "アプリ更新"
 }

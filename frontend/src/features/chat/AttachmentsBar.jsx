@@ -1,7 +1,9 @@
+import { useT } from '../../i18n/t.js'
 // 添付ファイルの chip 列。 W2 Phase F-1 で AppShell.jsx から物理移送 (= ロジック改変ゼロ)。
 // useAttachments 自体は ChatPanel が呼出し (= ChatInput と同 hook instance を共有して二重 state
 // を避ける)、 本 component は currentAttachments / removeAttachment を props 経由で受ける。
 export default function AttachmentsBar({ activeSid, currentAttachments, removeAttachment }) {
+  const t = useT()
   if (!currentAttachments || currentAttachments.length === 0) return null
   return (
     <div className="attachments-bar" data-testid="attachments-bar">
@@ -12,7 +14,7 @@ export default function AttachmentsBar({ activeSid, currentAttachments, removeAt
           ) : (
             <span className="attach-name">📄 {item.file.name}</span>
           )}
-          <button className="attach-remove" onClick={() => removeAttachment(activeSid, i)} aria-label="添付を削除">×</button>
+          <button className="attach-remove" onClick={() => removeAttachment(activeSid, i)} aria-label={t('attachments.remove')}>×</button>
         </div>
       ))}
     </div>

@@ -9,6 +9,7 @@
 // shared/ConfirmDialog.jsx 自体は touch せず、 wrapper として呼び出す。
 
 import { useSyncExternalStore, useCallback } from 'react'
+import { useT } from '../../i18n/t.js'
 import {
   subscribe as subscribeUi,
   getSnapshot as getUiSnapshot,
@@ -18,6 +19,7 @@ import { removeSession } from '../session-drawer/useSessions.js'
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
 
 export default function ConfirmDeleteDialog() {
+  const t = useT()
   const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
   const sid = ui.overlays.confirmDelete
 
@@ -39,9 +41,9 @@ export default function ConfirmDeleteDialog() {
       open={!!sid}
       text={
         <>
-          この会話を削除しますか？
+          {t('dialog.delete_confirm')}
           <br />
-          <span className="dim">会話履歴も削除されます。 元に戻せません。</span>
+          <span className="dim">{t('dialog.delete_note')}</span>
         </>
       }
       onCancel={handleCancel}

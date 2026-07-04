@@ -7,6 +7,7 @@
 // .messages のみ ChatPanel 配下に独立。 viewMode='terminal' 時の display:none gate は ChatPanel
 // 側の hidden wrapper で実現する (= 旧 inline style と同等)。
 import MessageItem from './MessageItem.jsx'
+import { useT } from '../../i18n/t.js'
 
 export default function MessageList({
   scrollerDomRef,
@@ -23,6 +24,7 @@ export default function MessageList({
   hasNew,
   scrollToBottom,
 }) {
+  const t = useT()
   // .messages-container は scroll-btn (= position: absolute) の基準点 (= position: relative)。
   // 旧 AppShell では Terminal LRU mount もここに同居していたが、 F-1 で .messages + scroll-btn
   // だけが本 component 配下に残った。 wrapper を外すと scroll-btn が祖先 (= .app or body) を
@@ -53,7 +55,7 @@ export default function MessageList({
       </div>
 
       {viewMode !== 'terminal' && showScrollBtn && (
-        <button className="scroll-btn" onClick={() => scrollToBottom()} aria-label="最新メッセージへ">
+        <button className="scroll-btn" onClick={() => scrollToBottom()} aria-label={t('chat.scroll_latest')}>
           ↓
           {hasNew && <span className="scroll-dot" />}
         </button>

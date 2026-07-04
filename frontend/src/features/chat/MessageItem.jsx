@@ -111,6 +111,7 @@ function formatLineNum(n) {
 }
 
 function DiffView({ diffInput }) {
+  const t = useT()
   const [baseLine, setBaseLine] = useState(null)
   const [baseKnown, setBaseKnown] = useState(false)
 
@@ -146,7 +147,7 @@ function DiffView({ diffInput }) {
         {showHeader && (
           <div className="diff-path">
             {diffInput.replace_all && <span>replace_all</span>}
-            {baseKnown && isRelative && <span className="diff-path-note">行番号は相対</span>}
+            {baseKnown && isRelative && <span className="diff-path-note">{t('diff.relative_lines')}</span>}
           </div>
         )}
         <pre className="diff-body">
@@ -256,6 +257,7 @@ function MetaLine({ meta, streaming, apiKeySource, trailing }) {
 }
 
 const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKeySource, activeSubagentTool, onOpenSubagents, onFork }) {
+  const t = useT()
   // `t` は tool ループ変数として local scope で shadow するので、 hook 側は tt に alias。
   const tt = useT()
   // system kind は messageRegistry に「fromEvent + Render」 ペアで集約しており、
@@ -276,7 +278,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
   if (msg.role === '__loading__') {
     return (
       <div className="message agent">
-        <span className="bubble dim">推論中…</span>
+        <span className="bubble dim">{t('chat.thinking')}</span>
       </div>
     )
   }
@@ -292,7 +294,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
   ) {
     return (
       <div className="message agent">
-        <span className="bubble dim">推論中…</span>
+        <span className="bubble dim">{t('chat.thinking')}</span>
       </div>
     )
   }
@@ -386,7 +388,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
                       <span className="tool-short">{t.shortLabel || t.label}</span>
                       {t.result?.is_error && <span className="tool-err-mark"> ⚠</span>}
                       {resultText && showResult && (
-                        <span className="tool-meta"> · {resultText.length}文字</span>
+                        <span className="tool-meta"> · {t('tool.chars', { n: resultText.length })}</span>
                       )}
                       {/* Task tool が進行中 (= result 未受信) でかつ status.subagent が active なら、
                           subagent 内で今動いてる sub-tool 名を inline 併記する。 これで「Task が
