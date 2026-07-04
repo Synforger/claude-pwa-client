@@ -9,12 +9,12 @@ const opt = (text, extra = {}) => ({ id: `opt-${text}`, role: 'user', text, opti
 const confirmed = (text, uuid) => ({ id: `c-${uuid}`, role: 'user', text, uuid, optimistic: false })
 
 describe('reconcileUserMessage (server-of-truth)', () => {
-  it('既知 uuid なら同一参照を返す (= replay の重複受信)', () => {
+  it('returns the same reference for a known uuid (duplicate delivery on replay)', () => {
     const cur = [confirmed('hi', 'u1')]
     expect(reconcileUserMessage(cur, 'hi', 'u1')).toBe(cur)
   })
 
-  it('末尾の optimistic user を pop して event で確定化 (= 通常の送信完了)', () => {
+  it('pops the trailing optimistic user and confirms it with the event (normal send completion)', () => {
     const cur = [opt('hello')]
     const next = reconcileUserMessage(cur, 'hello', 'u1')
     expect(next).toHaveLength(1)
@@ -22,13 +22,13 @@ describe('reconcileUserMessage (server-of-truth)', () => {
     expect(next[0].optimistic).toBeUndefined()
   })
 
-  it('pop 時に optimistic の id を継承する (= failBubble が optimisticUserId で findIndex できる前提)', () => {
+  it('inherits the optimistic id on pop (failBubble relies on findIndex by optimisticUserId)', () => {
     const cur = [opt('hi')]
     const next = reconcileUserMessage(cur, 'hi', 'u1')
     expect(next[0].id).toBe('opt-hi')
   })
 
-  it('末尾に streaming agent bubble があっても optimistic user を pop できる (= sendMessage の同時 push 構造)', () => {
+  it('pops the optimistic user even with a streaming agent bubble at the tail (sendMessage pushes both at once)', () => {
     const cur = [opt('hello'), { id: 'a-empty', role: 'agent', text: '', streaming: true }]
     const next = reconcileUserMessage(cur, 'hello', 'u1')
     expect(next).toHaveLength(2)
@@ -36,7 +36,7 @@ describe('reconcileUserMessage (server-of-truth)', () => {
     expect(next[1]).toMatchObject({ role: 'agent', streaming: true })
   })
 
-  it('event text と optimistic text が異なっても pop して event の text で上書き (= claude 側 prompt 加工等)', () => {
+  it('pops even when event text differs from optimistic text and overwrites with the event text (claude-side prompt rewriting etc.)', () => {
     const cur = [opt('hello')]
     const next = reconcileUserMessage(cur, 'hello (auto-augmented)', 'u1')
     expect(next).toHaveLength(1)
@@ -44,7 +44,7 @@ describe('reconcileUserMessage (server-of-truth)', () => {
     expect(next[0].uuid).toBe('u1')
   })
 
-  it('添付付き optimistic は元 text を保持して `[添付ファイル: ...]` を UI に出さない', () => {
+  it('an optimistic with attachments keeps its original text and never shows the attachment marker in the UI', () => {
     const cur = [opt('画像送るね', { fileNames: ['a.png'] })]
     const next = reconcileUserMessage(cur, '画像送るね [添付ファイル: /tmp/x.png]', 'u3')
     expect(next).toHaveLength(1)
@@ -53,21 +53,21 @@ describe('reconcileUserMessage (server-of-truth)', () => {
     expect(next[0].fileNames).toEqual(['a.png'])
   })
 
-  it('optimistic が無ければ event を単純 append (= replay / proactive)', () => {
+  it('plainly appends the event when no optimistic exists (replay / proactive)', () => {
     const cur = []
     const next = reconcileUserMessage(cur, 'reloaded prompt', 'u2')
     expect(next).toHaveLength(1)
     expect(next[0]).toMatchObject({ role: 'user', text: 'reloaded prompt', uuid: 'u2' })
   })
 
-  it('末尾が確定 user (= optimistic 無し) の時は新 event を append する (= 連続 user message)', () => {
+  it('appends a new event when the tail is a confirmed user with no optimistic (consecutive user messages)', () => {
     const cur = [confirmed('older', 'u1')]
     const next = reconcileUserMessage(cur, 'newer', 'u2')
     expect(next).toHaveLength(2)
     expect(next[1]).toMatchObject({ text: 'newer', uuid: 'u2' })
   })
 
-  it('fork lineage の同 text 別 uuid event を正しく append する (= 2026-06-23 退行 fix を維持)', () => {
+  it('appends a same-text different-uuid event from a fork lineage correctly (keeps the 2026-06-23 regression fix)', () => {
     const cur = [
       confirmed('やり直して', 'u-fork-1'),
       { id: 'a1', role: 'agent', text: '了解', uuid: 'a1' },
@@ -79,14 +79,14 @@ describe('reconcileUserMessage (server-of-truth)', () => {
     expect(next[4]).toMatchObject({ role: 'user', text: 'やり直して', uuid: 'u-fork-3' })
   })
 
-  it('eventUuid なしの event でも append する (= uuid 欠落は useChatStorage filter で persist 阻止される)', () => {
+  it('appends events without an eventUuid (missing uuids are blocked from persisting by the useChatStorage filter)', () => {
     const cur = [confirmed('older', 'u1')]
     const next = reconcileUserMessage(cur, 'brand new text', undefined)
     expect(next).toHaveLength(2)
     expect(next[1]).toMatchObject({ role: 'user', text: 'brand new text', uuid: null })
   })
 
-  it('連投 (= optimistic 2 個並走) で SSE event 1 個来たら末尾近傍の 1 個を pop、 残り 1 個は optimistic のまま', () => {
+  it('with two optimistics in flight, one SSE event pops the nearest-to-tail one and leaves the other optimistic', () => {
     const cur = [opt('一個目'), opt('二個目')]
     const next = reconcileUserMessage(cur, '二個目', 'u2')
     expect(next).toHaveLength(2)
@@ -95,7 +95,7 @@ describe('reconcileUserMessage (server-of-truth)', () => {
     expect(next[1].optimistic).toBeUndefined()
   })
 
-  it('構造的に重複が起きない: ghost (= uuid 持ち confirmed) と同 text 別 uuid event が来ても 2 件並ぶだけで append が走る (= 重複表示 root cause は ghost 側を生まない useChatStorage filter で根治)', () => {
+  it('no structural duplication: a ghost (confirmed with uuid) plus a same-text different-uuid event just coexist via append (the duplicate-display root cause is cured by the useChatStorage filter that prevents ghosts)', () => {
     // 旧 bug: 過去に uuid なしで持続化された optimistic が ghost として load → 同 text 別
     // uuid の SSE event が step 3 (exact text match) で 1 件確定化 + step 5 で新規 append =
     // 重複。 新設計では ghost を作らない (useChatStorage filter で uuid 必須) ので、 ここに
@@ -107,12 +107,12 @@ describe('reconcileUserMessage (server-of-truth)', () => {
   })
 })
 
-describe('reconcileUserMessage (send_id 経路、 2026-07-03 identity 導入)', () => {
+describe('reconcileUserMessage (send_id path, identity introduced 2026-07-03)', () => {
   const optWithSendId = (text, send_id) => ({
     id: `opt-${text}`, role: 'user', text, optimistic: true, send_id,
   })
 
-  it('eventSendId が一致する optimistic を末尾でなくても厳密 pop する (= 連投時の対応付けミス根絶)', () => {
+  it('strictly pops the optimistic matching eventSendId even when it is not at the tail (kills mis-pairing under rapid sends)', () => {
     // 連投で楽観 bubble が 2 個並んだ状態で、 先に送った側の SSE event (= send_id=s1) が
     // 到着すると、 fallback の「近傍最後の optimistic pop」 では末尾 (= s2) を誤って
     // pop してしまう。 send_id 一致経路が第 2 優先で走ることで対応付けが決定的になる。
@@ -127,7 +127,7 @@ describe('reconcileUserMessage (send_id 経路、 2026-07-03 identity 導入)', 
     expect(next[1]).toMatchObject({ text: '二個目', send_id: 's2', optimistic: true })
   })
 
-  it('eventSendId が該当する optimistic を持たない時は近傍 fallback に降格する (= backend restart / TTL 超えの safety net)', () => {
+  it('falls back to proximity matching when no optimistic carries the eventSendId (safety net for backend restarts / TTL expiry)', () => {
     const cur = [opt('hello')]
     const next = reconcileUserMessage(cur, 'hello', 'u1', 's-unknown')
     expect(next).toHaveLength(1)
@@ -135,7 +135,7 @@ describe('reconcileUserMessage (send_id 経路、 2026-07-03 identity 導入)', 
     expect(next[0].optimistic).toBeUndefined()
   })
 
-  it('eventSendId が既存 confirmed に一致してもフォールバックせず、 該当 optimistic のみを対象とする', () => {
+  it('does not fall back when eventSendId matches an existing confirmed message; only the matching optimistic is targeted', () => {
     // send_id は client 発行 identity で、 confirmed には焼かれていない前提。 万一 send_id を
     // 焼いた confirmed が居ても pop 対象外 (optimistic フラグでガード)、 fallback で append される。
     const cur = [{ id: 'c1', role: 'user', text: 'x', uuid: 'u0', send_id: 's1', optimistic: false }]
@@ -144,7 +144,7 @@ describe('reconcileUserMessage (send_id 経路、 2026-07-03 identity 導入)', 
     expect(next[1]).toMatchObject({ role: 'user', text: 'x', uuid: 'u1' })
   })
 
-  it('eventUuid 完全一致は send_id 経路より先勝ちで no-op (= replay の重複受信)', () => {
+  it('an exact eventUuid match wins over the send_id path and no-ops (duplicate delivery on replay)', () => {
     const cur = [{ id: 'c1', role: 'user', text: 'x', uuid: 'u1', optimistic: false }]
     expect(reconcileUserMessage(cur, 'x', 'u1', 's1')).toBe(cur)
   })
