@@ -1,0 +1,30 @@
+# =============================================================================
+# personal-template / toolchain truth
+# =============================================================================
+# This file is the single source of truth for the host toolchain versions the
+# template (and any repo derived from it) expects.
+#
+# `task doctor` walks every entry, checks the binary in PATH, and reports
+# MISSING / TOO OLD / OK with install hints.
+#
+# `task lint:versions` walks downstream config files (pyproject.toml's
+# `requires-python`, package.json's `engines.node`) and fails if any
+# drift away from the values here.
+#
+# Notation:
+#   >=X.Y   floor — accept any release at or above this version (default)
+#   X.Y.Z   exact pin — use only where lockstep semantics matter
+#
+# Adding a new language: drop one entry below (alphabetical), mirror it
+# in your stack's lint / setup tasks,
+# and `task lint:versions` will start enforcing it automatically.
+#
+# Bump targets (= files release-cut.sh rewrites when bumping the project
+# version) live in `_core/.tooling/bump-targets.yaml` (added in PR 5),
+# kept separate so this file stays "what versions does the host need".
+# =============================================================================
+
+bash:   ">=5.0"      # host
+git:    ">=2.40"     # host
+node:   ">=20.0"     # frontend (Vite build)
+python: ">=3.10"     # backend (FastAPI) + docs-check.sh
