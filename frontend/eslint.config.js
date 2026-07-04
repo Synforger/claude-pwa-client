@@ -76,6 +76,10 @@ export default defineConfig([
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
       'react-hooks/set-state-in-effect': 'off',
       'react-refresh/only-export-components': 'off',
+      // 変数 shadow 禁止 (= 2026-07-05 tool loop の t が useT() の t を shadow して
+      // TypeError 全画面 crash した事故の再発 gate)。 hooks 由来の短名 (t 等) と loop 変数の
+      // 衝突をコミット前に機械検出する。
+      'no-shadow': 'error',
     },
   },
 

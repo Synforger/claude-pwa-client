@@ -277,8 +277,8 @@ export default function SessionDrawer() {
 
   const commitRename = () => {
     if (renameFor) {
-      const t = renameValue.trim()
-      if (t) onRename(renameFor, t)
+      const name = renameValue.trim()
+      if (name) onRename(renameFor, name)
     }
     setRenameFor(null)
   }
