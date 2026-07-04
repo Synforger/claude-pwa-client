@@ -388,7 +388,8 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
                       <span className="tool-short">{t.shortLabel || t.label}</span>
                       {t.result?.is_error && <span className="tool-err-mark"> ⚠</span>}
                       {resultText && showResult && (
-                        <span className="tool-meta"> · {t('tool.chars', { n: resultText.length })}</span>
+                        // loop 内の `t` は tool object (= shadow)、 翻訳は tt
+                        <span className="tool-meta"> · {tt('tool.chars', { n: resultText.length })}</span>
                       )}
                       {/* Task tool が進行中 (= result 未受信) でかつ status.subagent が active なら、
                           subagent 内で今動いてる sub-tool 名を inline 併記する。 これで「Task が
