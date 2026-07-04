@@ -52,7 +52,7 @@ def test_resolve_safe_dotdot_escape_raises():
     "~/somewhere/key.pem",
     "~/somewhere/cert.p12",
     "~/something/id_ed25519",
-    "REDACTED_PATH/gh/hosts.yml",
+    "~/.config/gh/hosts.yml",
 ])
 def test_resolve_safe_denies_secret_paths(path):
     # 意図: SSH 鍵 / クラウド認証 / シェル rc / 履歴 / 証明書 は 403 で拒否される
@@ -107,7 +107,7 @@ def test_task_output_rejects_traversal():
     client = _task_output_client()
     res = client.get(
         "/task-output",
-        params={"path": "REDACTED_PATH/p/s/tasks/../../../../etc/passwd"},
+        params={"path": "~/x/p/s/tasks/../../../../etc/passwd"},
     )
     assert res.status_code == 403
 
