@@ -613,6 +613,54 @@ def _build_send_keys_chain(
     return arg_sets, chained_enter
 
 
+def get_pane_alternate_on(session_id: str) -> bool | None:
+    """pane が alternate-screen buffer に切替中か (= full-screen TUI 走行中か) を返す。
+
+    `\\e[?1049h` を送った pane で 1、 `\\e[?1049l` で 0。 less / vim / nano / fzf /
+    $EDITOR 等が対象。 実測で 100% 反映を確認済 (= verify script tmux 3.6a)。 取得
+    失敗は None (= tmux 不在 / USE_TMUX_WRAP=False)、 caller はこれを「不明」 として
+    扱う (= False と同義でよい)。
+
+    prompt_detector の tier A で使う。
+    """
+    if not USE_TMUX_WRAP:
+        return None
+    r = _run_tmux(
+        "display-message", "-p", "-t", _tmux_session_name(session_id), "#{alternate_on}",
+        text=True,
+    )
+    if r is None or r.returncode != 0:
+        return None
+    s = r.stdout.strip()
+    if s == "1":
+        return True
+    if s == "0":
+        return False
+    return None
+
+
+def capture_pane_plain_tail(session_id: str, lines: int = 8) -> str | None:
+    """末尾 N 行を escape なし plain text で取る (= prompt_detector の tier B/C 素材)。
+
+    `-p` stdout、 `-J` wrap 結合、 escape なし (= `-e` は付けない)。 pane の可視領域
+    末尾を狙うので `-S` は指定せず現ページ末尾から `lines` 行分だけ。 空 pane / tmux
+    不在は None。
+    """
+    if not USE_TMUX_WRAP:
+        return None
+    r = _run_tmux(
+        "capture-pane", "-p", "-J", "-t", _tmux_session_name(session_id),
+        text=True,
+    )
+    if r is None or r.returncode != 0:
+        return None
+    # 全 pane text を取ってから tail 抽出 (= tmux の `-S -N` は「N 行前から end まで」 で、
+    # 可視末尾を狙うと `-S` なしで pane 全部を取って Python 側で末尾を切る方が簡潔)。
+    body = r.stdout.rstrip("\n")
+    tail_lines = body.splitlines()[-lines:]
+    return "\n".join(tail_lines)
+
+
 def get_pane_cursor_y(session_id: str) -> int | None:
     """pane の現在カーソル行 (= y 座標) を `display-message -p` で取得する (= backend-F-22)。
 

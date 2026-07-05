@@ -257,6 +257,47 @@ claude-pwa-client は以下の OSS に依存している。 全 deps のライ�
 | Moonlight (Game Streaming, native client) | GPL-3.0 | Moonlight Game Streaming Project | **使用しない** (= PWA はブラウザ完結、 native client は経路に居ない) |
 | Tailscale | BSD-3-Clause (client) | Tailscale Inc. | tailnet 経由配信、 本リポは tailnet 参加のみ |
 
+## Source-code adaptations (= 移植・非依存)
+
+以下は npm / pip 経由の依存でなくコードとしての**移植元**。 該当ファイルにはヘッダ末尾に `Adapted from <upstream>, <license>` を明記してあり、 このセクションは上流の copyright 表示 + license 全文を含めることで attribution を完全形にする (= MIT / BSD 系の要件)。
+
+### clsh
+
+- **上流**: [my-claude-utils/clsh](https://github.com/my-claude-utils/clsh)
+- **License**: MIT
+- **Copyright**: `Copyright (c) 2026 my-claude-utils`
+- **移植先**: 以下 4 file の実装は clsh を移植したもの (= 各 file ヘッダに `Adapted from clsh` 記載)
+  - `frontend/src/features/terminal/useTerminal.js` (xterm.js lifecycle)
+  - `frontend/src/features/ios-native/useKeyboardState.js`
+  - `frontend/src/features/ios-native/OnScreenKeyboard.jsx`
+  - `frontend/src/utils/keyboard.js` (key → escape sequence 変換)
+
+MIT License 全文:
+
+```
+MIT License
+
+Copyright (c) 2026 my-claude-utils
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## Weak copyleft 説明
 
 **MPL-2.0** (= pywebpush / py-vapid / certifi / pathspec) は file-level weak copyleft。 該当 file 自体を改変した場合のみ改変版を MPL-2.0 で公開する義務があるが、 別 file から import / dynamic link する分には影響しない (= 本リポは import 利用のみで MPL ファイルを改変していない)。
