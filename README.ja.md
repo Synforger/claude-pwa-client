@@ -4,6 +4,8 @@
 
 > **Unofficial third-party client for Claude Code. Not affiliated with Anthropic. Apache 2.0, provided AS IS ([LICENSE](./LICENSE)).**
 
+> **Self-hosted / single-user 前提の設計。** バックエンドは自分のマシンで自分の Claude subscription (または API key) を自分自身が使う構成。 backend を第三者に公開して複数ユーザにサービス提供する構成 (= Anthropic の consumer 認証を「他ユーザの代理」 としてルーティング) は Anthropic 利用規約に抵触するためサポート対象外。 [Claude Code — Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance) 参照。
+
 [Claude Code](https://docs.claude.com/en/docs/claude-code) (Anthropic 公式 CLI) をスマートフォンから操作するための PWA クライアント。 ホストマシン上で動かすバックエンドに Tailscale 経由で iPhone / Android のブラウザから接続し、 ホーム画面に追加してスタンドアロン PWA として利用する。 backend は `claude` CLI を実 PTY + tmux で subprocess 起動するため Anthropic Usage Policy の枠内で動く (= subscription / API key の choice はユーザに委ねる、 token を抽出しない設計)。
 
 
