@@ -132,22 +132,47 @@ async def _tick_one(sid: str) -> None:
         # とも発火しない。 次 tick 以降が本番。 (= 2026-07-05 hotfix: restart 直後に
         # 全 session ぶんの push が発火する現象への対処)
         state.current_state = verdict.state
+        state.last_excerpt = verdict.excerpt
         state.seeded = True
         return
 
-    if verdict.state == prev_state:
-        return  # 遷移なし = 沈黙 (= 連発 push 抑制)
-    state.current_state = verdict.state
+    state_transitioned = verdict.state != prev_state
+    excerpt_changed = verdict.excerpt != state.last_excerpt
 
-    # SSE 経路 (= chip UI 用): 全遷移を流す
+    if not state_transitioned and not excerpt_changed:
+        return  # 変化ゼロ = 沈黙 (= 連発 publish 抑制)
+
+    state.current_state = verdict.state
+    state.last_excerpt = verdict.excerpt
+
+    # SSE 経路 (= chip UI 用): 全遷移 + excerpt 変化を流す。 excerpt 変化のみでも
+    # publish するのは Phase 4b (arrow picker) で ❯ 位置更新を chip に反映するため。
     jsonl_event_broadcaster.publish(sid, _build_event(sid, verdict))
 
-    # Web Push: 「入力待ち」 系の遷移だけ。 元に戻る (= ACTIVE) 遷移では push しない。
-    push_pair = _push_title_for(verdict)
-    if push_pair is not None:
-        title, body = push_pair
-        # broadcast_push は async だが fire-and-forget (= loop を止めない)
-        asyncio.create_task(broadcast_push(body, title, sid))
+    # Web Push: 「入力待ち」 系への **遷移** だけ (= excerpt 変化のみでは push しない)。
+    # 元に戻る (= ACTIVE) 遷移では push しない。
+    if state_transitioned:
+        push_pair = _push_title_for(verdict)
+        if push_pair is not None:
+            title, body = push_pair
+            # broadcast_push は async だが fire-and-forget (= loop を止めない)
+            asyncio.create_task(broadcast_push(body, title, sid))
+
+
+async def poke_now(sid: str) -> None:
+    """指定 session の detector を今すぐ 1 回走らせる (= Phase 4b の re-poll)。
+
+    quick-reply button を押した直後、 pane が即再描画されるはずだが、 poll cycle
+    (500ms) を待つと ↑/↓ の反応がラグく感じる。 route 側から呼んで即 tick、 その場で
+    SSE が新 excerpt を配信する。 短い遅延 (= 50-100ms) を先に置くのは pane の
+    redraw を待つため (= send-keys 直後は反映されていない)。 例外は握りつぶす
+    (= 通常 poll に任せる、 UX 上のノイズを避ける)。
+    """
+    try:
+        await asyncio.sleep(0.08)
+        await _tick_one(sid)
+    except Exception:
+        logger.debug("prompt_detector.poke_now failed sid=%s", sid, exc_info=True)
 
 
 async def prompt_detector_loop() -> None:
