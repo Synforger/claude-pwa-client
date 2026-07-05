@@ -406,7 +406,18 @@ async def pty_send(
     # 干渉しない)。
     if confirm:
         tmux_send_keys(session_id, key="C-u")
-    ok = tmux_send_keys(session_id, text=text, key=key, enter=enter)
+    if text and enter:
+        # 2 段送信 (= 2026-07-06、 救済 Enter 退役に伴う予防、 添付経路と同じ):
+        # 本文 paste と Enter を分離し、 TUI の paste 処理 (= bracketed paste の
+        # `[Pasted text #N]` 化 / 展開) が終わってから Enter を単発で送る。 同梱だと
+        # tmux queue 上の順序は保証されても TUI 内部の paste 処理と Enter 消費が競合
+        # して本文が入力欄に残る取りこぼしがあり、 旧実装は救済 Enter で事後修理していた。
+        ok = tmux_send_keys(session_id, text=text, key=key, enter=False)
+        if ok:
+            await asyncio.sleep(0.3)
+            ok = tmux_send_keys(session_id, enter=True)
+    else:
+        ok = tmux_send_keys(session_id, text=text, key=key, enter=enter)
     if ok:
         # prompt_detector の tier C grace period 用に「今 user が送信した」 を記録。
         # 直後 tick で末尾が prompt-like でも 1.5s は待機扱いにしない (= 自分の入力を

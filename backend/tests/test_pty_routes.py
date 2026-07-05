@@ -180,10 +180,12 @@ def test_pty_send_prepends_ctrl_u_before_text_enter(monkeypatch):
     asyncio.get_event_loop() if False else None
     asyncio.run(routes.pty_send("ses_x", {"text": "hello", "enter": True}))
 
-    # 1 発目: C-u wipe。 2 発目: 本文 + Enter。
-    assert len(calls) == 2
+    # 2026-07-06 2 段送信: 1 発目 C-u wipe、 2 発目 本文 (Enter なし)、 3 発目 Enter 単発
+    # (= paste 処理完了を 300ms 待ってから確定、 救済 Enter 退役に伴う予防)。
+    assert len(calls) == 3
     assert calls[0] == {"text": None, "key": "C-u", "enter": False}
-    assert calls[1] == {"text": "hello", "key": None, "enter": True}
+    assert calls[1] == {"text": "hello", "key": None, "enter": False}
+    assert calls[2] == {"text": None, "key": None, "enter": True}
 
 
 def test_pty_send_no_wipe_for_key_only(monkeypatch):
