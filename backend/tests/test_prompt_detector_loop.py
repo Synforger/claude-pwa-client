@@ -75,7 +75,7 @@ def test_tick_publishes_on_state_transition(stub_session):
             events = await _drain(q)
             assert len(events) == 1
             e = events[0]
-            assert e["event"] == "prompt_state"
+            assert e["type"] == "prompt_state"
             assert e["sid"] == sid
             assert e["state"] == PromptState.INLINE_TUI.value
             assert "1. Yes, allow all" in e["excerpt"]

@@ -7,6 +7,7 @@
 // 直呼出が事実上 no-op で dead code 化していた。 本 file の setter は全て `.id` を真値とする。
 
 import { createStore } from './_store.js'
+import { clearPromptState } from './promptState.js'
 
 // Phase J-12 (= 2026-06-29、 audit-w2-residue B sweep): accounts / status を retire。
 // 真値は SessionDrawer 内 useState (= accounts、 OAuth 切替の未配線機能用) と useStatus 経由の
@@ -40,6 +41,9 @@ export function removeSession(id) {
     const unread = { ...prev.unreadDone }; delete unread[id]
     return { ...prev, sessions: next, sessionActivity: activity, unreadDone: unread }
   })
+  // 該当 tab が消えたら prompt_state chip も掃除する (= 消えた session の chip が残ると
+  // 表示が古びる。 state store 間の副作用連鎖は本 site が唯一)。
+  clearPromptState(id)
 }
 export function patchSession(id, patch) {
   store.setState(prev => {
