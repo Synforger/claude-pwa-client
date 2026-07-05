@@ -77,8 +77,9 @@ def note_user_input(session_id: str) -> None:
 
 
 def _build_event(sid: str, verdict: Verdict) -> dict:
+    # `type` field は既存の processStreamEvent 側と整合させる (= 他 event と同じ規約)。
     return {
-        "event": "prompt_state",
+        "type": "prompt_state",
         "sid": sid,
         "state": verdict.state.value,
         "category": verdict.category.value if verdict.category else None,
