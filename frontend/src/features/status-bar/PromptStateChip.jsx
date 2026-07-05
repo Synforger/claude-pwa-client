@@ -4,6 +4,7 @@ import {
   selectFor,
   subscribe as subscribePrompt,
 } from '../../state/promptState.js'
+import { PromptReplyControls } from './PromptReplyControls.jsx'
 
 // tmux pane が入力待ち (= subprocess prompt / TUI 選択肢 / 長時間 idle) に落ちたら
 // StatusBar に chip を差し込む。 表示は 4 段階:
@@ -71,5 +72,8 @@ export function PromptStateChip({ sid }) {
     )
   }
 
-  return chips.length ? <>{chips}</> : null
+  // quick-reply buttons (= Phase 4a、 inputMode=numbers|yn の時だけ描画)
+  const reply = <PromptReplyControls key="reply" sid={sid} entry={entry} />
+  const rendered = [...chips, reply]
+  return rendered.length ? <>{rendered}</> : null
 }
