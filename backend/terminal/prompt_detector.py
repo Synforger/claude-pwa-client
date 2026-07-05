@@ -68,8 +68,11 @@ _NUMBERED_MENU_RE = re.compile(
 )
 _GENERIC_Q_TAIL_RE = re.compile(r"[?:>]\s*$")
 
-# Tier B (= inline TUI)
-_ARROW_CURSOR_RE = re.compile(r"^\s*[❯▶➜→]\s+\S", re.MULTILINE)
+# Tier B (= inline TUI)。 Claude Code の feedback dialog は「dialog 表示 + 空の
+# 入力欄 `❯ `」 なので arrow 行に \S を要求しない (= bare `❯ ` も match)。
+# 「typed text しかない場合」 の tier B false positive は、 「近傍 3 行に numbered
+# option があるか」 の後段判定で弾く (= arrow 単独では inline_tui にしない設計)。
+_ARROW_CURSOR_RE = re.compile(r"^\s*[❯▶➜→](\s|$)", re.MULTILINE)
 _BOX_DRAWING_RE = re.compile(r"[╭╮╰╯┌┐└┘├┤┬┴┼─│]")
 # ANSI cursor-up (= redraw 系 TUI の signature、 pty tail に残らないので escape ありの
 # capture-pane -e で拾う。 現在は使わない: capture 側で -e 付けない設計)
@@ -195,14 +198,20 @@ def _tier_b_inline_tui(snapshot: TailSnapshot) -> Optional[Verdict]:
     """
     tail = snapshot.tail_text
     lines = tail.splitlines()
+    # 縦並び 1 行 signature (= `❯ 1. Yes` / `1) foo` / `1: Bad`)。 `:` は Claude Code
+    # の feedback dialog (= `1: Bad  2: Fine  3: Good  0: Dismiss`) 対応で追加。
+    stacked_option_re = re.compile(r"^\s*[❯▶➜→]?\s*[0-9]+[.):]\s+\S")
+    # 横並び 1 行 signature (= 同一行に「N: text」 が 2+ 出る、 上の feedback dialog は
+    # 4 option 横並びなので stacked では拾えない)。
+    inline_options_re = re.compile(r"(?:\s|^)[0-9]+:\s+\S.*?(?:\s|^)[0-9]+:\s+\S")
     for i, ln in enumerate(lines):
         if not _ARROW_CURSOR_RE.match(ln):
             continue
         window = lines[max(0, i - 3): i + 4]
-        # ❯ 自体を含む window 内で「番号 option」 が 1 行でも見えれば selection UI。
+        # window 内で option signature を探す (= stacked も inline も 1 hit で成立)
         numbered_hits = sum(
             1 for w in window
-            if re.match(r"^\s*[❯▶➜→]?\s*[0-9]+[.)]\s+\S", w)
+            if stacked_option_re.match(w) or inline_options_re.search(w)
         )
         if numbered_hits >= 1:
             return Verdict(
