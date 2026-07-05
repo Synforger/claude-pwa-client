@@ -36,6 +36,7 @@ from backend.terminal.runner import (
     jsonl_path_for_session,
     pty_sessions,
     resize_pty,
+    send_text_two_stage,
     spawn_pty_session,
     tmux_send_keys,
     write_pty,
@@ -395,25 +396,13 @@ async def pty_send(
                 initial_pos = jsonl_path.stat().st_size
             except OSError:
                 initial_pos = 0
-    # 2026-07-03: text+enter (= 通常メッセージ送信) の直前に C-u (Ctrl-U、 line kill) を打つ。
-    # 他 client (= PC で直接 tmux に typing) や前回 send-keys の残骸で claude TUI 入力欄が
-    # 汚れていても wipe してから本文を送るので、 「PWA に見えている本文 = tmux に飛ぶ本文」 が
-    # 保証される。 空 line への C-u は no-op なので副作用ゼロ。 単発 key 送信 (= Escape で
-    # 停止 / AskUserQuestion typeNum 等) では wipe しない (= key の意味を壊さない)。 queue に
-    # 既に積まれた過去 message には触れない (= C-u は入力欄のみ、 Claude Code v2 の queue に
-    # 干渉しない)。
-    if confirm:
-        tmux_send_keys(session_id, key="C-u")
+    # 通常メッセージ送信 (= text+enter) は 2 段送信 protocol (= C-u wipe → paste → Enter、
+    # 詳細 = runner.send_text_two_stage docstring)。 単発 key 送信 (= Escape で停止 /
+    # AskUserQuestion typeNum 等) では wipe しない (= key の意味を壊さない)。 queue に
+    # 既に積まれた過去 message には触れない (= C-u は入力欄のみ、 Claude Code v2 の queue
+    # に干渉しない)。 confirm == (text and enter) なので分岐条件は同値。
     if text and enter:
-        # 2 段送信 (= 2026-07-06、 救済 Enter 退役に伴う予防、 添付経路と同じ):
-        # 本文 paste と Enter を分離し、 TUI の paste 処理 (= bracketed paste の
-        # `[Pasted text #N]` 化 / 展開) が終わってから Enter を単発で送る。 同梱だと
-        # tmux queue 上の順序は保証されても TUI 内部の paste 処理と Enter 消費が競合
-        # して本文が入力欄に残る取りこぼしがあり、 旧実装は救済 Enter で事後修理していた。
-        ok = tmux_send_keys(session_id, text=text, key=key, enter=False)
-        if ok:
-            await asyncio.sleep(0.3)
-            ok = tmux_send_keys(session_id, enter=True)
+        ok = await send_text_two_stage(session_id, text, key=key)
     else:
         ok = tmux_send_keys(session_id, text=text, key=key, enter=enter)
     if ok:
@@ -510,17 +499,10 @@ async def pty_send_with_files(
             initial_pos = jsonl_path.stat().st_size
         except OSError:
             initial_pos = 0
-    # pty_send と同じく wipe 前置 (= 添付経路も本文が長いので同 client 残骸に混ざる懸念は
-    # むしろ大きい)。
-    tmux_send_keys(session_id, key="C-u")
-    # 2 段送信 (= 2026-07-06、 救済 Enter 退役に伴う予防側の対策): 本文 paste と Enter
-    # を分離し、 paste 処理 (= claude TUI の `[Pasted text #N]` 化) が終わってから Enter
-    # を単発で送る。 同梱だと長い本文 (= 添付 path 追記で伸びる) の paste 完了前に Enter
-    # が届いて本文に飲まれる競合があり、 旧実装は救済 Enter で事後修理していた。
-    ok = tmux_send_keys(session_id, text=full_text, enter=False)
-    if ok:
-        await asyncio.sleep(0.3)
-        ok = tmux_send_keys(session_id, enter=True)
+    # text 経路と同じ 2 段送信 protocol (= C-u wipe → paste → Enter、 詳細 =
+    # runner.send_text_two_stage docstring)。 添付経路は本文が長い (= path 追記で伸びる)
+    # ので paste / Enter 競合の懸念はむしろ大きい。
+    ok = await send_text_two_stage(session_id, full_text)
     if ok:
         # 添付経路も grace period 対象 (= 通常送信と同じ理由)
         from backend.terminal.prompt_detector_loop import note_user_input

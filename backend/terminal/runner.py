@@ -84,7 +84,11 @@ def _tmux_session_name(session_id: str) -> str:
     return f"pwa-{safe}"
 
 
-def _run_tmux(*args: str, timeout: float = 2.0, text: bool = False):
+# tmux サブコマンド 1 発の実行上限。 応答しない tmux server を無限に待たない。
+TMUX_CMD_TIMEOUT_SEC: float = 2.0
+
+
+def _run_tmux(*args: str, timeout: float = TMUX_CMD_TIMEOUT_SEC, text: bool = False):
     """tmux サブコマンドの共通実行ラッパ。 [TMUX_BIN] prefix 付与 + capture_output 固定 +
     timeout、 TimeoutExpired / OSError は None を返す (= 呼び側で失敗扱い)。 成功時は
     CompletedProcess。 tmux 操作の subprocess.run はこれ経由に統一する。"""
@@ -552,6 +556,34 @@ def tmux_send_keys(
     return ok
 
 
+# 2 段送信の paste → Enter 間隔。 TUI の paste 処理 (= bracketed paste の
+# `[Pasted text #N]` 化 / 展開) が終わるのを待つ猶予。
+TWO_STAGE_ENTER_DELAY_SEC: float = 0.3
+
+
+async def send_text_two_stage(
+    session_id: str,
+    text: str,
+    key: str | None = None,
+) -> bool:
+    """本文送信の 2 段送信 (= C-u wipe → 本文 paste → 猶予 → Enter 単発)。
+
+    text 経路 (= /pty/{sid}/send) と添付経路 (= /pty/{sid}/send-with-files) の共通
+    protocol。 本文 paste と Enter を分離するのは、 同梱だと tmux queue 上の順序は
+    保証されても TUI 内部の paste 処理と Enter 消費が競合して本文が入力欄に残る
+    取りこぼしがあるため (= 旧実装は救済 Enter で事後修理していた、 #109-#113)。
+
+    C-u (= line kill) 前置は他 client の typing 残骸や前回 send-keys の残骸で入力欄が
+    汚れていても wipe してから本文を送るため。 空 line への C-u は no-op なので副作用ゼロ。
+    """
+    tmux_send_keys(session_id, key="C-u")
+    ok = tmux_send_keys(session_id, text=text, key=key, enter=False)
+    if ok:
+        await asyncio.sleep(TWO_STAGE_ENTER_DELAY_SEC)
+        ok = tmux_send_keys(session_id, enter=True)
+    return ok
+
+
 def _build_send_keys_chain(
     tmux_name: str,
     text: str | None = None,
@@ -589,7 +621,7 @@ def _build_send_keys_chain(
                     ["tmux", "load-buffer", "-b", buf_name, "-"],
                     input=text.encode("utf-8"),
                     capture_output=True,
-                    timeout=2.0,
+                    timeout=TMUX_CMD_TIMEOUT_SEC,
                 )
                 if proc.returncode == 0:
                     # claude TUI の bracketed paste は 1 回目で `[Pasted text #N]` プレース
