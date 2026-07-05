@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Body, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
-from backend.chat_content import save_to_tmp
+from backend.terminal.chat_content import save_to_tmp
 from backend.config import AGENTS, CLAUDE_PATH  # noqa: F401  (CLAUDE_PATH は tests monkeypatch 用 re-export)
 
 from backend.terminal.runner import (
