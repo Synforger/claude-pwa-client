@@ -12,7 +12,6 @@ const INITIAL = {
     tasks: false,
     subagents: false,
     subagentsFocus: null,
-    taskOutputPath: null,  // 2026-07-03: Bash / Monitor 由来 TaskNotification 用の raw 出力 modal 経路 (subagents とは別 UI)
     previewPath: null,
     treeOpen: null,
     confirmEnd: false,

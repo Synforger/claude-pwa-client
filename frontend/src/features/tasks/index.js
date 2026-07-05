@@ -18,13 +18,6 @@ registerOverlay('tasks', {
   Component: () => import('./TasksModal.jsx'),
 })
 
-// TaskOutputModal = Bash / Monitor 由来 TaskNotification 用の raw 出力 modal (2026-07-03)。
-// truthy overlay key は `taskOutputPath` (= string path、 null で閉じる semantics)。
-registerOverlay('taskOutputPath', {
-  dispatch: noopDispatch,
-  Component: () => import('./TaskOutputModal.jsx'),
-})
-
 // task_notification SSE event → wiring signal
 registerStream('task_notification', { dispatch: noopDispatch })
 

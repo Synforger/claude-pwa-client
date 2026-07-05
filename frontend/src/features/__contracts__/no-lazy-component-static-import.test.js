@@ -114,7 +114,7 @@ describe('W2 Phase E1 chunk-split contract: overlayRegistry Component specs are 
     }
   }
 
-  it('exactly 11 entries carry a Component spec (4 from E-1, 3 from E-2, confirmDelete in F-4, confirmEnd/confirmStop in late F-4, taskOutputPath added 2026-07-03)', () => {
-    expect(totalSpecs).toBe(11)
+  it('exactly 10 entries carry a Component spec (4 from E-1, 3 from E-2, confirmDelete in F-4, confirmEnd/confirmStop in late F-4; taskOutputPath retired 2026-07-05 for inline expand)', () => {
+    expect(totalSpecs).toBe(10)
   })
 })
