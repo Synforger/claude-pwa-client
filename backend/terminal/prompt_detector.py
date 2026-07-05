@@ -292,20 +292,30 @@ def _tier_b_inline_tui(snapshot: TailSnapshot) -> Optional[Verdict]:
             continue
         # pane には ❯ が 2 個出ることがある (= コマンド echo 行 `❯ /model` と picker
         # cursor `❯ 3. Fable`)。 数字 option を含む window を持つ ❯ だけを picker と
-        # みなす (= echo 側は弾く)。 判定は狭め (= ±3)、 option 抽出 + excerpt は広め
-        # (= ±12、 /model は選択肢が 3 行折返しで 5 個が上下に広がるため)。
+        # みなす (= echo 側は弾く)。 判定は狭め (= ±3)。
         detect_window = lines[max(0, i - 3): i + 4]
         numbered_hits = sum(
             1 for w in detect_window
             if stacked_option_re.match(w) or inline_options_re.search(w)
         )
         if numbered_hits >= 1:
-            wide = lines[max(0, i - 12): i + 13]
-            wide_text = "\n".join(w for w in wide if w.strip()).strip()
-            digits = _extract_option_digits(wide_text)
+            # excerpt + option 抽出は「option 群の広がり」 で切る (= カーソル中心 ±N
+            # だと /model のような 1 option 4 行折返し × 5 個の背高 picker で端の
+            # option が window 外に落ちる、 2026-07-05 実測)。 tail 全体から option 行
+            # の index を集め、 最初の option の 2 行上 (= dialog title) 〜 最後の
+            # option の 4 行下 (= 折返し + フッタ) を block とする。
+            opt_idx = [
+                j for j, w in enumerate(lines)
+                if stacked_option_re.match(w) or inline_options_re.search(w)
+            ]
+            lo = max(0, min(opt_idx + [i]) - 2)
+            hi = min(len(lines), max(opt_idx + [i]) + 5)
+            block = lines[lo:hi]
+            block_text = "\n".join(w for w in block if w.strip()).strip()
+            digits = _extract_option_digits(block_text)
             return Verdict(
                 state=PromptState.INLINE_TUI,
-                excerpt=wide_text,
+                excerpt=block_text,
                 bypass_mode_visible=snapshot.bypass_mode_visible,
                 reason="arrow+numbered_option",
                 # Ink dialog は 1 打鍵で即決定、 Enter 不要
