@@ -151,6 +151,19 @@ export interface PostPtySidSendWithFilesResponse {
   saved_files?: string[]
 }
 
+/** POST /pty/{sid}/send-raw-key request body */
+export interface PostPtySidSendRawKeyRequest {
+  /** 単一 printable char は literal、 Up/Down/Enter 等は tmux キー名 */
+  key: string
+  /** key 送信後に Enter を続けるか (= shell prompt 用、 Ink dialog は不要) */
+  enter?: boolean
+}
+
+/** POST /pty/{sid}/send-raw-key response */
+export interface PostPtySidSendRawKeyResponse {
+  ok: boolean
+}
+
 /** POST /hooks/event request body */
 export interface PostHooksEventRequest {
   hook_event_name: string
