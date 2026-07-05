@@ -2,6 +2,7 @@ import { generateId } from '../../utils/id.js'
 import { formatTool } from '../../utils/format.js'
 import { MAX_MESSAGES } from '../../constants.js'
 import { getEntry as getMessageEntry } from '../../registry/messageRegistry.js'
+import { ingestPromptStateEvent } from '../../state/promptState.js'
 
 // SSE イベント (1 行 JSON) を受け取って、buffer / messages state に反映する純粋関数。
 // 副作用は deps 経由で渡された setter / ref で行う (テスト時に差し替え可能)。
@@ -149,6 +150,14 @@ export function processStreamEvent(deps, sid, event) {
   // mode / permission_mode は session-level (= sessions_overview SSE で配信) なので
   // processStreamEvent では何もしない。 ここに来たら念のため捨てる。
   if (event.type === 'mode' || event.type === 'permission_mode') {
+    return
+  }
+
+  // prompt_state: tmux pane が入力待ちに落ちた (= subprocess prompt / TUI / bypass 下の
+  // 停滞) を PWA に告げる。 conversation messages には積まず、 StatusBar chip 用の
+  // 独立 store に流し込む (= 表示中 tab の chip 更新)。
+  if (event.type === 'prompt_state') {
+    ingestPromptStateEvent({ ...event, sid })
     return
   }
 
