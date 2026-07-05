@@ -650,6 +650,33 @@ def _build_send_keys_chain(
     return arg_sets, chained_enter
 
 
+async def list_pane_alternate_states() -> dict[str, bool] | None:
+    """全 tmux session の {session_name: alternate_on} を 1 subprocess で取得する。
+
+    detector loop の 500ms hot path 用: per-session の has-session + display-message
+    (= session 数 × 2 subprocess) を全 session まとめて 1 発に潰す。 key は tmux 側の
+    session 名 (= `_tmux_session_name` 適用後、 pwa- prefix)。 subprocess は
+    `asyncio.to_thread` で event loop の外に逃がす。
+
+    tmux 不在 / USE_TMUX_WRAP=False / コマンド失敗は None (= caller は per-session
+    fallback に倒す)。
+    """
+    if not USE_TMUX_WRAP:
+        return None
+    r = await asyncio.to_thread(
+        _run_tmux, "list-panes", "-a", "-F", "#{session_name}\t#{alternate_on}",
+        text=True,
+    )
+    if r is None or r.returncode != 0:
+        return None
+    states: dict[str, bool] = {}
+    for line in r.stdout.splitlines():
+        name, _, alt = line.partition("\t")
+        if name:
+            states[name] = alt.strip() == "1"
+    return states
+
+
 def get_pane_alternate_on(session_id: str) -> bool | None:
     """pane が alternate-screen buffer に切替中か (= full-screen TUI 走行中か) を返す。
 
