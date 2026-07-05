@@ -122,6 +122,15 @@ async def _tick_one(sid: str) -> None:
     prev_state = state.current_state
     verdict = analyze(snapshot, state, _config)
 
+    if not state.seeded:
+        # 初回 tick: 既に「入力待ち」 状態で backend が起動しただけかもしれないので
+        # 「発生 event」 として扱わない。 現状態を追認して押し黙る。 SSE / push
+        # とも発火しない。 次 tick 以降が本番。 (= 2026-07-05 hotfix: restart 直後に
+        # 全 session ぶんの push が発火する現象への対処)
+        state.current_state = verdict.state
+        state.seeded = True
+        return
+
     if verdict.state == prev_state:
         return  # 遷移なし = 沈黙 (= 連発 push 抑制)
     state.current_state = verdict.state
