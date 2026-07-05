@@ -444,8 +444,11 @@ def test_delete_normal_session_does_not_touch_jsonl(tmp_path, monkeypatch, isola
 def test_restart_fork_session_promotes_to_normal_tab(tmp_path, monkeypatch, isolated_state):
     import backend.routes.chat as chat_routes  # noqa: PLC0415
     import backend.jsonl.watcher as jsonl_watcher  # noqa: PLC0415
+    import backend.config as config_mod  # noqa: PLC0415
     chat_routes, parent, _src = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
     monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd, account_id=None: tmp_path)
+    # demote (= restart 内の fork GC) の path 解決は config が真値 (= audit A-2)
+    monkeypatch.setattr(config_mod, "cwd_to_project_dir", lambda cwd, account_id=None: tmp_path)
     forked = _run(chat_routes.fork_session(parent.id, {"from_uuid": "u2"}))
     fork_jsonl = tmp_path / f"{forked['resume_session_id']}.jsonl"
     assert fork_jsonl.exists()
