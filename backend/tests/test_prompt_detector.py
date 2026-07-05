@@ -238,6 +238,31 @@ def test_tier_c_needs_idle_after_input_grace():
     assert verdict.state != PromptState.TEXT_PROMPT
 
 
+def test_tier_c_skipped_when_claude_tui_owns_screen():
+    """実測 (= 2026-07-06): チャット本文の番号リストが pane に描画され、 numbered_menu
+    regex に誤 hit した。 pane 末尾に Claude の status bar が見えている = Claude TUI が
+    画面占有中 = subprocess の生 prompt は存在しえないので tier C は丸ごと skip。"""
+    tail = (
+        "修正案: 送信を 2 段に分ける:\n"
+        "  1. text paste (Enter なし)\n"
+        "  2. 短い delay を置いて Enter 単発送信\n"
+        "──────────────────────────────\n"
+        "❯ \n"
+        "──────────────────────────────\n"
+        "  [Fable 5] 5h:11%(4h49m) 7d:28% ctx:50%\n"
+        "  ⏵⏵ bypass permissions on (shift+tab to"
+    )
+    verdict = analyze(_snap(tail, now=10.0), _prime_state(tail, idle_since=0.0))
+    assert verdict.state != PromptState.TEXT_PROMPT
+
+
+def test_tier_c_alive_without_claude_status_bar():
+    """status bar が無い生 shell の prompt は従来どおり tier C が拾う。"""
+    tail = "Do you want to remove file.txt? [Y/n] "
+    verdict = analyze(_snap(tail, now=10.0), _prime_state(tail, idle_since=0.0))
+    assert verdict.state == PromptState.TEXT_PROMPT
+
+
 def test_tier_c_generic_fallback_only_at_tail():
     """会話 log 内で「[Y/n]」 が中間行に出るケース = 末尾でないので hit しない。"""
     tail = "The docs say [Y/n] is the confirm pattern.\nSee below.\n"

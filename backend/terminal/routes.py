@@ -493,9 +493,6 @@ async def pty_send_with_files(
     if not full_text:
         return {"ok": False, "reason": "empty"}
     saved_files = [{"name": s["name"], "path": s["path"]} for s in saved]
-    # text 経路と同じ確認 + Enter 追い打ち救済を効かせる。 添付経路は本文が長く (= path 付き)
-    # `paste again to expand` で Enter が吸われやすく、 旧実装は単発送信で確認も救済も無かった
-    # ため「ターミナルに移動して手で Enter」 が必要だった。
     _, is_slash = _delivery_counter(full_text)
     jsonl_path = jsonl_path_for_session(session_id)
     initial_pos = 0
@@ -507,7 +504,14 @@ async def pty_send_with_files(
     # pty_send と同じく wipe 前置 (= 添付経路も本文が長いので同 client 残骸に混ざる懸念は
     # むしろ大きい)。
     tmux_send_keys(session_id, key="C-u")
-    ok = tmux_send_keys(session_id, text=full_text, enter=True)
+    # 2 段送信 (= 2026-07-06、 救済 Enter 退役に伴う予防側の対策): 本文 paste と Enter
+    # を分離し、 paste 処理 (= claude TUI の `[Pasted text #N]` 化) が終わってから Enter
+    # を単発で送る。 同梱だと長い本文 (= 添付 path 追記で伸びる) の paste 完了前に Enter
+    # が届いて本文に飲まれる競合があり、 旧実装は救済 Enter で事後修理していた。
+    ok = tmux_send_keys(session_id, text=full_text, enter=False)
+    if ok:
+        await asyncio.sleep(0.3)
+        ok = tmux_send_keys(session_id, enter=True)
     if ok:
         # 添付経路も grace period 対象 (= 通常送信と同じ理由)
         from backend.terminal.prompt_detector_loop import note_user_input
