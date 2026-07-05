@@ -1,8 +1,8 @@
 // tmux pane の「入力待ち」 状態を per-sid で保持する store。
 //
 // backend の prompt_detector_loop が publish する `type === "prompt_state"` event を
-// processStreamEvent から流し込む。 StatusBar / ChatPanel が useSyncExternalStore で
-// subscribe して chip UI を描画する。
+// processStreamEvent から流し込む。 ChatPanel が useSyncExternalStore で subscribe して
+// チャット入力欄直上の banner UI を描画する。
 //
 // wire:
 //   event.type === "prompt_state" (backend/terminal/prompt_detector_loop.py)
