@@ -21,13 +21,6 @@ const BANNER_LABELS = {
   tui: { icon: '⌨', label: 'TUI running — use terminal view' },
 }
 
-function trimExcerpt(text, maxLines = 6, maxChars = 400) {
-  if (!text) return ''
-  const lines = text.split('\n').slice(0, maxLines)
-  const joined = lines.join('\n')
-  return joined.length <= maxChars ? joined : joined.slice(0, maxChars - 1) + '…'
-}
-
 export function PromptStateBanner({ sid }) {
   const snapshot = useSyncExternalStore(subscribePrompt, getPromptSnapshot)
   const entry = selectFor(snapshot, sid)
@@ -35,7 +28,8 @@ export function PromptStateBanner({ sid }) {
   const shape = BANNER_LABELS[entry.state]
   if (!shape) return null
 
-  const excerpt = trimExcerpt(entry.excerpt)
+  // 全文表示 (= 切らない)。 高さは CSS max-height + scroll で制御する。
+  const excerpt = entry.excerpt || ''
 
   return (
     <div className="prompt-banner" data-testid="prompt-state-banner">
