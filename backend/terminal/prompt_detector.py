@@ -82,20 +82,41 @@ _BOX_DRAWING_RE = re.compile(r"[╭╮╰╯┌┐└┘├┤┬┴┼─│]")
 # 「bypass 中」 の UI 表示に流す情報として抜き出す。
 _BYPASS_CHIP_RE = re.compile(r"⏵⏵\s*bypass permissions on")
 
+# Claude Code の bottom status bar (= rate-limit / spinner) は idle 中でも中身が
+# 動く (= `5h:60%(1h49m)` の分カウントダウン、 `Razzmatazzing… (1m 26s)` の経過秒)。
+# idle hash にこれを含めると「入力待ちでじっとしてる」 のに hash が毎秒変わって idle
+# 判定が壊れる。 hash 前にこの手の volatile 行を落とす。
+_VOLATILE_STATUS_RE = re.compile(
+    r"5h:\s*\d+%"                 # rate-limit bar (= 分カウントダウンを含む)
+    r"|7d:\s*\d+%"               # 7d rate-limit
+    r"|…\s*\(\d+"                # spinner の経過秒 `… (1m 26s)` / `… (47s`
+    r"|·\s*↓\s*[\d.]+k?\s*tokens"  # token counter
+)
+
+
+def _strip_volatile_lines(text: str) -> str:
+    """idle hash 用に status bar / spinner の変動行を除去する。"""
+    return "\n".join(
+        ln for ln in text.splitlines() if not _VOLATILE_STATUS_RE.search(ln)
+    )
+
 
 @dataclass(frozen=True)
 class TailSnapshot:
     """1 回の tmux poll で撮る状態。 detector はこれと前回 snapshot だけを見る。"""
 
     alternate_on: bool
-    # 末尾 N 行の plain text (= tmux capture-pane -p、 escape なし)。 hash と regex に使う。
+    # 末尾 N 行の plain text (= tmux capture-pane -p、 escape なし)。 regex 判定に使う。
     tail_text: str
     # 監視時刻 (= 単調時刻、 loop.time() など)。 idle 判定に使う。
     now_sec: float
 
     @property
     def tail_hash(self) -> str:
-        return hashlib.md5(self.tail_text.encode("utf-8", errors="replace")).hexdigest()
+        # volatile 行 (= rate-limit / spinner) を除いてから hash (= idle 判定が
+        # 分カウントダウン / 経過秒で誤 reset しないように)。
+        basis = _strip_volatile_lines(self.tail_text)
+        return hashlib.md5(basis.encode("utf-8", errors="replace")).hexdigest()
 
     @property
     def bypass_mode_visible(self) -> bool:
@@ -269,18 +290,22 @@ def _tier_b_inline_tui(snapshot: TailSnapshot) -> Optional[Verdict]:
     for i, ln in enumerate(lines):
         if not _ARROW_CURSOR_RE.match(ln):
             continue
-        window = lines[max(0, i - 3): i + 4]
-        # window 内で option signature を探す (= stacked も inline も 1 hit で成立)
+        # pane には ❯ が 2 個出ることがある (= コマンド echo 行 `❯ /model` と picker
+        # cursor `❯ 3. Fable`)。 数字 option を含む window を持つ ❯ だけを picker と
+        # みなす (= echo 側は弾く)。 判定は狭め (= ±3)、 option 抽出 + excerpt は広め
+        # (= ±12、 /model は選択肢が 3 行折返しで 5 個が上下に広がるため)。
+        detect_window = lines[max(0, i - 3): i + 4]
         numbered_hits = sum(
-            1 for w in window
+            1 for w in detect_window
             if stacked_option_re.match(w) or inline_options_re.search(w)
         )
         if numbered_hits >= 1:
-            excerpt = _extract_arrow_menu_excerpt(tail)
-            digits = _extract_option_digits(excerpt)
+            wide = lines[max(0, i - 12): i + 13]
+            wide_text = "\n".join(w for w in wide if w.strip()).strip()
+            digits = _extract_option_digits(wide_text)
             return Verdict(
                 state=PromptState.INLINE_TUI,
-                excerpt=excerpt,
+                excerpt=wide_text,
                 bypass_mode_visible=snapshot.bypass_mode_visible,
                 reason="arrow+numbered_option",
                 # Ink dialog は 1 打鍵で即決定、 Enter 不要
