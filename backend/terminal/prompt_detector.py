@@ -112,6 +112,57 @@ class DetectorConfig:
     post_input_grace_sec: float = 1.5
 
 
+class InputMode(str, Enum):
+    """PWA が表示する quick-reply UI の種別。
+
+    numbers: 数字ボタン群 (= Ink 系 dialog は 1 打鍵で即決定、 bash select は Enter 必要)
+    yn:      Y/n ボタン (= confirm_yn 系、 Enter 必要)
+    arrows:  ↑/↓/Enter ボタン (= 番号無し picker、 Phase 4b で実装)
+    none:    quick reply UI 出さない (= password / otp / 未分類 idle)
+    """
+
+    NUMBERS = "numbers"
+    YN = "yn"
+    ARROWS = "arrows"
+    NONE = "none"
+
+
+# excerpt から数字 option を抽出する regex。 縦並び 1 行 (`❯ 1. Yes` / `1) foo` / `1: Bad`)
+# と 横並び 1 行 (`1: Bad  2: Fine  3: Good  0: Dismiss`) の両方に対応。 抽出は「行頭または
+# 空白から始まる 1-2 桁数字 + . / ) / : + space + non-space」 で個々の option 数字を集める。
+_OPTION_DIGIT_RE = re.compile(r"(?:^|\s)([0-9]{1,2})[.):]\s+\S")
+
+
+def _text_category_to_input_mode(
+    category: PromptCategory, source: str
+) -> tuple["InputMode", list[str]]:
+    """text prompt の category を PWA button UI 用 (input_mode, options) に翻訳。
+
+    - CONFIRM_YN → yn button 2 個
+    - HASH_CHOICE / NUMBERED_MENU → source (= full tail) から option 数字を抽出
+      (excerpt は末尾 2 行だけなので numbered_menu の全 option を拾えない)
+    - PASSWORD / OTP / GENERIC_QUESTION → button なし (= 手入力)
+    """
+    if category == PromptCategory.CONFIRM_YN:
+        return (InputMode.YN, ["Y", "n"])
+    if category in (PromptCategory.HASH_CHOICE, PromptCategory.NUMBERED_MENU):
+        digits = _extract_option_digits(source)
+        return (InputMode.NUMBERS, digits) if digits else (InputMode.NONE, [])
+    return (InputMode.NONE, [])
+
+
+def _extract_option_digits(excerpt: str) -> list[str]:
+    """excerpt 内の数字 option (`1: Bad` / `❯ 1. Yes` 等) を順序保持で抽出。 重複除去。"""
+    seen: set[str] = set()
+    out: list[str] = []
+    for m in _OPTION_DIGIT_RE.finditer(excerpt):
+        d = m.group(1)
+        if d not in seen:
+            seen.add(d)
+            out.append(d)
+    return out
+
+
 @dataclass
 class Verdict:
     """analyze() の返り値。 event 発火 / UI 更新の元ネタ。"""
@@ -123,6 +174,13 @@ class Verdict:
     bypass_mode_visible: bool = False
     # 判定根拠 (= debug / log 用)
     reason: str = ""
+    # quick-reply UI の種別 (= PWA 側の button 群切替に使う)
+    input_mode: InputMode = InputMode.NONE
+    # numbers mode 時の option digit list (= `["1", "2", "3", "0"]` 等、 順序保持)
+    options: list[str] = field(default_factory=list)
+    # numbers / yn 時に PWA が tmux に送るキーに Enter を伴わせるか。
+    # Ink dialog は不要 (= 1 打鍵で決定)、 shell prompt (= yn / bash select) は必要。
+    key_requires_enter: bool = False
 
 
 @dataclass
@@ -214,11 +272,17 @@ def _tier_b_inline_tui(snapshot: TailSnapshot) -> Optional[Verdict]:
             if stacked_option_re.match(w) or inline_options_re.search(w)
         )
         if numbered_hits >= 1:
+            excerpt = _extract_arrow_menu_excerpt(tail)
+            digits = _extract_option_digits(excerpt)
             return Verdict(
                 state=PromptState.INLINE_TUI,
-                excerpt=_extract_arrow_menu_excerpt(tail),
+                excerpt=excerpt,
                 bypass_mode_visible=snapshot.bypass_mode_visible,
                 reason="arrow+numbered_option",
+                # Ink dialog は 1 打鍵で即決定、 Enter 不要
+                input_mode=InputMode.NUMBERS if digits else InputMode.ARROWS,
+                options=digits,
+                key_requires_enter=False,
             )
     return None
 
@@ -243,12 +307,19 @@ def _tier_c_text_prompt(
         (_NUMBERED_MENU_RE, PromptCategory.NUMBERED_MENU),
     ):
         if pattern.search(tail):
+            excerpt = _extract_prompt_excerpt(tail)
+            # option 抽出は full tail から (= excerpt は 2 行なので numbered_menu の全部を拾えない)
+            input_mode, options = _text_category_to_input_mode(category, tail)
             return Verdict(
                 state=PromptState.TEXT_PROMPT,
                 category=category,
-                excerpt=_extract_prompt_excerpt(tail),
+                excerpt=excerpt,
                 bypass_mode_visible=snapshot.bypass_mode_visible,
                 reason=f"regex:{category.value}",
+                input_mode=input_mode,
+                options=options,
+                # shell prompt は 1 打鍵で確定しない、 Enter を要する
+                key_requires_enter=input_mode in (InputMode.YN, InputMode.NUMBERS),
             )
     # generic fallback: 末尾が ? or : (= 未知の質問形)
     if _GENERIC_Q_TAIL_RE.search(tail):
@@ -276,12 +347,14 @@ def _tier_d_idle(
 
 
 def _extract_arrow_menu_excerpt(tail: str) -> str:
-    """❯ の周辺 3 行を抜粋 (= 選択肢 UI で目立たせる)。"""
+    """❯ の周辺を抜粋。 Claude Code の feedback dialog は ❯ の上に選択肢が並ぶ (= 下側
+    参照より広めに ±3 行取る)、 Inquirer の list は下に並ぶので両方カバー。"""
     lines = [ln for ln in tail.splitlines() if ln.strip()]
     for i, ln in enumerate(lines):
         if _ARROW_CURSOR_RE.match(ln):
-            start = max(0, i - 1)
-            return "\n".join(lines[start : i + 3]).strip()
+            start = max(0, i - 3)
+            end = min(len(lines), i + 4)
+            return "\n".join(lines[start:end]).strip()
     return "\n".join(lines[-4:]).strip()
 
 

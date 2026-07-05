@@ -10,6 +10,7 @@ import pytest
 from backend.terminal.prompt_detector import (
     DetectorConfig,
     DetectorState,
+    InputMode,
     PromptCategory,
     PromptState,
     TailSnapshot,
@@ -203,6 +204,71 @@ def test_tier_c_generic_fallback_only_at_tail():
     verdict = analyze(_snap(tail, now=10.0), _prime_state(tail, idle_since=0.0))
     # 中間の [Y/n] は hit しない、 末尾は改行だけなので generic_q も miss。
     assert verdict.state != PromptState.TEXT_PROMPT
+
+
+# ---------------------------------------------------------------------------
+# Phase 4a: input_mode + options for quick-reply UI
+# ---------------------------------------------------------------------------
+
+
+def test_input_mode_numbers_for_claude_code_feedback_dialog():
+    tail = (
+        "● How is Claude doing this session?\n"
+        "  1: Bad    2: Fine   3: Good   0: Dismiss\n"
+        "──────────────────────────────────────\n"
+        "❯ "
+    )
+    verdict = analyze(_snap(tail), _new_state())
+    assert verdict.state == PromptState.INLINE_TUI
+    assert verdict.input_mode == InputMode.NUMBERS
+    assert verdict.options == ["1", "2", "3", "0"]
+    # Ink dialog は 1 打鍵で決定、 Enter 不要
+    assert verdict.key_requires_enter is False
+
+
+def test_input_mode_numbers_for_trust_folder_dialog():
+    tail = (
+        "──────────────────\n"
+        " ❯ 1. Yes, I trust this folder\n"
+        "   2. No, exit\n"
+        "──────────────────"
+    )
+    verdict = analyze(_snap(tail), _new_state())
+    assert verdict.state == PromptState.INLINE_TUI
+    assert verdict.input_mode == InputMode.NUMBERS
+    assert verdict.options == ["1", "2"]
+    assert verdict.key_requires_enter is False
+
+
+def test_input_mode_yn_for_confirm_prompt():
+    tail = "Do you want to remove file.txt? [Y/n] "
+    verdict = analyze(_snap(tail, now=10.0), _prime_state(tail, idle_since=0.0))
+    assert verdict.state == PromptState.TEXT_PROMPT
+    assert verdict.category == PromptCategory.CONFIRM_YN
+    assert verdict.input_mode == InputMode.YN
+    assert verdict.options == ["Y", "n"]
+    # shell prompt は Enter 要
+    assert verdict.key_requires_enter is True
+
+
+def test_input_mode_numbers_for_bash_select():
+    tail = "  1) foo\n  2) bar\n  3) baz\n#? "
+    verdict = analyze(_snap(tail, now=10.0), _prime_state(tail, idle_since=0.0))
+    assert verdict.state == PromptState.TEXT_PROMPT
+    assert verdict.category == PromptCategory.HASH_CHOICE
+    assert verdict.input_mode == InputMode.NUMBERS
+    assert verdict.options == ["1", "2", "3"]
+    assert verdict.key_requires_enter is True
+
+
+def test_input_mode_none_for_password_prompt():
+    tail = "[sudo] password for alice: "
+    verdict = analyze(_snap(tail, now=10.0), _prime_state(tail, idle_since=0.0))
+    assert verdict.state == PromptState.TEXT_PROMPT
+    assert verdict.category == PromptCategory.PASSWORD
+    # password は button 出さず手入力に任せる
+    assert verdict.input_mode == InputMode.NONE
+    assert verdict.options == []
 
 
 # ---------------------------------------------------------------------------

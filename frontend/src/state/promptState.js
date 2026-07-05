@@ -32,6 +32,10 @@ export function ingestPromptStateEvent(event) {
     excerpt: event.excerpt || '',
     bypassModeVisible: !!event.bypass_mode_visible,
     reason: event.reason || '',
+    // Phase 4a: quick-reply UI 用 field
+    inputMode: event.input_mode || 'none',
+    options: Array.isArray(event.options) ? event.options : [],
+    keyRequiresEnter: !!event.key_requires_enter,
     receivedAt: Date.now(),
   }
   store.setState(prev => ({

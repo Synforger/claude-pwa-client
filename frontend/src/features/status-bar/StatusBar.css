@@ -90,6 +90,37 @@
   color: #f07070;
 }
 
+/* quick-reply buttons (= Phase 4a): number / Y-n buttons next to the prompt chip */
+.prompt-reply-controls {
+  display: inline-flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.prompt-reply-btn {
+  flex-shrink: 0;
+  min-width: 28px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg1);
+  color: var(--fg);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  line-height: 1;
+}
+.prompt-reply-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+.prompt-reply-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .budget-chip {
   flex-shrink: 0;
   white-space: nowrap;
