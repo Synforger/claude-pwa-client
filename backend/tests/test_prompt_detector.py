@@ -103,6 +103,47 @@ def test_tier_b_no_arrow_no_hit():
     assert verdict.state == PromptState.ACTIVE
 
 
+def test_tier_b_picker_ignores_chat_numbered_list_above():
+    """実測 (= 2026-07-06): scrollback を含めると picker の上の会話 log にある番号
+    リスト (= assistant の「1. ... 2. ...」) まで excerpt / options に混入していた。
+    cluster-first で「最多 option の塊 = picker 本体」 を選び、 会話文と ❯ /model echo
+    を除外する。"""
+    tail = (
+        "救済は復活させない。 理由:\n"
+        "  1. queue でした\n"
+        "  2. 区別できない構造欠陥\n"
+        "代わりに予防を完成。\n"
+        "❯ /model\n"
+        "──────────────────────────────\n"
+        "  Select model\n"
+        "    1. Default    Opus 4.8\n"
+        "    2. Opus       Opus 4.8\n"
+        "  ❯ 3. Fable ✔   Fable 5\n"
+        "    4. Sonnet     Sonnet 5\n"
+        "    5. Haiku      Haiku 4.5\n"
+        "  Enter to set as default"
+    )
+    verdict = analyze(_snap(tail), _new_state())
+    assert verdict.state == PromptState.INLINE_TUI
+    assert verdict.options == ["1", "2", "3", "4", "5"]
+    assert "救済" not in verdict.excerpt  # 会話文が混入しない
+    assert "1. Default" in verdict.excerpt
+
+
+def test_tier_b_numbered_list_without_arrow_nearby_is_not_inline_tui():
+    """近傍に ❯ が無い番号リスト (= docs / 会話の箇条書き) は picker でない。"""
+    tail = (
+        "手順:\n"
+        "  1. clone する\n"
+        "  2. install する\n"
+        "  3. run する\n"
+        "以上です。\n"
+        "普通の文が続く。"
+    )
+    verdict = analyze(_snap(tail), _new_state())
+    assert verdict.state != PromptState.INLINE_TUI
+
+
 def test_tier_b_bare_arrow_without_numbered_option_is_not_inline_tui():
     """実測 hotfix: Claude Code の通常入力画面 (= ❯ 単独 + 罫線 + status bar) を
     inline TUI にしない (= 2026-07-05 backend restart 時に全 session ぶんの push が

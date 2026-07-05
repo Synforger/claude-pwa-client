@@ -287,43 +287,105 @@ def _tier_b_inline_tui(snapshot: TailSnapshot) -> Optional[Verdict]:
     # 横並び 1 行 signature (= 同一行に「N: text」 が 2+ 出る、 上の feedback dialog は
     # 4 option 横並びなので stacked では拾えない)。
     inline_options_re = re.compile(r"(?:\s|^)[0-9]+:\s+\S.*?(?:\s|^)[0-9]+:\s+\S")
-    for i, ln in enumerate(lines):
-        if not _ARROW_CURSOR_RE.match(ln):
+
+    arrow_idx = [j for j, w in enumerate(lines) if _ARROW_CURSOR_RE.match(w)]
+    if not arrow_idx:
+        return None
+    all_opt = [
+        j for j, w in enumerate(lines)
+        if stacked_option_re.match(w) or inline_options_re.search(w)
+    ]
+    if not all_opt:
+        return None
+
+    # option 行を gap<=5 で cluster 化し、 「最も option 数が多い」 塊を picker 本体と
+    # みなす (= /model は 5 option、 scrollback 内の会話 log 番号リストは 1-2 個)。 これで
+    # 「先に現れた ❯ /model echo 行 + 直上の会話番号リスト」 を picker と誤認する事象を
+    # 防ぐ (= 2026-07-06 実測、 logic を arrow-first から cluster-first へ反転)。
+    # gap 閾値 6: 実 /model は 1 option 4 行折返しで option 行間隔 ~5、 6 で塊を保つ。
+    clusters: list[list[int]] = [[all_opt[0]]]
+    for idx in all_opt[1:]:
+        if idx - clusters[-1][-1] <= 6:
+            clusters[-1].append(idx)
+        else:
+            clusters.append([idx])
+
+    # picker 本体の選び方 (= 会話 log の番号リスト / ❯ /model echo との分離):
+    # 選択カーソルが option 行に乗る picker (= /model, trust dialog) は `❯ 3. Fable` が
+    # arrow かつ option。 その arrow-option を含む cluster を優先採用する。 gap 併合で
+    # 会話リストと 1 塊になっても、 後段の「arrow から連続する option 行だけ」 抽出で
+    # 会話側を切り落とす。
+    arrow_set = set(arrow_idx)
+    picker = None
+    for c in clusters:
+        if any(j in arrow_set for j in c):
+            picker = c
+            break
+    if picker is None:
+        # カーソルが option 行に乗らない dialog (= feedback の bare `❯ `) は、 bare arrow
+        # の直近 (±2) に端がある cluster を採る。 複数あれば option 数最多。
+        candidates = [
+            c for c in clusters
+            if min(abs(c[0] - a) for a in arrow_idx) <= 2
+            or min(abs(c[-1] - a) for a in arrow_idx) <= 2
+        ]
+        if not candidates:
+            return None
+        picker = max(candidates, key=len)
+
+    # anchor = カーソル。 option 行に乗る arrow (= `❯ 3. Fable`) を最優先 (= echo arrow
+    # `❯ /model` を掴んで excerpt 起点が上にずれるのを防ぐ)。 無ければ picker 近傍の arrow。
+    opt_set = set(all_opt)
+    anchor = next(
+        (a for a in arrow_idx if a in opt_set and picker[0] - 2 <= a <= picker[-1] + 2),
+        next((a for a in arrow_idx if picker[0] - 2 <= a <= picker[-1] + 2), picker[0]),
+    )
+    # gap 併合で会話リストが混ざった場合の最終分離 (= 2026-07-06): picker の option 番号
+    # は単調増加 (1,2,3,4,5)。 会話 `1,2` + picker `1,2,3,4,5` が併合すると番号列は
+    # 1,2,1,2,3,4,5 で「2→1 の減少」 が境界になる。 番号が増加し続ける run に分割し、
+    # anchor を含む run だけ残す。
+    def _digit_of(idx: int) -> int | None:
+        m = re.match(r"^\s*[❯▶➜→]?\s*([0-9]+)[.):]", lines[idx])
+        return int(m.group(1)) if m else None
+
+    runs: list[list[int]] = []
+    cur: list[int] = []
+    last_d = None
+    for j in picker:
+        d = _digit_of(j)
+        if d is None:
+            # inline 横並び (= feedback dialog 1 行に複数)。 分割しない、 現 run に足す。
+            cur.append(j)
             continue
-        # pane には ❯ が 2 個出ることがある (= コマンド echo 行 `❯ /model` と picker
-        # cursor `❯ 3. Fable`)。 数字 option を含む window を持つ ❯ だけを picker と
-        # みなす (= echo 側は弾く)。 判定は狭め (= ±3)。
-        detect_window = lines[max(0, i - 3): i + 4]
-        numbered_hits = sum(
-            1 for w in detect_window
-            if stacked_option_re.match(w) or inline_options_re.search(w)
-        )
-        if numbered_hits >= 1:
-            # excerpt + option 抽出は「option 群の広がり」 で切る (= カーソル中心 ±N
-            # だと /model のような 1 option 4 行折返し × 5 個の背高 picker で端の
-            # option が window 外に落ちる、 2026-07-05 実測)。 tail 全体から option 行
-            # の index を集め、 最初の option の 2 行上 (= dialog title) 〜 最後の
-            # option の 4 行下 (= 折返し + フッタ) を block とする。
-            opt_idx = [
-                j for j, w in enumerate(lines)
-                if stacked_option_re.match(w) or inline_options_re.search(w)
-            ]
-            lo = max(0, min(opt_idx + [i]) - 2)
-            hi = min(len(lines), max(opt_idx + [i]) + 5)
-            block = lines[lo:hi]
-            block_text = "\n".join(w for w in block if w.strip()).strip()
-            digits = _extract_option_digits(block_text)
-            return Verdict(
-                state=PromptState.INLINE_TUI,
-                excerpt=block_text,
-                bypass_mode_visible=snapshot.bypass_mode_visible,
-                reason="arrow+numbered_option",
-                # Ink dialog は 1 打鍵で即決定、 Enter 不要
-                input_mode=InputMode.NUMBERS if digits else InputMode.ARROWS,
-                options=digits,
-                key_requires_enter=False,
-            )
-    return None
+        if last_d is not None and d <= last_d:
+            runs.append(cur)
+            cur = []
+        cur.append(j)
+        last_d = d
+    if cur:
+        runs.append(cur)
+    picker = next((r for r in runs if anchor in r or (r and r[0] <= anchor <= r[-1])), picker)
+    if not picker:
+        return None
+
+    # anchor を最終 run 内の arrow (= cursor) に取り直す (= 分割前の echo arrow を掴んで
+    # excerpt 起点が上にずれるのを防ぐ)。 run 内に arrow が無ければ run 先頭。
+    anchor = next((a for a in arrow_idx if picker[0] <= a <= picker[-1]), picker[0])
+    lo = max(0, min(picker[0], anchor) - 2)
+    hi = min(len(lines), max(picker[-1], anchor) + 5)
+    block = lines[lo:hi]
+    block_text = "\n".join(w for w in block if w.strip()).strip()
+    digits = _extract_option_digits(block_text)
+    return Verdict(
+        state=PromptState.INLINE_TUI,
+        excerpt=block_text,
+        bypass_mode_visible=snapshot.bypass_mode_visible,
+        reason="arrow+numbered_option",
+        # Ink dialog は 1 打鍵で即決定、 Enter 不要
+        input_mode=InputMode.NUMBERS if digits else InputMode.ARROWS,
+        options=digits,
+        key_requires_enter=False,
+    )
 
 
 def _claude_tui_owns_screen(tail: str) -> bool:
