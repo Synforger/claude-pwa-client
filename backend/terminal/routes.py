@@ -407,6 +407,12 @@ async def pty_send(
     if confirm:
         tmux_send_keys(session_id, key="C-u")
     ok = tmux_send_keys(session_id, text=text, key=key, enter=enter)
+    if ok:
+        # prompt_detector の tier C grace period 用に「今 user が送信した」 を記録。
+        # 直後 tick で末尾が prompt-like でも 1.5s は待機扱いにしない (= 自分の入力を
+        # 「prompt が来た」 と誤検知しない)。
+        from backend.terminal.prompt_detector_loop import note_user_input
+        note_user_input(session_id)
     if not ok or not confirm or jsonl_path is None:
         return {"ok": ok}
     return await _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slash)
@@ -462,6 +468,10 @@ async def pty_send_with_files(
     # むしろ大きい)。
     tmux_send_keys(session_id, key="C-u")
     ok = tmux_send_keys(session_id, text=full_text, enter=True)
+    if ok:
+        # 添付経路も grace period 対象 (= 通常送信と同じ理由)
+        from backend.terminal.prompt_detector_loop import note_user_input
+        note_user_input(session_id)
     if not ok or jsonl_path is None:
         return {"ok": ok, "saved_files": saved_files}
     result = await _confirm_after_send(
