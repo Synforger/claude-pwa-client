@@ -65,11 +65,14 @@ def test_tick_publishes_on_state_transition(stub_session):
     async def run():
         q = jsonl_event_broadcaster.subscribe(sid)
         try:
-            # baseline: 空 tail → ACTIVE (初期 current_state == ACTIVE、 遷移なし)
+            # 初回 tick: seed のみ、 publish しない (= backend restart 直後の push
+            # 一斉発火を抑える hotfix)
+            tail_holder["value"] = ""
             await loop_mod._tick_one(sid)
             assert await _drain(q) == []
+            assert loop_mod._detector_states[sid].seeded is True
 
-            # 選択肢 dialog → INLINE_TUI 遷移で 1 発 publish
+            # 2 tick 目以降: 選択肢 dialog → INLINE_TUI 遷移で 1 発 publish
             tail_holder["value"] = "❯ 1. Yes, allow all\n  2. No, exit\n─────"
             await loop_mod._tick_one(sid)
             events = await _drain(q)
@@ -85,17 +88,39 @@ def test_tick_publishes_on_state_transition(stub_session):
     _run(run())
 
 
+def test_first_tick_is_seed_only_even_if_state_is_waiting(stub_session):
+    """hotfix: backend restart 時、 既に INLINE_TUI 状態でも初回 tick は seed 扱い
+    (= 「backend が起きた瞬間に session が waiting だった」 だけで push しない)。"""
+    sid, tail_holder, alt_holder, push_calls = stub_session
+
+    async def run():
+        q = jsonl_event_broadcaster.subscribe(sid)
+        try:
+            tail_holder["value"] = "❯ 1. Yes\n  2. No"
+            await loop_mod._tick_one(sid)
+            assert await _drain(q) == []
+            assert len(push_calls) == 0
+            state = loop_mod._detector_states[sid]
+            assert state.seeded is True
+            assert state.current_state == PromptState.INLINE_TUI
+        finally:
+            jsonl_event_broadcaster.unsubscribe(sid, q)
+
+    _run(run())
+
+
 def test_tick_no_publish_on_repeated_same_state(stub_session):
     sid, tail_holder, alt_holder, _ = stub_session
 
     async def run():
         q = jsonl_event_broadcaster.subscribe(sid)
         try:
+            # 1 tick 目: seed のみ (= INLINE_TUI に固定)
             tail_holder["value"] = "❯ 1. Yes\n  2. No\n─"
             await loop_mod._tick_one(sid)
-            first = await _drain(q)
-            assert len(first) == 1
+            assert await _drain(q) == []
 
+            # 2 tick 目: 同 state 維持 → 追加 publish なし
             await loop_mod._tick_one(sid)
             second = await _drain(q)
             assert second == []
@@ -111,15 +136,21 @@ def test_push_fires_on_text_prompt_transition(stub_session):
     async def run():
         q = jsonl_event_broadcaster.subscribe(sid)
         try:
-            # 1 度目: ACTIVE state に落ち着かせつつ hash を state に反映
+            # seed 用の 1 tick 目: 中立 tail (= ACTIVE 相当) で seed し、 tier C の
+            # hit が「seed の一部」 として飲まれないようにする。
+            tail_holder["value"] = "just some running output"
+            await loop_mod._tick_one(sid)
+            await _drain(q)
+
+            # 2 tick 目に prompt が現れた体で: tail 差替 + idle 起点を過去へ
             tail_holder["value"] = "[sudo] password for alice: "
             await loop_mod._tick_one(sid)
-            await _drain(q)  # ここまでの emit を掃く
-
-            # tier C を通す: hash 起点を 3s ずらす + grace 無効化
+            # tier C を確実に通すため hash 起点を過去にずらし grace も無効化
             state = loop_mod._detector_states[sid]
             state.hash_first_seen_at -= 3.0
             state.last_input_sent_at = 0.0
+            await _drain(q)
+            push_calls.clear()
 
             await loop_mod._tick_one(sid)
             events = await _drain(q)
