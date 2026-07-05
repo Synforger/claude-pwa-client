@@ -26,6 +26,10 @@ from backend.jsonl.tail import read_complete_lines
 
 logger = logging.getLogger(__name__)
 
+# 送達確認の監視窓。 これを過ぎても confirmed=False は送達失敗と限らない
+# (= picker 等の対話 UI や turn 実行中の queue 送信では確認行が書かれない)。
+CONFIRM_TIMEOUT_SEC: float = 4.0
+
 # slash command (= /deep-research, /clear 等) を素プロンプトと区別して数える。
 # `_count_user_prompts` が harness XML として除外する `<command-name>` 行をこちらで拾う。
 _COMMAND_NAME_RE = re.compile(r"^\s*<command-name\b")
@@ -128,11 +132,13 @@ async def _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slas
     は command 完了行が書かれない)。 介入 (= 再送 / 救済キー) はしない。
     """
     counter = _count_command_lines if is_slash else _count_user_prompts
-    if await _wait_count_added(counter, jsonl_path, initial_pos, timeout=4.0):
+    if await _wait_count_added(
+        counter, jsonl_path, initial_pos, timeout=CONFIRM_TIMEOUT_SEC
+    ):
         return {"ok": True, "confirmed": True}
     logger.info(
-        "pty_send: not confirmed within 4s (interactive UI or slow turn; no intervention): "
-        "sid=%s text_len=%d slash=%s",
-        session_id, len(text or ""), is_slash,
+        "pty_send: not confirmed within %.0fs (interactive UI or slow turn; "
+        "no intervention): sid=%s text_len=%d slash=%s",
+        CONFIRM_TIMEOUT_SEC, session_id, len(text or ""), is_slash,
     )
     return {"ok": True, "confirmed": False}
