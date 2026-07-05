@@ -46,13 +46,13 @@ def test_schema_version_is_string():
     assert SCHEMA_VERSION.count(".") == 1
 
 
-def test_event_dispatch_table_covers_17_types():
-    """contract schema 17 event を生成側が全部出してる (= codegen 取りこぼし検知)。"""
+def test_event_dispatch_table_covers_18_types():
+    """contract schema 18 event を生成側が全部出してる (= codegen 取りこぼし検知)。"""
     expected = {
         "user_message", "assistant", "result", "ask_user_question", "task_notification",
         "system", "system_error", "hook_error", "system_note", "attachment",
         "budget", "mode", "permission_mode", "pr_link", "turn_duration",
-        "stop_hook_summary", "away_summary",
+        "stop_hook_summary", "away_summary", "prompt_state",
     }
     assert set(EVENT_BY_TYPE.keys()) == expected
 
@@ -124,3 +124,30 @@ def test_expected_chat_basic_describes_observed_types():
     assert observed_types == expected_types, (
         f"pipeline produced {observed_types} but expected/chat-basic.json describes {expected_types}"
     )
+
+
+def test_prompt_state_event_matches_contract():
+    """prompt detector の _build_event 出力が contract model に準拠する。
+
+    prompt_state は jsonl_line_to_events 経由でなく detector loop が直接 publish する
+    ため replay fixture に乗らない。 実装 (= _build_event) と schema の drift をここで
+    接着する (= extra='forbid' なので field 追加漏れ / 余剰は即 fail)。
+    """
+    from backend.terminal.prompt_detector import (
+        DetectorConfig, DetectorState, TailSnapshot, analyze,
+    )
+    from backend.terminal.prompt_detector_loop import _build_event
+
+    state = DetectorState()
+    snapshot = TailSnapshot(
+        alternate_on=False,
+        tail_text="❯ 1. Yes, I trust this folder\n  2. No, exit",
+        now_sec=100.0,
+    )
+    verdict = analyze(snapshot, state, DetectorConfig())
+    event = _build_event("ses_x", verdict)
+    _inject_envelope(event, "ses_x")
+    model = EVENT_BY_TYPE["prompt_state"]
+    validated = model.model_validate(event)
+    assert validated.state == "inline_tui"
+    assert validated.options == ["1", "2"]

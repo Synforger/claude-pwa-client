@@ -371,6 +371,27 @@ endpoints:
     implementation: backend/terminal/routes.py
 
   - method: POST
+    path: /pty/{sid}/send-raw-key
+    description: "quick-reply button の raw キー 1 打鍵 (= prompt detector の入力待ちに応答)"
+    request_body:
+      type: object
+      required: [key]
+      properties:
+        key:   { type: string, description: "単一 printable char は literal、 Up/Down/Enter 等は tmux キー名" }
+        enter: { type: boolean, description: "key 送信後に Enter を続けるか (= shell prompt 用、 Ink dialog は不要)" }
+    response:
+      type: object
+      properties:
+        ok: { type: boolean }
+      required: [ok]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "chat 送信経路 (= /pty/{sid}/send) とは流路分離 (= C-u wipe / 到達確認をしない)"
+      - "送信成功時は detector を即 re-poll (= poke_now) して banner を追従させる"
+    implementation: backend/terminal/routes.py
+
+  - method: POST
     path: /hooks/event
     description: "claude CLI hook 受け取り (= localhost 限定)"
     request_body:
