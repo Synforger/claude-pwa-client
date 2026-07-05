@@ -35,9 +35,11 @@ from backend.terminal.prompt_detector import (
     analyze,
 )
 from backend.terminal.runner import (
+    _tmux_session_name,
     capture_pane_plain_tail,
     get_pane_alternate_on,
     has_tmux_session,
+    list_pane_alternate_states,
 )
 
 logger = logging.getLogger(__name__)
@@ -107,18 +109,31 @@ def _push_title_for(verdict: Verdict) -> tuple[str, str] | None:
     return title, body
 
 
-async def _tick_one(sid: str) -> None:
-    """1 session 分の poll + analyze + event/push 発火。 例外は呼び出し側で catch。"""
-    if not has_tmux_session(sid):
+async def _tick_one(
+    sid: str,
+    exists: bool | None = None,
+    alt: bool | None = None,
+) -> None:
+    """1 session 分の poll + analyze + event/push 発火。 例外は呼び出し側で catch。
+
+    `exists` / `alt` は main loop が `list_pane_alternate_states` (= 全 session 一括
+    1 subprocess) で先に取った値。 None なら per-session fallback (= poke_now / 一括
+    取得失敗時) で自前取得する。 tmux subprocess は全部 `asyncio.to_thread` で event
+    loop の外に逃がす (= 同期 subprocess.run が loop 全体を止めない)。
+    """
+    if exists is None:
+        exists = await asyncio.to_thread(has_tmux_session, sid)
+    if not exists:
         # session 消えてたら detector state も掃除して抜ける
         _detector_states.pop(sid, None)
         return
 
-    alt = get_pane_alternate_on(sid)
+    if alt is None:
+        alt = await asyncio.to_thread(get_pane_alternate_on, sid)
     if alt is None:
         # tmux が返さない (= 一時的に応答遅延) 場合は「不明」 として False 扱い
         alt = False
-    tail = capture_pane_plain_tail(sid) or ""
+    tail = await asyncio.to_thread(capture_pane_plain_tail, sid) or ""
     now = asyncio.get_running_loop().time()
     snapshot = TailSnapshot(alternate_on=alt, tail_text=tail, now_sec=now)
 
@@ -189,9 +204,21 @@ async def prompt_detector_loop() -> None:
                 # sessions_meta 側で消えた sid の detector state を掃除
                 for stale in [s for s in _detector_states if s not in sessions_meta]:
                     _detector_states.pop(stale, None)
+                # 存在 + alternate_on は全 session 一括 1 subprocess で先取り
+                # (= per-session の has-session + display-message を tick から消す)。
+                # None (= tmux 不在 / 失敗) は _tick_one の per-session fallback。
+                alt_map = await list_pane_alternate_states()
                 for sid in list(sessions_meta.keys()):
                     try:
-                        await _tick_one(sid)
+                        if alt_map is None:
+                            await _tick_one(sid)
+                        else:
+                            name = _tmux_session_name(sid)
+                            await _tick_one(
+                                sid,
+                                exists=name in alt_map,
+                                alt=alt_map.get(name),
+                            )
                     except Exception:
                         logger.exception("prompt_detector: tick failed sid=%s", sid)
             except asyncio.CancelledError:
