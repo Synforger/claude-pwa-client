@@ -1,4 +1,4 @@
-"""backend.pty_discover の unit test (= backend-F-24 psutil 化検証)。
+"""backend.terminal.pty_discover の unit test (= backend-F-24 psutil 化検証)。
 
 旧 pgrep + ps + lsof の subprocess 連打を psutil 1 ループに置換した経路の振舞いを
 カバーする。 実プロセスを起こすと環境依存になるので、 psutil.Process の minimal stub で
@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import backend.pty_discover as pty_discover
+import backend.terminal.pty_discover as pty_discover
 
 
 class _FakeProc:
