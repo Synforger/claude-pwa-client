@@ -418,6 +418,43 @@ async def pty_send(
     return await _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slash)
 
 
+@router.post("/pty/{session_id}/send-raw-key")
+async def pty_send_raw_key(session_id: str, payload: dict = Body(...)) -> dict:
+    """PWA の quick-reply button (= Phase 4a) から raw キー 1 打鍵を tmux に流す。
+
+    通常の chat message 送信経路 (/pty/{sid}/send) は「テキスト → C-u wipe → 本文入力
+    → Enter」 の chat 送信フローだが、 quick-reply は「pane 上の dialog / prompt に対して
+    1 キー打つ」 用途なので流路を分ける (= chat 送信の副作用を避ける)。
+
+    body:
+        {"key": "1", "enter": false}
+        {"key": "Y", "enter": true}
+        {"key": "Up", "enter": false}   # arrow-mode で ↑ / ↓ / Enter を送る (= Phase 4b)
+
+    key は tmux `send-keys` の literal / key name。 単一文字 (`1`, `Y`) は literal、
+    `Up`/`Down`/`Enter`/`Escape` 等の名前は制御キーとして tmux が解釈する。 空文字禁止。
+
+    enter=True の時は key 送信後に Enter を続けて打つ (= shell prompt の [Y/n] / bash
+    select は 1 打鍵で確定しない、 Ink dialog は Enter 不要)。
+    """
+    key = str(payload.get("key") or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="key is required")
+    enter = bool(payload.get("enter", False))
+    # 単一 printable char は literal (`-l`) 経路、 それ以外は key name として扱う。
+    # 判別: len==1 かつ ASCII printable なら literal。
+    if len(key) == 1 and 32 <= ord(key) < 127:
+        ok = tmux_send_keys(session_id, text=key, enter=enter)
+    else:
+        ok = tmux_send_keys(session_id, key=key, enter=enter)
+    if ok:
+        # tier C grace は文字入力なので発火させる (= 次 tick で誤検知しないよう
+        # note_user_input と同じ扱い)
+        from backend.terminal.prompt_detector_loop import note_user_input
+        note_user_input(session_id)
+    return {"ok": ok}
+
+
 @router.post("/pty/{session_id}/send-with-files")
 async def pty_send_with_files(
     session_id: str,
