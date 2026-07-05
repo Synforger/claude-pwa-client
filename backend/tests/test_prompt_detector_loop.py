@@ -130,6 +130,35 @@ def test_tick_no_publish_on_repeated_same_state(stub_session):
     _run(run())
 
 
+def test_tick_publishes_on_excerpt_change_within_same_state(stub_session):
+    """Phase 4b: arrow picker で ❯ が移動しただけ (= state=inline_tui 据え置き、
+    excerpt のみ更新) の時、 SSE publish は走らせて chip の text を live 更新する。
+    push は走らせない (= 遷移じゃないので通知連発しない)。"""
+    sid, tail_holder, alt_holder, push_calls = stub_session
+
+    async def run():
+        q = jsonl_event_broadcaster.subscribe(sid)
+        try:
+            # 1 tick 目: seed
+            tail_holder["value"] = "❯ 1. apple\n  2. banana"
+            await loop_mod._tick_one(sid)
+            await _drain(q)
+            push_calls.clear()
+
+            # 2 tick 目: excerpt 変化 (= ❯ が下に移動、 state は INLINE_TUI 継続)
+            tail_holder["value"] = "  1. apple\n❯ 2. banana"
+            await loop_mod._tick_one(sid)
+            events = await _drain(q)
+            assert len(events) == 1
+            assert events[0]["state"] == "inline_tui"
+            await asyncio.sleep(0.02)
+            assert len(push_calls) == 0
+        finally:
+            jsonl_event_broadcaster.unsubscribe(sid, q)
+
+    _run(run())
+
+
 def test_push_fires_on_text_prompt_transition(stub_session):
     sid, tail_holder, alt_holder, push_calls = stub_session
 

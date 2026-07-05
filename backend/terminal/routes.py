@@ -450,8 +450,11 @@ async def pty_send_raw_key(session_id: str, payload: dict = Body(...)) -> dict:
     if ok:
         # tier C grace は文字入力なので発火させる (= 次 tick で誤検知しないよう
         # note_user_input と同じ扱い)
-        from backend.terminal.prompt_detector_loop import note_user_input
+        from backend.terminal.prompt_detector_loop import note_user_input, poke_now
         note_user_input(session_id)
+        # Phase 4b: 500ms poll を待たず即 tick して chip の excerpt を最新化する
+        # (= arrow picker で ↑/↓ 押した反応が snappy に見える)
+        asyncio.create_task(poke_now(session_id))
     return {"ok": ok}
 
 
