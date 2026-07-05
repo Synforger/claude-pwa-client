@@ -85,7 +85,7 @@ import backend.core.push as push  # noqa: E402
 from backend.core.usage import rate_limits_log_health  # noqa: E402
 import backend.jsonl.routes as jsonl_routes  # noqa: E402
 import backend.jsonl.watcher as jsonl_watcher  # noqa: E402
-import backend.pty_discover as pty_discover  # noqa: E402
+import backend.terminal.pty_discover as pty_discover  # noqa: E402
 import backend.routes.chat as chat_routes  # noqa: E402
 import backend.routes.files as files_routes  # noqa: E402
 import backend.routes.hooks as hooks_routes  # noqa: E402
