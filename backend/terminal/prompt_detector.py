@@ -326,6 +326,25 @@ def _tier_b_inline_tui(snapshot: TailSnapshot) -> Optional[Verdict]:
     return None
 
 
+def _claude_tui_owns_screen(tail: str) -> bool:
+    """pane 末尾が Claude Code 自身の TUI (= 入力欄 + status bar) かを判定。
+
+    末尾 4 行に rate-limit status (`5h:NN%`) か bypass chip が見えていれば Claude TUI
+    が画面を占有中。 この状態で subprocess の生 prompt が pane 末尾に居ることは構造上
+    ありえない (= subprocess 出力は Claude が tool 経由で吸収して会話 log に描画する)
+    ので、 tier C は skip してよい。 逆に subprocess が真に画面を持ってる時 (= claude
+    未起動の生 shell 等) は status bar が無いので tier C が生きる。
+
+    Why: チャット本文に含まれる番号リスト / `[Y/n]` 例文が pane に描画されて tier C
+    の regex に誤 hit する class の誤検知 (= 2026-07-06 実測) を構造的に塞ぐ。
+    """
+    last_lines = tail.splitlines()[-4:]
+    for ln in last_lines:
+        if _VOLATILE_STATUS_RE.search(ln) or _BYPASS_CHIP_RE.search(ln):
+            return True
+    return False
+
+
 def _tier_c_text_prompt(
     snapshot: TailSnapshot, state: DetectorState, config: DetectorConfig
 ) -> Optional[Verdict]:
@@ -334,6 +353,9 @@ def _tier_c_text_prompt(
         return None
     # idle が閾値未満なら「まだ出力中の可能性」 として skip
     if state._idle_for(snapshot) < config.idle_threshold_sec:
+        return None
+    # Claude TUI が画面を占有中なら text prompt は存在しえない (= dialog は tier B が担当)
+    if _claude_tui_owns_screen(snapshot.tail_text):
         return None
     tail = snapshot.tail_text
     for pattern, category in (
