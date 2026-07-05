@@ -190,6 +190,11 @@ async def lifespan(app: FastAPI):
         logger.exception("startup maintenance failed")
     maintenance_task = asyncio.create_task(maintenance.maintenance_loop())
 
+    # tmux pane に「入力待ち」 (= subprocess prompt / TUI 選択肢 / bypass 下の思わぬ待機)
+    # が発生したら SSE で chip UI + Web Push で通知する。 全 session 500ms poll。
+    from backend.terminal.prompt_detector_loop import prompt_detector_loop
+    prompt_detector_task = asyncio.create_task(prompt_detector_loop())
+
     # backend.error.log / backend.access.log は RotatingFileHandler で自動 rotate。
     # launchd の StandardOutPath (= backend.log) / StandardErrorPath (= backend.boot.log) は
     # launchd 管理で rotate されないので起動時に上限超過を切る (= app の rotate 系とは別ファイル)。
@@ -198,11 +203,12 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # 終了: 常時 tail task + uploads GC task + maintenance task を停止 → PTY セッションを閉じる
+    # 終了: 常時 tail task + uploads GC task + maintenance task + prompt detector を停止
     blocker_monitor_task.cancel()
     uploads_gc_task.cancel()
     maintenance_task.cancel()
-    for _t in (blocker_monitor_task, uploads_gc_task, maintenance_task):
+    prompt_detector_task.cancel()
+    for _t in (blocker_monitor_task, uploads_gc_task, maintenance_task, prompt_detector_task):
         try:
             await _t
         except (asyncio.CancelledError, Exception):
