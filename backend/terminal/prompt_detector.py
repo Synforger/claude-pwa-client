@@ -257,6 +257,17 @@ def _tier_a_alternate(snapshot: TailSnapshot) -> Optional[Verdict]:
     return None
 
 
+# tier B の option 行 signature。
+# 縦並び 1 行 (= `❯ 1. Yes` / `1) foo` / `1: Bad`)。 `:` は Claude Code の feedback
+# dialog (= `1: Bad  2: Fine  3: Good  0: Dismiss`) 対応で追加。
+_STACKED_OPTION_RE = re.compile(r"^\s*[❯▶➜→]?\s*[0-9]+[.):]\s+\S")
+# 横並び 1 行 (= 同一行に「N: text」 が 2+ 出る、 上の feedback dialog は 4 option
+# 横並びなので stacked では拾えない)。
+_INLINE_OPTIONS_RE = re.compile(r"(?:\s|^)[0-9]+:\s+\S.*?(?:\s|^)[0-9]+:\s+\S")
+# option 行の先頭番号 (= run 分割用)。
+_OPTION_LEADING_DIGIT_RE = re.compile(r"^\s*[❯▶➜→]?\s*([0-9]+)[.):]")
+
+
 def _tier_b_inline_tui(snapshot: TailSnapshot) -> Optional[Verdict]:
     """inline TUI 選択 dialog を検出。
 
@@ -278,49 +289,73 @@ def _tier_b_inline_tui(snapshot: TailSnapshot) -> Optional[Verdict]:
 
     ❯ + 番号列挙 のペアが取れない (= 単独 `❯` 入力欄 / 通常会話) は tier B に落とさず
     tier C / D に流す。
-    """
-    tail = snapshot.tail_text
-    lines = tail.splitlines()
-    # 縦並び 1 行 signature (= `❯ 1. Yes` / `1) foo` / `1: Bad`)。 `:` は Claude Code
-    # の feedback dialog (= `1: Bad  2: Fine  3: Good  0: Dismiss`) 対応で追加。
-    stacked_option_re = re.compile(r"^\s*[❯▶➜→]?\s*[0-9]+[.):]\s+\S")
-    # 横並び 1 行 signature (= 同一行に「N: text」 が 2+ 出る、 上の feedback dialog は
-    # 4 option 横並びなので stacked では拾えない)。
-    inline_options_re = re.compile(r"(?:\s|^)[0-9]+:\s+\S.*?(?:\s|^)[0-9]+:\s+\S")
 
+    処理は 4 段 (= fix が入る時にどの段の話か diff で判別できる粒度):
+        1. `_tier_b_candidates`     — arrow 行 / option 行の index 収集
+        2. `_tier_b_clusterize`     — option 行の gap ベース cluster 化
+        3. `_tier_b_select_picker`  — picker cluster 選定 + 番号 run 分割 + anchor 確定
+        4. `_tier_b_build_verdict`  — excerpt / digits 抽出 + Verdict 構築
+    """
+    lines = snapshot.tail_text.splitlines()
+    found = _tier_b_candidates(lines)
+    if found is None:
+        return None
+    arrow_idx, all_opt = found
+    clusters = _tier_b_clusterize(all_opt)
+    picked = _tier_b_select_picker(lines, clusters, arrow_idx, all_opt)
+    if picked is None:
+        return None
+    picker, anchor = picked
+    return _tier_b_build_verdict(snapshot, lines, picker, anchor)
+
+
+def _tier_b_candidates(lines: list[str]) -> Optional[tuple[list[int], list[int]]]:
+    """arrow 行 index と option 行 index を収集。 どちらか欠けたら tier B 不成立。"""
     arrow_idx = [j for j, w in enumerate(lines) if _ARROW_CURSOR_RE.match(w)]
     if not arrow_idx:
         return None
     all_opt = [
         j for j, w in enumerate(lines)
-        if stacked_option_re.match(w) or inline_options_re.search(w)
+        if _STACKED_OPTION_RE.match(w) or _INLINE_OPTIONS_RE.search(w)
     ]
     if not all_opt:
         return None
+    return arrow_idx, all_opt
 
-    # option 行を gap<=5 で cluster 化し、 「最も option 数が多い」 塊を picker 本体と
-    # みなす (= /model は 5 option、 scrollback 内の会話 log 番号リストは 1-2 個)。 これで
-    # 「先に現れた ❯ /model echo 行 + 直上の会話番号リスト」 を picker と誤認する事象を
-    # 防ぐ (= 2026-07-06 実測、 logic を arrow-first から cluster-first へ反転)。
-    # gap 閾値 6: 実 /model は 1 option 4 行折返しで option 行間隔 ~5、 6 で塊を保つ。
+
+def _tier_b_clusterize(all_opt: list[int]) -> list[list[int]]:
+    """option 行を gap<=6 で cluster 化する。
+
+    「最も option 数が多い」 塊を picker 本体とみなす前段 (= /model は 5 option、
+    scrollback 内の会話 log 番号リストは 1-2 個)。 これで「先に現れた ❯ /model echo 行
+    + 直上の会話番号リスト」 を picker と誤認する事象を防ぐ (= 2026-07-06 実測、 logic
+    を arrow-first から cluster-first へ反転)。 gap 閾値 6: 実 /model は 1 option 4 行
+    折返しで option 行間隔 ~5、 6 で塊を保つ。
+    """
     clusters: list[list[int]] = [[all_opt[0]]]
     for idx in all_opt[1:]:
         if idx - clusters[-1][-1] <= 6:
             clusters[-1].append(idx)
         else:
             clusters.append([idx])
+    return clusters
 
-    # picker 本体の選び方 (= 会話 log の番号リスト / ❯ /model echo との分離):
-    # 選択カーソルが option 行に乗る picker (= /model, trust dialog) は `❯ 3. Fable` が
-    # arrow かつ option。 その arrow-option を含む cluster を優先採用する。 gap 併合で
-    # 会話リストと 1 塊になっても、 後段の「arrow から連続する option 行だけ」 抽出で
-    # 会話側を切り落とす。
+
+def _tier_b_select_picker(
+    lines: list[str],
+    clusters: list[list[int]],
+    arrow_idx: list[int],
+    all_opt: list[int],
+) -> Optional[tuple[list[int], int]]:
+    """picker cluster の選定 + 番号 run 分割 + anchor (= cursor 行) 確定。
+
+    picker 本体の選び方 (= 会話 log の番号リスト / ❯ /model echo との分離):
+    選択カーソルが option 行に乗る picker (= /model, trust dialog) は `❯ 3. Fable` が
+    arrow かつ option。 その arrow-option を含む cluster を優先採用する。 gap 併合で
+    会話リストと 1 塊になっても、 後段の run 分割で会話側を切り落とす。
+    """
     arrow_set = set(arrow_idx)
-    picker = None
-    for c in clusters:
-        if any(j in arrow_set for j in c):
-            picker = c
-            break
+    picker = next((c for c in clusters if any(j in arrow_set for j in c)), None)
     if picker is None:
         # カーソルが option 行に乗らない dialog (= feedback の bare `❯ `) は、 bare arrow
         # の直近 (±2) に端がある cluster を採る。 複数あれば option 数最多。
@@ -340,19 +375,17 @@ def _tier_b_inline_tui(snapshot: TailSnapshot) -> Optional[Verdict]:
         (a for a in arrow_idx if a in opt_set and picker[0] - 2 <= a <= picker[-1] + 2),
         next((a for a in arrow_idx if picker[0] - 2 <= a <= picker[-1] + 2), picker[0]),
     )
+
     # gap 併合で会話リストが混ざった場合の最終分離 (= 2026-07-06): picker の option 番号
     # は単調増加 (1,2,3,4,5)。 会話 `1,2` + picker `1,2,3,4,5` が併合すると番号列は
     # 1,2,1,2,3,4,5 で「2→1 の減少」 が境界になる。 番号が増加し続ける run に分割し、
     # anchor を含む run だけ残す。
-    def _digit_of(idx: int) -> int | None:
-        m = re.match(r"^\s*[❯▶➜→]?\s*([0-9]+)[.):]", lines[idx])
-        return int(m.group(1)) if m else None
-
     runs: list[list[int]] = []
     cur: list[int] = []
     last_d = None
     for j in picker:
-        d = _digit_of(j)
+        m = _OPTION_LEADING_DIGIT_RE.match(lines[j])
+        d = int(m.group(1)) if m else None
         if d is None:
             # inline 横並び (= feedback dialog 1 行に複数)。 分割しない、 現 run に足す。
             cur.append(j)
@@ -371,6 +404,16 @@ def _tier_b_inline_tui(snapshot: TailSnapshot) -> Optional[Verdict]:
     # anchor を最終 run 内の arrow (= cursor) に取り直す (= 分割前の echo arrow を掴んで
     # excerpt 起点が上にずれるのを防ぐ)。 run 内に arrow が無ければ run 先頭。
     anchor = next((a for a in arrow_idx if picker[0] <= a <= picker[-1]), picker[0])
+    return picker, anchor
+
+
+def _tier_b_build_verdict(
+    snapshot: TailSnapshot,
+    lines: list[str],
+    picker: list[int],
+    anchor: int,
+) -> Verdict:
+    """picker 範囲から excerpt / option digits を抽出して Verdict を組む。"""
     lo = max(0, min(picker[0], anchor) - 2)
     hi = min(len(lines), max(picker[-1], anchor) + 5)
     block = lines[lo:hi]
