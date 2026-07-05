@@ -4,6 +4,8 @@
 
 > **Unofficial third-party client for Claude Code. Not affiliated with Anthropic. Apache 2.0, provided AS IS ([LICENSE](./LICENSE)).**
 
+> **Self-hosted, single-user by design.** Run the backend on your own machine, against your own Claude subscription (or API key), for your own use. Exposing it to serve additional users — routing Anthropic consumer authentication "on behalf of their users" — is unsupported and against Anthropic's usage policy. See [Claude Code — Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance).
+
 A PWA client for operating [Claude Code](https://docs.claude.com/en/docs/claude-code) (Anthropic's official CLI) from your smartphone. Your phone's browser connects over Tailscale to a backend running on your host machine; add it to the home screen and use it as a standalone PWA. The backend launches the `claude` CLI as a real PTY + tmux subprocess, staying within the Anthropic Usage Policy (the subscription / API key choice is left to the user; no tokens are extracted).
 
 
