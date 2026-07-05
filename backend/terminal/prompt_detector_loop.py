@@ -86,6 +86,10 @@ def _build_event(sid: str, verdict: Verdict) -> dict:
         "excerpt": verdict.excerpt,
         "bypass_mode_visible": verdict.bypass_mode_visible,
         "reason": verdict.reason,
+        # PWA quick-reply UI 用 (= Phase 4a)
+        "input_mode": verdict.input_mode.value,
+        "options": list(verdict.options),
+        "key_requires_enter": verdict.key_requires_enter,
     }
 
 
