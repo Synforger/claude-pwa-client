@@ -34,6 +34,7 @@ import { useStatus } from '../features/status-bar/useStatus.js'
 import { useSessionBadges } from '../features/push-notify/useSessionBadges.js'
 import { setBadge } from '../features/push-notify/badge.js'
 import ActivityBar from '../features/tasks/ActivityBar.jsx'
+import { PromptStateBanner } from '../features/status-bar/PromptStateBanner.jsx'
 import ChatInput from '../features/chat/ChatInput.jsx'
 import MessageList from '../features/chat/MessageList.jsx'
 import AttachmentsBar from '../features/chat/AttachmentsBar.jsx'
@@ -315,6 +316,10 @@ export default function ChatPanel({ sid }) {
         currentAttachments={currentAttachments}
         removeAttachment={removeAttachment}
       />
+
+      {/* tmux pane 入力待ち banner (= 2026-07-05 StatusBar chip から移設)。 待ち系
+          state の時だけ出現、 excerpt + quick-reply button を入力欄の直上に出す。 */}
+      <PromptStateBanner sid={activeSid} />
 
       <ActivityBar status={status} />
 
