@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import shlex
 import time
@@ -137,42 +138,54 @@ def resolve_autoresume_fallback(session_id: str, *, prefer_fresh: bool = False) 
     return cfg.get("launch_alias")
 
 
+# ensure_pty_session_for の per-sid 直列化 lock。 「pty_sessions 未登録確認 → spawn 完了」
+# の間に await (= spawn_pty_session 内の subprocess 起動) があり、 同一 sid の並行呼び出し
+# (= per-sid SSE 開通と /jsonl/stream/all の再接続 sweep が time-close に発火する等) が
+# その窓を通ると tmux control client が二重 spawn され、 先勝ち側の PtySession が
+# pty_sessions から追跡されなくなる (= shutdown でも terminate されないプロセスリーク)。
+# lock dict は sid ごとに生えたまま残すが、 1 sid = asyncio.Lock 1 個なので実害なし。
+_spawn_locks: dict[str, asyncio.Lock] = {}
+
+
 async def ensure_pty_session_for(session_id: str, *, prefer_fresh: bool = False) -> None:
     """指定 session の tmux + claude を起動 (既にあれば何もしない)。
 
     `/ws/pty/{sid}` (= ターミナル画面) 経由だけでなく、 `/jsonl/stream/{sid}` /
     `/jsonl/stream/all` (= チャット画面) や POST /sessions (= 新規タブ作成) からも呼ぶ
     ことで、 ターミナル画面を一度も開いていないタブでも claude が立ち上がって JSONL が
-    作られるようにする。
+    作られるようにする。 同一 sid の並行呼び出しは per-sid lock で直列化する (= 後続は
+    先行の spawn 完了を待ってから existing 確認に入るので二重 spawn しない)。
 
     `prefer_fresh=True` は restart 経路用 (= autoresume race 回避)、 詳細は
     `resolve_launch_alias` の docstring 参照。
     """
-    existing = pty_sessions.get(session_id)
-    if existing is not None and not existing.exit_event.is_set():
-        return
-    if has_tmux_session(session_id):
-        # tmux session は生きてるが backend 側に PtySession 記録が無い (= backend 再起動跨ぎ)。
-        # チャット画面側からは attach の必要なし。 JSONL は claude プロセスが書き続けてるので
-        # 解決経路 (= jsonl_path_for_session) が拾える。 spawn 重複も避ける
-        return
-    cfg = resolve_agent_cfg(session_id) or {}
-    cwd = cfg.get("cwd")
-    launch_alias = resolve_launch_alias(session_id, prefer_fresh=prefer_fresh)
-    fallback_alias = resolve_autoresume_fallback(session_id, prefer_fresh=prefer_fresh)
-    try:
-        from backend.config import ACCOUNTS  # noqa: PLC0415
-        from backend.state import sessions_meta  # noqa: PLC0415
-        meta = sessions_meta.get(session_id)
-        acct_env = (ACCOUNTS.get(meta.account_id) or {}).get("env") if meta and meta.account_id else None
-        agent_env = cfg.get("env") if isinstance(cfg.get("env"), dict) else {}
-        extra_env = {**agent_env, **(acct_env or {})} if (agent_env or acct_env) else None
-        session = await spawn_pty_session(
-            session_id, cwd=cwd, launch_alias=launch_alias,
-            fallback_alias=fallback_alias,
-            extra_env=extra_env,
-        )
-    except Exception:
-        logger.exception("ensure_pty_session_for: spawn failed session=%s", session_id)
-        return
-    pty_sessions[session_id] = session
+    lock = _spawn_locks.setdefault(session_id, asyncio.Lock())
+    async with lock:
+        existing = pty_sessions.get(session_id)
+        if existing is not None and not existing.exit_event.is_set():
+            return
+        if has_tmux_session(session_id):
+            # tmux session は生きてるが backend 側に PtySession 記録が無い (= backend 再起動跨ぎ)。
+            # チャット画面側からは attach の必要なし。 JSONL は claude プロセスが書き続けてるので
+            # 解決経路 (= jsonl_path_for_session) が拾える。 spawn 重複も避ける
+            return
+        cfg = resolve_agent_cfg(session_id) or {}
+        cwd = cfg.get("cwd")
+        launch_alias = resolve_launch_alias(session_id, prefer_fresh=prefer_fresh)
+        fallback_alias = resolve_autoresume_fallback(session_id, prefer_fresh=prefer_fresh)
+        try:
+            from backend.config import ACCOUNTS  # noqa: PLC0415
+            from backend.state import sessions_meta  # noqa: PLC0415
+            meta = sessions_meta.get(session_id)
+            acct_env = (ACCOUNTS.get(meta.account_id) or {}).get("env") if meta and meta.account_id else None
+            agent_env = cfg.get("env") if isinstance(cfg.get("env"), dict) else {}
+            extra_env = {**agent_env, **(acct_env or {})} if (agent_env or acct_env) else None
+            session = await spawn_pty_session(
+                session_id, cwd=cwd, launch_alias=launch_alias,
+                fallback_alias=fallback_alias,
+                extra_env=extra_env,
+            )
+        except Exception:
+            logger.exception("ensure_pty_session_for: spawn failed session=%s", session_id)
+            return
+        pty_sessions[session_id] = session

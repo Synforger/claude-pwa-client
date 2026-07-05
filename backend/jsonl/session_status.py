@@ -566,207 +566,276 @@ def mutate_agent_status(session_id: str, line: dict) -> bool:
     (= caller が status_event.set() するための合図)。
 
     PTY 経路では SDK の structured message が無いので、 JSONL の type/content から
-    todos / plan_mode / current_tool / ctx_pct / model を直接拾う。
+    todos / plan_mode / current_tool / ctx_pct / model を直接拾う。 行 type ごとの
+    実処理は `_mutate_*` handler に分割 (= field 追加時は該当 handler だけ触る)。
     """
     if not isinstance(line, dict) or line.get("isSidechain") or line.get("isMeta"):
         return False
     if session_id not in agent_status:
         return False
-    a = agent_status[session_id]
-    changed = False
-    line_type = line.get("type")
+    handler = _LINE_MUTATORS.get(line.get("type"))
+    if handler is None:
+        return False
+    return handler(session_id, agent_status[session_id], line)
 
-    if line_type == "assistant":
-        msg = line.get("message") or {}
-        # TaskCreate / TaskUpdate の tool_use を見て agent_status.tasks を即時反映する。
-        # task_reminder は次ターンでしか再掲されないので、 TaskCreate 直後にパネル開いても
-        # 何も出ない罠を避ける (= 2026-06-12 修正)。
-        content_now = msg.get("content") or []
-        if isinstance(content_now, list):
-            tasks_changed_local = False
-            tasks = [dict(t) for t in (a.get("tasks") or [])]
-            for block in content_now:
-                if not isinstance(block, dict) or block.get("type") != "tool_use":
-                    continue
-                tname = block.get("name")
-                tinput = block.get("input") or {}
-                if tname == "TaskCreate":
-                    subject = tinput.get("subject") or ""
-                    if subject and not any(t.get("subject") == subject for t in tasks):
-                        tasks.append({
-                            "id": str(len(tasks) + 1),
-                            "subject": subject,
-                            "description": tinput.get("description") or "",
-                            "activeForm": tinput.get("activeForm") or "",
-                            "status": "pending",
-                            "blocks": [], "blockedBy": [],
-                        })
-                        tasks_changed_local = True
-                elif tname == "TaskUpdate":
-                    tid = tinput.get("taskId")
-                    if tid is None:
-                        continue
-                    tid = str(tid)
-                    for t in tasks:
-                        if str(t.get("id")) == tid:
-                            for k in ("status", "subject", "description", "activeForm"):
-                                v = tinput.get(k)
-                                if v is not None and t.get(k) != v:
-                                    t[k] = v
-                                    tasks_changed_local = True
-                            break
-            if tasks_changed_local:
-                a["tasks"] = tasks
-                changed = True
-        # model 表示用 (= StatusBar 5h/7d/ctx と並ぶ model 名)
-        model_raw = msg.get("model")
-        if model_raw:
-            new_model = format_model_name(model_raw)
-            if a.get("model") != new_model:
-                a["model"] = new_model
-                changed = True
-        # usage → ctx_pct (= rate-limits.jsonl 由来とは別経路の保険)
-        usage = msg.get("usage")
-        if usage:
-            ctx_window = a.get("ctx_window") or 1_000_000
-            new_pct = compute_ctx_pct(usage, ctx_window)
-            if a.get("ctx_pct") != new_pct:
-                a["ctx_pct"] = new_pct
-                changed = True
-        # tool_use 解析: TodoWrite (進捗) / Enter|ExitPlanMode (plan_mode) / current_tool
-        content = msg.get("content") or []
-        if isinstance(content, list):
-            for block in content:
-                if not isinstance(block, dict) or block.get("type") != "tool_use":
-                    continue
-                name = block.get("name")
-                tool_id = block.get("id")
-                inp = block.get("input") or {}
-                if name == "ExitPlanMode":
-                    # backend-F-14: bounded set で「処理済 tool_use_id」 を覚えておき、
-                    # pending_plan が clear (= ユーザ承認 / 別 plan で上書き) された後に
-                    # 同 tool_id が再到着しても capture を二重起動しない。 旧版の
-                    # `a["pending_plan"]["tool_use_id"] == tool_id` gate は pending_plan
-                    # 生存中の SSE / monitor 二重 mutate しか弾けず、 clear 後の重複に
-                    # 穴があった。
-                    if not _remember_exit_plan(session_id, tool_id):
-                        continue
-                if name == "TodoWrite":
-                    todos = inp.get("todos")
-                    if todos is not None and a.get("todos") != todos:
-                        a["todos"] = todos
-                        changed = True
-                elif name == "ExitPlanMode":
-                    # plan_mode フラグは落とす (= 旧経路と同じ semantics)
-                    if a.get("plan_mode"):
-                        a["plan_mode"] = False
-                        changed = True
-                    # 承認待ち状態を立てる → frontend が PlanApprovalBubble を表示する
-                    a["pending_plan"] = {
-                        "tool_use_id": tool_id,
-                        "plan": inp.get("plan", ""),
-                        "choices": [],  # 0.5s 後に tmux capture-pane で抽出
-                    }
-                    changed = True
-                    # 選択肢抽出は async タスクで遅延実行 (= claude TUI の prompt 描画待ち)
-                    asyncio.create_task(capture_plan_choices(session_id, tool_id))
-                elif name == "EnterPlanMode" and not a.get("plan_mode"):
-                    a["plan_mode"] = True
-                    changed = True
-                elif name == "AskUserQuestion":
-                    # backend-F-69: hook 側で `pending_question` を立てる仕様 (= 先勝ち
-                    # で上書き) を merge ロジックに切替済。 hook と JSONL tail のどちらが
-                    # 先に来ても同じ state に収束する (= 同 questions なら id 補完、
-                    # 異なれば新規)。 apply_pending_question が status_event.set /
-                    # sessions_overview.notify を内包するため、 ここでは戻り値だけ
-                    # changed に伝播する。
-                    qs_in = inp.get("questions") or []
-                    if isinstance(qs_in, list) and qs_in:
-                        if apply_pending_question(session_id, qs_in, tool_use_id=tool_id):
-                            changed = True
-                # current_tool: ActivityBar / 旧 SDK 経路と同型の「今走ってる tool」 情報
-                a["current_tool"] = {
-                    "name": name,
-                    "id": tool_id,
-                    "started_at": time.time(),
-                }
-                changed = True
-        # stop_reason 確定 turn では current_tool を解放 (= 次 turn 開始まで空に)
-        stop_reason = msg.get("stop_reason")
-        if stop_reason and stop_reason != "tool_use":
-            if a.get("current_tool") is not None:
-                a["current_tool"] = None
-                changed = True
-    elif line_type == "user":
-        # tool_result が来たら、 対応する current_tool が居れば解放
-        msg = line.get("message") or {}
-        content = msg.get("content")
-        if isinstance(content, list):
-            for block in content:
-                if not isinstance(block, dict) or block.get("type") != "tool_result":
-                    continue
-                tu_id = block.get("tool_use_id")
-                cur = a.get("current_tool")
-                if cur and cur.get("id") == tu_id:
-                    a["current_tool"] = None
-                    changed = True
-                # ExitPlanMode の承認 / 拒否が tool_result で返ったら pending_plan を解除
-                pending = a.get("pending_plan")
-                if pending and pending.get("tool_use_id") == tu_id:
-                    a["pending_plan"] = None
-                    changed = True
-                # AskUserQuestion の回答が tool_result で返ったら pending_question を解除
-                # (= ライブ overlay を消す。 以降は JSONL 由来の回答済みバブルが chat に残る)
-                pq = a.get("pending_question")
-                if pq and pq.get("tool_use_id") == tu_id:
-                    a["pending_question"] = None
-                    changed = True
-    elif line_type == "mode":
-        m = line.get("mode") or ""
-        if m and a.get("mode") != m:
-            a["mode"] = m
-            changed = True
-    elif line_type == "permission-mode":
-        pm = line.get("permissionMode") or ""
-        if pm and a.get("permission_mode") != pm:
-            a["permission_mode"] = pm
-            changed = True
-    elif line_type == "attachment":
-        att = line.get("attachment") or {}
-        if att.get("type") == "budget_usd":
-            for k_src, k_dst in (("used", "budget_used"), ("total", "budget_total"), ("remaining", "budget_remaining")):
-                v = att.get(k_src)
-                if v is not None and a.get(k_dst) != v:
-                    a[k_dst] = v
-                    changed = True
-        elif att.get("type") == "task_reminder":
-            # task_reminder の content は現在の task list 全体の snapshot (= claude TUI が
-            # 毎ターン再掲)。 最新を真値として agent_status.tasks を丸ごと差し替える。
-            raw = att.get("content")
-            items = raw if isinstance(raw, list) else []
-            old = a.get("tasks") or []
-            # 2026-07-03 実測: 全 task_reminder の ~88% が空 content で届く (= 「no update」
-            # sentinel)。 素朴に空でも wipe する旧挙動だと直前 TaskCreate で追加した task を
-            # 次ターン即消し込みしてしまい TasksModal が「登録されていません」 に戻る。 空
-            # content は「変更なし」 として skip し、 実際に task_list を運ぶ回だけ反映する。
-            # 明示的な「全 task 消去」 も TaskUpdate(status=deleted) 経路で表現されるので、
-            # 空 content を捨てて情報は失われない。
-            if not items and old:
-                pass
-            elif _tasks_signature(items) != _tasks_signature(old):
-                # backend-F-57: dict 全 field 比較 (= items != old) では task_reminder に余計な
-                # field (= 順序違い / 内部メタ追加) で false positive を起こし、 status_event の
-                # 過剰発火 + frontend の不要再描画を招いていた。 ID + 表示 field だけで正規化
-                # 比較する。
-                a["tasks"] = items
-                changed = True
-    elif line_type == "pr-link":
-        repo = line.get("prRepository") or ""
-        num = line.get("prNumber")
-        url = line.get("prUrl") or ""
-        if num is not None:
-            pr_links = a.get("pr_links") or []
-            if not any(p.get("prRepository") == repo and p.get("prNumber") == num for p in pr_links):
-                a["pr_links"] = [*pr_links, {"prRepository": repo, "prNumber": num, "prUrl": url}]
-                changed = True
+
+def _mutate_assistant(session_id: str, a: dict, line: dict) -> bool:
+    """assistant 行: tasks / model / ctx_pct / tool_use 群 / stop_reason を field 単位で反映。"""
+    msg = line.get("message") or {}
+    changed = _apply_task_tools(a, msg)
+    changed = _apply_model_name(a, msg) or changed
+    changed = _apply_ctx_pct(a, msg) or changed
+    changed = _apply_tool_use_blocks(session_id, a, msg) or changed
+    changed = _apply_stop_reason(a, msg) or changed
     return changed
+
+
+def _apply_task_tools(a: dict, msg: dict) -> bool:
+    """TaskCreate / TaskUpdate の tool_use を見て agent_status.tasks を即時反映する。
+
+    task_reminder は次ターンでしか再掲されないので、 TaskCreate 直後にパネル開いても
+    何も出ない罠を避ける (= 2026-06-12 修正)。
+    """
+    content = msg.get("content") or []
+    if not isinstance(content, list):
+        return False
+    changed = False
+    tasks = [dict(t) for t in (a.get("tasks") or [])]
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") != "tool_use":
+            continue
+        tname = block.get("name")
+        tinput = block.get("input") or {}
+        if tname == "TaskCreate":
+            subject = tinput.get("subject") or ""
+            if subject and not any(t.get("subject") == subject for t in tasks):
+                tasks.append({
+                    "id": str(len(tasks) + 1),
+                    "subject": subject,
+                    "description": tinput.get("description") or "",
+                    "activeForm": tinput.get("activeForm") or "",
+                    "status": "pending",
+                    "blocks": [], "blockedBy": [],
+                })
+                changed = True
+        elif tname == "TaskUpdate":
+            tid = tinput.get("taskId")
+            if tid is None:
+                continue
+            tid = str(tid)
+            for t in tasks:
+                if str(t.get("id")) == tid:
+                    for k in ("status", "subject", "description", "activeForm"):
+                        v = tinput.get(k)
+                        if v is not None and t.get(k) != v:
+                            t[k] = v
+                            changed = True
+                    break
+    if changed:
+        a["tasks"] = tasks
+    return changed
+
+
+def _apply_model_name(a: dict, msg: dict) -> bool:
+    """model 表示用 (= StatusBar 5h/7d/ctx と並ぶ model 名)。"""
+    model_raw = msg.get("model")
+    if not model_raw:
+        return False
+    new_model = format_model_name(model_raw)
+    if a.get("model") == new_model:
+        return False
+    a["model"] = new_model
+    return True
+
+
+def _apply_ctx_pct(a: dict, msg: dict) -> bool:
+    """usage → ctx_pct (= rate-limits.jsonl 由来とは別経路の保険)。"""
+    usage = msg.get("usage")
+    if not usage:
+        return False
+    ctx_window = a.get("ctx_window") or 1_000_000
+    new_pct = compute_ctx_pct(usage, ctx_window)
+    if a.get("ctx_pct") == new_pct:
+        return False
+    a["ctx_pct"] = new_pct
+    return True
+
+
+def _apply_tool_use_blocks(session_id: str, a: dict, msg: dict) -> bool:
+    """tool_use 解析: TodoWrite (進捗) / Enter|ExitPlanMode (plan_mode) /
+    AskUserQuestion (pending_question) / current_tool。"""
+    content = msg.get("content") or []
+    if not isinstance(content, list):
+        return False
+    changed = False
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") != "tool_use":
+            continue
+        name = block.get("name")
+        tool_id = block.get("id")
+        inp = block.get("input") or {}
+        if name == "ExitPlanMode":
+            # backend-F-14: bounded set で「処理済 tool_use_id」 を覚えておき、
+            # pending_plan が clear (= ユーザ承認 / 別 plan で上書き) された後に
+            # 同 tool_id が再到着しても capture を二重起動しない。 旧版の
+            # `a["pending_plan"]["tool_use_id"] == tool_id` gate は pending_plan
+            # 生存中の SSE / monitor 二重 mutate しか弾けず、 clear 後の重複に
+            # 穴があった。
+            if not _remember_exit_plan(session_id, tool_id):
+                continue
+        if name == "TodoWrite":
+            todos = inp.get("todos")
+            if todos is not None and a.get("todos") != todos:
+                a["todos"] = todos
+                changed = True
+        elif name == "ExitPlanMode":
+            # plan_mode フラグは落とす (= 旧経路と同じ semantics)
+            if a.get("plan_mode"):
+                a["plan_mode"] = False
+                changed = True
+            # 承認待ち状態を立てる → frontend が PlanApprovalBubble を表示する
+            a["pending_plan"] = {
+                "tool_use_id": tool_id,
+                "plan": inp.get("plan", ""),
+                "choices": [],  # 0.5s 後に tmux capture-pane で抽出
+            }
+            changed = True
+            # 選択肢抽出は async タスクで遅延実行 (= claude TUI の prompt 描画待ち)
+            asyncio.create_task(capture_plan_choices(session_id, tool_id))
+        elif name == "EnterPlanMode" and not a.get("plan_mode"):
+            a["plan_mode"] = True
+            changed = True
+        elif name == "AskUserQuestion":
+            # backend-F-69: hook 側で `pending_question` を立てる仕様 (= 先勝ち
+            # で上書き) を merge ロジックに切替済。 hook と JSONL tail のどちらが
+            # 先に来ても同じ state に収束する (= 同 questions なら id 補完、
+            # 異なれば新規)。 apply_pending_question が status_event.set /
+            # sessions_overview.notify を内包するため、 ここでは戻り値だけ
+            # changed に伝播する。
+            qs_in = inp.get("questions") or []
+            if isinstance(qs_in, list) and qs_in:
+                if apply_pending_question(session_id, qs_in, tool_use_id=tool_id):
+                    changed = True
+        # current_tool: ActivityBar / 旧 SDK 経路と同型の「今走ってる tool」 情報
+        a["current_tool"] = {
+            "name": name,
+            "id": tool_id,
+            "started_at": time.time(),
+        }
+        changed = True
+    return changed
+
+
+def _apply_stop_reason(a: dict, msg: dict) -> bool:
+    """stop_reason 確定 turn では current_tool を解放 (= 次 turn 開始まで空に)。"""
+    stop_reason = msg.get("stop_reason")
+    if not stop_reason or stop_reason == "tool_use":
+        return False
+    if a.get("current_tool") is None:
+        return False
+    a["current_tool"] = None
+    return True
+
+
+def _mutate_user(session_id: str, a: dict, line: dict) -> bool:
+    """user 行: tool_result で current_tool / pending_plan / pending_question を解放。"""
+    msg = line.get("message") or {}
+    content = msg.get("content")
+    if not isinstance(content, list):
+        return False
+    changed = False
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") != "tool_result":
+            continue
+        tu_id = block.get("tool_use_id")
+        cur = a.get("current_tool")
+        if cur and cur.get("id") == tu_id:
+            a["current_tool"] = None
+            changed = True
+        # ExitPlanMode の承認 / 拒否が tool_result で返ったら pending_plan を解除
+        pending = a.get("pending_plan")
+        if pending and pending.get("tool_use_id") == tu_id:
+            a["pending_plan"] = None
+            changed = True
+        # AskUserQuestion の回答が tool_result で返ったら pending_question を解除
+        # (= ライブ overlay を消す。 以降は JSONL 由来の回答済みバブルが chat に残る)
+        pq = a.get("pending_question")
+        if pq and pq.get("tool_use_id") == tu_id:
+            a["pending_question"] = None
+            changed = True
+    return changed
+
+
+def _mutate_mode(session_id: str, a: dict, line: dict) -> bool:
+    m = line.get("mode") or ""
+    if not m or a.get("mode") == m:
+        return False
+    a["mode"] = m
+    return True
+
+
+def _mutate_permission_mode(session_id: str, a: dict, line: dict) -> bool:
+    pm = line.get("permissionMode") or ""
+    if not pm or a.get("permission_mode") == pm:
+        return False
+    a["permission_mode"] = pm
+    return True
+
+
+def _mutate_attachment(session_id: str, a: dict, line: dict) -> bool:
+    """attachment 行: budget_usd / task_reminder。"""
+    att = line.get("attachment") or {}
+    changed = False
+    if att.get("type") == "budget_usd":
+        for k_src, k_dst in (("used", "budget_used"), ("total", "budget_total"), ("remaining", "budget_remaining")):
+            v = att.get(k_src)
+            if v is not None and a.get(k_dst) != v:
+                a[k_dst] = v
+                changed = True
+    elif att.get("type") == "task_reminder":
+        # task_reminder の content は現在の task list 全体の snapshot (= claude TUI が
+        # 毎ターン再掲)。 最新を真値として agent_status.tasks を丸ごと差し替える。
+        raw = att.get("content")
+        items = raw if isinstance(raw, list) else []
+        old = a.get("tasks") or []
+        # 2026-07-03 実測: 全 task_reminder の ~88% が空 content で届く (= 「no update」
+        # sentinel)。 素朴に空でも wipe する旧挙動だと直前 TaskCreate で追加した task を
+        # 次ターン即消し込みしてしまい TasksModal が「登録されていません」 に戻る。 空
+        # content は「変更なし」 として skip し、 実際に task_list を運ぶ回だけ反映する。
+        # 明示的な「全 task 消去」 も TaskUpdate(status=deleted) 経路で表現されるので、
+        # 空 content を捨てて情報は失われない。
+        if not items and old:
+            pass
+        elif _tasks_signature(items) != _tasks_signature(old):
+            # backend-F-57: dict 全 field 比較 (= items != old) では task_reminder に余計な
+            # field (= 順序違い / 内部メタ追加) で false positive を起こし、 status_event の
+            # 過剰発火 + frontend の不要再描画を招いていた。 ID + 表示 field だけで正規化
+            # 比較する。
+            a["tasks"] = items
+            changed = True
+    return changed
+
+
+def _mutate_pr_link(session_id: str, a: dict, line: dict) -> bool:
+    repo = line.get("prRepository") or ""
+    num = line.get("prNumber")
+    url = line.get("prUrl") or ""
+    if num is None:
+        return False
+    pr_links = a.get("pr_links") or []
+    if any(p.get("prRepository") == repo and p.get("prNumber") == num for p in pr_links):
+        return False
+    a["pr_links"] = [*pr_links, {"prRepository": repo, "prNumber": num, "prUrl": url}]
+    return True
+
+
+# 行 type → handler(session_id, agent_status_entry, line)。 新 type 追加時はここに 1 行 +
+# handler 1 個 (= mutate_agent_status 本体は触らない)。
+_LINE_MUTATORS = {
+    "assistant": _mutate_assistant,
+    "user": _mutate_user,
+    "mode": _mutate_mode,
+    "permission-mode": _mutate_permission_mode,
+    "attachment": _mutate_attachment,
+    "pr-link": _mutate_pr_link,
+}

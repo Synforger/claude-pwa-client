@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Body, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
-from backend.chat_content import save_to_tmp
+from backend.terminal.chat_content import save_to_tmp
 from backend.config import AGENTS, CLAUDE_PATH  # noqa: F401  (CLAUDE_PATH は tests monkeypatch 用 re-export)
 
 from backend.terminal.runner import (
@@ -36,6 +36,7 @@ from backend.terminal.runner import (
     jsonl_path_for_session,
     pty_sessions,
     resize_pty,
+    send_text_two_stage,
     spawn_pty_session,
     tmux_send_keys,
     write_pty,
@@ -56,12 +57,10 @@ from backend.terminal.confirm import (
 )
 from backend.terminal.send_dedup import send_dedup
 from backend.terminal.session_resolver import (
-    AUTORESUME_MAX_AGE_DAYS as _AUTORESUME_MAX_AGE_DAYS,
     ensure_pty_session_for,
     last_resumable_claude_sid as _last_resumable_claude_sid,
     resolve_agent_cfg as _resolve_agent_cfg,
     resolve_autoresume_fallback as _resolve_autoresume_fallback,
-    resolve_cwd as _resolve_cwd,
     resolve_launch_alias as _resolve_launch_alias,
 )
 
@@ -397,16 +396,15 @@ async def pty_send(
                 initial_pos = jsonl_path.stat().st_size
             except OSError:
                 initial_pos = 0
-    # 2026-07-03: text+enter (= 通常メッセージ送信) の直前に C-u (Ctrl-U、 line kill) を打つ。
-    # 他 client (= PC で直接 tmux に typing) や前回 send-keys の残骸で claude TUI 入力欄が
-    # 汚れていても wipe してから本文を送るので、 「PWA に見えている本文 = tmux に飛ぶ本文」 が
-    # 保証される。 空 line への C-u は no-op なので副作用ゼロ。 単発 key 送信 (= Escape で
-    # 停止 / AskUserQuestion typeNum 等) では wipe しない (= key の意味を壊さない)。 queue に
-    # 既に積まれた過去 message には触れない (= C-u は入力欄のみ、 Claude Code v2 の queue に
-    # 干渉しない)。
-    if confirm:
-        tmux_send_keys(session_id, key="C-u")
-    ok = tmux_send_keys(session_id, text=text, key=key, enter=enter)
+    # 通常メッセージ送信 (= text+enter) は 2 段送信 protocol (= C-u wipe → paste → Enter、
+    # 詳細 = runner.send_text_two_stage docstring)。 単発 key 送信 (= Escape で停止 /
+    # AskUserQuestion typeNum 等) では wipe しない (= key の意味を壊さない)。 queue に
+    # 既に積まれた過去 message には触れない (= C-u は入力欄のみ、 Claude Code v2 の queue
+    # に干渉しない)。 confirm == (text and enter) なので分岐条件は同値。
+    if text and enter:
+        ok = await send_text_two_stage(session_id, text, key=key)
+    else:
+        ok = tmux_send_keys(session_id, text=text, key=key, enter=enter)
     if ok:
         # prompt_detector の tier C grace period 用に「今 user が送信した」 を記録。
         # 直後 tick で末尾が prompt-like でも 1.5s は待機扱いにしない (= 自分の入力を
@@ -416,6 +414,46 @@ async def pty_send(
     if not ok or not confirm or jsonl_path is None:
         return {"ok": ok}
     return await _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slash)
+
+
+@router.post("/pty/{session_id}/send-raw-key")
+async def pty_send_raw_key(session_id: str, payload: dict = Body(...)) -> dict:
+    """PWA の quick-reply button (= Phase 4a) から raw キー 1 打鍵を tmux に流す。
+
+    通常の chat message 送信経路 (/pty/{sid}/send) は「テキスト → C-u wipe → 本文入力
+    → Enter」 の chat 送信フローだが、 quick-reply は「pane 上の dialog / prompt に対して
+    1 キー打つ」 用途なので流路を分ける (= chat 送信の副作用を避ける)。
+
+    body:
+        {"key": "1", "enter": false}
+        {"key": "Y", "enter": true}
+        {"key": "Up", "enter": false}   # arrow-mode で ↑ / ↓ / Enter を送る (= Phase 4b)
+
+    key は tmux `send-keys` の literal / key name。 単一文字 (`1`, `Y`) は literal、
+    `Up`/`Down`/`Enter`/`Escape` 等の名前は制御キーとして tmux が解釈する。 空文字禁止。
+
+    enter=True の時は key 送信後に Enter を続けて打つ (= shell prompt の [Y/n] / bash
+    select は 1 打鍵で確定しない、 Ink dialog は Enter 不要)。
+    """
+    key = str(payload.get("key") or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="key is required")
+    enter = bool(payload.get("enter", False))
+    # 単一 printable char は literal (`-l`) 経路、 それ以外は key name として扱う。
+    # 判別: len==1 かつ ASCII printable なら literal。
+    if len(key) == 1 and 32 <= ord(key) < 127:
+        ok = tmux_send_keys(session_id, text=key, enter=enter)
+    else:
+        ok = tmux_send_keys(session_id, key=key, enter=enter)
+    if ok:
+        # tier C grace は文字入力なので発火させる (= 次 tick で誤検知しないよう
+        # note_user_input と同じ扱い)
+        from backend.terminal.prompt_detector_loop import note_user_input, poke_now
+        note_user_input(session_id)
+        # Phase 4b: 500ms poll を待たず即 tick して chip の excerpt を最新化する
+        # (= arrow picker で ↑/↓ 押した反応が snappy に見える)
+        asyncio.create_task(poke_now(session_id))
+    return {"ok": ok}
 
 
 @router.post("/pty/{session_id}/send-with-files")
@@ -453,9 +491,6 @@ async def pty_send_with_files(
     if not full_text:
         return {"ok": False, "reason": "empty"}
     saved_files = [{"name": s["name"], "path": s["path"]} for s in saved]
-    # text 経路と同じ確認 + Enter 追い打ち救済を効かせる。 添付経路は本文が長く (= path 付き)
-    # `paste again to expand` で Enter が吸われやすく、 旧実装は単発送信で確認も救済も無かった
-    # ため「ターミナルに移動して手で Enter」 が必要だった。
     _, is_slash = _delivery_counter(full_text)
     jsonl_path = jsonl_path_for_session(session_id)
     initial_pos = 0
@@ -464,10 +499,10 @@ async def pty_send_with_files(
             initial_pos = jsonl_path.stat().st_size
         except OSError:
             initial_pos = 0
-    # pty_send と同じく wipe 前置 (= 添付経路も本文が長いので同 client 残骸に混ざる懸念は
-    # むしろ大きい)。
-    tmux_send_keys(session_id, key="C-u")
-    ok = tmux_send_keys(session_id, text=full_text, enter=True)
+    # text 経路と同じ 2 段送信 protocol (= C-u wipe → paste → Enter、 詳細 =
+    # runner.send_text_two_stage docstring)。 添付経路は本文が長い (= path 追記で伸びる)
+    # ので paste / Enter 競合の懸念はむしろ大きい。
+    ok = await send_text_two_stage(session_id, full_text)
     if ok:
         # 添付経路も grace period 対象 (= 通常送信と同じ理由)
         from backend.terminal.prompt_detector_loop import note_user_input

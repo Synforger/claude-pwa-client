@@ -33,8 +33,8 @@
 .pct.yellow { color: var(--yellow); }
 .pct.red { color: var(--red); }
 
-/* mode / permission_mode のチップ (= Fable 5 jsonl の session-level メタ可視化) */
-.mode-chip, .perm-chip {
+/* mode のチップ (= Fable 5 jsonl の session-level メタ可視化) */
+.mode-chip {
   flex-shrink: 0;
   white-space: nowrap;
   font-size: 10px;
@@ -42,54 +42,9 @@
   border-radius: 8px;
   font-weight: 600;
   letter-spacing: 0.3px;
-}
-.mode-chip {
   background: rgba(120, 160, 220, 0.18);
   color: #88b4f0;
 }
-.perm-chip {
-  background: rgba(220, 140, 80, 0.18);
-  color: #f0a866;
-}
-/* prompt_state chip: tmux pane 入力待ちの visual 通知。 mode-chip と同じ形で並べる。 */
-.prompt-chip {
-  flex-shrink: 0;
-  white-space: nowrap;
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 8px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.prompt-chip-detail {
-  font-weight: 400;
-  opacity: 0.85;
-  margin-left: 2px;
-}
-.prompt-state-text_prompt {
-  background: rgba(255, 180, 90, 0.22);
-  color: #f0b060;
-}
-.prompt-state-inline_tui {
-  background: rgba(180, 130, 220, 0.20);
-  color: #c8a2e8;
-}
-.prompt-state-tui {
-  background: rgba(130, 200, 200, 0.20);
-  color: #82c8c8;
-}
-.prompt-state-idle {
-  background: rgba(140, 140, 140, 0.18);
-  color: #a0a0a0;
-}
-.prompt-chip.bypass {
-  background: rgba(240, 100, 100, 0.22);
-  color: #f07070;
-}
-
 .budget-chip {
   flex-shrink: 0;
   white-space: nowrap;

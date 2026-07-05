@@ -24,6 +24,9 @@ describe('promptState store', () => {
       excerpt: '[sudo] password for alice:',
       bypass_mode_visible: true,
       reason: 'regex:password',
+      input_mode: 'none',
+      options: [],
+      key_requires_enter: true,
     })
     const entry = selectFor(getSnapshot(), 'sid1')
     expect(entry).not.toBeNull()
@@ -32,6 +35,9 @@ describe('promptState store', () => {
     expect(entry.excerpt).toBe('[sudo] password for alice:')
     expect(entry.bypassModeVisible).toBe(true)
     expect(entry.reason).toBe('regex:password')
+    expect(entry.inputMode).toBe('none')
+    expect(entry.options).toEqual([])
+    expect(entry.keyRequiresEnter).toBe(true)
   })
 
   it('ignores events without sid or wrong type', () => {

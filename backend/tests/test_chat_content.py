@@ -1,4 +1,4 @@
-"""backend.chat_content の unit test。
+"""backend.terminal.chat_content の unit test。
 
 backend-F-59: save_to_tmp 入口で FILE_SIZE_LIMIT (= 1 MiB) を fail-fast する。 入口検査
 無し時代は `await f.read()` で全部 mem に load してから書き出していたので、 巨大 multipart
@@ -11,7 +11,7 @@ import pytest
 from fastapi import HTTPException, UploadFile
 from starlette.datastructures import Headers
 
-import backend.chat_content as cc
+import backend.terminal.chat_content as cc
 
 
 def _run(coro):
