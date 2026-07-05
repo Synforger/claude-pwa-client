@@ -28,7 +28,7 @@
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 140px;
+  max-height: 40vh;
   overflow-y: auto;
 }
 /* quick-reply buttons (= StatusBar.css から移設、 banner が唯一の利用者) */
