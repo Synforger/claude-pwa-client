@@ -5,7 +5,6 @@ import { useConnectionStatus } from '../../transport/connectionStatus.js'
 import { subscribe as subscribeSessions, getSnapshot as getSessionsSnapshot } from '../../state/sessions.js'
 import { useStatus } from './useStatus.js'
 import { useT } from '../../i18n/t.js'
-import { PromptStateChip } from './PromptStateChip.jsx'
 import './StatusBar.css'
 
 // 7d window のリセットタイミング: Anthropic 仕様は **rolling 7-day window**
@@ -105,7 +104,6 @@ export default function StatusBar() {
         <span className="dim">{sevenDayResetLabel}</span>
       </span>
       <span className={pctClass(status.ctx_pct)}>ctx {Math.round(status.ctx_pct || 0)}%</span>
-      <PromptStateChip sid={activeSid} />
       <PrLinksChip links={Array.isArray(status.pr_links) ? status.pr_links : []} />
       {!isOnline && <span className="offline-chip" title={t('statusbar.offline_title')}>{t('statusbar.offline')}</span>}
     </div>
