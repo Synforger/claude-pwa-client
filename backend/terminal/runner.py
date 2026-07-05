@@ -254,7 +254,7 @@ async def spawn_pty_session(
     # 新規 tmux session でも reattach でも、 claude プロセス起動 (= launch_alias 後の数秒、
     # 既存セッションなら即時) を待って backend mem の binding に登録する
     # pty_discover への遅延 import で循環回避 (= pty_discover が pty_runner の _run_tmux に依存)
-    from backend.pty_discover import register_claude_when_ready as _rcwr
+    from backend.terminal.pty_discover import register_claude_when_ready as _rcwr
     asyncio.create_task(_rcwr(session_id))
     # autoresume が即 exit した場合の fallback watchdog (= 通常 alias を投入し直す)。
     # `claude --resume <id>` が rc=0 即 exit すると tmux pane は zsh プロンプトに残り
@@ -317,7 +317,7 @@ async def _autoresume_watchdog(
     なので fallback は不要 → 投入をキャンセル。
     """
     try:
-        from backend.pty_discover import tmux_pane_pids, find_claude_descendant
+        from backend.terminal.pty_discover import tmux_pane_pids, find_claude_descendant
         import backend.jsonl.watcher as jsonl_watcher  # noqa: PLC0415
         await asyncio.sleep(initial_delay)
         loop = asyncio.get_running_loop()
