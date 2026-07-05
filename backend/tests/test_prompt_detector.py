@@ -116,6 +116,30 @@ def test_tier_b_bare_arrow_without_numbered_option_is_not_inline_tui():
     assert verdict.state != PromptState.INLINE_TUI
 
 
+def test_tier_b_claude_code_feedback_dialog():
+    """実測: Claude Code の feedback dialog (= `1: Bad  2: Fine  3: Good  0: Dismiss`
+    が 1 行に横並び、 colon 区切り)。 前 hotfix (= v0.2.2) では colon + 横並びを
+    拾えず、 session がずっと feedback 待ちで chip が出ない状態だった (= 実 pane
+    dump で発覚)。"""
+    tail = (
+        "● How is Claude doing this session? (optional)\n"
+        "  1: Bad    2: Fine   3: Good   0: Dismiss\n"
+        "──────────────────────────────────────────────────\n"
+        "❯ "
+    )
+    verdict = analyze(_snap(tail), _new_state())
+    assert verdict.state == PromptState.INLINE_TUI, (
+        f"expected INLINE_TUI, got {verdict.state} ({verdict.reason})"
+    )
+
+
+def test_tier_b_stacked_colon_format():
+    """N: text の縦並びも拾う (= 一部 CLI が使う書式)。"""
+    tail = "Choose:\n❯ 1: alpha\n  2: beta\n  3: gamma"
+    verdict = analyze(_snap(tail), _new_state())
+    assert verdict.state == PromptState.INLINE_TUI
+
+
 # ---------------------------------------------------------------------------
 # Tier C: text prompts
 # ---------------------------------------------------------------------------
