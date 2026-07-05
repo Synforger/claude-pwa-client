@@ -469,18 +469,6 @@ def _tier_d_idle(
     return None
 
 
-def _extract_arrow_menu_excerpt(tail: str) -> str:
-    """❯ の周辺を抜粋。 Claude Code の feedback dialog は ❯ の上に選択肢が並ぶ (= 下側
-    参照より広めに ±3 行取る)、 Inquirer の list は下に並ぶので両方カバー。"""
-    lines = [ln for ln in tail.splitlines() if ln.strip()]
-    for i, ln in enumerate(lines):
-        if _ARROW_CURSOR_RE.match(ln):
-            start = max(0, i - 3)
-            end = min(len(lines), i + 4)
-            return "\n".join(lines[start:end]).strip()
-    return "\n".join(lines[-4:]).strip()
-
-
 def _extract_prompt_excerpt(tail: str) -> str:
     """text prompt の末尾 2 行を抜粋 (= sudo / ssh 等の 1-2 行 prompt を余分な文脈なしで)。"""
     lines = [ln for ln in tail.splitlines() if ln.strip()]
