@@ -19,7 +19,18 @@ import re
 
 from backend.jsonl.predicates import is_user_prompt as _is_user_prompt_pred
 from backend.jsonl.tail import read_complete_lines
-from backend.terminal.runner import get_pane_cursor_y, tmux_send_keys
+from backend.terminal.prompt_detector import (
+    DetectorState as _DetectorState,
+    PromptState as _PromptState,
+    TailSnapshot as _TailSnapshot,
+    analyze as _analyze_pane,
+)
+from backend.terminal.runner import (
+    capture_pane_plain_tail,
+    get_pane_alternate_on,
+    get_pane_cursor_y,
+    tmux_send_keys,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +150,25 @@ async def _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slas
             session_id, len(text or ""), is_slash,
         )
         return {"ok": True, "confirmed": False, "reason": "cursor_home"}
+    # 対話 UI 検査 (= 2026-07-05): /model 等の picker を開く slash command は、 picker が
+    # 開いてる間 command 完了行が JSONL に書かれない = 上の 4s 監視が必ず timeout する。
+    # ここで救済 Enter を打つと picker の現選択を勝手に確定してしまう (= チャットから
+    # /model を打つと「一瞬で現モデル再選択」 に見えた実バグ)。 pane を detector に
+    # かけて選択 UI / TUI が表示中なら「届いてないのではなく、 対話待ち」 と判断して
+    # 救済しない。
+    _tail = capture_pane_plain_tail(session_id)
+    if _tail:
+        _alt = get_pane_alternate_on(session_id)
+        _verdict = _analyze_pane(
+            _TailSnapshot(alternate_on=bool(_alt), tail_text=_tail, now_sec=0.0),
+            _DetectorState(),
+        )
+        if _verdict.state in (_PromptState.INLINE_TUI, _PromptState.TUI):
+            logger.info(
+                "pty_send: interactive UI (%s) is open; skip rescue Enter: sid=%s slash=%s",
+                _verdict.state.value, session_id, is_slash,
+            )
+            return {"ok": True, "confirmed": False, "reason": "interactive_ui_open"}
     logger.warning(
         "pty_send: no prompt within 4s, retrying with Enter only: sid=%s text_len=%d slash=%s cursor_y=%s",
         session_id, len(text or ""), is_slash, cursor_y,
