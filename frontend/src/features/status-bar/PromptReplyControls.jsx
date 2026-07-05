@@ -27,18 +27,51 @@ export function PromptReplyControls({ sid, entry }) {
   const [pending, setPending] = useState(false)
   if (!entry || !sid) return null
   const { inputMode, options, keyRequiresEnter } = entry
-  if (inputMode !== 'numbers' && inputMode !== 'yn') return null
+  if (inputMode !== 'numbers' && inputMode !== 'yn' && inputMode !== 'arrows') return null
 
-  const handleTap = async (key) => {
+  const handleTap = async (key, enterOverride) => {
     if (pending) return
     setPending(true)
     try {
-      await sendRawKey(sid, key, keyRequiresEnter)
+      const enter = enterOverride !== undefined ? enterOverride : keyRequiresEnter
+      await sendRawKey(sid, key, enter)
     } finally {
-      // 短い timeout: 連打防止 + backend poll (500ms) が新 state を配って chip が
-      // 自然更新される時間を稼ぐ。
-      setTimeout(() => setPending(false), 400)
+      // 短い timeout: 連打防止 + backend poll (= route の poke_now が 80ms 後に走る)
+      // が新 excerpt を配って chip が自然更新される時間を稼ぐ。
+      setTimeout(() => setPending(false), 250)
     }
+  }
+
+  // arrows mode = 上下 + Enter 3 button 固定 (= Phase 4b)。
+  if (inputMode === 'arrows') {
+    return (
+      <span className="prompt-reply-controls" data-testid="prompt-reply-controls">
+        <button
+          type="button"
+          className="prompt-reply-btn"
+          disabled={pending}
+          onClick={() => handleTap('Up', false)}
+          aria-label="Move selection up"
+          data-testid="prompt-reply-btn-up"
+        >↑</button>
+        <button
+          type="button"
+          className="prompt-reply-btn"
+          disabled={pending}
+          onClick={() => handleTap('Down', false)}
+          aria-label="Move selection down"
+          data-testid="prompt-reply-btn-down"
+        >↓</button>
+        <button
+          type="button"
+          className="prompt-reply-btn"
+          disabled={pending}
+          onClick={() => handleTap('Enter', false)}
+          aria-label="Confirm selection"
+          data-testid="prompt-reply-btn-enter"
+        >⏎</button>
+      </span>
+    )
   }
 
   const keys = inputMode === 'yn' ? ['Y', 'n'] : (options || [])

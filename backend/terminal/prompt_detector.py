@@ -200,6 +200,10 @@ class DetectorState:
     # push が一斉発火するのを防ぐ)。 loop 側で「初回 tick で観測した state を
     # 追認する」 ハンドリングに使う。
     seeded: bool = False
+    # 直近 publish で載せた excerpt。 Phase 4b (arrow picker) は state は inline_tui で
+    # 据え置きだが「❯ が移動して excerpt 中身が変わる」 のを live 反映したいので、
+    # 同 state でも excerpt が変わったら追加 publish する (= push は firing しない)。
+    last_excerpt: str = ""
 
     def record_input_sent(self, now_sec: float) -> None:
         self.last_input_sent_at = now_sec
