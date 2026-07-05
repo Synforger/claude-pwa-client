@@ -54,3 +54,44 @@ def test_resolve_autoresume_fallback_prefer_fresh_returns_none(monkeypatch, isol
     assert session_resolver.resolve_autoresume_fallback("ses_x") == "agent_a"
     # prefer_fresh=True は None
     assert session_resolver.resolve_autoresume_fallback("ses_x", prefer_fresh=True) is None
+
+
+def test_ensure_pty_session_for_serializes_concurrent_spawn(monkeypatch, isolated_state):
+    """同一 sid の並行 ensure_pty_session_for は spawn を 1 回に直列化する (= 二重 spawn
+    TOCTOU の regression)。 spawn の await 中に 2 本目の呼び出しが入っても、 per-sid lock
+    が先行の完了を待たせてから existing 確認に入るので 2 回目の spawn は起きない。"""
+    import asyncio  # noqa: PLC0415
+
+    spawn_calls: list[str] = []
+
+    class _FakeSession:
+        def __init__(self):
+            self.exit_event = asyncio.Event()
+
+    async def fake_spawn(session_id, **_kwargs):
+        spawn_calls.append(session_id)
+        await asyncio.sleep(0.05)  # spawn 内の await 窓 (= subprocess 起動) を再現
+        return _FakeSession()
+
+    monkeypatch.setattr(session_resolver, "spawn_pty_session", fake_spawn)
+    monkeypatch.setattr(session_resolver, "has_tmux_session", lambda _sid: False)
+    monkeypatch.setattr(session_resolver, "resolve_agent_cfg", lambda _sid: {})
+    monkeypatch.setattr(session_resolver, "resolve_launch_alias",
+                        lambda _sid, prefer_fresh=False: None)
+    monkeypatch.setattr(session_resolver, "resolve_autoresume_fallback",
+                        lambda _sid, prefer_fresh=False: None)
+    session_resolver.pty_sessions.clear()
+    session_resolver._spawn_locks.clear()
+    try:
+        async def main():
+            await asyncio.gather(
+                session_resolver.ensure_pty_session_for("ses_race"),
+                session_resolver.ensure_pty_session_for("ses_race"),
+            )
+
+        asyncio.run(main())
+        assert spawn_calls == ["ses_race"]
+        assert "ses_race" in session_resolver.pty_sessions
+    finally:
+        session_resolver.pty_sessions.clear()
+        session_resolver._spawn_locks.clear()
