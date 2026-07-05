@@ -28,8 +28,15 @@
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 40vh;
+  /* 画面の半分弱まで使う (= 超長い picker / wizard でも一覧性を確保、 中は scroll)。
+     dvh = keyboard 表示中の可視領域基準 (= iOS Safari で vh が keyboard を無視する
+     問題の回避)。 */
+  max-height: 45dvh;
   overflow-y: auto;
+  /* iOS momentum scroll */
+  -webkit-overflow-scrolling: touch;
+  /* scroll できることを視覚で示す (= 下端 fade は複雑になるので border で代用) */
+  overscroll-behavior: contain;
 }
 /* quick-reply buttons (= StatusBar.css から移設、 banner が唯一の利用者) */
 .prompt-reply-controls {
