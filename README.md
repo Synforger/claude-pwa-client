@@ -20,6 +20,7 @@ A PWA client for operating [Claude Code](https://docs.claude.com/en/docs/claude-
 - **Chat**: multiple concurrent sessions, tab switching, incremental SSE rendering
 - **Background continuation**: processing continues host-side while the screen is closed; on return the client reconnects and catches up on the delta
 - **Web Push notifications**: proactive prompts such as `AskUserQuestion` are pushed to iOS / Android; notification mode is switchable per session
+- **Terminal prompt detection + quick replies**: when the terminal is waiting for input — permission dialogs, y/n confirmations, password prompts, option pickers, even ones raised by subprocesses — a banner above the chat box shows the prompt excerpt, a push notification fires, and one-tap quick-reply buttons (numbers / Y-n / arrow keys) answer it without opening the terminal view
 - **Proactive auto-delivery**: turns initiated by the agent (`Monitor` / `cron` / `ScheduleWakeup`, etc.) appear immediately
 - **Subagent / workflow viewer**: browse `Task` / `Workflow` transcripts in a dedicated panel
 - **Notification-center sync**: OS notifications, badges, and the backend unread counter are reconciled when the PWA returns to the foreground

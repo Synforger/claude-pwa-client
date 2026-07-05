@@ -3,7 +3,7 @@
  * Regenerate: cd contracts && npm run codegen:types
  */
 
-export const SSE_EVENTS_SCHEMA_VERSION = "1.0" as const
+export const SSE_EVENTS_SCHEMA_VERSION = "1.1" as const
 
 /** ユーザ発話 (= claude が JSONL の user 行に書いた瞬間) */
 export interface UserMessageEvent {
@@ -243,10 +243,33 @@ export interface AwaySummaryEvent {
   summary?: string
 }
 
+/** tmux pane の入力待ち検出状態 (= prompt detector、 遷移 or excerpt 変化時のみ) */
+export interface PromptStateEvent {
+  type: "prompt_state"
+  sid: string
+  corr_id: string
+  /** active / tui / inline_tui / text_prompt / idle */
+  state: string
+  /** text_prompt の内訳 (= yn / password / otp / choice / generic)、 他 state は null */
+  category?: string | null
+  /** pane 末尾の抜粋 (= banner 表示用、 picker は option 範囲) */
+  excerpt?: string
+  /** ⏵⏵ bypass permissions chip が pane に見えてるか */
+  bypass_mode_visible?: boolean
+  /** 判定根拠 (= debug 用、 tier 名 + signature) */
+  reason?: string
+  /** quick-reply UI の型 (= numbers / yn / arrows / none) */
+  input_mode?: string
+  /** 数字 option (= 順序保持、 重複除去) */
+  options?: string[]
+  /** 1 打鍵後に Enter が要るか (= shell prompt true / Ink dialog false) */
+  key_requires_enter?: boolean
+}
 
-export type AnySseEvent = UserMessageEvent | AssistantEvent | ResultEvent | AskUserQuestionEvent | TaskNotificationEvent | SystemEvent | SystemErrorEvent | HookErrorEvent | SystemNoteEvent | AttachmentEvent | BudgetEvent | ModeEvent | PermissionModeEvent | PrLinkEvent | TurnDurationEvent | StopHookSummaryEvent | AwaySummaryEvent
+
+export type AnySseEvent = UserMessageEvent | AssistantEvent | ResultEvent | AskUserQuestionEvent | TaskNotificationEvent | SystemEvent | SystemErrorEvent | HookErrorEvent | SystemNoteEvent | AttachmentEvent | BudgetEvent | ModeEvent | PermissionModeEvent | PrLinkEvent | TurnDurationEvent | StopHookSummaryEvent | AwaySummaryEvent | PromptStateEvent
 
 
-export const SSE_EVENT_TYPES = ["user_message", "assistant", "result", "ask_user_question", "task_notification", "system", "system_error", "hook_error", "system_note", "attachment", "budget", "mode", "permission_mode", "pr_link", "turn_duration", "stop_hook_summary", "away_summary"] as const
+export const SSE_EVENT_TYPES = ["user_message", "assistant", "result", "ask_user_question", "task_notification", "system", "system_error", "hook_error", "system_note", "attachment", "budget", "mode", "permission_mode", "pr_link", "turn_duration", "stop_hook_summary", "away_summary", "prompt_state"] as const
 
 export type SseEventType = typeof SSE_EVENT_TYPES[number]

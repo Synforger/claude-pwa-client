@@ -80,7 +80,11 @@ async def capture_plan_choices(session_id: str, tool_use_id: str) -> None:
         if not pending or pending.get("tool_use_id") != tool_use_id:
             return  # 既に resolved or 別 plan に上書き
         try:
-            raw = capture_tmux_scrollback(session_id, lines=120)
+            # 同期 subprocess を to_thread で event loop の外に (= tmux 応答遅延時に
+            # loop 全体を止めない、 detector loop と同方針)。
+            raw = await asyncio.to_thread(
+                capture_tmux_scrollback, session_id, lines=120
+            )
         except Exception:
             raw = b""
         if not raw:

@@ -35,9 +35,11 @@ from backend.terminal.prompt_detector import (
     analyze,
 )
 from backend.terminal.runner import (
+    _tmux_session_name,
     capture_pane_plain_tail,
     get_pane_alternate_on,
     has_tmux_session,
+    list_pane_alternate_states,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,6 +88,10 @@ def _build_event(sid: str, verdict: Verdict) -> dict:
         "excerpt": verdict.excerpt,
         "bypass_mode_visible": verdict.bypass_mode_visible,
         "reason": verdict.reason,
+        # PWA quick-reply UI 用 (= Phase 4a)
+        "input_mode": verdict.input_mode.value,
+        "options": list(verdict.options),
+        "key_requires_enter": verdict.key_requires_enter,
     }
 
 
@@ -103,18 +109,31 @@ def _push_title_for(verdict: Verdict) -> tuple[str, str] | None:
     return title, body
 
 
-async def _tick_one(sid: str) -> None:
-    """1 session 分の poll + analyze + event/push 発火。 例外は呼び出し側で catch。"""
-    if not has_tmux_session(sid):
+async def _tick_one(
+    sid: str,
+    exists: bool | None = None,
+    alt: bool | None = None,
+) -> None:
+    """1 session 分の poll + analyze + event/push 発火。 例外は呼び出し側で catch。
+
+    `exists` / `alt` は main loop が `list_pane_alternate_states` (= 全 session 一括
+    1 subprocess) で先に取った値。 None なら per-session fallback (= poke_now / 一括
+    取得失敗時) で自前取得する。 tmux subprocess は全部 `asyncio.to_thread` で event
+    loop の外に逃がす (= 同期 subprocess.run が loop 全体を止めない)。
+    """
+    if exists is None:
+        exists = await asyncio.to_thread(has_tmux_session, sid)
+    if not exists:
         # session 消えてたら detector state も掃除して抜ける
         _detector_states.pop(sid, None)
         return
 
-    alt = get_pane_alternate_on(sid)
+    if alt is None:
+        alt = await asyncio.to_thread(get_pane_alternate_on, sid)
     if alt is None:
         # tmux が返さない (= 一時的に応答遅延) 場合は「不明」 として False 扱い
         alt = False
-    tail = capture_pane_plain_tail(sid) or ""
+    tail = await asyncio.to_thread(capture_pane_plain_tail, sid) or ""
     now = asyncio.get_running_loop().time()
     snapshot = TailSnapshot(alternate_on=alt, tail_text=tail, now_sec=now)
 
@@ -128,22 +147,47 @@ async def _tick_one(sid: str) -> None:
         # とも発火しない。 次 tick 以降が本番。 (= 2026-07-05 hotfix: restart 直後に
         # 全 session ぶんの push が発火する現象への対処)
         state.current_state = verdict.state
+        state.last_excerpt = verdict.excerpt
         state.seeded = True
         return
 
-    if verdict.state == prev_state:
-        return  # 遷移なし = 沈黙 (= 連発 push 抑制)
-    state.current_state = verdict.state
+    state_transitioned = verdict.state != prev_state
+    excerpt_changed = verdict.excerpt != state.last_excerpt
 
-    # SSE 経路 (= chip UI 用): 全遷移を流す
+    if not state_transitioned and not excerpt_changed:
+        return  # 変化ゼロ = 沈黙 (= 連発 publish 抑制)
+
+    state.current_state = verdict.state
+    state.last_excerpt = verdict.excerpt
+
+    # SSE 経路 (= chip UI 用): 全遷移 + excerpt 変化を流す。 excerpt 変化のみでも
+    # publish するのは Phase 4b (arrow picker) で ❯ 位置更新を chip に反映するため。
     jsonl_event_broadcaster.publish(sid, _build_event(sid, verdict))
 
-    # Web Push: 「入力待ち」 系の遷移だけ。 元に戻る (= ACTIVE) 遷移では push しない。
-    push_pair = _push_title_for(verdict)
-    if push_pair is not None:
-        title, body = push_pair
-        # broadcast_push は async だが fire-and-forget (= loop を止めない)
-        asyncio.create_task(broadcast_push(body, title, sid))
+    # Web Push: 「入力待ち」 系への **遷移** だけ (= excerpt 変化のみでは push しない)。
+    # 元に戻る (= ACTIVE) 遷移では push しない。
+    if state_transitioned:
+        push_pair = _push_title_for(verdict)
+        if push_pair is not None:
+            title, body = push_pair
+            # broadcast_push は async だが fire-and-forget (= loop を止めない)
+            asyncio.create_task(broadcast_push(body, title, sid))
+
+
+async def poke_now(sid: str) -> None:
+    """指定 session の detector を今すぐ 1 回走らせる (= Phase 4b の re-poll)。
+
+    quick-reply button を押した直後、 pane が即再描画されるはずだが、 poll cycle
+    (500ms) を待つと ↑/↓ の反応がラグく感じる。 route 側から呼んで即 tick、 その場で
+    SSE が新 excerpt を配信する。 短い遅延 (= 50-100ms) を先に置くのは pane の
+    redraw を待つため (= send-keys 直後は反映されていない)。 例外は握りつぶす
+    (= 通常 poll に任せる、 UX 上のノイズを避ける)。
+    """
+    try:
+        await asyncio.sleep(0.08)
+        await _tick_one(sid)
+    except Exception:
+        logger.debug("prompt_detector.poke_now failed sid=%s", sid, exc_info=True)
 
 
 async def prompt_detector_loop() -> None:
@@ -160,9 +204,21 @@ async def prompt_detector_loop() -> None:
                 # sessions_meta 側で消えた sid の detector state を掃除
                 for stale in [s for s in _detector_states if s not in sessions_meta]:
                     _detector_states.pop(stale, None)
+                # 存在 + alternate_on は全 session 一括 1 subprocess で先取り
+                # (= per-session の has-session + display-message を tick から消す)。
+                # None (= tmux 不在 / 失敗) は _tick_one の per-session fallback。
+                alt_map = await list_pane_alternate_states()
                 for sid in list(sessions_meta.keys()):
                     try:
-                        await _tick_one(sid)
+                        if alt_map is None:
+                            await _tick_one(sid)
+                        else:
+                            name = _tmux_session_name(sid)
+                            await _tick_one(
+                                sid,
+                                exists=name in alt_map,
+                                alt=alt_map.get(name),
+                            )
                     except Exception:
                         logger.exception("prompt_detector: tick failed sid=%s", sid)
             except asyncio.CancelledError:

@@ -85,7 +85,7 @@ import backend.core.push as push  # noqa: E402
 from backend.core.usage import rate_limits_log_health  # noqa: E402
 import backend.jsonl.routes as jsonl_routes  # noqa: E402
 import backend.jsonl.watcher as jsonl_watcher  # noqa: E402
-import backend.pty_discover as pty_discover  # noqa: E402
+import backend.terminal.pty_discover as pty_discover  # noqa: E402
 import backend.routes.chat as chat_routes  # noqa: E402
 import backend.routes.files as files_routes  # noqa: E402
 import backend.routes.hooks as hooks_routes  # noqa: E402
@@ -256,10 +256,15 @@ app.include_router(pty_routes.router)
 app.include_router(push.router)
 app.include_router(subagents_routes.router)
 
-# ADR-012 /debug/* (= state / metrics / log / replay)。 localhost + Host header allowlist の
-# 2 段防御で外からは触れない。 production build でも router を含む (= 開発者の手元 PC で機能)。
+# ADR-012 /debug/* (= 3 file 分割: observability / e2e seed / healthcheck)。 localhost +
+# Host header allowlist の 2 段防御で外からは触れない (e2e は CPC_E2E env の 3 段目付き)。
+# production build でも router を含む (= 開発者の手元 PC で機能)。
 from backend.routes import debug as debug_routes  # noqa: E402
+from backend.routes import debug_e2e as debug_e2e_routes  # noqa: E402
+from backend.routes import debug_healthcheck as debug_healthcheck_routes  # noqa: E402
 app.include_router(debug_routes.router)
+app.include_router(debug_e2e_routes.router)
+app.include_router(debug_healthcheck_routes.router)
 
 
 # --- 静的ファイル配信 (Vite ビルド成果物) ---

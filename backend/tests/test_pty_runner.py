@@ -280,3 +280,30 @@ def test_spawn_cat_roundtrip(restore_env, restore_pty_sessions, monkeypatch):
         assert session.exit_event.is_set()
 
     asyncio.run(scenario())
+
+
+def test_list_pane_alternate_states_parses_batch_output(monkeypatch):
+    """list-panes -a の一括出力を {session_name: alternate_on} に parse する
+    (= detector loop の per-session subprocess 集約経路)。"""
+    import asyncio
+
+    class _R:
+        returncode = 0
+        stdout = "pwa-ses_a\t0\npwa-ses_b\t1\nother-session\t0\n"
+
+    monkeypatch.setattr(pty_runner, "USE_TMUX_WRAP", True)
+    monkeypatch.setattr(pty_runner, "_run_tmux", lambda *a, **k: _R())
+    states = asyncio.run(pty_runner.list_pane_alternate_states())
+    assert states == {"pwa-ses_a": False, "pwa-ses_b": True, "other-session": False}
+
+
+def test_list_pane_alternate_states_none_on_failure(monkeypatch):
+    """tmux 失敗 (= None) / USE_TMUX_WRAP=False は None (= caller は per-session fallback)。"""
+    import asyncio
+
+    monkeypatch.setattr(pty_runner, "USE_TMUX_WRAP", True)
+    monkeypatch.setattr(pty_runner, "_run_tmux", lambda *a, **k: None)
+    assert asyncio.run(pty_runner.list_pane_alternate_states()) is None
+
+    monkeypatch.setattr(pty_runner, "USE_TMUX_WRAP", False)
+    assert asyncio.run(pty_runner.list_pane_alternate_states()) is None

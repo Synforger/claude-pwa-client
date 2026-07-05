@@ -1,0 +1,71 @@
+/* 入力欄直上の prompt-waiting banner (= StatusBar chip から移設 2026-07-05) */
+.prompt-banner {
+  margin: 4px 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 180, 90, 0.10);
+  border: 1px solid rgba(255, 180, 90, 0.35);
+  font-size: 12px;
+}
+.prompt-banner-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: #f0b060;
+}
+.prompt-banner-icon {
+  font-size: 13px;
+}
+.prompt-banner-excerpt {
+  margin: 6px 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--bg2);
+  color: var(--fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  /* 画面の半分弱まで使う (= 超長い picker / wizard でも一覧性を確保、 中は scroll)。
+     dvh = keyboard 表示中の可視領域基準 (= iOS Safari で vh が keyboard を無視する
+     問題の回避)。 */
+  max-height: 45dvh;
+  overflow-y: auto;
+  /* iOS momentum scroll */
+  -webkit-overflow-scrolling: touch;
+  /* scroll できることを視覚で示す (= 下端 fade は複雑になるので border で代用) */
+  overscroll-behavior: contain;
+}
+/* quick-reply buttons (= StatusBar.css から移設、 banner が唯一の利用者) */
+.prompt-reply-controls {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.prompt-reply-btn {
+  flex-shrink: 0;
+  min-width: 40px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg1);
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  line-height: 1;
+}
+.prompt-reply-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+.prompt-reply-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

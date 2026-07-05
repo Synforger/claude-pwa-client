@@ -84,7 +84,11 @@ def _tmux_session_name(session_id: str) -> str:
     return f"pwa-{safe}"
 
 
-def _run_tmux(*args: str, timeout: float = 2.0, text: bool = False):
+# tmux サブコマンド 1 発の実行上限。 応答しない tmux server を無限に待たない。
+TMUX_CMD_TIMEOUT_SEC: float = 2.0
+
+
+def _run_tmux(*args: str, timeout: float = TMUX_CMD_TIMEOUT_SEC, text: bool = False):
     """tmux サブコマンドの共通実行ラッパ。 [TMUX_BIN] prefix 付与 + capture_output 固定 +
     timeout、 TimeoutExpired / OSError は None を返す (= 呼び側で失敗扱い)。 成功時は
     CompletedProcess。 tmux 操作の subprocess.run はこれ経由に統一する。"""
@@ -171,6 +175,11 @@ async def spawn_pty_session(
         child_env.pop(var, None)
     # TTY 想定の TERM を確保 (= 親 server が daemon 起動だと TERM 無いことがある)
     child_env.setdefault("TERM", "xterm-256color")
+    # feedback survey (= "How is Claude doing this session?" の 1: Bad / 2: Fine ...)
+    # を無効化する。 PWA 利用者は選択肢 dialog に不慣れで迷いやすい上、 prompt
+    # detector が「入力待ち」 として通知してしまう。 起動時に env で切っておけば dialog
+    # 自体が出ない (= 親 env に既に設定があればそれを尊重、 setdefault)。
+    child_env.setdefault("CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY", "1")
 
     # 実行コマンド組み立て: tmux wrap 時は `tmux -CC new-session -A -s <name> zsh`、
     # 直接時は `zsh` 単独。 tmux の -A は「既存なら attach、 無ければ作って attach」。
@@ -245,7 +254,7 @@ async def spawn_pty_session(
     # 新規 tmux session でも reattach でも、 claude プロセス起動 (= launch_alias 後の数秒、
     # 既存セッションなら即時) を待って backend mem の binding に登録する
     # pty_discover への遅延 import で循環回避 (= pty_discover が pty_runner の _run_tmux に依存)
-    from backend.pty_discover import register_claude_when_ready as _rcwr
+    from backend.terminal.pty_discover import register_claude_when_ready as _rcwr
     asyncio.create_task(_rcwr(session_id))
     # autoresume が即 exit した場合の fallback watchdog (= 通常 alias を投入し直す)。
     # `claude --resume <id>` が rc=0 即 exit すると tmux pane は zsh プロンプトに残り
@@ -308,7 +317,7 @@ async def _autoresume_watchdog(
     なので fallback は不要 → 投入をキャンセル。
     """
     try:
-        from backend.pty_discover import tmux_pane_pids, find_claude_descendant
+        from backend.terminal.pty_discover import tmux_pane_pids, find_claude_descendant
         import backend.jsonl.watcher as jsonl_watcher  # noqa: PLC0415
         await asyncio.sleep(initial_delay)
         loop = asyncio.get_running_loop()
@@ -547,6 +556,34 @@ def tmux_send_keys(
     return ok
 
 
+# 2 段送信の paste → Enter 間隔。 TUI の paste 処理 (= bracketed paste の
+# `[Pasted text #N]` 化 / 展開) が終わるのを待つ猶予。
+TWO_STAGE_ENTER_DELAY_SEC: float = 0.3
+
+
+async def send_text_two_stage(
+    session_id: str,
+    text: str,
+    key: str | None = None,
+) -> bool:
+    """本文送信の 2 段送信 (= C-u wipe → 本文 paste → 猶予 → Enter 単発)。
+
+    text 経路 (= /pty/{sid}/send) と添付経路 (= /pty/{sid}/send-with-files) の共通
+    protocol。 本文 paste と Enter を分離するのは、 同梱だと tmux queue 上の順序は
+    保証されても TUI 内部の paste 処理と Enter 消費が競合して本文が入力欄に残る
+    取りこぼしがあるため (= 旧実装は救済 Enter で事後修理していた、 #109-#113)。
+
+    C-u (= line kill) 前置は他 client の typing 残骸や前回 send-keys の残骸で入力欄が
+    汚れていても wipe してから本文を送るため。 空 line への C-u は no-op なので副作用ゼロ。
+    """
+    tmux_send_keys(session_id, key="C-u")
+    ok = tmux_send_keys(session_id, text=text, key=key, enter=False)
+    if ok:
+        await asyncio.sleep(TWO_STAGE_ENTER_DELAY_SEC)
+        ok = tmux_send_keys(session_id, enter=True)
+    return ok
+
+
 def _build_send_keys_chain(
     tmux_name: str,
     text: str | None = None,
@@ -584,7 +621,7 @@ def _build_send_keys_chain(
                     ["tmux", "load-buffer", "-b", buf_name, "-"],
                     input=text.encode("utf-8"),
                     capture_output=True,
-                    timeout=2.0,
+                    timeout=TMUX_CMD_TIMEOUT_SEC,
                 )
                 if proc.returncode == 0:
                     # claude TUI の bracketed paste は 1 回目で `[Pasted text #N]` プレース
@@ -613,6 +650,33 @@ def _build_send_keys_chain(
     return arg_sets, chained_enter
 
 
+async def list_pane_alternate_states() -> dict[str, bool] | None:
+    """全 tmux session の {session_name: alternate_on} を 1 subprocess で取得する。
+
+    detector loop の 500ms hot path 用: per-session の has-session + display-message
+    (= session 数 × 2 subprocess) を全 session まとめて 1 発に潰す。 key は tmux 側の
+    session 名 (= `_tmux_session_name` 適用後、 pwa- prefix)。 subprocess は
+    `asyncio.to_thread` で event loop の外に逃がす。
+
+    tmux 不在 / USE_TMUX_WRAP=False / コマンド失敗は None (= caller は per-session
+    fallback に倒す)。
+    """
+    if not USE_TMUX_WRAP:
+        return None
+    r = await asyncio.to_thread(
+        _run_tmux, "list-panes", "-a", "-F", "#{session_name}\t#{alternate_on}",
+        text=True,
+    )
+    if r is None or r.returncode != 0:
+        return None
+    states: dict[str, bool] = {}
+    for line in r.stdout.splitlines():
+        name, _, alt = line.partition("\t")
+        if name:
+            states[name] = alt.strip() == "1"
+    return states
+
+
 def get_pane_alternate_on(session_id: str) -> bool | None:
     """pane が alternate-screen buffer に切替中か (= full-screen TUI 走行中か) を返す。
 
@@ -639,23 +703,25 @@ def get_pane_alternate_on(session_id: str) -> bool | None:
     return None
 
 
-def capture_pane_plain_tail(session_id: str, lines: int = 8) -> str | None:
+def capture_pane_plain_tail(session_id: str, lines: int = 70) -> str | None:
     """末尾 N 行を escape なし plain text で取る (= prompt_detector の tier B/C 素材)。
 
-    `-p` stdout、 `-J` wrap 結合、 escape なし (= `-e` は付けない)。 pane の可視領域
-    末尾を狙うので `-S` は指定せず現ページ末尾から `lines` 行分だけ。 空 pane / tmux
-    不在は None。
+    `-p` stdout、 `-J` wrap 結合、 escape なし (= `-e` は付けない)。 `-S -30` で可視
+    画面の上 30 行分の scrollback も含める: phone サイズの小さい pane では /model 等の
+    背高 picker が可視領域に収まらず、 先頭 option が scrollback に押し出される
+    (= 2026-07-06 実測、 excerpt から option 1 が消えた)。 空 pane / tmux 不在は None。
+
+    行数 default は 70 (= 可視 ~40 行 + scrollback 30 行)。
     """
     if not USE_TMUX_WRAP:
         return None
     r = _run_tmux(
-        "capture-pane", "-p", "-J", "-t", _tmux_session_name(session_id),
+        "capture-pane", "-p", "-J", "-S", "-30",
+        "-t", _tmux_session_name(session_id),
         text=True,
     )
     if r is None or r.returncode != 0:
         return None
-    # 全 pane text を取ってから tail 抽出 (= tmux の `-S -N` は「N 行前から end まで」 で、
-    # 可視末尾を狙うと `-S` なしで pane 全部を取って Python 側で末尾を切る方が簡潔)。
     body = r.stdout.rstrip("\n")
     tail_lines = body.splitlines()[-lines:]
     return "\n".join(tail_lines)
