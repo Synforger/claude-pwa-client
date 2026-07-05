@@ -141,6 +141,46 @@ def test_tier_b_stacked_colon_format():
     assert verdict.state == PromptState.INLINE_TUI
 
 
+def test_tier_b_tall_model_picker_full_options():
+    """実測 (= /model picker dump): 選択肢が 3 行折返しで縦に広がり、 pane には ❯ が
+    2 個 (= コマンド echo `❯ /model` と picker cursor `❯ 3. Fable`) 出る。 picker の
+    ❯ を選び、 全 5 option を拾えること。 8 行 tail では ❯ に届かず取り逃していた
+    (= 2026-07-05、 capture を 40 行に拡張して解決)。"""
+    tail = (
+        "❯ /model\n"
+        "──────────────────────────────────────\n"
+        "  Select model\n"
+        "  Switch between Claude models.\n"
+        "\n"
+        "    1. Default (recommended)  Opus 4.8 with 1M\n"
+        "                              context\n"
+        "    2. Opus                   Opus 4.8 with 1M\n"
+        "                              context\n"
+        "  ❯ 3. Fable ✔                Fable 5 · Most\n"
+        "                              capable\n"
+        "    4. Sonnet                 Sonnet 5\n"
+        "                              Efficient\n"
+        "    5. Haiku                  Haiku 4.5\n"
+        "                              Fastest\n"
+        "\n"
+        "  Enter to set as default · s to use this\n"
+        "  session only · Esc to cancel"
+    )
+    verdict = analyze(_snap(tail), _new_state())
+    assert verdict.state == PromptState.INLINE_TUI
+    assert verdict.input_mode == InputMode.NUMBERS
+    assert verdict.options == ["1", "2", "3", "4", "5"]
+
+
+def test_tail_hash_ignores_volatile_status_bar():
+    """rate-limit の分カウントダウンや spinner 経過秒が動いても、 内容が同じなら
+    hash は不変 (= 入力待ちの間に status bar の時計が進んでも idle 判定が壊れない)。"""
+    body = "  ❯ 1. Yes\n    2. No\n"
+    s1 = _snap(body + "  [Fable 5] 5h:60%(1h49m) 7d:23% ctx:42%")
+    s2 = _snap(body + "  [Fable 5] 5h:59%(1h48m) 7d:23% ctx:42%")
+    assert s1.tail_hash == s2.tail_hash
+
+
 # ---------------------------------------------------------------------------
 # Tier C: text prompts
 # ---------------------------------------------------------------------------

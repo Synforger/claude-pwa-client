@@ -171,6 +171,11 @@ async def spawn_pty_session(
         child_env.pop(var, None)
     # TTY 想定の TERM を確保 (= 親 server が daemon 起動だと TERM 無いことがある)
     child_env.setdefault("TERM", "xterm-256color")
+    # feedback survey (= "How is Claude doing this session?" の 1: Bad / 2: Fine ...)
+    # を無効化する。 PWA 利用者は選択肢 dialog に不慣れで迷いやすい上、 prompt
+    # detector が「入力待ち」 として通知してしまう。 起動時に env で切っておけば dialog
+    # 自体が出ない (= 親 env に既に設定があればそれを尊重、 setdefault)。
+    child_env.setdefault("CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY", "1")
 
     # 実行コマンド組み立て: tmux wrap 時は `tmux -CC new-session -A -s <name> zsh`、
     # 直接時は `zsh` 単独。 tmux の -A は「既存なら attach、 無ければ作って attach」。
@@ -639,12 +644,15 @@ def get_pane_alternate_on(session_id: str) -> bool | None:
     return None
 
 
-def capture_pane_plain_tail(session_id: str, lines: int = 8) -> str | None:
+def capture_pane_plain_tail(session_id: str, lines: int = 40) -> str | None:
     """末尾 N 行を escape なし plain text で取る (= prompt_detector の tier B/C 素材)。
 
     `-p` stdout、 `-J` wrap 結合、 escape なし (= `-e` は付けない)。 pane の可視領域
     末尾を狙うので `-S` は指定せず現ページ末尾から `lines` 行分だけ。 空 pane / tmux
     不在は None。
+
+    行数 default は 40 (= Claude Code の /model 等の背高 picker は 30 行超で、 選択
+    カーソル `❯` が末尾から 15 行以上上に来る。 8 行 tail では picker を取り逃す)。
     """
     if not USE_TMUX_WRAP:
         return None
