@@ -67,7 +67,7 @@ def test_tier_a_off_falls_through():
 
 
 def test_tier_b_claude_code_trust_folder():
-    """実測: Claude Code の trust folder prompt (= ❯ + ─ 罫線)。"""
+    """実測: Claude Code の trust folder prompt (= ❯ + 番号 option)。"""
     tail = (
         "────────────────────────────────────────────────\n"
         " ❯ 1. Yes, I trust this folder\n"
@@ -79,11 +79,20 @@ def test_tier_b_claude_code_trust_folder():
     assert "1. Yes, I trust this folder" in verdict.excerpt
 
 
-def test_tier_b_inquirer_bare_arrow():
-    tail = "? Which environment:\n❯ development\n  staging\n  production"
+def test_tier_b_inquirer_numbered_list():
+    """Inquirer 系 list prompt (= ❯ が付いた option + 他 option 群、 番号は付かない
+    が代わりに「? 質問」 が上にある形もある)。 番号必須の regex を回避する形の
+    Inquirer は tier B に落ちない (= tier C の generic_q_tail に流れる)。 我々は
+    「番号 option が近傍にある」 signature に絞って false positive を潰す方針。"""
+    tail = (
+        "? Which environment:\n"
+        "❯ 1) development\n"
+        "  2) staging\n"
+        "  3) production"
+    )
     verdict = analyze(_snap(tail), _new_state())
     assert verdict.state == PromptState.INLINE_TUI
-    assert "❯ development" in verdict.excerpt
+    assert "1) development" in verdict.excerpt
 
 
 def test_tier_b_no_arrow_no_hit():
@@ -91,6 +100,20 @@ def test_tier_b_no_arrow_no_hit():
     tail = "some output\n────────\nmore output"
     verdict = analyze(_snap(tail), _new_state())
     assert verdict.state == PromptState.ACTIVE
+
+
+def test_tier_b_bare_arrow_without_numbered_option_is_not_inline_tui():
+    """実測 hotfix: Claude Code の通常入力画面 (= ❯ 単独 + 罫線 + status bar) を
+    inline TUI にしない (= 2026-07-05 backend restart 時に全 session ぶんの push が
+    発火した現象への対処)。 番号 option が近傍にないなら tier B は素通り。"""
+    tail = (
+        "─────────────────────────────────────────────────\n"
+        "❯ \n"
+        "─────────────────────────────────────────────────\n"
+        "[Opus 4.7] 5h:83%(4h16m) 7d:13% ctx:15%"
+    )
+    verdict = analyze(_snap(tail), _new_state())
+    assert verdict.state != PromptState.INLINE_TUI
 
 
 # ---------------------------------------------------------------------------
