@@ -297,6 +297,11 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
     # agent_status の進行中フラグと蓄積 state をリセット (= 新プロセス = 新 claude_sid で
     # 過去 JSONL の集約結果 (= tasks / pr_links / todos / current_tool 等) を持ち越さない)。
     # SessionState.lock 経由で複数 mutate を 1 critical section に束ねる (= backend-F-07)。
+    # 注意: この lock を取るのは restart のこの区間だけで、 常時系の mutate 経路
+    # (= mutate_agent_status / apply_pending_question 等) は lock を取らない。 全経路が
+    # 単一 event loop 上の同期処理 (= await を跨がない dict 書換) なので dict 破壊は起きない。
+    # lock の意味は「reset の複数 field 書換を 1 まとまりにする」 ことだけで、 mutate 経路との
+    # 排他保証と読まないこと。
     # 2026-07-03: pr_links / tasks / todos / model / ctx_pct / budget_* / mode / permission_mode
     # を追加リセット。 restart は「文脈 + プロセスリセット」 なので、 前 claude 由来の状態は
     # 全て消す。 新 JSONL からの task_reminder / pr-link / model 通知で正しい値に埋め直す。
