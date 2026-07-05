@@ -126,10 +126,11 @@ def test_chat_router_includes_all_three_subrouters(isolated_state):
 # --- backend-F-44: demote_fork_to_normal helper ---
 def test_demote_fork_to_normal_clears_resume_id_and_gcs_jsonl(tmp_path, monkeypatch, isolated_state):
     """fork タブの resume_session_id を落として fork jsonl も unlink (= F-44 helper)。"""
-    import backend.jsonl.watcher as jsonl_watcher
+    import backend.config as config_mod
     state = isolated_state
     monkeypatch.setattr(state, "save_sessions_meta", lambda: None)
-    monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd, account_id=None: tmp_path)
+    # demote_fork_to_normal の path 解決は config が真値 (= audit A-2 で jsonl 依存を撤去)
+    monkeypatch.setattr(config_mod, "cwd_to_project_dir", lambda cwd, account_id=None: tmp_path)
     from backend.config import AGENTS
     aid = next(iter(AGENTS))
     parent = state.register_session(aid, title="P")

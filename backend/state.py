@@ -640,9 +640,10 @@ def demote_fork_to_normal(session_id: str) -> str | None:
     # fork jsonl GC (= delete_session の GC と同型、 蓄積させない)。
     # 失敗しても restart 本体は続行 (= unlink は best-effort)。
     try:
-        from backend.jsonl.watcher import _cwd_to_project_dir  # noqa: PLC0415
+        # path 計算の真値は config (= state から jsonl 層への隠れ依存を作らない)
+        from backend.config import cwd_to_project_dir  # noqa: PLC0415
         cwd = (_agents().get(meta.agent_id) or {}).get("cwd")
-        project_dir = _cwd_to_project_dir(cwd) if cwd else None
+        project_dir = cwd_to_project_dir(cwd) if cwd else None
         if project_dir is not None:
             fork_jsonl = project_dir / f"{fork_resume_id}.jsonl"
             if fork_jsonl.exists():
