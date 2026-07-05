@@ -1,14 +1,18 @@
 """送信本文 (= text / slash command) が tmux 経由で claude に届いたかを JSONL から確認する。
 
 `pty_routes` の endpoint (= /pty/{sid}/send, /send-with-files) から呼ばれる。 旧実装は
-pty_routes.py に同居していたが、 純粋な「JSONL カウント + wait + 救済再送」 の責務なので分離した。
+pty_routes.py に同居していたが、 純粋な「JSONL カウント + wait」 の責務なので分離した。
 
 挙動:
     1. 送信直前に jsonl_path の現在 file size (= initial_pos) を取る
     2. tmux send-keys が成功したら _confirm_after_send を呼ぶ
     3. initial_pos から差分行だけ tail (= read_complete_lines) で読み、 該当 user 行が +1 されるか
-       を 4s 監視 → 出なければ Enter だけ追い打ちして 1s 再監視
-    4. 確認できなくても再ペーストはせず ok:True を返す (= 二重発火を避ける)
+       を 4s 監視 → 結果を confirmed として返すだけ (= 観測専用)
+
+救済 Enter は退役 (= 2026-07-05): 生 PTY 直 write 時代の paste/Enter 競合対策だったが、
+control mode + send-keys -H 移行後の実発生が確認できず、 一方で /model 等の picker を
+開く slash command で「JSONL 確認 timeout → 救済 Enter → picker の現選択を誤確定」 の
+実害が出た。 取りこぼしが再発したらこの header に発生条件を記録して対策を設計し直す。
 """
 from __future__ import annotations
 
@@ -19,18 +23,6 @@ import re
 
 from backend.jsonl.predicates import is_user_prompt as _is_user_prompt_pred
 from backend.jsonl.tail import read_complete_lines
-from backend.terminal.prompt_detector import (
-    DetectorState as _DetectorState,
-    PromptState as _PromptState,
-    TailSnapshot as _TailSnapshot,
-    analyze as _analyze_pane,
-)
-from backend.terminal.runner import (
-    capture_pane_plain_tail,
-    get_pane_alternate_on,
-    get_pane_cursor_y,
-    tmux_send_keys,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -128,56 +120,19 @@ def _delivery_counter(text: str):
 
 
 async def _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slash) -> dict:
-    """送信直後の確認 + 取りこぼし救済 (= text 経路 / 添付経路 共通)。
+    """送信直後の到達確認 (= text 経路 / 添付経路 共通、 観測専用)。
 
-    initial_pos = 送信直前のファイルサイズ。 そこから新規 user 行 (slash なら `<command-name>`、
-    そうでなければ素プロンプト) が出るかを 4s 監視 → 出なければ Enter だけ追い打ちして 1s 再監視。
-    それでも確認できなくても再ペーストはせず ok:True を返す。
-
-    backend-F-22: Enter 救済前に tmux pane の cursor_y を見て、 prompt 行に居る (= text
-    が pane に渡ってない、 送信失敗) のか、 行が降りてる (= text 入力中、 Enter で確定
-    すべき) のかを区別する。 cursor_y == 0 なら救済 Enter は無意味 (= 空 Enter で空行を
-    挿入するだけ) なので skip。 取得失敗 (= 旧経路 / tmux 不在 等) は従来挙動どおり Enter
-    を打つ (= 安全側)。"""
+    initial_pos = 送信直前のファイルサイズ。 そこから新規 user 行 (slash なら
+    `<command-name>`、 そうでなければ素プロンプト) が出るかを 4s 監視して confirmed を
+    返す。 confirmed=False でも送達失敗とは限らない (= picker 等の対話 UI が開いてる間
+    は command 完了行が書かれない)。 介入 (= 再送 / 救済キー) はしない。
+    """
     counter = _count_command_lines if is_slash else _count_user_prompts
     if await _wait_count_added(counter, jsonl_path, initial_pos, timeout=4.0):
         return {"ok": True, "confirmed": True}
-    cursor_y = get_pane_cursor_y(session_id)
-    if cursor_y == 0:
-        logger.warning(
-            "pty_send: no prompt within 4s and cursor at row 0 (text not buffered): "
-            "sid=%s text_len=%d slash=%s",
-            session_id, len(text or ""), is_slash,
-        )
-        return {"ok": True, "confirmed": False, "reason": "cursor_home"}
-    # 対話 UI 検査 (= 2026-07-05): /model 等の picker を開く slash command は、 picker が
-    # 開いてる間 command 完了行が JSONL に書かれない = 上の 4s 監視が必ず timeout する。
-    # ここで救済 Enter を打つと picker の現選択を勝手に確定してしまう (= チャットから
-    # /model を打つと「一瞬で現モデル再選択」 に見えた実バグ)。 pane を detector に
-    # かけて選択 UI / TUI が表示中なら「届いてないのではなく、 対話待ち」 と判断して
-    # 救済しない。
-    _tail = capture_pane_plain_tail(session_id)
-    if _tail:
-        _alt = get_pane_alternate_on(session_id)
-        _verdict = _analyze_pane(
-            _TailSnapshot(alternate_on=bool(_alt), tail_text=_tail, now_sec=0.0),
-            _DetectorState(),
-        )
-        if _verdict.state in (_PromptState.INLINE_TUI, _PromptState.TUI):
-            logger.info(
-                "pty_send: interactive UI (%s) is open; skip rescue Enter: sid=%s slash=%s",
-                _verdict.state.value, session_id, is_slash,
-            )
-            return {"ok": True, "confirmed": False, "reason": "interactive_ui_open"}
-    logger.warning(
-        "pty_send: no prompt within 4s, retrying with Enter only: sid=%s text_len=%d slash=%s cursor_y=%s",
-        session_id, len(text or ""), is_slash, cursor_y,
-    )
-    tmux_send_keys(session_id, enter=True)
-    if await _wait_count_added(counter, jsonl_path, initial_pos, timeout=1.0):
-        return {"ok": True, "confirmed": True, "retried": "enter_only"}
-    logger.warning(
-        "pty_send: not confirmed within window, assume delivered (no re-paste): sid=%s slash=%s",
-        session_id, is_slash,
+    logger.info(
+        "pty_send: not confirmed within 4s (interactive UI or slow turn; no intervention): "
+        "sid=%s text_len=%d slash=%s",
+        session_id, len(text or ""), is_slash,
     )
     return {"ok": True, "confirmed": False}
