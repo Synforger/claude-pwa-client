@@ -644,26 +644,25 @@ def get_pane_alternate_on(session_id: str) -> bool | None:
     return None
 
 
-def capture_pane_plain_tail(session_id: str, lines: int = 40) -> str | None:
+def capture_pane_plain_tail(session_id: str, lines: int = 70) -> str | None:
     """末尾 N 行を escape なし plain text で取る (= prompt_detector の tier B/C 素材)。
 
-    `-p` stdout、 `-J` wrap 結合、 escape なし (= `-e` は付けない)。 pane の可視領域
-    末尾を狙うので `-S` は指定せず現ページ末尾から `lines` 行分だけ。 空 pane / tmux
-    不在は None。
+    `-p` stdout、 `-J` wrap 結合、 escape なし (= `-e` は付けない)。 `-S -30` で可視
+    画面の上 30 行分の scrollback も含める: phone サイズの小さい pane では /model 等の
+    背高 picker が可視領域に収まらず、 先頭 option が scrollback に押し出される
+    (= 2026-07-06 実測、 excerpt から option 1 が消えた)。 空 pane / tmux 不在は None。
 
-    行数 default は 40 (= Claude Code の /model 等の背高 picker は 30 行超で、 選択
-    カーソル `❯` が末尾から 15 行以上上に来る。 8 行 tail では picker を取り逃す)。
+    行数 default は 70 (= 可視 ~40 行 + scrollback 30 行)。
     """
     if not USE_TMUX_WRAP:
         return None
     r = _run_tmux(
-        "capture-pane", "-p", "-J", "-t", _tmux_session_name(session_id),
+        "capture-pane", "-p", "-J", "-S", "-30",
+        "-t", _tmux_session_name(session_id),
         text=True,
     )
     if r is None or r.returncode != 0:
         return None
-    # 全 pane text を取ってから tail 抽出 (= tmux の `-S -N` は「N 行前から end まで」 で、
-    # 可視末尾を狙うと `-S` なしで pane 全部を取って Python 側で末尾を切る方が簡潔)。
     body = r.stdout.rstrip("\n")
     tail_lines = body.splitlines()[-lines:]
     return "\n".join(tail_lines)
