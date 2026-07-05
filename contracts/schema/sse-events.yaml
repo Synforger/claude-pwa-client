@@ -1,7 +1,7 @@
 # SSE event schema (= front <-> back contract、 真値)
 #
 # scope:
-#   - /jsonl/stream/{sid} と /jsonl/stream/all で配信される 17 event 型を全件列挙
+#   - /jsonl/stream/{sid} と /jsonl/stream/all で配信される 18 event 型を全件列挙
 #   - 各 event の必須 / optional field、 invariants (= 不変条件)、 発火 trigger を明示
 #   - SSE envelope は backend (= backend/jsonl/routes.py) が `sid` と `corr_id` を必ず付与する (= ADR-012)
 #
@@ -21,7 +21,7 @@
 
 kind: sse-events
 version: "1.0"
-schema_version: "1.0"
+schema_version: "1.1"
 
 events:
 
@@ -388,3 +388,27 @@ events:
     trigger: "JSONL system 行で subtype == away_summary"
     consumer: "(= 現状 skip)"
     render_target: "skip"
+
+  prompt_state:
+    description: "tmux pane の入力待ち検出状態 (= prompt detector、 遷移 or excerpt 変化時のみ)"
+    type: object
+    required: [sid, state, corr_id]
+    properties:
+      sid:                 { type: string }
+      corr_id:             { type: string }
+      state:               { type: string, description: "active / tui / inline_tui / text_prompt / idle" }
+      category:            { type: string, nullable: true, description: "text_prompt の内訳 (= yn / password / otp / choice / generic)、 他 state は null" }
+      excerpt:             { type: string, description: "pane 末尾の抜粋 (= banner 表示用、 picker は option 範囲)" }
+      bypass_mode_visible: { type: boolean, description: "⏵⏵ bypass permissions chip が pane に見えてるか" }
+      reason:              { type: string, description: "判定根拠 (= debug 用、 tier 名 + signature)" }
+      input_mode:          { type: string, description: "quick-reply UI の型 (= numbers / yn / arrows / none)" }
+      options:             { type: array, items: { type: string }, description: "数字 option (= 順序保持、 重複除去)" }
+      key_requires_enter:  { type: boolean, description: "1 打鍵後に Enter が要るか (= shell prompt true / Ink dialog false)" }
+    additionalProperties: false
+    invariants:
+      - "遷移 or excerpt 変化時のみ publish (= 連発抑制)、 500ms poll の生値は流さない"
+      - "backend 起動直後の初回 tick は seed 扱いで publish しない (= restart 時の一斉 push 防止)"
+      - "chat 履歴に積まない (= per-sid の最新値だけ保持、 banner UI が表示)"
+    trigger: "backend/terminal/prompt_detector_loop.py が状態遷移を検知 → broadcaster publish"
+    consumer: "processStreamEvent → state/promptState.js (= ChatPanel banner + quick-reply)"
+    render_target: "banner"

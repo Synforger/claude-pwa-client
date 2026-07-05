@@ -13,7 +13,7 @@ SCHEMA_VERSION = "1.0"
 
 class GetSessionsResponseItem(BaseModel):
     """GET /sessions response[i]"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     sid: str
     title: str
     agent_id: str
@@ -24,7 +24,7 @@ class GetSessionsResponseItem(BaseModel):
 
 class PostSessionsRequest(BaseModel):
     """POST /sessions request body"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     agent_id: str
     title: Optional[str] = None
     account_id: Optional[str] = None
@@ -32,112 +32,112 @@ class PostSessionsRequest(BaseModel):
 
 class PostSessionsResponse(BaseModel):
     """POST /sessions response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     sid: str
 
 
 class PatchSessionsSidRequest(BaseModel):
     """PATCH /sessions/{sid} request body"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     title: Optional[str] = None
     notify_mode: Optional[str] = None  # always / mentions / never
 
 
 class PostSessionsSidForkRequest(BaseModel):
     """POST /sessions/{sid}/fork request body"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     from_uuid: str
 
 
 class PostSessionsSidForkResponse(BaseModel):
     """POST /sessions/{sid}/fork response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     sid: str  # 新 session id
 
 
 class PostSessionsSidRestartResponse(BaseModel):
     """POST /sessions/{sid}/restart response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     ok: bool
     reason: Optional[str] = None
 
 
 class GetSessionsSidHistoryResponse(BaseModel):
     """GET /sessions/{sid}/history response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     entries: Optional[list[dict[str, Any]]] = None
 
 
 class GetAgentsResponseItem(BaseModel):
     """GET /agents response[i]"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     id: str
     display_name: str
 
 
 class GetAccountsResponseItem(BaseModel):
     """GET /accounts response[i]"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     id: str
     display_name: str
 
 
 class GetFileResponse(BaseModel):
     """GET /file response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     path: str
     content: str
 
 
 class PutFileRequest(BaseModel):
     """PUT /file request body"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     path: str
     content: str
 
 
 class PutFileResponse(BaseModel):
     """PUT /file response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     ok: bool
 
 
 class GetTaskOutputResponse(BaseModel):
     """GET /task-output response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     path: str
     content: str
 
 
 class GetFilesTreeResponse(BaseModel):
     """GET /files/tree response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     path: Optional[str] = None
     entries: Optional[list[dict[str, Any]]] = None
 
 
 class GetSessionsSidSubagentsResponse(BaseModel):
     """GET /sessions/{sid}/subagents response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     subagents: Optional[list[Any]] = None
     workflows: Optional[list[Any]] = None
 
 
 class GetSessionsSidWorkflowsRunIdAgentsResponse(BaseModel):
     """GET /sessions/{sid}/workflows/{run_id}/agents response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     agents: Optional[list[Any]] = None
 
 
 class GetSessionsSidSubagentsAgentIdTranscriptResponse(BaseModel):
     """GET /sessions/{sid}/subagents/{agent_id}/transcript response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     lines: Optional[list[str]] = None
 
 
 class PostPtySidSendRequest(BaseModel):
     """POST /pty/{sid}/send request body"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     text: Optional[str] = None
     key: Optional[str] = None  # send-keys 経由の特殊キー名
     enter: Optional[bool] = None  # 末尾 Enter 送信
@@ -145,7 +145,7 @@ class PostPtySidSendRequest(BaseModel):
 
 class PostPtySidSendResponse(BaseModel):
     """POST /pty/{sid}/send response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     ok: bool
     delivered: Optional[bool] = None
     incomplete: Optional[bool] = None
@@ -153,87 +153,100 @@ class PostPtySidSendResponse(BaseModel):
 
 class PostPtySidSendWithFilesRequest(BaseModel):
     """POST /pty/{sid}/send-with-files request body"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     pass
 
 
 class PostPtySidSendWithFilesResponse(BaseModel):
     """POST /pty/{sid}/send-with-files response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     ok: bool
     saved_files: Optional[list[str]] = None
 
 
+class PostPtySidSendRawKeyRequest(BaseModel):
+    """POST /pty/{sid}/send-raw-key request body"""
+    model_config = ConfigDict(extra="forbid")
+    key: str  # 単一 printable char は literal、 Up/Down/Enter 等は tmux キー名
+    enter: Optional[bool] = None  # key 送信後に Enter を続けるか (= shell prompt 用、 Ink dialog は不要)
+
+
+class PostPtySidSendRawKeyResponse(BaseModel):
+    """POST /pty/{sid}/send-raw-key response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+
+
 class PostHooksEventRequest(BaseModel):
     """POST /hooks/event request body"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     hook_event_name: str
     session_id: str
 
 
 class PostHooksEventResponse(BaseModel):
     """POST /hooks/event response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     ok: bool
 
 
 class GetPushVapidPublicKeyResponse(BaseModel):
     """GET /push/vapid-public-key response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     public_key: str
 
 
 class PostPushSubscribeRequest(BaseModel):
     """POST /push/subscribe request body"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     subscription: dict[str, Any]  # PushSubscription dict (= endpoint / keys / expirationTime)
 
 
 class PostPushSubscribeResponse(BaseModel):
     """POST /push/subscribe response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     ok: bool
 
 
 class PostPushUnsubscribeRequest(BaseModel):
     """POST /push/unsubscribe request body"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     endpoint: str
 
 
 class PostPushUnsubscribeResponse(BaseModel):
     """POST /push/unsubscribe response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     ok: bool
 
 
 class PostNotificationsReadAllResponse(BaseModel):
     """POST /notifications/read-all response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     ok: bool
 
 
 class PostNotificationsSyncResponse(BaseModel):
     """POST /notifications/sync response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     unread_count: int
 
 
 class PostLogSwRequest(BaseModel):
     """POST /log/sw request body"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     event: str
 
 
 class PostLogSwResponse(BaseModel):
     """POST /log/sw response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     ok: bool
 
 
 class GetJsonlDebugBindingsResponse(BaseModel):
     """GET /jsonl/_debug/bindings response"""
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
     pass
 
 
