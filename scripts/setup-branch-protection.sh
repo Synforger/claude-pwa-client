@@ -5,7 +5,7 @@ set -e
 # Usage: ./scripts/setup-branch-protection.sh
 #
 # Single-maintainer public-OSS profile:
-#   - main only (feature -> main, two-tier flow; no develop branch)
+#   - main + develop (feature -> develop -> main, three-tier flow)
 #   - PR required, 0 approvals (= self-merge allowed, but always via PR)
 #   - no required status checks (= quality gates are local: task lint /
 #     task test:unit / dispatcher hooks; CI is intentionally not a gate)
@@ -108,11 +108,13 @@ remove_ruleset_if_present() {
   fi
 }
 
-# main: PR required, self-merge allowed (0 approvals), no CI gate
+# main: PR required, self-merge allowed (0 approvals), no CI gate.
+# Receives only develop -> main promotion PRs (releases).
 create_or_update_ruleset "Protect main" "refs/heads/main" 0
 
-# develop ruleset is retired (two-tier feature -> main flow)
-remove_ruleset_if_present "Protect develop"
+# develop: PR required, self-merge allowed (0 approvals). Default branch;
+# feature branches merge here.
+create_or_update_ruleset "Protect develop" "refs/heads/develop" 0
 
 echo "Branch protection setup completed!"
 echo "Please verify the rules in GitHub UI: https://github.com/${OWNER}/${REPO}/rules"
