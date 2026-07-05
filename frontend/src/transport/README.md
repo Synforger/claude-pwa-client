@@ -1,6 +1,6 @@
 # transport/ — backend 接続の唯一の入口
 
-> **目的**: `fetch` / `new EventSource` / `new WebSocket` を呼ぶ場所をここに 1 箇所にまとめ、 features / layout / state / domain がそれを経由する形にする。 features 層は ports/* interface だけ知っていれば良く、 transport 実装の入れ替え (= mock / 別実装 / 将来の WebTransport 移行) が安全になる。
+> **目的**: `fetch` / `new EventSource` / `new WebSocket` を呼ぶ場所をここに 1 箇所にまとめ、 features / layout / state / domain がそれを経由する形にする。 理想形は features 層が ports/* interface だけを知る状態だが、 **現状は features → transport の直接 import も許容している** (= eslint boundaries の `from: features, allow: [transport]`、 段階的移行中)。 transport 実装の入れ替え (= mock / 別実装 / 将来の WebTransport 移行) の安全性は「呼び出しがこの 1 箇所に集まっている」 ことで担保する。
 
 ## file 構成
 
