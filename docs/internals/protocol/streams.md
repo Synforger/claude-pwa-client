@@ -139,6 +139,7 @@ backend `backend/jsonl/events.py::jsonl_line_to_events` が JSONL 1 行から組
 | `permission_mode` | `mode` | permission mode 切替 (= acceptEdits / plan / bypassPermissions) |
 | `pr_link` | `url` | turn 中に言及された PR URL (= StatusBar 🔗 chip 集約用) |
 | `budget` | `remaining_usd` | サブスク残予算 (= StatusBar 描画) |
+| `prompt_state` | `state`, `input_mode`, `options[]` | tmux pane の入力待ち検出 (= prompt detector)。 JSONL 由来でなく `backend/terminal/prompt_detector_loop.py` が状態遷移 / excerpt 変化時のみ publish。 ChatPanel の banner + quick-reply button が消費、 返信は `POST /pty/{sid}/send-raw-key`。 field 詳細 = `contracts/schema/sse-events.yaml` |
 | `session_end` | (frontend 注入) | restart で claude プロセスを kill した境界 (= MessageList の区切り表示。 backend tail でなく `useChatStream.endSession` が messages に直接挿入) |
 
 #### 添付 / タスク系
