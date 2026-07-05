@@ -49,3 +49,22 @@
   opacity: 0.7;
   font-size: 12px;
 }
+
+/* inline 展開 body (= 2026-07-05、 bash / monitor / unknown 型のプルダウン)。
+   raw 出力は長いので card 幅のまま max-height + scroll、 tool-block の結果表示と同じ密度。 */
+.task-note-body {
+  margin-top: 4px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-height: 40vh;
+  overflow: auto;
+}
+.task-note-body .task-output-raw {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
