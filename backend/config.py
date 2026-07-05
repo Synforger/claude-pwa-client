@@ -84,6 +84,22 @@ def projects_dir_for_account(account_id: str | None) -> Path:
     return Path.home() / ".claude" / "projects"
 
 
+def cwd_to_project_dirname(cwd: str) -> str:
+    """claude Code の規約: パス中の `/` と `.` を `-` に置換 (先頭 `/` も `-`)。"""
+    return cwd.replace("/", "-").replace(".", "-")
+
+
+def cwd_to_project_dir(cwd: str, account_id: str | None = None) -> Path:
+    """cwd → projects ディレクトリ。 account_id が指定されてれば該当アカウントの
+    projects dir、 指定なしなら personal (= ~/.claude/projects)。
+
+    純粋な path 計算 (= config の accounts 情報にのみ依存) なのでここが真値。
+    jsonl.watcher は互換 alias (`_cwd_to_project_dir`) で再公開する (= state 等の
+    下位層が jsonl を import しなくて済む)。
+    """
+    return projects_dir_for_account(account_id) / cwd_to_project_dirname(cwd)
+
+
 def _accounts() -> dict[str, Any]:
     return get_config().get("accounts") or {
         "personal": {"display_name": "Personal", "env": {}}

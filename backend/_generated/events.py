@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 
 
 class UserMessageEvent(BaseModel):
@@ -224,7 +224,23 @@ class AwaySummaryEvent(BaseModel):
     summary: Optional[str] = None
 
 
-AnyEvent = Union[UserMessageEvent, AssistantEvent, ResultEvent, AskUserQuestionEvent, TaskNotificationEvent, SystemEvent, SystemErrorEvent, HookErrorEvent, SystemNoteEvent, AttachmentEvent, BudgetEvent, ModeEvent, PermissionModeEvent, PrLinkEvent, TurnDurationEvent, StopHookSummaryEvent, AwaySummaryEvent]
+class PromptStateEvent(BaseModel):
+    """tmux pane の入力待ち検出状態 (= prompt detector、 遷移 or excerpt 変化時のみ)"""
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["prompt_state"]
+    sid: str
+    corr_id: str
+    state: str  # active / tui / inline_tui / text_prompt / idle
+    category: Optional[str] = None  # text_prompt の内訳 (= yn / password / otp / choice / generic)、 他 state は null
+    excerpt: Optional[str] = None  # pane 末尾の抜粋 (= banner 表示用、 picker は option 範囲)
+    bypass_mode_visible: Optional[bool] = None  # ⏵⏵ bypass permissions chip が pane に見えてるか
+    reason: Optional[str] = None  # 判定根拠 (= debug 用、 tier 名 + signature)
+    input_mode: Optional[str] = None  # quick-reply UI の型 (= numbers / yn / arrows / none)
+    options: Optional[list[str]] = None  # 数字 option (= 順序保持、 重複除去)
+    key_requires_enter: Optional[bool] = None  # 1 打鍵後に Enter が要るか (= shell prompt true / Ink dialog false)
+
+
+AnyEvent = Union[UserMessageEvent, AssistantEvent, ResultEvent, AskUserQuestionEvent, TaskNotificationEvent, SystemEvent, SystemErrorEvent, HookErrorEvent, SystemNoteEvent, AttachmentEvent, BudgetEvent, ModeEvent, PermissionModeEvent, PrLinkEvent, TurnDurationEvent, StopHookSummaryEvent, AwaySummaryEvent, PromptStateEvent]
 
 EVENT_BY_TYPE: dict[str, type[BaseModel]] = {
     "user_message": UserMessageEvent,
@@ -244,4 +260,5 @@ EVENT_BY_TYPE: dict[str, type[BaseModel]] = {
     "turn_duration": TurnDurationEvent,
     "stop_hook_summary": StopHookSummaryEvent,
     "away_summary": AwaySummaryEvent,
+    "prompt_state": PromptStateEvent,
 }

@@ -10,6 +10,7 @@ import pytest
 from backend.terminal.prompt_detector import (
     DetectorConfig,
     DetectorState,
+    InputMode,
     PromptCategory,
     PromptState,
     TailSnapshot,
@@ -102,6 +103,47 @@ def test_tier_b_no_arrow_no_hit():
     assert verdict.state == PromptState.ACTIVE
 
 
+def test_tier_b_picker_ignores_chat_numbered_list_above():
+    """実測 (= 2026-07-06): scrollback を含めると picker の上の会話 log にある番号
+    リスト (= assistant の「1. ... 2. ...」) まで excerpt / options に混入していた。
+    cluster-first で「最多 option の塊 = picker 本体」 を選び、 会話文と ❯ /model echo
+    を除外する。"""
+    tail = (
+        "救済は復活させない。 理由:\n"
+        "  1. queue でした\n"
+        "  2. 区別できない構造欠陥\n"
+        "代わりに予防を完成。\n"
+        "❯ /model\n"
+        "──────────────────────────────\n"
+        "  Select model\n"
+        "    1. Default    Opus 4.8\n"
+        "    2. Opus       Opus 4.8\n"
+        "  ❯ 3. Fable ✔   Fable 5\n"
+        "    4. Sonnet     Sonnet 5\n"
+        "    5. Haiku      Haiku 4.5\n"
+        "  Enter to set as default"
+    )
+    verdict = analyze(_snap(tail), _new_state())
+    assert verdict.state == PromptState.INLINE_TUI
+    assert verdict.options == ["1", "2", "3", "4", "5"]
+    assert "救済" not in verdict.excerpt  # 会話文が混入しない
+    assert "1. Default" in verdict.excerpt
+
+
+def test_tier_b_numbered_list_without_arrow_nearby_is_not_inline_tui():
+    """近傍に ❯ が無い番号リスト (= docs / 会話の箇条書き) は picker でない。"""
+    tail = (
+        "手順:\n"
+        "  1. clone する\n"
+        "  2. install する\n"
+        "  3. run する\n"
+        "以上です。\n"
+        "普通の文が続く。"
+    )
+    verdict = analyze(_snap(tail), _new_state())
+    assert verdict.state != PromptState.INLINE_TUI
+
+
 def test_tier_b_bare_arrow_without_numbered_option_is_not_inline_tui():
     """実測 hotfix: Claude Code の通常入力画面 (= ❯ 単独 + 罫線 + status bar) を
     inline TUI にしない (= 2026-07-05 backend restart 時に全 session ぶんの push が
@@ -114,6 +156,70 @@ def test_tier_b_bare_arrow_without_numbered_option_is_not_inline_tui():
     )
     verdict = analyze(_snap(tail), _new_state())
     assert verdict.state != PromptState.INLINE_TUI
+
+
+def test_tier_b_claude_code_feedback_dialog():
+    """実測: Claude Code の feedback dialog (= `1: Bad  2: Fine  3: Good  0: Dismiss`
+    が 1 行に横並び、 colon 区切り)。 前 hotfix (= v0.2.2) では colon + 横並びを
+    拾えず、 session がずっと feedback 待ちで chip が出ない状態だった (= 実 pane
+    dump で発覚)。"""
+    tail = (
+        "● How is Claude doing this session? (optional)\n"
+        "  1: Bad    2: Fine   3: Good   0: Dismiss\n"
+        "──────────────────────────────────────────────────\n"
+        "❯ "
+    )
+    verdict = analyze(_snap(tail), _new_state())
+    assert verdict.state == PromptState.INLINE_TUI, (
+        f"expected INLINE_TUI, got {verdict.state} ({verdict.reason})"
+    )
+
+
+def test_tier_b_stacked_colon_format():
+    """N: text の縦並びも拾う (= 一部 CLI が使う書式)。"""
+    tail = "Choose:\n❯ 1: alpha\n  2: beta\n  3: gamma"
+    verdict = analyze(_snap(tail), _new_state())
+    assert verdict.state == PromptState.INLINE_TUI
+
+
+def test_tier_b_tall_model_picker_full_options():
+    """実測 (= /model picker dump): 選択肢が 3 行折返しで縦に広がり、 pane には ❯ が
+    2 個 (= コマンド echo `❯ /model` と picker cursor `❯ 3. Fable`) 出る。 picker の
+    ❯ を選び、 全 5 option を拾えること。 8 行 tail では ❯ に届かず取り逃していた
+    (= 2026-07-05、 capture を 40 行に拡張して解決)。"""
+    tail = (
+        "❯ /model\n"
+        "──────────────────────────────────────\n"
+        "  Select model\n"
+        "  Switch between Claude models.\n"
+        "\n"
+        "    1. Default (recommended)  Opus 4.8 with 1M\n"
+        "                              context\n"
+        "    2. Opus                   Opus 4.8 with 1M\n"
+        "                              context\n"
+        "  ❯ 3. Fable ✔                Fable 5 · Most\n"
+        "                              capable\n"
+        "    4. Sonnet                 Sonnet 5\n"
+        "                              Efficient\n"
+        "    5. Haiku                  Haiku 4.5\n"
+        "                              Fastest\n"
+        "\n"
+        "  Enter to set as default · s to use this\n"
+        "  session only · Esc to cancel"
+    )
+    verdict = analyze(_snap(tail), _new_state())
+    assert verdict.state == PromptState.INLINE_TUI
+    assert verdict.input_mode == InputMode.NUMBERS
+    assert verdict.options == ["1", "2", "3", "4", "5"]
+
+
+def test_tail_hash_ignores_volatile_status_bar():
+    """rate-limit の分カウントダウンや spinner 経過秒が動いても、 内容が同じなら
+    hash は不変 (= 入力待ちの間に status bar の時計が進んでも idle 判定が壊れない)。"""
+    body = "  ❯ 1. Yes\n    2. No\n"
+    s1 = _snap(body + "  [Fable 5] 5h:60%(1h49m) 7d:23% ctx:42%")
+    s2 = _snap(body + "  [Fable 5] 5h:59%(1h48m) 7d:23% ctx:42%")
+    assert s1.tail_hash == s2.tail_hash
 
 
 # ---------------------------------------------------------------------------
@@ -173,12 +279,102 @@ def test_tier_c_needs_idle_after_input_grace():
     assert verdict.state != PromptState.TEXT_PROMPT
 
 
+def test_tier_c_skipped_when_claude_tui_owns_screen():
+    """実測 (= 2026-07-06): チャット本文の番号リストが pane に描画され、 numbered_menu
+    regex に誤 hit した。 pane 末尾に Claude の status bar が見えている = Claude TUI が
+    画面占有中 = subprocess の生 prompt は存在しえないので tier C は丸ごと skip。"""
+    tail = (
+        "修正案: 送信を 2 段に分ける:\n"
+        "  1. text paste (Enter なし)\n"
+        "  2. 短い delay を置いて Enter 単発送信\n"
+        "──────────────────────────────\n"
+        "❯ \n"
+        "──────────────────────────────\n"
+        "  [Fable 5] 5h:11%(4h49m) 7d:28% ctx:50%\n"
+        "  ⏵⏵ bypass permissions on (shift+tab to"
+    )
+    verdict = analyze(_snap(tail, now=10.0), _prime_state(tail, idle_since=0.0))
+    assert verdict.state != PromptState.TEXT_PROMPT
+
+
+def test_tier_c_alive_without_claude_status_bar():
+    """status bar が無い生 shell の prompt は従来どおり tier C が拾う。"""
+    tail = "Do you want to remove file.txt? [Y/n] "
+    verdict = analyze(_snap(tail, now=10.0), _prime_state(tail, idle_since=0.0))
+    assert verdict.state == PromptState.TEXT_PROMPT
+
+
 def test_tier_c_generic_fallback_only_at_tail():
     """会話 log 内で「[Y/n]」 が中間行に出るケース = 末尾でないので hit しない。"""
     tail = "The docs say [Y/n] is the confirm pattern.\nSee below.\n"
     verdict = analyze(_snap(tail, now=10.0), _prime_state(tail, idle_since=0.0))
     # 中間の [Y/n] は hit しない、 末尾は改行だけなので generic_q も miss。
     assert verdict.state != PromptState.TEXT_PROMPT
+
+
+# ---------------------------------------------------------------------------
+# Phase 4a: input_mode + options for quick-reply UI
+# ---------------------------------------------------------------------------
+
+
+def test_input_mode_numbers_for_claude_code_feedback_dialog():
+    tail = (
+        "● How is Claude doing this session?\n"
+        "  1: Bad    2: Fine   3: Good   0: Dismiss\n"
+        "──────────────────────────────────────\n"
+        "❯ "
+    )
+    verdict = analyze(_snap(tail), _new_state())
+    assert verdict.state == PromptState.INLINE_TUI
+    assert verdict.input_mode == InputMode.NUMBERS
+    assert verdict.options == ["1", "2", "3", "0"]
+    # Ink dialog は 1 打鍵で決定、 Enter 不要
+    assert verdict.key_requires_enter is False
+
+
+def test_input_mode_numbers_for_trust_folder_dialog():
+    tail = (
+        "──────────────────\n"
+        " ❯ 1. Yes, I trust this folder\n"
+        "   2. No, exit\n"
+        "──────────────────"
+    )
+    verdict = analyze(_snap(tail), _new_state())
+    assert verdict.state == PromptState.INLINE_TUI
+    assert verdict.input_mode == InputMode.NUMBERS
+    assert verdict.options == ["1", "2"]
+    assert verdict.key_requires_enter is False
+
+
+def test_input_mode_yn_for_confirm_prompt():
+    tail = "Do you want to remove file.txt? [Y/n] "
+    verdict = analyze(_snap(tail, now=10.0), _prime_state(tail, idle_since=0.0))
+    assert verdict.state == PromptState.TEXT_PROMPT
+    assert verdict.category == PromptCategory.CONFIRM_YN
+    assert verdict.input_mode == InputMode.YN
+    assert verdict.options == ["Y", "n"]
+    # shell prompt は Enter 要
+    assert verdict.key_requires_enter is True
+
+
+def test_input_mode_numbers_for_bash_select():
+    tail = "  1) foo\n  2) bar\n  3) baz\n#? "
+    verdict = analyze(_snap(tail, now=10.0), _prime_state(tail, idle_since=0.0))
+    assert verdict.state == PromptState.TEXT_PROMPT
+    assert verdict.category == PromptCategory.HASH_CHOICE
+    assert verdict.input_mode == InputMode.NUMBERS
+    assert verdict.options == ["1", "2", "3"]
+    assert verdict.key_requires_enter is True
+
+
+def test_input_mode_none_for_password_prompt():
+    tail = "[sudo] password for alice: "
+    verdict = analyze(_snap(tail, now=10.0), _prime_state(tail, idle_since=0.0))
+    assert verdict.state == PromptState.TEXT_PROMPT
+    assert verdict.category == PromptCategory.PASSWORD
+    # password は button 出さず手入力に任せる
+    assert verdict.input_mode == InputMode.NONE
+    assert verdict.options == []
 
 
 # ---------------------------------------------------------------------------

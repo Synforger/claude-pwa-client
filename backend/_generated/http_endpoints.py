@@ -164,6 +164,19 @@ class PostPtySidSendWithFilesResponse(BaseModel):
     saved_files: Optional[list[str]] = None
 
 
+class PostPtySidSendRawKeyRequest(BaseModel):
+    """POST /pty/{sid}/send-raw-key request body"""
+    model_config = ConfigDict(extra="forbid")
+    key: str  # 単一 printable char は literal、 Up/Down/Enter 等は tmux キー名
+    enter: Optional[bool] = None  # key 送信後に Enter を続けるか (= shell prompt 用、 Ink dialog は不要)
+
+
+class PostPtySidSendRawKeyResponse(BaseModel):
+    """POST /pty/{sid}/send-raw-key response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+
+
 class PostHooksEventRequest(BaseModel):
     """POST /hooks/event request body"""
     model_config = ConfigDict(extra="forbid")
