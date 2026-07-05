@@ -56,12 +56,10 @@ from backend.terminal.confirm import (
 )
 from backend.terminal.send_dedup import send_dedup
 from backend.terminal.session_resolver import (
-    AUTORESUME_MAX_AGE_DAYS as _AUTORESUME_MAX_AGE_DAYS,
     ensure_pty_session_for,
     last_resumable_claude_sid as _last_resumable_claude_sid,
     resolve_agent_cfg as _resolve_agent_cfg,
     resolve_autoresume_fallback as _resolve_autoresume_fallback,
-    resolve_cwd as _resolve_cwd,
     resolve_launch_alias as _resolve_launch_alias,
 )
 
