@@ -134,6 +134,11 @@ class DetectorState:
     last_input_sent_at: float = 0.0
     # 現在の state (= transition 判定用、 一度出した prompt を連発しない)
     current_state: PromptState = PromptState.ACTIVE
+    # 初回 tick 判定用。 True になるまでは 「ACTIVE → observed state」 の遷移を
+    # 通常の transition として扱わない (= backend restart 直後に全 session ぶんの
+    # push が一斉発火するのを防ぐ)。 loop 側で「初回 tick で観測した state を
+    # 追認する」 ハンドリングに使う。
+    seeded: bool = False
 
     def record_input_sent(self, now_sec: float) -> None:
         self.last_input_sent_at = now_sec
@@ -167,26 +172,45 @@ def _tier_a_alternate(snapshot: TailSnapshot) -> Optional[Verdict]:
 
 
 def _tier_b_inline_tui(snapshot: TailSnapshot) -> Optional[Verdict]:
+    """inline TUI 選択 dialog を検出。
+
+    実運用 hotfix: 「❯ + 罫線」 は Claude Code の通常入力画面 (= 素の input prompt +
+    horizontal rule 群 + bottom status bar の box drawing) にも当てはまるため、
+    single sig で inline_tui を出すと **Claude Code 起動中の全 session が push を吐く**
+    誤検知になる (= 2026-07-05 実測)。 判定は 「❯ 行の**近傍 3 行以内** に numbered
+    option が同居する」 という「実際に選択肢がある」 signature に絞る:
+
+        ❯ 1. Yes, I trust this folder
+          2. No, exit
+
+    もしくは:
+
+        Select an option:
+        ❯ development
+          staging
+          production
+
+    ❯ + 番号列挙 のペアが取れない (= 単独 `❯` 入力欄 / 通常会話) は tier B に落とさず
+    tier C / D に流す。
+    """
     tail = snapshot.tail_text
-    has_arrow = bool(_ARROW_CURSOR_RE.search(tail))
-    has_box = bool(_BOX_DRAWING_RE.search(tail))
-    # 罫線だけだと通常出力 (= claude 会話中の region separator) と衝突するので、
-    # ❯ カーソルがあるとき + 罫線 のときだけ inline TUI と判定 (= false positive 抑制)。
-    if has_arrow and has_box:
-        return Verdict(
-            state=PromptState.INLINE_TUI,
-            excerpt=_extract_arrow_menu_excerpt(tail),
-            bypass_mode_visible=snapshot.bypass_mode_visible,
-            reason="arrow_cursor+box",
+    lines = tail.splitlines()
+    for i, ln in enumerate(lines):
+        if not _ARROW_CURSOR_RE.match(ln):
+            continue
+        window = lines[max(0, i - 3): i + 4]
+        # ❯ 自体を含む window 内で「番号 option」 が 1 行でも見えれば selection UI。
+        numbered_hits = sum(
+            1 for w in window
+            if re.match(r"^\s*[❯▶➜→]?\s*[0-9]+[.)]\s+\S", w)
         )
-    if has_arrow:
-        # 罫線なしでも Inquirer の bare list は arrow のみ (= tier B 相当)。
-        return Verdict(
-            state=PromptState.INLINE_TUI,
-            excerpt=_extract_arrow_menu_excerpt(tail),
-            bypass_mode_visible=snapshot.bypass_mode_visible,
-            reason="arrow_cursor",
-        )
+        if numbered_hits >= 1:
+            return Verdict(
+                state=PromptState.INLINE_TUI,
+                excerpt=_extract_arrow_menu_excerpt(tail),
+                bypass_mode_visible=snapshot.bypass_mode_visible,
+                reason="arrow+numbered_option",
+            )
     return None
 
 
