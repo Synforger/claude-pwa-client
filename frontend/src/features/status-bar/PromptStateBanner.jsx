@@ -32,26 +32,9 @@ export function PromptStateBanner({ sid }) {
   const shape = BANNER_LABELS[entry.state]
   if (!shape) return null
 
-  // Type something 選択後の「回答入力中」 mode: 選択肢 UI を畳んで
-  // 「下の欄に入力して送信」 だけを出す (= pane にはまだ選択肢が見えたままなので、
-  // ボタンを残すと数字タップが text 入力に化ける、 2026-07-06 実機 feedback)。
-  //
-  // 「選択肢に戻る」 ボタンは**提供しない (= 一方向コミット)**。 表示だけ偽装して戻すと
-  // dialog は text mode のままで数字タップが文字化けし (実害 1 回目)、 本物の Escape を
-  // 送ると dialog ごとキャンセルされる (= 実害 2 回目、 2026-07-06 実機検証で確定)。
-  // 誤タップ時は選択肢の文言をそのまま文字で打てば同じ回答になる。
-  if (typing) {
-    return (
-      <div className="prompt-banner prompt-banner-typing" data-testid="prompt-state-banner">
-        <div className="prompt-typing-main">
-          <span className="prompt-typing-icon">✏️</span>
-          <span className="prompt-typing-text">{t('prompt.typing_answer')}</span>
-        </div>
-      </div>
-    )
-  }
-
   // 全文表示 (= 切らない)。 高さは CSS max-height + scroll で制御する。
+  // typing (= Type something 選択中) は controls 側が「案内 + ↑↓」 形に切り替わる
+  // (= excerpt は残す: pane の実況 = 入力行にカーソルが居るのが見えてる方が分かりやすい)。
   const excerpt = entry.excerpt || ''
 
   return (
@@ -63,7 +46,7 @@ export function PromptStateBanner({ sid }) {
       {excerpt ? (
         <pre className="prompt-banner-excerpt">{excerpt}</pre>
       ) : null}
-      <PromptReplyControls sid={sid} entry={entry} />
+      <PromptReplyControls sid={sid} entry={entry} typing={typing} />
       {/* 自由記述の導線: dialog が text 待ちの時も選択肢の "Other" 系でも、 通常の
           チャット送信 (= C-u wipe → paste → Enter) がそのまま dialog に刺さる。 専用
           入力欄は作らず既存の 1 入力欄に寄せる (= AskUserQuestion UI 統合の設計判断)。 */}
