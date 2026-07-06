@@ -108,7 +108,6 @@ def _build_all_status() -> dict:
             "todos": a["todos"],
             "subagent": a["subagent"],
             "pending_plan": a.get("pending_plan"),
-            "pending_question": a.get("pending_question"),
             "mode": a.get("mode") or "",
             "permission_mode": a.get("permission_mode") or "",
             "budget_used": a.get("budget_used"),
@@ -127,7 +126,7 @@ def _build_all_status() -> dict:
 
 
 def _build_sessions_overview() -> dict:
-    """全 session の busy / pending_question + last_seen_at を 1 dict で返す
+    """全 session の busy + last_seen_at を 1 dict で返す
     (= /sessions/overview/stream payload)。
 
     busy は monitor_all_sessions_loop が JSONL から算出した backend 権威値 (= chat SSE の
@@ -143,7 +142,6 @@ def _build_sessions_overview() -> dict:
         a = agent_status.get(sid) or {}
         out[sid] = {
             "busy": bool(st.busy) if st is not None else False,
-            "pending_question": bool(a.get("pending_question")),
             "last_seen_at": session_last_seen_at.get(sid),
         }
     return out

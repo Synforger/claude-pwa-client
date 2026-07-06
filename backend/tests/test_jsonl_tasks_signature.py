@@ -66,7 +66,7 @@ def test_task_reminder_no_change_does_not_dirty_flag(isolated_state):
     sid = "ses_tr"
     state.agent_status[sid] = {
         "tasks": [], "current_tool": None, "todos": None, "subagent": None,
-        "pending_question": None, "pending_plan": None, "plan_mode": False,
+        "pending_plan": None, "plan_mode": False,
         "model": "", "ctx_pct": 0, "ctx_window": 1_000_000,
         "pr_links": [], "mode": "", "permission_mode": "",
         "budget_used": None, "budget_total": None, "budget_remaining": None,
@@ -90,7 +90,7 @@ def test_empty_task_reminder_does_not_wipe_existing_tasks(isolated_state):
     state.agent_status[sid] = {
         "tasks": [_t("1", "a"), _t("2", "b")],
         "current_tool": None, "todos": None, "subagent": None,
-        "pending_question": None, "pending_plan": None, "plan_mode": False,
+        "pending_plan": None, "plan_mode": False,
         "model": "", "ctx_pct": 0, "ctx_window": 1_000_000,
         "pr_links": [], "mode": "", "permission_mode": "",
         "budget_used": None, "budget_total": None, "budget_remaining": None,
@@ -107,7 +107,7 @@ def test_empty_task_reminder_when_tasks_already_empty_stays_empty(isolated_state
     sid = "ses_tr_both_empty"
     state.agent_status[sid] = {
         "tasks": [], "current_tool": None, "todos": None, "subagent": None,
-        "pending_question": None, "pending_plan": None, "plan_mode": False,
+        "pending_plan": None, "plan_mode": False,
         "model": "", "ctx_pct": 0, "ctx_window": 1_000_000,
         "pr_links": [], "mode": "", "permission_mode": "",
         "budget_used": None, "budget_total": None, "budget_remaining": None,
@@ -124,7 +124,7 @@ def test_task_reminder_status_change_dirty_flag(isolated_state):
     state.agent_status[sid] = {
         "tasks": [_t("1", "a", status="pending")],
         "current_tool": None, "todos": None, "subagent": None,
-        "pending_question": None, "pending_plan": None, "plan_mode": False,
+        "pending_plan": None, "plan_mode": False,
         "model": "", "ctx_pct": 0, "ctx_window": 1_000_000,
         "pr_links": [], "mode": "", "permission_mode": "",
         "budget_used": None, "budget_total": None, "budget_remaining": None,

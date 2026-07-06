@@ -30,7 +30,6 @@ from backend.core.push import broadcast_push, notification_title_for
 import backend.jsonl.watcher as jsonl_watcher  # backend-F-40: 旧版は関数内 import で循環回避
 from backend.jsonl.session_status import (
     apply_immediate_stop as _apply_immediate_stop,
-    apply_pending_question as _apply_pending_question,
 )
 from backend.state import sessions_meta
 
@@ -143,7 +142,7 @@ async def hooks_event(request: Request) -> dict:
     # 再発火するので新 claude_sid に自動追従する。
     # PreToolUse(AskUserQuestion): 質問が表示された瞬間にリアルタイム発火する
     # (= JSONL は回答まで flush されないので tail では検出不可、 実測で確認済み)。
-    # ここで pending_question を立てて status SSE 経由で frontend にライブ表示させる。
+
     # PWA 判定は X-PWA-SID header (= statusline map 逆引きに依存しない確定経路、
     # SessionStart と同じ)。 tool_use_id は payload に無いので None で立て、 回答後 flush
     # の JSONL AskUserQuestion tool_use 行から補完する (= jsonl_routes._mutate_agent_status)。
@@ -228,24 +227,13 @@ class _HookSpec:
 
 async def _handle_pre_tool_use(ctx: HookContext) -> dict:
     """PreToolUse: 質問が表示された瞬間にリアルタイム発火する (= JSONL は回答まで flush
-    されないので tail では検出不可)。 ここで pending_question を立てて status SSE 経由で
-    frontend にライブ表示させる。 PWA 判定は X-PWA-SID header。
+    されないので tail では検出不可)。
     """
     payload = ctx.payload
     tool_name = payload.get("tool_name")
-    tool_input = payload.get("tool_input") or {}
-    if tool_name == "AskUserQuestion" and ctx.pwa_sid_hdr:
-        # backend-F-69: hook の pending_question mutate は apply_pending_question に集約。
-        # hook が tool_use_id=None で立て、 JSONL tail が真の id で補完する正常経路は不変、
-        # 重複到着で既知 id を None で潰す race のみ消える。
-        questions = tool_input.get("questions") or []
-        if questions and isinstance(questions, list):
-            applied = _apply_pending_question(ctx.pwa_sid_hdr, questions, tool_use_id=None)
-            if applied:
-                logger.info(
-                    "PreToolUse AskUserQuestion → pending_question merged: pwa_sid=%s nq=%d",
-                    ctx.pwa_sid_hdr, len(questions),
-                )
+    # Phase 2 (= 2026-07-06): PreToolUse での pending_question 先行 set は退役。
+    # 質問の frontend 表示は JSONL 由来の SSE `ask_user_question` event が真値で、
+    # ライブ回答 UI は prompt detector banner が担う。
     return {"ok": True, "observed": tool_name}
 
 
