@@ -247,14 +247,22 @@ class DetectorState:
 
 
 def _tier_a_alternate(snapshot: TailSnapshot) -> Optional[Verdict]:
-    if snapshot.alternate_on:
-        return Verdict(
-            state=PromptState.TUI,
-            excerpt="",  # 全画面 TUI は text 抽出しない (= redraw が激しく意味を成さない)
-            bypass_mode_visible=snapshot.bypass_mode_visible,
-            reason="alternate_on=1",
-        )
-    return None
+    if not snapshot.alternate_on:
+        return None
+    if _claude_tui_owns_screen(snapshot.tail_text):
+        # claude 2.1.201 で「alternate flag は立ってるが画面は Claude TUI 本体」 の pane
+        # を実測 (= 2026-07-06 会社 PC、 10 pane 中 4 本が常時 1)。 当初の実測前提
+        # 「Claude Code は alternate screen を使わない」 が claude 側更新で崩れたため、
+        # 可視内容が Claude TUI (= status bar / bypass chip が末尾に居る) なら tier A を
+        # 出さず下位 tier に流す。 vim / less 等の本物の全画面 TUI は status bar を
+        # 持たないので従来通り検出される。
+        return None
+    return Verdict(
+        state=PromptState.TUI,
+        excerpt="",  # 全画面 TUI は text 抽出しない (= redraw が激しく意味を成さない)
+        bypass_mode_visible=snapshot.bypass_mode_visible,
+        reason="alternate_on=1",
+    )
 
 
 # tier B の option 行 signature。
