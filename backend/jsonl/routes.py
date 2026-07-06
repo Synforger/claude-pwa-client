@@ -217,6 +217,13 @@ async def _jsonl_sse(session_id: str, start_pos: int | None = None):
     for frame in _lines_to_sse(lines, pos, session_id):
         yield frame
 
+    # prompt_state snapshot: JSONL に無い ephemeral event なので replay に乗らない。
+    # 切断中に「復帰」 遷移を取りこぼした client の stale banner を接続時に必ず現実へ
+    # 収束させる (= detector 未 tick の sid は active 合成 event で消灯)。
+    from backend.terminal.prompt_detector_loop import current_prompt_event  # noqa: PLC0415
+    snap = _inject_envelope(current_prompt_event(session_id), session_id)
+    yield f"id: {pos}\ndata: {json.dumps(snap, ensure_ascii=False)}\n\n"
+
     # live: broadcaster Queue subscriber に切替。 mutator / publish は monitor 単一経路。
     queue = jsonl_event_broadcaster.subscribe(session_id)
     try:
@@ -319,6 +326,12 @@ async def _jsonl_sse_all(start_pos_map: dict[str, int]):
         for event in _lines_to_events(lines):
             _inject_envelope(event, sid)
             yield f"id: {sid}:{new_pos}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    # 2.5) prompt_state snapshot (= per-sid 経路と同じ理由、 全 sid ぶん)。
+    from backend.terminal.prompt_detector_loop import current_prompt_event  # noqa: PLC0415
+    for sid in list(_sm.keys()):
+        snap = _inject_envelope(current_prompt_event(sid), sid)
+        yield f"id: {sid}:{replay_pos.get(sid, 0)}\ndata: {json.dumps(snap, ensure_ascii=False)}\n\n"
 
     # 3) live: broadcaster "all" subscriber に切替。
     queue = jsonl_event_broadcaster.subscribe(ALL_SUBSCRIBER_KEY)
