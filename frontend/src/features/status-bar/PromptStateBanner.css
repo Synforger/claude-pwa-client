@@ -88,8 +88,8 @@
 }
 .prompt-banner-back {
   flex-shrink: 0;
-  font-size: 11px;
-  padding: 2px 8px;
+  font-size: 13px;
+  padding: 5px 12px;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: transparent;
@@ -98,13 +98,14 @@
   cursor: pointer;
 }
 
-/* 回答入力中 mode の強調 layout (= 2026-07-06 実機 feedback: 小さい注記では気付けない) */
+/* 回答入力中 mode の layout (= 2026-07-06 実機 feedback 2 回目: 初版は小さすぎ、
+   2 版はデカすぎ。 箱はコンパクトに、 文言と戻るボタンは読める大きさに)。 */
 .prompt-banner-typing {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 14px 12px;
+  gap: 8px;
+  padding: 10px 12px;
   border-color: #e8b34b;
   background: rgba(232, 179, 75, 0.10);
 }
@@ -114,15 +115,10 @@
   gap: 8px;
 }
 .prompt-typing-icon {
-  font-size: 20px;
+  font-size: 16px;
 }
 .prompt-typing-text {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
   color: #e8b34b;
-}
-.prompt-typing-arrow {
-  font-size: 18px;
-  color: #e8b34b;
-  line-height: 1;
 }
