@@ -25,6 +25,7 @@ import asyncio
 import logging
 
 from backend.core.push import broadcast_push
+from backend.observability.metrics import metrics
 from backend.state import jsonl_event_broadcaster, sessions_meta
 from backend.terminal.prompt_detector import (
     DetectorConfig,
@@ -184,6 +185,7 @@ async def _tick_one(
     if alt is None:
         # tmux が返さない (= 一時的に応答遅延) 場合は「不明」 として False 扱い
         alt = False
+    metrics.inc("detector.captures")
     tail = await asyncio.to_thread(capture_pane_plain_tail, sid) or ""
     now = asyncio.get_running_loop().time()
     snapshot = TailSnapshot(alternate_on=alt, tail_text=tail, now_sec=now)
@@ -217,6 +219,7 @@ async def _tick_one(
     # publish するのは Phase 4b (arrow picker) で ❯ 位置更新を banner に反映するため。
     event = _build_event(sid, verdict)
     _last_events[sid] = event
+    metrics.inc("detector.publish")
     jsonl_event_broadcaster.publish(sid, dict(event))
 
     # Web Push: 「入力待ち」 系への **遷移** だけ (= excerpt 変化のみでは push しない)。
