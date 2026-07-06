@@ -9,7 +9,7 @@ import logging
 import subprocess
 import time
 
-import backend.core.maintenance as m
+import backend.maintenance as m
 
 
 def _patch_tmux(monkeypatch, *, list_stdout, kill_calls):

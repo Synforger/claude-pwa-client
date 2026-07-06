@@ -215,7 +215,7 @@ def cleanup_old_jsonl(
     # 現在 PWA タブが bind 中の jsonl は idle でも保護する。
     bound_paths: set[str] = set()
     try:
-        import backend.jsonl.watcher as jsonl_watcher  # noqa: PLC0415
+        import backend.core.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
         for info in jsonl_watcher.list_bindings().values():
             jp = info.get("jsonl_path")
             if info.get("confirmed") and jp:

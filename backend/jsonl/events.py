@@ -17,20 +17,9 @@ from __future__ import annotations
 
 import re
 
-# claude が JSONL の user 行に書く harness 内部表現を検出するための regex (= 公開)。
-# 該当行はユーザ発話ではないので chat には出さない + busy 判定でも除外する
-# (jsonl_routes._is_user_prompt が import して使う)。
-# 既知パターン (= 2026-05-24 実機 dump で確認):
-#   <command-name>/clear</command-name>           ← slash command 起動
-#   <command-message>clear</command-message>      ← 上記の続き
-#   <command-args>sonnet</command-args>           ← 上記の続き (引数)
-#   <local-command-stdout>...ANSI...</local-command-stdout>  ← slash command の応答
-#   <local-command-stderr>...</local-command-stderr>         ← 上記の error 版 (将来用)
-# 後発の `<local-command-*>` を catch-all で潰すため、 prefix で広めに wildcard 一致。
-HARNESS_XML_RE = re.compile(
-    r"^\s*<(command-name|command-message|command-args|local-command-[a-z-]+)\b"
-)
-
+# harness 内部表現 / interrupt marker の判定 regex は行レベル純粋プリミティブとして
+# core/jsonl_predicates.py に集約 (= jsonl / terminal 両 subsystem が使う共有底層)。
+from backend.core.jsonl_predicates import HARNESS_XML_RE
 
 # harness が background task (= Monitor / バックグラウンド Bash 等) の完了時に user 行として
 # JSONL に書く `<task-notification>...` ブロック。 これはユーザの発話ではなく harness 通知なので、
@@ -38,14 +27,6 @@ HARNESS_XML_RE = re.compile(
 # ただし busy 判定 (jsonl_session_status.is_user_prompt) では除外しない: 完了通知を受けて claude が
 # 実際に proactive turn を走らせるため、 その間 busy=True で停止可能なのが公式の正しい挙動。
 _TASK_NOTIFICATION_RE = re.compile(r"^\s*<task-notification\b")
-
-# claude TUI が「停止ボタン押下」「Esc」 等で turn を中断した時に user 行として書く marker。
-# 公式 claude CLI が string content / list 内 text どちらでも書きうる固定文字列。 これはユーザの
-# 発話ではなく「中断が完了した」 という終端 marker。 busy 判定でユーザ発話扱いすると claude プロセスは
-# 既に止まっていて応答 (= 終端 stop_reason 行) が来ないため、 busy=True が永遠に落ちず停止ボタンが
-# 送信ボタンに戻らない (2026-06-04 真因確定、 これまでの単一権威化 / probe 観測でも消えなかった元凶)。
-# 後方 / 前方の空白だけ許容、 大小無視。
-INTERRUPT_USER_RE = re.compile(r"^\s*\[request interrupted by user\]\s*$", re.IGNORECASE)
 
 
 def _extract_tag(text: str, tag: str) -> str | None:

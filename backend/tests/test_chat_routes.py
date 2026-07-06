@@ -175,7 +175,7 @@ def test_resolve_jsonl_live_delegates_to_runner(monkeypatch, isolated_state):
 
 def test_resolve_jsonl_project_dir_uses_account_aware_lookup(tmp_path, monkeypatch, isolated_state):
     """prefer="project_dir" は SessionDef.account_id を _cwd_to_project_dir に渡す。"""
-    import backend.jsonl.watcher as jsonl_watcher
+    import backend.core.jsonl_watcher as jsonl_watcher
     from backend.jsonl import resolver
     from backend.config import AGENTS
     state = isolated_state
@@ -195,7 +195,7 @@ def test_resolve_jsonl_project_dir_uses_account_aware_lookup(tmp_path, monkeypat
 
 def test_resolve_jsonl_scan_returns_mtime_desc(tmp_path, monkeypatch, isolated_state):
     """prefer="scan" は project_dir 配下の jsonl を mtime desc で返す。"""
-    import backend.jsonl.watcher as jsonl_watcher
+    import backend.core.jsonl_watcher as jsonl_watcher
     from backend.jsonl import resolver
     from backend.config import AGENTS
     state = isolated_state
@@ -223,7 +223,7 @@ def test_resolve_jsonl_scan_empty_when_project_dir_missing(monkeypatch, isolated
     monkeypatch.setattr(pty_runner, "jsonl_path_for_session", lambda sid: None)
     # AGENTS[aid].cwd は test conftest で home dir (= 実在) が入ってるので
     # 実在 dir に何も jsonl が無いケース = []
-    import backend.jsonl.watcher as jsonl_watcher
+    import backend.core.jsonl_watcher as jsonl_watcher
     monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir",
                         lambda cwd, account_id=None: __import__("pathlib").Path("/no/such/dir/ever"))
     out = resolver.resolve_jsonl(sess.id, prefer="scan")
