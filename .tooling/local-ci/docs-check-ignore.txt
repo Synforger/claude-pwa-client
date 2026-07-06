@@ -28,3 +28,4 @@ backend/data/subscriptions.json
 backend/secrets/vapid.json
 logs/backend.access.log
 logs/backend.error.log
+backend/core/maintenance.py   # sunshine.md: historical path of removed code; git history lives under it

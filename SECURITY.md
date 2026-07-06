@@ -55,6 +55,7 @@ See `README.md § セキュリティモデル` for the same description in Japan
 | 2026-06-29 | `pip-audit` (90+ Python packages incl. transitive) | clean after upgrading aiohttp / starlette / pyjwt / cryptography / python-multipart |
 | 2026-06-29 | `npm audit` (122+ npm packages incl. dev) | 0 vulnerabilities |
 | 2026-06-29 | `gitleaks detect` (all 678 commits) | 1 RSA private key found in an iOS native pairing artifact (added May 2026, deleted in a later commit). History rewritten via `git filter-repo --invert-paths`, all refs force-pushed; the leaked key has been revoked / unpaired on the corresponding Sunshine host. Post-rewrite gitleaks rescan = clean |
+| 2026-07-06 | `pip-audit` / `npm audit` / `gitleaks detect` (full history) | all clean (pre-release audit for v1.0.0) |
 
 To run the full audit suite locally:
 ```bash
