@@ -3,7 +3,6 @@ import { useT } from '../../i18n/t.js'
 import {
   getSnapshot as getPromptSnapshot,
   selectFor,
-  selectTypingAnswer,
   subscribe as subscribePrompt,
 } from '../../state/promptState.js'
 import { PromptReplyControls } from './PromptReplyControls.jsx'
@@ -27,13 +26,12 @@ export function PromptStateBanner({ sid }) {
   const t = useT()
   const snapshot = useSyncExternalStore(subscribePrompt, getPromptSnapshot)
   const entry = selectFor(snapshot, sid)
-  const typing = selectTypingAnswer(snapshot, sid)
   if (!entry) return null
   const shape = BANNER_LABELS[entry.state]
   if (!shape) return null
 
   // 全文表示 (= 切らない)。 高さは CSS max-height + scroll で制御する。
-  // typing (= Type something 選択中) は controls 側が「案内 + ↑↓」 形に切り替わる
+  // Type something 選択中の表示切替は controls 側が excerpt から自律判定する
   // (= excerpt は残す: pane の実況 = 入力行にカーソルが居るのが見えてる方が分かりやすい)。
   const excerpt = entry.excerpt || ''
 
@@ -46,7 +44,7 @@ export function PromptStateBanner({ sid }) {
       {excerpt ? (
         <pre className="prompt-banner-excerpt">{excerpt}</pre>
       ) : null}
-      <PromptReplyControls sid={sid} entry={entry} typing={typing} />
+      <PromptReplyControls sid={sid} entry={entry} />
       {/* 自由記述の導線: dialog が text 待ちの時も選択肢の "Other" 系でも、 通常の
           チャット送信 (= C-u wipe → paste → Enter) がそのまま dialog に刺さる。 専用
           入力欄は作らず既存の 1 入力欄に寄せる (= AskUserQuestion UI 統合の設計判断)。 */}

@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useT } from '../../i18n/t.js'
 import { apiFetch } from '../../utils/api.js'
-import { setTypingAnswer } from '../../state/promptState.js'
 
 // prompt_state.input_mode に応じた quick-reply UI (= Phase 4a)。
 //
@@ -15,12 +14,12 @@ import { setTypingAnswer } from '../../state/promptState.js'
 // tap したら POST /pty/{sid}/send-raw-key → backend が tmux に流す。 結果 chip は
 // 次 poll (= 500ms) で state 遷移して自然に消える。
 
-// pane excerpt から自由記述 option (= "N. Type something") の数字を読む。 無ければ null。
-// 位置 (= 最後の数字) では判定しない: claude の TUI は "Type something" の後に
-// "Chat about this" 等の行を足すことがあり、 並び順は version で変わる。
-export function freeTextDigit(entry) {
-  const m = (entry?.excerpt || '').match(/(\d+)[.)]\s*Type something/i)
-  return m ? m[1] : null
+// カーソル (= ❯) が "Type something" 行に乗っているか (= 自由記述の入力中か) を pane の
+// excerpt から直接読む。 ローカル flag で追わないのが要点: タップ / ↑↓ / 端末直叩きの
+// どの経路でカーソルが動いても、 表示は常に pane の真値に追従する (= 2026-07-06 に
+// ローカル flag 方式が 2 回実機で破綻した教訓)。
+export function cursorOnTypeSomething(entry) {
+  return /^\s*[❯▶➜→]\s*\d+[.)]\s*Type something/im.test(entry?.excerpt || '')
 }
 
 export async function sendRawKey(sid, key, enter) {
@@ -33,10 +32,12 @@ export async function sendRawKey(sid, key, enter) {
   } catch { /* 送信失敗はサイレント (= 通常 chip が消えないだけ、 再 tap で復帰) */ }
 }
 
-export function PromptReplyControls({ sid, entry, typing = false }) {
+export function PromptReplyControls({ sid, entry }) {
   const t = useT()
   const [pending, setPending] = useState(false)
   if (!entry || !sid) return null
+  // 表示状態は pane の現実 (= excerpt) だけから導出する
+  const typing = cursorOnTypeSomething(entry)
   const { inputMode, options, keyRequiresEnter } = entry
   if (inputMode !== 'numbers' && inputMode !== 'yn' && inputMode !== 'arrows') return null
 
@@ -98,11 +99,10 @@ export function PromptReplyControls({ sid, entry, typing = false }) {
   const keys = inputMode === 'yn' ? ['Y', 'n'] : (options || [])
   if (keys.length === 0) return null
 
-  // カーソル移動 (= ↑↓)。 Type something 選択中なら「カーソルが入力行から離れる」 ので
-  // 回答入力中 flag も同時に下ろす (= 実機確認 2026-07-06: ↑↓ が text 入力からの正規の
-  // 戻り道。 Esc は dialog ごとキャンセルなので使わない)。
+  // カーソル移動 (= ↑↓)。 Type something からの正規の戻り道 (= 実機確認 2026-07-06、
+  // Esc は dialog ごとキャンセルなので使わない)。 表示は次の excerpt 更新 (= send 後の
+  // poke_now で ~100ms) が現実を映す。
   const handleArrow = (key) => {
-    if (typing) setTypingAnswer(sid, false)
     handleTap(key, false)
   }
 
@@ -142,17 +142,7 @@ export function PromptReplyControls({ sid, entry, typing = false }) {
           type="button"
           className="prompt-reply-btn"
           disabled={pending}
-          onClick={() => {
-            // "Type something" (= 自由記述の入口) の数字を選んだ瞬間に「回答入力中」
-            // mode に切替える (= 以降の数字タップが text 入力に化ける事故を防ぐ)。
-            // 数字は位置で仮定しない: claude は "Type something" の後に "Chat about
-            // this" 等を足すことがある (= 2026-07-06 実測で 5 択化) ので、 pane の
-            // excerpt から「N. Type something」 の N を直接読む。
-            if (k === freeTextDigit(entry)) {
-              setTypingAnswer(sid, true)
-            }
-            handleTap(k)
-          }}
+          onClick={() => handleTap(k)}
           aria-label={`Send ${k}`}
           data-testid={`prompt-reply-btn-${k}`}
         >
