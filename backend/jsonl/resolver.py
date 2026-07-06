@@ -29,7 +29,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal, Optional, Union, overload
 
-import backend.jsonl.watcher as _jsonl_watcher
+import backend.core.jsonl_watcher as _jsonl_watcher
 import backend.terminal.runner as _pty_runner
 from backend.state import sessions_meta
 
