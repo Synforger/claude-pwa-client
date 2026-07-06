@@ -60,14 +60,17 @@ def test_per_sid_sse_replays_from_file_and_subscribes(isolated_state, monkeypatc
             await asyncio.sleep(0.01)
             state_mod.jsonl_event_broadcaster.publish(sid, live_event)
         pub_task = asyncio.create_task(publisher())
-        frame2 = await asyncio.wait_for(gen.__anext__(), timeout=1.0)
-        await pub_task
-        # keep-alive か live event のどちらか。 timeout=_IDLE_MAX_INTERVAL(2s) より速いので live のはず
-        if frame2.startswith(":"):
-            # keep-alive を踏んだら次を待つ
+        # keep-alive / prompt_state snapshot (= 接続時の初期配信) を透過して live event を待つ
+        payload2 = None
+        for _ in range(4):
             frame2 = await asyncio.wait_for(gen.__anext__(), timeout=2.5)
-        payload2 = json.loads(frame2.split("data: ", 1)[1].strip())
-        assert payload2.get("uuid") == "live1"
+            if frame2.startswith(":"):
+                continue
+            payload2 = json.loads(frame2.split("data: ", 1)[1].strip())
+            if payload2.get("type") != "prompt_state":
+                break
+        await pub_task
+        assert payload2 is not None and payload2.get("uuid") == "live1"
         # cleanup
         await gen.aclose()
 
@@ -108,8 +111,8 @@ def test_all_sse_fans_out_multiple_sids(isolated_state, monkeypatch, tmp_path):
             })
         pub_task = asyncio.create_task(publisher())
         seen_sids = set()
-        # 最大 5 frame まで待つ (= keep-alive を踏むことがあるので余裕を持つ)
-        for _ in range(5):
+        # 最大 8 frame まで待つ (= keep-alive + prompt_state snapshot ×2 を踏むことがある)
+        for _ in range(8):
             frame = await asyncio.wait_for(gen.__anext__(), timeout=2.5)
             if frame.startswith(":"):
                 continue
