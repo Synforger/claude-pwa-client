@@ -110,3 +110,26 @@ describe('MessageItem render smoke', () => {
     expect(container.textContent).toContain('画像を送ります')
   })
 })
+
+describe('queued user message', () => {
+  it('queue 中の user bubble に順番待ちバッジが出る', () => {
+    const { container } = render(
+      <MessageItem
+        {...baseProps}
+        msg={{ id: 'q1', role: 'user', text: 'second message', optimistic: true, queued: true }}
+      />,
+    )
+    expect(container.querySelector('.queued-note')).toBeTruthy()
+  })
+
+  it('sendFailed が優先され queued バッジは出ない', () => {
+    const { container } = render(
+      <MessageItem
+        {...baseProps}
+        msg={{ id: 'q2', role: 'user', text: 'x', optimistic: true, queued: true, sendFailed: true }}
+      />,
+    )
+    expect(container.querySelector('.queued-note')).toBeNull()
+    expect(container.querySelector('.send-failed-note')).toBeTruthy()
+  })
+})

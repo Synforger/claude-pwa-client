@@ -178,5 +178,6 @@
   "ask.waiting": "❓ 回答待ち — 下のバナーか端末から回答",
   "prompt.free_text_hint": "Type something = 下の欄に入力して送信 ・ Chat about this = ⏎ のあと普通にチャット",
   "chat.input.answer_placeholder": "回答を入力 — 送信でそのまま質問への回答になります",
-  "prompt.typing_answer_short": "回答欄に記入して送信"
+  "prompt.typing_answer_short": "回答欄に記入して送信",
+  "chat.queued": "⏳ 順番待ち — 今の推論が終わったら実行"
 }
