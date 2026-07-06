@@ -105,7 +105,7 @@ function ChatInputInner({
   }, [])
 
   return (
-    <div className="inputarea" ref={inputAreaRef}>
+    <div className={`inputarea${answerMode ? ' answer-mode' : ''}`} ref={inputAreaRef}>
       <textarea
         value={localText}
         onChange={e => setLocalText(e.target.value)}

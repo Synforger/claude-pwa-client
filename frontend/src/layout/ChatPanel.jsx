@@ -322,7 +322,7 @@ export default function ChatPanel({ sid }) {
 
       {/* tmux pane 入力待ち banner (= 2026-07-05 StatusBar chip から移設)。 待ち系
           state の時だけ出現、 excerpt + quick-reply button を入力欄の直上に出す。 */}
-      <PromptStateBanner sid={activeSid} answerPending={answerMode} />
+      <PromptStateBanner sid={activeSid} />
 
       <ActivityBar status={status} />
 

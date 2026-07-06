@@ -662,3 +662,10 @@ button:disabled {
   line-height: 1;
   cursor: pointer;
 }
+
+/* 回答モード (= 未回答の AskUserQuestion がある間) の入力欄強調。 placeholder の文言
+   変更だけでは気付けない (= 2026-07-06 実機 feedback) ので枠ごと変える。 */
+.inputarea.answer-mode textarea {
+  border-color: #e8b34b;
+  box-shadow: 0 0 0 1px rgba(232, 179, 75, 0.35);
+}

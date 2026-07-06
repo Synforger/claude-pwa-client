@@ -14,6 +14,14 @@ import { setTypingAnswer } from '../../state/promptState.js'
 // tap したら POST /pty/{sid}/send-raw-key → backend が tmux に流す。 結果 chip は
 // 次 poll (= 500ms) で state 遷移して自然に消える。
 
+// pane excerpt から自由記述 option (= "N. Type something") の数字を読む。 無ければ null。
+// 位置 (= 最後の数字) では判定しない: claude の TUI は "Type something" の後に
+// "Chat about this" 等の行を足すことがあり、 並び順は version で変わる。
+export function freeTextDigit(entry) {
+  const m = (entry?.excerpt || '').match(/(\d+)[.)]\s*Type something/i)
+  return m ? m[1] : null
+}
+
 async function sendRawKey(sid, key, enter) {
   try {
     await apiFetch(`/pty/${encodeURIComponent(sid)}/send-raw-key`, {
@@ -24,7 +32,7 @@ async function sendRawKey(sid, key, enter) {
   } catch { /* 送信失敗はサイレント (= 通常 chip が消えないだけ、 再 tap で復帰) */ }
 }
 
-export function PromptReplyControls({ sid, entry, answerPending = false }) {
+export function PromptReplyControls({ sid, entry }) {
   const [pending, setPending] = useState(false)
   if (!entry || !sid) return null
   const { inputMode, options, keyRequiresEnter } = entry
@@ -90,18 +98,19 @@ export function PromptReplyControls({ sid, entry, answerPending = false }) {
 
   return (
     <span className="prompt-reply-controls" data-testid="prompt-reply-controls">
-      {keys.map((k, i) => (
+      {keys.map(k => (
         <button
           key={k}
           type="button"
           className="prompt-reply-btn"
           disabled={pending}
           onClick={() => {
-            // 未回答の AskUserQuestion がある時、 最後の数字 = TUI が自動で足す
-            // "Type something" (= 自由記述の入口)。 選んだ瞬間に banner を
-            // 「回答入力中」 mode に切替える (= 以降の数字タップが text 入力に
-            // 化ける事故を防ぐ、 2026-07-06 実害の再発防止)。
-            if (answerPending && inputMode === 'numbers' && i === keys.length - 1) {
+            // "Type something" (= 自由記述の入口) の数字を選んだ瞬間に banner を
+            // 「回答入力中」 mode に切替える (= 以降の数字タップが text 入力に化ける
+            // 事故を防ぐ)。 数字は位置で仮定しない: claude は "Type something" の後に
+            // "Chat about this" 等を足すことがある (= 2026-07-06 実測で 5 択化) ので、
+            // pane の excerpt から「N. Type something」 の N を直接読む。
+            if (k === freeTextDigit(entry)) {
               setTypingAnswer(sid, true)
             }
             handleTap(k)
