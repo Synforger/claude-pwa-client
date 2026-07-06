@@ -176,5 +176,6 @@
   "overlay.load_failed": "Failed to load this view",
   "overlay.app_update": "Update app",
   "ask.waiting": "❓ Waiting for your answer — reply via the banner below or the terminal",
-  "prompt.free_text_hint": "You can also type a reply in the message box below."
+  "prompt.free_text_hint": "You can also type a reply in the message box below.",
+  "chat.input.answer_placeholder": "Type your answer — sending replies to the question"
 }

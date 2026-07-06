@@ -176,5 +176,6 @@
   "overlay.load_failed": "画面の読込に失敗しました",
   "overlay.app_update": "アプリ更新",
   "ask.waiting": "❓ 回答待ち — 下のバナーか端末から回答",
-  "prompt.free_text_hint": "下のメッセージ欄から文字でそのまま回答もできます"
+  "prompt.free_text_hint": "下のメッセージ欄から文字でそのまま回答もできます",
+  "chat.input.answer_placeholder": "回答を入力 — 送信でそのまま質問への回答になります"
 }

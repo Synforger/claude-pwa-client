@@ -236,6 +236,9 @@ export default function ChatPanel({ sid }) {
   // F-01 (= 2026-06-21): dep を `messages` (= 全 sid 入り dict) → `activeMsgs` (= activeSid の
   // slice) に絞り、 他 sid の flush で displayMessages が recompute されないようにする。
   const activeMsgs = activeSid ? (messages[activeSid] || null) : null
+  // 未回答の AskUserQuestion がある間、 チャット入力欄を「回答モード」 表示に切り替える
+  // (= Type something 選択後は選択肢 banner が消えるので、 誘導は入力欄の placeholder で出す)。
+  const answerMode = !!activeMsgs?.some(m => m.askUserQuestion && !m.askUserQuestion.answered)
   const displayMessages = useMemo(() => {
     if (!activeSid) return []
     const DISPLAY_LIMIT = 100
@@ -352,6 +355,7 @@ export default function ChatPanel({ sid }) {
           onSendFailedConsumed={handleSendFailedConsumed}
           stopUnavailable={stopUnavailableSid === activeSid}
           onStopRecovered={handleStopRecovered}
+          answerMode={answerMode}
         />
       </div>
 
