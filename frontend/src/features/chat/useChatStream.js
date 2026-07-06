@@ -364,22 +364,6 @@ export function useChatStream({
     // ok:True なら SSE 経由の reconcile を信じる (= 旧 SEND_TIMEOUT 15s timer は backend 確認と
     // 二重で session-end 直後の SSE publish race を踏むと誤発火する false positive 経路だった、
     // 2026-06-30 撤去)。
-    // confirmed:false (= 送信は成功したが JSONL に user 行が出ない = claude が turn 実行中で
-    // queue に積まれた) を楽観 bubble に「⏳ 順番待ち」 として可視化する。 queue から
-    // 取り込まれる (= JSONL に user 行が書かれる) と reconcile が bubble ごと本物に置換
-    // するので、 バッジは機械的に消える (= 「実は 2 個目を推論中なのに UI 無言」 の解消)。
-    const markQueued = () => {
-      setMessages(prev => {
-        const arr = prev[sid] || []
-        const idx = arr.findIndex(m => m && m.id === optimisticUserId)
-        if (idx < 0) return prev // 既に reconcile 済 (= queue を出た)
-        const target = arr[idx]
-        if (!target.optimistic || target.sendFailed || target.queued) return prev
-        const next = [...arr]
-        next[idx] = { ...target, queued: true }
-        return { ...prev, [sid]: next }
-      })
-    }
     const failBubble = (extraInput) => {
       setMessages(prev => {
         const arr = prev[sid] || []
@@ -412,7 +396,6 @@ export function useChatStream({
       }
       let uploadOk = true
       let uploadErrDetail = ''
-      let uploadResult = null
       try {
         const r = await apiFetch(`/pty/${encodeURIComponent(sid)}/send-with-files`, {
           method: 'POST',
@@ -423,8 +406,6 @@ export function useChatStream({
           uploadOk = false
           uploadErrDetail = `HTTP ${r?.status ?? '???'}`
           try { uploadErrDetail = translateHttpErrorDetail((await r.json())?.detail, uploadErrDetail) } catch { /* ignore parse */ }
-        } else {
-          uploadResult = await r.json().catch(() => null)
         }
       } catch (e) {
         uploadOk = false
@@ -432,8 +413,6 @@ export function useChatStream({
       }
       if (uploadOk) {
         clearAttachments(sid)
-        // 添付経路も text 経路と同じ queue 可視化 (= confirmed:false = turn 実行中送信)
-        if (uploadResult?.confirmed === false) markQueued()
       } else {
         // 添付送信失敗時の UI 復旧 (= 2026-06-22 lifecycle sweep + 2026-06-24 共通化):
         // 旧実装は alert だけで楽観 user bubble + 空 streaming agent bubble + loading=true が
@@ -462,8 +441,6 @@ export function useChatStream({
         // 旧来の setInput 経路は failBubble 内に内包済 (= F-36 ChatInput.localText の onSendFailed
         // callback も同関数内で呼ぶ)。
         failBubble(true)
-      } else if (result.confirmed === false) {
-        markQueued()
       }
     }
     } finally {

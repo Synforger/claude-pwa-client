@@ -224,6 +224,12 @@ class StreamState:
     # に戻ったり、 別 session の overview SSE 発火で停止 session が再評価されたりしても
     # 停止ボタンが復活しない)。 次の素ユーザ発話で False にリセット。
     user_stopped: bool = False
+    # turn 実行中に送信されて claude の message queue に積まれた (= JSONL にまだ user 行が
+    # 出ていない) 未処理送信の数。 送信時 busy=True + 送達確認 confirmed=False で +1、 素ユーザ
+    # 発話 (START) が JSONL に 1 行出るたびに -1。 > 0 の間は turn 完了 (END) を見ても busy=True
+    # を維持する (= 「1 個目の turn は終わったが queue の 2 個目をこれから処理する」 無言時間を
+    # 推論中のまま繋ぐ)。 Stop 押下 / path 切替 / idle watchdog 解除で 0 にクリア (= 張り付き防止)。
+    queued_sends: int = 0
 
 
 @dataclass

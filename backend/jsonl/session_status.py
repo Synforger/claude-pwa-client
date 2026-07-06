@@ -182,13 +182,24 @@ def update_busy(session_id: str, line: dict) -> None:
     if kind == LineKind.START:
         new = True
         st.user_stopped = False
-    elif kind == LineKind.END or kind == LineKind.INTERRUPT:
+        # queue に積まれた送信が JSONL に素ユーザ発話として 1 行現れた = 1 個消化された
+        if st.queued_sends > 0:
+            st.queued_sends -= 1
+    elif kind == LineKind.END:
         new = False
+    elif kind == LineKind.INTERRUPT:
+        new = False
+        st.queued_sends = 0  # 中断で queue の後続送信も破棄される
     elif kind == LineKind.IN_PROGRESS:
         new = True
     # OTHER は据置 (= busy 変化を起こさない)
+    # queue にまだ未処理送信が残る間は turn 完了 (END) でも busy を維持する (= 「1 個目の
+    # turn は終わったが queue の 2 個目をこれから claude が取り込む」 無言時間を推論中で繋ぐ)。
+    if st.queued_sends > 0:
+        new = True
     if st.user_stopped:
         new = False
+        st.queued_sends = 0
     if new != st.busy:
         st.busy = new
         sessions_overview.notify()

@@ -467,14 +467,6 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, apiKeySource, a
           ⚠ Not delivered to claude — text restored in the input box
         </div>
       )}
-      {/* queue 中 (= turn 実行中に送信 → claude の message queue に積まれた、 backend の
-          送達確認 confirmed:false が機械的根拠)。 queue から取り込まれると reconcile が
-          bubble ごと本物に置換するのでバッジは自然に消える。 */}
-      {msg.role === 'user' && msg.queued && !msg.sendFailed && (
-        <div className="queued-note" style={{ color: '#e8b34b', fontSize: '0.85em', marginTop: 4 }}>
-          {t('chat.queued')}
-        </div>
-      )}
     </div>
   )
 }, areEqual)

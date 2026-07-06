@@ -8,7 +8,7 @@
 // AppShell 側からの遷移ロジックで触れる必要のあるもの (= confirmDelete dialog + handleDeleteSession)
 // は AppShell に残置 (= drawer から開く dialog が terminal 表示時にも見える必要があるため、 hidden な
 // ChatPanel 配下に置けない)。 詳細は AppShell.jsx 末尾の F-1 注釈参照。
-import { useEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useMemo, useCallback, useState, useSyncExternalStore } from 'react'
 import {
   subscribe as subscribeUi,
   getSnapshot as getUiSnapshot,
@@ -59,6 +59,19 @@ function collectActiveImageIds(msgDict) {
 // ChatInput.currentAttachments の安定 sentinel。 attachments[sid] が空の時に毎 render で
 // 新しい `[]` を作ると ChatInput が memo を抜けるので、 共通参照を返す。
 const EMPTY_ARR = []
+
+// 一度に DOM に載せる message 数の上限 (= 巨大 session の render 負荷抑制)。
+const DISPLAY_LIMIT = 100
+
+// 表示 window の先頭 index。 過去閲覧中 (= scrolledUp) に新着で総数が増えても、 凍結した
+// frozenStart を使い続けることで「今読んでいる上方の DOM が slice から抜けて内容が上に
+// ジャンプする」 のを防ぐ (= 凍結中は window が末尾方向へだけ伸びる)。 pure 関数に
+// 切り出しているのは契約 test 用。
+export function displayWindowStart(totalLen, frozenStart, limit = DISPLAY_LIMIT) {
+  const tail = Math.max(0, totalLen - limit)
+  if (frozenStart === null || frozenStart === undefined) return tail
+  return Math.min(frozenStart, tail)
+}
 
 export default function ChatPanel({ sid }) {
   const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
@@ -237,18 +250,35 @@ export default function ChatPanel({ sid }) {
     setBadge(unreadCount)
   }, [unreadCount])
 
+  // 過去閲覧中 (= ↓ボタンが出ている = 底に居ない) は表示 window の先頭を凍結する。
+  // 凍結しないと、 新着で総数が DISPLAY_LIMIT を超えた瞬間に slice(-LIMIT) の先頭 (= 今
+  // 読んでいる上方) の DOM が削られて表示位置が上にジャンプする。 底へ戻ったら解除して
+  // 通常の末尾 window に収束 (= 凍結中に伸びた DOM も回収)。
+  const scrolledUp = ui.scroll.showScrollBtn
+  const [frozenStart, setFrozenStart] = useState(null)
+  const activeMsgsLen = (activeMsgs || []).length
+  useEffect(() => {
+    if (!activeSid || !scrolledUp) {
+      setFrozenStart(null)
+      return
+    }
+    // 凍結は最初の 1 回だけ確定 (= 以後の新着で動かさない)。 activeMsgsLen が deps に
+    // 居ても prev 保持で再計算しない。
+    setFrozenStart(prev => (prev !== null ? prev : Math.max(0, activeMsgsLen - DISPLAY_LIMIT)))
+  }, [activeSid, scrolledUp, activeMsgsLen])
+
   const displayMessages = useMemo(() => {
     if (!activeSid) return []
-    const DISPLAY_LIMIT = 100
     const allMsgs = activeMsgs || []
-    const msgs = allMsgs.length > DISPLAY_LIMIT ? allMsgs.slice(-DISPLAY_LIMIT) : allMsgs
+    const start = displayWindowStart(allMsgs.length, scrolledUp ? frozenStart : null)
+    const msgs = start > 0 ? allMsgs.slice(start) : allMsgs
     // Phase 2 (= 2026-07-06): 旧 pending_question 合成 bubble は退役。 質問の真値は
     // SSE `ask_user_question` event → messages の askUserQuestion field、 ライブ回答 UI は
     // prompt detector banner。 「回答待ちで loading placeholder を出さない」 は answerMode で判定。
     return (loading[activeSid] && !msgs.some(m => m.streaming) && !answerMode)
       ? [...msgs, { id: '__loading__', role: '__loading__' }]
       : msgs
-  }, [activeMsgs, loading, activeSid, answerMode])
+  }, [activeMsgs, loading, activeSid, answerMode, scrolledUp, frozenStart])
 
   // W2 Phase F-4 残 (= 2026-06-29): handleEndSession は features/dialogs/ConfirmEndDialog.jsx に
   // 物理移送、 ChatPanel からは参照ゼロ化。 confirmEnd / confirmStop ダイアログ本体も同様に

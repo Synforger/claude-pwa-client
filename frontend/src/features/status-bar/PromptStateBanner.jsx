@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useT } from '../../i18n/t.js'
 import {
   getSnapshot as getPromptSnapshot,
@@ -22,13 +22,38 @@ const BANNER_LABELS = {
   tui: { icon: '⌨', label: 'TUI running — use terminal view' },
 }
 
+// tui は「TUI_CONFIRM_MS 継続して観測されたら表示」 (= 確定待ち)。 読み込み / SSE 再接続の
+// 初回 snapshot や poll の瞬間的な alternate_on 誤観測で一発 tui が来ても、 次 poll
+// (500ms) の復帰遷移が先に届けば banner は一度も出ない。 text_prompt / inline_tui は
+// quick-reply の即答性が価値なので確定待ちを掛けない (= 誤検知報告も tui のみ)。
+export const TUI_CONFIRM_MS = 700
+
+// entry が tui の間、 「tui へ遷移してから TUI_CONFIRM_MS 経過したか」 を返す hook。
+// effect の deps は tui か否かだけ (= tui 継続中の excerpt 変化 publish では timer を
+// 張り直さない = banner が点滅しない)。 tui を抜けたら即リセット、 再突入で再度確定待ち。
+function useTuiConfirmed(sid, entry) {
+  const isTui = !!entry && entry.state === 'tui'
+  const [confirmed, setConfirmed] = useState(false)
+  useEffect(() => {
+    if (!isTui) {
+      setConfirmed(false)
+      return undefined
+    }
+    const timer = setTimeout(() => setConfirmed(true), TUI_CONFIRM_MS)
+    return () => clearTimeout(timer)
+  }, [sid, isTui])
+  return !isTui || confirmed
+}
+
 export function PromptStateBanner({ sid }) {
   const t = useT()
   const snapshot = useSyncExternalStore(subscribePrompt, getPromptSnapshot)
   const entry = selectFor(snapshot, sid)
+  const confirmed = useTuiConfirmed(sid, entry)
   if (!entry) return null
   const shape = BANNER_LABELS[entry.state]
   if (!shape) return null
+  if (!confirmed) return null
 
   // 全文表示 (= 切らない)。 高さは CSS max-height + scroll で制御する。
   // Type something 選択中の表示切替は controls 側が excerpt から自律判定する
