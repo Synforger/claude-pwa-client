@@ -1,6 +1,6 @@
 """prompt_detector_loop の分岐 (= state 遷移 → SSE publish + Web Push) を verify。
 
-tmux 依存 (has_tmux_session / get_pane_alternate_on / capture_pane_plain_tail) と
+tmux 依存 (has_tmux_session / get_pane_alternate_on / capture_pane_ansi_tail) と
 broadcast_push は monkeypatch で差し替え、 loop の意思決定だけを見る。
 
 repo に pytest-asyncio が入ってないので、 test_jsonl_broadcaster と同じ _run helper
@@ -37,7 +37,7 @@ def stub_session(monkeypatch):
     monkeypatch.setattr(loop_mod, "sessions_meta", {sid: object()})
     monkeypatch.setattr(loop_mod, "has_tmux_session", lambda s: s == sid)
     monkeypatch.setattr(loop_mod, "get_pane_alternate_on", lambda s: alt_holder["value"])
-    monkeypatch.setattr(loop_mod, "capture_pane_plain_tail", lambda s: tail_holder["value"])
+    monkeypatch.setattr(loop_mod, "capture_pane_ansi_tail", lambda s: tail_holder["value"])
 
     async def _fake_push(body: str, title: str, session_id: str):
         push_calls.append((title, body, session_id))
