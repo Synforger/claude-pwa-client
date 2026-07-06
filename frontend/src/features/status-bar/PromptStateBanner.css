@@ -97,3 +97,32 @@
   opacity: 0.8;
   cursor: pointer;
 }
+
+/* 回答入力中 mode の強調 layout (= 2026-07-06 実機 feedback: 小さい注記では気付けない) */
+.prompt-banner-typing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 12px;
+  border-color: #e8b34b;
+  background: rgba(232, 179, 75, 0.10);
+}
+.prompt-typing-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.prompt-typing-icon {
+  font-size: 20px;
+}
+.prompt-typing-text {
+  font-size: 16px;
+  font-weight: 700;
+  color: #e8b34b;
+}
+.prompt-typing-arrow {
+  font-size: 18px;
+  color: #e8b34b;
+  line-height: 1;
+}
