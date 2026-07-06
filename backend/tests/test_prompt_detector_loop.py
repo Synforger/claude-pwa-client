@@ -223,3 +223,53 @@ def test_tick_cleans_state_when_session_gone(monkeypatch, stub_session):
         assert sid not in loop_mod._detector_states
 
     _run(run())
+
+
+def test_current_prompt_event_synthesizes_active_for_unknown_sid():
+    """detector が値を持たない sid は active 合成 event (= stale banner の消灯用)。"""
+    loop_mod._last_events.clear()
+    ev = loop_mod.current_prompt_event("ses_unknown")
+    assert ev["type"] == "prompt_state"
+    assert ev["sid"] == "ses_unknown"
+    assert ev["state"] == "active"
+    assert ev["input_mode"] == "none"
+    assert ev["options"] == []
+
+
+def test_current_prompt_event_mirrors_seed_and_publish(stub_session):
+    """seed tick (= publish なし) でも snapshot は現実を映し、 caller の変更が保持側を汚さない。"""
+    sid, tail_holder, alt_holder, _ = stub_session
+    loop_mod._last_events.clear()
+
+    async def run():
+        # seed tick: INLINE_TUI 状態で起動した体
+        tail_holder["value"] = "❯ 1. Yes\n  2. No"
+        await loop_mod._tick_one(sid)
+        snap = loop_mod.current_prompt_event(sid)
+        assert snap["state"] == "inline_tui"
+        # caller 側の mutate (= envelope 注入相当) が保持側に漏れない
+        snap["corr_id"] = "deadbeef"
+        assert "corr_id" not in loop_mod._last_events[sid]
+
+        # 通常入力に戻る遷移 → snapshot も追従
+        tail_holder["value"] = "just some running output"
+        await loop_mod._tick_one(sid)
+        assert loop_mod.current_prompt_event(sid)["state"] != "inline_tui"
+
+    _run(run())
+    loop_mod._last_events.clear()
+
+
+def test_tick_cleans_last_event_when_session_gone(monkeypatch, stub_session):
+    """session 消滅時は snapshot も掃除 (= 次接続では active 合成に倒れる)。"""
+    sid, tail_holder, alt_holder, _ = stub_session
+
+    async def run():
+        tail_holder["value"] = "hello"
+        await loop_mod._tick_one(sid)
+        assert sid in loop_mod._last_events
+        monkeypatch.setattr(loop_mod, "has_tmux_session", lambda s: False)
+        await loop_mod._tick_one(sid)
+        assert sid not in loop_mod._last_events
+
+    _run(run())
