@@ -121,7 +121,7 @@ def _lines_to_sse(lines: list[str], pos: int, session_id: str) -> list[str]:
 
     F-06: 旧版は per-line で `_track_turn_start` / `_mutate_agent_status` を呼んで
     backend state を mutate し、 monitor_all_sessions_loop と二重 driver で同じ field を
-    上書きする構造だった (= dual-driver による pending_question 等の race)。 mutate 経路は
+    上書きする構造だった (= dual-driver race)。 mutate 経路は
     monitor 単一に絞り (= `_process_new_lines` 内)、 SSE 配信側は jsonl_line_to_events を
     呼んで event を SSE フレームに整形するだけの pure 関数に降格する。
 
@@ -523,7 +523,7 @@ def _process_new_lines(sid: str, lines: list[str]) -> None:
         _maybe_push_blockers(sid, obj)
         _update_busy(sid, obj)
         _track_turn_start(sid, obj)
-        # agent_status (= current_tool / todos / pending_question / pending_plan /
+        # agent_status (= current_tool / todos / pending_plan /
         # model / ctx_pct) も backend 側で常時更新する。 SSE 接続中の session しか
         # 更新されないと、 非アクティブタブの AskUserQuestion / ExitPlanMode が
         # overview SSE の pending_* フラグに反映されない (= hook 経路だけが頼り)。

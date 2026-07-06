@@ -53,7 +53,7 @@ transports:
       - "snapshot 配信 (= 差分でなく毎回 full)、 reconnect 直後でも状態整合"
 
   sse_sessions_overview:
-    description: "/sessions/overview/stream (= busy / pending_question)"
+    description: "/sessions/overview/stream (= busy / last_seen_at)"
     states: [idle, connecting, open, reconnecting, closed]
     transitions:
       - { from: idle,         to: connecting,   trigger: "EventSource open()" }
