@@ -21,8 +21,8 @@ import json
 import logging
 import re
 
-from backend.jsonl.predicates import is_user_prompt as _is_user_prompt_pred
-from backend.jsonl.tail import read_complete_lines
+from backend.core.jsonl_predicates import is_user_prompt as _is_user_prompt_pred
+from backend.core.jsonl_tail import read_complete_lines
 
 logger = logging.getLogger(__name__)
 

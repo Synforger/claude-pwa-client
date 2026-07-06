@@ -318,7 +318,7 @@ async def _autoresume_watchdog(
     """
     try:
         from backend.terminal.pty_discover import tmux_pane_pids, find_claude_descendant
-        import backend.jsonl.watcher as jsonl_watcher  # noqa: PLC0415
+        import backend.core.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
         await asyncio.sleep(initial_delay)
         loop = asyncio.get_running_loop()
         deadline = loop.time() + max_wait
@@ -703,20 +703,23 @@ def get_pane_alternate_on(session_id: str) -> bool | None:
     return None
 
 
-def capture_pane_plain_tail(session_id: str, lines: int = 70) -> str | None:
-    """末尾 N 行を escape なし plain text で取る (= prompt_detector の tier B/C 素材)。
+def capture_pane_ansi_tail(session_id: str, lines: int = 70) -> str | None:
+    """末尾 N 行を SGR escape 付きで取る (= prompt_detector の tier B/C 素材)。
 
-    `-p` stdout、 `-J` wrap 結合、 escape なし (= `-e` は付けない)。 `-S -30` で可視
-    画面の上 30 行分の scrollback も含める: phone サイズの小さい pane では /model 等の
-    背高 picker が可視領域に収まらず、 先頭 option が scrollback に押し出される
-    (= 2026-07-06 実測、 excerpt から option 1 が消えた)。 空 pane / tmux 不在は None。
+    `-p` stdout、 `-J` wrap 結合、 `-e` で SGR (= 色 / 反転) を保持する。 plain text は
+    呼び側が `ansi_text.strip_ansi` で導出する (= 1 回の capture から plain / ANSI の
+    両方を得る。 別々に 2 回 capture すると間に redraw を挟んで行ズレする race がある)。
+    `-S -30` で可視画面の上 30 行分の scrollback も含める: phone サイズの小さい pane
+    では /model 等の背高 picker が可視領域に収まらず、 先頭 option が scrollback に
+    押し出される (= 2026-07-06 実測、 excerpt から option 1 が消えた)。 空 pane /
+    tmux 不在は None。
 
     行数 default は 70 (= 可視 ~40 行 + scrollback 30 行)。
     """
     if not USE_TMUX_WRAP:
         return None
     r = _run_tmux(
-        "capture-pane", "-p", "-J", "-S", "-30",
+        "capture-pane", "-p", "-J", "-e", "-S", "-30",
         "-t", _tmux_session_name(session_id),
         text=True,
     )
@@ -766,7 +769,7 @@ def jsonl_path_for_session(session_id: str) -> Path | None:
     `_register_claude_when_ready` 経由で binding を登録、 watchdog が新規 JSONL の
     birth event を見て紐付ける。 紐付け未完なら None。
     """
-    import backend.jsonl.watcher as jsonl_watcher
+    import backend.core.jsonl_watcher as jsonl_watcher
     return jsonl_watcher.get_jsonl_for(session_id)
 
 

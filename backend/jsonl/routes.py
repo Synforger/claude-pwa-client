@@ -40,7 +40,7 @@ from backend.jsonl.session_status import (
     track_turn_start as _track_turn_start,
     update_busy as _update_busy,
 )
-from backend.jsonl.tail import (
+from backend.core.jsonl_tail import (
     initial_offset as _initial_offset_impl,
     read_complete_lines as _read_complete_lines,
     read_tail as _read_tail,
@@ -167,7 +167,7 @@ def _lines_to_events(lines: list[str]) -> list[dict]:
 def _initial_offset(path: Path) -> int:
     """thin wrapper: tail.initial_offset(path, INITIAL_REPLAY_LINES) (= backend-F-41 で移送済)。
     既存 test (test_jsonl_routes.py) との後方互換のために残す。 新規 consumer は
-    `backend.jsonl.tail.initial_offset` を直接 import すること。"""
+    `backend.core.jsonl_tail.initial_offset` を直接 import すること。"""
     return _initial_offset_impl(path, INITIAL_REPLAY_LINES)
 
 
@@ -255,7 +255,7 @@ async def _jsonl_sse(session_id: str, start_pos: int | None = None):
 @router.get("/jsonl/_debug/bindings")
 async def jsonl_debug_bindings() -> dict:
     """debug: 現在 backend mem に持ってる watcher binding 一覧。"""
-    import backend.jsonl.watcher as jsonl_watcher
+    import backend.core.jsonl_watcher as jsonl_watcher
     return jsonl_watcher.list_bindings()
 
 
