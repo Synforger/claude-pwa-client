@@ -151,8 +151,9 @@ export function PromptReplyControls({ sid, entry }) {
       ))}
       {/* 数字モードの補助キー常設 (= 2026-07-06 実機 feedback で確定):
           ↑↓ = カーソル移動 (Type something からの復帰にも使う正規経路)、
-          ␣ = multiSelect の toggle (単一選択では押す必要なし・無害)、
-          ⏎ = multiSelect の確定 (multi では数字が toggle として働くため)。 */}
+          ⏎ = multiSelect の確定 (multi では数字自体が toggle として働くため)。
+          ␣ は数字モードでは出さない (= 数字 toggle で足りる、 実機確認済み)。
+          番号なし checkbox 型 picker 用の ␣ は arrows モード側に常設。 */}
       {inputMode === 'numbers' && (
         <>
           <button
@@ -171,14 +172,6 @@ export function PromptReplyControls({ sid, entry }) {
             aria-label="Move cursor down"
             data-testid="prompt-reply-btn-down"
           >↓</button>
-          <button
-            type="button"
-            className="prompt-reply-btn prompt-reply-btn-aux"
-            disabled={pending}
-            onClick={() => handleTap('Space', false)}
-            aria-label="Toggle selection (multi-select)"
-            data-testid="prompt-reply-btn-space"
-          >␣</button>
           <button
             type="button"
             className="prompt-reply-btn prompt-reply-btn-aux"
