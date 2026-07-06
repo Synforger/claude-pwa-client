@@ -41,7 +41,7 @@ from backend.terminal.runner import (
     tmux_send_keys,
     write_pty,
 )
-from backend.state import sessions_meta
+from backend.state import sessions_meta, stream_states
 
 # 送信確認 (= JSONL カウント + wait + 救済再送) は pty_confirm に分離。
 # session 解決 + spawn は pty_session_resolver に分離。 ここは endpoint と pump のみ持つ。
@@ -66,6 +66,19 @@ from backend.terminal.session_resolver import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _note_queue_on_unconfirmed(session_id: str, was_busy: bool, result: dict) -> dict:
+    """turn 実行中 (= was_busy) の送信が JSONL 確認できなかった (= confirmed:False) 場合、
+    claude の message queue に積まれた未処理送信として StreamState.queued_sends を +1 する。
+    これで直前 turn の END を見ても queue が残る間は busy=True が維持され、 「次の queue
+    message を claude が取り込むまでの無言時間」 を推論中のまま繋げる。 was_busy=False の
+    confirmed:False は picker 等の対話 UI or 送達失敗であって queue ではないので数えない。"""
+    if was_busy and result.get("confirmed") is False:
+        st = stream_states.get(session_id)
+        if st is not None and not st.user_stopped:
+            st.queued_sends += 1
+    return result
 
 
 
@@ -401,6 +414,9 @@ async def pty_send(
     # AskUserQuestion typeNum 等) では wipe しない (= key の意味を壊さない)。 queue に
     # 既に積まれた過去 message には触れない (= C-u は入力欄のみ、 Claude Code v2 の queue
     # に干渉しない)。 confirm == (text and enter) なので分岐条件は同値。
+    # 送信直前の busy を capture (= turn 実行中送信なら confirmed:False 時に queue 積みとみなす)。
+    _st_send = stream_states.get(session_id)
+    was_busy = bool(_st_send and _st_send.busy)
     if text and enter:
         ok = await send_text_two_stage(session_id, text, key=key)
     else:
@@ -413,7 +429,8 @@ async def pty_send(
         note_user_input(session_id)
     if not ok or not confirm or jsonl_path is None:
         return {"ok": ok}
-    return await _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slash)
+    result = await _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slash)
+    return _note_queue_on_unconfirmed(session_id, was_busy, result)
 
 
 @router.post("/pty/{session_id}/send-raw-key")
@@ -502,6 +519,9 @@ async def pty_send_with_files(
     # text 経路と同じ 2 段送信 protocol (= C-u wipe → paste → Enter、 詳細 =
     # runner.send_text_two_stage docstring)。 添付経路は本文が長い (= path 追記で伸びる)
     # ので paste / Enter 競合の懸念はむしろ大きい。
+    # 送信直前の busy を capture (= turn 実行中送信なら confirmed:False 時に queue 積みとみなす)。
+    _st_send = stream_states.get(session_id)
+    was_busy = bool(_st_send and _st_send.busy)
     ok = await send_text_two_stage(session_id, full_text)
     if ok:
         # 添付経路も grace period 対象 (= 通常送信と同じ理由)
@@ -512,6 +532,7 @@ async def pty_send_with_files(
     result = await _confirm_after_send(
         session_id, full_text, jsonl_path, initial_pos, is_slash
     )
+    _note_queue_on_unconfirmed(session_id, was_busy, result)
     result["saved_files"] = saved_files
     return result
 

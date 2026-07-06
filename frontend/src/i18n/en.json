@@ -170,6 +170,5 @@
   "ask.waiting": "❓ Waiting for your answer — reply via the banner below or the terminal",
   "prompt.free_text_hint": "Type something → type in the box below and send · Chat about this → press ⏎, then just chat",
   "chat.input.answer_placeholder": "Type your answer — sending replies to the question",
-  "prompt.typing_answer_short": "Type in the box below, then send",
-  "chat.queued": "⏳ Queued — will run after the current turn"
+  "prompt.typing_answer_short": "Type in the box below, then send"
 }

@@ -480,6 +480,9 @@ def _initialize_sid_tail(sid: str, tstate: SessionTailState, path: Path) -> None
         _reset_jsonl_session_metadata(sid)
     st = stream_states.get(sid)
     if st is not None:
+        # path 切替 (= restart / fork) は別 claude session。 旧 path の queue は無効なのでクリア
+        # してから新 path の末尾で busy を再計算する (= 古い queue を新 session に持ち込まない)。
+        st.queued_sends = 0
         new_busy = _compute_busy_from_tail(path)
         if st.user_stopped:
             new_busy = False
@@ -589,6 +592,7 @@ def _tick_sid(sid: str, tstate: SessionTailState, now_mono: float) -> None:
         and not _busy_after_idle(path)
     ):
         st_w.busy = False
+        st_w.queued_sends = 0  # 長時間静か = queue も含めて全消化 or 取りこぼし、 張り付き防止
         tstate.last_line_at = time.monotonic()  # 再発火を抑える
         sessions_overview.notify()
     # back-off 更新: next_interval helper (= backend-F-42) に集約。 busy=true 中の sid
