@@ -16,12 +16,6 @@ import { createStore } from './_store.js'
 const INITIAL = {
   // { [sid]: { state, category, excerpt, bypassModeVisible, reason, receivedAt } }
   bySid: {},
-  // { [sid]: true } — Type something (= AskUserQuestion の自由記述 option) を選んだ後の
-  // 「回答入力中」 flag (= client local)。 立っている間、 banner は数字ボタンを消して
-  // 「下の欄から送信」 表示に切り替える (= 数字タップが text 入力に化けるのを防ぐ、
-  // 2026-07-06 実害: 44 / 445 が回答として飛んだ)。 dialog が閉じた遷移 (= 待ち系以外の
-  // state 到着) で自動クリア。
-  typingAnswer: {},
 }
 
 const store = createStore(INITIAL, { name: 'promptState' })
@@ -44,45 +38,22 @@ export function ingestPromptStateEvent(event) {
     keyRequiresEnter: !!event.key_requires_enter,
     receivedAt: Date.now(),
   }
-  store.setState(prev => {
-    const next = { ...prev, bySid: { ...prev.bySid, [event.sid]: entry } }
-    // 待ち系以外 (= active / idle / tui) への遷移 = dialog が閉じた。 回答入力中 flag を
-    // 自動で下ろす (= 次の質問で古い flag が残らない)。
-    const waiting = entry.state === 'inline_tui' || entry.state === 'text_prompt'
-    if (!waiting && prev.typingAnswer[event.sid]) {
-      const ta = { ...prev.typingAnswer }
-      delete ta[event.sid]
-      next.typingAnswer = ta
-    }
-    return next
-  })
-}
-
-// Type something 選択直後に PromptReplyControls から呼ぶ (= client local の UI mode)。
-export function setTypingAnswer(sid, on) {
-  if (!sid) return
-  store.setState(prev => {
-    if (!!prev.typingAnswer[sid] === !!on) return prev
-    const ta = { ...prev.typingAnswer }
-    if (on) ta[sid] = true
-    else delete ta[sid]
-    return { ...prev, typingAnswer: ta }
-  })
-}
-
-export function selectTypingAnswer(snapshot, sid) {
-  return !!(snapshot && sid && snapshot.typingAnswer[sid])
+  // 「回答入力中」 等の派生 UI 状態はここでは持たない。 Type something 選択中か等は
+  // consumer (= PromptReplyControls) が excerpt から都度導出する (= client local flag は
+  // タップ以外の経路 = ↑↓ / 端末直叩き で pane とズレる、 2026-07-06 実機で 2 回破綻)。
+  store.setState(prev => ({
+    ...prev,
+    bySid: { ...prev.bySid, [event.sid]: entry },
+  }))
 }
 
 // session close 時に呼ぶ (= tab を消したら chip も消す)。
 export function clearPromptState(sid) {
   store.setState(prev => {
-    if (!(sid in prev.bySid) && !(sid in prev.typingAnswer)) return prev
+    if (!(sid in prev.bySid)) return prev
     const next = { ...prev.bySid }
     delete next[sid]
-    const ta = { ...prev.typingAnswer }
-    delete ta[sid]
-    return { ...prev, bySid: next, typingAnswer: ta }
+    return { ...prev, bySid: next }
   })
 }
 
