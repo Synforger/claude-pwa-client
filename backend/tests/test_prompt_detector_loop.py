@@ -273,3 +273,30 @@ def test_tick_cleans_last_event_when_session_gone(monkeypatch, stub_session):
         assert sid not in loop_mod._last_events
 
     _run(run())
+
+
+def test_poll_interval_stretches_only_for_idle():
+    """適応 poll: IDLE 継続中だけ間隔が伸びる (= それ以外は 500ms 維持)。"""
+    from backend.terminal.prompt_detector import DetectorState, PromptState
+
+    assert loop_mod._poll_interval_for(None) == loop_mod.POLL_INTERVAL_SEC
+    s = DetectorState()
+    s.current_state = PromptState.ACTIVE
+    assert loop_mod._poll_interval_for(s) == loop_mod.POLL_INTERVAL_SEC
+    s.current_state = PromptState.INLINE_TUI
+    assert loop_mod._poll_interval_for(s) == loop_mod.POLL_INTERVAL_SEC
+    s.current_state = PromptState.IDLE
+    assert loop_mod._poll_interval_for(s) == loop_mod.IDLE_POLL_INTERVAL_SEC
+
+
+def test_note_user_input_resets_adaptive_poll(stub_session):
+    """ユーザ入力で IDLE の遅い poll が即 fast に戻る (= _next_poll_at が消える)。"""
+    sid, *_ = stub_session
+
+    async def run():
+        loop_mod._next_poll_at[sid] = 10_000_000.0  # 遠い未来 (= skip 中の体)
+        loop_mod.note_user_input(sid)
+        assert sid not in loop_mod._next_poll_at
+
+    _run(run())
+    loop_mod._next_poll_at.clear()

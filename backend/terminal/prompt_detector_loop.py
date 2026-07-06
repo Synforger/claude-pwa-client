@@ -49,6 +49,23 @@ logger = logging.getLogger(__name__)
 # 500ms は十分細かい。
 POLL_INTERVAL_SEC: float = 0.5
 
+# IDLE 継続中の session の poll 間隔 (= 適応 poll、 2026-07-06 資源監査)。 capture-pane
+# subprocess が backend CPU の主成分で、 アイドル session の 500ms 監視は過剰。 IDLE 中は
+# 2s に伸ばし、 ユーザ入力 (= note_user_input) / poke_now で即時復帰する。 トレードオフ =
+# 「完全アイドルの pane に突然 prompt が湧く」 ケースの検出遅延が最大 2s になるだけ
+# (= prompt は直近の活動に随伴するのが大半、 入力送信で即 fast poll に戻る)。
+IDLE_POLL_INTERVAL_SEC: float = 2.0
+
+# sid → 次に poll してよい loop 時刻。 無い sid は即 poll 対象。
+_next_poll_at: dict[str, float] = {}
+
+
+def _poll_interval_for(state: DetectorState | None) -> float:
+    """session の現在 state から次 poll までの間隔を返す (= pure、 test 対象)。"""
+    if state is not None and state.current_state == PromptState.IDLE:
+        return IDLE_POLL_INTERVAL_SEC
+    return POLL_INTERVAL_SEC
+
 # Push を発火する遷移先の集合。 IDLE や ACTIVE / TUI 復帰 (= 元に戻っただけ) は push しない。
 _PUSH_TRIGGER_STATES: frozenset[PromptState] = frozenset(
     {PromptState.TEXT_PROMPT, PromptState.INLINE_TUI}
@@ -106,6 +123,8 @@ def note_user_input(session_id: str) -> None:
         _detector_states[session_id] = state
     loop = asyncio.get_running_loop()
     state.record_input_sent(loop.time())
+    # 入力 = 活動。 IDLE で伸びてた poll を即 fast に戻す (= 適応 poll の復帰 trigger)。
+    _next_poll_at.pop(session_id, None)
 
 
 def _build_event(sid: str, verdict: Verdict) -> dict:
@@ -157,6 +176,7 @@ async def _tick_one(
         # session 消えてたら detector state も掃除して抜ける
         _detector_states.pop(sid, None)
         _last_events.pop(sid, None)
+        _next_poll_at.pop(sid, None)
         return
 
     if alt is None:
@@ -240,11 +260,17 @@ async def prompt_detector_loop() -> None:
                 for stale in [s for s in _detector_states if s not in sessions_meta]:
                     _detector_states.pop(stale, None)
                     _last_events.pop(stale, None)
+                    _next_poll_at.pop(stale, None)
                 # 存在 + alternate_on は全 session 一括 1 subprocess で先取り
                 # (= per-session の has-session + display-message を tick から消す)。
                 # None (= tmux 不在 / 失敗) は _tick_one の per-session fallback。
                 alt_map = await list_pane_alternate_states()
+                now = asyncio.get_running_loop().time()
                 for sid in list(sessions_meta.keys()):
+                    # 適応 poll: IDLE 継続中の sid はまだ次 poll 時刻でなければ skip
+                    # (= capture-pane subprocess を撃たない)。
+                    if now < _next_poll_at.get(sid, 0.0):
+                        continue
                     try:
                         if alt_map is None:
                             await _tick_one(sid)
@@ -255,6 +281,9 @@ async def prompt_detector_loop() -> None:
                                 exists=name in alt_map,
                                 alt=alt_map.get(name),
                             )
+                        _next_poll_at[sid] = now + _poll_interval_for(
+                            _detector_states.get(sid)
+                        )
                     except Exception:
                         logger.exception("prompt_detector: tick failed sid=%s", sid)
             except asyncio.CancelledError:
