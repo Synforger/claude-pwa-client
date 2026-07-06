@@ -151,3 +151,14 @@ def test_prompt_state_event_matches_contract():
     validated = model.model_validate(event)
     assert validated.state == "inline_tui"
     assert validated.options == ["1", "2"]
+
+
+def test_prompt_state_snapshot_matches_contract():
+    """SSE 接続時の snapshot (= 合成 active 含む) も contract model に準拠する。"""
+    from backend.terminal.prompt_detector_loop import current_prompt_event, _last_events
+
+    _last_events.clear()
+    event = current_prompt_event("ses_snap")
+    _inject_envelope(event, "ses_snap")
+    validated = EVENT_BY_TYPE["prompt_state"].model_validate(event)
+    assert validated.state == "active"

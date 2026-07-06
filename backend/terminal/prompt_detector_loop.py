@@ -60,6 +60,36 @@ _PUSH_TRIGGER_STATES: frozenset[PromptState] = frozenset(
 _detector_states: dict[str, DetectorState] = {}
 _config = DetectorConfig()
 
+# per-sid の「最後に組んだ prompt_state event」。 SSE 接続開始時の snapshot 配信用
+# (= prompt_state は JSONL に無い ephemeral event なので reconnect replay に乗らない。
+# 切断中に「復帰」 遷移を取りこぼした client の banner が stale のまま残る事故への根治)。
+# seed tick でも保存する (= publish はしないが snapshot は現実を映す)。
+_last_events: dict[str, dict] = {}
+
+
+def current_prompt_event(session_id: str) -> dict:
+    """指定 sid の現在の prompt_state event (= SSE 接続時の初期 snapshot 用)。
+
+    detector が値を持たない sid (= 未 tick / session 消滅で掃除済) は「active」 の合成
+    event を返す (= client 側の stale banner を確実に消す)。 返り値は copy (= caller の
+    envelope 注入で保持側を汚さない)。
+    """
+    ev = _last_events.get(session_id)
+    if ev is not None:
+        return dict(ev)
+    return {
+        "type": "prompt_state",
+        "sid": session_id,
+        "state": PromptState.ACTIVE.value,
+        "category": None,
+        "excerpt": "",
+        "bypass_mode_visible": False,
+        "reason": "snapshot:no-state",
+        "input_mode": "none",
+        "options": [],
+        "key_requires_enter": False,
+    }
+
 
 def note_user_input(session_id: str) -> None:
     """user が tmux にキー送信した瞬間を記録する (= tier C の grace period 用)。
@@ -126,6 +156,7 @@ async def _tick_one(
     if not exists:
         # session 消えてたら detector state も掃除して抜ける
         _detector_states.pop(sid, None)
+        _last_events.pop(sid, None)
         return
 
     if alt is None:
@@ -149,6 +180,8 @@ async def _tick_one(
         state.current_state = verdict.state
         state.last_excerpt = verdict.excerpt
         state.seeded = True
+        # publish はしないが snapshot (= SSE 接続時の初期配信) は現実に合わせる
+        _last_events[sid] = _build_event(sid, verdict)
         return
 
     state_transitioned = verdict.state != prev_state
@@ -160,9 +193,11 @@ async def _tick_one(
     state.current_state = verdict.state
     state.last_excerpt = verdict.excerpt
 
-    # SSE 経路 (= chip UI 用): 全遷移 + excerpt 変化を流す。 excerpt 変化のみでも
-    # publish するのは Phase 4b (arrow picker) で ❯ 位置更新を chip に反映するため。
-    jsonl_event_broadcaster.publish(sid, _build_event(sid, verdict))
+    # SSE 経路 (= banner UI 用): 全遷移 + excerpt 変化を流す。 excerpt 変化のみでも
+    # publish するのは Phase 4b (arrow picker) で ❯ 位置更新を banner に反映するため。
+    event = _build_event(sid, verdict)
+    _last_events[sid] = event
+    jsonl_event_broadcaster.publish(sid, dict(event))
 
     # Web Push: 「入力待ち」 系への **遷移** だけ (= excerpt 変化のみでは push しない)。
     # 元に戻る (= ACTIVE) 遷移では push しない。
@@ -204,6 +239,7 @@ async def prompt_detector_loop() -> None:
                 # sessions_meta 側で消えた sid の detector state を掃除
                 for stale in [s for s in _detector_states if s not in sessions_meta]:
                     _detector_states.pop(stale, None)
+                    _last_events.pop(stale, None)
                 # 存在 + alternate_on は全 session 一括 1 subprocess で先取り
                 # (= per-session の has-session + display-message を tick から消す)。
                 # None (= tmux 不在 / 失敗) は _tick_one の per-session fallback。
