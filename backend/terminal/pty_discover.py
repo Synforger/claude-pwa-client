@@ -28,7 +28,7 @@ async def register_claude_when_ready(
     `max_wait` 秒以内に claude プロセスが見つからなければ諦める (= 既存 zsh のみで claude
     起動しないケース等)。
     """
-    import backend.jsonl.watcher as jsonl_watcher  # 循環 import 回避のため遅延 import
+    import backend.core.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
     deadline = time.time() + max_wait
     while time.time() < deadline:
         await asyncio.sleep(interval)

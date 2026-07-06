@@ -36,7 +36,7 @@ from backend.state import (
     unregister_session,
 )
 from backend.terminal.runner import kill_tmux_session, pty_sessions
-import backend.jsonl.watcher as jsonl_watcher
+import backend.core.jsonl_watcher as jsonl_watcher
 from backend.jsonl import history as session_history
 
 logger = logging.getLogger(__name__)

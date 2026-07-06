@@ -26,7 +26,7 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
 from backend.core.usage import latest_from_tail, read_all_rate_limits_tail
-import backend.jsonl.watcher as jsonl_watcher
+import backend.core.jsonl_watcher as jsonl_watcher
 from backend import state
 from backend.state import (
     agent_status,

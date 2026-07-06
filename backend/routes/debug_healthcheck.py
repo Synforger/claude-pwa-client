@@ -210,7 +210,7 @@ async def _check_session_meta() -> dict[str, Any]:
 
 
 async def _check_jsonl_bindings() -> dict[str, Any]:
-    from backend.jsonl.watcher import list_bindings
+    from backend.core.jsonl_watcher import list_bindings
     from backend.paths import JSONL_BINDINGS_PATH
     bindings = list_bindings()
     per_sid: list[dict[str, Any]] = []
@@ -250,7 +250,7 @@ async def _check_claude_jsonl_files() -> dict[str, Any]:
     never opened a claude on them yet) — those are expected to be missing,
     not a fault. Only previously-confirmed bindings whose jsonl has vanished
     count as broken."""
-    from backend.jsonl.watcher import list_bindings
+    from backend.core.jsonl_watcher import list_bindings
     from backend.state import sessions_meta
     bindings = list_bindings()
     broken: list[str] = []

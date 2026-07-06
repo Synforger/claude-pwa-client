@@ -13,7 +13,7 @@
     from backend.observability.event_journal import record
     record(sid="ses_abc", kind="sse_user_message", event={"uuid": "u1", "text": "hi"})
 
-rotate_and_purge() は backend/core/maintenance.py の loop から 1 日 1 回呼ぶ。
+rotate_and_purge() は backend/maintenance.py の loop から 1 日 1 回呼ぶ。
 """
 from __future__ import annotations
 
