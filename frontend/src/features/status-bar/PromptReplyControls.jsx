@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { apiFetch } from '../../utils/api.js'
+import { setTypingAnswer } from '../../state/promptState.js'
 
 // prompt_state.input_mode に応じた quick-reply UI (= Phase 4a)。
 //
@@ -23,7 +24,7 @@ async function sendRawKey(sid, key, enter) {
   } catch { /* 送信失敗はサイレント (= 通常 chip が消えないだけ、 再 tap で復帰) */ }
 }
 
-export function PromptReplyControls({ sid, entry }) {
+export function PromptReplyControls({ sid, entry, answerPending = false }) {
   const [pending, setPending] = useState(false)
   if (!entry || !sid) return null
   const { inputMode, options, keyRequiresEnter } = entry
@@ -89,13 +90,22 @@ export function PromptReplyControls({ sid, entry }) {
 
   return (
     <span className="prompt-reply-controls" data-testid="prompt-reply-controls">
-      {keys.map(k => (
+      {keys.map((k, i) => (
         <button
           key={k}
           type="button"
           className="prompt-reply-btn"
           disabled={pending}
-          onClick={() => handleTap(k)}
+          onClick={() => {
+            // 未回答の AskUserQuestion がある時、 最後の数字 = TUI が自動で足す
+            // "Type something" (= 自由記述の入口)。 選んだ瞬間に banner を
+            // 「回答入力中」 mode に切替える (= 以降の数字タップが text 入力に
+            // 化ける事故を防ぐ、 2026-07-06 実害の再発防止)。
+            if (answerPending && inputMode === 'numbers' && i === keys.length - 1) {
+              setTypingAnswer(sid, true)
+            }
+            handleTap(k)
+          }}
           aria-label={`Send ${k}`}
           data-testid={`prompt-reply-btn-${k}`}
         >

@@ -177,5 +177,7 @@
   "overlay.app_update": "Update app",
   "ask.waiting": "❓ Waiting for your answer — reply via the banner below or the terminal",
   "prompt.free_text_hint": "You can also type a reply in the message box below.",
-  "chat.input.answer_placeholder": "Type your answer — sending replies to the question"
+  "chat.input.answer_placeholder": "Type your answer — sending replies to the question",
+  "prompt.typing_answer": "✏️ Type your answer in the message box below",
+  "prompt.show_options": "Show options again"
 }

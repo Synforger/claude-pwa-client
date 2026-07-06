@@ -5,6 +5,8 @@ import {
   getSnapshot,
   ingestPromptStateEvent,
   selectFor,
+  selectTypingAnswer,
+  setTypingAnswer,
 } from './promptState.js'
 
 function reset() {
@@ -80,5 +82,28 @@ describe('promptState store', () => {
     expect(selectFor(null, 'x')).toBeNull()
     expect(selectFor(getSnapshot(), null)).toBeNull()
     expect(selectFor(getSnapshot(), 'not-there')).toBeNull()
+  })
+})
+
+describe('typingAnswer (= Type something 選択後の回答入力中 flag)', () => {
+  it('set / clear + 待ち系以外への遷移で自動クリア', () => {
+    setTypingAnswer('ses_t', true)
+    expect(selectTypingAnswer(getSnapshot(), 'ses_t')).toBe(true)
+    // 待ち系 (inline_tui) の event では維持
+    ingestPromptStateEvent({ type: 'prompt_state', sid: 'ses_t', state: 'inline_tui' })
+    expect(selectTypingAnswer(getSnapshot(), 'ses_t')).toBe(true)
+    // active への遷移 (= dialog が閉じた) で自動クリア
+    ingestPromptStateEvent({ type: 'prompt_state', sid: 'ses_t', state: 'active' })
+    expect(selectTypingAnswer(getSnapshot(), 'ses_t')).toBe(false)
+    // 手動 off も効く
+    setTypingAnswer('ses_t', true)
+    setTypingAnswer('ses_t', false)
+    expect(selectTypingAnswer(getSnapshot(), 'ses_t')).toBe(false)
+  })
+
+  it('clearPromptState は typingAnswer も掃除する', () => {
+    setTypingAnswer('ses_u', true)
+    clearPromptState('ses_u')
+    expect(selectTypingAnswer(getSnapshot(), 'ses_u')).toBe(false)
   })
 })

@@ -78,3 +78,22 @@
 .prompt-reply-btn-aux {
   opacity: 0.75;
 }
+
+/* Type something 選択後の「回答入力中」 mode */
+.prompt-banner-typing .prompt-banner-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.prompt-banner-back {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  opacity: 0.8;
+  cursor: pointer;
+}
