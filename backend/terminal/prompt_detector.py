@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
+from backend.terminal.ansi_text import line_style_signatures
+
 
 class PromptState(str, Enum):
     """検出結果 (= PWA UI + Push が振り分けに使う)。"""
@@ -108,10 +110,24 @@ class TailSnapshot:
     """1 回の tmux poll で撮る状態。 detector はこれと前回 snapshot だけを見る。"""
 
     alternate_on: bool
-    # 末尾 N 行の plain text (= tmux capture-pane -p、 escape なし)。 regex 判定に使う。
+    # 末尾 N 行の plain text (= ansi_tail から strip_ansi で導出)。 regex 判定に使う。
     tail_text: str
     # 監視時刻 (= 単調時刻、 loop.time() など)。 idle 判定に使う。
     now_sec: float
+    # 同じ capture の SGR escape 付き原文 (= capture-pane -e)。 tier B が装飾を構造情報
+    # として使う (= 選択行の特定 / チャット本文番号リストの veto)。 空 = ANSI 情報なし
+    # (= 従来のテキストのみ判定に fallback)。 tail_text と行数が一致しない場合も無視。
+    ansi_tail: str = ""
+
+    @property
+    def line_styles(self) -> Optional[list[frozenset[str]]]:
+        """行ごとの SGR 属性集合。 ansi_tail が無い / 行ズレ時は None (= fallback)。"""
+        if not self.ansi_tail:
+            return None
+        sigs = line_style_signatures(self.ansi_tail)
+        if len(sigs) != len(self.tail_text.splitlines()):
+            return None
+        return sigs
 
     @property
     def tail_hash(self) -> str:
@@ -307,29 +323,44 @@ def _tier_b_inline_tui(snapshot: TailSnapshot) -> Optional[Verdict]:
         4. `_tier_b_build_verdict`  — excerpt / digits 抽出 + Verdict 構築
     """
     lines = snapshot.tail_text.splitlines()
-    found = _tier_b_candidates(lines)
+    styles = snapshot.line_styles
+    found = _tier_b_candidates(lines, styles)
     if found is None:
         return None
     arrow_idx, all_opt = found
     clusters = _tier_b_clusterize(all_opt)
-    picked = _tier_b_select_picker(lines, clusters, arrow_idx, all_opt)
+    picked = _tier_b_select_picker(lines, clusters, arrow_idx, all_opt, styles)
     if picked is None:
         return None
     picker, anchor = picked
     return _tier_b_build_verdict(snapshot, lines, picker, anchor)
 
 
-def _tier_b_candidates(lines: list[str]) -> Optional[tuple[list[int], list[int]]]:
-    """arrow 行 index と option 行 index を収集。 どちらか欠けたら tier B 不成立。"""
+def _tier_b_candidates(
+    lines: list[str], styles: Optional[list[frozenset[str]]] = None
+) -> Optional[tuple[list[int], list[int]]]:
+    """arrow 行 index と option 行 index を収集。 どちらか欠けたら tier B 不成立。
+
+    ANSI 拡張 (= 2026-07-07): `❯` glyph が 1 本も無くても、 option 行のうち**唯一**
+    装飾が付いた行があればそれを選択カーソルとみなす (= Ink 系 picker は選択行を色 /
+    反転でハイライトする。 glyph が将来の claude 更新で変わっても構造は残る)。
+    複数 styled / 全 styled は判別不能として従来通り不成立 (= glyph 経路が主、
+    ここは保険の第 2 経路)。
+    """
     arrow_idx = [j for j, w in enumerate(lines) if _ARROW_CURSOR_RE.match(w)]
-    if not arrow_idx:
-        return None
     all_opt = [
         j for j, w in enumerate(lines)
         if _STACKED_OPTION_RE.match(w) or _INLINE_OPTIONS_RE.search(w)
     ]
     if not all_opt:
         return None
+    if not arrow_idx:
+        if styles is None or len(all_opt) < 2:
+            return None
+        styled_opts = [j for j in all_opt if styles[j]]
+        if len(styled_opts) != 1:
+            return None
+        arrow_idx = styled_opts
     return arrow_idx, all_opt
 
 
@@ -356,6 +387,7 @@ def _tier_b_select_picker(
     clusters: list[list[int]],
     arrow_idx: list[int],
     all_opt: list[int],
+    styles: Optional[list[frozenset[str]]] = None,
 ) -> Optional[tuple[list[int], int]]:
     """picker cluster の選定 + 番号 run 分割 + anchor (= cursor 行) 確定。
 
@@ -375,6 +407,12 @@ def _tier_b_select_picker(
         # 縦リスト (= `1. 手順…`) はチャット本文の番号リストが Claude TUI の入力欄 `❯ ` の
         # 直上に描画された形と区別が付かず、 誤爆する (= 2026-07-06 会社 PC 実測: 会話 log の
         # 説明手順 4 行 + 素の入力欄で Selection prompt が点灯)。
+        #
+        # ANSI veto (= 2026-07-07): 装飾情報がある時、 **全行が無装飾の cluster は実 picker
+        # ではない** (= Ink 系 dialog は option を必ず色付きで描く。 チャット本文がコロン型
+        # 例文を含んでいた場合の誤爆をここで落とす)。 tail 全体が無装飾 (= -e が機能して
+        # いない疑い) の時は veto しない。
+        ansi_usable = styles is not None and any(styles)
         candidates = [
             c for c in clusters
             if (
@@ -382,6 +420,7 @@ def _tier_b_select_picker(
                 or min(abs(c[-1] - a) for a in arrow_idx) <= 2
             )
             and any(_INLINE_OPTIONS_RE.search(lines[j]) for j in c)
+            and (not ansi_usable or any(styles[j] for j in c))
         ]
         if not candidates:
             return None
