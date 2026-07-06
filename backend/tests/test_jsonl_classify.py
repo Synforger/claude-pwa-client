@@ -108,3 +108,59 @@ def test_update_busy_interrupt_marker_clears_busy(isolated_state):
     state.stream_states[sid] = state_mod.StreamState(agent_id="a", busy=True)
     update_busy(sid, _user_str("[Request interrupted by user]"))
     assert state.stream_states[sid].busy is False
+
+
+# --- queue-aware busy (= turn 実行中送信で積んだ queue が残る間は END でも busy 維持) ---
+
+def test_update_busy_queued_send_keeps_busy_on_end(isolated_state):
+    """queue に未処理送信が残る間は turn 完了 (END) を見ても busy=True を維持する
+    (= 「1 個目の turn は終わったが queue の 2 個目をこれから処理する」 無言時間を推論中で繋ぐ)。"""
+    import backend.state as state_mod
+    from backend.jsonl.session_status import update_busy
+    state = isolated_state
+    sid = "ses_q1"
+    state.stream_states[sid] = state_mod.StreamState(agent_id="a", busy=True, queued_sends=1)
+    update_busy(sid, _asst("end_turn"))
+    assert state.stream_states[sid].busy is True
+    assert state.stream_states[sid].queued_sends == 1
+
+
+def test_update_busy_start_consumes_queued_send(isolated_state):
+    """queue message が JSONL に素ユーザ発話 (START) として現れたら queued_sends を 1 減らす。
+    最後の 1 個を消化した後の END では busy=False に戻る。"""
+    import backend.state as state_mod
+    from backend.jsonl.session_status import update_busy
+    state = isolated_state
+    sid = "ses_q2"
+    state.stream_states[sid] = state_mod.StreamState(agent_id="a", busy=True, queued_sends=1)
+    update_busy(sid, _user_str("second message"))  # START → queue 1 個消化
+    assert state.stream_states[sid].queued_sends == 0
+    assert state.stream_states[sid].busy is True     # turn 進行中
+    update_busy(sid, _asst("end_turn"))              # queue 空 → END で解除
+    assert state.stream_states[sid].busy is False
+
+
+def test_update_busy_interrupt_clears_queue(isolated_state):
+    """中断で queue の後続送信も破棄され busy=False に落ちる (= 張り付き防止)。"""
+    import backend.state as state_mod
+    from backend.jsonl.session_status import update_busy
+    state = isolated_state
+    sid = "ses_q3"
+    state.stream_states[sid] = state_mod.StreamState(agent_id="a", busy=True, queued_sends=2)
+    update_busy(sid, _user_str("[Request interrupted by user]"))
+    assert state.stream_states[sid].queued_sends == 0
+    assert state.stream_states[sid].busy is False
+
+
+def test_update_busy_user_stopped_clears_queue(isolated_state):
+    """Stop 押下 (user_stopped) は queue が残っていても busy=False を強制 + queue クリア。"""
+    import backend.state as state_mod
+    from backend.jsonl.session_status import update_busy
+    state = isolated_state
+    sid = "ses_q4"
+    state.stream_states[sid] = state_mod.StreamState(
+        agent_id="a", busy=True, queued_sends=1, user_stopped=True
+    )
+    update_busy(sid, _asst("tool_use"))  # 何を見ても user_stopped で False
+    assert state.stream_states[sid].busy is False
+    assert state.stream_states[sid].queued_sends == 0
