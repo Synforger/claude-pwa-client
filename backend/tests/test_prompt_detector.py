@@ -486,3 +486,101 @@ def test_tier_b_bare_arrow_still_detects_colon_feedback_dialog():
     tail = "How is Claude doing this session?\n1: Bad  2: Fine  3: Good  0: Dismiss\n❯ "
     verdict = analyze(_snap(tail), _new_state())
     assert verdict.state == PromptState.INLINE_TUI
+
+
+# ---------------------------------------------------------------------------
+# Tier B × ANSI (= 2026-07-07 転換: 装飾を構造情報として使う)
+# ---------------------------------------------------------------------------
+
+from backend.terminal.ansi_text import strip_ansi  # noqa: E402
+
+_CYAN = "\x1b[36m"
+_RESET = "\x1b[0m"
+
+
+def _ansi_snap(ansi: str, *, alternate: bool = False, now: float = 100.0) -> TailSnapshot:
+    """loop と同じ導出 (= tail_text は strip_ansi(ansi)) で snapshot を作る。"""
+    return TailSnapshot(
+        alternate_on=alternate, tail_text=strip_ansi(ansi), now_sec=now, ansi_tail=ansi
+    )
+
+
+def test_tier_b_glyphless_picker_via_unique_styled_option():
+    """❯ glyph が無くても「唯一装飾された option 行」 を選択カーソルとみなす
+    (= glyph が claude 更新で変わっても highlight 構造で拾う第 2 経路)。"""
+    ansi = "\n".join([
+        "Select a folder action:",
+        f"{_CYAN}  1. Yes, I trust this folder{_RESET}",
+        "  2. No, exit",
+    ])
+    verdict = analyze(_ansi_snap(ansi), _new_state())
+    assert verdict.state == PromptState.INLINE_TUI
+    assert "1" in verdict.options and "2" in verdict.options
+
+
+def test_tier_b_glyphless_needs_unique_styled_line():
+    """styled 行が 0 or 複数なら glyphless 経路は発動しない (= 判別不能は沈黙)。"""
+    all_plain = "\n".join([
+        "Select:",
+        "  1. Yes",
+        "  2. No",
+    ])
+    v = analyze(_snap(all_plain), _prime_state(all_plain))
+    assert v.state != PromptState.INLINE_TUI
+
+    both_styled = "\n".join([
+        f"{_CYAN}  1. Yes{_RESET}",
+        f"{_CYAN}  2. No{_RESET}",
+    ])
+    v2 = analyze(_ansi_snap(both_styled), _prime_state(strip_ansi(both_styled)))
+    assert v2.state != PromptState.INLINE_TUI
+
+
+def test_tier_b_ansi_veto_kills_unstyled_colon_cluster_near_bare_arrow():
+    """bare arrow 救済経路の ANSI veto: tail に装飾があるのに候補 cluster が全行無装飾
+    = チャット本文のコロン型例文 (= plain 描画) であって実 picker ではない → 却下。
+
+    粒度の注意: signature は行単位。 チャット行がインラインコード等で部分装飾されて
+    いると veto は届かない (= 既存のコロン限定 fence が第 1 防壁、 これは第 2 防壁)。"""
+    ansi = "\n".join([
+        "feedback dialog は 1: Bad  2: Fine  3: Good と出ます",  # チャット本文 (= 無装飾)
+        "",
+        "❯ ",
+        f"{_CYAN}5h:60% | 7d:31%{_RESET}",  # status bar (= tail に装飾自体は存在する)
+    ])
+    verdict = analyze(_ansi_snap(ansi), _prime_state(strip_ansi(ansi)))
+    assert verdict.state != PromptState.INLINE_TUI
+
+
+def test_tier_b_bare_arrow_rescue_survives_when_cluster_is_styled():
+    """実 feedback dialog (= コロン型 option が装飾付き) は veto されない。"""
+    ansi = "\n".join([
+        "How did Claude do?",
+        f"{_CYAN}1: Bad  2: Fine  3: Good  0: Dismiss{_RESET}",
+        "❯ ",
+    ])
+    verdict = analyze(_ansi_snap(ansi), _new_state())
+    assert verdict.state == PromptState.INLINE_TUI
+    assert verdict.options == ["1", "2", "3", "0"]
+
+
+def test_tier_b_no_ansi_keeps_legacy_text_behaviour():
+    """ansi_tail 無し (= 旧経路 / capture -e 失敗) は従来のテキストのみ判定に fallback。"""
+    tail = "\n".join([
+        "How did Claude do?",
+        "1: Bad  2: Fine  3: Good  0: Dismiss",
+        "❯ ",
+    ])
+    verdict = analyze(_snap(tail), _new_state())
+    assert verdict.state == PromptState.INLINE_TUI
+
+
+def test_tier_b_glyph_path_unchanged_with_ansi_present():
+    """従来の「❯ が option 行に乗る」 主経路は ANSI があっても従来通り。"""
+    ansi = "\n".join([
+        f"{_CYAN}❯ 1. Yes, I trust this folder{_RESET}",
+        "  2. No, exit",
+    ])
+    verdict = analyze(_ansi_snap(ansi), _new_state())
+    assert verdict.state == PromptState.INLINE_TUI
+    assert verdict.input_mode == InputMode.NUMBERS

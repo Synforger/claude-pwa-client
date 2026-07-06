@@ -35,9 +35,10 @@ from backend.terminal.prompt_detector import (
     Verdict,
     analyze,
 )
+from backend.terminal.ansi_text import strip_ansi
 from backend.terminal.runner import (
     _tmux_session_name,
-    capture_pane_plain_tail,
+    capture_pane_ansi_tail,
     get_pane_alternate_on,
     has_tmux_session,
     list_pane_alternate_states,
@@ -186,9 +187,11 @@ async def _tick_one(
         # tmux が返さない (= 一時的に応答遅延) 場合は「不明」 として False 扱い
         alt = False
     metrics.inc("detector.captures")
-    tail = await asyncio.to_thread(capture_pane_plain_tail, sid) or ""
+    # 1 回の capture (-e) から plain / ANSI 両方を導出する (= 2 回 capture の行ズレ race 排除)。
+    ansi = await asyncio.to_thread(capture_pane_ansi_tail, sid) or ""
+    tail = strip_ansi(ansi)
     now = asyncio.get_running_loop().time()
-    snapshot = TailSnapshot(alternate_on=alt, tail_text=tail, now_sec=now)
+    snapshot = TailSnapshot(alternate_on=alt, tail_text=tail, now_sec=now, ansi_tail=ansi)
 
     state = _detector_states.setdefault(sid, DetectorState())
     prev_state = state.current_state
