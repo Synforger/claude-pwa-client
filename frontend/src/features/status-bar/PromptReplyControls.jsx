@@ -22,7 +22,7 @@ export function freeTextDigit(entry) {
   return m ? m[1] : null
 }
 
-async function sendRawKey(sid, key, enter) {
+export async function sendRawKey(sid, key, enter) {
   try {
     await apiFetch(`/pty/${encodeURIComponent(sid)}/send-raw-key`, {
       method: 'POST',
