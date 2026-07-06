@@ -8,7 +8,7 @@ W2 architecture overhaul (= 2026-06-29 着地) で frontend `state/` は **6 領
 
 | store | 責務 | 永続化 | 主な書き手 |
 |---|---|---|---|
-| `ephemeral.js` | optimistic / sendTimers / streamBuffers / attachments / `loading[sid]` / sendFailedText / stopUnavailableSid / reconnectKey 等 描画専用 ephemeral | なし | features/chat (= 送信 / 受信ループ)、 transport/sse-overview (= loading の真値写し) |
+| `ephemeral.js` | attachments / `loading[sid]` / apiKeySource / streamBuffers / sendFailedText / stopUnavailableSid / reconnectKey / attachmentPickerBump の描画専用 ephemeral (= optimistic / sendTimers は J-12 で退役済) | なし | features/chat (= 送信 / 受信ループ)、 transport/sse-overview (= loading の真値写し) |
 | `sessions.js` | sessions list / `activeId` / `agents` / `accounts` / `status[sid]` / `sessionActivity` / `unreadDone[sid]` | localStorage (一部) | features/session-drawer (= CRUD)、 features/status-bar (= status SSE)、 features/topbar (= activeSid 切替) |
 | `ui.js` | overlays 11 個 / scroll 4 ref / keyboard 5 modifier / `viewModes[sid]` / desktopOpen / planOpen / storageWarnDismissed | localStorage (= viewModes + unread のみ) | features/* (= 各 overlay open/close)、 features/topbar (= viewMode toggle) |
 | `messages.js` | uuid 付き user / agent / system message の真値配列 (= sid 別)、 `MAX_MESSAGES_PER_SID = 200` | localStorage (lz-string 圧縮) | features/chat (= SSE handler 経由)、 useChatStorage |
