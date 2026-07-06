@@ -12,7 +12,7 @@ get_jsonl_for が self-heal して chat tail を復旧できることを固定�
 """
 import pytest
 
-import backend.jsonl.watcher as jw
+import backend.core.jsonl_watcher as jw
 
 
 @pytest.fixture(autouse=True)

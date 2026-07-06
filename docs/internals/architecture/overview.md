@@ -14,7 +14,7 @@
        │                    │     │   ├ terminal/  (= PTY + tmux 駆動)      │
        │                    ├──▶  │   ├ jsonl/     (= ~/.claude tail)       │
        │                    │     │   ├ routes/    (= HTTP / SSE / WS)      │
-   ホーム画面追加 → PWA       │     │   ├ core/     (= push / usage / GC)    │
+   ホーム画面追加 → PWA       │     │   ├ core/     (= push / usage / 共有底層) │
                             │     │   └ state.py  (= プロセス共有状態 + 集約)│
                             │     │                                          │
                             │     │ moonlight-web-stream                    │ ← 任意 (Path B)
@@ -38,9 +38,9 @@ backend は **4 つのサブパッケージ** + **2 つの中立基盤 module** 
 | package | 責務 | 主な file |
 |---|---|---|
 | `terminal/` | claude TUI を実 PTY + tmux で起動・駆動する入力経路。 control mode (`-CC`) パーサ、 送信確認 + 救済再送 を持つ | `runner.py` / `routes.py` (`/ws/pty` + `/pty/{sid}/send`) / `confirm.py` / `control_mode.py` / `session_resolver.py` |
-| `jsonl/` | `~/.claude/projects/<cwd-hash>/<claude_session_id>.jsonl` を tail し、 chat UI 用 event 形式 (= `processStreamEvent` 入力) に変換する出力経路 | `tail.py` (純粋関数) / `events.py` (`jsonl_line_to_events`) / `routes.py` (`/jsonl/stream/{sid}`) / `watcher.py` / `session_status.py` / `notifications.py` / `plan_choices.py` |
+| `jsonl/` | `~/.claude/projects/<cwd-hash>/<claude_session_id>.jsonl` を tail し、 chat UI 用 event 形式 (= `processStreamEvent` 入力) に変換する出力経路 | `events.py` (`jsonl_line_to_events`) / `routes.py` (`/jsonl/stream/{sid}`) / `session_status.py` / `notifications.py` / `plan_choices.py` / `resolver.py` |
 | `routes/` | HTTP / SSE / WS の各 endpoint を session / chat / overview / files / hooks / subagents / accounts 単位で分割保持 | `sessions.py` / `chat.py` / `overview.py` (`/sessions/status/stream` + `/sessions/overview/stream` + `/views/ws`) / `files.py` / `hooks.py` / `subagents.py` / `accounts.py` |
-| `core/` | 横断ヘルパ。 Web Push、 使用率 (5h / 7d / ctx) 組み立て、 起動時/定期 GC、 会話フォーク (parentUuid lineage 切り出し) | `push.py` / `usage.py` / `maintenance.py` / `fork.py` |
+| `core/` | 共有底層。 Web Push、 使用率 (5h / 7d / ctx) 組み立て、 会話フォーク、 JSONL 行プリミティブ (tail / predicates)、 sid↔JSONL binding registry | `push.py` / `usage.py` / `fork.py` / `jsonl_tail.py` / `jsonl_predicates.py` / `jsonl_watcher.py` |
 
 ### 中立基盤 (= 全 package から import 可)
 
@@ -62,7 +62,7 @@ backend は **4 つのサブパッケージ** + **2 つの中立基盤 module** 
                                      │ include_router(...)
         ┌────────────────┬───────────┼─────────────┬──────────────┐
         ▼                ▼           ▼             ▼              ▼
-   terminal/        jsonl/        routes/      core/push      core/maintenance
+   terminal/        jsonl/        routes/      core/push      maintenance.py
    (PTY 駆動)       (tail/SSE)    (HTTP/SSE/WS) (Web Push)    (GC loop)
         │                │           │             │
         │                │           │             │
@@ -76,10 +76,19 @@ backend は **4 つのサブパッケージ** + **2 つの中立基盤 module** 
                           (中立基盤)
 ```
 
-**禁忌の依存方向**:
+**依存方向の法律** (= 機械 gate: `backend/tests/test_layering.py`、 全 import 形態を AST 検査):
 
+```
+L0: config / paths / errors / state / observability / _generated / core
+L1: terminal   (= 入力口。 L0 のみ import 可)
+L2: jsonl      (= 出力口。 L0 / L1 を import 可)
+L3: routes / maintenance / main / cli   (= orchestrator。 全層 import 可)
+```
+
+- **`terminal/` → `jsonl/` は禁止** (= 一方向化。 両 subsystem が使う純粋プリミティブ
+  = `core/jsonl_tail.py` / `core/jsonl_predicates.py`、 共有 registry =
+  `core/jsonl_watcher.py` は core に降ろしてある。 新しい共有が要る時も core へ)
 - `state.py` は `usage.py` を import しない (= 逆方向、 `usage → state` のみ。 module init 時の循環 import 回避)
-- `terminal/` ↔ `jsonl/` を直接 import しない (= 入出力分離。 共有が必要なら state 経由)
 - `routes/*` は他 `routes/*` を import しない (= 横断 helper は state / core に降ろす)
 - `paths.py` は何も import しない (= 末端の宣言だけ)
 

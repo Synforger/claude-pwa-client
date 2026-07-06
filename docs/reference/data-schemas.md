@@ -2,7 +2,7 @@
 
 backend が runtime に持つ JSON ファイルの schema を一括宣言する。 backend 再起動 / kickstart / 移送の際に **物理 backup すべき範囲** の真値でもある。
 
-> 真値は dataclass / 実装 = `backend/state.py::SessionDef` / `backend/jsonl/history.py` / `backend/jsonl/watcher.py` / `backend/core/push.py`。 本 doc は **「backup 範囲を機械的に判断するための形式宣言」**。 実装が変わったら本 doc も同 PR で同期する。
+> 真値は dataclass / 実装 = `backend/state.py::SessionDef` / `backend/jsonl/history.py` / `backend/core/jsonl_watcher.py` / `backend/core/push.py`。 本 doc は **「backup 範囲を機械的に判断するための形式宣言」**。 実装が変わったら本 doc も同 PR で同期する。
 
 ## backup 必須範囲 (= 一覧)
 
@@ -40,7 +40,7 @@ backup 先 = 同 PC の別 path (= `~/backups/<service>/<date>/` 等)、 backend
 
 **形式**: `dict[pwa_sid, BindingInfo]`。 PWA session ID → 現在 active な claude jsonl ファイルへの bind。
 
-**writer**: `backend/jsonl/watcher.py::confirm_bind` / `unregister` / `_persist`。 hook 経由で `SessionStart` event が来ると bind が確定する。
+**writer**: `backend/core/jsonl_watcher.py::confirm_bind` / `unregister` / `_persist`。 hook 経由で `SessionStart` event が来ると bind が確定する。
 
 | field | 型 | 説明 |
 |---|---|---|
