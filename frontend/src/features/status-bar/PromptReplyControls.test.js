@@ -1,24 +1,31 @@
-// freeTextDigit (= pane excerpt から "N. Type something" の N を読む) の契約 test。
-// 位置 (= 最後の数字) では判定しない: claude の TUI は "Type something" の後に
-// "Chat about this" 等を足すことがある (= 2026-07-06 実測で 5 択化)。
+// cursorOnTypeSomething (= カーソルが "Type something" 行に乗っているかを excerpt から
+// 導出する) の契約 test。 ローカル flag でなく pane の真値から表示状態を決めるのが要点
+// (= タップ / ↑↓ / 端末直叩きのどの経路でも表示がズレない)。
 import { describe, it, expect } from 'vitest'
-import { freeTextDigit } from './PromptReplyControls.jsx'
+import { cursorOnTypeSomething } from './PromptReplyControls.jsx'
 
-describe('freeTextDigit', () => {
-  it('Type something の数字を位置に依存せず抽出する', () => {
-    const excerpt = [
+describe('cursorOnTypeSomething', () => {
+  it('カーソルが Type something 行に乗っている時だけ true', () => {
+    const on = [
       '  1. 選択肢 A',
       '  2. 選択肢 B',
-      '  3. 選択肢 C',
       '❯ 4. Type something.',
       '  5. Chat about this',
     ].join('\n')
-    expect(freeTextDigit({ excerpt })).toBe('4')
+    expect(cursorOnTypeSomething({ excerpt: on })).toBe(true)
+
+    const off = [
+      '❯ 1. 選択肢 A',
+      '  2. 選択肢 B',
+      '  4. Type something.',
+      '  5. Chat about this',
+    ].join('\n')
+    expect(cursorOnTypeSomething({ excerpt: off })).toBe(false)
   })
 
-  it('Type something が無ければ null (= 通常 picker では発火しない)', () => {
-    expect(freeTextDigit({ excerpt: '❯ 1. Yes\n  2. No' })).toBe(null)
-    expect(freeTextDigit({ excerpt: '' })).toBe(null)
-    expect(freeTextDigit(null)).toBe(null)
+  it('Type something が無い通常 picker では常に false', () => {
+    expect(cursorOnTypeSomething({ excerpt: '❯ 1. Yes\n  2. No' })).toBe(false)
+    expect(cursorOnTypeSomething({ excerpt: '' })).toBe(false)
+    expect(cursorOnTypeSomething(null)).toBe(false)
   })
 })
