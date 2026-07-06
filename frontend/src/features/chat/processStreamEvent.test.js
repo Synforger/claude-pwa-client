@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest'
 // test では register が走らない。 該当 feature を side-effect import して registry を hydrate する。
 import './index.js'                  // features/chat の全 message kind (= compact/api_error 等) を register
 import '../tasks/index.js'           // features/tasks の task kind を register
-import { processStreamEvent } from './processStreamEvent.js'
+import { extractAskAnswer, processStreamEvent } from './processStreamEvent.js'
 
 // claude は 1 つの AssistantMessage を thinking / text / tool_use の別 JSONL 行
 // (= 別フレーム、 同 message.id) に分けて書く。 それらが同じ rAF 窓で coalesce される時、
@@ -168,5 +168,23 @@ describe('processStreamEvent — task_notification (background-task completion c
     processStreamEvent(deps, 's1', taskEvent('t2'))
     processStreamEvent(deps, 's1', taskEvent('t2'))
     expect(get().s1.filter(m => m.kind === 'task')).toHaveLength(1)
+  })
+})
+
+describe('extractAskAnswer (= AskUserQuestion tool_result の包装剥がし)', () => {
+  it('harness 包装から回答本文だけを抜く (= 実 wire 形式)', () => {
+    const raw = 'Your questions have been answered: "最終往復テスト (#147)。試すこと: ① ↓ を連打..."="全部追従した (合格)". You can now continue with these answers in mind.'
+    expect(extractAskAnswer(raw)).toBe('全部追従した (合格)')
+  })
+
+  it('包装が無い形式はそのまま返す (= 後方互換)', () => {
+    expect(extractAskAnswer('OAuth')).toBe('OAuth')
+    expect(extractAskAnswer('')).toBe(null)
+    expect(extractAskAnswer(null)).toBe(null)
+  })
+
+  it('回答内に引用符が含まれても末尾の閉じだけ剥がす', () => {
+    const raw = 'Your questions have been answered: "Q"="彼は "OK" と言った". You can now continue with these answers in mind.'
+    expect(extractAskAnswer(raw)).toBe('彼は "OK" と言った')
   })
 })
