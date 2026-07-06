@@ -42,7 +42,9 @@ export function PromptReplyControls({ sid, entry }) {
     }
   }
 
-  // arrows mode = 上下 + Enter 3 button 固定 (= Phase 4b)。
+  // arrows mode = ↑↓ + ␣ + ⏎ の 4 button。 ␣ は番号なし checkbox 型 picker (= inquirer
+  // checkbox 等、 カーソル行を Space で toggle する操作系) 用。 単一選択 picker では
+  // 押しても無害。
   if (inputMode === 'arrows') {
     return (
       <span className="prompt-reply-controls" data-testid="prompt-reply-controls">
@@ -62,6 +64,14 @@ export function PromptReplyControls({ sid, entry }) {
           aria-label="Move selection down"
           data-testid="prompt-reply-btn-down"
         >↓</button>
+        <button
+          type="button"
+          className="prompt-reply-btn prompt-reply-btn-aux"
+          disabled={pending}
+          onClick={() => handleTap('Space', false)}
+          aria-label="Toggle selection (multi-select)"
+          data-testid="prompt-reply-btn-space"
+        >␣</button>
         <button
           type="button"
           className="prompt-reply-btn"
@@ -92,28 +102,19 @@ export function PromptReplyControls({ sid, entry }) {
           {k}
         </button>
       ))}
-      {/* multiSelect dialog (= AskUserQuestion の複数選択等) 用の toggle / confirm。
-          space = 現在行の選択 toggle、 ⏎ = 確定。 single select の Ink dialog は数字
-          1 打鍵で即決定するのでこの 2 個は触らなくてよい (= 押しても害はない)。 */}
+      {/* multiSelect dialog (= AskUserQuestion の複数選択等) の確定用。 multi では数字
+          キー自体が toggle として働く (= 2026-07-06 実機確認) ので Space は不要、 ⏎ だけ
+          あればよい。 single select の Ink dialog は数字 1 打鍵で即決定するので押す必要
+          なし (= 押しても害はない)。 */}
       {inputMode === 'numbers' && (
-        <>
-          <button
-            type="button"
-            className="prompt-reply-btn prompt-reply-btn-aux"
-            disabled={pending}
-            onClick={() => handleTap('Space', false)}
-            aria-label="Toggle selection (multi-select)"
-            data-testid="prompt-reply-btn-space"
-          >␣</button>
-          <button
-            type="button"
-            className="prompt-reply-btn prompt-reply-btn-aux"
-            disabled={pending}
-            onClick={() => handleTap('Enter', false)}
-            aria-label="Confirm selection"
-            data-testid="prompt-reply-btn-confirm"
-          >⏎</button>
-        </>
+        <button
+          type="button"
+          className="prompt-reply-btn prompt-reply-btn-aux"
+          disabled={pending}
+          onClick={() => handleTap('Enter', false)}
+          aria-label="Confirm selection"
+          data-testid="prompt-reply-btn-confirm"
+        >⏎</button>
       )}
     </span>
   )
