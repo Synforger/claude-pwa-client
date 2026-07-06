@@ -178,6 +178,6 @@
   "ask.waiting": "❓ 回答待ち — 下のバナーか端末から回答",
   "prompt.free_text_hint": "下のメッセージ欄から文字でそのまま回答もできます",
   "chat.input.answer_placeholder": "回答を入力 — 送信でそのまま質問への回答になります",
-  "prompt.typing_answer": "✏️ 回答入力中 — 下のメッセージ欄から送信してください",
+  "prompt.typing_answer": "回答を下の欄に入力して送信してください",
   "prompt.show_options": "選択肢を再表示"
 }
