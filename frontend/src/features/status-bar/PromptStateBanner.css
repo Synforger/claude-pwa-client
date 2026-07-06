@@ -86,17 +86,6 @@
   justify-content: space-between;
   gap: 8px;
 }
-.prompt-banner-back {
-  flex-shrink: 0;
-  font-size: 13px;
-  padding: 5px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text);
-  opacity: 0.8;
-  cursor: pointer;
-}
 
 /* 回答入力中 mode の layout (= 2026-07-06 実機 feedback 2 回目: 初版は小さすぎ、
    2 版はデカすぎ。 箱はコンパクトに、 文言と戻るボタンは読める大きさに)。 */
