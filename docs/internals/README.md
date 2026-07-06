@@ -11,9 +11,9 @@ PWA を**使うだけ**なら読む必要はありません。 [../README.md](..
 | 新しい tool / SSE event / overlay / account / push channel を足す手順 | [architecture/extending.md](architecture/extending.md) |
 | SSE / WebSocket 経路の責任分担 + event の wire shape | [protocol/streams.md](protocol/streams.md) |
 
-## 開発フロー (= ローカルチェックのみ、 GitHub Actions 不使用)
+## 開発フロー (= ローカルが真値、 CI は鏡)
 
-品質ゲートは全部ローカル `.githooks/` に置く運用。 GitHub Actions の workflow は使わない (= collaborator ゼロ運用で remote ランナーの維持コストが価値に見合わないため)。 clone 後の活性化:
+品質ゲートの実体は全部ローカル (= `.githooks/` + Taskfile + `.tooling/`) にあり、 offline で完結する。 GitHub Actions は [`ci.yml`](../../.github/workflows/ci.yml) 1 本だけで、 同じ `task ci` を pull request で走らせる薄い trigger (= 外部 contributor がゲート一式を持たなくても status check が付く)。 CI にしか無い検査は作らない。 clone 後の活性化:
 
 ```bash
 git config --local core.hooksPath .githooks
