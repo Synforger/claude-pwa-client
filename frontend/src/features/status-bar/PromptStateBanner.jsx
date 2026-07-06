@@ -4,10 +4,9 @@ import {
   getSnapshot as getPromptSnapshot,
   selectFor,
   selectTypingAnswer,
-  setTypingAnswer,
   subscribe as subscribePrompt,
 } from '../../state/promptState.js'
-import { PromptReplyControls, sendRawKey } from './PromptReplyControls.jsx'
+import { PromptReplyControls } from './PromptReplyControls.jsx'
 import './PromptStateBanner.css'
 
 // tmux pane が「入力待ち」 のとき、 チャット入力欄の直上に出す banner (= 2026-07-05
@@ -34,12 +33,13 @@ export function PromptStateBanner({ sid }) {
   if (!shape) return null
 
   // Type something 選択後の「回答入力中」 mode: 選択肢 UI を畳んで
-  // 「下の欄に入力して送信」 を出す (= pane にはまだ選択肢が見えたままなので、
+  // 「下の欄に入力して送信」 だけを出す (= pane にはまだ選択肢が見えたままなので、
   // ボタンを残すと数字タップが text 入力に化ける、 2026-07-06 実機 feedback)。
   //
-  // 「選択肢に戻る」 は**端末に実際に Escape を送る** (= 表示だけ偽装して戻すと、
-  // dialog は text mode のままなので次の数字タップがまた文字化けする、 同日 実機で
-  // 往復操作が壊れた実害)。 flag を下ろした後の見た目は detector の現実追従に任せる。
+  // 「選択肢に戻る」 ボタンは**提供しない (= 一方向コミット)**。 表示だけ偽装して戻すと
+  // dialog は text mode のままで数字タップが文字化けし (実害 1 回目)、 本物の Escape を
+  // 送ると dialog ごとキャンセルされる (= 実害 2 回目、 2026-07-06 実機検証で確定)。
+  // 誤タップ時は選択肢の文言をそのまま文字で打てば同じ回答になる。
   if (typing) {
     return (
       <div className="prompt-banner prompt-banner-typing" data-testid="prompt-state-banner">
@@ -47,17 +47,6 @@ export function PromptStateBanner({ sid }) {
           <span className="prompt-typing-icon">✏️</span>
           <span className="prompt-typing-text">{t('prompt.typing_answer')}</span>
         </div>
-        <button
-          type="button"
-          className="prompt-banner-back"
-          onClick={() => {
-            sendRawKey(sid, 'Escape', false)
-            setTypingAnswer(sid, false)
-          }}
-          data-testid="prompt-banner-show-options"
-        >
-          ← {t('prompt.show_options')}
-        </button>
       </div>
     )
   }
