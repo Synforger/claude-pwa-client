@@ -33,6 +33,7 @@ function ChatInputInner({
   onSendFailedConsumed,
   stopUnavailable,
   onStopRecovered,
+  answerMode = false,
 }) {
   const t = useT()
   // 表示は controlled、 親 input dict ではなく内部 state で更新する。
@@ -121,7 +122,13 @@ function ChatInputInner({
           e.preventDefault()
           handleSend()
         }}
-        placeholder={activeSession ? t('chat.input.placeholder') : t('chat.input.placeholder_no_session')}
+        placeholder={
+          !activeSession ? t('chat.input.placeholder_no_session')
+            // 未回答の AskUserQuestion がある間は「この欄がそのまま回答になる」 誘導に切替
+            // (= Type something 選択後は banner が消えるので、 誘導は入力欄自身に出す)
+            : answerMode ? t('chat.input.answer_placeholder')
+            : t('chat.input.placeholder')
+        }
         rows={2}
         disabled={inputDisabled}
         data-testid="chat-input"
