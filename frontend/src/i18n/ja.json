@@ -174,5 +174,7 @@
   "boundary.error": "エラーが発生しました",
   "boundary.reset": "データ消去して再起動",
   "overlay.load_failed": "画面の読込に失敗しました",
-  "overlay.app_update": "アプリ更新"
+  "overlay.app_update": "アプリ更新",
+  "ask.waiting": "❓ 回答待ち — 下のバナーか端末から回答",
+  "prompt.free_text_hint": "下のメッセージ欄から文字でそのまま回答もできます"
 }

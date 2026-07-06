@@ -1,6 +1,15 @@
-import { memo, useState } from 'react'
+import { memo } from 'react'
 import { useT } from '../../i18n/t.js'
 import './AskUserQuestionBubble.css'
+
+// AskUserQuestion の Q&A を chat log に折りたたみで残す**非対話**コンポーネント。
+//
+// 2026-07-06 統合: 回答 UI は prompt detector の banner (= PromptStateBanner +
+// PromptReplyControls) に一本化した。 従来はこの bubble にも選択肢 button / 自由記述
+// input があり、 同じ質問に UI が 2 つ出る二重表示 + 「推論停止中も対話 UI が出っ放し」
+// の原因だった。 ここは「何を聞かれて何を答えたか」 の履歴 (= 意味構造: header /
+// description / multiSelect は画面 excerpt に無いのでここが真値) だけを担う。
+// 回答経路 = banner の数字 / Space / Enter button、 自由記述はチャット入力欄からの通常送信。
 
 // Claude が AskUserQuestion に渡してくる options の形が想定外のときも落ちないよう正規化
 function normalizeOption(opt) {
@@ -13,130 +22,51 @@ function normalizeOption(opt) {
   return { label, description }
 }
 
-function AskUserQuestionBubble({ askUserQuestion, onAnswer }) {
+function AskUserQuestionBubble({ askUserQuestion }) {
   const t = useT()
-  const { tool_use_id, questions, answered, selectedAnswer, lastError } = askUserQuestion
+  const { questions, answered, selectedAnswer } = askUserQuestion
   const q = questions?.[0]
-  // Hooks は早期 return より前に呼ぶ（rules-of-hooks）
-  const multi = !!q?.multiSelect
-  const [selected, setSelected] = useState(() => (multi ? [] : null))
-  const [freeText, setFreeText] = useState('')
-  // 2026-07-02: single 選択は 1 タップ即送信に変更 (旧 F-52 の 2 段階確認は撤去)。
-  // 誤タップ懸念より、 チャット完結の UX 優先を選ぶ。 multi は元から「☑ で選び → 送信ボタン」 の
-  // 2 段階なので単発送信ではない。
-
   if (!q) return null
 
   const options = Array.isArray(q.options) ? q.options.map(normalizeOption).filter(o => o.label) : []
   const questionText = typeof q.question === 'string' ? q.question : JSON.stringify(q.question ?? '')
   const headerText = typeof q.header === 'string' ? q.header : ''
 
-  // 回答済は details で折りたたみ。 options / free input は完全に非表示にして
-  // 「回答済の選択肢ボタンがまた active に見える」 不安をゼロにする。
-  if (answered) {
-    const summaryAnswer = selectedAnswer || t('ask.answered_short')
-    const summaryDisplay = summaryAnswer.length > 60
-      ? summaryAnswer.slice(0, 60) + '…'
-      : summaryAnswer
-    return (
-      <details className="ask-question answered">
-        <summary className="ask-summary">{t('ask.answered', { answer: summaryDisplay })}</summary>
-        <div className="ask-answered-body">
-          {headerText && <div className="ask-header">{headerText}</div>}
-          <div className="ask-text">{questionText}</div>
-          {selectedAnswer && (
-            <div className="ask-answered-detail">{t('ask.answered_detail', { answer: selectedAnswer })}</div>
-          )}
-        </div>
-      </details>
-    )
-  }
-
-  // ここから下は未回答経路だけ。 回答済は上で早期 return 済。
-  // isFree = 自由記述 (= claude TUI の "Type something" 経由が必要)。 選択肢数を渡して
-  // sendAnswer 側が "Type something"(= 選択肢数+1 番) を選ぶ番号を算出できるようにする。
-  const submit = (answer, isFree = false) => {
-    if (!answer) return
-    onAnswer(tool_use_id, answer, isFree, options.length)
-  }
-
-  const handleOptionClick = (label) => {
-    if (multi) {
-      setSelected(prev => prev.includes(label) ? prev.filter(x => x !== label) : [...prev, label])
-      return
-    }
-    // single 経路: 1 タップで即送信。
-    submit(label)
-  }
-
-  const handleMultiSubmit = () => {
-    if (selected.length === 0) return
-    submit(selected.join(', '))
-  }
-
-  const handleFreeSubmit = () => {
-    const trimmed = freeText.trim()
-    if (!trimmed) return
-    submit(trimmed, true)
-    setFreeText('')
-  }
+  // 回答済 / 未回答とも同じ折りたたみログ形。 未回答は summary が「回答待ち」 になるだけで、
+  // 展開すると質問全文 + 選択肢 (+ description) が読める (= banner の excerpt には
+  // description が無いので、 詳しく読みたい時にここを開く)。
+  const summaryText = answered
+    ? t('ask.answered', {
+        answer: (selectedAnswer || t('ask.answered_short')).length > 60
+          ? (selectedAnswer || t('ask.answered_short')).slice(0, 60) + '…'
+          : (selectedAnswer || t('ask.answered_short')),
+      })
+    : t('ask.waiting')
 
   return (
-    <div className="ask-question" data-testid="ask-user-question-bubble">
-      {headerText && <div className="ask-header">{headerText}</div>}
-      <div className="ask-text" data-testid="ask-user-question-text">{questionText}</div>
-
-      {options.length > 0 && (
-        <div className={`ask-options ${multi ? 'multi' : 'single'}`}>
-          {options.map((opt, i) => {
-            const isMultiSelected = multi && selected.includes(opt.label)
-            return (
-              <button
-                key={i}
-                className={`ask-option ${isMultiSelected ? 'selected' : ''}`}
-                onClick={() => handleOptionClick(opt.label)}
-                title={opt.description}
-              >
-                {multi && <span className="ask-check">{isMultiSelected ? '☑' : '☐'}</span>}
-                <span className="ask-option-label">{opt.label}</span>
+    <details
+      className={`ask-question ${answered ? 'answered' : 'waiting'}`}
+      data-testid="ask-user-question-bubble"
+    >
+      <summary className="ask-summary">{summaryText}</summary>
+      <div className="ask-answered-body">
+        {headerText && <div className="ask-header">{headerText}</div>}
+        <div className="ask-text" data-testid="ask-user-question-text">{questionText}</div>
+        {options.length > 0 && (
+          <ul className="ask-option-log">
+            {options.map((opt, i) => (
+              <li key={i} className="ask-option-log-item">
+                <span className="ask-option-label">{i + 1}. {opt.label}</span>
                 {opt.description && <span className="ask-option-desc"> · {opt.description}</span>}
-              </button>
-            )
-          })}
-        </div>
-      )}
-
-      {multi && (
-        <button className="ask-submit" onClick={handleMultiSubmit} disabled={selected.length === 0}>
-          {t('ask.submit_selected', { count: selected.length })}
-        </button>
-      )}
-
-      <div className="ask-free">
-        <input
-          type="text"
-          className="ask-free-input"
-          placeholder={t('chat.input.placeholder')}
-          value={freeText}
-          onChange={e => setFreeText(e.target.value)}
-          onKeyDown={e => {
-            // IME 確定 Enter は無視（iOS / 日本語入力での誤送信防止）
-            if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleFreeSubmit()
-          }}
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          spellCheck={false}
-        />
-        <button className="ask-free-send" onClick={handleFreeSubmit} disabled={!freeText.trim()}>
-          {t('chat.send')}
-        </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {answered && selectedAnswer && (
+          <div className="ask-answered-detail">{t('ask.answered_detail', { answer: selectedAnswer })}</div>
+        )}
       </div>
-
-      {lastError && (
-        <div className="ask-error">{t('ask.error_prefix')} {lastError} {t('ask.error_retry_hint')}</div>
-      )}
-    </div>
+    </details>
   )
 }
 

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { useT } from '../../i18n/t.js'
 import {
   getSnapshot as getPromptSnapshot,
   selectFor,
@@ -22,6 +23,7 @@ const BANNER_LABELS = {
 }
 
 export function PromptStateBanner({ sid }) {
+  const t = useT()
   const snapshot = useSyncExternalStore(subscribePrompt, getPromptSnapshot)
   const entry = selectFor(snapshot, sid)
   if (!entry) return null
@@ -41,6 +43,12 @@ export function PromptStateBanner({ sid }) {
         <pre className="prompt-banner-excerpt">{excerpt}</pre>
       ) : null}
       <PromptReplyControls sid={sid} entry={entry} />
+      {/* 自由記述の導線: dialog が text 待ちの時も選択肢の "Other" 系でも、 通常の
+          チャット送信 (= C-u wipe → paste → Enter) がそのまま dialog に刺さる。 専用
+          入力欄は作らず既存の 1 入力欄に寄せる (= AskUserQuestion UI 統合の設計判断)。 */}
+      {entry.inputMode !== 'none' && (
+        <div className="prompt-banner-hint">{t('prompt.free_text_hint')}</div>
+      )}
     </div>
   )
 }

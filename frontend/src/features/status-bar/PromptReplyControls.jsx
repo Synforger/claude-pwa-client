@@ -92,6 +92,29 @@ export function PromptReplyControls({ sid, entry }) {
           {k}
         </button>
       ))}
+      {/* multiSelect dialog (= AskUserQuestion の複数選択等) 用の toggle / confirm。
+          space = 現在行の選択 toggle、 ⏎ = 確定。 single select の Ink dialog は数字
+          1 打鍵で即決定するのでこの 2 個は触らなくてよい (= 押しても害はない)。 */}
+      {inputMode === 'numbers' && (
+        <>
+          <button
+            type="button"
+            className="prompt-reply-btn prompt-reply-btn-aux"
+            disabled={pending}
+            onClick={() => handleTap('Space', false)}
+            aria-label="Toggle selection (multi-select)"
+            data-testid="prompt-reply-btn-space"
+          >␣</button>
+          <button
+            type="button"
+            className="prompt-reply-btn prompt-reply-btn-aux"
+            disabled={pending}
+            onClick={() => handleTap('Enter', false)}
+            aria-label="Confirm selection"
+            data-testid="prompt-reply-btn-confirm"
+          >⏎</button>
+        </>
+      )}
     </span>
   )
 }
