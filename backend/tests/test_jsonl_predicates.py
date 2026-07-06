@@ -1,10 +1,10 @@
-"""backend/jsonl/predicates.py の unit test (= backend-F-05)。
+"""backend/core/jsonl_predicates.py の unit test (= backend-F-05)。
 
 session_status.is_user_prompt と confirm.py._is_plain_user_prompt の判定ズレを根絶する
 ための共通 predicate 集約。 既存 test (test_jsonl_routes.py 内 is_user_prompt 系) と
 同じ semantics を保つことを確認しつつ、 集約 module 側でも単体カバレッジを付ける。
 """
-from backend.jsonl import predicates as p
+from backend.core import jsonl_predicates as p
 
 
 def _user_str(text):

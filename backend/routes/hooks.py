@@ -27,7 +27,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from backend.config import AGENTS
 from backend.core.push import broadcast_push, notification_title_for
-import backend.jsonl.watcher as jsonl_watcher  # backend-F-40: 旧版は関数内 import で循環回避
+import backend.core.jsonl_watcher as jsonl_watcher  # backend-F-40: 旧版は関数内 import で循環回避
 from backend.jsonl.session_status import (
     apply_immediate_stop as _apply_immediate_stop,
 )

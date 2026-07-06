@@ -69,7 +69,7 @@ async def post_e2e_seed(request: Request, body: E2eSeedRequest) -> E2eSeedRespon
     # actually exercised (= keeps startup graph clean + dodges a state.py side
     # effect for non-e2e processes).
     from backend.config import projects_dir_for_account
-    from backend.jsonl import watcher
+    from backend.core import jsonl_watcher as watcher
     from backend.state import register_session, sessions_meta
 
     agents = (await _agents_snapshot())

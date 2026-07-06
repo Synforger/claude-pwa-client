@@ -188,3 +188,115 @@ describe('extractAskAnswer (= AskUserQuestion tool_result の包装剥がし)', 
     expect(extractAskAnswer(raw)).toBe('彼は "OK" と言った')
   })
 })
+
+// ---------------------------------------------------------------------------
+// 追加契約 (= 2026-07-07 coverage 増強): system カード族 / result / turn_duration /
+// tool_result 紐付け / prompt_state 振り分け
+// ---------------------------------------------------------------------------
+
+import { getSnapshot as getPromptSnapshot, clearPromptState } from '../../state/promptState.js'
+import { MAX_MESSAGES } from '../../constants.js'
+
+describe('processStreamEvent — system カード族', () => {
+  it.each([
+    ['compact_boundary 系', { type: 'system', subtype: 'compact_boundary', uuid: 'u1' }, 'compact'],
+    ['system_error', { type: 'system_error', uuid: 'u2', message: 'overloaded' }, 'api_error'],
+    ['hook_error', { type: 'hook_error', uuid: 'u3', hook: 'x', error: 'boom' }, 'hook_error'],
+    ['system_note', { type: 'system_note', uuid: 'u4', note: 'fired' }, 'system_note'],
+    ['attachment', { type: 'attachment', uuid: 'u5', kind: 'queued_command' }, 'attachment'],
+  ])('%s は system バブルとして積まれる + 同 uuid replay は重複しない', (_label, event, kind) => {
+    const { deps, get } = makeStatefulDeps({ s1: [] })
+    processStreamEvent(deps, 's1', event)
+    processStreamEvent(deps, 's1', event)  // replay
+    const bubbles = get().s1.filter(m => m.role === 'system' && m.kind === kind)
+    expect(bubbles).toHaveLength(1)
+    expect(bubbles[0].uuid).toBe(event.uuid)
+  })
+
+  it('MAX_MESSAGES 到達時は先頭を捨てて末尾に積む (= 総数維持)', () => {
+    const full = Array.from({ length: MAX_MESSAGES }, (_, i) => ({
+      id: `m${i}`, role: 'agent', text: String(i),
+    }))
+    const { deps, get } = makeStatefulDeps({ s1: full })
+    processStreamEvent(deps, 's1', { type: 'system_note', uuid: 'u-trim', note: 'x' })
+    const arr = get().s1
+    expect(arr).toHaveLength(MAX_MESSAGES)
+    expect(arr[0].id).toBe('m1')            // 先頭 1 件が落ちた
+    expect(arr.at(-1).kind).toBe('system_note')
+  })
+})
+
+describe('processStreamEvent — result / turn_duration', () => {
+  it('result は最後の agent バブルに meta を埋めて streaming を落とす', () => {
+    const init = { s1: [{ id: 'a', role: 'agent', text: 'x', streaming: true }] }
+    const { deps, get } = makeStatefulDeps(init)
+    processStreamEvent(deps, 's1', {
+      type: 'result', total_cost_usd: 0.5, num_turns: 3, duration_ms: 1200,
+      stop_reason: 'end_turn',
+    })
+    const last = get().s1.at(-1)
+    expect(last.meta.cost_usd).toBe(0.5)
+    expect(last.meta.num_turns).toBe(3)
+    expect(last.meta.stop_reason).toBe('end_turn')
+    expect(last.streaming).toBe(false)
+  })
+
+  it('最後が agent でなければ result は何もしない', () => {
+    const init = { s1: [{ id: 'u', role: 'user', text: 'hi' }] }
+    const { deps, get } = makeStatefulDeps(init)
+    processStreamEvent(deps, 's1', { type: 'result', duration_ms: 1 })
+    expect(get().s1.at(-1).meta).toBeUndefined()
+  })
+
+  it('turn_duration は parentUuid 一致の agent に duration_ms を書く', () => {
+    const init = { s1: [
+      { id: 'a1', role: 'agent', uuid: 'AM1', text: 'x' },
+      { id: 'u1', role: 'user', text: 'y' },
+    ] }
+    const { deps, get } = makeStatefulDeps(init)
+    processStreamEvent(deps, 's1', { type: 'turn_duration', parentUuid: 'AM1', durationMs: 999 })
+    expect(get().s1[0].meta.duration_ms).toBe(999)
+  })
+
+  it('turn_duration は parentUuid 不一致なら最後の agent に fallback、 agent 不在なら無変化', () => {
+    const init = { s1: [{ id: 'a1', role: 'agent', uuid: 'AM1', text: 'x' }] }
+    const { deps, get } = makeStatefulDeps(init)
+    processStreamEvent(deps, 's1', { type: 'turn_duration', parentUuid: 'nope', durationMs: 5 })
+    expect(get().s1[0].meta.duration_ms).toBe(5)
+
+    const empty = makeStatefulDeps({ s1: [{ id: 'u', role: 'user', text: 'z' }] })
+    processStreamEvent(empty.deps, 's1', { type: 'turn_duration', durationMs: 5 })
+    expect(empty.get().s1[0].meta).toBeUndefined()
+  })
+})
+
+describe('processStreamEvent — tool_result 紐付け', () => {
+  it('tool_use_id 一致の tool に result を埋め、 不一致 message は同一参照のまま', () => {
+    const init = { s1: [
+      { id: 'a1', role: 'agent', text: '', tools: [{ id: 't1', name: 'Bash' }] },
+      { id: 'a2', role: 'agent', text: '', tools: [{ id: 't2', name: 'Read' }] },
+    ] }
+    const { deps, get } = makeStatefulDeps(init)
+    processStreamEvent(deps, 's1', toolResultEvent('t1', 'output!'))
+    const arr = get().s1
+    expect(arr[0].tools[0].result).toEqual({ content: 'output!', is_error: false })
+    expect(arr[1]).toBe(init.s1[1])  // 触ってない message は reference 同一 (= memo 維持)
+  })
+
+  it('どの tool にも一致しない tool_result は state 無変化 (= 同一 object を返す)', () => {
+    const init = { s1: [{ id: 'a1', role: 'agent', text: '', tools: [{ id: 't1', name: 'Bash' }] }] }
+    const { deps, get } = makeStatefulDeps(init)
+    processStreamEvent(deps, 's1', toolResultEvent('unknown', 'x'))
+    expect(get()).toBe(init)
+  })
+})
+
+describe('processStreamEvent — prompt_state 振り分け', () => {
+  it('prompt_state は messages に積まず promptState store に流す', () => {
+    const { deps, get } = makeStatefulDeps({ s9: [] })
+    processStreamEvent(deps, 's9', { type: 'prompt_state', state: 'text_prompt', excerpt: 'pw:' })
+    expect(get().s9).toHaveLength(0)
+    expect(getPromptSnapshot().bySid.s9?.state).toBe('text_prompt')
+    clearPromptState('s9')
+  })
+})
