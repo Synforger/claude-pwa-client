@@ -79,35 +79,17 @@
   opacity: 0.75;
 }
 
-/* Type something 選択後の「回答入力中」 mode */
-.prompt-banner-typing .prompt-banner-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
 
-/* 回答入力中 mode の layout (= 2026-07-06 実機 feedback 2 回目: 初版は小さすぎ、
-   2 版はデカすぎ。 箱はコンパクトに、 文言と戻るボタンは読める大きさに)。 */
-.prompt-banner-typing {
-  display: flex;
-  flex-direction: column;
+
+/* Type something 選択中の inline 案内 (= 数字ボタンの代替、 同格サイズ) */
+.prompt-typing-inline {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-color: #e8b34b;
-  background: rgba(232, 179, 75, 0.10);
-}
-.prompt-typing-main {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.prompt-typing-icon {
-  font-size: 16px;
-}
-.prompt-typing-text {
+  padding: 6px 10px;
+  border: 1px solid #e8b34b;
+  border-radius: 8px;
+  background: rgba(232, 179, 75, 0.12);
+  color: #e8b34b;
   font-size: 14px;
   font-weight: 600;
-  color: #e8b34b;
 }

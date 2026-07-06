@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useT } from '../../i18n/t.js'
 import { apiFetch } from '../../utils/api.js'
 import { setTypingAnswer } from '../../state/promptState.js'
 
@@ -32,7 +33,8 @@ export async function sendRawKey(sid, key, enter) {
   } catch { /* 送信失敗はサイレント (= 通常 chip が消えないだけ、 再 tap で復帰) */ }
 }
 
-export function PromptReplyControls({ sid, entry }) {
+export function PromptReplyControls({ sid, entry, typing = false }) {
+  const t = useT()
   const [pending, setPending] = useState(false)
   if (!entry || !sid) return null
   const { inputMode, options, keyRequiresEnter } = entry
@@ -96,6 +98,42 @@ export function PromptReplyControls({ sid, entry }) {
   const keys = inputMode === 'yn' ? ['Y', 'n'] : (options || [])
   if (keys.length === 0) return null
 
+  // カーソル移動 (= ↑↓)。 Type something 選択中なら「カーソルが入力行から離れる」 ので
+  // 回答入力中 flag も同時に下ろす (= 実機確認 2026-07-06: ↑↓ が text 入力からの正規の
+  // 戻り道。 Esc は dialog ごとキャンセルなので使わない)。
+  const handleArrow = (key) => {
+    if (typing) setTypingAnswer(sid, false)
+    handleTap(key, false)
+  }
+
+  // Type something 選択中 (= 回答入力中): 数字タップは文字化けするので数字を出さず、
+  // ボタンと同格サイズの案内 + ↑↓ (= 選択肢への戻り道) だけを出す。
+  if (typing && inputMode === 'numbers') {
+    return (
+      <span className="prompt-reply-controls" data-testid="prompt-reply-controls">
+        <span className="prompt-typing-inline" data-testid="prompt-typing-inline">
+          ✏️ {t('prompt.typing_answer_short')}
+        </span>
+        <button
+          type="button"
+          className="prompt-reply-btn"
+          disabled={pending}
+          onClick={() => handleArrow('Up')}
+          aria-label="Back to options (move cursor up)"
+          data-testid="prompt-reply-btn-up"
+        >↑</button>
+        <button
+          type="button"
+          className="prompt-reply-btn"
+          disabled={pending}
+          onClick={() => handleArrow('Down')}
+          aria-label="Move cursor down"
+          data-testid="prompt-reply-btn-down"
+        >↓</button>
+      </span>
+    )
+  }
+
   return (
     <span className="prompt-reply-controls" data-testid="prompt-reply-controls">
       {keys.map(k => (
@@ -105,11 +143,11 @@ export function PromptReplyControls({ sid, entry }) {
           className="prompt-reply-btn"
           disabled={pending}
           onClick={() => {
-            // "Type something" (= 自由記述の入口) の数字を選んだ瞬間に banner を
-            // 「回答入力中」 mode に切替える (= 以降の数字タップが text 入力に化ける
-            // 事故を防ぐ)。 数字は位置で仮定しない: claude は "Type something" の後に
-            // "Chat about this" 等を足すことがある (= 2026-07-06 実測で 5 択化) ので、
-            // pane の excerpt から「N. Type something」 の N を直接読む。
+            // "Type something" (= 自由記述の入口) の数字を選んだ瞬間に「回答入力中」
+            // mode に切替える (= 以降の数字タップが text 入力に化ける事故を防ぐ)。
+            // 数字は位置で仮定しない: claude は "Type something" の後に "Chat about
+            // this" 等を足すことがある (= 2026-07-06 実測で 5 択化) ので、 pane の
+            // excerpt から「N. Type something」 の N を直接読む。
             if (k === freeTextDigit(entry)) {
               setTypingAnswer(sid, true)
             }
@@ -121,19 +159,45 @@ export function PromptReplyControls({ sid, entry }) {
           {k}
         </button>
       ))}
-      {/* multiSelect dialog (= AskUserQuestion の複数選択等) の確定用。 multi では数字
-          キー自体が toggle として働く (= 2026-07-06 実機確認) ので Space は不要、 ⏎ だけ
-          あればよい。 single select の Ink dialog は数字 1 打鍵で即決定するので押す必要
-          なし (= 押しても害はない)。 */}
+      {/* 数字モードの補助キー常設 (= 2026-07-06 実機 feedback で確定):
+          ↑↓ = カーソル移動 (Type something からの復帰にも使う正規経路)、
+          ␣ = multiSelect の toggle (単一選択では押す必要なし・無害)、
+          ⏎ = multiSelect の確定 (multi では数字が toggle として働くため)。 */}
       {inputMode === 'numbers' && (
-        <button
-          type="button"
-          className="prompt-reply-btn prompt-reply-btn-aux"
-          disabled={pending}
-          onClick={() => handleTap('Enter', false)}
-          aria-label="Confirm selection"
-          data-testid="prompt-reply-btn-confirm"
-        >⏎</button>
+        <>
+          <button
+            type="button"
+            className="prompt-reply-btn prompt-reply-btn-aux"
+            disabled={pending}
+            onClick={() => handleArrow('Up')}
+            aria-label="Move cursor up"
+            data-testid="prompt-reply-btn-up"
+          >↑</button>
+          <button
+            type="button"
+            className="prompt-reply-btn prompt-reply-btn-aux"
+            disabled={pending}
+            onClick={() => handleArrow('Down')}
+            aria-label="Move cursor down"
+            data-testid="prompt-reply-btn-down"
+          >↓</button>
+          <button
+            type="button"
+            className="prompt-reply-btn prompt-reply-btn-aux"
+            disabled={pending}
+            onClick={() => handleTap('Space', false)}
+            aria-label="Toggle selection (multi-select)"
+            data-testid="prompt-reply-btn-space"
+          >␣</button>
+          <button
+            type="button"
+            className="prompt-reply-btn prompt-reply-btn-aux"
+            disabled={pending}
+            onClick={() => handleTap('Enter', false)}
+            aria-label="Confirm selection"
+            data-testid="prompt-reply-btn-confirm"
+          >⏎</button>
+        </>
       )}
     </span>
   )
