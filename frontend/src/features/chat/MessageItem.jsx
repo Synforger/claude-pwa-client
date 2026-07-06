@@ -256,7 +256,7 @@ function MetaLine({ meta, streaming, apiKeySource, trailing }) {
   )
 }
 
-const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKeySource, activeSubagentTool, onOpenSubagents, onFork }) {
+const MessageItem = memo(function MessageItem({ msg, onOpenFile, apiKeySource, activeSubagentTool, onOpenSubagents, onFork }) {
   const t = useT()
   // system kind は messageRegistry に「fromEvent + Render」 ペアで集約しており、
   // ここでは generic lookup で表示コンポーネントを引くだけ (= F-04 consumer)。
@@ -440,7 +440,6 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, onAnswer, apiKe
             <AskUserQuestionBubble
               key={msg.askUserQuestion.tool_use_id}
               askUserQuestion={msg.askUserQuestion}
-              onAnswer={onAnswer}
             />
           )}
           <StopReasonChip meta={msg.meta} streaming={msg.streaming} />
@@ -489,7 +488,6 @@ function areEqual(prev, next) {
   return (
     prev.msg === next.msg
     && prev.onOpenFile === next.onOpenFile
-    && prev.onAnswer === next.onAnswer
     && prev.apiKeySource === next.apiKeySource
     && prev.activeSubagentTool === next.activeSubagentTool
     && prev.onOpenSubagents === next.onOpenSubagents

@@ -17,7 +17,7 @@ def _setup_session(state, sid="ses_cfg"):
 
 
 def test_build_sessions_overview_reflects_busy(isolated_state):
-    """全session overview payload が各 session の busy / pending_question を反映する (= 案B)。"""
+    """全session overview payload が各 session の busy を反映する (= 案B)。"""
     import backend.routes.chat as chat_routes
     from backend.state import StreamState
     state = isolated_state
@@ -29,12 +29,12 @@ def test_build_sessions_overview_reflects_busy(isolated_state):
     state.sessions_meta["ses_b"] = object()
     state.stream_states["ses_a"] = StreamState(busy=True)
     state.stream_states["ses_b"] = StreamState(busy=False)
-    state.agent_status["ses_a"] = {"pending_question": None}
-    state.agent_status["ses_b"] = {"pending_question": {"questions": []}}
+    state.agent_status["ses_a"] = {}
+    state.agent_status["ses_b"] = {}
 
     ov = chat_routes._build_sessions_overview()
-    assert ov["ses_a"] == {"busy": True, "pending_question": False, "last_seen_at": None}
-    assert ov["ses_b"] == {"busy": False, "pending_question": True, "last_seen_at": None}
+    assert ov["ses_a"] == {"busy": True, "last_seen_at": None}
+    assert ov["ses_b"] == {"busy": False, "last_seen_at": None}
 
 
 def test_require_session_passes_for_known_id(isolated_state):
@@ -248,7 +248,7 @@ def test_build_sessions_overview_includes_last_seen_at(isolated_state):
     state.session_last_seen_at.clear()
     state.sessions_meta["ses_a"] = object()
     state.stream_states["ses_a"] = StreamState(busy=False)
-    state.agent_status["ses_a"] = {"pending_question": None}
+    state.agent_status["ses_a"] = {}
     state.session_last_seen_at["ses_a"] = 1234.5
     ov = chat_routes._build_sessions_overview()
     assert ov["ses_a"]["last_seen_at"] == 1234.5
