@@ -62,6 +62,23 @@ def test_tier_a_off_falls_through():
     assert verdict.state == PromptState.ACTIVE
 
 
+def test_tier_a_skipped_when_claude_tui_owns_screen():
+    """claude 2.1.201 実測 (= 2026-07-06): alternate flag が立ったまま Claude TUI 本体が
+    画面に居る pane がある。 可視内容が Claude TUI (= status bar 末尾) なら tier A を
+    出さない (= 「TUI running」 banner の常時点灯誤検知を塞ぐ)。"""
+    tail = "some conversation output\n❯ \n  [Opus 4.7] 5h:83%(4h16m) 7d:13% ctx:15%"
+    verdict = analyze(_snap(tail, alternate=True), _new_state())
+    assert verdict.state != PromptState.TUI
+
+
+def test_tier_a_still_fires_for_real_fullscreen_tui():
+    """vim / less 等 (= status bar 無し) は alternate flag で従来通り TUI 検出。"""
+    tail = "~\n~\n~\n:q to quit"
+    verdict = analyze(_snap(tail, alternate=True), _new_state())
+    assert verdict.state == PromptState.TUI
+    assert verdict.reason == "alternate_on=1"
+
+
 # ---------------------------------------------------------------------------
 # Tier B: inline TUI (❯ + 罫線 / ❯ 単独)
 # ---------------------------------------------------------------------------
