@@ -25,6 +25,21 @@ import { ingestPromptStateEvent } from '../../state/promptState.js'
 //
 // F-08: 過去は `[...arr, X].slice(-MAX)` を毎回呼んでいたので、 大半のケース (= arr.length <
 // MAX) でも新配列を 2 度作っていた。 必要時のみ先頭を捨てる形に変更。 上限到達後の挙動は同一。
+// AskUserQuestion の tool_result から回答本文だけを抜く。 harness は回答を
+// `Your questions have been answered: "<質問全文>"="<回答>". You can now continue ...`
+// の包装で返すため、 生のまま selectedAnswer に入れると chat の Q&A ログに質問が
+// 二重再掲されて散らかる (= 2026-07-06 実機 feedback)。 包装が見つからない形式は
+// そのまま返す (= 後方互換 + 将来の形式変更に安全側)。
+export function extractAskAnswer(raw) {
+  if (typeof raw !== 'string' || !raw) return null
+  let s = raw.trim().replace(/\.?\s*You can now continue with these answers in mind\.?\s*$/, '')
+  const idx = s.lastIndexOf('"="')
+  if (idx === -1) return raw
+  const ans = s.slice(idx + 3).replace(/"\s*\.?\s*$/, '').trim()
+  return ans || raw
+}
+
+
 function appendSystemMessage(setMessages, sid, kind, extra) {
   setMessages(prev => {
     const arr = prev[sid] || []
@@ -255,11 +270,12 @@ export function processStreamEvent(deps, sid, event) {
           const r = results.find(x => x.tool_use_id === m.askUserQuestion.tool_use_id)
           if (r) {
             mutated = true
-            const ans = typeof r.content === 'string'
+            const rawAns = typeof r.content === 'string'
               ? r.content
               : Array.isArray(r.content)
                 ? r.content.filter(b => b?.type === 'text').map(b => b.text).join('')
                 : null
+            const ans = extractAskAnswer(rawAns)
             return {
               ...m,
               streaming: false,

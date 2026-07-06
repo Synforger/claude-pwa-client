@@ -17,7 +17,7 @@ def _make_state_for(sid: str):
     state_mod.stream_states[sid] = state_mod.StreamState(agent_id="a")
     state_mod.agent_status[sid] = {
         "current_tool": None, "subagent": None, "todos": None,
-        "pending_plan": None, "pending_question": None, "plan_mode": False,
+        "pending_plan": None, "plan_mode": False,
         "model": "", "ctx_pct": 0, "ctx_window": 1_000_000,
         "pr_links": [], "tasks": [],
         "mode": "", "permission_mode": "",

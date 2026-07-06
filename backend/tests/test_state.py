@@ -62,7 +62,7 @@ def test_make_agent_status_returns_dict_with_all_keys(monkeypatch):
     # 旧 consumer 互換: plain dict が返って、 既知の key 全部が入っている
     expected_keys = {
         "ctx_pct", "ctx_window", "model", "plan_mode", "current_tool",
-        "todos", "subagent", "pending_plan", "pending_question", "mode",
+        "todos", "subagent", "pending_plan", "mode",
         "permission_mode", "budget_used", "budget_total", "budget_remaining",
         "pr_links", "tasks",
     }

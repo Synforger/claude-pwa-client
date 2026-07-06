@@ -178,3 +178,18 @@ details.ask-question.answered[open] > .ask-summary::before {
   color: #e74c3c;
   font-size: 12px;
 }
+
+/* 2026-07-06 統合: 非対話ログ化に伴う追加 style。 未回答 summary は待ち色 (= banner と
+   同系のアンバー) で「まだ生きてる質問」 と分かるように。 選択肢は読み物としての list。 */
+.ask-question.waiting > .ask-summary {
+  color: #e8b34b;
+}
+.ask-option-log {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  list-style: none;
+}
+.ask-option-log-item {
+  margin: 2px 0;
+  font-size: 13px;
+}

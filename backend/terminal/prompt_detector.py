@@ -89,6 +89,8 @@ _BYPASS_CHIP_RE = re.compile(r"⏵⏵\s*bypass permissions on")
 _VOLATILE_STATUS_RE = re.compile(
     r"5h:\s*\d+%"                 # rate-limit bar (= 分カウントダウンを含む)
     r"|7d:\s*\d+%"               # 7d rate-limit
+    r"|ctx:\S*\d+%"              # ctx bar (= 起動直後の短縮形 status bar は 5h/7d 無しで
+                                  #   `[Opus 4.7] ctx:░░0%` だけになる、 2026-07-06 実測)
     r"|…\s*\(\d+"                # spinner の経過秒 `… (1m 26s)` / `… (47s`
     r"|·\s*↓\s*[\d.]+k?\s*tokens"  # token counter
 )
@@ -367,10 +369,19 @@ def _tier_b_select_picker(
     if picker is None:
         # カーソルが option 行に乗らない dialog (= feedback の bare `❯ `) は、 bare arrow
         # の直近 (±2) に端がある cluster を採る。 複数あれば option 数最多。
+        #
+        # ただし**コロン区切りの横並び option (= `1: Bad  2: Fine`) を含む cluster に限定**する。
+        # bare arrow で実在する picker は feedback dialog だけで、 あれはコロン型。 点区切りの
+        # 縦リスト (= `1. 手順…`) はチャット本文の番号リストが Claude TUI の入力欄 `❯ ` の
+        # 直上に描画された形と区別が付かず、 誤爆する (= 2026-07-06 会社 PC 実測: 会話 log の
+        # 説明手順 4 行 + 素の入力欄で Selection prompt が点灯)。
         candidates = [
             c for c in clusters
-            if min(abs(c[0] - a) for a in arrow_idx) <= 2
-            or min(abs(c[-1] - a) for a in arrow_idx) <= 2
+            if (
+                min(abs(c[0] - a) for a in arrow_idx) <= 2
+                or min(abs(c[-1] - a) for a in arrow_idx) <= 2
+            )
+            and any(_INLINE_OPTIONS_RE.search(lines[j]) for j in c)
         ]
         if not candidates:
             return None

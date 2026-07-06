@@ -71,6 +71,15 @@ def test_tier_a_skipped_when_claude_tui_owns_screen():
     assert verdict.state != PromptState.TUI
 
 
+def test_tier_a_skipped_for_short_form_status_bar():
+    """起動直後の短縮形 status bar (= rate-limit 未載、 `[Opus 4.7] ctx:░░0%` だけ) でも
+    Claude TUI と認識して tier A を skip する (= 2026-07-06 会社 PC 実測、 welcome banner
+    表示中の pane 3 本が alternate flag 立ちのままこの形で常時 TUI 誤検知)。"""
+    tail = "▎ Fable 5 is back.\n────────\n❯ \n────────\n[Opus 4.7] ctx:░░░░░░░░0%\n← for agents"
+    verdict = analyze(_snap(tail, alternate=True), _new_state())
+    assert verdict.state != PromptState.TUI
+
+
 def test_tier_a_still_fires_for_real_fullscreen_tui():
     """vim / less 等 (= status bar 無し) は alternate flag で従来通り TUI 検出。"""
     tail = "~\n~\n~\n:q to quit"
@@ -452,3 +461,28 @@ def test_hash_changed_resets_first_seen_at():
     analyze(_snap("first", now=10.0), state)
     analyze(_snap("second", now=13.0), state)
     assert state.hash_first_seen_at == 13.0
+
+
+def test_tier_b_bare_arrow_ignores_dot_style_chat_list():
+    """bare `❯` (= 入力欄) の直上にチャット本文の点区切り番号リストが描画された形は
+    picker と判定しない (= 2026-07-06 会社 PC 実測の誤爆 class)。 bare arrow 救済は
+    コロン区切りの横並び (= feedback dialog) に限定する。"""
+    tail = "\n".join([
+        "KID が実際にやってること (= 具体手順):",
+        "  1. 正解 98 枚を Inception に通す → 98 個の数字リスト",
+        "  2. 生成 98 枚を Inception に通す → 98 個の数字リスト",
+        "  3. この 2 束の数字が平均的に似てるかを数式で測る",
+        "  4. 小さい = 「生成 98 枚の読み取り結果が、 正解 98 枚と似てる」",
+        "────────",
+        "❯ ",
+        "────────",
+    ])
+    verdict = analyze(_snap(tail), _new_state())
+    assert verdict.state != PromptState.INLINE_TUI
+
+
+def test_tier_b_bare_arrow_still_detects_colon_feedback_dialog():
+    """コロン区切り横並び (= feedback dialog) は bare arrow でも従来通り検出する。"""
+    tail = "How is Claude doing this session?\n1: Bad  2: Fine  3: Good  0: Dismiss\n❯ "
+    verdict = analyze(_snap(tail), _new_state())
+    assert verdict.state == PromptState.INLINE_TUI

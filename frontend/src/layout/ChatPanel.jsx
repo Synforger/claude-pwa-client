@@ -101,7 +101,7 @@ export default function ChatPanel({ sid }) {
   // W2 Phase F-4 残 (= 2026-06-29): endSession / stopMessage は features/dialogs/ConfirmEndDialog +
   // ConfirmStopDialog が useChatStream の module-level export 経由で直接呼ぶ経路に移行済。 ChatPanel
   // 内では参照しないので destructure しない (= 同 hook の mount で module-level impl が wire される)。
-  const { loading, setLoading, apiKeySource, sendMessage, sendAnswer, fetchLatest, optimisticRef } = useChatStream({
+  const { loading, setLoading, apiKeySource, sendMessage, fetchLatest, optimisticRef } = useChatStream({
     activeSession,
     setMessages,
     input, setInput,
@@ -169,11 +169,20 @@ export default function ChatPanel({ sid }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.backend_start_time, setLoading, setMessages])
 
+  // F-01 (= 2026-06-21): dep を `messages` (= 全 sid 入り dict) → `activeMsgs` (= activeSid の
+  // slice) に絞り、 他 sid の flush で displayMessages が recompute されないようにする。
+  const activeMsgs = activeSid ? (messages[activeSid] || null) : null
+  // 未回答の AskUserQuestion がある間、 チャット入力欄を「回答モード」 表示に切り替える
+  // (= Type something 選択後は選択肢 banner が消えるので、 誘導は入力欄の placeholder で出す)。
+  const answerMode = !!activeMsgs?.some(m => m.askUserQuestion && !m.askUserQuestion.answered)
+
   // 停止ボタンの表示判定 = backend 権威 loading の派生 (= 旧 AppShell)。
   // pending_plan (= ExitPlanMode 承認待ち) も止められる状態として拾う (2026-07-02)。
+  // 質問待ちは Phase 2 (= 2026-07-06) 以降 status.pending_question でなく SSE 由来の
+  // messages (= answerMode) で判定する。
   const showStopButton = !!(
     activeSid
-    && (loading[activeSid] || status?.pending_question || status?.pending_plan)
+    && (loading[activeSid] || answerMode || status?.pending_plan)
   )
 
   // SW からの「push-received」 メッセージで即座に fetchLatest を発火させる。
@@ -198,11 +207,6 @@ export default function ChatPanel({ sid }) {
       setOverlay('previewPath', path)
     }
   }, [])
-
-  const handleAnswer = useCallback((tool_use_id, answer, isFree, optionCount) => {
-    if (!activeSid) return
-    sendAnswer(activeSid, tool_use_id, answer, isFree, optionCount)
-  }, [sendAnswer, activeSid])
 
   const handleStopClick = useCallback(() => setOverlay('confirmStop', true), [])
   const handleSendClick = useCallback((text) => sendMessage(text), [sendMessage])
@@ -233,39 +237,18 @@ export default function ChatPanel({ sid }) {
     setBadge(unreadCount)
   }, [unreadCount])
 
-  // F-01 (= 2026-06-21): dep を `messages` (= 全 sid 入り dict) → `activeMsgs` (= activeSid の
-  // slice) に絞り、 他 sid の flush で displayMessages が recompute されないようにする。
-  const activeMsgs = activeSid ? (messages[activeSid] || null) : null
   const displayMessages = useMemo(() => {
     if (!activeSid) return []
     const DISPLAY_LIMIT = 100
     const allMsgs = activeMsgs || []
     const msgs = allMsgs.length > DISPLAY_LIMIT ? allMsgs.slice(-DISPLAY_LIMIT) : allMsgs
-    const pq = status?.pending_question
-    const base = (loading[activeSid] && !msgs.some(m => m.streaming) && !pq)
+    // Phase 2 (= 2026-07-06): 旧 pending_question 合成 bubble は退役。 質問の真値は
+    // SSE `ask_user_question` event → messages の askUserQuestion field、 ライブ回答 UI は
+    // prompt detector banner。 「回答待ちで loading placeholder を出さない」 は answerMode で判定。
+    return (loading[activeSid] && !msgs.some(m => m.streaming) && !answerMode)
       ? [...msgs, { id: '__loading__', role: '__loading__' }]
       : msgs
-    // pending_question 合成 bubble: SSE `ask_user_question` event が activeMsgs にまだ届いて
-    // ない or reconnect 直後で欠けてる時のための保険。 ただし SSE 実 bubble が既に居るなら
-    // 同 tool_use_id の 2 重描画になるので skip する (= 2026-07-03、 「AskUserQuestion 2 個
-    // 出る」 症状の直接原因)。
-    if (pq && !msgs.some(m => m.askUserQuestion?.tool_use_id === pq.tool_use_id)) {
-      return [...base, {
-        id: '__pending_question__',
-        role: 'agent',
-        text: '',
-        tools: [],
-        streaming: false,
-        askUserQuestion: {
-          tool_use_id: pq.tool_use_id,
-          questions: pq.questions,
-          answered: false,
-          selectedAnswer: null,
-        },
-      }]
-    }
-    return base
-  }, [activeMsgs, loading, activeSid, status?.pending_question])
+  }, [activeMsgs, loading, activeSid, answerMode])
 
   // W2 Phase F-4 残 (= 2026-06-29): handleEndSession は features/dialogs/ConfirmEndDialog.jsx に
   // 物理移送、 ChatPanel からは参照ゼロ化。 confirmEnd / confirmStop ダイアログ本体も同様に
@@ -301,7 +284,6 @@ export default function ChatPanel({ sid }) {
         viewMode={activeViewMode}
         displayMessages={displayMessages}
         onOpenFile={handleOpenPath}
-        onAnswer={handleAnswer}
         apiKeySource={activeApiKeySource}
         activeSubagentTool={activeSubagentTool}
         onOpenSubagents={handleOpenSubagents}
@@ -352,6 +334,7 @@ export default function ChatPanel({ sid }) {
           onSendFailedConsumed={handleSendFailedConsumed}
           stopUnavailable={stopUnavailableSid === activeSid}
           onStopRecovered={handleStopRecovered}
+          answerMode={answerMode}
         />
       </div>
 

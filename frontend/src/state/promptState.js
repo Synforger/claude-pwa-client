@@ -38,6 +38,9 @@ export function ingestPromptStateEvent(event) {
     keyRequiresEnter: !!event.key_requires_enter,
     receivedAt: Date.now(),
   }
+  // 「回答入力中」 等の派生 UI 状態はここでは持たない。 Type something 選択中か等は
+  // consumer (= PromptReplyControls) が excerpt から都度導出する (= client local flag は
+  // タップ以外の経路 = ↑↓ / 端末直叩き で pane とズレる、 2026-07-06 実機で 2 回破綻)。
   store.setState(prev => ({
     ...prev,
     bySid: { ...prev.bySid, [event.sid]: entry },

@@ -75,7 +75,7 @@ def test_exit_plan_dedup_survives_pending_plan_clear(isolated_state):
     state.agent_status[sid] = {
         "pending_plan": None, "plan_mode": False,
         "current_tool": None, "todos": None, "subagent": None,
-        "pending_question": None, "model": "", "ctx_pct": 0, "ctx_window": 1_000_000,
+        "model": "", "ctx_pct": 0, "ctx_window": 1_000_000,
         "tasks": [], "pr_links": [],
     }
     import backend.state as state_mod

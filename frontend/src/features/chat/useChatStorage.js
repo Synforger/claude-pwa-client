@@ -208,6 +208,66 @@ export function useChatStorage(sessions) {
   const lastSavedRef = useRef({})
   // sid → 直近の session_end count (= F-27 の線形走査回避用キャッシュ)
   const endCountRef = useRef({})
+
+  // --- 圧縮 offload worker (= 2026-07-06 perf fix) ---
+  // JSON 化 + lz-string 圧縮は message が積もると main thread を 100-300ms 塞ぐ
+  // (= streaming の切れ目ごとに発火して打鍵 / タップ無反応の実害)。 通常経路は worker に
+  // 逃がし、 main に残るのは structured clone (数 ms) + setItem (圧縮後 ~17KB) だけにする。
+  // pagehide / freeze の「死ぬ直前 flush」 だけは従来の同期経路 (= runMsgSave) を使う
+  // (= worker の往復を待てない、 jank は見えない相手なので許容)。
+  const msgSaveWorkerRef = useRef(null)     // Worker | null
+  const workerBrokenRef = useRef(false)     // 構築失敗 / error 後は同期経路に恒久 fallback
+  const saveSeqRef = useRef(0)              // 単調増加、 古い worker 応答の破棄用
+  // sid → { seq, toSave, cur, attempts } (= in-flight。 後発 save は seq を進めて上書き、
+  // 応答側は seq 一致時のみ setItem = 後勝ち)
+  const pendingSaveRef = useRef(new Map())
+
+  const ensureMsgSaveWorker = () => {
+    if (workerBrokenRef.current) return null
+    if (msgSaveWorkerRef.current) return msgSaveWorkerRef.current
+    try {
+      const w = new Worker(new URL('./storage.worker.js', import.meta.url), { type: 'module' })
+      w.onmessage = (e) => {
+        const { sid, seq, compressed } = e.data || {}
+        const pending = pendingSaveRef.current.get(sid)
+        if (!pending || pending.seq !== seq) return  // 古い応答 or flush 側が先に確定済み
+        try {
+          localStorage.setItem(v2Key(sid), compressed)
+          lastSavedRef.current[sid] = pending.cur
+          pendingSaveRef.current.delete(sid)
+        } catch {
+          // quota 超過: 同期経路と同じく古い方から刻んで再圧縮 (= worker 往復で retry)
+          if (pending.toSave.length === 0 || pending.attempts >= QUOTA_RETRY_MAX) {
+            pendingSaveRef.current.delete(sid)
+            console.warn(`[chat-storage] quota exceeded for ${sid} after retries (worker)`)
+            return
+          }
+          const cut = Math.max(1, Math.floor(pending.toSave.length * QUOTA_RETRY_TRIM_RATIO))
+          pending.toSave = pending.toSave.slice(cut)
+          pending.attempts += 1
+          w.postMessage({ sid, seq, messages: pending.toSave })
+        }
+      }
+      w.onerror = () => {
+        // worker 死亡 = 以降は同期経路。 in-flight は同期側の dirty 判定が拾い直す
+        // (= lastSavedRef 未更新のままなので次の save で再対象になる)。
+        workerBrokenRef.current = true
+        pendingSaveRef.current.clear()
+        try { w.terminate() } catch { /* ignore */ }
+        msgSaveWorkerRef.current = null
+      }
+      msgSaveWorkerRef.current = w
+      return w
+    } catch {
+      workerBrokenRef.current = true
+      return null
+    }
+  }
+  useEffect(() => () => {
+    // unmount 時の後始末 (= App 生存中は張りっぱなし)
+    try { msgSaveWorkerRef.current?.terminate() } catch { /* ignore */ }
+    msgSaveWorkerRef.current = null
+  }, [])
   // backend sessions list との 1 回 cleanup 済みフラグ (= F-28)
   const cleanupDoneRef = useRef(false)
 
@@ -245,7 +305,9 @@ export function useChatStorage(sessions) {
     }
   }, [messages, sessions])
 
-  const runMsgSave = useRef(() => {
+  // dirty sid の列挙 + 掃除 + prune までの共通前処理 (= 同期 / worker 両経路で共有)。
+  // 返り値: [{ sid, cur, pruned }]
+  const collectDirtySaves = () => {
     const sids = sessionsRef.current.map(s => s.id)
     const liveSids = new Set(sids)
     const cur_messages = messagesRef.current
@@ -254,8 +316,10 @@ export function useChatStorage(sessions) {
       if (!liveSids.has(sid)) {
         try { localStorage.removeItem(v2Key(sid)) } catch { /* ignore */ }
         delete lastSavedRef.current[sid]
+        pendingSaveRef.current.delete(sid)
       }
     }
+    const out = []
     for (const sid of sids) {
       const cur = cur_messages[sid] || []
       // 参照比較で dirty 判定 (= sid に変更がなければ何もしない)
@@ -265,6 +329,17 @@ export function useChatStorage(sessions) {
       const endCount = countSessionEnds(persistable)
       endCountRef.current[sid] = endCount
       const pruned = pruneOldSessions(persistable, endCount).slice(-MAX_MESSAGES)
+      out.push({ sid, cur, pruned })
+    }
+    return out
+  }
+
+  // 同期 save (= pagehide / freeze の死ぬ直前 flush + worker 不能時 fallback 専用。
+  // 通常経路は runMsgSaveViaWorker)。
+  const runMsgSave = useRef(() => {
+    for (const { sid, cur, pruned } of collectDirtySaves()) {
+      // 同期で確定させるので、 同 sid の in-flight worker 応答は破棄対象にする
+      pendingSaveRef.current.delete(sid)
       // quota 超過時は古い方から N% ずつ削って再試行
       let toSave = pruned
       let saved = false
@@ -287,6 +362,23 @@ export function useChatStorage(sessions) {
     }
   })
 
+  // 通常経路: 圧縮を worker に投げる (= main thread は clone + 応答時 setItem のみ)。
+  // 同 sid の連続 save は seq を進めて後勝ち (= in-flight の古い応答は捨てられる)。
+  const runMsgSaveViaWorker = useRef(() => {
+    const dirty = collectDirtySaves()
+    if (dirty.length === 0) return
+    const w = ensureMsgSaveWorker()
+    if (!w) {
+      runMsgSave.current()
+      return
+    }
+    for (const { sid, cur, pruned } of dirty) {
+      const seq = ++saveSeqRef.current
+      pendingSaveRef.current.set(sid, { seq, toSave: pruned, cur, attempts: 0 })
+      w.postMessage({ sid, seq, messages: pruned })
+    }
+  })
+
   const runInputSave = useRef(() => {
     const toSave = {}
     for (const s of sessionsRef.current) {
@@ -304,9 +396,9 @@ export function useChatStorage(sessions) {
     if (msgSaveTimer.current) clearTimeout(msgSaveTimer.current)
     msgSaveTimer.current = setTimeout(() => {
       if (typeof window.requestIdleCallback === 'function') {
-        window.requestIdleCallback(() => runMsgSave.current(), { timeout: 1000 })
+        window.requestIdleCallback(() => runMsgSaveViaWorker.current(), { timeout: 1000 })
       } else {
-        runMsgSave.current()
+        runMsgSaveViaWorker.current()
       }
     }, 250)
   }, [messages, sessions])
