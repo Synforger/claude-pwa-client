@@ -69,3 +69,27 @@
   opacity: 0.5;
   cursor: default;
 }
+
+.prompt-banner-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: 0.55;
+}
+.prompt-reply-btn-aux {
+  opacity: 0.75;
+}
+
+
+
+/* Type something 選択中の inline 案内 (= 数字ボタンの代替、 同格サイズ) */
+.prompt-typing-inline {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid #e8b34b;
+  border-radius: 8px;
+  background: rgba(232, 179, 75, 0.12);
+  color: #e8b34b;
+  font-size: 14px;
+  font-weight: 600;
+}

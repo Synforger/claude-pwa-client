@@ -27,6 +27,7 @@ except ImportError:
 
 import backend.config as _config
 from backend.paths import SUBSCRIPTIONS_PATH, VAPID_PATH
+from backend.observability.metrics import metrics
 from backend.state import (
     NOTIFY_MODES,
     NotifyMode,
@@ -205,6 +206,7 @@ async def broadcast_push(
     session_id を渡すと payload に sid + URL を含める。 通知タップ時に SW が
     chat の該当セッションを開く。
     """
+    metrics.inc("push.broadcast")
     global unread_count
 
     # 該当 session を見ている WebSocket 接続 (/views/ws) があれば送信を完全スキップ。

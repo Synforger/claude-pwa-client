@@ -27,6 +27,7 @@ from fastapi.responses import StreamingResponse
 from backend.jsonl.events import jsonl_line_to_events
 from backend.terminal.send_dedup import send_dedup
 from backend.observability.correlation import current_corr_id
+from backend.observability.metrics import metrics
 from backend.jsonl.notifications import maybe_push_blockers as _maybe_push_blockers
 from backend.jsonl.session_status import (
     attach_duration_to_result as _attach_duration_to_result,
@@ -120,7 +121,7 @@ def _lines_to_sse(lines: list[str], pos: int, session_id: str) -> list[str]:
 
     F-06: 旧版は per-line で `_track_turn_start` / `_mutate_agent_status` を呼んで
     backend state を mutate し、 monitor_all_sessions_loop と二重 driver で同じ field を
-    上書きする構造だった (= dual-driver による pending_question 等の race)。 mutate 経路は
+    上書きする構造だった (= dual-driver race)。 mutate 経路は
     monitor 単一に絞り (= `_process_new_lines` 内)、 SSE 配信側は jsonl_line_to_events を
     呼んで event を SSE フレームに整形するだけの pure 関数に降格する。
 
@@ -226,13 +227,16 @@ async def _jsonl_sse(session_id: str, start_pos: int | None = None):
 
     # live: broadcaster Queue subscriber に切替。 mutator / publish は monitor 単一経路。
     queue = jsonl_event_broadcaster.subscribe(session_id)
+    metrics.inc("sse.per_sid.connect")
     try:
         while True:
             try:
                 event = await asyncio.wait_for(queue.get(), timeout=_IDLE_MAX_INTERVAL)
             except asyncio.TimeoutError:
+                metrics.inc("sse.per_sid.keepalive")
                 yield ": keep-alive\n\n"
                 continue
+            metrics.inc("sse.per_sid.frames")
             # broadcast 経路から来る event は dict。 sid 付きの場合もあるが per-sid SSE では
             # frontend が無変更で動くよう sid field は除去せず温存 (= 旧 wire と互換、 frontend
             # は未使用 field を無視)。 SSE id は frontend が ?from=<offset> で投げ直すための
@@ -244,6 +248,7 @@ async def _jsonl_sse(session_id: str, start_pos: int | None = None):
             _inject_envelope(event, session_id)
             yield f"id: {pos}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
     finally:
+        metrics.inc("sse.per_sid.disconnect")
         jsonl_event_broadcaster.unsubscribe(session_id, queue)
 
 
@@ -335,13 +340,16 @@ async def _jsonl_sse_all(start_pos_map: dict[str, int]):
 
     # 3) live: broadcaster "all" subscriber に切替。
     queue = jsonl_event_broadcaster.subscribe(ALL_SUBSCRIBER_KEY)
+    metrics.inc("sse.all.connect")
     try:
         while True:
             try:
                 event = await asyncio.wait_for(queue.get(), timeout=_IDLE_MAX_INTERVAL)
             except asyncio.TimeoutError:
+                metrics.inc("sse.all.keepalive")
                 yield ": keep-alive\n\n"
                 continue
+            metrics.inc("sse.all.frames")
             sid = event.get("sid") or ""
             # live event の SSE id には replay 末尾 pos を踏襲 (= 厳密 byte offset 整合は
             # 維持できないが、 frontend は最終的に file replay で同期し直す形)。
@@ -515,7 +523,7 @@ def _process_new_lines(sid: str, lines: list[str]) -> None:
         _maybe_push_blockers(sid, obj)
         _update_busy(sid, obj)
         _track_turn_start(sid, obj)
-        # agent_status (= current_tool / todos / pending_question / pending_plan /
+        # agent_status (= current_tool / todos / pending_plan /
         # model / ctx_pct) も backend 側で常時更新する。 SSE 接続中の session しか
         # 更新されないと、 非アクティブタブの AskUserQuestion / ExitPlanMode が
         # overview SSE の pending_* フラグに反映されない (= hook 経路だけが頼り)。

@@ -255,7 +255,6 @@ class AgentStatus:
     # 回答後 flush の JSONL tool_result で clear する。 tool_use_id は hook payload に
     # 無いので None で立て、 JSONL の AskUserQuestion tool_use 行で補完する。
     # {tool_use_id: str|None, questions: [...]} または None
-    pending_question: dict | None = None
     # Fable 5 系の jsonl が出す session-level メタ。 Opus 系 jsonl では出ないので
     # 空のまま (= 既存挙動と互換)。
     # mode: normal / plan 等
@@ -296,7 +295,6 @@ class AgentStatus:
             "todos": self.todos,
             "subagent": self.subagent,
             "pending_plan": self.pending_plan,
-            "pending_question": self.pending_question,
             "mode": self.mode,
             "permission_mode": self.permission_mode,
             "budget_used": self.budget_used,
@@ -386,7 +384,7 @@ def is_session_viewed(session_id: str) -> bool:
 
 
 class OverviewBroadcaster:
-    """全 session の busy / pending_question 変化を /sessions/overview/stream に push する
+    """全 session の busy 変化を /sessions/overview/stream に push する
     fan-out。 複数接続 (= 複数デバイス / 複数タブ) が購読しても取りこぼさないよう、 1 個の
     共有 Event でなく**接続ごとの Event** を broadcaster が一括 notify する。
 
@@ -412,7 +410,7 @@ class OverviewBroadcaster:
             ev.set()
 
 
-# 全 session の busy / pending_question 変化を全接続へ fan-out する broadcaster。
+# 全 session の busy 変化を全接続へ fan-out する broadcaster。
 # 個別 session の status_event とは別に、 全 session 横断の 1 接続 push を担う (= 非アクティブ
 # タブの青丸/赤丸 + 停止ボタンを live 追従させる経路。 タブごとに SSE を張らずに済む)。
 sessions_overview = OverviewBroadcaster()
