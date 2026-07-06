@@ -23,10 +23,10 @@
 
 ## 採用しない方針
 
-- GitHub Issues / Actions (= 個人運用、 ローカル `.githooks/` で品質ゲートを完結)
-- SECURITY.md 以外の `.github/` ファイル (= ISSUE_TEMPLATE / CONTRIBUTING.md は collaborator ゼロで形骸化)
+- 検査の実体を CI にしか置かない構成 (= 品質ゲートはローカル `.githooks/` + Taskfile が真値、 GitHub Actions は同じ `task ci` を PR で走らせる薄い鏡 [`ci.yml`](.github/workflows/ci.yml) のみ)
+- ビルド / デプロイ / bot commit 系の workflow (= 検査を伴わない機能 workflow は作らない)
 
 ## バグ報告 / 機能要望
 
 - セキュリティ脆弱性: [SECURITY.md](SECURITY.md) の GitHub Security Advisories から (公開 issue は使わない)
-- 機能要望 / 一般バグ: GitHub Issues は無効化されています。 必要に応じて Pull Request を歓迎します
+- 機能要望 / 一般バグ: GitHub Issues へ (= [CONTRIBUTING.md](CONTRIBUTING.md) 参照、 template あり)。 Pull Request も歓迎します

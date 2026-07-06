@@ -86,8 +86,8 @@ L3: routes / maintenance / main / cli   (= orchestrator。 全層 import 可)
 ```
 
 - **`terminal/` → `jsonl/` は禁止** (= 一方向化。 両 subsystem が使う純粋プリミティブ
-  = `core/jsonl_tail.py` / `core/jsonl_predicates.py`、 共有 registry =
-  `core/jsonl_watcher.py` は core に降ろしてある。 新しい共有が要る時も core へ)
+  = `backend/core/jsonl_tail.py` / `backend/core/jsonl_predicates.py`、 共有 registry =
+  `backend/core/jsonl_watcher.py` は core に降ろしてある。 新しい共有が要る時も core へ)
 - `state.py` は `usage.py` を import しない (= 逆方向、 `usage → state` のみ。 module init 時の循環 import 回避)
 - `routes/*` は他 `routes/*` を import しない (= 横断 helper は state / core に降ろす)
 - `paths.py` は何も import しない (= 末端の宣言だけ)
