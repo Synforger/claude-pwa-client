@@ -71,6 +71,15 @@ def test_tier_a_skipped_when_claude_tui_owns_screen():
     assert verdict.state != PromptState.TUI
 
 
+def test_tier_a_skipped_for_short_form_status_bar():
+    """起動直後の短縮形 status bar (= rate-limit 未載、 `[Opus 4.7] ctx:░░0%` だけ) でも
+    Claude TUI と認識して tier A を skip する (= 2026-07-06 会社 PC 実測、 welcome banner
+    表示中の pane 3 本が alternate flag 立ちのままこの形で常時 TUI 誤検知)。"""
+    tail = "▎ Fable 5 is back.\n────────\n❯ \n────────\n[Opus 4.7] ctx:░░░░░░░░0%\n← for agents"
+    verdict = analyze(_snap(tail, alternate=True), _new_state())
+    assert verdict.state != PromptState.TUI
+
+
 def test_tier_a_still_fires_for_real_fullscreen_tui():
     """vim / less 等 (= status bar 無し) は alternate flag で従来通り TUI 検出。"""
     tail = "~\n~\n~\n:q to quit"
