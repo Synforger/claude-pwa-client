@@ -560,28 +560,65 @@ def tmux_send_keys(
 # `[Pasted text #N]` 化 / 展開) が終わるのを待つ猶予。
 TWO_STAGE_ENTER_DELAY_SEC: float = 0.3
 
+# 展開 paste (= 2 回目) 後の短い猶予 (= TUI がプレースホルダを本文へ展開する時間)。
+PASTE_EXPAND_DELAY_SEC: float = 0.15
+
+# claude TUI が複数行 paste を畳んだプレースホルダ。 #N は連番。
+_PASTE_PLACEHOLDER_RE = re.compile(r"\[Pasted text #(\d+)")
+
+
+def paste_placeholder_ids(tail: str) -> frozenset[str]:
+    """pane tail 内の `[Pasted text #N` プレースホルダ番号集合 (= pure、 展開要否判定用)。"""
+    return frozenset(_PASTE_PLACEHOLDER_RE.findall(tail or ""))
+
+
+def paste_formed_placeholder(before_tail: str, after_tail: str) -> bool:
+    """paste の前後 capture を比較し、 **新しい** プレースホルダ番号が現れたか (= pure)。
+
+    会話 log に past のプレースホルダ echo が残っていても、 before にも居るので誤検知
+    しない (= 集合差分)。"""
+    return bool(paste_placeholder_ids(after_tail) - paste_placeholder_ids(before_tail))
+
 
 async def send_text_two_stage(
     session_id: str,
     text: str,
     key: str | None = None,
 ) -> bool:
-    """本文送信の 2 段送信 (= C-u wipe → 本文 paste → 猶予 → Enter 単発)。
+    """本文送信の 2 段送信 (= C-u wipe → 本文 paste → 猶予 → [展開 paste] → Enter 単発)。
 
     text 経路 (= /pty/{sid}/send) と添付経路 (= /pty/{sid}/send-with-files) の共通
     protocol。 本文 paste と Enter を分離するのは、 同梱だと tmux queue 上の順序は
     保証されても TUI 内部の paste 処理と Enter 消費が競合して本文が入力欄に残る
     取りこぼしがあるため (= 旧実装は救済 Enter で事後修理していた、 #109-#113)。
 
+    複数行 text の展開 paste (= 2026-07-10 根治): claude TUI は複数行 paste を
+    `[Pasted text #N]` プレースホルダに畳むことがあり、 その場合のみ同 paste をもう一度
+    送ると本文へ展開される。 旧実装は無条件で 2 回 paste しており、 プレースホルダが
+    形成されないケースで本文が二重になっていた。 現行は paste 前後の pane capture を
+    差分して **新プレースホルダが実際に出た時だけ** 展開 paste を送る (= 画面の真値)。
+
     C-u (= line kill) 前置は他 client の typing 残骸や前回 send-keys の残骸で入力欄が
     汚れていても wipe してから本文を送るため。 空 line への C-u は no-op なので副作用ゼロ。
     """
+    from backend.terminal.ansi_text import strip_ansi  # noqa: PLC0415
+
     tmux_send_keys(session_id, key="C-u")
+    multiline = "\n" in text
+    before = ""
+    if multiline:
+        before = strip_ansi(await asyncio.to_thread(capture_pane_ansi_tail, session_id) or "")
     ok = tmux_send_keys(session_id, text=text, key=key, enter=False)
-    if ok:
-        await asyncio.sleep(TWO_STAGE_ENTER_DELAY_SEC)
-        ok = tmux_send_keys(session_id, enter=True)
-    return ok
+    if not ok:
+        return False
+    await asyncio.sleep(TWO_STAGE_ENTER_DELAY_SEC)
+    if multiline:
+        after = strip_ansi(await asyncio.to_thread(capture_pane_ansi_tail, session_id) or "")
+        if paste_formed_placeholder(before, after):
+            # プレースホルダが実際に形成された時だけ、 同 paste をもう一度 = 展開。
+            tmux_send_keys(session_id, text=text, enter=False)
+            await asyncio.sleep(PASTE_EXPAND_DELAY_SEC)
+    return tmux_send_keys(session_id, enter=True)
 
 
 def _build_send_keys_chain(
@@ -624,13 +661,14 @@ def _build_send_keys_chain(
                     timeout=TMUX_CMD_TIMEOUT_SEC,
                 )
                 if proc.returncode == 0:
-                    # claude TUI の bracketed paste は 1 回目で `[Pasted text #N]` プレース
-                    # ホルダにまとめられ、 そこから展開して送信するには「同じ paste をもう
-                    # 一度」 送る必要がある (= TUI が "paste again to expand" と明示)。
-                    # paste-buffer を 2 回チェーン: 1 回目は -d なしで buffer 保持、 2 回目に -d で削除。
+                    # paste は **1 回だけ** 送る (= 2026-07-10 根治)。 旧実装は 「claude TUI が
+                    # 1 回目を `[Pasted text #N]` プレースホルダに畳むので展開に同 paste を
+                    # もう一度」 という前提で無条件 2 回チェーンしていたが、 プレースホルダが
+                    # 形成されないケース (= 短い複数行等) では 2 回がそのまま 2 回入り
+                    # **本文の文字が二重**になっていた (= 実運用報告)。 展開の要否は
+                    # send_text_two_stage が paste 後の pane を見て判定する (= 画面の真値、
+                    # expand_paste_if_placeholder)。
                     text_args = [
-                        "paste-buffer", "-p", "-b", buf_name, "-t", tmux_name,
-                        ";",
                         "paste-buffer", "-p", "-b", buf_name, "-t", tmux_name, "-d",
                     ]
             except (subprocess.TimeoutExpired, OSError):
