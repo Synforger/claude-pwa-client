@@ -66,20 +66,30 @@ PWA の Service Worker が古い世代のまま居座って Web Push を受け�
 
 ## PWA bundle が更新されない / 古い画面が固着する
 
-SW (`frontend/public/sw.js`) の fetch 戦略は **cache-first** (= 2026-06-22 改定)。 起動毎に
-network から index.html / bundle を取り直さない設計で、 タブ状態 (= activeId 等) を
-保持する代わりに、 新 build を反映するには明示的な更新操作が必要。
+SW (`frontend/public/sw.js`) の navigation fetch 戦略は **network-first (cache fallback)**
+(= 2026-07-09 再改定)。 起動毎に最新 index.html を network から取得するので、 新 build は
+明示操作なしで自動反映される。 オフライン時のみ cache (= 単一キー `/`) にフォールバックして
+起動可能。 タブ状態 (= activeId 等) は localStorage にあり SW cache と無関係なので、
+network-first でもリセットされない。 hashed asset (`/assets/*`) は内容不変なので cache-first。
 
-**唯一の刷新経路** = ドロワー (= 左上 ☰) → ⋯ メニュー → 「↺ アプリを更新」。
-`SessionDrawer.handleReset` が以下を順番に実行する:
+**経緯 (= 2026-06-22 → 07-09 の反転)**: 一時期 navigation を cache-first にしていたが、
+(a) 新 build が永遠に反映されない、 (b) キャッシュ key が URL 完全一致 (query 込み) のため
+起動経路ごとの URL 違い (`/` / `/?ses=<sid>` / `/?_r=<ts>`) が別世代の index を分裂堆積し
+「起動の仕方で新旧がばらつく (= たまに古い版)」 という更新地獄を生んだ。 network-first +
+単一キー正規化で両方を根治。
+
+**手動刷新経路** (= 起動中 tab を即最新化したい時) = ドロワー (= 左上 ☰) → ⋯ メニュー →
+「↺ アプリを更新」。 `SessionDrawer.handleReset` → `hardRefreshAppShell` が以下を実行:
 
 1. `caches.delete(...)` で SW shell キャッシュを全削除
 2. `registration.update()` で新 sw.js を install → activate 待ち (= 最大 5 秒)
 3. cache-bust クエリ付きで `window.location.replace(...)` ハードリロード
 
-`SHELL_CACHE` 名 (`claude-pwa-shell-vN`) を bump すると、 旧版 SW の activate handler が
-旧世代キャッシュを全削除するので、 サーバ側で新 sw.js を配ったタイミングで自動更新される
-(= ユーザ操作不要の刷新経路、 開発者向け)。
+**旧 cache-first 版 SW からの移行 (= 一度きり)**: cache-first 時代の SW が居座っていると
+network-first 版 sw.js を cache-first で拒むため、 iOS では **ホーム画面アイコン長押し →
+App 削除 → Safari で開き直して 共有 → ホーム画面に追加** で一度だけ完全再登録する。 以後は
+network-first で自動最新化される。 `SHELL_CACHE` 名 (`claude-pwa-shell-vN`) の bump は
+旧世代 cache の一掃用に維持 (= 現行 v3)。
 
 ## セッション復旧: 直近の claude_sid を取り戻す
 

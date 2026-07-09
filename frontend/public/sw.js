@@ -7,7 +7,10 @@
 // アプリシェル (HTML / JS / CSS) のキャッシュ世代名。 version を上げると activate で旧世代を
 // 全削除する (= 確実な刷新経路)。 sw.js は backend が no-cache で配信するので、 新しい sw.js は
 // PWA 起動時に必ず取得される → install → activate で旧キャッシュ一掃 → 最新 bundle に入れ替わる。
-const SHELL_CACHE = 'claude-pwa-shell-v2'
+// v3 (= 2026-07-09): navigation を network-first へ戻すと同時に bump。 旧 v2 世代には
+// cache-first 時代の複数世代 index.html が URL query 違い (`/` / `/?ses=` / `/?_r=`) で
+// 分裂堆積しており、 それが「起動経路ごとに新旧がばらつく」 更新地獄の温床だったので一掃する。
+const SHELL_CACHE = 'claude-pwa-shell-v3'
 
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting())
@@ -22,15 +25,22 @@ self.addEventListener('activate', (event) => {
   })())
 })
 
-// アプリシェルの fetch 戦略 (= 2026-06-22 改定、 「起動毎に再読み込み」 → 状態リセット問題対策)。
-// 旧 network-first は起動毎に index.html を fresh 取得 → 新 build があれば即反映 という設計だったが、
-// 結果として「毎起動時に bundle が変わる可能性があり PWA を再マウントしてる感覚」 を与えていた。
-// **「アプリを更新」 ボタンが唯一の刷新経路**という UX 不変条件に合わせ、 navigation も cache-first
-// にする。 SessionDrawer.handleReset が caches 全削除 + SW update + hard reload で刷新するので、
-// それ以外の launch では一切 network 取得しない (= state を保持して即起動)。
-//   - navigation (index.html) : cache-first (= キャッシュあれば再 fetch しない、 初回 / cache miss
-//     のみ network)。 これにより常駐状態がリセットされない。
-//   - hashed assets (/assets/*) / manifest / アイコン : cache-first (= 内容不変)。
+// アプリシェルの fetch 戦略 (= 2026-07-09 再改定、 「更新地獄」 の根治)。
+//
+// 経緯: 2026-06-22 に navigation を network-first → cache-first にした (= 「起動毎に再読み込み
+// されて再マウントしてる感覚」 対策)。 しかしこれは副作用として **新 build が永遠に反映されない**
+// 更新地獄を生んだ。 しかも navigation を cache-first にすると、 キャッシュ key が URL 完全一致
+// (= query 込み) なので、 起動経路ごとに違う URL (`/` / `/?ses=<sid>` / `/?_r=<ts>`) が別々の
+// 世代の index.html を保持して分裂堆積し、 「起動の仕方によって新旧がばらつく (= たまに古い版が
+// 出る)」 症状になっていた。
+//
+// 対策: navigation を **network-first (cache fallback)** に戻す。 index.html は数百 byte で
+// 毎起動 fetch しても軽い。 「状態リセット」 の懸念は誤りだった (= 会話 / activeId 等の状態は
+// localStorage にあり SW cache とは無関係、 index の取得方法を変えてもリセットされない)。
+// cache 保存は **単一キー `/` に正規化**して query 違いの世代分裂を根絶する。
+//   - navigation (index.html) : network-first。 成功時は常に最新 index を返し `/` 単一キーに
+//     保存。 失敗時 (= オフライン) のみ `/` cache にフォールバック (= 圏外でも起動可能)。
+//   - hashed assets (/assets/*) / manifest / アイコン : cache-first (= 内容不変、 hash で世代分離)。
 //   - API / SSE / WS / 非 GET : 一切 respondWith せず素通り (= ストリーム系を壊さない)。
 self.addEventListener('fetch', (event) => {
   const req = event.request
@@ -38,20 +48,22 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url)
   if (url.origin !== self.location.origin) return
 
-  // HTML ナビゲーション = cache-first (= 起動毎の再 fetch を避けて状態保持)。
+  // HTML ナビゲーション = network-first (= 常に最新 index、 オフライン時のみ cache fallback)。
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
-      const cached = await caches.match(req)
-      if (cached) return cached
       try {
         const fresh = await fetch(req)
         if (fresh && fresh.ok) {
           const cache = await caches.open(SHELL_CACHE)
-          cache.put(req, fresh.clone())
+          // 単一キー `/` に正規化して保存 (= `/?ses=` / `/?_r=` 等の起動経路 URL 違いで
+          // 世代が分裂堆積するのを防ぐ、 更新地獄の直接原因を断つ)。
+          cache.put('/', fresh.clone())
         }
         return fresh
       } catch {
-        return Response.error()
+        // オフライン: 単一キー `/` の cache にフォールバック (= 圏外でも起動可能)。
+        const cached = await caches.match('/')
+        return cached || Response.error()
       }
     })())
     return

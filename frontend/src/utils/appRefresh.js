@@ -3,9 +3,10 @@
 // 呼び出し経路は 2 つ、 どちらも同じ刷新に集約する (= 真値 1 箇所):
 //   1. SessionDrawer 「↺ アプリを更新」 (= ユーザ明示)
 //   2. main.jsx の vite:preloadError handler (= deploy 後の旧 client が消えた chunk を
-//      踏んだ瞬間の自動復旧。 sw.js は navigation cache-first + /assets/ はオンデマンド
-//      cache のみなので、 deploy で旧 hash chunk がサーバから消えると旧 index の
-//      dynamic import が 404 で死ぬ。 2026-07-05 の全画面エラー多発の構造原因)
+//      踏んだ瞬間の自動復旧。 sw.js の navigation は network-first になった (= 2026-07-09)
+//      ので新規起動は最新 index を取るが、 **既に起動中の tab の最中に deploy された**
+//      場合はメモリ上の旧 index が旧 hash chunk を dynamic import して 404 で死ぬ経路が
+//      残る。 その瞬間の保険として本刷新を呼ぶ)
 export async function hardRefreshAppShell() {
   try {
     // 1. Cache Storage を全削除 (= sw.js の shell キャッシュを一掃)。
