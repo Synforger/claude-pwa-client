@@ -307,3 +307,79 @@ def test_list_pane_alternate_states_none_on_failure(monkeypatch):
 
     monkeypatch.setattr(pty_runner, "USE_TMUX_WRAP", False)
     assert asyncio.run(pty_runner.list_pane_alternate_states()) is None
+
+
+# --- 検証付き paste 展開 (= 2026-07-10 「複数行 paste で本文が二重」 根治) ---
+
+
+def test_build_send_keys_chain_multiline_pastes_once(monkeypatch):
+    """複数行 text の paste-buffer chain は **1 回だけ** (= 旧無条件 2 回が本文二重の原因)。"""
+    import subprocess as sp
+    import types
+    monkeypatch.setattr(
+        pty_runner.subprocess, "run",
+        lambda *a, **k: types.SimpleNamespace(returncode=0, stdout=b"", stderr=b""),
+    )
+    args, chained = pty_runner._build_send_keys_chain("pwa-x", text="line1\nline2")
+    assert chained is False
+    assert len(args) == 1
+    pastes = [i for i, tok in enumerate(args[0]) if tok == "paste-buffer"]
+    assert len(pastes) == 1
+    assert "-d" in args[0]  # buffer は 1 回で使い切り削除
+
+
+def test_paste_placeholder_ids_and_delta():
+    """プレースホルダ番号の集合差分で「新形成」 を判定 (= 会話 log の過去 echo は無視)。"""
+    before = "old chat: [Pasted text #1 +30 lines] was here\n❯ "
+    after_formed = before + "\n❯ [Pasted text #2 +12 lines]"
+    after_literal = before + "\nline1\nline2"
+    assert pty_runner.paste_placeholder_ids(before) == frozenset({"1"})
+    assert pty_runner.paste_formed_placeholder(before, after_formed) is True
+    assert pty_runner.paste_formed_placeholder(before, after_literal) is False
+    assert pty_runner.paste_formed_placeholder("", "") is False
+
+
+def test_send_text_two_stage_expands_only_when_placeholder_formed(monkeypatch):
+    """複数行送信: プレースホルダが形成された時だけ展開 paste (= text 送信 2 回目) を送る。"""
+    calls = []
+    def fake_send(sid, text=None, key=None, enter=False):
+        calls.append({"text": text, "key": key, "enter": enter})
+        return True
+    captures = ["❯ ", "❯ [Pasted text #1 +3 lines]"]  # before / after
+    monkeypatch.setattr(pty_runner, "tmux_send_keys", fake_send)
+    monkeypatch.setattr(pty_runner, "capture_pane_ansi_tail", lambda sid: captures.pop(0))
+    asyncio.run(pty_runner.send_text_two_stage("ses_x", "a\nb\nc"))
+    text_sends = [c for c in calls if c["text"]]
+    assert len(text_sends) == 2  # 本 paste + 展開 paste
+    assert calls[-1]["enter"] is True
+
+
+def test_send_text_two_stage_no_expand_when_pasted_literally(monkeypatch):
+    """プレースホルダが形成されない (= 本文がそのまま入った) なら展開 paste を送らない
+    (= これが二重文字の再発防止の核心)。"""
+    calls = []
+    def fake_send(sid, text=None, key=None, enter=False):
+        calls.append({"text": text, "key": key, "enter": enter})
+        return True
+    captures = ["❯ ", "❯ a\n  b\n  c"]  # before / after: 本文が直接入った
+    monkeypatch.setattr(pty_runner, "tmux_send_keys", fake_send)
+    monkeypatch.setattr(pty_runner, "capture_pane_ansi_tail", lambda sid: captures.pop(0))
+    asyncio.run(pty_runner.send_text_two_stage("ses_x", "a\nb\nc"))
+    text_sends = [c for c in calls if c["text"]]
+    assert len(text_sends) == 1  # 1 回だけ = 二重にならない
+    assert calls[-1]["enter"] is True
+
+
+def test_send_text_two_stage_single_line_unchanged(monkeypatch):
+    """1 行 text は従来通り capture なしの単純 2 段 (= wipe → send → Enter)。"""
+    calls = []
+    def fake_send(sid, text=None, key=None, enter=False):
+        calls.append({"text": text, "enter": enter})
+        return True
+    def no_capture(sid):
+        raise AssertionError("single-line must not capture")
+    monkeypatch.setattr(pty_runner, "tmux_send_keys", fake_send)
+    monkeypatch.setattr(pty_runner, "capture_pane_ansi_tail", no_capture)
+    asyncio.run(pty_runner.send_text_two_stage("ses_x", "hello"))
+    assert [c for c in calls if c["text"]] == [{"text": "hello", "enter": False}]
+    assert calls[-1]["enter"] is True
