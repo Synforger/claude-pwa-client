@@ -91,10 +91,6 @@ def next_interval(current: float, made_progress: bool) -> float:
 # ツール実行 (= 末尾が tool_use) は busy_after_idle が True を返すので誤って解除しない。
 # 体感即時化のため 15→5 に短縮 (= 2026-06-16、 watchdog コスト = 末尾 32KB の read+parse のみで軽い)。
 WATCHDOG_IDLE_SEC = 5.0
-# queue-busy TTL (= END を跨いで queued_sends で busy 維持する最長時間)。 本当の queue なら
-# claude が直後に次 turn を取り込んで START が出るので短くてよい。 watchdog より短くして
-# 「1個目終わったのにいつまでも推論中」 の体感を抑える (= 2026-07-09)。
-QUEUE_BUSY_TTL_SEC = 3.0
 
 
 def _latest_jsonl(session_id: str) -> Path | None:
@@ -586,20 +582,6 @@ def _tick_sid(sid: str, tstate: SessionTailState, now_mono: float) -> None:
         st_sub = stream_states.get(sid)
         if st_sub is not None:
             st_sub.status_event.set()
-            sessions_overview.notify()
-    # queue-busy TTL: END を跨いで queued_sends で busy を維持している間、 QUEUE_BUSY_TTL 内に
-    # 次 turn (= START/IN_PROGRESS) が来ず、 かつ file 末尾が非 busy なら、 queue は消化済み or
-    # 取りこぼしとみなして失効させる (= 「1個目終わったのにいつまでも推論中」 の張り付き防止、
-    # watchdog(5s) より短い)。 本当に queue が処理中なら file 末尾が busy に見えるので失効しない。
-    st_q = stream_states.get(sid)
-    if (
-        st_q is not None and st_q.queued_sends > 0 and not st_q.user_stopped
-        and time.monotonic() - st_q.queued_at >= QUEUE_BUSY_TTL_SEC
-        and not _busy_after_idle(path)
-    ):
-        st_q.queued_sends = 0
-        if st_q.busy:
-            st_q.busy = False
             sessions_overview.notify()
     # idle watchdog: busy のまま長時間 静かなら file 真値で再判定 (= 終端マーカー欠落 /
     # 取りこぼしのバックストップ)。 user_stopped 中は触らない。

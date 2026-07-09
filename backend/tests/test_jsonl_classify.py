@@ -179,10 +179,9 @@ def test_note_queue_skips_slash_command(isolated_state):
     # slash command は confirmed:False でも queue に積まない
     _note_queue_on_unconfirmed(sid, was_busy=True, is_slash=True, result={"confirmed": False})
     assert state.stream_states[sid].queued_sends == 0
-    # 素プロンプトは積む + queued_at が立つ
+    # 素プロンプトは従来通り queue に積む (= 処理中は推論中を維持し続ける)
     _note_queue_on_unconfirmed(sid, was_busy=True, is_slash=False, result={"confirmed": False})
     assert state.stream_states[sid].queued_sends == 1
-    assert state.stream_states[sid].queued_at > 0
 
 
 def test_note_queue_skips_when_not_busy_or_confirmed(isolated_state):
