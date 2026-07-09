@@ -68,16 +68,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _note_queue_on_unconfirmed(session_id: str, was_busy: bool, result: dict) -> dict:
+def _note_queue_on_unconfirmed(
+    session_id: str, was_busy: bool, is_slash: bool, result: dict
+) -> dict:
     """turn 実行中 (= was_busy) の送信が JSONL 確認できなかった (= confirmed:False) 場合、
     claude の message queue に積まれた未処理送信として StreamState.queued_sends を +1 する。
     これで直前 turn の END を見ても queue が残る間は busy=True が維持され、 「次の queue
     message を claude が取り込むまでの無言時間」 を推論中のまま繋げる。 was_busy=False の
-    confirmed:False は picker 等の対話 UI or 送達失敗であって queue ではないので数えない。"""
-    if was_busy and result.get("confirmed") is False:
+    confirmed:False は picker 等の対話 UI or 送達失敗であって queue ではないので数えない。
+
+    slash command (= is_slash) は除外する: /clear 等は claude の message queue に積まれる
+    本文送信ではなく TUI コマンドで、 素ユーザ発話 (START) として JSONL に user 行が出ない。
+    数えると queued_sends が START で二度と減らず busy が永久張り付く (= 「/command 後に
+    推論中が残る」 の主因、 2026-07-09)。"""
+    if was_busy and not is_slash and result.get("confirmed") is False:
         st = stream_states.get(session_id)
         if st is not None and not st.user_stopped:
             st.queued_sends += 1
+            st.queued_at = time.monotonic()  # queue-busy TTL の起点
     return result
 
 
@@ -430,7 +438,7 @@ async def pty_send(
     if not ok or not confirm or jsonl_path is None:
         return {"ok": ok}
     result = await _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slash)
-    return _note_queue_on_unconfirmed(session_id, was_busy, result)
+    return _note_queue_on_unconfirmed(session_id, was_busy, is_slash, result)
 
 
 @router.post("/pty/{session_id}/send-raw-key")
@@ -532,7 +540,7 @@ async def pty_send_with_files(
     result = await _confirm_after_send(
         session_id, full_text, jsonl_path, initial_pos, is_slash
     )
-    _note_queue_on_unconfirmed(session_id, was_busy, result)
+    _note_queue_on_unconfirmed(session_id, was_busy, is_slash, result)
     result["saved_files"] = saved_files
     return result
 

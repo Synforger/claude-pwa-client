@@ -164,3 +164,34 @@ def test_update_busy_user_stopped_clears_queue(isolated_state):
     update_busy(sid, _asst("tool_use"))  # 何を見ても user_stopped で False
     assert state.stream_states[sid].busy is False
     assert state.stream_states[sid].queued_sends == 0
+
+
+# --- queue counting: slash command は queue に数えない (= 2026-07-09 「/command 後の推論中残り」) ---
+
+def test_note_queue_skips_slash_command(isolated_state):
+    """slash command (= is_slash) は turn 中送信でも queue に数えない (= START で減らず
+    busy 永久張り付きになる主因を断つ)。 素プロンプトは従来通り queue に積む。"""
+    import backend.state as state_mod
+    from backend.terminal.routes import _note_queue_on_unconfirmed
+    state = isolated_state
+    sid = "ses_slash"
+    state.stream_states[sid] = state_mod.StreamState(agent_id="a", busy=True)
+    # slash command は confirmed:False でも queue に積まない
+    _note_queue_on_unconfirmed(sid, was_busy=True, is_slash=True, result={"confirmed": False})
+    assert state.stream_states[sid].queued_sends == 0
+    # 素プロンプトは積む + queued_at が立つ
+    _note_queue_on_unconfirmed(sid, was_busy=True, is_slash=False, result={"confirmed": False})
+    assert state.stream_states[sid].queued_sends == 1
+    assert state.stream_states[sid].queued_at > 0
+
+
+def test_note_queue_skips_when_not_busy_or_confirmed(isolated_state):
+    """was_busy=False (= picker 等) / confirmed:True は queue でないので数えない。"""
+    import backend.state as state_mod
+    from backend.terminal.routes import _note_queue_on_unconfirmed
+    state = isolated_state
+    sid = "ses_nq"
+    state.stream_states[sid] = state_mod.StreamState(agent_id="a", busy=False)
+    _note_queue_on_unconfirmed(sid, was_busy=False, is_slash=False, result={"confirmed": False})
+    _note_queue_on_unconfirmed(sid, was_busy=True, is_slash=False, result={"confirmed": True})
+    assert state.stream_states[sid].queued_sends == 0
