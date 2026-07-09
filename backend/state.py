@@ -229,12 +229,10 @@ class StreamState:
     # slash command は queue でなく TUI コマンドなので数えない)、 素ユーザ発話 (START) が JSONL
     # に 1 行出るたびに -1。 > 0 の間は turn 完了 (END) を見ても busy=True を維持する (= 「1 個目
     # の turn は終わったが queue の 2 個目をこれから処理する」 無言時間を推論中のまま繋ぐ)。
-    # Stop 押下 / path 切替 / idle watchdog / queue-busy TTL 失効で 0 にクリア (= 張り付き防止)。
+    # Stop 押下 / path 切替 / idle watchdog(= file 末尾が非 busy の時だけ) 解除で 0 にクリア。
+    # queue が実際に処理中 (= file 末尾が busy) の間は維持され、 推論中表示が残り続ける
+    # (= 「queue に積んだ 2 個目を処理中は推論中のままでいてほしい」 という要望どおりの挙動)。
     queued_sends: int = 0
-    # 最後に queued_sends を増やした monotonic 時刻 (= queue-busy TTL の起点)。 これから
-    # QUEUE_BUSY_TTL 内に次 turn (START/IN_PROGRESS) が来なければ queue は消化済み or 取りこぼし
-    # とみなして tick 側で失効させる (= 「1個目終わったのにいつまでも推論中」 の張り付き防止)。
-    queued_at: float = 0.0
 
 
 @dataclass
