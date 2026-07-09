@@ -129,9 +129,12 @@ def _build_sessions_overview() -> dict:
     """全 session の busy + last_seen_at を 1 dict で返す
     (= /sessions/overview/stream payload)。
 
-    busy は monitor_all_sessions_loop が JSONL から算出した backend 権威値 (= chat SSE の
-    result 配信に依存しない)。 frontend は各 sid の busy で loading を上書きして、 青丸
-    (処理中) / 赤丸 (完了未読) / 停止ボタンを **非アクティブタブでも** live 追従させる。
+    busy は JSONL 由来の権威値 (= monitor_all_sessions_loop が算出) と、 画面の実況
+    (= prompt_detector_loop が観測する TUI 推論中スピナー、 StreamState.pane_working) の
+    **OR**。 「推論中 = claude が考えている時」 が原義で、 JSONL 簿記が拾えない queue 消化中の
+    無言時間もスピナーが回っていれば busy=true を維持する。 frontend は各 sid の busy で
+    loading を上書きして、 青丸 (処理中) / 赤丸 (完了未読) / 停止ボタンを **非アクティブ
+    タブでも** live 追従させる。 user_stopped (= Stop 押下) は両者に優先して false。
 
     last_seen_at は他端末がそのタブを開いた時刻 (= unix sec)。 各 client は自分の最新
     received event timestamp と比較して、 last_seen_at が新しければ赤丸を消す
@@ -140,8 +143,14 @@ def _build_sessions_overview() -> dict:
     for sid in list(sessions_meta.keys()):
         st = stream_states.get(sid)
         a = agent_status.get(sid) or {}
+        if st is None:
+            busy = False
+        elif st.user_stopped:
+            busy = False
+        else:
+            busy = bool(st.busy or st.pane_working)
         out[sid] = {
-            "busy": bool(st.busy) if st is not None else False,
+            "busy": busy,
             "last_seen_at": session_last_seen_at.get(sid),
         }
     return out

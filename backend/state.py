@@ -233,6 +233,10 @@ class StreamState:
     # queue が実際に処理中 (= file 末尾が busy) の間は維持され、 推論中表示が残り続ける
     # (= 「queue に積んだ 2 個目を処理中は推論中のままでいてほしい」 という要望どおりの挙動)。
     queued_sends: int = 0
+    # 画面の実況 (= claude TUI の推論中スピナーが生きて回っているか)。 prompt_detector_loop が
+    # 500ms poll で更新する。 overview の busy はこれと JSONL 由来 busy の OR (= 「推論中 =
+    # claude が考えている時」 の直接真値。 JSONL 簿記が拾えない queue 消化中の無言時間を埋める)。
+    pane_working: bool = False
 
 
 @dataclass

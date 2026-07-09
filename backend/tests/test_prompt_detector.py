@@ -628,3 +628,48 @@ def test_owns_screen_false_for_real_fullscreen_tui():
     assert _claude_tui_owns_screen(tail) is False
     v = analyze(_snap(tail, alternate=True), _new_state())
     assert v.state == PromptState.TUI
+
+
+# ---------------------------------------------------------------------------
+# 推論中スピナー = 画面の実況 (= 2026-07-10 「推論中 = claude が考えている時」)
+# ---------------------------------------------------------------------------
+
+from backend.terminal.prompt_detector import (  # noqa: E402
+    SPINNER_STALE_SEC,
+    extract_spinner_elapsed,
+    update_pane_working,
+)
+
+
+def test_extract_spinner_running_forms():
+    """進行形スピナー (= `… (Ns` / `… (NmNs`) から経過秒を取る。 実測形を fixture 化。"""
+    assert extract_spinner_elapsed("✢ Thinking… (1m 22s · ↓ 3.9k tokens)\n❯ ") == 82
+    assert extract_spinner_elapsed("✳ Razzmatazzing… (53s · esc to interrupt)\n❯ ") == 53
+
+
+def test_extract_spinner_ignores_finished_and_bare_running():
+    """完了形 (= `for Xs`、 過去形) と時間なし `Running…` は推論中でない。"""
+    assert extract_spinner_elapsed("✻ Cogitated for 7m 19s\n❯ ") is None
+    assert extract_spinner_elapsed("  ⎿  Running…\n❯ ") is None
+    assert extract_spinner_elapsed("") is None
+
+
+def test_extract_spinner_only_tail_window():
+    """scrollback に流れた past のスピナー様テキストは拾わない (= 末尾 10 非空行のみ)。"""
+    past = "会話 log: Thinking… (9s とか書いてあった\n"
+    filler = "\n".join(f"line {i}" for i in range(15))
+    assert extract_spinner_elapsed(past + filler + "\n❯ ") is None
+
+
+def test_update_pane_working_liveness():
+    """経過秒が進んでいる間だけ True、 静止したら STALE 超過で False (= 誤爆防御)、
+    スピナー消滅 (= 完了形へ遷移) で即 False。"""
+    st = DetectorState()
+    assert update_pane_working(st, 10, now_sec=100.0) is True   # 初観測
+    assert update_pane_working(st, 11, now_sec=100.5) is True   # 進んでる
+    # 値が止まったまま STALE 超過 → False (= チャット本文の静止テキスト誤爆を殺す)
+    assert update_pane_working(st, 11, now_sec=100.5 + SPINNER_STALE_SEC + 0.1) is False
+    # 消滅 (= 完了形) → 即 False
+    assert update_pane_working(st, None, now_sec=105.0) is False
+    # 新しい turn のスピナー再開 (= 経過秒リセット) → 即 True
+    assert update_pane_working(st, 1, now_sec=106.0) is True
