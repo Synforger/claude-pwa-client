@@ -85,7 +85,6 @@ def _note_queue_on_unconfirmed(
         st = stream_states.get(session_id)
         if st is not None and not st.user_stopped:
             st.queued_sends += 1
-            st.queued_at = time.monotonic()  # queue-busy TTL の起点
     return result
 
 
