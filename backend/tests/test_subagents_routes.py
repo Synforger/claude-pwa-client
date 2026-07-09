@@ -281,3 +281,32 @@ def test_transcript_changes_etag_on_file_mutation(client_with_session):
     # 内容が変わったので 304 にならず 200 + 新 ETag
     assert res2.status_code == 200
     assert res2.headers["etag"] != etag1
+
+
+# --- running settle: 未完了がいる間は再スキャンして done 固着を防ぐ (= 2026-07-09) ---
+
+def test_payload_has_running_detects_unfinished_subagent():
+    from backend.routes.subagents import _payload_has_running
+    assert _payload_has_running({"subagents": [{"done": False}], "workflows": []}) is True
+    assert _payload_has_running({"subagents": [{"done": True}], "workflows": []}) is False
+    assert _payload_has_running({"subagents": [], "workflows": []}) is False
+
+
+def test_payload_has_running_detects_running_workflow():
+    from backend.routes.subagents import _payload_has_running
+    assert _payload_has_running({"subagents": [], "workflows": [{"status": "running"}]}) is True
+    assert _payload_has_running({"subagents": [], "workflows": [{"status": "completed"}]}) is False
+
+
+def test_payload_has_running_mixed():
+    from backend.routes.subagents import _payload_has_running
+    # 完了 subagent + 完了 workflow = settle 不要
+    assert _payload_has_running({
+        "subagents": [{"done": True}, {"done": True}],
+        "workflows": [{"status": "completed"}],
+    }) is False
+    # 1 つでも未完了なら settle 継続
+    assert _payload_has_running({
+        "subagents": [{"done": True}, {"done": False}],
+        "workflows": [{"status": "completed"}],
+    }) is True
