@@ -149,3 +149,48 @@ describe('reconcileUserMessage (send_id path, identity introduced 2026-07-03)', 
     expect(reconcileUserMessage(cur, 'x', 'u1', 's1')).toBe(cur)
   })
 })
+
+// ---------------------------------------------------------------------------
+// identity 終身保持 (= 2026-07-10 「同文バブル 2 個 = 二重送信に見える」 根治)
+// ---------------------------------------------------------------------------
+
+describe('reconcileUserMessage — 再配信の二重表示禁止', () => {
+  it('確定済 bubble は send_id を持ち続ける (= _confirmAt が捨てない)', () => {
+    const cur = [{ id: 'o1', role: 'user', optimistic: true, send_id: 'S1', text: 'ペースト本文' }]
+    const next = reconcileUserMessage(cur, 'ペースト本文', 'U1', 'S1')
+    expect(next[0].uuid).toBe('U1')
+    expect(next[0].send_id).toBe('S1')
+    expect(next[0].optimistic).toBeUndefined()
+  })
+
+  it('同 send_id の再配信 (uuid 違い/取りこぼし) は append せず backfill のみ', () => {
+    // 1 回目: uuid なし event で確定 (= mapping 取りこぼし形)
+    let cur = [{ id: 'o1', role: 'user', optimistic: true, send_id: 'S1', text: 'x' }]
+    cur = reconcileUserMessage(cur, 'x', null, 'S1')
+    expect(cur).toHaveLength(1)
+    expect(cur[0].uuid).toBe(null)
+    // 2 回目: 同 send_id + uuid 付き再配信 → 新規 append せず uuid backfill
+    const next = reconcileUserMessage(cur, 'x', 'U9', 'S1')
+    expect(next).toHaveLength(1)
+    expect(next[0].uuid).toBe('U9')
+    // 3 回目: 完全な replay → no-op
+    expect(reconcileUserMessage(next, 'x', 'U9', 'S1')).toBe(next)
+  })
+
+  it('identity 全断でも直近の uuid 未確定同文 bubble を採用して append しない (= 3.5 guard)', () => {
+    const cur = [
+      { id: 'a', role: 'agent', uuid: 'AM1', text: 'reply' },
+      { id: 'u1', role: 'user', uuid: null, text: '同じ本文' },  // 対応付け損ねた自送信
+    ]
+    const next = reconcileUserMessage(cur, '同じ本文', 'U2', null)
+    expect(next).toHaveLength(2)
+    expect(next[1].uuid).toBe('U2')
+  })
+
+  it('意図的な同文連投は append される (= uuid 確定済の同文は guard 対象外)', () => {
+    const cur = [{ id: 'u1', role: 'user', uuid: 'U1', text: 'ok' }]
+    const next = reconcileUserMessage(cur, 'ok', 'U2', null)
+    expect(next).toHaveLength(2)
+    expect(next[1].uuid).toBe('U2')
+  })
+})
