@@ -492,17 +492,25 @@ def _tier_b_build_verdict(
 def _claude_tui_owns_screen(tail: str) -> bool:
     """pane 末尾が Claude Code 自身の TUI (= 入力欄 + status bar) かを判定。
 
-    末尾 4 行に rate-limit status (`5h:NN%`) か bypass chip が見えていれば Claude TUI
-    が画面を占有中。 この状態で subprocess の生 prompt が pane 末尾に居ることは構造上
-    ありえない (= subprocess 出力は Claude が tool 経由で吸収して会話 log に描画する)
-    ので、 tier C は skip してよい。 逆に subprocess が真に画面を持ってる時 (= claude
-    未起動の生 shell 等) は status bar が無いので tier C が生きる。
+    末尾側に rate-limit status (`5h:NN%` / `ctx:NN%`) か bypass chip が見えていれば
+    Claude TUI が画面を占有中。 この状態で subprocess の生 prompt が pane 末尾に居ることは
+    構造上ありえない (= subprocess 出力は Claude が tool 経由で吸収して会話 log に描画する)
+    ので、 tier A (= alternate) / tier C (= text prompt) は skip してよい。 逆に subprocess が
+    真に画面を持ってる時 (= claude 未起動の生 shell、 vim/less 等の全画面 TUI) は status bar が
+    無いので下位判定が生きる。
+
+    窓の取り方 (= 2026-07-09 強化): **空行を除いた末尾 8 行**を見る。 旧実装は素の末尾 4 行で、
+    Claude TUI の入力欄が複数行に伸びたり status bar の下にヒント行 (`← for agents` 等) / 空行が
+    挟まると status bar が 4 行窓の外に押し出され、 alternate_on を立てっぱなしにする claude
+    (= 2.1.201) の pane を tier A が「全画面 TUI」 と誤検知して "TUI running" banner が
+    出っぱなしになっていた (= 実運用報告)。 status bar パターンは Claude TUI 固有で会話本文には
+    出ないので、 窓を広げても誤爆しない。
 
     Why: チャット本文に含まれる番号リスト / `[Y/n]` 例文が pane に描画されて tier C
-    の regex に誤 hit する class の誤検知 (= 2026-07-06 実測) を構造的に塞ぐ。
+    の regex に誤 hit する class の誤検知 (= 2026-07-06 実測) を構造的に塞ぐ + 上記 banner 出っぱなし。
     """
-    last_lines = tail.splitlines()[-4:]
-    for ln in last_lines:
+    nonblank = [ln for ln in tail.splitlines() if ln.strip()]
+    for ln in nonblank[-8:]:
         if _VOLATILE_STATUS_RE.search(ln) or _BYPASS_CHIP_RE.search(ln):
             return True
     return False
