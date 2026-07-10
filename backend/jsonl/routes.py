@@ -531,7 +531,9 @@ def _process_new_lines(sid: str, lines: list[str]) -> None:
         # 更新されないと、 非アクティブタブの AskUserQuestion / ExitPlanMode が
         # overview SSE の pending_* フラグに反映されない (= hook 経路だけが頼り)。
         # idempotent + 二重発火 gate 済なので SSE 経路と並走しても害なし。
-        if _mutate_agent_status(sid, obj):
+        mutated = _mutate_agent_status(sid, obj)
+        metrics.inc("monitor.mutated" if mutated else "monitor.mutate_noop")
+        if mutated:
             st_obj = stream_states.get(sid)
             if st_obj is not None:
                 st_obj.status_event.set()
@@ -562,16 +564,22 @@ def _process_new_lines(sid: str, lines: list[str]) -> None:
 def _tick_sid(sid: str, tstate: SessionTailState, now_mono: float) -> None:
     """1 sid 分の per-tick 処理 (= 旧 inner loop body)。 F-65 quarantine 経路では本関数を
     例外で抜け、 caller の monitor_all_sessions_loop で counter を increment する。"""
+    metrics.inc("monitor.ticks")
     path = _latest_jsonl(sid)
     if path is None:
+        metrics.inc("monitor.no_path")
         tstate.next_poll_at = now_mono + POLL_INTERVAL
         return
     if tstate.path is None or tstate.path != path:
+        metrics.inc("monitor.init_bind")
         _initialize_sid_tail(sid, tstate, path)
         return
     lines, new_pos, status = _read_tail(path, tstate.offset)
     if status == "error":
+        metrics.inc("monitor.read_error")
         return
+    if lines:
+        metrics.inc("monitor.lines", len(lines))
     tstate.offset = new_pos
     if status == "ok" and lines:
         tstate.last_line_at = time.monotonic()
