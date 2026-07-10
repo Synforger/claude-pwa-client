@@ -4,6 +4,7 @@
 
 import { sseTransport } from './sse.ts'
 import { viewsTransport } from './ws-views.ts'
+import { bumpAllSubscribedSse } from './_sse.ts'
 
 const FG_EVENT = 'cpc:fg'
 const BG_EVENT = 'cpc:bg'
@@ -34,6 +35,10 @@ export function uninstallListeners(): void {
 function onVisibility(): void {
   if (document.visibilityState === 'visible') {
     sseTransport.bumpReconnect()
+    // _sse factory 系 (= sessions-status / sessions-overview / subagents) も張り直す。
+    // iOS は bg で SSE を onerror なしに殺す (= silent-dead) ので、 復帰時 bump が唯一の
+    // 確実な蘇生 + 初期 snapshot 再取得経路 (= 📋 tasks / model / ctx の凍結根治)。
+    bumpAllSubscribedSse()
     viewsTransport.start()
     window.dispatchEvent(new Event(FG_EVENT))
   } else {
@@ -52,6 +57,7 @@ function onPageshow(e: PageTransitionEvent): void {
   if (e.persisted) {
     // BFCache 復帰 = transport rebuild 必須
     sseTransport.bumpReconnect()
+    bumpAllSubscribedSse()
     viewsTransport.start()
     window.dispatchEvent(new Event(FG_EVENT))
   }
