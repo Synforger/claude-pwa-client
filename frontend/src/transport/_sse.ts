@@ -18,6 +18,8 @@ type Handler = (data: unknown) => void
 interface SseInstance {
   readonly name: string
   readonly state: State
+  /** 現在 subscriber が居るか (= lifecycle の foreground 一括 bump 対象判定)。 */
+  readonly hasSubscribers: boolean
   subscribe(handler: Handler): () => void
   stop(): void
   bumpReconnect(): void
@@ -89,12 +91,26 @@ export function createSseSubscriber(opts: Options): SseInstance {
   const instance: SseInstance = {
     name,
     get state() { return state },
+    get hasSubscribers() { return handlers.size > 0 },
     subscribe,
     stop,
     bumpReconnect,
   }
   REGISTRY.set(name, instance)
   return instance
+}
+
+/** foreground 復帰時に subscriber の居る全 SSE singleton を張り直す (= lifecycle.ts が呼ぶ)。
+ *
+ * iOS は background で SSE socket を **onerror を発火させずに** 殺すことがあり、 復帰後も
+ * EventSource は「open のつもり」 の死んだ接続のまま残る (= silent-dead)。 これらの
+ * stream は接続時に初期 snapshot を送る設計なので、 復帰ごとの張り直しは「最新 snapshot の
+ * 再取得」 でもある (= 📋 tasks / model / ctx / subagents が bg 跨ぎで凍る事故の根治)。
+ * subscriber ゼロの instance は起こさない (= 不要な接続を作らない)。 */
+export function bumpAllSubscribedSse(): void {
+  for (const ins of REGISTRY.values()) {
+    if (ins.hasSubscribers) ins.bumpReconnect()
+  }
 }
 
 /** observability 用: 全 SSE singleton の name -> state を返す (= W3 inspector 入口、 ADR-019)。 */
