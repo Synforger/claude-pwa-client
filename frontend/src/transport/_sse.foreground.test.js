@@ -74,3 +74,31 @@ describe('生存監視 (= heartbeat + liveness watchdog)', () => {
     vi.useRealTimers()
   })
 })
+
+describe('遅参 subscriber への再配布 (= 📋 パネル no tasks 根治)', () => {
+  it('接続確立後にマウントされた consumer は直近 payload を即時に受け取る', () => {
+    const sse = createSseSubscriber({ name: `t-late-${Math.random()}`, path: '/late/stream' })
+    const first = []
+    const unsub1 = sse.subscribe(d => first.push(d))
+    // 初期 snapshot は最初の subscriber だけが live で受ける (= サーバは接続時に 1 回)
+    FakeEventSource.instances.at(-1).onmessage({ data: '{"ses_a":{"tasks":[{"id":"1"}]}}' })
+    expect(first).toHaveLength(1)
+    // ここで 📋 パネルが開く (= 遅参 subscribe) — 従来は次の push まで永遠に空だった
+    const late = []
+    const unsub2 = sse.subscribe(d => late.push(d))
+    expect(late).toHaveLength(1)
+    expect(late[0].ses_a.tasks).toHaveLength(1)
+    unsub1(); unsub2()
+  })
+
+  it('heartbeat は lastData を汚さない (= 遅参者に {_hb} を配らない)', () => {
+    const sse = createSseSubscriber({ name: `t-latehb-${Math.random()}`, path: '/latehb/stream' })
+    const unsub1 = sse.subscribe(() => {})
+    FakeEventSource.instances.at(-1).onmessage({ data: '{"real":1}' })
+    FakeEventSource.instances.at(-1).onmessage({ data: '{"_hb":1}' })
+    const late = []
+    const unsub2 = sse.subscribe(d => late.push(d))
+    expect(late).toEqual([{ real: 1 }])
+    unsub1(); unsub2()
+  })
+})

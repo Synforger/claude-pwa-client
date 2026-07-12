@@ -55,6 +55,12 @@ export function createSseSubscriber(opts: Options): SseInstance {
   let state: State = 'idle'
   let lastEventAt = 0
   let livenessTimer: ReturnType<typeof setInterval> | null = null
+  // 直近の実 payload (= heartbeat 除く)。 遅れて subscribe した consumer へ即時再配布する
+  // (= 2026-07-12 根治: サーバの初期 snapshot は「接続確立時に 1 回」 しか流れないため、
+  // singleton 接続を最初の subscriber (= StatusBar) が確立した後にマウントされる consumer
+  // (= TasksModal / SubagentsModal) は次のサーバ push まで永遠に空だった。 「📋 パネルが
+  // no tasks のまま」 の真因)。
+  let lastData: unknown
   const handlers = new Set<Handler>()
 
   function start() {
@@ -71,6 +77,7 @@ export function createSseSubscriber(opts: Options): SseInstance {
       try { raw = JSON.parse(ev.data) } catch { return }
       if (isHeartbeat(raw)) return  // 生存記録のみ、 handler には流さない
       const data = transform ? transform(raw) : raw
+      lastData = data
       for (const h of handlers) {
         try { h(data) } catch (e) { console.warn(`[sse:${name}] handler threw`, e) }
       }
@@ -108,6 +115,10 @@ export function createSseSubscriber(opts: Options): SseInstance {
   function subscribe(handler: Handler): () => void {
     handlers.add(handler)
     if (es === null) start()
+    // 遅参 subscriber への即時再配布 (= 接続済みで snapshot 受信済みなら待たせない)。
+    if (lastData !== undefined) {
+      try { handler(lastData) } catch (e) { console.warn(`[sse:${name}] late-replay handler threw`, e) }
+    }
     return () => {
       handlers.delete(handler)
       if (handlers.size === 0) stop()
