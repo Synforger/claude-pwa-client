@@ -3,6 +3,7 @@ import LZString from 'lz-string'
 import { LEGACY_AGENT_TO_SESSION, LS_MESSAGES, LS_INPUT, MAX_MESSAGES } from '../../constants.js'
 import { generateId } from '../../utils/id.js'
 import { setMessagesFor, removeMessagesFor } from '../../state/messages.js'
+import { recordPerfSample } from '../app-effects/perfProbe.js'
 
 const { compressToUTF16, decompressFromUTF16 } = LZString
 
@@ -365,6 +366,9 @@ export function useChatStorage(sessions) {
   // 通常経路: 圧縮を worker に投げる (= main thread は clone + 応答時 setItem のみ)。
   // 同 sid の連続 save は seq を進めて後勝ち (= in-flight の古い応答は捨てられる)。
   const runMsgSaveViaWorker = useRef(() => {
+    // 発熱調査 段階 2 (= 2026-07-13): main thread に残る clone + postMessage の実測。
+    // transcript が育つと structured clone が線形に重くなる仮説の検証点。
+    const t0 = performance.now()
     const dirty = collectDirtySaves()
     if (dirty.length === 0) return
     const w = ensureMsgSaveWorker()
@@ -372,11 +376,14 @@ export function useChatStorage(sessions) {
       runMsgSave.current()
       return
     }
+    let msgs = 0
     for (const { sid, cur, pruned } of dirty) {
       const seq = ++saveSeqRef.current
       pendingSaveRef.current.set(sid, { seq, toSave: pruned, cur, attempts: 0 })
       w.postMessage({ sid, seq, messages: pruned })
+      msgs += pruned.length
     }
+    recordPerfSample('storage-clone', performance.now() - t0, { msgs })
   })
 
   const runInputSave = useRef(() => {
