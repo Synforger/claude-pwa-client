@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { httpClient } from '../../transport/http.ts'
+import { drainPerfSamples, readPerfContext } from './perfProbe.js'
 
 // iPhone 実機の main thread 詰まり観測 (= 2026-07-10 発熱調査の観測点)。
 //
@@ -33,12 +34,18 @@ export function usePerfBeacon() {
     const report = setInterval(() => {
       // background 中は iOS が interval 自体を絞るので drift が計測にならない。 捨てて仕切り直し。
       const visible = typeof document === 'undefined' || document.visibilityState === 'visible'
+      // 段階 2 (= 2026-07-13): 容疑者の実測 (= slow) と transcript 規模 (= ctx) を同乗。
+      // 独立 request を増やさず 1 beacon に相乗りさせる (= 無線コスト据え置き)。
+      const slow = drainPerfSamples()
+      const ctx = readPerfContext()
       const payload = {
         stage: 'perf:stall',
         stalls,
         stall_ms: Math.round(stallMs),
         ticks,
         window_ms: REPORT_INTERVAL_MS,
+        ...(slow ? { slow } : {}),
+        ...(ctx ? { ctx } : {}),
       }
       stalls = 0; stallMs = 0; ticks = 0
       last = Date.now()
