@@ -1,0 +1,53 @@
+import { useEffect } from 'react'
+import { httpClient } from '../../transport/http.ts'
+
+// iPhone 実機の main thread 詰まり観測 (= 2026-07-10 発熱調査の観測点)。
+//
+// PerformanceObserver('longtask') は WebKit 非対応なので、 interval の実測 drift で代替する:
+// TICK_MS ごとの実行が予定より STALL_MIN_MS 以上遅れた回数と合計遅延を、 REPORT_INTERVAL
+// ごとに backend の /log/sw へ beacon する (= logs/backend.log で `perf:stall` を grep して
+// stall rate を読める)。 計測自体の負荷は 2 Hz の減算 1 回で無視できる。
+//
+// 読み方: stalls が常時 2 桁 / 分なら main thread が恒常的に詰まっている (= 発熱と直結)。
+// streaming markdown 間引き (= useThrottledStreamingText) の前後比較にもこの数値を使う。
+const TICK_MS = 500
+const STALL_MIN_MS = 200
+const REPORT_INTERVAL_MS = 60_000
+
+export function usePerfBeacon() {
+  useEffect(() => {
+    let last = Date.now()
+    let stalls = 0
+    let stallMs = 0
+    let ticks = 0
+    const tick = setInterval(() => {
+      const now = Date.now()
+      const drift = now - last - TICK_MS
+      last = now
+      ticks += 1
+      if (drift >= STALL_MIN_MS) {
+        stalls += 1
+        stallMs += drift
+      }
+    }, TICK_MS)
+    const report = setInterval(() => {
+      // background 中は iOS が interval 自体を絞るので drift が計測にならない。 捨てて仕切り直し。
+      const visible = typeof document === 'undefined' || document.visibilityState === 'visible'
+      const payload = {
+        stage: 'perf:stall',
+        stalls,
+        stall_ms: Math.round(stallMs),
+        ticks,
+        window_ms: REPORT_INTERVAL_MS,
+      }
+      stalls = 0; stallMs = 0; ticks = 0
+      last = Date.now()
+      if (!visible || payload.ticks === 0) return
+      httpClient.apiFetch('/log/sw', { method: 'POST', jsonBody: payload }).catch(() => {})
+    }, REPORT_INTERVAL_MS)
+    return () => {
+      clearInterval(tick)
+      clearInterval(report)
+    }
+  }, [])
+}
