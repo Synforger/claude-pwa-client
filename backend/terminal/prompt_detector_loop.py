@@ -26,7 +26,12 @@ import logging
 
 from backend.core.push import broadcast_push
 from backend.observability.metrics import metrics
-from backend.state import jsonl_event_broadcaster, sessions_meta
+from backend.state import (
+    jsonl_event_broadcaster,
+    sessions_meta,
+    sessions_overview,
+    stream_states,
+)
 from backend.terminal.prompt_detector import (
     DetectorConfig,
     DetectorState,
@@ -34,6 +39,8 @@ from backend.terminal.prompt_detector import (
     TailSnapshot,
     Verdict,
     analyze,
+    extract_spinner_elapsed,
+    update_pane_working,
 )
 from backend.terminal.ansi_text import strip_ansi
 from backend.terminal.runner import (
@@ -194,6 +201,16 @@ async def _tick_one(
     snapshot = TailSnapshot(alternate_on=alt, tail_text=tail, now_sec=now, ansi_tail=ansi)
 
     state = _detector_states.setdefault(sid, DetectorState())
+
+    # 推論中の画面真値: TUI スピナー (= `Thinking… (1m 22s`) が生きて回っているか。
+    # JSONL 簿記 (= session_status.update_busy) が拾えない queue 消化中の無言時間や
+    # 行遅延を、 画面の実況で埋める (= 「推論中 = claude が考えている時」 の直接判定)。
+    working = update_pane_working(state, extract_spinner_elapsed(tail), now)
+    st_busy = stream_states.get(sid)
+    if st_busy is not None and st_busy.pane_working != working:
+        st_busy.pane_working = working
+        sessions_overview.notify()
+
     prev_state = state.current_state
     verdict = analyze(snapshot, state, _config)
 
