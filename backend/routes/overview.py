@@ -203,10 +203,11 @@ async def all_status_stream():
                         yield f"data: {snap}\n\n"
                         last_payload = snap
                 except asyncio.TimeoutError:
-                    # keep-alive: comment 行のみ (F-10)。 data 行は変化時のみ。 5h/7d
-                    # 更新は notify() で run-through するので 20s tick で全 sid 再 push
-                    # する旧挙動は不要。
-                    yield ": ka\n\n"
+                    # keep-alive: data 行の heartbeat (= 2026-07-12)。 旧 F-10 の comment 行は
+                    # EventSource が JS に通知しない仕様のため、 client 側の生存監視 (= silent-dead
+                    # 検知、 _sse.ts watchdog) から見えなかった。 `{"_hb":1}` は _sse factory が
+                    # 受信時刻だけ記録して handler へは流さない (= payload 意味論は不変)。
+                    yield 'data: {"_hb":1}\n\n'
         finally:
             sessions_overview.unsubscribe(ev)
 
@@ -244,7 +245,7 @@ async def sessions_overview_stream():
     push を奪わない (= 旧 単一 Event 共有時の取りこぼしを解消)。
 
     F-09 接続毎 diff: payload 不変なら data 行を yield しない (= status SSE と同方針)。
-    F-10 keep-alive は SSE comment 行のみ。"""
+    keep-alive は data 行 heartbeat `{\"_hb\":1}` (= 2026-07-12、 client 生存監視が読める形)。"""
     async def gen():
         # 接続ごとに専用 Event を購読 (= 複数デバイス同時でも push を取りこぼさない)。
         ev = sessions_overview.subscribe()
@@ -263,7 +264,8 @@ async def sessions_overview_stream():
                         yield f"data: {snap}\n\n"
                         last_payload = snap
                 except asyncio.TimeoutError:
-                    yield ": ka\n\n"
+                    # data 行 heartbeat (= status SSE と同方針、 client 生存監視用)。
+                    yield 'data: {"_hb":1}\n\n'
         finally:
             sessions_overview.unsubscribe(ev)
 
