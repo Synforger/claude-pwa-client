@@ -348,6 +348,7 @@ tasks:
       - task: lint
       - task: test
       - task: docs:check
+      - task: docs:coherence
       - task: lint:versions
 
   publish:check:
@@ -359,6 +360,11 @@ tasks:
     desc: Verify docs freshness (paths / task names / tree diagrams vs reality)
     cmds:
       - bash .tooling/local-ci/docs-check.sh
+
+  docs:coherence:
+    desc: Code<->docs drift gate via staledocs (pair ledger + anchors + coverage)
+    cmds:
+      - bash .tooling/local-ci/staledocs-check.sh
 
   doctor:
     desc: Full diagnostic — toolchain floor + hooks/machine armament in one pass

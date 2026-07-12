@@ -15,7 +15,7 @@ Sunshine (= moonlight host daemon) は画面共有 encoder の中で `phys_footp
 - 配信終了後に `release/streamer` プロセスがゾンビとして残ると、 watchdog 側の
   「配信中なら触らない」 ガードに引っかかり Sunshine が永遠に reap されない
 
-旧 backend は maintenance module (= 当時の path `backend/core/maintenance.py`、 現在は `backend/maintenance.py` に移動済) に
+旧 backend は maintenance module (= 当時の path `backend/maintenance.py`、 現在は `backend/maintenance.py` に移動済) に
 `restart_sunshine_if_bloated` / `_reap_zombie_streamers` を抱えていたが、
 backend の責務 (= claude 経路) と無関係 + backend を別マシンに置く運用が
 阻害される。 そこで本機構を外出しした。
@@ -136,12 +136,12 @@ encoder 初期化を hang させる既知の地雷がある。 `SIGKILL` なら 
 
 ここに統合した旧 backend 実装の git 履歴:
 
-- 旧 maintenance module (= 当時の path `backend/core/maintenance.py`) の `restart_sunshine_if_bloated()`
+- 旧 maintenance module (= 当時の path `backend/maintenance.py`) の `restart_sunshine_if_bloated()`
   / `_reap_zombie_streamers()` / `_has_live_streamer()` / `_phys_footprint_bytes()`
   / `_pgrep_one()` / `SUNSHINE_FOOTPRINT_MAX_BYTES` / `STREAMER_ZOMBIE_SECONDS`
   / `_FOOTPRINT_RE`
 - 2026-06-04 の改修ノート (= 配信中ガードを「streamer 在席」 から
   「elapsed の短い streamer 在席」 に絞った経緯)
 
-詳細ロジックは git history (= `git log -p -- backend/core/maintenance.py`、
+詳細ロジックは git history (= `git log -p -- backend/maintenance.py`、
 削除済 path なので `--` 区切りで指定) を参照。
