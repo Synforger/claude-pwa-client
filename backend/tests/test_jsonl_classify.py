@@ -194,3 +194,50 @@ def test_note_queue_skips_when_not_busy_or_confirmed(isolated_state):
     _note_queue_on_unconfirmed(sid, was_busy=False, is_slash=False, result={"confirmed": False})
     _note_queue_on_unconfirmed(sid, was_busy=True, is_slash=False, result={"confirmed": True})
     assert state.stream_states[sid].queued_sends == 0
+
+
+# --- task 実 id backfill (= 2026-07-12 「TaskUpdate が一致せず status が落ちる」根治) ---
+
+def test_task_id_backfill_and_update_flow(isolated_state):
+    """TaskCreate (仮id) → tool_result ("Task #10 created") で実 id へ backfill →
+    TaskUpdate(taskId=10) が一致して status 変化が反映される (= 実地試験の再現)。"""
+    import backend.state as state_mod
+    from backend.jsonl.session_status import mutate_agent_status
+    state = isolated_state
+    sid = "ses_task_id"
+    state.agent_status[sid] = state_mod._make_agent_status("a")
+
+    create = {"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "TaskCreate", "id": "tu_1",
+         "input": {"subject": "反映テスト", "description": "d"}},
+    ]}}
+    assert mutate_agent_status(sid, create) is True
+    assert state.agent_status[sid]["tasks"][0]["id"] == "1"  # 仮 id
+
+    result = {"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "tu_1",
+         "content": "Task #10 created successfully: 反映テスト"},
+    ]}}
+    assert mutate_agent_status(sid, result) is True
+    assert state.agent_status[sid]["tasks"][0]["id"] == "10"  # 実 id へ backfill
+
+    update = {"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "TaskUpdate", "id": "tu_2",
+         "input": {"taskId": "10", "status": "completed"}},
+    ]}}
+    assert mutate_agent_status(sid, update) is True
+    assert state.agent_status[sid]["tasks"][0]["status"] == "completed"
+
+
+def test_task_id_backfill_ignores_unknown_tool_result(isolated_state):
+    """TaskCreate と無関係な tool_result では何も起きない (= 誤 backfill しない)。"""
+    import backend.state as state_mod
+    from backend.jsonl.session_status import mutate_agent_status
+    state = isolated_state
+    sid = "ses_task_nf"
+    state.agent_status[sid] = state_mod._make_agent_status("a")
+    result = {"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "tu_x", "content": "Task #99 created successfully: 別物"},
+    ]}}
+    assert mutate_agent_status(sid, result) is False
+    assert state.agent_status[sid]["tasks"] == []
