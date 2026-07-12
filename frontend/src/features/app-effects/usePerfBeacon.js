@@ -11,6 +11,14 @@ import { drainPerfSamples, readPerfContext } from './perfProbe.js'
 //
 // 読み方: stalls が常時 2 桁 / 分なら main thread が恒常的に詰まっている (= 発熱と直結)。
 // streaming markdown 間引き (= useThrottledStreamingText) の前後比較にもこの数値を使う。
+const CLIENT_TAG = (() => {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
+  const device = /iPhone/.test(ua) ? 'iphone' : /iPad/.test(ua) ? 'ipad' : /Mac/.test(ua) ? 'mac' : 'other'
+  const standalone = typeof window !== 'undefined' && window.matchMedia?.('(display-mode: standalone)')?.matches
+  const tab = Math.random().toString(36).slice(2, 6)
+  return `${device}${standalone ? '-pwa' : '-tab'}-${tab}`
+})()
+
 const TICK_MS = 500
 const STALL_MIN_MS = 200
 const REPORT_INTERVAL_MS = 60_000
@@ -40,6 +48,10 @@ export function usePerfBeacon() {
       const ctx = readPerfContext()
       const payload = {
         stage: 'perf:stall',
+        // 複数クライアント (= iPhone PWA + Mac タブ) の beacon が同じログに混ざり
+        // 端末別の切り分けが不能だった (= 2026-07-13 判明)。 UA から粗い機種タグ +
+        // tab 単位の乱数 id で層別できるようにする。
+        client: CLIENT_TAG,
         stalls,
         stall_ms: Math.round(stallMs),
         ticks,
