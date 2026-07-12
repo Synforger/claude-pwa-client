@@ -38,22 +38,38 @@ interface Options {
   bumpOnClosed?: boolean
 }
 
+// 生存監視 (= 2026-07-12 silent-dead 根治の残り半分): backend は 20-30s ごとに data 行
+// heartbeat `{"_hb":1}` を送る。 画面表示中なのに LIVENESS_TIMEOUT_MS データが来ない
+// 接続は「エラーを出さずに死んだ」 とみなして張り直す (= Wi-Fi⇄LTE 切替等、 visibility
+// 遷移を伴わない黙死を拾う。 bg/fg 遷移は lifecycle.ts の bumpAllSubscribedSse が担当)。
+const LIVENESS_TIMEOUT_MS = 65_000
+const LIVENESS_CHECK_MS = 15_000
+
+function isHeartbeat(raw: unknown): boolean {
+  return typeof raw === 'object' && raw !== null && '_hb' in (raw as Record<string, unknown>)
+}
+
 export function createSseSubscriber(opts: Options): SseInstance {
   const { name, path, transform, bumpOnClosed = true } = opts
   let es: EventSource | null = null
   let state: State = 'idle'
+  let lastEventAt = 0
+  let livenessTimer: ReturnType<typeof setInterval> | null = null
   const handlers = new Set<Handler>()
 
   function start() {
     if (es) return
     state = 'connecting'
+    lastEventAt = Date.now()
     const url = `${API_BASE}${path}`
     es = new EventSource(url)
-    es.onopen = () => { state = 'open' }
+    es.onopen = () => { state = 'open'; lastEventAt = Date.now() }
     es.onmessage = (ev: MessageEvent<string>) => {
+      lastEventAt = Date.now()
       if (!ev.data) return
       let raw: unknown
       try { raw = JSON.parse(ev.data) } catch { return }
+      if (isHeartbeat(raw)) return  // 生存記録のみ、 handler には流さない
       const data = transform ? transform(raw) : raw
       for (const h of handlers) {
         try { h(data) } catch (e) { console.warn(`[sse:${name}] handler threw`, e) }
@@ -67,10 +83,20 @@ export function createSseSubscriber(opts: Options): SseInstance {
         state = 'reconnecting'
       }
     }
+    if (livenessTimer === null) {
+      livenessTimer = setInterval(() => {
+        const visible = typeof document === 'undefined' || document.visibilityState === 'visible'
+        if (!visible || handlers.size === 0 || es === null) return
+        if (Date.now() - lastEventAt > LIVENESS_TIMEOUT_MS) {
+          bumpReconnect()  // 黙死とみなして張り直し (= lastEventAt は start() が更新)
+        }
+      }, LIVENESS_CHECK_MS)
+    }
   }
 
   function stop() {
     if (es) { es.close(); es = null }
+    if (livenessTimer !== null) { clearInterval(livenessTimer); livenessTimer = null }
     state = 'closed'
   }
 
