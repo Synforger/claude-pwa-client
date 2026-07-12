@@ -304,7 +304,7 @@ async def subagents_stream(session_id: str):
                         last_heartbeat = time.monotonic()
                         continue
                 if time.monotonic() - last_heartbeat >= 30.0:
-                    yield ":heartbeat\n\n"
+                    yield 'data: {"_hb":1}\n\n'
                     last_heartbeat = time.monotonic()
             return  # noqa: pragma: no cover
         # watchfiles 経路: change 待ちと heartbeat timer を並走させる
@@ -323,7 +323,7 @@ async def subagents_stream(session_id: str):
                         last_heartbeat = time.monotonic()
                         continue
                 if time.monotonic() - last_heartbeat >= 30.0:
-                    yield ":heartbeat\n\n"
+                    yield 'data: {"_hb":1}\n\n'
                     last_heartbeat = time.monotonic()
         except asyncio.CancelledError:
             raise
