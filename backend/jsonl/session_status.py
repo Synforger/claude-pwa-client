@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from collections import OrderedDict
 from enum import Enum
@@ -562,6 +563,10 @@ def _apply_task_tools(a: dict, msg: dict) -> bool:
             subject = tinput.get("subject") or ""
             if subject and not any(t.get("subject") == subject for t in tasks):
                 tasks.append({
+                    # 仮 id。 harness の実 id は tool_result (= "Task #N created ...") に
+                    # しか載らないので、 tool_use_id を控えて _mutate_user 側で実 id へ
+                    # backfill する。 これが無いと以後の TaskUpdate(taskId=N) が一致せず
+                    # status 変化が永久に反映されない (= 2026-07-12 実地試験で現行犯確認)。
                     "id": str(len(tasks) + 1),
                     "subject": subject,
                     "description": tinput.get("description") or "",
@@ -569,6 +574,9 @@ def _apply_task_tools(a: dict, msg: dict) -> bool:
                     "status": "pending",
                     "blocks": [], "blockedBy": [],
                 })
+                tu_id = block.get("id")
+                if tu_id:
+                    a.setdefault("_task_create_pending", {})[tu_id] = subject
                 changed = True
         elif tname == "TaskUpdate":
             tid = tinput.get("taskId")
@@ -678,8 +686,39 @@ def _apply_stop_reason(a: dict, msg: dict) -> bool:
     return True
 
 
+# TaskCreate の tool_result から harness 実 id を抜く (= "Task #10 created successfully: ...")
+_TASK_CREATED_RE = re.compile(r"Task #(\d+) created successfully")
+
+
+def _backfill_task_id_from_result(a: dict, tu_id: str, block: dict) -> bool:
+    """TaskCreate の tool_result が届いたら、 仮 id で積んだ task を harness 実 id へ置換。
+
+    実 id は tool_result 本文にしか載らない。 これを反映しないと以後の
+    TaskUpdate(taskId=実id) がローカル仮 id と一致せず status 変化が落ちる。"""
+    pending = a.get("_task_create_pending") or {}
+    subject = pending.get(tu_id)
+    if subject is None:
+        return False
+    del pending[tu_id]
+    raw = block.get("content")
+    text = raw if isinstance(raw, str) else "".join(
+        b.get("text", "") for b in raw if isinstance(b, dict)
+    ) if isinstance(raw, list) else ""
+    m = _TASK_CREATED_RE.search(text)
+    if not m:
+        return False
+    real_id = m.group(1)
+    tasks = [dict(t) for t in (a.get("tasks") or [])]
+    for t in tasks:
+        if t.get("subject") == subject and str(t.get("id")) != real_id:
+            t["id"] = real_id
+            a["tasks"] = tasks
+            return True
+    return False
+
+
 def _mutate_user(session_id: str, a: dict, line: dict) -> bool:
-    """user 行: tool_result で current_tool / pending_plan を解放。"""
+    """user 行: tool_result で current_tool / pending_plan を解放 + task 実 id backfill。"""
     msg = line.get("message") or {}
     content = msg.get("content")
     if not isinstance(content, list):
@@ -697,6 +736,9 @@ def _mutate_user(session_id: str, a: dict, line: dict) -> bool:
         pending = a.get("pending_plan")
         if pending and pending.get("tool_use_id") == tu_id:
             a["pending_plan"] = None
+            changed = True
+        # TaskCreate の実 id backfill (= 仮 id → harness id、 TaskUpdate 一致の前提)
+        if tu_id and _backfill_task_id_from_result(a, tu_id, block):
             changed = True
     return changed
 
