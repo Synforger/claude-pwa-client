@@ -227,6 +227,24 @@ def _dir_signature(base: Path) -> tuple:
     return tuple(sorted(sigs))
 
 
+def _payload_has_running(payload: dict) -> bool:
+    """payload 内に未完了 (= running) の subagent / workflow がいるか。
+
+    いる間は dir signature が不変でも定期再スキャンして done 化を確実に拾うために使う。
+    背景 (= 2026-07-09): signature は mtime+size を見るが done 判定は内容 (= 最後の確定
+    stop_reason の位置) を見るので、 subagent の最終 end_turn 行が書かれた瞬間の watchfiles
+    イベントで scan した時点ではまだ行が flush されておらず done=False を返し、 その後
+    size は既に最新なので `sig != last_sig` が成立せず再 push されない → running のまま
+    固着する経路があった。 running がいる限り settle 再スキャンして必ず done へ収束させる。"""
+    for s in payload.get("subagents", []):
+        if not s.get("done"):
+            return True
+    for w in payload.get("workflows", []):
+        if w.get("status") == "running":
+            return True
+    return False
+
+
 @router.get("/sessions/{session_id}/subagents")
 def list_subagents(session_id: str):
     """セッションの Task subagent (フラット) + Workflow run (グループ) 一覧を新しい順で返す。"""
@@ -254,7 +272,8 @@ async def subagents_stream(session_id: str):
     async def gen():
         # 初回は即送信
         last_sig = _dir_signature(base)
-        yield f"data: {json.dumps(_build_subagents_payload(base))}\n\n"
+        last_payload = _build_subagents_payload(base)
+        yield f"data: {json.dumps(last_payload)}\n\n"
         last_heartbeat = time.monotonic()
         # watch 対象は subagents/ と subagents/workflows/<run>/ と workflows/<wf>.json。
         # 配下が動的生成されるので親 dir に対して recursive=True で張る。
@@ -275,11 +294,16 @@ async def subagents_stream(session_id: str):
             while True:
                 await asyncio.sleep(1.0)
                 sig = _dir_signature(base)
-                if sig != last_sig:
-                    last_sig = sig
-                    yield f"data: {json.dumps(_build_subagents_payload(base))}\n\n"
-                    last_heartbeat = time.monotonic()
-                elif time.monotonic() - last_heartbeat >= 30.0:
+                # sig 変化 or running settle (= 未完了がいる間は sig 不変でも再スキャン)。
+                if sig != last_sig or _payload_has_running(last_payload):
+                    payload = _build_subagents_payload(base)
+                    if sig != last_sig or payload != last_payload:
+                        last_sig = sig
+                        last_payload = payload
+                        yield f"data: {json.dumps(payload)}\n\n"
+                        last_heartbeat = time.monotonic()
+                        continue
+                if time.monotonic() - last_heartbeat >= 30.0:
                     yield ":heartbeat\n\n"
                     last_heartbeat = time.monotonic()
             return  # noqa: pragma: no cover
@@ -288,11 +312,17 @@ async def subagents_stream(session_id: str):
         try:
             async for _ in _awatch_with_heartbeat(awatch, watch_targets, loop_deadline_step):
                 sig = _dir_signature(base)
-                if sig != last_sig:
-                    last_sig = sig
-                    yield f"data: {json.dumps(_build_subagents_payload(base))}\n\n"
-                    last_heartbeat = time.monotonic()
-                elif time.monotonic() - last_heartbeat >= 30.0:
+                # sig 変化 or running settle (= 未完了がいる間は sig 不変でも再スキャンして
+                # 最終 end_turn 行と signature のタイミングずれによる running 固着を収束させる)。
+                if sig != last_sig or _payload_has_running(last_payload):
+                    payload = _build_subagents_payload(base)
+                    if sig != last_sig or payload != last_payload:
+                        last_sig = sig
+                        last_payload = payload
+                        yield f"data: {json.dumps(payload)}\n\n"
+                        last_heartbeat = time.monotonic()
+                        continue
+                if time.monotonic() - last_heartbeat >= 30.0:
                     yield ":heartbeat\n\n"
                     last_heartbeat = time.monotonic()
         except asyncio.CancelledError:

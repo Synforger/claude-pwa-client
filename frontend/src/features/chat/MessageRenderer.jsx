@@ -3,6 +3,7 @@ import { useT } from '../../i18n/t.js'
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { visit } from 'unist-util-visit'
+import { useThrottledStreamingText } from './useThrottledStreamingText.js'
 import './MessageRenderer.css'
 
 const PATH_RE = /(?<![(`])(~\/[^\s`"')\]]+|\/Users\/[^\s`"')\]]+)/g
@@ -134,10 +135,11 @@ function CodeBlock({ children }) {
 }
 
 const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile, streaming }) {
-  // F-24: streaming 中は text が毎 rAF 更新されて重い markdown 再 parse が連続する。
-  // useDeferredValue で markdown レンダリングを 1 段遅延させ、 入力 (= scroll / tap) を
-  // 優先描画する。 streaming 完了後は最終 text で同期に追い付く。
-  const deferredText = useDeferredValue(text)
+  // 2026-07-10 発熱対策: streaming 中の markdown 再パースを 500ms に 1 回へ間引く
+  // (= 全文パース × 秒 5〜20 回が iPhone バッテリー消費の主容疑)。 完了時は即最終形。
+  const throttledText = useThrottledStreamingText(text, streaming)
+  // F-24: さらに useDeferredValue で優先度も下げ、 入力 (= scroll / tap) を優先描画する。
+  const deferredText = useDeferredValue(throttledText)
 
   // F-23: streaming 中はファイルパスのリンク化を skip する (= 不完全パスを毎フレーム
   // 探索して visit する処理は streaming 1 文字ごとに発火するので重い)。 完了後の最終

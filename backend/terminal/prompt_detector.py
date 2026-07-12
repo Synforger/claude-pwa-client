@@ -84,6 +84,48 @@ _BOX_DRAWING_RE = re.compile(r"[╭╮╰╯┌┐└┘├┤┬┴┼─│]")
 # 「bypass 中」 の UI 表示に流す情報として抜き出す。
 _BYPASS_CHIP_RE = re.compile(r"⏵⏵\s*bypass permissions on")
 
+# 推論中スピナー行 (= claude TUI が考えている間だけ出す進行形 + 経過時間)。
+#   実測: `✢ Thinking… (1m 22s · ↓ 3.9k tokens)` / `✳ Razzmatazzing… (53s · esc to interrupt)`
+#   完了形は `✻ Cogitated for 7m 19s` (= 過去形、 `… (` を含まない) なので match しない。
+# 「推論中 = claude が考えている時」 の直接の真値 (= JSONL 簿記からの推測でなく画面の実況)。
+# 経過秒 (= group) は毎秒進むので、 値が進んでいるか = スピナーが生きているかの判定に使う
+# (= チャット本文にたまたま `… (3s` があっても、 静止していれば推論中とみなさない)。
+_RUNNING_SPINNER_RE = re.compile(r"[…‥]\s*\(\s*(?:(\d+)m\s*)?(\d+)s\b")
+
+
+def extract_spinner_elapsed(tail: str) -> Optional[int]:
+    """末尾 10 非空行に推論中スピナー行があれば経過秒 (= 通算 sec) を返す。 なければ None。
+
+    走査窓を末尾側に限るのは、 スピナーは入力欄のすぐ上に描画されるため (= scrollback に
+    流れた過去の本文を拾わない)。"""
+    nonblank = [ln for ln in tail.splitlines() if ln.strip()]
+    for ln in nonblank[-10:]:
+        m = _RUNNING_SPINNER_RE.search(ln)
+        if m:
+            return int(m.group(1) or 0) * 60 + int(m.group(2))
+    return None
+
+
+# スピナー生存判定の猶予: 経過秒の値がこの秒数以内に進んでいれば「生きている = 推論中」。
+# スピナーは毎秒更新 + poll は busy 中 500ms なので 3s で十分 (= 静止画面は 3s で失効)。
+SPINNER_STALE_SEC = 3.0
+
+
+def update_pane_working(state: "DetectorState", elapsed: Optional[int], now_sec: float) -> bool:
+    """スピナー経過秒の観測から「pane が推論中か」 を判定する (= pure、 state 副作用のみ)。
+
+    - スピナー行なし → False (= 即消灯。 完了形 `for Xs` に変わった瞬間に落ちる)
+    - スピナー行あり + 経過秒が進んだ → 進行時刻を記録して True
+    - スピナー行あり + 経過秒が SPINNER_STALE_SEC 進まない → False (= 静止テキスト誤爆の防御)
+    """
+    if elapsed is None:
+        state.last_spinner_elapsed = None
+        return False
+    if elapsed != state.last_spinner_elapsed:
+        state.last_spinner_elapsed = elapsed
+        state.last_spinner_change_at = now_sec
+    return (now_sec - state.last_spinner_change_at) <= SPINNER_STALE_SEC
+
 # Claude Code の bottom status bar (= rate-limit / spinner) は idle 中でも中身が
 # 動く (= `5h:60%(1h49m)` の分カウントダウン、 `Razzmatazzing… (1m 26s)` の経過秒)。
 # idle hash にこれを含めると「入力待ちでじっとしてる」 のに hash が毎秒変わって idle
@@ -243,6 +285,9 @@ class DetectorState:
     # 据え置きだが「❯ が移動して excerpt 中身が変わる」 のを live 反映したいので、
     # 同 state でも excerpt が変わったら追加 publish する (= push は firing しない)。
     last_excerpt: str = ""
+    # 推論中スピナーの生存追跡 (= update_pane_working が更新)。
+    last_spinner_elapsed: Optional[int] = None
+    last_spinner_change_at: float = 0.0
 
     def record_input_sent(self, now_sec: float) -> None:
         self.last_input_sent_at = now_sec
@@ -492,17 +537,25 @@ def _tier_b_build_verdict(
 def _claude_tui_owns_screen(tail: str) -> bool:
     """pane 末尾が Claude Code 自身の TUI (= 入力欄 + status bar) かを判定。
 
-    末尾 4 行に rate-limit status (`5h:NN%`) か bypass chip が見えていれば Claude TUI
-    が画面を占有中。 この状態で subprocess の生 prompt が pane 末尾に居ることは構造上
-    ありえない (= subprocess 出力は Claude が tool 経由で吸収して会話 log に描画する)
-    ので、 tier C は skip してよい。 逆に subprocess が真に画面を持ってる時 (= claude
-    未起動の生 shell 等) は status bar が無いので tier C が生きる。
+    末尾側に rate-limit status (`5h:NN%` / `ctx:NN%`) か bypass chip が見えていれば
+    Claude TUI が画面を占有中。 この状態で subprocess の生 prompt が pane 末尾に居ることは
+    構造上ありえない (= subprocess 出力は Claude が tool 経由で吸収して会話 log に描画する)
+    ので、 tier A (= alternate) / tier C (= text prompt) は skip してよい。 逆に subprocess が
+    真に画面を持ってる時 (= claude 未起動の生 shell、 vim/less 等の全画面 TUI) は status bar が
+    無いので下位判定が生きる。
+
+    窓の取り方 (= 2026-07-09 強化): **空行を除いた末尾 8 行**を見る。 旧実装は素の末尾 4 行で、
+    Claude TUI の入力欄が複数行に伸びたり status bar の下にヒント行 (`← for agents` 等) / 空行が
+    挟まると status bar が 4 行窓の外に押し出され、 alternate_on を立てっぱなしにする claude
+    (= 2.1.201) の pane を tier A が「全画面 TUI」 と誤検知して "TUI running" banner が
+    出っぱなしになっていた (= 実運用報告)。 status bar パターンは Claude TUI 固有で会話本文には
+    出ないので、 窓を広げても誤爆しない。
 
     Why: チャット本文に含まれる番号リスト / `[Y/n]` 例文が pane に描画されて tier C
-    の regex に誤 hit する class の誤検知 (= 2026-07-06 実測) を構造的に塞ぐ。
+    の regex に誤 hit する class の誤検知 (= 2026-07-06 実測) を構造的に塞ぐ + 上記 banner 出っぱなし。
     """
-    last_lines = tail.splitlines()[-4:]
-    for ln in last_lines:
+    nonblank = [ln for ln in tail.splitlines() if ln.strip()]
+    for ln in nonblank[-8:]:
         if _VOLATILE_STATUS_RE.search(ln) or _BYPASS_CHIP_RE.search(ln):
             return True
     return False

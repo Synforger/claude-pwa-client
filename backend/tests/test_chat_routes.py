@@ -268,3 +268,25 @@ def test_rate_limits_tail_memoize_caches_within_ttl(monkeypatch, isolated_state)
     b = overview_mod._read_rate_limits_tail_cached()
     assert a == b
     assert calls["n"] == 1  # 1 秒以内なら 1 回だけ I/O
+
+
+def test_build_sessions_overview_ors_pane_working(isolated_state):
+    """busy は JSONL 由来と画面スピナー (pane_working) の OR。 user_stopped は両者に優先。"""
+    import backend.routes.chat as chat_routes
+    from backend.state import StreamState
+    state = isolated_state
+    state.sessions_meta.clear()
+    state.stream_states.clear()
+    state.agent_status.clear()
+    state.sessions_meta["ses_sp"] = object()
+    state.sessions_meta["ses_stop"] = object()
+    # JSONL 上は turn 終了済 (busy=False) でも、 スピナーが回っていれば busy=True
+    state.stream_states["ses_sp"] = StreamState(busy=False, pane_working=True)
+    # Stop 押下は スピナー観測より優先して False
+    state.stream_states["ses_stop"] = StreamState(busy=True, pane_working=True, user_stopped=True)
+    state.agent_status["ses_sp"] = {}
+    state.agent_status["ses_stop"] = {}
+
+    ov = chat_routes._build_sessions_overview()
+    assert ov["ses_sp"]["busy"] is True
+    assert ov["ses_stop"]["busy"] is False
