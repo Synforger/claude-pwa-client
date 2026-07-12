@@ -24,8 +24,6 @@ const DEFAULT_WS_BASE =
     : 'ws://') +
   (typeof window !== 'undefined' ? window.location.host : 'localhost:8765')
 
-// F-11 hidden buffer cap (= module level const、 useEffect dep 警告回避目的でも module 化が綺麗)。
-const HIDDEN_BUF_MAX_BYTES = 1024 * 1024  // 1MB
 
 function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = true }) {
   const t = useT()
@@ -63,29 +61,14 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
   // モバイルで TUI を直操作するため) の表示トグル。 縦を食うので既定 OFF。
   const [showKbd, setShowKbd] = useState(false)
 
-  // F-11 (= 2026-06-21): hidden Terminal (= 別 tab を表示中で display:none) は xterm.write を
-  // skip + buffer に積み、 visible 復帰時にまとめて flush する。 hidden 中も WS 自体は維持する
-  // (= 切替で「起動 1-2 秒」 待ちを作らない既存設計を温存)。 旧実装は hidden でも
-  // 毎 byte xterm.write を回しており WebGL 再描画 / scrollback 追記 / RingBuffer 操作が
-  // CPU + 電力を食う原因 (= 多 sid で hidden 表示中 Terminal 数だけ線形)。
-  // - visible === true  : 即時 write、 buffer はからのまま
-  // - visible === false : buffer に push (= 最大 1MB cap で oldest 廃棄、 ANSI 整合性は
-  //   visible 復帰時に Ctrl-L で取り直すため許容)
-  const visibleRef = useRef(visible)
-  const hiddenBufRef = useRef([])
-  const hiddenBufBytesRef = useRef(0)
-  useEffect(() => {
-    visibleRef.current = visible
-    if (!visible) return undefined
-    // visible 復帰: buffer を flush して内部表示を同期。 ターミナル無いと no-op。
-    if (!terminal || hiddenBufRef.current.length === 0) return undefined
-    for (const chunk of hiddenBufRef.current) {
-      terminal.write(chunk)
-    }
-    hiddenBufRef.current = []
-    hiddenBufBytesRef.current = 0
-    return undefined
-  }, [visible, terminal])
+  // 発熱対策 (= 2026-07-13、 旧 F-11 hidden buffer を置換): hidden Terminal は WS ごと
+  // 切断する。 旧方式 (= 描画だけ skip して受信は継続) は、 agent が端末出力を吹き出す
+  // 使い方だと chat 画面を見ている間も全 PTY バイトを無線受信 + 処理し続け、 携帯の
+  // 発熱の主犯級だった。 visible 復帰時は再接続 + terminal.reset() + Ctrl-L で TUI に
+  // 最新画面を描き直させる (= backend 側も backlog drain + Ctrl-L 再描画が公式経路、
+  // scrollback 自動復元は描画破綻のため 2026-05-21 に廃止済み)。 切替コストは再接続
+  // 1 往復 (= LAN で体感 0.1-0.3s)、 「見てない端末の生映像」 と引き換えに受信ゼロ。
+  const hasConnectedRef = useRef(false)
 
   // Common byte/string sink to the live WS — used by control-key buttons and
   // the input bar. No-ops while the socket is not open.
@@ -113,6 +96,8 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
   // exponential backoff on close/error, and pump stdout into xterm.
   useEffect(() => {
     if (!terminal) return undefined
+    // hidden = 接続しない (= cleanup が直前接続を閉じる)。 visible 復帰で再接続。
+    if (!visible) return undefined
 
     let cancelled = false
     let backoffMs = 500
@@ -158,18 +143,8 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
           } catch { /* ignore */ }
           return
         }
-        // F-11: visible 中は即 write、 hidden 中は buffer に積む (= cap 超過は oldest 廃棄)。
-        const bytes = new Uint8Array(ev.data)
-        if (visibleRef.current) {
-          terminal.write(bytes)
-        } else {
-          hiddenBufRef.current.push(bytes)
-          hiddenBufBytesRef.current += bytes.byteLength
-          while (hiddenBufBytesRef.current > HIDDEN_BUF_MAX_BYTES && hiddenBufRef.current.length > 1) {
-            const dropped = hiddenBufRef.current.shift()
-            hiddenBufBytesRef.current -= dropped.byteLength
-          }
-        }
+        // hidden 中は WS 自体が閉じているので、 ここに来る = visible。 即 write。
+        terminal.write(new Uint8Array(ev.data))
       })
 
       const scheduleReconnect = (reason) => {
@@ -197,7 +172,9 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
       }
     })
 
-    connect()
+    // 2 回目以降の visible 復帰は reconnect 扱い (= reset + Ctrl-L 再描画)。
+    connect(hasConnectedRef.current)
+    hasConnectedRef.current = true
 
     return () => {
       cancelled = true
@@ -206,7 +183,7 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
       try { wsRef.current?.close() } catch { /* noop */ }
       wsRef.current = null
     }
-  }, [terminal, sessionId, wsBase, onExit, getDimensions])
+  }, [terminal, sessionId, wsBase, onExit, getDimensions, visible])
 
   // Keystrokes from a physical keyboard (if any) → WS direct. The on-screen
   // input bar bypasses this and uses sendRaw directly.
