@@ -1,9 +1,10 @@
-import React, { useRef, useState, useCallback, useDeferredValue, useMemo } from 'react'
+import React, { useRef, useState, useCallback, useDeferredValue, useMemo, Profiler } from 'react'
 import { useT } from '../../i18n/t.js'
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { visit } from 'unist-util-visit'
 import { useThrottledStreamingText } from './useThrottledStreamingText.js'
+import { recordPerfSample } from '../../features/app-effects/perfProbe.js'
 import './MessageRenderer.css'
 
 const PATH_RE = /(?<![(`])(~\/[^\s`"')\]]+|\/Users\/[^\s`"')\]]+)/g
@@ -138,6 +139,20 @@ const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile, 
   // 2026-07-10 発熱対策: streaming 中の markdown 再パースを 500ms に 1 回へ間引く
   // (= 全文パース × 秒 5〜20 回が iPhone バッテリー消費の主容疑)。 完了時は即最終形。
   const throttledText = useThrottledStreamingText(text, streaming)
+
+  // 発熱調査 段階 2 (= 2026-07-13): この message subtree の render 実測を beacon に流す。
+  // React 公式の Profiler (= actualDuration) を使う。 memo 済みなので再 render された
+  // message しか記録されない。 markdown パース (= remark) は render 中に走るので
+  // actualDuration に含まれる。 DOM layout / paint は含まれない (= それは stall 側で見る)。
+  const onProfile = useCallback(
+    (_id, _phase, actualDuration) => {
+      recordPerfSample('md-render', actualDuration, {
+        len: text.length,
+        streaming: !!streaming,
+      })
+    },
+    [text.length, streaming],
+  )
   // F-24: さらに useDeferredValue で優先度も下げ、 入力 (= scroll / tap) を優先描画する。
   const deferredText = useDeferredValue(throttledText)
 
@@ -159,6 +174,7 @@ const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile, 
   // streaming 中も ReactMarkdown を通す。不完全な Markdown (閉じてない表/コードブロック等) でも
   // react-markdown は例外を吐かず、暫定の見た目で描画する。途中の表やコードが視覚的に見えないよりマシ。
   return (
+    <Profiler id="md-render" onRender={onProfile}>
     <ReactMarkdown
       remarkPlugins={plugins}
       urlTransform={(url) => {
@@ -196,6 +212,7 @@ const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile, 
     >
       {deferredText}
     </ReactMarkdown>
+    </Profiler>
   )
 })
 

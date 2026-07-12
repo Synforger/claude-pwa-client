@@ -9,6 +9,7 @@
 // は AppShell に残置 (= drawer から開く dialog が terminal 表示時にも見える必要があるため、 hidden な
 // ChatPanel 配下に置けない)。 詳細は AppShell.jsx 末尾の F-1 注釈参照。
 import { useEffect, useRef, useMemo, useCallback, useState, useSyncExternalStore } from 'react'
+import { registerPerfContext } from '../features/app-effects/perfProbe.js'
 import {
   subscribe as subscribeUi,
   getSnapshot as getUiSnapshot,
@@ -279,6 +280,24 @@ export default function ChatPanel({ sid }) {
       ? [...msgs, { id: '__loading__', role: '__loading__' }]
       : msgs
   }, [activeMsgs, loading, activeSid, answerMode, scrolledUp, frozenStart])
+
+  // 発熱調査 段階 2 (= 2026-07-13): 毎分の perf beacon に「その時描画してた transcript の
+  // 規模」 を同乗させる。 getter 登録方式なので集計 (= O(n) の文字数合計) は beacon が
+  // 呼ぶ毎分 1 回だけ、 render 経路には ref 更新以外のコストを足さない。
+  const perfCtxRef = useRef({ msgs: 0, total_msgs: 0 })
+  perfCtxRef.current = {
+    msgs: displayMessages.length,
+    total_msgs: activeMsgsLen,
+  }
+  const displayMessagesRef = useRef([])
+  displayMessagesRef.current = displayMessages
+  useEffect(() => {
+    return registerPerfContext(() => {
+      let chars = 0
+      for (const m of displayMessagesRef.current || []) chars += (m.text || '').length
+      return { ...perfCtxRef.current, chars }
+    })
+  }, [])
 
   // W2 Phase F-4 残 (= 2026-06-29): handleEndSession は features/dialogs/ConfirmEndDialog.jsx に
   // 物理移送、 ChatPanel からは参照ゼロ化。 confirmEnd / confirmStop ダイアログ本体も同様に
