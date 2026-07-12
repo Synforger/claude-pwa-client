@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { registerConnection, notifyConnectionChange } from '../../transport/connectionStatus.js'
-import { sessionsStatusSse } from '../../transport/sse-sessions-status.ts'
+import { sessionsStatusSse, getCachedAllStatus } from '../../transport/sse-sessions-status.ts'
 
 // 全 session の status を transport/sse-sessions-status.ts singleton (= ADR-019) で受信し、
 // activeSid に対応するエントリを返す。 旧来の new EventSource 直書きは ADR-019 で transport singleton
@@ -11,7 +11,10 @@ import { sessionsStatusSse } from '../../transport/sse-sessions-status.ts'
 // 自 activeSid のものを返す。
 
 export function useStatus(activeSession) {
-  const [allStatus, setAllStatus] = useState({})
+  // 起動瞬間は前回 session の最終 payload で hydrate (= "---" を出さない、 2026-07-13)。
+  // live snapshot が届き次第 setAllStatus で上書きされる。 鮮度は offline chip + heartbeat
+  // watchdog が担保する (= 古い値を出し続ける事故は接続監視側で殺す)。
+  const [allStatus, setAllStatus] = useState(() => getCachedAllStatus())
 
   useEffect(() => {
     let live = false
