@@ -63,7 +63,7 @@ backend と frontend を繋ぐリアルタイム経路は **4 本の SSE + 2 本
 
 ### `/sessions/overview/stream`: backend 権威 busy の唯一のソース
 
-停止ボタン (= `loading[sid]`、 真値は `frontend/src/state/ephemeral.js`) は backend が JSONL の `stop_reason` から確定的に算出した `StreamState.busy` ただ 1 つ。 chat SSE (`useChatStream`) も `loading` を一切触らない (= 旧 useState 経路は J-9 で `frontend/src/state/ephemeral.js` singleton に統合済)。 旧来は「per-tab assistant/result で loading を上下する」 と「overview で上書き」 の dual-driver になっており、 イベント取りこぼし / 再接続 / 複数デバイスで振動していた (= 2026-06-03 根本治療)。
+停止ボタン (= `loading[sid]`、 真値は `frontend/src/state/ephemeral.js`) は backend 権威の busy ただ 1 つ。 busy の原義は「claude が考えている時」 で、 (a) JSONL の `stop_reason` から確定算出する `StreamState.busy` と (b) 画面の実況 (= prompt_detector_loop が観測する TUI 推論中スピナー `Thinking… (Ns`、 `StreamState.pane_working`) の **OR** (= 2026-07-10。 queue 消化中の無言時間など JSONL 簿記が拾えない区間もスピナーが回っていれば推論中を維持、 `user_stopped` は両者に優先して false)。 chat SSE (`useChatStream`) も `loading` を一切触らない (= 旧 useState 経路は J-9 で `frontend/src/state/ephemeral.js` singleton に統合済)。 旧来は「per-tab assistant/result で loading を上下する」 と「overview で上書き」 の dual-driver になっており、 イベント取りこぼし / 再接続 / 複数デバイスで振動していた (= 2026-06-03 根本治療)。
 
 overview は毎回フル snapshot なので、 取りこぼし / 再接続 / 複数デバイスでも次の snapshot で必ず正しい状態に収束する (= reconcile-on-snapshot)。 楽観意図 (`optimisticRef`) は送信 / 停止 直後の逆向き古 snapshot から UI を保護する短期ウィンドウのみで、 1500ms タイマー駆動は撤去し snapshot 駆動の event ベースに揃えた。
 
