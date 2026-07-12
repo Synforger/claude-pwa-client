@@ -1,6 +1,6 @@
 {
   "ack": {
-    "at": "2026-07-12T22:35:18+00:00",
+    "at": "2026-07-12T22:56:38+00:00",
     "code_blobs": {
       "backend/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
@@ -170,7 +170,7 @@
       "frontend/src/features/app-effects/index.js": "f1b4c2ffa0fbe83cafc1be2efbbf4a13af3ad551",
       "frontend/src/features/app-effects/perfProbe.js": "ce9eca17d86a3a6ddf116d067671dc50c26122c5",
       "frontend/src/features/app-effects/perfProbe.test.js": "b2517bd3ae51b179a954f0d6058376ec4f047f4f",
-      "frontend/src/features/app-effects/usePerfBeacon.js": "a69703836da5100caadade148e0b8785daa49706",
+      "frontend/src/features/app-effects/usePerfBeacon.js": "2e0a582677835321145f48063917ca9af8b15f23",
       "frontend/src/features/ask-user-question/AskUserQuestionBubble.css": "9a5f0268fa824d87408f74b6ee189436ffebcefb",
       "frontend/src/features/ask-user-question/AskUserQuestionBubble.jsx": "a4ed5a33c88ae8d9c4dd559b5c18e42a32171da6",
       "frontend/src/features/ask-user-question/AskUserQuestionBubble.test.jsx": "ff5de4c063cf1970d631ae87a0555759515f8d67",
@@ -270,7 +270,7 @@
       "frontend/src/features/tasks/classifyTaskNotification.js": "6ec4982abde31f10dbe2bac38e019851f1bfab0a",
       "frontend/src/features/tasks/classifyTaskNotification.test.js": "37533f9e216edfe07aa15527ee552ef01dadee7d",
       "frontend/src/features/tasks/index.js": "4c84cd8633f21ba396da254b52e2a876103390ae",
-      "frontend/src/features/terminal/Terminal.jsx": "fa76580f206495bf89d359304b7ba9998d2d5c2a",
+      "frontend/src/features/terminal/Terminal.jsx": "3a88eac630428ee76503297dadf82343bf0552cc",
       "frontend/src/features/terminal/TerminalMount.jsx": "abc5a9e325cd2a00281670a84cb3f84f34782ecf",
       "frontend/src/features/terminal/index.js": "0ee1a2b1b789630aec64baca3caf7af19b33e284",
       "frontend/src/features/terminal/useTerminal.js": "cecba14c1cd7e3e65c4c5b227e336fcc31823a6a",
@@ -359,9 +359,9 @@
       "frontend/src/utils/storage.js": "810f066d3cd3ef3c84b2ebc62a3a2fad5477be62",
       "frontend/src/utils/storage.test.js": "fa6f6beabb1d93f02911e1d1b931c71dfbdc8d4e"
     },
-    "commit": "64d810d586cca2d7b0bcf1c86fc0778d17588eba",
+    "commit": "0a16f8f4b43cfaea2fed3cc68eb493f14e10230b",
     "doc_blob": "c188d6d41a528ad4b50dc0afc530d45b2ffef7e9",
-    "note": "perf probe (stage-2 heat observability): no doc-facing contract change; beacon payload is an internal diagnostic"
+    "note": "hidden-terminal WS disconnect + beacon client tag: streams.md updated to the new lifecycle; other pairs no doc-facing change"
   },
   "doc": "docs/internals/architecture/extending.md",
   "schema": 1
