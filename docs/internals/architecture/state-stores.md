@@ -15,7 +15,7 @@ W2 architecture overhaul (= 2026-06-29 着地) で frontend `state/` は **6 領
 | `push.js` | Web Push 購読状態 singleton (= hasRealSub / pushBusy / localFlag / pushAvailable 派生)、 W2 Phase J-2 で usePushSubscription の useState 4 個を統合 | なし (= backend 真値、 SW broken listener 経由で同期) | features/push-notify (= AppEffects mount + SessionDrawer remount の両経路から書き、 store singleton で分裂防止) |
 | `persistence.js` | localStorage 一元化 + debounce + quota retry + auto-flush on lifecycle (= pagehide / freeze / visibilitychange-hidden) | (本人が localStorage 書く) | 起動時に messages / sessions / ui を subscribe して自動 persist |
 
-旧 `transport.js` store は W2 Phase J-12 で dead 削除済 (= 全 setter が orphan)、 接続生存 signal は `transport/lifecycle.js::registerConnection` 経由に集約された。
+旧 `transport.js` store は W2 Phase J-12 で dead 削除済 (= 全 setter が orphan)、 接続生存 signal は `transport/connectionStatus.js::registerConnection` 経由に集約された。
 
 ## subscribe 関係性 (= feature × store)
 
@@ -52,4 +52,4 @@ W2 architecture overhaul (= 2026-06-29 着地) で frontend `state/` は **6 領
 2. 新 store が必要なら `createStore({ ... }, { name: '<topic>' })` で 1 file 立てる、 名前は 1 単語 (= ephemeral / sessions / ui 等の粒度感に揃える)
 3. `frontend/src/state/README.md` の ownership 表に行追加
 4. 本 doc の「6 store 一覧」 + 「subscribe 関係性」 にも 1 行追加 (= drift 源は表に載らない store)
-5. `audit-w2-residue.py` の `STATE_STORE_DIRS` (= `.tooling/local-ci/audit-w2-residue.py` 冒頭) に追加して二重管理検出を効かせる
+5. `.tooling/local-ci/audit-w2-residue.py` は `state/*.js` を自動走査するので追加登録は不要 (= 置き場所を `state/` 直下にすることが検出の効く条件)
