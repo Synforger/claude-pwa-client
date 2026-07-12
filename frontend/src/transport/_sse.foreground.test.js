@@ -41,3 +41,36 @@ describe('bumpAllSubscribedSse', () => {
     expect(FakeEventSource.instances).toHaveLength(before)  // 新規接続なし
   })
 })
+
+describe('生存監視 (= heartbeat + liveness watchdog)', () => {
+  it('heartbeat frame は handler に流れず、 受信時刻だけ更新される', () => {
+    vi.useFakeTimers()
+    const sse = createSseSubscriber({ name: `t-hb-${Math.random()}`, path: '/hb/stream' })
+    const seen = []
+    const unsub = sse.subscribe(d => seen.push(d))
+    const es = FakeEventSource.instances.at(-1)
+    es.onmessage({ data: '{"_hb":1}' })
+    es.onmessage({ data: '{"real":"payload"}' })
+    expect(seen).toEqual([{ real: 'payload' }])
+    unsub()
+    vi.useRealTimers()
+  })
+
+  it('可視 + データ 65s 途絶で自動張り直し、 heartbeat が届いていれば張り直さない', () => {
+    vi.useFakeTimers()
+    const sse = createSseSubscriber({ name: `t-live-${Math.random()}`, path: '/live/stream' })
+    const unsub = sse.subscribe(() => {})
+    const first = FakeEventSource.instances.length
+    // heartbeat が 60s ごとに届く限り張り直しなし
+    for (let i = 0; i < 3; i++) {
+      vi.advanceTimersByTime(60_000)
+      FakeEventSource.instances.at(-1).onmessage({ data: '{"_hb":1}' })
+    }
+    expect(FakeEventSource.instances).toHaveLength(first)
+    // 途絶 (= 何も届かない) → 65s 超で bump
+    vi.advanceTimersByTime(80_000)
+    expect(FakeEventSource.instances.length).toBeGreaterThan(first)
+    unsub()
+    vi.useRealTimers()
+  })
+})
