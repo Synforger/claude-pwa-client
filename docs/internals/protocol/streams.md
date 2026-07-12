@@ -89,7 +89,7 @@ Stop ボタン経路も WS で通す。 HTTP POST 経路だと送信失敗 race 
 
 `backend/terminal/routes.py::pty_socket` が WebSocket を受け、 PTY (= tmux + claude) の master_fd と client を bridge する。 attach 時に PtySession が存在しない / exit していれば spawn (= `spawn_pty_session(launch_alias=...)`、 ただし既存 tmux 残存時は launch_alias=None で乗っ取り防止)。 切断中の backlog (= claude TUI の定期 redraw / カーソル点滅等) は再接続時に drain して同画面 2-3 回重ね描き事故を防ぐ。
 
-`viewMode='terminal'` を経験した sid だけが LRU (= N=3) で mount され続け、 active 切替で visible / hidden を gate (= xterm 自体は閉じず buffer 経路で出力を吸う)。 chat view 単独運用なら一度も attach しないので、 PTY spawn は `/jsonl/stream/{sid,all}` 経路 + POST /sessions / restart 経路に任せる。
+`viewMode='terminal'` を経験した sid だけが LRU (= N=3) で mount され続け、 active 切替で visible / hidden を gate。 hidden な terminal は **WS ごと切断**し、 visible 復帰時に再接続 + `terminal.reset()` + Ctrl-L で TUI に最新画面を描き直させる (= 旧方式の「描画だけ skip して受信継続」 は見てない端末の全 PTY バイトを client が無線受信し続け、 携帯発熱の主犯級だった)。 chat view 単独運用なら一度も attach しないので、 PTY spawn は `/jsonl/stream/{sid,all}` 経路 + POST /sessions / restart 経路に任せる。
 
 ## 接続生存 signal の集約
 
