@@ -1,0 +1,68 @@
+# staledocs — deterministic code<->docs drift detection.
+# Blanket pair: architecture docs own the whole app (coverage floor).
+# Narrow pairs add precision on top (config, schemas, protocol) — N:M.
+version: 1
+gate: strict
+
+source:
+  include:
+    - "backend/**"
+    - "frontend/src/**"
+    - "contracts/**"
+    - "scripts/**"
+  exclude:
+    - "backend/__pycache__/**"
+    - "backend/_generated/**"
+    - "backend/data/**"
+    - "backend/secrets/**"
+    - "backend/config.json"
+
+docs:
+  include:
+    - "docs/**/*.md"
+    - "README.md"
+    - "README.ja.md"
+    - "ROADMAP.md"
+  exclude:
+    - "docs/internals/branch-protection.md"
+
+pairs:
+  - doc: docs/internals/architecture/overview.md
+    code: ["backend/**", "frontend/src/**", "contracts/**", "scripts/**"]
+  - doc: docs/internals/architecture/state-stores.md
+    code: ["backend/**", "frontend/src/**"]
+  - doc: docs/internals/architecture/extending.md
+    code: ["backend/**", "frontend/src/**", "contracts/**"]
+  - doc: docs/internals/protocol/streams.md
+    code: ["contracts/**", "backend/**", "frontend/src/**"]
+  - doc: docs/reference/config.md
+    code: ["backend/config.py", "backend/config.example.json", "backend/cli/**", "frontend/src/**"]
+  - doc: docs/reference/data-schemas.md
+    code: ["backend/**", "contracts/**", "frontend/src/**"]
+
+mirror:
+  enabled: false
+
+standalone:
+  - "docs/README.md"
+  - "docs/internals/README.md"
+  - "docs/setup/**"
+  - "docs/troubleshooting/**"
+  - "e2e/README.md"
+  - ROADMAP.md
+
+global:
+  - README.md
+  - README.ja.md
+
+anchors:
+  min_length: 3
+  ignore:
+    # secret-file patterns excluded from sync (never exist in the repo)
+    - "*.pem"
+    - "*.key"
+    - "*.pfx"
+    # process on the streaming host (Sunshine), not a repo path
+    - "release/streamer"
+  include_fenced: false
+  path_roots: [frontend/src, backend]

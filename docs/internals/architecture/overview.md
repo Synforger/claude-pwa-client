@@ -157,7 +157,7 @@ React + Vite。 `main.jsx` → `App.jsx` (= 10 行 shell、 ErrorBoundary + Layo
 | `registry/` | 5 registry (= `featureRegistry` / `messageRegistry` / `overlayRegistry` / `pushRegistry` / `streamRegistry`) + 共通 lifecycle 契約 | `register(name, { Component?, dispatch, init?, mount?, unmount? })`、 OverlayHost が `overlayRegistry.list()` を走査して open 中 overlay を lazy + Suspense + LazyBoundary で 1 経路 render |
 | `transport/` | backend 接続層 (= `sse-*.js` / `ws-pty.js` / `ws-views.js` / `lifecycle.js` 等)。 SSE / WS の singleton 接続をここに集約 | features → transport は直接 import OK (= ADR-018)、 ports/ interface を transport が implements |
 | `domain/` | 純粋 TS layer (= `Session.ts` / `Message.ts` / `Tool.ts` / `Event.ts` + `invariants.ts` 純粋関数) | React 非依存、 worker / test / 別 entry 再利用可能。 型 only file は `types.d.ts` を持たず domain/ 配下に集約 |
-| `ports/` | 型 only interface (= `PtyTransport` / `SseTransport` / `EventEmitter`) | hexagonal 境界の契約、 mock 可能性確保 |
+| `ports/` | 型 only interface (= `PtyTransport` / `SseTransport` / `HttpClient` / `ViewsTransport`) | hexagonal 境界の契約、 mock 可能性確保 |
 | `shared/` | feature 跨ぎの共有 component (= `ConfirmDialog` / `Modal.css` 等) | features 内では完結できない 汎用 UI のみ |
 | `hooks/` | generic DOM utility (= `useEscape` / `useOutsideClick` の 2 件のみ) | 機能固有 hook は features 内、 ここには汎用しか入れない |
 | `contracts/` | codegen 出力先 (= events / ws_channels / http_endpoints の `.ts` / `.py`、 ADR-015 / 016) | 真値 = `contracts/schema/*.yaml`、 frontend / backend に自動配置 |
