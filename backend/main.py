@@ -195,6 +195,13 @@ async def lifespan(app: FastAPI):
     from backend.terminal.prompt_detector_loop import prompt_detector_loop
     prompt_detector_task = asyncio.create_task(prompt_detector_loop())
 
+    # tmux server 強靭化 (= exit-empty off + 番兵 session)。 起動直後に一度固定して
+    # おくことで、 最初の PTY spawn を待たずに「session 全滅 → server 死 → 次の attach
+    # が claude --resume 一斉再走」 のカスケードを封じる (= 2026-07-13 resume storm)。
+    from backend.terminal.runner import USE_TMUX_WRAP, ensure_tmux_resilience
+    if USE_TMUX_WRAP:
+        ensure_tmux_resilience()
+
     # backend.error.log / backend.access.log は RotatingFileHandler で自動 rotate。
     # launchd の StandardOutPath (= backend.log) / StandardErrorPath (= backend.boot.log) は
     # launchd 管理で rotate されないので起動時に上限超過を切る (= app の rotate 系とは別ファイル)。
