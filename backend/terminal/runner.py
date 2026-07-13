@@ -100,6 +100,50 @@ def _run_tmux(*args: str, timeout: float = TMUX_CMD_TIMEOUT_SEC, text: bool = Fa
         return None
 
 
+# tmux server 強靭化 (= 2026-07-13、 resume storm 事故対応)。
+#
+# tmux は「最後の session が死ぬと server ごと終了する」 (= exit-empty on が default)。
+# maintenance の残骸掃除等で session を順次 kill すると、 それが最後の 1 個だった瞬間に
+# server が巻き添えで落ち、 生きていた全 claude セッションが consolidated に消える →
+# 次に各タブを開いた時に `claude --resume` の一斉再走 = 会話全文の再読込で token が
+# 大量消費される事故が起きた。 対策 2 枚:
+#   1. `exit-empty off` — session 0 個でも server を生かす (server option、 server が
+#      生まれ直すたびに再適用が必要なので spawn 経路で毎回叩く。 冪等 + 数 ms)
+#   2. 番兵 session `claudepwa-sentinel` — cleanup は `pwa-` prefix しか見ないので
+#      構造的に掃除対象外。 /bin/sh の sleep loop で RSS ほぼゼロ
+SENTINEL_SESSION = "claudepwa-sentinel"
+
+
+def ensure_tmux_resilience() -> None:
+    """tmux server を「session 全滅で死なない」 状態に固定する (= 冪等)。
+
+    server が存在しなければこの呼び出し自体が server を起こすので、 backend 起動時 +
+    各 spawn 前に呼べば「server がいつ生まれ直しても保護が入っている」 を保証できる。
+    """
+    r = _run_tmux("set", "-s", "exit-empty", "off", text=True)
+    if r is None or r.returncode != 0:
+        logger.warning(
+            "tmux resilience: could not set exit-empty off (rc=%s) — server may die with its last session",
+            None if r is None else r.returncode,
+        )
+    has = _run_tmux("has-session", "-t", SENTINEL_SESSION)
+    if has is not None and has.returncode == 0:
+        return
+    logger.warning(
+        "tmux resilience: sentinel session absent (fresh or restarted tmux server) — recreating %s",
+        SENTINEL_SESSION,
+    )
+    created = _run_tmux(
+        "new-session", "-d", "-s", SENTINEL_SESSION, "-x", "8", "-y", "2",
+        "/bin/sh", "-c", "while :; do sleep 3600; done",
+    )
+    if created is None or created.returncode != 0:
+        logger.warning(
+            "tmux resilience: sentinel creation failed (rc=%s)",
+            None if created is None else created.returncode,
+        )
+
+
 @dataclass
 class PtySession:
     """1 セッション = 1 claude プロセス + master fd + 出力 queue。
@@ -165,6 +209,10 @@ async def spawn_pty_session(
         # PTY 自体は zsh で動かせるが、 ユーザの wrapper 関数が最終的に呼ぶ claude path
         # はここで検証。 未設定なら設定漏れとして失敗させる。
         raise RuntimeError("CLAUDE_PATH is empty; set `claude_path` in backend/config.json")
+
+    if USE_TMUX_WRAP:
+        # server がいつ生まれ直しても「session 全滅 = server 死」 にならない状態を先に固定
+        ensure_tmux_resilience()
 
     master_fd, slave_fd = pty.openpty()
     _set_winsize(master_fd, initial_rows, initial_cols)
