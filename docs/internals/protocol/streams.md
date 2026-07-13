@@ -91,6 +91,8 @@ Stop ボタン経路も WS で通す。 HTTP POST 経路だと送信失敗 race 
 
 `viewMode='terminal'` を経験した sid だけが LRU (= N=3) で mount され続け、 active 切替で visible / hidden を gate。 hidden な terminal は **WS ごと切断**し、 visible 復帰時に再接続 + `terminal.reset()` + Ctrl-L で TUI に最新画面を描き直させる (= 旧方式の「描画だけ skip して受信継続」 は見てない端末の全 PTY バイトを client が無線受信し続け、 携帯発熱の主犯級だった)。 chat view 単独運用なら一度も attach しないので、 PTY spawn は `/jsonl/stream/{sid,all}` 経路 + POST /sessions / restart 経路に任せる。
 
+tmux server は `exit-empty off` + 番兵 session `claudepwa-sentinel` (= backend 起動時と各 spawn 前に `ensure_tmux_resilience` が冪等適用) で「最後の session の kill = server 死 = 全 claude 消失 → 次の attach で `claude --resume` 一斉再走」 のカスケードを封じている。 番兵は `pwa-` prefix を持たないため maintenance の残骸掃除の対象外。
+
 ## 接続生存 signal の集約
 
 各経路は `frontend/src/transport/lifecycle.ts` の `registerConnection(() => bool)` に「生きてるか」 を judge する callback を登録する。 StatusBar の接続インジケータは全経路の AND を集約表示する (= 1 本切れたら警告)。
