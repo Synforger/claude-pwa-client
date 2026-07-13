@@ -115,12 +115,17 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
       ws.binaryType = 'arraybuffer'
       wsRef.current = ws
 
+      let resetPending = false
       ws.addEventListener('open', () => {
         backoffMs = 500
-        // 再接続時は既存バッファを全消し → Ctrl-L で TUI に現状描画させる。
-        // 消さずに Ctrl-L だけ送ると、 redraw された画面が既存内容の下に積み重なる
-        // (= disconnect 連発で同じ画面が 2、 3 倍に重複する事故、 2026-06-11 報告)。
-        if (isReconnect) terminal.reset()
+        // 再接続時は既存バッファを全消し → Ctrl-L で TUI に現状描画させる
+        // (= 消さずに Ctrl-L だけ送ると redraw が既存内容の下に積み重なる、 2026-06-11 報告)。
+        // ただし reset は open 時でなく「再描画の最初のバイトが届く直前」 まで遅延する:
+        // open 時に消すと Ctrl-L 応答が届くまで画面が空になり、 タブ切替のたびに
+        // 「セッションが終了した」 ように見えるフラッシュが出る (= 2026-07-13 報告、
+        // hidden=WS 切断化で再接続が日常操作になったため顕在化)。 直前まで旧画面を
+        // 見せておき、 新しい描画で上書きする。
+        resetPending = isReconnect
         const dims = getDimensions()
         if (dims) {
           ws.send(JSON.stringify({ type: 'resize', rows: dims.rows, cols: dims.cols }))
@@ -144,6 +149,11 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
           return
         }
         // hidden 中は WS 自体が閉じているので、 ここに来る = visible。 即 write。
+        // 再接続後の最初のバイト直前に旧画面を消す (= paint-over、 空白フラッシュ防止)。
+        if (resetPending) {
+          resetPending = false
+          terminal.reset()
+        }
         terminal.write(new Uint8Array(ev.data))
       })
 

@@ -1,6 +1,6 @@
 {
   "ack": {
-    "at": "2026-07-13T07:33:30+00:00",
+    "at": "2026-07-13T07:45:35+00:00",
     "code_blobs": {
       "backend/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
@@ -271,7 +271,7 @@
       "frontend/src/features/tasks/classifyTaskNotification.js": "6ec4982abde31f10dbe2bac38e019851f1bfab0a",
       "frontend/src/features/tasks/classifyTaskNotification.test.js": "37533f9e216edfe07aa15527ee552ef01dadee7d",
       "frontend/src/features/tasks/index.js": "4c84cd8633f21ba396da254b52e2a876103390ae",
-      "frontend/src/features/terminal/Terminal.jsx": "3a88eac630428ee76503297dadf82343bf0552cc",
+      "frontend/src/features/terminal/Terminal.jsx": "b8092654670a35a87b6c8ed8e4ccb7feba35c5d8",
       "frontend/src/features/terminal/TerminalMount.jsx": "abc5a9e325cd2a00281670a84cb3f84f34782ecf",
       "frontend/src/features/terminal/index.js": "0ee1a2b1b789630aec64baca3caf7af19b33e284",
       "frontend/src/features/terminal/useTerminal.js": "cecba14c1cd7e3e65c4c5b227e336fcc31823a6a",
@@ -360,9 +360,9 @@
       "frontend/src/utils/storage.js": "810f066d3cd3ef3c84b2ebc62a3a2fad5477be62",
       "frontend/src/utils/storage.test.js": "fa6f6beabb1d93f02911e1d1b931c71dfbdc8d4e"
     },
-    "commit": "c287bb57ef5908da6d4b74f3c0b2e7809009143c",
+    "commit": "34751b8a702c3287e17aee23868b6dcfeb627923",
     "doc_blob": "0920ed5311bbf4cdd6b7f44f77288c08ad35de6f",
-    "note": "tmux resilience: lifecycle documented in streams.md; other pairs no doc-facing change"
+    "note": "paint-over: reconnect visual only, lifecycle doc already current"
   },
   "doc": "docs/internals/protocol/streams.md",
   "schema": 1
