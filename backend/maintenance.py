@@ -71,9 +71,14 @@ def cleanup_stale_tmux_sessions() -> int:
     except (subprocess.TimeoutExpired, OSError):
         return 0
     if r.returncode != 0:
+        # server 不在 = 全 tmux session が失われた後 (= 全 claude が次の attach で
+        # --resume 再走になる状態)。 いつ失われたかを追えるよう必ず痕跡を残す。
+        logger.warning("maintenance: tmux server absent (all sessions lost?)")
         return 0
     killed = 0
     for name in r.stdout.splitlines():
+        # 番兵 claudepwa-sentinel は pwa- prefix でないため構造的に対象外 (= runner.py
+        # ensure_tmux_resilience)。 ここの prefix 判定を緩める時は番兵の除外を明示すること。
         if not name.startswith("pwa-"):
             continue
         sid = name[4:]  # "pwa-ses_xxx" → "ses_xxx"

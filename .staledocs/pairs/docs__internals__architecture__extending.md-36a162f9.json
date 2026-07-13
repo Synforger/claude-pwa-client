@@ -1,6 +1,6 @@
 {
   "ack": {
-    "at": "2026-07-12T22:56:38+00:00",
+    "at": "2026-07-13T07:45:30+00:00",
     "code_blobs": {
       "backend/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
@@ -23,8 +23,8 @@
       "backend/jsonl/resolver.py": "36ad30236811199d559a6abcbeaf0b0021f0fa7b",
       "backend/jsonl/routes.py": "5333e9226a36e4ebc6f2e49b7b524ec5525a82a9",
       "backend/jsonl/session_status.py": "8657e0886fd25d6498943872445d85d4e9a7e508",
-      "backend/main.py": "8bcea04540228bc222a71b5b8965a36f0fb0708b",
-      "backend/maintenance.py": "ac6362a345e078cfd3225f4d5457207946d7b42d",
+      "backend/main.py": "0d0feab9bf0799867f00532eec95f8ef428960c8",
+      "backend/maintenance.py": "bc3ca161478679b987068e6bd5e3e50ed0641ff3",
       "backend/observability/__init__.py": "60700ddd6948214a4f12edeeb359c02053624460",
       "backend/observability/correlation.py": "d1e822e013f8694b92649a15bc2dd861e23c8138",
       "backend/observability/event_journal.py": "ebfa7f22e631167e8836f833d639860dce6f26a6",
@@ -57,7 +57,7 @@
       "backend/terminal/prompt_detector_loop.py": "715fdad008f82fd5bbfb6a530e14eb88450e3e6d",
       "backend/terminal/pty_discover.py": "714972bc8b0fd549f698903167329b520f77ad3f",
       "backend/terminal/routes.py": "92958db46c516b58a6864d9e92cee6186bf8a485",
-      "backend/terminal/runner.py": "fece1c38a1e2be9577b7b1c6698d0d1eb1645f9a",
+      "backend/terminal/runner.py": "5d43cc2b7e0587a1c8d844e4d1a7edb17c6f654d",
       "backend/terminal/send_dedup.py": "64b2bc75d1e9682494f2be5f6da0ec5a233689ea",
       "backend/terminal/session_resolver.py": "35ab856d51441f0f4e5c867141d2dc565fa95465",
       "backend/tests/README.md": "b2bee8a0dead20f3a5d8cea3e09137bca0ce33a1",
@@ -117,6 +117,7 @@
       "backend/tests/test_session_resolver.py": "49b001887791e3fb4cff428c83b18201de9bdd48",
       "backend/tests/test_state.py": "344c6fce2a0df367b713f8fd391d7d565c06b1aa",
       "backend/tests/test_subagents_routes.py": "7471508350e6cef4dd1029118f9ff24d48869f65",
+      "backend/tests/test_tmux_resilience.py": "4d2c1b9bebd3151e69ea0b132fcf930ce991ae87",
       "backend/tests/test_usage.py": "1c255a036879baaf161d3051a5470a3d1ecd945f",
       "backend/tests/transport/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "backend/tests/transport/test_heartbeat.py": "fa24f8aedb92cf7699e6eb1dd703dee868e061e8",
@@ -270,7 +271,7 @@
       "frontend/src/features/tasks/classifyTaskNotification.js": "6ec4982abde31f10dbe2bac38e019851f1bfab0a",
       "frontend/src/features/tasks/classifyTaskNotification.test.js": "37533f9e216edfe07aa15527ee552ef01dadee7d",
       "frontend/src/features/tasks/index.js": "4c84cd8633f21ba396da254b52e2a876103390ae",
-      "frontend/src/features/terminal/Terminal.jsx": "3a88eac630428ee76503297dadf82343bf0552cc",
+      "frontend/src/features/terminal/Terminal.jsx": "b8092654670a35a87b6c8ed8e4ccb7feba35c5d8",
       "frontend/src/features/terminal/TerminalMount.jsx": "abc5a9e325cd2a00281670a84cb3f84f34782ecf",
       "frontend/src/features/terminal/index.js": "0ee1a2b1b789630aec64baca3caf7af19b33e284",
       "frontend/src/features/terminal/useTerminal.js": "cecba14c1cd7e3e65c4c5b227e336fcc31823a6a",
@@ -359,9 +360,9 @@
       "frontend/src/utils/storage.js": "810f066d3cd3ef3c84b2ebc62a3a2fad5477be62",
       "frontend/src/utils/storage.test.js": "fa6f6beabb1d93f02911e1d1b931c71dfbdc8d4e"
     },
-    "commit": "0a16f8f4b43cfaea2fed3cc68eb493f14e10230b",
+    "commit": "34751b8a702c3287e17aee23868b6dcfeb627923",
     "doc_blob": "c188d6d41a528ad4b50dc0afc530d45b2ffef7e9",
-    "note": "hidden-terminal WS disconnect + beacon client tag: streams.md updated to the new lifecycle; other pairs no doc-facing change"
+    "note": "paint-over: reconnect visual only, lifecycle doc already current"
   },
   "doc": "docs/internals/architecture/extending.md",
   "schema": 1
