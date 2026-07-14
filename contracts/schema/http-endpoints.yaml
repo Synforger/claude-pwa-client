@@ -533,3 +533,43 @@ endpoints:
       - "debug 用、 通常 UI からは叩かない"
       - "key = sid"
     implementation: backend/jsonl/routes.py
+
+  - method: GET
+    path: /stream/unified
+    description: "統合 SSE (= jsonl / status / overview / subagents / sys を 1 接続に多重化、 2026-07-14 電力効率工事)"
+    response_kind: sse
+    auth: tailnet
+    invariants:
+      - "frame は data 行 JSON の channel envelope: {ch: sys|jsonl|status|overview|subagents, ...}"
+      - "jsonl channel は query `jsonl=sid:off,...` / control op で購読宣言した sid のみ配信 (= fan-out 遮断)"
+      - "jsonl frame = {ch, pos, ev}。 ev は sse-events.yaml の event そのまま (= schema 変更なし)、 pos は行末実 byte 位置 (= null は ephemeral)"
+      - "接続時 warmup (= PTY ensure) + replay は購読 sid のみ (= 全 sid sweep なし)"
+      - "query `conn` (= client 生成 id) 必須、 `view` で視認中 sid を同時申告可"
+      - "keep-alive は {ch:sys,_hb:1} を 25s 間隔"
+      - "切断で views 登録 / conn 登録が自動消滅 (= /views/ws の TCP FIN と等価の stale-free)"
+    implementation: backend/routes/unified_stream.py
+
+  - method: POST
+    path: /stream/unified/{conn}/control
+    description: "統合 stream の上り制御 (= 購読差替 / view 申告 / stop / subagents 切替)"
+    request:
+      type: object
+      required: [op]
+      properties:
+        op:   { enum: [jsonl, view, stop, subagents] }
+        sid:  { type: [string, "null"] }
+        sids: { type: array }
+    response:
+      type: object
+      properties:
+        ok: { type: boolean }
+        subscribed: { type: array }
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "op=jsonl: sids=[{sid,from}] で購読 set 差替、 追加 sid は PTY ensure + from からの差分 replay を同一接続へ流す"
+      - "op=view: views_by_conn 更新 (= 通知抑制判定)、 sid=null で解除"
+      - "op=stop: user_stopped 権威記録 + busy 強制 false (= 旧 /views/ws stop メッセージと同義)"
+      - "op=subagents: watch 対象 sid 切替 (= null で停止)、 対象 1 接続 1 sid"
+      - "不明 conn は 404 (= 接続が先、 制御が後)"
+    implementation: backend/routes/unified_stream.py
