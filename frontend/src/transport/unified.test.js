@@ -152,7 +152,7 @@ describe('unified transport', () => {
     unsub()
   })
 
-  it('hello frame で desired state (= view / subagents) を再主張する', async () => {
+  it('hello frame で desired state (= jsonl / view / subagents) を全部再主張する', async () => {
     const { unifiedTransport, unifiedJsonl, unifiedSubagentsSse } = await freshTransport()
     unifiedTransport.setActiveSid('ses_a')
     const u1 = unifiedJsonl.subscribe(() => {})
@@ -165,6 +165,37 @@ describe('unified transport', () => {
     expect(ops).toContain('view')
     expect(ops).toContain('subagents')
     u1(); u2()
+  })
+
+  it('接続確立前の setSubscribedSids は hello 再主張で購読が成立する (= 2026-07-15 レース根治)', async () => {
+    const { unifiedJsonl } = await freshTransport()
+    // 接続を起こす (= 購読ゼロで URL 構築)
+    const u1 = unifiedJsonl.subscribe(() => {})
+    const es = FakeEventSource.instances.at(-1)
+    expect(es.url).not.toContain('jsonl=')
+    // open 前 (= connecting 中) に購読宣言 → control は打てない
+    unifiedJsonl.setSubscribedSids(['ses_a'])
+    expect(apiCalls.list).toHaveLength(0)
+    // open + hello → jsonl 購読が control で再主張される
+    es.open()
+    es.emit({ ch: 'sys', type: 'hello', conn: 'c' })
+    await vi.advanceTimersByTimeAsync(10)
+    const jsonlOps = apiCalls.list.filter(([, o]) => o.jsonBody.op === 'jsonl')
+    expect(jsonlOps).toHaveLength(1)
+    expect(jsonlOps[0][1].jsonBody.sids[0].sid).toBe('ses_a')
+    u1()
+  })
+
+  it('offset は単調にのみ前進する (= 古い pos の後着 frame で巻き戻さない)', async () => {
+    const { unifiedJsonl } = await freshTransport()
+    const u1 = unifiedJsonl.subscribe(() => {})
+    const es = FakeEventSource.instances.at(-1)
+    es.open()
+    es.emit({ ch: 'jsonl', pos: 500, ev: { type: 'assistant', sid: 'ses_a', uuid: 'a' } })
+    es.emit({ ch: 'jsonl', pos: 300, ev: { type: 'assistant', sid: 'ses_a', uuid: 'b' } })
+    vi.advanceTimersByTime(1100)
+    expect(JSON.parse(localStorage.getItem('cpc_v2_jsonl_offsets')).ses_a).toBe(500)
+    u1()
   })
 
   it('subagents channel は sid 別に振分けられ、 遅参にも再配布', async () => {
