@@ -3,7 +3,7 @@ import TranscriptEvent from './TranscriptEvent.jsx'
 import { apiFetch } from '../../utils/api.js'
 import { useEscape } from '../../hooks/useEscape.js'
 import { useT } from '../../i18n/t.js'
-import { subagentsSse } from '../../transport/sse-subagents.ts'
+import { subagentsStreamSse } from '../../transport/select.ts'
 import {
   subscribe as subscribeSessions,
   getSnapshot as getSessionsSnapshot,
@@ -185,7 +185,7 @@ function SubagentsModalInner({ sid, focus, onClose }) {
     setError(null)
     // /sessions/{sid}/subagents/stream は transport/sse-subagents.ts per-sid factory (= ADR-019) で
     // 立てる。 subscribe は sid 単位で同 EventSource 共有 (= refs カウンタ)、 unsubscribe で自動 close。
-    const unsub = subagentsSse.subscribe(sid, (d) => {
+    const unsub = subagentsStreamSse.subscribe(sid, (d) => {
       if (d && typeof d === 'object') {
         setData({ subagents: d.subagents || [], workflows: d.workflows || [] })
       }
