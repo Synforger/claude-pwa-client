@@ -20,11 +20,14 @@ def parse_jsonl_timestamp(ts: str | None) -> float | None:
         return None
 
 
-def read_complete_lines(path: Path, pos: int) -> tuple[list[str], int]:
-    """pos (= バイト位置) から読み、 改行で終わる完全な行だけ返す。
+def read_complete_lines_with_pos(path: Path, pos: int) -> tuple[list[tuple[str, int]], int]:
+    """pos (= バイト位置) から読み、 改行で終わる完全な行を「その行を読み終えた byte 位置」
+    とペアで返す。
 
     書き込み途中の不完全行 (= 末尾が \\n でない) は次回に持ち越すため、 pos は最後の
-    完全行の直後までしか進めない。 返り値 (完全行のリスト, 新 pos)。
+    完全行の直後までしか進めない。 per-line pos は SSE の id 行 (= client 側 offset の
+    前進) に使う。 byte 単位で分割してから decode するので、 マルチバイト文字を跨いでも
+    pos がずれない。 返り値 ([(行, 行末 byte 位置)], 新 pos)。
     """
     try:
         with open(path, "rb") as f:
@@ -40,15 +43,29 @@ def read_complete_lines(path: Path, pos: int) -> tuple[list[str], int]:
         return [], pos
     complete = data[: last_nl + 1]
     new_pos = pos + len(complete)
-    text = complete.decode("utf-8", errors="replace")
-    lines = [ln for ln in text.split("\n") if ln]
-    return lines, new_pos
+    out: list[tuple[str, int]] = []
+    cursor = pos
+    for raw in complete.split(b"\n")[:-1]:  # 末尾要素は空 (= 終端 \n の右側)
+        cursor += len(raw) + 1  # +1 = 改行分
+        if raw:
+            out.append((raw.decode("utf-8", errors="replace"), cursor))
+    return out, new_pos
 
 
-def read_tail(path: Path, pos: int) -> tuple[list[str], int, str]:
-    """path を pos から tail する共通プリミティブ (= SSE 配信 / push 監視で共用)。
+def read_complete_lines(path: Path, pos: int) -> tuple[list[str], int]:
+    """pos (= バイト位置) から読み、 改行で終わる完全な行だけ返す (= pos なし版 wrapper)。
 
-    返り値 (lines, new_pos, status):
+    実装は read_complete_lines_with_pos に委譲 (= 分割ロジックの二重実装を作らない)。
+    返り値 (完全行のリスト, 新 pos)。
+    """
+    pairs, new_pos = read_complete_lines_with_pos(path, pos)
+    return [ln for ln, _ in pairs], new_pos
+
+
+def read_tail_with_pos(path: Path, pos: int) -> tuple[list[tuple[str, int]], int, str]:
+    """path を pos から tail する共通プリミティブ (= per-line pos 付き、 monitor が使う)。
+
+    返り値 (lines_with_pos, new_pos, status):
       - "ok"        : 新規完全行あり (lines / new_pos が進む)
       - "nochange"  : 新着なし (new_pos == pos)
       - "truncated" : size < pos (= rotate / truncate。 new_pos = 現 size)
@@ -63,8 +80,14 @@ def read_tail(path: Path, pos: int) -> tuple[list[str], int, str]:
         return [], size, "truncated"
     if size <= pos:
         return [], pos, "nochange"
-    lines, new_pos = read_complete_lines(path, pos)
-    return lines, new_pos, "ok"
+    lines_with_pos, new_pos = read_complete_lines_with_pos(path, pos)
+    return lines_with_pos, new_pos, "ok"
+
+
+def read_tail(path: Path, pos: int) -> tuple[list[str], int, str]:
+    """read_tail_with_pos の pos なし版 wrapper (= 既存 consumer 互換)。"""
+    lines_with_pos, new_pos, status = read_tail_with_pos(path, pos)
+    return [ln for ln, _ in lines_with_pos], new_pos, status
 
 
 def initial_offset(path: Path, max_lines: int) -> int:
