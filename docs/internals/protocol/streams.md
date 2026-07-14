@@ -49,7 +49,7 @@ backend と frontend を繋ぐリアルタイム経路は **4 本の SSE + 2 本
 | `/sessions/status/stream` | SSE | `backend/routes/overview.py::all_status_stream` | `frontend/src/features/status-bar/useStatus.js` | `{ <sid>: <AgentStatus dict>, ... }` 全 sid 分の status を 1 dict | mount 1 回張りっぱなし、 activeSid 変化で再接続しない | StatusBar (モデル / mode / 残予算 / 5h / 7d / ctx / 🔗 PR chip)、 pending_plan 表示 |
 | `/sessions/overview/stream` | SSE | `backend/routes/overview.py::sessions_overview_stream` | `frontend/src/features/session-drawer/useSessionsOverview.js` (`frontend/src/transport/sse-sessions-overview.ts` singleton 経由) | `{ <sid>: { busy, pending, last_seen_at, unread_done }, ... }` | mount 1 回張りっぱなし、 全 client / 全タブで共有 | **停止ボタン (= `state/ephemeral.js::loading[sid]`) の唯一のソース**、 ドロワー一覧の青丸 (処理中) / 赤丸 (完了未読)、 未読 last_seen sync |
 | `/jsonl/stream/{sid}` | SSE | `backend/jsonl/routes.py::jsonl_stream` | `frontend/src/features/chat/useChatStream.js` | `data: {<processStreamEvent event>}\n\n` (= 詳細は本 file § event wire shape) | activeSid 変化で再接続。 `?from=<offset>` で前回 byte offset 以降の完全行のみ流す (= 初回 replay 軽量化) | per-sid chat messages 配列の組み立て (= legacy 経路、 タブ切替で SSE 張り替え) |
-| `/jsonl/stream/all` | SSE | `backend/jsonl/routes.py::jsonl_stream_all` (= W2-F15) | `frontend/src/features/chat/useChatStream.js` (= `?from=<sid>:<off>,...` 経路) | event の `sid` field で振り分け、 SSE id = `<sid>:<pos>` | mount 1 回張りっぱなし、 タブ切替で SSE 張り替えしない | 全 sid 1 接続版。 接続時に sessions_meta 全件に `ensure_pty_session_for` を sweep (= 新規タブ作成時の spawn trigger も兼ねる、 ただし接続継続中の新 sid は捕捉漏れがあるので POST /sessions 側でも ensure する。 2026-06-29 fix) |
+| `/jsonl/stream/all` | SSE | `backend/jsonl/routes.py::jsonl_stream_all` (= W2-F15) | `frontend/src/features/chat/useChatStream.js` (= `?from=<sid>:<off>,...` 経路) | event の `sid` field で振り分け、 SSE id = `<sid>:<pos>` (= live 中も各行の実 byte 位置で前進、 再接続時は差分 replay だけで済む。 file 由来でない ephemeral event は id 行なし)。 idle 時 keep-alive は 25s 間隔 | mount 1 回張りっぱなし、 タブ切替で SSE 張り替えしない | 全 sid 1 接続版。 接続時に sessions_meta 全件に `ensure_pty_session_for` を sweep (= 新規タブ作成時の spawn trigger も兼ねる、 ただし接続継続中の新 sid は捕捉漏れがあるので POST /sessions 側でも ensure する。 2026-06-29 fix) |
 | `/views/ws` | WebSocket | `backend/routes/overview.py::views_ws` | `frontend/src/features/session-drawer/useViewsWs.js` | client → server: `{"sid": "ses_xxx"\|null}` (= 視認中 sid 更新) / `{"type":"stop","sid":"..."}` (= Stop 意思)。 server → client: 受信のみ (broadcast なし) | PWA visible 中だけ常時接続、 3 秒 reconnect。 接続切断 (= TCP FIN / iOS bg 化) で `views_by_conn` から自動削除 | (1) 通知抑制判定 (= `is_session_viewed(sid)` が真なら `broadcast_push` skip) (2) Stop ボタン (= HTTP POST だと race で busy=true 復活する経路を WS の TCP 保証で潰す) |
 | `/ws/pty/{sid}` | WebSocket | `backend/terminal/routes.py::pty_socket` | `frontend/src/features/terminal/useTerminal.js` (= xterm.js + transport/ws-pty.js) | client → server: `{"type":"input","data":"..."}` (= tmux send-keys 転送) / `{"type":"resize", ...}`。 server → client: `{"type":"output","data":"..."}` (= PTY 出力 bytes) | viewMode='terminal' 切替時に attach、 切断中は backend が `session.output_queue` に backlog 蓄積 (drain on reconnect) | xterm.js の入出力経路。 chat view のみ使う場合は接続しない (= W2 後は POST /sessions / restart 経路で backend 側 PTY spawn が完結するので、 chat view 単独で claude 起動が走り切る) |
 
@@ -59,7 +59,7 @@ backend と frontend を繋ぐリアルタイム経路は **4 本の SSE + 2 本
 
 旧設計は sid 毎に `/status/{sid}/stream` を張り替えていた。 タブ切替のたびに SSE を旧 close → 新接続し、 iOS Safari の 1-3 秒の TCP 確立コストで「タブ切替したのに status が出るのが遅い」 体感だった。 全 sid を 1 接続で配信に変更 (= overview と同パターン) し、 タブ切替で SSE 張り替え不要 → 切替コスト 0。 各 client は受信 payload から自分の activeSid 分を取り出すだけ。
 
-`StreamState.status_event` (per sid `asyncio.Event`) を起点に、 hooks / jsonl 経路で変化があったら `set()` → SSE 接続側が起きて全 sid snapshot を yield → `clear()`。 接続ごとの diff 配信 (= F-09) で snapshot 不変なら data 行を yield しない。 keep-alive は SSE comment 行のみ (= `:\n\n`、 F-10) で全 sid JSON を毎 20s 流す無駄を排除。 rate-limits は 1 秒 cache で接続数 × notify 回 read を縮める (= F-56)。
+`StreamState.status_event` (per sid `asyncio.Event`) を起点に、 hooks / jsonl 経路で変化があったら `set()` → SSE 接続側が起きて全 sid snapshot を yield → `clear()`。 接続ごとの diff 配信 (= F-09) で snapshot 不変なら data 行を yield しない。 keep-alive は data 行 heartbeat `{"_hb":1}` を 20s 間隔で流す (= client の生存監視 watchdog が受信時刻を読める形。 全 sid JSON を毎 20s 流す無駄は F-10 と同じく排除)。 rate-limits は 1 秒 cache で接続数 × notify 回 read を縮める (= F-56)。
 
 ### `/sessions/overview/stream`: backend 権威 busy の唯一のソース
 
@@ -92,6 +92,21 @@ Stop ボタン経路も WS で通す。 HTTP POST 経路だと送信失敗 race 
 `viewMode='terminal'` を経験した sid だけが LRU (= N=3) で mount され続け、 active 切替で visible / hidden を gate。 hidden な terminal は **WS ごと切断**し、 visible 復帰時に再接続 + `terminal.reset()` + Ctrl-L で TUI に最新画面を描き直させる (= 旧方式の「描画だけ skip して受信継続」 は見てない端末の全 PTY バイトを client が無線受信し続け、 携帯発熱の主犯級だった)。 chat view 単独運用なら一度も attach しないので、 PTY spawn は `/jsonl/stream/{sid,all}` 経路 + POST /sessions / restart 経路に任せる。
 
 tmux server は `exit-empty off` + 番兵 session `claudepwa-sentinel` (= backend 起動時と各 spawn 前に `ensure_tmux_resilience` が冪等適用) で「最後の session の kill = server 死 = 全 claude 消失 → 次の attach で `claude --resume` 一斉再走」 のカスケードを封じている。 番兵は `pwa-` prefix を持たないため maintenance の残骸掃除の対象外。
+
+## `/stream/unified`: 多重化 1 本接続 (= 2026-07-14 電力効率工事)
+
+旧構成のクライアント 1 台あたり SSE/WS 4-5 本 (= jsonl all + status + overview + per-sid subagents + views ws) を、 1 本の SSE + 制御 POST に畳んだ経路。 `backend/routes/unified_stream.py` 実装、 endpoint 契約は `contracts/schema/http-endpoints.yaml` の `/stream/unified` 2 entry が真値。
+
+- **channel envelope**: data 行 JSON `{"ch": "sys"|"jsonl"|"status"|"overview"|"subagents", ...}`。 jsonl frame は `{ch, pos, ev}` で `ev` は既存 sse-events event そのまま (= wire 内容の schema 変更なし)、 `pos` が行末実 byte 位置 (= client は frame ごとに offset 前進、 SSE id 行は使わない)
+- **購読 sid だけ配る**: jsonl channel は接続 query (= jsonl=sid:off,...) / control の op=jsonl で宣言された sid のみ。 未購読 sid の event (= 巨大 tool_result 含む) はネットワークにも client CPU にも届かない (= 全配信 fan-out の遮断、 電力主犯対策)。 タブ切替 = 再接続でなく購読差替 + 差分 replay
+- **warmup も購読 sid のみ**: 旧 `/jsonl/stream/all` の「接続時に全 sid PTY sweep」 を廃止。 未購読 sid は購読された瞬間に ensure
+- **views/ws の吸収**: op=view で視認申告、 SSE 切断 = views 登録自動消滅 (= WS の TCP FIN と同じ stale-free 性質)。 Stop は op=stop (= POST は TCP 保証で届く、 旧 WS 経路と等価)
+- **status / overview**: 接続毎 diff 配信 (= F-09 と同規約) を 1 pump に統合。 subagents は op=subagents で対象 1 sid を watch
+- **keep-alive**: `{"ch":"sys","_hb":1}` を 25s 間隔 (= 全 channel 共通の 1 心拍、 旧 4-5 本分の heartbeat が 1 本に)
+
+旧 endpoint 群 (= 上の 1 表) は**全部温存**: 旧 bundle を開いたままの端末 / 旧 frontend が壊れない (= additive rollout)。
+
+**frontend は既定で本経路を使う**: `frontend/src/transport/unified.ts` (= singleton 本体) + `select.ts` (= 実装選択の 1 点、 consumer は select 経由で旧 interface のまま受け取る)。 緊急 rollback = DevTools で localStorage の cpc_transport を legacy にして reload (= 旧 4-5 本構成に戻る)。 offset (= cpc_v2_jsonl_offsets) と status hydrate cache (= cpc_last_all_status) は新旧同 key を共用するため切替で状態を失わない。
 
 ## 接続生存 signal の集約
 
