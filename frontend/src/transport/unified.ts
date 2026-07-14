@@ -167,8 +167,13 @@ class UnifiedTransport {
       const pos = frame.pos
       const sid = event.sid
       if (typeof pos === 'number' && typeof sid === 'string' && sid) {
-        this.offsets[sid] = Math.floor(pos)
-        this.schedulePersistOffsets()
+        // 単調ガード: replay と live pump の並走で古い pos の frame が後着し得る
+        // (= server は pump 先行で隙間ゼロを優先、 重複側は client で吸収する規約)。
+        // offset を巻き戻すと次回接続の replay が無駄に太る。
+        if (Math.floor(pos) > (this.offsets[sid] ?? -1)) {
+          this.offsets[sid] = Math.floor(pos)
+          this.schedulePersistOffsets()
+        }
       }
       for (const h of this.jsonlHandlers) {
         try { h(event) } catch (e) { console.warn('[unified] jsonl handler threw', e) }
@@ -205,9 +210,20 @@ class UnifiedTransport {
   }
 
   private onHello(): void {
-    // 接続 (再) 確立: server 側 conn は GET query の状態しか知らないので、 query に乗らない
-    // desired state (= subagents watch) をここで再主張する。 view は query 済みだが、
-    // 接続前に setActiveSid された可能性もあるため冪等に再送する。
+    // 接続 (再) 確立: desired state を**全部**冪等に再主張する。 server の op=jsonl は
+    // 「既購読 sid は added に入らない = 重複 replay しない」 ので、 query で購読済みでも
+    // 再送は無害。 逆に query 構築後〜open の間に setJsonlSids された場合 (= 初回接続で
+    // 実際に起きたレース: jsonl= 無し接続 → 購読ゼロのままチャットが凍る、 2026-07-15
+    // access log で確認) はこの再主張だけが購読を成立させる。
+    if (this.jsonlSids.size > 0) {
+      this.control({
+        op: 'jsonl',
+        sids: Array.from(this.jsonlSids).map(sid => ({
+          sid,
+          from: Number.isFinite(this.offsets[sid]) ? Math.floor(this.offsets[sid]) : null,
+        })),
+      })
+    }
     if (this.viewSid) this.control({ op: 'view', sid: this.viewSid })
     if (this.subagentsSid) this.control({ op: 'subagents', sid: this.subagentsSid })
   }

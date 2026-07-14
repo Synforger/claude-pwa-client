@@ -278,3 +278,38 @@ def test_endpoint_accepts_plain_sid_list_and_filters_unknown(unified_env):
         await gen.aclose()
 
     _run(run())
+
+
+def test_events_published_during_replay_are_not_lost(unified_env):
+    """接続直後 (= replay 進行中) に publish された event も届く (= 2026-07-15 修正:
+    旧実装は GET handler 時点で replay を file から構築し、 live 購読は replay 配信後
+    だったため、 その隙間の publish が恒久欠落していた。 pump 先行起動で隙間ゼロ)。"""
+    state, sid_a, _sid_b, _ensured = unified_env
+
+    async def run():
+        conn = _mk_conn({sid_a: 0})
+        gen = us._unified_gen(conn, initial_view=None)
+        # hello だけ読んだ時点 (= replay の file 読みは未実行) で「行追記 + publish」
+        # (= monitor の実挙動: publish される行は既に file に書かれている)。 旧実装は
+        # GET handler 時点の file snapshot を replay していたためこの行が落ちた。
+        first = _parse(await asyncio.wait_for(gen.__anext__(), timeout=2.5))
+        assert first["ch"] == "sys" and first["type"] == "hello"
+        jpath = us._latest_jsonl(sid_a)
+        with open(jpath, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"type": "assistant", "uuid": "live-gap",
+                                "message": {"content": [{"type": "text", "text": "g"}]}}) + "\n")
+        state_mod.jsonl_event_broadcaster.publish(
+            sid_a, {"type": "assistant", "sid": sid_a, "uuid": "live-gap",
+                    "message": {"content": [{"type": "text", "text": "g"}]}}, 999)
+        # replay (= user_message) と live (= live-gap) の両方が届く
+        seen_uuids = []
+        for _ in range(12):
+            payload = _parse(await asyncio.wait_for(gen.__anext__(), timeout=2.5))
+            if payload.get("ch") == "jsonl":
+                seen_uuids.append(payload["ev"].get("uuid"))
+            if "live-gap" in seen_uuids:
+                break
+        await gen.aclose()
+        assert f"u-{sid_a}" in seen_uuids  # replay 分
+        assert "live-gap" in seen_uuids    # 隙間の publish 分
+    _run(run())
