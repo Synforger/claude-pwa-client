@@ -15,11 +15,13 @@
 ## 今後やる予定
 
 - iOS native の画面共有 (= 音声修正 / PiP / 入力プラグイン / 通知 extension)。 ブラウザ経由の Path B は既に動作、 これは AltStore 配布前提の native アプリ版
+- 旧 stream endpoint 群の退役 (= `/jsonl/stream/*` / `/sessions/{status,overview}/stream` / `/views/ws`。 統合接続 [`/stream/unified`](docs/internals/protocol/streams.md) が既定化済みのため、 安定運用を確認したのちに legacy 経路と `cpc_transport` 切替 flag を削除する)
 
 ## 検討中 (= まだ着手していない)
 
 - メッセージ履歴の真値 store 化 (= 現状は localStorage を主、 内部 store はミラー)
 - 画面共有関連の検出機構のチューニング
+- 消費電力の実測観測点の整理 (= 統合接続の効果確認後、 stall beacon (`usePerfBeacon`) を既定 off または撤去)
 
 ## 採用しない方針
 
