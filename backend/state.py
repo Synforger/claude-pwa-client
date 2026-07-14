@@ -476,12 +476,19 @@ class JsonlEventBroadcaster:
         if not s:
             self._subs.pop(key, None)
 
-    def publish(self, sid: str, event: dict) -> None:
+    def publish(self, sid: str, event: dict, pos: int | None = None) -> None:
         """1 event を sid + "all" subscriber へ fan-out。 同一 event 参照を全 Queue に
-        put するので、 consumer は event を mutate しないこと (= read-only 扱い)。"""
+        put するので、 consumer は event を mutate しないこと (= read-only 扱い)。
+
+        pos = この event を生成した JSONL 行を読み終えた byte 位置 (= SSE id 行で client
+        offset を前進させる)。 file 由来でない ephemeral event (= prompt_state 等) は
+        None のまま publish し、 SSE 側は id 行を省略する。 Queue には (event, pos) の
+        tuple で積む (= payload に pos を混ぜない、 contract additionalProperties:false
+        を汚さない)。"""
+        item = (event, pos)
         for q in list(self._subs.get(sid, ())):
             try:
-                q.put_nowait(event)
+                q.put_nowait(item)
             except asyncio.QueueFull:
                 # benign: subscriber is too slow; dropping events for that one consumer is
                 # intentional (= broadcaster is fan-out best-effort, fast subscribers must
@@ -489,7 +496,7 @@ class JsonlEventBroadcaster:
                 pass
         for q in list(self._subs.get(ALL_SUBSCRIBER_KEY, ())):
             try:
-                q.put_nowait(event)
+                q.put_nowait(item)
             except asyncio.QueueFull:
                 # benign: same as the per-sid branch above — drop for the slow consumer
                 # only, let the rest receive the event.

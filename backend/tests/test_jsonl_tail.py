@@ -82,3 +82,60 @@ def test_routes_initial_offset_wrapper_delegates(tmp_path):
     _write_lines(p, jr.INITIAL_REPLAY_LINES + 10)
     # wrapper / 直接呼びで同じ off を返す
     assert jr._initial_offset(p) == jt.initial_offset(p, jr.INITIAL_REPLAY_LINES)
+
+
+# --- read_complete_lines_with_pos (= per-line byte pos、 SSE id 前進の土台) ---
+
+def test_with_pos_returns_per_line_end_positions(tmp_path):
+    """各行の pos は「その行 (+ 改行) を読み終えた byte 位置」。 最終行の pos == new_pos。"""
+    p = tmp_path / "a.jsonl"
+    p.write_bytes(b'{"a":1}\n{"bb":2}\n')
+    pairs, new_pos = jt.read_complete_lines_with_pos(p, 0)
+    assert [ln for ln, _ in pairs] == ['{"a":1}', '{"bb":2}']
+    assert pairs[0][1] == 8            # len('{"a":1}') + 1
+    assert pairs[1][1] == 17           # 8 + len('{"bb":2}') + 1
+    assert new_pos == 17
+    assert pairs[-1][1] == new_pos
+
+
+def test_with_pos_multibyte_utf8_positions_are_bytes(tmp_path):
+    """pos は文字数でなく byte 数 (= マルチバイト日本語行でずれない)。"""
+    p = tmp_path / "a.jsonl"
+    line = '{"t":"日本語"}'.encode("utf-8")
+    p.write_bytes(line + b"\n" + b'{"x":1}\n')
+    pairs, new_pos = jt.read_complete_lines_with_pos(p, 0)
+    assert pairs[0][1] == len(line) + 1
+    assert new_pos == len(line) + 1 + 8
+
+
+def test_with_pos_partial_trailing_line_not_consumed(tmp_path):
+    """書き込み途中の不完全行は返らず pos も進まない (= read_complete_lines と同じ規約)。"""
+    p = tmp_path / "a.jsonl"
+    p.write_bytes(b'{"a":1}\n{"incomplete"')
+    pairs, new_pos = jt.read_complete_lines_with_pos(p, 0)
+    assert [ln for ln, _ in pairs] == ['{"a":1}']
+    assert new_pos == 8
+
+
+def test_with_pos_skips_blank_lines_but_advances_pos(tmp_path):
+    """空行は行 list に入らないが、 後続行の pos は空行分も前進している。"""
+    p = tmp_path / "a.jsonl"
+    p.write_bytes(b"\n\n" + b'{"a":1}\n')
+    pairs, new_pos = jt.read_complete_lines_with_pos(p, 0)
+    assert [ln for ln, _ in pairs] == ['{"a":1}']
+    assert pairs[0][1] == 10
+    assert new_pos == 10
+
+
+def test_plain_wrappers_delegate_to_with_pos(tmp_path):
+    """read_complete_lines / read_tail は with_pos 版の薄い wrapper (= 二重実装しない)。"""
+    p = tmp_path / "a.jsonl"
+    p.write_bytes(b'{"a":1}\n{"b":2}\n')
+    lines, new_pos = jt.read_complete_lines(p, 0)
+    pairs, new_pos2 = jt.read_complete_lines_with_pos(p, 0)
+    assert lines == [ln for ln, _ in pairs]
+    assert new_pos == new_pos2
+    tl, tp, ts = jt.read_tail(p, 0)
+    twl, twp, tws = jt.read_tail_with_pos(p, 0)
+    assert tl == [ln for ln, _ in twl]
+    assert (tp, ts) == (twp, tws)
