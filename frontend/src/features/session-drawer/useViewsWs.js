@@ -12,13 +12,27 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { API_BASE } from '../../constants.js'
 import { registerConnection, notifyConnectionChange } from '../../transport/connectionStatus.js'
+import { unifiedEnabled, viewsChannel } from '../../transport/select.ts'
 
 function toWsUrl(path) {
   const base = API_BASE || window.location.origin
   return base.replace(/^http/, 'ws') + path
 }
 
-export function useViewsWs(activeSid) {
+// 統合 transport 有効時: /views/ws を張らず、 視認申告 + Stop を共有 SSE 接続の
+// control POST に委譲する (= 2026-07-14 電力効率工事、 接続 1 本削減)。 接続断 =
+// views 登録自動消滅の stale-free 性質は SSE 切断が同じ役割を担う。
+function useViewsUnified(activeSid) {
+  useEffect(() => {
+    viewsChannel.setActiveSid(activeSid || null)
+  }, [activeSid])
+  const sendStopIntent = useCallback((sid) => {
+    if (sid) viewsChannel.sendStopIntent(sid)
+  }, [])
+  return { sendStopIntent }
+}
+
+function useViewsWsLegacy(activeSid) {
   const wsRef = useRef(null)
   const sidRef = useRef(activeSid)
   // sidRef は接続 onopen 時に「最新の activeSid」 を読むためのコピー。 render 中の
@@ -108,3 +122,7 @@ export function useViewsWs(activeSid) {
 
   return { sendStopIntent }
 }
+
+// 公開 entry: transport 選択は module load 時に固定 (= hooks の呼び分けが render 間で
+// 揺れない、 rules-of-hooks 安全)。
+export const useViewsWs = unifiedEnabled ? useViewsUnified : useViewsWsLegacy

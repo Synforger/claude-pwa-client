@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { registerConnection, notifyConnectionChange } from '../../transport/connectionStatus.js'
-import { sessionsStatusSse, getCachedAllStatus } from '../../transport/sse-sessions-status.ts'
+import { getCachedAllStatus } from '../../transport/sse-sessions-status.ts'
+import { statusSse } from '../../transport/select.ts'
 
 // 全 session の status を transport/sse-sessions-status.ts singleton (= ADR-019) で受信し、
 // activeSid に対応するエントリを返す。 旧来の new EventSource 直書きは ADR-019 で transport singleton
@@ -19,7 +20,7 @@ export function useStatus(activeSession) {
   useEffect(() => {
     let live = false
     const unreg = registerConnection(() => live)
-    const unsub = sessionsStatusSse.subscribe(data => {
+    const unsub = statusSse.subscribe(data => {
       live = true
       notifyConnectionChange()
       if (data && typeof data === 'object') setAllStatus(data)

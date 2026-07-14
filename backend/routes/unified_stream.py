@@ -126,6 +126,11 @@ def _replay_frames(sid: str, start: int | None) -> list[dict]:
         except OSError:
             size = 0
         pos = start if (start is not None and 0 <= start <= size) else _initial_offset(path)
+        # 久しぶりに購読された sid は client offset が大きく遅れている。 全区間 replay は
+        # 表示上限 (= frontend MAX_MESSAGES) を大幅に超えて CPU を焼くだけなので、 直近
+        # N 行 (= INITIAL_REPLAY_LINES) に clamp する (= それ以前は client の localStorage
+        # cache が持っている)。
+        pos = max(pos, _initial_offset(path))
         pairs, _new_pos = read_complete_lines_with_pos(path, pos)
         for raw, line_pos in pairs:
             raw = raw.strip()

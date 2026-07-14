@@ -235,3 +235,46 @@ def test_keepalive_frame_when_idle(unified_env, monkeypatch):
         await gen.aclose()
 
     _run(run())
+
+
+def test_endpoint_requires_conn_param(unified_env):
+    """GET /stream/unified は conn query 必須 (= 422)。 route 層の入口 guard。"""
+    from fastapi import HTTPException as _HTTPException
+    from starlette.requests import Request as _Request
+
+    async def run():
+        scope = {
+            "type": "http", "method": "GET", "path": "/stream/unified",
+            "query_string": b"", "headers": [],
+        }
+        with pytest.raises(_HTTPException) as e:
+            await us.stream_unified(_Request(scope))
+        assert e.value.status_code == 422
+
+    _run(run())
+
+
+def test_endpoint_accepts_plain_sid_list_and_filters_unknown(unified_env):
+    """query jsonl= は `sid:off` と素 sid 両対応、 未知 sid は購読に入れない。"""
+    from starlette.requests import Request as _Request
+    _state, sid_a, _sid_b, _ensured = unified_env
+
+    async def run():
+        scope = {
+            "type": "http", "method": "GET", "path": "/stream/unified",
+            "query_string": f"conn=c9&jsonl={sid_a},ses_unknown:5&view={sid_a}".encode(),
+            "headers": [],
+        }
+        res = await us.stream_unified(_Request(scope))
+        # StreamingResponse が返り、 conn は generator 開始まで未登録 (= 接続確立が登録点)
+        assert res.media_type == "text/event-stream"
+        # generator を 1 frame だけ回して登録を確認
+        gen = res.body_iterator
+        first = await gen.__anext__()
+        assert "hello" in first
+        conn = us._conns.get("c9")
+        assert conn is not None
+        assert conn.jsonl_sids == {sid_a}
+        await gen.aclose()
+
+    _run(run())
