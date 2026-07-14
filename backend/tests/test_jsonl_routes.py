@@ -41,30 +41,31 @@ def test_read_complete_lines_missing_file(tmp_path):
 def test_read_tail_ok(tmp_path):
     p = tmp_path / "a.jsonl"
     p.write_bytes(b"a\nb\n")
-    assert jr._read_tail(p, 0) == (["a", "b"], 4, "ok")
+    # monitor 経路は per-line byte pos 付き (= SSE id 前進の土台、 2026-07-14)
+    assert jr._read_tail_with_pos(p, 0) == ([("a", 2), ("b", 4)], 4, "ok")
 
 
 def test_read_tail_nochange(tmp_path):
     p = tmp_path / "a.jsonl"
     p.write_bytes(b"a\nb\n")
-    assert jr._read_tail(p, 4) == ([], 4, "nochange")
+    assert jr._read_tail_with_pos(p, 4) == ([], 4, "nochange")
 
 
 def test_read_tail_partial(tmp_path):
     p = tmp_path / "a.jsonl"
     p.write_bytes(b"a\nb")  # b は未確定
-    assert jr._read_tail(p, 0) == (["a"], 2, "ok")
+    assert jr._read_tail_with_pos(p, 0) == ([("a", 2)], 2, "ok")
 
 
 def test_read_tail_truncated_resyncs_to_size(tmp_path):
     # pos がファイルサイズを超える (= rotate / truncate) → new_pos = 現 size、 status=truncated
     p = tmp_path / "a.jsonl"
     p.write_bytes(b"a\n")
-    assert jr._read_tail(p, 999) == ([], 2, "truncated")
+    assert jr._read_tail_with_pos(p, 999) == ([], 2, "truncated")
 
 
 def test_read_tail_error_on_missing(tmp_path):
-    assert jr._read_tail(tmp_path / "nope.jsonl", 5) == ([], 5, "error")
+    assert jr._read_tail_with_pos(tmp_path / "nope.jsonl", 5) == ([], 5, "error")
 
 
 # ---------------------------------------------------------------------------
