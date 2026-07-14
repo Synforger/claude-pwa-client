@@ -22,7 +22,7 @@
 import { useEffect, useRef } from 'react'
 import { applyOverviewSnapshot } from './applyOverviewSnapshot.js'
 import { registerConnection, notifyConnectionChange } from '../../transport/connectionStatus.js'
-import { sessionsOverviewSse } from '../../transport/sse-sessions-overview.ts'
+import { overviewSse } from '../../transport/select.ts'
 
 export function useSessionsOverview({ setLoading, optimisticRef, onPayloadRef }) {
   const liveRef = useRef(false)
@@ -30,7 +30,7 @@ export function useSessionsOverview({ setLoading, optimisticRef, onPayloadRef })
     // /sessions/overview/stream は transport/sse-sessions-overview.ts singleton が所有 (= ADR-019)。
     // ここは subscribe するだけ、 EventSource lifecycle / 再接続 / state は transport 側で扱う。
     const unreg = registerConnection(() => liveRef.current)
-    const unsub = sessionsOverviewSse.subscribe(payload => {
+    const unsub = overviewSse.subscribe(payload => {
       liveRef.current = true
       notifyConnectionChange()
       setLoading(prev => applyOverviewSnapshot(prev, payload, optimisticRef))

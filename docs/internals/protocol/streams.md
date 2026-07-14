@@ -104,7 +104,9 @@ tmux server は `exit-empty off` + 番兵 session `claudepwa-sentinel` (= backen
 - **status / overview**: 接続毎 diff 配信 (= F-09 と同規約) を 1 pump に統合。 subagents は op=subagents で対象 1 sid を watch
 - **keep-alive**: `{"ch":"sys","_hb":1}` を 25s 間隔 (= 全 channel 共通の 1 心拍、 旧 4-5 本分の heartbeat が 1 本に)
 
-旧 endpoint 群 (= 上の 1 表) は**全部温存**: 旧 bundle を開いたままの端末 / 旧 frontend が壊れない (= additive rollout、 frontend 切替後も rollback 可能)。
+旧 endpoint 群 (= 上の 1 表) は**全部温存**: 旧 bundle を開いたままの端末 / 旧 frontend が壊れない (= additive rollout)。
+
+**frontend は既定で本経路を使う**: `frontend/src/transport/unified.ts` (= singleton 本体) + `select.ts` (= 実装選択の 1 点、 consumer は select 経由で旧 interface のまま受け取る)。 緊急 rollback = DevTools で localStorage の cpc_transport を legacy にして reload (= 旧 4-5 本構成に戻る)。 offset (= cpc_v2_jsonl_offsets) と status hydrate cache (= cpc_last_all_status) は新旧同 key を共用するため切替で状態を失わない。
 
 ## 接続生存 signal の集約
 
