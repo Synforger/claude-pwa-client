@@ -7,7 +7,7 @@ import { useStreamBuffer } from './useStreamBuffer.js'
 import { processStreamEvent } from './processStreamEvent.js'
 import { reconcileUserMessage } from './reconcileUserMessage.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
-import { sseTransport } from '../../transport/sse.ts'
+import { chatTransport, unifiedEnabled } from '../../transport/select.ts'
 import {
   subscribe as subscribeEphemeral,
   getSnapshot as getEphemeralSnapshot,
@@ -217,13 +217,20 @@ export function useChatStream({
   // cpc_v2_jsonl_offsets に移管済、 useChatStream 内の offsetRef は当面残置 (= 後続 v2 state 連携
   // 深化で state/transport.js の offsets に統合予定、 現状は dead だが無害)。
   useEffect(() => {
-    const unsub = sseTransport.subscribe(event => {
+    const unsub = chatTransport.subscribe(event => {
       const evSid = event.sid || sid
       if (!evSid) return
       handleEventRef.current?.(evSid, event)
     })
     return () => { unsub() }
   }, [reconnectKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 統合 transport の購読 sid 宣言 (= 2026-07-14 電力効率工事)。 unified 経路は「宣言した
+  // sid だけ」 が wire に乗る (= 見てないセッションの event を受けない、 電力主犯対策)。
+  // タブ切替 = 同一接続上の購読差替 + 差分 replay。 legacy 経路では no-op (= 全 sid 配信)。
+  useEffect(() => {
+    chatTransport.setSubscribedSids(sid ? [sid] : [])
+  }, [sid])
 
   // iOS PWA バックグラウンドからの復帰時に EventSource を強制再接続 (= 2026-06-22)。
   // iOS は PWA を background にすると socket を suspend し、 戻った時に「OPEN のまま実は死んでる」
@@ -245,7 +252,10 @@ export function useChatStream({
     const onVis = () => {
       if (document.visibilityState === 'hidden') {
         flushOffsets()
-      } else if (document.visibilityState === 'visible') {
+      } else if (document.visibilityState === 'visible' && !unifiedEnabled) {
+        // legacy のみ: fg 復帰の張り直しを reconnectKey で駆動。 unified は
+        // transport/lifecycle.ts の unifiedTransport.bumpReconnect() が 1 接続分を
+        // 担うため、 ここで resub すると同一復帰で 2 回張り直す無駄が出る。
         setReconnectKey(k => k + 1)
       }
     }
@@ -600,8 +610,8 @@ export function useChatStream({
     buffer.resetBuf(sid)
     setMessages(prev => ({ ...prev, [sid]: [] }))
     optimisticRef.current[sid] = null
-    sseTransport.resetOffset(sid)
-    sseTransport.bumpReconnect()
+    chatTransport.resetOffset(sid)
+    chatTransport.bumpReconnect()
     scrollToBottom()
   }, [sid, setMessages, scrollToBottom]) // eslint-disable-line react-hooks/exhaustive-deps
 
