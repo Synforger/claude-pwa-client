@@ -106,10 +106,12 @@ def test_process_new_lines_publishes_to_broadcaster(isolated_state):
                 "type": "assistant", "uuid": "a1",
                 "message": {"content": [{"type": "text", "text": "hi"}]},
             })
-            jr._process_new_lines(sid, [raw])
-            # 少なくとも 1 件は publish される (= assistant event)
-            ev = await asyncio.wait_for(q.get(), timeout=0.1)
+            jr._process_new_lines(sid, [(raw, 4321)])
+            # 少なくとも 1 件は publish される (= assistant event)。 pos (= 行末 byte 位置)
+            # が event とペアで届く (= SSE id 行が live 中も前進する土台)。
+            ev, pos = await asyncio.wait_for(q.get(), timeout=0.1)
             assert ev.get("sid") == sid
+            assert pos == 4321
         finally:
             state_mod.jsonl_event_broadcaster.unsubscribe(sid, q)
 
