@@ -43,7 +43,7 @@ from backend.jsonl.session_status import (
 from backend.core.jsonl_tail import (
     initial_offset as _initial_offset_impl,
     read_complete_lines as _read_complete_lines,
-    read_tail as _read_tail,
+    read_tail_with_pos as _read_tail_with_pos,
 )
 from backend.terminal.runner import jsonl_path_for_session
 from backend.state import (
@@ -67,10 +67,15 @@ INITIAL_REPLAY_LINES = 500
 # tail の polling 間隔 (秒)。
 POLL_INTERVAL = 0.5
 
-# idle 時の back-off 上限秒。 SSE / monitor とも同じ値を使う (= backend-F-42 で統合)。
+# idle 時の back-off 上限秒 (= monitor の polling 上限。 新着検知の最悪遅延を決める)。
 _IDLE_MAX_INTERVAL = 2.0
 # back-off の伸び率 (= 変化なし時、 current * GROWTH で次回間隔を伸ばす)。
 _IDLE_GROWTH = 1.5
+# SSE keep-alive 送出間隔秒。 monitor back-off とは責務が別 (= こちらは接続維持の心拍のみ)。
+# 旧値は _IDLE_MAX_INTERVAL 共用の 2s で、 idle 中も 2s ごとにフレームが飛び iPhone の
+# 無線が省電力状態に落ちられなかった。 client 側の黙死検知は 65s watchdog (= _sse.ts) /
+# 再接続 bump なので 25s で十分に速い。
+_SSE_KEEPALIVE_SEC = 25.0
 
 
 def next_interval(current: float, made_progress: bool) -> float:
@@ -231,7 +236,7 @@ async def _jsonl_sse(session_id: str, start_pos: int | None = None):
     try:
         while True:
             try:
-                event = await asyncio.wait_for(queue.get(), timeout=_IDLE_MAX_INTERVAL)
+                event, ev_pos = await asyncio.wait_for(queue.get(), timeout=_SSE_KEEPALIVE_SEC)
             except asyncio.TimeoutError:
                 metrics.inc("sse.per_sid.keepalive")
                 yield ": keep-alive\n\n"
@@ -239,14 +244,16 @@ async def _jsonl_sse(session_id: str, start_pos: int | None = None):
             metrics.inc("sse.per_sid.frames")
             # broadcast 経路から来る event は dict。 sid 付きの場合もあるが per-sid SSE では
             # frontend が無変更で動くよう sid field は除去せず温存 (= 旧 wire と互換、 frontend
-            # は未使用 field を無視)。 SSE id は frontend が ?from=<offset> で投げ直すための
-            # backend file offset と整合させたいが、 publish 経路では offset を持たないので、
-            # event の lastEventId は frontend の offsetRef 連続性のため pos (= 最新 replay 末尾)
-            # を維持する (= 切断 → reconnect 時の "Last-Event-ID" は pos 値)。 monitor が
-            # 進めた offset は frontend が次回接続時に backend に問い直す必要は無く、 replay 経路の
-            # `?from=<offset>` で旧来通り差分のみ取れる。
+            # は未使用 field を無視)。 SSE id には monitor が読み終えた実 byte 位置 (= ev_pos)
+            # を載せる。 旧実装は replay 末尾 pos を固定で流し続けたため、 live 中に offset が
+            # 一切前進せず、 再接続のたび接続以降の全行を replay し直す増幅があった。
+            # ev_pos が無い event (= prompt_state 等の ephemeral 合成 event) は id 行を
+            # 省略して lastEventId を直前値のまま維持する。
             _inject_envelope(event, session_id)
-            yield f"id: {pos}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+            if ev_pos is not None:
+                yield f"id: {ev_pos}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+            else:
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
     finally:
         metrics.inc("sse.per_sid.disconnect")
         jsonl_event_broadcaster.unsubscribe(session_id, queue)
@@ -344,18 +351,23 @@ async def _jsonl_sse_all(start_pos_map: dict[str, int]):
     try:
         while True:
             try:
-                event = await asyncio.wait_for(queue.get(), timeout=_IDLE_MAX_INTERVAL)
+                event, ev_pos = await asyncio.wait_for(queue.get(), timeout=_SSE_KEEPALIVE_SEC)
             except asyncio.TimeoutError:
                 metrics.inc("sse.all.keepalive")
                 yield ": keep-alive\n\n"
                 continue
             metrics.inc("sse.all.frames")
             sid = event.get("sid") or ""
-            # live event の SSE id には replay 末尾 pos を踏襲 (= 厳密 byte offset 整合は
-            # 維持できないが、 frontend は最終的に file replay で同期し直す形)。
-            pos = replay_pos.get(sid, 0)
+            # live event の SSE id には monitor が読み終えた実 byte 位置 (= ev_pos) を載せる。
+            # 旧実装は replay 末尾 pos を固定で流し続けたため offset が live 中に前進せず、
+            # 再接続 (= 画面ロック解除 / bg 復帰) のたび接続以降の全行を replay し直す増幅が
+            # あった。 ev_pos の無い ephemeral event (= prompt_state 等) は id 行を省略して
+            # frontend の offset map を汚さない。
             _inject_envelope(event, sid)
-            yield f"id: {sid}:{pos}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+            if ev_pos is not None:
+                yield f"id: {sid}:{ev_pos}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+            else:
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
     finally:
         jsonl_event_broadcaster.unsubscribe(ALL_SUBSCRIBER_KEY, queue)
 
@@ -507,15 +519,19 @@ def request_sid_tail_reset(sid: str) -> None:
     _sid_tail_reset_pending.add(sid)
 
 
-def _process_new_lines(sid: str, lines: list[str]) -> None:
+def _process_new_lines(sid: str, lines_with_pos: list[tuple[str, int]]) -> None:
     """tail で取れた新規完全行を 1 sid 分処理する。 旧 inner loop の per-line 部分を
     切り出した pure-ish function。 mutate / push 発火 + broadcaster へ event publish を行う。
 
     F-02 / F-06: 旧版は mutate のみ。 SSE 側 (`_lines_to_sse`) も独自に mutate していて
     dual-driver な race を抱えていた。 本関数を**単一経路**として event 生成 + mutator +
     publish を担い、 SSE 配信側は broadcaster Queue subscriber に降格する。
+
+    各行はその行を読み終えた実 byte 位置 (= line_pos) とペアで受け、 publish に載せる。
+    SSE 配信側はこれを id 行に使い、 live 中も client の offset が前進する (= 再接続時の
+    replay を差分だけに保つ)。
     """
-    for raw in lines:
+    for raw, line_pos in lines_with_pos:
         raw = raw.strip()
         if not raw:
             continue
@@ -558,7 +574,7 @@ def _process_new_lines(sid: str, lines: list[str]) -> None:
                     bound = send_dedup.bind_jsonl_uuid(sid, jsonl_uuid)
                     if bound is not None:
                         event["send_id"] = bound
-            jsonl_event_broadcaster.publish(sid, event)
+            jsonl_event_broadcaster.publish(sid, event, line_pos)
 
 
 def _tick_sid(sid: str, tstate: SessionTailState, now_mono: float) -> None:
@@ -574,7 +590,7 @@ def _tick_sid(sid: str, tstate: SessionTailState, now_mono: float) -> None:
         metrics.inc("monitor.init_bind")
         _initialize_sid_tail(sid, tstate, path)
         return
-    lines, new_pos, status = _read_tail(path, tstate.offset)
+    lines, new_pos, status = _read_tail_with_pos(path, tstate.offset)
     if status == "error":
         metrics.inc("monitor.read_error")
         return

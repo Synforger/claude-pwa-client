@@ -3,6 +3,9 @@
 pub/sub の sid 別 + "all" 振分、 publish 後 Queue 受信、 unsubscribe で漏れない、
 複数 subscriber に fan-out、 などの基本動作を担保する。
 
+Queue の item は (event, pos) tuple (= pos は JSONL 行を読み終えた byte 位置、
+SSE id 行で client offset を前進させる。 file 由来でない ephemeral event は None)。
+
 pytest-asyncio が無いので各 async ケースは loop を都度作って run する。 asyncio.run は
 default loop を閉じて後続 test (= test_fork.py の `asyncio.get_event_loop()` 経路) を壊す
 ので、 new_event_loop + set_event_loop で main thread に新 loop を張り直す helper を使う。
@@ -42,10 +45,23 @@ def test_publish_delivers_to_sid_subscriber():
     async def run():
         b = JsonlEventBroadcaster()
         q = b.subscribe("sid_a")
-        b.publish("sid_a", {"type": "assistant", "text": "hi", "sid": "sid_a"})
-        ev = await asyncio.wait_for(q.get(), timeout=0.1)
+        b.publish("sid_a", {"type": "assistant", "text": "hi", "sid": "sid_a"}, 123)
+        ev, pos = await asyncio.wait_for(q.get(), timeout=0.1)
         assert ev["text"] == "hi"
         assert ev["sid"] == "sid_a"
+        assert pos == 123
+    _run(run())
+
+
+def test_publish_without_pos_delivers_none():
+    """pos 省略 (= prompt_state 等の ephemeral event) は None が届く (= SSE 側は id 行省略)。"""
+    async def run():
+        b = JsonlEventBroadcaster()
+        q = b.subscribe("sid_a")
+        b.publish("sid_a", {"type": "prompt_state", "sid": "sid_a"})
+        ev, pos = await asyncio.wait_for(q.get(), timeout=0.1)
+        assert ev["type"] == "prompt_state"
+        assert pos is None
     _run(run())
 
 
@@ -54,8 +70,8 @@ def test_publish_does_not_cross_sids():
         b = JsonlEventBroadcaster()
         qa = b.subscribe("sid_a")
         qb = b.subscribe("sid_b")
-        b.publish("sid_a", {"type": "x", "sid": "sid_a"})
-        ev = await asyncio.wait_for(qa.get(), timeout=0.1)
+        b.publish("sid_a", {"type": "x", "sid": "sid_a"}, 1)
+        ev, _pos = await asyncio.wait_for(qa.get(), timeout=0.1)
         assert ev["sid"] == "sid_a"
         try:
             await asyncio.wait_for(qb.get(), timeout=0.05)
@@ -70,16 +86,17 @@ def test_publish_fans_out_to_all_subscriber():
         b = JsonlEventBroadcaster()
         qa = b.subscribe("sid_a")
         qall = b.subscribe(ALL_SUBSCRIBER_KEY)
-        b.publish("sid_a", {"type": "assistant", "sid": "sid_a"})
-        b.publish("sid_b", {"type": "assistant", "sid": "sid_b"})
-        ev1 = await asyncio.wait_for(qa.get(), timeout=0.1)
+        b.publish("sid_a", {"type": "assistant", "sid": "sid_a"}, 10)
+        b.publish("sid_b", {"type": "assistant", "sid": "sid_b"}, 20)
+        ev1, pos1 = await asyncio.wait_for(qa.get(), timeout=0.1)
         assert ev1["sid"] == "sid_a"
+        assert pos1 == 10
         assert qa.empty()
-        seen = set()
+        seen = {}
         for _ in range(2):
-            ev = await asyncio.wait_for(qall.get(), timeout=0.1)
-            seen.add(ev["sid"])
-        assert seen == {"sid_a", "sid_b"}
+            ev, pos = await asyncio.wait_for(qall.get(), timeout=0.1)
+            seen[ev["sid"]] = pos
+        assert seen == {"sid_a": 10, "sid_b": 20}
     _run(run())
 
 
@@ -88,7 +105,7 @@ def test_unsubscribe_stops_delivery():
         b = JsonlEventBroadcaster()
         q = b.subscribe("sid_a")
         b.unsubscribe("sid_a", q)
-        b.publish("sid_a", {"type": "x", "sid": "sid_a"})
+        b.publish("sid_a", {"type": "x", "sid": "sid_a"}, 1)
         try:
             await asyncio.wait_for(q.get(), timeout=0.05)
         except asyncio.TimeoutError:
@@ -102,10 +119,11 @@ def test_multiple_sid_subscribers_each_get_event():
         b = JsonlEventBroadcaster()
         q1 = b.subscribe("sid_a")
         q2 = b.subscribe("sid_a")
-        b.publish("sid_a", {"type": "x", "sid": "sid_a"})
-        ev1 = await asyncio.wait_for(q1.get(), timeout=0.1)
-        ev2 = await asyncio.wait_for(q2.get(), timeout=0.1)
+        b.publish("sid_a", {"type": "x", "sid": "sid_a"}, 7)
+        ev1, pos1 = await asyncio.wait_for(q1.get(), timeout=0.1)
+        ev2, pos2 = await asyncio.wait_for(q2.get(), timeout=0.1)
         assert ev1["sid"] == ev2["sid"] == "sid_a"
+        assert pos1 == pos2 == 7
     _run(run())
 
 

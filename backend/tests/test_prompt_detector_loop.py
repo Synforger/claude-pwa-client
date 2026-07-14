@@ -54,7 +54,8 @@ async def _drain(q: asyncio.Queue, timeout: float = 0.05) -> list[dict]:
     events: list[dict] = []
     try:
         while True:
-            events.append(await asyncio.wait_for(q.get(), timeout=timeout))
+            ev, _pos = await asyncio.wait_for(q.get(), timeout=timeout)
+            events.append(ev)
     except asyncio.TimeoutError:
         return events
 
