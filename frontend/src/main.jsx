@@ -5,6 +5,15 @@ import App from './App.jsx'
 import Terminal from './features/terminal/Terminal.jsx'
 import ErrorBoundary from './layout/ErrorBoundary.jsx'
 import { hardRefreshAppShell } from './utils/appRefresh.js'
+import { installListeners } from './transport/lifecycle.ts'
+
+// transport lifecycle (= visibility / pagehide / pageshow / freeze) の配線。
+// fg 復帰時の接続 bump + hidden 遷移時の offset flush はここが唯一の起点
+// (= 2026-07-15 修正: 従来 installListeners はどこからも呼ばれない dead code で、
+// fg 復帰の再接続は useChatStream の visibilitychange が肩代わりしていた。 unified
+// transport 切替でその肩代わりを外した際、 起点ゼロになり「離席復帰でチャットが
+// 凍る」 regression が出た)。
+installListeners()
 
 // deploy 後の旧 client 自己修復: lazy chunk の dynamic import 失敗 (= deploy で旧 hash の
 // chunk がサーバから消えた) を Vite の vite:preloadError で受け、 「アプリを更新」 と同じ
