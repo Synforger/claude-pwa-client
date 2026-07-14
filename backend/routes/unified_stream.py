@@ -85,8 +85,9 @@ class UnifiedConn:
     conn_id: str
     queue: asyncio.Queue = field(default_factory=asyncio.Queue)
     jsonl_sids: set[str] = field(default_factory=set)
-    # 接続時 query で宣言された購読の replay frame (= generator が接続確立後に吐いて破棄)
-    initial_replay: list[dict] = field(default_factory=list)
+    # 接続時 query で宣言された購読の replay 開始 offset (= generator が live pump 起動後に
+    # file を読む。 GET handler 時点で読むと「構築〜pump 購読」 の隙間の publish が恒久欠落する)
+    initial_offsets: dict[str, int | None] = field(default_factory=dict)
     subagents_sid: str | None = None
     subagents_task: asyncio.Task | None = None
 
@@ -247,30 +248,37 @@ async def _unified_gen(conn: UnifiedConn, initial_view: str | None):
         views_by_conn[conn.conn_id] = initial_view
     metrics.inc("sse.unified.connect")
     pumps: list[asyncio.Task] = []
+    status_ev: asyncio.Event | None = None
+    status_pump_started = False
     try:
         yield _frame({"ch": "sys", "type": "hello", "conn": conn.conn_id})
 
-        # 1) warmup + replay は購読 sid のみ (= 旧 /all の全 sid sweep を廃止)
+        # 1) live pump を replay より**先に**起動する (= 2026-07-15 修正: replay の file 読みと
+        #    pump 購読の隙間に monitor が publish した行が恒久欠落していた。 pump 先行なら
+        #    隙間の event は conn.queue に積まれ、 replay 後の live loop で配信される。
+        #    replay と重複し得るが client の uuid dedup + offset 単調ガードが吸収する)
+        status_ev = sessions_overview.subscribe()
+        pumps.append(asyncio.create_task(_jsonl_pump(conn)))
+
+        # 2) warmup + replay は購読 sid のみ (= 旧 /all の全 sid sweep を廃止)
         for sid in list(conn.jsonl_sids):
             await _ensure_pty(sid)
-        # 初期購読の replay (= 接続 query で渡された offset から構築済み)
-        for f in conn.initial_replay:
-            yield _frame(f)
-        conn.initial_replay = []
+        for sid in sorted(conn.jsonl_sids):
+            for f in _replay_frames(sid, conn.initial_offsets.get(sid)):
+                yield _frame(f)
+        conn.initial_offsets = {}
 
-        # 2) 初期 snapshot (= status / overview。 旧 stream の接続直後 snapshot と同じ)。
-        #    broadcaster の subscribe を構築より先に済ませる (= 隙間の notify 取りこぼしなし)
-        status_ev = sessions_overview.subscribe()
+        # 3) 初期 snapshot (= status / overview。 旧 stream の接続直後 snapshot と同じ)。
+        #    broadcaster の subscribe は上で済ませてある (= 隙間の notify 取りこぼしなし)
         initial_status = json.dumps(_build_all_status())
         initial_overview = json.dumps(_build_sessions_overview())
         yield _frame({"ch": "status", "data": json.loads(initial_status)})
         yield _frame({"ch": "overview", "data": json.loads(initial_overview)})
 
-        # 3) live pump 起動 (= jsonl フィルタ + status/overview diff)
-        pumps = [
-            asyncio.create_task(_jsonl_pump(conn)),
-            asyncio.create_task(_status_pump(conn, status_ev, initial_status, initial_overview)),
-        ]
+        # 4) status/overview diff pump 起動
+        pumps.append(
+            asyncio.create_task(_status_pump(conn, status_ev, initial_status, initial_overview)))
+        status_pump_started = True
 
         # 4) 配信 loop (= queue 排出 + keep-alive)
         while True:
@@ -286,6 +294,10 @@ async def _unified_gen(conn: UnifiedConn, initial_view: str | None):
         metrics.inc("sse.unified.disconnect")
         for t in pumps:
             t.cancel()
+        # replay 中の切断等で _status_pump 未起動のまま抜けた場合の購読 leak 掃除
+        # (= 起動済みなら task 側 finally が unsubscribe する)
+        if status_ev is not None and not status_pump_started:
+            sessions_overview.unsubscribe(status_ev)
         _stop_subagents_watcher(conn)
         views_by_conn.pop(conn.conn_id, None)
         # 再接続で同 conn_id が新 generator に置き換わっている場合は消さない
@@ -318,10 +330,7 @@ async def stream_unified(request: Request):
     conn = UnifiedConn(conn_id=conn_id)
     known = set(sessions_meta.keys())
     conn.jsonl_sids = {sid for sid in offsets if sid in known}
-    conn.initial_replay = [
-        f for sid in sorted(conn.jsonl_sids)
-        for f in _replay_frames(sid, offsets.get(sid))
-    ]
+    conn.initial_offsets = {sid: offsets.get(sid) for sid in conn.jsonl_sids}
     return StreamingResponse(
         _unified_gen(conn, view),
         media_type="text/event-stream",
