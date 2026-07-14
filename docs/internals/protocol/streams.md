@@ -93,6 +93,19 @@ Stop ボタン経路も WS で通す。 HTTP POST 経路だと送信失敗 race 
 
 tmux server は `exit-empty off` + 番兵 session `claudepwa-sentinel` (= backend 起動時と各 spawn 前に `ensure_tmux_resilience` が冪等適用) で「最後の session の kill = server 死 = 全 claude 消失 → 次の attach で `claude --resume` 一斉再走」 のカスケードを封じている。 番兵は `pwa-` prefix を持たないため maintenance の残骸掃除の対象外。
 
+## `/stream/unified`: 多重化 1 本接続 (= 2026-07-14 電力効率工事)
+
+旧構成のクライアント 1 台あたり SSE/WS 4-5 本 (= jsonl all + status + overview + per-sid subagents + views ws) を、 1 本の SSE + 制御 POST に畳んだ経路。 `backend/routes/unified_stream.py` 実装、 endpoint 契約は `contracts/schema/http-endpoints.yaml` の `/stream/unified` 2 entry が真値。
+
+- **channel envelope**: data 行 JSON `{"ch": "sys"|"jsonl"|"status"|"overview"|"subagents", ...}`。 jsonl frame は `{ch, pos, ev}` で `ev` は既存 sse-events event そのまま (= wire 内容の schema 変更なし)、 `pos` が行末実 byte 位置 (= client は frame ごとに offset 前進、 SSE id 行は使わない)
+- **購読 sid だけ配る**: jsonl channel は接続 query (= jsonl=sid:off,...) / control の op=jsonl で宣言された sid のみ。 未購読 sid の event (= 巨大 tool_result 含む) はネットワークにも client CPU にも届かない (= 全配信 fan-out の遮断、 電力主犯対策)。 タブ切替 = 再接続でなく購読差替 + 差分 replay
+- **warmup も購読 sid のみ**: 旧 `/jsonl/stream/all` の「接続時に全 sid PTY sweep」 を廃止。 未購読 sid は購読された瞬間に ensure
+- **views/ws の吸収**: op=view で視認申告、 SSE 切断 = views 登録自動消滅 (= WS の TCP FIN と同じ stale-free 性質)。 Stop は op=stop (= POST は TCP 保証で届く、 旧 WS 経路と等価)
+- **status / overview**: 接続毎 diff 配信 (= F-09 と同規約) を 1 pump に統合。 subagents は op=subagents で対象 1 sid を watch
+- **keep-alive**: `{"ch":"sys","_hb":1}` を 25s 間隔 (= 全 channel 共通の 1 心拍、 旧 4-5 本分の heartbeat が 1 本に)
+
+旧 endpoint 群 (= 上の 1 表) は**全部温存**: 旧 bundle を開いたままの端末 / 旧 frontend が壊れない (= additive rollout、 frontend 切替後も rollback 可能)。
+
 ## 接続生存 signal の集約
 
 各経路は `frontend/src/transport/lifecycle.ts` の `registerConnection(() => bool)` に「生きてるか」 を judge する callback を登録する。 StatusBar の接続インジケータは全経路の AND を集約表示する (= 1 本切れたら警告)。
