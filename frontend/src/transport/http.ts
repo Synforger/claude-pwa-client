@@ -58,7 +58,10 @@ class HttpClientImpl implements HttpClient {
         ? mergeSignals([opts.signal, timeoutCtrl.signal])
         : timeoutCtrl.signal
       try {
-        const res = await fetch(url, { method, headers, body, signal })
+        const res = await fetch(url, {
+          method, headers, body, signal,
+          ...(opts.keepalive ? { keepalive: true } : {}),
+        })
         registerCorr(corrId, { path, status: res.status })
         return res
       } catch (e) {
