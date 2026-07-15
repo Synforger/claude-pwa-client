@@ -61,13 +61,16 @@ hydrateFromLocalStorage()
 /** SessionDrawer が sessionBadges を自己解決するための純関数 (= 同 hook を二重 mount しない
  *  ために抽出)。 caller は 4 store (= sessions / messages / ephemeral / sessions.unreadDone)
  *  を subscribe してこの helper に渡す。 */
-export function deriveSessionBadges({ sids, activeSid, messages, loading, unreadDone }) {
+export function deriveSessionBadges({ sids, activeSid, messages, loading, unreadDone, waitingInput = {} }) {
   const badges = {}
   let count = 0
   for (const sid of sids) {
     if (sid === activeSid) { badges[sid] = null; continue }
     const arr = messages[sid] || []
-    const pending = arr.some(m => m.askUserQuestion && !m.askUserQuestion.answered)
+    // 質問待ち = messages 由来 (= 購読中 sid の即時反映) OR backend detector 由来
+    // (= waitingInput、 統合 transport で chat event が来ない裏セッションの真値)
+    const pending = waitingInput[sid]
+      || arr.some(m => m.askUserQuestion && !m.askUserQuestion.answered)
     if (pending) { badges[sid] = { kind: 'pending', label: '?' }; continue }
     if (loading[sid]) { badges[sid] = { kind: 'processing', label: '●' }; continue }
     if (unreadDone[sid]) { badges[sid] = { kind: 'new', label: '●' }; count++; continue }
@@ -80,6 +83,7 @@ export function useSessionBadges({ sids, activeSid, messages, loading }) {
   hydrateFromLocalStorage()
   const snap = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
   const unreadDone = snap.unreadDone
+  const waitingInput = snap.waitingInput || {}
 
   // 前回 render 時の loading[sid]。 true→false 遷移検出用。
   const prevLoadingRef = useRef({})
@@ -186,10 +190,10 @@ export function useSessionBadges({ sids, activeSid, messages, loading }) {
   const sessionStateSig = useMemo(
     () => sids.map(sid => {
       const arr = messages[sid] || []
-      const pending = arr.some(m => m.askUserQuestion && !m.askUserQuestion.answered)
+      const pending = waitingInput[sid] || arr.some(m => m.askUserQuestion && !m.askUserQuestion.answered)
       return `${sid}:${pending ? 'p' : ''}:${loading[sid] ? 'l' : ''}:${unreadDone[sid] ? 'n' : ''}`
     }).join('|'),
-    [sids, messages, loading, unreadDone]
+    [sids, messages, loading, unreadDone, waitingInput]
   )
 
   const { sessionBadges, unreadCount } = useMemo(() => {
@@ -199,6 +203,7 @@ export function useSessionBadges({ sids, activeSid, messages, loading }) {
       messages: messagesRef.current,
       loading,
       unreadDone,
+      waitingInput,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSid, sessionStateSig])

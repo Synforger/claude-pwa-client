@@ -23,6 +23,7 @@ import { useEffect, useRef } from 'react'
 import { applyOverviewSnapshot } from './applyOverviewSnapshot.js'
 import { registerConnection, notifyConnectionChange } from '../../transport/connectionStatus.js'
 import { overviewSse } from '../../transport/select.ts'
+import { setWaitingInputMap } from '../../state/sessions.js'
 
 export function useSessionsOverview({ setLoading, optimisticRef, onPayloadRef }) {
   const liveRef = useRef(false)
@@ -34,6 +35,14 @@ export function useSessionsOverview({ setLoading, optimisticRef, onPayloadRef })
       liveRef.current = true
       notifyConnectionChange()
       setLoading(prev => applyOverviewSnapshot(prev, payload, optimisticRef))
+      // 入力待ちフラグを store へ (= 裏セッションの質問待ちバッジの真値、 2026-07-15)
+      if (payload && typeof payload === 'object') {
+        const waiting = {}
+        for (const [sid, info] of Object.entries(payload)) {
+          if (info && typeof info === 'object' && info.waiting_input) waiting[sid] = true
+        }
+        setWaitingInputMap(waiting)
+      }
       // last_seen_at 等の追加 field を別 hook に流すための副経路 (= 未読同期、 2026-06-10 追加)。
       if (onPayloadRef?.current) onPayloadRef.current(payload)
     })

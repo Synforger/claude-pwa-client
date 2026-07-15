@@ -278,3 +278,86 @@ def test_endpoint_accepts_plain_sid_list_and_filters_unknown(unified_env):
         await gen.aclose()
 
     _run(run())
+
+
+def test_events_published_during_replay_are_not_lost(unified_env):
+    """接続直後 (= replay 進行中) に publish された event も届く (= 2026-07-15 修正:
+    旧実装は GET handler 時点で replay を file から構築し、 live 購読は replay 配信後
+    だったため、 その隙間の publish が恒久欠落していた。 pump 先行起動で隙間ゼロ)。"""
+    state, sid_a, _sid_b, _ensured = unified_env
+
+    async def run():
+        conn = _mk_conn({sid_a: 0})
+        gen = us._unified_gen(conn, initial_view=None)
+        # hello だけ読んだ時点 (= replay の file 読みは未実行) で「行追記 + publish」
+        # (= monitor の実挙動: publish される行は既に file に書かれている)。 旧実装は
+        # GET handler 時点の file snapshot を replay していたためこの行が落ちた。
+        first = _parse(await asyncio.wait_for(gen.__anext__(), timeout=2.5))
+        assert first["ch"] == "sys" and first["type"] == "hello"
+        jpath = us._latest_jsonl(sid_a)
+        with open(jpath, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"type": "assistant", "uuid": "live-gap",
+                                "message": {"content": [{"type": "text", "text": "g"}]}}) + "\n")
+        state_mod.jsonl_event_broadcaster.publish(
+            sid_a, {"type": "assistant", "sid": sid_a, "uuid": "live-gap",
+                    "message": {"content": [{"type": "text", "text": "g"}]}}, 999)
+        # replay (= user_message) と live (= live-gap) の両方が届く
+        seen_uuids = []
+        for _ in range(12):
+            payload = _parse(await asyncio.wait_for(gen.__anext__(), timeout=2.5))
+            if payload.get("ch") == "jsonl":
+                seen_uuids.append(payload["ev"].get("uuid"))
+            if "live-gap" in seen_uuids:
+                break
+        await gen.aclose()
+        assert f"u-{sid_a}" in seen_uuids  # replay 分
+        assert "live-gap" in seen_uuids    # 隙間の publish 分
+    _run(run())
+
+
+def test_stale_generator_cleanup_keeps_new_conns_view(unified_env):
+    """再接続 (= 同 conn_id の新 generator) 後に旧 generator の後始末が走っても、
+    新接続の conn 登録と view 登録は消えない (= 「見てるのに通知が鳴る」 逆方向バグ防止)。"""
+    state, sid_a, _sid_b, _ensured = unified_env
+
+    async def run():
+        conn_old = _mk_conn({})
+        gen_old = us._unified_gen(conn_old, initial_view=sid_a)
+        await _read_until(gen_old, lambda p: p.get("ch") == "overview")
+        # 再接続: 同 conn_id で新 generator が登録を置き換える
+        conn_new = us.UnifiedConn(conn_id="c1")
+        gen_new = us._unified_gen(conn_new, initial_view=sid_a)
+        await _read_until(gen_new, lambda p: p.get("ch") == "overview")
+        assert us._conns["c1"] is conn_new
+        assert state_mod.views_by_conn["c1"] == sid_a
+        # 旧 generator の遅れた後始末 → 新接続の登録は無傷
+        await gen_old.aclose()
+        assert us._conns.get("c1") is conn_new
+        assert state_mod.views_by_conn.get("c1") == sid_a
+        # 新 generator の後始末 → 正しく消える
+        await gen_new.aclose()
+        assert "c1" not in us._conns
+        assert "c1" not in state_mod.views_by_conn
+    _run(run())
+
+
+def test_pump_death_closes_connection(unified_env, monkeypatch):
+    """pump task が例外死したら接続を閉じる (= 心拍だけ生きる新種 silent-dead の防止。
+    client は ES close → 自動再接続で全 pump が作り直される)。"""
+    _state, sid_a, _sid_b, _ensured = unified_env
+    monkeypatch.setattr(us, "KEEPALIVE_SEC", 0.05)
+
+    async def _dying_pump(_conn):
+        raise RuntimeError("pump boom")
+    monkeypatch.setattr(us, "_jsonl_pump", _dying_pump)
+
+    async def run():
+        conn = _mk_conn({sid_a: None})
+        gen = us._unified_gen(conn, initial_view=None)
+        await _read_until(gen, lambda p: p.get("ch") == "overview")
+        # 次の keepalive 判定で pump 死を検知して StopAsyncIteration (= 接続 close)
+        with pytest.raises(StopAsyncIteration):
+            for _ in range(10):
+                await asyncio.wait_for(gen.__anext__(), timeout=2.5)
+        assert "c1" not in us._conns  # finally cleanup 済み
+    _run(run())

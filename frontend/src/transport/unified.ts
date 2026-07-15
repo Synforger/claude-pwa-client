@@ -167,8 +167,13 @@ class UnifiedTransport {
       const pos = frame.pos
       const sid = event.sid
       if (typeof pos === 'number' && typeof sid === 'string' && sid) {
-        this.offsets[sid] = Math.floor(pos)
-        this.schedulePersistOffsets()
+        // 単調ガード: replay と live pump の並走で古い pos の frame が後着し得る
+        // (= server は pump 先行で隙間ゼロを優先、 重複側は client で吸収する規約)。
+        // offset を巻き戻すと次回接続の replay が無駄に太る。
+        if (Math.floor(pos) > (this.offsets[sid] ?? -1)) {
+          this.offsets[sid] = Math.floor(pos)
+          this.schedulePersistOffsets()
+        }
       }
       for (const h of this.jsonlHandlers) {
         try { h(event) } catch (e) { console.warn('[unified] jsonl handler threw', e) }
@@ -205,20 +210,36 @@ class UnifiedTransport {
   }
 
   private onHello(): void {
-    // 接続 (再) 確立: server 側 conn は GET query の状態しか知らないので、 query に乗らない
-    // desired state (= subagents watch) をここで再主張する。 view は query 済みだが、
-    // 接続前に setActiveSid された可能性もあるため冪等に再送する。
+    // 接続 (再) 確立: desired state を**全部**冪等に再主張する。 server の op=jsonl は
+    // 「既購読 sid は added に入らない = 重複 replay しない」 ので、 query で購読済みでも
+    // 再送は無害。 逆に query 構築後〜open の間に setJsonlSids された場合 (= 初回接続で
+    // 実際に起きたレース: jsonl= 無し接続 → 購読ゼロのままチャットが凍る、 2026-07-15
+    // access log で確認) はこの再主張だけが購読を成立させる。
+    this.assertJsonlSubs()
     if (this.viewSid) this.control({ op: 'view', sid: this.viewSid })
     if (this.subagentsSid) this.control({ op: 'subagents', sid: this.subagentsSid })
   }
 
-  private control(body: Record<string, unknown>): void {
+  private control(body: Record<string, unknown>, opts?: { keepalive?: boolean }): void {
     httpClient.apiFetch(`/stream/unified/${encodeURIComponent(this.connId)}/control`, {
-      method: 'POST', jsonBody: body,
+      method: 'POST', jsonBody: body, ...(opts?.keepalive ? { keepalive: true } : {}),
     }).then(res => {
       // 404 = backend 再起動等で conn 消失 → 張り直し (= hello が desired state を再主張)
       if (res.status === 404) this.bumpReconnect()
     }).catch(() => { /* offline 等は watchdog / fg bump に任せる */ })
+  }
+
+  /** hidden 遷移時: backend の「見てる」 登録だけ即時解除する (= 通知抑制の解除)。
+   *
+   * 旧 /views/ws は hidden で WS ごと閉じて登録が消えていた。 統合接続は hidden でも
+   * すぐには切れないため、 明示的に view null を届けないと「裏に置いたタブが通知を
+   * 抑制し続ける」 (= AskUserQuestion が鳴らない) 窓が開く。 desired (= viewSid) は
+   * 保持したまま送る: fg 復帰時の bump → hello 再主張が登録を復元する。 keepalive で
+   * hidden 遷移中でも送達させる。 */
+  suspendView(): void {
+    if (this.viewSid && this.es) {
+      this.control({ op: 'view', sid: null }, { keepalive: true })
+    }
   }
 
   // ---------------------------------------------------------------- offsets
@@ -258,15 +279,40 @@ class UnifiedTransport {
     const same = next.size === this.jsonlSids.size && Array.from(next).every(s => this.jsonlSids.has(s))
     this.jsonlSids = next
     if (same) return
-    if (this.es && this.state === 'open') {
-      this.control({
+    this.assertJsonlSubs()
+  }
+
+  /** 購読宣言を送り、 応答の subscribed で成立を検証する (= 未成立ならリトライ)。
+   *
+   * backend は「知らない sid」 の購読を黙って落とす (= 新規タブ / fork 直後は POST
+   * /sessions の登録と購読宣言がほぼ同時に走り、 まれに購読側が先着して捨てられる)。
+   * 応答検証 + 500ms 段階リトライで、 登録が追いつき次第 購読が成立する。 */
+  private assertJsonlSubs(attempt = 0): void {
+    if (!this.es || this.state !== 'open' || this.jsonlSids.size === 0) return
+    const desired = Array.from(this.jsonlSids)
+    httpClient.apiFetch(`/stream/unified/${encodeURIComponent(this.connId)}/control`, {
+      method: 'POST',
+      jsonBody: {
         op: 'jsonl',
-        sids: Array.from(next).map(sid => ({
+        sids: desired.map(sid => ({
           sid,
           from: Number.isFinite(this.offsets[sid]) ? Math.floor(this.offsets[sid]) : null,
         })),
-      })
-    }
+      },
+    }).then(async res => {
+      if (res.status === 404) { this.bumpReconnect(); return }
+      const data = res.ok ? await res.json().catch(() => null) : null
+      const got = new Set<string>((data && (data as { subscribed?: string[] }).subscribed) || [])
+      // 現時点の desired と照合 (= リトライ待ちの間にタブ切替されていたら古い分は追わない)
+      const missing = desired.filter(s => this.jsonlSids.has(s) && !got.has(s))
+      if ((missing.length > 0 || !res.ok) && attempt < 3) {
+        setTimeout(() => this.assertJsonlSubs(attempt + 1), 500 * (attempt + 1))
+      } else if (missing.length > 0) {
+        console.warn('[unified] jsonl subscription not established after retries', missing)
+      }
+    }).catch(() => {
+      if (attempt < 3) setTimeout(() => this.assertJsonlSubs(attempt + 1), 500 * (attempt + 1))
+    })
   }
 
   subscribeStatus(handler: Handler): () => void {
@@ -329,9 +375,32 @@ class UnifiedTransport {
     if (this.es && this.state === 'open') this.control({ op: 'view', sid })
   }
 
-  sendStopIntent(sid: string): void {
+  sendStopIntent(sid: string, attempt = 0): void {
     if (!sid) return
-    this.control({ op: 'stop', sid })
+    // Stop は「押したのに止まらない」 が一番信頼を損ねる操作。 旧 /views/ws は TCP 保証で
+    // 届けていたので、 POST 化に合わせて再送を明示する: 失敗 (= network / 5xx) は
+    // 300ms → 900ms の 2 回まで再送。 backend 側 user_stopped は冪等なので重複送達は無害。
+    // 404 (= conn 消失) は control() 共通の bumpReconnect が走るので、 再送は再接続後の
+    // conn に対して行われる。
+    const RETRIES = 2
+    httpClient.apiFetch(`/stream/unified/${encodeURIComponent(this.connId)}/control`, {
+      method: 'POST', jsonBody: { op: 'stop', sid },
+    }).then(res => {
+      if (res.status === 404) {
+        this.bumpReconnect()
+        if (attempt < RETRIES) setTimeout(() => this.sendStopIntent(sid, attempt + 1), 300 * (3 ** attempt))
+        return
+      }
+      if (!res.ok && attempt < RETRIES) {
+        setTimeout(() => this.sendStopIntent(sid, attempt + 1), 300 * (3 ** attempt))
+      }
+    }).catch(() => {
+      if (attempt < RETRIES) {
+        setTimeout(() => this.sendStopIntent(sid, attempt + 1), 300 * (3 ** attempt))
+      } else {
+        console.warn('[unified] stop intent delivery failed after retries', sid)
+      }
+    })
   }
 }
 
