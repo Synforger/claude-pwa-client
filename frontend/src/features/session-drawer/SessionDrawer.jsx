@@ -67,6 +67,7 @@ export default function SessionDrawer() {
   const agents = sessionsSnap.agents
   const sessionActivity = sessionsSnap.sessionActivity
   const unreadDone = sessionsSnap.unreadDone
+  const waitingInput = sessionsSnap.waitingInput || {}
   const loading = ephem.loading
 
   // 並び順: 「最終活動時刻」 降順、 未活動は created_at fallback (= useSessionActivity から移送)
@@ -83,8 +84,8 @@ export default function SessionDrawer() {
   // localStorage 永続化 / boot settle) は AppShell 側で実行され続けるため、 ここでは派生のみ。
   const sids = useMemo(() => sortedSessions.map(s => s.id), [sortedSessions])
   const sessionBadges = useMemo(
-    () => deriveSessionBadges({ sids, activeSid: activeId, messages, loading, unreadDone }).sessionBadges,
-    [sids, activeId, messages, loading, unreadDone]
+    () => deriveSessionBadges({ sids, activeSid: activeId, messages, loading, unreadDone, waitingInput }).sessionBadges,
+    [sids, activeId, messages, loading, unreadDone, waitingInput]
   )
 
   // 各種 callback (= 旧 AppShell からの props を内蔵化)

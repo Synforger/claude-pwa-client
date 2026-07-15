@@ -20,6 +20,7 @@ const INITIAL = {
   agents: [],            // Agent[] (= 起動時 1 回 GET /agents)
   sessionActivity: {},   // { [id]: { length, ts } } sort 用
   unreadDone: {},        // { [id]: boolean }
+  waitingInput: {},      // { [id]: boolean } backend detector 由来の入力待ち (= overview SSE)
 }
 
 const store = createStore(INITIAL, { name: 'sessions' })
@@ -65,6 +66,17 @@ export function setAgents(agents) {
 
 export function setSessionActivity(id, value) {
   store.setState(prev => ({ ...prev, sessionActivity: { ...prev.sessionActivity, [id]: value } }))
+}
+
+/** overview payload の waiting_input を一括反映 (= 変化なしなら no-op で再描画を抑える)。 */
+export function setWaitingInputMap(map) {
+  store.setState(prev => {
+    const keys = Object.keys(map)
+    const prevW = prev.waitingInput
+    const same = keys.length === Object.keys(prevW).length && keys.every(k => !!prevW[k] === !!map[k])
+    if (same) return prev
+    return { ...prev, waitingInput: { ...map } }
+  })
 }
 
 export function setUnreadDone(id, value) {

@@ -139,6 +139,7 @@ def _build_sessions_overview() -> dict:
     last_seen_at は他端末がそのタブを開いた時刻 (= unix sec)。 各 client は自分の最新
     received event timestamp と比較して、 last_seen_at が新しければ赤丸を消す
     (= iPhone と Mac の未読同期、 2026-06-10 追加)。"""
+    from backend.terminal.prompt_detector_loop import is_waiting_input  # noqa: PLC0415
     out: dict[str, dict] = {}
     for sid in list(sessions_meta.keys()):
         st = stream_states.get(sid)
@@ -152,6 +153,10 @@ def _build_sessions_overview() -> dict:
         out[sid] = {
             "busy": busy,
             "last_seen_at": session_last_seen_at.get(sid),
+            # 入力待ち (= AskUserQuestion / TUI 選択肢) の軽量フラグ。 統合 transport は
+            # 未購読 sid の chat event を配らないため、 ドロワーの質問待ちバッジの
+            # 裏セッション分はこのフラグが真値 (= detector は全 sid 常時監視)。
+            "waiting_input": is_waiting_input(sid),
         }
     return out
 
