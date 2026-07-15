@@ -10,6 +10,12 @@ import { unifiedEnabled, unifiedTransport } from './select.ts'
 const FG_EVENT = 'cpc:fg'
 const BG_EVENT = 'cpc:bg'
 
+// hidden から接続を落とすまでの猶予 (= 2026-07-15 R3)。 cmd-tab の一瞬の裏回りで
+// 接続を作り直す churn を避けつつ、 裏に置かれたタブは完全ゼロ消費に落とす。
+// 裏の間の通知は Web Push が担うので機能欠損なし、 復帰は visible bump の差分 replay。
+const HIDDEN_STOP_GRACE_MS = 5_000
+let hiddenStopTimer: ReturnType<typeof setTimeout> | null = null
+
 let installed = false
 
 export function installListeners(): void {
@@ -35,6 +41,7 @@ export function uninstallListeners(): void {
 
 function onVisibility(): void {
   if (document.visibilityState === 'visible') {
+    if (hiddenStopTimer) { clearTimeout(hiddenStopTimer); hiddenStopTimer = null }
     if (unifiedEnabled) {
       // 統合 transport = 1 接続 bump で全 channel 蘇生 + 最新 snapshot 再取得
       // (= 旧構成の「4-5 本を各自張り直す」 無線バーストが 1 本に)
@@ -54,6 +61,13 @@ function onVisibility(): void {
       // 「見てる」 登録を即時解除 (= 裏に置いたタブが push 通知を抑制し続けない)。
       // 旧 /views/ws の「hidden = WS close = 登録消滅」 と同じ意味論を明示送信で再現。
       unifiedTransport.suspendView()
+      // 猶予後も hidden のままなら接続ごと停止 (= 裏タブ完全ゼロ消費、 R3)。
+      // iOS は OS が先に殺すことが多いが、 Mac の裏タブはこれが唯一の停止経路。
+      if (hiddenStopTimer) clearTimeout(hiddenStopTimer)
+      hiddenStopTimer = setTimeout(() => {
+        hiddenStopTimer = null
+        if (document.visibilityState !== 'visible') unifiedTransport.stop()
+      }, HIDDEN_STOP_GRACE_MS)
     } else {
       sseTransport.flushOffsets()
       viewsTransport.stop()
