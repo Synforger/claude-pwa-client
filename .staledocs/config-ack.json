@@ -1,0 +1,48 @@
+{
+  "accepted": {
+    "anchors": {
+      "ignore": [
+        "*.key",
+        "*.pem",
+        "*.pfx",
+        "release/streamer"
+      ],
+      "include_fenced": false,
+      "min_length": 3
+    },
+    "docs_exclude": [
+      "docs/internals/branch-protection.md"
+    ],
+    "docs_include": [
+      "README.ja.md",
+      "README.md",
+      "ROADMAP.md",
+      "docs/**/*.md"
+    ],
+    "gate": "strict",
+    "pair_docs": [
+      "docs/internals/architecture/extending.md",
+      "docs/internals/architecture/overview.md",
+      "docs/internals/architecture/state-stores.md",
+      "docs/internals/protocol/streams.md",
+      "docs/reference/config.md",
+      "docs/reference/data-schemas.md"
+    ],
+    "source_exclude": [
+      "backend/__pycache__/**",
+      "backend/_generated/**",
+      "backend/config.json",
+      "backend/data/**",
+      "backend/secrets/**"
+    ],
+    "source_include": [
+      "backend/**",
+      "contracts/**",
+      "frontend/src/**",
+      "scripts/**"
+    ]
+  },
+  "at": "2026-07-15T08:47:30+00:00",
+  "note": "initial config baseline (staledocs 1.0 rollout)",
+  "schema": 1
+}
