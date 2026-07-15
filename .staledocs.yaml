@@ -17,14 +17,15 @@ source:
     - "backend/secrets/**"
     - "backend/config.json"
 
+# Every tracked .md is in scope: staledocs owns path/anchor liveness
+# (docs-check.sh keeps only template-convention axes).
 docs:
   include:
     - "docs/**/*.md"
-    - "README.md"
-    - "README.ja.md"
-    - "ROADMAP.md"
-  exclude:
-    - "docs/internals/branch-protection.md"
+    - "*.md"
+    - ".github/**/*.md"
+    - "e2e/**/*.md"
+  exclude: []
 
 pairs:
   - doc: docs/internals/architecture/overview.md
@@ -48,8 +49,13 @@ standalone:
   - "docs/internals/README.md"
   - "docs/setup/**"
   - "docs/troubleshooting/**"
-  - "e2e/README.md"
+  - "e2e/**"
   - ROADMAP.md
+  - CONTRIBUTING.md
+  - SECURITY.md
+  - THIRD_PARTY_NOTICES.md
+  - ".github/**"
+  - "docs/internals/branch-protection.md"
 
 global:
   - README.md
@@ -64,5 +70,12 @@ anchors:
     - "*.pfx"
     # process on the streaming host (Sunshine), not a repo path
     - "release/streamer"
+    # git branch patterns quoted in docs/internals/branch-protection.md —
+    # slash syntax without being repo paths
+    - "*/[dm][ea][vi][!o]*"
+    - "feature/main"
+    - "hotfix/develop"
+    # env-var assignment example (VAR=/abs/path), not a repo path
+    - "CPC_CLAUDE_PATH=/usr/bin/true"
   include_fenced: false
   path_roots: [frontend/src, backend]

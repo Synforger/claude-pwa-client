@@ -5,20 +5,23 @@
         "*.key",
         "*.pem",
         "*.pfx",
+        "*/[dm][ea][vi][!o]*",
+        "CPC_CLAUDE_PATH=/usr/bin/true",
+        "feature/main",
+        "hotfix/develop",
         "release/streamer"
       ],
       "include_fenced": false,
       "min_length": 3
     },
-    "docs_exclude": [
-      "docs/internals/branch-protection.md"
-    ],
+    "docs_exclude": [],
     "docs_include": [
-      "README.ja.md",
-      "README.md",
-      "ROADMAP.md",
-      "docs/**/*.md"
+      "*.md",
+      ".github/**/*.md",
+      "docs/**/*.md",
+      "e2e/**/*.md"
     ],
+    "examples_wired": [],
     "gate": "strict",
     "pair_docs": [
       "docs/internals/architecture/extending.md",
@@ -42,7 +45,7 @@
       "scripts/**"
     ]
   },
-  "at": "2026-07-15T08:47:30+00:00",
-  "note": "initial config baseline (staledocs 1.0 rollout)",
+  "at": "2026-07-15T17:40:24+00:00",
+  "note": "docs scope widened to every tracked .md (*.md/.github/e2e globs) \u2014 README/ROADMAP subsumed by globs, not dropped; staledocs now sole owner of path/anchor liveness (docs-check axis A retired). Anchor ignores: 3 git branch patterns + 1 env-var assignment example, none are repo paths",
   "schema": 1
 }
