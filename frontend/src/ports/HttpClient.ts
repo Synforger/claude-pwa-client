@@ -17,6 +17,8 @@ export interface ApiFetchOptions {
   signal?: AbortSignal
   /** 既定で実装側が new した corr_id を使う。 明示渡しで上流 trace との結合に使う。 */
   corrId?: string
+  /** page 遷移 / hidden 化を跨いでも送達させたい小 POST 用 (= fetch keepalive flag)。 */
+  keepalive?: boolean
 }
 
 export interface HttpClient {
