@@ -28,6 +28,54 @@ export function isOversizedMessage(text) {
   return typeof text === 'string' && text.length > MARKDOWN_MAX_CHARS
 }
 
+// --- streaming 増分描画 (= 2026-07-15 電力最適化 R1) ---
+//
+// 旧: streaming 中、 伸び続ける全文を 500ms ごとに ReactMarkdown で丸ごと再パース。
+// 応答長 n に対し 1 tick O(n)、 累積 O(n^2) で長い応答ほど発熱していた (= 携帯が熱い主因)。
+//
+// 新: 確定済みブロック (= 空行区切り、 コードフェンス外) を CHUNK 単位に固定し、 各 CHUNK は
+// React.memo で 1 回だけパース。 再パースが走るのは「伸びている末尾ブロック」 だけになり、
+// 1 tick のコストが末尾サイズでほぼ一定になる。
+//
+// 見た目の等価性: 分割は top-level ブロック境界のみ (= フェンス内では絶対に切らない)。
+// 万一 loose list 等で streaming 中の見た目が僅かに変わっても、 完了時 (= streaming=false)
+// は従来どおり全文 1 回パースの単一 tree に置き換わるので、 最終表示は完全に従来と同一。
+const STREAM_CHUNK_MIN_CHARS = 1_500
+
+/** streaming テキストを (確定 chunk 列, 伸び続ける末尾) に分割する純関数。
+ *
+ * 境界 = コードフェンス外の空行。 直近の境界より後ろは「まだ伸びる」 とみなして tail。
+ * chunk は STREAM_CHUNK_MIN_CHARS を超えたら閉じる (= chunk 数を抑えて memo 比較を安く)。
+ * text は append-only なので、 過去に閉じた chunk の substring は不変 = memo が効く。 */
+export function splitStreamingBlocks(text) {
+  const lines = text.split('\n')
+  const chunks = []
+  let cur = []          // 今組み立て中の chunk の行
+  let curLen = 0
+  let block = []        // 今のブロック (= 最後の空行以降) の行
+  let inFence = false
+  for (const line of lines) {
+    if (/^\s*(```|~~~)/.test(line)) inFence = !inFence
+    if (!inFence && line.trim() === '') {
+      // ブロック境界: block を chunk へ確定
+      cur.push(...block, line)
+      curLen += block.reduce((a, l) => a + l.length + 1, 0) + line.length + 1
+      block = []
+      if (curLen >= STREAM_CHUNK_MIN_CHARS) {
+        chunks.push(cur.join('\n'))
+        cur = []
+        curLen = 0
+      }
+    } else {
+      block.push(line)
+    }
+  }
+  // cur に残った確定ブロックも chunk として閉じる (= tail は最後の未完ブロックのみ)。
+  // 空白のみの chunk は描画に寄与しないので捨てる (= 空文字入力で chunks=[''] を作らない)
+  if (cur.length > 0 && cur.some(l => l.trim() !== '')) chunks.push(cur.join('\n'))
+  return { chunks, tail: block.join('\n') }
+}
+
 // 巨大テキストを markdown を介さず plain text で描画する。 既定は先頭だけ、 ボタンで全文。
 // 全文展開しても 1 個の <pre> テキストノードなので DOM ノード爆発は起きない。
 function LargeTextMessage({ text }) {
@@ -135,9 +183,58 @@ function CodeBlock({ children }) {
   )
 }
 
+// url sanitizer は全 render 共通の純関数 (= identity 安定、 memo を壊さない)。
+function urlTransform(url) {
+  // cpc-file:// は内部で onOpenFile に流す独自スキーム = pass-through。
+  // それ以外は react-markdown 既定の sanitizer を使い、 javascript: / data:
+  // 等の危険スキームをブロック。 過去ここで `(url) => url` にしてた結果、
+  // 任意 URL スキームがそのまま <a href> に出ていた (XSS 経路)。
+  if (typeof url === 'string' && url.startsWith('cpc-file://')) return url
+  return defaultUrlTransform(url)
+}
+
+// components map の factory。 onOpenFile ごとに 1 回だけ作る (= chunk memo が効く前提。
+// inline で毎 render 新 object を作ると全 chunk が memo 貫通して再パースされる)。
+function buildComponents(onOpenFile) {
+  return {
+    a({ href, children }) {
+      if (href?.startsWith('cpc-file://')) {
+        let path
+        try { path = decodeURIComponent(href.slice('cpc-file://'.length)) } catch { path = href.slice('cpc-file://'.length) }
+        return (
+          <span className="file-link" onClick={() => onOpenFile(path)}>
+            {children}
+          </span>
+        )
+      }
+      return <a href={href} target="_blank" rel="noreferrer">{children}</a>
+    },
+    pre({ children }) {
+      return <CodeBlock>{children}</CodeBlock>
+    },
+    code({ className, children }) {
+      if (!className) return <code className="inline-code">{children}</code>
+      return <code className={className}>{children}</code>
+    },
+    table({ children }) {
+      return <div className="table-wrapper"><table>{children}</table></div>
+    },
+  }
+}
+
+// 確定 chunk の描画単体。 memo + text/props 不変で再 render されない = パースは chunk
+// 生成時の 1 回だけ (= streaming 増分描画の心臓部)。
+const MarkdownChunk = React.memo(function MarkdownChunk({ text, plugins, components }) {
+  return (
+    <ReactMarkdown remarkPlugins={plugins} urlTransform={urlTransform} components={components}>
+      {text}
+    </ReactMarkdown>
+  )
+})
+
 const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile, streaming }) {
-  // 2026-07-10 発熱対策: streaming 中の markdown 再パースを 500ms に 1 回へ間引く
-  // (= 全文パース × 秒 5〜20 回が iPhone バッテリー消費の主容疑)。 完了時は即最終形。
+  // 2026-07-10 発熱対策: streaming 中の markdown 更新を 500ms に 1 回へ間引く。 完了時は即最終形。
+  // 2026-07-15 R1: さらに増分化 — 再パースは「伸びている末尾ブロック」 だけ (= 下の chunk 分割)。
   const throttledText = useThrottledStreamingText(text, streaming)
 
   // 発熱調査 段階 2 (= 2026-07-13): この message subtree の render 実測を beacon に流す。
@@ -164,6 +261,13 @@ const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile, 
     () => (streaming ? [remarkGfm] : [remarkGfm, remarkFilePaths]),
     [streaming],
   )
+  const components = useMemo(() => buildComponents(onOpenFile), [onOpenFile])
+
+  // streaming 中のみ chunk 分割 (= 完了時は従来どおり全文 1 tree、 最終表示は完全互換)。
+  const streamingParts = useMemo(
+    () => (streaming ? splitStreamingBlocks(deferredText) : null),
+    [streaming, deferredText],
+  )
 
   // 巨大メッセージは markdown を通さず plain text に倒す (= degeneration 等でメインスレッドが
   // 固まるのを防ぐ)。 streaming 中で途中まで巨大になったものも同様にガードされる。
@@ -171,47 +275,21 @@ const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile, 
   if (isOversizedMessage(text)) {
     return <LargeTextMessage text={text} />
   }
-  // streaming 中も ReactMarkdown を通す。不完全な Markdown (閉じてない表/コードブロック等) でも
-  // react-markdown は例外を吐かず、暫定の見た目で描画する。途中の表やコードが視覚的に見えないよりマシ。
+  if (streamingParts) {
+    // streaming 中: 確定 chunk は memo で再パースゼロ、 末尾だけ 500ms ごとに再パース。
+    // 不完全な Markdown (閉じてない表/フェンス) でも react-markdown は例外を吐かない。
+    return (
+      <Profiler id="md-render" onRender={onProfile}>
+        {streamingParts.chunks.map((c, i) => (
+          <MarkdownChunk key={i} text={c} plugins={plugins} components={components} />
+        ))}
+        <MarkdownChunk text={streamingParts.tail} plugins={plugins} components={components} />
+      </Profiler>
+    )
+  }
   return (
     <Profiler id="md-render" onRender={onProfile}>
-    <ReactMarkdown
-      remarkPlugins={plugins}
-      urlTransform={(url) => {
-        // cpc-file:// は内部で onOpenFile に流す独自スキーム = pass-through。
-        // それ以外は react-markdown 既定の sanitizer を使い、 javascript: / data:
-        // 等の危険スキームをブロック。 過去ここで `(url) => url` にしてた結果、
-        // 任意 URL スキームがそのまま <a href> に出ていた (XSS 経路)。
-        if (typeof url === 'string' && url.startsWith('cpc-file://')) return url
-        return defaultUrlTransform(url)
-      }}
-      components={{
-        a({ href, children }) {
-          if (href?.startsWith('cpc-file://')) {
-            let path
-            try { path = decodeURIComponent(href.slice('cpc-file://'.length)) } catch { path = href.slice('cpc-file://'.length) }
-            return (
-              <span className="file-link" onClick={() => onOpenFile(path)}>
-                {children}
-              </span>
-            )
-          }
-          return <a href={href} target="_blank" rel="noreferrer">{children}</a>
-        },
-        pre({ children }) {
-          return <CodeBlock>{children}</CodeBlock>
-        },
-        code({ className, children }) {
-          if (!className) return <code className="inline-code">{children}</code>
-          return <code className={className}>{children}</code>
-        },
-        table({ children }) {
-          return <div className="table-wrapper"><table>{children}</table></div>
-        },
-      }}
-    >
-      {deferredText}
-    </ReactMarkdown>
+      <MarkdownChunk text={deferredText} plugins={plugins} components={components} />
     </Profiler>
   )
 })
