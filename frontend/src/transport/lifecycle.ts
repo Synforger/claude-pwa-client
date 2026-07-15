@@ -51,6 +51,9 @@ function onVisibility(): void {
   } else {
     if (unifiedEnabled) {
       unifiedTransport.flushOffsets()
+      // 「見てる」 登録を即時解除 (= 裏に置いたタブが push 通知を抑制し続けない)。
+      // 旧 /views/ws の「hidden = WS close = 登録消滅」 と同じ意味論を明示送信で再現。
+      unifiedTransport.suspendView()
     } else {
       sseTransport.flushOffsets()
       viewsTransport.stop()
@@ -62,6 +65,7 @@ function onVisibility(): void {
 function onPagehide(e: PageTransitionEvent): void {
   if (unifiedEnabled) {
     unifiedTransport.flushOffsets()
+    unifiedTransport.suspendView()
   } else {
     sseTransport.flushOffsets()
     if (!e.persisted) viewsTransport.stop()
