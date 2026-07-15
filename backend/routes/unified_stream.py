@@ -280,11 +280,23 @@ async def _unified_gen(conn: UnifiedConn, initial_view: str | None):
             asyncio.create_task(_status_pump(conn, status_ev, initial_status, initial_overview)))
         status_pump_started = True
 
-        # 4) 配信 loop (= queue 排出 + keep-alive)
+        # 4) 配信 loop (= queue 排出 + keep-alive + pump 死活監視)
         while True:
             try:
                 item = await asyncio.wait_for(conn.queue.get(), timeout=KEEPALIVE_SEC)
             except asyncio.TimeoutError:
+                # pump が例外死していないか確認してから心拍を打つ。 pump だけ死んで
+                # 心拍が生き続けると、 client の生存監視 (= 65s watchdog) からは健康な
+                # 接続に見えたまま chat 配信だけ止まる「新種の silent-dead」 になる。
+                # 接続を切って client の自動再接続 (= 全 pump 作り直し) に回復させる。
+                dead = [t for t in pumps if t.done()]
+                if dead:
+                    for t in dead:
+                        exc = t.exception() if not t.cancelled() else None
+                        if exc is not None:
+                            logger.error("unified pump died: %r", exc)
+                    metrics.inc("sse.unified.pump_dead_close")
+                    return
                 metrics.inc("sse.unified.keepalive")
                 yield _frame({"ch": "sys", "_hb": 1})
                 continue

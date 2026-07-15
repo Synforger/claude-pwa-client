@@ -358,9 +358,32 @@ class UnifiedTransport {
     if (this.es && this.state === 'open') this.control({ op: 'view', sid })
   }
 
-  sendStopIntent(sid: string): void {
+  sendStopIntent(sid: string, attempt = 0): void {
     if (!sid) return
-    this.control({ op: 'stop', sid })
+    // Stop は「押したのに止まらない」 が一番信頼を損ねる操作。 旧 /views/ws は TCP 保証で
+    // 届けていたので、 POST 化に合わせて再送を明示する: 失敗 (= network / 5xx) は
+    // 300ms → 900ms の 2 回まで再送。 backend 側 user_stopped は冪等なので重複送達は無害。
+    // 404 (= conn 消失) は control() 共通の bumpReconnect が走るので、 再送は再接続後の
+    // conn に対して行われる。
+    const RETRIES = 2
+    httpClient.apiFetch(`/stream/unified/${encodeURIComponent(this.connId)}/control`, {
+      method: 'POST', jsonBody: { op: 'stop', sid },
+    }).then(res => {
+      if (res.status === 404) {
+        this.bumpReconnect()
+        if (attempt < RETRIES) setTimeout(() => this.sendStopIntent(sid, attempt + 1), 300 * (3 ** attempt))
+        return
+      }
+      if (!res.ok && attempt < RETRIES) {
+        setTimeout(() => this.sendStopIntent(sid, attempt + 1), 300 * (3 ** attempt))
+      }
+    }).catch(() => {
+      if (attempt < RETRIES) {
+        setTimeout(() => this.sendStopIntent(sid, attempt + 1), 300 * (3 ** attempt))
+      } else {
+        console.warn('[unified] stop intent delivery failed after retries', sid)
+      }
+    })
   }
 }
 
