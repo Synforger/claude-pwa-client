@@ -67,6 +67,15 @@ if (!existsSync(vapidPath)) {
   }, null, 2))
 }
 
+// tmux socket isolation (2026-07-15, resume-storm incident): tmux's namespace
+// is user-global, so port/data-dir isolation alone is NOT enough — this
+// backend's maintenance would see the operator's production pwa-* sessions
+// as unmanaged leftovers and kill them (which then fight the prod backend's
+// auto-resume in a loop). Every tmux call in the backend goes through
+// tmux_base_argv(), which honours CPC_TMUX_SOCKET, so the e2e backend lives
+// on its own socket and can never touch the default-socket sessions.
+const TMUX_SOCKET = process.env.CPC_TMUX_SOCKET || 'cpc-e2e'
+
 const env = {
   ...process.env,
   CPC_DATA_DIR: DATA_DIR,
@@ -74,6 +83,7 @@ const env = {
   CPC_SECRETS_DIR: SECRETS_DIR,
   CPC_CONFIG_PATH: CONFIG_PATH,
   CPC_E2E: '1',
+  CPC_TMUX_SOCKET: TMUX_SOCKET,
   PYTHONUNBUFFERED: '1',
 }
 
@@ -105,17 +115,30 @@ const child = spawn(pythonBin, [
   stdio: ['ignore', 'inherit', 'inherit'],
 })
 
+// Tear down the isolated tmux server (kills any fixture sessions + their
+// stub processes). Safe by construction: it only ever addresses the e2e
+// socket, never the default one.
+const killE2eTmuxServer = () => {
+  try {
+    spawn('tmux', ['-L', TMUX_SOCKET, 'kill-server'], { stdio: 'ignore' })
+  } catch (_) { /* tmux absent / server already gone */ }
+}
+
 let shuttingDown = false
 const shutdown = (sig) => {
   if (shuttingDown) return
   shuttingDown = true
   try { child.kill(sig) } catch (_) { /* benign: child already gone */ }
+  killE2eTmuxServer()
   // hard fallback if uvicorn ignores SIGTERM (= during long shutdown hooks)
   setTimeout(() => { try { child.kill('SIGKILL') } catch (_) {} }, 5_000).unref()
 }
 process.on('SIGINT', () => shutdown('SIGINT'))
 process.on('SIGTERM', () => shutdown('SIGTERM'))
-process.on('exit', () => { try { child.kill('SIGTERM') } catch (_) {} })
+process.on('exit', () => {
+  try { child.kill('SIGTERM') } catch (_) { /* benign */ }
+  killE2eTmuxServer()
+})
 
 child.on('exit', (code, sig) => {
   process.exitCode = code ?? (sig ? 1 : 0)
