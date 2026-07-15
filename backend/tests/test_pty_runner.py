@@ -383,3 +383,58 @@ def test_send_text_two_stage_single_line_unchanged(monkeypatch):
     asyncio.run(pty_runner.send_text_two_stage("ses_x", "hello"))
     assert [c for c in calls if c["text"]] == [{"text": "hello", "enter": False}]
     assert calls[-1]["enter"] is True
+
+
+# --- tmux socket 隔離 (= 2026-07-15 resume storm 事故対応) ---
+
+def test_tmux_base_argv_default_socket(monkeypatch):
+    """CPC_TMUX_SOCKET 未設定 = default socket (= 本番はこれ)。"""
+    import backend.terminal.runner as runner
+    monkeypatch.setattr(runner, "TMUX_SOCKET_NAME", None)
+    assert runner.tmux_base_argv() == [runner.TMUX_BIN]
+
+
+def test_tmux_base_argv_isolated_socket(monkeypatch):
+    """socket 指定時は -L が入る (= e2e backend は cpc-e2e に隔離、 本番 pwa-* に触れない)。"""
+    import backend.terminal.runner as runner
+    monkeypatch.setattr(runner, "TMUX_SOCKET_NAME", "cpc-e2e")
+    assert runner.tmux_base_argv() == [runner.TMUX_BIN, "-L", "cpc-e2e"]
+
+
+def test_run_tmux_uses_base_argv(monkeypatch):
+    """_run_tmux が tmux_base_argv 経由で argv を組む (= 直書き回帰の防止)。"""
+    import backend.terminal.runner as runner
+    seen = {}
+
+    def fake_run(argv, **kwargs):
+        seen["argv"] = argv
+        class R:
+            returncode = 0
+            stdout = b""
+            stderr = b""
+        return R()
+    monkeypatch.setattr(runner, "TMUX_SOCKET_NAME", "sock-x")
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    runner._run_tmux("list-sessions")
+    assert seen["argv"][:3] == [runner.TMUX_BIN, "-L", "sock-x"]
+
+
+def test_maintenance_tmux_calls_use_base_argv(monkeypatch):
+    """maintenance の tmux 呼び出しも socket prefix を通る (= test backend の掃除が
+    本番 socket の session を kill しない構造保証)。"""
+    import backend.maintenance as maintenance
+    import backend.terminal.runner as runner
+    seen = []
+
+    def fake_run(argv, **kwargs):
+        seen.append(argv)
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return R()
+    monkeypatch.setattr(runner, "TMUX_SOCKET_NAME", "sock-y")
+    monkeypatch.setattr(maintenance.subprocess, "run", fake_run)
+    maintenance.cleanup_stale_tmux_sessions()
+    assert seen, "tmux list-sessions が呼ばれる"
+    assert all(a[:3] == [runner.TMUX_BIN, "-L", "sock-y"] for a in seen)
