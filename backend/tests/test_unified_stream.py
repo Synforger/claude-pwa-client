@@ -313,3 +313,29 @@ def test_events_published_during_replay_are_not_lost(unified_env):
         assert f"u-{sid_a}" in seen_uuids  # replay 分
         assert "live-gap" in seen_uuids    # 隙間の publish 分
     _run(run())
+
+
+def test_stale_generator_cleanup_keeps_new_conns_view(unified_env):
+    """再接続 (= 同 conn_id の新 generator) 後に旧 generator の後始末が走っても、
+    新接続の conn 登録と view 登録は消えない (= 「見てるのに通知が鳴る」 逆方向バグ防止)。"""
+    state, sid_a, _sid_b, _ensured = unified_env
+
+    async def run():
+        conn_old = _mk_conn({})
+        gen_old = us._unified_gen(conn_old, initial_view=sid_a)
+        await _read_until(gen_old, lambda p: p.get("ch") == "overview")
+        # 再接続: 同 conn_id で新 generator が登録を置き換える
+        conn_new = us.UnifiedConn(conn_id="c1")
+        gen_new = us._unified_gen(conn_new, initial_view=sid_a)
+        await _read_until(gen_new, lambda p: p.get("ch") == "overview")
+        assert us._conns["c1"] is conn_new
+        assert state_mod.views_by_conn["c1"] == sid_a
+        # 旧 generator の遅れた後始末 → 新接続の登録は無傷
+        await gen_old.aclose()
+        assert us._conns.get("c1") is conn_new
+        assert state_mod.views_by_conn.get("c1") == sid_a
+        # 新 generator の後始末 → 正しく消える
+        await gen_new.aclose()
+        assert "c1" not in us._conns
+        assert "c1" not in state_mod.views_by_conn
+    _run(run())

@@ -299,9 +299,11 @@ async def _unified_gen(conn: UnifiedConn, initial_view: str | None):
         if status_ev is not None and not status_pump_started:
             sessions_overview.unsubscribe(status_ev)
         _stop_subagents_watcher(conn)
-        views_by_conn.pop(conn.conn_id, None)
-        # 再接続で同 conn_id が新 generator に置き換わっている場合は消さない
+        # 再接続で同 conn_id が新 generator に置き換わっている場合は一切消さない
+        # (= 旧接続の遅れた後始末が新接続の view 登録を消すと、 「見てるのに通知が鳴る」
+        # 逆方向バグになる。 views は conn 登録と同じ identity 判定で守る)
         if _conns.get(conn.conn_id) is conn:
+            views_by_conn.pop(conn.conn_id, None)
             _conns.pop(conn.conn_id, None)
 
 

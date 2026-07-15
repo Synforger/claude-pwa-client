@@ -1,6 +1,6 @@
 {
   "ack": {
-    "at": "2026-07-14T16:30:35+00:00",
+    "at": "2026-07-15T06:34:38+00:00",
     "code_blobs": {
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
       "backend/cli/gen_vapid.py": "0fdd5bd90975b39e144594fdefbb07ead666353e",
@@ -153,7 +153,7 @@
       "frontend/src/layout/TerminalPane.jsx": "209323cdcd57856c5200437022b9054c7f96077f",
       "frontend/src/layout/displayWindowStart.test.js": "f1831218fa10a5639aa900d4f409eff750ad8147",
       "frontend/src/main.jsx": "4f745b57da1d6b70b3fcf03ec39671f807f05137",
-      "frontend/src/ports/HttpClient.ts": "7f3d4523515f307b495b6a3fb66f370ee4bc7e9d",
+      "frontend/src/ports/HttpClient.ts": "e8544601f1594c43190a2aa889a145394057a730",
       "frontend/src/ports/PtyTransport.ts": "52c7e379bed85a084fa42f5139ce650b85d10848",
       "frontend/src/ports/README.md": "8fce9fecb7f4eab9f73333f5e6460efd8f0502cf",
       "frontend/src/ports/SseTransport.ts": "422539078c365d4d127c2ea0e6bed83fc74b7c0f",
@@ -199,16 +199,16 @@
       "frontend/src/transport/connectionStatus.js": "fef129ddf28d1221908c61e33558ab10a9ddbfa0",
       "frontend/src/transport/connectionStatus.test.js": "eeb76a964fcc41765afe2a7947882ffe5c67a607",
       "frontend/src/transport/correlation.ts": "1e52a2983960216aa6586d64cbff15265593f14d",
-      "frontend/src/transport/http.ts": "b88c3fc93202e966134fc858787d51eb7026194d",
-      "frontend/src/transport/lifecycle.ts": "efa620b00b1f3299dad7012f7a37cadc733dccfe",
+      "frontend/src/transport/http.ts": "8e6bd358016ba637314a885a83566a62eadc362a",
+      "frontend/src/transport/lifecycle.ts": "f27629779101d1a3ee9fc96307f51a49f851ae84",
       "frontend/src/transport/select.ts": "e79c753e93bb2045f0d1fce43fb60ecc7b323d6d",
       "frontend/src/transport/sse-sessions-overview.ts": "7da64ffe9addd7df7cce8ebb095e5d5cba470b64",
       "frontend/src/transport/sse-sessions-status.test.js": "38a9e6beeba90e6de34179d85c20176f21b0ff15",
       "frontend/src/transport/sse-sessions-status.ts": "218b9be81452902770a985ce9468252bcbf57751",
       "frontend/src/transport/sse-subagents.ts": "d8d5c1f579ecf3b8c3cc5eb8bb528b72b61fc66f",
       "frontend/src/transport/sse.ts": "2b37b44e852ea538b3e7319e5035080d9c4a1a38",
-      "frontend/src/transport/unified.test.js": "bdc1be9032de16249db41a8e2e44d62b3daa6c00",
-      "frontend/src/transport/unified.ts": "3342cee2c62c68949caade31f31ed04d90fb9399",
+      "frontend/src/transport/unified.test.js": "c1e320730915dcdf0003f2bdf46f284a4118758c",
+      "frontend/src/transport/unified.ts": "e46cd99133dfaa0657d379f9c6c470240a464e16",
       "frontend/src/transport/ws-pty.ts": "775a69eff5a329c9a61c62fc41d77954ba547959",
       "frontend/src/transport/ws-views.ts": "552992ec44ef1b96ff7ca701984dbca156c8cda1",
       "frontend/src/utils/api.js": "2b2150560090c0b91ff9dbecb7c2635642d36d01",
@@ -224,7 +224,7 @@
       "frontend/src/utils/storage.js": "810f066d3cd3ef3c84b2ebc62a3a2fad5477be62",
       "frontend/src/utils/storage.test.js": "fa6f6beabb1d93f02911e1d1b931c71dfbdc8d4e"
     },
-    "commit": "e21a724f63c973166b460d56b4674a81de5f44fe",
+    "commit": "86c02fd9372cbb9d3f6aeed1490b2ebefd5ed394",
     "doc_blob": "0f4c0abfc893a5dc24f2b7844dc64f92cf20ee3d",
     "note": ""
   },

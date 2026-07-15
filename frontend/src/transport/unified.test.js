@@ -213,4 +213,27 @@ describe('unified transport', () => {
     expect(late[0].subagents).toEqual([1])
     u1(); u2(); keep()
   })
+
+  it('suspendView は view null を keepalive で送り、 desired は保持 → hello 再主張で復元', async () => {
+    const { unifiedTransport, unifiedJsonl } = await freshTransport()
+    unifiedTransport.setActiveSid('ses_a')
+    const u1 = unifiedJsonl.subscribe(() => {})
+    const es = FakeEventSource.instances.at(-1)
+    es.open()
+    apiCalls.list.length = 0
+    unifiedTransport.suspendView()
+    await vi.advanceTimersByTimeAsync(10)
+    const viewCalls = apiCalls.list.filter(([, o]) => o.jsonBody.op === 'view')
+    expect(viewCalls).toHaveLength(1)
+    expect(viewCalls[0][1].jsonBody.sid).toBe(null)
+    expect(viewCalls[0][1].keepalive).toBe(true)
+    // fg 復帰相当: hello 再主張で desired の view が復元される
+    apiCalls.list.length = 0
+    es.emit({ ch: 'sys', type: 'hello', conn: 'c' })
+    await vi.advanceTimersByTimeAsync(10)
+    const restored = apiCalls.list.filter(([, o]) => o.jsonBody.op === 'view')
+    expect(restored).toHaveLength(1)
+    expect(restored[0][1].jsonBody.sid).toBe('ses_a')
+    u1()
+  })
 })

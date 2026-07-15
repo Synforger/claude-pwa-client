@@ -228,13 +228,26 @@ class UnifiedTransport {
     if (this.subagentsSid) this.control({ op: 'subagents', sid: this.subagentsSid })
   }
 
-  private control(body: Record<string, unknown>): void {
+  private control(body: Record<string, unknown>, opts?: { keepalive?: boolean }): void {
     httpClient.apiFetch(`/stream/unified/${encodeURIComponent(this.connId)}/control`, {
-      method: 'POST', jsonBody: body,
+      method: 'POST', jsonBody: body, ...(opts?.keepalive ? { keepalive: true } : {}),
     }).then(res => {
       // 404 = backend 再起動等で conn 消失 → 張り直し (= hello が desired state を再主張)
       if (res.status === 404) this.bumpReconnect()
     }).catch(() => { /* offline 等は watchdog / fg bump に任せる */ })
+  }
+
+  /** hidden 遷移時: backend の「見てる」 登録だけ即時解除する (= 通知抑制の解除)。
+   *
+   * 旧 /views/ws は hidden で WS ごと閉じて登録が消えていた。 統合接続は hidden でも
+   * すぐには切れないため、 明示的に view null を届けないと「裏に置いたタブが通知を
+   * 抑制し続ける」 (= AskUserQuestion が鳴らない) 窓が開く。 desired (= viewSid) は
+   * 保持したまま送る: fg 復帰時の bump → hello 再主張が登録を復元する。 keepalive で
+   * hidden 遷移中でも送達させる。 */
+  suspendView(): void {
+    if (this.viewSid && this.es) {
+      this.control({ op: 'view', sid: null }, { keepalive: true })
+    }
   }
 
   // ---------------------------------------------------------------- offsets
