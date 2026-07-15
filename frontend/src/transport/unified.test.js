@@ -236,4 +236,20 @@ describe('unified transport', () => {
     expect(restored[0][1].jsonBody.sid).toBe('ses_a')
     u1()
   })
+
+  it('stop は失敗時に再送する (= 旧 WS の TCP 保証の代替)', async () => {
+    const { unifiedViews, unifiedJsonl } = await freshTransport()
+    const keep = unifiedJsonl.subscribe(() => {})
+    FakeEventSource.instances.at(-1).open()
+    let failures = 2
+    apiCalls.responder = () => {
+      if (failures > 0) { failures -= 1; return { status: 500, ok: false } }
+      return { status: 200, ok: true }
+    }
+    unifiedViews.sendStopIntent('ses_a')
+    await vi.advanceTimersByTimeAsync(2000)
+    const stops = apiCalls.list.filter(([, o]) => o.jsonBody.op === 'stop')
+    expect(stops.length).toBe(3)  // 初回 + 再送 2 回 (= 3 回目で成功)
+    keep()
+  })
 })
