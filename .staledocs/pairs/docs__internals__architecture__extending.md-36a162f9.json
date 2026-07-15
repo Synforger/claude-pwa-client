@@ -1,6 +1,6 @@
 {
   "ack": {
-    "at": "2026-07-15T06:43:49+00:00",
+    "at": "2026-07-15T08:01:57+00:00",
     "code_blobs": {
       "backend/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
@@ -191,19 +191,20 @@
       "frontend/src/features/chat/MessageList.jsx": "87634731e86c687f0ac1aa7768318e80ae33dc8f",
       "frontend/src/features/chat/MessageRenderer.css": "bbe612eeeb2f4985a5c9516a60659e7427998fe6",
       "frontend/src/features/chat/MessageRenderer.guard.test.js": "79bd50eb027bcf8cae48d969d83db3857855e1ce",
-      "frontend/src/features/chat/MessageRenderer.jsx": "327c2fdfda0daefb0368dade7939f1835894f908",
+      "frontend/src/features/chat/MessageRenderer.jsx": "6c3832ad7dc9676a8431e6916e89f478125209fe",
       "frontend/src/features/chat/SystemMessages.jsx": "1c101dd336d3a070187777086468ba1bb6d49911",
       "frontend/src/features/chat/index.js": "33ea27df3be947a22b90639da1c656995ac1684c",
       "frontend/src/features/chat/processStreamEvent.js": "2e22378b4c3ba7dc8c2b7a2def2e1084ce1baa93",
       "frontend/src/features/chat/processStreamEvent.test.js": "43fffa613915340e02feae178ea887c88ce299a0",
       "frontend/src/features/chat/reconcileUserMessage.js": "e7fd92f25271a36144a5c59cab55c74d9861f023",
       "frontend/src/features/chat/reconcileUserMessage.test.js": "29620227f6c1a13480eb843c078e79e19c57c442",
+      "frontend/src/features/chat/splitStreamingBlocks.test.js": "32c6acb32e6394145e6923932318e9a9424287c5",
       "frontend/src/features/chat/storage.worker.js": "1ca2eaf11bb46292ea28f7c3657a60d6c0deb3cd",
       "frontend/src/features/chat/useAutoScroll.js": "3e02f643644f537d1b5681c764ea52676c209758",
       "frontend/src/features/chat/useChatStorage.js": "43d78ae288f4329381f112aa90bb070caad5fc10",
       "frontend/src/features/chat/useChatStorage.test.js": "a54b221eb7ce8f0853214f65824196a046297d35",
       "frontend/src/features/chat/useChatStream.js": "4464af3e2805ba3a4906c1b8bacc45000c048b1d",
-      "frontend/src/features/chat/useStreamBuffer.js": "2dd8aacf6c65f8f1a92ee6aa6b379a1b1f75cc25",
+      "frontend/src/features/chat/useStreamBuffer.js": "1df2b4eef7ba2d43baa5572f2f4b6900da2c3bad",
       "frontend/src/features/chat/useStreamBuffer.test.jsx": "3b42a9c2c5801d39e6fce42d8d923cb082a5bf9d",
       "frontend/src/features/chat/useThrottledStreamingText.js": "3717d9aed3f34c9a359b631564858ee59b1dc341",
       "frontend/src/features/chat/useThrottledStreamingText.test.jsx": "77773746598e4655d4dfc1e0189a575343ed8924",
@@ -342,7 +343,7 @@
       "frontend/src/transport/connectionStatus.test.js": "eeb76a964fcc41765afe2a7947882ffe5c67a607",
       "frontend/src/transport/correlation.ts": "1e52a2983960216aa6586d64cbff15265593f14d",
       "frontend/src/transport/http.ts": "8e6bd358016ba637314a885a83566a62eadc362a",
-      "frontend/src/transport/lifecycle.ts": "f27629779101d1a3ee9fc96307f51a49f851ae84",
+      "frontend/src/transport/lifecycle.ts": "427196166f8d236687252283583b0aaff6222659",
       "frontend/src/transport/select.ts": "e79c753e93bb2045f0d1fce43fb60ecc7b323d6d",
       "frontend/src/transport/sse-sessions-overview.ts": "7da64ffe9addd7df7cce8ebb095e5d5cba470b64",
       "frontend/src/transport/sse-sessions-status.test.js": "38a9e6beeba90e6de34179d85c20176f21b0ff15",
@@ -366,7 +367,7 @@
       "frontend/src/utils/storage.js": "810f066d3cd3ef3c84b2ebc62a3a2fad5477be62",
       "frontend/src/utils/storage.test.js": "fa6f6beabb1d93f02911e1d1b931c71dfbdc8d4e"
     },
-    "commit": "550a2c7a043fd93a6ed3fe1ad4e67c2c7cc1de78",
+    "commit": "34b3b1ff2a035ea6778623a1c3318b4515072255",
     "doc_blob": "c188d6d41a528ad4b50dc0afc530d45b2ffef7e9",
     "note": ""
   },
