@@ -42,7 +42,13 @@ let apiCalls
 vi.mock('./http.ts', () => ({
   httpClient: {
     apiFetch: (...args) => {
-      const res = apiCalls.responder?.(...args) ?? { status: 200 }
+      // 既定応答: op=jsonl は要求 sid を全部 subscribed で返す (= 検証リトライを起こさない)
+      const body = args[1]?.jsonBody
+      const fallback = {
+        status: 200, ok: true,
+        json: async () => ({ ok: true, subscribed: (body?.sids || []).map(e => e.sid) }),
+      }
+      const res = apiCalls.responder?.(...args) ?? fallback
       apiCalls.list.push(args)
       return Promise.resolve(res)
     },
@@ -251,5 +257,24 @@ describe('unified transport', () => {
     const stops = apiCalls.list.filter(([, o]) => o.jsonBody.op === 'stop')
     expect(stops.length).toBe(3)  // 初回 + 再送 2 回 (= 3 回目で成功)
     keep()
+  })
+
+  it('購読が応答で不成立なら再送する (= 新規タブ登録レースの吸収)', async () => {
+    const { unifiedJsonl } = await freshTransport()
+    const u1 = unifiedJsonl.subscribe(() => {})
+    const es = FakeEventSource.instances.at(-1)
+    es.open()
+    let first = true
+    apiCalls.responder = (_path, opts) => {
+      if (opts.jsonBody.op !== 'jsonl') return undefined
+      const subscribed = first ? [] : opts.jsonBody.sids.map(e => e.sid)
+      first = false
+      return { status: 200, ok: true, json: async () => ({ ok: true, subscribed }) }
+    }
+    unifiedJsonl.setSubscribedSids(['ses_new'])
+    await vi.advanceTimersByTimeAsync(3000)
+    const jsonlOps = apiCalls.list.filter(([, o]) => o.jsonBody.op === 'jsonl')
+    expect(jsonlOps.length).toBe(2)  // 初回 (= 不成立) + 再送 (= 成立)
+    u1()
   })
 })
