@@ -2,7 +2,8 @@ import { useRef } from 'react'
 import { generateId } from '../../utils/id.js'
 
 // SSE で飛んでくる細切れの assistant 更新 (text / thinking / tool_use) を、
-// rAF で 1 フレームに 1 回だけ React state にコミットするためのバッファ。
+// 150ms に 1 回だけ React state にコミットするためのバッファ (= 旧 rAF 方式は
+// event が密な間 60-120 回/秒 commit して発熱源だった、 2026-07-15 R1)。
 // SDK は数十 ms 周期で更新を投げるので、setState を毎回呼ぶと再描画が詰まる。
 //
 // セッションごとに独立した buffer を持つ。 セッション (= session_id) は動的に
@@ -153,17 +154,24 @@ export function useStreamBuffer({ setMessages }) {
     })
   }
 
+  // React state へのコミット間隔 (= 2026-07-15 電力最適化 R1)。
+  // 旧: requestAnimationFrame = event が密な間は最大 60-120 回/秒 setState → subtree
+  // 再 render。 人間の読速に対して過剰で、 streaming 中の持続 CPU (= 発熱) の一因だった。
+  // 新: 150ms 刻み (= 約 7 回/秒)。 文字の流れの粒度は CLI 表示と同程度。 送信直後や
+  // ターン完了は cancelAndFlush (= 即時) 経路が使われるので体感遅延は出ない。
+  const STREAM_COMMIT_MS = 150
+
   const scheduleFlush = (sid) => {
     if (rafIdRef.current[sid] != null) return
-    rafIdRef.current[sid] = requestAnimationFrame(() => {
+    rafIdRef.current[sid] = setTimeout(() => {
       rafIdRef.current[sid] = null
       flushStreamBuf(sid)
-    })
+    }, STREAM_COMMIT_MS)
   }
 
   const cancelAndFlush = (sid) => {
     if (rafIdRef.current[sid] != null) {
-      cancelAnimationFrame(rafIdRef.current[sid])
+      clearTimeout(rafIdRef.current[sid])
       rafIdRef.current[sid] = null
     }
     flushStreamBuf(sid)
