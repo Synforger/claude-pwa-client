@@ -1,6 +1,6 @@
 {
   "ack": {
-    "at": "2026-07-15T06:34:38+00:00",
+    "at": "2026-07-15T06:37:35+00:00",
     "code_blobs": {
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
       "backend/cli/gen_vapid.py": "0fdd5bd90975b39e144594fdefbb07ead666353e",
@@ -207,8 +207,8 @@
       "frontend/src/transport/sse-sessions-status.ts": "218b9be81452902770a985ce9468252bcbf57751",
       "frontend/src/transport/sse-subagents.ts": "d8d5c1f579ecf3b8c3cc5eb8bb528b72b61fc66f",
       "frontend/src/transport/sse.ts": "2b37b44e852ea538b3e7319e5035080d9c4a1a38",
-      "frontend/src/transport/unified.test.js": "c1e320730915dcdf0003f2bdf46f284a4118758c",
-      "frontend/src/transport/unified.ts": "e46cd99133dfaa0657d379f9c6c470240a464e16",
+      "frontend/src/transport/unified.test.js": "cc688c4ca10ce0af5cd3c470527849f8008d8c39",
+      "frontend/src/transport/unified.ts": "661504cede9bf8901e66a77299bd4b38a702470b",
       "frontend/src/transport/ws-pty.ts": "775a69eff5a329c9a61c62fc41d77954ba547959",
       "frontend/src/transport/ws-views.ts": "552992ec44ef1b96ff7ca701984dbca156c8cda1",
       "frontend/src/utils/api.js": "2b2150560090c0b91ff9dbecb7c2635642d36d01",
@@ -224,7 +224,7 @@
       "frontend/src/utils/storage.js": "810f066d3cd3ef3c84b2ebc62a3a2fad5477be62",
       "frontend/src/utils/storage.test.js": "fa6f6beabb1d93f02911e1d1b931c71dfbdc8d4e"
     },
-    "commit": "86c02fd9372cbb9d3f6aeed1490b2ebefd5ed394",
+    "commit": "2b86234d355ce81642ac9a876dbf713c8f397688",
     "doc_blob": "0f4c0abfc893a5dc24f2b7844dc64f92cf20ee3d",
     "note": ""
   },

@@ -339,3 +339,25 @@ def test_stale_generator_cleanup_keeps_new_conns_view(unified_env):
         assert "c1" not in us._conns
         assert "c1" not in state_mod.views_by_conn
     _run(run())
+
+
+def test_pump_death_closes_connection(unified_env, monkeypatch):
+    """pump task が例外死したら接続を閉じる (= 心拍だけ生きる新種 silent-dead の防止。
+    client は ES close → 自動再接続で全 pump が作り直される)。"""
+    _state, sid_a, _sid_b, _ensured = unified_env
+    monkeypatch.setattr(us, "KEEPALIVE_SEC", 0.05)
+
+    async def _dying_pump(_conn):
+        raise RuntimeError("pump boom")
+    monkeypatch.setattr(us, "_jsonl_pump", _dying_pump)
+
+    async def run():
+        conn = _mk_conn({sid_a: None})
+        gen = us._unified_gen(conn, initial_view=None)
+        await _read_until(gen, lambda p: p.get("ch") == "overview")
+        # 次の keepalive 判定で pump 死を検知して StopAsyncIteration (= 接続 close)
+        with pytest.raises(StopAsyncIteration):
+            for _ in range(10):
+                await asyncio.wait_for(gen.__anext__(), timeout=2.5)
+        assert "c1" not in us._conns  # finally cleanup 済み
+    _run(run())
