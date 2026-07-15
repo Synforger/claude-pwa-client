@@ -66,6 +66,23 @@ pty_sessions: dict[str, "PtySession"] = {}
 USE_TMUX_WRAP: bool = True
 TMUX_BIN: str = "tmux"
 
+# tmux socket 名 (= `tmux -L <name>`)。 未設定 = default socket (= 本番)。
+# e2e の test-mode backend は CPC_TMUX_SOCKET で専用 socket に隔離する: tmux の
+# 名前空間はユーザーグローバルなので、 隔離しないと test backend の maintenance が
+# 本番の pwa-* session を「自分の管理外の残骸」 と誤認して kill する (= 2026-07-15
+# resume storm 事故の根本原因。 port / data dir の隔離だけでは不十分)。
+TMUX_SOCKET_NAME: str | None = os.environ.get("CPC_TMUX_SOCKET") or None
+
+
+def tmux_base_argv() -> list[str]:
+    """tmux 実行 argv の共通 prefix (= socket 指定を 1 点に集約)。
+
+    backend 内の tmux subprocess は全部この prefix を使うこと (= 直書き `["tmux", ...]`
+    を作ると socket 隔離から漏れて別 socket の session を触る事故に戻る)。"""
+    if TMUX_SOCKET_NAME:
+        return [TMUX_BIN, "-L", TMUX_SOCKET_NAME]
+    return [TMUX_BIN]
+
 # PTY で初期起動するコマンド。 default は対話 login shell (= zsh -il) でユーザの
 # .zshrc / 関数 / alias を載せた状態にする。 これにより claude 直起動でなく
 # 「ターミナルが開いた状態」 で接続でき、 ユーザは自分の関数 (= claude 起動 wrapper
@@ -94,7 +111,7 @@ def _run_tmux(*args: str, timeout: float = TMUX_CMD_TIMEOUT_SEC, text: bool = Fa
     CompletedProcess。 tmux 操作の subprocess.run はこれ経由に統一する。"""
     try:
         return subprocess.run(
-            [TMUX_BIN, *args], capture_output=True, timeout=timeout, text=text,
+            [*tmux_base_argv(), *args], capture_output=True, timeout=timeout, text=text,
         )
     except (subprocess.TimeoutExpired, OSError):
         return None
@@ -259,7 +276,7 @@ async def spawn_pty_session(
                     continue
                 env_args.extend(["-e", f"{k}={v}"])
         argv = [
-            TMUX_BIN, "-CC", "new-session", "-A", "-s", tmux_name,
+            *tmux_base_argv(), "-CC", "new-session", "-A", "-s", tmux_name,
             *env_args,
             "-x", str(initial_cols), "-y", str(initial_rows),
             *PTY_INITIAL_ARGV,
@@ -703,7 +720,7 @@ def _build_send_keys_chain(
             buf_name = f"pwa-paste-{uuid.uuid4().hex[:8]}"
             try:
                 proc = subprocess.run(
-                    ["tmux", "load-buffer", "-b", buf_name, "-"],
+                    [*tmux_base_argv(), "load-buffer", "-b", buf_name, "-"],
                     input=text.encode("utf-8"),
                     capture_output=True,
                     timeout=TMUX_CMD_TIMEOUT_SEC,

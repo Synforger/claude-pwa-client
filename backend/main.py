@@ -153,7 +153,7 @@ async def lifespan(app: FastAPI):
         try:
             import subprocess as _sp
             _sp.run(
-                [pty_runner.TMUX_BIN, "set-option", "-g", "status", "off"],
+                [*pty_runner.tmux_base_argv(), "set-option", "-g", "status", "off"],
                 check=False, timeout=2,
                 stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
             )

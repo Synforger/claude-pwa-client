@@ -34,6 +34,8 @@ e2e/
 
 ## Run
 
+Safe to run next to a live production backend: the test backend is isolated on its own tmux socket (`CPC_TMUX_SOCKET`, default `cpc-e2e`) in addition to its own port (18765) and tmp data dir. Never bypass the socket isolation — the tmux namespace is user-global and the backend's maintenance kills `pwa-*` sessions it does not manage.
+
 ```bash
 cd <path-to-this-repo>/e2e
 npm ci
