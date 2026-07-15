@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 
 import backend.config as _config
+from backend.terminal.runner import tmux_base_argv
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ def cleanup_stale_tmux_sessions() -> int:
         return 0
     try:
         r = subprocess.run(
-            ["tmux", "list-sessions", "-F", "#{session_name}"],
+            [*tmux_base_argv(), "list-sessions", "-F", "#{session_name}"],
             capture_output=True, text=True, timeout=2.0,
         )
     except (subprocess.TimeoutExpired, OSError):
@@ -86,7 +87,7 @@ def cleanup_stale_tmux_sessions() -> int:
             continue
         try:
             subprocess.run(
-                ["tmux", "kill-session", "-t", name],
+                [*tmux_base_argv(), "kill-session", "-t", name],
                 capture_output=True, timeout=2.0,
             )
             logger.info("maintenance: killed stale tmux session %s", name)
@@ -104,7 +105,7 @@ def cleanup_idle_pwa_sessions(idle_days: int = IDLE_SESSION_KILL_DAYS) -> int:
     アイドル claude プロセスが RSS 100-300MB を抱えたまま無期限に残るのを防ぐ。"""
     try:
         r = subprocess.run(
-            ["tmux", "list-sessions",
+            [*tmux_base_argv(), "list-sessions",
              "-F", "#{session_name}\t#{session_attached}\t#{session_activity}"],
             capture_output=True, text=True, timeout=2.0,
         )
@@ -145,7 +146,7 @@ def cleanup_idle_pwa_sessions(idle_days: int = IDLE_SESSION_KILL_DAYS) -> int:
             continue
         try:
             subprocess.run(
-                ["tmux", "kill-session", "-t", name],
+                [*tmux_base_argv(), "kill-session", "-t", name],
                 capture_output=True, timeout=2.0,
             )
             logger.info(
@@ -172,7 +173,7 @@ def cleanup_stale_statusline_map() -> int:
         return 0
     try:
         r = subprocess.run(
-            ["tmux", "list-sessions", "-F", "#{session_name}"],
+            [*tmux_base_argv(), "list-sessions", "-F", "#{session_name}"],
             capture_output=True, text=True, timeout=2.0,
         )
     except (subprocess.TimeoutExpired, OSError):
