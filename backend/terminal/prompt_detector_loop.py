@@ -86,6 +86,17 @@ _PUSH_TRIGGER_STATES: frozenset[PromptState] = frozenset(
 _detector_states: dict[str, DetectorState] = {}
 _config = DetectorConfig()
 
+
+def is_waiting_input(sid: str) -> bool:
+    """sid が「入力待ち」 (= TEXT_PROMPT / INLINE_TUI) か。
+
+    overview payload の waiting_input に載せる (= 2026-07-15)。 統合 transport は
+    未購読 sid の chat event を配らないため、 ドロワーの質問待ちバッジが messages
+    由来だけだと裏セッションで点かない。 detector は全 sid を常時見ているので、
+    ここを overview 経由の軽量フラグとして配る (= 全配信には戻さない)。"""
+    st = _detector_states.get(sid)
+    return st is not None and st.current_state in _PUSH_TRIGGER_STATES
+
 # per-sid の「最後に組んだ prompt_state event」。 SSE 接続開始時の snapshot 配信用
 # (= prompt_state は JSONL に無い ephemeral event なので reconnect replay に乗らない。
 # 切断中に「復帰」 遷移を取りこぼした client の banner が stale のまま残る事故への根治)。
@@ -241,6 +252,11 @@ async def _tick_one(
     _last_events[sid] = event
     metrics.inc("detector.publish")
     jsonl_event_broadcaster.publish(sid, dict(event))
+
+    # 状態遷移は overview 購読者にも伝える (= waiting_input フラグの live 反映。
+    # excerpt 変化だけでは打たない = 全接続 wake の頻度を抑える)。
+    if state_transitioned:
+        sessions_overview.notify()
 
     # Web Push: 「入力待ち」 系への **遷移** だけ (= excerpt 変化のみでは push しない)。
     # 元に戻る (= ACTIVE) 遷移では push しない。

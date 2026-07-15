@@ -215,15 +215,7 @@ class UnifiedTransport {
     // 再送は無害。 逆に query 構築後〜open の間に setJsonlSids された場合 (= 初回接続で
     // 実際に起きたレース: jsonl= 無し接続 → 購読ゼロのままチャットが凍る、 2026-07-15
     // access log で確認) はこの再主張だけが購読を成立させる。
-    if (this.jsonlSids.size > 0) {
-      this.control({
-        op: 'jsonl',
-        sids: Array.from(this.jsonlSids).map(sid => ({
-          sid,
-          from: Number.isFinite(this.offsets[sid]) ? Math.floor(this.offsets[sid]) : null,
-        })),
-      })
-    }
+    this.assertJsonlSubs()
     if (this.viewSid) this.control({ op: 'view', sid: this.viewSid })
     if (this.subagentsSid) this.control({ op: 'subagents', sid: this.subagentsSid })
   }
@@ -287,15 +279,40 @@ class UnifiedTransport {
     const same = next.size === this.jsonlSids.size && Array.from(next).every(s => this.jsonlSids.has(s))
     this.jsonlSids = next
     if (same) return
-    if (this.es && this.state === 'open') {
-      this.control({
+    this.assertJsonlSubs()
+  }
+
+  /** 購読宣言を送り、 応答の subscribed で成立を検証する (= 未成立ならリトライ)。
+   *
+   * backend は「知らない sid」 の購読を黙って落とす (= 新規タブ / fork 直後は POST
+   * /sessions の登録と購読宣言がほぼ同時に走り、 まれに購読側が先着して捨てられる)。
+   * 応答検証 + 500ms 段階リトライで、 登録が追いつき次第 購読が成立する。 */
+  private assertJsonlSubs(attempt = 0): void {
+    if (!this.es || this.state !== 'open' || this.jsonlSids.size === 0) return
+    const desired = Array.from(this.jsonlSids)
+    httpClient.apiFetch(`/stream/unified/${encodeURIComponent(this.connId)}/control`, {
+      method: 'POST',
+      jsonBody: {
         op: 'jsonl',
-        sids: Array.from(next).map(sid => ({
+        sids: desired.map(sid => ({
           sid,
           from: Number.isFinite(this.offsets[sid]) ? Math.floor(this.offsets[sid]) : null,
         })),
-      })
-    }
+      },
+    }).then(async res => {
+      if (res.status === 404) { this.bumpReconnect(); return }
+      const data = res.ok ? await res.json().catch(() => null) : null
+      const got = new Set<string>((data && (data as { subscribed?: string[] }).subscribed) || [])
+      // 現時点の desired と照合 (= リトライ待ちの間にタブ切替されていたら古い分は追わない)
+      const missing = desired.filter(s => this.jsonlSids.has(s) && !got.has(s))
+      if ((missing.length > 0 || !res.ok) && attempt < 3) {
+        setTimeout(() => this.assertJsonlSubs(attempt + 1), 500 * (attempt + 1))
+      } else if (missing.length > 0) {
+        console.warn('[unified] jsonl subscription not established after retries', missing)
+      }
+    }).catch(() => {
+      if (attempt < 3) setTimeout(() => this.assertJsonlSubs(attempt + 1), 500 * (attempt + 1))
+    })
   }
 
   subscribeStatus(handler: Handler): () => void {
