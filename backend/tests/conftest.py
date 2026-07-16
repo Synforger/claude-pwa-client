@@ -78,6 +78,12 @@ def isolated_state(monkeypatch, tmp_path):
 
     monkeypatch.setattr(state, "SESSION_META_PATH", tmp_path / "session_meta.json")
     snapshots = {name: copy.deepcopy(getattr(state, name)) for name in _STATE_GLOBALS}
+    # sessions_meta は import 時に実 session_meta.json から読み込まれる唯一の disk 由来
+    # global。 snapshot 復元だけだと test 中は実機の prod セッションが居座り、 全 sid を
+    # 走査する経路 (= /jsonl/stream/all の接続時 prompt_state snapshot) が開発者ごとの
+    # 実セッション数に依存して pass/fail する (= 環境依存 flake)。 clean slate を渡す
+    # ために snapshot 後にクリアする (= 退場時は上の restore で実データに戻る)。
+    state.sessions_meta.clear()
     yield state
     for name, snap in snapshots.items():
         live = getattr(state, name)

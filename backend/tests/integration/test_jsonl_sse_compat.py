@@ -111,8 +111,11 @@ def test_all_sse_fans_out_multiple_sids(isolated_state, monkeypatch, tmp_path):
             })
         pub_task = asyncio.create_task(publisher())
         seen_sids = set()
-        # 最大 8 frame まで待つ (= keep-alive + prompt_state snapshot ×2 を踏むことがある)
-        for _ in range(8):
+        # 接続時は sessions_meta 1 件につき prompt_state snapshot が 1 frame 出る。 その
+        # 数を予算に織り込むと開発者ごとの実セッション数で pass/fail する (= 環境依存 flake)。
+        # snapshot / keep-alive は数えず、 assistant が両 sid 揃うまで drain する。 上限は
+        # 暴走防止の安全弁 (= 実際は live 2 件で抜ける)。
+        for _ in range(30):
             frame = await asyncio.wait_for(gen.__anext__(), timeout=2.5)
             if frame.startswith(":"):
                 continue
@@ -160,7 +163,8 @@ def test_all_sse_live_id_advances_with_publish_pos(isolated_state, monkeypatch, 
 
         id_frame = None
         ephemeral_frame = None
-        for _ in range(10):
+        # 接続時 prompt_state snapshot の数 (= sessions_meta 依存) を予算に含めない安全弁。
+        for _ in range(30):
             frame = await asyncio.wait_for(gen.__anext__(), timeout=2.5)
             if frame.startswith(":"):
                 continue
