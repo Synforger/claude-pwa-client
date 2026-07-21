@@ -85,7 +85,7 @@
       "{\"type\":\"output\",\"data\":\"...\"}",
       "{\"type\":\"stop\",\"sid\":\"...\"}"
     ],
-    "at": "2026-07-16T22:16:59+00:00",
+    "at": "2026-07-21T10:08:37+00:00",
     "code_blobs": {
       "backend/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
@@ -271,7 +271,7 @@
       "frontend/src/features/chat/AttachmentsBar.jsx": "23956a599178bf3dc65461cbbe7afab3775eb4ec",
       "frontend/src/features/chat/ChatInput.jsx": "40810badd063c1bdd662e2b0dd65da95d984164c",
       "frontend/src/features/chat/MessageItem.css": "088824b7990f106c6127b48c72bd990bb6474380",
-      "frontend/src/features/chat/MessageItem.jsx": "39cdd03d6a366abe18e2f43d87fc6bdc3510bc3c",
+      "frontend/src/features/chat/MessageItem.jsx": "18a3bd690db517637bb6303bea11e9964ed1f6cf",
       "frontend/src/features/chat/MessageItem.render.test.jsx": "e2af63d2d7cc66a314ca92785dc7258c40a2b6c5",
       "frontend/src/features/chat/MessageList.jsx": "87634731e86c687f0ac1aa7768318e80ae33dc8f",
       "frontend/src/features/chat/MessageRenderer.css": "bbe612eeeb2f4985a5c9516a60659e7427998fe6",
@@ -286,8 +286,8 @@
       "frontend/src/features/chat/splitStreamingBlocks.test.js": "32c6acb32e6394145e6923932318e9a9424287c5",
       "frontend/src/features/chat/storage.worker.js": "1ca2eaf11bb46292ea28f7c3657a60d6c0deb3cd",
       "frontend/src/features/chat/useAutoScroll.js": "3e02f643644f537d1b5681c764ea52676c209758",
-      "frontend/src/features/chat/useChatStorage.js": "43d78ae288f4329381f112aa90bb070caad5fc10",
-      "frontend/src/features/chat/useChatStorage.test.js": "a54b221eb7ce8f0853214f65824196a046297d35",
+      "frontend/src/features/chat/useChatStorage.js": "9e73cc8a83302bd7813aed2e78d4f686b6838418",
+      "frontend/src/features/chat/useChatStorage.test.js": "4a75e9b7b2c0af6a867981dd9160ebbe660547c1",
       "frontend/src/features/chat/useChatStream.js": "4464af3e2805ba3a4906c1b8bacc45000c048b1d",
       "frontend/src/features/chat/useStreamBuffer.js": "1df2b4eef7ba2d43baa5572f2f4b6900da2c3bad",
       "frontend/src/features/chat/useStreamBuffer.test.jsx": "3b42a9c2c5801d39e6fce42d8d923cb082a5bf9d",
@@ -452,9 +452,9 @@
       "frontend/src/utils/storage.js": "810f066d3cd3ef3c84b2ebc62a3a2fad5477be62",
       "frontend/src/utils/storage.test.js": "fa6f6beabb1d93f02911e1d1b931c71dfbdc8d4e"
     },
-    "commit": "b924dda2a6ae1bee20a8d4cce75ce55644097178",
+    "commit": "0ca1b0a8863b8087644a35b9216366b54f7dfab1",
     "doc_blob": "d5202ac3207840288a8d21ada0320dae0cabda0a",
-    "note": "prompt_state schema (state/input_mode/options) unchanged; set/clear are test comments, not StreamState.status_event"
+    "note": "token co-occurrence only: changed lines are chat persistence/DiffView internals (Map.set / editFilePath / setItem); documented contracts unchanged"
   },
   "doc": "docs/internals/protocol/streams.md",
   "schema": 1
