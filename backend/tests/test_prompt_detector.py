@@ -50,11 +50,42 @@ def _new_state() -> DetectorState:
 # ---------------------------------------------------------------------------
 
 
-def test_tier_a_alternate_wins_over_everything():
-    tail = "❯ 1. Yes, allow all\n  2. No\n[Y/n] "  # 全 tier hit しうる内容
+def test_tier_a_defers_to_picker_in_alternate_screen():
+    """alternate flag が立っていても、 中身が inline で答えられる選択 picker (= ❯ + 番号
+    選択肢) なら tier A の「use terminal view」 を出さず tier B に譲る (= 2026-07-17)。
+    /model 等の全画面 picker が status bar を覆って owns_screen ガードを外し、 tier A に
+    誤って掴まれて「省略 = ターミナルビュー」 になっていた実バグの回帰止め。"""
+    tail = "❯ 1. Yes, allow all\n  2. No"  # picker signature (= ❯ + 番号列)
     verdict = analyze(_snap(tail, alternate=True), _new_state())
-    assert verdict.state == PromptState.TUI
-    assert verdict.reason == "alternate_on=1"
+    assert verdict.state == PromptState.INLINE_TUI
+    assert verdict.input_mode == InputMode.NUMBERS
+    assert verdict.options == ["1", "2"]
+
+
+def test_tier_a_real_model_picker_alternate_screen_is_inline():
+    """実 /model pane (= 2026-07-17 会社セッションで capture、 alternate_on=1)。 picker が
+    全画面で status bar を覆い owns_screen が外れるが、 ❯ + 番号選択肢を tier B が拾うので
+    inline_tui になる (= tier A の「ターミナルビュー」 で切り捨てない)。"""
+    tail = (
+        "⏺ Background command completed (exit code 0)\n"
+        "▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔\n"
+        "   Select model\n"
+        "   Switch between Claude models. Your pick\n"
+        "   becomes the default for new sessions.\n"
+        "\n"
+        "     1. Default (recommended)  Sonnet 5\n"
+        "     2. Sonnet                 Sonnet 5\n"
+        "     3. Fable                  Fable 5\n"
+        "   ❯ 4. Opus ✔                 Opus 4.8 with 1M\n"
+        "     5. Haiku                  Haiku 4.5\n"
+        "\n"
+        "   Enter to set as default · s to use this\n"
+        "   session only · Esc to cancel\n"
+    )
+    verdict = analyze(_snap(tail, alternate=True), _new_state())
+    assert verdict.state == PromptState.INLINE_TUI
+    assert verdict.input_mode == InputMode.NUMBERS
+    assert verdict.options == ["1", "2", "3", "4", "5"]
 
 
 def test_tier_a_off_falls_through():
