@@ -11,7 +11,6 @@
 task version:bump   # workflows/README: "derive per project when needed" example
 task release:cut    # same — intentionally hypothetical, not a stale reference
 task install:core   # back-port task lives in root Taskfile.yml at template state only (= not in post-init core Taskfile, so docs-check at template state can't see it)
-.tooling/versions.yaml  # README documents post-init layout; the file lives under _core/.tooling/ at template state and gets promoted to .tooling/ by `task init`
 
 # claude-pwa-client: user-created / external-project files referenced from docs
 frontend/.env.local

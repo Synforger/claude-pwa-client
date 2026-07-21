@@ -1,24 +1,35 @@
 {
   "accepted": {
     "anchors": {
+      "branch_prefixes": [
+        "chore",
+        "feature",
+        "fix",
+        "hotfix",
+        "origin",
+        "release"
+      ],
       "ignore": [
         "*.key",
         "*.pem",
         "*.pfx",
+        "*/[dm][ea][vi][!o]*",
+        "CPC_CLAUDE_PATH=/usr/bin/true",
+        "feature/main",
+        "hotfix/develop",
         "release/streamer"
       ],
       "include_fenced": false,
       "min_length": 3
     },
-    "docs_exclude": [
-      "docs/internals/branch-protection.md"
-    ],
+    "docs_exclude": [],
     "docs_include": [
-      "README.ja.md",
-      "README.md",
-      "ROADMAP.md",
-      "docs/**/*.md"
+      "*.md",
+      ".github/**/*.md",
+      "docs/**/*.md",
+      "e2e/**/*.md"
     ],
+    "examples_wired": [],
     "gate": "strict",
     "pair_docs": [
       "docs/internals/architecture/extending.md",
@@ -42,7 +53,7 @@
       "scripts/**"
     ]
   },
-  "at": "2026-07-15T08:47:30+00:00",
-  "note": "initial config baseline (staledocs 1.0 rollout)",
+  "at": "2026-07-21T10:11:28+00:00",
+  "note": "advanced by pair ack (no weakening)",
   "schema": 1
 }

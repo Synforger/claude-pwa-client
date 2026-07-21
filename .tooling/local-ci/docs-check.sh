@@ -2,13 +2,13 @@
 set -euo pipefail
 
 # =============================================================================
-# Local Dev Platform - Docs Freshness Checker (local)
+# Local Dev Platform - Docs Convention Checker (local)
 # =============================================================================
-# Scans all tracked Markdown files for machine-verifiable claims that go
-# stale when code moves, and fails when a claim no longer matches reality.
+# Scans all tracked Markdown files for template-specific claims that go
+# stale when the repo moves, and fails when a claim no longer matches
+# reality.
 #
-# What it checks (the machine-verifiable staleness classes):
-#   A. inline-code path references (`src/foo/bar.py`)  -> path must exist
+# What it checks (the template-specific staleness classes):
 #   B. `task <name>` references                        -> task must be listed
 #   C. ASCII tree diagrams inside fenced code blocks   -> entries must exist
 #      (a tree block is only verified when its root line resolves to an
@@ -19,6 +19,14 @@ set -euo pipefail
 #      to leave these in docs and they go unnoticed for ages. =======
 #      is intentionally NOT scanned because it overlaps with markdown h1
 #      underlines and would false-positive.
+#
+# Inline path references (`src/foo/bar.py` -> file must exist) are NOT
+# checked here: staledocs owns path/anchor liveness via `task docs:coherence`
+# (single source of truth; keeping a second checker produced split verdicts
+# and two ignore lists for the same claim). This script keeps only the
+# classes staledocs deliberately does not cover because they are template
+# conventions, not language-agnostic doc/code drift: Taskfile verb names,
+# ASCII layout trees, and merge-mishap fingerprints.
 #
 # What it cannot check: prose claims about behaviour. Those are covered by
 # the review pass before integration, not by this script.
@@ -107,19 +115,8 @@ def md_files():
             if fn.endswith(".md"):
                 yield os.path.join(dirpath, fn)
 
-# A reference "looks like a repo path" when it has at least one slash and no
-# placeholder / URL / variable syntax. Absolute and home paths are external
-# by definition and skipped. Git branch names share the slash syntax but are
-# not paths, so the common branch prefixes are skipped.
-PATHISH = re.compile(r"^[A-Za-z0-9_.@-]+(/[A-Za-z0-9_.@-]+)+/?$")
 # Tree roots may be a single segment ("docs/"), unlike inline references.
 ROOTISH = re.compile(r"^[A-Za-z0-9_.@-]+(/[A-Za-z0-9_.@-]+)*/$")
-BRANCH_PREFIX = re.compile(r"^(feature|fix|hotfix|release|chore|origin)/")
-
-def path_exists(cand, md_dir):
-    cand = cand.rstrip("/")
-    return (os.path.exists(os.path.join(ROOT, cand))
-            or os.path.exists(os.path.join(md_dir, cand)))
 
 TREE_CHARS = ("├", "└", "│")
 PLACEHOLDER = re.compile(r"[<>{}*$]|\.\.\.|…")
@@ -133,7 +130,6 @@ findings = []
 
 for md in md_files():
     rel_md = os.path.relpath(md, ROOT)
-    md_dir = os.path.dirname(md)
     with open(md, encoding="utf-8", errors="replace") as f:
         lines = f.read().splitlines()
 
@@ -215,26 +211,16 @@ for md in md_files():
             fence_block.append((lineno, line))
             continue
 
-        # ---- check A: inline-code path references ----
+        # ---- check B: `task xxx` references ----
         for span in re.findall(r"`([^`\n]+)`", line):
             span = span.strip()
-            if span.startswith(("http", "~", "/", "$")):
-                continue
             if PLACEHOLDER.search(span):
                 continue
-            # B: `task xxx` reference
             m = re.match(r"^task\s+([A-Za-z0-9][A-Za-z0-9:_-]*)$", span)
-            if m:
-                if task_names and m.group(1) not in task_names:
-                    if not is_ignored(span):
-                        findings.append(
-                            f"{rel_md}:{lineno}: unknown task: {span}")
-                continue
-            if not PATHISH.match(span) or BRANCH_PREFIX.match(span):
-                continue
-            if not path_exists(span, md_dir) and not is_ignored(span):
-                findings.append(
-                    f"{rel_md}:{lineno}: path not found: {span}")
+            if m and task_names and m.group(1) not in task_names:
+                if not is_ignored(span):
+                    findings.append(
+                        f"{rel_md}:{lineno}: unknown task: {span}")
 
 if findings:
     print("\n".join(findings))
