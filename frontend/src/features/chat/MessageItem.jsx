@@ -115,24 +115,34 @@ function DiffView({ diffInput }) {
   const [baseLine, setBaseLine] = useState(null)
   const [baseKnown, setBaseKnown] = useState(false)
 
+  // 依存はプリミティブ (= file_path / new_string) に固定する。 diffInput オブジェクトを
+  // deps にすると、 streaming 中に上流で message が再生成されて diffInput の参照だけ変わる
+  // たびに /file を再 fetch してしまう (= 確定済み Edit でも毎 render fetch する storm、
+  // 2026-07-21 実測: 同一ファイルを 150ms 内に 4 回取得 → 端末発熱)。 実際に取得内容が
+  // 変わるのは file_path / new_string が変わった時だけ。
+  const editFilePath = diffInput?.kind === 'edit' ? diffInput.file_path : null
+  const editNewString = diffInput?.kind === 'edit' ? diffInput.new_string : null
   useEffect(() => {
-    if (!diffInput || diffInput.kind !== 'edit') return
+    if (!editFilePath) return
     const ctrl = new AbortController()
-    fetchEditBaseLine(diffInput.file_path, diffInput.new_string, ctrl.signal)
+    fetchEditBaseLine(editFilePath, editNewString, ctrl.signal)
       .then(line => {
         setBaseLine(line)
         setBaseKnown(true)
       })
     return () => ctrl.abort()
-  }, [diffInput])
+  }, [editFilePath, editNewString])
 
-  // LCS は重いので diffInput 単位でキャッシュ。 親の rAF flush で
-  // MessageItem が再 render されても recompute しない (= 大きな Edit/Write で
-  // main thread が固まらない)。
+  // LCS は重いので diff 内容単位でキャッシュ。 deps も old/new 文字列 (= プリミティブ) に
+  // 固定し、 diffInput 参照の churn では recompute しない (= 大きな Edit/Write で main
+  // thread が固まらない + streaming 中の再計算 storm を防ぐ)。
+  const diffKind = diffInput?.kind
+  const diffOld = diffInput?.old_string
+  const diffNew = diffInput?.new_string
   const rawOps = useMemo(() => {
-    if (!diffInput || diffInput.kind !== 'edit') return null
-    return compactDiff(diffLines(diffInput.old_string, diffInput.new_string), 2)
-  }, [diffInput])
+    if (diffKind !== 'edit') return null
+    return compactDiff(diffLines(diffOld, diffNew), 2)
+  }, [diffKind, diffOld, diffNew])
 
   if (!diffInput) return null
 
