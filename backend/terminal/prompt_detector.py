@@ -320,6 +320,13 @@ def _tier_a_alternate(snapshot: TailSnapshot) -> Optional[Verdict]:
         # 出さず下位 tier に流す。 vim / less 等の本物の全画面 TUI は status bar を
         # 持たないので従来通り検出される。
         return None
+    if _tier_b_inline_tui(snapshot) is not None:
+        # 全画面 picker (= /model, /theme, permission dialog, AskUserQuestion) は alternate
+        # screen で描画され status bar を画面外に押し出すため owns_screen ガードが外れるが、
+        # 中身は inline で答えられる選択 dialog。 tier A の「use terminal view」 で切り捨てず
+        # tier B に譲る (= 2026-07-17 実 /model pane で確認)。 vim / less 等は picker
+        # signature (= ❯ + 番号選択肢の cluster) を持たないので従来通り tier A のまま。
+        return None
     return Verdict(
         state=PromptState.TUI,
         excerpt="",  # 全画面 TUI は text 抽出しない (= redraw が激しく意味を成さない)

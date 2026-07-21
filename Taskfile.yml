@@ -357,7 +357,7 @@ tasks:
       - bash .tooling/local-ci/publish-check.sh
 
   docs:check:
-    desc: Verify docs freshness (paths / task names / tree diagrams vs reality)
+    desc: Verify template docs conventions (task names / tree diagrams / conflict markers vs reality)
     cmds:
       - bash .tooling/local-ci/docs-check.sh
 

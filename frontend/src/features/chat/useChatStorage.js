@@ -57,6 +57,28 @@ function countSessionEnds(arr) {
   return n
 }
 
+// localStorage へ実際に書く対象。 isPersistableMessage に加えて streaming 中 (= in-flight)
+// のメッセージを除外する。 in-flight を毎トークン再圧縮しないための境界 (= 確定分は jsonl
+// replay で復元されるので落としても実データ損失なし)。 badge / store mirror 側は
+// isPersistableMessage をそのまま使う (= 表示・検出には streaming も要る)。
+export function isStorablePersistedMessage(m) {
+  return isPersistableMessage(m) && !m.streaming
+}
+
+// 永続化対象 (= streaming 除外済み prune 後) の内容署名。 streaming 中は in-flight
+// メッセージを除外するので確定分だけが残り、 1 トークンごとに配列参照が変わっても署名は
+// 不変 → 圧縮を打たない (= 発熱の主因だった「毎 250ms 全履歴再圧縮」 の停止)。 ターンが
+// 確定して確定メッセージが増えた時のみ署名が変わり 1 回だけ保存する。 確定メッセージは
+// immutable なので length + 末尾 id + 末尾 content 長で取り違えは起きない。
+export function persistSig(arr) {
+  const n = arr.length
+  if (n === 0) return '0'
+  const last = arr[n - 1] || {}
+  const key = last.id || last.uuid || ''
+  const clen = typeof last.text === 'string' ? last.text.length : (last.message ? 1 : 0)
+  return `${n}:${key}:${clen}`
+}
+
 function pruneOldSessions(arr, knownEndCount) {
   if (!Array.isArray(arr) || arr.length === 0) return arr
   // マーカーが KEEP+1 未満なら削るものは無いので即 return (= F-27、 線形走査回避)
@@ -207,6 +229,9 @@ export function useChatStorage(sessions) {
   // setMessages(prev => ...) は変更のあった sid だけ新オブジェクトを返す設計 (= 既存) なので、
   // 参照比較で diff を取れる。
   const lastSavedRef = useRef({})
+  // sid → 直近 save した永続化内容の署名 (= persistSig)。 streaming 中の in-flight 更新で
+  // 参照は変わるが署名は不変 → 圧縮スキップ判定に使う。
+  const lastSavedSigRef = useRef({})
   // sid → 直近の session_end count (= F-27 の線形走査回避用キャッシュ)
   const endCountRef = useRef({})
 
@@ -235,6 +260,7 @@ export function useChatStorage(sessions) {
         try {
           localStorage.setItem(v2Key(sid), compressed)
           lastSavedRef.current[sid] = pending.cur
+          lastSavedSigRef.current[sid] = pending.sig
           pendingSaveRef.current.delete(sid)
         } catch {
           // quota 超過: 同期経路と同じく古い方から刻んで再圧縮 (= worker 往復で retry)
@@ -317,6 +343,7 @@ export function useChatStorage(sessions) {
       if (!liveSids.has(sid)) {
         try { localStorage.removeItem(v2Key(sid)) } catch { /* ignore */ }
         delete lastSavedRef.current[sid]
+        delete lastSavedSigRef.current[sid]
         pendingSaveRef.current.delete(sid)
       }
     }
@@ -325,12 +352,22 @@ export function useChatStorage(sessions) {
       const cur = cur_messages[sid] || []
       // 参照比較で dirty 判定 (= sid に変更がなければ何もしない)
       if (lastSavedRef.current[sid] === cur) continue
-      const persistable = cur.filter(isPersistableMessage)
+      // streaming 中の in-flight メッセージは永続化しない (= 確定分は jsonl replay で復元、
+      // in-flight を毎トークン再圧縮しないための除外)。
+      const persistable = cur.filter(isStorablePersistedMessage)
       // F-27: マーカー数を再計算 (= dirty な sid のみ)、 これを pruneOldSessions に渡す
       const endCount = countSessionEnds(persistable)
       endCountRef.current[sid] = endCount
       const pruned = pruneOldSessions(persistable, endCount).slice(-MAX_MESSAGES)
-      out.push({ sid, cur, pruned })
+      // 永続化内容が前回保存と同一 (= streaming 中の in-flight 更新だけ) なら圧縮を打たない。
+      // cur 参照は進めておき、 次 tick で同じ配列なら fast-path skip、 新配列でも再 filter は
+      // O(200) で圧縮より桁違いに軽い。
+      const sig = persistSig(pruned)
+      if (lastSavedSigRef.current[sid] === sig) {
+        lastSavedRef.current[sid] = cur
+        continue
+      }
+      out.push({ sid, cur, pruned, sig })
     }
     return out
   }
@@ -338,7 +375,7 @@ export function useChatStorage(sessions) {
   // 同期 save (= pagehide / freeze の死ぬ直前 flush + worker 不能時 fallback 専用。
   // 通常経路は runMsgSaveViaWorker)。
   const runMsgSave = useRef(() => {
-    for (const { sid, cur, pruned } of collectDirtySaves()) {
+    for (const { sid, cur, pruned, sig } of collectDirtySaves()) {
       // 同期で確定させるので、 同 sid の in-flight worker 応答は破棄対象にする
       pendingSaveRef.current.delete(sid)
       // quota 超過時は古い方から N% ずつ削って再試行
@@ -357,6 +394,7 @@ export function useChatStorage(sessions) {
       }
       if (saved) {
         lastSavedRef.current[sid] = cur
+        lastSavedSigRef.current[sid] = sig
       } else {
         console.warn(`[chat-storage] quota exceeded for ${sid} after retries`)
       }
@@ -377,9 +415,9 @@ export function useChatStorage(sessions) {
       return
     }
     let msgs = 0
-    for (const { sid, cur, pruned } of dirty) {
+    for (const { sid, cur, pruned, sig } of dirty) {
       const seq = ++saveSeqRef.current
-      pendingSaveRef.current.set(sid, { seq, toSave: pruned, cur, attempts: 0 })
+      pendingSaveRef.current.set(sid, { seq, toSave: pruned, cur, attempts: 0, sig })
       w.postMessage({ sid, seq, messages: pruned })
       msgs += pruned.length
     }
