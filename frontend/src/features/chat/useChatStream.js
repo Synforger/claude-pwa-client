@@ -225,12 +225,14 @@ export function useChatStream({
     return () => { unsub() }
   }, [reconnectKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 状態は GET で取る、 stream は差分だけ (= client=射影)。 sid 表示時にまず
-  // GET /jsonl/history で権威スナップショットを取り込み (= stream の初回 replay 依存を外す、
-  // stream が復帰し損ねても履歴が必ず出る)、 offset をそこまで前進させてから stream を購読
-  // (= 以降 stream は差分だけ流す)。 GET の event は SSE と同じ pipeline (handleEventRef →
-  // processStreamEvent / reconcile) を通すので uuid dedup で cache と重複しない。 GET 失敗時は
-  // stream 側の replay が従来どおり埋める (= 二重の安全網)。
+  // 状態は GET で取る、 stream は差分だけ (= client=射影)。 sid 表示時に GET /jsonl/history で
+  // **常に直近 N 行 (= 権威的な最新窓)** を取り込む。 from (= offset) は付けない: offset は
+  // streaming 中の in-flight を含まず先行し得るので、 offset 起点にすると「作業中エージェントの
+  // ツール履歴」 が更新のたび飛び越されて消える (= 実機報告の中抜け)。 直近 N 行なら in-flight も
+  // 必ず含まれ、 offset のズレに関係なく最新が全部来る。 GET の event は SSE と同じ pipeline
+  // (handleEventRef → processStreamEvent / reconcile) を通すので uuid dedup で cache とも stream
+  // replay とも重複せず、 MessageList の ts ソートで時系列に並ぶ。 offset は前進させない (=
+  // 永続 offset は useChatStorage のメッセージ保存に結合したまま、 = 描画・永続化した位置)。
   //
   // 購読宣言 (= setSubscribedSids) は unified の電力設計: 宣言した sid だけ wire に乗る
   // (2026-07-14)。 legacy は no-op (= 全 sid 配信)。
@@ -239,9 +241,7 @@ export function useChatStream({
     let cancelled = false
     ;(async () => {
       try {
-        const from = chatTransport.getOffset?.(sid) || 0
-        const url = `/jsonl/history/${encodeURIComponent(sid)}${from ? `?from=${from}` : ''}`
-        const r = await apiFetch(url)
+        const r = await apiFetch(`/jsonl/history/${encodeURIComponent(sid)}`)
         if (r && r.ok && !cancelled) {
           const data = await r.json().catch(() => null)
           if (data && Array.isArray(data.events)) {
@@ -249,7 +249,6 @@ export function useChatStream({
               if (cancelled) break
               handleEventRef.current?.(sid, ev)
             }
-            if (typeof data.pos === 'number') chatTransport.advanceOffset?.(sid, data.pos)
           }
         }
       } catch { /* GET 失敗は stream の replay が埋める */ }
