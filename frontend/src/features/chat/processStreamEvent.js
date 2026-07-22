@@ -348,6 +348,8 @@ export function processStreamEvent(deps, sid, event) {
     buf.newTools = newTools
   }
   buf.uuid = eventUuid
+  // ts = 時系列表示ソートのキー (= epoch ms)。 同 AM の delta frame では最初の非 null を維持。
+  if (event.ts != null && buf.ts == null) buf.ts = event.ts
   buf.dirty = true
   scheduleFlush(sid)
 }
