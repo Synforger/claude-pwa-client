@@ -57,12 +57,37 @@ function countSessionEnds(arr) {
   return n
 }
 
-// localStorage へ実際に書く対象。 isPersistableMessage に加えて streaming 中 (= in-flight)
-// のメッセージを除外する。 in-flight を毎トークン再圧縮しないための境界 (= 確定分は jsonl
-// replay で復元されるので落としても実データ損失なし)。 badge / store mirror 側は
-// isPersistableMessage をそのまま使う (= 表示・検出には streaming も要る)。
+// localStorage 永続化境界の唯一の projection。 save (書込) と load (復元) の両端で同関数を
+// 通し、 「どの形で disk に載るか」 を 1 箇所で決める。 返り値 null = 永続化しない。
+//
+//   - streaming 中 (= in-flight) は落とす (= 発熱根治の境界、 確定分は jsonl replay で復元)。
+//   - confirmed user (= uuid 付き) はそのまま。
+//   - 送信済み未確定 user (= send_id 付き optimistic bubble) は 「確定待ち (pending)」 として
+//     保存する。 optimistic フラグと ObjectURL (= リロードで失効する imageUrls) を落とし、
+//     send_id / imageRefs (= IndexedDB key) は残す。 復元後 SSE の user_message が send_id 一致
+//     (reconcileUserMessage 2b) or 同文 uuid 未確定 (3.5) で uuid を焼いて確定へ引き継ぐ。
+//     これで 「送信 → SSE 確定が返る前に繋ぎ直す」 窓で自分の送信が消える構造ギャップを塞ぐ
+//     (= send_id identity 導入前は同文別 uuid の二重表示 root cause だったが、 現行は
+//     send_id 経路が二重を構造的に潰すので pending 保存が安全になった)。
+//   - sendFailed / uuid も send_id も無い user は落とす (= ghost 防止)。
+//   - user 以外 (agent / system) は streaming 以外そのまま通す。
+export function toStorableForm(m) {
+  if (!m) return null
+  if (m.streaming) return null
+  if (m.role === 'user') {
+    if (m.sendFailed) return null
+    if (m.uuid) return m
+    if (!m.send_id) return null
+    const { optimistic: _optimistic, imageUrls: _imageUrls, ...pending } = m
+    return pending
+  }
+  return m
+}
+
+// localStorage へ実際に書く対象か (= toStorableForm が保存形を返すか)。 badge / store mirror
+// 側は isPersistableMessage をそのまま使う (= 表示・検出には streaming も要る)。
 export function isStorablePersistedMessage(m) {
-  return isPersistableMessage(m) && !m.streaming
+  return toStorableForm(m) !== null
 }
 
 // 永続化対象 (= streaming 除外済み prune 後) の内容署名。 streaming 中は in-flight
@@ -108,7 +133,8 @@ function pruneOldSessions(arr, knownEndCount) {
 export function useChatStorage(sessions) {
   const [messages, setMessages] = useState(() => {
     const cleanArr = (arr) => arr
-      .filter(isPersistableMessage)
+      .map(toStorableForm)
+      .filter(Boolean)
       .map(m => {
         const base = m.id ? m : { ...m, id: generateId() }
         if (base.askUserQuestion && !base.askUserQuestion.answered) {
@@ -352,9 +378,8 @@ export function useChatStorage(sessions) {
       const cur = cur_messages[sid] || []
       // 参照比較で dirty 判定 (= sid に変更がなければ何もしない)
       if (lastSavedRef.current[sid] === cur) continue
-      // streaming 中の in-flight メッセージは永続化しない (= 確定分は jsonl replay で復元、
-      // in-flight を毎トークン再圧縮しないための除外)。
-      const persistable = cur.filter(isStorablePersistedMessage)
+      // 永続化形へ射影 (= streaming 除外 + 送信済み未確定 user を pending 化、 toStorableForm 参照)。
+      const persistable = cur.map(toStorableForm).filter(Boolean)
       // F-27: マーカー数を再計算 (= dirty な sid のみ)、 これを pruneOldSessions に渡す
       const endCount = countSessionEnds(persistable)
       endCountRef.current[sid] = endCount
