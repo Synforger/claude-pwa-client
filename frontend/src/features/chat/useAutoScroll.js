@@ -136,6 +136,26 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
     return () => window.removeEventListener('resize', onResize)
   }, [scrollToBottomSync])
 
+  // 前面復帰時に最下端へ寄せ直す (= 「繋ぎ直したら最新の最下部に行かない」 の解消)。
+  // iOS PWA は bg 中に socket を suspend し、 復帰で reconnect → replay で新着が届くが、
+  // bg 中の layout 変化 (= keyboard / safe-area / 回転) が onScroll を発火させて
+  // isAtBottomRef を false に倒すと、 復帰後の replay 追従が効かず最新に貼り付かない。
+  // hidden 時点で最下端に居たら復帰時に scrollToBottom を再宣言し (= isAtBottomRef=true に
+  // 戻す)、 以後届く replay も追従を回復させる。 上スクロールで戻し読み中に bg → 復帰した
+  // 場合は wasAtBottom=false なので勝手に飛ばさない。
+  useEffect(() => {
+    let wasAtBottom = true
+    const onVis = () => {
+      if (document.visibilityState === 'hidden') {
+        wasAtBottom = isAtBottomRef.current
+      } else if (document.visibilityState === 'visible') {
+        if (wasAtBottom && (!viewMode || viewMode === 'chat')) scrollToBottom()
+      }
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [scrollToBottom, viewMode])
+
   // scroll 容器の子要素 layout が遅延確定する (= Markdown / コードブロック / 画像 / details
   // 展開等) ケースに追従するための ResizeObserver。 isAtBottom 中なら scrollHeight が伸びる
   // たびに底辺へ送り直す。 旧実装は children を 1 つずつ observe + MutationObserver で
