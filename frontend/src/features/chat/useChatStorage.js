@@ -4,6 +4,7 @@ import { LEGACY_AGENT_TO_SESSION, LS_MESSAGES, LS_INPUT, MAX_MESSAGES } from '..
 import { generateId } from '../../utils/id.js'
 import { setMessagesFor, removeMessagesFor } from '../../state/messages.js'
 import { recordPerfSample } from '../app-effects/perfProbe.js'
+import { chatTransport } from '../../transport/select.ts'
 
 const { compressToUTF16, decompressFromUTF16 } = LZString
 
@@ -13,6 +14,14 @@ const { compressToUTF16, decompressFromUTF16 } = LZString
 // しばらく残す (= rollback 安全弁)。
 const LS_MESSAGES_V2_PREFIX = `${LS_MESSAGES}_v2_`
 function v2Key(sid) { return LS_MESSAGES_V2_PREFIX + sid }
+
+// メッセージ保存成功に結合して JSONL offset を永続化する (= offset を「描画・永続化した位置」
+// に一致させる)。 transport は受信フレームで in-memory offset を前進させるが localStorage には
+// 書かない (= 中抜け根治): ここで保存とセットで永続化することで、 リロード/復帰の replay が
+// 必ずキャッシュの続きから始まり、 受信済み未保存区間が消える中抜けが原理的に起きない。
+function persistJsonlOffset() {
+  try { chatTransport.flushOffsets() } catch { /* transport 未初期化 / offset 無し等は無視 */ }
+}
 
 // 2026-06-24 server-of-truth 純化: localStorage 永続化境界の唯一の真値。 load (cleanArr) と
 // save (runMsgSave) の両端で同関数を通すことで「user message は uuid 付き確定のみ persist」
@@ -288,6 +297,9 @@ export function useChatStorage(sessions) {
           lastSavedRef.current[sid] = pending.cur
           lastSavedSigRef.current[sid] = pending.sig
           pendingSaveRef.current.delete(sid)
+          // メッセージ保存成功時に永続 offset を「描画・永続化した位置」 へ合わせる
+          // (= 受信時保存を廃止し、 保存に結合。 reload replay が中抜けしない、 offset⇄cache 整合)。
+          persistJsonlOffset()
         } catch {
           // quota 超過: 同期経路と同じく古い方から刻んで再圧縮 (= worker 往復で retry)
           if (pending.toSave.length === 0 || pending.attempts >= QUOTA_RETRY_MAX) {
@@ -420,6 +432,7 @@ export function useChatStorage(sessions) {
       if (saved) {
         lastSavedRef.current[sid] = cur
         lastSavedSigRef.current[sid] = sig
+        persistJsonlOffset()  // 保存に結合して永続 offset を描画位置へ合わせる (= 中抜け根治)
       } else {
         console.warn(`[chat-storage] quota exceeded for ${sid} after retries`)
       }
