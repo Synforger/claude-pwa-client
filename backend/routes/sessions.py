@@ -326,6 +326,14 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
             # 新プロセス = 過去の Stop 意思は無効化 (= 残ったまま sticky だと新 turn が永久に
             # busy=false に強制されて停止ボタンが立たない逆方向のバグになる)。
             sess.stream.user_stopped = False
+            # 終了を停止と対称化 (= busy 系を同期でリセット)。 restart は user_stopped を
+            # False に戻すので、 busy / pane_working / queued_sends を落とさないと overview
+            # busy (= st.busy OR pane_working) が残り、 「推論中に終了 → 青丸残留」 になる。
+            # 旧来は monitor の path 切替再計算 / detector poll の非同期自己回復頼みで、
+            # それが発火し損ねると永久残留していた。
+            sess.stream.busy = False
+            sess.stream.pane_working = False
+            sess.stream.queued_sends = 0
             sess.stream.status_event.set()
     # 全 sid SSE (/sessions/status/stream) にも変化を伝える (= per-sid と整合)
     sessions_overview.notify()
