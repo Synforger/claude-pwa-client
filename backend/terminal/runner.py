@@ -645,6 +645,33 @@ def paste_formed_placeholder(before_tail: str, after_tail: str) -> bool:
     return bool(paste_placeholder_ids(after_tail) - paste_placeholder_ids(before_tail))
 
 
+# 入力欄ワイプの往復回数。 C-u (= cursor→行頭を kill) は 1 行しか消せないので、 複数行入力 /
+# `[Pasted text #N]` placeholder / 停止で入力欄に戻された queue 文が残る。 C-u で行内容を消し
+# BSpace で行頭の改行を消して上行へ merge、 を繰り返して全行を畳む。 空入力への C-u/BSpace は
+# no-op なので過剰往復は無害。 C-c/Escape は turn を割り込む (= queue 送信を壊す) ので使わない。
+INPUT_WIPE_ROUNDS: int = 20
+
+
+def build_wipe_keys(rounds: int = INPUT_WIPE_ROUNDS) -> list[str]:
+    """入力欄全消し用の tmux キー列 (= (C-u, BSpace) を rounds 回)。 pure、 test 可能。
+
+    C-u 単発だと複数行の最終行しか消えず、 残留に新本文が結合して送られる不具合になる
+    (= 「削除コマンドが効かない」 実機報告の root cause)。 行数不明でも往復で畳めるようにする。
+    """
+    keys: list[str] = []
+    for _ in range(rounds):
+        keys.append("C-u")
+        keys.append("BSpace")
+    return keys
+
+
+def wipe_input_line(session_id: str) -> None:
+    """claude TUI の入力欄を全消しする (= 複数行対応、 1 subprocess で送る)。"""
+    if not USE_TMUX_WRAP or not has_tmux_session(session_id):
+        return
+    _run_tmux("send-keys", "-t", _tmux_session_name(session_id), *build_wipe_keys())
+
+
 async def send_text_two_stage(
     session_id: str,
     text: str,
@@ -663,12 +690,14 @@ async def send_text_two_stage(
     形成されないケースで本文が二重になっていた。 現行は paste 前後の pane capture を
     差分して **新プレースホルダが実際に出た時だけ** 展開 paste を送る (= 画面の真値)。
 
-    C-u (= line kill) 前置は他 client の typing 残骸や前回 send-keys の残骸で入力欄が
-    汚れていても wipe してから本文を送るため。 空 line への C-u は no-op なので副作用ゼロ。
+    入力欄ワイプ前置は他 client の typing 残骸 / 前回 send-keys の残骸 / 停止で入力欄へ戻された
+    queue 文で汚れていても wipe してから本文を送るため。 C-u 単発は 1 行しか消せず複数行残留に
+    新本文が結合するので、 (C-u, BSpace) 往復で全行を畳む (= wipe_input_line、 build_wipe_keys)。
+    空入力への往復は no-op。
     """
     from backend.terminal.ansi_text import strip_ansi  # noqa: PLC0415
 
-    tmux_send_keys(session_id, key="C-u")
+    wipe_input_line(session_id)
     multiline = "\n" in text
     before = ""
     if multiline:

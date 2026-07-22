@@ -161,22 +161,27 @@ def test_resolve_launch_alias_fork_resume_takes_precedence(tmp_path, monkeypatch
 
 # ---- pty_send C-u wipe (backend-2026-07-03) ----
 
-def test_pty_send_prepends_ctrl_u_before_text_enter(monkeypatch):
-    """POST /pty/{sid}/send で text + enter が来た時、 本文送信の直前に C-u が 1 発
-    tmux_send_keys で発火する (= 他 client の入力残骸 wipe)。 単発 key 送信 (Escape 等)
-    には wipe 前置しない (= key の意味を壊さない)。"""
+def test_pty_send_wipes_input_before_text_enter(monkeypatch):
+    """POST /pty/{sid}/send で text + enter が来た時、 本文送信の直前に入力欄ワイプが発火する
+    (= 他 client の残骸 / 停止で入力欄へ戻された queue 文を wipe)。 ワイプは C-u 単発でなく
+    (C-u, BSpace) 往復 (= 複数行 / placeholder も全消し、 結合送信の根治)。 その後 本文 paste
+    (Enter なし) → Enter 単発。 単発 key 送信 (Escape 等) には wipe 前置しない。"""
     import backend.terminal.routes as routes
     import backend.terminal.runner as runner
     calls: list[dict] = []
+    tmux_calls: list[list] = []
 
     def fake_send_keys(session_id, text=None, key=None, enter=False):
         calls.append({"text": text, "key": key, "enter": enter})
         return True
 
-    # 2 段送信は runner.send_text_two_stage に共通化されたので runner 側の
-    # tmux_send_keys を patch する (= helper 内部の 3 発を捕捉)。 delay は test では 0。
+    # 本文 paste / Enter は tmux_send_keys 経路。 ワイプは wipe_input_line (= _run_tmux 直呼び)。
     monkeypatch.setattr(runner, "tmux_send_keys", fake_send_keys)
     monkeypatch.setattr(runner, "TWO_STAGE_ENTER_DELAY_SEC", 0)
+    monkeypatch.setattr(runner, "USE_TMUX_WRAP", True)
+    monkeypatch.setattr(runner, "has_tmux_session", lambda _sid: True)
+    monkeypatch.setattr(runner, "_tmux_session_name", lambda _sid: "pwa-x")
+    monkeypatch.setattr(runner, "_run_tmux", lambda *a, **k: tmux_calls.append(list(a)))
     monkeypatch.setattr(routes, "tmux_send_keys", fake_send_keys)
     monkeypatch.setattr(routes, "_require_session", lambda _sid: None)
     monkeypatch.setattr(routes, "jsonl_path_for_session", lambda _sid: None)
@@ -184,12 +189,16 @@ def test_pty_send_prepends_ctrl_u_before_text_enter(monkeypatch):
     import asyncio
     asyncio.run(routes.pty_send("ses_x", {"text": "hello", "enter": True}))
 
-    # 2026-07-06 2 段送信: 1 発目 C-u wipe、 2 発目 本文 (Enter なし)、 3 発目 Enter 単発
-    # (= paste 処理完了を待ってから確定、 救済 Enter 退役に伴う予防)。
-    assert len(calls) == 3
-    assert calls[0] == {"text": None, "key": "C-u", "enter": False}
-    assert calls[1] == {"text": "hello", "key": None, "enter": False}
-    assert calls[2] == {"text": None, "key": None, "enter": True}
+    # ワイプ = send-keys 1 発に (C-u, BSpace) 往復 (= C-u 単発ではない = 複数行残留を根治)。
+    assert len(tmux_calls) == 1
+    wipe = tmux_calls[0]
+    assert wipe[:3] == ["send-keys", "-t", "pwa-x"]
+    assert wipe.count("C-u") >= 2 and "BSpace" in wipe
+    # 本文 paste (Enter なし) → Enter 単発。
+    assert calls == [
+        {"text": "hello", "key": None, "enter": False},
+        {"text": None, "key": None, "enter": True},
+    ]
 
 
 def test_pty_send_no_wipe_for_key_only(monkeypatch):
