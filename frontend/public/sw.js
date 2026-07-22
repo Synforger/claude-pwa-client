@@ -10,7 +10,11 @@
 // v3 (= 2026-07-09): navigation を network-first へ戻すと同時に bump。 旧 v2 世代には
 // cache-first 時代の複数世代 index.html が URL query 違い (`/` / `/?ses=` / `/?_r=`) で
 // 分裂堆積しており、 それが「起動経路ごとに新旧がばらつく」 更新地獄の温床だったので一掃する。
-const SHELL_CACHE = 'claude-pwa-shell-v3'
+// v4: frontend bundle 差し替え時は必ずこの版を上げる (= 上げないと新 SW が立たず、 古い
+// キャッシュの index が差し替えで消えた chunk を踏んで白画面になる)。 bump = 新 SW install
+// (skipWaiting) → activate で旧 shell cache 全削除 → controllerchange で 1 回自動リロード
+// = 全 client がクリーンに最新 bundle へ移行する。
+const SHELL_CACHE = 'claude-pwa-shell-v4'
 
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting())
