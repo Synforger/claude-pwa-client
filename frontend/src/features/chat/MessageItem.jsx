@@ -335,6 +335,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, apiKeySource, a
       data-cpc-role={msg.role}
       data-cpc-uuid={msg.uuid || ''}
       data-cpc-optimistic={msg.optimistic ? '1' : '0'}
+      data-cpc-ts={typeof msg.ts === 'number' ? msg.ts : ''}
     >
       {msg.role === 'user' && (msg.imageRefs?.length > 0 || msg.imageUrls?.length > 0 || msg.fileNames?.length > 0) ? (
         <div className="user-block">

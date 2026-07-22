@@ -6,8 +6,25 @@
 // Terminal LRU mount が absolute 配置されていた。 F-1 では Terminal mount は AppShell に残置、
 // .messages のみ ChatPanel 配下に独立。 viewMode='terminal' 時の display:none gate は ChatPanel
 // 側の hidden wrapper で実現する (= 旧 inline style と同等)。
+import { useMemo } from 'react'
 import MessageItem from './MessageItem.jsx'
 import { useT } from '../../i18n/t.js'
+
+// 表示を時系列 (= ts、 epoch ms) で安定ソートする。 メッセージは配列末尾 append で溜まるため、
+// replay / GET / 遅延到着で古いメッセージが末尾に積まれると順番がバラバラに見える。 表示側で
+// ts ソートすれば、 配列への入り方 (append 順) に依存せず常に正しい時系列で並ぶ (= 順序バグの
+// 根治)。 ts を持たないメッセージ (= 楽観バブル確定前 / 一部 system marker) は直前の実効キーを
+// 継いで時系列上の隣に留め、 元 index を tiebreak にして stable にする (= 同 ts の相対順維持)。
+export function sortByTs(msgs) {
+  let carry = -Infinity
+  const keyed = msgs.map((m, i) => {
+    const t = typeof m.ts === 'number' ? m.ts : null
+    if (t != null) carry = t
+    return { m, i, key: t != null ? t : carry }
+  })
+  keyed.sort((a, b) => (a.key - b.key) || (a.i - b.i))
+  return keyed.map((x) => x.m)
+}
 
 export default function MessageList({
   scrollerDomRef,
@@ -24,6 +41,8 @@ export default function MessageList({
   scrollToBottom,
 }) {
   const t = useT()
+  // 表示直前に時系列ソート (= 順序バグ根治)。 displayMessages 参照が変わった時だけ再計算。
+  const orderedMessages = useMemo(() => sortByTs(displayMessages || []), [displayMessages])
   // .messages-container は scroll-btn (= position: absolute) の基準点 (= position: relative)。
   // 旧 AppShell では Terminal LRU mount もここに同居していたが、 F-1 で .messages + scroll-btn
   // だけが本 component 配下に残った。 wrapper を外すと scroll-btn が祖先 (= .app or body) を
@@ -39,7 +58,7 @@ export default function MessageList({
         onScroll={onScroll}
         style={viewMode === 'terminal' ? { display: 'none' } : undefined}
       >
-        {displayMessages.map((msg) => (
+        {orderedMessages.map((msg) => (
           <MessageItem
             key={msg.id}
             msg={msg}

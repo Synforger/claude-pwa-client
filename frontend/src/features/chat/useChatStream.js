@@ -183,7 +183,7 @@ export function useChatStream({
         buffer.cancelAndFlush(curSid)
         setMessages(prev => {
           const cur = prev[curSid] || []
-          const next = reconcileUserMessage(cur, event.text || '', event.uuid, event.send_id)
+          const next = reconcileUserMessage(cur, event.text || '', event.uuid, event.send_id, event.ts)
           return next === cur ? prev : { ...prev, [curSid]: next }
         })
         return
@@ -379,13 +379,15 @@ export function useChatStream({
         role: 'user',
         text,
         optimistic: true,
+        // ts = 送信時刻 (= 時系列表示ソートのキー、 最新扱い)。 SSE 確定後もこの値を継承する。
+        ts: Date.now(),
         // imageUrls = ObjectURL (= 一時表示用、 リロードで失効)、
         // imageRefs = IndexedDB key (= 永続、 リロード後 AttachedImages が復元)
         imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
         imageRefs: imageRefs.length > 0 ? imageRefs : undefined,
         fileNames: fileNames.length > 0 ? fileNames : undefined,
       }
-      const emptyAgent = { id: emptyAgentId, role: 'agent', text: '', tools: [], streaming: true }
+      const emptyAgent = { id: emptyAgentId, role: 'agent', text: '', tools: [], streaming: true, ts: Date.now() }
       return {
         ...prev,
         [sid]: tailIsEmptyStreamingAgent
