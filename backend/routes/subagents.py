@@ -20,10 +20,22 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from backend.jsonl.events import subagent_line_to_events
 from backend.jsonl.session_status import scan_single_agent_file
+from backend.state import stream_states
 from backend.terminal.runner import jsonl_path_for_session
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _session_busy(session_id: str) -> bool:
+    """親セッションが turn 実行中か。 subagent が動き得るのは親 turn が busy な間だけなので、
+    idle なら未完了 subagent は存在しない (= interrupt / API エラー / null 終了で subagent 自身の
+    転写にクリーンな stop_reason が残らなくても、 親 idle = その Task は返り済み = done)。
+    合成は overview busy と同じ (= busy or pane_working、 user_stopped で強制 idle)。"""
+    st = stream_states.get(session_id)
+    if st is None or st.user_stopped:
+        return False
+    return bool(st.busy or st.pane_working)
 
 # ファイル名は agent-<hex>.jsonl 固定。 path traversal を防ぐため id をこの形に限定する。
 _AGENT_ID_RE = re.compile(r"^agent-[A-Za-z0-9]+$")
@@ -170,8 +182,14 @@ def _list_workflows(base: Path) -> list[dict]:
     return runs
 
 
-def _build_subagents_payload(base: Path) -> dict:
-    """セッションの Task subagent (フラット) + Workflow run (グループ) 一覧 payload を組む。"""
+def _build_subagents_payload(base: Path, session_id: str) -> dict:
+    """セッションの Task subagent (フラット) + Workflow run (グループ) 一覧 payload を組む。
+
+    done 判定 = subagent 自身の確定 stop_reason (= 通常完了) OR 親セッションが idle。 後者は
+    interrupt / API エラー / null 返しで subagent 転写にクリーンな stop_reason が残らず running
+    固着していた不具合の根治 (= 親 turn が終わっていれば Task は返り済み)。 親 busy 中は既存
+    scan 判定を使うので、 実際に走行中の subagent を done と誤判定しない (= 偽陽性ゼロ)。"""
+    parent_busy = _session_busy(session_id)
     subdir = base / "subagents"
     items = []
     if subdir.is_dir():
@@ -186,7 +204,7 @@ def _build_subagents_payload(base: Path) -> dict:
                 "agentType": meta["agentType"],
                 "description": meta["description"],
                 "lastTool": scan["lastTool"],
-                "done": scan["done"],
+                "done": scan["done"] or not parent_busy,
                 "mtime": jsonl_file.stat().st_mtime,
             })
     items.sort(key=lambda x: x["mtime"], reverse=True)
@@ -251,7 +269,7 @@ def list_subagents(session_id: str):
     base = _session_base(session_id)
     if base is None:
         return {"subagents": [], "workflows": []}
-    return _build_subagents_payload(base)
+    return _build_subagents_payload(base, session_id)
 
 
 @router.get("/sessions/{session_id}/subagents/stream")
@@ -272,7 +290,7 @@ async def subagents_stream(session_id: str):
     async def gen():
         # 初回は即送信
         last_sig = _dir_signature(base)
-        last_payload = _build_subagents_payload(base)
+        last_payload = _build_subagents_payload(base, session_id)
         yield f"data: {json.dumps(last_payload)}\n\n"
         last_heartbeat = time.monotonic()
         # watch 対象は subagents/ と subagents/workflows/<run>/ と workflows/<wf>.json。
@@ -296,7 +314,7 @@ async def subagents_stream(session_id: str):
                 sig = _dir_signature(base)
                 # sig 変化 or running settle (= 未完了がいる間は sig 不変でも再スキャン)。
                 if sig != last_sig or _payload_has_running(last_payload):
-                    payload = _build_subagents_payload(base)
+                    payload = _build_subagents_payload(base, session_id)
                     if sig != last_sig or payload != last_payload:
                         last_sig = sig
                         last_payload = payload
@@ -315,7 +333,7 @@ async def subagents_stream(session_id: str):
                 # sig 変化 or running settle (= 未完了がいる間は sig 不変でも再スキャンして
                 # 最終 end_turn 行と signature のタイミングずれによる running 固着を収束させる)。
                 if sig != last_sig or _payload_has_running(last_payload):
-                    payload = _build_subagents_payload(base)
+                    payload = _build_subagents_payload(base, session_id)
                     if sig != last_sig or payload != last_payload:
                         last_sig = sig
                         last_payload = payload
