@@ -225,11 +225,37 @@ export function useChatStream({
     return () => { unsub() }
   }, [reconnectKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 統合 transport の購読 sid 宣言 (= 2026-07-14 電力効率工事)。 unified 経路は「宣言した
-  // sid だけ」 が wire に乗る (= 見てないセッションの event を受けない、 電力主犯対策)。
-  // タブ切替 = 同一接続上の購読差替 + 差分 replay。 legacy 経路では no-op (= 全 sid 配信)。
+  // 状態は GET で取る、 stream は差分だけ (= client=射影)。 sid 表示時にまず
+  // GET /jsonl/history で権威スナップショットを取り込み (= stream の初回 replay 依存を外す、
+  // stream が復帰し損ねても履歴が必ず出る)、 offset をそこまで前進させてから stream を購読
+  // (= 以降 stream は差分だけ流す)。 GET の event は SSE と同じ pipeline (handleEventRef →
+  // processStreamEvent / reconcile) を通すので uuid dedup で cache と重複しない。 GET 失敗時は
+  // stream 側の replay が従来どおり埋める (= 二重の安全網)。
+  //
+  // 購読宣言 (= setSubscribedSids) は unified の電力設計: 宣言した sid だけ wire に乗る
+  // (2026-07-14)。 legacy は no-op (= 全 sid 配信)。
   useEffect(() => {
-    chatTransport.setSubscribedSids(sid ? [sid] : [])
+    if (!sid) { chatTransport.setSubscribedSids([]); return undefined }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const from = chatTransport.getOffset?.(sid) || 0
+        const url = `/jsonl/history/${encodeURIComponent(sid)}${from ? `?from=${from}` : ''}`
+        const r = await apiFetch(url)
+        if (r && r.ok && !cancelled) {
+          const data = await r.json().catch(() => null)
+          if (data && Array.isArray(data.events)) {
+            for (const ev of data.events) {
+              if (cancelled) break
+              handleEventRef.current?.(sid, ev)
+            }
+            if (typeof data.pos === 'number') chatTransport.advanceOffset?.(sid, data.pos)
+          }
+        }
+      } catch { /* GET 失敗は stream の replay が埋める */ }
+      if (!cancelled) chatTransport.setSubscribedSids([sid])
+    })()
+    return () => { cancelled = true }
   }, [sid])
 
   // iOS PWA バックグラウンドからの復帰時に EventSource を強制再接続 (= 2026-06-22)。
