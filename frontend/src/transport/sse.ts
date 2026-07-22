@@ -64,7 +64,7 @@ class SseTransportImpl implements SseTransport {
   }
 
   stop(): void {
-    this.flushOffsets()
+    // offset はここで永続化しない (= 永続化は useChatStorage のメッセージ保存に結合済)。
     if (this.es) { this.es.close(); this.es = null }
     this.state = 'closed'
   }
@@ -89,8 +89,10 @@ class SseTransportImpl implements SseTransport {
     if (ev.lastEventId && ev.lastEventId.includes(':')) {
       const [sid, pos] = parseLastEventId(ev.lastEventId)
       if (sid) {
+        // in-memory のみ前進 (= live 再接続用)。 永続化はしない: 永続 offset は「描画・永続化
+        // したメッセージの位置」 に一致させる必要があり (= 受信で先行保存すると reload replay が
+        // 中抜けする)、 永続化は useChatStorage のメッセージ保存に結合済 (= flushOffsets)。
         this.offsets[sid] = Math.floor(pos)
-        saveOffsets(this.offsets)
       }
     }
     for (const handler of this.handlers) {
