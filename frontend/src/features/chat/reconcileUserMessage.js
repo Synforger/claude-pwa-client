@@ -29,7 +29,7 @@ import { MAX_MESSAGES } from '../../constants.js'
 // 別 uuid event が来て重複 append」 の構造的 resurface 経路を根絶する (= 2026-06-23〜06-24
 // 連発した重複表示バグの根治)。 加えて 2026-07-03 の 3 連発火症状は send_id 経路で
 // backend dedup + updater 冪等化 + 厳密 pop の 3 段で根絶される。
-export function reconcileUserMessage(cur, eventText, eventUuid, eventSendId) {
+export function reconcileUserMessage(cur, eventText, eventUuid, eventSendId, eventTs) {
   // 1. uuid 完全一致 → 受信済の replay。 no-op。
   if (eventUuid && cur.some(m => m.role === 'user' && m.uuid === eventUuid)) {
     return cur
@@ -91,6 +91,7 @@ export function reconcileUserMessage(cur, eventText, eventUuid, eventSendId) {
       role: 'user',
       text,
       ...(eventSendId ? { send_id: eventSendId } : {}),
+      ...(eventTs != null ? { ts: eventTs } : {}),
     },
   ].slice(-MAX_MESSAGES)
 }

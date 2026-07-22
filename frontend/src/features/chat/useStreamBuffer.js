@@ -66,12 +66,14 @@ export function useStreamBuffer({ setMessages }) {
       newTools: [...buf.newTools],
       needsNewBubble: buf.needsNewBubble,
       uuid: buf.uuid,
+      ts: buf.ts ?? null,
     }
     buf.text = null
     buf.thinking = null
     buf.newTools = []
     buf.needsNewBubble = false
     buf.uuid = null
+    buf.ts = null
     buf.dirty = false
 
     setMessages(prev => {
@@ -111,6 +113,7 @@ export function useStreamBuffer({ setMessages }) {
               thinking: snap.thinking || existing.thinking || null,
               tools: addedTools.length > 0 ? [...existingTools, ...addedTools] : existingTools,
               streaming: existing.streaming,
+              ts: existing.ts ?? snap.ts ?? null,
             }
             return { ...prev, [sid]: msgs }
           }
@@ -124,6 +127,7 @@ export function useStreamBuffer({ setMessages }) {
             text: snap.text || '',
             thinking: snap.thinking || null,
             tools: [...(snap.newTools || [])],
+            ts: snap.ts ?? last.ts ?? null,
           }
           return { ...prev, [sid]: msgs }
         }
@@ -135,6 +139,7 @@ export function useStreamBuffer({ setMessages }) {
           thinking: snap.thinking || null,
           tools: [...(snap.newTools || [])],
           streaming: true,
+          ts: snap.ts ?? null,
         }]}
       }
 

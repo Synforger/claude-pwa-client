@@ -22,7 +22,7 @@ class UserMessageEvent(BaseModel):
     corr_id: str  # W3C trace_id 頭 8 文字、 log 結合用
     parentUuid: Optional[str] = None  # 親 message uuid (= fork lineage)
     content: Optional[dict[str, Any]] = None  # raw JSONL content (= tool_result 含む list / string 両対応)
-    ts: Optional[int] = None  # epoch ms
+    ts: Optional[int] = None  # epoch ms (= 時系列表示ソートキー)
     send_id: Optional[str] = None  # client 発行 Idempotency-Key。 楽観 bubble ↔ 実 bubble の厳密対応付けに使う。 backend restart / TTL 超え / 対応付け失敗時は null
 
 
@@ -36,6 +36,7 @@ class AssistantEvent(BaseModel):
     message: dict[str, Any]
     parentUuid: Optional[str] = None
     meta: Optional[dict[str, Any]] = None  # duration_ms 等の補助メタ
+    ts: Optional[int] = None  # epoch ms (= 時系列表示ソートキー)
 
 
 class ResultEvent(BaseModel):
@@ -78,6 +79,7 @@ class TaskNotificationEvent(BaseModel):
     status: str  # completed / failed / cancelled 等
     summary: Optional[str] = None
     exitCode: Optional[int] = None  # summary 末尾の (exit code N) から抽出
+    ts: Optional[int] = None  # epoch ms (= 時系列表示ソートキー)
 
 
 class SystemEvent(BaseModel):
