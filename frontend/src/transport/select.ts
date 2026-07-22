@@ -37,6 +37,8 @@ export const chatTransport = unifiedEnabled
       bumpReconnect: () => sseTransport.bumpReconnect(),
       flushOffsets: () => sseTransport.flushOffsets(),
       resetOffset: (sid: string) => sseTransport.resetOffset(sid),
+      getOffset: (sid: string) => sseTransport.getOffset(sid),
+      advanceOffset: (sid: string, pos: number) => sseTransport.advanceOffset(sid, pos),
       setSubscribedSids: (_sids: string[]) => { /* legacy = 全 sid 配信 */ },
       get state() { return sseTransport.state },
     }

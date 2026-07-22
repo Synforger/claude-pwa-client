@@ -21,7 +21,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
 from backend.jsonl.events import jsonl_line_to_events
@@ -174,6 +174,37 @@ def _initial_offset(path: Path) -> int:
     既存 test (test_jsonl_routes.py) との後方互換のために残す。 新規 consumer は
     `backend.core.jsonl_tail.initial_offset` を直接 import すること。"""
     return _initial_offset_impl(path, INITIAL_REPLAY_LINES)
+
+
+@router.get("/jsonl/history/{session_id}")
+def get_chat_history(
+    session_id: str,
+    from_pos: int | None = Query(None, alias="from"),
+) -> dict:
+    """チャット履歴の権威スナップショットを 1 発 GET で返す (= client=射影の「状態は GET」 経路)。
+
+    frontend は sid 表示時にこれを叩いて履歴を確定させ (= stream の初回 replay 依存を外す)、
+    以降 stream は差分だけを流す。 events は SSE の ev payload と同形状、 pos は読み終えた
+    byte 位置 (= stream 購読の起点にすれば replay 重複が消える)。 from (= 描画・永続化した
+    offset) 指定ありはその位置以降、 未指定/無効 (= 初回 / cache 消失) は直近 N 行。 GET は
+    stream とは別リクエストなので、 stream が復帰し損ねても履歴は必ず取れる。
+    """
+    path = _latest_jsonl(session_id)
+    if path is None:
+        return {"events": [], "pos": 0}
+    try:
+        size = path.stat().st_size
+    except OSError:
+        size = 0
+    if from_pos is not None and 0 <= from_pos <= size:
+        pos = from_pos
+    else:
+        pos = _initial_offset(path)
+    lines, end_pos = _read_complete_lines(path, pos)
+    events = _lines_to_events(lines)
+    for ev in events:
+        _inject_envelope(ev, session_id)
+    return {"events": events, "pos": end_pos}
 
 
 async def _jsonl_sse(session_id: str, start_pos: int | None = None):
