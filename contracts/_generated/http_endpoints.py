@@ -250,3 +250,10 @@ class GetJsonlDebugBindingsResponse(BaseModel):
     pass
 
 
+class PostStreamUnifiedConnControlResponse(BaseModel):
+    """POST /stream/unified/{conn}/control response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: Optional[bool] = None
+    subscribed: Optional[list[Any]] = None
+
+
