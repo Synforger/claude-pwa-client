@@ -363,3 +363,60 @@ def test_refresh_subagent_sets_and_clears(tmp_path, isolated_state):
     state.agent_status[sid]["current_tool"] = None
     assert jr._refresh_subagent_status(sid, jsonl) is True
     assert state.agent_status[sid]["subagent"] is None
+
+
+# ---------------------------------------------------------------------------
+# GET /jsonl/history/{sid}: 権威スナップショットを 1 発で返す (= client=射影の状態取得)
+# ---------------------------------------------------------------------------
+def _hist_client(monkeypatch, jsonl_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    monkeypatch.setattr(jr, "_latest_jsonl", lambda sid: jsonl_path)
+    app = FastAPI()
+    app.include_router(jr.router)
+    return TestClient(app)
+
+
+def test_history_returns_events_and_end_pos(tmp_path, monkeypatch):
+    import json
+    p = tmp_path / "c.jsonl"
+    lines = [
+        {"type": "user", "message": {"role": "user", "content": "hi"}, "uuid": "u1"},
+        {"type": "assistant", "message": {"role": "assistant",
+         "content": [{"type": "text", "text": "hello"}], "stop_reason": "end_turn"}, "uuid": "a1"},
+    ]
+    p.write_text("".join(json.dumps(x) + "\n" for x in lines), encoding="utf-8")
+    client = _hist_client(monkeypatch, p)
+    r = client.get("/jsonl/history/ses_x")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["pos"] == p.stat().st_size  # 読み終えた byte 位置 = ファイル末尾
+    assert len(data["events"]) >= 2         # user + assistant が event 化される
+    assert all("sid" in e for e in data["events"])  # _inject_envelope で sid が乗る
+
+
+def test_history_from_offset_returns_only_the_tail(tmp_path, monkeypatch):
+    import json
+    p = tmp_path / "c.jsonl"
+    first = json.dumps({"type": "user", "message": {"role": "user", "content": "one"}, "uuid": "u1"}) + "\n"
+    p.write_text(first, encoding="utf-8")
+    mid = p.stat().st_size
+    p.write_text(first + json.dumps(
+        {"type": "user", "message": {"role": "user", "content": "two"}, "uuid": "u2"}) + "\n", encoding="utf-8")
+    client = _hist_client(monkeypatch, p)
+    # from=mid → 2 件目以降だけ (= 描画済み位置からの差分)
+    r = client.get(f"/jsonl/history/ses_x?from={mid}")
+    data = r.json()
+    assert data["pos"] == p.stat().st_size
+    texts = [e.get("text") for e in data["events"] if e.get("type") == "user_message"]
+    assert "two" in texts and "one" not in texts
+
+
+def test_history_no_jsonl_returns_empty(tmp_path, monkeypatch):
+    monkeypatch.setattr(jr, "_latest_jsonl", lambda sid: None)
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    app = FastAPI(); app.include_router(jr.router)
+    r = TestClient(app).get("/jsonl/history/ses_x")
+    assert r.status_code == 200
+    assert r.json() == {"events": [], "pos": 0}

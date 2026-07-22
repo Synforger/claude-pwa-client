@@ -256,6 +256,17 @@ class UnifiedTransport {
     try { localStorage.setItem(LS_OFFSETS, JSON.stringify(this.offsets)) } catch { /* ignore */ }
   }
 
+  /** sid の現在 offset (= 描画・永続化した位置)。 GET /jsonl/history の from に渡す。 */
+  getOffset(sid: string): number {
+    return this.offsets[sid] ?? 0
+  }
+
+  /** GET で権威スナップショットを取り込んだ後、 offset をそこまで前進させる (= 単調)。
+   *  以降 stream の replay 起点がそこになり、 stream は差分だけを流す。 */
+  advanceOffset(sid: string, pos: number): void {
+    if (Math.floor(pos) > (this.offsets[sid] ?? -1)) this.offsets[sid] = Math.floor(pos)
+  }
+
   resetOffset(sid: string): void {
     delete this.offsets[sid]
     this.flushOffsets()
@@ -414,6 +425,8 @@ export const unifiedJsonl = {
   bumpReconnect: () => unifiedTransport.bumpReconnect(),
   flushOffsets: () => unifiedTransport.flushOffsets(),
   resetOffset: (sid: string) => unifiedTransport.resetOffset(sid),
+  getOffset: (sid: string) => unifiedTransport.getOffset(sid),
+  advanceOffset: (sid: string, pos: number) => unifiedTransport.advanceOffset(sid, pos),
   setSubscribedSids: (sids: string[]) => unifiedTransport.setJsonlSids(sids),
   get state() { return unifiedTransport.state },
 }
