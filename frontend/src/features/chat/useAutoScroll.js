@@ -34,10 +34,10 @@ const PROGRAMMATIC_SCROLL_GUARD_MS = 200
 //       無駄が少ない。 5 段 timeout は paint 結果に関わらず時間で叩くので、 ユーザが間に
 //       上スクロールしたら isAtBottomRef=false で no-op になるが、 timeout 自体は走り続け
 //       無駄な setTimeout を抱えていた。
-//   新: 同期で 1 回 + rAF で 1 回 + ResizeObserver が以後の layout 拡大を全て拾う。 RO の
-//       observe は scroll container 自身 (= 子要素は冗長で、 children が増えるたび observe
-//       する fan-out も不要、 親 1 つで子の拡大は全部拾える)。 ResizeObserver は実 layout
-//       変化時にしか発火しないので、 無関係な setTimeout は廃止。
+//   新: 同期で 1 回 + rAF で 1 回 + ResizeObserver が以後の layout 拡大を拾う。 RO は
+//       容器の子要素を observe する (= 固定高さの容器自身は子が伸びても box 不変で発火
+//       しないため、 子を見る必要がある。 詳細は下の RO effect コメント)。 ResizeObserver は
+//       実 layout 変化時にしか発火しないので、 無関係な setTimeout は廃止。
 export function useAutoScroll({ messages, activeSession, viewMode }) {
   // Phase J-12 (= 2026-06-29): showScrollBtn / hasNew を state/ui.js.scroll singleton に統合
   // (= 旧 useState、 audit B sweep)。 wrapper setShowScrollBtn / setHasNew は単一 field の
@@ -158,22 +158,36 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
 
   // scroll 容器の子要素 layout が遅延確定する (= Markdown / コードブロック / 画像 / details
   // 展開等) ケースに追従するための ResizeObserver。 isAtBottom 中なら scrollHeight が伸びる
-  // たびに底辺へ送り直す。 旧実装は children を 1 つずつ observe + MutationObserver で
-  // 新規 child を追加 observe していたが、 親 container 1 つを observe するだけで子の
-  // 拡大は scrollHeight 変化として拾える (= F-09 / F-10 整理、 fan-out 廃止)。
+  // たびに底辺へ送り直す。
+  //
+  // 重要: ResizeObserver は observe した要素**自身の box サイズ**変化しか発火しない。 scroll
+  // 容器 (= .messages) は固定高さの viewport なので、 子 (= メッセージ) が伸びて scrollHeight が
+  // 増えても容器自身の box は変わらず **発火しない**。 「親 1 つ observe で子の拡大も拾える」 は
+  // 誤りで、 画像ロード / code highlight / markdown 展開の遅延で高さが伸びる分を追従できず、
+  // 「↓ 最新へ」 ボタンが最下端まで行かず途中で止まる原因だった。 → 子要素を observe し、
+  // 子の増減は MutationObserver で拾って observe を貼り直す (= 実質 scrollHeight 変化を捕捉)。
   useEffect(() => {
     const el = scrollerDomRef.current
     if (!el || typeof ResizeObserver === 'undefined') return
     let lastHeight = -1
     const ro = new ResizeObserver(() => {
-      // 実値が変化した時だけ反応 (= F-10、 RO 二重発火連鎖を抑える)。
+      // 実値が変化した時だけ反応 (= RO 二重発火連鎖を抑える)。 scrollHeight は容器から読む。
       const h = el.scrollHeight
       if (h === lastHeight) return
       lastHeight = h
       if (isAtBottomRef.current) scrollToBottomSync()
     })
-    ro.observe(el)
-    return () => ro.disconnect()
+    // 容器自身 (= viewport resize / 回転) + 全子要素 (= 中身の高さ変化) を observe。
+    const reobserve = () => {
+      ro.disconnect()
+      ro.observe(el)
+      for (const child of el.children) ro.observe(child)
+    }
+    reobserve()
+    // 子の増減 (= 新着メッセージ / session 切替) で observe を貼り直す。
+    const mo = typeof MutationObserver !== 'undefined' ? new MutationObserver(reobserve) : null
+    mo?.observe(el, { childList: true })
+    return () => { ro.disconnect(); mo?.disconnect() }
   }, [scrollToBottomSync, sid])
 
   const onScroll = useCallback(() => {
