@@ -9,22 +9,11 @@
 import { useMemo } from 'react'
 import MessageItem from './MessageItem.jsx'
 import { useT } from '../../i18n/t.js'
+import { sortByTs } from './sortByTs.js'
 
-// 表示を時系列 (= ts、 epoch ms) で安定ソートする。 メッセージは配列末尾 append で溜まるため、
-// replay / GET / 遅延到着で古いメッセージが末尾に積まれると順番がバラバラに見える。 表示側で
-// ts ソートすれば、 配列への入り方 (append 順) に依存せず常に正しい時系列で並ぶ (= 順序バグの
-// 根治)。 ts を持たないメッセージ (= 楽観バブル確定前 / 一部 system marker) は直前の実効キーを
-// 継いで時系列上の隣に留め、 元 index を tiebreak にして stable にする (= 同 ts の相対順維持)。
-export function sortByTs(msgs) {
-  let carry = -Infinity
-  const keyed = msgs.map((m, i) => {
-    const t = typeof m.ts === 'number' ? m.ts : null
-    if (t != null) carry = t
-    return { m, i, key: t != null ? t : carry }
-  })
-  keyed.sort((a, b) => (a.key - b.key) || (a.i - b.i))
-  return keyed.map((x) => x.m)
-}
+// sortByTs は sortByTs.js に切り出し済 (= ChatPanel が表示 window を切る前にも使うため、
+// component から純粋関数を独立させた)。 既存 import 互換のため re-export は維持する。
+export { sortByTs }
 
 export default function MessageList({
   scrollerDomRef,

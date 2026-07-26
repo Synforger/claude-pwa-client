@@ -1,5 +1,13 @@
 import { useRef } from 'react'
 import { generateId } from '../../utils/id.js'
+import { REPLAY_SKEW_TOLERANCE_MS } from '../../constants.js'
+
+// event が bubble より過去か (= 履歴 replay 由来で、 この未確定 bubble の中身たり得ないか)。
+// 判定材料が欠けてる時は「過去でない」 に倒す (= reconcileUserMessage._isStaleFor と同義)。
+function _isStaleFor(eventTs, bubbleTs) {
+  if (typeof eventTs !== 'number' || typeof bubbleTs !== 'number') return false
+  return eventTs < bubbleTs - REPLAY_SKEW_TOLERANCE_MS
+}
 
 // SSE で飛んでくる細切れの assistant 更新 (text / thinking / tool_use) を、
 // 150ms に 1 回だけ React state にコミットするためのバッファ (= 旧 rAF 方式は
@@ -80,6 +88,11 @@ export function useStreamBuffer({ setMessages }) {
       const cur = prev[sid] || []
       const msgs = [...cur]
       const last = msgs[msgs.length - 1]
+      // 空 placeholder (= 送信直後の「推論中」 枠) を今回の中身で埋めてよいか。
+      // **今回の event が placeholder より過去なら埋めない** (= 2026-07-26 根治)。
+      // GET 履歴 replay は古い assistant も流すので、 無条件に埋めると最新の返答枠に
+      // 大昔の応答が座る (= 実機報告「最新のメッセージが反映されない」)。 過去のものは
+      // 新規 bubble として append し、 MessageList の ts ソートが正しい位置に置く。
       const lastIsEmptyAgent = last
         && last.role === 'agent'
         && last.streaming
@@ -87,6 +100,7 @@ export function useStreamBuffer({ setMessages }) {
         && !last.thinking
         && (!last.tools || last.tools.length === 0)
         && !last.askUserQuestion
+        && !_isStaleFor(snap.ts, last.ts)
 
       if (snap.needsNewBubble) {
         // 同 uuid (= Anthropic message.id) の追加 frame と reconnect / replay 時の
