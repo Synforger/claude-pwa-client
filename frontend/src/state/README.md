@@ -12,11 +12,13 @@ state/
 ├── ephemeral.js        streamBuffer / attachments / loading / apiKeySource / sendFailedText / stopUnavailableSid / reconnectKey (J-12 で optimistic / sendTimers / pendingQuestion は retire 済)
 ├── sessions.js         sessions / activeId / agents / accounts / status / sessionActivity / unreadDone
 ├── ui.js               overlays / scroll / keyboard / viewModes
-├── persistence.js      localStorage 一元化 + debounce + quota retry + auto-flush on lifecycle
 └── push.js             Web Push 購読 singleton (= J-2 で usePushSubscription の useState 4 個を統合)
 ```
 
 > 旧 `transport.js` は W2 Phase J-12 で dead 削除 (= 全 setter が orphan、 isOnline は `transport/lifecycle.js::registerConnection` 経由に集約済)。
+>
+> 旧 `persistence.js` は 2026-07-27 に dead 削除 (= 一度も配線されず、 実際の localStorage 書き込みは
+> `utils/storage.js` + `features/chat/useChatStorage.js` + `features/session-drawer/useSessions.js` が担当していた)。
 
 ## ownership 表
 
@@ -72,27 +74,22 @@ function Counter() {
 }
 ```
 
-observability (= W3 で実装する DebugPanel / StateInspector):
+observability:
 
-```js
-import { getAllStoreSnapshots, subscribeAllStores, listStoreNames } from '../state/_store.js'
-
-// 全 store の現在値を 1 経路で読む (= /debug/state にも流す)
-const snapshot = getAllStoreSnapshots()
-
-// 全 store の差分 event を 1 listener で受ける (= EventTimeline 用)
-const unsub = subscribeAllStores((name, value) => { /* log */ })
-```
+`_store.js` は全 store を横断で覗く `getAllStoreSnapshots` / `subscribeAllStores` /
+`listStoreNames` を持つ。 これらを使っていた frontend の debug 画面は 2026-07-27 に
+dead 削除した (= 一度も配線されないまま残っていた) ので、 現状 consumer は居ない。
+状態を覗きたい時は backend の `/debug/*` route を直接叩く。
 
 ## 採用 ADR
 
 - **ADR-010** (= Frontend Architecture): state は features / layout から read 、 transport / SSE handler から write。 import direction は boundaries lint で強制。
-- **ADR-013** (= PWA Lifecycle): persistence.js が visibilitychange-hidden / pagehide / freeze で必ず flushPending、 BFCache 復帰時の data loss 0。
-- **ADR-017** (= createStore 共通化): subscribe / snapshot pattern の 6 重複を撤廃、 observability inspector の入口を 1 経路に。
+- **ADR-013** (= PWA Lifecycle): localStorage 書き込みは `utils/storage.js` の debounce + quota retry を通し、 lifecycle event で flush する (= 旧 persistence.js の役割、 実装は各 feature の hook 側)。
+- **ADR-017** (= createStore 共通化): subscribe / snapshot pattern の重複を撤廃、 observability inspector の入口を 1 経路に。
 
 ## 関連
 
-- `../domain/` — Message / Session / Tool / Event 型と純粋関数 (= isPersistableMessage / dedupKey / forkDepth 等)。 state は domain を import して filter / 判定する。
+- `../domain/` — Message / Tool / Event 型と純粋関数 (= isPersistableMessage / isKnownEventType 等)。 state は domain を import して filter / 判定する。
 - `../contracts/` — codegen 出力の型。 state は domain 経由で間接的に参照。
 - `../transport/` — backend 接続 (= SSE / WS singleton)。 transport が event を受信して state.* の setter を呼ぶ。 store としての state/transport.js は J-12 で撤去済 (= 接続生存 signal は `transport/lifecycle.js::registerConnection` に集約)。
 - `../features/` — UI 配線。 features は subscribe + getSnapshot で state を読み、 setter で書く。

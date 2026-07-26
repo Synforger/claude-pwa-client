@@ -1,6 +1,6 @@
 # State stores (= frontend 6 store の責務 + subscribe 経路)
 
-W2 architecture overhaul (= 2026-06-29 着地) で frontend `state/` は **6 領域 singleton store** に統合された。 各 store は `createStore` factory (= `_store.js`、 ADR-017) 経由で `subscribe` / `getSnapshot` / setter 群を export し、 features は `useSyncExternalStore` 経由で読む / setter 直呼出で書く。 hook 二重 mount しても state 分裂しない構造。
+W2 architecture overhaul (= 2026-06-29 着地) で frontend `state/` は **5 領域 singleton store** に統合された。 各 store は `createStore` factory (= `_store.js`、 ADR-017) 経由で `subscribe` / `getSnapshot` / setter 群を export し、 features は `useSyncExternalStore` 経由で読む / setter 直呼出で書く。 hook 二重 mount しても state 分裂しない構造。
 
 > code 内 真値 = `frontend/src/state/README.md` (= state owner / 永続化 / 更新経路の表)。 本 doc は **「どの feature が どの store を subscribe して、 何の責務を果たすか」** の俯瞰地図 (= state/README.md は store 縦軸、 本 doc は feature 横軸)。
 
@@ -13,7 +13,6 @@ W2 architecture overhaul (= 2026-06-29 着地) で frontend `state/` は **6 領
 | `ui.js` | overlays 11 個 / scroll 4 ref / keyboard 5 modifier / `viewModes[sid]` / desktopOpen / planOpen / storageWarnDismissed | localStorage (= viewModes + unread のみ) | features/* (= 各 overlay open/close)、 features/topbar (= viewMode toggle) |
 | `messages.js` | uuid 付き user / agent / system message の真値配列 (= sid 別)、 `MAX_MESSAGES_PER_SID = 200` | localStorage (lz-string 圧縮) | features/chat (= SSE handler 経由)、 useChatStorage |
 | `push.js` | Web Push 購読状態 singleton (= hasRealSub / pushBusy / localFlag / pushAvailable 派生)、 W2 Phase J-2 で usePushSubscription の useState 4 個を統合 | なし (= backend 真値、 SW broken listener 経由で同期) | features/push-notify (= AppEffects mount + SessionDrawer remount の両経路から書き、 store singleton で分裂防止) |
-| `persistence.js` | localStorage 一元化 + debounce + quota retry + auto-flush on lifecycle (= pagehide / freeze / visibilitychange-hidden) | (本人が localStorage 書く) | 起動時に messages / sessions / ui を subscribe して自動 persist |
 
 旧 `transport.js` store は W2 Phase J-12 で dead 削除済 (= 全 setter が orphan)、 接続生存 signal は `transport/connectionStatus.js::registerConnection` 経由に集約された。
 
