@@ -14,7 +14,7 @@
 // キャッシュの index が差し替えで消えた chunk を踏んで白画面になる)。 bump = 新 SW install
 // (skipWaiting) → activate で旧 shell cache 全削除 → controllerchange で 1 回自動リロード
 // = 全 client がクリーンに最新 bundle へ移行する。
-const SHELL_CACHE = 'claude-pwa-shell-v13'
+const SHELL_CACHE = 'claude-pwa-shell-v14'
 
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting())

@@ -293,7 +293,17 @@ export function processStreamEvent(deps, sid, event) {
           const r = results.find(x => x.tool_use_id === t.id)
           if (!r) return t
           toolMutated = true
-          return { ...t, result: { content: r.content, is_error: !!r.is_error } }
+          // full_chars は履歴 GET が本文を preview に切り詰めた時だけ付く元の文字数
+          // (= backend の TOOL_RESULT_PREVIEW_CHARS、 2026-07-27 転送量削減)。 表示は元々
+          // 冒頭 800 文字だけなので中身は同一に見えるが、 文字数ラベルだけは元の値が要る。
+          return {
+            ...t,
+            result: {
+              content: r.content,
+              is_error: !!r.is_error,
+              ...(typeof r.full_chars === 'number' ? { full_chars: r.full_chars } : {}),
+            },
+          }
         })
         if (!toolMutated) return m
         mutated = true

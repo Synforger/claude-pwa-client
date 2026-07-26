@@ -420,3 +420,85 @@ def test_history_no_jsonl_returns_empty(tmp_path, monkeypatch):
     r = TestClient(app).get("/jsonl/history/ses_x")
     assert r.status_code == 200
     assert r.json() == {"events": [], "pos": 0}
+
+
+# --- 履歴 GET の tool_result 切り詰め (= 2026-07-27 転送量削減) ---
+
+def test_shrink_tool_results_truncates_long_string_and_keeps_original_length():
+    from backend.jsonl.routes import TOOL_RESULT_PREVIEW_CHARS, _shrink_tool_results
+    body = "x" * (TOOL_RESULT_PREVIEW_CHARS * 10)
+    ev = {"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "t1", "content": body},
+    ]}}
+    _shrink_tool_results(ev)
+    block = ev["message"]["content"][0]
+    assert len(block["content"]) == TOOL_RESULT_PREVIEW_CHARS
+    assert block["full_chars"] == len(body)          # UI の文字数表示用に元の長さを残す
+    assert block["content"] == body[:TOOL_RESULT_PREVIEW_CHARS]  # 冒頭は完全一致
+
+
+def test_shrink_tool_results_leaves_short_content_untouched():
+    from backend.jsonl.routes import _shrink_tool_results
+    ev = {"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "t1", "content": "短い出力"},
+    ]}}
+    _shrink_tool_results(ev)
+    block = ev["message"]["content"][0]
+    assert block["content"] == "短い出力"
+    assert "full_chars" not in block                  # 切り詰めてない印
+
+
+def test_shrink_tool_results_handles_block_list_form():
+    from backend.jsonl.routes import TOOL_RESULT_PREVIEW_CHARS, _shrink_tool_results
+    parts = [{"type": "text", "text": "a" * 1500}, {"type": "text", "text": "b" * 1500}]
+    ev = {"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "t1", "content": parts},
+    ]}}
+    _shrink_tool_results(ev)
+    block = ev["message"]["content"][0]
+    total = sum(len(p["text"]) for p in block["content"] if "text" in p)
+    assert total == TOOL_RESULT_PREVIEW_CHARS
+    assert block["full_chars"] == 3000
+
+
+def test_shrink_tool_results_never_touches_assistant_or_user_message():
+    """切り詰めは type=user の tool_result 限定。 発話や応答本文は 1 文字も変えない。"""
+    from backend.jsonl.routes import _shrink_tool_results
+    long_text = "あ" * 50000
+    for ev in (
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": long_text}]}},
+        {"type": "user_message", "text": long_text},
+    ):
+        before = json.dumps(ev, ensure_ascii=False)
+        _shrink_tool_results(ev)
+        assert json.dumps(ev, ensure_ascii=False) == before
+
+
+def test_shrink_tool_results_drops_image_payload_but_keeps_placeholder():
+    """tool_result 内の画像は base64 を落とす (= UI は「画像」 プレースホルダしか出さない)。"""
+    from backend.jsonl.routes import _shrink_tool_results
+    ev = {"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "t1", "content": [
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "A" * 400_000}},
+        ]},
+    ]}}
+    _shrink_tool_results(ev)
+    block = ev["message"]["content"][0]
+    assert block["content"] == [{"type": "image"}]     # type は残す = 表示は不変
+    assert "source" not in block["content"][0]         # 本体は落ちている
+    assert len(json.dumps(ev)) < 500                   # 400KB → 数百 byte
+
+
+def test_shrink_tool_results_keeps_text_when_image_is_stripped():
+    """画像と短いテキストが混在しても、 テキストは 1 文字も失わない。"""
+    from backend.jsonl.routes import _shrink_tool_results
+    ev = {"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "t1", "content": [
+            {"type": "text", "text": "スクショを撮りました"},
+            {"type": "image", "source": {"data": "B" * 100_000}},
+        ]},
+    ]}}
+    _shrink_tool_results(ev)
+    parts = ev["message"]["content"][0]["content"]
+    assert parts[0] == {"type": "text", "text": "スクショを撮りました"}
+    assert parts[1] == {"type": "image"}
