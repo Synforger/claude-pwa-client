@@ -67,7 +67,7 @@ import { isEnabled } from '../registry/featureRegistry.js'
 if (isEnabled('push-notify')) { /* ... */ }
 ```
 
-## observability (= W3 DebugPanel / StateInspector)
+## observability
 
 ```js
 import { getAllRegistrySnapshots, listRegistryNames } from './_registry.js'
