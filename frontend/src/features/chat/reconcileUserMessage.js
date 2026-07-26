@@ -1,13 +1,6 @@
 import { generateId } from '../../utils/id.js'
-import { MAX_MESSAGES, REPLAY_SKEW_TOLERANCE_MS } from '../../constants.js'
-
-// event が bubble より過去か (= 履歴 replay 由来で、 この未確定 bubble の確定たり得ないか)。
-// 判定材料が欠けてる時 (= どちらかの ts が無い) は従来通り「過去でない」 に倒して既存の
-// 近似 match を活かす (= ts は 2026-07-22 導入なので、 旧 cache の bubble には無い)。
-function _isStaleFor(eventTs, bubbleTs) {
-  if (typeof eventTs !== 'number' || typeof bubbleTs !== 'number') return false
-  return eventTs < bubbleTs - REPLAY_SKEW_TOLERANCE_MS
-}
+import { MAX_MESSAGES } from '../../constants.js'
+import { isStaleFor } from './replayGuard.js'
 
 // SSE 経由で受信した user_message を messages 配列に統合する純粋関数。
 //
@@ -79,7 +72,7 @@ export function reconcileUserMessage(cur, eventText, eventUuid, eventSendId, eve
   for (let i = cur.length - 1; i >= 0; i--) {
     const m = cur[i]
     if (m && m.role === 'user' && m.optimistic) {
-      if (_isStaleFor(eventTs, m.ts)) break  // 過去の event = この送信の確定ではない → append へ
+      if (isStaleFor(eventTs, m.ts)) break  // 過去の event = この送信の確定ではない → append へ
       popIdx = i
       break
     }

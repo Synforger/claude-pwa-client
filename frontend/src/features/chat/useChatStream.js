@@ -1,7 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useSyncExternalStore } from 'react'
-import { LS_JSONL_OFFSET } from '../../constants.js'
 import { apiFetch } from '../../utils/api.js'
-import { lsGet, lsSet } from '../../utils/storage.js'
 import { generateId } from '../../utils/id.js'
 import { useStreamBuffer } from './useStreamBuffer.js'
 import { processStreamEvent } from './processStreamEvent.js'
@@ -18,26 +16,18 @@ import {
 import { tRaw } from '../../i18n/t.js'
 import { translateHttpErrorDetail } from '../../utils/httpError.js'
 
-// session_id → JSONL byte offset の永続化。 タブ切替 / リロードを跨いで「ここまで読んだ」 を
-// 保持し、 新規 EventSource 接続時に `?from=<sid>:<offset>,...` で渡す (= F-15)。 backend は
-// offset 以降の完全行だけ流すので、 初回 replay の重さがほぼゼロになる。
+// session_id → JSONL byte offset は transport (= transport/unified.ts, sse.ts) が持ち、 タブ切替 /
+// リロードを跨いで「ここまで読んだ」 を保持して接続時に `?from=<sid>:<offset>,...` で渡す
+// (= F-15)。 backend は offset 以降の完全行だけ流すので、 初回 replay の重さがほぼゼロになる。
+// 本 file は subscribe するだけで offset を持たない (= 旧 v1 保持は 2026-07-27 撤去)。
 //
 // F-15 以前は 1 sid あたり 1 EventSource を張り、 activeSid 切替で接続を張り直していた
 // (= 1-3s 待ち)。 F-15 で `/jsonl/stream/all` に統合し、 接続自体を活性 sid 切替で**閉じない**
 // ので、 タブ切替時に活性 sid の最新 message が即時表示される。
-function loadOffsets() {
-  const parsed = lsGet(LS_JSONL_OFFSET)
-  return parsed && typeof parsed === 'object' ? parsed : {}
-}
-
-function persistOffsets(offsets) {
-  lsSet(LS_JSONL_OFFSET, offsets)
-}
-
 // W2 Phase F-4 (= 2026-06-29): ChatPanel.jsx 内 useChatStream の戻り値 (= endSession /
 // stopMessage 関数) を、 features/dialogs/ConfirmEndDialog.jsx / ConfirmStopDialog.jsx から
-// 直接呼べる経路として module-level に export する。 hook 内部 closure (= sid / setMessages /
-// offsetRef 等) に access するため、 useChatStream mount 時に下記 ref を実装で wire し、
+// 直接呼べる経路として module-level に export する。 hook 内部 closure (= sid / setMessages 等)
+// に access するため、 useChatStream mount 時に下記 ref を実装で wire し、
 // unmount で nullify する (= 旧 endSession / stopMessage の useCallback 戻り値そのものを再利用、
 // ロジック改変ゼロ)。
 //
@@ -143,11 +133,9 @@ export function useChatStream({
   // (= applyOverviewSnapshot が確定的にクリア)。 送信/停止を対称に扱い、 どちらも 1 操作で
   // ボタンが確実に切り替わる。 旧来の 1500ms タイマー窓は撤去済。
   const optimisticRef = useRef({})
-  // session ごとの最後に受信した byte offset。 タブ切替で再接続する時、 ここから差分だけ
-  // 取り直すことで全 replay を避ける (= 切替を軽く + localStorage 即復元と併用)。
-  // localStorage に永続化することで、 アプリ再起動 / リロードを跨いでも継続。
-  const offsetRef = useRef(loadOffsets())
-  const offsetPersistTimerRef = useRef(null)
+  // 旧 v1 の offset 保持 (= offsetRef / offsetPersistTimerRef / cpc_jsonl_offset) は 2026-07-27 に
+  // 撤去した。 実 offset は transport 側 (= cpc_v2_jsonl_offsets) が唯一の持ち主で、 ここに
+  // 居たものは代入経路が既に無く「localStorage から読んで同じ値を書き戻すだけ」 だった。
   // EventSource 再接続トリガ。 endSession (/clear) で新 claude_sid に切り替わるとき、
   // backend の JSONL 解決を新 sid に向けるためここを +1 して useEffect を再実行させる。
   const [reconnectKey, setReconnectKey] = useState(0)
@@ -213,9 +201,8 @@ export function useChatStream({
   // F-15 統合 SSE は v2 では transport/sse.ts (= sseTransport singleton) が所有する。
   // offset 管理 + EventSource 再接続 + sid 別 dispatch は本 transport が担当、 ここは
   // subscribe するだけ (= ADR-010 ports/transport 経由、 ADR-012 corr_id envelope global required).
-  // 旧 cpc_jsonl_offset (= v1 offsetRef + persistOffsets) は v2 transport/sse.ts 内で
-  // cpc_v2_jsonl_offsets に移管済、 useChatStream 内の offsetRef は当面残置 (= 後続 v2 state 連携
-  // 深化で state/transport.js の offsets に統合予定、 現状は dead だが無害)。
+  // offset の唯一の持ち主は transport (= cpc_v2_jsonl_offsets)。 旧 v1 の cpc_jsonl_offset と
+  // その保持コードは 2026-07-27 に撤去済 (= 代入経路が無く同じ値を書き戻すだけだった)。
   useEffect(() => {
     const unsub = chatTransport.subscribe(event => {
       const evSid = event.sid || sid
@@ -261,23 +248,15 @@ export function useChatStream({
   // iOS は PWA を background にすると socket を suspend し、 戻った時に「OPEN のまま実は死んでる」
   // 状態になる事がある。 onerror が発火しないので reconnectKey bump 経路に乗らない →
   // 新着が来ない = チャットが少し前で止まる症状の主因。 visibility が visible に変わったら
-  // 確実に新接続を取り直して、 offsetRef ベースで未受信 event を replay 取得する。
-  // + 2026-06-23: hidden 遷移時に offsetRef を同期で localStorage に flush する。 旧実装は
-  // event 受信ごとに 1s debounce していたため、 bg 突入が debounce 中だと offset が
-  // 旧値のまま落ちる → 復帰時の `?from=` が古い offset を渡して replay 始点ズレ →
-  // 「最新メッセージが見えない / 古いものに戻る」 事象の主因の 1 つ。
+  // 確実に新接続を取り直し、 未受信 event を transport 側の offset から replay 取得する。
+  //
+  // 2026-07-27: ここに居た hidden 遷移時の offset flush は撤去した。 v1 offset は代入経路が
+  // 既に無く flush しても同じ値を書き戻すだけの空回りで、 実 offset の永続化は
+  // useChatStorage の「メッセージを保存できた時に flush」 (= 描画・永続化した位置に紐付ける)
+  // が担っている。 それに伴い pagehide / beforeunload / freeze の listener も不要になった。
   useEffect(() => {
-    const flushOffsets = () => {
-      if (offsetPersistTimerRef.current) {
-        clearTimeout(offsetPersistTimerRef.current)
-        offsetPersistTimerRef.current = null
-      }
-      try { persistOffsets(offsetRef.current) } catch { /* ignore */ }
-    }
     const onVis = () => {
-      if (document.visibilityState === 'hidden') {
-        flushOffsets()
-      } else if (document.visibilityState === 'visible' && !unifiedEnabled) {
+      if (document.visibilityState === 'visible' && !unifiedEnabled) {
         // legacy のみ: fg 復帰の張り直しを reconnectKey で駆動。 unified は
         // transport/lifecycle.ts の unifiedTransport.bumpReconnect() が 1 接続分を
         // 担うため、 ここで resub すると同一復帰で 2 回張り直す無駄が出る。
@@ -285,15 +264,7 @@ export function useChatStream({
       }
     }
     document.addEventListener('visibilitychange', onVis)
-    window.addEventListener('pagehide', flushOffsets)
-    window.addEventListener('beforeunload', flushOffsets)
-    window.addEventListener('freeze', flushOffsets)
-    return () => {
-      document.removeEventListener('visibilitychange', onVis)
-      window.removeEventListener('pagehide', flushOffsets)
-      window.removeEventListener('beforeunload', flushOffsets)
-      window.removeEventListener('freeze', flushOffsets)
-    }
+    return () => document.removeEventListener('visibilitychange', onVis)
   }, [])
 
   // activeSid 切替時の buffer reset。 接続自体は閉じない (= F-15 で /all 経路に統合)、
@@ -616,10 +587,7 @@ export function useChatStream({
     // `jsonl_event_broadcaster.publish` で broadcaster Queue に流れる → 既存
     // EventSource subscriber に 1 行ずつ streaming で届く。
     //
-    // 旧 `offsetRef` (= v1 経路、 sseTransport の `LS_OFFSETS` とは別 source) の
-    // クリアは無意味 (= 既に dead code 化、 sseTransport.offsets には影響しない)。
-    // setReconnectKey も撤去 (= EventSource 切断 trigger を踏まなくなるので reconnect
-    // は不要)。
+    // setReconnectKey は撤去済 (= EventSource 切断 trigger を踏まなくなるので reconnect 不要)。
   }, [sid, setMessages])
 
   // 常時 tail + EventSource 自動再接続なので明示 fetch は不要。 scroll だけ最新へ寄せる。

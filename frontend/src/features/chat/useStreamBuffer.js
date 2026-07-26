@@ -1,13 +1,6 @@
 import { useRef } from 'react'
 import { generateId } from '../../utils/id.js'
-import { REPLAY_SKEW_TOLERANCE_MS } from '../../constants.js'
-
-// event が bubble より過去か (= 履歴 replay 由来で、 この未確定 bubble の中身たり得ないか)。
-// 判定材料が欠けてる時は「過去でない」 に倒す (= reconcileUserMessage._isStaleFor と同義)。
-function _isStaleFor(eventTs, bubbleTs) {
-  if (typeof eventTs !== 'number' || typeof bubbleTs !== 'number') return false
-  return eventTs < bubbleTs - REPLAY_SKEW_TOLERANCE_MS
-}
+import { isStaleFor } from './replayGuard.js'
 
 // SSE で飛んでくる細切れの assistant 更新 (text / thinking / tool_use) を、
 // 150ms に 1 回だけ React state にコミットするためのバッファ (= 旧 rAF 方式は
@@ -100,7 +93,7 @@ export function useStreamBuffer({ setMessages }) {
         && !last.thinking
         && (!last.tools || last.tools.length === 0)
         && !last.askUserQuestion
-        && !_isStaleFor(snap.ts, last.ts)
+        && !isStaleFor(snap.ts, last.ts)
 
       if (snap.needsNewBubble) {
         // 同 uuid (= Anthropic message.id) の追加 frame と reconnect / replay 時の
