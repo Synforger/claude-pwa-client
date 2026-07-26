@@ -101,9 +101,12 @@ describe('unified transport', () => {
     expect(jsonlSeen).toHaveLength(1)
     expect(jsonlSeen[0].uuid).toBe('x')
     expect(statusSeen.at(-1).ses_a.model).toBe('Fable 5')
-    // offsets: debounce 前は未永続、 flush で書かれる
-    vi.advanceTimersByTime(1100)
+    // offsets: 受信では in-memory 前進のみ (= 永続化しない、 中抜け根治)。 localStorage への
+    // 永続化は flushOffsets() (= useChatStorage のメッセージ保存に結合) 明示呼びの時だけ。
+    expect(localStorage.getItem('cpc_v2_jsonl_offsets')).toBeNull()
+    unifiedJsonl.flushOffsets()
     expect(JSON.parse(localStorage.getItem('cpc_v2_jsonl_offsets')).ses_a).toBe(777)
+    // status は従来通り受信で write-through。
     expect(JSON.parse(localStorage.getItem('cpc_last_all_status')).ses_a.model).toBe('Fable 5')
     u1(); u2()
   })
@@ -199,7 +202,8 @@ describe('unified transport', () => {
     es.open()
     es.emit({ ch: 'jsonl', pos: 500, ev: { type: 'assistant', sid: 'ses_a', uuid: 'a' } })
     es.emit({ ch: 'jsonl', pos: 300, ev: { type: 'assistant', sid: 'ses_a', uuid: 'b' } })
-    vi.advanceTimersByTime(1100)
+    // in-memory の単調前進 (= 古い pos で巻き戻さない) を flush 後の永続値で確認。
+    unifiedJsonl.flushOffsets()
     expect(JSON.parse(localStorage.getItem('cpc_v2_jsonl_offsets')).ses_a).toBe(500)
     u1()
   })

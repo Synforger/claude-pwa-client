@@ -6,8 +6,10 @@
 // Terminal LRU mount が absolute 配置されていた。 F-1 では Terminal mount は AppShell に残置、
 // .messages のみ ChatPanel 配下に独立。 viewMode='terminal' 時の display:none gate は ChatPanel
 // 側の hidden wrapper で実現する (= 旧 inline style と同等)。
+import { useMemo } from 'react'
 import MessageItem from './MessageItem.jsx'
 import { useT } from '../../i18n/t.js'
+import { sortByTs } from './sortByTs.js'
 
 export default function MessageList({
   scrollerDomRef,
@@ -24,6 +26,8 @@ export default function MessageList({
   scrollToBottom,
 }) {
   const t = useT()
+  // 表示直前に時系列ソート (= 順序バグ根治)。 displayMessages 参照が変わった時だけ再計算。
+  const orderedMessages = useMemo(() => sortByTs(displayMessages || []), [displayMessages])
   // .messages-container は scroll-btn (= position: absolute) の基準点 (= position: relative)。
   // 旧 AppShell では Terminal LRU mount もここに同居していたが、 F-1 で .messages + scroll-btn
   // だけが本 component 配下に残った。 wrapper を外すと scroll-btn が祖先 (= .app or body) を
@@ -39,7 +43,7 @@ export default function MessageList({
         onScroll={onScroll}
         style={viewMode === 'terminal' ? { display: 'none' } : undefined}
       >
-        {displayMessages.map((msg) => (
+        {orderedMessages.map((msg) => (
           <MessageItem
             key={msg.id}
             msg={msg}

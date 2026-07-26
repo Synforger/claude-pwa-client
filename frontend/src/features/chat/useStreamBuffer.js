@@ -1,5 +1,6 @@
 import { useRef } from 'react'
 import { generateId } from '../../utils/id.js'
+import { isStaleFor } from './replayGuard.js'
 
 // SSE で飛んでくる細切れの assistant 更新 (text / thinking / tool_use) を、
 // 150ms に 1 回だけ React state にコミットするためのバッファ (= 旧 rAF 方式は
@@ -66,18 +67,25 @@ export function useStreamBuffer({ setMessages }) {
       newTools: [...buf.newTools],
       needsNewBubble: buf.needsNewBubble,
       uuid: buf.uuid,
+      ts: buf.ts ?? null,
     }
     buf.text = null
     buf.thinking = null
     buf.newTools = []
     buf.needsNewBubble = false
     buf.uuid = null
+    buf.ts = null
     buf.dirty = false
 
     setMessages(prev => {
       const cur = prev[sid] || []
       const msgs = [...cur]
       const last = msgs[msgs.length - 1]
+      // 空 placeholder (= 送信直後の「推論中」 枠) を今回の中身で埋めてよいか。
+      // **今回の event が placeholder より過去なら埋めない** (= 2026-07-26 根治)。
+      // GET 履歴 replay は古い assistant も流すので、 無条件に埋めると最新の返答枠に
+      // 大昔の応答が座る (= 実機報告「最新のメッセージが反映されない」)。 過去のものは
+      // 新規 bubble として append し、 MessageList の ts ソートが正しい位置に置く。
       const lastIsEmptyAgent = last
         && last.role === 'agent'
         && last.streaming
@@ -85,6 +93,7 @@ export function useStreamBuffer({ setMessages }) {
         && !last.thinking
         && (!last.tools || last.tools.length === 0)
         && !last.askUserQuestion
+        && !isStaleFor(snap.ts, last.ts)
 
       if (snap.needsNewBubble) {
         // 同 uuid (= Anthropic message.id) の追加 frame と reconnect / replay 時の
@@ -111,6 +120,7 @@ export function useStreamBuffer({ setMessages }) {
               thinking: snap.thinking || existing.thinking || null,
               tools: addedTools.length > 0 ? [...existingTools, ...addedTools] : existingTools,
               streaming: existing.streaming,
+              ts: existing.ts ?? snap.ts ?? null,
             }
             return { ...prev, [sid]: msgs }
           }
@@ -124,6 +134,7 @@ export function useStreamBuffer({ setMessages }) {
             text: snap.text || '',
             thinking: snap.thinking || null,
             tools: [...(snap.newTools || [])],
+            ts: snap.ts ?? last.ts ?? null,
           }
           return { ...prev, [sid]: msgs }
         }
@@ -135,6 +146,7 @@ export function useStreamBuffer({ setMessages }) {
           thinking: snap.thinking || null,
           tools: [...(snap.newTools || [])],
           streaming: true,
+          ts: snap.ts ?? null,
         }]}
       }
 

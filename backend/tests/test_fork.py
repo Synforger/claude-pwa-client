@@ -197,6 +197,21 @@ def test_fork_endpoint_creates_indented_child(tmp_path, monkeypatch, isolated_st
     assert _uuids(files[0].read_text().splitlines()) == ["u1", "a1", "u2"]
 
 
+def test_fork_inherits_parent_account_id(tmp_path, monkeypatch, isolated_state):
+    """fork は親の account_id を継ぐ (= 2026-07-22 空タブ根治)。
+
+    account_id は spawn 時の CLAUDE_CONFIG_DIR を決める。 lineage jsonl は親と同じ
+    project dir (= 親 account の config-dir 配下) に書かれるので、 fork の account_id が
+    親と違うと `claude --resume` が別 config-dir を見て lineage を見つけられず即 exit する
+    (= work account の会話を fork すると personal 扱いになり空タブになっていた実障害)。
+    """
+    chat_routes, parent, _ = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
+    # 親を work account に付け替える (register_session は account_id を保持する)。
+    parent.account_id = "work"
+    out = _run(chat_routes.fork_session(parent.id, {"from_uuid": "u2"}))
+    assert out["account_id"] == "work"
+
+
 def test_fork_endpoint_rejects_dirty_point(tmp_path, monkeypatch, isolated_state):
     from fastapi import HTTPException  # noqa: PLC0415
     content = [{"type": "tool_use", "name": "Read", "id": "t1"}]

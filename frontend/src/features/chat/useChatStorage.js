@@ -4,6 +4,7 @@ import { LEGACY_AGENT_TO_SESSION, LS_MESSAGES, LS_INPUT, MAX_MESSAGES } from '..
 import { generateId } from '../../utils/id.js'
 import { setMessagesFor, removeMessagesFor } from '../../state/messages.js'
 import { recordPerfSample } from '../app-effects/perfProbe.js'
+import { chatTransport } from '../../transport/select.ts'
 
 const { compressToUTF16, decompressFromUTF16 } = LZString
 
@@ -13,6 +14,14 @@ const { compressToUTF16, decompressFromUTF16 } = LZString
 // しばらく残す (= rollback 安全弁)。
 const LS_MESSAGES_V2_PREFIX = `${LS_MESSAGES}_v2_`
 function v2Key(sid) { return LS_MESSAGES_V2_PREFIX + sid }
+
+// メッセージ保存成功に結合して JSONL offset を永続化する (= offset を「描画・永続化した位置」
+// に一致させる)。 transport は受信フレームで in-memory offset を前進させるが localStorage には
+// 書かない (= 中抜け根治): ここで保存とセットで永続化することで、 リロード/復帰の replay が
+// 必ずキャッシュの続きから始まり、 受信済み未保存区間が消える中抜けが原理的に起きない。
+function persistJsonlOffset() {
+  try { chatTransport.flushOffsets() } catch { /* transport 未初期化 / offset 無し等は無視 */ }
+}
 
 // 2026-06-24 server-of-truth 純化: localStorage 永続化境界の唯一の真値。 load (cleanArr) と
 // save (runMsgSave) の両端で同関数を通すことで「user message は uuid 付き確定のみ persist」
@@ -57,12 +66,37 @@ function countSessionEnds(arr) {
   return n
 }
 
-// localStorage へ実際に書く対象。 isPersistableMessage に加えて streaming 中 (= in-flight)
-// のメッセージを除外する。 in-flight を毎トークン再圧縮しないための境界 (= 確定分は jsonl
-// replay で復元されるので落としても実データ損失なし)。 badge / store mirror 側は
-// isPersistableMessage をそのまま使う (= 表示・検出には streaming も要る)。
+// localStorage 永続化境界の唯一の projection。 save (書込) と load (復元) の両端で同関数を
+// 通し、 「どの形で disk に載るか」 を 1 箇所で決める。 返り値 null = 永続化しない。
+//
+//   - streaming 中 (= in-flight) は落とす (= 発熱根治の境界、 確定分は jsonl replay で復元)。
+//   - confirmed user (= uuid 付き) はそのまま。
+//   - 送信済み未確定 user (= send_id 付き optimistic bubble) は 「確定待ち (pending)」 として
+//     保存する。 optimistic フラグと ObjectURL (= リロードで失効する imageUrls) を落とし、
+//     send_id / imageRefs (= IndexedDB key) は残す。 復元後 SSE の user_message が send_id 一致
+//     (reconcileUserMessage 2b) or 同文 uuid 未確定 (3.5) で uuid を焼いて確定へ引き継ぐ。
+//     これで 「送信 → SSE 確定が返る前に繋ぎ直す」 窓で自分の送信が消える構造ギャップを塞ぐ
+//     (= send_id identity 導入前は同文別 uuid の二重表示 root cause だったが、 現行は
+//     send_id 経路が二重を構造的に潰すので pending 保存が安全になった)。
+//   - sendFailed / uuid も send_id も無い user は落とす (= ghost 防止)。
+//   - user 以外 (agent / system) は streaming 以外そのまま通す。
+export function toStorableForm(m) {
+  if (!m) return null
+  if (m.streaming) return null
+  if (m.role === 'user') {
+    if (m.sendFailed) return null
+    if (m.uuid) return m
+    if (!m.send_id) return null
+    const { optimistic: _optimistic, imageUrls: _imageUrls, ...pending } = m
+    return pending
+  }
+  return m
+}
+
+// localStorage へ実際に書く対象か (= toStorableForm が保存形を返すか)。 badge / store mirror
+// 側は isPersistableMessage をそのまま使う (= 表示・検出には streaming も要る)。
 export function isStorablePersistedMessage(m) {
-  return isPersistableMessage(m) && !m.streaming
+  return toStorableForm(m) !== null
 }
 
 // 永続化対象 (= streaming 除外済み prune 後) の内容署名。 streaming 中は in-flight
@@ -108,7 +142,8 @@ function pruneOldSessions(arr, knownEndCount) {
 export function useChatStorage(sessions) {
   const [messages, setMessages] = useState(() => {
     const cleanArr = (arr) => arr
-      .filter(isPersistableMessage)
+      .map(toStorableForm)
+      .filter(Boolean)
       .map(m => {
         const base = m.id ? m : { ...m, id: generateId() }
         if (base.askUserQuestion && !base.askUserQuestion.answered) {
@@ -262,6 +297,9 @@ export function useChatStorage(sessions) {
           lastSavedRef.current[sid] = pending.cur
           lastSavedSigRef.current[sid] = pending.sig
           pendingSaveRef.current.delete(sid)
+          // メッセージ保存成功時に永続 offset を「描画・永続化した位置」 へ合わせる
+          // (= 受信時保存を廃止し、 保存に結合。 reload replay が中抜けしない、 offset⇄cache 整合)。
+          persistJsonlOffset()
         } catch {
           // quota 超過: 同期経路と同じく古い方から刻んで再圧縮 (= worker 往復で retry)
           if (pending.toSave.length === 0 || pending.attempts >= QUOTA_RETRY_MAX) {
@@ -352,9 +390,8 @@ export function useChatStorage(sessions) {
       const cur = cur_messages[sid] || []
       // 参照比較で dirty 判定 (= sid に変更がなければ何もしない)
       if (lastSavedRef.current[sid] === cur) continue
-      // streaming 中の in-flight メッセージは永続化しない (= 確定分は jsonl replay で復元、
-      // in-flight を毎トークン再圧縮しないための除外)。
-      const persistable = cur.filter(isStorablePersistedMessage)
+      // 永続化形へ射影 (= streaming 除外 + 送信済み未確定 user を pending 化、 toStorableForm 参照)。
+      const persistable = cur.map(toStorableForm).filter(Boolean)
       // F-27: マーカー数を再計算 (= dirty な sid のみ)、 これを pruneOldSessions に渡す
       const endCount = countSessionEnds(persistable)
       endCountRef.current[sid] = endCount
@@ -395,6 +432,7 @@ export function useChatStorage(sessions) {
       if (saved) {
         lastSavedRef.current[sid] = cur
         lastSavedSigRef.current[sid] = sig
+        persistJsonlOffset()  // 保存に結合して永続 offset を描画位置へ合わせる (= 中抜け根治)
       } else {
         console.warn(`[chat-storage] quota exceeded for ${sid} after retries`)
       }

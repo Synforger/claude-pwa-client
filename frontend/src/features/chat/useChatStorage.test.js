@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isPersistableMessage, isStorablePersistedMessage, persistSig } from './useChatStorage.js'
+import { isPersistableMessage, isStorablePersistedMessage, toStorableForm, persistSig } from './useChatStorage.js'
 
 // 2026-06-24 server-of-truth 純化: localStorage 永続化境界の唯一の真値となる純関数 test。
 // 重複バグ root cause (= uuid なし user 行が ghost として復活し SSE event との dedup を破る)
@@ -51,9 +51,58 @@ describe('isStorablePersistedMessage (localStorage 書込境界)', () => {
     expect(isStorablePersistedMessage({ role: 'agent', text: 'done', uuid: 'a1' })).toBe(true)
   })
 
-  it('isPersistableMessage で弾かれるものはこちらでも弾かれる', () => {
+  it('send_id を持たない optimistic user は依然として弾かれる (= ghost 防止)', () => {
     expect(isStorablePersistedMessage({ role: 'user', text: 'hi', optimistic: true })).toBe(false)
     expect(isStorablePersistedMessage(null)).toBe(false)
+  })
+})
+
+// 「送信 → SSE 確定が返る前に繋ぎ直すと自分の送信が消える」 構造ギャップの根治
+// (= 送信済み未確定 user を pending として永続化する境界)。 save / load 両端で通す projection。
+describe('toStorableForm (永続化 projection)', () => {
+  it('confirmed user (uuid) はそのまま保存', () => {
+    const m = { id: 'i1', role: 'user', text: 'hi', uuid: 'u1', send_id: 's1' }
+    expect(toStorableForm(m)).toBe(m)
+  })
+
+  it('送信済み未確定 user (send_id 付き optimistic) は pending として保存 (= 消えない)', () => {
+    const m = {
+      id: 'i1', role: 'user', text: 'hi', send_id: 's1', optimistic: true,
+      imageUrls: ['blob:xxx'], imageRefs: ['idb-1'], fileNames: ['a.py'],
+    }
+    const out = toStorableForm(m)
+    expect(out).not.toBeNull()
+    expect(out.optimistic).toBeUndefined()   // optimistic フラグは落とす (= pending 化)
+    expect(out.imageUrls).toBeUndefined()     // ObjectURL はリロードで失効するので落とす
+    expect(out.send_id).toBe('s1')            // send_id は残す (= 復元後 uuid backfill の鍵)
+    expect(out.imageRefs).toEqual(['idb-1'])  // IndexedDB key は残す (= 画像復元)
+    expect(out.text).toBe('hi')
+  })
+
+  it('load で復元した pending (optimistic 無し・send_id 有り) は idempotent に通る', () => {
+    const restored = { id: 'i1', role: 'user', text: 'hi', send_id: 's1' }
+    expect(toStorableForm(restored)).toEqual(restored)
+    expect(isStorablePersistedMessage(restored)).toBe(true)
+  })
+
+  it('sendFailed user は落とす (= ghost 防止)', () => {
+    expect(toStorableForm({ role: 'user', text: 'hi', send_id: 's1', sendFailed: true })).toBeNull()
+  })
+
+  it('uuid も send_id も無い user は落とす', () => {
+    expect(toStorableForm({ role: 'user', text: 'hi' })).toBeNull()
+    expect(toStorableForm({ role: 'user', text: 'hi', optimistic: true })).toBeNull()
+  })
+
+  it('streaming (agent in-flight) は落とす', () => {
+    expect(toStorableForm({ role: 'agent', text: '', streaming: true })).toBeNull()
+  })
+
+  it('確定 agent / system はそのまま通す', () => {
+    const a = { role: 'agent', text: 'done', uuid: 'a1' }
+    const s = { role: 'system', kind: 'session_end', ts: 1 }
+    expect(toStorableForm(a)).toBe(a)
+    expect(toStorableForm(s)).toBe(s)
   })
 })
 

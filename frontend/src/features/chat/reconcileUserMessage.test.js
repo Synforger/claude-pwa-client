@@ -193,4 +193,67 @@ describe('reconcileUserMessage — 再配信の二重表示禁止', () => {
     expect(next).toHaveLength(2)
     expect(next[1].uuid).toBe('U2')
   })
+
+  // --- GET 履歴 replay が楽観バブルを食い潰さない (= 2026-07-26 実機報告の根治) ---
+
+  it('履歴 replay の古い user_message は送信直後の楽観バブルを pop しない (= 自分の送信が消えない)', () => {
+    const NOW = 1900000000000
+    const ANCIENT = NOW - 24 * 60 * 60 * 1000  // 1 日前 = 履歴 replay 相当
+    const cur = [
+      { id: 'm1', uuid: 'U-old', role: 'user', text: '前の発話', ts: NOW - 60000 },
+      { id: 'm2', uuid: 'A-old', role: 'agent', text: '前の応答', ts: NOW - 59000 },
+      { id: 'm3', role: 'user', text: 'いま送った俺のメッセージ', optimistic: true, send_id: 'S-now', ts: NOW },
+    ]
+    // identity が両方切れた古い event (= GET 履歴が返す uuid 有 / send_id 無の過去発話)
+    const next = reconcileUserMessage(cur, '大昔の発話A', 'U-ancient', undefined, ANCIENT)
+    // 楽観バブルは無傷で残る
+    const mine = next.find(m => m.text === 'いま送った俺のメッセージ')
+    expect(mine).toBeTruthy()
+    expect(mine.optimistic).toBe(true)
+    // 古い発話は食わずに append される (= 表示位置は MessageList の ts ソートが決める)
+    expect(next.find(m => m.uuid === 'U-ancient')).toBeTruthy()
+  })
+
+  it('同時刻帯の正規 event は従来通り楽観バブルを pop する (= safety net を殺していない)', () => {
+    const NOW = 1900000000000
+    const cur = [
+      { id: 'm3', role: 'user', text: '送った', optimistic: true, ts: NOW },
+    ]
+    // server / client の時計ズレを想定した数秒前でも pop できる (= 許容差の内側)
+    const next = reconcileUserMessage(cur, '送った', 'U-real', undefined, NOW - 3000)
+    expect(next).toHaveLength(1)
+    expect(next[0].uuid).toBe('U-real')
+    expect(next[0].optimistic).toBeFalsy()
+  })
+
+  it('ts が無い event / bubble では従来の近似 match を維持する (= 旧 cache 互換)', () => {
+    const cur = [{ id: 'm3', role: 'user', text: '送った', optimistic: true }]
+    const next = reconcileUserMessage(cur, '送った', 'U-real', undefined, undefined)
+    expect(next).toHaveLength(1)
+    expect(next[0].uuid).toBe('U-real')
+  })
+
+  // --- 確定しても ts を失わない (= 2026-07-27 「送信した瞬間に消える」 根治) ---
+
+  it('楽観バブルを確定しても ts を失わない (= server ts を採用)', () => {
+    const NOW = 1900000000000
+    const cur = [{ id: 'm', role: 'user', text: '送った', optimistic: true, send_id: 'S1', ts: NOW }]
+    const next = reconcileUserMessage(cur, '送った', 'U1', 'S1', NOW + 500)
+    expect(next[0].ts).toBe(NOW + 500)
+  })
+
+  it('server ts が無い確定でも楽観バブルの ts を維持する', () => {
+    const NOW = 1900000000000
+    const cur = [{ id: 'm', role: 'user', text: '送った', optimistic: true, send_id: 'S1', ts: NOW }]
+    const next = reconcileUserMessage(cur, '送った', 'U1', 'S1', undefined)
+    expect(next[0].ts).toBe(NOW)
+  })
+
+  it('同文 guard 経路で確定した場合も ts が付く', () => {
+    const NOW = 1900000000000
+    const cur = [{ id: 'm', role: 'user', text: '同じ本文', ts: NOW }]
+    const next = reconcileUserMessage(cur, '同じ本文', 'U2', null, NOW + 100)
+    expect(next).toHaveLength(1)
+    expect(next[0].ts).toBe(NOW + 100)
+  })
 })
