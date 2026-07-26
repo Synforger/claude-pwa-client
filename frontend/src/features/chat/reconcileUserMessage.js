@@ -1,5 +1,13 @@
 import { generateId } from '../../utils/id.js'
-import { MAX_MESSAGES } from '../../constants.js'
+import { MAX_MESSAGES, REPLAY_SKEW_TOLERANCE_MS } from '../../constants.js'
+
+// event が bubble より過去か (= 履歴 replay 由来で、 この未確定 bubble の確定たり得ないか)。
+// 判定材料が欠けてる時 (= どちらかの ts が無い) は従来通り「過去でない」 に倒して既存の
+// 近似 match を活かす (= ts は 2026-07-22 導入なので、 旧 cache の bubble には無い)。
+function _isStaleFor(eventTs, bubbleTs) {
+  if (typeof eventTs !== 'number' || typeof bubbleTs !== 'number') return false
+  return eventTs < bubbleTs - REPLAY_SKEW_TOLERANCE_MS
+}
 
 // SSE 経由で受信した user_message を messages 配列に統合する純粋関数。
 //
@@ -61,10 +69,17 @@ export function reconcileUserMessage(cur, eventText, eventUuid, eventSendId, eve
   }
 
   // 3. 近傍最後の optimistic を pop (fallback、 backend restart / TTL 超えの safety net)。
+  // ただし **event が その optimistic より過去なら pop しない** (= 2026-07-26 根治)。
+  // identity (uuid / send_id) が両方切れた event に対する近似 match なので、 GET 履歴
+  // replay で流れてくる**古い** user_message もここに落ちる。 無条件に pop すると、
+  // 送信直後の楽観バブルが大昔の発話で上書きされて消える (= 実機報告「自分のメッセージが
+  // 消えてる」 の直接原因、 再現 test 済)。 未確定バブルを確定できるのはその送信より後に
+  // 生まれた event だけ、 が物理。
   let popIdx = -1
   for (let i = cur.length - 1; i >= 0; i--) {
     const m = cur[i]
     if (m && m.role === 'user' && m.optimistic) {
+      if (_isStaleFor(eventTs, m.ts)) break  // 過去の event = この送信の確定ではない → append へ
       popIdx = i
       break
     }
