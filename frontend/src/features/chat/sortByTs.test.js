@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sortByTs } from './MessageList.jsx'
+import { sortByTs } from './sortByTs.js'
 
 // 順序バグ根治: 表示は ts (epoch ms) で安定ソートし、 配列への入り方 (append 順) に依存せず
 // 常に時系列で並ぶ。 ts 無しメッセージは直前の実効キーを継いで隣に留まる。
