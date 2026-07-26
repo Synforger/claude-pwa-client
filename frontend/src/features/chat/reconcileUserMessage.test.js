@@ -232,4 +232,28 @@ describe('reconcileUserMessage — 再配信の二重表示禁止', () => {
     expect(next).toHaveLength(1)
     expect(next[0].uuid).toBe('U-real')
   })
+
+  // --- 確定しても ts を失わない (= 2026-07-27 「送信した瞬間に消える」 根治) ---
+
+  it('楽観バブルを確定しても ts を失わない (= server ts を採用)', () => {
+    const NOW = 1900000000000
+    const cur = [{ id: 'm', role: 'user', text: '送った', optimistic: true, send_id: 'S1', ts: NOW }]
+    const next = reconcileUserMessage(cur, '送った', 'U1', 'S1', NOW + 500)
+    expect(next[0].ts).toBe(NOW + 500)
+  })
+
+  it('server ts が無い確定でも楽観バブルの ts を維持する', () => {
+    const NOW = 1900000000000
+    const cur = [{ id: 'm', role: 'user', text: '送った', optimistic: true, send_id: 'S1', ts: NOW }]
+    const next = reconcileUserMessage(cur, '送った', 'U1', 'S1', undefined)
+    expect(next[0].ts).toBe(NOW)
+  })
+
+  it('同文 guard 経路で確定した場合も ts が付く', () => {
+    const NOW = 1900000000000
+    const cur = [{ id: 'm', role: 'user', text: '同じ本文', ts: NOW }]
+    const next = reconcileUserMessage(cur, '同じ本文', 'U2', null, NOW + 100)
+    expect(next).toHaveLength(1)
+    expect(next[0].ts).toBe(NOW + 100)
+  })
 })

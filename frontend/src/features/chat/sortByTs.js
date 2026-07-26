@@ -13,10 +13,16 @@
 // は直前の実効キーを継いで時系列上の隣に留め、 元 index を tiebreak にして stable にする
 // (= 同 ts の相対順維持)。
 export function sortByTs(msgs) {
+  // carry は「直前までに見た最大 ts」 (= 単調増加)。 直前要素の生 ts をそのまま継ぐと、
+  // 配列順が時系列とズレている場面 (= 履歴 replay で古い行が末尾に積まれた直後) に、
+  // ts を持たない**新しい** bubble が古いキーを継いで過去へ沈み、 表示窓 (= 末尾
+  // DISPLAY_LIMIT 件) の外に落ちて消える (= 2026-07-27 「送信した瞬間に消える」 の増幅要因)。
+  // 最大値を継げば、 ts 無し bubble が「今まで見た中で最も新しい位置」 より前に沈むことは
+  // 構造的に起きない。 ts を持つ message の相対順は従来通り ts 昇順で不変。
   let carry = -Infinity
   const keyed = msgs.map((m, i) => {
     const t = typeof m.ts === 'number' ? m.ts : null
-    if (t != null) carry = t
+    if (t != null && t > carry) carry = t
     return { m, i, key: t != null ? t : carry }
   })
   keyed.sort((a, b) => (a.key - b.key) || (a.i - b.i))
