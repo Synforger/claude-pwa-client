@@ -87,7 +87,7 @@ def test_abnormal_termination_marked_done_when_parent_idle(client_with_session, 
     ]
     _write_agent(subdir, "agent-cut", description="Interrupted", lines=lines)
 
-    # 親 idle → done 化する (= okg 実機報告の固着解消)。
+    # 親 idle → done 化する (= 実機で報告された固着の解消)。
     monkeypatch.setattr(subagents_routes, "_session_busy", lambda sid: False)
     res = client.get("/sessions/s1/subagents")
     got = {s["agentId"]: s for s in res.json()["subagents"]}
