@@ -178,11 +178,24 @@ function SubagentsModalInner({ sid, focus, onClose }) {
   const [agent, setAgent] = useState(null)    // transcript 表示中の agent
   const focusedRef = useRef(false)            // focus 自動遷移を 1 回だけ行う
 
-  // SSE 接続: backend が subagents/workflows ディレクトリを 1 秒間隔で監視、 変化を検知
-  // したら最新 payload を push する。 polling より精密で、 走り終わった瞬間に done に
-  // 切り替わる。 接続切れは EventSource が auto-reconnect (= 3 秒)。
+  // 初期表示は GET で即埋め、 live 更新は SSE。 SSE の初期 snapshot は「接続確立時に 1 回」
+  // しか流れないので、 リロード / 復帰後に stream 接続が張り直せていないと data=null のまま
+  // 「読み込み中」 で固着していた (= backend は GET/stream とも即返すのに frontend が受けられて
+  // いない実機報告の根治)。 GET は stream とは別リクエストなので、 stream が復帰し損ねても
+  // 初期一覧は必ず出る。 done 切替等の live 更新は下の subscribe が担う。
   useEffect(() => {
     setError(null)
+    setData(null)  // sid 切替時は一旦クリア (= 前 sid の残像を出さない、 GET で埋め直す)
+    const controller = new AbortController()
+    apiFetch(`/sessions/${encodeURIComponent(sid)}/subagents`, { signal: controller.signal })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        // SSE が先に届いていれば上書きしない (= prev ?? )、 null のままなら GET で埋める。
+        if (d && typeof d === 'object') {
+          setData(prev => prev ?? { subagents: d.subagents || [], workflows: d.workflows || [] })
+        }
+      })
+      .catch(() => { /* GET 失敗は無視、 SSE 側で埋まる */ })
     // /sessions/{sid}/subagents/stream は transport/sse-subagents.ts per-sid factory (= ADR-019) で
     // 立てる。 subscribe は sid 単位で同 EventSource 共有 (= refs カウンタ)、 unsubscribe で自動 close。
     const unsub = subagentsStreamSse.subscribe(sid, (d) => {
@@ -190,7 +203,7 @@ function SubagentsModalInner({ sid, focus, onClose }) {
         setData({ subagents: d.subagents || [], workflows: d.workflows || [] })
       }
     })
-    return () => { unsub() }
+    return () => { controller.abort(); unsub() }
   }, [sid])
 
   // チップから渡された focus で、 一覧ロード後に該当 run / agent へ 1 回だけ自動遷移する。

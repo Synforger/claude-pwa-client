@@ -108,6 +108,17 @@ tmux server は `exit-empty off` + 番兵 session `claudepwa-sentinel` (= backen
 
 **frontend は既定で本経路を使う**: `frontend/src/transport/unified.ts` (= singleton 本体) + `select.ts` (= 実装選択の 1 点、 consumer は select 経由で旧 interface のまま受け取る)。 緊急 rollback = DevTools で localStorage の cpc_transport を legacy にして reload (= 旧 4-5 本構成に戻る)。 offset (= cpc_v2_jsonl_offsets) と status hydrate cache (= cpc_last_all_status) は新旧同 key を共用するため切替で状態を失わない。
 
+## `GET /jsonl/history/{sid}`: 状態は GET、 stream は差分 (= client=射影)
+
+タブ表示時に **履歴の権威スナップショット**を 1 発で取る経路 (= `backend/jsonl/routes.py::get_chat_history`)。 stream の初回 replay に履歴復元を依存させないための「状態は GET / stream は差分だけ」 分離で、 stream が復帰し損ねても履歴は必ず取れる。
+
+- **返すもの**: `{events, pos}`。 `events` は SSE と同形状 (= 同じ ingest pipeline を通す、 uuid dedup で cache とも stream replay とも重複しない)、 `pos` は読み終えた byte 位置
+- **窓**: `from` 指定ありはその位置以降、 未指定 / 無効は直近 N 行 (= `INITIAL_REPLAY_LINES`)。 frontend は **`from` を付けない**: offset は streaming 中の in-flight を含まず先行し得るため、 offset 起点にすると作業中のツール履歴が飛ばされる
+- **転送量の削減** (= 2026-07-27、 携帯 + Tailscale 経由の体感速度): 実測 1.18MB → 247KB
+  - **JSON gzip** (= `backend/core/compression.py`)。 **SSE は対象外** — content-type が `text/event-stream` のものは素通しする。 streaming を圧縮すると gzip の内部 buffer に event が滞留してライブ更新が詰まるため、 ここは構造的に分けている (契約 test で固定)
+  - **表示に使われない本文の除去** (= `_shrink_tool_results`)。 履歴の 65% が tool_result で、 その大半が base64 画像だった。 UI は tool_result 内の画像を「画像」 プレースホルダ 1 語に畳む (= `utils/format.js`) ので本体は 1 byte も表示に使われない → 履歴経路に限り画像本体を落とし、 長大 text も冒頭 `TOOL_RESULT_PREVIEW_CHARS` に切り詰める。 元の文字数は `full_chars` で残し、 UI の文字数ラベルはそれを使うので表示は不変
+  - **ライブ SSE は無改変**: 進行中の tool 出力は従来通り完全な形で届く (= 切り詰めは「画面外の過去ログを読み直す時」 だけの最適化)
+
 ## 接続生存 signal の集約
 
 各経路は `frontend/src/transport/lifecycle.ts` の `registerConnection(() => bool)` に「生きてるか」 を judge する callback を登録する。 StatusBar の接続インジケータは全経路の AND を集約表示する (= 1 本切れたら警告)。

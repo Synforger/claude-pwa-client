@@ -20,6 +20,13 @@ import re
 # harness 内部表現 / interrupt marker の判定 regex は行レベル純粋プリミティブとして
 # core/jsonl_predicates.py に集約 (= jsonl / terminal 両 subsystem が使う共有底層)。
 from backend.core.jsonl_predicates import HARNESS_XML_RE
+from backend.core.jsonl_tail import parse_jsonl_timestamp
+
+
+def _ts_ms(line: dict) -> int | None:
+    """JSONL 行の ISO timestamp を epoch ms (int) に変換 (= 時系列表示ソートのキー)。"""
+    sec = parse_jsonl_timestamp(line.get("timestamp"))
+    return int(sec * 1000) if sec is not None else None
 
 # harness が background task (= Monitor / バックグラウンド Bash 等) の完了時に user 行として
 # JSONL に書く `<task-notification>...` ブロック。 これはユーザの発話ではなく harness 通知なので、
@@ -266,6 +273,8 @@ def _assistant_events(line: dict) -> list[dict]:
         "type": "assistant",
         "message": {"content": content},
         "uuid": bubble_uuid,
+        # ts = JSONL 行の timestamp (= 時系列表示ソートのキー、 到着順に依存せず順序を保つ)。
+        "ts": _ts_ms(line),
     }]
 
     # AskUserQuestion は専用 bubble 用に別 event でも出す (= assistant 側は tool から除外される)
@@ -314,11 +323,11 @@ def _user_events(line: dict) -> list[dict]:
         # background task の完了通知は専用 system カードに変換 (= user バブルにしない)
         task = parse_task_notification(text)
         if task is not None:
-            return [{"type": "task_notification", "uuid": line.get("uuid"), **task}]
+            return [{"type": "task_notification", "uuid": line.get("uuid"), "ts": _ts_ms(line), **task}]
         # claude TUI の slash command / stdout 内部表現は user 発話ではないので chat には出さない
         if HARNESS_XML_RE.match(text):
             return []
-        return [{"type": "user_message", "text": content, "uuid": line.get("uuid")}]
+        return [{"type": "user_message", "text": content, "uuid": line.get("uuid"), "ts": _ts_ms(line)}]
 
     if isinstance(content, list):
         has_tool_result = any(
@@ -335,6 +344,6 @@ def _user_events(line: dict) -> list[dict]:
         ]
         joined = "".join(texts).strip()
         if joined:
-            return [{"type": "user_message", "text": "".join(texts), "uuid": line.get("uuid")}]
+            return [{"type": "user_message", "text": "".join(texts), "uuid": line.get("uuid"), "ts": _ts_ms(line)}]
 
     return []

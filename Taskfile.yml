@@ -69,7 +69,21 @@ tasks:
         else
           echo "→ vapid.json already present (skip)"
         fi
-      - git config --local core.hooksPath .githooks
+      - |
+        # フックの入口はマシン全体の guard-dispatcher (= global core.hooksPath)。
+        # git が使う hooksPath は 1 つだけなので、repo ローカルに立てると global を
+        # 上書きし、commit-msg の個人識別子スキャンごと無効化される。
+        # .githooks/ は dispatcher が委譲実行するため、ローカル指定は要らない。
+        if [ -n "$(git config --global --get core.hooksPath || true)" ]; then
+          if [ -n "$(git config --local --get core.hooksPath || true)" ]; then
+            git config --unset core.hooksPath
+            echo "→ removed the repo-local core.hooksPath override (it shadowed the machine-wide guard)"
+          fi
+        else
+          git config --local core.hooksPath .githooks
+          echo "→ WARNING: no machine-wide git guard on this box; falling back to repo-local hooks."
+          echo "  Commit messages are NOT scanned in this mode."
+        fi
       - |
         echo ""
         echo "setup complete."

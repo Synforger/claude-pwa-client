@@ -54,12 +54,14 @@ def test_list_subagents_empty_when_no_dir(tmp_path, monkeypatch):
     assert res.json() == {"subagents": [], "workflows": []}
 
 
-def test_list_subagents_reports_meta_and_status(client_with_session):
+def test_list_subagents_reports_meta_and_status(client_with_session, monkeypatch):
     client, subdir = client_with_session
+    # 親 turn 実行中 = 未完了 subagent は running のまま (= 既存 scan 判定を使う)。
+    monkeypatch.setattr(subagents_routes, "_session_busy", lambda sid: True)
     # done: 末尾が end_turn の assistant
     _write_agent(subdir, "agent-aaa", description="Audit imports",
                  lines=[_assistant(tool="Bash"), _assistant(text="完了", stop_reason="end_turn")])
-    # running: 末尾が tool_use (= 確定 stop_reason なし)
+    # running: 末尾が tool_use (= 確定 stop_reason なし)、 親 busy 中なので running
     _write_agent(subdir, "agent-bbb", description="Rewrite docs",
                  lines=[_assistant(tool="Grep", stop_reason="tool_use")])
     res = client.get("/sessions/s1/subagents")
@@ -70,6 +72,32 @@ def test_list_subagents_reports_meta_and_status(client_with_session):
     assert by_id["agent-aaa"]["lastTool"] == "Bash"
     assert by_id["agent-bbb"]["done"] is False
     assert by_id["agent-bbb"]["lastTool"] == "Grep"
+
+
+def test_abnormal_termination_marked_done_when_parent_idle(client_with_session, monkeypatch):
+    """interrupt / API エラー / null 終了 = subagent 転写がクリーンな stop_reason 無しで終わる。
+    親 turn が idle なら Task は返り済み = done (= running 固着の根治)。 親 busy 中は running。"""
+    client, subdir = client_with_session
+    # 末尾が stop_reason=None の assistant (= 途中で切れた終了)、 end_turn は一度も無い。
+    lines = [
+        _assistant(tool="Bash", stop_reason="tool_use"),
+        {"type": "user", "isSidechain": True,
+         "message": {"role": "user", "content": [{"type": "tool_result", "content": "ok"}]}},
+        _assistant(text="partial", stop_reason=None),
+    ]
+    _write_agent(subdir, "agent-cut", description="Interrupted", lines=lines)
+
+    # 親 idle → done 化する (= 実機で報告された固着の解消)。
+    monkeypatch.setattr(subagents_routes, "_session_busy", lambda sid: False)
+    res = client.get("/sessions/s1/subagents")
+    got = {s["agentId"]: s for s in res.json()["subagents"]}
+    assert got["agent-cut"]["done"] is True
+
+    # 親 busy → まだ running (= 実際に走行中の可能性があるので誤 done にしない)。
+    monkeypatch.setattr(subagents_routes, "_session_busy", lambda sid: True)
+    res2 = client.get("/sessions/s1/subagents")
+    got2 = {s["agentId"]: s for s in res2.json()["subagents"]}
+    assert got2["agent-cut"]["done"] is False
 
 
 def test_get_transcript_converts_events(client_with_session):

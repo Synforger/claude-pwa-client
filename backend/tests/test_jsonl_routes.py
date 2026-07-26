@@ -363,3 +363,142 @@ def test_refresh_subagent_sets_and_clears(tmp_path, isolated_state):
     state.agent_status[sid]["current_tool"] = None
     assert jr._refresh_subagent_status(sid, jsonl) is True
     assert state.agent_status[sid]["subagent"] is None
+
+
+# ---------------------------------------------------------------------------
+# GET /jsonl/history/{sid}: 権威スナップショットを 1 発で返す (= client=射影の状態取得)
+# ---------------------------------------------------------------------------
+def _hist_client(monkeypatch, jsonl_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    monkeypatch.setattr(jr, "_latest_jsonl", lambda sid: jsonl_path)
+    app = FastAPI()
+    app.include_router(jr.router)
+    return TestClient(app)
+
+
+def test_history_returns_events_and_end_pos(tmp_path, monkeypatch):
+    import json
+    p = tmp_path / "c.jsonl"
+    lines = [
+        {"type": "user", "message": {"role": "user", "content": "hi"}, "uuid": "u1"},
+        {"type": "assistant", "message": {"role": "assistant",
+         "content": [{"type": "text", "text": "hello"}], "stop_reason": "end_turn"}, "uuid": "a1"},
+    ]
+    p.write_text("".join(json.dumps(x) + "\n" for x in lines), encoding="utf-8")
+    client = _hist_client(monkeypatch, p)
+    r = client.get("/jsonl/history/ses_x")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["pos"] == p.stat().st_size  # 読み終えた byte 位置 = ファイル末尾
+    assert len(data["events"]) >= 2         # user + assistant が event 化される
+    assert all("sid" in e for e in data["events"])  # _inject_envelope で sid が乗る
+
+
+def test_history_from_offset_returns_only_the_tail(tmp_path, monkeypatch):
+    import json
+    p = tmp_path / "c.jsonl"
+    first = json.dumps({"type": "user", "message": {"role": "user", "content": "one"}, "uuid": "u1"}) + "\n"
+    p.write_text(first, encoding="utf-8")
+    mid = p.stat().st_size
+    p.write_text(first + json.dumps(
+        {"type": "user", "message": {"role": "user", "content": "two"}, "uuid": "u2"}) + "\n", encoding="utf-8")
+    client = _hist_client(monkeypatch, p)
+    # from=mid → 2 件目以降だけ (= 描画済み位置からの差分)
+    r = client.get(f"/jsonl/history/ses_x?from={mid}")
+    data = r.json()
+    assert data["pos"] == p.stat().st_size
+    texts = [e.get("text") for e in data["events"] if e.get("type") == "user_message"]
+    assert "two" in texts and "one" not in texts
+
+
+def test_history_no_jsonl_returns_empty(tmp_path, monkeypatch):
+    monkeypatch.setattr(jr, "_latest_jsonl", lambda sid: None)
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    app = FastAPI(); app.include_router(jr.router)
+    r = TestClient(app).get("/jsonl/history/ses_x")
+    assert r.status_code == 200
+    assert r.json() == {"events": [], "pos": 0}
+
+
+# --- 履歴 GET の tool_result 切り詰め (= 2026-07-27 転送量削減) ---
+
+def test_shrink_tool_results_truncates_long_string_and_keeps_original_length():
+    from backend.jsonl.routes import TOOL_RESULT_PREVIEW_CHARS, _shrink_tool_results
+    body = "x" * (TOOL_RESULT_PREVIEW_CHARS * 10)
+    ev = {"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "t1", "content": body},
+    ]}}
+    _shrink_tool_results(ev)
+    block = ev["message"]["content"][0]
+    assert len(block["content"]) == TOOL_RESULT_PREVIEW_CHARS
+    assert block["full_chars"] == len(body)          # UI の文字数表示用に元の長さを残す
+    assert block["content"] == body[:TOOL_RESULT_PREVIEW_CHARS]  # 冒頭は完全一致
+
+
+def test_shrink_tool_results_leaves_short_content_untouched():
+    from backend.jsonl.routes import _shrink_tool_results
+    ev = {"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "t1", "content": "短い出力"},
+    ]}}
+    _shrink_tool_results(ev)
+    block = ev["message"]["content"][0]
+    assert block["content"] == "短い出力"
+    assert "full_chars" not in block                  # 切り詰めてない印
+
+
+def test_shrink_tool_results_handles_block_list_form():
+    from backend.jsonl.routes import TOOL_RESULT_PREVIEW_CHARS, _shrink_tool_results
+    parts = [{"type": "text", "text": "a" * 1500}, {"type": "text", "text": "b" * 1500}]
+    ev = {"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "t1", "content": parts},
+    ]}}
+    _shrink_tool_results(ev)
+    block = ev["message"]["content"][0]
+    total = sum(len(p["text"]) for p in block["content"] if "text" in p)
+    assert total == TOOL_RESULT_PREVIEW_CHARS
+    assert block["full_chars"] == 3000
+
+
+def test_shrink_tool_results_never_touches_assistant_or_user_message():
+    """切り詰めは type=user の tool_result 限定。 発話や応答本文は 1 文字も変えない。"""
+    from backend.jsonl.routes import _shrink_tool_results
+    long_text = "あ" * 50000
+    for ev in (
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": long_text}]}},
+        {"type": "user_message", "text": long_text},
+    ):
+        before = json.dumps(ev, ensure_ascii=False)
+        _shrink_tool_results(ev)
+        assert json.dumps(ev, ensure_ascii=False) == before
+
+
+def test_shrink_tool_results_drops_image_payload_but_keeps_placeholder():
+    """tool_result 内の画像は base64 を落とす (= UI は「画像」 プレースホルダしか出さない)。"""
+    from backend.jsonl.routes import _shrink_tool_results
+    ev = {"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "t1", "content": [
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "A" * 400_000}},
+        ]},
+    ]}}
+    _shrink_tool_results(ev)
+    block = ev["message"]["content"][0]
+    assert block["content"] == [{"type": "image"}]     # type は残す = 表示は不変
+    assert "source" not in block["content"][0]         # 本体は落ちている
+    assert len(json.dumps(ev)) < 500                   # 400KB → 数百 byte
+
+
+def test_shrink_tool_results_keeps_text_when_image_is_stripped():
+    """画像と短いテキストが混在しても、 テキストは 1 文字も失わない。"""
+    from backend.jsonl.routes import _shrink_tool_results
+    ev = {"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "t1", "content": [
+            {"type": "text", "text": "スクショを撮りました"},
+            {"type": "image", "source": {"data": "B" * 100_000}},
+        ]},
+    ]}}
+    _shrink_tool_results(ev)
+    parts = ev["message"]["content"][0]["content"]
+    assert parts[0] == {"type": "text", "text": "スクショを撮りました"}
+    assert parts[1] == {"type": "image"}

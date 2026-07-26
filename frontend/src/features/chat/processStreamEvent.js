@@ -47,7 +47,20 @@ function appendSystemMessage(setMessages, sid, kind, extra) {
     if (uuid && arr.some(m => m.role === 'system' && m.kind === kind && m.uuid === uuid)) {
       return prev
     }
-    const msg = { id: generateId(), role: 'system', kind, uuid, ...extra }
+    // ts は必ず持たせる (= 2026-07-27)。 表示は ts で時系列ソートしてから末尾
+    // DISPLAY_LIMIT 件を採るので、 ts 無しの bubble は直前要素の実効キーを継ぎ、 配列順が
+    // 時系列とズレている場面 (= 履歴 replay 直後) で過去に沈んで表示窓の外へ落ちうる。
+    // backend が ts を載せない system 系 event (= compact / api_error / hook_error /
+    // system_note / attachment) は、 **配列上の直前 message の ts を継ぐ**。 live でも
+    // replay でも直前 = 時系列上の隣なので、 これが最も正しい位置になる。
+    const prevTs = (() => {
+      for (let i = arr.length - 1; i >= 0; i--) {
+        if (typeof arr[i]?.ts === 'number') return arr[i].ts
+      }
+      return null
+    })()
+    const ts = typeof extra.ts === 'number' ? extra.ts : (prevTs ?? Date.now())
+    const msg = { id: generateId(), role: 'system', kind, uuid, ...extra, ts }
     let next
     if (arr.length >= MAX_MESSAGES) {
       // 上限到達: 先頭を 1 件落として末尾に新規。 1 回の slice + push で済ませる。
@@ -293,7 +306,17 @@ export function processStreamEvent(deps, sid, event) {
           const r = results.find(x => x.tool_use_id === t.id)
           if (!r) return t
           toolMutated = true
-          return { ...t, result: { content: r.content, is_error: !!r.is_error } }
+          // full_chars は履歴 GET が本文を preview に切り詰めた時だけ付く元の文字数
+          // (= backend の TOOL_RESULT_PREVIEW_CHARS、 2026-07-27 転送量削減)。 表示は元々
+          // 冒頭 800 文字だけなので中身は同一に見えるが、 文字数ラベルだけは元の値が要る。
+          return {
+            ...t,
+            result: {
+              content: r.content,
+              is_error: !!r.is_error,
+              ...(typeof r.full_chars === 'number' ? { full_chars: r.full_chars } : {}),
+            },
+          }
         })
         if (!toolMutated) return m
         mutated = true
@@ -348,6 +371,8 @@ export function processStreamEvent(deps, sid, event) {
     buf.newTools = newTools
   }
   buf.uuid = eventUuid
+  // ts = 時系列表示ソートのキー (= epoch ms)。 同 AM の delta frame では最初の非 null を維持。
+  if (event.ts != null && buf.ts == null) buf.ts = event.ts
   buf.dirty = true
   scheduleFlush(sid)
 }

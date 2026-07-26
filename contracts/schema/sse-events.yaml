@@ -36,7 +36,7 @@ events:
       corr_id:    { type: string, description: "W3C trace_id 頭 8 文字、 log 結合用" }
       parentUuid: { type: string, nullable: true, description: "親 message uuid (= fork lineage)" }
       content:    { type: object, description: "raw JSONL content (= tool_result 含む list / string 両対応)" }
-      ts:         { type: integer, description: "epoch ms" }
+      ts:         { type: integer, nullable: true, description: "epoch ms (= 時系列表示ソートキー)" }
       send_id:    { type: string, nullable: true, description: "client 発行 Idempotency-Key。 楽観 bubble ↔ 実 bubble の厳密対応付けに使う。 backend restart / TTL 超え / 対応付け失敗時は null" }
     additionalProperties: false
     invariants:
@@ -73,6 +73,7 @@ events:
         additionalProperties: true
       parentUuid: { type: string, nullable: true }
       meta:       { type: object, description: "duration_ms 等の補助メタ" }
+      ts:         { type: integer, nullable: true, description: "epoch ms (= 時系列表示ソートキー)" }
     additionalProperties: false
     invariants:
       - "1 Anthropic message を複数 JSONL 行に分けて書く場合あり、 uuid (= message.id) で bubble 集約"
@@ -145,6 +146,7 @@ events:
       status:      { type: string, description: "completed / failed / cancelled 等" }
       summary:     { type: string }
       exitCode:    { type: integer, nullable: true, description: "summary 末尾の (exit code N) から抽出" }
+      ts:          { type: integer, nullable: true, description: "epoch ms (= 時系列表示ソートキー)" }
     additionalProperties: false
     invariants:
       - "user バブルとして表示しない (= 中央寄せ system カードで表示)"

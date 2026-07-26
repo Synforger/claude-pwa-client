@@ -211,6 +211,14 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
         title=f"{parent.title} fork",
         parent_id=session_id,
         resume_session_id=new_claude_id,
+        # 親の account_id を必ず継ぐ (= 2026-07-22 fork 空タブ根治)。 lineage jsonl は
+        # 親 jsonl と同じ project dir (= 親 account の CLAUDE_CONFIG_DIR 配下、 例 work =
+        # ~/.claude-work/projects/...) に書かれる。 一方 spawn 時の CLAUDE_CONFIG_DIR は
+        # new_meta.account_id → ACCOUNTS[...].env で決まる (= terminal/routes.py)。 ここで
+        # account_id を渡さないと fork は personal (~/.claude) 扱いになり、 `claude --resume
+        # <new_claude_id>` が work 配下の lineage を見つけられず rc=0 即 exit → pane は zsh
+        # プロンプトに残る (= fork は fallback watchdog も無いので永久に空タブ)。
+        account_id=parent.account_id,
     )
     # 新タブの monitor tail を初回 bind 扱いに固定 (= 2026-06-30 stream-from-zero)。
     # fork は backend が事前に lineage 全行を書いた新 jsonl を register してから claude
@@ -326,6 +334,14 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
             # 新プロセス = 過去の Stop 意思は無効化 (= 残ったまま sticky だと新 turn が永久に
             # busy=false に強制されて停止ボタンが立たない逆方向のバグになる)。
             sess.stream.user_stopped = False
+            # 終了を停止と対称化 (= busy 系を同期でリセット)。 restart は user_stopped を
+            # False に戻すので、 busy / pane_working / queued_sends を落とさないと overview
+            # busy (= st.busy OR pane_working) が残り、 「推論中に終了 → 青丸残留」 になる。
+            # 旧来は monitor の path 切替再計算 / detector poll の非同期自己回復頼みで、
+            # それが発火し損ねると永久残留していた。
+            sess.stream.busy = False
+            sess.stream.pane_working = False
+            sess.stream.queued_sends = 0
             sess.stream.status_event.set()
     # 全 sid SSE (/sessions/status/stream) にも変化を伝える (= per-sid と整合)
     sessions_overview.notify()
