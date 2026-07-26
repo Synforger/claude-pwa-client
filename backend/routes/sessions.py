@@ -211,6 +211,14 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
         title=f"{parent.title} fork",
         parent_id=session_id,
         resume_session_id=new_claude_id,
+        # 親の account_id を必ず継ぐ (= 2026-07-22 fork 空タブ根治)。 lineage jsonl は
+        # 親 jsonl と同じ project dir (= 親 account の CLAUDE_CONFIG_DIR 配下、 例 work =
+        # ~/.claude-work/projects/...) に書かれる。 一方 spawn 時の CLAUDE_CONFIG_DIR は
+        # new_meta.account_id → ACCOUNTS[...].env で決まる (= terminal/routes.py)。 ここで
+        # account_id を渡さないと fork は personal (~/.claude) 扱いになり、 `claude --resume
+        # <new_claude_id>` が work 配下の lineage を見つけられず rc=0 即 exit → pane は zsh
+        # プロンプトに残る (= fork は fallback watchdog も無いので永久に空タブ)。
+        account_id=parent.account_id,
     )
     # 新タブの monitor tail を初回 bind 扱いに固定 (= 2026-06-30 stream-from-zero)。
     # fork は backend が事前に lineage 全行を書いた新 jsonl を register してから claude
