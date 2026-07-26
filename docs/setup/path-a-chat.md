@@ -41,7 +41,6 @@ task run    # foreground、 Ctrl-C で停止 (= dev)
 > pip install -r backend/requirements.txt
 > cp backend/config.example.json backend/config.json
 > python -m backend.cli.gen_vapid       # backend/secrets/vapid.json 生成
-> git config --local core.hooksPath .githooks
 > uvicorn backend.main:app --host 0.0.0.0 --port 8765
 > ```
 

@@ -21,7 +21,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
 from backend.jsonl.events import jsonl_line_to_events
@@ -174,6 +174,110 @@ def _initial_offset(path: Path) -> int:
     既存 test (test_jsonl_routes.py) との後方互換のために残す。 新規 consumer は
     `backend.core.jsonl_tail.initial_offset` を直接 import すること。"""
     return _initial_offset_impl(path, INITIAL_REPLAY_LINES)
+
+
+# 履歴 GET で返す tool_result 本文の上限 (= 2026-07-27 体感速度)。
+#
+# UI がツール結果を表示するのは冒頭 800 文字だけ (= MessageItem.RESULT_PREVIEW_CHARS、 以降は
+# 「省略」 表記)。 一方 JSONL の tool_result は巨大ファイル読み / 長い command 出力で 1 件
+# 数百 KB になり、 実測では履歴 1.2MB のうち **65% (812KB) が tool_result** だった。 表示に
+# 使われない本文を携帯まで運ぶのは純粋な待ち時間なので、 履歴経路に限って切り詰める。
+#
+# 800 でなく 2000 なのは余裕。 formatToolResultContent が list → text 連結する際に長さが
+# ずれるので、 表示上限より広く取って「表示は full と同一」 を担保する。
+# **ライブ SSE は対象外** (= 進行中の tool 出力は完全な形で届く。 切り詰めは「もう画面外の
+# 過去ログを読み直す時」 だけの最適化)。 元の文字数は full_chars で残すので、 UI の文字数
+# 表示は truncate 後も正確なまま。
+TOOL_RESULT_PREVIEW_CHARS = 2000
+
+
+def _shrink_tool_results(ev: dict) -> None:
+    """履歴 event 内の巨大な tool_result 本文を preview に置き換える (= in-place)。
+
+    対象は type=user の message.content にある tool_result ブロックのみ。 content は string /
+    block list の両形があるので双方を扱う。 切り詰めた場合だけ `full_chars` (= 元の文字数) を
+    足すので、 受け手は「有れば truncate 済」 と判定できる。
+    """
+    if ev.get("type") != "user":
+        return
+    content = (ev.get("message") or {}).get("content")
+    if not isinstance(content, list):
+        return
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") != "tool_result":
+            continue
+        body = block.get("content")
+        if isinstance(body, str):
+            if len(body) > TOOL_RESULT_PREVIEW_CHARS:
+                block["full_chars"] = len(body)
+                block["content"] = body[:TOOL_RESULT_PREVIEW_CHARS]
+        elif isinstance(body, list):
+            total = 0
+            kept: list = []
+            budget_left = TOOL_RESULT_PREVIEW_CHARS
+            stripped_image = False
+            for part in body:
+                text = part.get("text") if isinstance(part, dict) else None
+                if not isinstance(text, str):
+                    # image ブロックは **本体 (= base64) を落とす**。 UI は tool_result 内の画像を
+                    # 実データとして描画せず「画像」 プレースホルダ 1 語に畳む
+                    # (= utils/format.js formatToolResultContent の `type === 'image'` 経路) ので、
+                    # base64 は 1 byte も表示に使われない。 実測では 1 件 384KB のスクショが
+                    # 履歴に丸ごと乗っていた。 type は残すのでプレースホルダ表示は不変。
+                    if isinstance(part, dict) and part.get("type") == "image":
+                        kept.append({"type": "image"})
+                        stripped_image = True
+                        continue
+                    kept.append(part)  # それ以外の未知ブロックはそのまま残す
+                    continue
+                total += len(text)
+                if budget_left <= 0:
+                    continue
+                if len(text) > budget_left:
+                    kept.append({**part, "text": text[:budget_left]})
+                    budget_left = 0
+                else:
+                    kept.append(part)
+                    budget_left -= len(text)
+            # text が溢れた時だけ full_chars を足す (= 文字数ラベルの真値)。 画像を落とした
+            # だけの時は文字数が変わらないので full_chars は付けず、 content の差し替えのみ。
+            if total > TOOL_RESULT_PREVIEW_CHARS:
+                block["full_chars"] = total
+                block["content"] = kept
+            elif stripped_image:
+                block["content"] = kept
+
+
+@router.get("/jsonl/history/{session_id}")
+def get_chat_history(
+    session_id: str,
+    from_pos: int | None = Query(None, alias="from"),
+) -> dict:
+    """チャット履歴の権威スナップショットを 1 発 GET で返す (= client=射影の「状態は GET」 経路)。
+
+    frontend は sid 表示時にこれを叩いて履歴を確定させ (= stream の初回 replay 依存を外す)、
+    以降 stream は差分だけを流す。 events は SSE の ev payload と同形状、 pos は読み終えた
+    byte 位置 (= stream 購読の起点にすれば replay 重複が消える)。 from (= 描画・永続化した
+    offset) 指定ありはその位置以降、 未指定/無効 (= 初回 / cache 消失) は直近 N 行。 GET は
+    stream とは別リクエストなので、 stream が復帰し損ねても履歴は必ず取れる。
+    """
+    path = _latest_jsonl(session_id)
+    if path is None:
+        return {"events": [], "pos": 0}
+    try:
+        size = path.stat().st_size
+    except OSError:
+        size = 0
+    if from_pos is not None and 0 <= from_pos <= size:
+        pos = from_pos
+    else:
+        pos = _initial_offset(path)
+    lines, end_pos = _read_complete_lines(path, pos)
+    events = _lines_to_events(lines)
+    for ev in events:
+        _inject_envelope(ev, session_id)
+        _shrink_tool_results(ev)
+    return {"events": events, "pos": end_pos}
 
 
 async def _jsonl_sse(session_id: str, start_pos: int | None = None):

@@ -335,6 +335,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, apiKeySource, a
       data-cpc-role={msg.role}
       data-cpc-uuid={msg.uuid || ''}
       data-cpc-optimistic={msg.optimistic ? '1' : '0'}
+      data-cpc-ts={typeof msg.ts === 'number' ? msg.ts : ''}
     >
       {msg.role === 'user' && (msg.imageRefs?.length > 0 || msg.imageUrls?.length > 0 || msg.fileNames?.length > 0) ? (
         <div className="user-block">
@@ -373,7 +374,13 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, apiKeySource, a
             <div className="tool-log">
               {msg.tools.map((tool) => {
                 const resultText = tool.result ? formatToolResultContent(tool.result.content) : null
-                const truncated = resultText && resultText.length > RESULT_PREVIEW_CHARS
+                // 文字数ラベルの真値。 履歴 GET は巨大な tool_result を preview に切り詰めて
+                // 元の文字数を full_chars で寄越すので、 有ればそれを使う (= 切り詰めても
+                // 「· 384,200 文字」 が正しく出る、 2026-07-27)。
+                const resultChars = typeof tool.result?.full_chars === 'number'
+                  ? tool.result.full_chars
+                  : (resultText?.length ?? 0)
+                const truncated = resultText && (resultChars > RESULT_PREVIEW_CHARS)
                 const hasDiff = !!tool.diffInput
                 // Read はパスが summary に出てるので input の echo は冗長。tool-input-full は描画しない
                 const showInputFull = !hasDiff && tool.name !== 'Read' && tool.shortLabel && tool.shortLabel !== tool.label
@@ -396,7 +403,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, apiKeySource, a
                       <span className="tool-short">{tool.shortLabel || tool.label}</span>
                       {tool.result?.is_error && <span className="tool-err-mark"> ⚠</span>}
                       {resultText && showResult && (
-                        <span className="tool-meta"> · {t('tool.chars', { n: resultText.length })}</span>
+                        <span className="tool-meta"> · {t('tool.chars', { n: resultChars })}</span>
                       )}
                       {/* Task tool が進行中 (= result 未受信) でかつ status.subagent が active なら、
                           subagent 内で今動いてる sub-tool 名を inline 併記する。 これで「Task が

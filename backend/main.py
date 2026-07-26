@@ -239,6 +239,11 @@ from backend.observability.server_timing import install as _install_server_timin
 _install_correlation(app)
 _install_server_timing(app)
 
+# JSON response の gzip (= 2026-07-27 体感速度)。 携帯 + Tailscale 経由で効く。
+# SSE (= text/event-stream) は対象外なのでライブ更新の滞留は起きない (= 詳細は module docstring)。
+from backend.core.compression import install as _install_compression  # noqa: E402
+_install_compression(app)
+
 # frontend は backend で配信される設計なので、 通常運用では同一オリジン = CORS 不要。
 # config に明示指定があった時だけ middleware を有効化 (= dev で vite から叩く等)。
 if CORS_ALLOW_ORIGINS:

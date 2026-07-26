@@ -151,15 +151,7 @@ export function bumpAllSubscribedSse(): void {
 }
 
 /** observability 用: 全 SSE singleton の name -> state を返す (= W3 inspector 入口、 ADR-019)。 */
-export function getAllSseStates(): Record<string, State> {
-  const out: Record<string, State> = {}
-  for (const [name, ins] of REGISTRY.entries()) out[name] = ins.state
-  return out
-}
 
-export function listSseNames(): string[] {
-  return Array.from(REGISTRY.keys())
-}
 
 // ----- per-sid SSE (= ADR-019 拡張、 W2 Phase F-subagents 発端) -----
 // 静的 path (= /sessions/overview/stream) と違い、 /sessions/{sid}/subagents/stream は sid によって
@@ -216,11 +208,3 @@ export function createPerSidSseSubscriber(opts: PerSidOptions): PerSidSseFactory
 }
 
 /** observability 用: per-sid factory ごとに sid 一覧と state を返す。 */
-export function getAllPerSidSseStates(): Record<string, Record<string, State>> {
-  const out: Record<string, Record<string, State>> = {}
-  for (const [name, meta] of PER_SID_REGISTRY.entries()) {
-    out[name] = {}
-    for (const [sid, entry] of meta.conns.entries()) out[name][sid] = entry.instance.state
-  }
-  return out
-}

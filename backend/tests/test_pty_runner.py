@@ -176,6 +176,38 @@ def test_build_send_keys_chain_enter_only():
     assert args == [["send-keys", "-t", "pwa-x", "Enter"]]
 
 
+def test_build_wipe_keys_is_multiline_capable():
+    """入力欄ワイプは C-u 単発ではなく (C-u, BSpace) 往復 (= 複数行 / placeholder を全消し)。
+
+    C-u は cursor→行頭を 1 行だけ kill するので、 単発だと複数行入力の残留に新本文が結合して
+    送られる (= 「削除コマンドが効かない」 root cause)。 BSpace で行頭の改行を消して上行へ
+    merge する往復で全行を畳む。"""
+    keys = pty_runner.build_wipe_keys(3)
+    assert keys == ["C-u", "BSpace", "C-u", "BSpace", "C-u", "BSpace"]
+    # 回帰ガード: C-u 単発 (= 旧実装) には戻さない。 BSpace を必ず伴い、 往復は 2 回以上。
+    assert keys.count("C-u") >= 2
+    assert "BSpace" in keys
+    # 既定往復数でも同構造。
+    default_keys = pty_runner.build_wipe_keys()
+    assert default_keys.count("C-u") == pty_runner.INPUT_WIPE_ROUNDS
+    assert default_keys.count("BSpace") == pty_runner.INPUT_WIPE_ROUNDS
+
+
+def test_wipe_input_line_sends_one_chained_send_keys(monkeypatch):
+    """wipe_input_line は全ワイプキーを 1 回の tmux send-keys で送る (= subprocess 1 発)。"""
+    calls = []
+    monkeypatch.setattr(pty_runner, "USE_TMUX_WRAP", True)
+    monkeypatch.setattr(pty_runner, "has_tmux_session", lambda sid: True)
+    monkeypatch.setattr(pty_runner, "_tmux_session_name", lambda sid: "pwa-x")
+    monkeypatch.setattr(pty_runner, "_run_tmux", lambda *a, **k: calls.append(list(a)))
+    pty_runner.wipe_input_line("ses_1")
+    assert len(calls) == 1
+    args = calls[0]
+    assert args[:4] == ["send-keys", "-t", "pwa-x", "C-u"]
+    assert args.count("C-u") == pty_runner.INPUT_WIPE_ROUNDS
+    assert args.count("BSpace") == pty_runner.INPUT_WIPE_ROUNDS
+
+
 def test_build_send_keys_chain_empty_no_args():
     args, chained = pty_runner._build_send_keys_chain("pwa-x")
     assert args == []

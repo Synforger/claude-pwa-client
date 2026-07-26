@@ -24,7 +24,6 @@ type State = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed'
 
 const LS_OFFSETS = 'cpc_v2_jsonl_offsets'   // {sid: byte_offset} (= 旧 sse.ts と同 key、 移行不要)
 const LS_STATUS = 'cpc_last_all_status'     // 起動 hydrate 用 (= 旧 sse-sessions-status と同 key)
-const OFFSET_PERSIST_DEBOUNCE_MS = 1_000
 const LIVENESS_TIMEOUT_MS = 65_000
 const LIVENESS_CHECK_MS = 15_000
 const RECONNECT_DELAY_MS = 3_000
@@ -61,9 +60,8 @@ class UnifiedTransport {
   private lastOverview: unknown
   private lastSubagents = new Map<string, unknown>()
 
-  // --- offsets (= 1s debounce 永続化、 hidden で同期 flush) ---
+  // --- offsets (= in-memory は毎 frame 前進 / 永続化は useChatStorage のメッセージ保存に結合) ---
   private offsets: Record<string, number> = loadOffsets()
-  private offsetTimer: ReturnType<typeof setTimeout> | null = null
 
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private livenessTimer: ReturnType<typeof setInterval> | null = null
@@ -130,7 +128,8 @@ class UnifiedTransport {
     if (this.es) { try { this.es.close() } catch { /* ignore */ } this.es = null }
     if (this.livenessTimer !== null) { clearInterval(this.livenessTimer); this.livenessTimer = null }
     if (this.unregConn) { this.unregConn(); this.unregConn = null }
-    this.flushOffsets()
+    // offset はここで永続化しない (= in-memory は最新受信位置で、 描画・永続化した位置より
+    // 先行し得る)。 永続化は useChatStorage のメッセージ保存に結合済 (= flushOffsets)。
     this.state = 'closed'
     notifyConnectionChange()
   }
@@ -170,9 +169,16 @@ class UnifiedTransport {
         // 単調ガード: replay と live pump の並走で古い pos の frame が後着し得る
         // (= server は pump 先行で隙間ゼロを優先、 重複側は client で吸収する規約)。
         // offset を巻き戻すと次回接続の replay が無駄に太る。
+        //
+        // in-memory の offset は毎 frame 前進させる (= live 再接続は React state に載ってる
+        // 位置から続けたいので最新を使う)。 ただし **localStorage への永続化はここでしない**:
+        // 永続 offset は「描画・永続化したメッセージの位置」 に一致させる必要がある (= 受信で
+        // 前進させて永続化すると、 デバウンス保存が追いつく前の区間が localStorage に無いまま
+        // offset だけ先行 → リロード replay で中抜けになる)。 永続化は useChatStorage の
+        // メッセージ保存成功時に flushOffsets() で行う (= 保存は turn 確定時なので、 その時点の
+        // in-memory offset = 最後に確定・永続化したメッセージの位置)。
         if (Math.floor(pos) > (this.offsets[sid] ?? -1)) {
           this.offsets[sid] = Math.floor(pos)
-          this.schedulePersistOffsets()
         }
       }
       for (const h of this.jsonlHandlers) {
@@ -244,17 +250,21 @@ class UnifiedTransport {
 
   // ---------------------------------------------------------------- offsets
 
-  private schedulePersistOffsets(): void {
-    if (this.offsetTimer) return
-    this.offsetTimer = setTimeout(() => {
-      this.offsetTimer = null
-      try { localStorage.setItem(LS_OFFSETS, JSON.stringify(this.offsets)) } catch { /* ignore */ }
-    }, OFFSET_PERSIST_DEBOUNCE_MS)
+  /** 永続 offset を現在の in-memory 値で書く。 呼び出しは useChatStorage の**メッセージ保存
+   *  成功時**に結合済 (= 永続 offset を「描画・永続化した位置」 に一致させる、 中抜け根治)。 */
+  flushOffsets(): void {
+    try { localStorage.setItem(LS_OFFSETS, JSON.stringify(this.offsets)) } catch { /* ignore */ }
   }
 
-  flushOffsets(): void {
-    if (this.offsetTimer) { clearTimeout(this.offsetTimer); this.offsetTimer = null }
-    try { localStorage.setItem(LS_OFFSETS, JSON.stringify(this.offsets)) } catch { /* ignore */ }
+  /** sid の現在 offset (= 描画・永続化した位置)。 GET /jsonl/history の from に渡す。 */
+  getOffset(sid: string): number {
+    return this.offsets[sid] ?? 0
+  }
+
+  /** GET で権威スナップショットを取り込んだ後、 offset をそこまで前進させる (= 単調)。
+   *  以降 stream の replay 起点がそこになり、 stream は差分だけを流す。 */
+  advanceOffset(sid: string, pos: number): void {
+    if (Math.floor(pos) > (this.offsets[sid] ?? -1)) this.offsets[sid] = Math.floor(pos)
   }
 
   resetOffset(sid: string): void {
@@ -415,6 +425,8 @@ export const unifiedJsonl = {
   bumpReconnect: () => unifiedTransport.bumpReconnect(),
   flushOffsets: () => unifiedTransport.flushOffsets(),
   resetOffset: (sid: string) => unifiedTransport.resetOffset(sid),
+  getOffset: (sid: string) => unifiedTransport.getOffset(sid),
+  advanceOffset: (sid: string, pos: number) => unifiedTransport.advanceOffset(sid, pos),
   setSubscribedSids: (sids: string[]) => unifiedTransport.setJsonlSids(sids),
   get state() { return unifiedTransport.state },
 }
