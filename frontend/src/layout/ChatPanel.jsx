@@ -38,6 +38,7 @@ import ActivityBar from '../features/tasks/ActivityBar.jsx'
 import { PromptStateBanner } from '../features/status-bar/PromptStateBanner.jsx'
 import ChatInput from '../features/chat/ChatInput.jsx'
 import MessageList from '../features/chat/MessageList.jsx'
+import { sortByTs } from '../features/chat/sortByTs.js'
 import AttachmentsBar from '../features/chat/AttachmentsBar.jsx'
 import PlanApprovalBubble from '../features/plan-approval/PlanApprovalBubble.jsx'
 
@@ -270,7 +271,14 @@ export default function ChatPanel({ sid }) {
 
   const displayMessages = useMemo(() => {
     if (!activeSid) return []
-    const allMsgs = activeMsgs || []
+    // **window を切る前に時系列へ整える** (= 2026-07-27 中抜け根治)。
+    // messages 配列は末尾 append で溜まるので配列位置 ≠ 時系列。 特に「cache 復元 (= 直近の
+    // 会話) が先頭 → GET 履歴取り込みで古い行が末尾に積まれる」 形になるため、 配列位置で
+    // 末尾 DISPLAY_LIMIT 件を採ると、 位置の先頭に居る**新しい** cache 由来メッセージが
+    // 窓外に落ちて画面から消える (= 実機報告「更新すると履歴が中抜けする」「最新が反映
+    // されない」 の直接原因。 state には居るのに描画されない、 を実機で確認)。
+    // ソートしてから採れば「時間の最新 N 件」 になり、 中抜けが原理的に起きない。
+    const allMsgs = sortByTs(activeMsgs || [])
     const start = displayWindowStart(allMsgs.length, scrolledUp ? frozenStart : null)
     const msgs = start > 0 ? allMsgs.slice(start) : allMsgs
     // Phase 2 (= 2026-07-06): 旧 pending_question 合成 bubble は退役。 質問の真値は
