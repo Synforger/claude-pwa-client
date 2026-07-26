@@ -23,16 +23,28 @@ describe('sortByTs', () => {
     expect(sortByTs(same).map(m => m.id)).toEqual(['x', 'y', 'z'])
   })
 
-  it('ts 無しメッセージは直前の ts を継いで時系列上の隣に留まる', () => {
-    // user@100, (ts 無し system) , agent@200 → system は user と agent の間に留まる
+  it('ts 無しメッセージは時系列上の隣に留まる (= 配列が時系列順の通常ケース)', () => {
+    // user@100 → (ts 無し system) → agent@200 の順で積まれた通常の並び。
+    // system は user と agent の間に留まる。
     const msgs = [
-      { id: 'agent', role: 'agent', ts: 200 },
       { id: 'user', role: 'user', ts: 100 },
-      { id: 'sysmarker', role: 'system' }, // ts 無し、 配列上は user の後ろ (= 100 を継ぐ)
+      { id: 'sysmarker', role: 'system' },  // ts 無し
+      { id: 'agent', role: 'agent', ts: 200 },
     ]
-    // 元 index: agent=0, user=1, sysmarker=2。 sysmarker は carry=100 (user の後ろ) を継ぐ。
-    // key: agent=200, user=100, sysmarker=100。 sort(key, index): user(100,1) < sysmarker(100,2) < agent(200,0)
     expect(sortByTs(msgs).map(m => m.id)).toEqual(['user', 'sysmarker', 'agent'])
+  })
+
+  it('配列順が時系列とズレていても、 ts 無しメッセージは過去に沈まない (= 2026-07-27 消失根治)', () => {
+    // 履歴 replay 直後は「新しい message の後ろに古い message が append される」 状態になる。
+    // ここで ts 無し bubble が直前要素の**生の** ts を継ぐと過去へ沈み、 表示窓 (= 末尾 N 件)
+    // の外に落ちて画面から消える。 carry を「それまでに見た最大 ts」 にして構造的に防ぐ。
+    const msgs = [
+      { id: 'newest', role: 'agent', ts: 900 },
+      { id: 'ancient', role: 'agent', ts: 100 },   // replay で後から積まれた古い行
+      { id: 'noTs', role: 'user' },                 // ts を失った自分の発話
+    ]
+    // noTs は ancient(100) でなく、 それまでの最大 900 を継ぐ → 末尾に残る
+    expect(sortByTs(msgs).map(m => m.id)).toEqual(['ancient', 'newest', 'noTs'])
   })
 
   it('末尾の楽観バブル (ts=最新) は最後に来る', () => {

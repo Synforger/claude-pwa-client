@@ -47,7 +47,20 @@ function appendSystemMessage(setMessages, sid, kind, extra) {
     if (uuid && arr.some(m => m.role === 'system' && m.kind === kind && m.uuid === uuid)) {
       return prev
     }
-    const msg = { id: generateId(), role: 'system', kind, uuid, ...extra }
+    // ts は必ず持たせる (= 2026-07-27)。 表示は ts で時系列ソートしてから末尾
+    // DISPLAY_LIMIT 件を採るので、 ts 無しの bubble は直前要素の実効キーを継ぎ、 配列順が
+    // 時系列とズレている場面 (= 履歴 replay 直後) で過去に沈んで表示窓の外へ落ちうる。
+    // backend が ts を載せない system 系 event (= compact / api_error / hook_error /
+    // system_note / attachment) は、 **配列上の直前 message の ts を継ぐ**。 live でも
+    // replay でも直前 = 時系列上の隣なので、 これが最も正しい位置になる。
+    const prevTs = (() => {
+      for (let i = arr.length - 1; i >= 0; i--) {
+        if (typeof arr[i]?.ts === 'number') return arr[i].ts
+      }
+      return null
+    })()
+    const ts = typeof extra.ts === 'number' ? extra.ts : (prevTs ?? Date.now())
+    const msg = { id: generateId(), role: 'system', kind, uuid, ...extra, ts }
     let next
     if (arr.length >= MAX_MESSAGES) {
       // 上限到達: 先頭を 1 件落として末尾に新規。 1 回の slice + push で済ませる。
