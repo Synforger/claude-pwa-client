@@ -13,11 +13,9 @@ PWA を**使うだけ**なら読む必要はありません。 [../README.md](..
 
 ## 開発フロー (= ローカルが真値、 CI は鏡)
 
-品質ゲートの実体は全部ローカル (= `.githooks/` + Taskfile + `.tooling/`) にあり、 offline で完結する。 GitHub Actions は [`ci.yml`](../../.github/workflows/ci.yml) 1 本だけで、 同じ `task ci` を pull request で走らせる薄い trigger (= 外部 contributor がゲート一式を持たなくても status check が付く)。 CI にしか無い検査は作らない。 clone 後の活性化:
+品質ゲートの実体は全部ローカル (= `.githooks/` + Taskfile + `.tooling/`) にあり、 offline で完結する。 GitHub Actions は [`ci.yml`](../../.github/workflows/ci.yml) 1 本だけで、 同じ `task ci` を pull request で走らせる薄い trigger (= 外部 contributor がゲート一式を持たなくても status check が付く)。 CI にしか無い検査は作らない。 clone 後の活性化は `task setup` に含まれる。
 
-```bash
-git config --local core.hooksPath .githooks
-```
+**`git config --local core.hooksPath .githooks` は実行しない。** git が使う `core.hooksPath` は 1 つだけで、ローカル指定はマシン全体のガード (= global `core.hooksPath`) を丸ごと上書きする。 `.githooks/` はガード側が委譲実行するので、ローカル指定すると得るものが無いまま commit message の個人識別子スキャンだけを失う。 マシン全体のガードが無い環境では `task setup` が自動でローカルにフォールバックし、その旨を警告する。
 
 これで commit 時に以下が staged 範囲に応じて自動で走る (= 手動で全件回したい時は `task lint` / `task test` / `task anon:scan` / `task audit`):
 
