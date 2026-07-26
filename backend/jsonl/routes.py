@@ -176,6 +176,78 @@ def _initial_offset(path: Path) -> int:
     return _initial_offset_impl(path, INITIAL_REPLAY_LINES)
 
 
+# 履歴 GET で返す tool_result 本文の上限 (= 2026-07-27 体感速度)。
+#
+# UI がツール結果を表示するのは冒頭 800 文字だけ (= MessageItem.RESULT_PREVIEW_CHARS、 以降は
+# 「省略」 表記)。 一方 JSONL の tool_result は巨大ファイル読み / 長い command 出力で 1 件
+# 数百 KB になり、 実測では履歴 1.2MB のうち **65% (812KB) が tool_result** だった。 表示に
+# 使われない本文を携帯まで運ぶのは純粋な待ち時間なので、 履歴経路に限って切り詰める。
+#
+# 800 でなく 2000 なのは余裕。 formatToolResultContent が list → text 連結する際に長さが
+# ずれるので、 表示上限より広く取って「表示は full と同一」 を担保する。
+# **ライブ SSE は対象外** (= 進行中の tool 出力は完全な形で届く。 切り詰めは「もう画面外の
+# 過去ログを読み直す時」 だけの最適化)。 元の文字数は full_chars で残すので、 UI の文字数
+# 表示は truncate 後も正確なまま。
+TOOL_RESULT_PREVIEW_CHARS = 2000
+
+
+def _shrink_tool_results(ev: dict) -> None:
+    """履歴 event 内の巨大な tool_result 本文を preview に置き換える (= in-place)。
+
+    対象は type=user の message.content にある tool_result ブロックのみ。 content は string /
+    block list の両形があるので双方を扱う。 切り詰めた場合だけ `full_chars` (= 元の文字数) を
+    足すので、 受け手は「有れば truncate 済」 と判定できる。
+    """
+    if ev.get("type") != "user":
+        return
+    content = (ev.get("message") or {}).get("content")
+    if not isinstance(content, list):
+        return
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") != "tool_result":
+            continue
+        body = block.get("content")
+        if isinstance(body, str):
+            if len(body) > TOOL_RESULT_PREVIEW_CHARS:
+                block["full_chars"] = len(body)
+                block["content"] = body[:TOOL_RESULT_PREVIEW_CHARS]
+        elif isinstance(body, list):
+            total = 0
+            kept: list = []
+            budget_left = TOOL_RESULT_PREVIEW_CHARS
+            stripped_image = False
+            for part in body:
+                text = part.get("text") if isinstance(part, dict) else None
+                if not isinstance(text, str):
+                    # image ブロックは **本体 (= base64) を落とす**。 UI は tool_result 内の画像を
+                    # 実データとして描画せず「画像」 プレースホルダ 1 語に畳む
+                    # (= utils/format.js formatToolResultContent の `type === 'image'` 経路) ので、
+                    # base64 は 1 byte も表示に使われない。 実測では 1 件 384KB のスクショが
+                    # 履歴に丸ごと乗っていた。 type は残すのでプレースホルダ表示は不変。
+                    if isinstance(part, dict) and part.get("type") == "image":
+                        kept.append({"type": "image"})
+                        stripped_image = True
+                        continue
+                    kept.append(part)  # それ以外の未知ブロックはそのまま残す
+                    continue
+                total += len(text)
+                if budget_left <= 0:
+                    continue
+                if len(text) > budget_left:
+                    kept.append({**part, "text": text[:budget_left]})
+                    budget_left = 0
+                else:
+                    kept.append(part)
+                    budget_left -= len(text)
+            # text が溢れた時だけ full_chars を足す (= 文字数ラベルの真値)。 画像を落とした
+            # だけの時は文字数が変わらないので full_chars は付けず、 content の差し替えのみ。
+            if total > TOOL_RESULT_PREVIEW_CHARS:
+                block["full_chars"] = total
+                block["content"] = kept
+            elif stripped_image:
+                block["content"] = kept
+
+
 @router.get("/jsonl/history/{session_id}")
 def get_chat_history(
     session_id: str,
@@ -204,6 +276,7 @@ def get_chat_history(
     events = _lines_to_events(lines)
     for ev in events:
         _inject_envelope(ev, session_id)
+        _shrink_tool_results(ev)
     return {"events": events, "pos": end_pos}
 
 
