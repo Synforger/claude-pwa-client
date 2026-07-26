@@ -11,10 +11,6 @@ import MessageItem from './MessageItem.jsx'
 import { useT } from '../../i18n/t.js'
 import { sortByTs } from './sortByTs.js'
 
-// sortByTs は sortByTs.js に切り出し済 (= ChatPanel が表示 window を切る前にも使うため、
-// component から純粋関数を独立させた)。 既存 import 互換のため re-export は維持する。
-export { sortByTs }
-
 export default function MessageList({
   scrollerDomRef,
   onScroll,
