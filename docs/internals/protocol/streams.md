@@ -50,13 +50,13 @@ backend と frontend を繋ぐリアルタイム経路は **4 本の SSE + 2 本
 
 ## 経路別の設計判断 (= なぜこの分け方か)
 
-### `/sessions/status/stream`: 全 sid 1 接続
+### status channel: 全 sid 1 接続 (= 旧 /sessions/status/stream、 2026-07-27 に unified へ一本化)
 
 旧設計は sid 毎に `/status/{sid}/stream` を張り替えていた。 タブ切替のたびに SSE を旧 close → 新接続し、 iOS Safari の 1-3 秒の TCP 確立コストで「タブ切替したのに status が出るのが遅い」 体感だった。 全 sid を 1 接続で配信に変更 (= overview と同パターン) し、 タブ切替で SSE 張り替え不要 → 切替コスト 0。 各 client は受信 payload から自分の activeSid 分を取り出すだけ。
 
 `StreamState.status_event` (per sid `asyncio.Event`) を起点に、 hooks / jsonl 経路で変化があったら `set()` → SSE 接続側が起きて全 sid snapshot を yield → `clear()`。 接続ごとの diff 配信 (= F-09) で snapshot 不変なら data 行を yield しない。 keep-alive は data 行 heartbeat `{"_hb":1}` を 20s 間隔で流す (= client の生存監視 watchdog が受信時刻を読める形。 全 sid JSON を毎 20s 流す無駄は F-10 と同じく排除)。 rate-limits は 1 秒 cache で接続数 × notify 回 read を縮める (= F-56)。
 
-### `/sessions/overview/stream`: backend 権威 busy の唯一のソース
+### overview channel: backend 権威 busy の唯一のソース (= 旧 /sessions/overview/stream)
 
 停止ボタン (= `loading[sid]`、 真値は `frontend/src/state/ephemeral.js`) は backend 権威の busy ただ 1 つ。 busy の原義は「claude が考えている時」 で、 (a) JSONL の `stop_reason` から確定算出する `StreamState.busy` と (b) 画面の実況 (= prompt_detector_loop が観測する TUI 推論中スピナー `Thinking… (Ns`、 `StreamState.pane_working`) の **OR** (= 2026-07-10。 queue 消化中の無言時間など JSONL 簿記が拾えない区間もスピナーが回っていれば推論中を維持、 `user_stopped` は両者に優先して false)。 chat SSE (`useChatStream`) も `loading` を一切触らない (= 旧 useState 経路は J-9 で `frontend/src/state/ephemeral.js` singleton に統合済)。 旧来は「per-tab assistant/result で loading を上下する」 と「overview で上書き」 の dual-driver になっており、 イベント取りこぼし / 再接続 / 複数デバイスで振動していた (= 2026-06-03 根本治療)。
 
@@ -64,21 +64,21 @@ overview は毎回フル snapshot なので、 取りこぼし / 再接続 / 複
 
 fan-out は `OverviewBroadcaster` (= per-connection `asyncio.Event` を broadcaster が一括 `notify`)。 旧実装の単一 `Event` 共有では 1 接続の generator が `clear()` した瞬間に他接続の `wait` が起きそこねて push を落としていた。
 
-### `/jsonl/stream/{sid}` と `/jsonl/stream/all`: 入出力分離の「出力」 側
+### jsonl channel: 入出力分離の「出力」 側 (= 旧 /jsonl/stream/*)
 
 claude を PTY/TUI 経路で動かすと、 全 turn が `~/.claude/projects/<cwd-hash>/<claude_session_id>.jsonl` に追記される。 これを backend が tail し `jsonl_line_to_events` で `processStreamEvent` 入力形式に変換 → SSE で配信することで、 proxy / SDK / `-p` を一切使わず chat UI を再構成できる (= subscription 枠で動く、 軽い)。
 
-per-sid (`/jsonl/stream/{sid}`) はタブ切替で接続張り替え。 全 sid (`/jsonl/stream/all`、 W2-F15) は 1 接続で全タブの差分を受けて localStorage の offset map で位置を track する。 接続時に sessions_meta の全 sid に `ensure_pty_session_for` を sweep するので、 接続中に既に存在する sid は chat view を開いただけで claude が立ち上がる。 ただし接続継続中に POST /sessions で新規追加された sid は sweep 漏れるので、 `create_session` 側でも `ensure_pty_session_for` を呼ぶ (= 2026-06-29 race 修正)。
+全 sid を unified の 1 接続で受け (= 旧 per-sid 張り替え方式は退役)、 全タブの差分を localStorage の offset map で位置を track する。 接続時に sessions_meta の全 sid に `ensure_pty_session_for` を sweep するので、 接続中に既に存在する sid は chat view を開いただけで claude が立ち上がる。 ただし接続継続中に POST /sessions で新規追加された sid は sweep 漏れるので、 `create_session` 側でも `ensure_pty_session_for` を呼ぶ (= 2026-06-29 race 修正)。
 
 入力 (= キー送信) は `/ws/pty/{sid}` + `/pty/{sid}/send` 系。 **出力 = JSONL tail / 入力 = キー送出** を strict に分離することで、 claude CLI が書く真値だけが UI に出る (= backend 中央で偽 event を合成しない)。
 
-### `/views/ws`: 視認シグナル = 接続生存
+### view 申告 (= control op=view / op=stop、 旧 /views/ws)
 
-「今どの sid を見ているか」 を realtime に backend へ伝える。 接続中の間 sid を保持し、 `broadcast_push` の `is_session_viewed(sid)` 判定に使う。 TCP FIN / iOS bg 化での socket 切断 = 視認終了として自動削除されるので、 **stale 概念が構造的に存在しない** (= 過去に visibility state を backend が持ったときの「通知が永久抑制される」 バグの再発防止)。
+「今どの sid を見ているか」 を unified 接続の control (op=view) で backend へ伝える。 接続中の間 sid を保持し、 `broadcast_push` の `is_session_viewed(sid)` 判定に使う。 接続切断 = 視認終了として自動削除されるので、 **stale 概念が構造的に存在しない** (= 過去に visibility state を backend が持ったときの「通知が永久抑制される」 バグの再発防止)。
 
-Stop ボタン経路も WS で通す。 HTTP POST 経路だと送信失敗 race で overview SSE が busy=true を流し停止ボタンが復活していた。 WS 接続中なら TCP 保証で届く、 切断中 (= PWA が見えてない) なら stop は押せないので何もしない、 で正当性を担保する。
+Stop ボタン経路も同 control (op=stop) で通す。 素の HTTP POST 経路だと送信失敗 race で overview SSE が busy=true を流し停止ボタンが復活していた経緯があり、 権威記録として backend が user_stopped を立てる。
 
-可視タブでの通知抑制は **SW** (`frontend/public/sw.js`) の push handler が `clients.matchAll()` で判定する W3C 標準パターン。 backend 側は views_ws の在不在だけを見て、 visibility state は持たない。
+可視タブでの通知抑制は **SW** (`frontend/public/sw.js`) の push handler が `clients.matchAll()` で判定する W3C 標準パターン。 backend 側は view 申告の在不在だけを見て、 visibility state は持たない。
 
 ### `/ws/pty/{sid}`: xterm 入出力経路
 

@@ -226,3 +226,16 @@ export type GetJsonlDebugBindingsResponse = Record<string, {
     jsonl_path: string
     confirmed: boolean
   }>
+
+/** POST /stream/unified/{conn}/control request body */
+export interface PostStreamUnifiedConnControlRequest {
+  op: "jsonl" | "view" | "stop" | "subagents"
+  sid?: string | null
+  sids?: unknown[]
+}
+
+/** POST /stream/unified/{conn}/control response */
+export interface PostStreamUnifiedConnControlResponse {
+  ok?: boolean
+  subscribed?: unknown[]
+}

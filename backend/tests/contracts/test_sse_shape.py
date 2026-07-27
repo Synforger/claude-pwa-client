@@ -46,10 +46,11 @@ def test_schema_version_is_string():
     assert SCHEMA_VERSION.count(".") == 1
 
 
-def test_event_dispatch_table_covers_18_types():
-    """contract schema 18 event を生成側が全部出してる (= codegen 取りこぼし検知)。"""
+def test_event_dispatch_table_covers_19_types():
+    """contract schema 19 event を生成側が全部出してる (= codegen 取りこぼし検知、
+    2026-07-27 に `user` (tool_result) を契約へ編入して 18 → 19)。"""
     expected = {
-        "user_message", "assistant", "result", "ask_user_question", "task_notification",
+        "user", "user_message", "assistant", "result", "ask_user_question", "task_notification",
         "system", "system_error", "hook_error", "system_note", "attachment",
         "budget", "mode", "permission_mode", "pr_link", "turn_duration",
         "stop_hook_summary", "away_summary", "prompt_state",
