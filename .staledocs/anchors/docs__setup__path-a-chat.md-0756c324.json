@@ -1,0 +1,12 @@
+{
+  "anchors": [
+    "__pycache__/*.pyc",
+    "launchd/com.claudepwa.client.plist.example",
+    "logs/backend.access.log",
+    "logs/backend.error.log"
+  ],
+  "at": "2026-07-27T04:19:58+00:00",
+  "doc": "docs/setup/path-a-chat.md",
+  "note": "v2 anchor-baseline migration: arm every claim that resolves today; unarmed shortlist was empty",
+  "schema": 1
+}

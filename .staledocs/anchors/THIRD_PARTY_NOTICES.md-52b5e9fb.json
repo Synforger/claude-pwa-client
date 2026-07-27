@@ -1,0 +1,13 @@
+{
+  "anchors": [
+    "frontend/src/features/ios-native/OnScreenKeyboard.jsx",
+    "frontend/src/features/ios-native/useKeyboardState.js",
+    "frontend/src/features/terminal/useTerminal.js",
+    "frontend/src/utils/keyboard.js",
+    "scripts/gen-third-party-notices.py"
+  ],
+  "at": "2026-07-27T04:19:58+00:00",
+  "doc": "THIRD_PARTY_NOTICES.md",
+  "note": "v2 anchor-baseline migration: arm every claim that resolves today; unarmed shortlist was empty",
+  "schema": 1
+}

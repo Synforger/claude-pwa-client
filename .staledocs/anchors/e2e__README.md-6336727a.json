@@ -1,0 +1,12 @@
+{
+  "anchors": [
+    "fixtures/_runtime/data/",
+    "scenarios/_golden/",
+    "scenarios/_regression/",
+    "scripts/check-coverage.mjs"
+  ],
+  "at": "2026-07-27T04:19:58+00:00",
+  "doc": "e2e/README.md",
+  "note": "v2 anchor-baseline migration: arm every claim that resolves today; unarmed shortlist was empty",
+  "schema": 1
+}

@@ -47,7 +47,7 @@
       "subscriptions.json",
       "tmux_sid"
     ],
-    "at": "2026-07-26T16:17:10+00:00",
+    "at": "2026-07-27T04:20:50+00:00",
     "code_blobs": {
       "backend/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
@@ -411,9 +411,9 @@
       "frontend/src/utils/storage.js": "810f066d3cd3ef3c84b2ebc62a3a2fad5477be62",
       "frontend/src/utils/storage.test.js": "fa6f6beabb1d93f02911e1d1b931c71dfbdc8d4e"
     },
-    "commit": "fdd6d0038ffb931a03d38abfc3448bad54a16218",
+    "commit": "692b232025a67e47b231730e1c25741cf1e74419",
     "doc_blob": "d749fc6c9b23f9f05d7f2389f3cf5cf68ab59b6c",
-    "note": "\u30c7\u30fc\u30bf\u5f62\u5f0f\u306e\u771f\u5024\u306f backend/state.py::SessionDef \u3067\u3001 \u524a\u9664\u3057\u305f frontend \u306e domain/Session.ts \u3067\u306f\u306a\u3044\u3002 backend \u5074\u306e SessionDef \u30d5\u30a3\u30fc\u30eb\u30c9 (agent_id / account_id / parent_id / created_at / notify_mode) \u306f\u7121\u5909\u66f4\u3067\u3042\u308b\u3053\u3068\u3092\u78ba\u8a8d\u3002"
+    "note": "v2 anchor-baseline migration: arm every claim that resolves today; unarmed shortlist was empty"
   },
   "doc": "docs/reference/data-schemas.md",
   "schema": 1
