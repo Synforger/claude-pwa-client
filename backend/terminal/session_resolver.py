@@ -38,18 +38,6 @@ def resolve_agent_cfg(session_id: str) -> dict | None:
     return None
 
 
-def resolve_cwd(session_id: str) -> str | None:
-    """session_id から起動 cwd を解決する。
-
-    優先順:
-        1. session_id がそのまま AGENTS の key (= 直リンク `?terminal=agent_a` 等)
-        2. session_id が sessions_meta に登録済なら、 そこに紐付く agent_id 経由で
-           AGENTS から取得 (= UI でセッションタブを作る通常経路)
-        3. どちらも該当なし → None (= backend の起動 cwd で zsh が立ち上がる)
-    """
-    cfg = resolve_agent_cfg(session_id)
-    return cfg.get("cwd") if cfg else None
-
 
 def last_resumable_claude_sid(session_id: str) -> str | None:
     """PWA タブの最終 claude session_id を bindings から引いて autoresume 可否を判定する。

@@ -1,9 +1,8 @@
 """sensitive field の自動 mask + 長文 head/tail truncation。
 
-ADR-012 採用 (= deny-list ベース + structlog processor 統合):
+ADR-012 採用 (= deny-list ベース):
     - SENSITIVE_KEYS に該当する key の value は `***` に置き換え (= 大文字小文字無視)
     - 長文 (= TRUNCATE_THRESHOLD 超) は head + tail で省略 (= log file 肥大防止)
-    - structlog の processor として組み込むため `redact_processor(logger, method, event_dict)` も提供
 
 99-references.md § 12-3 で列挙された SENSITIVE_KEYS:
     api_key / apiKey / authorization / subscription / endpoint / p256dh / auth / vapid /
@@ -96,10 +95,3 @@ def redact(payload: Any) -> Any:
             return payload
     return payload
 
-
-def redact_processor(logger: Any, method_name: str, event_dict: dict[str, Any]) -> dict[str, Any]:
-    """structlog processor として使う。 event_dict を非破壊で walk 後の dict を返す。
-
-    structlog は processor chain の戻り値を次 processor に渡すため、 dict のまま返す。
-    """
-    return redact(event_dict)

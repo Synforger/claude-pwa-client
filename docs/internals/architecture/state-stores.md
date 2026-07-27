@@ -1,18 +1,21 @@
-# State stores (= frontend 6 store の責務 + subscribe 経路)
+# State stores (= frontend 7 store の責務 + subscribe 経路)
 
-W2 architecture overhaul (= 2026-06-29 着地) で frontend `state/` は **5 領域 singleton store** に統合された。 各 store は `createStore` factory (= `_store.js`、 ADR-017) 経由で `subscribe` / `getSnapshot` / setter 群を export し、 features は `useSyncExternalStore` 経由で読む / setter 直呼出で書く。 hook 二重 mount しても state 分裂しない構造。
+W2 architecture overhaul (= 2026-06-29 着地) で frontend `state/` は **7 領域 singleton store** に統合された。 各 store は `createStore` factory (= `_store.js`、 ADR-017) 経由で `subscribe` / `getSnapshot` / setter 群を export し、 features は `useSyncExternalStore` 経由で読む / setter 直呼出で書く。 hook 二重 mount しても state 分裂しない構造。
 
 > code 内 真値 = `frontend/src/state/README.md` (= state owner / 永続化 / 更新経路の表)。 本 doc は **「どの feature が どの store を subscribe して、 何の責務を果たすか」** の俯瞰地図 (= state/README.md は store 縦軸、 本 doc は feature 横軸)。
 
-## 6 store 一覧
+## 7 store 一覧
 
 | store | 責務 | 永続化 | 主な書き手 |
 |---|---|---|---|
-| `ephemeral.js` | attachments / `loading[sid]` / apiKeySource / streamBuffers / sendFailedText / stopUnavailableSid / reconnectKey / attachmentPickerBump の描画専用 ephemeral (= optimistic / sendTimers は J-12 で退役済) | なし | features/chat (= 送信 / 受信ループ)、 transport/sse-overview (= loading の真値写し) |
+| `ephemeral.js` | attachments / `loading[sid]` / streamBuffers / sendFailedText / stopUnavailableSid / reconnectKey / attachmentPickerBump の描画専用 ephemeral (= optimistic / sendTimers は J-12、 apiKeySource は 2026-07-27 で退役済) | なし | features/chat (= 送信 / 受信ループ)、 transport/sse-overview (= loading の真値写し) |
 | `sessions.js` | sessions list / `activeId` / `agents` / `accounts` / `status[sid]` / `sessionActivity` / `unreadDone[sid]` | localStorage (一部) | features/session-drawer (= CRUD)、 features/status-bar (= status SSE)、 features/topbar (= activeSid 切替) |
 | `ui.js` | overlays 11 個 / scroll 4 ref / keyboard 5 modifier / `viewModes[sid]` / desktopOpen / planOpen / storageWarnDismissed | localStorage (= viewModes + unread のみ) | features/* (= 各 overlay open/close)、 features/topbar (= viewMode toggle) |
 | `messages.js` | uuid 付き user / agent / system message の真値配列 (= sid 別)、 `MAX_MESSAGES_PER_SID = 200` | localStorage (lz-string 圧縮) | features/chat (= SSE handler 経由)、 useChatStorage |
 | `push.js` | Web Push 購読状態 singleton (= hasRealSub / pushBusy / localFlag / pushAvailable 派生)、 W2 Phase J-2 で usePushSubscription の useState 4 個を統合 | なし (= backend 真値、 SW broken listener 経由で同期) | features/push-notify (= AppEffects mount + SessionDrawer remount の両経路から書き、 store singleton で分裂防止) |
+
+| `promptState.js` | terminal prompt 検出 state (= SSE `prompt_state` event の受け皿、 tier / excerpt / controls) | なし | transport 経由の `prompt_state` event、 features/status-bar (= banner + quick-reply が subscribe) |
+| `locale.js` | UI 言語 (= 2026-07-02 追加) | localStorage | i18n/t.js + SessionDrawer が subscribe |
 
 旧 `transport.js` store は W2 Phase J-12 で dead 削除済 (= 全 setter が orphan)、 接続生存 signal は `transport/connectionStatus.js::registerConnection` 経由に集約された。
 
@@ -47,8 +50,8 @@ W2 architecture overhaul (= 2026-06-29 着地) で frontend `state/` は **5 領
 
 新 state 領域を足す時:
 
-1. 既存 6 store のどれかに収まらないか自問 (= 「optimistic / SSE 由来 / 永続要否」 で振り分け、 新 store 作るのは最終手段)
+1. 既存 7 store のどれかに収まらないか自問 (= 「optimistic / SSE 由来 / 永続要否」 で振り分け、 新 store 作るのは最終手段)
 2. 新 store が必要なら `createStore({ ... }, { name: '<topic>' })` で 1 file 立てる、 名前は 1 単語 (= ephemeral / sessions / ui 等の粒度感に揃える)
 3. `frontend/src/state/README.md` の ownership 表に行追加
-4. 本 doc の「6 store 一覧」 + 「subscribe 関係性」 にも 1 行追加 (= drift 源は表に載らない store)
+4. 本 doc の「7 store 一覧」 + 「subscribe 関係性」 にも 1 行追加 (= drift 源は表に載らない store)
 5. `.tooling/local-ci/audit-w2-residue.py` は `state/*.js` を自動走査するので追加登録は不要 (= 置き場所を `state/` 直下にすることが検出の効く条件)
