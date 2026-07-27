@@ -95,7 +95,7 @@
       "{\"type\":\"output\",\"data\":\"...\"}",
       "{\"type\":\"stop\",\"sid\":\"...\"}"
     ],
-    "at": "2026-07-27T05:17:17+00:00",
+    "at": "2026-07-27T05:34:27+00:00",
     "code_blobs": {
       "backend/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
@@ -283,21 +283,21 @@
       "frontend/src/features/chat/MessageRenderer.jsx": "6c3832ad7dc9676a8431e6916e89f478125209fe",
       "frontend/src/features/chat/SystemMessages.jsx": "1c101dd336d3a070187777086468ba1bb6d49911",
       "frontend/src/features/chat/index.js": "33ea27df3be947a22b90639da1c656995ac1684c",
-      "frontend/src/features/chat/processStreamEvent.js": "bff4865b392b9c4983c607d746da7e6cc0c5bb31",
-      "frontend/src/features/chat/processStreamEvent.test.js": "43fffa613915340e02feae178ea887c88ce299a0",
+      "frontend/src/features/chat/processStreamEvent.js": "2f95947f3d5b80a41218e7118f930366e2f03e0b",
+      "frontend/src/features/chat/processStreamEvent.test.js": "50efb4a1e7cef5231187ef97ea8b86c06762021b",
       "frontend/src/features/chat/reconcileUserMessage.js": "ef6391ec81667357ffafb3019de2cd80ccb2f729",
       "frontend/src/features/chat/reconcileUserMessage.test.js": "c433c5c3a6e6e38de453780fb0a0097f311fe76d",
       "frontend/src/features/chat/replayGuard.js": "713c1afb8026afc4bea669615a81fcf12cd66d75",
       "frontend/src/features/chat/sortByTs.js": "e7731bb2285e899e789d8b2036534b6a8665c9c5",
-      "frontend/src/features/chat/sortByTs.test.js": "1e6eeb5848e743eea04d241adaeaa6fa6429f498",
+      "frontend/src/features/chat/sortByTs.test.js": "0428bfcdcc3f050190fbeb9fce0308cb2c454533",
       "frontend/src/features/chat/splitStreamingBlocks.test.js": "32c6acb32e6394145e6923932318e9a9424287c5",
       "frontend/src/features/chat/storage.worker.js": "1ca2eaf11bb46292ea28f7c3657a60d6c0deb3cd",
       "frontend/src/features/chat/useAutoScroll.js": "05178b2cbe63b582e51d307301bc5d66693d8c33",
       "frontend/src/features/chat/useChatStorage.js": "8e4ad917dbb2087aa163b8efa82144b6e8de4de2",
       "frontend/src/features/chat/useChatStorage.test.js": "5fc7b15cca255b9ede36116aef2c6eb70454cb5f",
-      "frontend/src/features/chat/useChatStream.js": "80c5b0d77d62318c1bc035910c811b55fd418b68",
-      "frontend/src/features/chat/useStreamBuffer.js": "7a543551e9fb8d0f6a3b74a7e92c04a16c774837",
-      "frontend/src/features/chat/useStreamBuffer.test.jsx": "3b42a9c2c5801d39e6fce42d8d923cb082a5bf9d",
+      "frontend/src/features/chat/useChatStream.js": "1f86c7a6f2e2abf7a318ac0f7d446987c64c506f",
+      "frontend/src/features/chat/useStreamBuffer.js": "d98dd1dbf8a1289cf769190238ca1e26812caf57",
+      "frontend/src/features/chat/useStreamBuffer.test.jsx": "49edb357baf546bf09861ff1dc667a4c8b6b988f",
       "frontend/src/features/chat/useThrottledStreamingText.js": "3717d9aed3f34c9a359b631564858ee59b1dc341",
       "frontend/src/features/chat/useThrottledStreamingText.test.jsx": "77773746598e4655d4dfc1e0189a575343ed8924",
       "frontend/src/features/dialogs/ConfirmDeleteDialog.jsx": "e01d2e6612714f177b754df1e1c4e64fc9576fcb",
@@ -459,9 +459,9 @@
       "frontend/src/utils/storage.js": "810f066d3cd3ef3c84b2ebc62a3a2fad5477be62",
       "frontend/src/utils/storage.test.js": "fa6f6beabb1d93f02911e1d1b931c71dfbdc8d4e"
     },
-    "commit": "0b1b947805fc05ab24352941555165957aafc621",
+    "commit": "95fe7e83a25fd783986e87cf69971b123a3d4ca1",
     "doc_blob": "64c85bcd63c987b76c16b1bade6d91aed00bb589",
-    "note": "streams.md behavioural claims now pin to backend/tests/test_compression.py and test_jsonl_routes.py by test name; verified all three test functions exist and cover the claimed behaviours"
+    "note": "docs/internals/protocol/streams.md still accurate: transport/ingest contract untouched by the chat ordering fixes (placeholder createdAt + result backward scan)"
   },
   "doc": "docs/internals/protocol/streams.md",
   "schema": 1

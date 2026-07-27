@@ -61,4 +61,17 @@ describe('sortByTs', () => {
     const noTs = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
     expect(sortByTs(noTs).map(m => m.id)).toEqual(['a', 'b', 'c'])
   })
+
+  it('推論中 placeholder (ts 無し) は server ts へ確定した user の上に浮かない (= 2026-07-27 根治)', () => {
+    // 送信 → user が server jsonl ts (= 端末刻印より必ず後ろ) で確定した直後、
+    // placeholder がまだ実 frame を持たない window の再現。
+    // 旧実装は placeholder に端末 Date.now() を刻んでいたため server ts に負けて
+    // user の上に浮いた。 ts 無しなら carry (= 単調最大) が常に後ろへ置く。
+    const confirmedUser = { id: 'u', role: 'user', ts: 5000 }       // server ts
+    const placeholder = { id: 'ph', role: 'agent', streaming: true } // ts 無し
+    expect(sortByTs([confirmedUser, placeholder]).map(m => m.id)).toEqual(['u', 'ph'])
+    // 旧 bug の形 (= placeholder が古い端末 ts を持つ) は浮くことも固定しておく
+    const stamped = { id: 'ph2', role: 'agent', streaming: true, ts: 4000 }
+    expect(sortByTs([confirmedUser, stamped]).map(m => m.id)).toEqual(['ph2', 'u'])
+  })
 })

@@ -300,3 +300,20 @@ describe('processStreamEvent — prompt_state 振り分け', () => {
     clearPromptState('s9')
   })
 })
+
+describe('processStreamEvent — result targets the streaming agent, not the array tail', () => {
+  it('replay で末尾に古い行が積まれていても streaming agent に meta が着き streaming が落ちる', () => {
+    const buf = emptyBuf()
+    let state = {
+      s1: [
+        { id: 'a', role: 'agent', streaming: true, text: '応答中', tools: [] },
+        { id: 'old-u', role: 'user', text: '大昔の発話', ts: 100 },  // GET replay が末尾に積んだ古い行
+      ],
+    }
+    const deps = { ...makeDeps(buf), setMessages: (fn) => { state = fn(state) } }
+    processStreamEvent(deps, 's1', { type: 'result', total_cost_usd: 0.1, num_turns: 1 })
+    const agent = state.s1.find(m => m.id === 'a')
+    expect(agent.streaming).toBe(false)
+    expect(agent.meta.cost_usd).toBe(0.1)
+  })
+})

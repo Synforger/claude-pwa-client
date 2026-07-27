@@ -213,11 +213,23 @@ export function processStreamEvent(deps, sid, event) {
     cancelAndFlush(sid)
     setMessages(prev => {
       const cur = prev[sid] || []
+      // 表示は ts ソートだが配列は挿入順のまま (= GET 履歴 replay が古い行を末尾に積む) なので、
+      // 「配列末尾 = 今の turn」 仮定は成立しない。 末尾が agent でないと meta を捨てて
+      // streaming が落ちず「推論中が止まらない」。 streaming 中の agent を後方走査で狙い、
+      // 居なければ最後の agent に落とす (= turn_duration handler と同型)。
+      let targetIdx = -1
+      for (let i = cur.length - 1; i >= 0; i--) {
+        if (cur[i].role === 'agent' && cur[i].streaming) { targetIdx = i; break }
+      }
+      if (targetIdx < 0) {
+        for (let i = cur.length - 1; i >= 0; i--) {
+          if (cur[i].role === 'agent') { targetIdx = i; break }
+        }
+      }
+      if (targetIdx < 0) return prev
       const msgs = [...cur]
-      const last = msgs[msgs.length - 1]
-      if (last?.role !== 'agent') return prev
       // turn 完了: meta 反映 + streaming flag を落とす (= tool-pending「…」 / 推論中バブルを止める)
-      msgs[msgs.length - 1] = { ...last, meta, streaming: false }
+      msgs[targetIdx] = { ...msgs[targetIdx], meta, streaming: false }
       return { ...prev, [sid]: msgs }
     })
     return
