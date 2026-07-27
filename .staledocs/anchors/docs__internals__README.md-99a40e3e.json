@@ -1,0 +1,11 @@
+{
+  "anchors": [
+    ".tooling/local-ci/audit-w2-residue-allowlist.txt",
+    "frontend/node_modules/eslint",
+    "frontend/src/state/"
+  ],
+  "at": "2026-07-27T04:19:58+00:00",
+  "doc": "docs/internals/README.md",
+  "note": "v2 anchor-baseline migration: arm every claim that resolves today; unarmed shortlist was empty",
+  "schema": 1
+}
