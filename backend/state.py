@@ -661,7 +661,10 @@ def demote_fork_to_normal(session_id: str) -> str | None:
         # path 計算の真値は config (= state から jsonl 層への隠れ依存を作らない)
         from backend.config import cwd_to_project_dir  # noqa: PLC0415
         cwd = (_agents().get(meta.agent_id) or {}).get("cwd")
-        project_dir = cwd_to_project_dir(cwd) if cwd else None
+        # account_id 無しだと personal に fallback し work account の fork jsonl を
+        # 見つけられない (= delete_session の GC と同じ渡し忘れの根治)。
+        account_id = getattr(meta, "account_id", None)
+        project_dir = cwd_to_project_dir(cwd, account_id=account_id) if cwd else None
         if project_dir is not None:
             fork_jsonl = project_dir / f"{fork_resume_id}.jsonl"
             if fork_jsonl.exists():
