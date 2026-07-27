@@ -21,6 +21,9 @@
       "backend/routes/unified_stream.py",
       "backend/terminal/prompt_detector_loop.py",
       "backend/terminal/routes.py::pty_socket",
+      "backend/tests/test_compression.py::test_sse_is_never_compressed",
+      "backend/tests/test_jsonl_routes.py::test_shrink_tool_results_drops_image_payload_but_keeps_placeholder",
+      "backend/tests/test_jsonl_routes.py::test_shrink_tool_results_never_touches_assistant_or_user_message",
       "broadcast_push",
       "claudepwa-sentinel",
       "clear()",
@@ -92,7 +95,7 @@
       "{\"type\":\"output\",\"data\":\"...\"}",
       "{\"type\":\"stop\",\"sid\":\"...\"}"
     ],
-    "at": "2026-07-27T04:20:42+00:00",
+    "at": "2026-07-27T05:17:17+00:00",
     "code_blobs": {
       "backend/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
@@ -456,9 +459,9 @@
       "frontend/src/utils/storage.js": "810f066d3cd3ef3c84b2ebc62a3a2fad5477be62",
       "frontend/src/utils/storage.test.js": "fa6f6beabb1d93f02911e1d1b931c71dfbdc8d4e"
     },
-    "commit": "692b232025a67e47b231730e1c25741cf1e74419",
-    "doc_blob": "b87cc7aa369387b8d556642b3514d50ecea97ed2",
-    "note": "v2 anchor-baseline migration: arm every claim that resolves today; unarmed shortlist was empty"
+    "commit": "0b1b947805fc05ab24352941555165957aafc621",
+    "doc_blob": "64c85bcd63c987b76c16b1bade6d91aed00bb589",
+    "note": "streams.md behavioural claims now pin to backend/tests/test_compression.py and test_jsonl_routes.py by test name; verified all three test functions exist and cover the claimed behaviours"
   },
   "doc": "docs/internals/protocol/streams.md",
   "schema": 1
