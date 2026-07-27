@@ -86,6 +86,10 @@ export function useStreamBuffer({ setMessages }) {
       // GET 履歴 replay は古い assistant も流すので、 無条件に埋めると最新の返答枠に
       // 大昔の応答が座る (= 実機報告「最新のメッセージが反映されない」)。 過去のものは
       // 新規 bubble として append し、 MessageList の ts ソートが正しい位置に置く。
+      // staleness は createdAt (= placeholder 生成時の端末時刻、 sort 不参加) で判定する。
+      // placeholder は表示 ts を持たない (= 持つと server ts に負けて user の上に浮く) が、
+      // 「古い replay で最新の枠を埋めない」 guard には生成時刻が要る。 旧 cache の
+      // placeholder は ts しか持たないので fallback で読む。
       const lastIsEmptyAgent = last
         && last.role === 'agent'
         && last.streaming
@@ -93,7 +97,7 @@ export function useStreamBuffer({ setMessages }) {
         && !last.thinking
         && (!last.tools || last.tools.length === 0)
         && !last.askUserQuestion
-        && !isStaleFor(snap.ts, last.ts)
+        && !isStaleFor(snap.ts, last.createdAt ?? last.ts)
 
       if (snap.needsNewBubble) {
         // 同 uuid (= Anthropic message.id) の追加 frame と reconnect / replay 時の
@@ -150,19 +154,10 @@ export function useStreamBuffer({ setMessages }) {
         }]}
       }
 
-      // reconnect 再生など、既存バブルに積み増すパス
-      if (!last || last.role !== 'agent') return prev
-      const updated = { ...last }
-      if (snap.text !== null) updated.text = snap.text
-      if (snap.thinking !== null) updated.thinking = snap.thinking
-      if (snap.newTools.length > 0) {
-        const existing = updated.tools || []
-        const existingIds = new Set(existing.map(t => t.id))
-        const toAdd = snap.newTools.filter(t => !existingIds.has(t.id))
-        if (toAdd.length > 0) updated.tools = [...existing, ...toAdd]
-      }
-      msgs[msgs.length - 1] = updated
-      return { ...prev, [sid]: msgs }
+      // needsNewBubble=false の「積み増すパス」 は撤去済 (= processStreamEvent は assistant で
+      // 必ず needsNewBubble=true を立てるため到達不能だった。 buffer 構造体の flag 自体は
+      // ephemeral.js 側の互換で残る)。
+      return prev
     })
   }
 

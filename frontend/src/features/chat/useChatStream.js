@@ -349,15 +349,24 @@ export function useChatStream({
         role: 'user',
         text,
         optimistic: true,
-        // ts = 送信時刻 (= 時系列表示ソートのキー、 最新扱い)。 SSE 確定後もこの値を継承する。
-        ts: Date.now(),
+        // sort 用 ts は**刻印しない** (= 2026-07-27 clock domain 統一)。 端末時計を sort キーに
+        // 混ぜると server ts (= jsonl 時刻) との相対順が時計ズレで狂う。 ts 無しは sortByTs の
+        // carry (= 単調最大継承) が常に最新位置へ置き、 SSE 確定時に server ts が入る。
+        // createdAt は staleness guard 専用 (= 古い replay event に確定させない判定、 sort 不参加)。
+        createdAt: Date.now(),
         // imageUrls = ObjectURL (= 一時表示用、 リロードで失効)、
         // imageRefs = IndexedDB key (= 永続、 リロード後 AttachedImages が復元)
         imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
         imageRefs: imageRefs.length > 0 ? imageRefs : undefined,
         fileNames: fileNames.length > 0 ? fileNames : undefined,
       }
-      const emptyAgent = { id: emptyAgentId, role: 'agent', text: '', tools: [], streaming: true, ts: Date.now() }
+      // ts は**刻印しない** (= 2026-07-27 「推論中が自分の発話の上に浮く」 根治)。 user バブルは
+      // server 確定時に jsonl ts へ貼り替わるが、 この placeholder は最初の assistant frame が
+      // 届くまで無情報。 端末時刻を刻むと server ts (= 必ず後ろ) に負けて sort 上で user の
+      // 上に浮く。 ts 無しは sortByTs の carry (= 単調最大継承) が常に最新位置へ置き、 実 frame
+      // 到着時に server ts が入って正しい席に着く。 createdAt は staleness guard 専用
+      // (= 古い replay で placeholder を埋めない判定、 sort には使わない)。
+      const emptyAgent = { id: emptyAgentId, role: 'agent', text: '', tools: [], streaming: true, createdAt: Date.now() }
       return {
         ...prev,
         [sid]: tailIsEmptyStreamingAgent
@@ -567,7 +576,8 @@ export function useChatStream({
       ...prev,
       [sid]: [
         ...(prev[sid] || []),
-        { id: generateId(), role: 'system', kind: 'session_end', ts: Date.now() },
+        // ts 無し (= carry が最新位置に置く。 端末時計を sort に混ぜない)
+        { id: generateId(), role: 'system', kind: 'session_end' },
       ],
     }))
     // EventSource は切らない (= 2026-06-29 fix、 真因解析後)。

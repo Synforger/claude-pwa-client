@@ -97,3 +97,37 @@ describe('useStreamBuffer flush 契約', () => {
     expect(hook.bufFor('s1').text).toBe(null)
   })
 })
+
+describe('placeholder の staleness guard (= createdAt 基準、 sort 不参加)', () => {
+  it('placeholder より過去の frame は埋めず新規 bubble として append する', () => {
+    const { hook, get } = host({
+      s1: [{ id: 'ph', role: 'agent', text: '', thinking: null, tools: [],
+             streaming: true, createdAt: 10_000_000 }],
+    })
+    const buf = hook.bufFor('s1')
+    fill(buf, { text: '大昔の応答', uuid: 'AM-old' })
+    buf.ts = 1_000  // placeholder 生成よりはるか過去 (= GET replay 由来)
+    hook.cancelAndFlush('s1')
+    const arr = get().s1
+    expect(arr).toHaveLength(2)          // 埋めずに append
+    expect(arr[0].text).toBe('')         // placeholder は無傷
+    expect(arr[1].text).toBe('大昔の応答')
+  })
+
+  it('placeholder 以後の frame は従来どおり placeholder を埋める', () => {
+    const now = 10_000_000
+    const { hook, get } = host({
+      s1: [{ id: 'ph', role: 'agent', text: '', thinking: null, tools: [],
+             streaming: true, createdAt: now }],
+    })
+    const buf = hook.bufFor('s1')
+    fill(buf, { text: '応答', uuid: 'AM-new' })
+    buf.ts = now + 500
+    hook.cancelAndFlush('s1')
+    const arr = get().s1
+    expect(arr).toHaveLength(1)
+    expect(arr[0].id).toBe('ph')
+    expect(arr[0].text).toBe('応答')
+    expect(arr[0].ts).toBe(now + 500)   // server ts で着席
+  })
+})

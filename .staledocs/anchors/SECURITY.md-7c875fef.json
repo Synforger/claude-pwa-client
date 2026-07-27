@@ -1,0 +1,10 @@
+{
+  "anchors": [
+    "backend/data/",
+    "backend/secrets/"
+  ],
+  "at": "2026-07-27T04:19:58+00:00",
+  "doc": "SECURITY.md",
+  "note": "v2 anchor-baseline migration: arm every claim that resolves today; unarmed shortlist was empty",
+  "schema": 1
+}

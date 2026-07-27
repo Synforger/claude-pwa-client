@@ -1,0 +1,31 @@
+{
+  "anchors": [
+    "--print",
+    "AskUserQuestion",
+    "ScheduleWakeup",
+    "THIRD_PARTY_NOTICES.md",
+    "TaskCreate",
+    "__pycache__",
+    "authorized_keys",
+    "backend/config.example.json",
+    "backend/config.json",
+    "backend/data/",
+    "backend/routes/files.py::_DENY_RE",
+    "backend/secrets/",
+    "claude_path",
+    "data:",
+    "docs/reference/data-schemas.md",
+    "frontend/.env.local",
+    "id_dsa",
+    "id_ecdsa",
+    "id_rsa",
+    "javascript:",
+    "known_hosts",
+    "launch_alias",
+    "rate_limits"
+  ],
+  "at": "2026-07-27T04:19:58+00:00",
+  "doc": "README.ja.md",
+  "note": "v2 anchor-baseline migration: arm every claim that resolves today; unarmed shortlist was empty",
+  "schema": 1
+}
