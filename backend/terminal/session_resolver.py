@@ -135,6 +135,20 @@ def resolve_autoresume_fallback(session_id: str, *, prefer_fresh: bool = False) 
 _spawn_locks: dict[str, asyncio.Lock] = {}
 
 
+def resolve_extra_env(session_id: str, cfg: dict) -> dict | None:
+    """agent cfg.env (= 共有 env) と account.env (= タブ毎) をマージして返す (account 優先)。
+
+    spawn 経路 (ensure_pty_session_for) と PTY 再接続 fallback (terminal/routes.py) の
+    2 箇所が同文のマージを別実装していた drift 温床の集約 (= 2026-07-27 退役 audit)。
+    """
+    from backend.config import ACCOUNTS  # noqa: PLC0415
+    from backend.state import sessions_meta  # noqa: PLC0415
+    meta = sessions_meta.get(session_id)
+    acct_env = (ACCOUNTS.get(meta.account_id) or {}).get("env") if meta and meta.account_id else None
+    agent_env = cfg.get("env") if isinstance(cfg.get("env"), dict) else {}
+    return {**agent_env, **(acct_env or {})} if (agent_env or acct_env) else None
+
+
 async def ensure_pty_session_for(session_id: str, *, prefer_fresh: bool = False) -> None:
     """指定 session の tmux + claude を起動 (既にあれば何もしない)。
 
@@ -162,12 +176,7 @@ async def ensure_pty_session_for(session_id: str, *, prefer_fresh: bool = False)
         launch_alias = resolve_launch_alias(session_id, prefer_fresh=prefer_fresh)
         fallback_alias = resolve_autoresume_fallback(session_id, prefer_fresh=prefer_fresh)
         try:
-            from backend.config import ACCOUNTS  # noqa: PLC0415
-            from backend.state import sessions_meta  # noqa: PLC0415
-            meta = sessions_meta.get(session_id)
-            acct_env = (ACCOUNTS.get(meta.account_id) or {}).get("env") if meta and meta.account_id else None
-            agent_env = cfg.get("env") if isinstance(cfg.get("env"), dict) else {}
-            extra_env = {**agent_env, **(acct_env or {})} if (agent_env or acct_env) else None
+            extra_env = resolve_extra_env(session_id, cfg)
             session = await spawn_pty_session(
                 session_id, cwd=cwd, launch_alias=launch_alias,
                 fallback_alias=fallback_alias,

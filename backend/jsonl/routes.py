@@ -72,14 +72,8 @@ _IDLE_MAX_INTERVAL = 2.0
 # back-off の伸び率 (= 変化なし時、 current * GROWTH で次回間隔を伸ばす)。
 _IDLE_GROWTH = 1.5
 # SSE keep-alive 送出間隔秒。 monitor back-off とは責務が別 (= こちらは接続維持の心拍のみ)。
-# 旧値は _IDLE_MAX_INTERVAL 共用の 2s で、 idle 中も 2s ごとにフレームが飛び iPhone の
-# 無線が省電力状態に落ちられなかった。 client 側の黙死検知は 65s watchdog (= _sse.ts) /
-# 再接続 bump なので 25s で十分に速い。
-_SSE_KEEPALIVE_SEC = 25.0
-
-
 def next_interval(current: float, made_progress: bool) -> float:
-    """idle back-off helper (= backend-F-42)。 旧 SSE 配信 (`_jsonl_sse`) と push 監視
+    """idle back-off helper (= backend-F-42)。 push 監視
     (`monitor_all_sessions_loop`) で「変化あれば base / 無ければ 1.5x ずつ伸ばす (上限 2s)」
     の同じロジックが 2 箇所に書かれていた。 ここに集約する。
 
@@ -119,39 +113,6 @@ def _inject_envelope(event: dict, sid: str) -> dict:
     event.setdefault("sid", sid)
     event.setdefault("corr_id", current_corr_id())
     return event
-
-
-def _lines_to_sse(lines: list[str], pos: int, session_id: str) -> list[str]:
-    """JSONL 行 (文字列) のリストを SSE フレームのリストに変換する (= **replay 専用 pure 関数**)。
-
-    F-06: 旧版は per-line で `_track_turn_start` / `_mutate_agent_status` を呼んで
-    backend state を mutate し、 monitor_all_sessions_loop と二重 driver で同じ field を
-    上書きする構造だった (= dual-driver race)。 mutate 経路は
-    monitor 単一に絞り (= `_process_new_lines` 内)、 SSE 配信側は jsonl_line_to_events を
-    呼んで event を SSE フレームに整形するだけの pure 関数に降格する。
-
-    duration_ms (= attach_duration_to_result) も replay 経路では呼ばない。 monitor 側で
-    publish 時に inject 済 (= per-sid SSE は broadcaster Queue subscriber でその event を
-    そのまま受ける)。 初回接続時の replay には duration_ms が乗らないケースが残るが、
-    historic event なので表示挙動上の害は無い (= 「推論中」 表示は live 経路で消える)。
-
-    各フレームに `id: <pos>` (= この行群を読み終えた後のバイト位置) を付ける。 EventSource は
-    受信した最後の id を保持し、 再接続時に `Last-Event-ID` ヘッダで送るので、 backend は
-    そこから続きだけ流せる (= backend 再起動後の全 replay を回避)。
-    """
-    frames: list[str] = []
-    for raw in lines:
-        raw = raw.strip()
-        if not raw:
-            continue
-        try:
-            obj = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        for event in jsonl_line_to_events(obj):
-            _inject_envelope(event, session_id)
-            frames.append(f"id: {pos}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n")
-    return frames
 
 
 def _lines_to_events(lines: list[str]) -> list[dict]:
@@ -280,89 +241,6 @@ def get_chat_history(
     return {"events": events, "pos": end_pos}
 
 
-async def _jsonl_sse(session_id: str, start_pos: int | None = None):
-    """per-sid SSE generator: 過去 message を file から replay → 以降は broadcaster Queue
-    subscriber で live event を受ける (= F-02 / F-06、 mutate は monitor 一本化)。
-
-    既存 frontend (= 旧 endpoint 利用) は無変更で動く: replay は `?from=<offset>` の意味論
-    も含めて旧来挙動を温存、 live 経路だけが「monitor が publish した event を Queue で受ける」
-    pub/sub 化される (= per-tick file tail を SSE 接続ごとに重ねない)。
-    """
-    # チャット画面のみ開いてターミナル画面に切り替えていないタブでも claude を起動させる。
-    # 既に tmux + claude が動いていれば no-op。
-    from backend.terminal.routes import ensure_pty_session_for
-    await ensure_pty_session_for(session_id)
-
-    # 初回起動直後 (= ensure_pty_session_for で spawn したが claude が SessionStart hook で
-    # binding を確定するまでの数秒) は path が解決できない。 即 error 返して generator を終了
-    # すると EventSource が再接続を繰り返して「ターミナルは動いてるが chat 空」 状態になる。
-    # 代わりに keep-alive を流しながら最大 15 秒 path 解決を待つ (= hook が間に合わなければ
-    # 諦めて error)。
-    path = _latest_jsonl(session_id)
-    if path is None:
-        for _ in range(30):  # 0.5s × 30 = 15s
-            await asyncio.sleep(POLL_INTERVAL)
-            path = _latest_jsonl(session_id)
-            if path is not None:
-                break
-            yield ": waiting-for-jsonl\n\n"
-        if path is None:
-            yield f"data: {json.dumps({'type': 'error', 'message': 'no JSONL found for session'})}\n\n"
-            return
-
-    try:
-        size = path.stat().st_size
-    except OSError:
-        size = 0
-    # 再接続 (= Last-Event-ID あり) は続きから、 初回は直近 N 行に絞る。
-    # start_pos がファイルサイズを超える (= 別ファイルに切り替わった等) 場合は初回扱い。
-    if start_pos is not None and 0 <= start_pos <= size:
-        pos = start_pos
-    else:
-        pos = _initial_offset(path)
-
-    # 初回 replay (= 再接続時は start_pos 以降のみ = 差分)。 file から直接読む経路 (= monitor
-    # 経路に依存しない)。
-    lines, pos = _read_complete_lines(path, pos)
-    for frame in _lines_to_sse(lines, pos, session_id):
-        yield frame
-
-    # prompt_state snapshot: JSONL に無い ephemeral event なので replay に乗らない。
-    # 切断中に「復帰」 遷移を取りこぼした client の stale banner を接続時に必ず現実へ
-    # 収束させる (= detector 未 tick の sid は active 合成 event で消灯)。
-    from backend.terminal.prompt_detector_loop import current_prompt_event  # noqa: PLC0415
-    snap = _inject_envelope(current_prompt_event(session_id), session_id)
-    yield f"id: {pos}\ndata: {json.dumps(snap, ensure_ascii=False)}\n\n"
-
-    # live: broadcaster Queue subscriber に切替。 mutator / publish は monitor 単一経路。
-    queue = jsonl_event_broadcaster.subscribe(session_id)
-    metrics.inc("sse.per_sid.connect")
-    try:
-        while True:
-            try:
-                event, ev_pos = await asyncio.wait_for(queue.get(), timeout=_SSE_KEEPALIVE_SEC)
-            except asyncio.TimeoutError:
-                metrics.inc("sse.per_sid.keepalive")
-                yield ": keep-alive\n\n"
-                continue
-            metrics.inc("sse.per_sid.frames")
-            # broadcast 経路から来る event は dict。 sid 付きの場合もあるが per-sid SSE では
-            # frontend が無変更で動くよう sid field は除去せず温存 (= 旧 wire と互換、 frontend
-            # は未使用 field を無視)。 SSE id には monitor が読み終えた実 byte 位置 (= ev_pos)
-            # を載せる。 旧実装は replay 末尾 pos を固定で流し続けたため、 live 中に offset が
-            # 一切前進せず、 再接続のたび接続以降の全行を replay し直す増幅があった。
-            # ev_pos が無い event (= prompt_state 等の ephemeral 合成 event) は id 行を
-            # 省略して lastEventId を直前値のまま維持する。
-            _inject_envelope(event, session_id)
-            if ev_pos is not None:
-                yield f"id: {ev_pos}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
-            else:
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-    finally:
-        metrics.inc("sse.per_sid.disconnect")
-        jsonl_event_broadcaster.unsubscribe(session_id, queue)
-
-
 def _parse_all_from(spec: str | None) -> dict[str, int]:
     """`from=sid1:offset1,sid2:offset2,...` を {sid: offset} に parse する (= F-15)。
 
@@ -386,135 +264,6 @@ def _parse_all_from(spec: str | None) -> dict[str, int]:
         except (ValueError, TypeError):
             continue
     return out
-
-
-async def _jsonl_sse_all(start_pos_map: dict[str, int]):
-    """全 sid を 1 接続で配信する SSE (= F-15)。
-
-    接続時に各 sid の `from` offset から file replay → broadcaster.subscribe("all") で
-    全 sid の live event を Queue 経由で受ける。 frontend は本 endpoint 1 本で activeSid
-    含む全 sid event を受信し、 sid 別 offset map を localStorage 永続化する (= タブ切替
-    1-3s 待ち解消、 W2-A の Map 化 useStreamBuffer と整合)。
-
-    event は `{..., "sid": <sid>}` 形式で送る (= monitor 経路で publish 時に sid を埋め込み済)。
-    SSE id は `<sid>:<pos>` 形式で送り、 EventSource の Last-Event-ID 経由再接続では
-    `?from=<sid>:<pos>,<sid>:<pos>,...` を frontend が組み直して再投入する規約 (= EventSource
-    の単純な Last-Event-ID では sid 別 offset map を表現できないので、 frontend は onmessage
-    内で lastEventId を parse して offsetRef に格納する)。
-    """
-    from backend.state import sessions_meta as _sm
-    from backend.terminal.routes import ensure_pty_session_for
-
-    # 1) 各 sid を起動 (= 既存挙動と互換、 per-sid SSE と同じ)。 失敗しても他 sid を続行。
-    for sid in list(_sm.keys()):
-        try:
-            await ensure_pty_session_for(sid)
-        except Exception:
-            # benign: per-sid PTY spawn is best-effort during /jsonl/stream/all warmup;
-            # one failure must not block warmup for the remaining sessions.
-            pass
-
-    # 2) 各 sid の file replay (= 接続時に過去 N 行を吐く)。
-    #    replay pos は per-sid に {sid: pos} で track して event の id に乗せる。
-    replay_pos: dict[str, int] = {}
-    for sid in list(_sm.keys()):
-        path = _latest_jsonl(sid)
-        if path is None:
-            continue
-        try:
-            size = path.stat().st_size
-        except OSError:
-            continue
-        start = start_pos_map.get(sid)
-        if start is not None and 0 <= start <= size:
-            pos = start
-        else:
-            pos = _initial_offset(path)
-        lines, new_pos = _read_complete_lines(path, pos)
-        replay_pos[sid] = new_pos
-        for event in _lines_to_events(lines):
-            _inject_envelope(event, sid)
-            yield f"id: {sid}:{new_pos}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
-
-    # 2.5) prompt_state snapshot (= per-sid 経路と同じ理由、 全 sid ぶん)。
-    from backend.terminal.prompt_detector_loop import current_prompt_event  # noqa: PLC0415
-    for sid in list(_sm.keys()):
-        snap = _inject_envelope(current_prompt_event(sid), sid)
-        yield f"id: {sid}:{replay_pos.get(sid, 0)}\ndata: {json.dumps(snap, ensure_ascii=False)}\n\n"
-
-    # 3) live: broadcaster "all" subscriber に切替。
-    queue = jsonl_event_broadcaster.subscribe(ALL_SUBSCRIBER_KEY)
-    metrics.inc("sse.all.connect")
-    try:
-        while True:
-            try:
-                event, ev_pos = await asyncio.wait_for(queue.get(), timeout=_SSE_KEEPALIVE_SEC)
-            except asyncio.TimeoutError:
-                metrics.inc("sse.all.keepalive")
-                yield ": keep-alive\n\n"
-                continue
-            metrics.inc("sse.all.frames")
-            sid = event.get("sid") or ""
-            # live event の SSE id には monitor が読み終えた実 byte 位置 (= ev_pos) を載せる。
-            # 旧実装は replay 末尾 pos を固定で流し続けたため offset が live 中に前進せず、
-            # 再接続 (= 画面ロック解除 / bg 復帰) のたび接続以降の全行を replay し直す増幅が
-            # あった。 ev_pos の無い ephemeral event (= prompt_state 等) は id 行を省略して
-            # frontend の offset map を汚さない。
-            _inject_envelope(event, sid)
-            if ev_pos is not None:
-                yield f"id: {sid}:{ev_pos}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
-            else:
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-    finally:
-        jsonl_event_broadcaster.unsubscribe(ALL_SUBSCRIBER_KEY, queue)
-
-
-@router.get("/jsonl/stream/all")
-async def jsonl_stream_all(request: Request):
-    """全 sid の jsonl event を 1 SSE で配信する (= F-15)。
-
-    query: `?from=<sid>:<off>,<sid>:<off>,...` で per-sid offset を渡す。 EventSource の
-    自動再接続は Last-Event-ID (= 単一文字列) なので、 frontend 側で `<sid>:<pos>` の
-    最新 1 件しか戻ってこない。 sid 別 offset map の精度維持は frontend onmessage 内で
-    都度 localStorage に書く運用とする (= EventSource header 経路は単一 sid 分しか保持
-    できないので、 接続時 query 構築は frontend 側 offsetRef を真値として行う)。
-    """
-    src = request.query_params.get("from")
-    # Last-Event-ID も拾うが単一値しか入らないので参考扱い (= ?from が主)。
-    last_eid = request.headers.get("last-event-id")
-    start_map = _parse_all_from(src)
-    if not start_map and last_eid:
-        # 単一 `<sid>:<pos>` だけが入っていれば 1 sid 分だけ復元 (= safety net、 frontend が
-        # ?from を組めなかった retry 経路の保険)。
-        start_map = _parse_all_from(last_eid)
-    return StreamingResponse(
-        _jsonl_sse_all(start_map),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-@router.get("/jsonl/stream/{session_id}")
-async def jsonl_stream(session_id: str, request: Request):
-    """指定 PWA session の claude JSONL を tail して SSE で event を流す。
-
-    再接続時は EventSource が送る `Last-Event-ID` (= 前回読み終えた byte 位置) から
-    続きだけ流し、 backend 再起動後の全 replay を避ける。
-    """
-    # 再開位置: EventSource 自動再接続の Last-Event-ID を優先、 無ければ ?from クエリ
-    # (= タブ切替で frontend が保持した offset から差分取得する経路)。
-    src = request.headers.get("last-event-id") or request.query_params.get("from")
-    start_pos: int | None = None
-    if src:
-        try:
-            start_pos = int(src)
-        except (ValueError, TypeError):
-            start_pos = None
-    return StreamingResponse(
-        _jsonl_sse(session_id, start_pos),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
 
 
 # --- 常時 tail (= PWA 接続有無に関係なく動く push 発火経路) ---

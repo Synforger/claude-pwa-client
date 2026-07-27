@@ -138,12 +138,8 @@ async def pty_socket(ws: WebSocket, session_id: str) -> None:
             launch_alias = _resolve_launch_alias(session_id)
             fallback_alias = _resolve_autoresume_fallback(session_id)
         try:
-            from backend.config import ACCOUNTS  # noqa: PLC0415
-            meta = sessions_meta.get(session_id)
-            acct_env = (ACCOUNTS.get(meta.account_id) or {}).get("env") if meta and meta.account_id else None
-            # agent cfg.env (= 旧経路、 共有 env) と account.env (= タブ毎) をマージ。 account 優先
-            agent_env = cfg.get("env") if isinstance(cfg.get("env"), dict) else {}
-            extra_env = {**agent_env, **(acct_env or {})} if (agent_env or acct_env) else None
+            from backend.terminal.session_resolver import resolve_extra_env  # noqa: PLC0415
+            extra_env = resolve_extra_env(session_id, cfg)
             session = await spawn_pty_session(
                 session_id, cwd=cwd, launch_alias=launch_alias,
                 fallback_alias=fallback_alias,
