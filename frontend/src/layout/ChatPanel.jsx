@@ -33,6 +33,7 @@ import { useAttachments } from '../features/attachments/useAttachments.js'
 import { gcImages } from '../features/attachments/imageStore.js'
 import { useStatus } from '../features/status-bar/useStatus.js'
 import { useSessionBadges } from '../features/push-notify/useSessionBadges.js'
+import { useRunningSubagents } from '../features/chat/useRunningSubagents.js'
 import { setBadge } from '../features/push-notify/badge.js'
 import ActivityBar from '../features/tasks/ActivityBar.jsx'
 import { PromptStateBanner } from '../features/status-bar/PromptStateBanner.jsx'
@@ -237,6 +238,7 @@ export default function ChatPanel({ sid }) {
     forkSession(activeSid, uuid)
   }, [activeSid, forkSession])
   const activeSubagentTool = status?.subagent?.last_tool || null
+  const runningSubagents = useRunningSubagents(activeSid)
 
   const sids = useMemo(() => sessions.map(s => s.id), [sessions])
   const currentAttachments = (activeSid && attachments[activeSid]) || EMPTY_ARR
@@ -338,6 +340,7 @@ export default function ChatPanel({ sid }) {
         displayMessages={displayMessages}
         onOpenFile={handleOpenPath}
         activeSubagentTool={activeSubagentTool}
+        runningSubagents={runningSubagents}
         onOpenSubagents={handleOpenSubagents}
         onFork={activeSid ? handleFork : null}
         showScrollBtn={showScrollBtn}
