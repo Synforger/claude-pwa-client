@@ -552,12 +552,12 @@ endpoints:
   - method: POST
     path: /stream/unified/{conn}/control
     description: "統合 stream の上り制御 (= 購読差替 / view 申告 / stop / subagents 切替)"
-    request:
+    request_body:
       type: object
       required: [op]
       properties:
         op:   { enum: [jsonl, view, stop, subagents] }
-        sid:  { type: [string, "null"] }
+        sid:  { type: string, nullable: true }
         sids: { type: array }
     response:
       type: object
