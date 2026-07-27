@@ -349,8 +349,11 @@ export function useChatStream({
         role: 'user',
         text,
         optimistic: true,
-        // ts = 送信時刻 (= 時系列表示ソートのキー、 最新扱い)。 SSE 確定後もこの値を継承する。
-        ts: Date.now(),
+        // sort 用 ts は**刻印しない** (= 2026-07-27 clock domain 統一)。 端末時計を sort キーに
+        // 混ぜると server ts (= jsonl 時刻) との相対順が時計ズレで狂う。 ts 無しは sortByTs の
+        // carry (= 単調最大継承) が常に最新位置へ置き、 SSE 確定時に server ts が入る。
+        // createdAt は staleness guard 専用 (= 古い replay event に確定させない判定、 sort 不参加)。
+        createdAt: Date.now(),
         // imageUrls = ObjectURL (= 一時表示用、 リロードで失効)、
         // imageRefs = IndexedDB key (= 永続、 リロード後 AttachedImages が復元)
         imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
@@ -573,7 +576,8 @@ export function useChatStream({
       ...prev,
       [sid]: [
         ...(prev[sid] || []),
-        { id: generateId(), role: 'system', kind: 'session_end', ts: Date.now() },
+        // ts 無し (= carry が最新位置に置く。 端末時計を sort に混ぜない)
+        { id: generateId(), role: 'system', kind: 'session_end' },
       ],
     }))
     // EventSource は切らない (= 2026-06-29 fix、 真因解析後)。

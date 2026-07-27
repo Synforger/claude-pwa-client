@@ -67,7 +67,8 @@ export default function SessionDrawer() {
   const agents = sessionsSnap.agents
   const sessionActivity = sessionsSnap.sessionActivity
   const unreadDone = sessionsSnap.unreadDone
-  const waitingInput = sessionsSnap.waitingInput || {}
+  // `|| {}` は毎 render 新 object で useMemo deps を無効化する (= eslint 警告)。 identity 安定化。
+  const waitingInput = useMemo(() => sessionsSnap.waitingInput || {}, [sessionsSnap.waitingInput])
   const loading = ephem.loading
 
   // 並び順: 「最終活動時刻」 降順、 未活動は created_at fallback (= useSessionActivity から移送)
