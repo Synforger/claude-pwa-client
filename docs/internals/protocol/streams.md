@@ -115,9 +115,9 @@ tmux server は `exit-empty off` + 番兵 session `claudepwa-sentinel` (= backen
 - **返すもの**: `{events, pos}`。 `events` は SSE と同形状 (= 同じ ingest pipeline を通す、 uuid dedup で cache とも stream replay とも重複しない)、 `pos` は読み終えた byte 位置
 - **窓**: `from` 指定ありはその位置以降、 未指定 / 無効は直近 N 行 (= `INITIAL_REPLAY_LINES`)。 frontend は **`from` を付けない**: offset は streaming 中の in-flight を含まず先行し得るため、 offset 起点にすると作業中のツール履歴が飛ばされる
 - **転送量の削減** (= 2026-07-27、 携帯 + Tailscale 経由の体感速度): 実測 1.18MB → 247KB
-  - **JSON gzip** (= `backend/core/compression.py`)。 **SSE は対象外** — content-type が `text/event-stream` のものは素通しする。 streaming を圧縮すると gzip の内部 buffer に event が滞留してライブ更新が詰まるため、 ここは構造的に分けている (契約 test で固定)
-  - **表示に使われない本文の除去** (= `_shrink_tool_results`)。 履歴の 65% が tool_result で、 その大半が base64 画像だった。 UI は tool_result 内の画像を「画像」 プレースホルダ 1 語に畳む (= `utils/format.js`) ので本体は 1 byte も表示に使われない → 履歴経路に限り画像本体を落とし、 長大 text も冒頭 `TOOL_RESULT_PREVIEW_CHARS` に切り詰める。 元の文字数は `full_chars` で残し、 UI の文字数ラベルはそれを使うので表示は不変
-  - **ライブ SSE は無改変**: 進行中の tool 出力は従来通り完全な形で届く (= 切り詰めは「画面外の過去ログを読み直す時」 だけの最適化)
+  - **JSON gzip** (= `backend/core/compression.py`)。 **SSE は対象外** — content-type が `text/event-stream` のものは素通しする。 streaming を圧縮すると gzip の内部 buffer に event が滞留してライブ更新が詰まるため、 ここは構造的に分けている (= pin: `backend/tests/test_compression.py::test_sse_is_never_compressed`)
+  - **表示に使われない本文の除去** (= `_shrink_tool_results`)。 履歴の 65% が tool_result で、 その大半が base64 画像だった。 UI は tool_result 内の画像を「画像」 プレースホルダ 1 語に畳む (= `utils/format.js`) ので本体は 1 byte も表示に使われない → 履歴経路に限り画像本体を落とし、 長大 text も冒頭 `TOOL_RESULT_PREVIEW_CHARS` に切り詰める。 元の文字数は `full_chars` で残し、 UI の文字数ラベルはそれを使うので表示は不変 (= pin: `backend/tests/test_jsonl_routes.py::test_shrink_tool_results_drops_image_payload_but_keeps_placeholder`)
+  - **ライブ SSE は無改変**: 進行中の tool 出力は従来通り完全な形で届く (= 切り詰めは「画面外の過去ログを読み直す時」 だけの最適化。 pin: `backend/tests/test_jsonl_routes.py::test_shrink_tool_results_never_touches_assistant_or_user_message`)
 
 ## 接続生存 signal の集約
 
