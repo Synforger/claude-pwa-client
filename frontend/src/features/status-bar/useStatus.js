@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { registerConnection, notifyConnectionChange } from '../../transport/connectionStatus.js'
-import { getCachedAllStatus } from '../../transport/sse-sessions-status.ts'
+import { getCachedAllStatus } from '../../transport/statusCache.ts'
 import { statusSse } from '../../transport/select.ts'
 
-// 全 session の status を transport/sse-sessions-status.ts singleton (= ADR-019) で受信し、
+// 全 session の status を unified stream の status channel (= transport/select.ts) で受信し、
 // activeSid に対応するエントリを返す。 旧来の new EventSource 直書きは ADR-019 で transport singleton
 // に集約済、 ここは subscribe するだけ。
 //

@@ -2,10 +2,7 @@
 // ADR-013: beforeunload は意図的に listen しない (= BFCache 阻害)。
 // pageshow.persisted で BFCache 復帰検知、 SSE/WS rebuild が必須。
 
-import { sseTransport } from './sse.ts'
-import { viewsTransport } from './ws-views.ts'
-import { bumpAllSubscribedSse } from './_sse.ts'
-import { unifiedEnabled, unifiedTransport } from './select.ts'
+import { unifiedTransport } from './select.ts'
 
 const FG_EVENT = 'cpc:fg'
 const BG_EVENT = 'cpc:bg'
@@ -42,65 +39,39 @@ export function uninstallListeners(): void {
 function onVisibility(): void {
   if (document.visibilityState === 'visible') {
     if (hiddenStopTimer) { clearTimeout(hiddenStopTimer); hiddenStopTimer = null }
-    if (unifiedEnabled) {
-      // 統合 transport = 1 接続 bump で全 channel 蘇生 + 最新 snapshot 再取得
-      // (= 旧構成の「4-5 本を各自張り直す」 無線バーストが 1 本に)
-      unifiedTransport.bumpReconnect()
-    } else {
-      sseTransport.bumpReconnect()
-      // _sse factory 系 (= sessions-status / sessions-overview / subagents) も張り直す。
-      // iOS は bg で SSE を onerror なしに殺す (= silent-dead) ので、 復帰時 bump が唯一の
-      // 確実な蘇生 + 初期 snapshot 再取得経路 (= 📋 tasks / model / ctx の凍結根治)。
-      bumpAllSubscribedSse()
-      viewsTransport.start()
-    }
+    // 統合 transport = 1 接続 bump で全 channel 蘇生 + 最新 snapshot 再取得。
+    // iOS は bg で SSE を onerror なしに殺す (= silent-dead) ので、 復帰時 bump が唯一の
+    // 確実な蘇生 + 初期 snapshot 再取得経路。
+    unifiedTransport.bumpReconnect()
     window.dispatchEvent(new Event(FG_EVENT))
   } else {
-    if (unifiedEnabled) {
-      unifiedTransport.flushOffsets()
-      // 「見てる」 登録を即時解除 (= 裏に置いたタブが push 通知を抑制し続けない)。
-      // 旧 /views/ws の「hidden = WS close = 登録消滅」 と同じ意味論を明示送信で再現。
-      unifiedTransport.suspendView()
-      // 猶予後も hidden のままなら接続ごと停止 (= 裏タブ完全ゼロ消費、 R3)。
-      // iOS は OS が先に殺すことが多いが、 Mac の裏タブはこれが唯一の停止経路。
-      if (hiddenStopTimer) clearTimeout(hiddenStopTimer)
-      hiddenStopTimer = setTimeout(() => {
-        hiddenStopTimer = null
-        if (document.visibilityState !== 'visible') unifiedTransport.stop()
-      }, HIDDEN_STOP_GRACE_MS)
-    } else {
-      sseTransport.flushOffsets()
-      viewsTransport.stop()
-    }
+    unifiedTransport.flushOffsets()
+    // 「見てる」 登録を即時解除 (= 裏に置いたタブが push 通知を抑制し続けない)。
+    unifiedTransport.suspendView()
+    // 猶予後も hidden のままなら接続ごと停止 (= 裏タブ完全ゼロ消費、 R3)。
+    // iOS は OS が先に殺すことが多いが、 Mac の裏タブはこれが唯一の停止経路。
+    if (hiddenStopTimer) clearTimeout(hiddenStopTimer)
+    hiddenStopTimer = setTimeout(() => {
+      hiddenStopTimer = null
+      if (document.visibilityState !== 'visible') unifiedTransport.stop()
+    }, HIDDEN_STOP_GRACE_MS)
     window.dispatchEvent(new Event(BG_EVENT))
   }
 }
 
-function onPagehide(e: PageTransitionEvent): void {
-  if (unifiedEnabled) {
-    unifiedTransport.flushOffsets()
-    unifiedTransport.suspendView()
-  } else {
-    sseTransport.flushOffsets()
-    if (!e.persisted) viewsTransport.stop()
-  }
+function onPagehide(_e: PageTransitionEvent): void {
+  unifiedTransport.flushOffsets()
+  unifiedTransport.suspendView()
 }
 
 function onPageshow(e: PageTransitionEvent): void {
   if (e.persisted) {
     // BFCache 復帰 = transport rebuild 必須
-    if (unifiedEnabled) {
-      unifiedTransport.bumpReconnect()
-    } else {
-      sseTransport.bumpReconnect()
-      bumpAllSubscribedSse()
-      viewsTransport.start()
-    }
+    unifiedTransport.bumpReconnect()
     window.dispatchEvent(new Event(FG_EVENT))
   }
 }
 
 function onFreeze(): void {
-  if (unifiedEnabled) unifiedTransport.flushOffsets()
-  else sseTransport.flushOffsets()
+  unifiedTransport.flushOffsets()
 }
