@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import time
 from collections import OrderedDict
@@ -25,6 +26,8 @@ from backend.core.jsonl_predicates import is_user_prompt as _is_user_prompt_pred
 from backend.core.jsonl_tail import parse_jsonl_timestamp
 from backend.state import agent_status, sessions_overview, stream_states
 from backend.core.usage import compute_ctx_pct, format_model_name
+
+logger = logging.getLogger(__name__)
 
 
 # --- busy 判定の共通分類器 (= backend-F-04) -----------------------------------
@@ -699,14 +702,17 @@ def _backfill_task_id_from_result(a: dict, tu_id: str, block: dict) -> bool:
     subject = pending.get(tu_id)
     if subject is None:
         return False
-    del pending[tu_id]
     raw = block.get("content")
     text = raw if isinstance(raw, str) else "".join(
         b.get("text", "") for b in raw if isinstance(b, dict)
     ) if isinstance(raw, list) else ""
     m = _TASK_CREATED_RE.search(text)
     if not m:
+        # pending は消さない (= 実 id が拾えないまま消すと以後の TaskUpdate(実 id) が
+        # 永久に不一致で固着する)。 harness 文言変化はここで気付けるよう warning。
+        logger.warning("TaskCreate result did not match id pattern: %.120s", text)
         return False
+    del pending[tu_id]
     real_id = m.group(1)
     tasks = [dict(t) for t in (a.get("tasks") or [])]
     for t in tasks:

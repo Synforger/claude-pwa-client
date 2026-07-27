@@ -363,6 +363,7 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
     meta = sessions_meta.get(session_id)
     fork_resume_id = getattr(meta, "resume_session_id", None) if meta is not None else None
     fork_agent_id = getattr(meta, "agent_id", None) if meta is not None else None
+    fork_account_id = getattr(meta, "account_id", None) if meta is not None else None
     # PTY + tmux + JSONL binding を一括 cleanup
     try:
         kill_tmux_session(session_id)
@@ -387,7 +388,13 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
             cwd = (AGENTS.get(fork_agent_id) or {}).get("cwd")
             # module-attribute lookup で monkeypatch 互換維持 (= test が
             # `monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", ...)` する)。
-            project_dir = jsonl_watcher._cwd_to_project_dir(cwd) if cwd else None
+            # account_id を渡さないと personal (~/.claude) に fallback し、 work account の
+            # fork jsonl は exists()=False で GC が常に空振りする (= spawn 側 2026-07-22
+            # 根治と同型の渡し忘れ)。
+            project_dir = (
+                jsonl_watcher._cwd_to_project_dir(cwd, account_id=fork_account_id)
+                if cwd else None
+            )
             if project_dir is not None:
                 fork_jsonl = project_dir / f"{fork_resume_id}.jsonl"
                 if fork_jsonl.exists():

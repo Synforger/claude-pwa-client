@@ -361,3 +361,47 @@ def test_pump_death_closes_connection(unified_env, monkeypatch):
                 await asyncio.wait_for(gen.__anext__(), timeout=2.5)
         assert "c1" not in us._conns  # finally cleanup 済み
     _run(run())
+
+
+def test_subagents_watcher_pushes_initial_payload(unified_env, monkeypatch, tmp_path):
+    """subagents channel: watcher が起動直後に初回 payload を queue へ積む。
+
+    回帰 (= 2026-07-27): `_build_subagents_payload` が #236 で 2 引数になった際、
+    本 watcher だけ旧 1 引数呼びのまま残り、 起動即 TypeError で死んで「モーダルを
+    開いている間サブエージェント完了が反映されない」 を再発させていた。 watcher を
+    実際に走らせて初回 frame まで通せば、 この種のシグネチャ drift は必ずここで落ちる。
+    """
+    _state, sid_a, _sid_b, _ensured = unified_env
+    sa_base = tmp_path / "sa-base"
+    (sa_base / "subagents").mkdir(parents=True)
+    (sa_base / "subagents" / "agent-abc123.jsonl").write_text(
+        json.dumps({"type": "assistant", "message": {"content": []}}) + "\n")
+    monkeypatch.setattr(us, "_session_base", lambda _sid: sa_base)
+
+    async def run():
+        conn = us.UnifiedConn(conn_id="c-sa")
+        task = asyncio.create_task(us._subagents_watcher(conn, sid_a))
+        try:
+            frame = await asyncio.wait_for(conn.queue.get(), timeout=2.5)
+        finally:
+            task.cancel()
+        assert frame["ch"] == "subagents"
+        assert frame["sid"] == sid_a
+        agents = frame["data"]["subagents"]
+        assert [a["agentId"] for a in agents] == ["agent-abc123"]
+    _run(run())
+
+
+def test_subagents_watcher_crash_is_logged(unified_env, caplog):
+    """watcher の例外死は fire-and-forget に握られず error log に出る (= 沈黙死の防止)。"""
+    _state, _sid_a, _sid_b, _ensured = unified_env
+
+    async def run():
+        async def _boom():
+            raise RuntimeError("watcher boom")
+        task = asyncio.create_task(_boom())
+        task.add_done_callback(us._log_watcher_crash)
+        await asyncio.sleep(0.05)
+    with caplog.at_level("ERROR"):
+        _run(run())
+    assert any("subagents watcher crashed" in r.message for r in caplog.records)
