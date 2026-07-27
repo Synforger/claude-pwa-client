@@ -75,11 +75,3 @@ def record_end(pwa_sid: str, claude_sid: Optional[str], jsonl_path: Optional[str
     except Exception:
         logger.exception("session_history: save failed for pwa_sid=%s", pwa_sid)
 
-
-def get(pwa_sid: str) -> list[dict]:
-    """pwa_sid の履歴を新しい順で返す (= 最大 MAX_ENTRIES 件)。"""
-    return _load().get(pwa_sid, [])
-
-
-def get_all() -> dict[str, list[dict]]:
-    return _load()

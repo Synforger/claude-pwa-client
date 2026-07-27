@@ -5,8 +5,7 @@
 // backend は旧 endpoint を全部温存しているので新旧どちらの bundle でも動く)。
 //
 // consumer は本 module からだけ import する (= sse.ts / _sse 系 / ws-views を直接
-// import する経路を残すと切替が二重管理になる)。 debug/TransportInspector のような
-// 観測専用の read は例外。
+// import する経路を残すと切替が二重管理になる)。
 
 import { sseTransport } from './sse.ts'
 import { sessionsStatusSse } from './sse-sessions-status.ts'

@@ -2,7 +2,7 @@
 (= backend-F-32) の unit test。
 
 Sunshine restart / streamer ゾンビ reap は 2026-06-21 (backend-F-33) で backend
-から外出し済 (= docs/ops/sunshine.md + LaunchAgent 別経路)、 そのため本
+から外出し済 (= docs/troubleshooting/sunshine.md + LaunchAgent 別経路)、 そのため本
 モジュールの旧 Sunshine 系 test は削除済み。
 """
 import logging
@@ -95,7 +95,7 @@ def test_idle_kill_warns_on_empty_session_name(monkeypatch, caplog):
 
 def test_sunshine_helpers_no_longer_present():
     """Sunshine restart / streamer ゾンビ reap は backend 外で管理する設計に
-    切り替えた (= docs/ops/sunshine.md)。 backend module からは消えていること。"""
+    切り替えた (= docs/troubleshooting/sunshine.md)。 backend module からは消えていること。"""
     for name in (
         "restart_sunshine_if_bloated",
         "_reap_zombie_streamers",
@@ -121,10 +121,9 @@ def test_run_all_maintenance_no_sunshine_key(monkeypatch):
     monkeypatch.setattr(ss, "cleanup_orphan_turn_starts", lambda: 0)
     summary = m.run_all_maintenance()
     assert "restarted_sunshine" not in summary
-    # event_journal_rotated は W3 (ADR-012) で追加された daily rotation サマリ。 sunshine 退役と
-    # 同様に、 退役 / 新規追加した key を明示列挙する形で「黙って増えてない」 ことを担保する。
+    # 退役 / 新規追加した key を明示列挙する形で「黙って増えてない」 ことを担保する
+    # (= event_journal_rotated は 2026-07-27 に journal 層ごと退役)。
     assert set(summary.keys()) == {
         "killed_tmux", "killed_idle_pwa", "removed_statusline_map",
         "removed_jsonl", "orphan_turn_starts",
-        "event_journal_rotated",
     }

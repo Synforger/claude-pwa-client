@@ -86,14 +86,6 @@ def snapshot() -> dict[str, Any]:
     except Exception as e:  # pragma: no cover - defensive
         out["metrics_error"] = str(e)
 
-    # event_journal の現在 sequence (= replay の進捗目安)
-    try:
-        from backend.observability.event_journal import _sequencer
-
-        out["event_journal"] = {"current_seq": _sequencer.peek()}
-    except Exception as e:  # pragma: no cover - defensive
-        out["event_journal_error"] = str(e)
-
     return out
 
 

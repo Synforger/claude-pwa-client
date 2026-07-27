@@ -17,7 +17,6 @@ export default function MessageList({
   viewMode,
   displayMessages,
   onOpenFile,
-  apiKeySource,
   activeSubagentTool,
   onOpenSubagents,
   onFork,
@@ -48,7 +47,6 @@ export default function MessageList({
             key={msg.id}
             msg={msg}
             onOpenFile={onOpenFile}
-            apiKeySource={apiKeySource}
             activeSubagentTool={activeSubagentTool}
             onOpenSubagents={onOpenSubagents}
             onFork={onFork}

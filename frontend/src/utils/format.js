@@ -39,13 +39,6 @@ export function formatTool(block) {
   }
 }
 
-export function formatCost(usd) {
-  if (usd == null || typeof usd !== 'number' || usd <= 0) return null
-  if (usd < 0.001) return `$${usd.toFixed(5)}`
-  if (usd < 0.01) return `$${usd.toFixed(4)}`
-  return `$${usd.toFixed(3)}`
-}
-
 export function formatDuration(ms) {
   if (ms == null || typeof ms !== 'number' || ms <= 0) return null
   if (ms < 1000) return `${ms}ms`
@@ -127,13 +120,6 @@ export function formatToolResultContent(content) {
   return JSON.stringify(content)
 }
 
-export function describeError(e) {
-  if (!navigator.onLine) return tRaw('format.offline')
-  if (e?.name === 'TimeoutError') return tRaw('format.timeout')
-  if (e instanceof TypeError) return tRaw('format.network_error')
-  if (e?.message) return tRaw('format.error_generic', { message: e.message })
-  return tRaw('format.send_failed')
-}
 
 export function pctClass(pct) {
   if (pct >= 80) return 'pct red'
