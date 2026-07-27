@@ -405,3 +405,84 @@ def test_subagents_watcher_crash_is_logged(unified_env, caplog):
     with caplog.at_level("ERROR"):
         _run(run())
     assert any("subagents watcher crashed" in r.message for r in caplog.records)
+
+
+def test_subagents_watcher_pushes_differential_update(unified_env, monkeypatch, tmp_path):
+    """subagents channel: ファイル変化 (= 追記) を検知して 2 回目以降の payload も push する。
+
+    初回 push (= 上のテスト) だけでなく、 差分更新ループ (`_maybe_push` = 実運用の本線) を
+    実際に通す。 watchfiles 依存を排して polling fallback 経路で回す (= 検知機構は別として、
+    「変化 → 再 scan → 新 payload が queue に載る」 の結線を固定する)。
+    """
+    _state, sid_a, _sid_b, _ensured = unified_env
+    monkeypatch.setattr(us, "_SUBAGENTS_POLL_SEC", 0.05)
+    sa_base = tmp_path / "sa-base"
+    sa_dir = sa_base / "subagents"
+    sa_dir.mkdir(parents=True)
+    first = sa_dir / "agent-aaa111.jsonl"
+    first.write_text(json.dumps({"type": "assistant", "message": {"content": []}}) + "\n")
+    monkeypatch.setattr(us, "_session_base", lambda _sid: sa_base)
+    # polling fallback を強制 (= awatch import を潰す)
+    import builtins
+    real_import = builtins.__import__
+
+    def _no_watchfiles(name, *a, **k):
+        if name == "watchfiles":
+            raise ImportError("forced for test")
+        return real_import(name, *a, **k)
+    monkeypatch.setattr(builtins, "__import__", _no_watchfiles)
+
+    async def run():
+        conn = us.UnifiedConn(conn_id="c-sa-diff")
+        task = asyncio.create_task(us._subagents_watcher(conn, sid_a))
+        try:
+            initial = await asyncio.wait_for(conn.queue.get(), timeout=2.5)
+            assert [a["agentId"] for a in initial["data"]["subagents"]] == ["agent-aaa111"]
+            # 新 agent の出現 = ディレクトリ変化
+            (sa_dir / "agent-bbb222.jsonl").write_text(
+                json.dumps({"type": "assistant", "message": {"content": []}}) + "\n")
+            update = await asyncio.wait_for(conn.queue.get(), timeout=2.5)
+        finally:
+            task.cancel()
+        ids = sorted(a["agentId"] for a in update["data"]["subagents"])
+        assert ids == ["agent-aaa111", "agent-bbb222"]
+    _run(run())
+
+
+def test_control_op_subagents_wires_watcher(unified_env, monkeypatch, tmp_path):
+    """control op=subagents: watcher の起動 / sid 差替 / 解除の配線を endpoint 経由で通す。
+
+    watcher 単体でなく `stream_unified_control` の分岐そのものを叩く (= ここの配線 drift は
+    watcher 単体テストでは検知できない)。 crash logger の done_callback 装着も確認する。
+    """
+    _state, sid_a, sid_b, _ensured = unified_env
+    sa_base = tmp_path / "sa-base"
+    (sa_base / "subagents").mkdir(parents=True)
+    monkeypatch.setattr(us, "_session_base", lambda _sid: sa_base)
+
+    async def run():
+        conn = us.UnifiedConn(conn_id="c-ctl")
+        us._conns["c-ctl"] = conn
+        try:
+            r = await us.stream_unified_control("c-ctl", {"op": "subagents", "sid": sid_a})
+            assert r == {"ok": True}
+            assert conn.subagents_sid == sid_a
+            assert conn.subagents_task is not None
+            first_task = conn.subagents_task
+            # 初回 payload が届く = watcher が生きて走った証明
+            frame = await asyncio.wait_for(conn.queue.get(), timeout=2.5)
+            assert frame["ch"] == "subagents" and frame["sid"] == sid_a
+            # sid 差替 = 旧 watcher cancel + 新 watcher 起動
+            await us.stream_unified_control("c-ctl", {"op": "subagents", "sid": sid_b})
+            assert conn.subagents_sid == sid_b
+            assert conn.subagents_task is not first_task  # 新 watcher に差し替わった
+            await asyncio.wait([first_task], timeout=2.0)  # cancel の完了を待つ
+            assert first_task.cancelled() or first_task.done()
+            # sid 無し = 解除
+            await us.stream_unified_control("c-ctl", {"op": "subagents"})
+            assert conn.subagents_sid is None and conn.subagents_task is None
+        finally:
+            if conn.subagents_task is not None:
+                conn.subagents_task.cancel()
+            us._conns.pop("c-ctl", None)
+    _run(run())
