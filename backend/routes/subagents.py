@@ -12,11 +12,10 @@ import asyncio
 import json
 import logging
 import re
-import time
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response
 
 from backend.jsonl.events import subagent_line_to_events
 from backend.jsonl.session_status import scan_single_agent_file
@@ -270,83 +269,6 @@ def list_subagents(session_id: str):
     if base is None:
         return {"subagents": [], "workflows": []}
     return _build_subagents_payload(base, session_id)
-
-
-@router.get("/sessions/{session_id}/subagents/stream")
-async def subagents_stream(session_id: str):
-    """subagents / workflows ディレクトリの変化を watchfiles で検知し、 変化があれば最新
-    payload を SSE で push する (= backend-F-16)。
-
-    旧版は固定 1s polling で _dir_signature を毎秒呼び (= stat 多数 + tuple 比較)、 走り
-    終わった直後の表示切替に 1s ぴったり遅延が出ていた。 watchfiles の awatch を subdir +
-    workflow run dir に張って fsevents (macOS) 駆動の wake-up で 100 ms 程度で push する。
-    watchfiles 未導入環境 (= ImportError) は従来の 1s polling に safe fallback。 30s
-    heartbeat は維持 (= NAT / proxy アイドルタイムアウト回避)。
-    """
-    base = _session_base(session_id)
-    if base is None:
-        raise HTTPException(status_code=404, detail="session not found")
-
-    async def gen():
-        # 初回は即送信
-        last_sig = _dir_signature(base)
-        last_payload = _build_subagents_payload(base, session_id)
-        yield f"data: {json.dumps(last_payload)}\n\n"
-        last_heartbeat = time.monotonic()
-        # watch 対象は subagents/ と subagents/workflows/<run>/ と workflows/<wf>.json。
-        # 配下が動的生成されるので親 dir に対して recursive=True で張る。
-        watch_targets: list[Path] = []
-        sa_dir = base / "subagents"
-        wf_dir = base / "workflows"
-        if sa_dir.is_dir():
-            watch_targets.append(sa_dir)
-        if wf_dir.is_dir():
-            watch_targets.append(wf_dir)
-        try:
-            from watchfiles import awatch  # noqa: PLC0415
-        except ImportError:
-            logger.info("watchfiles unavailable; subagents stream falls back to 1s polling")
-            awatch = None
-        if awatch is None or not watch_targets:
-            # fallback: 旧経路 (= 1s polling)
-            while True:
-                await asyncio.sleep(1.0)
-                sig = _dir_signature(base)
-                # sig 変化 or running settle (= 未完了がいる間は sig 不変でも再スキャン)。
-                if sig != last_sig or _payload_has_running(last_payload):
-                    payload = _build_subagents_payload(base, session_id)
-                    if sig != last_sig or payload != last_payload:
-                        last_sig = sig
-                        last_payload = payload
-                        yield f"data: {json.dumps(payload)}\n\n"
-                        last_heartbeat = time.monotonic()
-                        continue
-                if time.monotonic() - last_heartbeat >= 30.0:
-                    yield 'data: {"_hb":1}\n\n'
-                    last_heartbeat = time.monotonic()
-            return  # noqa: pragma: no cover
-        # watchfiles 経路: change 待ちと heartbeat timer を並走させる
-        loop_deadline_step = 5.0  # 5s ごとに heartbeat 判定で wake up
-        try:
-            async for _ in _awatch_with_heartbeat(awatch, watch_targets, loop_deadline_step):
-                sig = _dir_signature(base)
-                # sig 変化 or running settle (= 未完了がいる間は sig 不変でも再スキャンして
-                # 最終 end_turn 行と signature のタイミングずれによる running 固着を収束させる)。
-                if sig != last_sig or _payload_has_running(last_payload):
-                    payload = _build_subagents_payload(base, session_id)
-                    if sig != last_sig or payload != last_payload:
-                        last_sig = sig
-                        last_payload = payload
-                        yield f"data: {json.dumps(payload)}\n\n"
-                        last_heartbeat = time.monotonic()
-                        continue
-                if time.monotonic() - last_heartbeat >= 30.0:
-                    yield 'data: {"_hb":1}\n\n'
-                    last_heartbeat = time.monotonic()
-        except asyncio.CancelledError:
-            raise
-
-    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 async def _awatch_with_heartbeat(awatch, dirs: list[Path], step: float):
