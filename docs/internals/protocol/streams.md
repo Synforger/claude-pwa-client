@@ -158,7 +158,7 @@ backend `backend/jsonl/events.py::jsonl_line_to_events` が JSONL 1 行から組
 
 | type | 必須 field | 説明 |
 |---|---|---|
-| `system` | `subtype` | system 行。 subtype = `init` (= session 開始 + cwd / model) / `compact_boundary` (= compact 実行) |
+| `system` | `subtype` | system 行。 subtype = `compact_boundary` (= compact 実行) |
 | `system_error` | `error` | api_error / 内部エラー (= ⚠️ 赤カード) |
 | `system_note` | `kind`, `text` | scheduled_task_fire / local_command 等の補助通知 |
 | `hook_error` | `event`, `error` | hook script 失敗 (= ⚠️ 黄カード) |
@@ -181,7 +181,6 @@ backend `backend/jsonl/events.py::jsonl_line_to_events` が JSONL 1 行から組
 
 | type | 必須 field | 説明 |
 |---|---|---|
-| `request_id` | `request_id` | SSE 接続初回に backend が割振る connection ID (= debug 用、 frontend で log)。 jsonl 由来でなく backend route 側で injected |
 
 ### 命名規約
 

@@ -6,6 +6,3 @@
 // 件数は不変)。 また Topbar.jsx は lazy 対象でない常時 mount component なので、 本 entry からの
 // static import 禁止対象でもない (= 同 contract test の AppShell lazy target 集合に含まれない)。
 
-import { register as registerFeature } from '../../registry/featureRegistry.js'
-
-registerFeature('topbar', { dispatch: () => null })

@@ -12,6 +12,15 @@ from pydantic import BaseModel, ConfigDict, Field
 SCHEMA_VERSION = "1.1"
 
 
+class UserEvent(BaseModel):
+    """tool_result を含む user 行 (= 既存 tool_use への結果紐付け専用、 表示バブルは作らない)"""
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["user"]
+    sid: Optional[str] = None  # 配送 envelope が注入
+    corr_id: Optional[str] = None  # 配送 envelope が注入
+    message: dict[str, Any]  # {content: [tool_result block, ...]}
+
+
 class UserMessageEvent(BaseModel):
     """ユーザ発話 (= claude が JSONL の user 行に書いた瞬間)"""
     model_config = ConfigDict(extra="forbid")
@@ -83,15 +92,14 @@ class TaskNotificationEvent(BaseModel):
 
 
 class SystemEvent(BaseModel):
-    """system banner (= compact_boundary / init 等の境界情報)"""
+    """system banner (= compact_boundary 等の境界情報)"""
     model_config = ConfigDict(extra="forbid")
     type: Literal["system"]
     sid: str
     uuid: Optional[str] = None
     corr_id: str
-    subtype: Literal["compact_boundary", "init"]
+    subtype: Literal["compact_boundary"]
     compactMetadata: Optional[dict[str, Any]] = None  # subtype == compact_boundary のみ
-    apiKeySource: Optional[str] = None  # subtype == init のみ (= /login / ANTHROPIC_API_KEY 等)
 
 
 class SystemErrorEvent(BaseModel):

@@ -42,25 +42,3 @@ export function createStore(initial, opts = {}) {
   return store
 }
 
-/** observability 用: 全 store の現在値を name -> snapshot で返す (= W3 inspector 入口、 副作用なし)。 */
-export function getAllStoreSnapshots() {
-  const out = {}
-  for (const [name, store] of REGISTRY.entries()) {
-    out[name] = store.getSnapshot()
-  }
-  return out
-}
-
-/** observability 用: 全 store に listener を貼って差分を観測する (= EventTimeline 配線用、 cleanup 返す)。 */
-export function subscribeAllStores(listener) {
-  const unsubs = []
-  for (const [name, store] of REGISTRY.entries()) {
-    unsubs.push(store.subscribe((value) => { listener(name, value) }))
-  }
-  return () => { for (const u of unsubs) u() }
-}
-
-/** test 用: 全 store の name 列挙。 prod では DebugPanel が叩く。 */
-export function listStoreNames() {
-  return Array.from(REGISTRY.keys())
-}

@@ -363,13 +363,6 @@ async def _jsonl_sse(session_id: str, start_pos: int | None = None):
         jsonl_event_broadcaster.unsubscribe(session_id, queue)
 
 
-@router.get("/jsonl/_debug/bindings")
-async def jsonl_debug_bindings() -> dict:
-    """debug: 現在 backend mem に持ってる watcher binding 一覧。"""
-    import backend.core.jsonl_watcher as jsonl_watcher
-    return jsonl_watcher.list_bindings()
-
-
 def _parse_all_from(spec: str | None) -> dict[str, int]:
     """`from=sid1:offset1,sid2:offset2,...` を {sid: offset} に parse する (= F-15)。
 

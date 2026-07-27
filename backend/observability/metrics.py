@@ -139,8 +139,6 @@ QUEUE_BACKLOG = "queue.backlog"  # gauge (broadcaster 等)
 
 # Event journal
 JOURNAL_RECORDED = "journal.recorded"
-JOURNAL_ROTATE_GZIPPED = "journal.rotate.gzipped"
-JOURNAL_ROTATE_REMOVED = "journal.rotate.removed"
 
 
 __all__ = [
@@ -162,6 +160,4 @@ __all__ = [
     "HTTP_LATENCY_MS",
     "QUEUE_BACKLOG",
     "JOURNAL_RECORDED",
-    "JOURNAL_ROTATE_GZIPPED",
-    "JOURNAL_ROTATE_REMOVED",
 ]

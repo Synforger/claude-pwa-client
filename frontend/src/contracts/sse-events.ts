@@ -5,6 +5,14 @@
 
 export const SSE_EVENTS_SCHEMA_VERSION = "1.1" as const
 
+/** tool_result を含む user 行 (= 既存 tool_use への結果紐付け専用、 表示バブルは作らない) */
+export interface UserEvent {
+  type: "user"
+  sid?: string
+  corr_id?: string
+  message: { content: unknown[] }
+}
+
 /** ユーザ発話 (= claude が JSONL の user 行に書いた瞬間) */
 export interface UserMessageEvent {
   type: "user_message"
@@ -95,13 +103,13 @@ export interface TaskNotificationEvent {
   exitCode?: number | null
 }
 
-/** system banner (= compact_boundary / init 等の境界情報) */
+/** system banner (= compact_boundary 等の境界情報) */
 export interface SystemEvent {
   type: "system"
   sid: string
   uuid?: string
   corr_id: string
-  subtype: "compact_boundary" | "init"
+  subtype: "compact_boundary"
   /** subtype == compact_boundary のみ */
   compactMetadata?: {
     trigger?: string
@@ -109,8 +117,6 @@ export interface SystemEvent {
     postTokens?: number
     durationMs?: number
   }
-  /** subtype == init のみ (= /login / ANTHROPIC_API_KEY 等) */
-  apiKeySource?: string
 }
 
 /** Anthropic API error (= 529 overloaded / 401 unauthorized / network down 等) */

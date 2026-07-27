@@ -348,14 +348,6 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
     return {"ok": True}
 
 
-@router.get("/sessions/{session_id}/history")
-async def get_session_history(session_id: str, _: str = Depends(require_session)):
-    """pwa_sid の直近 claude_sid 履歴 (= 最新 3 件、 新しい順) を返す。 restart 直前に
-    記録された claude_sid + ended_at + jsonl_path を持つ。 binding が事故で消えた時の
-    復旧 UI 用 (= backend ログ grep より速く前 sid に辿れる経路)。"""
-    return {"entries": session_history.get(session_id)}
-
-
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str, _: str = Depends(require_session)):
     # フォーク産タブはここで掴んでおく (= unregister 後だと meta が消えて辿れない)。

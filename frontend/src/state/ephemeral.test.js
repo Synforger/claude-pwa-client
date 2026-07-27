@@ -6,7 +6,6 @@ import {
   clearAttachments,
   setLoading,
   clearLoading,
-  setApiKeySource,
   getStreamBuffer,
   bumpStreamBuffer,
   resetStreamBuffer,
@@ -41,10 +40,6 @@ describe('state/ephemeral — sid 別 dict 更新', () => {
     expect(getSnapshot()).toBe(empty)
   })
 
-  it('apiKeySource は sid 別に積める', () => {
-    setApiKeySource('s1', 'apiKey')
-    expect(getSnapshot().apiKeySource.s1).toBe('apiKey')
-  })
 })
 
 describe('state/ephemeral — stream buffer (= mutate-in-place + bump 通知)', () => {

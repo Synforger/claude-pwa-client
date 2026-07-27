@@ -14,13 +14,11 @@ e2e/
 │   ├── run-backend.mjs      ← test-mode backend launcher (uvicorn + stub config + tmp data dir)
 │   ├── global-setup.js      ← seed fixtures into the runtime data dir
 │   ├── global-teardown.js   ← purge tmp dir after the run
-│   ├── replay.js            ← /debug/replay client (pushes fixture events into a live SSE stream)
 │   └── pwa.js               ← `openClient(page)` boilerplate (mount frontend, wait for first SSE)
 ├── fixtures/
 │   ├── README.md            ← fixture conventions + how to add a new one
 │   ├── _runtime/            ← gitignored, created by global-setup, removed by teardown
 │   ├── sessions/<sid>.jsonl ← per-sid JSONL fixtures (claude format, uuid-stamped)
-│   └── replay/<name>.json   ← timed event sequences for /debug/replay
 └── scenarios/
     ├── _regression/         ← direct regression of recent production bugs
     │   ├── reconcile-no-duplicate.spec.js

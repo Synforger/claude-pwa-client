@@ -116,7 +116,7 @@ export default function ChatPanel({ sid }) {
   // W2 Phase F-4 残 (= 2026-06-29): endSession / stopMessage は features/dialogs/ConfirmEndDialog +
   // ConfirmStopDialog が useChatStream の module-level export 経由で直接呼ぶ経路に移行済。 ChatPanel
   // 内では参照しないので destructure しない (= 同 hook の mount で module-level impl が wire される)。
-  const { loading, setLoading, apiKeySource, sendMessage, fetchLatest, optimisticRef } = useChatStream({
+  const { loading, setLoading, sendMessage, fetchLatest, optimisticRef } = useChatStream({
     activeSession,
     setMessages,
     input, setInput,
@@ -237,10 +237,6 @@ export default function ChatPanel({ sid }) {
     forkSession(activeSid, uuid)
   }, [activeSid, forkSession])
   const activeSubagentTool = status?.subagent?.last_tool || null
-  const activeApiKeySource = useMemo(
-    () => (activeSid ? (apiKeySource[activeSid] ?? null) : null),
-    [activeSid, apiKeySource],
-  )
 
   const sids = useMemo(() => sessions.map(s => s.id), [sessions])
   const currentAttachments = (activeSid && attachments[activeSid]) || EMPTY_ARR
@@ -341,7 +337,6 @@ export default function ChatPanel({ sid }) {
         viewMode={activeViewMode}
         displayMessages={displayMessages}
         onOpenFile={handleOpenPath}
-        apiKeySource={activeApiKeySource}
         activeSubagentTool={activeSubagentTool}
         onOpenSubagents={handleOpenSubagents}
         onFork={activeSid ? handleFork : null}
