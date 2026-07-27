@@ -357,7 +357,13 @@ export function useChatStream({
         imageRefs: imageRefs.length > 0 ? imageRefs : undefined,
         fileNames: fileNames.length > 0 ? fileNames : undefined,
       }
-      const emptyAgent = { id: emptyAgentId, role: 'agent', text: '', tools: [], streaming: true, ts: Date.now() }
+      // ts は**刻印しない** (= 2026-07-27 「推論中が自分の発話の上に浮く」 根治)。 user バブルは
+      // server 確定時に jsonl ts へ貼り替わるが、 この placeholder は最初の assistant frame が
+      // 届くまで無情報。 端末時刻を刻むと server ts (= 必ず後ろ) に負けて sort 上で user の
+      // 上に浮く。 ts 無しは sortByTs の carry (= 単調最大継承) が常に最新位置へ置き、 実 frame
+      // 到着時に server ts が入って正しい席に着く。 createdAt は staleness guard 専用
+      // (= 古い replay で placeholder を埋めない判定、 sort には使わない)。
+      const emptyAgent = { id: emptyAgentId, role: 'agent', text: '', tools: [], streaming: true, createdAt: Date.now() }
       return {
         ...prev,
         [sid]: tailIsEmptyStreamingAgent
