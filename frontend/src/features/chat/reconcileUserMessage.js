@@ -72,7 +72,9 @@ export function reconcileUserMessage(cur, eventText, eventUuid, eventSendId, eve
   for (let i = cur.length - 1; i >= 0; i--) {
     const m = cur[i]
     if (m && m.role === 'user' && m.optimistic) {
-      if (isStaleFor(eventTs, m.ts)) break  // 過去の event = この送信の確定ではない → append へ
+      // 楽観 bubble は sort 用 ts を持たない (= clock domain 統一)。 staleness は createdAt
+      // (= 送信時の端末時刻、 sort 不参加) で判定。 旧 cache の bubble は ts しか無いので fallback。
+      if (isStaleFor(eventTs, m.createdAt ?? m.ts)) break  // 過去の event = この送信の確定ではない → append へ
       popIdx = i
       break
     }
