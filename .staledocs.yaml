@@ -77,5 +77,7 @@ anchors:
     - "hotfix/develop"
     # env-var assignment example (VAR=/abs/path), not a repo path
     - "CPC_CLAUDE_PATH=/usr/bin/true"
+    # MIME type (SSE content-type), slash syntax without being a repo path
+    - "text/event-stream"
   include_fenced: false
   path_roots: [frontend/src, backend]
