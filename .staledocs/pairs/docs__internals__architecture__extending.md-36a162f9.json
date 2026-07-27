@@ -75,7 +75,7 @@
       "web.js",
       "worktree.js"
     ],
-    "at": "2026-07-26T16:16:11+00:00",
+    "at": "2026-07-27T04:20:28+00:00",
     "code_blobs": {
       "backend/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
@@ -439,9 +439,9 @@
       "frontend/src/utils/storage.js": "810f066d3cd3ef3c84b2ebc62a3a2fad5477be62",
       "frontend/src/utils/storage.test.js": "fa6f6beabb1d93f02911e1d1b931c71dfbdc8d4e"
     },
-    "commit": "fdd6d0038ffb931a03d38abfc3448bad54a16218",
+    "commit": "692b232025a67e47b231730e1c25741cf1e74419",
     "doc_blob": "c188d6d41a528ad4b50dc0afc530d45b2ffef7e9",
-    "note": "\u62e1\u5f35\u624b\u9806\u306e\u8a18\u8ff0\u306f\u73fe\u72b6\u3068\u4e00\u81f4\u3002 processStreamEvent.js \u306f\u5b58\u5728\u3057\u7d9a\u3051\u3001 \u65b0 event type \u306e\u8ffd\u52a0\u5834\u6240\u3068\u3044\u3046\u8aac\u660e\u3082\u6709\u52b9\u3002 \u524a\u9664\u3057\u305f debug/ state-persistence domain-Session domain-invariants \u3078\u306e\u8a00\u53ca\u306f\u672c doc \u306b\u7121\u3044\u3053\u3068\u3092 grep \u3067\u78ba\u8a8d\u3002 flag \u306f content / truncate \u7b49\u306e\u8a9e\u53e5\u4e00\u81f4\u306b\u3088\u308b\u8aa4\u691c\u77e5\u3002"
+    "note": "v2 anchor-baseline migration: arm every claim that resolves today; unarmed shortlist was empty"
   },
   "doc": "docs/internals/architecture/extending.md",
   "schema": 1

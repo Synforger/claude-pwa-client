@@ -47,7 +47,7 @@
       "useSyncExternalStore",
       "viewModes[sid]"
     ],
-    "at": "2026-07-26T16:16:39+00:00",
+    "at": "2026-07-27T04:20:37+00:00",
     "code_blobs": {
       "backend/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
@@ -387,9 +387,9 @@
       "frontend/src/utils/storage.js": "810f066d3cd3ef3c84b2ebc62a3a2fad5477be62",
       "frontend/src/utils/storage.test.js": "fa6f6beabb1d93f02911e1d1b931c71dfbdc8d4e"
     },
-    "commit": "fdd6d0038ffb931a03d38abfc3448bad54a16218",
+    "commit": "692b232025a67e47b231730e1c25741cf1e74419",
     "doc_blob": "26e003e23f50d1a801a72b078215c7b3df5cde3f",
-    "note": "persistence.js \u306e\u884c\u3092\u524a\u9664\u3057 5 \u9818\u57df\u306b\u4fee\u6b63\u3002 \u5b9f\u969b\u306e localStorage \u66f8\u304d\u8fbc\u307f\u62c5\u5f53 (utils/storage.js + useChatStorage.js + useSessions.js) \u3068\u4e00\u81f4\u3059\u308b\u3053\u3068\u3092\u78ba\u8a8d\u3002"
+    "note": "v2 anchor-baseline migration: arm every claim that resolves today; unarmed shortlist was empty"
   },
   "doc": "docs/internals/architecture/state-stores.md",
   "schema": 1

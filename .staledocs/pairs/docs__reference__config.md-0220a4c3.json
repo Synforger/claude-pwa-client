@@ -22,7 +22,7 @@
       "uploads_tmp",
       "vapid_sub"
     ],
-    "at": "2026-07-26T16:18:55+00:00",
+    "at": "2026-07-27T04:20:45+00:00",
     "code_blobs": {
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
       "backend/cli/gen_vapid.py": "0fdd5bd90975b39e144594fdefbb07ead666353e",
@@ -242,9 +242,9 @@
       "frontend/src/utils/storage.js": "810f066d3cd3ef3c84b2ebc62a3a2fad5477be62",
       "frontend/src/utils/storage.test.js": "fa6f6beabb1d93f02911e1d1b931c71dfbdc8d4e"
     },
-    "commit": "fdd6d0038ffb931a03d38abfc3448bad54a16218",
+    "commit": "692b232025a67e47b231730e1c25741cf1e74419",
     "doc_blob": "0f4c0abfc893a5dc24f2b7844dc64f92cf20ee3d",
-    "note": "docs/reference/config.md \u306e\u8a2d\u5b9a\u9805\u76ee\u306b\u5909\u66f4\u306a\u3057\u3002 backend/core/compression.py \u306f config \u3092\u6301\u305f\u305a\u5e38\u6642\u6709\u52b9\u306a\u306e\u3067 config.md \u306b\u8ffd\u8a18\u3059\u3079\u304d\u9805\u76ee\u306f\u7121\u3044\u3002"
+    "note": "v2 anchor-baseline migration: arm every claim that resolves today; unarmed shortlist was empty"
   },
   "doc": "docs/reference/config.md",
   "schema": 1

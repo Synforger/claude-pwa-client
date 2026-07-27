@@ -147,7 +147,7 @@
       "ws-pty.js",
       "ws-views.js"
     ],
-    "at": "2026-07-26T16:16:25+00:00",
+    "at": "2026-07-27T04:20:33+00:00",
     "code_blobs": {
       "backend/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
@@ -516,9 +516,9 @@
       "scripts/setup-branch-protection.sh": "6691d5a3e6b3f2ece6b150c3ecea476ed3c96b29",
       "scripts/ws-pty-smoketest.py": "b19f3d200fe7ff2a854be62cc1caffe24da64ce5"
     },
-    "commit": "fdd6d0038ffb931a03d38abfc3448bad54a16218",
+    "commit": "692b232025a67e47b231730e1c25741cf1e74419",
     "doc_blob": "75532ca31aaaf575de7be5a6ac5c7b1f2063a040",
-    "note": "state/ \u3092 6 \u9818\u57df\u304b\u3089 5 \u9818\u57df\u306b\u4fee\u6b63 (= persistence.js \u524a\u9664\u3092\u53cd\u6620)\u3001 domain/ \u306e file \u4e00\u89a7\u304b\u3089\u524a\u9664\u6e08\u306e Session.ts / invariants.ts \u3092\u9664\u53bb\u3002 \u6b8b\u308b\u8a18\u8ff0\u306f\u73fe\u5b58 file \u3068\u4e00\u81f4\u3059\u308b\u3053\u3068\u3092\u78ba\u8a8d\u3002"
+    "note": "v2 anchor-baseline migration: arm every claim that resolves today; unarmed shortlist was empty"
   },
   "doc": "docs/internals/architecture/overview.md",
   "schema": 1

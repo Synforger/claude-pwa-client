@@ -1,0 +1,11 @@
+{
+  "anchors": [
+    "../helpers/global-setup.js",
+    "../helpers/run-backend.mjs",
+    "_runtime/jsonl/"
+  ],
+  "at": "2026-07-27T04:19:58+00:00",
+  "doc": "e2e/fixtures/README.md",
+  "note": "v2 anchor-baseline migration: arm every claim that resolves today; unarmed shortlist was empty",
+  "schema": 1
+}
