@@ -59,8 +59,11 @@ function appendSystemMessage(setMessages, sid, kind, extra) {
       }
       return null
     })()
-    const ts = typeof extra.ts === 'number' ? extra.ts : (prevTs ?? Date.now())
-    const msg = { id: generateId(), role: 'system', kind, uuid, ...extra, ts }
+    // fallback は「直前 message の server ts」 まで。 端末 Date.now() は使わない (= clock
+    // domain 統一、 sort キーは server 時刻のみ)。 どちらも無ければ ts 無し = sortByTs の
+    // carry が最新位置に置く。
+    const ts = typeof extra.ts === 'number' ? extra.ts : prevTs
+    const msg = { id: generateId(), role: 'system', kind, uuid, ...extra, ...(ts != null ? { ts } : {}) }
     let next
     if (arr.length >= MAX_MESSAGES) {
       // 上限到達: 先頭を 1 件落として末尾に新規。 1 回の slice + push で済ませる。
