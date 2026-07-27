@@ -25,6 +25,24 @@ schema_version: "1.1"
 
 events:
 
+  user:
+    description: "tool_result を含む user 行 (= 既存 tool_use への結果紐付け専用、 表示バブルは作らない)"
+    type: object
+    required: [message]
+    properties:
+      sid:     { type: string, description: "session id (= 配送 envelope が注入)" }
+      corr_id: { type: string, description: "W3C trace_id 頭 8 文字 (= 配送 envelope が注入)" }
+      message:
+        type: object
+        required: [content]
+        properties:
+          content: { type: array, description: "raw JSONL content list (= tool_result block 含む)" }
+        additionalProperties: false
+    additionalProperties: false
+    invariants:
+      - "content list に tool_result block を 1 個以上含む行だけがこの型になる (= それ以外は user_message へ畳む)"
+    consumer: "processStreamEvent (= tool_use への result 紐付け)"
+
   user_message:
     description: "ユーザ発話 (= claude が JSONL の user 行に書いた瞬間)"
     type: object
@@ -157,14 +175,14 @@ events:
     render_target: "chat"
 
   system:
-    description: "system banner (= compact_boundary / init 等の境界情報)"
+    description: "system banner (= compact_boundary 等の境界情報)"
     type: object
     required: [subtype, corr_id, sid]
     properties:
       sid:        { type: string }
       uuid:       { type: string }
       corr_id:    { type: string }
-      subtype:    { enum: [compact_boundary, init] }
+      subtype:    { enum: [compact_boundary] }
       compactMetadata:
         type: object
         description: "subtype == compact_boundary のみ"
@@ -173,14 +191,12 @@ events:
           preTokens:   { type: integer }
           postTokens:  { type: integer }
           durationMs:  { type: integer }
-      apiKeySource: { type: string, description: "subtype == init のみ (= /login / ANTHROPIC_API_KEY 等)" }
     additionalProperties: false
     invariants:
       - "未対応 subtype は frontend で log warn + 描画 skip"
       - "compact_boundary は CompactBanner で表示"
-      - "init は apiKeySource を state に記録するのみ、 描画なし"
     trigger: "JSONL system 行 → events.py:_system_events"
-    consumer: "processStreamEvent (= CompactBanner / apiKeySource state 更新)"
+    consumer: "processStreamEvent (= CompactBanner)"
     render_target: "chat"
 
   system_error:

@@ -106,10 +106,8 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
 
     const connect = (isReconnect = false) => {
       if (cancelled) return
-      // TODO Phase F-terminal-ws: transport/ws-pty.ts ptyTransport.connect(sid, handler) 経由に
-      // 書換。 xterm.js lifecycle (= reset / redraw / Ctrl-L re-attach / exponential backoff) と
-      // ws-pty.ts の heartbeat / state machine を整合させる作業が必要、 W2 物理移送 commit から
-      // 切り出して別 commit で実装。 ADR-018 features → transport 直接 import は許可済。
+      // PTY WS はこの直書きが正 (= 旧 transport/ws-pty.ts 抽象化案は一度も配線されないまま
+      // 2026-07-27 に退役、 xterm.js lifecycle と密結合なためここで完結させる)。
       // eslint-disable-next-line no-restricted-syntax
       const ws = new WebSocket(`${wsBase}/ws/pty/${encodeURIComponent(sessionId)}`)
       ws.binaryType = 'arraybuffer'

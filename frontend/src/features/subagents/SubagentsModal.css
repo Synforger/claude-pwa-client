@@ -77,15 +77,6 @@
   color: var(--text-dim);
 }
 
-.sa-refresh {
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  font-size: 16px;
-  cursor: pointer;
-  padding: 0 6px;
-}
-
 /* transcript */
 .sa-back {
   background: none;

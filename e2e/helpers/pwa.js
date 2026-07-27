@@ -1,6 +1,6 @@
 // Common boilerplate: navigate to the SPA and wait long enough for the
 // chat-input to render + the unified SSE to settle. The app boots
-// transport/lifecycle.js which opens /jsonl/stream/all; the backend's tail
+// transport/lifecycle.js which opens /stream/unified; the backend's tail
 // loop polls every 500ms, so anything that asserts on event delivery needs
 // the connection up before the test fires its first action.
 export async function openClient(page, { sid } = {}) {

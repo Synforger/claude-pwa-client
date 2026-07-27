@@ -27,6 +27,3 @@ export function setLang(lang) {
   try { localStorage.setItem(LS_KEY, normalized) } catch { /* ignore */ }
 }
 
-export function getLang() {
-  return store.getSnapshot().lang
-}

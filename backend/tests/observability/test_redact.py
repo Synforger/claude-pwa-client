@@ -11,7 +11,6 @@ from backend.observability.redact import (
     TRUNCATE_THRESHOLD,
     _truncate,
     redact,
-    redact_processor,
 )
 
 
@@ -112,15 +111,3 @@ def test_redact_keeps_undecodable_bytes_as_is():
 # --- structlog processor -------------------------------------------------
 
 
-def test_redact_processor_returns_dict():
-    out = redact_processor(None, "info", {"api_key": "k", "msg": "hello"})
-    assert isinstance(out, dict)
-    assert out["api_key"] == REDACTED
-    assert out["msg"] == "hello"
-
-
-def test_redact_processor_does_not_mutate_input():
-    payload = {"token": "t", "safe": 1}
-    out = redact_processor(None, "info", payload)
-    assert payload["token"] == "t"
-    assert out["token"] == REDACTED

@@ -11,7 +11,6 @@ import {
   getSnapshot as getEphemeralSnapshot,
   setLoading as storeSetLoading,
   clearLoading as storeClearLoading,
-  setApiKeySource as storeSetApiKeySource,
 } from '../../state/ephemeral.js'
 import { tRaw } from '../../i18n/t.js'
 import { translateHttpErrorDetail } from '../../utils/httpError.js'
@@ -51,7 +50,7 @@ export function refetchChat() { return _refetchChatImpl?.() }
 // chat 1 セッションの送受信・状態管理を束ねる公開フック (= TUI / JSONL 版)。
 //
 // 旧 SDK + proxy 版を置き換えたもの。 App.jsx 側のインターフェース
-// (loading / sendMessage / stopMessage / apiKeySource / sendAnswer / fetchLatest /
+// (loading / sendMessage / stopMessage / sendAnswer / fetchLatest /
 //  endSession / setLoading / optimisticRef) は維持し、 App.jsx はほぼ無改修で動く。
 //
 // 受信: 常時 /jsonl/stream を EventSource で購読 (= claude が書く JSONL を backend が tail)。
@@ -107,26 +106,6 @@ export function useChatStream({
     }
   }, [])
 
-  // Phase J-11 (= audit-w2-residue 第 1 弾): apiKeySource を state/ephemeral.js singleton 統合。
-  // setApiKeySource wrapper は J-9 の setLoading と同じく updater function / object 直渡しの 2 形態
-  // を support して既存 consumer (= processStreamEvent.js の updater 呼出) を無修正で通す。
-  const apiKeySource = ephem.apiKeySource
-  const setApiKeySource = useCallback((arg) => {
-    if (typeof arg === 'function') {
-      const prev = getEphemeralSnapshot().apiKeySource
-      const next = arg(prev)
-      if (!next || typeof next !== 'object') return
-      const sids = new Set([...Object.keys(prev), ...Object.keys(next)])
-      for (const s of sids) {
-        if (prev[s] !== next[s]) storeSetApiKeySource(s, next[s])
-      }
-    } else if (arg && typeof arg === 'object') {
-      const prev = getEphemeralSnapshot().apiKeySource
-      for (const [s, v] of Object.entries(arg)) {
-        if (prev[s] !== v) storeSetApiKeySource(s, v)
-      }
-    }
-  }, [])
   // 送信/停止 直後の楽観意図。 `{[sid]: {want:'busy'|'idle', seen}}`。
   //   - 送信時 want='busy' (停止ボタンを出す)、 停止時 want='idle' (送信ボタンを出す)。
   // backend 権威 busy がこの意図に追いつくまで、 逆向きの古い snapshot による上書きを保留する
@@ -144,7 +123,6 @@ export function useChatStream({
 
   const eventDeps = {
     setMessages,
-    setApiKeySource,
     cancelAndFlush: buffer.cancelAndFlush,
     scheduleFlush: buffer.scheduleFlush,
     bufFor: buffer.bufFor,
@@ -649,7 +627,6 @@ export function useChatStream({
   return {
     loading,
     setLoading,
-    apiKeySource,
     sendMessage,
     sendAnswer,
     stopMessage: stopMessageCb,
