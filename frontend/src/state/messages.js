@@ -40,18 +40,6 @@ export function setMessagesFor(sid, messages) {
   store.setState(prev => ({ ...prev, [sid]: messages.filter(isPersistableMessage) }))
 }
 
-/** 既存 message の部分更新 (= turn_duration / result event の meta 反映等、 uuid で同定)。 */
-export function updateMessage(sid, uuid, patch) {
-  store.setState(prev => {
-    const arr = prev[sid] || []
-    const idx = arr.findIndex(m => m.uuid === uuid)
-    if (idx < 0) return prev
-    const next = arr.slice()
-    next[idx] = { ...arr[idx], ...patch }
-    return { ...prev, [sid]: next }
-  })
-}
-
 /** sid 削除 (= session 削除に追従)。 */
 export function removeMessagesFor(sid) {
   store.setState(prev => {

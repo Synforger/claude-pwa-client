@@ -38,18 +38,6 @@ def resolve_agent_cfg(session_id: str) -> dict | None:
     return None
 
 
-def resolve_cwd(session_id: str) -> str | None:
-    """session_id から起動 cwd を解決する。
-
-    優先順:
-        1. session_id がそのまま AGENTS の key (= 直リンク `?terminal=agent_a` 等)
-        2. session_id が sessions_meta に登録済なら、 そこに紐付く agent_id 経由で
-           AGENTS から取得 (= UI でセッションタブを作る通常経路)
-        3. どちらも該当なし → None (= backend の起動 cwd で zsh が立ち上がる)
-    """
-    cfg = resolve_agent_cfg(session_id)
-    return cfg.get("cwd") if cfg else None
-
 
 def last_resumable_claude_sid(session_id: str) -> str | None:
     """PWA タブの最終 claude session_id を bindings から引いて autoresume 可否を判定する。
@@ -147,6 +135,20 @@ def resolve_autoresume_fallback(session_id: str, *, prefer_fresh: bool = False) 
 _spawn_locks: dict[str, asyncio.Lock] = {}
 
 
+def resolve_extra_env(session_id: str, cfg: dict) -> dict | None:
+    """agent cfg.env (= 共有 env) と account.env (= タブ毎) をマージして返す (account 優先)。
+
+    spawn 経路 (ensure_pty_session_for) と PTY 再接続 fallback (terminal/routes.py) の
+    2 箇所が同文のマージを別実装していた drift 温床の集約 (= 2026-07-27 退役 audit)。
+    """
+    from backend.config import ACCOUNTS  # noqa: PLC0415
+    from backend.state import sessions_meta  # noqa: PLC0415
+    meta = sessions_meta.get(session_id)
+    acct_env = (ACCOUNTS.get(meta.account_id) or {}).get("env") if meta and meta.account_id else None
+    agent_env = cfg.get("env") if isinstance(cfg.get("env"), dict) else {}
+    return {**agent_env, **(acct_env or {})} if (agent_env or acct_env) else None
+
+
 async def ensure_pty_session_for(session_id: str, *, prefer_fresh: bool = False) -> None:
     """指定 session の tmux + claude を起動 (既にあれば何もしない)。
 
@@ -174,12 +176,7 @@ async def ensure_pty_session_for(session_id: str, *, prefer_fresh: bool = False)
         launch_alias = resolve_launch_alias(session_id, prefer_fresh=prefer_fresh)
         fallback_alias = resolve_autoresume_fallback(session_id, prefer_fresh=prefer_fresh)
         try:
-            from backend.config import ACCOUNTS  # noqa: PLC0415
-            from backend.state import sessions_meta  # noqa: PLC0415
-            meta = sessions_meta.get(session_id)
-            acct_env = (ACCOUNTS.get(meta.account_id) or {}).get("env") if meta and meta.account_id else None
-            agent_env = cfg.get("env") if isinstance(cfg.get("env"), dict) else {}
-            extra_env = {**agent_env, **(acct_env or {})} if (agent_env or acct_env) else None
+            extra_env = resolve_extra_env(session_id, cfg)
             session = await spawn_pty_session(
                 session_id, cwd=cwd, launch_alias=launch_alias,
                 fallback_alias=fallback_alias,

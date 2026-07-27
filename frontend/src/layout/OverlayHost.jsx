@@ -1,16 +1,12 @@
 // overlayRegistry を走査して open 中 overlay を lazy + Suspense + LazyBoundary で 1 経路 render する
-// 中央 host (= W2 Phase E1)。 AppShell.jsx は本 component を 1 行配置するだけで、 個別 overlay の
+// 中央 host。 Layout.jsx は本 component を 1 行配置するだけで、 個別 overlay の
 // `lazy(() => import(...))` / Suspense / LazyBoundary / props 渡しを持たない (= ADR-010 中央非依存)。
-//
-// 移行期混在 OK の設計: Component spec を持たない registry entry (= drawer / subagents / tasks の
-// 3 件、 E-2 で移行予定) は OverlayHost が skip し、 AppShell.jsx 側の従来 lazy render block が
-// 引き続き効く。 E-1 では FilePreviewModal / FileTreePanel / FavoritesQuickPicker / MoonlightFrame
-// の 4 件だけが本 host 経由で render される。
+// 全 overlay が Component spec 登録済み (= E-2 完了、 旧 AppShell.jsx は物理削除済み)。
 //
 // 各 overlay は **props 自己解決契約**で、 OverlayHost は props 渡しを一切しない。 各 component が
 // 内部で state/ui.js を subscribe して own state を pull、 close は setOverlay 直呼出。
 //
-// LazyBoundary は AppShell.jsx から移送 (= F-60 互換、 chunk fetch 失敗時に該当 modal だけ閉じる)。
+// LazyBoundary は chunk fetch 失敗時に該当 modal だけ閉じる (= F-60 互換)。
 
 import { lazy, Suspense, Component, useMemo, useSyncExternalStore } from 'react'
 import { tRaw } from '../i18n/t.js'
@@ -19,7 +15,7 @@ import { subscribe as subscribeUi, getSnapshot as getUiSnapshot } from '../state
 
 // F-60 (= 2026-06-21): lazy modal の chunk fetch が失敗した時の最小 ErrorBoundary。
 // 失敗した modal だけ閉じる + 軽い update 促し で留め、 ユーザの裏で動いてる chat / streaming
-// を生存させる方針 (= AppShell.jsx から物理移送、 改変なし)。
+// を生存させる方針。
 class LazyBoundary extends Component {
   constructor(props) {
     super(props)
@@ -110,7 +106,7 @@ export default function OverlayHost() {
     <>
       {names.map(name => {
         const Lazy = getLazy(name)
-        if (!Lazy) return null  // Component spec 未登録 = AppShell 側 render (= 移行期混在 OK)
+        if (!Lazy) return null  // Component spec 未登録 entry は render しない (= 全 entry 登録済みが正)
         const open = ui.overlays[name]
         if (!open) return null  // truthy check で十分 (= string / boolean / null/false で網羅)
         return (

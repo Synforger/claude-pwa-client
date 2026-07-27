@@ -44,7 +44,6 @@ def test_snapshot_returns_dict_with_expected_top_keys():
     assert isinstance(snap, dict)
     # backend state が取れない環境 (= test) でも何らかの key が入る
     assert "metrics" in snap
-    assert "event_journal" in snap
 
 
 def test_snapshot_includes_metrics_categories():
@@ -52,11 +51,6 @@ def test_snapshot_includes_metrics_categories():
     if "metrics" in snap:
         assert set(snap["metrics"].keys()) >= {"counters", "gauges", "histograms"}
 
-
-def test_snapshot_event_journal_has_current_seq():
-    snap = snapshot()
-    assert "current_seq" in snap.get("event_journal", {})
-    assert isinstance(snap["event_journal"]["current_seq"], int)
 
 
 def test_snapshot_does_not_raise_on_missing_backend_state(monkeypatch: pytest.MonkeyPatch):

@@ -5,6 +5,19 @@
 
 export const SSE_EVENTS_SCHEMA_VERSION = "1.1" as const
 
+/** tool_result を含む user 行 (= 既存 tool_use への結果紐付け専用、 表示バブルは作らない) */
+export interface UserEvent {
+  type: "user"
+  /** session id (= 配送 envelope が注入) */
+  sid?: string
+  /** W3C trace_id 頭 8 文字 (= 配送 envelope が注入) */
+  corr_id?: string
+  message: {
+    /** raw JSONL content list (= tool_result block 含む) */
+    content: unknown[]
+  }
+}
+
 /** ユーザ発話 (= claude が JSONL の user 行に書いた瞬間) */
 export interface UserMessageEvent {
   type: "user_message"
@@ -20,8 +33,8 @@ export interface UserMessageEvent {
   parentUuid?: string | null
   /** raw JSONL content (= tool_result 含む list / string 両対応) */
   content?: Record<string, unknown>
-  /** epoch ms */
-  ts?: number
+  /** epoch ms (= 時系列表示ソートキー) */
+  ts?: number | null
   /** client 発行 Idempotency-Key。 楽観 bubble ↔ 実 bubble の厳密対応付けに使う。 backend restart / TTL 超え / 対応付け失敗時は null */
   send_id?: string | null
 }
@@ -42,6 +55,8 @@ export interface AssistantEvent {
   parentUuid?: string | null
   /** duration_ms 等の補助メタ */
   meta?: Record<string, unknown>
+  /** epoch ms (= 時系列表示ソートキー) */
+  ts?: number | null
 }
 
 /** ターン完了メタ (= usage / stop_reason / model) */
@@ -93,15 +108,17 @@ export interface TaskNotificationEvent {
   summary?: string
   /** summary 末尾の (exit code N) から抽出 */
   exitCode?: number | null
+  /** epoch ms (= 時系列表示ソートキー) */
+  ts?: number | null
 }
 
-/** system banner (= compact_boundary / init 等の境界情報) */
+/** system banner (= compact_boundary 等の境界情報) */
 export interface SystemEvent {
   type: "system"
   sid: string
   uuid?: string
   corr_id: string
-  subtype: "compact_boundary" | "init"
+  subtype: "compact_boundary"
   /** subtype == compact_boundary のみ */
   compactMetadata?: {
     trigger?: string
@@ -109,8 +126,6 @@ export interface SystemEvent {
     postTokens?: number
     durationMs?: number
   }
-  /** subtype == init のみ (= /login / ANTHROPIC_API_KEY 等) */
-  apiKeySource?: string
 }
 
 /** Anthropic API error (= 529 overloaded / 401 unauthorized / network down 等) */
@@ -267,9 +282,9 @@ export interface PromptStateEvent {
 }
 
 
-export type AnySseEvent = UserMessageEvent | AssistantEvent | ResultEvent | AskUserQuestionEvent | TaskNotificationEvent | SystemEvent | SystemErrorEvent | HookErrorEvent | SystemNoteEvent | AttachmentEvent | BudgetEvent | ModeEvent | PermissionModeEvent | PrLinkEvent | TurnDurationEvent | StopHookSummaryEvent | AwaySummaryEvent | PromptStateEvent
+export type AnySseEvent = UserEvent | UserMessageEvent | AssistantEvent | ResultEvent | AskUserQuestionEvent | TaskNotificationEvent | SystemEvent | SystemErrorEvent | HookErrorEvent | SystemNoteEvent | AttachmentEvent | BudgetEvent | ModeEvent | PermissionModeEvent | PrLinkEvent | TurnDurationEvent | StopHookSummaryEvent | AwaySummaryEvent | PromptStateEvent
 
 
-export const SSE_EVENT_TYPES = ["user_message", "assistant", "result", "ask_user_question", "task_notification", "system", "system_error", "hook_error", "system_note", "attachment", "budget", "mode", "permission_mode", "pr_link", "turn_duration", "stop_hook_summary", "away_summary", "prompt_state"] as const
+export const SSE_EVENT_TYPES = ["user", "user_message", "assistant", "result", "ask_user_question", "task_notification", "system", "system_error", "hook_error", "system_note", "attachment", "budget", "mode", "permission_mode", "pr_link", "turn_duration", "stop_hook_summary", "away_summary", "prompt_state"] as const
 
 export type SseEventType = typeof SSE_EVENT_TYPES[number]

@@ -18,6 +18,11 @@ describe('classifyTaskNotification', () => {
     expect(classifyTaskNotification('Monitor event: "remaining 4 search agents completion"')).toBe('monitor')
   })
 
+  it('detects monitor from Monitor "..." stream ended (= 終了通知の第 2 形式)', () => {
+    expect(classifyTaskNotification('Monitor "az003_v5 progress" stream ended')).toBe('monitor')
+    expect(classifyTaskNotification('Monitor \\"escaped quotes\\" stream ended')).toBe('monitor')
+  })
+
   it('falls back to unknown for missing / unrecognized summary', () => {
     expect(classifyTaskNotification(null)).toBe('unknown')
     expect(classifyTaskNotification(undefined)).toBe('unknown')

@@ -7,12 +7,5 @@
 //
 // Topbar.jsx と同様、 常時 mount component で overlay でないため Component lazy spec は不要
 // (= main bundle 同梱で OK、 features/__contracts__/no-lazy-component-static-import.test.js の
-// Component spec 件数は不変)。 register は他 feature と並ぶための単なる名前付けで、
-// dispatch action は持たない。
+// Component spec 件数は不変)。 registry 配線は無し (= featureRegistry は 2026-07-27 退役)。
 
-import { register as registerFeature } from '../../registry/featureRegistry.js'
-
-const noopDispatch = () => null
-registerFeature('app-effects', {
-  dispatch: noopDispatch,
-})
