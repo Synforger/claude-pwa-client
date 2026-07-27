@@ -83,7 +83,9 @@ export function useSessionBadges({ sids, activeSid, messages, loading }) {
   hydrateFromLocalStorage()
   const snap = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
   const unreadDone = snap.unreadDone
-  const waitingInput = snap.waitingInput || {}
+  // `|| {}` は毎 render 新 object を作り useMemo deps を毎回無効化する (= eslint
+  // exhaustive-deps 警告)。 useMemo で identity を安定させる。
+  const waitingInput = useMemo(() => snap.waitingInput || {}, [snap.waitingInput])
 
   // 前回 render 時の loading[sid]。 true→false 遷移検出用。
   const prevLoadingRef = useRef({})
