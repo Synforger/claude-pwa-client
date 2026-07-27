@@ -10,7 +10,9 @@
 
 const AGENT_RE = /^Agent [\\]?"/
 const BASH_RE = /^Background command [\\]?"/
-const MONITOR_RE = /^Monitor event: [\\]?"/
+// Monitor は 2 形式ある: 進行イベント `Monitor event: "..."` と終了通知 `Monitor "..." stream ended`。
+// 後者を落とすと unknown 扱いでアイコンが ⚙ に化ける (= 2026-07-27 実 jsonl で観測)。
+const MONITOR_RE = /^Monitor (event: )?[\\]?"/
 
 /**
  * @param {string|null|undefined} summary
