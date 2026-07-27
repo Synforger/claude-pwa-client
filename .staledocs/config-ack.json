@@ -17,7 +17,8 @@
         "CPC_CLAUDE_PATH=/usr/bin/true",
         "feature/main",
         "hotfix/develop",
-        "release/streamer"
+        "release/streamer",
+        "text/event-stream"
       ],
       "include_fenced": false,
       "min_length": 3
@@ -53,7 +54,7 @@
       "scripts/**"
     ]
   },
-  "at": "2026-07-26T16:18:55+00:00",
-  "note": "advanced by pair ack (no weakening)",
+  "at": "2026-07-27T04:06:42+00:00",
+  "note": "ignore text/event-stream: SSE MIME type quoted in streams.md, slash token but not a repo path; the string itself is alive in backend/core/compression.py",
   "schema": 1
 }
