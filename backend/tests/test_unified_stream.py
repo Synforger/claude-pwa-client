@@ -486,3 +486,31 @@ def test_control_op_subagents_wires_watcher(unified_env, monkeypatch, tmp_path):
                 conn.subagents_task.cancel()
             us._conns.pop("c-ctl", None)
     _run(run())
+
+
+def test_status_pump_suppresses_unchanged_payloads(unified_env):
+    """status/overview channel: payload が不変なら notify されても再送しない (= diff 抑止)。
+
+    変化した回だけ frame が積まれることを、 pump を直接回して固定する。
+    """
+    state, sid_a, _sid_b, _ensured = unified_env
+
+    async def run():
+        conn = us.UnifiedConn(conn_id="c-diff")
+        ev = asyncio.Event()
+        initial_status = json.dumps(us._build_all_status())
+        initial_overview = json.dumps(us._build_sessions_overview())
+        task = asyncio.create_task(us._status_pump(conn, ev, initial_status, initial_overview))
+        try:
+            # 1 回目: 変化なしで notify → 何も積まれない
+            ev.set()
+            await asyncio.sleep(0.05)
+            assert conn.queue.empty()
+            # 2 回目: status を実際に変える → status frame だけ積まれる
+            state.agent_status[sid_a]["model"] = "claude-test-changed"
+            ev.set()
+            frame = await asyncio.wait_for(conn.queue.get(), timeout=2.0)
+            assert frame["ch"] == "status"
+        finally:
+            task.cancel()
+    _run(run())
