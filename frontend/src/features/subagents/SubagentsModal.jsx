@@ -196,7 +196,7 @@ function SubagentsModalInner({ sid, focus, onClose }) {
         }
       })
       .catch(() => { /* GET 失敗は無視、 SSE 側で埋まる */ })
-    // /sessions/{sid}/subagents/stream は transport/sse-subagents.ts per-sid factory (= ADR-019) で
+    // subagents channel は unified stream の per-sid 購読 (= transport/select.ts) で
     // 立てる。 subscribe は sid 単位で同 EventSource 共有 (= refs カウンタ)、 unsubscribe で自動 close。
     const unsub = subagentsStreamSse.subscribe(sid, (d) => {
       if (d && typeof d === 'object') {

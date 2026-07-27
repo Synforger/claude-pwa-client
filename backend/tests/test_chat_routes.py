@@ -118,7 +118,7 @@ def test_chat_router_includes_all_three_subrouters(isolated_state):
                 if sp:
                     paths.add(sp)
     assert "/sessions" in paths  # sessions.py
-    assert "/sessions/status/stream" in paths  # overview.py
+    assert "/sessions/{session_id}/seen" in paths  # overview.py (= 旧 status/stream は 2026-07-27 退役)
     assert "/agents" in paths  # accounts.py
     assert "/accounts" in paths
 

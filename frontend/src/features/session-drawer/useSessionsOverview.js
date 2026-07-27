@@ -28,7 +28,7 @@ import { setWaitingInputMap } from '../../state/sessions.js'
 export function useSessionsOverview({ setLoading, optimisticRef, onPayloadRef }) {
   const liveRef = useRef(false)
   useEffect(() => {
-    // /sessions/overview/stream は transport/sse-sessions-overview.ts singleton が所有 (= ADR-019)。
+    // overview は unified stream の overview channel (= transport/select.ts) が所有。
     // ここは subscribe するだけ、 EventSource lifecycle / 再接続 / state は transport 側で扱う。
     const unreg = registerConnection(() => liveRef.current)
     const unsub = overviewSse.subscribe(payload => {

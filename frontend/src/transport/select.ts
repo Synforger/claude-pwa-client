@@ -1,17 +1,13 @@
-// transport 実装の選択点 (= unified ⇄ legacy の 1 点切替、 2026-07-14 電力効率工事)。
+// transport 実装の選択点 (= 現在は unified 1 本、 2026-07-27 legacy 退役)。
 //
-// 既定は unified (= 1 本多重化接続)。 緊急 rollback は DevTools で
-// `localStorage.setItem('cpc_transport', 'legacy')` → reload (= 旧 4-5 本構成に戻る。
-// backend は旧 endpoint を全部温存しているので新旧どちらの bundle でも動く)。
+// 2026-07-14 の電力効率工事で unified (= 1 本多重化接続) を導入し、 旧 4-5 本構成は
+// `cpc_transport=legacy` の rollback 経路として温存していた。 2026-07-27 の退役 audit で
+// legacy 実利用が「古い bundle を開いたままのタブの居座り」 だけと確認できたため、
+// flag ごと物理削除した (= 切替 UI は元々無く、 復旧経路としての実用性が無かった)。
 //
-// consumer は本 module からだけ import する (= sse.ts / _sse 系 / ws-views を直接
-// import する経路を残すと切替が二重管理になる)。
+// consumer は本 module からだけ import する (= unified.ts を直接 import する経路を
+// 増やすと、 将来の transport 差し替えがまた二重管理になる)。
 
-import { sseTransport } from './sse.ts'
-import { sessionsStatusSse } from './sse-sessions-status.ts'
-import { sessionsOverviewSse } from './sse-sessions-overview.ts'
-import { subagentsSse } from './sse-subagents.ts'
-import { viewsTransport } from './ws-views.ts'
 import {
   unifiedJsonl,
   unifiedOverviewSse,
@@ -21,31 +17,13 @@ import {
   unifiedViews,
 } from './unified.ts'
 
-export const unifiedEnabled: boolean = (() => {
-  try { return localStorage.getItem('cpc_transport') !== 'legacy' } catch { return true }
-})()
+/** chat jsonl 経路 (= SseTransport 互換 + setSubscribedSids)。 */
+export const chatTransport = unifiedJsonl
 
-/** chat jsonl 経路 (= SseTransport 互換 + setSubscribedSids)。 legacy は全 sid 配信なので
- * setSubscribedSids は no-op (= useChatStream 側は無条件に呼んで良い)。 */
-export const chatTransport = unifiedEnabled
-  ? unifiedJsonl
-  : {
-      // spread はクラス instance の prototype メソッドを落とすので明示 delegation
-      subscribe: (h: Parameters<typeof sseTransport.subscribe>[0]) => sseTransport.subscribe(h),
-      stop: () => sseTransport.stop(),
-      bumpReconnect: () => sseTransport.bumpReconnect(),
-      flushOffsets: () => sseTransport.flushOffsets(),
-      resetOffset: (sid: string) => sseTransport.resetOffset(sid),
-      getOffset: (sid: string) => sseTransport.getOffset(sid),
-      advanceOffset: (sid: string, pos: number) => sseTransport.advanceOffset(sid, pos),
-      setSubscribedSids: (_sids: string[]) => { /* legacy = 全 sid 配信 */ },
-      get state() { return sseTransport.state },
-    }
+export const statusSse = unifiedStatusSse
+export const overviewSse = unifiedOverviewSse
+export const subagentsStreamSse = unifiedSubagentsSse
+export const viewsChannel = unifiedViews
 
-export const statusSse = unifiedEnabled ? unifiedStatusSse : sessionsStatusSse
-export const overviewSse = unifiedEnabled ? unifiedOverviewSse : sessionsOverviewSse
-export const subagentsStreamSse = unifiedEnabled ? unifiedSubagentsSse : subagentsSse
-export const viewsChannel = unifiedEnabled ? unifiedViews : viewsTransport
-
-/** lifecycle.ts の fg/bg bump 用: unified は 1 接続 bump、 legacy は従来の全 singleton bump。 */
+/** lifecycle.ts の fg/bg bump 用 (= 1 接続 bump で全 channel 蘇生)。 */
 export { unifiedTransport }
