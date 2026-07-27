@@ -1,0 +1,10 @@
+{
+  "anchors": [
+    "backend/config.json",
+    "frontend/.env.local"
+  ],
+  "at": "2026-07-27T04:19:58+00:00",
+  "doc": "docs/README.md",
+  "note": "v2 anchor-baseline migration: arm every claim that resolves today; unarmed shortlist was empty",
+  "schema": 1
+}
