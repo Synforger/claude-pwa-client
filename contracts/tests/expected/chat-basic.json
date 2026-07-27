@@ -11,17 +11,53 @@
       "uuid": "msg_01",
       "message": {
         "content": [
-          { "type": "text", "text": "Hi! How can I help?" }
+          {
+            "type": "text",
+            "text": "Hi! How can I help?"
+          }
         ]
       }
     },
     {
       "type": "result",
       "stop_reason": "end_turn",
-      "usage": { "input_tokens": 12, "output_tokens": 8 },
-      "modelUsage": { "claude-opus-4-7": {} },
+      "usage": {
+        "input_tokens": 12,
+        "output_tokens": 8
+      },
+      "modelUsage": {
+        "claude-opus-4-7": {}
+      },
       "is_error": false,
       "stop_details": null
+    },
+    {
+      "type": "assistant",
+      "uuid": "msg_02",
+      "message": {
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "tu_01",
+            "name": "Bash",
+            "input": {
+              "command": "echo hi"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "user",
+      "message": {
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "tu_01",
+            "content": "hi"
+          }
+        ]
+      }
     }
   ]
 }

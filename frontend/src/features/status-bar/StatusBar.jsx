@@ -84,6 +84,9 @@ export default function StatusBar() {
   }
   const expired = status.five_hour_resets_at > 0 && status.five_hour_resets_at < nowSec
   const fivePct = expired ? 0 : status.five_hour_pct
+  // 7d も 5h と同じく resets_at 超過で 0% 扱い (= 窓切れの古い % を出し続けない)
+  const sevenExpired = status.seven_day_resets_at > 0 && status.seven_day_resets_at < nowSec
+  const sevenPct = sevenExpired ? 0 : status.seven_day_pct
   // 7d リセット: backend が動的に取れた時 (resets_at > 0) はそれ、 取れない時は表示しない
   const sevenDayResetLabel = status.seven_day_resets_at > 0
     ? formatResetWeekdayTime(status.seven_day_resets_at)
@@ -99,8 +102,8 @@ export default function StatusBar() {
         5h {Math.round(fivePct)}%{' '}
         <span className="dim">{timeUntil(status.five_hour_resets_at, nowSec)}</span>
       </span>
-      <span className={pctClass(status.seven_day_pct)}>
-        7d {Math.round(status.seven_day_pct)}%{' '}
+      <span className={pctClass(sevenPct)}>
+        7d {Math.round(sevenPct)}%{' '}
         <span className="dim">{sevenDayResetLabel}</span>
       </span>
       <span className={pctClass(status.ctx_pct)}>ctx {Math.round(status.ctx_pct || 0)}%</span>

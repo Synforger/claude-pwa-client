@@ -11,7 +11,7 @@ test.describe('contract: DNS rebinding blocked', () => {
     const rebound = await request.get('/debug/state', { headers: { host: 'attacker.example.com' } })
     expect(rebound.status()).toBe(403)
     // The other readers should also reject.
-    const reboundLog = await request.get('/debug/log', { headers: { host: 'evil:8765' } })
+    const reboundLog = await request.get('/debug/metrics', { headers: { host: 'evil:8765' } })
     expect(reboundLog.status()).toBe(403)
   })
 })

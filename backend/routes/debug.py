@@ -1,4 +1,4 @@
-"""ADR-012 /debug/* の observability endpoint 群 (= state / metrics / log / replay)。
+"""ADR-012 /debug/* の observability endpoint 群 (= state / metrics)。
 
 公開原則 (= 2 段防御、 DNS rebinding 対策、 99-references.md § 12-3):
     1. transport peer が loopback (= 127.0.0.1 / ::1) のみ
@@ -27,9 +27,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from backend.observability import inspector
-from backend.observability.event_journal import journal_path, read_range
 from backend.observability.metrics import metrics
-from backend.observability.replay import replay_stream
 
 router = APIRouter(prefix="/debug")
 
@@ -98,53 +96,3 @@ async def get_state(request: Request) -> dict[str, Any]:
 async def get_metrics(request: Request) -> dict[str, Any]:
     _ensure_localhost(request)
     return metrics.snapshot()
-
-
-@router.get("/log")
-async def get_log(
-    request: Request,
-    sid: str | None = None,
-    start_ts: float | None = None,
-    end_ts: float | None = None,
-    days_back: int = 1,
-    limit: int = 500,
-) -> dict[str, Any]:
-    """直近 event_journal entry を時刻範囲 + sid で filter して返す (= 単発 JSON)。
-
-    巨大 response 防止のため `limit` (= default 500、 最新を返す)。 streaming で見たい時は
-    /debug/replay を使う。
-    """
-    _ensure_localhost(request)
-    entries = read_range(start_ts=start_ts, end_ts=end_ts, sid=sid, days_back=days_back)
-    entries.sort(key=lambda e: e.get("seq", 0))
-    return {
-        "count": len(entries),
-        "returned": min(limit, len(entries)),
-        "journal_path": str(journal_path()),
-        "entries": entries[-limit:],
-    }
-
-
-class ReplayRequest(BaseModel):
-    sid: str | None = None
-    start_ts: float | None = None
-    end_ts: float | None = None
-    speed: float = 0.0
-    days_back: int = 1
-
-
-@router.post("/replay")
-async def post_replay(request: Request, body: ReplayRequest) -> StreamingResponse:
-    """event_journal を SSE で再配信。 frontend debug panel が直接 EventSource で接続する想定。"""
-    _ensure_localhost(request)
-    return StreamingResponse(
-        replay_stream(
-            sid=body.sid,
-            start_ts=body.start_ts,
-            end_ts=body.end_ts,
-            speed=body.speed,
-            days_back=body.days_back,
-        ),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )

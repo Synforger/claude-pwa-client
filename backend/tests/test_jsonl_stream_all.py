@@ -3,7 +3,6 @@
 - _parse_all_from: query string `sid:off,sid:off` → dict[sid, offset]
 - _lines_to_events: JSONL 文字列 list → event dict list (= broadcaster publish 用)
 - _process_new_lines: monitor 経路で broadcaster へ publish するか
-- _lines_to_sse: replay 専用 pure (= mutator を呼ばないこと、 F-06)
 """
 import asyncio
 import json
@@ -63,32 +62,6 @@ def test_lines_to_events_skips_blank_and_bad_json():
     evts = jr._lines_to_events(lines)
     assert any(e.get("type") == "user_message" for e in evts)
 
-
-def test_lines_to_sse_no_mutate(isolated_state, monkeypatch):
-    """F-06: 旧版は _lines_to_sse 内で _mutate_agent_status / _track_turn_start を呼び、
-    monitor 経路と二重 driver で agent_status を mutate していた。 新版は replay 専用の
-    pure 関数として降格 (= mutator は呼ばない)。 SSE 配信 frame だけが返る。"""
-    state = isolated_state
-    sid = "ses_pure"
-    state.stream_states[sid] = state_mod.StreamState(agent_id="a")
-    state.agent_status[sid] = state_mod._make_agent_status("a")
-    # SSE replay 経路で「素ユーザ発話 + tool_use 付き assistant」 を流しても
-    # agent_status は mutate されないことを確認 (= monitor 単一経路 invariant)。
-    raw_user = json.dumps({"type": "user", "uuid": "u1", "message": {"content": "go"}})
-    raw_asst = json.dumps({
-        "type": "assistant", "uuid": "a1",
-        "message": {"content": [
-            {"type": "tool_use", "name": "TodoWrite", "id": "t1",
-             "input": {"todos": [{"content": "x", "status": "pending", "activeForm": "x"}]}},
-        ]},
-    })
-    before_todos = state.agent_status[sid].get("todos")
-    frames = jr._lines_to_sse([raw_user, raw_asst], 100, sid)
-    # frame は出る (= assistant event)
-    assert len(frames) >= 1
-    assert all(f.startswith("id: 100\ndata: ") for f in frames)
-    # agent_status は mutate されていない (= 旧 dual-driver の race を排除)
-    assert state.agent_status[sid].get("todos") == before_todos
 
 
 def test_process_new_lines_publishes_to_broadcaster(isolated_state):
