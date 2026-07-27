@@ -1,6 +1,6 @@
 // features/topbar の smoke contract (= ADR-026 Phase J-3、 新 features に対する snapshot 同梱)。
 // node 環境 (= vitest config) で動かすため厳密な JSX render snapshot は本 file scope 外、
-// 配線 entry の効果 (= featureRegistry に 'topbar' が register される) + default export 関数性を verify する。
+// default export 関数性を verify する (= featureRegistry 配線は 2026-07-27 退役)。
 
 import { describe, it, expect } from 'vitest'
 
@@ -10,9 +10,4 @@ describe('features/topbar — smoke contract', () => {
     expect(typeof mod.default).toBe('function')
   })
 
-  it('importing index.js registers topbar in featureRegistry', async () => {
-    await import('./index.js')
-    const reg = await import('../../registry/featureRegistry.js')
-    expect(reg.list()).toContain('topbar')
-  })
 })

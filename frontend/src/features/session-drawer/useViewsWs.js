@@ -1,23 +1,9 @@
 /**
- * 「今どの session を見ているか」 を backend に realtime で通知する WebSocket。
- *
- * - PWA visible 中だけ /views/ws に常時接続
- * - 接続時 + activeSid 変化時に {sid} を 1 メッセージ送る
- * - PWA バックグラウンドで iOS が socket を切る → backend 即時検知 → 通知が出る
- *   (= 接続が「視認中」 のシグナルそのもの、 stale 概念なし)
- * - 切断 → 3 秒後に再接続 (visible 中のみ)
- *
- * heartbeat は不要 (= 接続生存自体がシグナル)、 ディレイは TCP レベルで最小。
+ * 「今どの session を見ているか」 を backend に通知する hook (= unified stream の
+ * control op=view / op=stop 経由、 旧 /views/ws WebSocket は 2026-07-27 退役)。
  */
-import { useCallback, useEffect, useRef } from 'react'
-import { API_BASE } from '../../constants.js'
-import { registerConnection, notifyConnectionChange } from '../../transport/connectionStatus.js'
-import { unifiedEnabled, viewsChannel } from '../../transport/select.ts'
-
-function toWsUrl(path) {
-  const base = API_BASE || window.location.origin
-  return base.replace(/^http/, 'ws') + path
-}
+import { useCallback, useEffect } from 'react'
+import { viewsChannel } from '../../transport/select.ts'
 
 // 統合 transport 有効時: /views/ws を張らず、 視認申告 + Stop を共有 SSE 接続の
 // control POST に委譲する (= 2026-07-14 電力効率工事、 接続 1 本削減)。 接続断 =
@@ -32,97 +18,5 @@ function useViewsUnified(activeSid) {
   return { sendStopIntent }
 }
 
-function useViewsWsLegacy(activeSid) {
-  const wsRef = useRef(null)
-  const sidRef = useRef(activeSid)
-  // sidRef は接続 onopen 時に「最新の activeSid」 を読むためのコピー。 render 中の
-  // ref 直書きは React 警告対象なので effect 内で同期する。
-  useEffect(() => { sidRef.current = activeSid }, [activeSid])
-
-  // Stop 意思を WebSocket 経由で backend に送る。 HTTP POST だと送信失敗時の race で
-  // overview SSE が busy=true を流して停止ボタンが復活していた。 WS なら接続中の TCP
-  // 保証で届くか、 切断中なら何もしない (= 切断中 = PWA が見えてない = stop 押せない)。
-  const sendStopIntent = useCallback((sid) => {
-    if (!sid) return
-    const ws = wsRef.current
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      try { ws.send(JSON.stringify({ type: 'stop', sid })) } catch { /* ignore */ }
-    }
-  }, [])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    let cancelled = false
-    let reconnectTimer = null
-    // 全 SSE/WS 集約用 (= F-45)。 probe は wsRef を介して現在 ws の readyState を見る。
-    const unregConn = registerConnection(() => {
-      const ws = wsRef.current
-      return !!ws && ws.readyState === WebSocket.OPEN
-    })
-
-    const connect = () => {
-      if (cancelled || document.hidden) return
-      const existing = wsRef.current
-      if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
-        return
-      }
-      let ws
-      try {
-        // eslint-disable-next-line no-restricted-syntax -- transitional: useViewsWs を transport/ws-views.ts singleton 配線へ寄せる移行は別 Phase。 現状は features/ 直書きを許容 (= 物理移送のみ、 内部ロジック不変、 ADR-018 経路上の暫定例外)。
-        ws = new WebSocket(toWsUrl('/views/ws'))
-      } catch {
-        return
-      }
-      wsRef.current = ws
-      ws.onopen = () => {
-        notifyConnectionChange()
-        try { ws.send(JSON.stringify({ sid: sidRef.current || null })) } catch { /* ignore */ }
-      }
-      ws.onclose = () => {
-        if (wsRef.current === ws) wsRef.current = null
-        notifyConnectionChange()
-        if (cancelled || document.hidden) return
-        // 短い backoff で再接続 (= visible 中のみ)
-        reconnectTimer = setTimeout(connect, 3000)
-      }
-      ws.onerror = () => { /* onclose も来るので個別処理不要 */ }
-    }
-
-    const onVis = () => {
-      if (document.hidden) {
-        if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
-        const ws = wsRef.current
-        if (ws) { try { ws.close() } catch { /* ignore */ } }
-      } else {
-        connect()
-      }
-    }
-
-    if (!document.hidden) connect()
-    document.addEventListener('visibilitychange', onVis)
-
-    return () => {
-      cancelled = true
-      unregConn()
-      document.removeEventListener('visibilitychange', onVis)
-      if (reconnectTimer) clearTimeout(reconnectTimer)
-      const ws = wsRef.current
-      if (ws) { try { ws.close() } catch { /* ignore */ } }
-      wsRef.current = null
-    }
-  }, [])
-
-  // activeSid 変化時に接続中なら即時 update。 切断中は次回 onopen で sidRef から送る。
-  useEffect(() => {
-    const ws = wsRef.current
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      try { ws.send(JSON.stringify({ sid: activeSid || null })) } catch { /* ignore */ }
-    }
-  }, [activeSid])
-
-  return { sendStopIntent }
-}
-
-// 公開 entry: transport 選択は module load 時に固定 (= hooks の呼び分けが render 間で
-// 揺れない、 rules-of-hooks 安全)。
-export const useViewsWs = unifiedEnabled ? useViewsUnified : useViewsWsLegacy
+// 公開 entry (= 2026-07-27 legacy WS 退役、 unified 一本)。
+export const useViewsWs = useViewsUnified

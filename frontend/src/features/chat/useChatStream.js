@@ -1,17 +1,16 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useSyncExternalStore } from 'react'
+import { useRef, useEffect, useLayoutEffect, useCallback, useSyncExternalStore } from 'react'
 import { apiFetch } from '../../utils/api.js'
 import { generateId } from '../../utils/id.js'
 import { useStreamBuffer } from './useStreamBuffer.js'
 import { processStreamEvent } from './processStreamEvent.js'
 import { reconcileUserMessage } from './reconcileUserMessage.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
-import { chatTransport, unifiedEnabled } from '../../transport/select.ts'
+import { chatTransport } from '../../transport/select.ts'
 import {
   subscribe as subscribeEphemeral,
   getSnapshot as getEphemeralSnapshot,
   setLoading as storeSetLoading,
   clearLoading as storeClearLoading,
-  setApiKeySource as storeSetApiKeySource,
 } from '../../state/ephemeral.js'
 import { tRaw } from '../../i18n/t.js'
 import { translateHttpErrorDetail } from '../../utils/httpError.js'
@@ -51,7 +50,7 @@ export function refetchChat() { return _refetchChatImpl?.() }
 // chat 1 セッションの送受信・状態管理を束ねる公開フック (= TUI / JSONL 版)。
 //
 // 旧 SDK + proxy 版を置き換えたもの。 App.jsx 側のインターフェース
-// (loading / sendMessage / stopMessage / apiKeySource / sendAnswer / fetchLatest /
+// (loading / sendMessage / stopMessage / sendAnswer / fetchLatest /
 //  endSession / setLoading / optimisticRef) は維持し、 App.jsx はほぼ無改修で動く。
 //
 // 受信: 常時 /jsonl/stream を EventSource で購読 (= claude が書く JSONL を backend が tail)。
@@ -107,26 +106,6 @@ export function useChatStream({
     }
   }, [])
 
-  // Phase J-11 (= audit-w2-residue 第 1 弾): apiKeySource を state/ephemeral.js singleton 統合。
-  // setApiKeySource wrapper は J-9 の setLoading と同じく updater function / object 直渡しの 2 形態
-  // を support して既存 consumer (= processStreamEvent.js の updater 呼出) を無修正で通す。
-  const apiKeySource = ephem.apiKeySource
-  const setApiKeySource = useCallback((arg) => {
-    if (typeof arg === 'function') {
-      const prev = getEphemeralSnapshot().apiKeySource
-      const next = arg(prev)
-      if (!next || typeof next !== 'object') return
-      const sids = new Set([...Object.keys(prev), ...Object.keys(next)])
-      for (const s of sids) {
-        if (prev[s] !== next[s]) storeSetApiKeySource(s, next[s])
-      }
-    } else if (arg && typeof arg === 'object') {
-      const prev = getEphemeralSnapshot().apiKeySource
-      for (const [s, v] of Object.entries(arg)) {
-        if (prev[s] !== v) storeSetApiKeySource(s, v)
-      }
-    }
-  }, [])
   // 送信/停止 直後の楽観意図。 `{[sid]: {want:'busy'|'idle', seen}}`。
   //   - 送信時 want='busy' (停止ボタンを出す)、 停止時 want='idle' (送信ボタンを出す)。
   // backend 権威 busy がこの意図に追いつくまで、 逆向きの古い snapshot による上書きを保留する
@@ -136,15 +115,13 @@ export function useChatStream({
   // 旧 v1 の offset 保持 (= offsetRef / offsetPersistTimerRef / cpc_jsonl_offset) は 2026-07-27 に
   // 撤去した。 実 offset は transport 側 (= cpc_v2_jsonl_offsets) が唯一の持ち主で、 ここに
   // 居たものは代入経路が既に無く「localStorage から読んで同じ値を書き戻すだけ」 だった。
-  // EventSource 再接続トリガ。 endSession (/clear) で新 claude_sid に切り替わるとき、
-  // backend の JSONL 解決を新 sid に向けるためここを +1 して useEffect を再実行させる。
-  const [reconnectKey, setReconnectKey] = useState(0)
+  // 旧 reconnectKey (= EventSource 再接続トリガ state) は 2026-07-27 退役: bump する
+  // 呼び手が全て撤去済みで常に 0 だった。 再接続は unifiedTransport.bumpReconnect() が担う。
 
   const buffer = useStreamBuffer({ setMessages })
 
   const eventDeps = {
     setMessages,
-    setApiKeySource,
     cancelAndFlush: buffer.cancelAndFlush,
     scheduleFlush: buffer.scheduleFlush,
     bufFor: buffer.bufFor,
@@ -210,7 +187,7 @@ export function useChatStream({
       handleEventRef.current?.(evSid, event)
     })
     return () => { unsub() }
-  }, [reconnectKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 状態は GET で取る、 stream は差分だけ (= client=射影)。 sid 表示時に GET /jsonl/history で
   // **常に直近 N 行 (= 権威的な最新窓)** を取り込む。 from (= offset) は付けない: offset は
@@ -244,28 +221,8 @@ export function useChatStream({
     return () => { cancelled = true }
   }, [sid])
 
-  // iOS PWA バックグラウンドからの復帰時に EventSource を強制再接続 (= 2026-06-22)。
-  // iOS は PWA を background にすると socket を suspend し、 戻った時に「OPEN のまま実は死んでる」
-  // 状態になる事がある。 onerror が発火しないので reconnectKey bump 経路に乗らない →
-  // 新着が来ない = チャットが少し前で止まる症状の主因。 visibility が visible に変わったら
-  // 確実に新接続を取り直し、 未受信 event を transport 側の offset から replay 取得する。
-  //
-  // 2026-07-27: ここに居た hidden 遷移時の offset flush は撤去した。 v1 offset は代入経路が
-  // 既に無く flush しても同じ値を書き戻すだけの空回りで、 実 offset の永続化は
-  // useChatStorage の「メッセージを保存できた時に flush」 (= 描画・永続化した位置に紐付ける)
-  // が担っている。 それに伴い pagehide / beforeunload / freeze の listener も不要になった。
-  useEffect(() => {
-    const onVis = () => {
-      if (document.visibilityState === 'visible' && !unifiedEnabled) {
-        // legacy のみ: fg 復帰の張り直しを reconnectKey で駆動。 unified は
-        // transport/lifecycle.ts の unifiedTransport.bumpReconnect() が 1 接続分を
-        // 担うため、 ここで resub すると同一復帰で 2 回張り直す無駄が出る。
-        setReconnectKey(k => k + 1)
-      }
-    }
-    document.addEventListener('visibilitychange', onVis)
-    return () => document.removeEventListener('visibilitychange', onVis)
-  }, [])
+  // iOS bg 復帰時の再接続は transport/lifecycle.ts の unifiedTransport.bumpReconnect() が
+  // 一手に担う (= 旧 reconnectKey 駆動の visibilitychange effect は 2026-07-27 退役)。
 
   // activeSid 切替時の buffer reset。 接続自体は閉じない (= F-15 で /all 経路に統合)、
   // ただし activeSid の useStreamBuffer の表示 buffer は新しいタブ用に初期化する。
@@ -649,7 +606,6 @@ export function useChatStream({
   return {
     loading,
     setLoading,
-    apiKeySource,
     sendMessage,
     sendAnswer,
     stopMessage: stopMessageCb,

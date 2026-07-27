@@ -458,3 +458,39 @@ def test_queue_operation_with_task_notification():
     assert events[0]["type"] == "task_notification"
     assert events[0]["taskId"] == "a1"
     assert events[0]["status"] == "completed"
+
+
+# --- subagent_line_to_events (= sidechain 専用変換、 2026-07-27 audit で直接テスト 0 を充填) ---
+
+
+def test_subagent_line_converts_assistant_despite_sidechain():
+    """sidechain 行でも assistant 変換が通る (= 親 chat 用とはここが違う)。"""
+    from backend.jsonl.events import jsonl_line_to_events, subagent_line_to_events
+    line = {
+        "type": "assistant", "isSidechain": True, "uuid": "u1",
+        "message": {"content": [{"type": "text", "text": "hello from subagent"}]},
+    }
+    # 親 chat 経路は sidechain を捨てる
+    assert jsonl_line_to_events(line) == []
+    # 専用経路は変換する
+    events = subagent_line_to_events(line)
+    assert len(events) == 1
+    assert events[0]["type"] == "assistant"
+
+
+def test_subagent_line_converts_user_tool_result():
+    from backend.jsonl.events import subagent_line_to_events
+    line = {
+        "type": "user", "isSidechain": True, "uuid": "u2",
+        "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]},
+    }
+    events = subagent_line_to_events(line)
+    assert len(events) == 1
+    assert events[0]["type"] == "user"
+
+
+def test_subagent_line_skips_meta_and_non_dict():
+    from backend.jsonl.events import subagent_line_to_events
+    assert subagent_line_to_events({"isMeta": True, "type": "assistant"}) == []
+    assert subagent_line_to_events("not a dict") == []
+    assert subagent_line_to_events({"type": "unknown_kind"}) == []

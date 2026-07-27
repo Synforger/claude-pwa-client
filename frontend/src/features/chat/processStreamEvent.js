@@ -10,8 +10,6 @@ import { ingestPromptStateEvent } from '../../state/promptState.js'
 // 第 2 引数 `sid` = session_id (UI 上のタブ ID)。
 //
 // 扱うイベント種別:
-//   request_id          — backend が発行した user 起点 ID をフロントが保持
-//   system / init       — apiKeySource 取得
 //   system / compact_boundary — 会話圧縮の系統バナー
 //   result              — ターン完了 meta 埋め込み
 //   ask_user_question   — AskUserQuestion バブル
@@ -79,22 +77,10 @@ function appendSystemMessage(setMessages, sid, kind, extra) {
 export function processStreamEvent(deps, sid, event) {
   const {
     setMessages,
-    setApiKeySource,
     cancelAndFlush,
     scheduleFlush,
     bufFor,
   } = deps
-
-  if (event.type === 'request_id') {
-    return
-  }
-
-  if (event.type === 'system' && event.subtype === 'init') {
-    if (event.apiKeySource) {
-      setApiKeySource(prev => ({ ...prev, [sid]: event.apiKeySource }))
-    }
-    return
-  }
 
   // compact_boundary: 会話圧縮タイミング。 メタを system バブルとして差し込む。
   if (event.type === 'system' && event.subtype === 'compact_boundary') {

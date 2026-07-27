@@ -1,6 +1,6 @@
 // features/app-effects の smoke contract (= ADR-026 Phase J-3)。
 // AppEffects は app-wide effect 群を集約する不可視 component (= return null sentinel)、
-// default export 関数性 + featureRegistry 配線 + 「returns null」 静的契約を verify する。
+// default export 関数性 + 「returns null」 静的契約を verify する (= featureRegistry 配線は 2026-07-27 退役)。
 
 import { describe, it, expect } from 'vitest'
 
@@ -10,9 +10,4 @@ describe('features/app-effects — smoke contract', () => {
     expect(typeof mod.default).toBe('function')
   })
 
-  it('importing index.js registers app-effects in featureRegistry', async () => {
-    await import('./index.js')
-    const reg = await import('../../registry/featureRegistry.js')
-    expect(reg.list()).toContain('app-effects')
-  })
 })

@@ -4,6 +4,11 @@ from __future__ import annotations
 import json
 
 
+def _entries(history, pwa_sid):
+    """読み口 API (get/get_all) は 2026-07-27 退役。 record_end の挙動検証は内部 _load 直読みで行う。"""
+    return history._load().get(pwa_sid, [])
+
+
 def test_record_and_get(monkeypatch, tmp_path):
     from backend.jsonl import history
 
@@ -12,7 +17,7 @@ def test_record_and_get(monkeypatch, tmp_path):
     history.record_end("ses_x", "claude-aaa", jsonl_path="/p/aaa.jsonl")
     history.record_end("ses_x", "claude-bbb", jsonl_path="/p/bbb.jsonl")
 
-    entries = history.get("ses_x")
+    entries = _entries(history, "ses_x")
     assert len(entries) == 2
     # 新しい順
     assert entries[0]["claude_sid"] == "claude-bbb"
@@ -29,7 +34,7 @@ def test_max_entries_cap_at_3(monkeypatch, tmp_path):
     for i in range(5):
         history.record_end("ses_x", f"claude-{i}")
 
-    entries = history.get("ses_x")
+    entries = _entries(history, "ses_x")
     assert len(entries) == 3
     # 新しい順 (= 直近 3 件 = 4, 3, 2)
     assert [e["claude_sid"] for e in entries] == ["claude-4", "claude-3", "claude-2"]
@@ -44,7 +49,7 @@ def test_dedup_consecutive_same_sid(monkeypatch, tmp_path):
     history.record_end("ses_x", "claude-aaa")  # 同じ id 連投は無視
     history.record_end("ses_x", "claude-aaa")
 
-    assert len(history.get("ses_x")) == 1
+    assert len(_entries(history, "ses_x")) == 1
 
 
 def test_none_or_empty_is_noop(monkeypatch, tmp_path):
@@ -55,7 +60,7 @@ def test_none_or_empty_is_noop(monkeypatch, tmp_path):
     history.record_end("ses_x", None)
     history.record_end("", "claude-aaa")
 
-    assert history.get("ses_x") == []
+    assert _entries(history, "ses_x") == []
     assert not (tmp_path / "session_history.json").exists()
 
 
@@ -68,8 +73,8 @@ def test_isolation_between_pwa_sids(monkeypatch, tmp_path):
     history.record_end("ses_b", "claude-b1")
     history.record_end("ses_a", "claude-a2")
 
-    assert [e["claude_sid"] for e in history.get("ses_a")] == ["claude-a2", "claude-a1"]
-    assert [e["claude_sid"] for e in history.get("ses_b")] == ["claude-b1"]
+    assert [e["claude_sid"] for e in _entries(history, "ses_a")] == ["claude-a2", "claude-a1"]
+    assert [e["claude_sid"] for e in _entries(history, "ses_b")] == ["claude-b1"]
 
 
 def test_persists_to_disk(monkeypatch, tmp_path):
@@ -93,4 +98,4 @@ def test_corrupt_file_starts_fresh(monkeypatch, tmp_path):
 
     history.record_end("ses_x", "claude-aaa")
 
-    assert [e["claude_sid"] for e in history.get("ses_x")] == ["claude-aaa"]
+    assert [e["claude_sid"] for e in _entries(history, "ses_x")] == ["claude-aaa"]

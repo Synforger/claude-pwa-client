@@ -357,13 +357,35 @@ tasks:
   # personal-template 品質機構 (= .tooling/local-ci/、 言語非依存)
   # ---------------------------------------------------------------------------
   ci:
-    desc: Full quality-gate suite (lint + tests + docs freshness + version drift) — same entry point locally and in CI
+    desc: Full quality-gate suite (lint + tests + docs freshness + version drift + contract drift) — same entry point locally and in CI
     cmds:
       - task: lint
       - task: test
       - task: docs:check
       - task: docs:coherence
       - task: lint:versions
+      - task: contracts:check
+
+  contracts:check:
+    desc: Validate contract yaml + fail if checked-in codegen output drifted from schema truth
+    cmds:
+      - cd contracts && npm run validate:all
+      - |
+        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
+          PY="$CONDA_EXE run -n {{.CONDA_ENV}} --live-stream python"
+        else
+          PY=python3
+        fi
+        $PY contracts/codegen/gen-python.py --out backend/_generated >/dev/null
+        $PY contracts/codegen/gen-python.py >/dev/null
+        cd contracts && node codegen/gen-types.mjs >/dev/null && cd ..
+        cp contracts/_generated/sse-events.ts frontend/src/contracts/sse-events.ts
+        if ! git diff --exit-code --quiet -- backend/_generated contracts/_generated frontend/src/contracts; then
+          echo "contracts:check FAILED — checked-in codegen output drifted from schema truth:" >&2
+          git diff --stat -- backend/_generated contracts/_generated frontend/src/contracts >&2
+          echo "fix: edit contracts/schema/*.yaml, re-run codegen, commit both" >&2
+          exit 1
+        fi
 
   publish:check:
     desc: Pre-publication gate for flipping a repo private -> public (full-history audits + OSS surface checks)

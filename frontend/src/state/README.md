@@ -1,6 +1,6 @@
-# state/ — 6 領域分離 + createStore 共通 helper (= ADR-010, ADR-017)
+# state/ — 7 領域分離 + createStore 共通 helper (= ADR-010, ADR-017)
 
-> **目的**: v1 で 38+ state item が 17 個の hook に散らかってた状態を、 6 領域 (= messages / ephemeral / sessions / ui / persistence / push) に物理分離し、 1 つの場所で「どの state が真値で、 どの state が ephemeral か」 を見渡せる構造にする。
+> **目的**: v1 で 38+ state item が 17 個の hook に散らかってた状態を、 7 領域 (= messages / ephemeral / sessions / ui / push / promptState / locale) に物理分離し、 1 つの場所で「どの state が真値で、 どの state が ephemeral か」 を見渡せる構造にする。
 
 ## 構成
 
@@ -9,10 +9,12 @@ state/
 ├── README.md           (本 file)
 ├── _store.js           createStore factory (= ADR-017、 全 store の subscribe/getSnapshot/setState 共通基盤)
 ├── messages.js         真値 message store (= uuid 付き user/agent/system、 isPersistableMessage filter)
-├── ephemeral.js        streamBuffer / attachments / loading / apiKeySource / sendFailedText / stopUnavailableSid / reconnectKey (J-12 で optimistic / sendTimers / pendingQuestion は retire 済)
+├── ephemeral.js        streamBuffer / attachments / loading / sendFailedText / stopUnavailableSid / reconnectKey (J-12 で optimistic / sendTimers / pendingQuestion、 2026-07-27 で apiKeySource を retire 済)
 ├── sessions.js         sessions / activeId / agents / accounts / status / sessionActivity / unreadDone
 ├── ui.js               overlays / scroll / keyboard / viewModes
-└── push.js             Web Push 購読 singleton (= J-2 で usePushSubscription の useState 4 個を統合)
+├── push.js             Web Push 購読 singleton (= J-2 で usePushSubscription の useState 4 個を統合)
+├── promptState.js      terminal prompt 検出 state (= SSE `prompt_state` event の受け皿、 banner / quick-reply が subscribe)
+└── locale.js           UI 言語切替 (= 2026-07-02 追加、 i18n/t.js と SessionDrawer が subscribe)
 ```
 
 > 旧 `transport.js` は W2 Phase J-12 で dead 削除 (= 全 setter が orphan、 isOnline は `transport/lifecycle.js::registerConnection` 経由に集約済)。

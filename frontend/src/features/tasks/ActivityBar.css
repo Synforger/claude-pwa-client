@@ -38,19 +38,6 @@
   letter-spacing: 0.5px;
 }
 
-.ab-tool {
-  background: var(--bg3);
-  color: var(--text);
-  border: 1px solid var(--border);
-  font-family: 'Menlo', 'Monaco', monospace;
-}
-
-.ab-sub {
-  background: var(--bg3);
-  color: var(--text-dim);
-  border: 1px solid var(--border);
-}
-
 .ab-todos {
   font-size: 11px;
 }

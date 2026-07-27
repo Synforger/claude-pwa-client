@@ -10,7 +10,6 @@ cryptography>=49           # GHSA-537c-gmf6-5ccf
 watchdog>=4
 watchfiles>=1.2
 psutil>=5.9  # backend-F-24: pty_discover の pgrep/ps/lsof fork 連打を 1 ループ化
-structlog>=26  # ADR-012 observability: contextvars merge + JSON renderer + redact processor
 
 # dev / lint / test (= task lint, task test)
 flake8>=7

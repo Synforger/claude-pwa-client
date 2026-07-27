@@ -160,7 +160,7 @@ async def _subagents_watcher(conn: UnifiedConn, sid: str) -> None:
     if base is None:
         return
     last_sig = _dir_signature(base)
-    last_payload = _build_subagents_payload(base)
+    last_payload = _build_subagents_payload(base, sid)
     await conn.queue.put({"ch": "subagents", "sid": sid, "data": last_payload})
     watch_targets = [d for d in (base / "subagents", base / "workflows") if d.is_dir()]
     try:
@@ -172,7 +172,7 @@ async def _subagents_watcher(conn: UnifiedConn, sid: str) -> None:
         nonlocal last_sig, last_payload
         sig = _dir_signature(base)
         if sig != last_sig or _payload_has_running(last_payload):
-            payload = _build_subagents_payload(base)
+            payload = _build_subagents_payload(base, sid)
             if sig != last_sig or payload != last_payload:
                 last_sig = sig
                 last_payload = payload
@@ -185,6 +185,15 @@ async def _subagents_watcher(conn: UnifiedConn, sid: str) -> None:
     else:
         async for _ in _awatch_with_heartbeat(awatch, watch_targets, 5.0):
             await _maybe_push()
+
+
+def _log_watcher_crash(task: asyncio.Task) -> None:
+    """subagents watcher が例外死したら error log に残す (= cancel は正常経路なので除外)。"""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error("subagents watcher crashed", exc_info=exc)
 
 
 def _stop_subagents_watcher(conn: UnifiedConn) -> None:
@@ -407,7 +416,12 @@ async def stream_unified_control(conn_id: str, body: dict):
         _stop_subagents_watcher(conn)
         if isinstance(sid, str) and sid:
             conn.subagents_sid = sid
-            conn.subagents_task = asyncio.create_task(_subagents_watcher(conn, sid))
+            task = asyncio.create_task(_subagents_watcher(conn, sid))
+            # fire-and-forget の例外は誰にも報告されず task に握られたまま沈む
+            # (= 2026-07-27: watcher が引数不整合で即死していたのにログ 0 件だった)。
+            # cancel 以外の例外は必ず error log に出す。
+            task.add_done_callback(_log_watcher_crash)
+            conn.subagents_task = task
         return {"ok": True}
 
     raise HTTPException(status_code=422, detail=f"unknown op: {op}")

@@ -1,5 +1,5 @@
 // 描画専用 ephemeral state (= state-trace.md § 5)。 streamBuffer / attachments / loading /
-// apiKeySource / sendFailedText / stopUnavailableSid / reconnectKey を 1 store に集約。
+// sendFailedText / stopUnavailableSid / reconnectKey を 1 store に集約。
 // localStorage 永続化しない (= state/persistence.js は触らない)。
 //
 // loading は backend SSE 由来の真値、 ephemeral 側に置くのは「optimistic で 1 瞬上書きする層」 として。
@@ -14,7 +14,6 @@ import { createStore } from './_store.js'
 const INITIAL = {
   attachments: {},       // { [sid]: AttachmentItem[] }
   loading: {},           // { [sid]: boolean } backend authority
-  apiKeySource: {},      // { [sid]: string } (system/init event)
   streamBuffers: {},     // { [sid]: { text, thinking, newTools, uuid, dirty, needsNewBubble } }
   sendFailedText: null,  // string | null (= F-36 ChatInput.localText 復元用、 active sid 限定で write)
   stopUnavailableSid: null, // string | null (= F-16 stop が WS 切断中、 ChatInput tooltip 用)
@@ -53,10 +52,6 @@ export function clearLoading() {
     if (Object.keys(prev.loading).length === 0) return prev
     return { ...prev, loading: {} }
   })
-}
-
-export function setApiKeySource(sid, source) {
-  store.setState(prev => ({ ...prev, apiKeySource: { ...prev.apiKeySource, [sid]: source } }))
 }
 
 /** stream buffer は mutate-in-place で書く設計 (= rAF coalesce、 v1 useStreamBuffer 流儀)。

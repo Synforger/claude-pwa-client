@@ -33,6 +33,7 @@ import { useAttachments } from '../features/attachments/useAttachments.js'
 import { gcImages } from '../features/attachments/imageStore.js'
 import { useStatus } from '../features/status-bar/useStatus.js'
 import { useSessionBadges } from '../features/push-notify/useSessionBadges.js'
+import { useRunningSubagents } from '../features/chat/useRunningSubagents.js'
 import { setBadge } from '../features/push-notify/badge.js'
 import ActivityBar from '../features/tasks/ActivityBar.jsx'
 import { PromptStateBanner } from '../features/status-bar/PromptStateBanner.jsx'
@@ -116,7 +117,7 @@ export default function ChatPanel({ sid }) {
   // W2 Phase F-4 残 (= 2026-06-29): endSession / stopMessage は features/dialogs/ConfirmEndDialog +
   // ConfirmStopDialog が useChatStream の module-level export 経由で直接呼ぶ経路に移行済。 ChatPanel
   // 内では参照しないので destructure しない (= 同 hook の mount で module-level impl が wire される)。
-  const { loading, setLoading, apiKeySource, sendMessage, fetchLatest, optimisticRef } = useChatStream({
+  const { loading, setLoading, sendMessage, fetchLatest, optimisticRef } = useChatStream({
     activeSession,
     setMessages,
     input, setInput,
@@ -237,10 +238,7 @@ export default function ChatPanel({ sid }) {
     forkSession(activeSid, uuid)
   }, [activeSid, forkSession])
   const activeSubagentTool = status?.subagent?.last_tool || null
-  const activeApiKeySource = useMemo(
-    () => (activeSid ? (apiKeySource[activeSid] ?? null) : null),
-    [activeSid, apiKeySource],
-  )
+  const runningSubagents = useRunningSubagents(activeSid)
 
   const sids = useMemo(() => sessions.map(s => s.id), [sessions])
   const currentAttachments = (activeSid && attachments[activeSid]) || EMPTY_ARR
@@ -341,8 +339,8 @@ export default function ChatPanel({ sid }) {
         viewMode={activeViewMode}
         displayMessages={displayMessages}
         onOpenFile={handleOpenPath}
-        apiKeySource={activeApiKeySource}
         activeSubagentTool={activeSubagentTool}
+        runningSubagents={runningSubagents}
         onOpenSubagents={handleOpenSubagents}
         onFork={activeSid ? handleFork : null}
         showScrollBtn={showScrollBtn}

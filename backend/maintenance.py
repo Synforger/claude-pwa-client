@@ -12,7 +12,7 @@ backend logs (RotatingFileHandler) / uploads/tmp (1h GC) は別経路で既対�
 2026-06-21 (backend-F-33): Sunshine restart / streamer ゾンビ reap の管理を
 backend から完全に切り離した。 backend が画面共有 daemon の生死管理を担うの
 は責務違反 (= claude 経路と無関係、 別マシンで backend を動かす運用が阻害)
-だったため、 `docs/ops/sunshine.md` の運用手順 + LaunchAgent watchdog に
+だったため、 `docs/troubleshooting/sunshine.md` の運用手順 + LaunchAgent watchdog に
 外出し。 旧 `restart_sunshine_if_bloated` / `_reap_zombie_streamers` /
 `_has_live_streamer` / `_phys_footprint_bytes` / `_pgrep_one` /
 `SUNSHINE_FOOTPRINT_MAX_BYTES` / `STREAMER_ZOMBIE_SECONDS` / `_FOOTPRINT_RE`
@@ -291,21 +291,10 @@ def run_all_maintenance() -> dict:
     """全 cleanup を 1 回実行 + 結果サマリを返す。 起動時と定期 loop の両方で呼ぶ。
 
     2026-06-21 (backend-F-33): Sunshine restart / streamer ゾンビ reap は本 file
-    から外出し済 (= docs/ops/sunshine.md + LaunchAgent 別経路)。 backend
+    から外出し済 (= docs/troubleshooting/sunshine.md + LaunchAgent 別経路)。 backend
     summary からも `restarted_sunshine` キーを削除。
     """
     from backend.jsonl.session_status import cleanup_orphan_turn_starts  # noqa: PLC0415
-    from backend.observability.event_journal import rotate_and_purge as _rotate_journal  # noqa: PLC0415
-    from backend.observability.metrics import (  # noqa: PLC0415
-        metrics as _metrics,
-        JOURNAL_ROTATE_GZIPPED,
-        JOURNAL_ROTATE_REMOVED,
-    )
-
-    # event_journal rotation (= ADR-012、 daily で gzip + retention + watermark)
-    journal_stats = _rotate_journal()
-    _metrics.inc(JOURNAL_ROTATE_GZIPPED, journal_stats.get("gzipped", 0))
-    _metrics.inc(JOURNAL_ROTATE_REMOVED, journal_stats.get("removed_retention", 0) + journal_stats.get("removed_watermark", 0))
 
     return {
         "killed_tmux": cleanup_stale_tmux_sessions(),
@@ -313,7 +302,6 @@ def run_all_maintenance() -> dict:
         "removed_statusline_map": cleanup_stale_statusline_map(),
         "removed_jsonl": cleanup_old_jsonl(),
         "orphan_turn_starts": cleanup_orphan_turn_starts(),
-        "event_journal_rotated": journal_stats,
     }
 
 

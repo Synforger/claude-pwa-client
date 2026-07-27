@@ -12,6 +12,15 @@ from pydantic import BaseModel, ConfigDict, Field
 SCHEMA_VERSION = "1.1"
 
 
+class UserEvent(BaseModel):
+    """tool_result を含む user 行 (= 既存 tool_use への結果紐付け専用、 表示バブルは作らない)"""
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["user"]
+    sid: Optional[str] = None  # session id (= 配送 envelope が注入)
+    corr_id: Optional[str] = None  # W3C trace_id 頭 8 文字 (= 配送 envelope が注入)
+    message: dict[str, Any]
+
+
 class UserMessageEvent(BaseModel):
     """ユーザ発話 (= claude が JSONL の user 行に書いた瞬間)"""
     model_config = ConfigDict(extra="forbid")
@@ -83,15 +92,14 @@ class TaskNotificationEvent(BaseModel):
 
 
 class SystemEvent(BaseModel):
-    """system banner (= compact_boundary / init 等の境界情報)"""
+    """system banner (= compact_boundary 等の境界情報)"""
     model_config = ConfigDict(extra="forbid")
     type: Literal["system"]
     sid: str
     uuid: Optional[str] = None
     corr_id: str
-    subtype: Literal["compact_boundary", "init"]
+    subtype: Literal["compact_boundary"]
     compactMetadata: Optional[dict[str, Any]] = None  # subtype == compact_boundary のみ
-    apiKeySource: Optional[str] = None  # subtype == init のみ (= /login / ANTHROPIC_API_KEY 等)
 
 
 class SystemErrorEvent(BaseModel):
@@ -242,9 +250,10 @@ class PromptStateEvent(BaseModel):
     key_requires_enter: Optional[bool] = None  # 1 打鍵後に Enter が要るか (= shell prompt true / Ink dialog false)
 
 
-AnyEvent = Union[UserMessageEvent, AssistantEvent, ResultEvent, AskUserQuestionEvent, TaskNotificationEvent, SystemEvent, SystemErrorEvent, HookErrorEvent, SystemNoteEvent, AttachmentEvent, BudgetEvent, ModeEvent, PermissionModeEvent, PrLinkEvent, TurnDurationEvent, StopHookSummaryEvent, AwaySummaryEvent, PromptStateEvent]
+AnyEvent = Union[UserEvent, UserMessageEvent, AssistantEvent, ResultEvent, AskUserQuestionEvent, TaskNotificationEvent, SystemEvent, SystemErrorEvent, HookErrorEvent, SystemNoteEvent, AttachmentEvent, BudgetEvent, ModeEvent, PermissionModeEvent, PrLinkEvent, TurnDurationEvent, StopHookSummaryEvent, AwaySummaryEvent, PromptStateEvent]
 
 EVENT_BY_TYPE: dict[str, type[BaseModel]] = {
+    "user": UserEvent,
     "user_message": UserMessageEvent,
     "assistant": AssistantEvent,
     "result": ResultEvent,

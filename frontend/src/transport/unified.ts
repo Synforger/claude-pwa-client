@@ -1,7 +1,7 @@
 // 統合 transport singleton (= /stream/unified、 2026-07-14 電力効率工事)。
 //
-// 旧構成の SSE/WS 4-5 本 (= sse.ts + sse-sessions-status + sse-sessions-overview +
-// sse-subagents + ws-views) を 1 本の SSE + 制御 POST に畳む。 wire 仕様は
+// 旧構成の SSE/WS 4-5 本を 1 本の SSE + 制御 POST に畳む (= 旧 transport 群は
+// 2026-07-27 退役、 本 file が唯一の transport)。 wire 仕様は
 // contracts/schema/http-endpoints.yaml の /stream/unified、 protocol 解説は
 // docs/internals/protocol/streams.md § /stream/unified。
 //
@@ -10,7 +10,7 @@
 //     tool_result が無線にも main thread にも届かない)
 //   - offset は frame 内 pos で毎 frame 前進、 永続化は 1s debounce + hidden 同期 flush
 //     (= 旧 sse.ts の毎 event 同期 setItem を廃止)
-//   - keep-alive 1 心拍 / 25s、 生存監視は 65s watchdog (= _sse.ts と同値)
+//   - keep-alive 1 心拍 / 25s、 生存監視は 65s watchdog
 //
 // consumer は transport/select.ts 経由で旧 singleton と同じ interface を受け取る
 // (= 切替は select.ts の 1 点、 rollback は localStorage cpc_transport=legacy)。
@@ -18,12 +18,13 @@
 import { API_BASE } from '../constants.js'
 import { httpClient } from './http.ts'
 import { registerConnection, notifyConnectionChange } from './connectionStatus.js'
+import { LS_STATUS_KEY } from './statusCache.ts'
 
 type Handler = (data: unknown) => void
 type State = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed'
 
 const LS_OFFSETS = 'cpc_v2_jsonl_offsets'   // {sid: byte_offset} (= 旧 sse.ts と同 key、 移行不要)
-const LS_STATUS = 'cpc_last_all_status'     // 起動 hydrate 用 (= 旧 sse-sessions-status と同 key)
+// 起動 hydrate 用 write-through key は statusCache.ts が真値
 const LIVENESS_TIMEOUT_MS = 65_000
 const LIVENESS_CHECK_MS = 15_000
 const RECONNECT_DELAY_MS = 3_000
@@ -188,7 +189,7 @@ class UnifiedTransport {
     }
     if (ch === 'status') {
       const data = frame.data
-      try { localStorage.setItem(LS_STATUS, JSON.stringify(data)) } catch { /* quota 等は無視 */ }
+      try { localStorage.setItem(LS_STATUS_KEY, JSON.stringify(data)) } catch { /* quota 等は無視 */ }
       this.lastStatus = data
       for (const h of this.statusHandlers) {
         try { h(data) } catch (e) { console.warn('[unified] status handler threw', e) }
@@ -431,7 +432,7 @@ export const unifiedJsonl = {
   get state() { return unifiedTransport.state },
 }
 
-/** _sse.ts factory (SseInstance) 互換 (= sessions-status / sessions-overview の代替)。 */
+/** SseInstance 互換 subscriber (= sessions-status / sessions-overview channel 用)。 */
 export const unifiedStatusSse = {
   name: 'unified:status',
   subscribe: (h: Handler) => unifiedTransport.subscribeStatus(h),
@@ -450,7 +451,7 @@ export const unifiedOverviewSse = {
   get hasSubscribers() { return true },
 }
 
-/** sse-subagents (PerSidSseFactory) 互換。 */
+/** per-sid subagents channel subscriber。 */
 export const unifiedSubagentsSse = {
   subscribe: (sid: string, h: Handler) => unifiedTransport.subscribeSubagents(sid, h),
 }

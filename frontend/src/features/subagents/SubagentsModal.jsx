@@ -176,7 +176,7 @@ function SubagentsModalInner({ sid, focus, onClose }) {
   const [error, setError] = useState(null)
   const [run, setRun] = useState(null)        // drill-down 中の Workflow run
   const [agent, setAgent] = useState(null)    // transcript 表示中の agent
-  const focusedRef = useRef(false)            // focus 自動遷移を 1 回だけ行う
+  const focusedRef = useRef(null)             // 解決済み focus 値 (= 同じ focus の再処理だけ抑止)
 
   // 初期表示は GET で即埋め、 live 更新は SSE。 SSE の初期 snapshot は「接続確立時に 1 回」
   // しか流れないので、 リロード / 復帰後に stream 接続が張り直せていないと data=null のまま
@@ -196,7 +196,7 @@ function SubagentsModalInner({ sid, focus, onClose }) {
         }
       })
       .catch(() => { /* GET 失敗は無視、 SSE 側で埋まる */ })
-    // /sessions/{sid}/subagents/stream は transport/sse-subagents.ts per-sid factory (= ADR-019) で
+    // subagents channel は unified stream の per-sid 購読 (= transport/select.ts) で
     // 立てる。 subscribe は sid 単位で同 EventSource 共有 (= refs カウンタ)、 unsubscribe で自動 close。
     const unsub = subagentsStreamSse.subscribe(sid, (d) => {
       if (d && typeof d === 'object') {
@@ -213,19 +213,24 @@ function SubagentsModalInner({ sid, focus, onClose }) {
   //                      への symlink) を直接 pathOverride で渡し、 一覧ロードを待たずに
   //                      TranscriptView を open する (= claude_sid drift 済み履歴 task でも到達可)
   useEffect(() => {
-    if (!focus || focusedRef.current) return
+    // ラッチは「同じ focus 値」 に対してのみ効かせる。 boolean 単発ラッチだと、 モーダルを
+    // 開いたまま別の TaskNotification カードの 🤖 を押した時 (= focus が別値に変わる) に
+    // 2 件目以降が全部無視され、 前の transcript が出続ける。
+    const key = focus ? `${focus.kind} ${focus.value}` : null
+    if (!focus || focusedRef.current === key) return
     if (focus.kind === 'taskOutputPath') {
+      setRun(null)
       setAgent({ pathOverride: focus.value, label: 'Task transcript' })
-      focusedRef.current = true
+      focusedRef.current = key
       return
     }
     if (!data) return
     if (focus.kind === 'workflowTaskId') {
       const w = data.workflows.find(x => x.taskId === focus.value)
-      if (w) { setRun(w); focusedRef.current = true }
+      if (w) { setAgent(null); setRun(w); focusedRef.current = key }
     } else if (focus.kind === 'agentDesc') {
       const s = data.subagents.find(x => x.description === focus.value)
-      if (s) { setAgent(s); focusedRef.current = true }
+      if (s) { setRun(null); setAgent(s); focusedRef.current = key }
     }
   }, [focus, data])
 

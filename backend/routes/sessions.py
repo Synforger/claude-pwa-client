@@ -348,14 +348,6 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
     return {"ok": True}
 
 
-@router.get("/sessions/{session_id}/history")
-async def get_session_history(session_id: str, _: str = Depends(require_session)):
-    """pwa_sid の直近 claude_sid 履歴 (= 最新 3 件、 新しい順) を返す。 restart 直前に
-    記録された claude_sid + ended_at + jsonl_path を持つ。 binding が事故で消えた時の
-    復旧 UI 用 (= backend ログ grep より速く前 sid に辿れる経路)。"""
-    return {"entries": session_history.get(session_id)}
-
-
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str, _: str = Depends(require_session)):
     # フォーク産タブはここで掴んでおく (= unregister 後だと meta が消えて辿れない)。
@@ -363,6 +355,7 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
     meta = sessions_meta.get(session_id)
     fork_resume_id = getattr(meta, "resume_session_id", None) if meta is not None else None
     fork_agent_id = getattr(meta, "agent_id", None) if meta is not None else None
+    fork_account_id = getattr(meta, "account_id", None) if meta is not None else None
     # PTY + tmux + JSONL binding を一括 cleanup
     try:
         kill_tmux_session(session_id)
@@ -387,7 +380,13 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
             cwd = (AGENTS.get(fork_agent_id) or {}).get("cwd")
             # module-attribute lookup で monkeypatch 互換維持 (= test が
             # `monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", ...)` する)。
-            project_dir = jsonl_watcher._cwd_to_project_dir(cwd) if cwd else None
+            # account_id を渡さないと personal (~/.claude) に fallback し、 work account の
+            # fork jsonl は exists()=False で GC が常に空振りする (= spawn 側 2026-07-22
+            # 根治と同型の渡し忘れ)。
+            project_dir = (
+                jsonl_watcher._cwd_to_project_dir(cwd, account_id=fork_account_id)
+                if cwd else None
+            )
             if project_dir is not None:
                 fork_jsonl = project_dir / f"{fork_resume_id}.jsonl"
                 if fork_jsonl.exists():
