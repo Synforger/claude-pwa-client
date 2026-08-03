@@ -123,6 +123,50 @@ def test_chat_router_includes_all_three_subrouters(isolated_state):
     assert "/accounts" in paths
 
 
+# --- 既定 account の解決 (= account_id を持たない古い session の所属) ---
+
+def _write_accounts_config(tmp_path, monkeypatch, accounts):
+    """conftest の autouse fixture と同じ作法で config を差し替える (= CONFIG_PATH +
+    cache_clear)。 get_config 自体を lambda に置くと fixture の teardown が呼ぶ
+    cache_clear で落ちる。"""
+    import json  # noqa: PLC0415
+    import backend.config as config_mod  # noqa: PLC0415
+    cfg = tmp_path / "accounts-config.json"
+    cfg.write_text(json.dumps({"accounts": accounts}), encoding="utf-8")
+    monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg)
+    config_mod.get_config.cache_clear()
+    return config_mod
+
+
+def test_default_account_is_the_one_without_a_config_dir(tmp_path, monkeypatch):
+    """account_id 未設定の session は既定 config dir を読む。 それと同じ場所を指す account
+    (= env に CLAUDE_CONFIG_DIR を持たないもの) が「未設定と等価」。"""
+    config_mod = _write_accounts_config(tmp_path, monkeypatch, {
+        "work": {"display_name": "Work", "env": {"CLAUDE_CONFIG_DIR": "/somewhere"}},
+        "personal": {"display_name": "Personal", "env": {}},
+    })
+    assert config_mod.default_account_id() == "personal"
+
+
+def test_default_account_is_none_when_every_account_is_scoped(tmp_path, monkeypatch):
+    config_mod = _write_accounts_config(tmp_path, monkeypatch, {
+        "a": {"env": {"CLAUDE_CONFIG_DIR": "/a"}},
+        "b": {"env": {"CLAUDE_CONFIG_DIR": "/b"}},
+    })
+    assert config_mod.default_account_id() is None
+
+
+def test_accounts_endpoint_marks_the_default(tmp_path, monkeypatch):
+    """/accounts は既定 account に印を付ける (= frontend が「所属なし」 を解決できるように)。"""
+    import backend.routes.accounts as accounts_mod  # noqa: PLC0415
+    _write_accounts_config(tmp_path, monkeypatch, {
+        "personal": {"display_name": "Personal", "env": {}},
+        "work": {"display_name": "Work", "env": {"CLAUDE_CONFIG_DIR": "/w"}},
+    })
+    out = accounts_mod.list_accounts()
+    assert [(a["id"], a["is_default"]) for a in out] == [("personal", True), ("work", False)]
+
+
 # --- backend-F-44: demote_fork_to_normal helper ---
 def test_demote_fork_to_normal_clears_resume_id_and_gcs_jsonl(tmp_path, monkeypatch, isolated_state):
     """fork タブの resume_session_id を落として fork jsonl も unlink (= F-44 helper)。"""

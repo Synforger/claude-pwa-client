@@ -21,6 +21,7 @@ import {
   setOverlay,
 } from '../../state/ui.js'
 import {
+  continueOnAccount,
   createSession,
   renameSession,
   setNotifyMode,
@@ -100,6 +101,7 @@ export default function SessionDrawer() {
   }, [])
   const onCreate = useCallback((agentId, accountId) => createSession(agentId, accountId), [])
   const onRename = useCallback((id, title) => renameSession(id, title), [])
+  const onContinueOnAccount = useCallback((id, accountId) => continueOnAccount(id, accountId), [])
   const onSetNotifyMode = useCallback((id, mode) => setNotifyMode(id, mode), [])
   const onDelete = useCallback((sid) => setOverlay('confirmDelete', sid), [])
 
@@ -185,28 +187,29 @@ export default function SessionDrawer() {
       })
   }, [])
   useEffect(() => {
-    if (!agentPicker) return undefined
     // 初回 (= 未試行) だけここで fetch する。 error からの再試行は (a) 30 秒 timer or
     // (b) ユーザの再試行ボタン (= picker UI) で別経路から呼ぶ。
     if (accountsStatus !== null) return undefined
     const controller = new AbortController()
     fetchAccounts(controller.signal)
     return () => controller.abort()
-    // deps は agentPicker のみ。 accountsStatus を入れると fetchAccounts 内の
-    // setAccountsStatus('loading') でこの effect が再実行され、 cleanup の abort() が fetch
-    // 自身を中断 → status が 'loading' で固定し「アカウント取得中…」 から進めなくなる
-    // (= 2026-06-22 実機で発覚した abort race)。 fetch トリガーは picker が開いた瞬間で十分。
+    // deps は空。 accountsStatus を入れると fetchAccounts 内の setAccountsStatus('loading')
+    // でこの effect が再実行され、 cleanup の abort() が fetch 自身を中断 → status が
+    // 'loading' で固定し「アカウント取得中…」 から進めなくなる (= 2026-06-22 実機で発覚した
+    // abort race)。 旧版は agentPicker が開いた瞬間を trigger にしていたが、 一覧の
+    // アカウント表示と ⋯ メニューの「別アカウントで続ける」 でも候補が要るので mount 時に
+    // 1 回取る (= GET 1 本、 以降は状態を使い回す)。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentPicker])
+  }, [])
   // 失敗から 30 秒経ったら自動 retry を 1 回だけ。 連続失敗時は手動 retry に委ねる。
   useEffect(() => {
-    if (accountsStatus !== 'error' || !agentPicker) return undefined
+    if (accountsStatus !== 'error') return undefined
     const id = setTimeout(() => {
       const controller = new AbortController()
       fetchAccounts(controller.signal)
     }, 30000)
     return () => clearTimeout(id)
-  }, [accountsStatus, agentPicker, fetchAccounts])
+  }, [accountsStatus, fetchAccounts])
 
   const handleAgentPick = (agentId) => {
     // account 選択を省いて即作成するのは「fetch 完了済 (= 'ok') かつ候補 0/1 件」 の時だけ。
@@ -257,6 +260,12 @@ export default function SessionDrawer() {
   }
 
   // フォークタブ (= parent_id を持つ) を親の直下にインデント表示する (= C 案)。 兄弟内の
+  // account_id を持たない session が実際に動いている account (= backend が is_default で示す)。
+  const defaultAccountId = useMemo(
+    () => accounts.find(a => a.is_default)?.id || null,
+    [accounts],
+  )
+
   // 並びは渡された順 (= created_at 降順) を保つ。 親が消えてる孤児はトップレベル扱い。
   // F-38: sessions が変わった時だけ tree を組み直す (= 再 render 毎の object 構築を回避)。
   const orderedSessions = useMemo(() => {
@@ -419,6 +428,15 @@ export default function SessionDrawer() {
             const isMenuOpen = menuFor === s.id
             const isRenaming = renameFor === s.id
             const isFork = depth > 0
+            // account_id が空のタブ (= 古い時期に作られた) は既定アカウントで動いている。
+            // backend が /accounts の is_default で「未設定と等価な account」 を教えてくれる。
+            const effectiveAccount = s.account_id || defaultAccountId
+            // アカウントが 1 つしか無い環境では札を出さない (= 全行同じ名前で情報量ゼロ)。
+            const accountLabel = accounts.length > 1
+              ? (accounts.find(a => a.id === effectiveAccount)?.display_name || effectiveAccount || null)
+              : null
+            // 移し先候補 = 今と違うアカウント。 1 つなら選択させず直接その名前のボタンを出す。
+            const moveTargets = accounts.filter(a => a.id !== effectiveAccount)
             return (
               <div
                 key={s.id}
@@ -449,6 +467,7 @@ export default function SessionDrawer() {
                   >
                     {isFork && <span className="drawer-item-fork-mark" title={t('drawer.fork')}>⑂</span>}
                     <span className="drawer-item-title">{s.title}</span>
+                    {accountLabel && <span className="drawer-item-account">{accountLabel}</span>}
                     {badge && <span className={`tab-badge ${badge.kind}`}>{badge.label}</span>}
                   </button>
                 )}
@@ -480,6 +499,20 @@ export default function SessionDrawer() {
                     onClick={e => e.stopPropagation()}
                   >
                     <button onClick={() => startRename(s.id, s.title)}>{t('drawer.rename')}</button>
+                    {moveTargets.length > 0 && (
+                      <>
+                        <div className="drawer-popup-sep" />
+                        <div className="drawer-popup-label">{t('drawer.continue_on.label')}</div>
+                        {moveTargets.map(acc => (
+                          <button
+                            key={acc.id}
+                            onClick={() => { setMenuFor(null); onContinueOnAccount(s.id, acc.id) }}
+                          >
+                            {t('drawer.continue_on.action', { account: acc.display_name })}
+                          </button>
+                        ))}
+                      </>
+                    )}
                     {onSetNotifyMode && (
                       <>
                         <div className="drawer-popup-sep" />

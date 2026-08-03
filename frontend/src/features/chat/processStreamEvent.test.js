@@ -289,6 +289,31 @@ describe('processStreamEvent — tool_result 紐付け', () => {
     processStreamEvent(deps, 's1', toolResultEvent('unknown', 'x'))
     expect(get()).toBe(init)
   })
+
+  // ライブ SSE は「進行中の tool 出力を完全な形で届ける」 契約なので画像 base64 込みで届く。
+  // 履歴 GET 側は backend が同じ縮小を掛けている (= _shrink_tool_results) ため、 ここを
+  // 通さないと「ライブで受けた会話だけ state が重い」 非対称が残る (= 実測 1 件 1.1MB)。
+  it('ライブ受信した tool_result の画像本体は state に載せない (= 表示は不変)', () => {
+    const init = { s1: [{ id: 'a1', role: 'agent', text: '', tools: [{ id: 't1', name: 'Bash' }] }] }
+    const { deps, get } = makeStatefulDeps(init)
+    const heavy = [
+      { type: 'text', text: 'captured' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'A'.repeat(4096) } },
+    ]
+    processStreamEvent(deps, 's1', toolResultEvent('t1', heavy))
+    expect(get().s1[0].tools[0].result.content).toEqual([
+      { type: 'text', text: 'captured' },
+      { type: 'image' },
+    ])
+  })
+
+  it('画像を含まない tool_result は content の参照をそのまま保つ', () => {
+    const init = { s1: [{ id: 'a1', role: 'agent', text: '', tools: [{ id: 't1', name: 'Bash' }] }] }
+    const { deps, get } = makeStatefulDeps(init)
+    const content = [{ type: 'text', text: 'plain' }]
+    processStreamEvent(deps, 's1', toolResultEvent('t1', content))
+    expect(get().s1[0].tools[0].result.content).toBe(content)
+  })
 })
 
 describe('processStreamEvent — prompt_state 振り分け', () => {

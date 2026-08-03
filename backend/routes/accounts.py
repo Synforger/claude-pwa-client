@@ -27,8 +27,16 @@ def list_accounts():
     """セッション作成時の「アカウント」 (= 個人 / 会社 OAuth 切替) 選択肢を返す。
     候補が 1 つ (= 通常 personal だけ) のとき、 frontend は選択肢自体を出さなくて良い。
     """
-    from backend.config import ACCOUNTS  # noqa: PLC0415
+    from backend.config import ACCOUNTS, default_account_id  # noqa: PLC0415
+    # account_id を持たない session (= 古い時期に作られたタブ) がどの account と等価かを
+    # frontend が判定できるよう、 既定 account に印を付ける。 これが無いと「所属なし」 扱いに
+    # なり、 自分自身が「別アカウントで続ける」 の候補に並ぶ。
+    default_id = default_account_id()
     return [
-        {"id": name, "display_name": cfg.get("display_name", name)}
+        {
+            "id": name,
+            "display_name": cfg.get("display_name", name),
+            "is_default": name == default_id,
+        }
         for name, cfg in ACCOUNTS.items()
     ]

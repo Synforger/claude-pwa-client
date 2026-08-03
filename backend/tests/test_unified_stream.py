@@ -24,6 +24,12 @@ def _run(coro):
         asyncio.set_event_loop(loop)
         return loop.run_until_complete(coro)
     finally:
+        # 閉じる前に 1 tick 回す。 anyio が起こす worker thread は root task の done callback
+        # (= worker.stop) で止まるが、 その callback は call_soon で予約されるだけなので、
+        # run_until_complete が返った直後に close すると実行されない。 worker は non-daemon
+        # なので残ると **pytest 本体が終わってもプロセスが exit できない** (= 2026-08-03:
+        # 全 759 件が 8 秒で緑なのにプロセスが終わらず、 CI が固まったように見えていた)。
+        loop.run_until_complete(asyncio.sleep(0))
         loop.close()
         asyncio.set_event_loop(asyncio.new_event_loop())
 
