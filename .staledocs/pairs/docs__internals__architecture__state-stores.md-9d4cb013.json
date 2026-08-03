@@ -6,6 +6,7 @@
       "activeId",
       "audit-w2-residue-allowlist.txt",
       "createStore",
+      "deriveSessionBadges",
       "endSession",
       "ephemeral.js",
       "frontend/src/features/app-effects/",
@@ -51,7 +52,7 @@
       "utils/toolResult.js",
       "viewModes[sid]"
     ],
-    "at": "2026-08-03T08:12:20+00:00",
+    "at": "2026-08-03T08:29:15+00:00",
     "code_blobs": {
       "backend/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
@@ -95,7 +96,7 @@
       "backend/routes/hooks.py": "c788600390211ce9a9c5e62e75be61e373c63b6a",
       "backend/routes/overview.py": "c42507501e1da9fdddfddec5d16a870eeb756306",
       "backend/routes/sessions.py": "69b37616ddeb6eed90ac6b17f6c76e1813b828d5",
-      "backend/routes/subagents.py": "f02b9232ca43ba6d5b026cabfa2f7c6cb2949eef",
+      "backend/routes/subagents.py": "e59475f74c62d43355feacb8c2b77bde8c434bdc",
       "backend/routes/unified_stream.py": "f6743fe777dd6c1c243e3d14c6e3681f8d574244",
       "backend/state.py": "10b204eb2a66764aa91735140626279feb8dc00c",
       "backend/terminal/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
@@ -167,7 +168,7 @@
       "backend/tests/test_session_history.py": "a4b93f9c442ba6a41e615b5e2870767b91f9b0a3",
       "backend/tests/test_session_resolver.py": "49b001887791e3fb4cff428c83b18201de9bdd48",
       "backend/tests/test_state.py": "344c6fce2a0df367b713f8fd391d7d565c06b1aa",
-      "backend/tests/test_subagents_routes.py": "b87995a111d08caec224b8431e8df28303365438",
+      "backend/tests/test_subagents_routes.py": "e5fde97edcd3082034ca6d809fe327ab53e3826f",
       "backend/tests/test_tmux_resilience.py": "4d2c1b9bebd3151e69ea0b132fcf930ce991ae87",
       "backend/tests/test_unified_stream.py": "6bd37d577a3739750dbaf8e3b8ad0ca2fea903c3",
       "backend/tests/test_usage.py": "1c255a036879baaf161d3051a5470a3d1ecd945f",
@@ -247,13 +248,13 @@
       "frontend/src/features/plan-approval/PlanApprovalBubble.jsx": "63a34e696474f7a7fd876a076a7b2662b6d180da",
       "frontend/src/features/plan-approval/index.js": "0699cead520f0398d96d7974104e095d7e98ad3c",
       "frontend/src/features/push-notify/badge.js": "7fc0f53c96f4d933440844dd75aed4b00eec9e0f",
-      "frontend/src/features/push-notify/deriveSessionBadges.test.js": "c3882692b62b03742d4608e0fe758a1989f19731",
+      "frontend/src/features/push-notify/deriveSessionBadges.test.js": "3504a5095d8be0b0f78adf2906530566a895036a",
       "frontend/src/features/push-notify/index.js": "e4cab218c47d530627075382728435948c0578d5",
       "frontend/src/features/push-notify/push.js": "786c56a486920928bd5826005254ebf6ec096e87",
       "frontend/src/features/push-notify/useNotificationClear.js": "8bc1c56b732d1f68f7f173516f0e45a6af652fbc",
       "frontend/src/features/push-notify/usePushSubscription.js": "14023e3fb572d39dd062eb28076dff51c464daae",
       "frontend/src/features/push-notify/useReadOnSessionOpen.js": "961673fa93fabf90a626519610705c3ca0245cf7",
-      "frontend/src/features/push-notify/useSessionBadges.js": "fdbcd0b67a947c4a1c8897913f8f5e90ce1269a8",
+      "frontend/src/features/push-notify/useSessionBadges.js": "2de092bd1356a7be5e68488d9ac9132bee23987a",
       "frontend/src/features/screenshare/MoonlightFrame.css": "fd4b23aca5441338948b0f4109aaf0bcb4f5bfc7",
       "frontend/src/features/screenshare/MoonlightFrame.jsx": "753f6376aa521f643fe23330213b6bbce4c9da02",
       "frontend/src/features/screenshare/index.js": "ea6c9ec8b2d25bc5760dc61b9f293528458dcba5",
@@ -382,9 +383,9 @@
       "frontend/src/utils/toolResult.js": "35fb261cab02d9c8b2b3f2e1a92ce3a3c988ef19",
       "frontend/src/utils/toolResult.test.js": "b504bac8bcbc093c8f6dfbaf79185f057a642130"
     },
-    "commit": "5f68b5500b96c23a46ee3afed608bcf3759bcd5b",
-    "doc_blob": "7f61ad16b99d861cf965e8298d62ef2c88c710dd",
-    "note": "noted that messages.js no longer carries tool_result image payloads"
+    "commit": "223c38e5549c3ee0d18065ea37001d3f3c080d5b",
+    "doc_blob": "3e54f97e6c613d6f117d835f03e603363d5de3a7",
+    "note": "store table still matches; backend/routes/subagents.py only reads transcripts and the badge rule is now recorded"
   },
   "doc": "docs/internals/architecture/state-stores.md",
   "schema": 1

@@ -80,9 +80,45 @@ def _read_meta(meta_path: Path) -> dict:
         return {
             "agentType": data.get("agentType"),
             "description": data.get("description"),
+            # 親転写でこの Task の結果を引き当てるキー (= 完了判定の真値、 _completed_tool_use_ids)
+            "toolUseId": data.get("toolUseId"),
         }
     except (OSError, json.JSONDecodeError):
-        return {"agentType": None, "description": None}
+        return {"agentType": None, "description": None, "toolUseId": None}
+
+
+def _completed_tool_use_ids(base: Path) -> set[str]:
+    """親転写に結果が返っている tool_use_id の集合。
+
+    Task の結果は親の user 行に tool_result として戻る。 これが返っていること = その Task が
+    返り済み、 という唯一の厳密な印。 「親 turn が idle だから完了」 は **背景実行の subagent
+    には成立しない** (= 親は起動してすぐ自分の turn を終え、 subagent はその後も走り続ける。
+    2026-08-03 に走行中の subagent が軒並み done 表示になっていた実害の真因)。
+
+    1 行ずつ読む (= 転写には 1MB 級の行が混ざる)。 tool_result を含まない行は parse もしない。
+    """
+    ids: set[str] = set()
+    parent = base.parent / f"{base.name}.jsonl"
+    try:
+        with open(parent, "rb") as f:
+            for raw in f:
+                if b"tool_result" not in raw:
+                    continue
+                try:
+                    d = json.loads(raw)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                content = (d.get("message") or {}).get("content") if isinstance(d, dict) else None
+                if not isinstance(content, list):
+                    continue
+                for blk in content:
+                    if isinstance(blk, dict) and blk.get("type") == "tool_result":
+                        tid = blk.get("tool_use_id")
+                        if tid:
+                            ids.add(tid)
+    except OSError:
+        pass  # benign: 親転写が読めなければ完了印を 1 つも集めない = running 側に倒れる (安全側)
+    return ids
 
 
 def _running_workflow_from_journal(run_dir: Path) -> dict | None:
@@ -184,11 +220,15 @@ def _list_workflows(base: Path) -> list[dict]:
 def _build_subagents_payload(base: Path, session_id: str) -> dict:
     """セッションの Task subagent (フラット) + Workflow run (グループ) 一覧 payload を組む。
 
-    done 判定 = subagent 自身の確定 stop_reason (= 通常完了) OR 親セッションが idle。 後者は
-    interrupt / API エラー / null 返しで subagent 転写にクリーンな stop_reason が残らず running
-    固着していた不具合の根治 (= 親 turn が終わっていれば Task は返り済み)。 親 busy 中は既存
-    scan 判定を使うので、 実際に走行中の subagent を done と誤判定しない (= 偽陽性ゼロ)。"""
+    done 判定 = subagent 自身の確定 stop_reason (= 通常完了) OR 親転写にその Task の結果が
+    返っていること。 後者は interrupt / API エラー / null 返しで subagent 転写にクリーンな
+    stop_reason が残らず running 固着していた不具合の受け皿でもある。
+
+    旧版はここを「親セッションが idle」 で代用していたが、 **背景実行の subagent は親が idle に
+    なった後も走り続ける**ので、 走行中のものが軒並み done 表示になっていた (= 2026-08-03)。
+    meta に toolUseId を持たない古い転写だけ、 従来どおり親 idle を代用に使う。"""
     parent_busy = _session_busy(session_id)
+    completed = _completed_tool_use_ids(base)
     subdir = base / "subagents"
     items = []
     if subdir.is_dir():
@@ -198,12 +238,14 @@ def _build_subagents_payload(base: Path, session_id: str) -> dict:
                 continue
             meta = _read_meta(jsonl_file.with_suffix(".meta.json"))
             scan = _scan_agent_file(jsonl_file)
+            tool_use_id = meta.get("toolUseId")
+            returned = tool_use_id in completed if tool_use_id else not parent_busy
             items.append({
                 "agentId": agent_id,
                 "agentType": meta["agentType"],
                 "description": meta["description"],
                 "lastTool": scan["lastTool"],
-                "done": scan["done"] or not parent_busy,
+                "done": scan["done"] or returned,
                 "mtime": jsonl_file.stat().st_mtime,
             })
     items.sort(key=lambda x: x["mtime"], reverse=True)

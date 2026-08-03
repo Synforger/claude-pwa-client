@@ -22,7 +22,7 @@
       "uploads_tmp",
       "vapid_sub"
     ],
-    "at": "2026-08-03T08:13:37+00:00",
+    "at": "2026-08-03T08:26:08+00:00",
     "code_blobs": {
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
       "backend/cli/gen_vapid.py": "0fdd5bd90975b39e144594fdefbb07ead666353e",
@@ -102,13 +102,13 @@
       "frontend/src/features/plan-approval/PlanApprovalBubble.jsx": "63a34e696474f7a7fd876a076a7b2662b6d180da",
       "frontend/src/features/plan-approval/index.js": "0699cead520f0398d96d7974104e095d7e98ad3c",
       "frontend/src/features/push-notify/badge.js": "7fc0f53c96f4d933440844dd75aed4b00eec9e0f",
-      "frontend/src/features/push-notify/deriveSessionBadges.test.js": "c3882692b62b03742d4608e0fe758a1989f19731",
+      "frontend/src/features/push-notify/deriveSessionBadges.test.js": "3504a5095d8be0b0f78adf2906530566a895036a",
       "frontend/src/features/push-notify/index.js": "e4cab218c47d530627075382728435948c0578d5",
       "frontend/src/features/push-notify/push.js": "786c56a486920928bd5826005254ebf6ec096e87",
       "frontend/src/features/push-notify/useNotificationClear.js": "8bc1c56b732d1f68f7f173516f0e45a6af652fbc",
       "frontend/src/features/push-notify/usePushSubscription.js": "14023e3fb572d39dd062eb28076dff51c464daae",
       "frontend/src/features/push-notify/useReadOnSessionOpen.js": "961673fa93fabf90a626519610705c3ca0245cf7",
-      "frontend/src/features/push-notify/useSessionBadges.js": "fdbcd0b67a947c4a1c8897913f8f5e90ce1269a8",
+      "frontend/src/features/push-notify/useSessionBadges.js": "2de092bd1356a7be5e68488d9ac9132bee23987a",
       "frontend/src/features/screenshare/MoonlightFrame.css": "fd4b23aca5441338948b0f4109aaf0bcb4f5bfc7",
       "frontend/src/features/screenshare/MoonlightFrame.jsx": "753f6376aa521f643fe23330213b6bbce4c9da02",
       "frontend/src/features/screenshare/index.js": "ea6c9ec8b2d25bc5760dc61b9f293528458dcba5",
@@ -237,9 +237,9 @@
       "frontend/src/utils/toolResult.js": "35fb261cab02d9c8b2b3f2e1a92ce3a3c988ef19",
       "frontend/src/utils/toolResult.test.js": "b504bac8bcbc093c8f6dfbaf79185f057a642130"
     },
-    "commit": "5f68b5500b96c23a46ee3afed608bcf3759bcd5b",
+    "commit": "223c38e5549c3ee0d18065ea37001d3f3c080d5b",
     "doc_blob": "0f4c0abfc893a5dc24f2b7844dc64f92cf20ee3d",
-    "note": "config.json schema is unchanged by this work; backend/routes/accounts.py only derives is_default from the existing env.CLAUDE_CONFIG_DIR field"
+    "note": "config.json schema untouched by the subagents.py and useSessionBadges.js changes"
   },
   "doc": "docs/reference/config.md",
   "schema": 1

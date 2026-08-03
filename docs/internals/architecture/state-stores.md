@@ -40,7 +40,7 @@ W2 architecture overhaul (= 2026-06-29 着地) で frontend `state/` は **7 領
 旧設計は features 内 `useState` を多用しており、 同 hook が複数経路で mount される (= AppEffects + SessionDrawer 等) と state が独立 instance に分裂、 backend 同期は singleton な module-level guard で済んでも UI 観測者の数だけ side-effect が起きる構造だった。 W2 Phase J で以下を sweep:
 
 - **J-2**: `usePushSubscription` の useState 4 個 → `frontend/src/state/push.js` singleton
-- **J-9**: `useChatStream` の `loading[sid]` useState → `state/ephemeral.js::loading` setter 直 wire (= SessionDrawer の青/赤丸 badge も同 store を subscribe)
+- **J-9**: `useChatStream` の `loading[sid]` useState → `state/ephemeral.js::loading` setter 直 wire (= SessionDrawer の青/赤丸 badge も同 store を subscribe)。 開いているタブは未読 / 質問待ちの印を出さないが、 **推論中 (= 青丸) だけは出す** (= 一覧は「今どのタブが動いているか」 の一覧でもあり、 開いた瞬間に消えると走行中か読めない。 判定は `deriveSessionBadges`)
 - **J-11**: `useAttachments` + `useChatStream.apiKeySource` → `frontend/src/state/ephemeral.js` 統合
 - **J-12**: messages localStorage write の useState mirror → `frontend/src/state/messages.js`、 ui keyboard 7 useState + ui scroll → `frontend/src/state/ui.js`、 useChatStream 3 件 setter dead 削除、 state/transport.js 全削除
 
