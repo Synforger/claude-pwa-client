@@ -54,7 +54,7 @@ backend と frontend を繋ぐリアルタイム経路は **4 本の SSE + 2 本
 
 旧設計は sid 毎に `/status/{sid}/stream` を張り替えていた。 タブ切替のたびに SSE を旧 close → 新接続し、 iOS Safari の 1-3 秒の TCP 確立コストで「タブ切替したのに status が出るのが遅い」 体感だった。 全 sid を 1 接続で配信に変更 (= overview と同パターン) し、 タブ切替で SSE 張り替え不要 → 切替コスト 0。 各 client は受信 payload から自分の activeSid 分を取り出すだけ。
 
-`StreamState.status_event` (per sid `asyncio.Event`) を起点に、 hooks / jsonl 経路で変化があったら `set()` → SSE 接続側が起きて全 sid snapshot を yield → `clear()`。 接続ごとの diff 配信 (= F-09) で snapshot 不変なら data 行を yield しない。 keep-alive は data 行 heartbeat `{"_hb":1}` を 20s 間隔で流す (= client の生存監視 watchdog が受信時刻を読める形。 全 sid JSON を毎 20s 流す無駄は F-10 と同じく排除)。 rate-limits は 1 秒 cache で接続数 × notify 回 read を縮める (= F-56)。
+`StreamState.status_event` (per sid `asyncio.Event`) を起点に、 hooks / jsonl 経路で変化があったら `set()` → SSE 接続側が起きて全 sid snapshot を yield → `clear()`。 接続ごとの diff 配信 (= F-09) で snapshot 不変なら data 行を yield しない。 keep-alive は data 行 heartbeat `{"ch":"sys","_hb":1}` を 20s 間隔で流す (= client の生存監視 watchdog が受信時刻を読める形。 全 sid JSON を毎 20s 流す無駄は F-10 と同じく排除)。 rate-limits は 1 秒 cache で接続数 × notify 回 read を縮める (= F-56)。
 
 ### overview channel: backend 権威 busy の唯一のソース (= 旧 /sessions/overview/stream)
 
@@ -113,6 +113,7 @@ tmux server は `exit-empty off` + 番兵 session `claudepwa-sentinel` (= backen
   - **JSON gzip** (= `backend/core/compression.py`)。 **SSE は対象外** — content-type が `text/event-stream` のものは素通しする。 streaming を圧縮すると gzip の内部 buffer に event が滞留してライブ更新が詰まるため、 ここは構造的に分けている (= pin: `backend/tests/test_compression.py::test_sse_is_never_compressed`)
   - **表示に使われない本文の除去** (= `_shrink_tool_results`)。 履歴の 65% が tool_result で、 その大半が base64 画像だった。 UI は tool_result 内の画像を「画像」 プレースホルダ 1 語に畳む (= `utils/format.js`) ので本体は 1 byte も表示に使われない → 履歴経路に限り画像本体を落とし、 長大 text も冒頭 `TOOL_RESULT_PREVIEW_CHARS` に切り詰める。 元の文字数は `full_chars` で残し、 UI の文字数ラベルはそれを使うので表示は不変 (= pin: `backend/tests/test_jsonl_routes.py::test_shrink_tool_results_drops_image_payload_but_keeps_placeholder`)
   - **ライブ SSE は無改変**: 進行中の tool 出力は従来通り完全な形で届く (= 切り詰めは「画面外の過去ログを読み直す時」 だけの最適化。 pin: `backend/tests/test_jsonl_routes.py::test_shrink_tool_results_never_touches_assistant_or_user_message`)
+  - **画像本体を落とすのは受け取った側の責務** (= `frontend/src/utils/toolResult.js`)。 無改変で届いた tool_result をそのまま state に載せると、 履歴経由の同じ会話は軽いのにライブ経由だけ重い、 という非対称が client 側に残る (= 2026-08-03 実測: 200 件の保存窓に 2.58MB、 うち 2.56MB が表示に使われない画像。 保存前の structured clone だけで main thread が 150-500ms 停止)。 state に入れる時と保存形への射影で同じ縮小を掛けて対称にする。 UI の畳み方 (= 「画像」 1 語) は変わらないので表示は不変
 
 ## 接続生存 signal の集約
 
