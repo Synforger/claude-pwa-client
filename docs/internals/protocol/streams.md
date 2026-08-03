@@ -97,7 +97,9 @@ tmux server は `exit-empty off` + 番兵 session `claudepwa-sentinel` (= backen
 - **warmup も購読 sid のみ**: 旧 `/jsonl/stream/all` の「接続時に全 sid PTY sweep」 を廃止。 未購読 sid は購読された瞬間に ensure
 - **views/ws の吸収**: op=view で視認申告、 SSE 切断 = views 登録自動消滅 (= WS の TCP FIN と同じ stale-free 性質)。 Stop は op=stop (= POST は TCP 保証で届く、 旧 WS 経路と等価)
 - **status / overview**: 接続毎 diff 配信 (= F-09 と同規約) を 1 pump に統合。 subagents は op=subagents で対象 1 sid を watch
-- **subagent の完了印**: その Task の結果 (= `tool_result`) が親転写に返っていること。 親 turn が idle かどうかは**代用にならない** — 背景実行の subagent は親が自分の turn を終えた後も走り続けるので、 idle を完了印にすると走行中のものが軒並み done 表示になる (= 2026-08-03)。 引き当ては `meta.json` の `toolUseId`、 実装は `backend/routes/subagents.py::_completed_tool_use_ids`
+- **subagent の完了印**: その Task の**実結果**が `tool_result` として親転写に返っていること。 引き当ては `meta.json` の `toolUseId`、 実装は `backend/routes/subagents.py::_completed_tool_use_ids`。 誤判定しやすい経路が 2 つある (= どちらも 2026-08-03 に実機で踏んだ):
+  - 親 turn が idle かどうかは**代用にならない**。 背景実行の subagent は親が自分の turn を終えた後も走り続けるので、 idle を完了印にすると走行中のものが軒並み done 表示になる
+  - 背景実行は**起動の瞬間に ack の `tool_result` が返る** (= 本文が `Async agent launched successfully` で始まる)。 これを数えると同じ誤 done が別経路で復活する。 背景実行の完了は subagent 自身の転写に残る確定 stop_reason で拾う
 - **keep-alive**: `{"ch":"sys","_hb":1}` を 25s 間隔 (= 全 channel 共通の 1 心拍、 旧 4-5 本分の heartbeat が 1 本に)
 
 旧 endpoint 群 (= per-sid SSE / stream/all / status/stream / overview/stream / views/ws) は 2026-07-27 に**退役** (= 実利用が旧 bundle の居座りタブのみと確認、 route ごと削除。 旧 bundle のタブは live 更新が止まるが開き直しで新 bundle が入る)。

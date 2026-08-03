@@ -398,3 +398,52 @@ def test_a_cleanly_finished_subagent_is_done_without_any_parent_result(client_wi
                                   lines=[_assistant(text="done", stop_reason="end_turn")])
     got = {s["agentId"]: s for s in client.get("/sessions/s1/subagents").json()["subagents"]}
     assert got["agent-bg4"]["done"] is True
+
+
+def _parent_launch_ack(parent_path, tool_use_id, agent_id):
+    """背景実行の Task が起動直後に返す ack (= 完了印ではない)。"""
+    with parent_path.open("a") as fh:
+        fh.write(json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": [{
+                "type": "tool_result", "tool_use_id": tool_use_id,
+                "content": [{"type": "text", "text":
+                             f"Async agent launched successfully. (internal metadata)\nagentId: {agent_id}\n"
+                             "The agent is working in the background."}],
+            }]},
+        }) + "\n")
+
+
+def test_launch_ack_does_not_count_as_completion(client_with_session, monkeypatch):
+    """背景実行は起動の瞬間に tool_result が返る。 これを完了印にすると、 走行中の subagent が
+    軒並み done になる (= 2026-08-03 実機報告、 親 idle 代用を直した後に別経路で再発した形)。"""
+    client, subdir, parent = client_with_session
+    monkeypatch.setattr(subagents_routes, "_session_busy", lambda sid: False)
+    _write_agent_with_tool_use_id(subdir, "agent-bg5", "toolu_bg5",
+                                  lines=[_assistant(tool="Grep", stop_reason="tool_use")])
+    _parent_launch_ack(parent, "toolu_bg5", "agent-bg5")
+    got = {s["agentId"]: s for s in client.get("/sessions/s1/subagents").json()["subagents"]}
+    assert got["agent-bg5"]["done"] is False
+
+
+def test_background_subagent_completes_via_its_own_transcript(client_with_session, monkeypatch):
+    """背景実行の完了は subagent 自身の確定 stop_reason で拾う (= ack は返ったままでよい)。"""
+    client, subdir, parent = client_with_session
+    monkeypatch.setattr(subagents_routes, "_session_busy", lambda sid: False)
+    _write_agent_with_tool_use_id(subdir, "agent-bg6", "toolu_bg6",
+                                  lines=[_assistant(tool="Grep", stop_reason="tool_use"),
+                                         _assistant(text="done", stop_reason="end_turn")])
+    _parent_launch_ack(parent, "toolu_bg6", "agent-bg6")
+    got = {s["agentId"]: s for s in client.get("/sessions/s1/subagents").json()["subagents"]}
+    assert got["agent-bg6"]["done"] is True
+
+
+def test_a_real_result_still_counts_as_completion(client_with_session, monkeypatch):
+    """同期実行の Task は実結果が返る。 これは従来どおり完了印。"""
+    client, subdir, parent = client_with_session
+    monkeypatch.setattr(subagents_routes, "_session_busy", lambda sid: False)
+    _write_agent_with_tool_use_id(subdir, "agent-sync1", "toolu_sync1",
+                                  lines=[_assistant(tool="Grep", stop_reason="tool_use")])
+    _parent_tool_result(parent, "toolu_sync1")
+    got = {s["agentId"]: s for s in client.get("/sessions/s1/subagents").json()["subagents"]}
+    assert got["agent-sync1"]["done"] is True

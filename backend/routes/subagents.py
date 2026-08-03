@@ -87,13 +87,35 @@ def _read_meta(meta_path: Path) -> dict:
         return {"agentType": None, "description": None, "toolUseId": None}
 
 
+# 背景実行で起動した Task は、 起動した瞬間に「受け付けた」 だけの tool_result が返る。 これは
+# 完了印ではない (= 本体はその後も走り続け、 完了は別途通知される)。 本文の先頭がこの文言。
+_ASYNC_LAUNCH_ACK = "Async agent launched successfully"
+
+
+def _is_launch_ack(body) -> bool:
+    """tool_result の中身が「起動を受け付けた」 だけの ack か。"""
+    if isinstance(body, str):
+        return body.startswith(_ASYNC_LAUNCH_ACK)
+    if isinstance(body, list):
+        for blk in body:
+            if isinstance(blk, dict) and blk.get("type") == "text":
+                text = blk.get("text")
+                if isinstance(text, str):
+                    return text.startswith(_ASYNC_LAUNCH_ACK)
+    return False
+
+
 def _completed_tool_use_ids(base: Path) -> set[str]:
     """親転写に結果が返っている tool_use_id の集合。
 
     Task の結果は親の user 行に tool_result として戻る。 これが返っていること = その Task が
-    返り済み、 という唯一の厳密な印。 「親 turn が idle だから完了」 は **背景実行の subagent
-    には成立しない** (= 親は起動してすぐ自分の turn を終え、 subagent はその後も走り続ける。
+    返り済み、 という印。 「親 turn が idle だから完了」 は **背景実行の subagent には成立
+    しない** (= 親は起動してすぐ自分の turn を終え、 subagent はその後も走り続ける。
     2026-08-03 に走行中の subagent が軒並み done 表示になっていた実害の真因)。
+
+    ただし背景実行では起動の瞬間に ack の tool_result が返るので、 それは数えない
+    (= `_is_launch_ack`。 数えると同じ誤 done が別経路で復活する)。 背景実行の完了は
+    subagent 自身の転写に残る確定 stop_reason (= `_scan_agent_file`) で拾う。
 
     1 行ずつ読む (= 転写には 1MB 級の行が混ざる)。 tool_result を含まない行は parse もしない。
     """
@@ -112,10 +134,11 @@ def _completed_tool_use_ids(base: Path) -> set[str]:
                 if not isinstance(content, list):
                     continue
                 for blk in content:
-                    if isinstance(blk, dict) and blk.get("type") == "tool_result":
-                        tid = blk.get("tool_use_id")
-                        if tid:
-                            ids.add(tid)
+                    if not isinstance(blk, dict) or blk.get("type") != "tool_result":
+                        continue
+                    tid = blk.get("tool_use_id")
+                    if tid and not _is_launch_ack(blk.get("content")):
+                        ids.add(tid)
     except OSError:
         pass  # benign: 親転写が読めなければ完了印を 1 つも集めない = running 側に倒れる (安全側)
     return ids
