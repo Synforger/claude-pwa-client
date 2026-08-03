@@ -76,6 +76,8 @@ export type GetAgentsResponse = GetAgentsResponseItem[]
 export interface GetAccountsResponseItem {
   id: string
   display_name: string
+  /** account_id 未設定の session と等価な account (= env に CLAUDE_CONFIG_DIR を持たない最初のもの) */
+  is_default: boolean
 }
 
 export type GetAccountsResponse = GetAccountsResponseItem[]

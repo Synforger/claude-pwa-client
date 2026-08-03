@@ -188,11 +188,13 @@ endpoints:
         properties:
           id:           { type: string }
           display_name: { type: string }
-        required: [id, display_name]
+          is_default:   { type: boolean, description: "account_id 未設定の session と等価な account (= env に CLAUDE_CONFIG_DIR を持たない最初のもの)" }
+        required: [id, display_name, is_default]
     response_kind: json
     auth: tailnet
     invariants:
       - "claude CLI 由来 (= ~/.claude/.credentials.json) を読み列挙"
+      - "is_default が true になるのは高々 1 件 (= 0 件もあり得る)"
     implementation: backend/routes/accounts.py
 
   - method: GET

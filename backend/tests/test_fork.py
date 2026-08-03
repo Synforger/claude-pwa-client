@@ -305,6 +305,33 @@ def test_fork_to_the_same_account_stays_next_to_the_source(tmp_path, monkeypatch
     assert len([p for p in src.parent.glob("*.jsonl") if p.name != "OLD.jsonl"]) == 1
 
 
+def test_fork_treats_a_missing_account_id_as_the_default(tmp_path, monkeypatch, isolated_state):
+    """account_id を持たない古いタブから既定 account へ移そうとしても移行にはしない。
+
+    素の比較 (= None != "personal") だと、 同じ config dir へ置き直したうえで title に札が
+    付いてしまう。 実機に account_id が None のタブが実在する (= 古い時期に作られた)。
+    """
+    import backend.routes.sessions as sessions_mod  # noqa: PLC0415
+    chat_routes, parent, src, work_dir = _setup_account_move(tmp_path, monkeypatch, isolated_state)
+    monkeypatch.setattr(sessions_mod, "default_account_id", lambda: "personal")
+    parent.account_id = None
+    out = _run(chat_routes.fork_session(parent.id, {"target_account_id": "personal"}))
+    assert out["title"] == "Chat fork"          # 移行の札は付かない
+    assert list(work_dir.glob("*.jsonl")) == []  # 移し先 dir には書かない
+    assert len([p for p in src.parent.glob("*.jsonl") if p.name != "OLD.jsonl"]) == 1
+
+
+def test_fork_from_a_missing_account_id_can_still_move_elsewhere(tmp_path, monkeypatch, isolated_state):
+    import backend.routes.sessions as sessions_mod  # noqa: PLC0415
+    chat_routes, parent, _src, work_dir = _setup_account_move(tmp_path, monkeypatch, isolated_state)
+    monkeypatch.setattr(sessions_mod, "default_account_id", lambda: "personal")
+    parent.account_id = None
+    out = _run(chat_routes.fork_session(parent.id, {"target_account_id": "work"}))
+    assert out["account_id"] == "work"
+    assert out["title"] == "Chat · Work"
+    assert len(list(work_dir.glob("*.jsonl"))) == 1
+
+
 def test_fork_rejects_an_unknown_target_account(tmp_path, monkeypatch, isolated_state):
     from fastapi import HTTPException  # noqa: PLC0415
     chat_routes, parent, _src, _work = _setup_account_move(tmp_path, monkeypatch, isolated_state)

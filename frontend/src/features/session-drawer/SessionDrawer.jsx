@@ -260,6 +260,12 @@ export default function SessionDrawer() {
   }
 
   // フォークタブ (= parent_id を持つ) を親の直下にインデント表示する (= C 案)。 兄弟内の
+  // account_id を持たない session が実際に動いている account (= backend が is_default で示す)。
+  const defaultAccountId = useMemo(
+    () => accounts.find(a => a.is_default)?.id || null,
+    [accounts],
+  )
+
   // 並びは渡された順 (= created_at 降順) を保つ。 親が消えてる孤児はトップレベル扱い。
   // F-38: sessions が変わった時だけ tree を組み直す (= 再 render 毎の object 構築を回避)。
   const orderedSessions = useMemo(() => {
@@ -422,12 +428,15 @@ export default function SessionDrawer() {
             const isMenuOpen = menuFor === s.id
             const isRenaming = renameFor === s.id
             const isFork = depth > 0
-            // アカウントが 1 つしか無い環境では札を出さない (= 全行 "Personal" は情報量ゼロ)。
+            // account_id が空のタブ (= 古い時期に作られた) は既定アカウントで動いている。
+            // backend が /accounts の is_default で「未設定と等価な account」 を教えてくれる。
+            const effectiveAccount = s.account_id || defaultAccountId
+            // アカウントが 1 つしか無い環境では札を出さない (= 全行同じ名前で情報量ゼロ)。
             const accountLabel = accounts.length > 1
-              ? (accounts.find(a => a.id === s.account_id)?.display_name || s.account_id || null)
+              ? (accounts.find(a => a.id === effectiveAccount)?.display_name || effectiveAccount || null)
               : null
             // 移し先候補 = 今と違うアカウント。 1 つなら選択させず直接その名前のボタンを出す。
-            const moveTargets = accounts.filter(a => a.id !== (s.account_id || null))
+            const moveTargets = accounts.filter(a => a.id !== effectiveAccount)
             return (
               <div
                 key={s.id}

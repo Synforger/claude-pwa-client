@@ -19,7 +19,7 @@ import uuid
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from backend import state
-from backend.config import AGENTS, cwd_to_project_dir, get_config
+from backend.config import AGENTS, cwd_to_project_dir, default_account_id, get_config
 from backend.core.fork import (
     build_forked_lineage_lazy,
     fork_point_status,
@@ -232,7 +232,10 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
     # `claude --resume` が見つけられず空タブになる (= 2026-07-22 の空タブ事故と同じ構造)。
     # 会話ログの行はアカウント固有の識別子を持たない (= cwd / gitBranch / version / userType のみ)
     # ので、 置き場所を変えるだけで移し先から読める。
-    moving = bool(target_account_id) and target_account_id != parent.account_id
+    # account_id が None のタブ (= 古い時期に作られた) は既定 account と等価。 素の比較だと
+    # 「既定 account へ移す」 が移行扱いになり、 同じ場所に置き直して title に札が付く。
+    current_account = parent.account_id or default_account_id()
+    moving = bool(target_account_id) and target_account_id != current_account
     if moving:
         cwd = (AGENTS.get(parent.agent_id) or {}).get("cwd")
         if not cwd:

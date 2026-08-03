@@ -81,6 +81,7 @@ class GetAccountsResponseItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str
     display_name: str
+    is_default: bool  # account_id 未設定の session と等価な account (= env に CLAUDE_CONFIG_DIR を持たない最初のもの)
 
 
 class GetFileResponse(BaseModel):
