@@ -43,8 +43,24 @@ fi
 TARGETS_FILE=".tooling/bump-targets.yaml"
 [ -f "${TARGETS_FILE}" ] || TARGETS_FILE="_core/.tooling/bump-targets.yaml"
 
+# Pick an interpreter that actually has PyYAML. A bare `python3` resolves to
+# whatever is first on PATH, which on a machine with several toolchains is
+# often not the project environment — the release then fails at the bump step
+# with "PyYAML not installed" even though the project env has it.
+PY="python3"
+if ! "${PY}" -c "import yaml" >/dev/null 2>&1; then
+    if [ -x ".venv/bin/python" ] && .venv/bin/python -c "import yaml" >/dev/null 2>&1; then
+        PY=".venv/bin/python"
+    elif [ -n "${CONDA_EXE:-}" ] && [ -x "${CONDA_EXE}" ]; then
+        cand="$("${CONDA_EXE}" run -n "${CONDA_ENV:-pwa-client}" python -c 'import yaml, sys; print(sys.executable)' 2>/dev/null | tail -1)"
+        if [ -n "${cand}" ] && [ -x "${cand}" ]; then
+            PY="${cand}"
+        fi
+    fi
+fi
+
 # Python helper does parse + arithmetic + apply (keeping the bash side minimal).
-python3 - "${TARGETS_FILE}" "${LEVEL}" "${DRY_RUN}" <<'PYEOF'
+"${PY}" - "${TARGETS_FILE}" "${LEVEL}" "${DRY_RUN}" <<'PYEOF'
 import re
 import sys
 from pathlib import Path
