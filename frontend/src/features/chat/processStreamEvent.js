@@ -1,5 +1,6 @@
 import { generateId } from '../../utils/id.js'
 import { formatTool } from '../../utils/format.js'
+import { stripToolResultImages } from '../../utils/toolResult.js'
 import { MAX_MESSAGES } from '../../constants.js'
 import { getEntry as getMessageEntry } from '../../registry/messageRegistry.js'
 import { ingestPromptStateEvent } from '../../state/promptState.js'
@@ -313,7 +314,9 @@ export function processStreamEvent(deps, sid, event) {
           return {
             ...t,
             result: {
-              content: r.content,
+              // ライブ SSE は無改変で届く契約なので、 画像本体を落とすのは受け取った側の責務。
+              // 履歴 GET は backend が同じ縮小を掛け済み (= utils/toolResult.js の説明参照)。
+              content: stripToolResultImages(r.content),
               is_error: !!r.is_error,
               ...(typeof r.full_chars === 'number' ? { full_chars: r.full_chars } : {}),
             },

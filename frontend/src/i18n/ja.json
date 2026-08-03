@@ -63,6 +63,8 @@
   "drawer.delete_last": "削除 (最後の 1 個)",
   "drawer.delete_last_hint": "最後の 1 個は削除できません",
   "drawer.fork": "フォーク",
+  "drawer.continue_on.label": "別のアカウントで続ける:",
+  "drawer.continue_on.action": "{account} で続ける",
   "drawer.menu": "メニュー",
   "drawer.empty": "会話がありません。 上の「+ 新規会話」 から作成してください。",
   "drawer.pick_agent": "agent を選択:",

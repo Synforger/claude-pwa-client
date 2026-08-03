@@ -11,7 +11,7 @@ W2 architecture overhaul (= 2026-06-29 着地) で frontend `state/` は **7 領
 | `ephemeral.js` | attachments / `loading[sid]` / streamBuffers / sendFailedText / stopUnavailableSid / reconnectKey / attachmentPickerBump の描画専用 ephemeral (= optimistic / sendTimers は J-12、 apiKeySource は 2026-07-27 で退役済) | なし | features/chat (= 送信 / 受信ループ)、 transport/sse-overview (= loading の真値写し) |
 | `sessions.js` | sessions list / `activeId` / `agents` / `accounts` / `status[sid]` / `sessionActivity` / `unreadDone[sid]` | localStorage (一部) | features/session-drawer (= CRUD)、 features/status-bar (= status SSE)、 features/topbar (= activeSid 切替) |
 | `ui.js` | overlays 11 個 / scroll 4 ref / keyboard 5 modifier / `viewModes[sid]` / desktopOpen / planOpen / storageWarnDismissed | localStorage (= viewModes + unread のみ) | features/* (= 各 overlay open/close)、 features/topbar (= viewMode toggle) |
-| `messages.js` | uuid 付き user / agent / system message の真値配列 (= sid 別)、 `MAX_MESSAGES_PER_SID = 200` | localStorage (lz-string 圧縮) | features/chat (= SSE handler 経由)、 useChatStorage |
+| `messages.js` | uuid 付き user / agent / system message の真値配列 (= sid 別)、 `MAX_MESSAGES_PER_SID = 200`。 tool_result 内の画像本体は載せない (= `utils/toolResult.js`、 表示は「画像」 1 語に畳むので不変) | localStorage (lz-string 圧縮) | features/chat (= SSE handler 経由)、 useChatStorage |
 | `push.js` | Web Push 購読状態 singleton (= hasRealSub / pushBusy / localFlag / pushAvailable 派生)、 W2 Phase J-2 で usePushSubscription の useState 4 個を統合 | なし (= backend 真値、 SW broken listener 経由で同期) | features/push-notify (= AppEffects mount + SessionDrawer remount の両経路から書き、 store singleton で分裂防止) |
 
 | `promptState.js` | terminal prompt 検出 state (= SSE `prompt_state` event の受け皿、 tier / excerpt / controls) | なし | transport 経由の `prompt_state` event、 features/status-bar (= banner + quick-reply が subscribe) |
@@ -40,7 +40,7 @@ W2 architecture overhaul (= 2026-06-29 着地) で frontend `state/` は **7 領
 旧設計は features 内 `useState` を多用しており、 同 hook が複数経路で mount される (= AppEffects + SessionDrawer 等) と state が独立 instance に分裂、 backend 同期は singleton な module-level guard で済んでも UI 観測者の数だけ side-effect が起きる構造だった。 W2 Phase J で以下を sweep:
 
 - **J-2**: `usePushSubscription` の useState 4 個 → `frontend/src/state/push.js` singleton
-- **J-9**: `useChatStream` の `loading[sid]` useState → `state/ephemeral.js::loading` setter 直 wire (= SessionDrawer の青/赤丸 badge も同 store を subscribe)
+- **J-9**: `useChatStream` の `loading[sid]` useState → `state/ephemeral.js::loading` setter 直 wire (= SessionDrawer の青/赤丸 badge も同 store を subscribe)。 開いているタブは未読 / 質問待ちの印を出さないが、 **推論中 (= 青丸) だけは出す** (= 一覧は「今どのタブが動いているか」 の一覧でもあり、 開いた瞬間に消えると走行中か読めない。 判定は `deriveSessionBadges`)
 - **J-11**: `useAttachments` + `useChatStream.apiKeySource` → `frontend/src/state/ephemeral.js` 統合
 - **J-12**: messages localStorage write の useState mirror → `frontend/src/state/messages.js`、 ui keyboard 7 useState + ui scroll → `frontend/src/state/ui.js`、 useChatStream 3 件 setter dead 削除、 state/transport.js 全削除
 

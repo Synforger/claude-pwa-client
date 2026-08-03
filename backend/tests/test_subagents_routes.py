@@ -31,7 +31,7 @@ def client_with_session(tmp_path, monkeypatch):
     monkeypatch.setattr(subagents_routes, "jsonl_path_for_session", lambda sid: jsonl_path)
     app = FastAPI()
     app.include_router(subagents_routes.router)
-    return TestClient(app), subdir
+    return TestClient(app), subdir, jsonl_path
 
 
 def _assistant(text=None, tool=None, stop_reason=None):
@@ -55,7 +55,7 @@ def test_list_subagents_empty_when_no_dir(tmp_path, monkeypatch):
 
 
 def test_list_subagents_reports_meta_and_status(client_with_session, monkeypatch):
-    client, subdir = client_with_session
+    client, subdir, _parent = client_with_session
     # 親 turn 実行中 = 未完了 subagent は running のまま (= 既存 scan 判定を使う)。
     monkeypatch.setattr(subagents_routes, "_session_busy", lambda sid: True)
     # done: 末尾が end_turn の assistant
@@ -77,7 +77,7 @@ def test_list_subagents_reports_meta_and_status(client_with_session, monkeypatch
 def test_abnormal_termination_marked_done_when_parent_idle(client_with_session, monkeypatch):
     """interrupt / API エラー / null 終了 = subagent 転写がクリーンな stop_reason 無しで終わる。
     親 turn が idle なら Task は返り済み = done (= running 固着の根治)。 親 busy 中は running。"""
-    client, subdir = client_with_session
+    client, subdir, _parent = client_with_session
     # 末尾が stop_reason=None の assistant (= 途中で切れた終了)、 end_turn は一度も無い。
     lines = [
         _assistant(tool="Bash", stop_reason="tool_use"),
@@ -101,7 +101,7 @@ def test_abnormal_termination_marked_done_when_parent_idle(client_with_session, 
 
 
 def test_get_transcript_converts_events(client_with_session):
-    client, subdir = client_with_session
+    client, subdir, _parent = client_with_session
     _write_agent(subdir, "agent-ccc", description="Task X", lines=[
         {"type": "user", "isSidechain": True, "message": {"role": "user", "content": "do the thing"}},
         _assistant(text="done", stop_reason="end_turn"),
@@ -117,13 +117,13 @@ def test_get_transcript_converts_events(client_with_session):
 
 
 def test_get_transcript_rejects_bad_agent_id(client_with_session):
-    client, _ = client_with_session
+    client, _subdir, _parent = client_with_session
     res = client.get("/sessions/s1/subagents/..%2f..%2fetc%2fpasswd/transcript")
     assert res.status_code in (400, 404)
 
 
 def test_get_transcript_404_when_missing(client_with_session):
-    client, _ = client_with_session
+    client, _subdir, _parent = client_with_session
     res = client.get("/sessions/s1/subagents/agent-missing/transcript")
     assert res.status_code == 404
 
@@ -259,7 +259,7 @@ def test_workflow_endpoints_reject_bad_run_id(client_with_base):
 
 def test_transcript_returns_etag_header(client_with_session):
     """transcript 200 応答に ETag header が付く。"""
-    client, subdir = client_with_session
+    client, subdir, _parent = client_with_session
     _write_agent(subdir, "agent-aaa", description="X", lines=[
         _assistant(text="hi", stop_reason="end_turn"),
     ])
@@ -271,7 +271,7 @@ def test_transcript_returns_etag_header(client_with_session):
 
 def test_transcript_304_on_matching_if_none_match(client_with_session):
     """If-None-Match に同 ETag を送ると 304 (= body 無し)。"""
-    client, subdir = client_with_session
+    client, subdir, _parent = client_with_session
     _write_agent(subdir, "agent-bbb", description="Y", lines=[
         _assistant(text="hi", stop_reason="end_turn"),
     ])
@@ -290,7 +290,7 @@ def test_transcript_304_on_matching_if_none_match(client_with_session):
 
 def test_transcript_changes_etag_on_file_mutation(client_with_session):
     """transcript が append されたら ETag が変わる (= 304 が誤って続かない)。"""
-    client, subdir = client_with_session
+    client, subdir, _parent = client_with_session
     _write_agent(subdir, "agent-ccc", description="Z", lines=[
         _assistant(text="line1", stop_reason="end_turn"),
     ])
@@ -338,3 +338,112 @@ def test_payload_has_running_mixed():
         "subagents": [{"done": True}, {"done": False}],
         "workflows": [{"status": "completed"}],
     }) is True
+
+
+def _write_agent_with_tool_use_id(subdir, agent_id, tool_use_id, *, lines):
+    (subdir / f"{agent_id}.meta.json").write_text(json.dumps({
+        "agentType": "general-purpose", "description": agent_id, "toolUseId": tool_use_id,
+    }))
+    with (subdir / f"{agent_id}.jsonl").open("w") as fh:
+        for ln in lines:
+            fh.write(json.dumps(ln) + "\n")
+
+
+def _parent_tool_result(parent_path, tool_use_id):
+    with parent_path.open("a") as fh:
+        fh.write(json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": tool_use_id, "content": "ok"},
+            ]},
+        }) + "\n")
+
+
+# 背景実行の subagent は親 turn が終わった後も走り続ける。 「親 idle = 返り済み」 で代用すると
+# 走行中のものが軒並み done 表示になる (= 2026-08-03 実機報告)。 結果が親転写に返ったかどうかが
+# 唯一の厳密な印。
+def test_running_subagent_stays_running_while_the_parent_is_idle(client_with_session, monkeypatch):
+    client, subdir, _parent = client_with_session
+    monkeypatch.setattr(subagents_routes, "_session_busy", lambda sid: False)
+    _write_agent_with_tool_use_id(subdir, "agent-bg1", "toolu_bg1",
+                                  lines=[_assistant(tool="Grep", stop_reason="tool_use")])
+    got = {s["agentId"]: s for s in client.get("/sessions/s1/subagents").json()["subagents"]}
+    assert got["agent-bg1"]["done"] is False
+
+
+def test_subagent_is_done_once_its_result_comes_back(client_with_session, monkeypatch):
+    client, subdir, parent = client_with_session
+    monkeypatch.setattr(subagents_routes, "_session_busy", lambda sid: False)
+    _write_agent_with_tool_use_id(subdir, "agent-bg2", "toolu_bg2",
+                                  lines=[_assistant(tool="Grep", stop_reason="tool_use")])
+    _parent_tool_result(parent, "toolu_bg2")
+    got = {s["agentId"]: s for s in client.get("/sessions/s1/subagents").json()["subagents"]}
+    assert got["agent-bg2"]["done"] is True
+
+
+def test_result_for_another_task_does_not_complete_this_one(client_with_session, monkeypatch):
+    client, subdir, parent = client_with_session
+    monkeypatch.setattr(subagents_routes, "_session_busy", lambda sid: False)
+    _write_agent_with_tool_use_id(subdir, "agent-bg3", "toolu_bg3",
+                                  lines=[_assistant(tool="Grep", stop_reason="tool_use")])
+    _parent_tool_result(parent, "toolu_someone_else")
+    got = {s["agentId"]: s for s in client.get("/sessions/s1/subagents").json()["subagents"]}
+    assert got["agent-bg3"]["done"] is False
+
+
+def test_a_cleanly_finished_subagent_is_done_without_any_parent_result(client_with_session, monkeypatch):
+    client, subdir, _parent = client_with_session
+    monkeypatch.setattr(subagents_routes, "_session_busy", lambda sid: False)
+    _write_agent_with_tool_use_id(subdir, "agent-bg4", "toolu_bg4",
+                                  lines=[_assistant(text="done", stop_reason="end_turn")])
+    got = {s["agentId"]: s for s in client.get("/sessions/s1/subagents").json()["subagents"]}
+    assert got["agent-bg4"]["done"] is True
+
+
+def _parent_launch_ack(parent_path, tool_use_id, agent_id):
+    """背景実行の Task が起動直後に返す ack (= 完了印ではない)。"""
+    with parent_path.open("a") as fh:
+        fh.write(json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": [{
+                "type": "tool_result", "tool_use_id": tool_use_id,
+                "content": [{"type": "text", "text":
+                             f"Async agent launched successfully. (internal metadata)\nagentId: {agent_id}\n"
+                             "The agent is working in the background."}],
+            }]},
+        }) + "\n")
+
+
+def test_launch_ack_does_not_count_as_completion(client_with_session, monkeypatch):
+    """背景実行は起動の瞬間に tool_result が返る。 これを完了印にすると、 走行中の subagent が
+    軒並み done になる (= 2026-08-03 実機報告、 親 idle 代用を直した後に別経路で再発した形)。"""
+    client, subdir, parent = client_with_session
+    monkeypatch.setattr(subagents_routes, "_session_busy", lambda sid: False)
+    _write_agent_with_tool_use_id(subdir, "agent-bg5", "toolu_bg5",
+                                  lines=[_assistant(tool="Grep", stop_reason="tool_use")])
+    _parent_launch_ack(parent, "toolu_bg5", "agent-bg5")
+    got = {s["agentId"]: s for s in client.get("/sessions/s1/subagents").json()["subagents"]}
+    assert got["agent-bg5"]["done"] is False
+
+
+def test_background_subagent_completes_via_its_own_transcript(client_with_session, monkeypatch):
+    """背景実行の完了は subagent 自身の確定 stop_reason で拾う (= ack は返ったままでよい)。"""
+    client, subdir, parent = client_with_session
+    monkeypatch.setattr(subagents_routes, "_session_busy", lambda sid: False)
+    _write_agent_with_tool_use_id(subdir, "agent-bg6", "toolu_bg6",
+                                  lines=[_assistant(tool="Grep", stop_reason="tool_use"),
+                                         _assistant(text="done", stop_reason="end_turn")])
+    _parent_launch_ack(parent, "toolu_bg6", "agent-bg6")
+    got = {s["agentId"]: s for s in client.get("/sessions/s1/subagents").json()["subagents"]}
+    assert got["agent-bg6"]["done"] is True
+
+
+def test_a_real_result_still_counts_as_completion(client_with_session, monkeypatch):
+    """同期実行の Task は実結果が返る。 これは従来どおり完了印。"""
+    client, subdir, parent = client_with_session
+    monkeypatch.setattr(subagents_routes, "_session_busy", lambda sid: False)
+    _write_agent_with_tool_use_id(subdir, "agent-sync1", "toolu_sync1",
+                                  lines=[_assistant(tool="Grep", stop_reason="tool_use")])
+    _parent_tool_result(parent, "toolu_sync1")
+    got = {s["agentId"]: s for s in client.get("/sessions/s1/subagents").json()["subagents"]}
+    assert got["agent-sync1"]["done"] is True

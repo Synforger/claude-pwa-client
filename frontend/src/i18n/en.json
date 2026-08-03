@@ -63,6 +63,8 @@
   "drawer.delete_last": "Delete (last one)",
   "drawer.delete_last_hint": "Cannot delete the last conversation",
   "drawer.fork": "Fork",
+  "drawer.continue_on.label": "Continue on another account:",
+  "drawer.continue_on.action": "Continue on {account}",
   "drawer.menu": "Menu",
   "drawer.empty": "No conversations. Create one from the \"+ New conversation\" button above.",
   "drawer.pick_agent": "Pick an agent:",
