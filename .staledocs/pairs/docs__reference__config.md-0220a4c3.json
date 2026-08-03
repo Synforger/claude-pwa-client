@@ -22,7 +22,7 @@
       "uploads_tmp",
       "vapid_sub"
     ],
-    "at": "2026-08-03T08:26:08+00:00",
+    "at": "2026-08-03T08:54:49+00:00",
     "code_blobs": {
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
       "backend/cli/gen_vapid.py": "0fdd5bd90975b39e144594fdefbb07ead666353e",
@@ -237,9 +237,9 @@
       "frontend/src/utils/toolResult.js": "35fb261cab02d9c8b2b3f2e1a92ce3a3c988ef19",
       "frontend/src/utils/toolResult.test.js": "b504bac8bcbc093c8f6dfbaf79185f057a642130"
     },
-    "commit": "223c38e5549c3ee0d18065ea37001d3f3c080d5b",
-    "doc_blob": "0f4c0abfc893a5dc24f2b7844dc64f92cf20ee3d",
-    "note": "config.json schema untouched by the subagents.py and useSessionBadges.js changes"
+    "commit": "1e041efae60c8683a0d1ecb1efeb4d4de74e768c",
+    "doc_blob": "6bf6ca229dd813dfccc27f67df40aec0b7859c4c",
+    "note": "added the intended-use note to the accounts section of docs/reference/config.md; the schema itself is unchanged"
   },
   "doc": "docs/reference/config.md",
   "schema": 1
