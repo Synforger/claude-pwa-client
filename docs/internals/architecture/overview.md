@@ -39,7 +39,7 @@ backend は **4 つのサブパッケージ** + **2 つの中立基盤 module** 
 |---|---|---|
 | `terminal/` | claude TUI を実 PTY + tmux で起動・駆動する入力経路。 control mode (`-CC`) パーサ、 送信確認 + 救済再送 を持つ | `runner.py` / `routes.py` (`/ws/pty` + `/pty/{sid}/send`) / `confirm.py` / `control_mode.py` / `session_resolver.py` |
 | `jsonl/` | `~/.claude/projects/<cwd-hash>/<claude_session_id>.jsonl` を tail し、 chat UI 用 event 形式 (= `processStreamEvent` 入力) に変換する出力経路 | `events.py` (`jsonl_line_to_events`) / `routes.py` (`/jsonl/stream/{sid}`) / `session_status.py` / `notifications.py` / `plan_choices.py` / `resolver.py` |
-| `routes/` | HTTP / SSE / WS の各 endpoint を session / chat / overview / files / hooks / subagents / accounts 単位で分割保持 | `sessions.py` / `chat.py` / `overview.py` (`/sessions/status/stream` + `/sessions/overview/stream` + `/views/ws`) / `files.py` / `hooks.py` / `subagents.py` / `accounts.py` / `unified_stream.py` (`/stream/unified` = 多重化 1 本接続、 protocol 詳細 = `../protocol/streams.md`) |
+| `routes/` | HTTP / SSE / WS の各 endpoint を session / chat / overview / files / hooks / subagents / accounts 単位で分割保持 | `sessions.py` / `chat.py` / `overview.py` (`POST /sessions/{sid}/seen` + 旧 status / overview SSE の実装は unified へ吸収済) / `files.py` / `hooks.py` / `subagents.py` / `accounts.py` / `unified_stream.py` (`/stream/unified` = 多重化 1 本接続、 protocol 詳細 = `../protocol/streams.md`) |
 | `core/` | 共有底層。 Web Push、 使用率 (5h / 7d / ctx) 組み立て、 会話フォーク、 JSONL 行プリミティブ (tail / predicates)、 sid↔JSONL binding registry | `push.py` / `usage.py` / `fork.py` / `jsonl_tail.py` / `jsonl_predicates.py` / `jsonl_watcher.py` |
 
 ### 中立基盤 (= 全 package から import 可)

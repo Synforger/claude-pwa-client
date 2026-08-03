@@ -257,6 +257,16 @@
   font-size: 12px;
   opacity: 0.8;
 }
+/* どのアカウントで動いている会話かの札。 アカウントを 2 つ以上設定している時だけ出す。 */
+.drawer-item-account {
+  flex: 0 0 auto;
+  color: var(--text-dim, #8a8f98);
+  font-size: 11px;
+  padding: 1px 6px;
+  border: 1px solid var(--border, #2a2f3a);
+  border-radius: 10px;
+  white-space: nowrap;
+}
 .drawer-item-menu {
   background: none;
   border: none;

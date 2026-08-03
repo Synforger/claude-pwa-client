@@ -97,6 +97,41 @@ def fork_point_status(source_lines: list[str], from_uuid: str) -> str:
     return "dirty"
 
 
+def latest_clean_fork_point(source_lines: list[str]) -> str | None:
+    """末尾から遡って最初に見つかる「分岐できる切れ目」 の uuid を返す。 無ければ None。
+
+    アカウントを移して会話を続ける時、 ユーザは分岐位置を選ばない (= 欲しいのは常に「今の
+    続き」)。 一方 tool_use と tool_result の間では切れないので、 末尾がちょうど道具の実行中
+    だと切れない。 そこで末尾から最初の安全な位置まで下がる。
+
+    判定規則は fork_point_status と同一 (= user は tool_result を含まない実プロンプト、
+    assistant は同 message.id の全行に tool_use が無い)。 全行を 1 回だけ parse して
+    message.id → 行群の索引を先に作るので、 uuid ごとに status を引き直すより速い。
+    """
+    parsed = _parse_lines(source_lines)
+    by_message_id: dict[str, list[dict]] = {}
+    for d in parsed:
+        mid = (d.get("message") or {}).get("id")
+        if mid:
+            by_message_id.setdefault(mid, []).append(d)
+    for d in reversed(parsed):
+        uuid = d.get("uuid")
+        if not uuid or d.get("isSidechain") or d.get("isMeta"):
+            continue
+        t = d.get("type")
+        if t == "user":
+            if "tool_result" not in _content_block_types(d):
+                return uuid
+        elif t == "assistant":
+            mid = (d.get("message") or {}).get("id")
+            group = by_message_id.get(mid, [d]) if mid else [d]
+            if any(g.get("isSidechain") or g.get("isMeta") for g in group):
+                continue
+            if not any("tool_use" in _content_block_types(g) for g in group):
+                return uuid
+    return None
+
+
 def is_clean_fork_point(source_lines: list[str], from_uuid: str) -> bool:
     """fork_point_status が "ok" かの薄いラッパ (= 既存呼び出し / test 互換)。"""
     return fork_point_status(source_lines, from_uuid) == "ok"
