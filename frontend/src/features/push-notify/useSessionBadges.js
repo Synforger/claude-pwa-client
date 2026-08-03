@@ -65,7 +65,13 @@ export function deriveSessionBadges({ sids, activeSid, messages, loading, unread
   const badges = {}
   let count = 0
   for (const sid of sids) {
-    if (sid === activeSid) { badges[sid] = null; continue }
+    // 開いているタブは「画面を見れば分かる」 ものを一覧に出さない (= 未読 / 質問待ち)。
+    // 推論中だけは例外で残す: 一覧は「今どのタブが動いているか」 の一覧でもあり、 開いた瞬間に
+    // 印が消えると走っているかどうかが読めなくなる。
+    if (sid === activeSid) {
+      badges[sid] = loading[sid] ? { kind: 'processing', label: '●' } : null
+      continue
+    }
     const arr = messages[sid] || []
     // 質問待ち = messages 由来 (= 購読中 sid の即時反映) OR backend detector 由来
     // (= waitingInput、 統合 transport で chat event が来ない裏セッションの真値)

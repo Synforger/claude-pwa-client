@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import LZString from 'lz-string'
 import { LEGACY_AGENT_TO_SESSION, LS_MESSAGES, LS_INPUT, MAX_MESSAGES } from '../../constants.js'
 import { generateId } from '../../utils/id.js'
+import { stripMessageToolResultImages } from '../../utils/toolResult.js'
 import { setMessagesFor, removeMessagesFor } from '../../state/messages.js'
 import { recordPerfSample } from '../app-effects/perfProbe.js'
 import { chatTransport } from '../../transport/select.ts'
@@ -90,7 +91,10 @@ export function toStorableForm(m) {
     const { optimistic: _optimistic, imageUrls: _imageUrls, ...pending } = m
     return pending
   }
-  return m
+  // tool_result の画像本体は表示に使われないので保存形から落とす (= utils/toolResult.js)。
+  // 受信経路 (processStreamEvent) でも落としているが、 ここを通すことで **修正前に受信して
+  // state に載ったままの巨大メッセージ**も次の save で軽い形に置き換わる。
+  return stripMessageToolResultImages(m)
 }
 
 // localStorage へ実際に書く対象か (= toStorableForm が保存形を返すか)。 badge / store mirror

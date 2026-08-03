@@ -19,8 +19,12 @@ import uuid
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from backend import state
-from backend.config import AGENTS
-from backend.core.fork import build_forked_lineage_lazy, fork_point_status
+from backend.config import AGENTS, cwd_to_project_dir, default_account_id, get_config
+from backend.core.fork import (
+    build_forked_lineage_lazy,
+    fork_point_status,
+    latest_clean_fork_point,
+)
 from backend.errors import raise_error
 from backend.jsonl import resolver as jsonl_resolver
 from backend.state import (
@@ -110,7 +114,15 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
     登録して返す。 元タブ・元 jsonl には一切触れない。
     """
     from_uuid = payload.get("from_uuid")
-    if not from_uuid or not isinstance(from_uuid, str):
+    target_account_id = payload.get("target_account_id")
+    if from_uuid is not None and not isinstance(from_uuid, str):
+        raise_error(400, "from_uuid_required", "from_uuid が必要です")
+    if target_account_id is not None:
+        if not isinstance(target_account_id, str) or target_account_id not in (get_config().get("accounts") or {}):
+            raise_error(400, "unknown_account", "そのアカウントは設定にありません")
+    # from_uuid 省略 = 位置を選ばない呼び出し (= アカウントを移して「今の続き」 を開く)。
+    # 分岐位置はユーザに選ばせず、 live jsonl の末尾から最初の安全な切れ目まで下がる。
+    if not from_uuid and not target_account_id:
         raise_error(400, "from_uuid_required", "from_uuid が必要です")
 
     parent = sessions_meta[session_id]
@@ -139,29 +151,40 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
         # 「祖先 uuid が範囲外」 で lineage を中途半端に打ち切る事故の元だったので撤廃。
         # 自然な上限は maintenance.cleanup_old_jsonl (= 14 日 / 500MB 自動掃除) が引いてくれる。
 
-    needle = from_uuid.encode("utf-8")
-    src_path = None
-    for p in candidates:
-        try:
-            if needle in p.read_bytes():
-                src_path = p
-                break
-        except OSError:
-            continue
+    if from_uuid:
+        needle = from_uuid.encode("utf-8")
+        src_path = None
+        for p in candidates:
+            try:
+                if needle in p.read_bytes():
+                    src_path = p
+                    break
+            except OSError:
+                continue
 
-    if src_path is None:
-        logger.warning(
-            "fork: from_uuid not found session=%s uuid=%s scanned=%d dir=%s",
-            session_id, from_uuid, len(candidates), project_dir,
-        )
-        raise_error(404, "message_not_found", "この会話のログに該当メッセージが見つかりません")
+        if src_path is None:
+            logger.warning(
+                "fork: from_uuid not found session=%s uuid=%s scanned=%d dir=%s",
+                session_id, from_uuid, len(candidates), project_dir,
+            )
+            raise_error(404, "message_not_found", "この会話のログに該当メッセージが見つかりません")
 
-    # まず src_path 単体で fork point の妥当性 (= tool 行で切れてないか) を確認。
-    # 大半のフォークは src_path の中で会話が閉じてて、 ここで全部完結する。
-    src_lines = src_path.read_text(encoding="utf-8").splitlines()
-    status = fork_point_status(src_lines, from_uuid)
-    if status != "ok":
-        raise_error(400, "cannot_fork_here", "この位置からは分岐できません (= user 発言か完了したターンのみ)")
+        # まず src_path 単体で fork point の妥当性 (= tool 行で切れてないか) を確認。
+        # 大半のフォークは src_path の中で会話が閉じてて、 ここで全部完結する。
+        src_lines = src_path.read_text(encoding="utf-8").splitlines()
+        status = fork_point_status(src_lines, from_uuid)
+        if status != "ok":
+            raise_error(400, "cannot_fork_here", "この位置からは分岐できません (= user 発言か完了したターンのみ)")
+    else:
+        # 位置指定なし: live jsonl の末尾から最初の安全な切れ目を採る。 道具の実行中に
+        # 呼ばれてもそこまで下がるので、 呼び出し側は位置を気にしなくてよい。
+        src_path = candidates[0] if candidates else None
+        if src_path is None:
+            raise_error(404, "message_not_found", "この会話のログが見つかりません")
+        src_lines = src_path.read_text(encoding="utf-8").splitlines()
+        from_uuid = latest_clean_fork_point(src_lines)
+        if from_uuid is None:
+            raise_error(400, "cannot_fork_here", "引き継げる切れ目がまだありません (= ターンの完了を待ってください)")
 
     # lazy stitching: build_forked_lineage_lazy が鎖を辿りながら、 親 uuid が src_lines に
     # 無い時だけ fetch_more で次の jsonl を 1 個取りに来る。 鎖が src_lines 内で閉じれば
@@ -203,12 +226,36 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
 
     # 新 jsonl は project dir (= 同 cwd hash) に置く。 新タブは agent を継承 = 同 cwd で spawn
     # するので claude --resume がこの新 jsonl を確実に見つける。
-    dest = src_path.parent / f"{new_claude_id}.jsonl"
+    #
+    # アカウントを移す時は **移し先の** projects dir に置く。 spawn 時の CLAUDE_CONFIG_DIR は
+    # new_meta.account_id で決まるので、 lineage を元のアカウント配下に置いたままだと
+    # `claude --resume` が見つけられず空タブになる (= 2026-07-22 の空タブ事故と同じ構造)。
+    # 会話ログの行はアカウント固有の識別子を持たない (= cwd / gitBranch / version / userType のみ)
+    # ので、 置き場所を変えるだけで移し先から読める。
+    # account_id が None のタブ (= 古い時期に作られた) は既定 account と等価。 素の比較だと
+    # 「既定 account へ移す」 が移行扱いになり、 同じ場所に置き直して title に札が付く。
+    current_account = parent.account_id or default_account_id()
+    moving = bool(target_account_id) and target_account_id != current_account
+    if moving:
+        cwd = (AGENTS.get(parent.agent_id) or {}).get("cwd")
+        if not cwd:
+            raise_error(400, "cwd_unresolved", "この会話の作業ディレクトリが解決できません")
+        dest_dir = cwd_to_project_dir(cwd, account_id=target_account_id)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        dest_dir = src_path.parent
+    dest = dest_dir / f"{new_claude_id}.jsonl"
     atomic_write_text(dest, "\n".join(forked) + "\n")
+
+    if moving:
+        acc = (get_config().get("accounts") or {}).get(target_account_id) or {}
+        new_title = f"{parent.title} · {acc.get('display_name') or target_account_id}"
+    else:
+        new_title = f"{parent.title} fork"
 
     new_meta = register_session(
         parent.agent_id,
-        title=f"{parent.title} fork",
+        title=new_title,
         parent_id=session_id,
         resume_session_id=new_claude_id,
         # 親の account_id を必ず継ぐ (= 2026-07-22 fork 空タブ根治)。 lineage jsonl は
@@ -218,7 +265,8 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
         # account_id を渡さないと fork は personal (~/.claude) 扱いになり、 `claude --resume
         # <new_claude_id>` が work 配下の lineage を見つけられず rc=0 即 exit → pane は zsh
         # プロンプトに残る (= fork は fallback watchdog も無いので永久に空タブ)。
-        account_id=parent.account_id,
+        # 移し先が指定された時だけそれを採り、 lineage の置き場所と必ず揃える (= 上の dest_dir)。
+        account_id=target_account_id if moving else parent.account_id,
     )
     # 新タブの monitor tail を初回 bind 扱いに固定 (= 2026-06-30 stream-from-zero)。
     # fork は backend が事前に lineage 全行を書いた新 jsonl を register してから claude
