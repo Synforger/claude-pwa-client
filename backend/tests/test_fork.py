@@ -160,6 +160,41 @@ def test_build_lineage_from_message_id_uses_group_leaf():
     assert all(json.loads(x)["sessionId"] == "NEW" for x in out)
 
 
+# --- 末尾の切れ目の自動採用 (= アカウント移行は分岐位置を選ばない) ---
+
+def test_latest_clean_fork_point_picks_the_tail():
+    from backend.core.fork import latest_clean_fork_point  # noqa: PLC0415
+    assert latest_clean_fork_point(SAMPLE) == "a2"
+
+
+def test_latest_clean_fork_point_backs_off_from_a_pending_tool():
+    """末尾が道具の呼び出し中なら、 その手前の切れ目まで下がる。
+
+    アカウント上限は道具の実行中に来ることが多く、 末尾では切れないケースが普通に起きる。
+    """
+    from backend.core.fork import latest_clean_fork_point  # noqa: PLC0415
+    lines = SAMPLE + [
+        _line("u3", "a2", "user"),
+        _assistant("a3", "u3", content=[{"type": "tool_use", "name": "Read", "id": "t1"}]),
+    ]
+    assert latest_clean_fork_point(lines) == "u3"
+
+
+def test_latest_clean_fork_point_skips_tool_results_and_sidechains():
+    from backend.core.fork import latest_clean_fork_point  # noqa: PLC0415
+    lines = SAMPLE + [
+        _line("u3", "a2", "user", message={"content": [{"type": "tool_result", "tool_use_id": "t1"}]}),
+        _line("s1", "u3", "user", isSidechain=True),
+    ]
+    assert latest_clean_fork_point(lines) == "a2"
+
+
+def test_latest_clean_fork_point_returns_none_without_any_break():
+    from backend.core.fork import latest_clean_fork_point  # noqa: PLC0415
+    lines = [_assistant("a1", None, content=[{"type": "tool_use", "name": "Read", "id": "t1"}])]
+    assert latest_clean_fork_point(lines) is None
+
+
 # --- エンドポイント (chat_routes.fork_session) の結線 test ---
 
 def _setup_fork_env(tmp_path, monkeypatch, isolated_state, source_lines=SAMPLE):
@@ -210,6 +245,87 @@ def test_fork_inherits_parent_account_id(tmp_path, monkeypatch, isolated_state):
     parent.account_id = "work"
     out = _run(chat_routes.fork_session(parent.id, {"from_uuid": "u2"}))
     assert out["account_id"] == "work"
+
+
+# --- アカウントを移して継続する経路 ---
+
+def _setup_account_move(tmp_path, monkeypatch, isolated_state, source_lines=SAMPLE):
+    """親を personal に置き、 work の projects dir を tmp に生やした状態を作る。"""
+    import backend.routes.sessions as sessions_mod  # noqa: PLC0415
+    chat_routes, parent, src = _setup_fork_env(tmp_path, monkeypatch, isolated_state, source_lines)
+    parent.account_id = "personal"
+    work_dir = tmp_path / "work-projects" / "-work-cwd"
+    accounts = {
+        "personal": {"display_name": "Personal", "env": {}},
+        "work": {"display_name": "Work", "env": {"CLAUDE_CONFIG_DIR": str(tmp_path / "work")}},
+    }
+    monkeypatch.setattr(sessions_mod, "get_config", lambda: {"accounts": accounts})
+    monkeypatch.setattr(sessions_mod, "AGENTS", {parent.agent_id: {"cwd": "/work/cwd"}})
+    monkeypatch.setattr(
+        sessions_mod, "cwd_to_project_dir",
+        lambda cwd, account_id=None: work_dir if account_id == "work" else src.parent,
+    )
+    return chat_routes, parent, src, work_dir
+
+
+def test_fork_moves_lineage_into_the_target_account_dir(tmp_path, monkeypatch, isolated_state):
+    """移し先の projects dir に lineage を書き、 新 session の account_id も移し先にする。
+
+    置き場所と spawn 時の CLAUDE_CONFIG_DIR がずれると `claude --resume` が lineage を
+    見つけられず空タブになる (= 2026-07-22 の事故と同じ構造)。 両者は必ず揃える。
+    """
+    chat_routes, parent, src, work_dir = _setup_account_move(tmp_path, monkeypatch, isolated_state)
+    out = _run(chat_routes.fork_session(parent.id, {"target_account_id": "work"}))
+    assert out["account_id"] == "work"
+    assert out["parent_id"] == parent.id
+    assert out["title"] == "Chat · Work"
+    written = list(work_dir.glob("*.jsonl"))
+    assert len(written) == 1
+    assert written[0].stem == out["resume_session_id"]
+    # 元のタブ / 元の jsonl は無傷
+    assert src.read_text().splitlines() == SAMPLE
+    assert parent.account_id == "personal"
+
+
+def test_fork_without_uuid_takes_the_latest_clean_point(tmp_path, monkeypatch, isolated_state):
+    chat_routes, parent, _src, work_dir = _setup_account_move(tmp_path, monkeypatch, isolated_state)
+    out = _run(chat_routes.fork_session(parent.id, {"target_account_id": "work"}))
+    written = list(work_dir.glob("*.jsonl"))[0]
+    # 末尾の切れ目 = a2 まで丸ごと引き継ぐ
+    assert _uuids(written.read_text().splitlines()) == ["u1", "a1", "u2", "a2"]
+    assert out["resume_session_id"] == written.stem
+
+
+def test_fork_to_the_same_account_stays_next_to_the_source(tmp_path, monkeypatch, isolated_state):
+    chat_routes, parent, src, work_dir = _setup_account_move(tmp_path, monkeypatch, isolated_state)
+    out = _run(chat_routes.fork_session(parent.id, {"target_account_id": "personal"}))
+    assert out["account_id"] == "personal"
+    assert out["title"] == "Chat fork"
+    assert list(work_dir.glob("*.jsonl")) == []
+    assert len([p for p in src.parent.glob("*.jsonl") if p.name != "OLD.jsonl"]) == 1
+
+
+def test_fork_rejects_an_unknown_target_account(tmp_path, monkeypatch, isolated_state):
+    from fastapi import HTTPException  # noqa: PLC0415
+    chat_routes, parent, _src, _work = _setup_account_move(tmp_path, monkeypatch, isolated_state)
+    try:
+        _run(chat_routes.fork_session(parent.id, {"target_account_id": "nope"}))
+    except HTTPException as e:
+        assert e.status_code == 400
+        return
+    raise AssertionError("expected 400 for an unknown target account")
+
+
+def test_fork_without_any_clean_point_is_rejected(tmp_path, monkeypatch, isolated_state):
+    from fastapi import HTTPException  # noqa: PLC0415
+    lines = [_assistant("a1", None, content=[{"type": "tool_use", "name": "Read", "id": "t1"}])]
+    chat_routes, parent, _src, _work = _setup_account_move(tmp_path, monkeypatch, isolated_state, lines)
+    try:
+        _run(chat_routes.fork_session(parent.id, {"target_account_id": "work"}))
+    except HTTPException as e:
+        assert e.status_code == 400
+        return
+    raise AssertionError("expected 400 when no clean break exists yet")
 
 
 def test_fork_endpoint_rejects_dirty_point(tmp_path, monkeypatch, isolated_state):

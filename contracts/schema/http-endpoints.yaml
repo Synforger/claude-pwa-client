@@ -82,12 +82,12 @@ endpoints:
 
   - method: POST
     path: /sessions/{sid}/fork
-    description: "メッセージから分岐 (= 過去 uuid から新 session を派生)"
+    description: "メッセージから分岐 (= 過去 uuid から新 session を派生)。 target_account_id 指定でアカウントを移して継続"
     request_body:
       type: object
-      required: [from_uuid]
       properties:
-        from_uuid: { type: string }
+        from_uuid: { type: string, description: "分岐起点。 target_account_id 指定時は省略可 (= 末尾の切れ目を自動採用)" }
+        target_account_id: { type: string, description: "移し先 account (= 省略時は親を継承)" }
     response:
       type: object
       properties:
@@ -97,7 +97,10 @@ endpoints:
     auth: tailnet
     invariants:
       - "from_uuid 不在は 404"
+      - "from_uuid / target_account_id が両方無いと 400"
+      - "未知の target_account_id は 400"
       - "fork lineage は parent_id 保持、 resume_session_id は落とす (= fork 初回役目終了)"
+      - "アカウント移行時は lineage を移し先の projects dir に書き、 新 session の account_id も移し先にする (= 置き場所と spawn 先を必ず揃える)"
     implementation: backend/routes/sessions.py
 
   - method: POST
