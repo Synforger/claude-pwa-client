@@ -67,33 +67,60 @@ function LinkifiedResult({ text, onOpenFile, errorClass }) {
 const editBaseLineCache = new Map()
 const EDIT_BASELINE_CACHE_MAX = 500
 
-async function fetchEditBaseLine(filePath, newString, signal) {
+// ファイル本体は path 単位で持つ (= 基準行キャッシュとは別レイヤ)。 1 つのファイルを複数回
+// 編集したターンでは Edit 行の数だけ別キーになるので、 基準行キャッシュだけでは同じファイルを
+// 人数分取りに行っていた。 2026-08-03 実測: タブ表示 1 回で同一ファイルへ最大 7 重複、
+// 全体で 314 リクエスト中ユニークは 70 (= 4.5 倍の無駄取得)。
+const fileContentCache = new Map()
+const FILE_CONTENT_CACHE_MAX = 100
+// 進行中の取得 (= path → Promise)。 同じファイルへの同時要求を 1 本に畳む。
+const inflightFileFetches = new Map()
+
+function fetchFileContent(filePath) {
+  if (fileContentCache.has(filePath)) return Promise.resolve(fileContentCache.get(filePath))
+  const inflight = inflightFileFetches.get(filePath)
+  if (inflight) return inflight
+  // AbortSignal は **渡さない**。 待ち手を共有するので、 1 つの Edit 行が unmount した
+  // だけで取得ごと中断すると、 他の待ち手まで空振りしてキャッシュが埋まらない。 旧実装は
+  // 各行が自分の signal 付きで取りに行っていたため、 タブを素早く切り替えると abort →
+  // 未キャッシュ → 次の表示でまた全件取得、 を繰り返していた。
+  const p = apiFetch(`/file?path=${encodeURIComponent(filePath)}`)
+    .then(res => (res.ok ? res.json() : null))
+    .then(data => {
+      const content = data?.content
+      if (typeof content !== 'string') return null
+      if (fileContentCache.size >= FILE_CONTENT_CACHE_MAX) fileContentCache.clear()
+      fileContentCache.set(filePath, content)
+      return content
+    })
+    .catch(() => null)
+    .finally(() => inflightFileFetches.delete(filePath))
+  inflightFileFetches.set(filePath, p)
+  return p
+}
+
+export async function fetchEditBaseLine(filePath, newString, signal) {
   if (!filePath || !newString) return null
   // 区切りは NUL (= path に現れ得ない文字)。 生の NUL を書くと file 自体が binary 判定になり
   // grep / 検出機構が本 file を丸ごと skip するので escape で書く。
   const cacheKey = `${filePath}\0${newString.length}:${newString.slice(0, 200)}`
   if (editBaseLineCache.has(cacheKey)) return editBaseLineCache.get(cacheKey)
-  try {
-    const res = await apiFetch(`/file?path=${encodeURIComponent(filePath)}`, { signal })
-    if (!res.ok) return null
-    const data = await res.json()
-    const content = data?.content
-    if (typeof content !== 'string') return null
-    const idx = content.indexOf(newString)
-    // idx < 0 (= その後の編集で new_string が消えた) も確定結果としてキャッシュする。
-    // ここを再試行にすると「見つからないファイル」 が mount のたびに再取得され続ける。
-    let line = null
-    if (idx >= 0) {
-      // idx 以前の \n 数 + 1 = 開始行番号 (1-indexed)
-      line = 1
-      for (let i = 0; i < idx; i++) if (content.charCodeAt(i) === 10) line++
-    }
-    if (editBaseLineCache.size >= EDIT_BASELINE_CACHE_MAX) editBaseLineCache.clear()
-    editBaseLineCache.set(cacheKey, line)
-    return line
-  } catch {
-    return null
+  const content = await fetchFileContent(filePath)
+  // 取得中に呼び出し側が消えていたら結果を捨てる (= 取得自体は完了させてキャッシュに残す)
+  if (signal?.aborted) return null
+  if (content == null) return null
+  const idx = content.indexOf(newString)
+  // idx < 0 (= その後の編集で new_string が消えた) も確定結果としてキャッシュする。
+  // ここを再試行にすると「見つからないファイル」 が mount のたびに再取得され続ける。
+  let line = null
+  if (idx >= 0) {
+    // idx 以前の \n 数 + 1 = 開始行番号 (1-indexed)
+    line = 1
+    for (let i = 0; i < idx; i++) if (content.charCodeAt(i) === 10) line++
   }
+  if (editBaseLineCache.size >= EDIT_BASELINE_CACHE_MAX) editBaseLineCache.clear()
+  editBaseLineCache.set(cacheKey, line)
+  return line
 }
 
 // ops (compactDiff 済み) を走査して、各行に old/new 行番号を付ける。
