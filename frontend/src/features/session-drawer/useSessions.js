@@ -113,13 +113,21 @@ export async function createSession(agentId, accountId, title) {
 
 // 会話を任意メッセージから分岐する (= フォーク)。 backend が lineage を新 jsonl に
 // 書き出して子 SessionDef を返す → 先頭に挿して active を新タブへ。 元タブは無傷。
-export async function forkSession(sourceId, fromUuid) {
+//
+// targetAccountId を渡すと**アカウントを移して続ける**経路になる (= lineage は移し先の
+// projects dir に書かれ、 新タブも移し先の account で spawn する)。 この時 fromUuid は
+// 省略できる: 引き継ぎたいのは常に「今の続き」 なので、 backend が末尾から最初の安全な
+// 切れ目を採る。
+export async function forkSession(sourceId, fromUuid, targetAccountId) {
   let meta
+  const body = {}
+  if (fromUuid) body.from_uuid = fromUuid
+  if (targetAccountId) body.target_account_id = targetAccountId
   try {
     const res = await apiFetch(`/sessions/${sourceId}/fork`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from_uuid: fromUuid }),
+      body: JSON.stringify(body),
     })
     if (!res.ok) {
       let detail = `HTTP ${res.status}`
@@ -134,6 +142,11 @@ export async function forkSession(sourceId, fromUuid) {
   appendSession(meta)
   storeSetActiveId(meta.id)
   return meta
+}
+
+// アカウントを移して会話を続ける。 分岐位置は backend 任せ (= 末尾の切れ目)。
+export function continueOnAccount(sourceId, accountId) {
+  return forkSession(sourceId, null, accountId)
 }
 
 export async function removeSession(id) {

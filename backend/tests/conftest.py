@@ -89,3 +89,23 @@ def isolated_state(monkeypatch, tmp_path):
         live = getattr(state, name)
         live.clear()
         live.update(snap)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """後始末されていない non-daemon スレッドを名前で報告する。
+
+    残ると **pytest 本体が終わってもプロセスが exit できない**。 2026-08-03 に全 759 件が
+    8 秒で緑なのにプロセスが 2 時間終わらず、 CI が固まったように見えた実害がある
+    (= 真因は test_unified_stream の event loop を 1 tick 回さずに閉じていたこと、
+    anyio の worker を止める done callback が call_soon 止まりで実行されなかった)。
+    fail はさせない (= 生成経路が増えるたびに赤くなると本題の失敗が埋もれる)。 数が増えたら
+    この行を手掛かりに、 その worker を起こした loop の閉じ方を疑う。
+    """
+    import threading
+    leaked = [
+        t for t in threading.enumerate()
+        if t is not threading.main_thread() and not t.daemon and t.is_alive()
+    ]
+    if leaked:
+        names = ", ".join(sorted({t.name for t in leaked}))
+        print(f"\n[threads] {len(leaked)} non-daemon thread(s) still alive: {names}")

@@ -145,9 +145,27 @@ contract test (= `frontend/src/features/__contracts__/no-lazy-component-static-i
    ```
 2. backend 再起動 (= `config.py` は遅延 lookup なので再起動後の次タブから反映)
 3. frontend では新タブ作成 UI (= `frontend/src/features/session-drawer/useSessions.js` 経由) が
-   `/accounts` endpoint (`backend/routes/accounts.py`) から自動で選択肢を引く
+   `/accounts` endpoint (`backend/routes/accounts.py`) から自動で選択肢を引く。 会話一覧の
+   ⋯ メニューに出る「別アカウントで続ける」 も同じ一覧を使う
 4. **コード変更不要** (= `state.SessionDef.account_id` が任意の string を受ける設計、
    spawn 時に `accounts[account_id].env` を tmux env として注入する)
+
+`/accounts` は `is_default` を返す。 これは **`env` に `CLAUDE_CONFIG_DIR` を持たない最初の
+account** で、 `account_id` を持たない session (= この項目ができる前に作られたタブ) が実際に
+読んでいる config dir と同じ場所を指す。 frontend はこれで「所属なし」 を解決する (= 解決しないと
+そのタブに account 表示が出ず、 自分自身が移行先候補に並ぶ)。
+
+### 会話を別アカウントへ移す
+
+`POST /sessions/{sid}/fork` に `target_account_id` を渡すと、 lineage を **移し先の**
+projects dir に書き、 新 session の `account_id` も移し先にする。 この 2 つは必ず揃える
+(= ずれると `claude --resume` が lineage を見つけられず空タブになる)。 会話ログの行は
+account 固有の識別子を持たない (= `cwd` / `gitBranch` / `version` / `userType` のみ) ので、
+置き場所を変えるだけで移し先から読める。
+
+この経路では `from_uuid` を省略できる。 欲しいのは常に「今の続き」 で、 末尾はしばしば
+tool 実行中 (= 分岐できない位置) なので、 backend が `latest_clean_fork_point` で手前の
+切れ目まで下がる。
 
 ### 注意
 

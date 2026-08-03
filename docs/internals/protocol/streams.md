@@ -54,7 +54,7 @@ backend と frontend を繋ぐリアルタイム経路は **4 本の SSE + 2 本
 
 旧設計は sid 毎に `/status/{sid}/stream` を張り替えていた。 タブ切替のたびに SSE を旧 close → 新接続し、 iOS Safari の 1-3 秒の TCP 確立コストで「タブ切替したのに status が出るのが遅い」 体感だった。 全 sid を 1 接続で配信に変更 (= overview と同パターン) し、 タブ切替で SSE 張り替え不要 → 切替コスト 0。 各 client は受信 payload から自分の activeSid 分を取り出すだけ。
 
-`StreamState.status_event` (per sid `asyncio.Event`) を起点に、 hooks / jsonl 経路で変化があったら `set()` → SSE 接続側が起きて全 sid snapshot を yield → `clear()`。 接続ごとの diff 配信 (= F-09) で snapshot 不変なら data 行を yield しない。 keep-alive は data 行 heartbeat `{"_hb":1}` を 20s 間隔で流す (= client の生存監視 watchdog が受信時刻を読める形。 全 sid JSON を毎 20s 流す無駄は F-10 と同じく排除)。 rate-limits は 1 秒 cache で接続数 × notify 回 read を縮める (= F-56)。
+`StreamState.status_event` (per sid `asyncio.Event`) を起点に、 hooks / jsonl 経路で変化があったら `set()` → SSE 接続側が起きて全 sid snapshot を yield → `clear()`。 接続ごとの diff 配信 (= F-09) で snapshot 不変なら data 行を yield しない。 keep-alive は data 行 heartbeat `{"ch":"sys","_hb":1}` を 20s 間隔で流す (= client の生存監視 watchdog が受信時刻を読める形。 全 sid JSON を毎 20s 流す無駄は F-10 と同じく排除)。 rate-limits は 1 秒 cache で接続数 × notify 回 read を縮める (= F-56)。
 
 ### overview channel: backend 権威 busy の唯一のソース (= 旧 /sessions/overview/stream)
 
@@ -97,6 +97,9 @@ tmux server は `exit-empty off` + 番兵 session `claudepwa-sentinel` (= backen
 - **warmup も購読 sid のみ**: 旧 `/jsonl/stream/all` の「接続時に全 sid PTY sweep」 を廃止。 未購読 sid は購読された瞬間に ensure
 - **views/ws の吸収**: op=view で視認申告、 SSE 切断 = views 登録自動消滅 (= WS の TCP FIN と同じ stale-free 性質)。 Stop は op=stop (= POST は TCP 保証で届く、 旧 WS 経路と等価)
 - **status / overview**: 接続毎 diff 配信 (= F-09 と同規約) を 1 pump に統合。 subagents は op=subagents で対象 1 sid を watch
+- **subagent の完了印**: その Task の**実結果**が `tool_result` として親転写に返っていること。 引き当ては `meta.json` の `toolUseId`、 実装は `backend/routes/subagents.py::_completed_tool_use_ids`。 誤判定しやすい経路が 2 つある (= どちらも 2026-08-03 に実機で踏んだ):
+  - 親 turn が idle かどうかは**代用にならない**。 背景実行の subagent は親が自分の turn を終えた後も走り続けるので、 idle を完了印にすると走行中のものが軒並み done 表示になる
+  - 背景実行は**起動の瞬間に ack の `tool_result` が返る** (= 本文が `Async agent launched successfully` で始まる)。 これを数えると同じ誤 done が別経路で復活する。 背景実行の完了は subagent 自身の転写に残る確定 stop_reason で拾う
 - **keep-alive**: `{"ch":"sys","_hb":1}` を 25s 間隔 (= 全 channel 共通の 1 心拍、 旧 4-5 本分の heartbeat が 1 本に)
 
 旧 endpoint 群 (= per-sid SSE / stream/all / status/stream / overview/stream / views/ws) は 2026-07-27 に**退役** (= 実利用が旧 bundle の居座りタブのみと確認、 route ごと削除。 旧 bundle のタブは live 更新が止まるが開き直しで新 bundle が入る)。
@@ -113,6 +116,7 @@ tmux server は `exit-empty off` + 番兵 session `claudepwa-sentinel` (= backen
   - **JSON gzip** (= `backend/core/compression.py`)。 **SSE は対象外** — content-type が `text/event-stream` のものは素通しする。 streaming を圧縮すると gzip の内部 buffer に event が滞留してライブ更新が詰まるため、 ここは構造的に分けている (= pin: `backend/tests/test_compression.py::test_sse_is_never_compressed`)
   - **表示に使われない本文の除去** (= `_shrink_tool_results`)。 履歴の 65% が tool_result で、 その大半が base64 画像だった。 UI は tool_result 内の画像を「画像」 プレースホルダ 1 語に畳む (= `utils/format.js`) ので本体は 1 byte も表示に使われない → 履歴経路に限り画像本体を落とし、 長大 text も冒頭 `TOOL_RESULT_PREVIEW_CHARS` に切り詰める。 元の文字数は `full_chars` で残し、 UI の文字数ラベルはそれを使うので表示は不変 (= pin: `backend/tests/test_jsonl_routes.py::test_shrink_tool_results_drops_image_payload_but_keeps_placeholder`)
   - **ライブ SSE は無改変**: 進行中の tool 出力は従来通り完全な形で届く (= 切り詰めは「画面外の過去ログを読み直す時」 だけの最適化。 pin: `backend/tests/test_jsonl_routes.py::test_shrink_tool_results_never_touches_assistant_or_user_message`)
+  - **画像本体を落とすのは受け取った側の責務** (= `frontend/src/utils/toolResult.js`)。 無改変で届いた tool_result をそのまま state に載せると、 履歴経由の同じ会話は軽いのにライブ経由だけ重い、 という非対称が client 側に残る (= 2026-08-03 実測: 200 件の保存窓に 2.58MB、 うち 2.56MB が表示に使われない画像。 保存前の structured clone だけで main thread が 150-500ms 停止)。 state に入れる時と保存形への射影で同じ縮小を掛けて対称にする。 UI の畳み方 (= 「画像」 1 語) は変わらないので表示は不変
 
 ## 接続生存 signal の集約
 

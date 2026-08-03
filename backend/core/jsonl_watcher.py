@@ -118,6 +118,12 @@ def confirm_bind(pwa_sid: str, claude_sid: str, transcript_path: str) -> Optiona
             start_time=time.time(),
         )
         _bindings[pwa_sid] = binding
+    # 同じ結び付けの再確認は即 return (= hook は turn ごとに飛んでくるので、 確定済みの
+    # binding に対して何も変わらない確認が大半を占める)。 旧実装はそれでも毎回 detach 走査 +
+    # INFO ログ + bindings ファイル書き込みまで走っていた (= 2026-08-03 実測 2,158 回、
+    # うち 1 セッションだけで 1,055 回)。 変化が無いなら状態も log も disk も触らない。
+    if binding.confirmed and binding.jsonl_path == path and _confirmed_paths.get(pwa_sid) == path:
+        return path
     binding.jsonl_path = path
     binding.confirmed = True
     _confirmed_paths[pwa_sid] = path
