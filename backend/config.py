@@ -84,6 +84,22 @@ def projects_dir_for_account(account_id: str | None) -> Path:
     return Path.home() / ".claude" / "projects"
 
 
+def default_account_id() -> str | None:
+    """account_id 未設定の session が実際に使っている account の id を返す。
+
+    account_id が無い session は projects_dir_for_account(None) 経由で既定の
+    `~/.claude/projects` を読む。 それと同じ場所を指す account (= env に CLAUDE_CONFIG_DIR を
+    持たない最初のもの) が「未設定と等価な account」。 これを解決しないと、 古い session
+    (= account_id が None のまま作られたタブ) が「どのアカウントにも属さない」 扱いになり、
+    自分自身が移行先候補に出てしまう。
+    """
+    for name, cfg in (get_config().get("accounts") or {}).items():
+        env = (cfg or {}).get("env") or {}
+        if not env.get("CLAUDE_CONFIG_DIR"):
+            return name
+    return None
+
+
 def cwd_to_project_dirname(cwd: str) -> str:
     """claude Code の規約: パス中の `/` と `.` を `-` に置換 (先頭 `/` も `-`)。"""
     return cwd.replace("/", "-").replace(".", "-")

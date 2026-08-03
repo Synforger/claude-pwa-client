@@ -32,6 +32,36 @@ def test_confirm_bind_then_get(tmp_path):
     assert jw.get_jsonl_for("ses_1") == f
 
 
+def test_reconfirming_the_same_binding_touches_nothing(tmp_path, monkeypatch):
+    """変化の無い再確認は disk も log も触らない。
+
+    SessionStart / UserPromptSubmit 等の hook は turn ごとに飛んでくるので、 確定済み binding
+    への「同じ path をもう一度」 が呼び出しの大半を占める。 旧実装はそれでも毎回 detach 走査 +
+    INFO ログ + bindings 書き出しまで走っていた (= 2026-08-03 実測 2,158 回、 うち 1 セッション
+    だけで 1,055 回)。
+    """
+    f = tmp_path / "same.jsonl"
+    f.write_text("{}\n")
+    jw.confirm_bind("ses_x", "claude_x", str(f))
+
+    saves = []
+    monkeypatch.setattr(jw, "_save_bindings", lambda: saves.append(1))
+    logs = []
+    monkeypatch.setattr(jw.logger, "info", lambda *a, **k: logs.append(a))
+
+    assert jw.confirm_bind("ses_x", "claude_x", str(f)) == f
+    assert saves == []
+    assert logs == []
+
+    # path が変わる (= /clear で新しい jsonl に切り替わった) 時は従来どおり反映する
+    g = tmp_path / "next.jsonl"
+    g.write_text("{}\n")
+    assert jw.confirm_bind("ses_x", "claude_x2", str(g)) == g
+    assert len(saves) == 1
+    assert len(logs) == 1
+    assert jw.get_jsonl_for("ses_x") == g
+
+
 def test_self_heal_when_inmem_binding_lost(tmp_path):
     # 確定後に in-mem binding が null 化 (= 再 attach race を模す) しても、
     # _confirmed_paths から復元して返すこと。
