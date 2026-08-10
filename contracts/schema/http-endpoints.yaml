@@ -578,3 +578,95 @@ endpoints:
       - "op=subagents: watch 対象 sid 切替 (= null で停止)、 対象 1 接続 1 sid"
       - "不明 conn は 404 (= 接続が先、 制御が後)"
     implementation: backend/routes/unified_stream.py
+
+  # --- meetings (= 並列エージェントの掲示板を読む / 書く) ---
+  # 実体は agent state tree 側の file (= board / status / contract の markdown)。
+  # backend は root を環境変数でのみ受け取り、 未設定なら全 endpoint が 404 を返す
+  # (= 個人の path を repo に書かないため、 既定値を持たない)。
+  # id は tier + topic から作る不透明な文字列。 path に階層名を載せないので
+  # traversal が構造的に起きない。
+
+  - method: GET
+    path: /meetings
+    description: "会議一覧 (= 全階層、 進行中と終了済み)"
+    response:
+      type: array
+      items:
+        type: object
+        properties:
+          id:         { type: string }
+          tier:       { type: string }
+          topic:      { type: string }
+          state:      { enum: [active, archived] }
+          updated_at: { type: string, nullable: true }
+        required: [id, tier, topic, state]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "root 未設定 (= 環境変数なし) は空配列でなく 404 (= 機能が無いことと会議が無いことを区別する)"
+      - "state=active は tier の meetings/ 直下、 archived は meetings/_archive/ 配下"
+    implementation: backend/routes/meetings.py
+
+  - method: GET
+    path: /meetings/{meeting_id}
+    description: "1 会議の中身 (= 契約 / 掲示板 / 現在地)"
+    response:
+      type: object
+      properties:
+        id:       { type: string }
+        tier:     { type: string }
+        topic:    { type: string }
+        state:    { enum: [active, archived] }
+        contract: { type: string, nullable: true }
+        posts:
+          type: array
+          items:
+            type: object
+            properties:
+              at:   { type: string }
+              who:  { type: string }
+              kind: { enum: [report, objection, ruling, directive, other] }
+              body: { type: string }
+            required: [who, kind, body]
+        participants:
+          type: array
+          items:
+            type: object
+            properties:
+              name:      { type: string }
+              version:   { type: string, nullable: true }
+              state:     { type: string }
+              note:      { type: string, nullable: true }
+              read_at:   { type: string, nullable: true }
+            required: [name, state]
+      required: [id, tier, topic, state, posts, participants]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "posts は board.md の追記順そのまま (= 並べ替えない)"
+      - "kind は行頭の 4 語から決まる。 どれでもない行は other (= 捨てない)"
+      - "participants の read_at は status.md の最終確認列。 未記入なら null"
+      - "不明 id は 404"
+    implementation: backend/routes/meetings.py
+
+  - method: POST
+    path: /meetings/{meeting_id}/posts
+    description: "掲示板へ 1 発言追記 (= 追記のみ、 既存の発言は変更しない)"
+    request_body:
+      type: object
+      required: [who, kind, body]
+      properties:
+        who:  { type: string }
+        kind: { enum: [report, objection, ruling, directive] }
+        body: { type: string }
+    response:
+      type: object
+      properties:
+        ok: { type: boolean }
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "追記のみ (= 既存行の書き換え / 削除を行う経路を持たない)"
+      - "kind は 4 種のみ。 other は受け付けない (= 自由記述に戻さない)"
+      - "archived な会議への追記は 409 (= 閉じた会議は記録)"
+    implementation: backend/routes/meetings.py

@@ -244,3 +244,48 @@ export interface PostStreamUnifiedConnControlResponse {
   ok?: boolean
   subscribed?: unknown[]
 }
+
+/** GET /meetings response[i] */
+export interface GetMeetingsResponseItem {
+  id: string
+  tier: string
+  topic: string
+  state: "active" | "archived"
+  updated_at?: string | null
+}
+
+export type GetMeetingsResponse = GetMeetingsResponseItem[]
+
+/** GET /meetings/{meeting_id} response */
+export interface GetMeetingsMeetingIdResponse {
+  id: string
+  tier: string
+  topic: string
+  state: "active" | "archived"
+  contract?: string | null
+  posts: ({
+      at?: string
+      who: string
+      kind: "report" | "objection" | "ruling" | "directive" | "other"
+      body: string
+    })[]
+  participants: ({
+      name: string
+      version?: string | null
+      state: string
+      note?: string | null
+      read_at?: string | null
+    })[]
+}
+
+/** POST /meetings/{meeting_id}/posts request body */
+export interface PostMeetingsMeetingIdPostsRequest {
+  who: string
+  kind: "report" | "objection" | "ruling" | "directive"
+  body: string
+}
+
+/** POST /meetings/{meeting_id}/posts response */
+export interface PostMeetingsMeetingIdPostsResponse {
+  ok?: boolean
+}

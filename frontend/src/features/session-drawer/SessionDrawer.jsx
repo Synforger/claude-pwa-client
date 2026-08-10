@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { apiFetch } from '../../utils/api.js'
 import { useOutsideClick } from '../../hooks/useOutsideClick.js'
+import { MeetingsPanel } from '../meetings/index.js'
 import {
   subscribe as subscribeSessions,
   getSnapshot as getSessionsSnapshot,
@@ -110,6 +111,9 @@ export default function SessionDrawer() {
   // 副作用 listener は AppEffects.jsx 側 1 instance に集約 (= J-2、 state/push.js singleton store
   // 経由で state を共有)、 本 instance は subscribe + toggle 呼出のみ。
   const [globalMenuOpen, setGlobalMenuOpen] = useState(false)  // ヘッダ ⋯ の総合メニュー
+  // drawer の中身の切替。 会話 (= session 一覧) と会議 (= 並列 agent の掲示板) は
+  // 別物なので、 一覧を混ぜずにタブで分ける。
+  const [tab, setTab] = useState('chat')
   const {
     pushEnabled, pushBroken, pushBusy, pushAvailable, handleTogglePush,
   } = usePushSubscription({ onCloseMenu: () => setGlobalMenuOpen(false) })
@@ -351,6 +355,30 @@ export default function SessionDrawer() {
           </div>
         </div>
 
+        <nav className="drawer-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'chat'}
+            className={tab === 'chat' ? 'is-active' : ''}
+            onClick={() => setTab('chat')}
+            data-testid="drawer-tab-chat"
+          >
+            {t('chat.tab')}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'meetings'}
+            className={tab === 'meetings' ? 'is-active' : ''}
+            onClick={() => setTab('meetings')}
+            data-testid="drawer-tab-meetings"
+          >
+            {t('meetings.tab')}
+          </button>
+        </nav>
+
+        {tab === 'meetings' ? <MeetingsPanel /> : <>
         <div className="drawer-create">
           {!agentPicker ? (
             <button className="drawer-new" onClick={() => setAgentPicker(true)} data-testid="new-session-button">
@@ -555,6 +583,7 @@ export default function SessionDrawer() {
             )
           })}
         </div>
+        </>}
       </aside>
     </>
   )

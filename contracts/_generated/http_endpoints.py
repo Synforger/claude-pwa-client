@@ -267,3 +267,39 @@ class PostStreamUnifiedConnControlResponse(BaseModel):
     subscribed: Optional[list[Any]] = None
 
 
+class GetMeetingsResponseItem(BaseModel):
+    """GET /meetings response[i]"""
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    tier: str
+    topic: str
+    state: Literal["active", "archived"]
+    updated_at: Optional[str] = None
+
+
+class GetMeetingsMeetingIdResponse(BaseModel):
+    """GET /meetings/{meeting_id} response"""
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    tier: str
+    topic: str
+    state: Literal["active", "archived"]
+    contract: Optional[str] = None
+    posts: list[dict[str, Any]]
+    participants: list[dict[str, Any]]
+
+
+class PostMeetingsMeetingIdPostsRequest(BaseModel):
+    """POST /meetings/{meeting_id}/posts request body"""
+    model_config = ConfigDict(extra="forbid")
+    who: str
+    kind: Literal["report", "objection", "ruling", "directive"]
+    body: str
+
+
+class PostMeetingsMeetingIdPostsResponse(BaseModel):
+    """POST /meetings/{meeting_id}/posts response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: Optional[bool] = None
+
+

@@ -389,3 +389,25 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
+
+/* drawer の中身の切替 (= 会話 / 会議)。 */
+.drawer-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px 0;
+}
+.drawer-tabs button {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+}
+.drawer-tabs button.is-active {
+  border-color: var(--accent);
+  background: var(--bg2);
+  color: var(--text);
+}

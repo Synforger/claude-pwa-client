@@ -47,6 +47,13 @@ LOGS_DIR = _env_path("CPC_LOGS_DIR", REPO_ROOT / "logs")
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
 
 CONFIG_PATH = _env_path("CPC_CONFIG_PATH", BACKEND_DIR / "config.json")
+
+# 並列エージェントの会議 (= contract / board / status の markdown) が置かれた木の
+# root。 既定値を持たないのが仕様: 置き場は運用者の私的な path であって、 この
+# repo に書くものではない。 未設定なら会議 API は 404 を返す (= 機能が無いことと
+# 会議が 0 件であることを区別する)。
+_MEETINGS_RAW = os.environ.get("CPC_MEETINGS_ROOT")
+MEETINGS_ROOT = Path(_MEETINGS_RAW).expanduser().resolve() if _MEETINGS_RAW else None
 SESSION_META_PATH = DATA_DIR / "session_meta.json"
 SUBSCRIPTIONS_PATH = DATA_DIR / "subscriptions.json"
 JSONL_BINDINGS_PATH = DATA_DIR / "jsonl_bindings.json"
