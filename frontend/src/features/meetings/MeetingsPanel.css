@@ -122,6 +122,12 @@
   color: var(--text-dim);
 }
 
+/* 回避中は進行しているが、 裁定後に外す約束が残っている。 進行中と同色にすると
+   撤去し忘れが画面から消えるので、 別扱いにする。 */
+.meetings-status-row.is-workaround .meetings-status-state {
+  color: var(--accent);
+}
+
 /* --- 掲示板 --- */
 
 .meetings-board {

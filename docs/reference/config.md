@@ -113,6 +113,19 @@ python -m backend.cli.gen_vapid
 には `--force` を付ける。 出力には pywebpush に渡す PEM 形式の private key と、 フロントの
 `applicationServerKey` 用 base64url エンコード済 public key が含まれる。
 
+## backend の環境変数
+
+backend が起動時に読む。 いずれも省略可で、 省略時の挙動を併記する。
+
+| 変数 | 用途 | 未設定のとき |
+|---|---|---|
+| `CPC_DATA_DIR` / `CPC_LOGS_DIR` / `CPC_SECRETS_DIR` / `CPC_CONFIG_PATH` | 運用 state / ログ / 鍵 / 設定の置き場を差し替える (= テスト実行を本番データから隔離するための口) | リポジトリ内の既定位置 |
+| `CPC_MEETINGS_ROOT` | 会議 (= 並列エージェントの掲示板) が置かれた木の root | **会議機能そのものが無効**。 関連 endpoint は 404 を返す |
+
+`CPC_MEETINGS_ROOT` に既定値は無い。 会議の置き場は運用者ごとに異なる私的な path で、
+リポジトリが知っていて良いものではないため。 未設定を 404 にしてあるので、 「機能を
+設定していない」 と 「会議が 1 件も無い」 を取り違えることはない。
+
 ## `frontend/.env` / `frontend/.env.local`
 
 - **`frontend/.env`**: リポジトリにコミットされる既定値 (アプリ名 / アイコン等)

@@ -6,8 +6,11 @@ import { useT } from '../../i18n/t.js'
 // 区切りに来た時だけ読む。 その時刻が出ていないと、 いま書いた指示が相手に届いて
 // いるのかどうかが、 画面からは永久に分からない。
 
+// 回避中 = 異議を出したまま、 裁定を待たずに回避して進んでいる状態。 止まってはいない
+// が、 裁定が返ったら回避を外して測り直す必要があるので、 進行中とは分けて出す。
 const TONE_BY_STATE = [
   [/異議|objection/i, 'objection'],
+  [/回避|workaround/i, 'workaround'],
   [/待機|wait/i, 'waiting'],
   [/完了|done|complete/i, 'done'],
   [/進行|running|active/i, 'running'],
