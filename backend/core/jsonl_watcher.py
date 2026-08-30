@@ -151,7 +151,12 @@ def confirm_bind(pwa_sid: str, claude_sid: str, transcript_path: str) -> Optiona
 
 
 def list_bindings() -> dict[str, dict]:
-    """debug 用: 現在の全 binding を JSON-serializable な dict で返す。"""
+    """debug 用: 現在の全 binding を JSON-serializable な dict で返す。
+
+    返す前に実体の消えた binding を落とす (= 読み手が「在る」 と言われた binding は
+    必ず実体を持つ)。
+    """
+    prune_dead_bindings()
     return {
         sid: {
             "claude_pid": b.claude_pid,
@@ -192,6 +197,26 @@ def get_jsonl_for(tmux_sid: str) -> Optional[Path]:
             )
         return healed
     return None
+
+
+def prune_dead_bindings() -> list[str]:
+    """JSONL 実体が消えた binding を落とし、 落とした sid を返す。
+
+    _load_bindings は起動時に「実体が無い binding は復元しない」 を既にやっている。
+    この関数はその判断を backend が動いている間にも効かせる (= 起動時だけ掃除できて、
+    稼働中に消えた分は誰も落とさない、 という非対称を無くす)。 実体が消えた binding を
+    残しても chat tail は読めず、 健康確認が赤いまま自己修復しない。
+    """
+    dead = [
+        sid for sid, b in _bindings.items()
+        if b.jsonl_path is not None and not b.jsonl_path.is_file()
+    ]
+    for sid in dead:
+        logger.info("jsonl_watcher prune: jsonl gone, dropping binding sid=%s", sid)
+        del _bindings[sid]
+    if dead:
+        _save_bindings()
+    return dead
 
 
 def _save_bindings() -> None:
