@@ -126,3 +126,29 @@ def test_register_pending_does_not_probabilistically_bind(tmp_path):
     jw.register_pending("ses_b", 2, str(tmp_path), 1000.0)  # 同 cwd 2 セッション
     assert jw.get_jsonl_for("ses_a") is None
     assert jw.get_jsonl_for("ses_b") is None
+
+
+def test_binding_is_dropped_when_its_jsonl_disappears(tmp_path):
+    # 起動時 (_load_bindings) は実体の無い binding を復元しないのに、 稼働中に実体が
+    # 消えた分を落とす経路が無く、 健康確認が赤いまま自己修復しなかった回帰。
+    f = tmp_path / "vanishing.jsonl"
+    f.write_text("{}\n")
+    jw.confirm_bind("ses_gone", "c_gone", str(f))
+    assert "ses_gone" in jw.list_bindings()
+
+    f.unlink()
+    assert "ses_gone" not in jw.list_bindings()
+
+
+def test_pruning_keeps_bindings_whose_jsonl_still_exists(tmp_path):
+    # 掃除が生きている binding を巻き込まないこと (= 落とす条件は実体の不在だけ)。
+    alive = tmp_path / "alive.jsonl"
+    alive.write_text("{}\n")
+    dead = tmp_path / "dead.jsonl"
+    dead.write_text("{}\n")
+    jw.confirm_bind("ses_alive", "c_alive", str(alive))
+    jw.confirm_bind("ses_dead", "c_dead", str(dead))
+
+    dead.unlink()
+    assert jw.prune_dead_bindings() == ["ses_dead"]
+    assert jw.get_jsonl_for("ses_alive") == alive
