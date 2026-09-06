@@ -14,7 +14,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import yaml from 'js-yaml'
+import { load as loadYaml } from 'js-yaml'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const schemaDir = resolve(__dirname, '..', 'schema')
@@ -222,7 +222,7 @@ function main() {
     const { yamlFile, tsFile, fn } = generators[key]
     const src = join(schemaDir, yamlFile)
     if (!existsSync(src)) { console.error(`SKIP ${key}: ${src} not found`); continue }
-    const doc = yaml.load(readFileSync(src, 'utf8'))
+    const doc = loadYaml(readFileSync(src, 'utf8'))
     generated[key] = { tsFile, content: fn(doc) }
   }
 
