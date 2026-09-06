@@ -22,7 +22,7 @@
       "uploads_tmp",
       "vapid_sub"
     ],
-    "at": "2026-08-03T08:54:49+00:00",
+    "at": "2026-09-06T17:30:24+00:00",
     "code_blobs": {
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
       "backend/cli/gen_vapid.py": "0fdd5bd90975b39e144594fdefbb07ead666353e",
@@ -75,8 +75,8 @@
       "frontend/src/features/chat/splitStreamingBlocks.test.js": "32c6acb32e6394145e6923932318e9a9424287c5",
       "frontend/src/features/chat/storage.worker.js": "1ca2eaf11bb46292ea28f7c3657a60d6c0deb3cd",
       "frontend/src/features/chat/useAutoScroll.js": "05178b2cbe63b582e51d307301bc5d66693d8c33",
-      "frontend/src/features/chat/useChatStorage.js": "f6a2046433335e141741cb303528140334b026ca",
-      "frontend/src/features/chat/useChatStorage.test.js": "5fc7b15cca255b9ede36116aef2c6eb70454cb5f",
+      "frontend/src/features/chat/useChatStorage.js": "b4f4bda222c9228dfda8604f74dd2e449e6a9768",
+      "frontend/src/features/chat/useChatStorage.test.js": "6237cfd3db30c01ce06b38ce731dc48de9f8629f",
       "frontend/src/features/chat/useChatStream.js": "8a81f459283430397bbb3982ff4c2813d3d116b0",
       "frontend/src/features/chat/useRunningSubagents.js": "52d2ce55447eb6011c55282dc60e4fa575d87171",
       "frontend/src/features/chat/useStreamBuffer.js": "d98dd1dbf8a1289cf769190238ca1e26812caf57",
@@ -235,11 +235,11 @@
       "frontend/src/utils/storage.js": "810f066d3cd3ef3c84b2ebc62a3a2fad5477be62",
       "frontend/src/utils/storage.test.js": "fa6f6beabb1d93f02911e1d1b931c71dfbdc8d4e",
       "frontend/src/utils/toolResult.js": "35fb261cab02d9c8b2b3f2e1a92ce3a3c988ef19",
-      "frontend/src/utils/toolResult.test.js": "b504bac8bcbc093c8f6dfbaf79185f057a642130"
+      "frontend/src/utils/toolResult.test.js": "2e8a88a2bed7368a568c8bcdfff96f00643593e9"
     },
-    "commit": "1e041efae60c8683a0d1ecb1efeb4d4de74e768c",
+    "commit": "6d3ff949d1d77d07add3dee9488682cb75b59c82",
     "doc_blob": "6bf6ca229dd813dfccc27f67df40aec0b7859c4c",
-    "note": "added the intended-use note to the accounts section of docs/reference/config.md; the schema itself is unchanged"
+    "note": "Amber only: frontend/src/features/chat/useChatStorage.js and the two test files moved, none of them referenced by docs/reference/config.md, and no config key changed."
   },
   "doc": "docs/reference/config.md",
   "schema": 1

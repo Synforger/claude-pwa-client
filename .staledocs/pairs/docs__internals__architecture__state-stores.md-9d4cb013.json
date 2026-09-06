@@ -52,7 +52,7 @@
       "utils/toolResult.js",
       "viewModes[sid]"
     ],
-    "at": "2026-08-03T08:39:24+00:00",
+    "at": "2026-09-06T17:37:49+00:00",
     "code_blobs": {
       "backend/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
@@ -64,7 +64,7 @@
       "backend/core/fork.py": "9d143ddcf55a47b22d627aaa0666db0e4e8ec3e5",
       "backend/core/jsonl_predicates.py": "7036ca1a783e66b9b247237856366490f36db0a2",
       "backend/core/jsonl_tail.py": "93f030942b8843ab6d186dd11ae11fdf5276c576",
-      "backend/core/jsonl_watcher.py": "568970bbfb0098c2a7cec975a829a8ca89c82b55",
+      "backend/core/jsonl_watcher.py": "7afadbb8dfdd242b7542f89d54dcbec0e21ce72e",
       "backend/core/push.py": "f383441c57ed76f45dd615dfcbbe4bf9da18062e",
       "backend/core/usage.py": "d58d8c6397ee2e6f6294460fbc6313de23e205f6",
       "backend/errors.py": "6b07f60faf57933bc4038c72d0d37cad33546653",
@@ -154,7 +154,7 @@
       "backend/tests/test_jsonl_stream_all.py": "aad38104daede0955c693d46fe9703c28dd05e67",
       "backend/tests/test_jsonl_tail.py": "61b6ff0cab09f3b14c3e84c6fd1f40589ac1226d",
       "backend/tests/test_jsonl_tasks_signature.py": "7772532c1a7709e0bf4038bb0189d18d1869f177",
-      "backend/tests/test_jsonl_watcher.py": "e256079e554a6c8e8a2f288dbba74192d9ee8262",
+      "backend/tests/test_jsonl_watcher.py": "f2cfb5a607a19504191614c9e2a89fc5b7c6150a",
       "backend/tests/test_layering.py": "8ebcb9b2437ac1d53e6dc36957ab5bec19e3e99d",
       "backend/tests/test_maintenance.py": "69066a743107c24f9452a75c18a1f4b06411a838",
       "backend/tests/test_prompt_detector.py": "c6fd9838af09c0497cad3247d497abfeaf16f595",
@@ -221,8 +221,8 @@
       "frontend/src/features/chat/splitStreamingBlocks.test.js": "32c6acb32e6394145e6923932318e9a9424287c5",
       "frontend/src/features/chat/storage.worker.js": "1ca2eaf11bb46292ea28f7c3657a60d6c0deb3cd",
       "frontend/src/features/chat/useAutoScroll.js": "05178b2cbe63b582e51d307301bc5d66693d8c33",
-      "frontend/src/features/chat/useChatStorage.js": "f6a2046433335e141741cb303528140334b026ca",
-      "frontend/src/features/chat/useChatStorage.test.js": "5fc7b15cca255b9ede36116aef2c6eb70454cb5f",
+      "frontend/src/features/chat/useChatStorage.js": "b4f4bda222c9228dfda8604f74dd2e449e6a9768",
+      "frontend/src/features/chat/useChatStorage.test.js": "6237cfd3db30c01ce06b38ce731dc48de9f8629f",
       "frontend/src/features/chat/useChatStream.js": "8a81f459283430397bbb3982ff4c2813d3d116b0",
       "frontend/src/features/chat/useRunningSubagents.js": "52d2ce55447eb6011c55282dc60e4fa575d87171",
       "frontend/src/features/chat/useStreamBuffer.js": "d98dd1dbf8a1289cf769190238ca1e26812caf57",
@@ -381,11 +381,11 @@
       "frontend/src/utils/storage.js": "810f066d3cd3ef3c84b2ebc62a3a2fad5477be62",
       "frontend/src/utils/storage.test.js": "fa6f6beabb1d93f02911e1d1b931c71dfbdc8d4e",
       "frontend/src/utils/toolResult.js": "35fb261cab02d9c8b2b3f2e1a92ce3a3c988ef19",
-      "frontend/src/utils/toolResult.test.js": "b504bac8bcbc093c8f6dfbaf79185f057a642130"
+      "frontend/src/utils/toolResult.test.js": "2e8a88a2bed7368a568c8bcdfff96f00643593e9"
     },
-    "commit": "98ec0e5a66dac9c6ca6c3eafb91163178a091d3e",
-    "doc_blob": "3e54f97e6c613d6f117d835f03e603363d5de3a7",
-    "note": "store table unaffected by backend/routes/subagents.py, which only reads transcripts"
+    "commit": "9c2e058556724f99cc6f5d9df10650b67384060a",
+    "doc_blob": "92e4dcdb3c1ee1d7c68ae35bf0003316249bc839",
+    "note": "Amber: backend/core/jsonl_watcher.py and its test are not referenced by docs/internals/architecture/state-stores.md; the messages.js row was updated in this branch to name toStorableArray."
   },
   "doc": "docs/internals/architecture/state-stores.md",
   "schema": 1
