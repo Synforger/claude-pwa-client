@@ -6,8 +6,13 @@
 # same tree, and the PR has to be closed by hand instead of merged. Pointing
 # Dependabot at `develop` puts the bump where every other change enters.
 #
-# Updates are grouped and infrequent on purpose: a lockfile bump is rarely worth
-# a PR of its own, and security updates are not held back by the schedule.
+# `open-pull-requests-limit: 0` turns off routine version bumps while leaving
+# security updates on. That is deliberate: the only thing wrong before was the
+# branch they landed on, not how many arrived. With the limit at a positive
+# number Dependabot also opens scheduled "everything to latest" PRs — the first
+# run produced one with 17 frontend packages and one with 9 backend packages,
+# which is a review burden nobody asked for and, as js-yaml 5 showed, can carry
+# breaking changes.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -15,37 +20,25 @@ updates:
     target-branch: develop
     schedule:
       interval: monthly
-    open-pull-requests-limit: 2
-    groups:
-      frontend:
-        patterns: ["*"]
+    open-pull-requests-limit: 0
 
   - package-ecosystem: npm
     directory: /contracts
     target-branch: develop
     schedule:
       interval: monthly
-    open-pull-requests-limit: 2
-    groups:
-      contracts:
-        patterns: ["*"]
+    open-pull-requests-limit: 0
 
   - package-ecosystem: pip
     directory: /
     target-branch: develop
     schedule:
       interval: monthly
-    open-pull-requests-limit: 2
-    groups:
-      backend:
-        patterns: ["*"]
+    open-pull-requests-limit: 0
 
   - package-ecosystem: github-actions
     directory: /
     target-branch: develop
     schedule:
       interval: monthly
-    open-pull-requests-limit: 1
-    groups:
-      actions:
-        patterns: ["*"]
+    open-pull-requests-limit: 0
