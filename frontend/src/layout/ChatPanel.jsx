@@ -282,7 +282,13 @@ export default function ChatPanel({ sid }) {
     // Phase 2 (= 2026-07-06): 旧 pending_question 合成 bubble は退役。 質問の真値は
     // SSE `ask_user_question` event → messages の askUserQuestion field、 ライブ回答 UI は
     // prompt detector banner。 「回答待ちで loading placeholder を出さない」 は answerMode で判定。
-    return (loading[activeSid] && !msgs.some(m => m.streaming) && !answerMode)
+    // 「もう画面に進行中の bubble が居るか」 は **末尾 1 件だけ**で判定する。 配列の
+    // どこかに streaming が居るか、 で見ると必ず true になってしまう: tool を呼んだ
+    // assistant message の stop_reason は tool_use で、 backend はその行に result event を
+    // 出さないので中間 bubble の flag は永久に落ちない。 その結果この placeholder は
+    // 一度ツールを使った会話では二度と出なくなっていた。
+    const liveTail = !!msgs[msgs.length - 1]?.streaming
+    return (loading[activeSid] && !liveTail && !answerMode)
       ? [...msgs, { id: '__loading__', role: '__loading__' }]
       : msgs
   }, [activeMsgs, loading, activeSid, answerMode, scrolledUp, frozenStart])
