@@ -70,7 +70,8 @@ function countSessionEnds(arr) {
 // localStorage 永続化境界の唯一の projection。 save (書込) と load (復元) の両端で同関数を
 // 通し、 「どの形で disk に載るか」 を 1 箇所で決める。 返り値 null = 永続化しない。
 //
-//   - streaming 中 (= in-flight) は落とす (= 発熱根治の境界、 確定分は jsonl replay で復元)。
+//   - streaming flag は保存形から外す (= 表示用の印であって永続化する状態ではない)。
+//     「いま伸びている 1 件を保存しない」 判定は配列を見る toStorableArray が持つ。
 //   - confirmed user (= uuid 付き) はそのまま。
 //   - 送信済み未確定 user (= send_id 付き optimistic bubble) は 「確定待ち (pending)」 として
 //     保存する。 optimistic フラグと ObjectURL (= リロードで失効する imageUrls) を落とし、
@@ -80,10 +81,9 @@ function countSessionEnds(arr) {
 //     (= send_id identity 導入前は同文別 uuid の二重表示 root cause だったが、 現行は
 //     send_id 経路が二重を構造的に潰すので pending 保存が安全になった)。
 //   - sendFailed / uuid も send_id も無い user は落とす (= ghost 防止)。
-//   - user 以外 (agent / system) は streaming 以外そのまま通す。
+//   - user 以外 (agent / system) は streaming flag を外してそのまま通す。
 export function toStorableForm(m) {
   if (!m) return null
-  if (m.streaming) return null
   if (m.role === 'user') {
     if (m.sendFailed) return null
     if (m.uuid) return m
@@ -91,23 +91,55 @@ export function toStorableForm(m) {
     const { optimistic: _optimistic, imageUrls: _imageUrls, ...pending } = m
     return pending
   }
+  // streaming flag は「いま伸びている bubble か」 を表す表示用の印なので、 保存形には持ち
+  // 込まない。 残すと復元後も MessageItem が tool-pending の「…」 を出し続け、
+  // MessageRenderer が path のリンク化を skip したままになる (= どちらも streaming 直結)。
+  let settled = m
+  if (m.streaming) {
+    const { streaming: _streaming, ...rest } = m
+    settled = rest
+  }
   // tool_result の画像本体は表示に使われないので保存形から落とす (= utils/toolResult.js)。
   // 受信経路 (processStreamEvent) でも落としているが、 ここを通すことで **修正前に受信して
   // state に載ったままの巨大メッセージ**も次の save で軽い形に置き換わる。
-  return stripMessageToolResultImages(m)
+  return stripMessageToolResultImages(settled)
+}
+
+// 会話 1 本を永続化形へ射影する (= localStorage へ書く配列の唯一の作り手)。
+//
+// 落とすのは **配列末尾が streaming の時、 その 1 件だけ**。 末尾 = いま文字が伸びている
+// bubble なので、 これを除けば「1 トークンごとに保存内容が変わる」 ことは起きず、
+// persistSig が不変に保たれて再圧縮が走らない (= 2026-07-21 発熱根治の目的はここで達成)。
+//
+// 末尾以外の streaming は落とさない。 claude は 1 ターンを複数の assistant message に
+// 分けて書き、 tool を呼んだ message の stop_reason は `tool_use` になる。 backend は
+// その行では result event を出さないので (= backend/jsonl/events.py)、 中間の bubble は
+// streaming flag が立ったまま確定する。 「streaming = 未確定」 とみなして全部落とすと、
+// ツール実行の間に挟まる説明テキストが 1 件も保存されず、 履歴 GET の replay 窓
+// (= INITIAL_REPLAY_LINES) から外れた過去が復元不能になる。
+export function toStorableArray(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return []
+  const tailIdx = arr.length - 1
+  const out = []
+  for (let i = 0; i < arr.length; i++) {
+    if (i === tailIdx && arr[i]?.streaming) continue
+    const storable = toStorableForm(arr[i])
+    if (storable) out.push(storable)
+  }
+  return out
 }
 
 // localStorage へ実際に書く対象か (= toStorableForm が保存形を返すか)。 badge / store mirror
-// 側は isPersistableMessage をそのまま使う (= 表示・検出には streaming も要る)。
+// 側は isPersistableMessage をそのまま使う (= 表示・検出には別の判定が要る)。
 export function isStorablePersistedMessage(m) {
   return toStorableForm(m) !== null
 }
 
-// 永続化対象 (= streaming 除外済み prune 後) の内容署名。 streaming 中は in-flight
-// メッセージを除外するので確定分だけが残り、 1 トークンごとに配列参照が変わっても署名は
-// 不変 → 圧縮を打たない (= 発熱の主因だった「毎 250ms 全履歴再圧縮」 の停止)。 ターンが
-// 確定して確定メッセージが増えた時のみ署名が変わり 1 回だけ保存する。 確定メッセージは
-// immutable なので length + 末尾 id + 末尾 content 長で取り違えは起きない。
+// 永続化対象 (= toStorableArray + prune 後) の内容署名。 いま伸びている末尾 1 件は
+// toStorableArray が除いているので、 1 トークンごとに配列参照が変わっても署名は不変 →
+// 圧縮を打たない (= 発熱の主因だった「毎 250ms 全履歴再圧縮」 の停止)。 assistant message が
+// 1 つ確定して次が始まった時だけ署名が変わり 1 回だけ保存する。 確定メッセージは immutable
+// なので length + 末尾 id + 末尾 content 長で取り違えは起きない。
 export function persistSig(arr) {
   const n = arr.length
   if (n === 0) return '0'
@@ -394,8 +426,9 @@ export function useChatStorage(sessions) {
       const cur = cur_messages[sid] || []
       // 参照比較で dirty 判定 (= sid に変更がなければ何もしない)
       if (lastSavedRef.current[sid] === cur) continue
-      // 永続化形へ射影 (= streaming 除外 + 送信済み未確定 user を pending 化、 toStorableForm 参照)。
-      const persistable = cur.map(toStorableForm).filter(Boolean)
+      // 永続化形へ射影 (= 末尾の in-flight 1 件だけ除外 + 送信済み未確定 user を pending 化、
+      // toStorableArray 参照)。
+      const persistable = toStorableArray(cur)
       // F-27: マーカー数を再計算 (= dirty な sid のみ)、 これを pruneOldSessions に渡す
       const endCount = countSessionEnds(persistable)
       endCountRef.current[sid] = endCount

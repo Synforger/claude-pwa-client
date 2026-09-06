@@ -50,7 +50,7 @@
       "subscriptions.json",
       "tmux_sid"
     ],
-    "at": "2026-08-30T11:23:16+00:00",
+    "at": "2026-09-06T17:38:24+00:00",
     "code_blobs": {
       "backend/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
@@ -243,8 +243,8 @@
       "frontend/src/features/chat/splitStreamingBlocks.test.js": "32c6acb32e6394145e6923932318e9a9424287c5",
       "frontend/src/features/chat/storage.worker.js": "1ca2eaf11bb46292ea28f7c3657a60d6c0deb3cd",
       "frontend/src/features/chat/useAutoScroll.js": "05178b2cbe63b582e51d307301bc5d66693d8c33",
-      "frontend/src/features/chat/useChatStorage.js": "f6a2046433335e141741cb303528140334b026ca",
-      "frontend/src/features/chat/useChatStorage.test.js": "5fc7b15cca255b9ede36116aef2c6eb70454cb5f",
+      "frontend/src/features/chat/useChatStorage.js": "b4f4bda222c9228dfda8604f74dd2e449e6a9768",
+      "frontend/src/features/chat/useChatStorage.test.js": "6237cfd3db30c01ce06b38ce731dc48de9f8629f",
       "frontend/src/features/chat/useChatStream.js": "8a81f459283430397bbb3982ff4c2813d3d116b0",
       "frontend/src/features/chat/useRunningSubagents.js": "52d2ce55447eb6011c55282dc60e4fa575d87171",
       "frontend/src/features/chat/useStreamBuffer.js": "d98dd1dbf8a1289cf769190238ca1e26812caf57",
@@ -403,11 +403,11 @@
       "frontend/src/utils/storage.js": "810f066d3cd3ef3c84b2ebc62a3a2fad5477be62",
       "frontend/src/utils/storage.test.js": "fa6f6beabb1d93f02911e1d1b931c71dfbdc8d4e",
       "frontend/src/utils/toolResult.js": "35fb261cab02d9c8b2b3f2e1a92ce3a3c988ef19",
-      "frontend/src/utils/toolResult.test.js": "b504bac8bcbc093c8f6dfbaf79185f057a642130"
+      "frontend/src/utils/toolResult.test.js": "2e8a88a2bed7368a568c8bcdfff96f00643593e9"
     },
-    "commit": "635b89400aa763043a4984f0ae81dd68bdf154be",
+    "commit": "9c2e058556724f99cc6f5d9df10650b67384060a",
     "doc_blob": "135a510a42d18fc27b22a46ad5ea94fa6620ffc4",
-    "note": "backend/core/jsonl_watcher.py \u306b prune_dead_bindings \u3092\u8ffd\u52a0\u3057 list_bindings \u304c\u8fd4\u3059\u524d\u306b\u547c\u3076\u5f62\u306b\u3057\u305f\u306e\u3067\u3001jsonl_bindings.json \u306e writer \u6b04\u3092\u5b9f\u88c5\u306b\u5408\u308f\u305b\u305f (\u65e7\u8a18\u8ff0\u306e _persist \u306f\u5b58\u5728\u3057\u306a\u3044\u95a2\u6570\u3060\u3063\u305f\u3002\u5b9f\u4f53\u306f _save_bindings)\u3002\u3042\u308f\u305b\u3066\u5bff\u547d\u306e\u6bb5\u843d\u3092\u8ffd\u52a0\u3057\u3001\u5b9f\u4f53\u306e\u6d88\u3048\u305f entry \u306f\u8d77\u52d5\u6642 _load_bindings \u3067\u3082\u7a3c\u50cd\u4e2d prune_dead_bindings \u3067\u3082\u4fdd\u6301\u3055\u308c\u306a\u3044\u3053\u3068\u3092\u660e\u793a\u3002backend/tests/test_jsonl_watcher.py \u306b 2 \u672c\u8ffd\u52a0\u6e08\u307f"
+    "note": "L101 is about which files under backend/ the backup sweep covers; unchanged. The hit is the literal backend/jsonl/events.py in a new comment in useChatStorage.js."
   },
   "doc": "docs/reference/data-schemas.md",
   "schema": 1
