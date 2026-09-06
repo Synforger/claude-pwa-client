@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isPersistableMessage, isStorablePersistedMessage, toStorableForm, persistSig } from './useChatStorage.js'
+import { isPersistableMessage, isStorablePersistedMessage, toStorableForm, toStorableArray, persistSig } from './useChatStorage.js'
 
 // 2026-06-24 server-of-truth 純化: localStorage 永続化境界の唯一の真値となる純関数 test。
 // 重複バグ root cause (= uuid なし user 行が ghost として復活し SSE event との dedup を破る)
@@ -40,14 +40,13 @@ describe('isPersistableMessage', () => {
   })
 })
 
-// 発熱根治 (= 2026-07-21): streaming 中の in-flight メッセージを localStorage 書込対象から
-// 外す。 これで streaming 中に配列参照が毎トークン変わっても永続化内容 (= 確定分) は不変
-// になり、 「毎 250ms 全履歴再圧縮」 の worker CPU (= 端末発熱の主因) が止まる。 in-flight
-// は jsonl replay で復元されるので落としても実データ損失なし。
+// 発熱根治 (= 2026-07-21) は「毎 250ms 全履歴再圧縮」 を止めるのが目的で、 そのために必要な
+// のは **いま伸びている 1 件を保存対象から外すこと**だけ。 message 単体の判定で streaming を
+// 弾くと、 ツールを呼んだ中間 bubble (= stop_reason が tool_use のまま確定するので streaming
+// flag が落ちない) まで永久に保存されなくなる。 単体判定は streaming を見ない。
 describe('isStorablePersistedMessage (localStorage 書込境界)', () => {
-  it('streaming 中の agent メッセージは書込対象から除外 (= in-flight は persist しない)', () => {
-    expect(isStorablePersistedMessage({ role: 'agent', text: '', streaming: true })).toBe(false)
-    // 確定した (streaming フラグの無い) agent は従来通り persist する
+  it('streaming flag は単体判定に影響しない (= 中間 bubble も書込対象)', () => {
+    expect(isStorablePersistedMessage({ role: 'agent', text: 'explaining', streaming: true })).toBe(true)
     expect(isStorablePersistedMessage({ role: 'agent', text: 'done', uuid: 'a1' })).toBe(true)
   })
 
@@ -94,8 +93,11 @@ describe('toStorableForm (永続化 projection)', () => {
     expect(toStorableForm({ role: 'user', text: 'hi', optimistic: true })).toBeNull()
   })
 
-  it('streaming (agent in-flight) は落とす', () => {
-    expect(toStorableForm({ role: 'agent', text: '', streaming: true })).toBeNull()
+  it('streaming flag は保存形から外す (= 復元後に「…」 が残らない / path がリンク化される)', () => {
+    const stored = toStorableForm({ role: 'agent', text: 'explaining', streaming: true })
+    expect(stored).not.toBeNull()
+    expect('streaming' in stored).toBe(false)
+    expect(stored.text).toBe('explaining')
   })
 
   it('確定 agent / system はそのまま通す', () => {
@@ -103,6 +105,71 @@ describe('toStorableForm (永続化 projection)', () => {
     const s = { role: 'system', kind: 'session_end', ts: 1 }
     expect(toStorableForm(a)).toBe(a)
     expect(toStorableForm(s)).toBe(s)
+  })
+})
+
+// ツール実行の間に挟まる説明テキストが履歴から消えていた回帰の防波堤。
+//
+// claude は 1 ターンを複数の assistant message に分けて書き、 tool を呼んだ message の
+// stop_reason は `tool_use` になる。 backend はその行で result event を出さないので、
+// 中間 bubble の streaming flag は永久に落ちない。 「streaming = in-flight」 とみなして
+// 単体で落とすと、 中間 bubble が 1 件も localStorage に載らず、 履歴 GET の replay 窓から
+// 外れた過去は復元不能になる (= 実測 bubble 5,104 件中 4,626 件が保存されず、 うち 2,041 件が
+// 地の文を持っていた)。
+describe('toStorableArray (会話 1 本の永続化射影)', () => {
+  const turn = () => ([
+    { role: 'user', text: 'q', uuid: 'u1' },
+    { role: 'agent', text: 'まず読みます', uuid: 'a1', tools: [{ id: 't1', name: 'Read' }], streaming: true },
+    { role: 'agent', text: '次に直します', uuid: 'a2', tools: [{ id: 't2', name: 'Edit' }], streaming: true },
+    { role: 'agent', text: '直りました', uuid: 'a3', streaming: false },
+  ])
+
+  it('確定済みの中間 bubble を全部保存する (= streaming flag が立っていても落とさない)', () => {
+    const out = toStorableArray(turn())
+    expect(out.map(m => m.uuid)).toEqual(['u1', 'a1', 'a2', 'a3'])
+    expect(out.map(m => m.text)).toEqual(['q', 'まず読みます', '次に直します', '直りました'])
+  })
+
+  it('保存形からは streaming flag が消える', () => {
+    const out = toStorableArray(turn())
+    expect(out.every(m => !m.streaming)).toBe(true)
+  })
+
+  it('末尾が streaming の時だけ、 その 1 件を落とす (= いま伸びている bubble)', () => {
+    const arr = turn()
+    arr.push({ role: 'agent', text: '書きかけ', uuid: 'a4', streaming: true })
+    const out = toStorableArray(arr)
+    expect(out.map(m => m.uuid)).toEqual(['u1', 'a1', 'a2', 'a3'])
+  })
+
+  it('末尾が確定済みなら 1 件も落とさない', () => {
+    const arr = turn()
+    expect(toStorableArray(arr)).toHaveLength(4)
+  })
+
+  it('伸びている末尾を除いた内容は不変なので署名が動かない (= 再圧縮を打たない)', () => {
+    const arr = turn()
+    const sigBefore = persistSig(toStorableArray(arr))
+    // 末尾の in-flight bubble に文字が積まれても保存内容は変わらない
+    arr.push({ role: 'agent', text: 'a', uuid: 'a4', streaming: true })
+    const sigMid = persistSig(toStorableArray(arr))
+    arr[arr.length - 1] = { ...arr[arr.length - 1], text: 'ab' }
+    const sigAfter = persistSig(toStorableArray(arr))
+    expect(sigMid).toBe(sigBefore)
+    expect(sigAfter).toBe(sigBefore)
+  })
+
+  it('user の永続化規律は据え置き (= optimistic な ghost は落ちる)', () => {
+    const out = toStorableArray([
+      { role: 'user', text: 'hi', optimistic: true },
+      { role: 'agent', text: 'done', uuid: 'a1' },
+    ])
+    expect(out.map(m => m.uuid)).toEqual(['a1'])
+  })
+
+  it('空 / 非配列は空配列', () => {
+    expect(toStorableArray([])).toEqual([])
+    expect(toStorableArray(null)).toEqual([])
   })
 })
 

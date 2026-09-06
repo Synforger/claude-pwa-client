@@ -43,7 +43,7 @@ export default function MessageList({
         onScroll={onScroll}
         style={viewMode === 'terminal' ? { display: 'none' } : undefined}
       >
-        {orderedMessages.map((msg) => (
+        {orderedMessages.map((msg, i) => (
           <MessageItem
             key={msg.id}
             msg={msg}
@@ -52,6 +52,10 @@ export default function MessageList({
             runningSubagents={runningSubagents}
             onOpenSubagents={onOpenSubagents}
             onFork={onFork}
+            // 「進行中の bubble か」 は msg.streaming 単体では決まらない (= tool を呼んだ
+            // 中間 message には result event が来ないので flag が落ちない)。 時系列
+            // ソート後の末尾かどうかと合わせて MessageItem 側で導出する。
+            isLast={i === orderedMessages.length - 1}
           />
         ))}
       </div>

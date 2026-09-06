@@ -40,7 +40,9 @@ backup 先 = 同 PC の別 path (= `~/backups/<service>/<date>/` 等)、 backend
 
 **形式**: `dict[pwa_sid, BindingInfo]`。 PWA session ID → 現在 active な claude jsonl ファイルへの bind。
 
-**writer**: `backend/core/jsonl_watcher.py::confirm_bind` / `unregister` / `_persist`。 hook 経由で `SessionStart` event が来ると bind が確定する。
+**writer**: `backend/core/jsonl_watcher.py::confirm_bind` / `unregister` / `prune_dead_bindings` (= 実際の書き出しは `_save_bindings`)。 hook 経由で `SessionStart` event が来ると bind が確定する。
+
+**寿命**: 実体の JSONL が消えた entry は保持しない。 起動時は `_load_bindings` が復元せず、 稼働中は `prune_dead_bindings` が落とす (= `list_bindings` が返す前に呼ぶので、 読み手が受け取る binding は必ず実体を持つ)。 backup から戻す時も、 JSONL 本体が無い entry は復元されず消える。
 
 | field | 型 | 説明 |
 |---|---|---|
