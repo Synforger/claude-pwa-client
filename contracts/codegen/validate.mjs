@@ -10,7 +10,7 @@ import { join, dirname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Ajv2020 from 'ajv/dist/2020.js'
 import addFormats from 'ajv-formats'
-import yaml from 'js-yaml'
+import { load as loadYaml } from 'js-yaml'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const schemaDir = join(__dirname, '..', 'schema')
@@ -33,7 +33,7 @@ for (const file of files) {
   const path = join(schemaDir, file)
   let doc
   try {
-    doc = yaml.load(readFileSync(path, 'utf8'))
+    doc = loadYaml(readFileSync(path, 'utf8'))
   } catch (e) {
     console.error(`FAIL ${file}: yaml parse error: ${e.message}`)
     failed += 1
