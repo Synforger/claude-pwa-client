@@ -311,8 +311,16 @@ function MetaLine({ meta, streaming, trailing }) {
   )
 }
 
-const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentTool, runningSubagents, onOpenSubagents, onFork }) {
+const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentTool, runningSubagents, onOpenSubagents, onFork, isLast }) {
   const t = useT()
+  // 「いま生きている bubble か」 は保存された flag ではなく **表示位置から導出する**。
+  // msg.streaming は bubble 生成時に立ち、 落ちるのは result event を受けた 1 個だけ。
+  // claude は 1 ターンを複数の assistant message に分けて書き、 tool を呼んだ message の
+  // stop_reason は tool_use なので backend は result を出さない (= backend/jsonl/events.py)。
+  // つまり中間の bubble は flag が立ったまま確定し、 そのまま描画に使うと過去のツール行が
+  // 永久に「…」 を出し、 path のリンク化も skip され続ける。 進行中なのは時系列で最後の
+  // 1 個だけなので、 そこから導出すれば経路依存でズレない。
+  const live = !!msg.streaming && !!isLast
   // system kind は messageRegistry に「fromEvent + Render」 ペアで集約しており、
   // ここでは generic lookup で表示コンポーネントを引くだけ (= F-04 consumer)。
   // 新しい system kind を増やす時は messageRegistry に Render を 1 個足すだけで配線完了、
@@ -339,7 +347,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
   // 沈黙を埋める。最初のチャンクが届いた瞬間にこの分岐から抜けて通常描画へ移行する。
   if (
     msg.role === 'agent' &&
-    msg.streaming &&
+    live &&
     !msg.text &&
     !msg.thinking &&
     !msg.askUserQuestion &&
@@ -357,7 +365,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
   // meta.stop_reason は result が最後のバブルに上書き stamp するため当てにならないので使わず、
   // バブルが tool / 質問待ちを持たない (= 純テキスト回答) ことで判定する。 最終判定は backend。
   const canForkAgent =
-    msg.role === 'agent' && !msg.streaming && msg.uuid &&
+    msg.role === 'agent' && !live && msg.uuid &&
     !(msg.tools?.length > 0) && !msg.askUserQuestion
   const forkButton = onFork && canForkAgent ? (
     <button
@@ -394,7 +402,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
           )}
           {msg.text && (
             <span className="bubble">
-              <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={msg.streaming} />
+              <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={live} />
             </span>
           )}
         </div>
@@ -412,7 +420,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
               先に描画して実応答順に揃える。 */}
           {msg.text && (
             <span className="bubble">
-              <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={msg.streaming} />
+              <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={live} />
             </span>
           )}
           {msg.tools?.length > 0 && (
@@ -495,7 +503,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
                   </details>
                 )
               })}
-              {msg.streaming && <div className="tool-line tool-pending">…</div>}
+              {live && <div className="tool-line tool-pending">…</div>}
             </div>
           )}
           {msg.askUserQuestion && (
@@ -504,22 +512,22 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
               askUserQuestion={msg.askUserQuestion}
             />
           )}
-          <StopReasonChip meta={msg.meta} streaming={msg.streaming} />
-          <MetaLine meta={msg.meta} streaming={msg.streaming} trailing={agentForkBtn} />
+          <StopReasonChip meta={msg.meta} streaming={live} />
+          <MetaLine meta={msg.meta} streaming={live} trailing={agentForkBtn} />
         </div>
       ) : msg.role === 'agent' ? (
         <div className="agent-block">
           {msg.text && (
             <span className="bubble">
-              <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={msg.streaming} />
+              <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={live} />
             </span>
           )}
-          <StopReasonChip meta={msg.meta} streaming={msg.streaming} />
-          <MetaLine meta={msg.meta} streaming={msg.streaming} trailing={agentForkBtn} />
+          <StopReasonChip meta={msg.meta} streaming={live} />
+          <MetaLine meta={msg.meta} streaming={live} trailing={agentForkBtn} />
         </div>
       ) : (
         <span className="bubble">
-          <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={msg.streaming} />
+          <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={live} />
         </span>
       )}
       {/* 送信失敗 (= backend で JSONL user 行 +1 を確認できず、 再送 1 回も届かなかった)
@@ -546,6 +554,9 @@ function areEqual(prev, next) {
     && prev.runningSubagents === next.runningSubagents
     && prev.onOpenSubagents === next.onOpenSubagents
     && prev.onFork === next.onFork
+    // isLast は「進行中か」 の導出元。 落とすと、 新しい bubble が来て末尾でなく
+    // なった bubble が「…」 を出したまま固まる。
+    && prev.isLast === next.isLast
   )
 }
 
