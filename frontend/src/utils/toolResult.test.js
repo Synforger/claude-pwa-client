@@ -104,7 +104,16 @@ describe('toStorableForm', () => {
     expect(JSON.stringify(stored).length).toBeLessThan(500)
   })
 
-  it('streaming 中のメッセージは従来どおり保存対象外', () => {
-    expect(toStorableForm({ id: 'm1', role: 'agent', streaming: true })).toBe(null)
+  it('streaming が立っていても保存形は作る (= flag だけ落とす)', () => {
+    const stored = toStorableForm({
+      id: 'm1',
+      role: 'agent',
+      streaming: true,
+      tools: [{ id: 't1', result: { content: [imageBlock()] } }],
+    })
+    expect(stored).not.toBeNull()
+    expect('streaming' in stored).toBe(false)
+    // 画像本体を落とす経路は streaming でも同じく通る
+    expect(stored.tools[0].result.content).toEqual([{ type: 'image' }])
   })
 })
