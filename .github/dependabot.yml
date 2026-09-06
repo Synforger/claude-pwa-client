@@ -1,0 +1,51 @@
+# Dependabot config.
+#
+# Why this file exists: without it Dependabot opens against the default branch,
+# which is `main`. This repository promotes `develop` to `main` as a whole tree,
+# so a bump landing on `main` alone breaks the invariant that the two carry the
+# same tree, and the PR has to be closed by hand instead of merged. Pointing
+# Dependabot at `develop` puts the bump where every other change enters.
+#
+# Updates are grouped and infrequent on purpose: a lockfile bump is rarely worth
+# a PR of its own, and security updates are not held back by the schedule.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /frontend
+    target-branch: develop
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      frontend:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /contracts
+    target-branch: develop
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      contracts:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      backend:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 1
+    groups:
+      actions:
+        patterns: ["*"]
