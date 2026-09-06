@@ -9,7 +9,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import Ajv2020 from 'ajv/dist/2020.js'
 import addFormats from 'ajv-formats'
-import yaml from 'js-yaml'
+import { load as loadYaml } from 'js-yaml'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const negDir = join(__dirname, '..', 'tests', 'negative')
@@ -29,7 +29,7 @@ let unexpectedPass = 0
 for (const file of files) {
   let doc
   try {
-    doc = yaml.load(readFileSync(join(negDir, file), 'utf8'))
+    doc = loadYaml(readFileSync(join(negDir, file), 'utf8'))
   } catch (e) {
     console.log(`OK   ${file} (yaml parse error counts as expected failure: ${e.message.split('\n')[0]})`)
     continue
