@@ -21,7 +21,6 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 # --- ロギング初期化 (各モジュール import より前) ---
 # 全 logger は RotatingFileHandler で自動 rotate (= ファイルサイズ上限を 5MB、 過去 3 世代まで
@@ -282,29 +281,8 @@ app.include_router(debug_healthcheck_routes.router)
 
 
 # --- 静的ファイル配信 (Vite ビルド成果物) ---
+from backend.core.static_files import CacheControlledStaticFiles  # noqa: E402
 from backend.paths import FRONTEND_DIST  # noqa: E402
-
-
-class CacheControlledStaticFiles(StaticFiles):
-    """index.html / manifest.json / sw.js は no-cache、ハッシュ付き assets は immutable で長期キャッシュ。
-
-    iOS Safari (PWA) はデフォルトで Cache-Control 無しレスポンスを長時間キャッシュするため、
-    index.html が古いままになり Vite の新しいハッシュ付き assets ファイルを参照できなくなる。
-    エントリポイント (= index.html / manifest.json / sw.js) だけ毎回鮮度確認させ、
-    /assets/ 配下はファイル名にハッシュが入っているので永久キャッシュして問題ない。
-    """
-
-    NO_CACHE_PATHS = {"index.html", "manifest.json", "sw.js"}
-    IMMUTABLE_PREFIX = "assets/"
-
-    async def get_response(self, path: str, scope):
-        response = await super().get_response(path, scope)
-        normalized = path.lstrip("/")
-        if normalized in self.NO_CACHE_PATHS or normalized in ("", "."):
-            response.headers["Cache-Control"] = "no-cache"
-        elif normalized.startswith(self.IMMUTABLE_PREFIX):
-            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-        return response
 
 
 if FRONTEND_DIST.exists():

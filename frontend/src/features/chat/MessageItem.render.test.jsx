@@ -40,10 +40,11 @@ describe('MessageItem render smoke', () => {
     expect(container.textContent).toContain('応答です')
   })
 
-  it('empty streaming agent renders the thinking placeholder', () => {
+  it('empty streaming agent renders the thinking placeholder (= 末尾の時だけ)', () => {
     const { container } = render(
       <MessageItem
         {...baseProps}
+        isLast
         msg={{ id: 'a2', role: 'agent', streaming: true, text: '', tools: [] }}
       />,
     )
@@ -108,5 +109,49 @@ describe('MessageItem render smoke', () => {
       />,
     )
     expect(container.textContent).toContain('画像を送ります')
+  })
+})
+
+// 「進行中か」 を bubble の flag 単体で決めていた回帰の防波堤。
+//
+// claude は 1 ターンを複数の assistant message に分けて書き、 tool を呼んだ message の
+// stop_reason は tool_use になる。 backend はその行に result event を出さないので、 中間の
+// bubble は streaming flag が立ったまま確定する。 flag をそのまま描画に使うと、 過去の
+// ツール行が永久に「…」 を出し、 path のリンク化も skip され続ける。
+describe('進行中かは表示位置から導出する', () => {
+  const withTool = (id) => ({
+    id,
+    role: 'agent',
+    streaming: true,
+    text: '~/tmp/a.txt を読みます',
+    tools: [{ id: 't1', name: 'Read', label: 'Read', input: {} }],
+  })
+
+  it('末尾でない streaming bubble は tool-pending の「…」 を出さない', () => {
+    const { container } = render(
+      <MessageItem {...baseProps} isLast={false} msg={withTool('a1')} />,
+    )
+    expect(container.querySelector('.tool-pending')).toBeNull()
+  })
+
+  it('末尾の streaming bubble は従来どおり「…」 を出す', () => {
+    const { container } = render(
+      <MessageItem {...baseProps} isLast msg={withTool('a2')} />,
+    )
+    expect(container.querySelector('.tool-pending')).toBeTruthy()
+  })
+
+  it('末尾でなければ path がリンクになる (= streaming 中は linkify を skip するため)', () => {
+    const { container } = render(
+      <MessageItem {...baseProps} isLast={false} msg={withTool('a3')} />,
+    )
+    expect(container.querySelector('.file-link')).toBeTruthy()
+  })
+
+  it('末尾の streaming 中は path をリンク化しない (= 不完全な path を毎フレーム走査しない)', () => {
+    const { container } = render(
+      <MessageItem {...baseProps} isLast msg={withTool('a4')} />,
+    )
+    expect(container.querySelector('.file-link')).toBeNull()
   })
 })
