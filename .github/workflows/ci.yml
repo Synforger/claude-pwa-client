@@ -38,5 +38,10 @@ jobs:
         run: python3 -m pip install -r backend/requirements.txt && python3 -m pip install pytest flake8
       - name: Install frontend deps
         run: cd frontend && npm ci
+      # contracts は独立した npm workspace で、 その検査 (= schema の json-schema
+      # 検証) が ajv を要る。 frontend の依存だけ入れると `task ci` の
+      # contracts:check が ERR_MODULE_NOT_FOUND で落ちる。
+      - name: Install contracts deps
+        run: cd contracts && npm ci
       - name: Run the local gate suite
         run: task ci

@@ -22,7 +22,14 @@ export interface AgentMessage {
   tools: ToolUse[]
   /** assistant turn のメタ情報 (= result event から確定後に充填)。 stop_reason 等。 */
   meta?: AgentMessageMeta | null
-  /** streaming 中なら true、 result 受領で false 化。 */
+  /**
+   * bubble 生成時に立ち、 result event を受けた 1 個だけ false 化される。
+   *
+   * **「進行中か」 の真値ではない**: tool を呼んだ assistant message の stop_reason は
+   * tool_use で、 backend はその行に result event を出さないため、 中間の bubble は
+   * flag が立ったまま確定する。 描画側は「時系列で末尾か」 と合わせて導出すること
+   * (= MessageItem の live)。 永続化側は末尾 1 件だけを除外する (= toStorableArray)。
+   */
   streaming?: boolean
   askUserQuestion?: AskUserQuestionState | null
 }
