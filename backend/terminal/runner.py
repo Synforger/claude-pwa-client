@@ -50,6 +50,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from backend.config import CLAUDE_PATH
+from backend.terminal import input_ready
 from backend.terminal.control_mode import (
     ControlModeLineBuffer,
     build_refresh_client_line,
@@ -315,7 +316,14 @@ async def spawn_pty_session(
     # 新規 tmux session かつ launch_alias 指定時のみ、 zsh prompt 出現を待ってから alias 送出。
     # 既存 reattach では中で既に claude が走ってる可能性が高いので何もしない。
     if launch_alias and is_new_tmux_session and USE_TMUX_WRAP:
+        # これから claude を起動する = 打鍵を受け取れるようになるまで本文送信を待たせる
+        # (= `backend/terminal/input_ready.py`)。 旗は SessionStart hook で立つ。
+        input_ready.mark_starting(session_id)
         asyncio.create_task(_send_launch_alias(session_id, launch_alias, session=session))
+    else:
+        # alias を投入しない = 既に claude が走っている pane への再 attach か、 そもそも
+        # claude を起こさない起動。 どちらも待たせる意味がない。
+        input_ready.mark_ready(session_id)
     # 新規 tmux session でも reattach でも、 claude プロセス起動 (= launch_alias 後の数秒、
     # 既存セッションなら即時) を待って backend mem の binding に登録する
     # pty_discover への遅延 import で循環回避 (= pty_discover が pty_runner の _run_tmux に依存)
