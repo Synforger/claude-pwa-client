@@ -28,6 +28,7 @@ A PWA client for operating [Claude Code](https://docs.claude.com/en/docs/claude-
 - **File tree + favorites**: browse the tree from the ⋯ menu, star favorites for one-tap navigation
 - **Task panel**: the 📋 button lists tasks created via `TaskCreate`
 - **Image / text attachments**: multipart upload with persisted history
+- **Long replies fold without losing formatting**: a reply past 4,000 characters collapses to a preview and expands in place, staying rendered as markdown either way. The preview is cut at a block boundary outside code fences, so tables and code blocks are never sliced in half
 - **Tool activity inline**: every tool call (Bash, Edit, Write, …) appears as a collapsible row in the conversation — tap to expand its input and result; while a subagent runs, its current sub-tool is shown on the row
 - **Status bar**: model, 5h / 7d rate-limit usage with reset times, and context usage, always on; plan mode, remaining budget, and a mentioned-PR chip appear when the session provides them
 - **Conversation forking**: branch any message into a new tab; parents and children are shown hierarchically in the drawer
