@@ -380,6 +380,16 @@ export function useChatStream({
           uploadOk = false
           uploadErrDetail = `HTTP ${r?.status ?? '???'}`
           try { uploadErrDetail = translateHttpErrorDetail((await r.json())?.detail, uploadErrDetail) } catch { /* ignore parse */ }
+        } else {
+          // HTTP 200 でも本文が届かなかったことがある (= claude 起動中で打鍵を断られた等)。
+          // status だけ見ていると成功に見えて、 送ったつもりの本文が消える。
+          const body = await r.json().catch(() => null)
+          if (body && body.ok === false) {
+            uploadOk = false
+            uploadErrDetail = translateHttpErrorDetail(
+              { code: body.reason }, body.reason || '',
+            )
+          }
         }
       } catch (e) {
         uploadOk = false
