@@ -98,6 +98,8 @@
   "message.stop.pause_turn": "⏸ 一時停止",
   "message.stop.model_context_window_exceeded": "⚠ コンテキスト窓超過",
   "message.stop.error_prefix": "⚠ エラーで停止",
+  "message.collapsed.show_full": "全文を表示 ({n} 文字)",
+  "message.collapsed.collapse": "折りたたむ",
   "message.tool.open_subagents": "サブエージェント一覧を開く",
   "message.tool.result_truncated_suffix": "\n…（省略）",
   "screenshare.label": "画面共有",

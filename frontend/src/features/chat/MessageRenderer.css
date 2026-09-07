@@ -188,7 +188,8 @@
   max-height: 50vh;
   overflow: auto;
 }
-.md-oversized-toggle {
+.md-oversized-toggle,
+.md-collapse-toggle {
   align-self: flex-start;
   background: var(--bg3, #2a2a32);
   color: var(--text, #ddd);
@@ -198,4 +199,11 @@
   font-size: 12px;
   cursor: pointer;
 }
-.md-oversized-toggle:hover { filter: brightness(1.15); }
+.md-oversized-toggle:hover,
+.md-collapse-toggle:hover { filter: brightness(1.15); }
+/* 折りたたみ本体は通常の markdown なので、 枠は展開ボタンの間隔だけ持つ。 */
+.md-collapsible {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

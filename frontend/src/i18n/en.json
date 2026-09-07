@@ -98,6 +98,8 @@
   "message.stop.pause_turn": "⏸ Paused",
   "message.stop.model_context_window_exceeded": "⚠ Context window exceeded",
   "message.stop.error_prefix": "⚠ Stopped with an error",
+  "message.collapsed.show_full": "Show full ({n} chars)",
+  "message.collapsed.collapse": "Collapse",
   "message.tool.open_subagents": "Open subagent list",
   "message.tool.result_truncated_suffix": "\n…(truncated)",
   "screenshare.label": "Screen share",

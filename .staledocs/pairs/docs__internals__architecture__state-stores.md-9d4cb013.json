@@ -52,7 +52,7 @@
       "utils/toolResult.js",
       "viewModes[sid]"
     ],
-    "at": "2026-09-06T18:35:51+00:00",
+    "at": "2026-09-07T18:47:03+00:00",
     "code_blobs": {
       "backend/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
@@ -86,7 +86,7 @@
       "backend/observability/redact.py": "24fcc64459fd82ff5b7e042aca6628277b23d2a3",
       "backend/observability/server_timing.py": "0e701cdd2f0f444f812a57de030cfa80a399418d",
       "backend/paths.py": "e803670a198226b96aac5f29e5e7814a8a9c667c",
-      "backend/requirements.txt": "7bc1e8f92bd0d8173292a2bf2aa252f4b805c972",
+      "backend/requirements.txt": "47a57fd80fb6c6eb82c3c69623d393854f93edd2",
       "backend/routes/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "backend/routes/accounts.py": "4bcda6980a7f4ae47fae8e53ec21f6ca36e40372",
       "backend/routes/chat.py": "024e7491de99e9de1f10492c58eb4547c69393c4",
@@ -208,9 +208,10 @@
       "frontend/src/features/chat/MessageItem.jsx": "fe96f1cfeede11aa2ad8b54702a2a5040de08ba7",
       "frontend/src/features/chat/MessageItem.render.test.jsx": "74e3d9b91460fd389dd7b6dfd24dc468206be91d",
       "frontend/src/features/chat/MessageList.jsx": "3323f5f8518b28e47e8fcb29a404035c411ae540",
-      "frontend/src/features/chat/MessageRenderer.css": "bbe612eeeb2f4985a5c9516a60659e7427998fe6",
-      "frontend/src/features/chat/MessageRenderer.guard.test.js": "79bd50eb027bcf8cae48d969d83db3857855e1ce",
-      "frontend/src/features/chat/MessageRenderer.jsx": "6c3832ad7dc9676a8431e6916e89f478125209fe",
+      "frontend/src/features/chat/MessageRenderer.collapse.test.jsx": "7fc75fb14b8bb27c1b22181e4a2cbd0b774be052",
+      "frontend/src/features/chat/MessageRenderer.css": "5ca240db48e5a3cb6f12ff31c169aa875cf9f7a0",
+      "frontend/src/features/chat/MessageRenderer.guard.test.js": "8381401978f8ea8b000e6767be61f1c0e6417274",
+      "frontend/src/features/chat/MessageRenderer.jsx": "c817c6e15024434c81d23a397f174a9f1bd3a5d9",
       "frontend/src/features/chat/SystemMessages.jsx": "1c101dd336d3a070187777086468ba1bb6d49911",
       "frontend/src/features/chat/index.js": "33ea27df3be947a22b90639da1c656995ac1684c",
       "frontend/src/features/chat/processStreamEvent.js": "c1340deb7bd756c63442ad5a94a315f28fa11ffe",
@@ -309,8 +310,8 @@
       "frontend/src/features/topbar/topbar.test.js": "115dc9b7cf15eff520b9e1561fe70f83cc433901",
       "frontend/src/hooks/useEscape.js": "2770fbb3524ec2e8cfe166e333160de70c32e107",
       "frontend/src/hooks/useOutsideClick.js": "9a35c8889e64ca02e1915d3362b72f07a4c6c34e",
-      "frontend/src/i18n/en.json": "32734c4a1342b961cef708e0d39a01c4257e79a9",
-      "frontend/src/i18n/ja.json": "487b9af9f92cca39eaf3acefee6e20419767385c",
+      "frontend/src/i18n/en.json": "1fb5cf30ecec63b64d6f2c1b30d4178c459b5408",
+      "frontend/src/i18n/ja.json": "1d00987e6301fbf478b273cd07b6d2d01b8b48e9",
       "frontend/src/i18n/parity.test.js": "08fd35140c57ec8657b7fbb06c1234039631b87d",
       "frontend/src/i18n/t.js": "f2a15b42cd15f3788d3a5371c7b8e0792161b31c",
       "frontend/src/index.css": "9be0ccc48f2d8b6706743c8e5f5261dec9097b32",
@@ -385,9 +386,9 @@
       "frontend/src/utils/toolResult.js": "35fb261cab02d9c8b2b3f2e1a92ce3a3c988ef19",
       "frontend/src/utils/toolResult.test.js": "2e8a88a2bed7368a568c8bcdfff96f00643593e9"
     },
-    "commit": "0cec505d77715371be98950119c42f9089f0a10d",
+    "commit": "4ff40ac909f0ee3ade0576f5ca313ca995031eb2",
     "doc_blob": "92e4dcdb3c1ee1d7c68ae35bf0003316249bc839",
-    "note": "No store changed: frontend/src/layout/ChatPanel.jsx now derives the live-tail check from the last message instead of scanning, and frontend/src/features/chat/MessageItem.jsx takes isLast as a prop. Neither adds or removes a store, so L26 and L33 still hold."
+    "note": "frontend/src/features/chat/MessageRenderer.jsx keeps the collapse state in component-local useState; the L26 store mapping for features/chat is unchanged"
   },
   "doc": "docs/internals/architecture/state-stores.md",
   "schema": 1
