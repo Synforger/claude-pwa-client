@@ -55,6 +55,7 @@ from backend.terminal.confirm import (
     _is_plain_user_prompt,
     _wait_count_added,
 )
+from backend.terminal.input_ready import wait_ready
 from backend.terminal.send_dedup import send_dedup
 from backend.terminal.session_resolver import (
     ensure_pty_session_for,
@@ -395,6 +396,14 @@ async def pty_send(
     if os.environ.get("CPC_E2E") == "1" and text and enter:
         return _e2e_inject_user_row(session_id, text)
 
+    # 本文送信は claude が打鍵を受け取れるようになるまで待つ (= restart 直後の
+    # 「tmux は在るが claude はまだ端末を読んでいない」 窓に打つと、 本文と Enter が
+    # まとめて読まれて Enter が改行になり、 本文が入力欄に取り残される)。 単発 key
+    # (= Escape で停止 / quick-reply) は待たせない ― 停止が遅れる害の方が大きい。
+    # 詳細 = `backend/terminal/input_ready.py`。
+    if bool(text) and enter and not await wait_ready(session_id):
+        return {"ok": False, "reason": "not_ready"}
+
     # 確認対象は「ユーザ送信本文」 = text あり + enter ありのケースのみ。
     # 自由記述以外のキー送信 (Escape 等)、 AskUserQuestion 自由記述の 1 回目 (typeNum、 enter なし)
     # 等は確認しない (= 送信完了の概念がない、 or 別経路で確認)。
@@ -497,6 +506,9 @@ async def pty_send_with_files(
     if idempotency_key and send_dedup.check_and_mark(session_id, idempotency_key):
         # 添付経路は必ず本文送信 (= 空 form も含めて enter=True 相当)、 常に dedup 対象。
         return {"ok": True, "deduped": True, "saved_files": []}
+    if not await wait_ready(session_id):
+        # 添付を保存する前に返す (= 打てないと分かっている送信で uploads/tmp を汚さない)。
+        return {"ok": False, "reason": "not_ready", "saved_files": []}
     saved = await save_to_tmp(files, session_id)
     parts: list[str] = []
     if text.strip():

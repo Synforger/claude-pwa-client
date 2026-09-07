@@ -13,6 +13,7 @@ import logging
 from pathlib import Path
 
 import backend.config as _config
+from backend.core.jsonl_tail import split_jsonl_text
 from backend.state import DEFAULT_CTX_WINDOW
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ def read_all_rate_limits_tail() -> list[dict]:
     # 32KB 内で 200 行までは widen して見る (= 旧 read_latest 互換)、 末尾 100 行に
     # 絞らず広めに parse して、 latest_from_tail 側が account filter 後の末尾を選べる
     # ようにする。
-    for ln in tail.splitlines()[-200:]:
+    for ln in split_jsonl_text(tail)[-200:]:
         ln = ln.strip()
         if not ln:
             continue

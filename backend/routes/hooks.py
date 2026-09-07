@@ -32,6 +32,7 @@ from backend.jsonl.session_status import (
     apply_immediate_stop as _apply_immediate_stop,
 )
 from backend.state import sessions_meta
+from backend.terminal import input_ready
 
 # backend-F-40 注記: jsonl_watcher は hooks を import しない (= confirm_bind → _save_bindings
 # のみ、 hook 経路と無関係) ので module-level import で循環しない。 旧版は防御的に関数内
@@ -262,6 +263,9 @@ async def _handle_session_start(ctx: HookContext) -> dict:
             "SessionStart bind skipped (sid not registered yet?): pwa_sid=%s claude_sid=%s",
             ctx.pwa_sid_hdr, ctx.claude_sid,
         )
+    # claude 本体が起動を通知した = このタブへの打鍵を解禁する。 restart 直後の窓で
+    # 送信を待たせている側がここで起きる (= `backend/terminal/input_ready.py`)。
+    input_ready.mark_ready(ctx.pwa_sid_hdr)
     logger.info(
         "SessionStart bound: pwa_sid=%s source=%s claude_sid=%s -> %s",
         ctx.pwa_sid_hdr, source, ctx.claude_sid,

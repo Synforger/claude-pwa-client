@@ -25,6 +25,7 @@ from backend.core.fork import (
     fork_point_status,
     latest_clean_fork_point,
 )
+from backend.core.jsonl_tail import split_jsonl_text
 from backend.errors import raise_error
 from backend.jsonl import resolver as jsonl_resolver
 from backend.state import (
@@ -39,6 +40,7 @@ from backend.state import (
     stream_states,
     unregister_session,
 )
+from backend.terminal import input_ready
 from backend.terminal.runner import kill_tmux_session, pty_sessions
 import backend.core.jsonl_watcher as jsonl_watcher
 from backend.jsonl import history as session_history
@@ -171,7 +173,7 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
 
         # まず src_path 単体で fork point の妥当性 (= tool 行で切れてないか) を確認。
         # 大半のフォークは src_path の中で会話が閉じてて、 ここで全部完結する。
-        src_lines = src_path.read_text(encoding="utf-8").splitlines()
+        src_lines = split_jsonl_text(src_path.read_text(encoding="utf-8"))
         status = fork_point_status(src_lines, from_uuid)
         if status != "ok":
             raise_error(400, "cannot_fork_here", "この位置からは分岐できません (= user 発言か完了したターンのみ)")
@@ -181,7 +183,7 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
         src_path = candidates[0] if candidates else None
         if src_path is None:
             raise_error(404, "message_not_found", "この会話のログが見つかりません")
-        src_lines = src_path.read_text(encoding="utf-8").splitlines()
+        src_lines = split_jsonl_text(src_path.read_text(encoding="utf-8"))
         from_uuid = latest_clean_fork_point(src_lines)
         if from_uuid is None:
             raise_error(400, "cannot_fork_here", "引き継げる切れ目がまだありません (= ターンの完了を待ってください)")
@@ -205,7 +207,7 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
         except StopIteration:
             return None
         try:
-            lines = nxt.read_text(encoding="utf-8").splitlines()
+            lines = split_jsonl_text(nxt.read_text(encoding="utf-8"))
         except OSError:
             return []  # 1 ファイルだけ読み損ねても次へ進めるよう空 list を返す
         extra_files.append(nxt.name)
@@ -405,6 +407,7 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
     fork_agent_id = getattr(meta, "agent_id", None) if meta is not None else None
     fork_account_id = getattr(meta, "account_id", None) if meta is not None else None
     # PTY + tmux + JSONL binding を一括 cleanup
+    input_ready.forget(session_id)
     try:
         kill_tmux_session(session_id)
         pty_sessions.pop(session_id, None)
