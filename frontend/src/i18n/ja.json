@@ -174,5 +174,6 @@
   "ask.waiting": "❓ 回答待ち — 下のバナーか端末から回答",
   "prompt.free_text_hint": "Type something = 下の欄に入力して送信 ・ Chat about this = ⏎ のあと普通にチャット",
   "chat.input.answer_placeholder": "回答を入力 — 送信でそのまま質問への回答になります",
-  "prompt.typing_answer_short": "回答欄に記入して送信"
+  "prompt.typing_answer_short": "回答欄に記入して送信",
+  "backend.not_ready": "claude を起動中です。 数秒おいてから送ってください"
 }

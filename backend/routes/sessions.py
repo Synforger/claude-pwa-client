@@ -40,6 +40,7 @@ from backend.state import (
     stream_states,
     unregister_session,
 )
+from backend.terminal import input_ready
 from backend.terminal.runner import kill_tmux_session, pty_sessions
 import backend.core.jsonl_watcher as jsonl_watcher
 from backend.jsonl import history as session_history
@@ -406,6 +407,7 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
     fork_agent_id = getattr(meta, "agent_id", None) if meta is not None else None
     fork_account_id = getattr(meta, "account_id", None) if meta is not None else None
     # PTY + tmux + JSONL binding を一括 cleanup
+    input_ready.forget(session_id)
     try:
         kill_tmux_session(session_id)
         pty_sessions.pop(session_id, None)
