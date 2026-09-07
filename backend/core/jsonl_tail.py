@@ -10,6 +10,26 @@ from datetime import datetime
 from pathlib import Path
 
 
+def split_jsonl_text(text: str) -> list[str]:
+    r"""JSONL のテキストを行に割る (= 区切りは改行 1 種だけ)。
+
+    `str.splitlines()` を使ってはいけない。 あれは Unicode の行区切り 8 種でも割る。
+    このうち JSON が必ずエスケープする制御文字 5 種 (= \v \f \x1c \x1d \x1e) は本文に
+    生で載らないが、 **U+2028 / U+2029 / U+0085 の 3 種はエスケープされず生の 1 文字で
+    載る** (= claude は会話ログを ensure_ascii=False で書くので、 貼り付け由来のこれらが
+    そのままファイルに入る)。 その行を splitlines で割ると両断されて両方 JSON として
+    壊れ、 行ごと捨てられる。
+
+    実障害 (= 2026-09-08): 親 12MB の会話を fork したら鎖 269 行のうち 17 行しか
+    引き継がれなかった。 落ちた 1 行がちょうど指示発話で、 分岐先には「指示だけが無い
+    作業の続き」 が渡っていた。
+
+    tail 経路 (= read_complete_lines) は byte 単位で `b"\n"` に割るので元から無事。
+    ファイルを丸ごと読む経路はこの関数を通す。
+    """
+    return text.split("\n")
+
+
 def parse_jsonl_timestamp(ts: str | None) -> float | None:
     """JSONL 行の `timestamp` (= ISO 8601 "Z" 終端) を unix epoch に変換。"""
     if not ts or not isinstance(ts, str):

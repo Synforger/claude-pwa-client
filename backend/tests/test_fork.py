@@ -232,6 +232,53 @@ def test_fork_endpoint_creates_indented_child(tmp_path, monkeypatch, isolated_st
     assert _uuids(files[0].read_text().splitlines()) == ["u1", "a1", "u2"]
 
 
+def test_fork_keeps_the_chain_across_a_unicode_line_separator(
+    tmp_path, monkeypatch, isolated_state,
+):
+    """本文に U+2028 が入っていても lineage が根まで残る (= 2026-09-08 実障害の再現)。
+
+    JSONL の行区切りは `\n` だけだが、 `str.splitlines()` は Unicode の行区切り 8 種
+    (= U+2028 / U+2029 / \v / \f / \x1c / \x1d / \x1e / \x85) でも割る。 会話本文に
+    それらが 1 文字でも混ざると、 その行が 2 つに割れて両方 JSON として壊れ、 丸ごと
+    捨てられる。 fork は parentUuid 鎖を根まで遡って会話を引き継ぐので、 捨てられた行で
+    鎖が切れ、 **それより前の会話が全部落ちる**。
+
+    実機: 親 12MB / 鎖 269 行の会話を fork したら 17 行しか引き継がれず、 落ちた 1 行が
+    ちょうど作業を始めさせた指示発話だったため、 分岐先には「指示だけが無い作業の続き」 が渡った。
+    """
+    # claude は会話ログを ensure_ascii=False で書く (= 日本語がそのまま入る) ので、
+    # 本文の U+2028 も **生の 1 文字**としてファイルに載る。 test も同じ書き方で作る
+    # (= ensure_ascii=True だと `\\u2028` の 6 文字にエスケープされて再現しない)。
+    damaged_line = json.dumps(
+        {
+            "uuid": "a1", "parentUuid": "u1", "type": "assistant", "sessionId": "OLD",
+            "message": {
+                "stop_reason": "end_turn",
+                "content": [{"type": "text", "text": "before\u2028after"}],
+            },
+        },
+        ensure_ascii=False,
+    )
+    damaged = [
+        SAMPLE[0],
+        _line("u1", None, "user"),
+        damaged_line,
+        _line("u2", "a1", "user"),
+        _assistant("a2", "u2"),
+    ]
+    chat_routes, parent, src = _setup_fork_env(
+        tmp_path, monkeypatch, isolated_state, source_lines=damaged,
+    )
+    out = _run(chat_routes.fork_session(parent.id, {"from_uuid": "a2"}))
+    written = [p for p in tmp_path.glob("*.jsonl") if p.name != "OLD.jsonl"][0]
+    # 読み戻しも `\n` で割る (= splitlines だと検証側が同じ穴を踏む)
+    lines = [ln for ln in written.read_text(encoding="utf-8").split("\n") if ln.strip()]
+    assert _uuids(lines) == ["u1", "a1", "u2", "a2"]
+    assert out["resume_session_id"] == written.stem
+    # 壊れた行の本文がそのまま運ばれている (= 落として繋げる、 ではない)
+    assert "before\u2028after" in json.loads(lines[1])["message"]["content"][0]["text"]
+
+
 def test_fork_inherits_parent_account_id(tmp_path, monkeypatch, isolated_state):
     """fork は親の account_id を継ぐ (= 2026-07-22 空タブ根治)。
 

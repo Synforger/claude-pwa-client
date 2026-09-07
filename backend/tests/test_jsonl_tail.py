@@ -4,6 +4,8 @@
 いた頃は INITIAL_REPLAY_LINES (= 500) 固定値ベースの test しか無かったが、 移送後は
 max_lines を引数で受けるので boundary を細かく検査する。
 """
+import json
+
 from backend.core import jsonl_tail as jt
 
 
@@ -139,3 +141,31 @@ def test_plain_wrappers_delegate_to_with_pos(tmp_path):
     twl, twp, tws = jt.read_tail_with_pos(p, 0)
     assert tl == [ln for ln, _ in twl]
     assert (tp, ts) == (twp, tws)
+
+
+def test_split_jsonl_text_only_breaks_on_newline():
+    r"""JSONL の行分割は改行 1 種だけ (= Unicode の行区切りでは割らない)。
+
+    `str.splitlines()` は Unicode の行区切り 8 種でも割る。 このうち JSON が必ず
+    エスケープする制御文字 5 種 (= \v \f \x1c \x1d \x1e) は本文に生で載らないが、
+    **U+2028 / U+2029 / U+0085 の 3 種はエスケープされず生の 1 文字で載る**
+    (= claude は会話ログを ensure_ascii=False で書く)。 その行を splitlines で割ると
+    両断されて両方 JSON として壊れ、 行ごと捨てられる (= 2026-09-08 の fork 引き継ぎ
+    欠落の真因)。
+    """
+    from backend.core.jsonl_tail import split_jsonl_text
+    # 本文に生で載る 3 種: splitlines は割る、 split_jsonl_text は割らない
+    for cp in (0x2028, 0x2029, 0x0085):
+        body = json.dumps({"text": "before" + chr(cp) + "after"}, ensure_ascii=False)
+        assert chr(cp) in body, f"前提: U+{cp:04X} は JSON にエスケープされず生で載る"
+        assert len(body.splitlines()) == 2, f"前提: splitlines は U+{cp:04X} で割る"
+        assert split_jsonl_text(body) == [body]
+    # JSON がエスケープする制御文字も、 万一素で来ても割らない (= 防御は広い側に倒す)
+    for cp in (0x0b, 0x0c, 0x1c, 0x1d, 0x1e):
+        raw = "before" + chr(cp) + "after"
+        assert split_jsonl_text(raw) == [raw]
+
+
+def test_split_jsonl_text_splits_plain_newlines():
+    from backend.core.jsonl_tail import split_jsonl_text
+    assert split_jsonl_text("a\nb\n") == ["a", "b", ""]
