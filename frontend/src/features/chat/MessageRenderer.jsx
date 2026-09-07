@@ -9,23 +9,59 @@ import './MessageRenderer.css'
 
 const PATH_RE = /(?<![(`])(~\/[^\s`"')\]]+|\/Users\/[^\s`"')\]]+)/g
 
-// 単一メッセージの折りたたみ境界 (文字数)。 これを超えたら markdown を通さず plain text で
-// 折りたたむ (先頭プレビュー + 展開ボタン)。 2 つの役割を兼ねる:
-//   ① 重さ対策: 出力 degeneration (= 同一語の数万回反復等) で巨大メッセージが来ても、
-//      markdown が数万個の DOM ノードに展開してメインスレッドを固める事故を防ぐ
-//      (スクロール / ステータスライン更新も巻き添えで停止していた、 2026-06 実害)。
-//   ② 可視化 UX: 長い出力はデフォルトで畳んで一覧性を保つ。
-// 値の性格: Discord/WhatsApp 等の「これ以上打てないハード上限 (2k〜64k)」とは別軸で、
-// あくまで「読みやすさのために畳む境界」。 折りたたみ (全文は展開で見れる) なので短くてよい。
-// 運用判断 (2026-06): まず 10000 で運用、 鬱陶しければ調整する。
-export const MARKDOWN_MAX_CHARS = 10_000
-// 折りたたみ時の先頭プレビュー長 (= ここまで出して残りは展開ボタン)。 閾値より十分小さくして
-// 「畳まれている」 ことが分かる長さにする。
+// 長いメッセージの扱いは 2 段。 役割ごとに閾値を分ける (= 1 つの数字で兼ねると、 守りたい
+// degeneration と畳みたい長文が 2 桁離れているので両立しない)。
+//   ① 折りたたみ (= 読みやすさ): COLLAPSE_CHARS 超は markdown を保ったまま先頭だけ描画し、
+//      残りは展開ボタンで開く。 畳んでいる間も展開後も読み味は普通の返答と同じ。
+//   ② plain 退避 (= 重さ対策): PLAIN_FALLBACK_CHARS 超は markdown を通さない。 出力
+//      degeneration (= 同一語の数万回反復等) が数万個の DOM ノードに展開してメインスレッドを
+//      固める事故を防ぐ (= スクロール / ステータスライン更新も巻き添えで停止、 2026-06 実害)。
+// 値の根拠 (= 2026-09-08 実測、 jsonl 470 本 / assistant 本文 22,003 件): 中央値 90 字 /
+// p99 3,613 字 / 正常系の最大 25,916 字 (= subagent transcript) に対し degeneration は
+// 518,658 字。 4,000 超は 0.78% なので日常の長文は畳まれず、 30,000 超は degeneration だけ。
+export const COLLAPSE_CHARS = 4_000
+export const PLAIN_FALLBACK_CHARS = 30_000
+// 折りたたみ時のプレビュー長 (= ブロック境界まで下げて切るので実際はこれ以下になる)。
+const COLLAPSE_PREVIEW_CHARS = 2_000
+// plain 退避時のプレビュー長 (= markdown を通さない経路なので、 畳まれていると分かる程度)。
 const LARGE_PREVIEW_CHARS = 800
 
 // markdown を通さず plain text に倒すべき巨大メッセージか。 純関数 (= テスト対象)。
 export function isOversizedMessage(text) {
-  return typeof text === 'string' && text.length > MARKDOWN_MAX_CHARS
+  return typeof text === 'string' && text.length > PLAIN_FALLBACK_CHARS
+}
+
+// markdown を保ったまま畳むべき長文か。 純関数 (= テスト対象)。
+export function isCollapsibleMessage(text) {
+  return typeof text === 'string' && text.length > COLLAPSE_CHARS
+}
+
+/** markdown を壊さない位置で先頭 max 字までを切り出す純関数。
+ *
+ * 切り位置はコードフェンスの外側のブロック境界 (= 空行) だけ。 max を超える手前で最後に見た
+ * 境界まで下げるので、 表もコードブロックも途中で切れない。 境界が 1 つも取れなければ行の
+ * 切れ目まで戻し、 フェンスが開いたままなら閉じて返す (= 以降が全部コード扱いになるのを防ぐ)。
+ * 1 行目だけで max を超える場合のみ文字数で切る (= 改行を持たない degeneration 系)。 */
+export function previewUpTo(text, max) {
+  if (typeof text !== 'string' || text.length <= max) return text
+  const lines = text.split('\n')
+  let inFence = false
+  let len = 0
+  let cut = -1   // 最後に見たフェンス外の空行 (= ここまでを返す)
+  let last = -1  // max に収まった最後の行
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const next = len + line.length + 1
+    if (next > max) break
+    if (/^\s*(```|~~~)/.test(line)) inFence = !inFence
+    if (!inFence && line.trim() === '') cut = i
+    len = next
+    last = i
+  }
+  if (cut > 0) return lines.slice(0, cut).join('\n')
+  if (last < 0) return text.slice(0, max)
+  const head = lines.slice(0, last + 1).join('\n')
+  return inFence ? `${head}\n\`\`\`` : head
 }
 
 // --- streaming 増分描画 (= 2026-07-15 電力最適化 R1) ---
@@ -232,6 +268,33 @@ const MarkdownChunk = React.memo(function MarkdownChunk({ text, plugins, compone
   )
 })
 
+// 長文を markdown のまま畳む。 プレビューはブロック境界で切るので、 畳んでいる間も表や
+// コードブロックが途中で壊れない。 展開は同じ markdown 経路へ全文を通すだけなので、
+// 折りたたみの前後で読み味が変わらない (= 旧実装は展開すると生の markdown が出ていた)。
+function CollapsibleMarkdown({ text, plugins, components }) {
+  const t = useT()
+  const [expanded, setExpanded] = useState(false)
+  const preview = useMemo(() => previewUpTo(text, COLLAPSE_PREVIEW_CHARS), [text])
+  return (
+    <div className="md-collapsible">
+      <MarkdownChunk
+        text={expanded ? text : preview}
+        plugins={plugins}
+        components={components}
+      />
+      <button
+        type="button"
+        className="md-collapse-toggle"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        {expanded
+          ? t('message.collapsed.collapse')
+          : t('message.collapsed.show_full', { n: text.length.toLocaleString() })}
+      </button>
+    </div>
+  )
+}
+
 const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile, streaming }) {
   // 2026-07-10 発熱対策: streaming 中の markdown 更新を 500ms に 1 回へ間引く。 完了時は即最終形。
   // 2026-07-15 R1: さらに増分化 — 再パースは「伸びている末尾ブロック」 だけ (= 下の chunk 分割)。
@@ -284,6 +347,14 @@ const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile, 
           <MarkdownChunk key={i} text={c} plugins={plugins} components={components} />
         ))}
         <MarkdownChunk text={streamingParts.tail} plugins={plugins} components={components} />
+      </Profiler>
+    )
+  }
+  // 長文は markdown のまま畳む (= 描画する text で判定して、 表示と判定をずらさない)。
+  if (isCollapsibleMessage(deferredText)) {
+    return (
+      <Profiler id="md-render" onRender={onProfile}>
+        <CollapsibleMarkdown text={deferredText} plugins={plugins} components={components} />
       </Profiler>
     )
   }
