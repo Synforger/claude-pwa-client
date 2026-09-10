@@ -150,7 +150,7 @@
       "web.js",
       "worktree.js"
     ],
-    "at": "2026-09-07T22:53:28+00:00",
+    "at": "2026-09-10T13:48:14+00:00",
     "code_blobs": {
       "backend/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
@@ -327,10 +327,10 @@
       "frontend/src/features/attachments/useAttachments.js": "d4bbd7a8235b196c6975e48fe47901ab46971cc7",
       "frontend/src/features/chat/AttachmentsBar.jsx": "23956a599178bf3dc65461cbbe7afab3775eb4ec",
       "frontend/src/features/chat/ChatInput.jsx": "40810badd063c1bdd662e2b0dd65da95d984164c",
-      "frontend/src/features/chat/MessageItem.css": "cb2682d3bd1b25017f439d62b7f48cff56879119",
+      "frontend/src/features/chat/MessageItem.css": "08d76783310a7462c62403dbdc18b6160e89e7d9",
       "frontend/src/features/chat/MessageItem.fileCache.test.js": "b7be5d9d5e1c055c9e5c3bcab7c64fa5a04920f7",
-      "frontend/src/features/chat/MessageItem.jsx": "fe96f1cfeede11aa2ad8b54702a2a5040de08ba7",
-      "frontend/src/features/chat/MessageItem.render.test.jsx": "74e3d9b91460fd389dd7b6dfd24dc468206be91d",
+      "frontend/src/features/chat/MessageItem.jsx": "3bc5a139a318f33988fcf2fbce97514c69b5a441",
+      "frontend/src/features/chat/MessageItem.render.test.jsx": "014d764dc46b1c2b017af1d2c97b6bd7a6a09081",
       "frontend/src/features/chat/MessageList.jsx": "3323f5f8518b28e47e8fcb29a404035c411ae540",
       "frontend/src/features/chat/MessageRenderer.collapse.test.jsx": "7fc75fb14b8bb27c1b22181e4a2cbd0b774be052",
       "frontend/src/features/chat/MessageRenderer.css": "5ca240db48e5a3cb6f12ff31c169aa875cf9f7a0",
@@ -515,9 +515,9 @@
       "scripts/setup-branch-protection.sh": "6691d5a3e6b3f2ece6b150c3ecea476ed3c96b29",
       "scripts/ws-pty-smoketest.py": "b19f3d200fe7ff2a854be62cc1caffe24da64ce5"
     },
-    "commit": "0935d33931f193ba7d17d1917fb2d5c5e3ff27ab",
+    "commit": "9c47cd976955c8c313838b392a0ff77ccb9e62e6",
     "doc_blob": "48dfe1188650ed4326938898b5aaf4dc5d15c918",
-    "note": "terminal \u8868\u306b input_ready.py \u3092\u8ffd\u52a0\u3057\u3001\u8cac\u52d9\u306e\u300c\u6551\u6e08\u518d\u9001\u300d\u3092\u300c\u9001\u4fe1\u5230\u9054\u306e\u89b3\u6e2c (2026-07-05 \u9000\u5f79) + \u6253\u9375\u524d\u306e\u8d77\u52d5\u5f85\u3061\u300d\u3078\u8a02\u6b63\u3057\u305f\u3002L143 \u306e asyncio.Event / clear \u306f OverviewBroadcaster \u306e\u8a18\u8ff0\u3067\u7121\u95a2\u4fc2\u3001L92 \u306e routes \u9593 import \u7981\u6b62\u3082\u5b88\u3063\u3066\u3044\u308b (\u8db3\u3057\u305f\u306e\u306f terminal \u304b\u3089\u306e import)"
+    "note": "frontend/src/features/chat/MessageItem.jsx only opens the thinking details by default and MessageItem.css restyles it; L172 (processStreamEvent.js dispatch) is unaffected"
   },
   "doc": "docs/internals/architecture/overview.md",
   "schema": 1

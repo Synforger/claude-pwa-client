@@ -51,6 +51,18 @@ describe('MessageItem render smoke', () => {
     expect(container.querySelector('.bubble.dim')).toBeTruthy()
   })
 
+  it('thinking is open by default so it reads without a tap', () => {
+    const { container } = render(
+      <MessageItem
+        {...baseProps}
+        msg={{ id: 'a5', role: 'agent', thinking: '手順を確認する', text: '', tools: [] }}
+      />,
+    )
+    const block = container.querySelector('details.thinking-block')
+    expect(block).toBeTruthy()
+    expect(block.open).toBe(true)
+  })
+
   it('tool with a text result renders (= #79 の crash 再現形状)', () => {
     // tool loop 内の翻訳呼び出し (tool.chars) を必ず踏む形状: result.content が
     // 非空 text + diff なし → showResult=true → 文字数 meta が描画される。

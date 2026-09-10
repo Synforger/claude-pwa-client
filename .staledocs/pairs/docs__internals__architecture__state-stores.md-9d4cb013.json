@@ -52,7 +52,7 @@
       "utils/toolResult.js",
       "viewModes[sid]"
     ],
-    "at": "2026-09-07T22:54:44+00:00",
+    "at": "2026-09-10T13:48:29+00:00",
     "code_blobs": {
       "backend/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
       "backend/cli/__init__.py": "52b2c992ae1c16ee3a8d5e697b8d0940939804b0",
@@ -205,10 +205,10 @@
       "frontend/src/features/attachments/useAttachments.js": "d4bbd7a8235b196c6975e48fe47901ab46971cc7",
       "frontend/src/features/chat/AttachmentsBar.jsx": "23956a599178bf3dc65461cbbe7afab3775eb4ec",
       "frontend/src/features/chat/ChatInput.jsx": "40810badd063c1bdd662e2b0dd65da95d984164c",
-      "frontend/src/features/chat/MessageItem.css": "cb2682d3bd1b25017f439d62b7f48cff56879119",
+      "frontend/src/features/chat/MessageItem.css": "08d76783310a7462c62403dbdc18b6160e89e7d9",
       "frontend/src/features/chat/MessageItem.fileCache.test.js": "b7be5d9d5e1c055c9e5c3bcab7c64fa5a04920f7",
-      "frontend/src/features/chat/MessageItem.jsx": "fe96f1cfeede11aa2ad8b54702a2a5040de08ba7",
-      "frontend/src/features/chat/MessageItem.render.test.jsx": "74e3d9b91460fd389dd7b6dfd24dc468206be91d",
+      "frontend/src/features/chat/MessageItem.jsx": "3bc5a139a318f33988fcf2fbce97514c69b5a441",
+      "frontend/src/features/chat/MessageItem.render.test.jsx": "014d764dc46b1c2b017af1d2c97b6bd7a6a09081",
       "frontend/src/features/chat/MessageList.jsx": "3323f5f8518b28e47e8fcb29a404035c411ae540",
       "frontend/src/features/chat/MessageRenderer.collapse.test.jsx": "7fc75fb14b8bb27c1b22181e4a2cbd0b774be052",
       "frontend/src/features/chat/MessageRenderer.css": "5ca240db48e5a3cb6f12ff31c169aa875cf9f7a0",
@@ -388,9 +388,9 @@
       "frontend/src/utils/toolResult.js": "35fb261cab02d9c8b2b3f2e1a92ce3a3c988ef19",
       "frontend/src/utils/toolResult.test.js": "2e8a88a2bed7368a568c8bcdfff96f00643593e9"
     },
-    "commit": "0935d33931f193ba7d17d1917fb2d5c5e3ff27ab",
+    "commit": "9c47cd976955c8c313838b392a0ff77ccb9e62e6",
     "doc_blob": "92e4dcdb3c1ee1d7c68ae35bf0003316249bc839",
-    "note": "doc L26-27 \u304c\u540d\u6307\u3057\u3059\u308b frontend/src/features/chat/useChatStream.js \u306e subscribe \u5bfe\u8c61 (sessions activeId + optimisticRef) \u306f\u4e0d\u5909\u3002\u8db3\u3057\u305f\u306e\u306f\u6dfb\u4ed8\u9001\u4fe1\u306e\u5fdc\u7b54\u672c\u6587\u3092\u898b\u308b\u5224\u5b9a\u3060\u3051"
+    "note": "frontend/src/features/chat/MessageItem.jsx change is presentational (thinking open by default); L26 store mapping for features/chat is unchanged"
   },
   "doc": "docs/internals/architecture/state-stores.md",
   "schema": 1
