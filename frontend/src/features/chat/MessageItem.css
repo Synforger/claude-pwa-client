@@ -497,37 +497,36 @@
   opacity: 0.55;
 }
 
-/* thinking ブロック */
+/* thinking ブロック。 既定で開き、 本文として読める大きさと明るさで出す。
+   返答 (= 14px / --text) より一段小さく一段暗くして見分ける。 内側のスクロールは
+   置かない (= 入れ子のスクロールは携帯で読みにくい、 畳みたければ summary で閉じる) */
 .thinking-block {
-  font-size: 11px;
-  color: var(--text-dim);
+  font-size: 13px;
+  color: #a3a3a3;
   margin-bottom: 4px;
 }
 
 .thinking-block summary {
   cursor: pointer;
   user-select: none;
-  opacity: 0.5;
+  font-size: 11px;
+  color: var(--text-dim);
   padding: 2px 0;
 }
 
 .thinking-block summary:hover {
-  opacity: 0.8;
+  color: #a3a3a3;
 }
 
 .thinking-text {
-  font-family: 'Menlo', 'Monaco', monospace;
-  font-size: 10px;
-  color: var(--text-dim);
+  font-family: inherit;
   white-space: pre-wrap;
   word-break: break-word;
+  line-height: 1.5;
   margin: 4px 0 0;
-  opacity: 0.6;
-  max-height: 200px;
-  overflow-y: auto;
-  padding: 4px 8px;
-  background: var(--bg1);
-  border-radius: 4px;
+  padding: 6px 10px;
+  background: var(--bg2);
+  border-radius: 6px;
   border-left: 2px solid var(--border);
 }
 
