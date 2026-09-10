@@ -409,9 +409,11 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
       ) : msg.role === 'agent' && (msg.tools?.length > 0 || msg.thinking || msg.askUserQuestion) ? (
         <div className="agent-block">
           {msg.thinking && (
-            <details className="thinking-block">
+            <details className="thinking-block" open>
               <summary>💭 thinking</summary>
-              <pre className="thinking-text">{msg.thinking}</pre>
+              {/* claude は thinking の末尾に改行 2 つを付けることが多く、 pre-wrap だと
+                  枠の下に空行が残るので表示では落とす */}
+              <pre className="thinking-text">{msg.thinking.trimEnd()}</pre>
             </details>
           )}
           {/* 2026-06-22: 旧実装は tools → text 順だったが、 claude の実応答は
