@@ -497,12 +497,11 @@
   opacity: 0.55;
 }
 
-/* thinking ブロック。 既定で開き、 本文として読める大きさと明るさで出す。
-   返答 (= 14px / --text) より一段小さく一段暗くして見分ける。 内側のスクロールは
-   置かない (= 入れ子のスクロールは携帯で読みにくい、 畳みたければ summary で閉じる) */
+/* thinking ブロック。 既定で開き、 本文は返答と同じ色で読ませる。 返答 (= 14px) より
+   一段小さい字と枠で見分ける。 内側のスクロールは置かない (= 入れ子のスクロールは
+   携帯で読みにくい、 畳みたければ summary で閉じる) */
 .thinking-block {
   font-size: 13px;
-  color: #a3a3a3;
   margin-bottom: 4px;
 }
 
@@ -515,17 +514,18 @@
 }
 
 .thinking-block summary:hover {
-  color: #a3a3a3;
+  color: var(--text);
 }
 
 .thinking-text {
   font-family: inherit;
+  color: var(--text);
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
   margin: 4px 0 0;
   padding: 6px 10px;
-  background: var(--bg2);
+  background: var(--bg3);
   border-radius: 6px;
   border-left: 2px solid var(--border);
 }
