@@ -409,7 +409,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
       ) : msg.role === 'agent' && (msg.tools?.length > 0 || msg.thinking || msg.askUserQuestion) ? (
         <div className="agent-block">
           {msg.thinking && (
-            <details className="thinking-block">
+            <details className="thinking-block" open>
               <summary>💭 thinking</summary>
               <pre className="thinking-text">{msg.thinking}</pre>
             </details>
