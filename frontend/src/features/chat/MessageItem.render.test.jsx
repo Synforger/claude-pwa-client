@@ -63,6 +63,16 @@ describe('MessageItem render smoke', () => {
     expect(block.open).toBe(true)
   })
 
+  it('thinking drops its trailing newlines so the box has no blank line below', () => {
+    const { container } = render(
+      <MessageItem
+        {...baseProps}
+        msg={{ id: 'a6', role: 'agent', thinking: '手順を確認する\n\n', text: '', tools: [] }}
+      />,
+    )
+    expect(container.querySelector('.thinking-text').textContent).toBe('手順を確認する')
+  })
+
   it('tool with a text result renders (= #79 の crash 再現形状)', () => {
     // tool loop 内の翻訳呼び出し (tool.chars) を必ず踏む形状: result.content が
     // 非空 text + diff なし → showResult=true → 文字数 meta が描画される。
