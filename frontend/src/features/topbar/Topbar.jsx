@@ -164,12 +164,14 @@ function TopbarMoreMenu({ activeViewMode, setActiveViewMode }) {
           <button
             className="topbar-more-item"
             onClick={() => { bumpAttachmentPicker(); close() }}
+            data-testid="topbar-menu-file-attach"
           >
             {t('topbar.menu.file_attach')}
           </button>
           <button
             className="topbar-more-item"
             onClick={() => { setOverlay('treeOpen', '~'); close() }}
+            data-testid="topbar-menu-file-tree"
           >
             {t('topbar.menu.file_tree')}
           </button>

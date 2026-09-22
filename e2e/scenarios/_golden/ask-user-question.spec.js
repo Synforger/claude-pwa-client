@@ -1,5 +1,8 @@
 // Golden path: ask-user-question feature.
-// Inject an AskUserQuestion tool_use; the bubble surfaces in the chat.
+// Inject an AskUserQuestion tool_use; the chat keeps a collapsed record of it.
+// Answering happens in the prompt banner above the input (= driven by the
+// terminal screen, not reproducible here), so this bubble only has to show the
+// question and its options once expanded.
 
 import { test, expect } from '@playwright/test'
 import { seedSession, appendEvent } from '../../helpers/fixture.js'
@@ -45,9 +48,9 @@ test.describe('golden: ask-user-question', () => {
 
     const bubble = page.locator('[data-testid=ask-user-question-bubble]').first()
     await expect(bubble).toBeVisible({ timeout: 10_000 })
+    // Collapsed by default; expanding reveals the full question and the options.
+    await bubble.locator('summary').click()
     await expect(bubble.locator('[data-testid=ask-user-question-text]')).toContainText('Which color')
-    // Both options render as buttons (= scoped inside this bubble).
-    await expect(bubble.getByRole('button', { name: /Red/ })).toBeVisible()
-    await expect(bubble.getByRole('button', { name: /Blue/ })).toBeVisible()
+    await expect(bubble.locator('.ask-option-label')).toHaveText(['1. Red', '2. Blue'])
   })
 })
