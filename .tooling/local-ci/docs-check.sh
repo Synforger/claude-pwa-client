@@ -21,12 +21,8 @@ set -euo pipefail
 #      underlines and would false-positive.
 #
 # Inline path references (`src/foo/bar.py` -> file must exist) are NOT
-# checked here: staledocs owns path/anchor liveness via `task docs:coherence`
-# (single source of truth; keeping a second checker produced split verdicts
-# and two ignore lists for the same claim). This script keeps only the
-# classes staledocs deliberately does not cover because they are template
-# conventions, not language-agnostic doc/code drift: Taskfile verb names,
-# ASCII layout trees, and merge-mishap fingerprints.
+# checked here. This script covers the repo conventions only: Taskfile verb
+# names, ASCII layout trees, and merge-mishap fingerprints.
 #
 # What it cannot check: prose claims about behaviour. Those are covered by
 # the review pass before integration, not by this script.
