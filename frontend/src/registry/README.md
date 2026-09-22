@@ -87,5 +87,5 @@ const snapshot = getAllRegistrySnapshots()
 
 - `../domain/` — Event 型 / isKnownEventType (= streamRegistry が import)
 - `../state/ui.js` — overlayRegistry が overlay flag を同時に揺らす
-- `../transport/sse.ts` — streamRegistry.dispatch を購読 callback で呼ぶ
+- `../transport/unified.ts` — SSE の受信口 (= 現状は features の hook が直接購読しており、 streamRegistry.dispatch を呼ぶ経路は未配線)
 - `../features/*/index.js` — self-register で配線、 App.jsx は import するだけ

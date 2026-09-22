@@ -1,5 +1,5 @@
 // SSE event type ごとに handler を呼ぶ registry。 features/chat / status-bar / tasks 等が
-// event type を register し、 transport/sse.ts が subscribe して dispatch する。
+// event type を register する。 dispatch を呼ぶ transport 側の配線は未着手 (= SSE は transport/unified.ts を features の hook が直接購読)。
 
 import { createRegistry } from './_registry.js'
 import { isKnownEventType } from '../domain/Event.ts'
