@@ -99,15 +99,6 @@ def jsonl_line_to_events(line: dict) -> list[dict]:
             "type": "permission_mode",
             "permissionMode": line.get("permissionMode") or "",
         }]
-    if line_type == "pr-link":
-        return [{
-            "type": "pr_link",
-            "uuid": line.get("uuid") or f"pr-{line.get('timestamp')}-{line.get('prNumber')}",
-            "prNumber": line.get("prNumber"),
-            "prUrl": line.get("prUrl") or "",
-            "prRepository": line.get("prRepository") or "",
-            "timestamp": line.get("timestamp"),
-        }]
     return []
 
 

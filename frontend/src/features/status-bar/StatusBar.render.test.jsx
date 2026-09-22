@@ -22,7 +22,7 @@ function baseStatus(over = {}) {
     model: 'claude-opus-4-8',
     five_hour_pct: 40, five_hour_resets_at: NOW + 3600,
     seven_day_pct: 70, seven_day_resets_at: NOW + 86400,
-    ctx_pct: 12, mode: null, pr_links: [],
+    ctx_pct: 12, mode: null,
     ...over,
   }
 }

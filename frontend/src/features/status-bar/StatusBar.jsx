@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { pctClass, timeUntil, formatResetWeekdayTime } from '../../utils/format.js'
-import { useOutsideClick } from '../../hooks/useOutsideClick.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
 import { subscribe as subscribeSessions, getSnapshot as getSessionsSnapshot } from '../../state/sessions.js'
 import { useStatus } from './useStatus.js'
@@ -107,49 +106,8 @@ export default function StatusBar() {
         <span className="dim">{sevenDayResetLabel}</span>
       </span>
       <span className={pctClass(status.ctx_pct)}>ctx {Math.round(status.ctx_pct || 0)}%</span>
-      <PrLinksChip links={Array.isArray(status.pr_links) ? status.pr_links : []} />
       {!isOnline && <span className="offline-chip" title={t('statusbar.offline_title')}>{t('statusbar.offline')}</span>}
     </div>
-  )
-}
-
-// PR チップ + dropdown。 タブごとに status.pr_links を受け取り、 別タブ切替時は親から
-// 新しい status が同期で渡るので flicker しない。 dropdown は閉じた状態がデフォ。
-function PrLinksChip({ links }) {
-  const t = useT()
-  const [open, setOpen] = useState(false)
-  const ref = useRef(null)
-  // outside-click / touchstart で閉じる集約 hook (= F-29)。 touchstart は別 hook 呼び。
-  useOutsideClick(ref, () => setOpen(false), { enabled: open })
-  useOutsideClick(ref, () => setOpen(false), { enabled: open, eventName: 'touchstart' })
-  if (!links.length) return null
-  return (
-    <span className="pr-chip-wrap" ref={ref}>
-      <button
-        type="button"
-        className="pr-chip"
-        onClick={(e) => { e.stopPropagation(); setOpen(o => !o) }}
-        aria-label={t('statusbar.pr_list', { n: links.length })}
-      >
-        🔗 {links.length}
-      </button>
-      {open && (
-        <div className="pr-chip-dropdown" onClick={(e) => e.stopPropagation()}>
-          {links.map(l => (
-            <a
-              key={`${l.prRepository}#${l.prNumber}`}
-              href={l.prUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="pr-chip-item"
-            >
-              <span className="pr-chip-num">#{l.prNumber}</span>
-              <span className="pr-chip-repo">{l.prRepository}</span>
-            </a>
-          ))}
-        </div>
-      )}
-    </span>
   )
 }
 

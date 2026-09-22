@@ -15,7 +15,7 @@ contracts/
 ├── README.md                       (本 file)
 ├── schema/                         真値 yaml
 │   ├── _meta.json                  全 yaml の meta-schema (= kind dispatch oneOf)
-│   ├── sse-events.yaml             17 event 型の field + invariants + 発火 trigger
+│   ├── sse-events.yaml             18 event 型の field + invariants + 発火 trigger
 │   ├── ws-channels.yaml            2 channel の direction + frame + lifecycle
 │   ├── http-endpoints.yaml         28 endpoint の method + path + req/res schema + 認証
 │   └── lifecycle.yaml              reconnect / bg→fg / kill 復帰の状態遷移

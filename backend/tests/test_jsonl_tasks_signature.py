@@ -68,7 +68,7 @@ def test_task_reminder_no_change_does_not_dirty_flag(isolated_state):
         "tasks": [], "current_tool": None, "todos": None, "subagent": None,
         "pending_plan": None, "plan_mode": False,
         "model": "", "ctx_pct": 0, "ctx_window": 1_000_000,
-        "pr_links": [], "mode": "", "permission_mode": "",
+        "mode": "", "permission_mode": "",
         "budget_used": None, "budget_total": None, "budget_remaining": None,
     }
     tasks_a = [_t("1", "Write tests"), _t("2", "Refactor")]
@@ -92,7 +92,7 @@ def test_empty_task_reminder_does_not_wipe_existing_tasks(isolated_state):
         "current_tool": None, "todos": None, "subagent": None,
         "pending_plan": None, "plan_mode": False,
         "model": "", "ctx_pct": 0, "ctx_window": 1_000_000,
-        "pr_links": [], "mode": "", "permission_mode": "",
+        "mode": "", "permission_mode": "",
         "budget_used": None, "budget_total": None, "budget_remaining": None,
     }
     line = {"type": "attachment", "attachment": {"type": "task_reminder", "content": []}}
@@ -109,7 +109,7 @@ def test_empty_task_reminder_when_tasks_already_empty_stays_empty(isolated_state
         "tasks": [], "current_tool": None, "todos": None, "subagent": None,
         "pending_plan": None, "plan_mode": False,
         "model": "", "ctx_pct": 0, "ctx_window": 1_000_000,
-        "pr_links": [], "mode": "", "permission_mode": "",
+        "mode": "", "permission_mode": "",
         "budget_used": None, "budget_total": None, "budget_remaining": None,
     }
     line = {"type": "attachment", "attachment": {"type": "task_reminder", "content": []}}
@@ -126,7 +126,7 @@ def test_task_reminder_status_change_dirty_flag(isolated_state):
         "current_tool": None, "todos": None, "subagent": None,
         "pending_plan": None, "plan_mode": False,
         "model": "", "ctx_pct": 0, "ctx_window": 1_000_000,
-        "pr_links": [], "mode": "", "permission_mode": "",
+        "mode": "", "permission_mode": "",
         "budget_used": None, "budget_total": None, "budget_remaining": None,
     }
     line = {"type": "attachment", "attachment": {

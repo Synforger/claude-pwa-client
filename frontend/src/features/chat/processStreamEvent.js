@@ -132,10 +132,6 @@ export function processStreamEvent(deps, sid, event) {
     return
   }
 
-  // pr_link は agent_status.pr_links に集約して StatusBar の 🔗 chip で見せる経路に
-  // 移したのでチャット履歴には積まない (= 1 session に 100+ 行流れる仕様への対策)。
-  if (event.type === 'pr_link') return
-
   // hook_error: hooks 実行が non-blocking で失敗した記録。 黄色 inline 警告で必ず見せる
   // (= ブラックボックス NG、 backend hooks が落ちてる時は気付かないと困る)。
   if (event.type === 'hook_error') {

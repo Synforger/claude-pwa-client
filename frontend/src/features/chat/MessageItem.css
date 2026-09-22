@@ -208,9 +208,8 @@
   overflow: auto;
 }
 
-/* PR / hook / system_note 系は tool ログと同じ視覚言語 (= monospace + 緑 / 白 / 黄)。
+/* hook / system_note 系は tool ログと同じ視覚言語 (= monospace + 緑 / 白 / 黄)。
    bash 操作と並んでも違和感が出ないよう、 装飾は最小限に保つ。 */
-.message.pr-link-card,
 .message.hook-error-card,
 .message.system-note-card,
 .message.attachment-card {
