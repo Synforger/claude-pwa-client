@@ -799,19 +799,6 @@ def _mutate_attachment(session_id: str, a: dict, line: dict) -> bool:
     return changed
 
 
-def _mutate_pr_link(session_id: str, a: dict, line: dict) -> bool:
-    repo = line.get("prRepository") or ""
-    num = line.get("prNumber")
-    url = line.get("prUrl") or ""
-    if num is None:
-        return False
-    pr_links = a.get("pr_links") or []
-    if any(p.get("prRepository") == repo and p.get("prNumber") == num for p in pr_links):
-        return False
-    a["pr_links"] = [*pr_links, {"prRepository": repo, "prNumber": num, "prUrl": url}]
-    return True
-
-
 # 行 type → handler(session_id, agent_status_entry, line)。 新 type 追加時はここに 1 行 +
 # handler 1 個 (= mutate_agent_status 本体は触らない)。
 _LINE_MUTATORS = {
@@ -820,5 +807,4 @@ _LINE_MUTATORS = {
     "mode": _mutate_mode,
     "permission-mode": _mutate_permission_mode,
     "attachment": _mutate_attachment,
-    "pr-link": _mutate_pr_link,
 }

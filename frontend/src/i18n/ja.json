@@ -166,7 +166,6 @@
   "system.api_error": "API エラー",
   "dialog.delete_confirm": "この会話を削除しますか？",
   "dialog.delete_note": "会話履歴も削除されます。 元に戻せません。",
-  "statusbar.pr_list": "PR 一覧 ({n})",
   "boundary.error": "エラーが発生しました",
   "boundary.reset": "データ消去して再起動",
   "overlay.load_failed": "画面の読込に失敗しました",

@@ -166,7 +166,6 @@
   "system.api_error": "API error",
   "dialog.delete_confirm": "Delete this conversation?",
   "dialog.delete_note": "Its history will be deleted. This cannot be undone.",
-  "statusbar.pr_list": "PR list ({n})",
   "boundary.error": "Something went wrong",
   "boundary.reset": "Clear data & restart",
   "overlay.load_failed": "Failed to load this view",

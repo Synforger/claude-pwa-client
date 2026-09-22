@@ -53,7 +53,7 @@ def test_agent_status_for_agent_picks_up_model(monkeypatch):
     assert s.model == "Opus"
     # default は dataclass 1 箇所で定義されるので、 後段の to_dict() でも同値
     assert s.to_dict()["plan_mode"] is False
-    assert s.to_dict()["pr_links"] == []
+    assert s.to_dict()["tasks"] == []
 
 
 def test_make_agent_status_returns_dict_with_all_keys(monkeypatch):
@@ -64,7 +64,7 @@ def test_make_agent_status_returns_dict_with_all_keys(monkeypatch):
         "ctx_pct", "ctx_window", "model", "plan_mode", "current_tool",
         "todos", "subagent", "pending_plan", "mode",
         "permission_mode", "budget_used", "budget_total", "budget_remaining",
-        "pr_links", "tasks",
+        "tasks",
     }
     assert set(d.keys()) == expected_keys
     assert d["model"] == "Opus"
@@ -74,9 +74,9 @@ def test_agent_status_to_dict_shares_list_reference():
     # list / dict field は to_dict() で同 object 共有 (= 旧 dict factory と同挙動)
     s = state.AgentStatus()
     d = s.to_dict()
-    d["pr_links"].append({"prRepository": "r", "prNumber": 1})
+    d["tasks"].append({"id": "1", "subject": "t"})
     # dataclass 側からも見える
-    assert s.pr_links == [{"prRepository": "r", "prNumber": 1}]
+    assert s.tasks == [{"id": "1", "subject": "t"}]
 
 
 # ============================================================================
@@ -166,7 +166,7 @@ def test_unregister_session_removes_session_state(monkeypatch, tmp_path):
 
 def test_session_state_lock_serializes_modifications(monkeypatch, tmp_path):
     """SessionState.lock 配下なら read-modify-write が atomic。 旧設計の
-    `agent_status[sid]["pr_links"].append` race を消す入口を担保する。
+    `agent_status[sid]["tasks"]` の read-modify-write race を消す入口を担保する。
 
     pytest-asyncio が未導入なので、 asyncio.run で event loop を内側に閉じて
     同期 test として実装する (= dependency 追加を避ける)。"""
@@ -189,14 +189,14 @@ def test_session_state_lock_serializes_modifications(monkeypatch, tmp_path):
 
             async def bump(n):
                 async with s.lock:
-                    cur = list(s.status["pr_links"])
+                    cur = list(s.status["tasks"])
                     # わざと await を挟んで context switch を強制する (= race を露わにする)
                     await asyncio.sleep(0)
                     cur.append(n)
-                    s.status["pr_links"] = cur
+                    s.status["tasks"] = cur
 
             await asyncio.gather(*(bump(i) for i in range(50)))
-            return list(s.status["pr_links"])
+            return list(s.status["tasks"])
 
         result = asyncio.run(runner())
         assert sorted(result) == list(range(50))

@@ -76,7 +76,7 @@ def test_exit_plan_dedup_survives_pending_plan_clear(isolated_state):
         "pending_plan": None, "plan_mode": False,
         "current_tool": None, "todos": None, "subagent": None,
         "model": "", "ctx_pct": 0, "ctx_window": 1_000_000,
-        "tasks": [], "pr_links": [],
+        "tasks": [],
     }
     import backend.state as state_mod
     state.stream_states[sid] = state_mod.StreamState(agent_id="a")

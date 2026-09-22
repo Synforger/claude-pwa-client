@@ -279,10 +279,6 @@ class AgentStatus:
     budget_used: float | None = None
     budget_total: float | None = None
     budget_remaining: float | None = None
-    # このセッションで言及された PR の一覧 (= jsonl の pr-link 行から重複排除して
-    # 集める)。 (prRepository, prNumber) で dedup、 古い順。 StatusBar の 🔗 chip
-    # で表示する。
-    pr_links: list = field(default_factory=list)
     # このセッションの task list (= attachment task_reminder の content スナップショット)。
     # claude TUI が毎ターン現状を再掲してくるので、 最新値で上書きする運用。
     # 各 entry: { id, subject, description, activeForm, status, blocks, blockedBy }。
@@ -313,7 +309,6 @@ class AgentStatus:
             "budget_used": self.budget_used,
             "budget_total": self.budget_total,
             "budget_remaining": self.budget_remaining,
-            "pr_links": self.pr_links,
             "tasks": self.tasks,
         }
 
@@ -336,15 +331,15 @@ class SessionState:
 
     旧設計は `sessions_meta` / `stream_states` / `agent_status` /
     `session_tmp_files` / `session_last_seen_at` の 5 dict を sid で並走させ
-    `asyncio.Lock` も無く、 read-modify-write race (= tasks 配列の lost update /
-    pr_links の重複等) が GIL 任せだった。 ここでは 1 sid あたり 1 SessionState
+    `asyncio.Lock` も無く、 read-modify-write race (= tasks 配列の lost update 等) が
+    GIL 任せだった。 ここでは 1 sid あたり 1 SessionState
     を作って lock を所有させる。 既存 dict 群は同じ field object を共有する
     parallel view (= 副 path consumer 移行は別 round で扱う互換のため温存)。
 
     使い方 (round 2 で副 path 移行後の想定):
         async with state.get_session(sid).lock:
             status = state.get_session(sid).status  # dict 参照
-            status["pr_links"].append(...)
+            status["tasks"].append(...)
 
     今 wave 時点の利用者: round 2 sub-agent (= W1-A / W1-C / W1-D) が wrap する
     consumer。 backend 中央は本 round で wiring (= register/unregister 同期 +
