@@ -24,6 +24,7 @@
   "topbar.screenshare_close": "Close screen share",
   "topbar.screenshare_label": "Screen share",
   "topbar.extensions": "Extensions",
+  "topbar.extensions_hint": "Tap: open / collapse the last extension. Long-press: list",
   "topbar.extension_open": "Open {title}",
   "topbar.extension_close": "Collapse {title}",
   "topbar.menu": "Menu",

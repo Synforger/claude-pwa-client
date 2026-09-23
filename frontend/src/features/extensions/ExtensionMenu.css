@@ -5,6 +5,13 @@
   flex-shrink: 0;
 }
 
+/* 長押しで iOS の文字選択 / 共有メニューが出ないようにする。 */
+.ext-slot-btn {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 /* 帯 (= z-index 5) より上に開く。 */
 .ext-menu-popup {
   position: absolute;
