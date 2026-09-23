@@ -4,28 +4,16 @@
 // showNotification を呼べば OS 通知として表示される。
 // アプリが完全終了していても OS が SW を起こしてくれるので届く。
 
-// アプリシェル (HTML / JS / CSS) のキャッシュ世代名。 version を上げると activate で旧世代を
-// 全削除する (= 確実な刷新経路)。 sw.js は backend が no-cache で配信するので、 新しい sw.js は
-// PWA 起動時に必ず取得される → install → activate で旧キャッシュ一掃 → 最新 bundle に入れ替わる。
-// v3 (= 2026-07-09): navigation を network-first へ戻すと同時に bump。 旧 v2 世代には
-// cache-first 時代の複数世代 index.html が URL query 違い (`/` / `/?ses=` / `/?_r=`) で
-// 分裂堆積しており、 それが「起動経路ごとに新旧がばらつく」 更新地獄の温床だったので一掃する。
-// v4: frontend bundle 差し替え時は必ずこの版を上げる (= 上げないと新 SW が立たず、 古い
-// キャッシュの index が差し替えで消えた chunk を踏んで白画面になる)。 bump = 新 SW install
-// (skipWaiting) → activate で旧 shell cache 全削除 → controllerchange で 1 回自動リロード
-// = 全 client がクリーンに最新 bundle へ移行する。
-// v18: iframe の中の画面 (= `/moonlight/` / `/ext/<id>/`) を `/` 単一キーへ保存していた汚染を一掃する。
-// v19: v1.4.1 の bundle 差し替え (= 拡張の差し口を 🧩 1 個に集約) に合わせて上げる。
-// v20: 拡張の帯の高さ変更 (= 50dvh) の bundle 差し替えに合わせて上げる。
-// v21: 拡張の帯の高さ変更 (= 40dvh) の bundle 差し替えに合わせて上げる。
-// v22: 拡張の帯の高さ変更 (= 30dvh) の bundle 差し替えに合わせて上げる。
-// v23: 拡張の帯をドラッグで高さ変更できるようにした bundle 差し替えに合わせて上げる。
-// v24: 拡張の帯に ✕ (= 畳む) を足した bundle 差し替えに合わせて上げる。
-// v25: 🧩 をワンタップ (= 最後の拡張を開閉) + 長押しで一覧にした bundle 差し替えに合わせて上げる。
-// v26: チャットの最下端への張り付き判定の修正 (= 上スクロールでだけ外す) に合わせて上げる。
-// v27: 最下端への追従をアニメーションなしで飛ぶ形にした bundle 差し替えに合わせて上げる。
-// v28: 最下端の張り付きの一時計測 (= scrollProbe) を外した bundle 差し替えに合わせて上げる。
-const SHELL_CACHE = 'claude-pwa-shell-v28'
+// アプリシェル (HTML / JS / CSS) のキャッシュ世代名。 名前が変わると activate で旧世代を全削除し
+// (= 確実な刷新経路)、 controllerchange で 1 回自動リロードして全 client が最新 bundle へ移る。
+// sw.js は backend が no-cache で配信するので、 新しい sw.js は PWA 起動時に必ず取得される。
+//
+// 名前は build が決める: 下の置き場所を、 その build の bundle の file 名 (= 中身の hash 入り) と
+// 本 file の中身から作った hash で置き換える (= frontend/build/stampServiceWorker.js、 vite plugin)。
+// bundle か本 file が変われば名前が変わり、 変わらなければ同じ名前のまま (= 無駄な再読込をしない)。
+// 2026-09-23 まで手で版 (= v28 まで) を上げていたが、 上げ忘れた版で既存 client が新しい SW を
+// activate せず、 開いたままの画面が差し替えで消えた chunk を読みに行く状態を作ったので build に移した。
+const SHELL_CACHE = 'claude-pwa-shell-__BUILD_ID__'
 
 // iframe に嵌める別アプリの置き場 (= 画面共有 / 拡張)。 本体のアプリシェルではないので SW は
 // 一切介入しない (= 保存しない、 cache から返さない)。
