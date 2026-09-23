@@ -84,6 +84,15 @@ class GetAccountsResponseItem(BaseModel):
     is_default: bool  # account_id 未設定の session と等価な account (= env に CLAUDE_CONFIG_DIR を持たない最初のもの)
 
 
+class GetExtensionsResponseItem(BaseModel):
+    """GET /extensions response[i]"""
+    model_config = ConfigDict(extra="forbid")
+    id: str  # ^[a-z0-9][a-z0-9-]{0,31}$
+    title: str  # ボタンと iframe の title (= 未指定なら id)
+    icon: str  # 上部バーのボタン (= 未指定なら 🧩)
+    path: str  # /ext/<id>/ (= id から導出、 config には書かない)
+
+
 class GetFileResponse(BaseModel):
     """GET /file response"""
     model_config = ConfigDict(extra="forbid")

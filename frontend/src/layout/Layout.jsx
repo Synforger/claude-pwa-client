@@ -27,6 +27,7 @@ import ChatPanel from './ChatPanel.jsx'
 import TerminalPane from './TerminalPane.jsx'
 import OverlayHost from './OverlayHost.jsx'
 import Topbar from '../features/topbar/Topbar.jsx'
+import ExtensionHost from '../features/extensions/ExtensionHost.jsx'
 import StatusBar from '../features/status-bar/StatusBar.jsx'
 import StorageWarningHost from '../features/status-bar/StorageWarningHost.jsx'
 import AppEffects from '../features/app-effects/AppEffects.jsx'
@@ -46,6 +47,7 @@ export default function Layout() {
       <StatusBar />
       <StorageWarningHost />
       <Topbar />
+      <ExtensionHost />
       <TerminalPane sid={activeSid} />
       <ChatPanel sid={activeSid} />
       <OverlayHost />

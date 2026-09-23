@@ -190,19 +190,6 @@ class PermissionModeEvent(BaseModel):
     permissionMode: str
 
 
-class PrLinkEvent(BaseModel):
-    """PR 作成 / 紐付け記録 (= 親 turn で PR 操作が発生した記録)"""
-    model_config = ConfigDict(extra="forbid")
-    type: Literal["pr_link"]
-    sid: str
-    uuid: str
-    corr_id: str
-    prNumber: int
-    prUrl: str
-    prRepository: str
-    timestamp: Optional[str] = None
-
-
 class TurnDurationEvent(BaseModel):
     """1 ターンの処理時間メタ (= Fable 5 で result event の duration_ms 欠落分の代替経路)"""
     model_config = ConfigDict(extra="forbid")
@@ -250,7 +237,7 @@ class PromptStateEvent(BaseModel):
     key_requires_enter: Optional[bool] = None  # 1 打鍵後に Enter が要るか (= shell prompt true / Ink dialog false)
 
 
-AnyEvent = Union[UserEvent, UserMessageEvent, AssistantEvent, ResultEvent, AskUserQuestionEvent, TaskNotificationEvent, SystemEvent, SystemErrorEvent, HookErrorEvent, SystemNoteEvent, AttachmentEvent, BudgetEvent, ModeEvent, PermissionModeEvent, PrLinkEvent, TurnDurationEvent, StopHookSummaryEvent, AwaySummaryEvent, PromptStateEvent]
+AnyEvent = Union[UserEvent, UserMessageEvent, AssistantEvent, ResultEvent, AskUserQuestionEvent, TaskNotificationEvent, SystemEvent, SystemErrorEvent, HookErrorEvent, SystemNoteEvent, AttachmentEvent, BudgetEvent, ModeEvent, PermissionModeEvent, TurnDurationEvent, StopHookSummaryEvent, AwaySummaryEvent, PromptStateEvent]
 
 EVENT_BY_TYPE: dict[str, type[BaseModel]] = {
     "user": UserEvent,
@@ -267,7 +254,6 @@ EVENT_BY_TYPE: dict[str, type[BaseModel]] = {
     "budget": BudgetEvent,
     "mode": ModeEvent,
     "permission_mode": PermissionModeEvent,
-    "pr_link": PrLinkEvent,
     "turn_duration": TurnDurationEvent,
     "stop_hook_summary": StopHookSummaryEvent,
     "away_summary": AwaySummaryEvent,

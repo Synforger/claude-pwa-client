@@ -8,6 +8,7 @@ claude-pwa-client を **インストールして使うため**の文書です。
 |---|---|
 | **インストールして使い始めたい** | [setup/path-a-chat.md](setup/path-a-chat.md) |
 | 画面共有も使いたい (任意) | [setup/path-b-screenshare.md](setup/path-b-screenshare.md) |
+| 自作のアプリを上部バーから開きたい (任意) | [setup/extensions.md](setup/extensions.md) |
 | Windows (WSL2) で動かしたい | [setup/windows-wsl.md](setup/windows-wsl.md) |
 
 ## 運用ガイド

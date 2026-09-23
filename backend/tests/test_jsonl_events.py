@@ -151,7 +151,7 @@ def test_empty_user_string_skipped():
 
 
 def test_unknown_type_skipped():
-    # attachment / pr-link は今は専用 event を出す。 完全未知の type のみ skip 確認に絞る。
+    # attachment は専用 event を出す。 完全未知の type のみ skip 確認に絞る。
     assert jsonl_line_to_events({"type": "totally-unknown-type"}) == []
     assert jsonl_line_to_events("not a dict") == []
 
@@ -375,17 +375,14 @@ def test_attachment_deferred_tools_skipped():
     assert jsonl_line_to_events(line) == []
 
 
-def test_pr_link_event():
+def test_pr_link_line_is_dropped():
+    """claude は pr-link 行を書き続けるが、 PR チップは退役したので event にしない。"""
     line = {
         "type": "pr-link", "uuid": "u-pr",
         "prNumber": 598, "prUrl": "https://github.com/org/repo/pull/598",
         "prRepository": "org/repo", "timestamp": "2026-06-06T07:21:29Z",
     }
-    events = jsonl_line_to_events(line)
-    assert len(events) == 1
-    assert events[0]["type"] == "pr_link"
-    assert events[0]["prNumber"] == 598
-    assert events[0]["prUrl"].endswith("/598")
+    assert jsonl_line_to_events(line) == []
 
 
 def test_hook_non_blocking_error_emits_event():

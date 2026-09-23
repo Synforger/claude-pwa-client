@@ -217,18 +217,6 @@ export interface PermissionModeEvent {
   permissionMode: string
 }
 
-/** PR 作成 / 紐付け記録 (= 親 turn で PR 操作が発生した記録) */
-export interface PrLinkEvent {
-  type: "pr_link"
-  sid: string
-  uuid: string
-  corr_id: string
-  prNumber: number
-  prUrl: string
-  prRepository: string
-  timestamp?: string
-}
-
 /** 1 ターンの処理時間メタ (= Fable 5 で result event の duration_ms 欠落分の代替経路) */
 export interface TurnDurationEvent {
   type: "turn_duration"
@@ -282,9 +270,9 @@ export interface PromptStateEvent {
 }
 
 
-export type AnySseEvent = UserEvent | UserMessageEvent | AssistantEvent | ResultEvent | AskUserQuestionEvent | TaskNotificationEvent | SystemEvent | SystemErrorEvent | HookErrorEvent | SystemNoteEvent | AttachmentEvent | BudgetEvent | ModeEvent | PermissionModeEvent | PrLinkEvent | TurnDurationEvent | StopHookSummaryEvent | AwaySummaryEvent | PromptStateEvent
+export type AnySseEvent = UserEvent | UserMessageEvent | AssistantEvent | ResultEvent | AskUserQuestionEvent | TaskNotificationEvent | SystemEvent | SystemErrorEvent | HookErrorEvent | SystemNoteEvent | AttachmentEvent | BudgetEvent | ModeEvent | PermissionModeEvent | TurnDurationEvent | StopHookSummaryEvent | AwaySummaryEvent | PromptStateEvent
 
 
-export const SSE_EVENT_TYPES = ["user", "user_message", "assistant", "result", "ask_user_question", "task_notification", "system", "system_error", "hook_error", "system_note", "attachment", "budget", "mode", "permission_mode", "pr_link", "turn_duration", "stop_hook_summary", "away_summary", "prompt_state"] as const
+export const SSE_EVENT_TYPES = ["user", "user_message", "assistant", "result", "ask_user_question", "task_notification", "system", "system_error", "hook_error", "system_note", "attachment", "budget", "mode", "permission_mode", "turn_duration", "stop_hook_summary", "away_summary", "prompt_state"] as const
 
 export type SseEventType = typeof SSE_EVENT_TYPES[number]

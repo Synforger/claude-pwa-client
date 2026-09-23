@@ -30,7 +30,7 @@ A PWA client for operating [Claude Code](https://docs.claude.com/en/docs/claude-
 - **Image / text attachments**: multipart upload with persisted history
 - **Long replies fold without losing formatting**: a reply past 4,000 characters collapses to a preview and expands in place, staying rendered as markdown either way. The preview is cut at a block boundary outside code fences, so tables and code blocks are never sliced in half
 - **Tool activity inline**: every tool call (Bash, Edit, Write, …) appears as a collapsible row in the conversation — tap to expand its input and result; while a subagent runs, its current sub-tool is shown on the row
-- **Status bar**: model, 5h / 7d rate-limit usage with reset times, and context usage, always on; plan mode, remaining budget, and a mentioned-PR chip appear when the session provides them
+- **Status bar**: model, 5h / 7d rate-limit usage with reset times, and context usage, always on; plan mode and remaining budget appear when the session provides them
 - **Conversation forking**: branch any message into a new tab; parents and children are shown hierarchically in the drawer
 - **Persistent message history**: compressed with lz-string into localStorage
 - **Multi-account**: switch between personal / work etc. via the `accounts` config, and continue an existing conversation on another account from the ⋯ menu. Intended for accounts that already belong to different parties — an employer-issued one alongside your own — not for one person spreading usage across several personal subscriptions to get around limits (see [docs/reference/config.md](docs/reference/config.md))
@@ -38,6 +38,7 @@ A PWA client for operating [Claude Code](https://docs.claude.com/en/docs/claude-
 ### Optional extras
 
 - **Desktop screen sharing**: mirror the host desktop inside the PWA and control it by touch, via [Sunshine](https://github.com/LizardByte/Sunshine) + [moonlight-web-stream](https://github.com/MrCreativ3001/moonlight-web-stream). See [docs/setup/path-b-screenshare.md](docs/setup/path-b-screenshare.md)
+- **Extensions**: open your own web app from the top bar as a band above the chat, served from a separate process through Tailscale Serve. The chat input stays usable, and collapsing the band keeps the app running. See [docs/setup/extensions.md](docs/setup/extensions.md)
 
 ## Architecture
 

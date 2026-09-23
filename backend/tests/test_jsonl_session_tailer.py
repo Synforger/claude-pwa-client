@@ -19,7 +19,7 @@ def _make_state_for(sid: str):
         "current_tool": None, "subagent": None, "todos": None,
         "pending_plan": None, "plan_mode": False,
         "model": "", "ctx_pct": 0, "ctx_window": 1_000_000,
-        "pr_links": [], "tasks": [],
+        "tasks": [],
         "mode": "", "permission_mode": "",
         "budget_used": None, "budget_total": None, "budget_remaining": None,
     }
@@ -130,7 +130,6 @@ def test_initialize_sid_tail_starts_from_zero(isolated_state, tmp_path):
 def test_initialize_sid_tail_resets_metadata_on_path_switch(isolated_state, tmp_path):
     sid = "ses_switch"
     _make_state_for(sid)
-    state_mod.agent_status[sid]["pr_links"] = [{"prRepository": "x", "prNumber": 1, "prUrl": "y"}]
     state_mod.agent_status[sid]["tasks"] = [{"id": "1", "subject": "old"}]
     p_old = tmp_path / "old.jsonl"
     p_new = tmp_path / "new.jsonl"
@@ -138,8 +137,7 @@ def test_initialize_sid_tail_resets_metadata_on_path_switch(isolated_state, tmp_
     p_new.write_bytes(b"")
     ts = jr.SessionTailState(path=p_old, offset=0)
     jr._initialize_sid_tail(sid, ts, p_new)
-    # path 切替で pr_links / tasks が空に reset される (= /clear 後の持ち越し防止)
-    assert state_mod.agent_status[sid]["pr_links"] == []
+    # path 切替で tasks が空に reset される (= /clear 後の持ち越し防止)
     assert state_mod.agent_status[sid]["tasks"] == []
     assert ts.path == p_new
 

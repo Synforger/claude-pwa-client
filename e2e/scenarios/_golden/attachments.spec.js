@@ -1,5 +1,5 @@
 // Golden path: attachments feature.
-// Use the chat menu's "ファイル添付" entry to drive the file chooser, drop a
+// Use the status bar ⋯ menu's file-attach entry to drive the file chooser, drop a
 // tiny PNG in, and assert the attached-images preview surfaces.
 
 import { test, expect } from '@playwright/test'
@@ -13,13 +13,13 @@ const TINY_PNG_B64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4XmNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg=='
 
 test.describe('golden: attachments', () => {
-  test('attach a PNG via the chat menu, gallery shows the preview', async ({ page, request }) => {
+  test('attach a PNG via the ⋯ menu, gallery shows the preview', async ({ page, request }) => {
     await seedSession(request, 'e2e-chat-golden')
     await openClient(page, { sid: SID })
 
     const fileChooserPromise = page.waitForEvent('filechooser')
-    await page.locator('[data-testid=chat-menu-toggle]').click()
-    await page.getByRole('button', { name: 'ファイル添付' }).click()
+    await page.locator('[data-testid=more-menu-toggle]').click()
+    await page.locator('[data-testid=more-menu-file-attach]').click()
     const fileChooser = await fileChooserPromise
     await fileChooser.setFiles({
       name: 'tiny.png',

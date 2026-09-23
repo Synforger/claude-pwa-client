@@ -24,7 +24,6 @@ const TARGET_BY_TYPE: Record<SseEventType, RenderTarget> = {
   budget: 'status_bar',
   mode: 'status_bar',
   permission_mode: 'status_bar',
-  pr_link: 'status_bar',
   turn_duration: 'chat',
   stop_hook_summary: 'skip',
   away_summary: 'skip',

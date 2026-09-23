@@ -51,6 +51,9 @@ const config = {
       env: { CLAUDE_CONFIG_DIR: E2E_CLAUDE_DIR },
     },
   },
+  // Served by the test backend itself (= backend/routes/debug_e2e.py fixture_router),
+  // standing in for an extension that Tailscale Serve would mount in production.
+  extensions: [{ id: 'fixture', title: 'Fixture', icon: '🧪' }],
   claude_path: '/usr/bin/true',
   cors_allow_origins: ['*'],
 }

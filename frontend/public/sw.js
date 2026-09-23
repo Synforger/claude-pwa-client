@@ -14,7 +14,12 @@
 // キャッシュの index が差し替えで消えた chunk を踏んで白画面になる)。 bump = 新 SW install
 // (skipWaiting) → activate で旧 shell cache 全削除 → controllerchange で 1 回自動リロード
 // = 全 client がクリーンに最新 bundle へ移行する。
-const SHELL_CACHE = 'claude-pwa-shell-v17'
+// v18: iframe の中の画面 (= `/moonlight/` / `/ext/<id>/`) を `/` 単一キーへ保存していた汚染を一掃する。
+const SHELL_CACHE = 'claude-pwa-shell-v18'
+
+// iframe に嵌める別アプリの置き場 (= 画面共有 / 拡張)。 本体のアプリシェルではないので SW は
+// 一切介入しない (= 保存しない、 cache から返さない)。
+const EMBEDDED_PREFIXES = ['/moonlight/', '/ext/']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting())
@@ -46,14 +51,20 @@ self.addEventListener('activate', (event) => {
 //     保存。 失敗時 (= オフライン) のみ `/` cache にフォールバック (= 圏外でも起動可能)。
 //   - hashed assets (/assets/*) / manifest / アイコン : cache-first (= 内容不変、 hash で世代分離)。
 //   - API / SSE / WS / 非 GET : 一切 respondWith せず素通り (= ストリーム系を壊さない)。
+//   - iframe に嵌める別アプリ (= EMBEDDED_PREFIXES 配下と iframe の遷移) : 素通り。 iframe の遷移も
+//     `mode === 'navigate'` で来るので、 区別しないと別アプリの HTML が `/` に保存され、 圏外起動で
+//     本体の代わりにそれが出る。
 self.addEventListener('fetch', (event) => {
   const req = event.request
   if (req.method !== 'GET') return
   const url = new URL(req.url)
   if (url.origin !== self.location.origin) return
+  if (EMBEDDED_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))) return
 
   // HTML ナビゲーション = network-first (= 常に最新 index、 オフライン時のみ cache fallback)。
+  // 対象は top-level の遷移だけ (= iframe の遷移は本体の index ではない)。
   if (req.mode === 'navigate') {
+    if (req.destination === 'iframe') return
     event.respondWith((async () => {
       try {
         const fresh = await fetch(req)

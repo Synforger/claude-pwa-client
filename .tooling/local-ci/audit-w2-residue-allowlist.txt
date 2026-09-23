@@ -32,8 +32,10 @@ C:frontend/src/features/chat/MessageRenderer.css:64:.md-code-copy
 C:frontend/src/features/screenshare/MoonlightFrame.css:43:.moonlight-ctrl-right
 C:frontend/src/features/screenshare/MoonlightFrame.css:75:.moonlight-error
 C:frontend/src/features/session-drawer/SessionDrawer.css:80:.drawer-global-popup
-C:frontend/src/features/status-bar/StatusBar.css:82:.pr-chip-dropdown
 C:frontend/src/features/tasks/ActivityBar.css:80:.ab-todos-bar-fill
-# TopbarMoreMenu の dropdown popup: 親 .topbar-more-root が position:relative の anchor、
-# 意図した absolute positioning。 2026-07-02 ChatInput 側 ⋯ 移設で活性化。
-C:frontend/src/App.css:92:.topbar-more-popup
+# ⋯ メニューの dropdown popup: 親 .more-menu-root が position:relative の anchor、
+# 意図した absolute positioning (= 2026-09-23 に上部バーからステータスバーへ移設)。
+C:frontend/src/features/status-bar/StatusBar.css:102:.more-menu-popup
+# 拡張の枠の ⛶ ボタン: 直接の親 .extension-band が position:relative (= 全画面時は fixed) の anchor で、
+# 画面共有の .moonlight-ctrl-right と同じ意図した absolute positioning。
+C:frontend/src/features/extensions/ExtensionHost.css:45:.extension-ctrl-btn
