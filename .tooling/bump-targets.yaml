@@ -23,7 +23,7 @@
 # match elsewhere in the file cannot fire by accident.
 # =============================================================================
 
-current_version: "1.4.7"
+current_version: "1.4.8"
 
 targets:
   - file: pyproject.toml
