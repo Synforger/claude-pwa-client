@@ -86,6 +86,7 @@ import backend.jsonl.routes as jsonl_routes  # noqa: E402
 import backend.core.jsonl_watcher as jsonl_watcher  # noqa: E402
 import backend.terminal.pty_discover as pty_discover  # noqa: E402
 import backend.routes.chat as chat_routes  # noqa: E402
+import backend.routes.extensions as extensions_routes  # noqa: E402
 import backend.routes.files as files_routes  # noqa: E402
 import backend.routes.hooks as hooks_routes  # noqa: E402
 import backend.routes.subagents as subagents_routes  # noqa: E402
@@ -261,6 +262,7 @@ async def healthz() -> dict:
 
 
 app.include_router(chat_routes.router)
+app.include_router(extensions_routes.router)
 app.include_router(files_routes.router)
 app.include_router(hooks_routes.router)
 app.include_router(jsonl_routes.router)
@@ -277,6 +279,7 @@ from backend.routes import debug_e2e as debug_e2e_routes  # noqa: E402
 from backend.routes import debug_healthcheck as debug_healthcheck_routes  # noqa: E402
 app.include_router(debug_routes.router)
 app.include_router(debug_e2e_routes.router)
+app.include_router(debug_e2e_routes.fixture_router)
 app.include_router(debug_healthcheck_routes.router)
 
 

@@ -82,6 +82,20 @@ export interface GetAccountsResponseItem {
 
 export type GetAccountsResponse = GetAccountsResponseItem[]
 
+/** GET /extensions response[i] */
+export interface GetExtensionsResponseItem {
+  /** ^[a-z0-9][a-z0-9-]{0,31}$ */
+  id: string
+  /** ボタンと iframe の title (= 未指定なら id) */
+  title: string
+  /** 上部バーのボタン (= 未指定なら 🧩) */
+  icon: string
+  /** /ext/<id>/ (= id から導出、 config には書かない) */
+  path: string
+}
+
+export type GetExtensionsResponse = GetExtensionsResponseItem[]
+
 /** GET /file response */
 export interface GetFileResponse {
   path: string

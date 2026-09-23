@@ -59,7 +59,7 @@
 .dim { color: var(--text-dim); }
 
 /* ⚠ オフライン chip。 全 SSE / WS が落ちている時のみ出す (= F-45)。 1 本でも生きてれば
-   表示しない。 ステータスバーの右端に寄せる。 */
+   表示しない。 右端の塊 (= .statusbar-end) の先頭に並ぶ。 */
 .offline-chip {
   flex-shrink: 0;
   white-space: nowrap;
@@ -69,5 +69,60 @@
   font-weight: 600;
   background: rgba(220, 80, 80, 0.20);
   color: #f08080;
+}
+
+/* 右端の塊 (= オフライン表示 + ⋯ メニュー)。 左の表示が伸びても押し出されない。 */
+.statusbar-end {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.more-menu-root {
+  position: relative;
+  flex-shrink: 0;
+}
+.more-menu-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1;
+  padding: 1px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.more-menu-btn:hover {
+  background: var(--bg3);
+}
+/* 上部バーと拡張の帯 (= z-index 5) より上に開く。 */
+.more-menu-popup {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 200px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px;
+  z-index: 20;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.more-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 13px;
+  padding: 10px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.more-menu-item:hover {
+  background: var(--bg3);
 }

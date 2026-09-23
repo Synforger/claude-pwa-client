@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { pctClass, timeUntil, formatResetWeekdayTime } from '../../utils/format.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
 import { subscribe as subscribeSessions, getSnapshot as getSessionsSnapshot } from '../../state/sessions.js'
+import MoreMenu from './MoreMenu.jsx'
 import { useStatus } from './useStatus.js'
 import { useT } from '../../i18n/t.js'
 import './StatusBar.css'
@@ -11,7 +12,7 @@ import './StatusBar.css'
 // 18:00 JST 固定」 は誤りだったので撤回 (2026-05-09)。 動的値 (= header から取った
 // resets_at) が取れない時は label を出さない (= 嘘表示しない方針)。
 
-// 上部のステータス行: モデル名 / 5h / 7d / ctx 使用率 (= 表示専用)。
+// 上部のステータス行: モデル名 / 5h / 7d / ctx 使用率 (= 表示専用) と、 右端に ⋯ メニュー。
 // モデル名は長い (= 1M 等の context 表記が付く) と折り返すので CSS で省略する。
 // resets_at が 0 (未知) の間は生の pct を信用、既知かつ過去なら「窓切れ = 0%」扱い。
 // Model & Effort の変更入口は ⋯ メニューに一本化したので、 ここには pill を出さない
@@ -72,12 +73,11 @@ export default function StatusBar() {
   const status = useStatus(activeSession)
   const nowSec = useNowSec()
   const isOnline = useConnectionStatus()
-  const t = useT()
   if (!status) {
     return (
       <div className="statusbar">
         <span className="dim">---</span>
-        {!isOnline && <span className="offline-chip" title={t('statusbar.offline_title')}>{t('statusbar.offline')}</span>}
+        <StatusBarEnd isOnline={isOnline} />
       </div>
     )
   }
@@ -106,8 +106,20 @@ export default function StatusBar() {
         <span className="dim">{sevenDayResetLabel}</span>
       </span>
       <span className={pctClass(status.ctx_pct)}>ctx {Math.round(status.ctx_pct || 0)}%</span>
-      {!isOnline && <span className="offline-chip" title={t('statusbar.offline_title')}>{t('statusbar.offline')}</span>}
+      <StatusBarEnd isOnline={isOnline} />
     </div>
+  )
+}
+
+// ステータスバーの右端: オフライン表示と ⋯ メニュー。 セッションの有無に関わらず出す
+// (= ⋯ メニューはセッションがある時だけ自分で出る)。
+function StatusBarEnd({ isOnline }) {
+  const t = useT()
+  return (
+    <span className="statusbar-end">
+      {!isOnline && <span className="offline-chip" title={t('statusbar.offline_title')}>{t('statusbar.offline')}</span>}
+      <MoreMenu />
+    </span>
   )
 }
 

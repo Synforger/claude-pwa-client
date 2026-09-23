@@ -1,0 +1,67 @@
+/* ============================================================
+ * 拡張の枠 (= 別 repo のアプリを iframe で嵌める帯)
+ *
+ * 配置: topbar 直下の flex item。 高さは画面共有の帯と揃える (= 16:9)。 status bar / topbar /
+ * チャット入力欄は隠さない。 畳んだ時は高さ 0 にするだけで iframe は残す (= 音や接続を切らない)。
+ * ============================================================ */
+
+.extension-band {
+  position: relative;
+  width: 100%;
+  height: calc(100vw * 9 / 16);
+  background: #000;
+  flex-shrink: 0;
+  z-index: 5;
+}
+
+.extension-band.collapsed {
+  height: 0;
+  overflow: hidden;
+}
+
+.extension-band.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  width: 100vw;
+  height: 100vh;
+}
+
+.extension-iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+/* 開いていない拡張も動かし続けるため display: none は使わない (= 大きさだけ 0 にして隠す)。 */
+.extension-iframe.inactive,
+.extension-band.collapsed .extension-iframe {
+  position: absolute;
+  width: 0;
+  height: 0;
+  visibility: hidden;
+}
+
+.extension-ctrl-btn {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 6;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 0;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.extension-ctrl-btn:active {
+  background: rgba(0, 0, 0, 0.8);
+}

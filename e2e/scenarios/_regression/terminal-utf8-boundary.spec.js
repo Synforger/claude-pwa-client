@@ -35,8 +35,8 @@ test.describe('regression: terminal-utf8-boundary', () => {
 
     await openClient(page, { sid: SID })
 
-    // Switch view to terminal via the top bar ⋯ menu.
-    await page.locator('[data-testid=topbar-more-toggle]').click()
+    // Switch view to terminal via the status bar ⋯ menu.
+    await page.locator('[data-testid=more-menu-toggle]').click()
     await page.locator('[data-testid=view-toggle]').click()
 
     // Wait for the terminal pane to mount (= lazy chunk + xterm.js init).

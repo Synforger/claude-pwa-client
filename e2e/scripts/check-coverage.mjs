@@ -26,6 +26,7 @@ const REQUIRED = [
   'fork',
   'status-bar',
   'screenshare',
+  'extensions',
   'ios-native',
   'terminal',
 ]

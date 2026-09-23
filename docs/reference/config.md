@@ -101,6 +101,24 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   CORS は不要)。 Vite dev server からアクセスする場合は `["http://localhost:5173"]` 等を
   設定する
 
+### `extensions` (任意)
+
+上部バー右端から開く拡張 (= 別アプリを iframe で嵌める口) の一覧。 省略時は拡張なし。
+
+```json
+"extensions": [
+  { "id": "<id>", "title": "<name>", "icon": "🎛" }
+]
+```
+
+- `id`: 英小文字・数字・ハイフンの 32 文字まで (= 先頭はハイフン不可)。 拡張は `/ext/<id>/` に固定で
+  載り、 path は config に書かない
+- `title` (任意): 未指定なら `id`
+- `icon` (任意): 未指定なら 🧩
+
+不正な entry (= id の書式違反 / id の重複) はその 1 件だけ捨て、 起動ログに理由を出す。 拡張の
+載せ方は [../setup/extensions.md](../setup/extensions.md)。
+
 ## VAPID 鍵 (`backend/secrets/vapid.json`)
 
 Web Push 通知用の鍵ペア。 1 度だけ生成する:
