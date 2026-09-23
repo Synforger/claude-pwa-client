@@ -41,6 +41,14 @@ test.describe('golden: extensions', () => {
     await toggle()
     await expect(page.locator('[data-testid=chat-input]')).toBeVisible()
     await expect(born).toHaveText(bornAt)
+
+    // ✕ in the band's corner collapses it too, and the document still survives.
+    await page.locator('[data-testid=extension-close]').click()
+    await expect(page.locator('[data-testid=extension-band]')).toHaveClass(/collapsed/)
+    await expect(page.locator('[data-testid=extension-iframe-fixture]')).toHaveCount(1)
+    await toggle()
+    await expect(page.locator('[data-testid=chat-input]')).toBeVisible()
+    await expect(born).toHaveText(bornAt)
   })
 
   test('opening screenshare collapses the extension band', async ({ page, request }) => {

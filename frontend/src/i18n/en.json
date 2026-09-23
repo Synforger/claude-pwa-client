@@ -112,6 +112,7 @@
   "screenshare.exit_fullscreen": "Exit fullscreen",
   "screenshare.enter_fullscreen": "Fullscreen",
   "screenshare.enter_fullscreen_title": "Fullscreen (full window view)",
+  "extensions.close": "Close",
   "extensions.enter_fullscreen": "Fullscreen",
   "extensions.exit_fullscreen": "Exit fullscreen",
   "extensions.resize": "Resize the extension",
