@@ -38,7 +38,7 @@ A PWA client for operating [Claude Code](https://docs.claude.com/en/docs/claude-
 ### Optional extras
 
 - **Desktop screen sharing**: mirror the host desktop inside the PWA and control it by touch, via [Sunshine](https://github.com/LizardByte/Sunshine) + [moonlight-web-stream](https://github.com/MrCreativ3001/moonlight-web-stream). See [docs/setup/path-b-screenshare.md](docs/setup/path-b-screenshare.md)
-- **Extensions**: open your own web app from the top bar as a band above the chat, served from a separate process through Tailscale Serve. The chat input stays usable, and collapsing the band keeps the app running. See [docs/setup/extensions.md](docs/setup/extensions.md)
+- **Extensions**: open your own web app from the 🧩 in the top bar as a band above the chat, served from a separate process through Tailscale Serve. The chat input stays usable, and collapsing the band keeps the app running. See [docs/setup/extensions.md](docs/setup/extensions.md)
 
 ## Architecture
 

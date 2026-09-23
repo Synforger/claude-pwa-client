@@ -2,7 +2,7 @@
 //
 // backend の `GET /extensions` が config の宣言を返し、 各 path に HEAD を 1 回投げて 2xx の物だけを
 // 残す (= 画面共有の `useMoonlightAvailable` と同じ判定)。 宣言していても Tailscale Serve に載って
-// いない拡張はボタンを出さない。 上部バーと枠 (= ExtensionHost) が同じ結果を読むので、 取得は
+// いない拡張はボタンを出さない。 🧩 の一覧 (= ExtensionMenu) と枠 (= ExtensionHost) が同じ結果を読むので、 取得は
 // module 内で 1 回だけ行う (= PWA の再読込で取り直す)。
 import { useEffect, useState } from 'react'
 import { apiFetch } from '../../utils/api.js'
