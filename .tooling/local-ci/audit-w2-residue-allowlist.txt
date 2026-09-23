@@ -39,3 +39,5 @@ C:frontend/src/features/status-bar/StatusBar.css:102:.more-menu-popup
 # 拡張の枠の ⛶ ボタン: 直接の親 .extension-band が position:relative (= 全画面時は fixed) の anchor で、
 # 画面共有の .moonlight-ctrl-right と同じ意図した absolute positioning。
 C:frontend/src/features/extensions/ExtensionHost.css:45:.extension-ctrl-btn
+# 拡張の一覧の dropdown popup: 親 .ext-menu-root が position:relative の anchor、 意図した absolute positioning。
+C:frontend/src/features/extensions/ExtensionMenu.css:9:.ext-menu-popup
