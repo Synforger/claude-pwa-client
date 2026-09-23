@@ -1,14 +1,15 @@
 /* ============================================================
  * 拡張の枠 (= 別 repo のアプリを iframe で嵌める帯)
  *
- * 配置: topbar 直下の flex item。 高さは画面共有の帯と揃える (= 16:9)。 status bar / topbar /
+ * 配置: topbar 直下の flex item。 高さは画面の半分 (= 50dvh、 下にチャットと入力欄が残る)。
+ * 拡張の画面は 16:9 の映像ではないので、 画面共有の帯 (= 16:9) とは揃えない。 status bar / topbar /
  * チャット入力欄は隠さない。 畳んだ時は高さ 0 にするだけで iframe は残す (= 音や接続を切らない)。
  * ============================================================ */
 
 .extension-band {
   position: relative;
   width: 100%;
-  height: calc(100vw * 9 / 16);
+  height: 50dvh;
   background: #000;
   flex-shrink: 0;
   z-index: 5;
