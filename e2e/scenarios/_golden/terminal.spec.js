@@ -13,7 +13,7 @@ test.describe('golden: terminal', () => {
     await seedSession(request, 'e2e-chat-golden')
     await openClient(page, { sid: SID })
 
-    await page.locator('[data-testid=topbar-more-toggle]').click()
+    await page.locator('[data-testid=more-menu-toggle]').click()
     await page.locator('[data-testid=view-toggle]').click()
 
     const pane = page.locator('[data-testid=terminal-pane]')

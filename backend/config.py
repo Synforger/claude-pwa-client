@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -122,6 +123,54 @@ def _accounts() -> dict[str, Any]:
     }
 
 
+# --- 拡張 (= 別 repo のアプリを iframe で嵌める口) ---
+# 拡張の置き場は `/ext/<id>/` に固定する (= config に path を書かせない)。 id は URL の 1 段と
+# DOM の識別子にそのまま使うので、 英小文字・数字・ハイフンの 32 文字までに絞る。
+EXTENSION_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
+EXTENSION_DEFAULT_ICON = "🧩"
+
+
+def _scan_extensions() -> tuple[list[dict[str, str]], list[str]]:
+    """config.json の `extensions` を (= 採用した拡張, 捨てた理由) に分ける。
+
+    捨てるのは不正な 1 件だけで、 残りは生かす (= 1 件の書き損じで全拡張が消えない)。
+    理由の文面は起動時の warn にそのまま使う。
+    """
+    raw = get_config().get("extensions")
+    if raw is None:
+        return [], []
+    if not isinstance(raw, list):
+        return [], [f"config.extensions must be a list, got {type(raw).__name__}"]
+    accepted: list[dict[str, str]] = []
+    problems: list[str] = []
+    seen: set[str] = set()
+    for i, entry in enumerate(raw):
+        ext_id = entry.get("id") if isinstance(entry, dict) else None
+        if not isinstance(ext_id, str) or not EXTENSION_ID_RE.match(ext_id):
+            problems.append(
+                f"config.extensions[{i}] dropped: id must match {EXTENSION_ID_RE.pattern}"
+            )
+            continue
+        if ext_id in seen:
+            problems.append(f"config.extensions[{i}] dropped: duplicate id {ext_id!r}")
+            continue
+        seen.add(ext_id)
+        title = entry.get("title")
+        icon = entry.get("icon")
+        accepted.append({
+            "id": ext_id,
+            "title": title if isinstance(title, str) and title else ext_id,
+            "icon": icon if isinstance(icon, str) and icon else EXTENSION_DEFAULT_ICON,
+            "path": f"/ext/{ext_id}/",
+        })
+    return accepted, problems
+
+
+def extensions() -> list[dict[str, str]]:
+    """採用した拡張を config の順で返す (= path は id から導出済み)。"""
+    return _scan_extensions()[0]
+
+
 def validate_runtime_paths() -> None:
     """起動時 sanity check (= backend-F-67)。 主要 path / 設定の欠落を warn する。
 
@@ -149,6 +198,8 @@ def validate_runtime_paths() -> None:
         logger.warning(
             "runtime check: tmux_session_map_dir does not exist: %s", map_dir
         )
+    for problem in _scan_extensions()[1]:
+        logger.warning("runtime check: %s", problem)
 
 
 # --- 旧 module-level 定数の遅延配信 (PEP 562) ---

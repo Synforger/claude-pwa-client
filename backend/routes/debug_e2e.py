@@ -19,11 +19,15 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from backend.routes.debug import _ensure_localhost
 
 router = APIRouter(prefix="/debug")
+# 拡張の口の e2e 用 fixture (= 本番では Tailscale Serve が載せる `/ext/<id>/` を test backend が代わりに
+# 返す)。 `/debug` の外に置く必要があるので router を分けるが、 防御は同じ 3 段。
+fixture_router = APIRouter()
 
 
 def _ensure_e2e_enabled() -> None:
@@ -198,3 +202,22 @@ async def _agents_snapshot() -> dict[str, dict[str, Any]]:
     # reaching into backend.config internals.
     from backend.config import AGENTS  # noqa: PLC0415
     return AGENTS
+
+
+# 拡張の fixture。 読み込まれた時刻を画面に出すので、 scenario は「畳んで開き直しても同じ文書が
+# 生きている (= iframe が破棄されていない)」 をこの値の一致で確かめられる。
+_EXTENSION_FIXTURE_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Fixture extension</title></head>
+<body style="background:#000;color:#fff;margin:0">
+<p id="born"></p>
+<script>document.getElementById('born').textContent = String(performance.timeOrigin)</script>
+</body></html>
+"""
+
+
+@fixture_router.api_route("/ext/fixture/", methods=["GET", "HEAD"], include_in_schema=False)
+async def e2e_extension_fixture(request: Request) -> HTMLResponse:
+    """e2e の拡張 fixture (= 静的 HTML 1 枚)。 CPC_E2E=1 かつ loopback の時だけ返す。"""
+    _ensure_localhost(request)
+    _ensure_e2e_enabled()
+    return HTMLResponse(_EXTENSION_FIXTURE_HTML)

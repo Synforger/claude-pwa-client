@@ -1,7 +1,7 @@
 # HTTP endpoints schema (= front <-> back contract、 真値)
 #
 # scope:
-#   - 28 endpoint を全件列挙 (= interface-current.md § 1 起点)
+#   - 32 endpoint を全件列挙 (= interface-current.md § 1 起点)
 #   - method / path / request body or query / response / 認証 / 不変条件
 #
 # 認証 (= auth field):
@@ -196,6 +196,28 @@ endpoints:
       - "claude CLI 由来 (= ~/.claude/.credentials.json) を読み列挙"
       - "is_default が true になるのは高々 1 件 (= 0 件もあり得る)"
     implementation: backend/routes/accounts.py
+
+  - method: GET
+    path: /extensions
+    description: "拡張 (= 別 repo のアプリを iframe で嵌める口) の一覧"
+    response:
+      type: array
+      items:
+        type: object
+        properties:
+          id:    { type: string, description: "^[a-z0-9][a-z0-9-]{0,31}$" }
+          title: { type: string, description: "ボタンと iframe の title (= 未指定なら id)" }
+          icon:  { type: string, description: "上部バーのボタン (= 未指定なら 🧩)" }
+          path:  { type: string, description: "/ext/<id>/ (= id から導出、 config には書かない)" }
+        required: [id, title, icon, path]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "config.json の extensions キーから配信、 未設定なら空配列"
+      - "順序は config 定義順を保持"
+      - "不正な id / 重複 id の entry はその 1 件だけ捨てる (= 理由は起動時に warn)"
+      - "backend は拡張へ proxy しない (= 経路は Tailscale Serve、 到達判定は frontend の HEAD)"
+    implementation: backend/routes/extensions.py
 
   - method: GET
     path: /file

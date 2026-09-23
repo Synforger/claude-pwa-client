@@ -1,5 +1,5 @@
 // UI 局所 state (= state-trace.md § 5)。 overlay 11 個 + scroll 4 ref + keyboard 5 modifier +
-// viewModes + desktopOpen + planOpen + storageWarnDismissed。 localStorage 永続化対象は viewModes
+// viewModes + desktopOpen + extensionOpen + planOpen + storageWarnDismissed。 localStorage 永続化対象は viewModes
 // と unread 関連、 残りは ephemeral と同じく非永続。
 
 import { createStore } from './_store.js'
@@ -18,6 +18,7 @@ const INITIAL = {
     confirmStop: false,
     confirmDelete: null,
     desktopOpen: false,
+    extensionOpen: null,  // 開いている拡張の id (= null で全部畳む)
     planOpen: false,
     storageWarnDismissed: false,
   },
@@ -43,10 +44,20 @@ const store = createStore(INITIAL, { name: 'ui' })
 export const getSnapshot = () => store.getSnapshot()
 export const subscribe = (listener) => store.subscribe(listener)
 
+// チャットの上に帯で出る枠 (= 画面共有 / 拡張)。 同時に開くのは 1 つだけで、 1 つを開くと他は閉じる
+// (= 帯が縦に積み重なるとチャットが押し出される)。 閉じた値は各 key の初期値 (= false / null)。
+const BAND_OVERLAYS = ['desktopOpen', 'extensionOpen']
+
 export function setOverlay(key, value) {
   store.setState(prev => {
     if (prev.overlays[key] === value) return prev
-    return { ...prev, overlays: { ...prev.overlays, [key]: value } }
+    const overlays = { ...prev.overlays, [key]: value }
+    if (value && BAND_OVERLAYS.includes(key)) {
+      for (const other of BAND_OVERLAYS) {
+        if (other !== key) overlays[other] = INITIAL.overlays[other]
+      }
+    }
+    return { ...prev, overlays }
   })
 }
 

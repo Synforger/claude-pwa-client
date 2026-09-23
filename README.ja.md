@@ -46,6 +46,9 @@
   [moonlight-web-stream](https://github.com/MrCreativ3001/moonlight-web-stream) 経由でホスト機
   デスクトップを PWA 内に映してタッチ遠隔操作する。 詳細は
   [docs/setup/path-b-screenshare.md](docs/setup/path-b-screenshare.md)
+- **拡張**: 自作の Web アプリを上部バー右端から開き、 チャットの上に帯で出す。 アプリは別プロセスで
+  動かし、 Tailscale Serve 経由で載せる。 開いている間もチャット入力欄は使え、 畳んでもアプリは
+  動き続ける。 詳細は [docs/setup/extensions.md](docs/setup/extensions.md)
 
 ## アーキテクチャ
 
