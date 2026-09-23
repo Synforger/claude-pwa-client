@@ -19,9 +19,9 @@ claude-pwa-client は以下の OSS に依存している。 全 deps のライ�
 | Python | Apache-2.0 OR BSD-3-Clause | 1 |
 | Python | Apache-2.0; MIT | 1 |
 | Python | BSD-2-Clause | 1 |
-| Python | BSD-3-Clause | 15 |
+| Python | BSD-3-Clause | 17 |
 | Python | ISC | 1 |
-| Python | MIT | 45 |
+| Python | MIT | 46 |
 | Python | MIT OR Apache-2.0 | 1 |
 | Python | MPL-2.0 | 4 |
 | Python | PSF-2.0 | 2 |
@@ -56,9 +56,11 @@ claude-pwa-client は以下の OSS に依存している。 全 deps のライ�
 | h11 | MIT | https://github.com/python-hyper/h11 |
 | http_ece | MIT | https://github.com/martinthomson/encrypted-content-encoding |
 | httpcore | BSD-3-Clause | https://www.encode.io/httpcore/ |
+| httpcore2 | BSD-3-Clause | https://github.com/pydantic/httpx2 |
 | httptools | MIT | https://github.com/MagicStack/httptools |
 | httpx | BSD-3-Clause | https://github.com/encode/httpx |
 | httpx-sse | MIT | https://github.com/florimondmanca/httpx-sse |
+| httpx2 | BSD-3-Clause | https://github.com/pydantic/httpx2 |
 | idna | BSD-3-Clause | https://github.com/kjd/idna |
 | ifaddr | MIT | https://github.com/pydron/ifaddr |
 | iniconfig | MIT | https://github.com/pytest-dev/iniconfig |
@@ -105,6 +107,7 @@ claude-pwa-client は以下の OSS に依存している。 全 deps のライ�
 | sse-starlette | BSD-3-Clause | https://github.com/sysid/sse-starlette |
 | starlette | BSD-3-Clause | https://github.com/Kludex/starlette |
 | structlog | MIT OR Apache-2.0 | https://github.com/hynek/structlog/blob/main/CHANGELOG.md |
+| truststore | MIT | https://github.com/sethmlarson/truststore |
 | typing-inspection | MIT | https://github.com/pydantic/typing-inspection |
 | typing_extensions | PSF-2.0 | https://github.com/python/typing_extensions |
 | urllib3 | MIT | https://github.com/urllib3/urllib3/blob/main/CHANGES.rst |
