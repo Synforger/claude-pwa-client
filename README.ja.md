@@ -79,7 +79,7 @@
 
 本リポジトリは個人ホスト機を Tailscale tailnet 内に限定公開する前提で設計している。 インターネット公開を想定した認証 / 認可機構は持たない。 「tailnet 内に到達できる主体はホスト機にログインしているのと同等の権限を持つ」 という前提のもと、 以下の境界を最小限守る:
 
-- **`/file` (GET/PUT) は HOME 配下に制限 + 秘密ファイル deny list** (= `backend/routes/files.py::_DENY_RE`、 真値):
+- **`/file` (GET/PUT) と `/file/raw` (= 画像プレビュー) は HOME 配下に制限 + 秘密ファイル deny list** (= `backend/routes/files.py::_DENY_RE`、 真値)。 `/file/raw` が返すのは png / jpg / gif / webp だけで、 SVG は返さない:
   - SSH 関連: `~/.ssh/`、 ファイル名直 `authorized_keys` / `id_rsa` / `id_ed25519` / `id_ecdsa` / `id_dsa` / `known_hosts`
   - クラウド認証: `~/.aws/`、 `~/.gnupg/`、 `~/.docker/`、 `~/.kube/`、 `~/.config/gh/`、 `~/.netrc`
   - シェル init / 履歴: `~/.zshrc` / `~/.zshenv` / `~/.zprofile` / `~/.bashrc` / `~/.bash_profile` / `~/.profile` / `~/.zsh_history` / `~/.bash_history`

@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi.responses import FileResponse
 
 from backend.config import FILE_SIZE_LIMIT, HOME
 from backend.errors import raise_error
@@ -60,6 +61,39 @@ def get_file(path: str = Query(...)):
         logger.exception("failed to read file: %s", resolved)
         raise HTTPException(status_code=500, detail="Internal error")
     return {"path": str(resolved), "content": content}
+
+
+# 画像の生バイト (= プレビューの <img> 用)。 `/file` は中身を文字として読んで JSON で返すので、
+# 画像はここで返す。 対象は添付と同じ 4 形式だけで、 SVG は外す (= スクリプトを持てるので、 同じ
+# origin で直に開かれると script が走る)。 HOME 配下 / deny list の制限は `/file` と同じ。
+_IMAGE_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+# スマホのスクリーンショット (= 数 MB) は通し、 巨大な素材で backend が詰まらない上限。
+IMAGE_SIZE_LIMIT = 10 * 1024 * 1024
+
+
+@router.get("/file/raw")
+def get_file_raw(path: str = Query(...)):
+    resolved = _resolve_safe(path)
+    media_type = _IMAGE_MEDIA_TYPES.get(resolved.suffix.lower())
+    if media_type is None:
+        raise HTTPException(status_code=415, detail="Unsupported media type")
+    if not resolved.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    if not resolved.is_file():
+        raise HTTPException(status_code=400, detail="Not a file")
+    if resolved.stat().st_size > IMAGE_SIZE_LIMIT:
+        raise_error(413, "file_too_large", "画像が大きすぎます（上限 10MB）", limit="10MB")
+    return FileResponse(
+        resolved,
+        media_type=media_type,
+        headers={"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.put("/file")
