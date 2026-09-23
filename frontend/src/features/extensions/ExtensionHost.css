@@ -48,7 +48,6 @@
 .extension-ctrl-btn {
   position: absolute;
   top: 4px;
-  right: 6px;
   z-index: 6;
   width: 32px;
   height: 32px;
@@ -62,6 +61,15 @@
   justify-content: center;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* 右上に ✕ (= 畳む)、 その左に ⛶ (= 全画面)。 */
+.extension-ctrl-close {
+  right: 6px;
+}
+
+.extension-ctrl-full {
+  right: 44px;
 }
 
 .extension-ctrl-btn:active {
