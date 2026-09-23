@@ -19,7 +19,8 @@
 // v20: 拡張の帯の高さ変更 (= 50dvh) の bundle 差し替えに合わせて上げる。
 // v21: 拡張の帯の高さ変更 (= 40dvh) の bundle 差し替えに合わせて上げる。
 // v22: 拡張の帯の高さ変更 (= 30dvh) の bundle 差し替えに合わせて上げる。
-const SHELL_CACHE = 'claude-pwa-shell-v22'
+// v23: 拡張の帯をドラッグで高さ変更できるようにした bundle 差し替えに合わせて上げる。
+const SHELL_CACHE = 'claude-pwa-shell-v23'
 
 // iframe に嵌める別アプリの置き場 (= 画面共有 / 拡張)。 本体のアプリシェルではないので SW は
 // 一切介入しない (= 保存しない、 cache から返さない)。

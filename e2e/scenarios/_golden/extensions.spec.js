@@ -55,4 +55,39 @@ test.describe('golden: extensions', () => {
     await page.locator('[data-testid=screenshare-toggle]').click()
     await expect(page.locator('[data-testid=extension-band]')).toHaveClass(/collapsed/)
   })
+
+  test('dragging the bottom handle resizes the band and the height survives a reload', async ({ page, request }) => {
+    await seedSession(request, 'e2e-chat-golden')
+    await openClient(page, { sid: SID })
+    await page.evaluate(() => localStorage.removeItem('cpc.extensions.bandPct'))
+
+    const open = async () => {
+      await page.locator('[data-testid=extension-menu-toggle]').click()
+      await page.locator('[data-testid=extension-item-fixture]').click()
+    }
+    await open()
+    const band = page.locator('[data-testid=extension-band]')
+    const viewport = page.viewportSize()
+    const before = (await band.boundingBox()).height
+    // Default is 30% of the screen.
+    expect(Math.abs(before - viewport.height * 0.3)).toBeLessThan(4)
+
+    // Drag the handle down by 10% of the screen.
+    const handle = (await page.locator('[data-testid=extension-resize]').boundingBox())
+    const x = handle.x + handle.width / 2
+    const y = handle.y + handle.height / 2
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(x, y + viewport.height * 0.1, { steps: 5 })
+    await page.mouse.up()
+    const after = (await band.boundingBox()).height
+    expect(Math.abs(after - viewport.height * 0.4)).toBeLessThan(4)
+
+    // The height is kept per device.
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('[data-testid=chat-input]').waitFor({ state: 'visible' })
+    await open()
+    const reloaded = (await page.locator('[data-testid=extension-band]').boundingBox()).height
+    expect(Math.abs(reloaded - after)).toBeLessThan(4)
+  })
 })
