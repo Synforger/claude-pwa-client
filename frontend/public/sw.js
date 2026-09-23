@@ -17,7 +17,8 @@
 // v18: iframe の中の画面 (= `/moonlight/` / `/ext/<id>/`) を `/` 単一キーへ保存していた汚染を一掃する。
 // v19: v1.4.1 の bundle 差し替え (= 拡張の差し口を 🧩 1 個に集約) に合わせて上げる。
 // v20: 拡張の帯の高さ変更 (= 50dvh) の bundle 差し替えに合わせて上げる。
-const SHELL_CACHE = 'claude-pwa-shell-v20'
+// v21: 拡張の帯の高さ変更 (= 40dvh) の bundle 差し替えに合わせて上げる。
+const SHELL_CACHE = 'claude-pwa-shell-v21'
 
 // iframe に嵌める別アプリの置き場 (= 画面共有 / 拡張)。 本体のアプリシェルではないので SW は
 // 一切介入しない (= 保存しない、 cache から返さない)。
