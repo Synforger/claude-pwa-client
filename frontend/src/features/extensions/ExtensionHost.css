@@ -1,7 +1,8 @@
 /* ============================================================
  * 拡張の枠 (= 別 repo のアプリを iframe で嵌める帯)
  *
- * 配置: topbar 直下の flex item。 高さは画面の 30% (= 30dvh、 下にチャットと入力欄が残る)。
+ * 配置: topbar 直下の flex item。 高さは画面に対する % で、 下端の取っ手をドラッグして変える
+ * (= 既定 30%、 範囲と保存は bandHeight.js。 ここの 30dvh は JS が高さを渡す前の初期値)。
  * 拡張の画面は 16:9 の映像ではないので、 画面共有の帯 (= 16:9) とは揃えない。 status bar / topbar /
  * チャット入力欄は隠さない。 畳んだ時は高さ 0 にするだけで iframe は残す (= 音や接続を切らない)。
  * ============================================================ */
@@ -65,4 +66,32 @@
 
 .extension-ctrl-btn:active {
   background: rgba(0, 0, 0, 0.8);
+}
+
+/* 帯の下端の取っ手。 指で掴みやすいよう高さを取り、 見た目は中央の短い棒だけにする。 */
+.extension-resize {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 18px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: row-resize;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.extension-resize-grip {
+  width: 44px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+/* ドラッグ中は iframe に pointer を渡さない (= capture が外れた時の保険)。 */
+.extension-band.resizing .extension-iframe {
+  pointer-events: none;
 }
