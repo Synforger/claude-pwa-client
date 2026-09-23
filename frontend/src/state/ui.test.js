@@ -82,16 +82,16 @@ describe('state/ui — 更新セマンティクス', () => {
 describe('state/ui — 帯の枠 (= 画面共有 / 拡張) は同時に 1 つ', () => {
   it('拡張を開くと画面共有が閉じ、 画面共有を開くと拡張が畳まれる', () => {
     setOverlay('desktopOpen', true)
-    setOverlay('extensionOpen', 'reaper')
+    setOverlay('extensionOpen', 'notes')
     expect(getSnapshot().overlays.desktopOpen).toBe(false)
-    expect(getSnapshot().overlays.extensionOpen).toBe('reaper')
+    expect(getSnapshot().overlays.extensionOpen).toBe('notes')
     setOverlay('desktopOpen', true)
     expect(getSnapshot().overlays.desktopOpen).toBe(true)
     expect(getSnapshot().overlays.extensionOpen).toBe(null)
   })
 
   it('拡張どうしは切り替わり、 閉じる操作は他の帯に触らない', () => {
-    setOverlay('extensionOpen', 'reaper')
+    setOverlay('extensionOpen', 'notes')
     setOverlay('extensionOpen', 'budget')
     expect(getSnapshot().overlays.extensionOpen).toBe('budget')
     setOverlay('desktopOpen', false)

@@ -68,9 +68,9 @@ describe('sw.js fetch strategy', () => {
   it.each([
     ['/moonlight/', 'navigate', 'iframe'],
     ['/moonlight/stream.html', 'navigate', 'document'],
-    ['/ext/reaper/', 'navigate', 'iframe'],
-    ['/ext/reaper/', 'navigate', 'document'],
-    ['/ext/reaper/icon.svg', 'no-cors', 'image'],
+    ['/ext/notes/', 'navigate', 'iframe'],
+    ['/ext/notes/', 'navigate', 'document'],
+    ['/ext/notes/icon.svg', 'no-cors', 'image'],
     ['/moonlight/logo.png', 'no-cors', 'image'],
   ])('never intercepts embedded app %s (%s / %s)', async (pathname, mode, destination) => {
     const r = await dispatch(sw, { pathname, mode, destination })

@@ -103,7 +103,7 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 
 ### `extensions` (任意)
 
-上部バー右端から開く拡張 (= 別アプリを iframe で嵌める口) の一覧。 省略時は拡張なし。
+上部バー右端の 🧩 から開く拡張 (= 別アプリを iframe で嵌める口) の一覧。 省略時は拡張なし。
 
 ```json
 "extensions": [

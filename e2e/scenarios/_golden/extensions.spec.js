@@ -15,11 +15,17 @@ test.describe('golden: extensions', () => {
     await seedSession(request, 'e2e-chat-golden')
     await openClient(page, { sid: SID })
 
-    const toggle = page.locator('[data-testid=extension-toggle-fixture]')
-    await expect(toggle).toBeVisible({ timeout: 10_000 })
-    await expect(toggle).toHaveText('🧪')
+    // One 🧩 slot in the top bar; the extension is picked from its list.
+    const slot = page.locator('[data-testid=extension-menu-toggle]')
+    await expect(slot).toBeVisible({ timeout: 10_000 })
+    await expect(slot).toHaveText('🧩')
+    const toggle = async () => {
+      await slot.click()
+      await page.locator('[data-testid=extension-item-fixture]').click()
+    }
+    await expect(page.locator('[data-testid=extension-item-fixture]')).toHaveCount(0)
 
-    await toggle.click()
+    await toggle()
     const band = page.locator('[data-testid=extension-band]')
     await expect(band).toBeVisible()
     const born = page.frameLocator('[data-testid=extension-iframe-fixture]').locator('#born')
@@ -27,12 +33,12 @@ test.describe('golden: extensions', () => {
     const bornAt = await born.textContent()
 
     // Collapse: the band has no height, but the iframe document stays.
-    await toggle.click()
+    await toggle()
     await expect(page.locator('[data-testid=extension-band]')).toHaveClass(/collapsed/)
     await expect(page.locator('[data-testid=extension-iframe-fixture]')).toHaveCount(1)
 
     // The chat input stays usable while the extension is open.
-    await toggle.click()
+    await toggle()
     await expect(page.locator('[data-testid=chat-input]')).toBeVisible()
     await expect(born).toHaveText(bornAt)
   })
@@ -43,7 +49,8 @@ test.describe('golden: extensions', () => {
     await page.evaluate(() => localStorage.setItem('cpc_e2e_moonlight', '1'))
     await openClient(page, { sid: SID })
 
-    await page.locator('[data-testid=extension-toggle-fixture]').click()
+    await page.locator('[data-testid=extension-menu-toggle]').click()
+    await page.locator('[data-testid=extension-item-fixture]').click()
     await expect(page.locator('[data-testid=extension-band]')).not.toHaveClass(/collapsed/)
     await page.locator('[data-testid=screenshare-toggle]').click()
     await expect(page.locator('[data-testid=extension-band]')).toHaveClass(/collapsed/)

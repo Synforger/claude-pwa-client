@@ -23,6 +23,7 @@
   "topbar.screenshare_open": "画面共有を開く (Sunshine 経由、 ペア済前提)",
   "topbar.screenshare_close": "画面共有を閉じる",
   "topbar.screenshare_label": "画面共有",
+  "topbar.extensions": "拡張",
   "topbar.extension_open": "{title} を開く",
   "topbar.extension_close": "{title} を畳む",
   "topbar.menu": "メニュー",
