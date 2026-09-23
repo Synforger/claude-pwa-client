@@ -17,7 +17,7 @@ contracts/
 │   ├── _meta.json                  全 yaml の meta-schema (= kind dispatch oneOf)
 │   ├── sse-events.yaml             18 event 型の field + invariants + 発火 trigger
 │   ├── ws-channels.yaml            2 channel の direction + frame + lifecycle
-│   ├── http-endpoints.yaml         32 endpoint の method + path + req/res schema + 認証
+│   ├── http-endpoints.yaml         33 endpoint の method + path + req/res schema + 認証
 │   └── lifecycle.yaml              reconnect / bg→fg / kill 復帰の状態遷移
 ├── codegen/                        生成 script
 │   ├── gen-python.py               yaml → backend/_generated/{events,ws_channels,http_endpoints}.py (pydantic v2、 ADR-016)

@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { stampServiceWorker } from './build/stampServiceWorker.js'
 
 // Generate public/manifest.json from manifest.template.json by injecting
 // values from VITE_APP_* env vars. Runs once at config time so both `vite`
@@ -17,11 +18,26 @@ function generateManifest(env) {
   writeFileSync(resolve(root, 'manifest.json'), out)
 }
 
+// dist/sw.js の cache 名の置き場所を、 この build の bundle と sw.js の中身から決めた名前で埋める
+// (= 決め方は build/stampServiceWorker.js)。 public/ は vite が素通しで複写するので、 書き出し後に直す。
+function stampServiceWorkerPlugin() {
+  return {
+    name: 'stamp-service-worker',
+    apply: 'build',
+    writeBundle(options, bundle) {
+      const path = resolve(options.dir, 'sw.js')
+      const { id, source } = stampServiceWorker(readFileSync(path, 'utf-8'), Object.keys(bundle))
+      writeFileSync(path, source)
+      this.info(`sw.js shell cache: claude-pwa-shell-${id}`)
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, import.meta.dirname, '')
   generateManifest(env)
   return {
-    plugins: [react()],
+    plugins: [react(), stampServiceWorkerPlugin()],
     build: {
       // 初回 download を縮める chunk 分割。 react は安定で再利用可、
       // markdown 系は遅延 load 候補なので別 chunk に逃がして main を軽くする。

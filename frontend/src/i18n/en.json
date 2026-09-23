@@ -128,6 +128,7 @@
   "file_preview.edit": "Edit",
   "file_preview.loading": "Loading...",
   "file_preview.load_error": "Failed to load",
+  "file_preview.image_error": "Could not load the image (png / jpg / gif / webp up to 10 MB).",
   "file_preview.save_error": "Save failed: {detail}",
   "file_preview.overwrite_confirm": "Overwrite this file?\n{path}",
   "file_tree.load_error": "Load error ({detail})",
