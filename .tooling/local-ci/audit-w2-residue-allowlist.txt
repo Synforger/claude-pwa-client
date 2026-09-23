@@ -41,3 +41,5 @@ C:frontend/src/features/status-bar/StatusBar.css:102:.more-menu-popup
 C:frontend/src/features/extensions/ExtensionHost.css:45:.extension-ctrl-btn
 # 拡張の一覧の dropdown popup: 親 .ext-menu-root が position:relative の anchor、 意図した absolute positioning。
 C:frontend/src/features/extensions/ExtensionMenu.css:9:.ext-menu-popup
+# 拡張の帯の下端の取っ手: 親 .extension-band が position:relative の anchor、 意図した absolute positioning。
+C:frontend/src/features/extensions/ExtensionHost.css:72:.extension-resize

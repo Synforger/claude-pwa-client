@@ -114,6 +114,7 @@
   "screenshare.enter_fullscreen_title": "Fullscreen (full window view)",
   "extensions.enter_fullscreen": "Fullscreen",
   "extensions.exit_fullscreen": "Exit fullscreen",
+  "extensions.resize": "Resize the extension",
   "plan_approval.accept": "Approve (auto-accept edits)",
   "plan_approval.reject": "Reject (keep planning)",
   "plan_approval.no_content": "(no plan body)",

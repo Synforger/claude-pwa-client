@@ -114,6 +114,7 @@
   "screenshare.enter_fullscreen_title": "フルスクリーン (= 全画面表示)",
   "extensions.enter_fullscreen": "フルスクリーン",
   "extensions.exit_fullscreen": "フルスクリーン解除",
+  "extensions.resize": "拡張の高さを変える",
   "plan_approval.accept": "承認 (auto-accept edits)",
   "plan_approval.reject": "却下 (keep planning)",
   "plan_approval.no_content": "(plan 内容なし)",
