@@ -43,39 +43,84 @@ fi
 TARGETS_FILE=".tooling/bump-targets.yaml"
 [ -f "${TARGETS_FILE}" ] || TARGETS_FILE="_core/.tooling/bump-targets.yaml"
 
-# Pick an interpreter that actually has PyYAML. A bare `python3` resolves to
-# whatever is first on PATH, which on a machine with several toolchains is
-# often not the project environment — the release then fails at the bump step
-# with "PyYAML not installed" even though the project env has it.
-PY="python3"
-if ! "${PY}" -c "import yaml" >/dev/null 2>&1; then
-    if [ -x ".venv/bin/python" ] && .venv/bin/python -c "import yaml" >/dev/null 2>&1; then
-        PY=".venv/bin/python"
-    elif [ -n "${CONDA_EXE:-}" ] && [ -x "${CONDA_EXE}" ]; then
-        cand="$("${CONDA_EXE}" run -n "${CONDA_ENV:-pwa-client}" python -c 'import yaml, sys; print(sys.executable)' 2>/dev/null | tail -1)"
-        if [ -n "${cand}" ] && [ -x "${cand}" ]; then
-            PY="${cand}"
-        fi
-    fi
-fi
-
 # Python helper does parse + arithmetic + apply (keeping the bash side minimal).
-"${PY}" - "${TARGETS_FILE}" "${LEVEL}" "${DRY_RUN}" <<'PYEOF'
+python3 - "${TARGETS_FILE}" "${LEVEL}" "${DRY_RUN}" <<'PYEOF'
 import re
 import sys
 from pathlib import Path
 
-try:
-    import yaml
-except ModuleNotFoundError:
-    print("error: PyYAML not installed; run `pip install pyyaml` and retry", file=sys.stderr)
-    sys.exit(2)
+
+def _scalar(value):
+    """One value, with surrounding quotes or a trailing comment removed."""
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1]
+    return value.split(" #", 1)[0].rstrip()
+
+
+def read_targets(path):
+    """Read bump-targets.yaml without a YAML library.
+
+    The file is a fixed, small shape - current_version plus a list of files
+    with literal search/replace pairs - so it is read directly rather than
+    pulling in a dependency the rest of this tooling does not have. Anything
+    the reader does not recognise raises: dropping a target silently would
+    rewrite some files and leave others on the old version.
+    """
+    data = {"current_version": "", "targets": []}
+    entry = None
+    rep = None
+    in_targets = False
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip())
+        body = raw.strip()
+        if indent == 0:
+            if body.startswith("current_version:"):
+                data["current_version"] = _scalar(body.split(":", 1)[1])
+                in_targets = False
+            elif body.rstrip() == "targets:":
+                in_targets = True
+            else:
+                raise ValueError("unexpected top-level line: %r" % raw)
+            continue
+        if not in_targets:
+            raise ValueError("unexpected line outside targets: %r" % raw)
+        if body.startswith("- file:"):
+            entry = {"file": _scalar(body.split(":", 1)[1]), "replacements": []}
+            data["targets"].append(entry)
+            rep = None
+        elif body.rstrip() == "replacements:":
+            if entry is None:
+                raise ValueError("replacements before any file entry")
+        elif body.startswith("- search:"):
+            if entry is None:
+                raise ValueError("search before any file entry")
+            rep = {"search": _scalar(body.split(":", 1)[1])}
+            entry["replacements"].append(rep)
+        elif body.startswith("replace:"):
+            if rep is None:
+                raise ValueError("replace without a search")
+            rep["replace"] = _scalar(body.split(":", 1)[1])
+        else:
+            raise ValueError("unexpected line: %r" % raw)
+    for one in data["targets"]:
+        for pair in one["replacements"]:
+            if "replace" not in pair:
+                raise ValueError("%s: a search has no replace" % one["file"])
+    return data
+
 
 targets_path = Path(sys.argv[1])
 level = sys.argv[2]
 dry_run = sys.argv[3] in ("1", "true", "yes")
 
-data = yaml.safe_load(targets_path.read_text())
+try:
+    data = read_targets(targets_path)
+except (OSError, ValueError) as error:
+    print("error: cannot read %s: %s" % (targets_path.name, error), file=sys.stderr)
+    sys.exit(2)
 current = str(data.get("current_version") or "").strip()
 m = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", current)
 if not m:
@@ -141,16 +186,20 @@ for entry in data.get("targets") or []:
     total_edits += edits
 
 if not dry_run:
-    # Update current_version in the targets file itself. Naive line replacement
-    # (assumes 'current_version: "X.Y.Z"' on a single line).
+    # Update current_version in the targets file itself. Accepts both the
+    # quoted and unquoted YAML forms (init.py resets it unquoted) and fails
+    # loudly instead of pretending when nothing matched.
     targets_text = targets_path.read_text()
-    targets_text = re.sub(
-        r'^(current_version:\s*").*?(")',
+    targets_text, n = re.subn(
+        r'^(current_version:\s*"?)[0-9]+\.[0-9]+\.[0-9]+("?\s*)$',
         rf'\g<1>{new_version}\g<2>',
         targets_text,
         count=1,
         flags=re.MULTILINE,
     )
+    if n != 1:
+        print(f"error: could not rewrite current_version in {targets_path.name}", file=sys.stderr)
+        sys.exit(1)
     targets_path.write_text(targets_text)
     print(f"updated current_version in {targets_path.name} -> {new_version}")
 
