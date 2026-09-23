@@ -20,7 +20,7 @@ import {
 import { useT } from '../../i18n/t.js'
 import { useStatus } from '../status-bar/useStatus.js'
 import { useMoonlightAvailable } from '../screenshare/useMoonlightAvailable.js'
-import { useExtensions } from '../extensions/useExtensions.js'
+import ExtensionMenu from '../extensions/ExtensionMenu.jsx'
 
 export default function Topbar() {
   const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
@@ -45,7 +45,6 @@ export default function Topbar() {
   // ui.overlays.planOpen を立てる。 PlanApprovalBubble 本体の render + auto-close は ChatPanel が担う。
   const status = useStatus(activeSession)
   const moonlightAvailable = useMoonlightAvailable()
-  const extensions = useExtensions()
 
   return (
     <header className="topbar">
@@ -66,7 +65,7 @@ export default function Topbar() {
         </button>
       )}
       {/* topbar 右側のアイコン群。 並びは左→右で ⭐ お気に入り → 📋 タスク →
-          🤖 サブエージェント → (📑 plan 承認、 条件付き) → 🖥 モニター → 拡張 (= config 順)。 */}
+          🤖 サブエージェント → (📑 plan 承認、 条件付き) → 🖥 モニター → 🧩 拡張。 */}
       {activeViewMode === 'chat' && activeSid && (
         <button
           className="topbar-icon-btn"
@@ -125,24 +124,9 @@ export default function Topbar() {
           🖥
         </button>
       )}
-      {/* 拡張: 届く物だけ (= useExtensions が HEAD で判定済み)。 開くとチャット上の帯に出て、
-          もう一度押すと畳む (= iframe は残る、 ExtensionHost 参照)。 右端に置く (= ⋯ メニューは
-          ステータスバーの右端)。 */}
-      {extensions.map((ext) => {
-        const open = ui.overlays.extensionOpen === ext.id
-        return (
-          <button
-            key={ext.id}
-            className={`screen-toggle ${open ? 'active' : ''}`}
-            onClick={() => setOverlay('extensionOpen', open ? null : ext.id)}
-            aria-label={ext.title}
-            title={open ? t('topbar.extension_close', { title: ext.title }) : t('topbar.extension_open', { title: ext.title })}
-            data-testid={`extension-toggle-${ext.id}`}
-          >
-            {ext.icon}
-          </button>
-        )
-      })}
+      {/* 拡張の差し口: 🧩 1 個で、 押すと届く拡張の一覧 (= ExtensionMenu)。 右端に置く
+          (= ⋯ メニューはステータスバーの右端)。 */}
+      <ExtensionMenu />
     </header>
   )
 }

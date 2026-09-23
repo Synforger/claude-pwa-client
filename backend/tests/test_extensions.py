@@ -33,11 +33,11 @@ def test_empty_list_means_empty(tmp_path, monkeypatch):
 
 def test_valid_entries_keep_config_order_and_derive_path(tmp_path, monkeypatch):
     _write_config(tmp_path, monkeypatch, {"extensions": [
-        {"id": "reaper", "title": "REAPER", "icon": "🎚"},
+        {"id": "notes", "title": "Notes", "icon": "📝"},
         {"id": "budget-2"},
     ]})
     assert list_extensions() == [
-        {"id": "reaper", "title": "REAPER", "icon": "🎚", "path": "/ext/reaper/"},
+        {"id": "notes", "title": "Notes", "icon": "📝", "path": "/ext/notes/"},
         {"id": "budget-2", "title": "budget-2", "icon": "🧩", "path": "/ext/budget-2/"},
     ]
 
@@ -45,12 +45,12 @@ def test_valid_entries_keep_config_order_and_derive_path(tmp_path, monkeypatch):
 def test_invalid_entries_are_dropped_one_by_one(tmp_path, monkeypatch):
     """1 件の書き損じで他の拡張が消えない。 path を config に書いても無視される。"""
     _write_config(tmp_path, monkeypatch, {"extensions": [
-        {"id": "Reaper"},              # 大文字
+        {"id": "Notes"},              # 大文字
         {"id": "../escape"},           # path を抜ける
         {"id": "-leading"},            # 先頭ハイフン
         {"id": "a" * 33},              # 33 文字
         {"title": "no id"},            # id 無し
-        "reaper",                      # dict でない
+        "notes",                       # dict でない
         {"id": "ok", "path": "/elsewhere/"},
         {"id": "ok", "title": "dup"},  # 重複
     ]})
@@ -60,7 +60,7 @@ def test_invalid_entries_are_dropped_one_by_one(tmp_path, monkeypatch):
 
 
 def test_non_list_value_is_ignored(tmp_path, monkeypatch):
-    _write_config(tmp_path, monkeypatch, {"extensions": {"id": "reaper"}})
+    _write_config(tmp_path, monkeypatch, {"extensions": {"id": "notes"}})
     assert list_extensions() == []
 
 
@@ -78,7 +78,7 @@ def test_runtime_check_warns_each_dropped_entry(tmp_path, monkeypatch, caplog):
 
 
 def test_response_matches_the_contract(tmp_path, monkeypatch):
-    _write_config(tmp_path, monkeypatch, {"extensions": [{"id": "reaper", "title": "REAPER", "icon": "🎚"}]})
+    _write_config(tmp_path, monkeypatch, {"extensions": [{"id": "notes", "title": "Notes", "icon": "📝"}]})
     for item in list_extensions():
         http.GetExtensionsResponseItem.model_validate(item)
 
@@ -87,7 +87,7 @@ def test_route_is_served_by_the_app(tmp_path, monkeypatch):
     """app に router が載っていて、 SPA の静的配信より先に当たる (= "/" mount に食われない)。"""
     from fastapi.testclient import TestClient  # noqa: PLC0415
     from backend.main import app  # noqa: PLC0415
-    _write_config(tmp_path, monkeypatch, {"extensions": [{"id": "reaper"}]})
+    _write_config(tmp_path, monkeypatch, {"extensions": [{"id": "notes"}]})
     res = TestClient(app).get("/extensions")
     assert res.status_code == 200
-    assert res.json() == [{"id": "reaper", "title": "reaper", "icon": "🧩", "path": "/ext/reaper/"}]
+    assert res.json() == [{"id": "notes", "title": "notes", "icon": "🧩", "path": "/ext/notes/"}]

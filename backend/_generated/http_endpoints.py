@@ -88,8 +88,8 @@ class GetExtensionsResponseItem(BaseModel):
     """GET /extensions response[i]"""
     model_config = ConfigDict(extra="forbid")
     id: str  # ^[a-z0-9][a-z0-9-]{0,31}$
-    title: str  # ボタンと iframe の title (= 未指定なら id)
-    icon: str  # 上部バーのボタン (= 未指定なら 🧩)
+    title: str  # 一覧の名前と iframe の title (= 未指定なら id)
+    icon: str  # 🧩 の一覧で名前の前に出す文字 (= 未指定なら 🧩)
     path: str  # /ext/<id>/ (= id から導出、 config には書かない)
 
 

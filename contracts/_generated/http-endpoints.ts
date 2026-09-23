@@ -86,9 +86,9 @@ export type GetAccountsResponse = GetAccountsResponseItem[]
 export interface GetExtensionsResponseItem {
   /** ^[a-z0-9][a-z0-9-]{0,31}$ */
   id: string
-  /** ボタンと iframe の title (= 未指定なら id) */
+  /** 一覧の名前と iframe の title (= 未指定なら id) */
   title: string
-  /** 上部バーのボタン (= 未指定なら 🧩) */
+  /** 🧩 の一覧で名前の前に出す文字 (= 未指定なら 🧩) */
   icon: string
   /** /ext/<id>/ (= id から導出、 config には書かない) */
   path: string

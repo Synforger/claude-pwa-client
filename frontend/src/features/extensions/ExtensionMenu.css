@@ -1,0 +1,49 @@
+/* 拡張の差し口 (= 上部バーの 🧩) と、 押すと開く拡張の一覧。 */
+
+.ext-menu-root {
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* 帯 (= z-index 5) より上に開く。 */
+.ext-menu-popup {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 180px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px;
+  z-index: 20;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+.ext-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 13px;
+  padding: 10px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ext-menu-item:hover {
+  background: var(--bg3);
+}
+
+/* 今開いている拡張 (= もう一度選ぶと畳む)。 */
+.ext-menu-item.active {
+  color: #4abf8a;
+}
+
+.ext-menu-icon {
+  width: 1.4em;
+  text-align: center;
+}
