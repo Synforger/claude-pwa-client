@@ -11,7 +11,7 @@ import { drainPerfSamples, readPerfContext } from './perfProbe.js'
 //
 // 読み方: stalls が常時 2 桁 / 分なら main thread が恒常的に詰まっている (= 発熱と直結)。
 // streaming markdown 間引き (= useThrottledStreamingText) の前後比較にもこの数値を使う。
-export const CLIENT_TAG = (() => {
+const CLIENT_TAG = (() => {
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
   const device = /iPhone/.test(ua) ? 'iphone' : /iPad/.test(ua) ? 'ipad' : /Mac/.test(ua) ? 'mac' : 'other'
   const standalone = typeof window !== 'undefined' && window.matchMedia?.('(display-mode: standalone)')?.matches
