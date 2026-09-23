@@ -45,8 +45,10 @@ test.describe('regression: stick to bottom', () => {
     await page.waitForTimeout(1500)
     expect(await distanceFromBottom(page)).toBeLessThanOrEqual(30)
 
-    // Read older messages, then come back with ↓.
-    await page.locator('.messages').evaluate((el) => { el.scrollTop = el.scrollHeight / 3 })
+    // Read older messages, then come back with ↓. Scroll without the CSS smooth
+    // animation, the way a finger moves it (an assignment would animate upward and
+    // keep moving after ↓ jumps down).
+    await page.locator('.messages').evaluate((el) => { el.scrollTo({ top: el.scrollHeight / 3, behavior: 'instant' }) })
     await expect(page.locator('.scroll-btn')).toBeVisible()
     await page.locator('.scroll-btn').click()
     await page.waitForTimeout(1000)
