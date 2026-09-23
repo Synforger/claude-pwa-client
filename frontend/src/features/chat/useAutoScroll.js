@@ -5,12 +5,11 @@ import {
   setScroll,
 } from '../../state/ui.js'
 import { nextStuck } from './stickToBottom.js'
-import { SETTLE_CHECK_MS, reportScroll } from './scrollProbe.js'
 
 // 最下端へ一瞬で飛ぶ。 `.messages` は CSS で scroll-behavior: smooth なので、 scrollTop への代入は
 // アニメーションになる。 アニメーションの目標は開始時点の最下端に固定され、 途中で中身が伸びると
 // 手前で止まり、 送り直すと iOS Safari は途中で打ち切ったり少し戻ったりする (= 2026-09-23 の実機
-// 記録で iPhone だけ 100-1,500px 手前に止まっていた)。 自前の追従は behavior: 'instant' で飛ぶ
+// 計測で iPhone だけ 100-1,500px 手前に止まっていた)。 自前の追従は behavior: 'instant' で飛ぶ
 // (= 指のスクロールには影響しない)。
 function jumpToBottom(el) {
   if (typeof el.scrollTo === 'function') {
@@ -65,7 +64,6 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
   const scrollerDomRef = useRef(null)
   const msgLengthRef = useRef({})
   const lastTopRef = useRef(0)
-  const settleTimerRef = useRef(null)
   const sid = activeSession?.id
 
   // 同期: 最下端 (= 最新が見える状態) に移動
@@ -83,7 +81,7 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
   // (= F-09 統合)。 isAtBottomRef は guard 中 true 維持。
   // 自前の scroll は常に下向き (= scrollTop を増やす) なので、 張り付き判定を誤らせない
   // (= 旧実装の「自前 scroll 直後 200ms は onScroll を無視する」 猶予は不要になった)。
-  const scrollToBottom = useCallback((reason = 'button') => {
+  const scrollToBottom = useCallback(() => {
     const el = scrollerDomRef.current
     if (!el) return
     isAtBottomRef.current = true
@@ -99,16 +97,10 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
         lastTopRef.current = e.scrollTop
       }
     })
-    // 【一時計測】 遅れた伸びが収まった頃に、 本当に最下端に居るかを記録する。
-    clearTimeout(settleTimerRef.current)
-    settleTimerRef.current = setTimeout(() => {
-      const e = scrollerDomRef.current
-      if (e) reportScroll('settle', e, { reason, stuck: isAtBottomRef.current })
-    }, SETTLE_CHECK_MS)
   }, [setHasNew, setShowScrollBtn])
 
   // 起動 / タブ切替: paint 前に底へ flush (= 前 session の scroll 残留防止)。
-  // scrollToBottom 経由 (= 自前 rAF retry + 【一時計測】 の settle 記録) で行う。
+  // scrollToBottom 経由 (= 自前 rAF retry) で行う。
   // 遅延展開で距離が開いても張り付きは外れない (= stickToBottom.js) ので、 以後は
   // ResizeObserver が最下端へ送り続ける。
   useLayoutEffect(() => {
@@ -120,7 +112,7 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
     setShowScrollBtn(false)
     setHasNew(false)
     msgLengthRef.current[sid] = (messages[sid] || []).length
-    scrollToBottom('open')
+    scrollToBottom()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sid, viewMode])
 
@@ -165,7 +157,7 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
       if (document.visibilityState === 'hidden') {
         wasAtBottom = isAtBottomRef.current
       } else if (document.visibilityState === 'visible') {
-        if (wasAtBottom && (!viewMode || viewMode === 'chat')) scrollToBottom('visible')
+        if (wasAtBottom && (!viewMode || viewMode === 'chat')) scrollToBottom()
       }
     }
     document.addEventListener('visibilitychange', onVis)
@@ -217,8 +209,6 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
       scrollHeight: el.scrollHeight,
       clientHeight: el.clientHeight,
     })
-    // 【一時計測】 張り付きが外れた瞬間 (= 本来はユーザの上スクロールだけ) を記録する。
-    if (isAtBottomRef.current && !stuck) reportScroll('escape', el, { prevTop: Math.round(lastTopRef.current) })
     lastTopRef.current = top
     isAtBottomRef.current = stuck
     if (stuck) setHasNew(false)
