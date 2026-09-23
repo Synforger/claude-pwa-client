@@ -67,7 +67,7 @@ For the detailed layer structure and the SSE / JSONL / tmux responsibilities, se
 
 This repository is designed for a personal host machine exposed only inside a Tailscale tailnet. It has no authentication / authorization layer for public-internet deployment. Under the assumption that "anyone who can reach the tailnet has the equivalent of a login on the host", it enforces a minimal set of boundaries:
 
-- **`/file` (GET/PUT) is restricted to HOME plus a secrets deny list** (truth: `backend/routes/files.py::_DENY_RE`):
+- **`/file` (GET/PUT) and `/file/raw` (image preview) are restricted to HOME plus a secrets deny list** (truth: `backend/routes/files.py::_DENY_RE`); `/file/raw` serves only png / jpg / gif / webp, never SVG:
   - SSH: `~/.ssh/`, and the bare filenames `authorized_keys` / `id_rsa` / `id_ed25519` / `id_ecdsa` / `id_dsa` / `known_hosts`
   - Cloud credentials: `~/.aws/`, `~/.gnupg/`, `~/.docker/`, `~/.kube/`, `~/.config/gh/`, `~/.netrc`
   - Shell init / history: `~/.zshrc` / `~/.zshenv` / `~/.zprofile` / `~/.bashrc` / `~/.bash_profile` / `~/.profile` / `~/.zsh_history` / `~/.bash_history`

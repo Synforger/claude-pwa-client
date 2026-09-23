@@ -1,7 +1,7 @@
 # HTTP endpoints schema (= front <-> back contract、 真値)
 #
 # scope:
-#   - 32 endpoint を全件列挙 (= interface-current.md § 1 起点)
+#   - 33 endpoint を全件列挙 (= interface-current.md § 1 起点)
 #   - method / path / request body or query / response / 認証 / 不変条件
 #
 # 認証 (= auth field):
@@ -236,6 +236,20 @@ endpoints:
       - "HOME 配下外は 403"
       - "deny list (= .ssh / .aws / secrets) 該当は 403"
       - "binary file は 415 で reject"
+    implementation: backend/routes/files.py
+
+  - method: GET
+    path: /file/raw
+    description: "HOME 配下の画像の生バイト (= ファイルプレビューの <img> 用)"
+    request_query:
+      path: { type: string, description: "絶対 path or HOME 相対" }
+    response_kind: raw
+    auth: tailnet
+    invariants:
+      - "png / jpg / jpeg / gif / webp のみ (= 拡張子で判定、 SVG は script を持てるので 415)"
+      - "HOME 配下外 / deny list 該当は 403 (= /file と同じ境界)"
+      - "10MB 超は 413"
+      - "Content-Type は拡張子の画像型、 X-Content-Type-Options: nosniff"
     implementation: backend/routes/files.py
 
   - method: PUT

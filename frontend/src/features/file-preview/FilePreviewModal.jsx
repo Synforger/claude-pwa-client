@@ -16,7 +16,7 @@ import css from 'react-syntax-highlighter/dist/esm/languages/prism/css'
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
 import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
 import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown'
-import { apiFetch } from '../../utils/api.js'
+import { apiFetch, apiUrl } from '../../utils/api.js'
 import { isFav, toggleFav, subscribeFavs } from '../file-tree/favorites.js'
 import { useEscape } from '../../hooks/useEscape.js'
 import { useT } from '../../i18n/t.js'
@@ -199,6 +199,9 @@ function detectLang(path) {
   return EXT_TO_LANG[ext] || null
 }
 
+// 画像として表示する拡張子 (= backend `/file/raw` が返す形式と同じ。 SVG は script を持てるので除外)。
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp'])
+
 const TEXT_EXTENSIONS = new Set([
   ...Object.keys(EXT_TO_LANG),
   'txt', 'log', 'csv', 'tsv', 'lock', 'list', 'text',
@@ -230,6 +233,14 @@ function FilePreviewModalBody({ path, onClose }) {
 
   const base = (path.split('/').pop() || '').toLowerCase()
   const ext = (base.includes('.') ? base.split('.').pop() : '').toLowerCase()
+  const isImage = IMAGE_EXTENSIONS.has(ext)
+  const imageSrc = isImage ? apiUrl(`/file/raw?path=${encodeURIComponent(path)}`) : null
+  // 画像の読み込み結果は src ごとに覚える (= 開いた時の reset と onLoad の順番に左右されない。
+  // キャッシュ済みの画像は effect より先に onLoad が来ることがある)。
+  const [imageLoadedSrc, setImageLoadedSrc] = useState(null)
+  const [imageFailedSrc, setImageFailedSrc] = useState(null)
+  const imageLoaded = isImage && imageLoadedSrc === imageSrc
+  const imageFailed = isImage && imageFailedSrc === imageSrc
   const isMarkdown = /\.(md|mdx|markdown)$/i.test(path)
   const lang = detectLang(path)
   const isEditable = TEXT_EXTENSIONS.has(ext) || BASENAME_TO_LANG[base] !== undefined || lang !== null
@@ -266,6 +277,11 @@ function FilePreviewModalBody({ path, onClose }) {
     setLoading(true)
     setError(null)
     setContent(null)
+    // 画像は文字として読まず、 <img> が `/file/raw` から直接読む (= 読み込み状態は src ごとの state)。
+    if (isImage) {
+      setLoading(false)
+      return () => controller.abort()
+    }
     apiFetch(`/file?path=${encodeURIComponent(path)}`, { signal: controller.signal })
       .then(r => {
         if (r.status === 413) return r.json().then(d => Promise.reject(translateHttpErrorDetail(d.detail, t('file_preview.too_large'))))
@@ -351,9 +367,20 @@ function FilePreviewModalBody({ path, onClose }) {
           </div>
         </div>
         <div className="modal-body">
-          {loading && <span className="dim">{t('file_preview.loading')}</span>}
+          {(loading || (isImage && !imageLoaded && !imageFailed)) && <span className="dim">{t('file_preview.loading')}</span>}
           {error && <span className="error">{error}</span>}
+          {imageFailed && <span className="error">{t('file_preview.image_error')}</span>}
           {saveError && <span className="error">{t('file_preview.save_error', { detail: saveError })}</span>}
+          {isImage && !imageFailed && (
+            <img
+              className="file-image"
+              src={imageSrc}
+              alt={base}
+              onLoad={() => setImageLoadedSrc(imageSrc)}
+              onError={() => setImageFailedSrc(imageSrc)}
+              data-testid="file-preview-image"
+            />
+          )}
           {editMode ? (
             <textarea
               className="file-editor"

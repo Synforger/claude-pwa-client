@@ -175,3 +175,51 @@ def test_task_output_follows_symlink_to_subagent_jsonl(tmp_path, monkeypatch):
     res = client.get("/task-output", params={"path": str(symlink_src)})
     assert res.status_code == 200
     assert "hi" in res.json()["content"]
+
+
+# --- /file/raw (= 画像プレビュー) ---
+
+_PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+
+
+def _raw_client(tmp_path, monkeypatch):
+    """HOME を tmp_path に差し替えた app の client (= HOME 配下判定を test 用の場所で行う)。"""
+    from fastapi.testclient import TestClient  # noqa: PLC0415
+    import backend.routes.files as files_mod  # noqa: PLC0415
+    from backend.main import app  # noqa: PLC0415
+    monkeypatch.setattr(files_mod, "HOME", tmp_path)
+    return TestClient(app), files_mod
+
+
+def test_file_raw_returns_image_bytes_with_its_type(tmp_path, monkeypatch):
+    client, _ = _raw_client(tmp_path, monkeypatch)
+    (tmp_path / "shot.PNG").write_bytes(_PNG_BYTES)
+    res = client.get("/file/raw", params={"path": str(tmp_path / "shot.PNG")})
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "image/png"
+    assert res.headers["x-content-type-options"] == "nosniff"
+    assert res.content == _PNG_BYTES
+
+
+@pytest.mark.parametrize("name", ["logo.svg", "notes.txt", "noext"])
+def test_file_raw_refuses_non_images_and_svg(tmp_path, monkeypatch, name):
+    client, _ = _raw_client(tmp_path, monkeypatch)
+    (tmp_path / name).write_text("<svg onload='alert(1)'/>")
+    res = client.get("/file/raw", params={"path": str(tmp_path / name)})
+    assert res.status_code == 415
+
+
+def test_file_raw_keeps_the_home_and_deny_list_boundaries(tmp_path, monkeypatch):
+    client, _ = _raw_client(tmp_path, monkeypatch)
+    (tmp_path / ".ssh").mkdir()
+    (tmp_path / ".ssh" / "key.png").write_bytes(_PNG_BYTES)
+    assert client.get("/file/raw", params={"path": str(tmp_path / ".ssh" / "key.png")}).status_code == 403
+    assert client.get("/file/raw", params={"path": "/etc/hosts.png"}).status_code == 403
+
+
+def test_file_raw_missing_and_too_large(tmp_path, monkeypatch):
+    client, files_mod = _raw_client(tmp_path, monkeypatch)
+    assert client.get("/file/raw", params={"path": str(tmp_path / "gone.png")}).status_code == 404
+    monkeypatch.setattr(files_mod, "IMAGE_SIZE_LIMIT", 8)
+    (tmp_path / "big.png").write_bytes(_PNG_BYTES)
+    assert client.get("/file/raw", params={"path": str(tmp_path / "big.png")}).status_code == 413
