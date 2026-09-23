@@ -1,5 +1,5 @@
 import { useRef, useState, useSyncExternalStore } from 'react'
-import { subscribe as subscribeUi, getSnapshot as getUiSnapshot } from '../../state/ui.js'
+import { subscribe as subscribeUi, getSnapshot as getUiSnapshot, setOverlay } from '../../state/ui.js'
 import { useT } from '../../i18n/t.js'
 import { useExtensions } from './useExtensions.js'
 import { loadBandPct, pctAfterDrag, saveBandPct } from './bandHeight.js'
@@ -68,12 +68,25 @@ export default function ExtensionHost() {
       ))}
       {open && (
         <button
-          className="extension-ctrl-btn"
+          className="extension-ctrl-btn extension-ctrl-full"
           onClick={() => setFullId(full ? null : open.id)}
           aria-label={full ? t('extensions.exit_fullscreen') : t('extensions.enter_fullscreen')}
           title={full ? t('extensions.exit_fullscreen') : t('extensions.enter_fullscreen')}
         >
           ⛶
+        </button>
+      )}
+      {/* ✕ = 帯を畳む (= 🧩 の一覧でもう一度選ぶのと同じ、 iframe は残るので音は止まらない)。
+          全画面の時は全画面も解く。 */}
+      {open && (
+        <button
+          className="extension-ctrl-btn extension-ctrl-close"
+          onClick={() => { setFullId(null); setOverlay('extensionOpen', null) }}
+          aria-label={t('extensions.close')}
+          title={t('extensions.close')}
+          data-testid="extension-close"
+        >
+          ✕
         </button>
       )}
       {open && !full && (
