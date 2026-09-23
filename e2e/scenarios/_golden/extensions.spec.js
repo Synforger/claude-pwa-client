@@ -15,15 +15,12 @@ test.describe('golden: extensions', () => {
     await seedSession(request, 'e2e-chat-golden')
     await openClient(page, { sid: SID })
 
-    // One 🧩 slot in the top bar; the extension is picked from its list.
+    // One 🧩 slot in the top bar; a tap opens / collapses the last used
+    // extension (the only one here), without going through the list.
     const slot = page.locator('[data-testid=extension-menu-toggle]')
     await expect(slot).toBeVisible({ timeout: 10_000 })
     await expect(slot).toHaveText('🧩')
-    const toggle = async () => {
-      await slot.click()
-      await page.locator('[data-testid=extension-item-fixture]').click()
-    }
-    await expect(page.locator('[data-testid=extension-item-fixture]')).toHaveCount(0)
+    const toggle = async () => { await slot.click() }
 
     await toggle()
     const band = page.locator('[data-testid=extension-band]')
@@ -58,7 +55,6 @@ test.describe('golden: extensions', () => {
     await openClient(page, { sid: SID })
 
     await page.locator('[data-testid=extension-menu-toggle]').click()
-    await page.locator('[data-testid=extension-item-fixture]').click()
     await expect(page.locator('[data-testid=extension-band]')).not.toHaveClass(/collapsed/)
     await page.locator('[data-testid=screenshare-toggle]').click()
     await expect(page.locator('[data-testid=extension-band]')).toHaveClass(/collapsed/)
@@ -69,10 +65,7 @@ test.describe('golden: extensions', () => {
     await openClient(page, { sid: SID })
     await page.evaluate(() => localStorage.removeItem('cpc.extensions.bandPct'))
 
-    const open = async () => {
-      await page.locator('[data-testid=extension-menu-toggle]').click()
-      await page.locator('[data-testid=extension-item-fixture]').click()
-    }
+    const open = async () => { await page.locator('[data-testid=extension-menu-toggle]').click() }
     await open()
     const band = page.locator('[data-testid=extension-band]')
     const viewport = page.viewportSize()
@@ -97,5 +90,37 @@ test.describe('golden: extensions', () => {
     await open()
     const reloaded = (await page.locator('[data-testid=extension-band]').boundingBox()).height
     expect(Math.abs(reloaded - after)).toBeLessThan(4)
+  })
+
+  test('a long press or a right click lists the extensions; a tap does not', async ({ page, request }) => {
+    await seedSession(request, 'e2e-chat-golden')
+    await openClient(page, { sid: SID })
+    const slot = page.locator('[data-testid=extension-menu-toggle]')
+    const item = page.locator('[data-testid=extension-item-fixture]')
+    await expect(slot).toBeVisible({ timeout: 10_000 })
+
+    // Tap: the band opens directly, no list.
+    await slot.click()
+    await expect(page.locator('[data-testid=extension-band]')).not.toHaveClass(/collapsed/)
+    await expect(item).toHaveCount(0)
+    await slot.click()
+    await expect(page.locator('[data-testid=extension-band]')).toHaveClass(/collapsed/)
+
+    // Long press: the list opens and the band stays collapsed.
+    const box = await slot.boundingBox()
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.waitForTimeout(800)
+    await page.mouse.up()
+    await expect(item).toBeVisible()
+    await expect(page.locator('[data-testid=extension-band]')).toHaveClass(/collapsed/)
+    // Picking from the list opens it.
+    await item.click()
+    await expect(page.locator('[data-testid=extension-band]')).not.toHaveClass(/collapsed/)
+    await expect(item).toHaveCount(0)
+
+    // Right click (desktop) also lists.
+    await slot.click({ button: 'right' })
+    await expect(item).toBeVisible()
   })
 })
