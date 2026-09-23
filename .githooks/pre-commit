@@ -10,15 +10,28 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 # -----------------------------------------------------------------------------
 staged_py="$(git diff --cached --name-only --diff-filter=ACMRT | grep -E '^backend/.*\.py$' || true)"
 if [ -n "${staged_py}" ]; then
-    if command -v flake8 >/dev/null 2>&1; then
+    # Resolve flake8 the way `task lint:backend` does: the project conda env first,
+    # then a local .venv, then flake8 on PATH. Committing from a shell where the
+    # env is not activated used to skip the gate with only a warning.
+    conda_env="${CONDA_ENV:-$(sed -n 's/.*CONDA_ENV | default "\([^"]*\)".*/\1/p' "${REPO_ROOT}/Taskfile.yml" | head -n 1)}"
+    flake8_cmd=""
+    if [ -n "${CONDA_EXE:-}" ] && [ -x "${CONDA_EXE}" ] && [ -n "${conda_env}" ] \
+        && "${CONDA_EXE}" run -n "${conda_env}" python -m flake8 --version >/dev/null 2>&1; then
+        flake8_cmd="${CONDA_EXE} run -n ${conda_env} python -m flake8"
+    elif [ -x "${REPO_ROOT}/.venv/bin/python" ] && "${REPO_ROOT}/.venv/bin/python" -m flake8 --version >/dev/null 2>&1; then
+        flake8_cmd="${REPO_ROOT}/.venv/bin/python -m flake8"
+    elif command -v flake8 >/dev/null 2>&1; then
+        flake8_cmd="flake8"
+    fi
+    if [ -n "${flake8_cmd}" ]; then
         # shellcheck disable=SC2086
-        flake8 ${staged_py} || {
+        ${flake8_cmd} ${staged_py} || {
             echo ""
             echo "flake8 failed on staged backend files. Fix and re-stage, or commit with --no-verify if intentional."
             exit 1
         }
     else
-        echo "warning: flake8 not installed; skipping backend lint. Run: pip install -r backend/requirements.txt"
+        echo "warning: flake8 not installed; skipping backend lint. Run: task setup"
     fi
 fi
 
