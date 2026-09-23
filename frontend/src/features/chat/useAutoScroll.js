@@ -4,14 +4,8 @@ import {
   getSnapshot as getUiSnapshot,
   setScroll,
 } from '../../state/ui.js'
-
-// 「最新が見えてる」 と判定するボトム余白 (= px)。 数 px の指の振動を許容する目的で 30px。
-// ユーザがメッセージを戻し読みする時は最低でも 1 段スクロール (= 数十 px) するので識別可能。
-const AT_BOTTOM_THRESHOLD_PX = 30
-// scrollToBottom 実行後、 自前 scroll を「ユーザ操作」 と誤検知させないための猶予時間。
-// この間の onScroll は無視する。 短いと render 遅延中の onScroll を拾い、 長いと
-// ユーザ反応に対する反映が遅れる。
-const PROGRAMMATIC_SCROLL_GUARD_MS = 200
+import { nextStuck } from './stickToBottom.js'
+import { SETTLE_CHECK_MS, reportScroll } from './scrollProbe.js'
 
 // 通常 column (古い→新しい が DOM 上→下) で、 JS で底辺へ scroll する古典構成。
 //
@@ -21,9 +15,11 @@ const PROGRAMMATIC_SCROLL_GUARD_MS = 200
 // 異常に強い」 等の連鎖症状を起こしていた (= 2026-05-19 修正、 WebKit #225278 系列の bug
 // と整合)。 通常 column に戻すことで全て解消する。
 //
-//   - isAtBottom = (scrollHeight - scrollTop - clientHeight ≤ 30)、 = 「最新が見えてる」
+//   - isAtBottom = 最下端に張り付いている (= 中身が伸びたら最下端へ送り続ける)。 外れるのは
+//     ユーザが上へスクロールした時だけで、 最下端からの距離では外さない (= stickToBottom.js)。
+//     2026-09-23 まで距離 (> 30px) で外していたため、 送った直後に中身が伸びると「離れた」 と
+//     誤判定して追従が止まり、 開いた時や ↓ ボタンで途中に止まっていた
 //   - scrollToBottom = scrollTop を scrollHeight 相当に上げる
-//   - 上スクロール (scrollTop が小さくなる) = 古いメッセージ閲覧
 //   - 新着メッセージ追従は isAtBottom 中のみ JS で再 scroll、 そうでなければ hasNew=true
 //
 // 起動 / タブ切替時は useLayoutEffect で paint 前に底へ flush (= 前 session の scroll 残留防止)。
@@ -55,8 +51,8 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
   const isAtBottomRef = useRef(true)
   const scrollerDomRef = useRef(null)
   const msgLengthRef = useRef({})
-  const programmaticScrollRef = useRef(false)
-  const scrollEndTimerRef = useRef(null)
+  const lastTopRef = useRef(0)
+  const settleTimerRef = useRef(null)
   const sid = activeSession?.id
 
   // 同期: 最下端 (= 最新が見える状態) に移動
@@ -65,36 +61,43 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
     if (!el) return
     isAtBottomRef.current = true
     el.scrollTop = el.scrollHeight
+    lastTopRef.current = el.scrollTop
   }, [])
 
   // 公開: 「↓ 最新へ」 ボタン or send 直後に呼ぶ用。
   // 同期 1 回 + rAF 1 回。 以後の遅延 layout (= Markdown / code highlight / 画像 /
   // details 展開) は ResizeObserver effect 側の observer が拾って自動追従する
   // (= F-09 統合)。 isAtBottomRef は guard 中 true 維持。
-  const scrollToBottom = useCallback(() => {
+  // 自前の scroll は常に下向き (= scrollTop を増やす) なので、 張り付き判定を誤らせない
+  // (= 旧実装の「自前 scroll 直後 200ms は onScroll を無視する」 猶予は不要になった)。
+  const scrollToBottom = useCallback((reason = 'button') => {
     const el = scrollerDomRef.current
     if (!el) return
-    programmaticScrollRef.current = true
     isAtBottomRef.current = true
     setHasNew(false)
+    setShowScrollBtn(false)
     el.scrollTop = el.scrollHeight
-    clearTimeout(scrollEndTimerRef.current)
-    scrollEndTimerRef.current = setTimeout(() => {
-      programmaticScrollRef.current = false
-    }, PROGRAMMATIC_SCROLL_GUARD_MS)
+    lastTopRef.current = el.scrollTop
     // 直後の paint 後にもう 1 回 (= 同 tick で scrollHeight が確定しないケース吸収)
     requestAnimationFrame(() => {
       const e = scrollerDomRef.current
-      if (e && isAtBottomRef.current) e.scrollTop = e.scrollHeight
+      if (e && isAtBottomRef.current) {
+        e.scrollTop = e.scrollHeight
+        lastTopRef.current = e.scrollTop
+      }
     })
-  }, [setHasNew])
+    // 【一時計測】 遅れた伸びが収まった頃に、 本当に最下端に居るかを記録する。
+    clearTimeout(settleTimerRef.current)
+    settleTimerRef.current = setTimeout(() => {
+      const e = scrollerDomRef.current
+      if (e) reportScroll('settle', e, { reason, stuck: isAtBottomRef.current })
+    }, SETTLE_CHECK_MS)
+  }, [setHasNew, setShowScrollBtn])
 
   // 起動 / タブ切替: paint 前に底へ flush (= 前 session の scroll 残留防止)。
-  // scrollToBottom 経由 (= programmaticScrollRef ガード + 自前 rAF retry) で行う。
-  // 旧実装は scrollToBottomSync (= ガード無し) で叩いていたが、 直後の onScroll が
-  // markdown 遅延展開中の scrollHeight - scrollTop - clientHeight > 30 を拾って
-  // isAtBottomRef を false に flip → ResizeObserver による以後の追従も効かなくなる
-  // → タブ切替で「上に戻る」 症状を起こしていた (= 2026-06-22)。
+  // scrollToBottom 経由 (= 自前 rAF retry + 【一時計測】 の settle 記録) で行う。
+  // 遅延展開で距離が開いても張り付きは外れない (= stickToBottom.js) ので、 以後は
+  // ResizeObserver が最下端へ送り続ける。
   useLayoutEffect(() => {
     if (!sid) return
     // ターミナル画面では DOM が xterm 側、 messages container は表示外なので scroll しない。
@@ -104,7 +107,7 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
     setShowScrollBtn(false)
     setHasNew(false)
     msgLengthRef.current[sid] = (messages[sid] || []).length
-    scrollToBottom()
+    scrollToBottom('open')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sid, viewMode])
 
@@ -149,7 +152,7 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
       if (document.visibilityState === 'hidden') {
         wasAtBottom = isAtBottomRef.current
       } else if (document.visibilityState === 'visible') {
-        if (wasAtBottom && (!viewMode || viewMode === 'chat')) scrollToBottom()
+        if (wasAtBottom && (!viewMode || viewMode === 'chat')) scrollToBottom('visible')
       }
     }
     document.addEventListener('visibilitychange', onVis)
@@ -191,16 +194,24 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
   }, [scrollToBottomSync, sid])
 
   const onScroll = useCallback(() => {
-    if (programmaticScrollRef.current) return
     const el = scrollerDomRef.current
     if (!el) return
-    // 通常 column: 底辺 = scrollTop が scrollHeight - clientHeight に近い
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-    const atBottom = distanceFromBottom <= AT_BOTTOM_THRESHOLD_PX
-    isAtBottomRef.current = atBottom
-    if (atBottom) setHasNew(false)
+    const top = el.scrollTop
+    const stuck = nextStuck({
+      stuck: isAtBottomRef.current,
+      prevTop: lastTopRef.current,
+      top,
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+    })
+    // 【一時計測】 張り付きが外れた瞬間 (= 本来はユーザの上スクロールだけ) を記録する。
+    if (isAtBottomRef.current && !stuck) reportScroll('escape', el, { prevTop: Math.round(lastTopRef.current) })
+    lastTopRef.current = top
+    isAtBottomRef.current = stuck
+    if (stuck) setHasNew(false)
+    // ↓ ボタンは張り付きが外れている時だけ出す (= 中身が伸びて一瞬距離が開いても出さない)。
     // 同値時は React が re-render を bailout するので、 毎回 set で OK。
-    setShowScrollBtn(!atBottom)
+    setShowScrollBtn(!stuck)
   }, [setHasNew, setShowScrollBtn])
 
   return {
