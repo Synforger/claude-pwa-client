@@ -332,7 +332,7 @@ export function useChatStream({
       }
     })
     if (isAtBottomRef) isAtBottomRef.current = true
-    scrollToBottom()
+    scrollToBottom('send')
     // 配信成功判定は backend `/pty/{sid}/send` の自前 JSONL 監視 (= terminal/confirm.py
     // `_confirm_after_send`) に一本化。 ok:False (= HTTP / 添付失敗) 時のみ failBubble を発火し、
     // ok:True なら SSE 経由の reconcile を信じる (= 旧 SEND_TIMEOUT 15s timer は backend 確認と
@@ -569,7 +569,7 @@ export function useChatStream({
 
   // 常時 tail + EventSource 自動再接続なので明示 fetch は不要。 scroll だけ最新へ寄せる。
   const fetchLatest = useCallback(() => {
-    scrollToBottom()
+    scrollToBottom('latest')
   }, [scrollToBottom])
 
   // チャット再取得 (= サーバ真値からの再構築)。 SSE event の取りこぼし / offset ズレで表示が
