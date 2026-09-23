@@ -299,12 +299,10 @@ class SessionTailState:
 
 def _reset_jsonl_session_metadata(sid: str) -> None:
     """path 切替時 (= /clear / resume / フォーク等で claude session が入れ替わった時)
-    の蓄積メタ reset。 PR / task list が前 session から持ち越されないようにする
+    の蓄積メタ reset。 task list が前 session から持ち越されないようにする
     (2026-06-12)。"""
     a = agent_status.get(sid)
     if a is not None:
-        if a.get("pr_links"):
-            a["pr_links"] = []
         if a.get("tasks"):
             a["tasks"] = []
         st_reset = stream_states.get(sid)

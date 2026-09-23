@@ -121,7 +121,7 @@ class SessionState:
 ```python
 async with state.get_session(sid).lock:
     status = state.get_session(sid).status
-    status["pr_links"].append(...)
+    status["tasks"].append(...)
 ```
 
 旧 dict 群を**残したまま**で SessionState を追加するのは、 副 path consumer

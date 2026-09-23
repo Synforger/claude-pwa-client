@@ -334,26 +334,6 @@ events:
     consumer: "useSessionsOverview"
     render_target: "status_bar"
 
-  pr_link:
-    description: "PR 作成 / 紐付け記録 (= 親 turn で PR 操作が発生した記録)"
-    type: object
-    required: [uuid, prNumber, prUrl, prRepository, corr_id, sid]
-    properties:
-      sid:           { type: string }
-      uuid:          { type: string }
-      corr_id:       { type: string }
-      prNumber:      { type: integer }
-      prUrl:         { type: string }
-      prRepository:  { type: string }
-      timestamp:     { type: string }
-    additionalProperties: false
-    invariants:
-      - "chat 履歴に積まない (= 1 session に 100+ 行流れる仕様への対策)"
-      - "agent_status.pr_links に集約して StatusBar の link chip で表示"
-    trigger: "JSONL pr-link 行 → events.py:jsonl_line_to_events"
-    consumer: "useStatus (= StatusBar pr_links chip)"
-    render_target: "status_bar"
-
   turn_duration:
     description: "1 ターンの処理時間メタ (= Fable 5 で result event の duration_ms 欠落分の代替経路)"
     type: object

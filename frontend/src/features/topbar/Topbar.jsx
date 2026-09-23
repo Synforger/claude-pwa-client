@@ -6,7 +6,7 @@
 // registerFeature 経由で配線、 Component lazy spec は不要 (= main bundle 同梱で OK、
 // features/__contracts__/no-lazy-component-static-import.test.js の Component spec 件数は不変)。
 
-import { useSyncExternalStore, useMemo, useCallback, useState, useRef } from 'react'
+import { useSyncExternalStore, useMemo, useCallback } from 'react'
 import {
   subscribe as subscribeUi,
   getSnapshot as getUiSnapshot,
@@ -17,12 +17,10 @@ import {
   subscribe as subscribeSessions,
   getSnapshot as getSessionsSnapshot,
 } from '../../state/sessions.js'
-import { bumpAttachmentPicker } from '../../state/ephemeral.js'
-import { refetchChat } from '../chat/useChatStream.js'
-import { useOutsideClick } from '../../hooks/useOutsideClick.js'
 import { useT } from '../../i18n/t.js'
 import { useStatus } from '../status-bar/useStatus.js'
 import { useMoonlightAvailable } from '../screenshare/useMoonlightAvailable.js'
+import { useExtensions } from '../extensions/useExtensions.js'
 
 export default function Topbar() {
   const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
@@ -47,6 +45,7 @@ export default function Topbar() {
   // ui.overlays.planOpen を立てる。 PlanApprovalBubble 本体の render + auto-close は ChatPanel が担う。
   const status = useStatus(activeSession)
   const moonlightAvailable = useMoonlightAvailable()
+  const extensions = useExtensions()
 
   return (
     <header className="topbar">
@@ -67,7 +66,7 @@ export default function Topbar() {
         </button>
       )}
       {/* topbar 右側のアイコン群。 並びは左→右で ⭐ お気に入り → 📋 タスク →
-          🤖 サブエージェント → (📑 plan 承認、 条件付き) → 🖥 モニター。 */}
+          🤖 サブエージェント → (📑 plan 承認、 条件付き) → 🖥 モニター → 拡張 (= config 順)。 */}
       {activeViewMode === 'chat' && activeSid && (
         <button
           className="topbar-icon-btn"
@@ -126,84 +125,24 @@ export default function Topbar() {
           🖥
         </button>
       )}
-      {activeSid && (
-        <TopbarMoreMenu
-          activeViewMode={activeViewMode}
-          setActiveViewMode={setActiveViewMode}
-        />
-      )}
+      {/* 拡張: 届く物だけ (= useExtensions が HEAD で判定済み)。 開くとチャット上の帯に出て、
+          もう一度押すと畳む (= iframe は残る、 ExtensionHost 参照)。 右端に置く (= ⋯ メニューは
+          ステータスバーの右端)。 */}
+      {extensions.map((ext) => {
+        const open = ui.overlays.extensionOpen === ext.id
+        return (
+          <button
+            key={ext.id}
+            className={`screen-toggle ${open ? 'active' : ''}`}
+            onClick={() => setOverlay('extensionOpen', open ? null : ext.id)}
+            aria-label={ext.title}
+            title={open ? t('topbar.extension_close', { title: ext.title }) : t('topbar.extension_open', { title: ext.title })}
+            data-testid={`extension-toggle-${ext.id}`}
+          >
+            {ext.icon}
+          </button>
+        )
+      })}
     </header>
-  )
-}
-
-// ⋯ メニュー: ファイル添付 / ファイルツリー / ⌨↔💬 表示切替 / セッション終了 の集約。
-// 旧 ChatInput 右端の ⋯ からここへ物理移送 (= 2026-07-02、 入力行を Send + 停止 の 2 slot に
-// 純化するため)。 状態 (menuOpen) はローカル useState、 outside click / ESC で閉じる。
-// ファイル添付は fileInputRef を直接触らず ephemeral の attachmentPickerBump を上げ、
-// ChatPanel 側 subscribe で fileInputRef.click() を発火する疎結合設計 (= ChatPanel が持つ
-// useAttachments の hidden <input> を Topbar から知らずに済ませる、 ADR-010 props 自己解決契約)。
-function TopbarMoreMenu({ activeViewMode, setActiveViewMode }) {
-  const [open, setOpen] = useState(false)
-  const rootRef = useRef(null)
-  useOutsideClick(rootRef, () => setOpen(false))
-  const close = useCallback(() => setOpen(false), [])
-  const t = useT()
-  return (
-    <div className="topbar-more-root" ref={rootRef}>
-      <button
-        className="topbar-more-btn"
-        onClick={() => setOpen(v => !v)}
-        aria-label={t('topbar.menu')}
-        title={t('topbar.menu')}
-        data-testid="topbar-more-toggle"
-      >
-        ⋯
-      </button>
-      {open && (
-        <div className="topbar-more-popup">
-          <button
-            className="topbar-more-item"
-            onClick={() => { bumpAttachmentPicker(); close() }}
-          >
-            {t('topbar.menu.file_attach')}
-          </button>
-          <button
-            className="topbar-more-item"
-            onClick={() => { setOverlay('treeOpen', '~'); close() }}
-          >
-            {t('topbar.menu.file_tree')}
-          </button>
-          <button
-            className="topbar-more-item"
-            onClick={() => {
-              setActiveViewMode(activeViewMode === 'terminal' ? 'chat' : 'terminal')
-              close()
-            }}
-            data-testid="view-toggle"
-          >
-            {activeViewMode === 'terminal' ? t('topbar.menu.chat_view') : t('topbar.menu.terminal_view')}
-          </button>
-          {/* チャット再取得: SSE 取りこぼし / offset ズレで表示が実 JSONL と食い違った時の
-              手動復旧。 実装は features/chat (= refetchChat module export、 endSession と同じ
-              流儀) で、 Topbar は呼ぶだけ。 */}
-          <button
-            className="topbar-more-item"
-            onClick={() => { refetchChat(); close() }}
-            data-testid="refetch-chat"
-          >
-            {t('topbar.menu.refetch_chat')}
-          </button>
-          {/* 2026-07-03: Language toggle は SessionDrawer ⋯ に移設。 通知 / アプリ更新と同じ
-              「PWA レベル設定」 の並びに寄せた方が意味的に自然。 */}
-          <button
-            className="topbar-more-item"
-            onClick={() => { setOverlay('confirmEnd', true); close() }}
-            style={{ color: '#ff5f57' }}
-          >
-            {t('topbar.menu.end_session')}
-          </button>
-        </div>
-      )}
-    </div>
   )
 }

@@ -7,4 +7,3 @@ import './useStatus.js'
 
 const noopDispatch = () => null
 registerStream('budget',  { dispatch: noopDispatch })
-registerStream('pr_link', { dispatch: noopDispatch })

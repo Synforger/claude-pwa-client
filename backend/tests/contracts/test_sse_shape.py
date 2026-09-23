@@ -47,12 +47,13 @@ def test_schema_version_is_string():
 
 
 def test_event_dispatch_table_covers_19_types():
-    """contract schema 19 event を生成側が全部出してる (= codegen 取りこぼし検知、
-    2026-07-27 に `user` (tool_result) を契約へ編入して 18 → 19)。"""
+    """contract schema 18 event を生成側が全部出してる (= codegen 取りこぼし検知、
+    2026-07-27 に `user` (tool_result) を契約へ編入して 18 → 19、 2026-09-23 に `pr_link`
+    を退役して 19 → 18)。"""
     expected = {
         "user", "user_message", "assistant", "result", "ask_user_question", "task_notification",
         "system", "system_error", "hook_error", "system_note", "attachment",
-        "budget", "mode", "permission_mode", "pr_link", "turn_duration",
+        "budget", "mode", "permission_mode", "turn_duration",
         "stop_hook_summary", "away_summary", "prompt_state",
     }
     assert set(EVENT_BY_TYPE.keys()) == expected

@@ -112,13 +112,6 @@ def test_permission_mode_line_emits_permission_mode_event():
     assert ev is not None and ev["permissionMode"] == "acceptEdits"
 
 
-def test_pr_link_line_emits_pr_link_event():
-    line = {"type": "pr-link", "uuid": "pr-1", "prNumber": 42,
-            "prUrl": "https://example.com/pr/42", "prRepository": "o/r", "timestamp": "t"}
-    ev = _find_event(jsonl_line_to_events(line), "pr_link")
-    assert ev is not None and ev["prNumber"] == 42 and ev["prUrl"].endswith("/42")
-
-
 def test_budget_attachment_emits_budget_event():
     line = {"type": "attachment", "uuid": "b-1",
             "attachment": {"type": "budget_usd", "used": 1.5, "total": 10.0, "remaining": 8.5}}

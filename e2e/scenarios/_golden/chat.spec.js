@@ -52,7 +52,7 @@ test.describe('golden: chat', () => {
         model: 'claude-opus-4-7',
         usage: { input_tokens: 3, output_tokens: 4 },
       },
-      timestamp: new Date(0).toISOString(),
+      timestamp: new Date().toISOString(),
     })
 
     const assistantBubble = page.locator('[data-testid=message-bubble-agent]')

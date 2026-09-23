@@ -38,8 +38,8 @@ test.describe('regression: file-tree-fetch-and-render', () => {
       { timeout: 10_000 },
     )
 
-    await page.locator('[data-testid=chat-menu-toggle]').click()
-    await page.getByRole('button', { name: 'ファイルツリー' }).click()
+    await page.locator('[data-testid=more-menu-toggle]').click()
+    await page.locator('[data-testid=more-menu-file-tree]').click()
 
     const res = await fetchPromise
     expect(res.status()).toBe(200)
