@@ -654,13 +654,13 @@ def demote_fork_to_normal(session_id: str) -> str | None:
     # 失敗しても restart 本体は続行 (= unlink は best-effort)。
     try:
         # path 計算の真値は config (= state から jsonl 層への隠れ依存を作らない)
-        from backend.config import cwd_to_project_dir  # noqa: PLC0415
+        from backend.config import record_dirs  # noqa: PLC0415
         cwd = (_agents().get(meta.agent_id) or {}).get("cwd")
         # account_id 無しだと personal に fallback し work account の fork jsonl を
-        # 見つけられない (= delete_session の GC と同じ渡し忘れの根治)。
+        # 見つけられない (= delete_session の GC と同じ渡し忘れの根治)。 launcher の
+        # variant (= `<config dir>@<name>`) に置かれた fork も探す。
         account_id = getattr(meta, "account_id", None)
-        project_dir = cwd_to_project_dir(cwd, account_id=account_id) if cwd else None
-        if project_dir is not None:
+        for project_dir in (record_dirs(cwd, account_id) if cwd else []):
             fork_jsonl = project_dir / f"{fork_resume_id}.jsonl"
             if fork_jsonl.exists():
                 fork_jsonl.unlink(missing_ok=True)
