@@ -95,6 +95,20 @@ def test_task_output_reads_tmp_task_file(tmp_path, monkeypatch):
     assert "task log here" in res.json()["content"]
 
 
+def test_task_output_pattern_takes_a_temp_root_moved_under_tmp():
+    """CLAUDE_CODE_TMPDIR を /tmp の下の別の場所に向けた session の出力も通す。"""
+    import backend.routes.files as files_routes
+    ok = files_routes._TASK_OUTPUT_RE.match
+    assert ok("/tmp/claude-1000/-proj/sess/tasks/a1.output")
+    assert ok("/tmp/claude-cage/personal/claude-1000/-proj/sess/tasks/a1.output")
+    assert ok("/tmp/sandbox/claude-1000/-proj/sess/tasks/a1.output")
+    # 3 段以上挟まる / /tmp の外 / tasks の外 / .output 以外は通さない
+    assert not ok("/tmp/a/b/c/claude-1000/-proj/sess/tasks/a1.output")
+    assert not ok("/var/tmp/claude-1000/-proj/sess/tasks/a1.output")
+    assert not ok("/tmp/claude-cage/personal/claude-1000/-proj/sess/notes/a1.output")
+    assert not ok("/tmp/claude-cage/personal/claude-1000/-proj/sess/tasks/a1.txt")
+
+
 def test_task_output_rejects_non_task_path():
     # 意図: tasks 出力パターン以外 (= /etc/passwd 等) は 403
     client = _task_output_client()

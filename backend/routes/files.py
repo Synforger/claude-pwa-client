@@ -118,9 +118,11 @@ def put_file(path: str = Body(...), content: str = Body(...)):
 # HOME の外にあるため `/file` (= HOME 限定) では読めない。 この狭いパターンだけ通す専用経路。
 # resolve() で `..` / symlink を展開した後の絶対パスを再検査して traversal を物理的に塞ぐ。
 # macOS は resolve() で /tmp → /private/tmp に展開、 Linux (WSL2) は /tmp のまま。 両対応で
-# 先頭 /private を任意にする。
+# 先頭 /private を任意にする。 `CLAUDE_CODE_TMPDIR` を /tmp の下の別の場所に向けた session
+# (= sandbox の launcher が session ごとに分ける、 `/tmp/<root>/<name>/claude-<uid>/...`) も読めるよう、
+# /tmp と `claude-<uid>` の間に 2 段までの folder を許す。
 _TASK_OUTPUT_RE = re.compile(
-    r"^/(?:private/)?tmp/claude-\d+/[^/]+/[^/]+/tasks/[A-Za-z0-9._-]+\.output$"
+    r"^/(?:private/)?tmp/(?:[^/]+/){0,2}claude-\d+/[^/]+/[^/]+/tasks/[A-Za-z0-9._-]+\.output$"
 )
 
 
