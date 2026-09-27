@@ -55,6 +55,7 @@ from backend.terminal.confirm import (
     _is_plain_user_prompt,
     _wait_count_added,
 )
+from backend.terminal.first_message import launch_with_first_message
 from backend.terminal.input_ready import wait_ready
 from backend.terminal.send_dedup import send_dedup
 from backend.terminal.session_resolver import (
@@ -396,6 +397,10 @@ async def pty_send(
     if os.environ.get("CPC_E2E") == "1" and text and enter:
         return _e2e_inject_user_row(session_id, text)
 
+    # launcher の新しい会話: 最初の本文で claude を起動する (= `first_message.py`)。
+    if text and enter and (launched := await launch_with_first_message(session_id, text)) is not None:
+        return launched
+
     # 本文送信は claude が打鍵を受け取れるようになるまで待つ (= restart 直後の
     # 「tmux は在るが claude はまだ端末を読んでいない」 窓に打つと、 本文と Enter が
     # まとめて読まれて Enter が改行になり、 本文が入力欄に取り残される)。 単発 key
@@ -523,6 +528,9 @@ async def pty_send_with_files(
     if not full_text:
         return {"ok": False, "reason": "empty"}
     saved_files = [{"name": s["name"], "path": s["path"]} for s in saved]
+    # launcher の新しい会話: 最初の本文で claude を起動する (= `first_message.py`)。
+    if (launched := await launch_with_first_message(session_id, full_text)) is not None:
+        return {**launched, "saved_files": saved_files}
     _, is_slash = _delivery_counter(full_text)
     jsonl_path = jsonl_path_for_session(session_id)
     initial_pos = 0
