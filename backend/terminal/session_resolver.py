@@ -7,6 +7,12 @@
     ensure_pty_session_for(session_id) — 必要なら spawn し PtySession を pty_sessions に登録
     resolve_launch_alias(session_id)   — 初回 zsh prompt に送る起動コマンド (alias or claude --resume)
     resolve_autoresume_fallback(sid)   — autoresume が即 exit した時 watchdog が打ち直す通常 alias
+    uses_launcher(session_id)          — agent の launch_alias が launcher (= 最初の発話と再開を受け取る) か
+    first_message_command(sid, path)   — launcher に最初の発話を渡して起動するコマンド
+
+launcher (= agent cfg `launcher: true`) の agent は、 新しい会話を最初の発話が来るまで起動しない
+(= launcher が発話を見て起動の仕方を決める。 例: どの sandbox で走らせるか)。 再開 (= autoresume /
+フォーク / アカウント移し) も `claude --resume` を直接打たず `<alias> --resume <id>` で launcher を通す。
 """
 from __future__ import annotations
 
@@ -70,6 +76,31 @@ def last_resumable_claude_sid(session_id: str) -> str | None:
     return p.stem
 
 
+def uses_launcher(session_id: str) -> bool:
+    """agent の launch_alias が launcher か (= 最初の発話を `--first-message-file` で、 再開を
+    `--resume <id>` で受け取る起動 wrapper)。"""
+    cfg = resolve_agent_cfg(session_id) or {}
+    return bool(cfg.get("launcher")) and bool(cfg.get("launch_alias"))
+
+
+def first_message_command(session_id: str, message_file: Path) -> str | None:
+    """launcher に最初の発話 (= file) を渡して起動するコマンド。 launcher でなければ None。"""
+    if not uses_launcher(session_id):
+        return None
+    alias = (resolve_agent_cfg(session_id) or {})["launch_alias"]
+    return f"{alias} --first-message-file {shlex.quote(str(message_file))}"
+
+
+def _resume_command(session_id: str, claude_sid: str) -> str | None:
+    """会話 `claude_sid` を開き直すコマンド。 launcher は自分で置き場 (= variant) を探して開く。"""
+    if uses_launcher(session_id):
+        return f"{(resolve_agent_cfg(session_id) or {})['launch_alias']} --resume {shlex.quote(claude_sid)}"
+    if not CLAUDE_PATH:
+        logger.error("resume spawn needs claude_path but it is empty session=%s", session_id)
+        return None
+    return f"{shlex.quote(CLAUDE_PATH)} --resume {shlex.quote(claude_sid)}"
+
+
 def resolve_launch_alias(session_id: str, *, prefer_fresh: bool = False) -> str | None:
     """初回 spawn で zsh prompt に送る起動コマンドを解決する。
 
@@ -84,6 +115,9 @@ def resolve_launch_alias(session_id: str, *, prefer_fresh: bool = False) -> str 
     zsh の `|| alias` で繋ぐと `claude --resume` が rc=0 で即 exit するパターン (= フォーク
     resume と同型の罠) で右辺が走らず zsh プロンプトに残るので使わない。
 
+    launcher の agent は、 再開を `<alias> --resume <id>` で launcher に渡し、 新しい会話では
+    何も打たない (= None。 最初の発話が来た時に `first_message_command` で起動する)。
+
     `prefer_fresh=True` で autoresume 経路を skip して通常 alias に直行する。 restart
     (= 文脈リセット + プロセスリセット) 経路から呼ぶ用途で、 直前 claude プロセスが完全
     shutdown する前に `claude --resume <直前 sid>` を投入すると重複起動検知で rc=0 即 exit
@@ -94,17 +128,15 @@ def resolve_launch_alias(session_id: str, *, prefer_fresh: bool = False) -> str 
     meta = sessions_meta.get(session_id)
     resume_id = getattr(meta, "resume_session_id", None) if meta is not None else None
     if resume_id:
-        if not CLAUDE_PATH:
-            logger.error("fork spawn needs claude_path but it is empty session=%s", session_id)
-            return None
-        return f"{shlex.quote(CLAUDE_PATH)} --resume {shlex.quote(resume_id)}"
+        return _resume_command(session_id, resume_id)
     cfg = resolve_agent_cfg(session_id) or {}
     alias = cfg.get("launch_alias")
+    launcher = uses_launcher(session_id)
     if not prefer_fresh:
         autoresume_id = last_resumable_claude_sid(session_id)
-        if autoresume_id and alias and CLAUDE_PATH:
-            return f"{shlex.quote(CLAUDE_PATH)} --resume {shlex.quote(autoresume_id)}"
-    return alias
+        if autoresume_id and alias and (CLAUDE_PATH or launcher):
+            return _resume_command(session_id, autoresume_id)
+    return None if launcher else alias
 
 
 def resolve_autoresume_fallback(session_id: str, *, prefer_fresh: bool = False) -> str | None:
@@ -116,6 +148,9 @@ def resolve_autoresume_fallback(session_id: str, *, prefer_fresh: bool = False) 
     そもそも autoresume を踏まないので fallback も不要。
     """
     if prefer_fresh:
+        return None
+    # launcher の失敗は打ち直さない: pane は zsh に残り、 次の送信が最初の発話として起動する。
+    if uses_launcher(session_id):
         return None
     meta = sessions_meta.get(session_id)
     if meta is not None and getattr(meta, "resume_session_id", None):
