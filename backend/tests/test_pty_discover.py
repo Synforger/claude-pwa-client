@@ -13,15 +13,19 @@ import backend.terminal.pty_discover as pty_discover
 
 class _FakeProc:
     """psutil.Process の最小 stub。 children() / name() / create_time() / cwd() のみ実装。"""
-    def __init__(self, pid, name=None, children=None, create_time=0.0, cwd=None):
+    def __init__(self, pid, name=None, children=None, create_time=0.0, cwd=None, cmdline=None):
         self.pid = pid
         self._name = name or "zsh"
+        self._cmdline = cmdline if cmdline is not None else [self._name]
         self._children = children or []
         self._create_time = create_time
         self._cwd = cwd
 
     def name(self):
         return self._name
+
+    def cmdline(self):
+        return list(self._cmdline)
 
     def children(self):
         return list(self._children)
@@ -68,6 +72,24 @@ def test_find_claude_descendant_handles_path_in_name(monkeypatch):
         info = pty_discover._find_claude_descendant_info(1)
     assert info is not None
     assert info[0] == 99
+
+
+def test_find_claude_descendant_by_argv0_when_the_name_is_a_version(monkeypatch):
+    """native install の claude はプロセス名が版番号 (= '2.1.283') で、 `claude` は argv[0] に残る
+    (= 実機で name() だけ見ると動いている claude を見落とし、 居ないと判定していた)。"""
+    claude = _FakeProc(pid=77, name="2.1.283", cmdline=["claude", "--model", "opus"],
+                       create_time=3000.0, cwd="/cwd")
+    root = _FakeProc(pid=1, children=[claude])
+    with patch.object(pty_discover.psutil, "Process", return_value=root):
+        info = pty_discover._find_claude_descendant_info(1)
+    assert info is not None and info[0] == 77
+
+
+def test_a_version_named_process_that_is_not_claude_is_skipped(monkeypatch):
+    other = _FakeProc(pid=78, name="2.1.283", cmdline=["node", "server.js"])
+    root = _FakeProc(pid=1, children=[other])
+    with patch.object(pty_discover.psutil, "Process", return_value=root):
+        assert pty_discover._find_claude_descendant_info(1) is None
 
 
 def test_find_claude_descendant_root_not_found(monkeypatch):
