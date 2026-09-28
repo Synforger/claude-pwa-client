@@ -11,7 +11,7 @@
     first_message_command(sid, path)   — launcher に最初の発話を渡して起動するコマンド
 
 launcher (= agent cfg `launcher: true`) の agent は、 新しい会話を最初の発話が来るまで起動しない
-(= launcher が発話を見て起動の仕方を決める。 例: どの sandbox で走らせるか)。 再開 (= autoresume /
+(= launcher が発話を見て起動の仕方を決める。 例: どの階層で起動するか)。 再開 (= autoresume /
 フォーク / アカウント移し) も `claude --resume` を直接打たず `<alias> --resume <id>` で launcher を通す。
 """
 from __future__ import annotations
@@ -92,7 +92,7 @@ def first_message_command(session_id: str, message_file: Path) -> str | None:
 
 
 def _resume_command(session_id: str, claude_sid: str) -> str | None:
-    """会話 `claude_sid` を開き直すコマンド。 launcher は自分で置き場 (= variant) を探して開く。"""
+    """会話 `claude_sid` を開き直すコマンド。 launcher は自分で置き場を探して開く。"""
     if uses_launcher(session_id):
         return f"{(resolve_agent_cfg(session_id) or {})['launch_alias']} --resume {shlex.quote(claude_sid)}"
     if not CLAUDE_PATH:

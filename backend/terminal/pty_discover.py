@@ -109,12 +109,8 @@ def _find_claude_descendant_info(
 
 
 def claude_in_pane(session_id: str) -> bool:
-    """tmux pane の子孫に claude プロセスが居るか (= 画面の真値。 backend の記憶に頼らない)。
-
-    launcher が sandbox で包むと claude は wrapper の数段下に居る (= shell → launcher →
-    sandbox の runtime → sandbox → claude) ので、 普段の探索より深く見る。
-    """
-    return any(_find_claude_descendant_info(pid, max_depth=12) is not None
+    """tmux pane の子孫に claude プロセスが居るか (= 画面の真値。 backend の記憶に頼らない)。"""
+    return any(_find_claude_descendant_info(pid) is not None
                for pid in tmux_pane_pids(session_id))
 
 

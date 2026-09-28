@@ -44,14 +44,11 @@ def _project_dir(session_id: str) -> Optional[Path]:
     meta = sessions_meta.get(session_id)
     if meta is None:
         return None
-    # 確定済みの jsonl があればその dir が真値 (= launcher が variant の config dir で起動した
-    # 会話は、 account の dir ではなく `<config dir>@<name>` に居る)。
-    live = _pty_runner.jsonl_path_for_session(session_id)
-    if live is not None:
-        return live.parent
     cwd = (AGENTS.get(meta.agent_id) or {}).get("cwd")
     if not cwd:
-        return None
+        # fallback: live binding の親 dir (= 確定済 jsonl があるならその dir)
+        live = _pty_runner.jsonl_path_for_session(session_id)
+        return live.parent if live else None
     return _jsonl_watcher._cwd_to_project_dir(cwd, account_id=meta.account_id)
 
 

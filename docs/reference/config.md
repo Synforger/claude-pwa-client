@@ -60,7 +60,7 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   シェルプロンプトで停止し手動入力を待つ。 既存 tmux session への再接続時 (backend
   再起動跨ぎ / タブ切替後) は claude が継続稼働している前提で何も送信しない
 - `launcher` (任意、 既定 `false`): `launch_alias` が、 最初のメッセージを見てから claude の
-  起動の仕方を決める起動ラッパである時に `true` にする (= 例: 話題ごとに別の sandbox で起動する)。
+  起動の仕方を決める起動ラッパである時に `true` にする (= 例: プロジェクトごとに別の階層で起動する)。
   `true` の時の挙動:
   - 新しい会話 (= タブ作成 / セッション終了の後) では、 最初のメッセージを送るまで何も入力しない。
     送った時点で本文を本人だけが読める一時ファイルに書き、 `<launch_alias> --first-message-file <file>`
@@ -68,9 +68,6 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
     (= `claude "<本文>"`。 打鍵ではなく引数なので複数行も崩れない)
   - 会話の再開 (= backend 再起動跨ぎの自動再開 / フォーク / 別アカウントでの継続) は
     `claude --resume <id>` ではなく `<launch_alias> --resume <id>` を入力する
-  - ラッパが会話を `CLAUDE_CONFIG_DIR` とは別の設定ディレクトリで起動する場合、 そのディレクトリは
-    アカウントの設定ディレクトリの後ろに `@<名前>` を付けた名前にする (= 例: `~/.claude@work-project`)。
-    PWA は会話の記録をそこまで追い、 別アカウントで継続する時も同じ `@<名前>` の側へ置く
 
 ### `accounts` — マルチアカウント
 

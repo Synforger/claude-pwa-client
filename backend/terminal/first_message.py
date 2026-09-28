@@ -29,7 +29,7 @@ from backend.terminal.session_resolver import (
 
 logger = logging.getLogger(__name__)
 
-# launcher が sandbox を組んで claude を起動するまでの上限 (= binding 登録の探索)。
+# launcher が claude を起動するまでの上限 (= binding 登録の探索)。
 LAUNCH_DISCOVER_SEC = 60.0
 
 

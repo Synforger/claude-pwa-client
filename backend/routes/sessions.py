@@ -19,9 +19,7 @@ import uuid
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from backend import state
-from backend.config import (
-    AGENTS, cwd_to_project_dir, default_account_id, get_config, variant_of, with_variant, with_variants,
-)
+from backend.config import AGENTS, cwd_to_project_dir, default_account_id, get_config
 from backend.core.fork import (
     build_forked_lineage_lazy,
     fork_point_status,
@@ -244,10 +242,7 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
         cwd = (AGENTS.get(parent.agent_id) or {}).get("cwd")
         if not cwd:
             raise_error(400, "cwd_unresolved", "この会話の作業ディレクトリが解決できません")
-        # 元の会話が launcher の variant (= `<config dir>@<name>`) に居れば、 移し先でも同じ
-        # variant に置く (= launcher は置き場で再開の仕方を決めるので、 移しても変わらない)。
-        dest_dir = with_variant(cwd_to_project_dir(cwd, account_id=target_account_id),
-                                variant_of(src_path.parent, current_account))
+        dest_dir = cwd_to_project_dir(cwd, account_id=target_account_id)
         dest_dir.mkdir(parents=True, exist_ok=True)
     else:
         dest_dir = src_path.parent
@@ -438,13 +433,12 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
             # account_id を渡さないと personal (~/.claude) に fallback し、 work account の
             # fork jsonl は exists()=False で GC が常に空振りする (= spawn 側 2026-07-22
             # 根治と同型の渡し忘れ)。
-            # launcher の variant (= `<config dir>@<name>`) に置かれた fork も探す。
             project_dir = (
                 jsonl_watcher._cwd_to_project_dir(cwd, account_id=fork_account_id)
                 if cwd else None
             )
-            for d in (with_variants(project_dir) if project_dir is not None else []):
-                fork_jsonl = d / f"{fork_resume_id}.jsonl"
+            if project_dir is not None:
+                fork_jsonl = project_dir / f"{fork_resume_id}.jsonl"
                 if fork_jsonl.exists():
                     fork_jsonl.unlink(missing_ok=True)
                     logger.info(
