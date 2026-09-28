@@ -118,11 +118,9 @@ def put_file(path: str = Body(...), content: str = Body(...)):
 # HOME の外にあるため `/file` (= HOME 限定) では読めない。 この狭いパターンだけ通す専用経路。
 # resolve() で `..` / symlink を展開した後の絶対パスを再検査して traversal を物理的に塞ぐ。
 # macOS は resolve() で /tmp → /private/tmp に展開、 Linux (WSL2) は /tmp のまま。 両対応で
-# 先頭 /private を任意にする。 `CLAUDE_CODE_TMPDIR` を /tmp の下の別の場所に向けた session
-# (= sandbox の launcher が session ごとに分ける、 `/tmp/<root>/<name>/claude-<uid>/...`) も読めるよう、
-# /tmp と `claude-<uid>` の間に 2 段までの folder を許す。
+# 先頭 /private を任意にする。
 _TASK_OUTPUT_RE = re.compile(
-    r"^/(?:private/)?tmp/(?:[^/]+/){0,2}claude-\d+/[^/]+/[^/]+/tasks/[A-Za-z0-9._-]+\.output$"
+    r"^/(?:private/)?tmp/claude-\d+/[^/]+/[^/]+/tasks/[A-Za-z0-9._-]+\.output$"
 )
 
 
@@ -136,8 +134,8 @@ def _is_subagent_jsonl(resolved: Path) -> bool:
     frontend の TaskNotification 展開が「出力を読めませんでした 403」 で固まる。 symlink 先が
     Claude 自身が書いた jsonl であることを構造で認めて許可する。 stat().st_uid == getuid() の
     UID 一致 check は既存を維持するので、 攻撃者制御 symlink での外部 file 読取は依然塞がる。"""
-    # HOME 直下の Claude Code の config dir (= `.claude` / 別 account の `.claude-work` /
-    # launcher の variant `.claude@<name>`) の projects dir の下でよい。
+    # HOME 直下の Claude Code の config dir (= `.claude` / 別 account の `.claude-work`)
+    # の projects dir の下でよい。
     try:
         rel_home = resolved.relative_to(HOME.resolve())
     except (OSError, ValueError):

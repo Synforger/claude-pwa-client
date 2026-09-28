@@ -58,71 +58,19 @@ def get_config() -> dict[str, Any]:
         return {}
 
 
-# A launcher (agent cfg `launcher: true`) may run a session under a config directory derived
-# from the account's: the account's directory with `@<variant>` appended (e.g. a sandbox per
-# project, `~/.claude@work-project`). The conversation's record then lives there, and the PWA
-# follows it: resuming, forking and moving a conversation keep its variant.
-VARIANT_MARK = "@"
-
-
-def _variant_dirs(config_dir: Path) -> list[Path]:
-    """The variants of one config directory that exist now (`<dir>@*`), in name order."""
-    try:
-        return sorted(p for p in config_dir.parent.glob(config_dir.name + VARIANT_MARK + "*") if p.is_dir())
-    except OSError:
-        return []
-
-
 def _projects_dirs_from_accounts(accounts: dict[str, Any]) -> list[Path]:
     """ACCOUNTS の env.CLAUDE_CONFIG_DIR から projects ディレクトリ候補を集める。
-    デフォルト `~/.claude/projects` は常に含める (= account_id=None 互換)。 各 account の
-    variant (= `<config dir>@*`、 launcher が使う) も今あるものを含める。
+    デフォルト `~/.claude/projects` は常に含める (= account_id=None 互換)。
     """
-    bases: list[Path] = [Path.home() / ".claude"]
+    dirs: list[Path] = [Path.home() / ".claude" / "projects"]
     for cfg in accounts.values():
         env = (cfg or {}).get("env") or {}
         d = env.get("CLAUDE_CONFIG_DIR")
         if d:
-            b = Path(d).expanduser()
-            if b not in bases:
-                bases.append(b)
-    dirs: list[Path] = []
-    for b in bases:
-        for c in [b, *_variant_dirs(b)]:
-            if c / "projects" not in dirs:
-                dirs.append(c / "projects")
+            p = Path(d).expanduser() / "projects"
+            if p not in dirs:
+                dirs.append(p)
     return dirs
-
-
-def variant_of(project_dir: Path, account_id: str | None) -> str:
-    """A record's project dir (`<config dir>/projects/<cwd>`) -> the variant suffix its config
-    dir carries over the account's (`@name`), or "" when it is the account's own."""
-    config_dir = project_dir.parent.parent
-    base = projects_dir_for_account(account_id).parent
-    if config_dir.parent == base.parent and config_dir.name.startswith(base.name + VARIANT_MARK):
-        return config_dir.name[len(base.name):]
-    return ""
-
-
-def with_variant(project_dir: Path, variant: str) -> Path:
-    """`<config dir>/projects/<cwd>` -> the same place under `<config dir><variant>`."""
-    if not variant:
-        return project_dir
-    config_dir = project_dir.parent.parent
-    return config_dir.with_name(config_dir.name + variant) / project_dir.parent.name / project_dir.name
-
-
-def with_variants(project_dir: Path) -> list[Path]:
-    """An account's project dir, then the same place under each of its variants that exists."""
-    config_dir = project_dir.parent.parent
-    return [project_dir, *(with_variant(project_dir, v.name[len(config_dir.name):])
-                           for v in _variant_dirs(config_dir))]
-
-
-def record_dirs(cwd: str, account_id: str | None) -> list[Path]:
-    """Where a record of `cwd` under this account may live: the account's own project dir, then
-    each variant's."""
-    return with_variants(cwd_to_project_dir(cwd, account_id=account_id))
 
 
 def projects_dir_for_account(account_id: str | None) -> Path:
