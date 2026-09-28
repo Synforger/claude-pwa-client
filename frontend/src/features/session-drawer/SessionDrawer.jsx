@@ -38,6 +38,9 @@ import { hardRefreshAppShell } from '../../utils/appRefresh.js'
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
 import './SessionDrawer.css'
 
+// backend の再起動後、 新しい backend が応答したかを問い合わせる間隔。
+const RESTART_POLL_MS = 1000
+
 // ⋯ メニューを押した時、 viewport 下端からどれくらい離れていれば「上方向に展開する」 と
 // 判定するか (= px)。 近すぎると下に展開した popup が画面外に出るので flip-up に切替。
 const MENU_FLIP_UP_THRESHOLD_PX = 140
@@ -151,12 +154,18 @@ export default function SessionDrawer() {
   const [restartable, setRestartable] = useState(false)
   const [restartConfirm, setRestartConfirm] = useState(false)
   const [restartError, setRestartError] = useState('')
+  const [restarting, setRestarting] = useState(false)
+  // 再起動前の backend の起動時刻。 これと違う値が返ったら新しい backend が応答している。
+  const startedAtRef = useRef(null)
   useEffect(() => {
     if (!globalMenuOpen) return
     const ctrl = new AbortController()
     apiFetch('/backend/restartable', { signal: ctrl.signal })
       .then(r => (r.ok ? r.json() : { restartable: false }))
-      .then(body => setRestartable(Boolean(body.restartable)))
+      .then(body => {
+        setRestartable(Boolean(body.restartable))
+        startedAtRef.current = body.started_at ?? null
+      })
       .catch(() => setRestartable(false))
     return () => ctrl.abort()
   }, [globalMenuOpen])
@@ -176,7 +185,27 @@ export default function SessionDrawer() {
       }
     } catch (e) {
       setRestartError(String(e?.message || e))
+      return
     }
+    setRestarting(true)
+    // 新しい backend が応答するまで待ち、 アプリごと読み込み直す (= 「アプリを更新」 と同じ
+    // 刷新なので、 backend と一緒に入った新しい画面もここで拾う)。 戻らない間は帯が出たまま。
+    // 起動時刻を返さない backend からの入れ替えでは、 一度つながらなくなってから
+    // またつながったことを「戻った」 とする (= 止まる前の古い backend の応答と取り違えない)。
+    const before = startedAtRef.current
+    let wentDown = false
+    for (;;) {
+      await new Promise(resolve => setTimeout(resolve, RESTART_POLL_MS))
+      try {
+        const r = await apiFetch('/backend/restartable', { retry: 0 })
+        if (!r.ok) { wentDown = true; continue }
+        const body = await r.json()
+        if (before != null ? body.started_at !== before : wentDown) break
+      } catch {
+        wentDown = true // 止まっている間は接続できない。 そのまま待つ。
+      }
+    }
+    await hardRefreshAppShell()
   }
   // 失敗の理由はボタンの直下に出すので、 閉じたメニューを開き直す。
   useEffect(() => {
@@ -612,6 +641,11 @@ export default function SessionDrawer() {
           })}
         </div>
       </aside>
+      {restarting && (
+        <div className="backend-restart-banner" role="status" data-testid="backend-restarting">
+          {t('drawer.restart.in_progress')}
+        </div>
+      )}
       <ConfirmDialog
         open={restartConfirm}
         text={t('drawer.restart.confirm')}
