@@ -9,13 +9,20 @@
 """
 import copy
 import json
+import os
 import pathlib
 import sys
+import tempfile
 
 import pytest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
+
+# test の log は使い捨ての folder に出す。 backend.main は import した時点で repo の logs/ に
+# rotating handler を付けるので、 これが無いと test がわざと起こす例外 (= "pump boom" 等) が
+# 動いている backend の backend.error.log に混ざる。 backend を import する前に決める。
+os.environ.setdefault("CPC_LOGS_DIR", tempfile.mkdtemp(prefix="cpc-test-logs-"))
 
 
 # --- minimum config fixture (= test では本物の backend/config.json を使わない) ---
