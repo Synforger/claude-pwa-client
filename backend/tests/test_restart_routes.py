@@ -64,9 +64,16 @@ def test_without_launchctl_there_is_nothing_to_ask(monkeypatch, kicked):
 
 def test_restartable_answers_what_the_menu_shows(monkeypatch, kicked, client):
     monkeypatch.setenv("XPC_SERVICE_NAME", "0")
-    assert client.get("/backend/restartable").json() == {"restartable": False}
+    assert client.get("/backend/restartable").json()["restartable"] is False
     _as_launchd_job(monkeypatch)
-    assert client.get("/backend/restartable").json() == {"restartable": True}
+    assert client.get("/backend/restartable").json()["restartable"] is True
+
+
+def test_restartable_names_when_this_backend_started(monkeypatch, kicked, client):
+    # 画面はこの値が変わったのを見て「新しい backend が応答した」 と判断する。
+    from backend import state
+    monkeypatch.setattr(state, "backend_start_time", 1234.5)
+    assert client.get("/backend/restartable").json()["started_at"] == 1234.5
 
 
 # --- 再起動の要求 ----------------------------------------------------------------

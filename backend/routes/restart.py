@@ -1,6 +1,7 @@
 """backend の再起動 endpoint (= PWA の設定メニューから backend を立ち上げ直す)。
 
-- GET  /backend/restartable : この backend を再起動できるか (= launchd の常駐 job として動いているか)
+- GET  /backend/restartable : この backend を再起動できるか (= launchd の常駐 job として動いているか) と起動時刻
+  (= 画面は再起動の前後で起動時刻が変わったのを見て、 新しい backend が応答したと判断する)
 - POST /backend/restart     : launchd に `kickstart -k` を頼んで backend を立ち上げ直す
 
 再起動は launchd に頼む (= 自分に SIGTERM を送らない)。 ターミナルで
@@ -17,6 +18,8 @@ import subprocess
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+from backend import state
 
 router = APIRouter(prefix="/backend")
 
@@ -51,7 +54,7 @@ def _kickstart(label: str) -> None:
 
 @router.get("/restartable")
 def restartable() -> dict:
-    return {"restartable": launchd_label() is not None}
+    return {"restartable": launchd_label() is not None, "started_at": state.backend_start_time}
 
 
 class RestartRequest(BaseModel):
