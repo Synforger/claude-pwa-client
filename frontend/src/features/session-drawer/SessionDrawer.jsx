@@ -35,6 +35,7 @@ import {
 } from '../../state/locale.js'
 import { useT } from '../../i18n/t.js'
 import { hardRefreshAppShell } from '../../utils/appRefresh.js'
+import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
 import './SessionDrawer.css'
 
 // ⋯ メニューを押した時、 viewport 下端からどれくらい離れていれば「上方向に展開する」 と
@@ -143,6 +144,47 @@ export default function SessionDrawer() {
   // global popup に出す項目があるか (= ⋯ ボタン自体の表示条件)。
   // リセットは常時あるので、 ⋯ ボタンは常に表示される。
   const hasGlobalMenuItems = true
+
+  // backend 再起動 (= backend が launchd に kickstart を頼む)。 出すのは backend が
+  // 再起動できると答えた時だけ (= launchd の job でない backend は止めたら戻らない)。
+  // 総合メニューを開くたびに問い合わせる (= 失敗は「出さない」 側に倒す)。
+  const [restartable, setRestartable] = useState(false)
+  const [restartConfirm, setRestartConfirm] = useState(false)
+  const [restartError, setRestartError] = useState('')
+  useEffect(() => {
+    if (!globalMenuOpen) return
+    const ctrl = new AbortController()
+    apiFetch('/backend/restartable', { signal: ctrl.signal })
+      .then(r => (r.ok ? r.json() : { restartable: false }))
+      .then(body => setRestartable(Boolean(body.restartable)))
+      .catch(() => setRestartable(false))
+    return () => ctrl.abort()
+  }, [globalMenuOpen])
+  const handleRestart = async () => {
+    setRestartConfirm(false)
+    setRestartError('')
+    try {
+      const r = await apiFetch('/backend/restart', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      })
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}))
+        setRestartError(body.detail || `HTTP ${r.status}`)
+        return
+      }
+    } catch (e) {
+      setRestartError(String(e?.message || e))
+    }
+  }
+  // 失敗の理由はボタンの直下に出すので、 閉じたメニューを開き直す。
+  useEffect(() => {
+    if (restartError) setGlobalMenuOpen(true)
+  }, [restartError])
+  useEffect(() => {
+    if (!globalMenuOpen) setRestartError('')
+  }, [globalMenuOpen])
 
   useEffect(() => {
     if (renameFor && renameInputRef.current) {
@@ -326,6 +368,20 @@ export default function SessionDrawer() {
                 >
                   {t('drawer.menu.update_app')}
                 </button>
+                {restartable && (
+                  <button
+                    onClick={() => { setGlobalMenuOpen(false); setRestartConfirm(true) }}
+                    title={t('drawer.menu.restart_backend_title')}
+                    data-testid="restart-backend"
+                  >
+                    {t('drawer.menu.restart_backend')}
+                  </button>
+                )}
+                {restartError && (
+                  <div className="drawer-global-error" role="alert">
+                    {t('drawer.restart.failed', { reason: restartError })}
+                  </div>
+                )}
                 {/* 2026-07-03: Language toggle を Topbar ⋯ から SessionDrawer ⋯ に移設。
                     通知 / アプリ更新と同じ「PWA レベル設定」 の並びの方が意味的に自然。 */}
                 <div className="drawer-global-lang-row">
@@ -556,6 +612,12 @@ export default function SessionDrawer() {
           })}
         </div>
       </aside>
+      <ConfirmDialog
+        open={restartConfirm}
+        text={t('drawer.restart.confirm')}
+        onCancel={() => setRestartConfirm(false)}
+        onConfirm={handleRestart}
+      />
     </>
   )
 }
