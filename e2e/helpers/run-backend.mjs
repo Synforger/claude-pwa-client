@@ -97,11 +97,14 @@ const env = {
 // Resolution order:
 //   1. $CPC_E2E_PYTHON                       (= explicit override)
 //   2. $CONDA_PREFIX_PWA_CLIENT/bin/python3  (= conda env path env override)
-//   3. miniforge3/envs/pwa-client/bin/python3.11 / python3 (= conventional)
-//   4. `python3` on PATH                     (= last resort)
+//   3. <conda base>/envs/pwa-client/bin/python3, the base taken from $CONDA_EXE (= set by
+//      `conda init`, wherever conda is installed: ~/miniforge3, Homebrew's Caskroom, ...)
+//   4. miniforge3/envs/pwa-client/bin/python3.11 / python3 (= conventional)
+//   5. `python3` on PATH                     (= last resort)
 const candidates = [
   process.env.CPC_E2E_PYTHON,
   process.env.CONDA_PREFIX_PWA_CLIENT && `${process.env.CONDA_PREFIX_PWA_CLIENT}/bin/python3`,
+  process.env.CONDA_EXE && `${dirname(dirname(process.env.CONDA_EXE))}/envs/pwa-client/bin/python3`,
   `${homedir()}/miniforge3/envs/pwa-client/bin/python3.11`,
   `${homedir()}/miniforge3/envs/pwa-client/bin/python3`,
   `${homedir()}/miniconda3/envs/pwa-client/bin/python3`,
