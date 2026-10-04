@@ -7,10 +7,6 @@
 export const AGENT_MESSAGE_OPENING =
   'Message from another session, relayed by the client (the operator did not type this):'
 
-// Claude Code は複数行の貼り付けを <pasted_content id="N">…</pasted_content id="N"> で包んで記録する。
-// 連絡は端末への貼り付けで届くので、 実物の行はこの包みの中に封筒が入った形になる。
-const PASTED = /^<pasted_content[^>\n]*>\n?([\s\S]*?)\n?<\/pasted_content[^>\n]*>$/
-
 // 送り主のタブで人が最後に打った発話。 backend が封筒の先頭に入れる (= 在る時だけ)。
 const OPERATOR_SAID = /^<operator-said>\n([\s\S]*?)\n<\/operator-said>\n?/
 // backend は中身の側の「封筒のタグと同じ形」 を &lt; に替えて届ける。 表示では元に戻す。
@@ -22,8 +18,8 @@ const ENVELOPE = /^<agent-message from="([^"\n]*)" session="([^"\n]*)">\n([\s\S]
  *  送り主のタブで人が打った発話、 無ければ null)、 違えば null。 */
 export function parseAgentMessage(text) {
   if (typeof text !== 'string') return null
-  const pasted = PASTED.exec(text.trim())
-  const trimmed = (pasted ? pasted[1] : text).trimStart()
+  // 端末への貼り付けを claude が包んで記録した分は、 backend が外してから渡す (= jsonl/events.py)。
+  const trimmed = text.trimStart()
   if (!trimmed.startsWith(AGENT_MESSAGE_OPENING)) return null
   const m = ENVELOPE.exec(trimmed.slice(AGENT_MESSAGE_OPENING.length).trimStart())
   if (!m) return null
