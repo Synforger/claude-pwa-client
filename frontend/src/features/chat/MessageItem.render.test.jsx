@@ -12,6 +12,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { render, cleanup } from '@testing-library/react'
 import MessageItem from './MessageItem.jsx'
+import { AGENT_MESSAGE_OPENING } from './agentMessage.js'
 
 afterEach(cleanup)
 
@@ -31,6 +32,25 @@ describe('MessageItem render smoke', () => {
       <MessageItem {...baseProps} msg={{ id: 'u1', role: 'user', text: 'こんにちは' }} />,
     )
     expect(container.textContent).toContain('こんにちは')
+  })
+
+  it('a message relayed from another session shows who sent it, not the envelope', () => {
+    const text = `${AGENT_MESSAGE_OPENING}\n<agent-message from="tools" session="ses_sender">\nthe build drops the last row\n</agent-message>`
+    const { container, getByTestId } = render(
+      <MessageItem {...baseProps} msg={{ id: 'u2', role: 'user', text }} />,
+    )
+    expect(getByTestId('relayed-from').textContent).toContain('tools')
+    expect(container.textContent).toContain('the build drops the last row')
+    expect(container.textContent).not.toContain('agent-message')
+    expect(container.querySelector('.message.user.relayed')).not.toBeNull()
+  })
+
+  it('a message the operator typed is not marked as relayed', () => {
+    const { container, queryByTestId } = render(
+      <MessageItem {...baseProps} msg={{ id: 'u3', role: 'user', text: 'hello' }} />,
+    )
+    expect(queryByTestId('relayed-from')).toBeNull()
+    expect(container.querySelector('.message.user.relayed')).toBeNull()
   })
 
   it('agent message with text renders', () => {

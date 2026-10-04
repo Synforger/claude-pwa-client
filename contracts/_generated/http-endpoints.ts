@@ -170,6 +170,17 @@ export interface PostPtySidSendWithFilesResponse {
   saved_files?: string[]
 }
 
+/** POST /agent-messages request body */
+export type PostAgentMessagesRequest = Record<string, unknown>
+
+/** POST /agent-messages response */
+export interface PostAgentMessagesResponse {
+  ok: boolean
+  delivered?: boolean
+  /** 届け先のタブの id */
+  to: string
+}
+
 /** POST /pty/{sid}/send-raw-key request body */
 export interface PostPtySidSendRawKeyRequest {
   /** 単一 printable char は literal、 Up/Down/Enter 等は tmux キー名 */

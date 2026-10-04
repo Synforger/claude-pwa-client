@@ -168,6 +168,7 @@
   "tools.agent_open_hint": "🤖 から開く",
   "attachments.remove": "添付を削除",
   "diff.relative_lines": "行番号は相対",
+  "chat.relayed_from": "{name} から",
   "chat.thinking": "推論中…",
   "chat.scroll_latest": "最新メッセージへ",
   "tool.chars": "{n}文字",

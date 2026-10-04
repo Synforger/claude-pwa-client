@@ -97,6 +97,8 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   検証に利用する。 未設定または不正パスの場合は起動を拒否する。 conda 等で PATH が
   通らない環境では明示する
 - `uploads_tmp`: 添付ファイルの一時保存先ディレクトリ
+- `agent_message_check` (任意): タブどうしの連絡を届ける前に走らせる検査コマンド (= 語のリスト)。
+  書き方は [agent-messages.md](agent-messages.md) の「届ける前に検査する」 を参照
 - `rate_limits_log`: 使用率 (5h / 7d / context) を記録する JSONL の path。 **このファイルを
   書くのは claude の statusline スクリプト** (= claude が statusline subprocess に渡す
   `rate_limits` を 1 行ずつ追記する)。 backend はこれを読んでステータスバーに表示する。
