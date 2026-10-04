@@ -110,14 +110,19 @@ async def pty_socket(ws: WebSocket, session_id: str) -> None:
     # (= the WS output side). pump_from_client tolerates the missing process
     # because the e2e harness never sends user input through this WS - it
     # writes via /debug/e2e/pty-write instead.
-    if os.environ.get("CPC_E2E") == "1" and pty_sessions.get(session_id) is None:
-        pty_sessions[session_id] = PtySession(
-            session_id=session_id,
-            process=None,  # type: ignore[arg-type]
-            master_fd=-1,
-            output_queue=asyncio.Queue(maxsize=1024),
-            exit_event=asyncio.Event(),
-        )
+    # 置くのは「生きている session が無い時」。 チャット画面の接続 (= ensure_pty_session_for) が先に
+    # 本物を起こそうとして、 終了済みの session を残していることがある。 それを「在る」 と数えると
+    # 作り物に替わらず、 下の起こし直しへ進んで、 つないだ画面に終了だけが返り続ける。
+    if os.environ.get("CPC_E2E") == "1":
+        existing = pty_sessions.get(session_id)
+        if existing is None or existing.exit_event.is_set():
+            pty_sessions[session_id] = PtySession(
+                session_id=session_id,
+                process=None,  # type: ignore[arg-type]
+                master_fd=-1,
+                output_queue=asyncio.Queue(maxsize=1024),
+                exit_event=asyncio.Event(),
+            )
 
     session = pty_sessions.get(session_id)
     if session is None or session.exit_event.is_set():
