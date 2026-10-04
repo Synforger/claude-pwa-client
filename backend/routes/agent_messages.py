@@ -30,7 +30,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Form, Request
 
-from backend.core.jsonl_predicates import is_user_prompt
+from backend.core.jsonl_predicates import is_user_prompt, unwrap_pasted
 from backend.errors import raise_error
 from backend.state import sessions_meta
 from backend.terminal.pty_discover import claude_in_pane
@@ -48,8 +48,6 @@ TAG = "agent-message"
 OPERATOR_TAG = "operator-said"
 # 封筒のタグと同じ形の文字列を、 中身の側から書けなくする (= 本文で封筒を閉じる / 人の発話を装う)。
 _TAG_LIKE = re.compile(rf"<(/?)({TAG}|{OPERATOR_TAG})")
-# Claude Code は複数行の貼り付けを <pasted_content id="N">…</pasted_content id="N"> で包んで記録する。
-_PASTED = re.compile(r"^\s*<pasted_content[^>\n]*>\n?(.*?)\n?</pasted_content[^>\n]*>\s*$", re.S)
 # 記録を末尾から読む時の 1 回分。 1 行がこれより長くても読める (= 足りなければ前へ継ぎ足す)。
 _TAIL_CHUNK = 256 * 1024
 # この口を叩けるのは同じ機械の中だけ (= タブの中の claude)。 "testclient" は starlette TestClient の host。
@@ -141,8 +139,7 @@ def last_operator_text(record: Path | None) -> str | None:
             text = _typed(row) if isinstance(row, dict) else None
             if text is None or not text.strip():
                 continue
-            pasted = _PASTED.match(text)
-            text = (pasted.group(1) if pasted else text).strip()
+            text = unwrap_pasted(text).strip()
             return None if text.startswith(OPENING) else text
     except OSError:
         logger.warning("agent message: sender's record could not be read: %s", record)

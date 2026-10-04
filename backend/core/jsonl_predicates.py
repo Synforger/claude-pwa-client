@@ -37,6 +37,20 @@ HARNESS_XML_RE = re.compile(
 INTERRUPT_USER_RE = re.compile(r"^\s*\[request interrupted by user\]\s*$", re.IGNORECASE)
 
 
+# claude は端末への複数行の貼り付けを `<pasted_content id="N">` 〜 `</pasted_content id="N">` で包んで
+# 記録する (= 閉じ側にも id が付く、 claude 固有の形)。 人が打った文そのものではないので、 表示にも
+# 本文の突き合わせにも使わない。
+_PASTED_OPEN_RE = re.compile(r'<pasted_content id="\d+">\n?')
+_PASTED_CLOSE_RE = re.compile(r'\n?</pasted_content id="\d+">')
+
+
+def unwrap_pasted(text: str) -> str:
+    """貼り付けの包みを外した本文 (= 中身と前後の文はそのまま残す)。"""
+    if not isinstance(text, str) or "<pasted_content" not in text and "</pasted_content" not in text:
+        return text
+    return _PASTED_CLOSE_RE.sub("", _PASTED_OPEN_RE.sub("", text))
+
+
 def is_sidechain(line: dict) -> bool:
     """サブエージェント (= Task で起動した子 agent) の行か。 親 chat には混ぜない。"""
     return bool(line.get("isSidechain"))
