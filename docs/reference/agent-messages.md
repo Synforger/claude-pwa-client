@@ -1,0 +1,70 @@
+# タブどうしの連絡
+
+あるタブの Claude から、 別のタブの Claude へ連絡を送れます。 アカウントが違うタブどうしでも届きます。
+複数のタブで別々の作業をさせている時に、 「向こうのタブが持っている道具の不具合を見つけた」
+「直したので新しい版に上げてほしい」 といった用件を、 人が写して運ばずに済ませるための口です。
+
+届いた連絡は、 宛先のタブの画面に「From <送り主のタブ名>」 と付いた別の色の吹き出しで出ます。
+
+## 使い方 (= タブの中の Claude が実行する)
+
+```sh
+curl -s http://127.0.0.1:8765/agent-messages \
+  -F to='宛先のタブ名' \
+  -F from="$PWA_SID" \
+  -F 'text=<message.md'
+```
+
+| 項目 | 中身 |
+|---|---|
+| `to` | 宛先のタブの名前、 またはタブの id。 同じ名前のタブが複数ある時は id で指定する |
+| `from` | 送り主のタブの id。 各タブの環境変数 `PWA_SID` に入っている |
+| `text` | 本文。 `text=<ファイル` と書くとファイルの中身を送る (= 複数行でもそのまま届く) |
+
+port は backend を起動した port に合わせてください。 タブの名前と id の一覧は
+`curl -s http://127.0.0.1:8765/sessions` で取れます。
+
+送れるのは backend と同じ機械の中からだけです。
+
+## 届く形
+
+宛先の Claude には、 次の形で届きます。 1 行目は固定です。
+
+```
+Message from another session, relayed by the client (the operator did not type this):
+<agent-message from="送り主のタブ名" session="送り主のタブの id">
+本文
+</agent-message>
+```
+
+返事を送る時は、 `session` の値を `to` に指定します。
+
+人が画面から送った発話には、 この 1 行目は付きません。 Claude の端末への入力を読む外部の道具で
+「人が打った発話」 と「別のタブから届いた連絡」 を分けたい時は、 この 1 行目で見分けられます。
+
+## 届かない時
+
+| 返ってくる code | 意味 |
+|---|---|
+| `agent_message_unknown_receiver` | その名前 / id のタブが無い |
+| `agent_message_ambiguous_receiver` | 同じ名前のタブが複数ある。 返ってきた id のどれかを指定する |
+| `agent_message_receiver_not_running` | 宛先のタブで Claude が動いていない。 連絡で会話を起動することはしない |
+| `agent_message_receiver_not_ready` | 宛先の会話がまだ始まっていないため、 検査できない (= 検査を設定している時のみ) |
+| `agent_message_refused` | 検査が連絡を通さなかった。 理由が `reason` に入っている |
+| `agent_message_check_failed` | 検査を実行できなかった、 または時間内に終わらなかった |
+| `agent_message_local_only` | 別の機械から呼ばれた |
+
+## 届ける前に検査する (任意)
+
+連絡を届ける前に、 中身を自分のコマンドで検査できます。 `backend/config.json` の
+`agent_message_check` にコマンドを 1 語ずつ書きます。
+
+```json
+"agent_message_check": ["python3", "~/bin/check-message.py", "--to", "{session}", "--text", "{file}"]
+```
+
+- `{file}` は本文を書いたファイルの path に、 `{session}` は宛先の Claude の session id に置き換わります
+- 終了コードが 0 なら届けます。 0 以外なら届けず、 標準エラーの最後の 1 行を理由として送り主に返します
+- 書いていなければ、 検査なしで届けます
+
+タブごとに読ませている資料が違い、 あるタブの資料の中身を別のタブへ流したくない場合に使います。
