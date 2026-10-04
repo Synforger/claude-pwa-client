@@ -175,6 +175,21 @@ class PostPtySidSendWithFilesResponse(BaseModel):
     saved_files: Optional[list[str]] = None
 
 
+class PostAgentMessagesRequest(BaseModel):
+    """POST /agent-messages request body"""
+    model_config = ConfigDict(extra="forbid")
+    pass
+
+
+class PostAgentMessagesResponse(BaseModel):
+    """POST /agent-messages response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    delivered: Optional[bool] = None
+    to: str  # 届け先のタブの id
+    operator_said: bool  # 送り主のタブで人が打った発話を封筒に入れたか
+
+
 class PostPtySidSendRawKeyRequest(BaseModel):
     """POST /pty/{sid}/send-raw-key request body"""
     model_config = ConfigDict(extra="forbid")

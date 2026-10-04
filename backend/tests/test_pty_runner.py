@@ -71,6 +71,20 @@ def test_write_and_resize_after_exit_are_noops():
     pty_runner.resize_pty(session, 40, 120)
 
 
+def test_a_session_with_no_terminal_takes_input_and_resize_without_raising():
+    """端末を持たない session (= e2e の作り物、 fd=-1) へ、 画面がつないだ直後に送る物
+    (= 大きさの通知と Ctrl-L) を渡しても落ちない。 fd が負の ioctl は ValueError を投げる。"""
+    session = pty_runner.PtySession(
+        session_id="no-terminal",
+        process=None,  # type: ignore[arg-type]
+        master_fd=-1,
+        output_queue=asyncio.Queue(),
+        exit_event=asyncio.Event(),
+    )
+    pty_runner.resize_pty(session, 40, 120)
+    pty_runner.write_pty(session, b"\x0c")
+
+
 def test_capture_tmux_scrollback_disabled_when_no_wrap(monkeypatch):
     """USE_TMUX_WRAP=False では capture は常に b''。"""
     monkeypatch.setattr(pty_runner, "USE_TMUX_WRAP", False)

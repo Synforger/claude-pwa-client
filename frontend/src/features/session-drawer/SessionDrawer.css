@@ -166,6 +166,33 @@
   color: var(--accent);
 }
 /* /accounts fetch 失敗時 (= F-40): 取得失敗の文言 + 再試行ボタンを picker 内に挟む */
+/* backend の再起動中に画面上部に出す帯 (= 新しい backend が応答するとアプリごと読み込み直す) */
+.backend-restart-banner {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  padding: 8px 14px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+}
+/* 総合メニューの項目の直下に出す失敗の理由 (= 見た目は agent-picker-error と揃える) */
+.drawer-global-error {
+  margin: 2px 4px 4px;
+  padding: 6px 8px;
+  background: rgba(220, 80, 80, 0.10);
+  border: 1px solid rgba(220, 80, 80, 0.30);
+  border-radius: 4px;
+  color: #f08080;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
 .agent-picker-error {
   display: flex;
   align-items: center;

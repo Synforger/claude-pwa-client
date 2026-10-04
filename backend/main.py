@@ -11,6 +11,7 @@
 - hooks_routes.py  /hooks/event (= claude CLI hooks → Web Push)
 - files_routes.py  ファイル系エンドポイント
 - push.py          Web Push 配信 + エンドポイント
+- agent_messages.py  /agent-messages (= タブの中の claude から別のタブの claude への連絡)
 """
 import asyncio
 import logging
@@ -85,10 +86,12 @@ from backend.core.usage import rate_limits_log_health  # noqa: E402
 import backend.jsonl.routes as jsonl_routes  # noqa: E402
 import backend.core.jsonl_watcher as jsonl_watcher  # noqa: E402
 import backend.terminal.pty_discover as pty_discover  # noqa: E402
+import backend.routes.agent_messages as agent_messages_routes  # noqa: E402
 import backend.routes.chat as chat_routes  # noqa: E402
 import backend.routes.extensions as extensions_routes  # noqa: E402
 import backend.routes.files as files_routes  # noqa: E402
 import backend.routes.hooks as hooks_routes  # noqa: E402
+import backend.routes.restart as restart_routes  # noqa: E402
 import backend.routes.subagents as subagents_routes  # noqa: E402
 import backend.routes.unified_stream as unified_stream_routes  # noqa: E402
 import backend.terminal.routes as pty_routes  # noqa: E402
@@ -261,12 +264,14 @@ async def healthz() -> dict:
     return {"ok": True}
 
 
+app.include_router(agent_messages_routes.router)
 app.include_router(chat_routes.router)
 app.include_router(extensions_routes.router)
 app.include_router(files_routes.router)
 app.include_router(hooks_routes.router)
 app.include_router(jsonl_routes.router)
 app.include_router(pty_routes.router)
+app.include_router(restart_routes.router)
 app.include_router(push.router)
 app.include_router(subagents_routes.router)
 app.include_router(unified_stream_routes.router)

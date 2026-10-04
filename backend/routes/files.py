@@ -134,14 +134,15 @@ def _is_subagent_jsonl(resolved: Path) -> bool:
     frontend の TaskNotification 展開が「出力を読めませんでした 403」 で固まる。 symlink 先が
     Claude 自身が書いた jsonl であることを構造で認めて許可する。 stat().st_uid == getuid() の
     UID 一致 check は既存を維持するので、 攻撃者制御 symlink での外部 file 読取は依然塞がる。"""
+    # HOME 直下の Claude Code の config dir (= `.claude` / 別 account の `.claude-work`)
+    # の projects dir の下でよい。
     try:
-        claude_projects = (HOME / ".claude" / "projects").resolve()
-    except OSError:
+        rel_home = resolved.relative_to(HOME.resolve())
+    except (OSError, ValueError):
         return False
-    try:
-        rel = resolved.relative_to(claude_projects)
-    except ValueError:
+    if len(rel_home.parts) < 3 or not rel_home.parts[0].startswith(".claude") or rel_home.parts[1] != "projects":
         return False
+    rel = Path(*rel_home.parts[2:])
     if "subagents" not in rel.parts:
         return False
     return resolved.name.startswith("agent-") and resolved.suffix == ".jsonl"

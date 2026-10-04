@@ -29,6 +29,7 @@ const REQUIRED = [
   'extensions',
   'ios-native',
   'terminal',
+  'agent-message',
 ]
 
 if (!existsSync(GOLDEN_DIR)) {

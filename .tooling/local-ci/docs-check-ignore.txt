@@ -21,12 +21,12 @@ _runtime/jsonl/
 fixtures/_runtime/data/
 # runtime / user-created files (gitignored; exist only on an operating host)
 backend/config.json
-backend/data/jsonl_bindings.json
-backend/data/session_history.json
-backend/data/subscriptions.json
-backend/secrets/vapid.json
+backend/data/
+backend/secrets/
 logs/backend.access.log
 logs/backend.error.log
 backend/core/maintenance.py   # sunshine.md: historical path of removed code; git history lives under it
 # MIME types quoted in prose share the a/b shape of a path but are not files
 text/event-stream
+# installed dependencies (= present only after `task setup`)
+frontend/node_modules/

@@ -145,6 +145,71 @@ def test_latest_from_tail_is_pure_no_io(tmp_path, monkeypatch):
     assert b["model"] == "Sonnet" and b["context_pct"] == 20
 
 
+# ============================================================================
+# 休んでいるアカウントの最新行 (= 共有 file の末尾から押し出されても失わない)
+# ============================================================================
+
+def _stub_config(monkeypatch, path, accounts=("personal", "work")):
+    stub = type("Stub", (), {
+        "RATE_LIMITS_LOG_PATH": path,
+        "get_config": staticmethod(lambda: {"accounts": {a: {} for a in accounts}}),
+    })
+    monkeypatch.setattr(usage, "_config", stub)
+
+
+def _personal_rows(n, pct=37):
+    return [{"account_id": "personal", "session_id": "sP", "five_hour_pct": pct} for _ in range(n)]
+
+
+def test_idle_account_survives_many_rows_of_the_other(tmp_path, monkeypatch):
+    # 会社アカウントが休んでいる間に個人アカウントが 500 回更新しても、 会社の最新値は残る
+    # (= 旧実装は末尾 200 行だけを見ていたので、 会社の 5h / 7d が空になり画面で 0 になった)。
+    rows = [{"account_id": "work", "session_id": "sW", "five_hour_pct": 3, "seven_day_pct": 2}]
+    path = _write_rate_limits(tmp_path, rows + _personal_rows(500))
+    _stub_config(monkeypatch, path)
+    work = usage.read_latest_rate_limits(account_id="work")
+    assert work["five_hour_pct"] == 3 and work["seven_day_pct"] == 2
+    assert usage.read_latest_rate_limits(account_id="personal")["five_hour_pct"] == 37
+
+
+def test_backward_load_reaches_an_account_several_chunks_back(tmp_path, monkeypatch):
+    rows = [{"account_id": "work", "session_id": "sW", "five_hour_pct": 9}]
+    path = _write_rate_limits(tmp_path, rows + _personal_rows(200))
+    _stub_config(monkeypatch, path)
+    monkeypatch.setattr(usage, "_BACKWARD_CHUNK_BYTES", 256)
+    assert usage.read_latest_rate_limits(account_id="work")["five_hour_pct"] == 9
+
+
+def test_appended_rows_are_read_incrementally(tmp_path, monkeypatch):
+    path = _write_rate_limits(tmp_path, [{"account_id": "work", "five_hour_pct": 3}])
+    _stub_config(monkeypatch, path)
+    assert usage.read_latest_rate_limits(account_id="work")["five_hour_pct"] == 3
+    with open(path, "a") as f:
+        f.write(json.dumps({"account_id": "work", "five_hour_pct": 4}) + "\n")
+        f.write("".join(json.dumps(r) + "\n" for r in _personal_rows(300)))
+    assert usage.read_latest_rate_limits(account_id="work")["five_hour_pct"] == 4
+
+
+def test_a_row_still_being_written_is_read_once_complete(tmp_path, monkeypatch):
+    path = _write_rate_limits(tmp_path, [{"account_id": "work", "five_hour_pct": 3}])
+    _stub_config(monkeypatch, path)
+    line = json.dumps({"account_id": "work", "five_hour_pct": 5})
+    with open(path, "a") as f:
+        f.write(line[:10])
+    assert usage.read_latest_rate_limits(account_id="work")["five_hour_pct"] == 3
+    with open(path, "a") as f:
+        f.write(line[10:] + "\n")
+    assert usage.read_latest_rate_limits(account_id="work")["five_hour_pct"] == 5
+
+
+def test_a_replaced_or_truncated_file_is_read_from_scratch(tmp_path, monkeypatch):
+    path = _write_rate_limits(tmp_path, [{"account_id": "work", "five_hour_pct": 80}] + _personal_rows(5))
+    _stub_config(monkeypatch, path)
+    assert usage.read_latest_rate_limits(account_id="work")["five_hour_pct"] == 80
+    _write_rate_limits(tmp_path, [{"account_id": "work", "five_hour_pct": 1}])  # 切り詰め
+    assert usage.read_latest_rate_limits(account_id="work")["five_hour_pct"] == 1
+
+
 def test_read_latest_rate_limits_delegates_to_tail(tmp_path, monkeypatch):
     path = _write_rate_limits(tmp_path, [{"session_id": "sX", "model": "Opus"}])
     monkeypatch.setattr(usage, "_config",

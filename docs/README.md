@@ -24,6 +24,7 @@ claude-pwa-client を **インストールして使うため**の文書です。
 |---|---|
 | `backend/config.json` の各フィールド / `frontend/.env.local` | [reference/config.md](reference/config.md) |
 | backend が永続化する JSON ファイルの中身 / バックアップ範囲 | [reference/data-schemas.md](reference/data-schemas.md) |
+| タブの中の Claude どうしで連絡させたい | [reference/agent-messages.md](reference/agent-messages.md) |
 
 ---
 

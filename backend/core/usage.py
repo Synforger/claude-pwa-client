@@ -10,45 +10,152 @@ rate-limits.jsonl (= statusline 記録) の読み取りと、 usage からの co
 """
 import json
 import logging
+import os
+import re
 from pathlib import Path
 
 import backend.config as _config
-from backend.core.jsonl_tail import split_jsonl_text
 from backend.state import DEFAULT_CTX_WINDOW
 
 logger = logging.getLogger(__name__)
 
 
+# 起動直後に file を後ろから遡る時の 1 回の読み幅。
+_BACKWARD_CHUNK_BYTES = 1 << 20
+_ACCOUNT_RE = re.compile(rb'"account_id":\s*"([^"]*)"')
+
+
+class _LatestRows:
+    """rate-limits.jsonl の「アカウントごと・session ごとの最新行」 を持ち続ける。
+
+    rate-limits.jsonl は全アカウント・全 session が statusline の更新ごとに 1 行ずつ
+    追記する共有 file。 旧実装は末尾 200 行だけを見ていたため、 片方のアカウントが
+    休んでいる間にもう片方が 200 回更新すると、 休んでいる側の行が窓から押し出されて
+    5h / 7d が空 (= 画面では 0) になった。 ここでは前回読んだ位置を覚えて追記分だけを
+    読み、 各キーの最新行を上書きで持つので、 どれだけ前の行でも失われない。
+
+    起動直後 (= 位置が無い) だけは file を後ろから遡り、 設定にある全アカウントの
+    最新行が見つかった所で止める。 file の差し替え / 切り詰めを見たら最初から持ち直す。"""
+
+    def __init__(self) -> None:
+        self._reset(None)
+
+    def _reset(self, ident: tuple | None) -> None:
+        self._ident = ident
+        self._offset = 0
+        self._partial = b""
+        self._seq = 0
+        self._rows: dict[tuple[str, str], tuple[int, dict]] = {}
+
+    def _add(self, row: dict) -> None:
+        self._seq += 1
+        self._rows[("account", row.get("account_id") or "personal")] = (self._seq, row)
+        sid = row.get("session_id")
+        if sid:
+            self._rows[("session", sid)] = (self._seq, row)
+
+    def _feed(self, data: bytes) -> None:
+        buf = self._partial + data
+        lines = buf.split(b"\n")
+        self._partial = lines.pop()  # 改行で終わっていない最後の行は書き込み途中
+        for ln in lines:
+            row = _parse_line(ln)
+            if row is not None:
+                self._add(row)
+
+    def _load_backward(self, f, size: int) -> None:
+        wanted = set(_configured_accounts())
+        found: set[str] = set()
+        newest_first: list[dict] = []
+        # 改行で終わっていない最後の行は書き込み途中なので、 次の追記と繋いで読む。
+        f.seek(max(0, size - _BACKWARD_CHUNK_BYTES))
+        last = f.read()
+        cut = last.rfind(b"\n")
+        end = size - (len(last) - cut - 1) if cut >= 0 else size - len(last)
+        self._partial = last[cut + 1:] if cut >= 0 else last
+        pos, carry, first = end, b"", True
+        while pos > 0:
+            start = max(0, pos - _BACKWARD_CHUNK_BYTES)
+            f.seek(start)
+            lines = (f.read(pos - start) + carry).split(b"\n")
+            carry = lines.pop(0) if start > 0 else b""
+            pos = start
+            for ln in reversed(lines):
+                m = _ACCOUNT_RE.search(ln)
+                acct = m.group(1).decode("utf-8", "replace") if m else "personal"
+                # 最新の読み幅は session ごとの最新行のために全部読む。 それより前は
+                # まだ見つかっていないアカウントの行だけを parse する。
+                if not first and acct in found:
+                    continue
+                row = _parse_line(ln)
+                if row is not None:
+                    newest_first.append(row)
+                    found.add(acct)
+            first = False
+            # 設定にアカウントが無ければ、 最新の読み幅だけで止める。
+            if not wanted or wanted <= found:
+                break
+        for row in reversed(newest_first):
+            self._add(row)
+        self._offset = size
+
+    def rows(self, path: str) -> list[dict]:
+        try:
+            with open(path, "rb") as f:
+                st = os.fstat(f.fileno())
+                ident = (path, st.st_dev, st.st_ino)
+                if ident != self._ident or st.st_size < self._offset:
+                    self._reset(ident)
+                    self._load_backward(f, st.st_size)
+                elif st.st_size > self._offset:
+                    f.seek(self._offset)
+                    data = f.read(st.st_size - self._offset)
+                    self._offset += len(data)
+                    self._feed(data)
+        except OSError:
+            return []
+        seen: set[int] = set()
+        out: list[dict] = []
+        for _, row in sorted(self._rows.values(), key=lambda v: v[0]):
+            if id(row) not in seen:
+                seen.add(id(row))
+                out.append(row)
+        return out
+
+
+def _parse_line(ln: bytes) -> dict | None:
+    ln = ln.strip()
+    if not ln:
+        return None
+    try:
+        row = json.loads(ln)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return row if isinstance(row, dict) else None
+
+
+def _configured_accounts() -> list[str]:
+    try:
+        return list((_config.get_config().get("accounts") or {}).keys())
+    except Exception:
+        return []
+
+
+_LATEST = _LatestRows()
+
+
 def read_all_rate_limits_tail() -> list[dict]:
-    """rate-limits.jsonl の末尾 32KB を 1 回読んで parse 済 list を返す (= 全 sid 共有用)。
+    """rate-limits.jsonl から「アカウントごと・session ごとの最新行」 を古→新の順で返す
+    (= 全 sid 共有用)。
 
     `_build_all_status` が複数 sid 分を 1 回の SSE で配るとき、 sid 毎に
-    `read_latest_rate_limits` を呼ぶと同じ tail を sid 数回 read するので、 ここで 1 回
-    にまとめて呼び出し側が in-memory filter する。 list は古→新の時系列順。"""
+    `read_latest_rate_limits` を呼ぶと同じ file を sid 数回 read するので、 ここで 1 回
+    にまとめて呼び出し側が in-memory filter する。 各アカウントの最新行が必ず含まれる
+    ので、 呼び出し側は account で絞った末尾をそのまま最新値として使える。"""
     path = _config.RATE_LIMITS_LOG_PATH
     if not path:
         return []
-    try:
-        with open(path, "rb") as f:
-            f.seek(0, 2)
-            size = f.tell()
-            f.seek(max(0, size - 32768))
-            tail = f.read().decode("utf-8", errors="replace")
-    except OSError:
-        return []
-    parsed: list[dict] = []
-    # 32KB 内で 200 行までは widen して見る (= 旧 read_latest 互換)、 末尾 100 行に
-    # 絞らず広めに parse して、 latest_from_tail 側が account filter 後の末尾を選べる
-    # ようにする。
-    for ln in split_jsonl_text(tail)[-200:]:
-        ln = ln.strip()
-        if not ln:
-            continue
-        try:
-            parsed.append(json.loads(ln))
-        except (json.JSONDecodeError, ValueError):
-            continue
-    return parsed
+    return _LATEST.rows(path)
 
 
 def latest_from_tail(
