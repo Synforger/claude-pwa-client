@@ -7,6 +7,7 @@ import { formatToolResultContent, formatDuration, formatModelName, formatTokens 
 import { diffLines, compactDiff } from '../../utils/diff.js'
 import { apiFetch } from '../../utils/api.js'
 import { useT } from '../../i18n/t.js'
+import { parseAgentMessage } from './agentMessage.js'
 import './MessageItem.css'
 
 const RESULT_PREVIEW_CHARS = 800
@@ -321,6 +322,8 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
   // 永久に「…」 を出し、 path のリンク化も skip され続ける。 進行中なのは時系列で最後の
   // 1 個だけなので、 そこから導出すれば経路依存でズレない。
   const live = !!msg.streaming && !!isLast
+  // 別のタブの claude から届いた連絡は、 人が打った発話と同じ user 行で届く。 本文の形から導出する。
+  const relayed = useMemo(() => (msg.role === 'user' ? parseAgentMessage(msg.text) : null), [msg.role, msg.text])
   // system kind は messageRegistry に「fromEvent + Render」 ペアで集約しており、
   // ここでは generic lookup で表示コンポーネントを引くだけ (= F-04 consumer)。
   // 新しい system kind を増やす時は messageRegistry に Render を 1 個足すだけで配線完了、
@@ -383,7 +386,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
 
   return (
     <div
-      className={`message ${msg.role}`}
+      className={`message ${msg.role}${relayed ? ' relayed' : ''}`}
       data-testid={`message-bubble-${msg.role}`}
       data-cpc-role={msg.role}
       data-cpc-uuid={msg.uuid || ''}
@@ -526,6 +529,19 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
           )}
           <StopReasonChip meta={msg.meta} streaming={live} />
           <MetaLine meta={msg.meta} streaming={live} trailing={agentForkBtn} />
+        </div>
+      ) : relayed ? (
+        <div className="relayed-block">
+          <div className="relayed-from" data-testid="relayed-from">{t('chat.relayed_from', { name: relayed.from })}</div>
+          <span className="bubble">
+            {relayed.operatorSaid && (
+              <blockquote className="relayed-operator" data-testid="relayed-operator">
+                <span className="relayed-operator-label">{t('chat.relayed_operator_said')}</span>
+                {relayed.operatorSaid}
+              </blockquote>
+            )}
+            <MessageRenderer text={relayed.text} onOpenFile={onOpenFile} streaming={false} />
+          </span>
         </div>
       ) : (
         <span className="bubble">

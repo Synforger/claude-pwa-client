@@ -55,6 +55,7 @@ from backend.terminal.confirm import (
     _is_plain_user_prompt,
     _wait_count_added,
 )
+from backend.terminal.first_message import launch_with_first_message
 from backend.terminal.input_ready import wait_ready
 from backend.terminal.send_dedup import send_dedup
 from backend.terminal.session_resolver import (
@@ -109,14 +110,19 @@ async def pty_socket(ws: WebSocket, session_id: str) -> None:
     # (= the WS output side). pump_from_client tolerates the missing process
     # because the e2e harness never sends user input through this WS - it
     # writes via /debug/e2e/pty-write instead.
-    if os.environ.get("CPC_E2E") == "1" and pty_sessions.get(session_id) is None:
-        pty_sessions[session_id] = PtySession(
-            session_id=session_id,
-            process=None,  # type: ignore[arg-type]
-            master_fd=-1,
-            output_queue=asyncio.Queue(maxsize=1024),
-            exit_event=asyncio.Event(),
-        )
+    # 置くのは「生きている session が無い時」。 チャット画面の接続 (= ensure_pty_session_for) が先に
+    # 本物を起こそうとして、 終了済みの session を残していることがある。 それを「在る」 と数えると
+    # 作り物に替わらず、 下の起こし直しへ進んで、 つないだ画面に終了だけが返り続ける。
+    if os.environ.get("CPC_E2E") == "1":
+        existing = pty_sessions.get(session_id)
+        if existing is None or existing.exit_event.is_set():
+            pty_sessions[session_id] = PtySession(
+                session_id=session_id,
+                process=None,  # type: ignore[arg-type]
+                master_fd=-1,
+                output_queue=asyncio.Queue(maxsize=1024),
+                exit_event=asyncio.Event(),
+            )
 
     session = pty_sessions.get(session_id)
     if session is None or session.exit_event.is_set():
@@ -330,6 +336,7 @@ def _e2e_inject_user_row(session_id: str, text: str) -> dict:
     row = {
         "type": "user",
         "uuid": user_uuid,
+        "origin": {"kind": "human"},
         "message": {"role": "user", "content": text},
         "timestamp": ts,
     }
@@ -395,6 +402,10 @@ async def pty_send(
 
     if os.environ.get("CPC_E2E") == "1" and text and enter:
         return _e2e_inject_user_row(session_id, text)
+
+    # launcher の新しい会話: 最初の本文で claude を起動する (= `first_message.py`)。
+    if text and enter and (launched := await launch_with_first_message(session_id, text)) is not None:
+        return launched
 
     # 本文送信は claude が打鍵を受け取れるようになるまで待つ (= restart 直後の
     # 「tmux は在るが claude はまだ端末を読んでいない」 窓に打つと、 本文と Enter が
@@ -523,6 +534,9 @@ async def pty_send_with_files(
     if not full_text:
         return {"ok": False, "reason": "empty"}
     saved_files = [{"name": s["name"], "path": s["path"]} for s in saved]
+    # launcher の新しい会話: 最初の本文で claude を起動する (= `first_message.py`)。
+    if (launched := await launch_with_first_message(session_id, full_text)) is not None:
+        return {**launched, "saved_files": saved_files}
     _, is_slash = _delivery_counter(full_text)
     jsonl_path = jsonl_path_for_session(session_id)
     initial_pos = 0

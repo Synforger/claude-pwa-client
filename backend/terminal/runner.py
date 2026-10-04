@@ -544,6 +544,10 @@ def resize_pty(session: PtySession, rows: int, cols: int) -> None:
     if session.control_mode:
         _write_control_command(session, build_refresh_client_line(max(1, cols), max(1, rows)))
         return
+    if session.master_fd < 0:
+        # 端末を持たない session (= e2e の作り物) には、 大きさを伝える先が無い。 fd が負の ioctl は
+        # OSError ではなく ValueError を投げるので、 下の except では拾えず、 入力側の受け口ごと落ちる。
+        return
     try:
         _set_winsize(session.master_fd, max(1, rows), max(1, cols))
     except OSError:

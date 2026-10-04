@@ -1,7 +1,7 @@
 # HTTP endpoints schema (= front <-> back contract、 真値)
 #
 # scope:
-#   - 33 endpoint を全件列挙 (= interface-current.md § 1 起点)
+#   - 34 endpoint を全件列挙 (= interface-current.md § 1 起点)
 #   - method / path / request body or query / response / 認証 / 不変条件
 #
 # 認証 (= auth field):
@@ -410,6 +410,29 @@ endpoints:
       - "保存先 = uploads/tmp 配下"
       - "saved_files は backend 保存後の path 配列"
     implementation: backend/terminal/routes.py
+
+  - method: POST
+    path: /agent-messages
+    description: "タブの中の claude から、 別のタブの claude への連絡 (= multipart / urlencoded form)"
+    request_body:
+      type: object
+      description: "form: to (= 宛先のタブの id か名前) + from (= 送り主のタブの id) + text (= 本文)"
+    response:
+      type: object
+      properties:
+        ok:        { type: boolean }
+        delivered: { type: boolean }
+        to:        { type: string, description: "届け先のタブの id" }
+        operator_said: { type: boolean, description: "送り主のタブで人が打った発話を封筒に入れたか" }
+      required: [ok, to, operator_said]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "本文に送り主を名乗る封筒を付けて届ける (= 1 行目は固定、 人の送信口 /pty/{sid}/send には付かない)"
+      - "宛先で claude が動いていなければ届けない (= 連絡で会話を起動しない)"
+      - "config の agent_message_check が 0 以外で終われば届けず、 理由を 403 で返す"
+      - "送り主のタブで最後に端末から入った発話が人の物なら <operator-said> として封筒に入れる (= agent_message_operator_check が 0 以外なら入れずに届ける)"
+    implementation: backend/routes/agent_messages.py
 
   - method: POST
     path: /pty/{sid}/send-raw-key

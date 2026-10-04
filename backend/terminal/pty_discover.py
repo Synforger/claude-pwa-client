@@ -53,6 +53,26 @@ def tmux_pane_pids(session_id: str) -> list[int]:
     return [int(s) for s in r.stdout.split() if s.strip().isdigit()]
 
 
+def _is_claude(proc: psutil.Process) -> bool:
+    """claude のプロセスか。 プロセス名か起動時の名前 (= argv[0]) のどちらかが `claude`。
+
+    native install の claude は実体が版番号の file (= `~/.local/share/claude/versions/2.1.283`)
+    で、 プロセス名はその file 名になる (= `claude` ではない)。 `claude` と打って起動した時の
+    名前は argv[0] に残るので、 そちらでも見る。
+    """
+    try:
+        name = proc.name()
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return False
+    if name and Path(name).name == "claude":
+        return True
+    try:
+        argv = proc.cmdline()
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        return False
+    return bool(argv) and Path(argv[0]).name == "claude"
+
+
 def _find_claude_descendant_info(
     root_pid: int, max_depth: int = 6,
 ) -> tuple[int, float, str] | None:
@@ -76,11 +96,7 @@ def _find_claude_descendant_info(
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
         for child in children:
-            try:
-                name = child.name()
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
-            if name and Path(name).name == "claude":
+            if _is_claude(child):
                 try:
                     start_time = float(child.create_time())
                     cwd = child.cwd()
@@ -90,6 +106,12 @@ def _find_claude_descendant_info(
                     return (child.pid, start_time, cwd)
             queue.append((child, depth + 1))
     return None
+
+
+def claude_in_pane(session_id: str) -> bool:
+    """tmux pane の子孫に claude プロセスが居るか (= 画面の真値。 backend の記憶に頼らない)。"""
+    return any(_find_claude_descendant_info(pid) is not None
+               for pid in tmux_pane_pids(session_id))
 
 
 def find_claude_descendant(root_pid: int, max_depth: int = 6) -> int | None:
