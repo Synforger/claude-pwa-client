@@ -118,6 +118,18 @@
   color: var(--text);
   border: 1px solid var(--accent);
 }
+/* 送り主のタブで人が打った発話: 連絡の本文の上に、 引用として置く */
+.relayed-operator {
+  margin: 0 0 8px;
+  padding: 2px 0 2px 10px;
+  border-left: 3px solid var(--accent);
+  white-space: pre-wrap;
+}
+.relayed-operator-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-dim);
+}
 
 .message.agent .bubble {
   background: var(--bg3);

@@ -187,6 +187,7 @@ class PostAgentMessagesResponse(BaseModel):
     ok: bool
     delivered: Optional[bool] = None
     to: str  # 届け先のタブの id
+    operator_said: bool  # 送り主のタブで人が打った発話を封筒に入れたか
 
 
 class PostPtySidSendRawKeyRequest(BaseModel):

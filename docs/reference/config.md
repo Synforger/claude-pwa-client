@@ -99,6 +99,8 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 - `uploads_tmp`: 添付ファイルの一時保存先ディレクトリ
 - `agent_message_check` (任意): タブどうしの連絡を届ける前に走らせる検査コマンド (= 語のリスト)。
   書き方は [agent-messages.md](agent-messages.md) の「届ける前に検査する」 を参照
+- `agent_message_operator_check` (任意): 連絡に人の発話を付けてよいかを決めるコマンド (= 語のリスト)。
+  同じ節を参照
 - `rate_limits_log`: 使用率 (5h / 7d / context) を記録する JSONL の path。 **このファイルを
   書くのは claude の statusline スクリプト** (= claude が statusline subprocess に渡す
   `rate_limits` を 1 行ずつ追記する)。 backend はこれを読んでステータスバーに表示する。

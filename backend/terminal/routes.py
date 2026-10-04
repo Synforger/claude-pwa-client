@@ -331,6 +331,7 @@ def _e2e_inject_user_row(session_id: str, text: str) -> dict:
     row = {
         "type": "user",
         "uuid": user_uuid,
+        "origin": {"kind": "human"},
         "message": {"role": "user", "content": text},
         "timestamp": ts,
     }

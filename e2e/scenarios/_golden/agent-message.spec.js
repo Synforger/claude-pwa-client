@@ -45,6 +45,38 @@ test.describe('golden: agent-message', () => {
     await page.screenshot({ path: testInfo.outputPath('agent-message-narrow.png') })
   })
 
+  test('what the operator typed in the sender\'s tab travels with the message', async ({ page, request }, testInfo) => {
+    const sender = await seedSession(request, 'e2e-tab-a')
+    const receiver = await seedSession(request, 'e2e-tab-b')
+    await openClient(page, { sid: receiver.sid })
+
+    // The operator types in tab A; then tab A's Claude writes to tab B.
+    const said = await request.post(`/pty/${sender.sid}/send`, {
+      data: { text: 'have the owner of the tool fix the wrapped title', enter: true },
+    })
+    expect(said.ok()).toBeTruthy()
+    const res = await request.post('/agent-messages', {
+      form: { to: receiver.sid, from: sender.sid, text: BODY },
+    })
+    expect((await res.json()).operator_said).toBe(true)
+
+    const relayed = page.locator('[data-testid=message-bubble-user].relayed')
+    await expect(relayed).toHaveCount(1, { timeout: 20_000 })
+    await expect(relayed.locator('[data-testid=relayed-operator]')).toContainText('have the owner of the tool fix the wrapped title')
+    await expect(relayed).toContainText('The page builder drops the last row')
+    await expect(relayed).not.toContainText('operator-said')
+
+    // A message tab B's Claude sends back was started by a relayed message: it carries none.
+    const back = await request.post('/agent-messages', {
+      form: { to: sender.sid, from: receiver.sid, text: 'fixed in the next build' },
+    })
+    expect((await back.json()).operator_said).toBe(false)
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(relayed).toBeVisible()
+    await page.screenshot({ path: testInfo.outputPath('agent-message-operator-said.png') })
+  })
+
   test('a title no tab carries is refused, and nothing arrives', async ({ page, request }) => {
     const sender = await seedSession(request, 'e2e-tab-a')
     const receiver = await seedSession(request, 'e2e-tab-b')

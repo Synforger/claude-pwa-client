@@ -39,6 +39,28 @@ Message from another session, relayed by the client (the operator did not type t
 
 返事を送る時は、 `session` の値を `to` に指定します。
 
+### 人の発話も一緒に届く
+
+送り主のタブで人が最後に打った発話が在れば、 封筒の先頭に入ります。
+
+```
+Message from another session, relayed by the client (the operator did not type this):
+<agent-message from="送り主のタブ名" session="送り主のタブの id">
+<operator-said>
+道具の持ち主に、 題が 2 行になると重なるのを直させて
+</operator-said>
+題が 2 行になると本体に重なります。 再現は見本の 3 頁目です。
+</agent-message>
+```
+
+宛先の Claude は、 この連絡が人の指示から出た物かどうかを、 送り主の説明ではなく人の言葉そのもので
+判断できます。 `<operator-said>` を書くのは backend だけで、 本文の側からは書けません。
+
+- 入るのは、 送り主のタブで**最後に端末から入った発話が人の物だった時**だけです。 送り主の今の作業が
+  別のタブからの連絡で始まっていた時は入りません
+- 画面では、 連絡の吹き出しの上部に引用として出ます
+- 応答の `operator_said` が、 入れたかどうかです
+
 人が画面から送った発話には、 この 1 行目は付きません。 Claude の端末への入力を読む外部の道具で
 「人が打った発話」 と「別のタブから届いた連絡」 を分けたい時は、 この 1 行目で見分けられます。
 
@@ -68,3 +90,14 @@ Message from another session, relayed by the client (the operator did not type t
 - 書いていなければ、 検査なしで届けます
 
 タブごとに読ませている資料が違い、 あるタブの資料の中身を別のタブへ流したくない場合に使います。
+
+人の発話を付けてよいかは、 別のコマンドで決められます。
+
+```json
+"agent_message_operator_check": ["python3", "~/bin/check-words.py", "--to", "{session}", "--typed-in", "{sender_session}", "--text", "{file}"]
+```
+
+- `{file}` は人の発話を書いたファイルの path に、 `{session}` は宛先の、 `{sender_session}` は送り主の
+  Claude の session id に置き換わります
+- 終了コードが 0 なら発話を付けます。 0 以外なら**発話を付けずに本文だけ届けます** (= 連絡は止めません)
+- 書いていなければ、 発話は在れば必ず付きます
