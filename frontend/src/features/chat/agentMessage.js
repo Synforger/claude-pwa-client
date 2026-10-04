@@ -11,9 +11,15 @@ export const AGENT_MESSAGE_OPENING =
 // 連絡は端末への貼り付けで届くので、 実物の行はこの包みの中に封筒が入った形になる。
 const PASTED = /^<pasted_content[^>\n]*>\n?([\s\S]*?)\n?<\/pasted_content[^>\n]*>$/
 
+// 送り主のタブで人が最後に打った発話。 backend が封筒の先頭に入れる (= 在る時だけ)。
+const OPERATOR_SAID = /^<operator-said>\n([\s\S]*?)\n<\/operator-said>\n?/
+// backend は中身の側の「封筒のタグと同じ形」 を &lt; に替えて届ける。 表示では元に戻す。
+const restore = (text) => text.replace(/&lt;(\/?)(agent-message|operator-said)/g, '<$1$2')
+
 const ENVELOPE = /^<agent-message from="([^"\n]*)" session="([^"\n]*)">\n([\s\S]*)\n<\/agent-message>\s*$/
 
-/** 封筒の付いた発話なら { from, session, text } (= 送り主のタブ名 / タブ id / 本文)、 違えば null。 */
+/** 封筒の付いた発話なら { from, session, text, operatorSaid } (= 送り主のタブ名 / タブ id / 本文 /
+ *  送り主のタブで人が打った発話、 無ければ null)、 違えば null。 */
 export function parseAgentMessage(text) {
   if (typeof text !== 'string') return null
   const pasted = PASTED.exec(text.trim())
@@ -21,5 +27,7 @@ export function parseAgentMessage(text) {
   if (!trimmed.startsWith(AGENT_MESSAGE_OPENING)) return null
   const m = ENVELOPE.exec(trimmed.slice(AGENT_MESSAGE_OPENING.length).trimStart())
   if (!m) return null
-  return { from: m[1], session: m[2], text: m[3].replaceAll('&lt;/agent-message', '</agent-message') }
+  const said = OPERATOR_SAID.exec(m[3])
+  const body = said ? m[3].slice(said[0].length) : m[3]
+  return { from: m[1], session: m[2], text: restore(body), operatorSaid: said ? restore(said[1]) : null }
 }

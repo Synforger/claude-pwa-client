@@ -534,6 +534,12 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
         <div className="relayed-block">
           <div className="relayed-from" data-testid="relayed-from">{t('chat.relayed_from', { name: relayed.from })}</div>
           <span className="bubble">
+            {relayed.operatorSaid && (
+              <blockquote className="relayed-operator" data-testid="relayed-operator">
+                <span className="relayed-operator-label">{t('chat.relayed_operator_said')}</span>
+                {relayed.operatorSaid}
+              </blockquote>
+            )}
             <MessageRenderer text={relayed.text} onOpenFile={onOpenFile} streaming={false} />
           </span>
         </div>

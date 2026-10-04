@@ -45,6 +45,16 @@ describe('MessageItem render smoke', () => {
     expect(container.querySelector('.message.user.relayed')).not.toBeNull()
   })
 
+  it('a relayed message shows what the operator said above its body', () => {
+    const text = `${AGENT_MESSAGE_OPENING}\n<agent-message from="tools" session="ses_sender">\n<operator-said>\nhave the owner fix it\n</operator-said>\na title that wraps overlaps\n</agent-message>`
+    const { container, getByTestId } = render(
+      <MessageItem {...baseProps} msg={{ id: 'u4', role: 'user', text }} />,
+    )
+    expect(getByTestId('relayed-operator').textContent).toContain('have the owner fix it')
+    expect(container.textContent).toContain('a title that wraps overlaps')
+    expect(container.textContent).not.toContain('operator-said')
+  })
+
   it('a message the operator typed is not marked as relayed', () => {
     const { container, queryByTestId } = render(
       <MessageItem {...baseProps} msg={{ id: 'u3', role: 'user', text: 'hello' }} />,
