@@ -39,9 +39,9 @@ INTERRUPT_USER_RE = re.compile(r"^\s*\[request interrupted by user\]\s*$", re.IG
 
 # claude は端末への複数行の貼り付けを `<pasted_content id="N">` 〜 `</pasted_content id="N">` で包んで
 # 記録する (= 閉じ側にも id が付く、 claude 固有の形)。 人が打った文そのものではないので、 表示にも
-# 本文の突き合わせにも使わない。
-_PASTED_OPEN_RE = re.compile(r'<pasted_content id="\d+">\n?')
-_PASTED_CLOSE_RE = re.compile(r'\n?</pasted_content id="\d+">')
+# 本文の突き合わせにも使わない。 id の字の種類は決めつけない (= 実物に `2091` も `c199` も在る)。
+_PASTED_OPEN_RE = re.compile(r'<pasted_content id="[^"\s>]+">\n?')
+_PASTED_CLOSE_RE = re.compile(r'\n?</pasted_content id="[^"\s>]+">')
 
 
 def unwrap_pasted(text: str) -> str:

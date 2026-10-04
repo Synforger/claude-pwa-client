@@ -119,6 +119,15 @@ def test_a_prompt_recorded_as_a_paste_is_shown_without_its_wrapper():
     assert event["text"].strip() == "first line\nsecond line"
 
 
+def test_the_wrapper_s_id_is_not_always_a_number():
+    # 実物の形: 口座や版によって id は `2091` のことも `c199` のこともある
+    for ident in ("2091", "c199", "a1-b2_c3"):
+        line = {"type": "user", "uuid": "u-i", "message": {"role": "user", "content":
+                f'\n\n<pasted_content id="{ident}">\nfirst line\nsecond line\n</pasted_content id="{ident}">\n'}}
+        (event,) = jsonl_line_to_events(line)
+        assert event["text"].strip() == "first line\nsecond line", ident
+
+
 def test_a_paste_inside_typed_words_keeps_the_words_around_it():
     line = {"type": "user", "uuid": "u-q", "message": {"role": "user", "content": [
         {"type": "text", "text": 'see this:\n<pasted_content id="7">\nline A\nline B\n</pasted_content id="7">\nthanks'}]}}
@@ -127,7 +136,8 @@ def test_a_paste_inside_typed_words_keeps_the_words_around_it():
 
 
 def test_words_that_only_mention_the_tag_are_left_alone():
-    for text in ("how does <pasted_content> work?", "a </pasted_content> with no id", '<pasted_content id="x"> is not one'):
+    for text in ("how does <pasted_content> work?", "a </pasted_content> with no id", '<pasted_content id=""> is not one',
+                 '<pasted_content id="has space"> neither'):
         (event,) = jsonl_line_to_events({"type": "user", "uuid": "u-r", "message": {"role": "user", "content": text}})
         assert event["text"] == text
 
