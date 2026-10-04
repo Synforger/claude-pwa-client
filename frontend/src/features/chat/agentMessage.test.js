@@ -34,15 +34,7 @@ describe('parseAgentMessage', () => {
     expect(parseAgentMessage(`\n  ${wrap('hello')}\n\n`).text).toBe('hello')
   })
 
-  it('reads an envelope Claude Code recorded as pasted text', () => {
-    // the shape a real session records: the terminal paste is wrapped, with blank lines around it
-    const recorded = `\n\n<pasted_content id="2091">\n${wrap('line one\nline two', 'tools', 'ses_sender')}\n</pasted_content id="2091">\n`
-    expect(parseAgentMessage(recorded)).toEqual({ from: 'tools', session: 'ses_sender', text: 'line one\nline two', operatorSaid: null })
-  })
-
   it.each([
-    ['pasted text that is not an envelope', '<pasted_content id="7">\nhello\nthere\n</pasted_content id="7">'],
-    ['an envelope pasted after words of the operator\'s own', `see this:\n<pasted_content id="7">\n${wrap('hello')}\n</pasted_content id="7">`],
     ['what the operator typed', 'hello there'],
     ['a message that only mentions the opening further down', `look:\n${wrap('hello')}`],
     ['an opening with no envelope after it', `${AGENT_MESSAGE_OPENING}\nhello`],

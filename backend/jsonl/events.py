@@ -19,7 +19,7 @@ import re
 
 # harness 内部表現 / interrupt marker の判定 regex は行レベル純粋プリミティブとして
 # core/jsonl_predicates.py に集約 (= jsonl / terminal 両 subsystem が使う共有底層)。
-from backend.core.jsonl_predicates import HARNESS_XML_RE
+from backend.core.jsonl_predicates import HARNESS_XML_RE, unwrap_pasted
 from backend.core.jsonl_tail import parse_jsonl_timestamp
 
 
@@ -318,7 +318,7 @@ def _user_events(line: dict) -> list[dict]:
         # claude TUI の slash command / stdout 内部表現は user 発話ではないので chat には出さない
         if HARNESS_XML_RE.match(text):
             return []
-        return [{"type": "user_message", "text": content, "uuid": line.get("uuid"), "ts": _ts_ms(line)}]
+        return [{"type": "user_message", "text": unwrap_pasted(content), "uuid": line.get("uuid"), "ts": _ts_ms(line)}]
 
     if isinstance(content, list):
         has_tool_result = any(
@@ -335,6 +335,6 @@ def _user_events(line: dict) -> list[dict]:
         ]
         joined = "".join(texts).strip()
         if joined:
-            return [{"type": "user_message", "text": "".join(texts), "uuid": line.get("uuid"), "ts": _ts_ms(line)}]
+            return [{"type": "user_message", "text": unwrap_pasted("".join(texts)), "uuid": line.get("uuid"), "ts": _ts_ms(line)}]
 
     return []
