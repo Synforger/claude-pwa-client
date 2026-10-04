@@ -132,7 +132,8 @@ async def post_agent_message(
     receiver_id = resolve_receiver(to)
     if receiver_id == sender:
         raise_error(400, "agent_message_to_self", "自分のタブへは送れません")
-    if not claude_in_pane(receiver_id):
+    # e2e (= CPC_E2E=1) には本物の claude が居ない。 送信口と同じく、 端末の代わりに記録へ行を足す。
+    if os.environ.get("CPC_E2E") != "1" and not claude_in_pane(receiver_id):
         # 連絡で会話を起こさない: 新しい会話は最初の発話で起動の仕方が決まる。
         raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いていません")
     await check(receiver_id, text)
