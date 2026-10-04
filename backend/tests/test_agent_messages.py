@@ -265,8 +265,9 @@ def test_text_recorded_as_a_paste_is_read_without_its_wrapper(tmp_path):
 
 def test_work_another_tab_s_message_started_carries_no_operator_s_words(tmp_path):
     assert am.last_operator_text(_record(tmp_path, [_human("fix the title"), _human(_relayed())])) is None
-    pasted = f'\n\n<pasted_content id="7">\n{_relayed()}\n</pasted_content id="7">\n'
-    assert am.last_operator_text(_record(tmp_path, [_human("fix the title"), _human(pasted), *OTHER_ROWS])) is None
+    for ident in ("7", "c199"):     # 実物の id は数字だけとは限らない
+        pasted = f'\n\n<pasted_content id="{ident}">\n{_relayed()}\n</pasted_content id="{ident}">\n'
+        assert am.last_operator_text(_record(tmp_path, [_human("fix the title"), _human(pasted), *OTHER_ROWS])) is None
 
 
 @pytest.mark.parametrize("rows", [[], OTHER_ROWS, [{"type": "user", "message": {"role": "user", "content": "no origin"}}]])
