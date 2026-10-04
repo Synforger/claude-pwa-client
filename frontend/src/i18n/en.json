@@ -169,6 +169,7 @@
   "attachments.remove": "Remove attachment",
   "diff.relative_lines": "line numbers are relative",
   "chat.relayed_from": "From {name}",
+  "chat.relayed_operator_said": "The operator said",
   "chat.thinking": "Thinking…",
   "chat.scroll_latest": "Jump to the latest message",
   "tool.chars": "{n} chars",

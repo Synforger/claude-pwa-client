@@ -179,6 +179,8 @@ export interface PostAgentMessagesResponse {
   delivered?: boolean
   /** 届け先のタブの id */
   to: string
+  /** 送り主のタブで人が打った発話を封筒に入れたか */
+  operator_said: boolean
 }
 
 /** POST /pty/{sid}/send-raw-key request body */
