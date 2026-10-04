@@ -220,6 +220,9 @@ def __getattr__(name: str) -> Any:  # noqa: PLR0911
         ).expanduser()
     if name == "CLAUDE_PATH":
         return cfg.get("claude_path")
+    if name == "AGENT_MESSAGE_CHECK":
+        check = cfg.get("agent_message_check")
+        return check if isinstance(check, list) and all(isinstance(w, str) for w in check) else []
     if name == "CORS_ALLOW_ORIGINS":
         return cfg.get("cors_allow_origins", [])
     if name == "RATE_LIMITS_LOG_PATH":
