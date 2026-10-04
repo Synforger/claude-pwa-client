@@ -19,13 +19,18 @@
 #   task restart                      # backend kickstart (= 反応無い時)
 #   task logs                         # backend error log tail
 #
-# Variables (= 自環境に合わせて上書き可、 例: PORT=8766 task status):
+# Variables (= 自環境に合わせて上書き可。 repo の根の `.env` に `PORT=8766` のように書いておくか、
+# その場で `task status PORT=8766` と引数で渡す。 引数が `.env` に勝つ):
 #   PORT (default 8765)
 #   LAUNCH_AGENT_LABEL (default com.claudepwa.client)
 #   CONDA_ENV (default pwa-client)
 # =============================================================================
 
 version: '3'
+
+# 機械ごとの値 (= PORT / LAUNCH_AGENT_LABEL / CONDA_ENV) は、 repo の根の `.env` に書いておける
+# (= git には入らない)。 `task <名前> PORT=8766` と引数で渡した値は `.env` に勝つ。
+dotenv: ['.env']
 
 vars:
   PORT: '{{.PORT | default "8765"}}'

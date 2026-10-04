@@ -208,6 +208,14 @@ task status             # LaunchAgent + port + /debug/healthcheck 12 項目を�
 
 plist template = [`launchd/com.claudepwa.client.plist.example`](launchd/com.claudepwa.client.plist.example)。 編集ポイント (= 絶対 path 5 箇所) は同 file 冒頭コメント参照。
 
+port や LaunchAgent の名前を既定 (= `8765` / `com.claudepwa.client`) から変えた機械では、 repo の根に `.env` を
+置いて書いておくと、 `task status` / `task restart` がその値で動く (= `.env` は git に入らない)。
+
+```
+PORT=8766
+LAUNCH_AGENT_LABEL=com.example.pwa-backend
+```
+
 backend はアプリ内で `RotatingFileHandler` を構成しているため、 plist の `StandardOutPath` は `uvicorn` 起動行 + 致命例外を拾う補助用。 メインログは `logs/backend.access.log` / `logs/backend.error.log` に 5 MB × 3 世代で自動ローテートされる。
 
 **PC 再起動後**: LaunchAgent KeepAlive で自動起動するはずなので、 `task status` で生死確認。 反応無ければ `task restart` で kickstart、 log は `task logs`。
