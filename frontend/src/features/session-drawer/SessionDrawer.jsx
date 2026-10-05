@@ -35,6 +35,7 @@ import {
 } from '../../state/locale.js'
 import { useT } from '../../i18n/t.js'
 import { hardRefreshAppShell } from '../../utils/appRefresh.js'
+import { runningBuildId } from '../../utils/appUpdate.js'
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
 import './SessionDrawer.css'
 
@@ -139,6 +140,7 @@ export default function SessionDrawer() {
   // 過去にこれを呼んでいたため backend に古い endpoint が大量に残った。 update() で
   // 新版 SW を install (= sw.js の skipWaiting + clients.claim で即時反映) して、
   // 既存 PushSubscription は維持する。
+  const runningBuild = useMemo(() => runningBuildId(), [])
   const handleReset = async () => {
     setResetBusy(true)
     // 刷新本体は utils/appRefresh.js (= vite:preloadError 自動復旧と共有の真値 1 箇所)。
@@ -396,6 +398,10 @@ export default function SessionDrawer() {
                   title={t('drawer.menu.update_app_title')}
                 >
                   {t('drawer.menu.update_app')}
+                  {/* この画面が動かしている build (= 載せた build と同じかを見比べる手がかり) */}
+                  {runningBuild && (
+                    <span className="drawer-global-build" data-testid="running-build">build {runningBuild}</span>
+                  )}
                 </button>
                 {restartable && (
                   <button
