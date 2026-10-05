@@ -25,4 +25,6 @@ PWA を**使うだけ**なら読む必要はありません。 [../README.md](..
 4. **gitleaks** (= staged 分の secret パターン検知、 RSA / SSH 秘密鍵 / token 形式)
 5. **audit-w2-residue** (= `frontend/src/state/` `features/` `layout/` `*.css` のいずれかが staged の時のみ、 状態二重管理 / orphan setter / CSS absolute anchor を検出)
 
+`task ci` を手元で通すには、 `frontend/` に加えて `contracts/` でも `npm ci` を済ませておく (= `task setup` が入れるのは `frontend/` の依存だけで、 最後の段の `contracts:check` は `contracts/node_modules` を使う。 別の checkout や git worktree で回す時も同じ)。 e2e (= `e2e/` で `npm ci` → `npm test`) は `task ci` に入っていないので、 画面や送受信の経路を変えた時は別に回す。
+
 意図的に gate を回避したい時は `--no-verify`。 偽陽性は `.tooling/local-ci/audit-w2-residue-allowlist.txt` に追記。
