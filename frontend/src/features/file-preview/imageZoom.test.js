@@ -16,6 +16,7 @@ import {
   dragTo,
   INITIAL_ZOOM_STATE,
   reduceZoom,
+  gestureTouches,
   wheelZoomFactor,
   wheelPanDelta,
 } from './imageZoom.js'
@@ -332,6 +333,50 @@ describe('reduceZoom (= 入力ごとの移り方)', () => {
 
   it('leaves the state alone for an action it does not know', () => {
     expect(reduceZoom(INITIAL_ZOOM_STATE, { type: 'nope', geom })).toBe(INITIAL_ZOOM_STATE)
+  })
+})
+
+describe('gestureTouches (= Safari の trackpad のピンチ)', () => {
+  const geom = WIDE
+
+  it('turns a centre and a scale into two points that far apart around the centre', () => {
+    const touches = gestureTouches({ x: 120, y: 80 }, 3)
+    expect(span(touches[0], touches[1])).toEqual({ x: 120, y: 80, distance: 3 })
+  })
+
+  it('zooms by the scale the gesture reports, about where the pointer is', () => {
+    const point = { x: 100, y: 60 }
+    let state = reduceZoom(INITIAL_ZOOM_STATE, { type: 'grab', geom, touches: gestureTouches(point, 1) })
+    state = reduceZoom(state, { type: 'move', geom, touches: gestureTouches(point, 1.5) })
+    state = reduceZoom(state, { type: 'move', geom, touches: gestureTouches(point, 3) })
+    expect(state.view.zoom).toBeCloseTo(3, 10)
+    expect(under(state.view, geom, point).fx).toBeCloseTo(0.25, 10)
+
+    state = reduceZoom(state, { type: 'grab', geom, touches: [] })
+    expect(state.grab).toBeNull()
+    expect(state.view.zoom).toBeCloseTo(3, 10)
+  })
+
+  it('starts the next gesture from where the last one ended', () => {
+    const point = { x: 100, y: 60 }
+    let state = reduceZoom(INITIAL_ZOOM_STATE, { type: 'grab', geom, touches: gestureTouches(point, 1) })
+    state = reduceZoom(state, { type: 'move', geom, touches: gestureTouches(point, 2) })
+    state = reduceZoom(state, { type: 'grab', geom, touches: [] })
+    state = reduceZoom(state, { type: 'grab', geom, touches: gestureTouches(point, 1) })
+    state = reduceZoom(state, { type: 'move', geom, touches: gestureTouches(point, 2) })
+    expect(state.view.zoom).toBeCloseTo(4, 10)
+  })
+
+  it('pinches back in no further than the fit', () => {
+    const point = { x: 100, y: 60 }
+    let state = reduceZoom(INITIAL_ZOOM_STATE, { type: 'grab', geom, touches: gestureTouches(point, 1) })
+    state = reduceZoom(state, { type: 'move', geom, touches: gestureTouches(point, 0.2) })
+    expect(state.view).toEqual({ zoom: 1, x: 0, y: 0 })
+  })
+
+  it('reads a scale that is not a positive number as no change', () => {
+    expect(gestureTouches({ x: 5, y: 5 }, NaN)).toEqual(gestureTouches({ x: 5, y: 5 }, 1))
+    expect(gestureTouches({ x: 5, y: 5 }, 0)).toEqual(gestureTouches({ x: 5, y: 5 }, 1))
   })
 })
 

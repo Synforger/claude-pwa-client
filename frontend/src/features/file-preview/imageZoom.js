@@ -136,6 +136,14 @@ export function dragTo(start, geom, from, to) {
   }, geom)
 }
 
+// Safari が trackpad のピンチを伝える出来事 (= gesturestart / gesturechange) を、 指 2 本の形に直す。
+// 出来事が持つのは中心 point と、 始まりを 1 とした倍率 scale。 中心を挟んで間隔が scale に比例する
+// 2 点にすれば、 指 2 本と同じ計算 (= dragTo) がそのまま使える。
+export function gestureTouches(point, scale) {
+  const half = (Number.isFinite(scale) && scale > 0 ? scale : 1) / 2
+  return [{ x: point.x - half, y: point.y }, { x: point.x + half, y: point.y }]
+}
+
 // Ctrl / ⌘ を押しながらの wheel 1 回ぶんの倍率 (= 1 より大きければ拡大)。
 export function wheelZoomFactor({ deltaY, deltaMode, ctrlKey }) {
   const perUnit = deltaMode === 1 ? WHEEL_ZOOM_PER_LINE : deltaMode ? WHEEL_ZOOM_PER_PAGE : WHEEL_ZOOM_PER_PIXEL

@@ -316,6 +316,46 @@ test.describe('golden: file-preview', () => {
     }
   })
 
+  test('a trackpad pinch that arrives as gesture events zooms around the pointer', async ({ page, request }) => {
+    // Safari on macOS reports a trackpad pinch as gesturestart / gesturechange / gestureend
+    // (a centre and a scale relative to the start) instead of Ctrl + wheel. The browsers
+    // under test cannot make that gesture, so the events are sent as Safari shapes them.
+    const paths = await openChatWithImages(page, request, { 'zoom-wide.png': [1600, 1000] })
+    try {
+      const { modal, frame, img } = await openImage(page, 'zoom-wide.png')
+      const view = await box(frame)
+      const fit = await box(img)
+      const pointer = { x: view.left + view.width * 0.25, y: view.top + Math.min(fit.height, view.height) * 0.5 }
+      const send = (type, scale) => frame.evaluate((el, a) => {
+        const event = new Event(a.type, { bubbles: true, cancelable: true })
+        Object.assign(event, { scale: a.scale, clientX: a.x, clientY: a.y })
+        el.dispatchEvent(event)
+        return event.defaultPrevented
+      }, { type, scale, x: pointer.x, y: pointer.y })
+
+      const before = under(fit, pointer)
+      // The page itself must not zoom: the preview takes the gesture.
+      expect(await send('gesturestart', 1)).toBe(true)
+      expect(await send('gesturechange', 1.4)).toBe(true)
+      await send('gesturechange', 2.5)
+      await send('gestureend', 2.5)
+      const zoomed = await box(img)
+      expect(zoomed.width).toBeCloseTo(fit.width * 2.5, 0)
+      expect(under(zoomed, pointer).fx).toBeCloseTo(before.fx, 2)
+
+      // Pinching back in stops at the fit.
+      await send('gesturestart', 1)
+      await send('gesturechange', 0.1)
+      await send('gestureend', 0.1)
+      const back = await box(img)
+      expect(back.width).toBeCloseTo(fit.width, 0)
+      expect(back.left).toBeCloseTo(fit.left, 0)
+      await expect(modal).toBeVisible()
+    } finally {
+      removeImages(paths)
+    }
+  })
+
   test('a small image goes to the zoom limit on a double click and never shrinks below its own size', async ({ page, request }) => {
     const paths = await openChatWithImages(page, request, { 'zoom-small.png': [2, 2] })
     try {

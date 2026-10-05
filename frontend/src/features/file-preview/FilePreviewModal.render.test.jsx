@@ -64,3 +64,48 @@ it('keeps the zoom while the same image stays open', () => {
   rerender(<FilePreviewModal />)
   expect(getByTestId('file-preview-image').style.width).toBe('800px')
 })
+
+// Safari が trackpad のピンチで出す出来事 (= jsdom には型が無いので、 同じ名前と値を持つ出来事を作る)
+function gesture(target, type, scale, clientX, clientY) {
+  const event = new Event(type, { bubbles: true, cancelable: true })
+  Object.assign(event, { scale, clientX, clientY })
+  act(() => { target.dispatchEvent(event) })
+  return event
+}
+
+it('zooms with the gesture events Safari sends for a trackpad pinch', () => {
+  act(() => setOverlay('previewPath', '/home/me/a.png'))
+  const { getByTestId } = render(<FilePreviewModal />)
+  const img = getByTestId('file-preview-image')
+  const frame = getByTestId('file-preview-image-frame')
+  load(img, 800, 400)
+
+  // 枠の (50, 20) を中心に 2 倍 → 400 x 200、 左へ 50・上へ 20 ずれる (= その点の下の場所は動かない)
+  const start = gesture(frame, 'gesturestart', 1, 50, 20)
+  const change = gesture(frame, 'gesturechange', 2, 50, 20)
+  gesture(frame, 'gestureend', 2, 50, 20)
+  expect(img.style.width).toBe('400px')
+  expect(img.style.transform).toBe('translate(-50px, -20px)')
+  // ブラウザ自体の拡大は止める
+  expect(start.defaultPrevented).toBe(true)
+  expect(change.defaultPrevented).toBe(true)
+
+  // 次のピンチは、 前のピンチが終わった所から続く
+  gesture(frame, 'gesturestart', 1, 50, 20)
+  gesture(frame, 'gesturechange', 0.5, 50, 20)
+  gesture(frame, 'gestureend', 0.5, 50, 20)
+  expect(img.style.width).toBe('200px')
+})
+
+it('leaves a pinch to the fingers while they are down (iOS sends both)', () => {
+  act(() => setOverlay('previewPath', '/home/me/a.png'))
+  const { getByTestId } = render(<FilePreviewModal />)
+  const img = getByTestId('file-preview-image')
+  const frame = getByTestId('file-preview-image-frame')
+  load(img, 800, 400)
+
+  fireEvent.pointerDown(frame, { pointerId: 1, pointerType: 'touch', clientX: 40, clientY: 20, button: 0 })
+  gesture(frame, 'gesturestart', 1, 50, 20)
+  gesture(frame, 'gesturechange', 2, 50, 20)
+  expect(img.style.width).toBe('200px')
+})

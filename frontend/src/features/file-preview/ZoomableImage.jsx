@@ -6,6 +6,7 @@ import {
   shownSize,
   wheelZoomFactor,
   wheelPanDelta,
+  gestureTouches,
 } from './imageZoom.js'
 
 // 拡大して見られる画像 1 枚 (= file のプレビュー用)。
@@ -14,6 +15,7 @@ import {
 // 計算は imageZoom.js の純関数が持ち、 ここは入力 (= 指 / マウス / wheel) を計算へ渡すだけ。
 //   - 指 2 本: 中点を中心に拡大・縮小 / 指 1 本・ドラッグ: 移動
 //   - Ctrl か ⌘ を押しながらの wheel: カーソルの位置を中心に拡大・縮小 / 素の wheel: 送り
+//   - trackpad のピンチ: Chromium / Firefox は Ctrl 付きの wheel として、 Safari は gesture の出来事として届く
 //   - ダブルタップ / ダブルクリック: 合わせ ⇄ 等倍
 // 別の画像へ切り替えた時に合わせへ戻すのは呼ぶ側 (= src を key にして作り直す)。
 export default function ZoomableImage({ src, alt, onLoad, onError }) {
@@ -50,8 +52,9 @@ export default function ZoomableImage({ src, alt, onLoad, onError }) {
     return { x: e.clientX - rect.left, y: e.clientY - rect.top }
   }
 
-  // wheel は preventDefault が要る (= Ctrl + wheel でブラウザ自体が拡大するのを止める) ので、
-  // passive でない listener を直に付ける (= React の onWheel は passive)。 付け直すのは測った大きさが変わった時だけ。
+  // wheel と gesture は preventDefault が要る (= ブラウザ自体が拡大するのを止める) ので、
+  // listener を直に付ける (= React の onWheel は passive で、 gesture は React が扱わない)。
+  // 付け直すのは測った大きさが変わった時だけ。
   useEffect(() => {
     const el = frameRef.current
     if (!el || !natural || !frame) return undefined
@@ -65,8 +68,28 @@ export default function ZoomableImage({ src, alt, onLoad, onError }) {
         dispatch({ type: 'wheel-pan', geom: g, dx: -delta.x, dy: -delta.y })
       }
     }
+    // Safari は trackpad のピンチを wheel ではなく gesture の出来事で伝える (= 中心と、 始まりを 1 とした倍率)。
+    // 指 2 本の形に直して同じ計算へ渡す。 iOS では指のピンチでも同じ出来事が出るので、
+    // 指が触れている間は pointer の側に任せて、 ここでは何もしない。
+    const onGesture = (e) => {
+      e.preventDefault()
+      if (pointersRef.current.size > 0) return
+      if (e.type === 'gestureend') {
+        dispatch({ type: 'grab', geom: g, touches: [] })
+      } else {
+        dispatch({ type: e.type === 'gesturestart' ? 'grab' : 'move', geom: g, touches: gestureTouches(pointIn(e), e.scale) })
+      }
+    }
     el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
+    el.addEventListener('gesturestart', onGesture)
+    el.addEventListener('gesturechange', onGesture)
+    el.addEventListener('gestureend', onGesture)
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('gesturestart', onGesture)
+      el.removeEventListener('gesturechange', onGesture)
+      el.removeEventListener('gestureend', onGesture)
+    }
   }, [natural, frame])
 
   const touches = () => [...pointersRef.current.values()]
