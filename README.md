@@ -24,7 +24,7 @@ A PWA client for operating [Claude Code](https://docs.claude.com/en/docs/claude-
 - **Proactive auto-delivery**: turns initiated by the agent (`Monitor` / `cron` / `ScheduleWakeup`, etc.) appear immediately
 - **Subagent / workflow viewer**: browse `Task` / `Workflow` transcripts in a dedicated panel
 - **Notification-center sync**: OS notifications, badges, and the backend unread counter are reconciled when the PWA returns to the foreground
-- **File preview**: tap a path to render Markdown with syntax highlighting for 50+ languages
+- **File preview**: tap a path to render Markdown with syntax highlighting for 50+ languages; images (png / jpg / gif / webp) open in the same preview and zoom with a pinch, Ctrl / ⌘ + wheel, or a double tap
 - **File tree + favorites**: browse the tree from the ⋯ menu, star favorites for one-tap navigation
 - **Task panel**: the 📋 button lists tasks created via `TaskCreate`
 - **Image / text attachments**: multipart upload with persisted history
