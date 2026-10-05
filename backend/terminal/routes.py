@@ -359,6 +359,57 @@ def _require_session(session_id: str) -> None:
     raise HTTPException(status_code=404, detail="Unknown session")
 
 
+# 同じ session への本文送信を 1 通ずつ通す (= `_send_body`)。 sid ごとに生えたまま残すが、 1 sid = Lock 1 個。
+_send_locks: dict[str, asyncio.Lock] = {}
+
+
+async def _send_body(session_id: str, text: str, key: str | None = None) -> dict:
+    """本文 1 通を claude の入力欄へ打ち、 届いたかを確かめる (= text 経路 / 添付経路 / タブどうしの連絡の共通部)。
+
+    ⚠ **同じ session への本文は 1 通ずつ通す。** 打つ手順は「入力欄を消す → 貼る → 待つ → Enter」 で、 途中に
+    待ちが在る。 並べずに通していた間は、 2 通が重なると、 後の 1 通の「入力欄を消す」 が、 先の 1 通が貼った
+    文を Enter の前に消した (= 人が送った発話が、 同じ頃に届いた別のタブからの連絡に消された。 先の 1 通の
+    Enter は後の 1 通の文を送り、 後の 1 通の Enter は空振りする)。
+
+    ⚠ **次の 1 通は、 この 1 通の行が書かれるのを見届けてから打つ。** 届いたかは「JSONL に発話の行が増えたか」
+    で確かめる。 数え始めの位置をこの lock の中で取り、 確かめ終わるまで lock を持つので、 別の送信の行を自分の
+    物と数えない。 turn の実行中 (= was_busy) だけは、 打ち終えた所で lock を放す ― その送信は claude の queue に
+    積まれて、 turn が終わるまで行が書かれない (= 持ったまま待つと、 続けて送った発話が 4 秒ずつ詰まる)。
+
+    単発の key (= Escape で停止 / quick-reply) はここを通らない ― 停止を本文の後ろに並ばせない。
+    """
+    _, is_slash = _delivery_counter(text)
+    lock = _send_locks.setdefault(session_id, asyncio.Lock())
+    async with lock:
+        jsonl_path = jsonl_path_for_session(session_id)
+        initial_pos = 0
+        if jsonl_path is not None:
+            # 送信直前の file size を境界に取り、 確認 wait はそこからの差分行だけ読む
+            try:
+                initial_pos = jsonl_path.stat().st_size
+            except OSError:
+                initial_pos = 0
+        # 送信直前の busy を capture (= turn 実行中送信なら confirmed:False 時に queue 積みとみなす)。
+        _st_send = stream_states.get(session_id)
+        was_busy = bool(_st_send and _st_send.busy)
+        # 2 段送信 protocol (= C-u wipe → paste → Enter、 詳細 = runner.send_text_two_stage docstring)。
+        # queue に既に積まれた過去 message には触れない (= C-u は入力欄のみ)。
+        ok = await send_text_two_stage(session_id, text, key=key)
+        if ok:
+            # prompt_detector の tier C grace period 用に「今 user が送信した」 を記録。
+            # 直後 tick で末尾が prompt-like でも 1.5s は待機扱いにしない (= 自分の入力を
+            # 「prompt が来た」 と誤検知しない)。
+            from backend.terminal.prompt_detector_loop import note_user_input
+            note_user_input(session_id)
+        if not ok or jsonl_path is None:
+            return {"ok": ok}
+        if not was_busy:
+            result = await _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slash)
+            return _note_queue_on_unconfirmed(session_id, was_busy, is_slash, result)
+    result = await _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slash)
+    return _note_queue_on_unconfirmed(session_id, was_busy, is_slash, result)
+
+
 @router.post("/pty/{session_id}/send")
 async def pty_send(
     session_id: str,
@@ -415,45 +466,16 @@ async def pty_send(
     if bool(text) and enter and not await wait_ready(session_id):
         return {"ok": False, "reason": "not_ready"}
 
-    # 確認対象は「ユーザ送信本文」 = text あり + enter ありのケースのみ。
-    # 自由記述以外のキー送信 (Escape 等)、 AskUserQuestion 自由記述の 1 回目 (typeNum、 enter なし)
-    # 等は確認しない (= 送信完了の概念がない、 or 別経路で確認)。
-    confirm = bool(text) and enter
-    # slash command (= /deep-research 等) は素プロンプト行を作らず `<command-name>` の
-    # harness XML 行を作るので確認カウンタを切り替える。
-    _, is_slash = _delivery_counter(text or "")
-    initial_pos = 0
-    jsonl_path = None
-    if confirm:
-        jsonl_path = jsonl_path_for_session(session_id)
-        if jsonl_path is not None:
-            # 送信直前の file size を境界に取り、 確認 wait はそこからの差分行だけ読む
-            try:
-                initial_pos = jsonl_path.stat().st_size
-            except OSError:
-                initial_pos = 0
-    # 通常メッセージ送信 (= text+enter) は 2 段送信 protocol (= C-u wipe → paste → Enter、
-    # 詳細 = runner.send_text_two_stage docstring)。 単発 key 送信 (= Escape で停止 /
-    # AskUserQuestion typeNum 等) では wipe しない (= key の意味を壊さない)。 queue に
-    # 既に積まれた過去 message には触れない (= C-u は入力欄のみ、 Claude Code v2 の queue
-    # に干渉しない)。 confirm == (text and enter) なので分岐条件は同値。
-    # 送信直前の busy を capture (= turn 実行中送信なら confirmed:False 時に queue 積みとみなす)。
-    _st_send = stream_states.get(session_id)
-    was_busy = bool(_st_send and _st_send.busy)
+    # 本文 (= text + enter) は、 同じ session の他の本文と重ならないように 1 通ずつ打って確かめる。
     if text and enter:
-        ok = await send_text_two_stage(session_id, text, key=key)
-    else:
-        ok = tmux_send_keys(session_id, text=text, key=key, enter=enter)
+        return await _send_body(session_id, text, key)
+    # 単発 key 送信 (= Escape で停止 / AskUserQuestion typeNum 等) と、 enter 無しの text (= 自由記述の
+    # 1 回目) は wipe も確認もしない (= key の意味を壊さない、 送信完了の概念が無い)。 並びもしない。
+    ok = tmux_send_keys(session_id, text=text, key=key, enter=enter)
     if ok:
-        # prompt_detector の tier C grace period 用に「今 user が送信した」 を記録。
-        # 直後 tick で末尾が prompt-like でも 1.5s は待機扱いにしない (= 自分の入力を
-        # 「prompt が来た」 と誤検知しない)。
         from backend.terminal.prompt_detector_loop import note_user_input
         note_user_input(session_id)
-    if not ok or not confirm or jsonl_path is None:
-        return {"ok": ok}
-    result = await _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slash)
-    return _note_queue_on_unconfirmed(session_id, was_busy, is_slash, result)
+    return {"ok": ok}
 
 
 @router.post("/pty/{session_id}/send-raw-key")
@@ -537,31 +559,9 @@ async def pty_send_with_files(
     # launcher の新しい会話: 最初の本文で claude を起動する (= `first_message.py`)。
     if (launched := await launch_with_first_message(session_id, full_text)) is not None:
         return {**launched, "saved_files": saved_files}
-    _, is_slash = _delivery_counter(full_text)
-    jsonl_path = jsonl_path_for_session(session_id)
-    initial_pos = 0
-    if jsonl_path is not None:
-        try:
-            initial_pos = jsonl_path.stat().st_size
-        except OSError:
-            initial_pos = 0
-    # text 経路と同じ 2 段送信 protocol (= C-u wipe → paste → Enter、 詳細 =
-    # runner.send_text_two_stage docstring)。 添付経路は本文が長い (= path 追記で伸びる)
+    # text 経路と同じ共通部 (= 1 通ずつ、 2 段送信、 到達確認)。 添付経路は本文が長い (= path 追記で伸びる)
     # ので paste / Enter 競合の懸念はむしろ大きい。
-    # 送信直前の busy を capture (= turn 実行中送信なら confirmed:False 時に queue 積みとみなす)。
-    _st_send = stream_states.get(session_id)
-    was_busy = bool(_st_send and _st_send.busy)
-    ok = await send_text_two_stage(session_id, full_text)
-    if ok:
-        # 添付経路も grace period 対象 (= 通常送信と同じ理由)
-        from backend.terminal.prompt_detector_loop import note_user_input
-        note_user_input(session_id)
-    if not ok or jsonl_path is None:
-        return {"ok": ok, "saved_files": saved_files}
-    result = await _confirm_after_send(
-        session_id, full_text, jsonl_path, initial_pos, is_slash
-    )
-    _note_queue_on_unconfirmed(session_id, was_busy, is_slash, result)
+    result = await _send_body(session_id, full_text)
     result["saved_files"] = saved_files
     return result
 
