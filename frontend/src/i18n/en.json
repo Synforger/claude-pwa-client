@@ -102,6 +102,7 @@
   "alert.end_session_failed": "Failed to end session: {detail}",
   "alert.create_session_failed": "Failed to create conversation: {detail}",
   "alert.fork_failed": "Fork failed: {detail}",
+  "alert.refetch_unavailable": "The server has no conversation to give for this tab right now. What is on screen was left as it is.",
   "message.stop.max_tokens": "⚠ Stopped at max tokens",
   "message.stop.refusal": "🚫 Refused",
   "message.stop.pause_turn": "⏸ Paused",

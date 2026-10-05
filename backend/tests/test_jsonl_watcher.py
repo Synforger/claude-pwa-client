@@ -152,3 +152,69 @@ def test_pruning_keeps_bindings_whose_jsonl_still_exists(tmp_path):
     dead.unlink()
     assert jw.prune_dead_bindings() == ["ses_dead"]
     assert jw.get_jsonl_for("ses_alive") == alive
+
+
+def _restart():
+    """backend の再起動: メモリの状態を捨てて、 保存した file から読み直す。"""
+    jw._bindings.clear()
+    jw._confirmed_paths.clear()
+    jw._load_bindings()
+
+
+def test_a_session_bound_before_its_jsonl_is_born_survives_a_restart(tmp_path):
+    """起動したばかりのタブの binding が、 backend の再起動で消えない。
+
+    SessionStart hook は claude が JSONL を作る前に飛ぶ。 その直後の hook が binding を引く時に
+    掃除が走り、 「まだ生まれていない」 を「消えた」 と読んで binding を落とし、 落とした状態を
+    保存していた。 JSONL が生まれるとメモリの上では戻るが、 保存はされず、 以後の hook は
+    「変化なし」 で何も書かない。 その状態で backend を再起動すると、 そのタブだけ会話の記録を
+    引けなくなる (= 次に発話するまで履歴も流し直しも空。 2026-10-06 の実機: 5 タブ中 4 だけ復元)。
+    """
+    f = tmp_path / "fresh.jsonl"  # まだ無い
+    jw.confirm_bind("ses_new", "claude_new", str(f))
+    jw.list_bindings()  # 次の hook が binding を引く (= 掃除が走る)
+    assert jw._bindings.get("ses_new") is not None, "生まれる前の binding を落としている"
+
+    f.write_text("{}\n")  # claude が最初の行を書く
+    assert jw.get_jsonl_for("ses_new") == f
+    assert jw.confirm_bind("ses_new", "claude_new", str(f)) == f  # 以後の hook (= 変化なし)
+
+    _restart()
+    assert jw.get_jsonl_for("ses_new") == f
+
+
+def test_an_unborn_binding_is_not_listed_as_existing(tmp_path):
+    """生まれる前の binding は持ち続けるが、 「在る」 一覧には出さない (= 一覧に出た物は実体を持つ)。"""
+    f = tmp_path / "fresh.jsonl"
+    jw.confirm_bind("ses_new", "claude_new", str(f))
+    assert "ses_new" not in jw.list_bindings()
+    f.write_text("{}\n")
+    assert jw.list_bindings()["ses_new"]["jsonl_path"] == str(f)
+
+
+def test_a_healed_binding_is_saved(tmp_path):
+    """メモリの上で復元した binding は、 保存した file にも戻る。
+
+    消えた JSONL が戻った時 (= 掃除で落とした後)、 復元をメモリだけに留めると、 保存した file は
+    落としたままになり、 次の再起動でそのタブを見失う。
+    """
+    f = tmp_path / "back.jsonl"
+    f.write_text("{}\n")
+    jw.confirm_bind("ses_back", "claude_back", str(f))
+    f.unlink()
+    assert jw.prune_dead_bindings() == ["ses_back"]
+    f.write_text("{}\n")  # 戻った
+    assert jw.get_jsonl_for("ses_back") == f
+
+    _restart()
+    assert jw.get_jsonl_for("ses_back") == f
+
+
+def test_a_binding_whose_jsonl_never_appears_is_not_restored(tmp_path):
+    """最後まで生まれなかった JSONL の binding は、 再起動で持ち越さない。"""
+    f = tmp_path / "never.jsonl"
+    jw.confirm_bind("ses_never", "claude_never", str(f))
+    jw.list_bindings()
+    _restart()
+    assert jw.get_jsonl_for("ses_never") is None
+    assert "ses_never" not in jw._bindings

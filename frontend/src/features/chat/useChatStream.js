@@ -573,15 +573,34 @@ export function useChatStream({
   }, [scrollToBottom])
 
   // チャット再取得 (= サーバ真値からの再構築)。 SSE event の取りこぼし / offset ズレで表示が
-  // 実 JSONL と食い違った時の手動復旧経路。 活性 sid の表示 state を捨てて offset を破棄 →
-  // SSE 再接続で backend が初回接続扱いの file replay (= 直近 N 行) を流し直す。
-  // backend 側は無変更 (= 既存の初回 replay 経路をそのまま踏む)、 他 sid の offset は保持
-  // されるので巻き添え replay は起きない。
-  const refetchChatCb = useCallback(() => {
+  // 実 JSONL と食い違った時の手動復旧経路。
+  //
+  // **先にサーバから取り、 取れた物で作り直す** (= タブを開いた時と同じ「状態は GET で取る」)。
+  // 旧実装は表示を先に空にして、 SSE の流し直しが届くのを待っていた。 サーバがそのタブの記録を
+  // 引けない間 (= backend 再起動の直後など) は何も流れて来ないので、 画面は空のまま戻らず、
+  // 端末に保存していた履歴まで空で上書きされた (= 2026-10-06 実機)。
+  // 取れなかった時は表示に触らず、 その事を伝える。
+  //
+  // 作り直した後は offset を破棄して繋ぎ直す (= stream 側も直近 N 行から流し直させ、 以後の
+  // 差分を取りこぼさない)。 他 sid の offset は保持されるので巻き添え replay は起きない。
+  const refetchChatCb = useCallback(async () => {
     if (!sid) return
+    let events = null
+    try {
+      const r = await apiFetch(`/jsonl/history/${encodeURIComponent(sid)}`)
+      if (r && r.ok) {
+        const data = await r.json().catch(() => null)
+        if (data && Array.isArray(data.events)) events = data.events
+      }
+    } catch { /* 取れなかった扱い (= 下で伝える) */ }
+    if (!events || events.length === 0) {
+      alert(tRaw('alert.refetch_unavailable'))
+      return
+    }
     buffer.resetBuf(sid)
     setMessages(prev => ({ ...prev, [sid]: [] }))
     optimisticRef.current[sid] = null
+    for (const ev of events) handleEventRef.current?.(sid, ev)
     chatTransport.resetOffset(sid)
     chatTransport.bumpReconnect()
     scrollToBottom()
