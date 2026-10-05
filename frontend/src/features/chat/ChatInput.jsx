@@ -15,6 +15,7 @@
 // しない明示挙動。
 import React, { useEffect, useRef, useState } from 'react'
 import { useT } from '../../i18n/t.js'
+import { setDraftSource } from './draftSource.js'
 
 // streaming flush で App が再 render しても、 ChatInput の props が参照同値なら shallow
 // equal で skip させる (= 打鍵 jank 対策、 2026-06-22)。 App 側で callback を useCallback、
@@ -47,6 +48,15 @@ function ChatInputInner({
   // 将来の concurrent 機能で挙動が壊れうる)。 input が変わった時の effect で同期する。
   const inputRef = useRef(input)
   useEffect(() => { inputRef.current = input }, [input])
+
+  // 打ちかけの文を、 頁を離れる時の保存から読めるようにする (= 読み込み直しで消さない)。
+  // 親へ毎打鍵書き戻す代わりに、 保存の側が要る時にだけ最新を読みに来る。
+  const draftRef = useRef({ sid: null, text: '' })
+  useEffect(() => { draftRef.current = { sid: activeSid || null, text: localText } })
+  useEffect(() => {
+    setDraftSource(() => draftRef.current)
+    return () => setDraftSource(null)
+  }, [])
 
   useEffect(() => {
     const prevSid = prevSidRef.current

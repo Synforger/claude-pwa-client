@@ -6,6 +6,7 @@ import Terminal from './features/terminal/Terminal.jsx'
 import ErrorBoundary from './layout/ErrorBoundary.jsx'
 import { hardRefreshAppShell } from './utils/appRefresh.js'
 import { installListeners } from './transport/lifecycle.ts'
+import { installUpdateChecks } from './utils/appUpdate.js'
 
 // transport lifecycle (= visibility / pagehide / pageshow / freeze) の配線。
 // fg 復帰時の接続 bump + hidden 遷移時の offset flush はここが唯一の起点
@@ -39,19 +40,9 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
       .catch(() => { /* noop */ })
   })
-  // SW 更新時の controller swap で 1 回だけ自動リロード。 これが無いと新版 sw.js が
-  // activate されても App.jsx は古い JS のまま走り続け、 SW と App の version 不整合で
-  // SW→App の経路 (= 通知タップの open-session 受信) が無音で死ぬ (= 2026-06-09 根本原因)。
-  // 初回登録時 (= controller null → 有) の発火は無視するため、 register 前に既に
-  // controller が居たケースだけ扱う (= 本物の「更新」)。
-  if (navigator.serviceWorker.controller) {
-    let reloading = false
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (reloading) return
-      reloading = true
-      window.location.reload()
-    })
-  }
+  // 開いたままの画面を新しい build へ移す配線 (= 前面へ戻った時と一定の間隔で更新を確かめ、
+  // 新しい service worker が有効になったら 1 回だけ読み込み直す)。 中身は utils/appUpdate.js。
+  installUpdateChecks()
 }
 
 // ルーティング:

@@ -4,6 +4,7 @@ import { LEGACY_AGENT_TO_SESSION, LS_MESSAGES, LS_INPUT, MAX_MESSAGES } from '..
 import { generateId } from '../../utils/id.js'
 import { stripMessageToolResultImages } from '../../utils/toolResult.js'
 import { setMessagesFor, removeMessagesFor } from '../../state/messages.js'
+import { currentDraft } from './draftSource.js'
 import { recordPerfSample } from '../app-effects/perfProbe.js'
 import { chatTransport } from '../../transport/select.ts'
 
@@ -504,6 +505,10 @@ export function useChatStorage(sessions) {
     for (const s of sessionsRef.current) {
       toSave[s.id] = inputRef2.current[s.id] || ''
     }
+    // 入力欄が今持っている打ちかけ (= 親へまだ書き戻していない分) を重ねる。 これが無いと、
+    // 打っている最中に頁が読み込み直された時 (= 新しい build への移行など) に文が消える。
+    const draft = currentDraft()
+    if (draft && draft.sid && draft.sid in toSave) toSave[draft.sid] = draft.text || ''
     try { localStorage.setItem(LS_INPUT, JSON.stringify(toSave)) } catch { /* ignore */ }
   })
 

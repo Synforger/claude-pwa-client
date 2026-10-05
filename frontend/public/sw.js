@@ -7,6 +7,7 @@
 // アプリシェル (HTML / JS / CSS) のキャッシュ世代名。 名前が変わると activate で旧世代を全削除し
 // (= 確実な刷新経路)、 controllerchange で 1 回自動リロードして全 client が最新 bundle へ移る。
 // sw.js は backend が no-cache で配信するので、 新しい sw.js は PWA 起動時に必ず取得される。
+// 開いたままの画面は、 前面へ戻った時と一定の間隔で更新を確かめる (= src/utils/appUpdate.js)。
 //
 // 名前は build が決める: 下の置き場所を、 その build の bundle の file 名 (= 中身の hash 入り) と
 // 本 file の中身から作った hash で置き換える (= frontend/build/stampServiceWorker.js、 vite plugin)。

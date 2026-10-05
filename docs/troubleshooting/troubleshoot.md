@@ -78,18 +78,36 @@ network-first でもリセットされない。 hashed asset (`/assets/*`) は�
 「起動の仕方で新旧がばらつく (= たまに古い版)」 という更新地獄を生んだ。 network-first +
 単一キー正規化で両方を根治。
 
+**開いたままの画面** は、 次の時に新しい build が出ていないかを確かめ、 出ていれば 1 回だけ
+読み込み直して新しい画面へ移る (= 打ちかけの入力は残る):
+
+- 前面へ戻った時 (= 別のアプリから戻った / ロックを解除した)
+- 開いている間は 1 時間ごと
+
+今の画面がどの build かは、 ドロワー (= 左上 ☰) → ⋯ メニューの「↺ アプリを更新」 の横に
+`build <名前>` で出る。 `task build` が最後に印字する入口の file 名 (= `index-<名前>.js`) と
+同じなら最新。
+
+`task build` は、 配っている folder を空にせずに載せ替える (= build の最中に開いた画面が
+欠けた file を掴まない)。 1 つ前の build の file は残すので、 まだ古い build のままの画面も
+部品を読み込める。 2 つ以上前の build の file は消える。 その画面が消えた部品を読みに行った時は、
+自動で下の刷新が 1 回走る。
+
 **手動刷新経路** (= 起動中 tab を即最新化したい時) = ドロワー (= 左上 ☰) → ⋯ メニュー →
 「↺ アプリを更新」。 `SessionDrawer.handleReset` → `hardRefreshAppShell` が以下を実行:
 
 1. `caches.delete(...)` で SW shell キャッシュを全削除
-2. `registration.update()` で新 sw.js を install → activate 待ち (= 最大 5 秒)
+2. `registration.update()` で新 sw.js を install → activate 待ち
 3. cache-bust クエリ付きで `window.location.replace(...)` ハードリロード
+
+1 と 2 は合わせて最大 5 秒で打ち切り、 必ず 3 へ進む (= 圏外などで 1・2 が返らなくても、
+押したのに何も起きない、 にはならない)。
 
 **旧 cache-first 版 SW からの移行 (= 一度きり)**: cache-first 時代の SW が居座っていると
 network-first 版 sw.js を cache-first で拒むため、 iOS では **ホーム画面アイコン長押し →
 App 削除 → Safari で開き直して 共有 → ホーム画面に追加** で一度だけ完全再登録する。 以後は
-network-first で自動最新化される。 `SHELL_CACHE` 名 (`claude-pwa-shell-vN`) の bump は
-旧世代 cache の一掃用に維持 (= 現行 v3)。
+network-first で自動最新化される。 `SHELL_CACHE` の名前は build が決める (= 画面の bundle か
+sw.js が変わると名前が変わり、 旧世代の cache が一掃される)。
 
 ## セッション復旧: 直近の claude_sid を取り戻す
 
