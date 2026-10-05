@@ -22,6 +22,7 @@ import { useEscape } from '../../hooks/useEscape.js'
 import { useT } from '../../i18n/t.js'
 import { translateHttpErrorDetail } from '../../utils/httpError.js'
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
+import ZoomableImage from './ZoomableImage.jsx'
 import {
   subscribe as subscribeUi,
   getSnapshot as getUiSnapshot,
@@ -366,19 +367,19 @@ function FilePreviewModalBody({ path, onClose }) {
             {!editMode && <button className="modal-close" onClick={onClose}>✕</button>}
           </div>
         </div>
-        <div className="modal-body">
+        <div className={isImage ? 'modal-body modal-body-image' : 'modal-body'}>
           {(loading || (isImage && !imageLoaded && !imageFailed)) && <span className="dim">{t('file_preview.loading')}</span>}
           {error && <span className="error">{error}</span>}
           {imageFailed && <span className="error">{t('file_preview.image_error')}</span>}
           {saveError && <span className="error">{t('file_preview.save_error', { detail: saveError })}</span>}
           {isImage && !imageFailed && (
-            <img
-              className="file-image"
+            // key = src: 別の画像へ切り替えたら作り直す (= 拡大の状態が合わせへ戻る)
+            <ZoomableImage
+              key={imageSrc}
               src={imageSrc}
               alt={base}
               onLoad={() => setImageLoadedSrc(imageSrc)}
               onError={() => setImageFailedSrc(imageSrc)}
-              data-testid="file-preview-image"
             />
           )}
           {editMode ? (
