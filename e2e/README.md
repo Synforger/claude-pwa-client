@@ -26,7 +26,8 @@ e2e/
     │   ├── bg-fg-resume.spec.js
     │   ├── tab-switch-isolation.spec.js
     │   ├── send-then-input-restored.spec.js
-    │   └── terminal-utf8-boundary.spec.js
+    │   ├── terminal-utf8-boundary.spec.js
+    │   └── refetch-chat-restores.spec.js
     ├── _golden/             ← 14 feature golden paths (1:1 with feature-inventory.md categories)
     └── _contract/           ← contract-level guards (heartbeat / DNS rebinding / refresh sync)
 ```
