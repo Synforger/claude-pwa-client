@@ -8,9 +8,12 @@
 端末に打たれた文として届くので、 区別は本文の 1 行目 (= `OPENING`) でしか付かない。 この口を通った
 連絡には必ずその行が付き、 人の送信には付かない。
 
-送り主のタブで人が最後に打った発話が在れば、 それも封筒に入れて届ける (= `<operator-said>`)。 宛先の
-claude は、 連絡が人の指示から出た物かを、 送り主の言い分ではなく人の言葉そのもので判断できる。
-送り主の今の作業が別のタブからの連絡で始まっていた時は付けない。
+送り主が頼んだ時だけ (= `operator_said`)、 送り主のタブで人が最後に打った発話も封筒に入れて届ける
+(= `<operator-said>`)。 宛先の claude は、 連絡が人の指示から出た物かを、 送り主の言い分ではなく人の
+言葉そのもので判断できる。 送り主が決められるのは付けるかどうかだけで、 中身は backend が記録から読む。
+頼まれなければ付けない ― 人の最後の発話は、 その連絡の用件と関係が無いことの方が多い (= 用件と無関係な
+発話が、 宛先のタブへの指示として届く)。 送り主の今の作業が別のタブからの連絡で始まっていた時は、
+頼まれても付けない。
 
 届ける前の検査は外へ任せる。 `config.json` の `agent_message_check` にコマンドを書くと、 連絡ごとに
 それを走らせ、 終了コード 0 の時だけ届ける (= 0 以外は拒否して、 標準エラーの最後の行を理由として返す)。
@@ -225,13 +228,15 @@ async def post_agent_message(
     to: str = Form(...),
     sender: str = Form(..., alias="from"),
     text: str = Form(...),
+    operator_said: bool = Form(False),
 ) -> dict:
     """タブの中の claude が、 別のタブの claude へ連絡を送る。
 
     form:
-        to   (str): 宛先のタブの id、 またはタブの名前 (= 同じ名前が複数あれば id で)
-        from (str): 送り主のタブの id (= そのタブの環境変数 `PWA_SID`)
-        text (str): 本文
+        to            (str):  宛先のタブの id、 またはタブの名前 (= 同じ名前が複数あれば id で)
+        from          (str):  送り主のタブの id (= そのタブの環境変数 `PWA_SID`)
+        text          (str):  本文
+        operator_said (bool): 送り主のタブで人が最後に打った発話を封筒に入れるか (= 既定は入れない)
     """
     client_host = request.client.host if request.client else None
     if client_host not in LOCAL_CLIENTS:
@@ -249,7 +254,7 @@ async def post_agent_message(
         # 連絡で会話を起こさない: 新しい会話は最初の発話で起動の仕方が決まる。
         raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いていません")
     await check(receiver_id, text)
-    said = await operator_said_for(sender, receiver_id)
+    said = await operator_said_for(sender, receiver_id) if operator_said else None
     result = await pty_send(receiver_id, {"text": envelope(sender, text, said), "enter": True}, None)
     logger.info("agent message sender=%s receiver=%s chars=%d operator_said=%s ok=%s",
                 sender, receiver_id, len(text), said is not None, result.get("ok"))
