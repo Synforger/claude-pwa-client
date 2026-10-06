@@ -8,6 +8,7 @@ import asyncio
 import json
 
 import backend.jsonl.routes as jr
+from backend.core.jsonl_predicates import AGENT_MESSAGE_OPENINGS
 import backend.state as state_mod
 
 
@@ -89,3 +90,50 @@ def test_process_new_lines_publishes_to_broadcaster(isolated_state):
             state_mod.jsonl_event_broadcaster.unsubscribe(sid, q)
 
     _run(run())
+
+
+def _published(state, sid, rows):
+    """rows を monitor 経路へ通し、 publish された user_message を順に返す。"""
+    state.stream_states[sid] = state_mod.StreamState(agent_id="a")
+    state.agent_status[sid] = state_mod._make_agent_status("a")
+
+    async def run():
+        q = state_mod.jsonl_event_broadcaster.subscribe(sid)
+        try:
+            jr._process_new_lines(sid, [(json.dumps(row), 100 + i) for i, row in enumerate(rows)])
+            out = []
+            while not q.empty():
+                ev, _pos = q.get_nowait()
+                if ev.get("type") == "user_message":
+                    out.append(ev)
+            return out
+        finally:
+            state_mod.jsonl_event_broadcaster.unsubscribe(sid, q)
+
+    return _run(run())
+
+
+def _relayed(opening):
+    return f'{opening}\n<agent-message from="tools" session="ses_x">\nhello\n</agent-message>'
+
+
+def _queued(prompt, uuid):
+    return {"type": "attachment", "uuid": uuid, "attachment": {
+        "type": "queued_command", "prompt": prompt, "commandMode": "prompt", "origin": {"kind": "human"}}}
+
+
+def test_a_message_from_another_tab_does_not_take_the_send_id_the_operator_s_words_wait_for(isolated_state):
+    """画面が送った発話は send_id で楽観 bubble と結び付く。 連絡は画面が送った物ではないので、 先に記録へ
+    載っても、 人の送信が待っている send_id を取らない (= 作業中に届いた連絡も、 手空きで届いた連絡も)。"""
+    for n, opening in enumerate(AGENT_MESSAGE_OPENINGS):
+        sid = f"ses_bind{n}"
+        jr.send_dedup.reset()
+        assert jr.send_dedup.check_and_mark(sid, "S-typed") is False
+        relayed_while_working, relayed_while_idle, typed = _published(isolated_state, sid, [
+            _queued(f'<pasted_content id="4a58">\n{_relayed(opening)}\n</pasted_content id="4a58">', "u-r1"),
+            {"type": "user", "uuid": "u-r2", "origin": {"kind": "human"}, "message": {"content": _relayed(opening)}},
+            _queued("and the footer too", "u-t"),
+        ])
+        assert "send_id" not in relayed_while_working and "send_id" not in relayed_while_idle
+        assert typed["uuid"] == "u-t" and typed["send_id"] == "S-typed"
+    jr.send_dedup.reset()

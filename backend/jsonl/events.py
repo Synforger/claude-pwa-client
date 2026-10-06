@@ -9,6 +9,8 @@ JSONL と旧 SDK-SSE event はほぼ同型 (= message.role + content[] + tool_re
       usage / model を載せた result event を合成 (= MetaLine の token / model 表示用)
     - user 素プロンプト: JSONL は content=string (= ユーザ発言) → user_message event に変換
     - subagent 出力: isSidechain=True の行は親 chat に混ぜない (= skip)
+    - 作業中に入った発話: claude は user 行にせず `attachment` 行 (= `queued_command`) で記録する
+      → 手が空いている時の発話と同じ user_message event に変換
     - slash command の内部表現: `/clear` 等を tmux 経由で送ると claude は
       `<command-name>/clear</command-name>` 形式の XML を user 行として JSONL に書く。
       これはユーザ発話ではなく claude 内部表現なので chat には出さない (= skip)。
@@ -19,7 +21,7 @@ import re
 
 # harness 内部表現 / interrupt marker の判定 regex は行レベル純粋プリミティブとして
 # core/jsonl_predicates.py に集約 (= jsonl / terminal 両 subsystem が使う共有底層)。
-from backend.core.jsonl_predicates import HARNESS_XML_RE, unwrap_pasted
+from backend.core.jsonl_predicates import HARNESS_XML_RE, queued_prompt_text, unwrap_pasted
 from backend.core.jsonl_tail import parse_jsonl_timestamp
 
 
@@ -135,12 +137,22 @@ def _attachment_events(line: dict) -> list[dict]:
             "remaining": a.get("remaining"),
         }]
 
-    # chat に出すのはユーザー手動添付の `file` のみ。
+    # claude の作業中に端末から入った発話 (= 人が打った物と、 別のタブからの連絡)。 記録に在るのは
+    # この行だけなので、 ここで渡さないと画面は記録から発話を戻せない (= 連絡は吹き出しが出ず、
+    # 人が打った分は読み込み直しで消える)。 手が空いている時の発話と同じ形にする。
+    if sub == "queued_command":
+        text = queued_prompt_text(line)
+        if text is None or not text.strip() or HARNESS_XML_RE.match(text.strip()):
+            return []
+        return [{"type": "user_message", "text": unwrap_pasted(text), "uuid": line.get("uuid"), "ts": _ts_ms(line)}]
+
+    # ここから先で chat に出すのはユーザー手動添付の `file` のみ。
     # task_reminder は session_status 経路で agent_status.tasks に流し込んで専用パネルに
     # 集約する (= 同じ snapshot を毎ターン chat に貼らない)。
     # その他 subtype (skill_listing / edited_text_file / compact_file_reference /
-    # command_permissions / auto_mode / queued_command / deferred_tools_delta /
-    # date_change) は内部メタ寄りなので chat には出さない (2026-06-12 棚卸し)。
+    # command_permissions / auto_mode / deferred_tools_delta / date_change) は内部メタ寄りなので
+    # chat には出さない (2026-06-12 棚卸し)。 queued_command のうち task の完了通知は
+    # queue-operation の行から拾う (= `_queue_operation_events`)。
     if sub == "file":
         return [{
             "type": "attachment",

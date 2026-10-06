@@ -1,6 +1,7 @@
 import { generateId } from '../../utils/id.js'
 import { MAX_MESSAGES } from '../../constants.js'
 import { isStaleFor } from './replayGuard.js'
+import { parseAgentMessage } from './agentMessage.js'
 
 // SSE 経由で受信した user_message を messages 配列に統合する純粋関数。
 //
@@ -26,6 +27,9 @@ import { isStaleFor } from './replayGuard.js'
 //        確定済なのでここに落ちず、 正しく append される
 //     4. どれも該当しなければ単純 append (= replay / proactive / fork lineage 復元)
 //
+//   別のタブの claude からの連絡は、 この画面が送った物ではない。 1 の後は 2〜3.5 を通さず 4 へ進む
+//   (= 送信中の吹き出しの確定に連絡を使うと、 人が打った吹き出しが連絡の文に置き換わる)。
+//
 // これにより「optimistic flag 取り違えで uuid なし bubble が persist → 復帰時に同 text
 // 別 uuid event が来て重複 append」 の構造的 resurface 経路を根絶する (= 2026-06-23〜06-24
 // 連発した重複表示バグの根治)。 加えて 2026-07-03 の 3 連発火症状は send_id 経路で
@@ -36,6 +40,9 @@ export function reconcileUserMessage(cur, eventText, eventUuid, eventSendId, eve
     return cur
   }
   const text = eventText || ''
+
+  // 別のタブからの連絡は楽観 bubble の相手にしない (= 冒頭の設計)。
+  if (parseAgentMessage(text)) return _append(cur, text, eventUuid, null, eventTs)
 
   // 2. send_id 一致 (identity 経路)。
   if (eventSendId) {
@@ -93,6 +100,10 @@ export function reconcileUserMessage(cur, eventText, eventUuid, eventSendId, eve
   }
 
   // 4. 新規 append (replay / proactive / fork lineage 復元)。
+  return _append(cur, text, eventUuid, eventSendId, eventTs)
+}
+
+function _append(cur, text, eventUuid, eventSendId, eventTs) {
   return [
     ...cur,
     {

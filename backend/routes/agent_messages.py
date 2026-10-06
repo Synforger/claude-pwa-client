@@ -47,7 +47,16 @@ from pathlib import Path
 
 from fastapi import APIRouter, Body, Form, Request
 
-from backend.core.jsonl_predicates import is_user_prompt, unwrap_pasted
+from backend.core.jsonl_predicates import (
+    AGENT_MESSAGE_OPENING as OPENING,
+    AGENT_MESSAGE_OPENINGS as OPENINGS,
+    AGENT_MESSAGE_REMOTE_OPENING as REMOTE_OPENING,
+    blocks_text,
+    is_human_origin,
+    is_user_prompt,
+    queued_prompt_text,
+    unwrap_pasted,
+)
 from backend.errors import raise_error
 from backend.state import sessions_meta
 from backend.terminal.pty_discover import claude_in_pane
@@ -57,13 +66,7 @@ from backend.terminal.runner import jsonl_path_for_session
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# 連絡の 1 行目。 宛先の claude も、 端末の入力を読む外の道具も、 この行で「人が打った文ではない」
-# と見分ける。 変えると見分けが外れるので固定 (= docs/reference/agent-messages.md に同じ行を載せている)。
-OPENING = "Message from another session, relayed by the client (the operator did not type this):"
-# 別の機械のタブから届いた連絡の 1 行目。 こちらも固定で、 同じ機械の中の連絡とは別の文にする
-# (= 1 行目だけで「この機械の外から来た」 と分かる)。
-REMOTE_OPENING = "Message from a session on another machine, relayed by the client (the operator did not type this):"
-OPENINGS = (OPENING, REMOTE_OPENING)
+# 連絡の 1 行目 (= `OPENING` / `REMOTE_OPENING`) は、 記録を読む側も使うので core/jsonl_predicates.py に置く。
 TAG = "agent-message"
 # 送り主のタブで人が最後に打った発話を入れる場所。 backend だけが書く。
 OPERATOR_TAG = "operator-said"
@@ -145,25 +148,11 @@ def _lines_from_the_end(path: Path):
             yield rest
 
 
-def _human(origin) -> bool:
-    return isinstance(origin, dict) and origin.get("kind") == "human"
-
-
-def _blocks_text(content) -> str:
-    if isinstance(content, str):
-        return content
-    return "\n".join(b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
-
-
 def _typed(row: dict) -> str | None:
     """端末から入った発話ならその本文。 会話を始めた発話か、 claude の作業中に打たれて積まれた発話。"""
-    if _human(row.get("origin")) and is_user_prompt(row):
-        return _blocks_text((row.get("message") or {}).get("content"))
-    queued = row.get("attachment") if row.get("type") == "attachment" else None
-    if isinstance(queued, dict) and queued.get("type") == "queued_command" \
-            and queued.get("commandMode") == "prompt" and _human(queued.get("origin")):
-        return _blocks_text(queued.get("prompt"))
-    return None
+    if is_human_origin(row.get("origin")) and is_user_prompt(row):
+        return blocks_text((row.get("message") or {}).get("content"))
+    return queued_prompt_text(row)
 
 
 def last_operator_text(record: Path | None) -> str | None:
