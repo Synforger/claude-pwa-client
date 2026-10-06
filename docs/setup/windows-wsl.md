@@ -54,7 +54,7 @@ Description=Claude PWA backend
 
 [Service]
 WorkingDirectory=%h/claude-pwa-client
-ExecStart=/bin/bash -lc 'source .venv/bin/activate && exec uvicorn backend.main:app --host 0.0.0.0 --port 8765'
+ExecStart=/bin/bash -lc 'source .venv/bin/activate && exec uvicorn backend.main:app --host 127.0.0.1 --port 8765'
 Restart=always
 
 [Install]
