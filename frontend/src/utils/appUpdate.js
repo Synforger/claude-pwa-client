@@ -9,8 +9,10 @@
 //   - 前面へ戻った時 / ブラウザが保存していた頁を戻した時 (= transport/lifecycle.ts の cpc:fg)
 //   - 開いている間は一定の間隔
 // 新しい service worker が有効になったら、 1 回だけ読み込み直して新しい build の画面へ移る。
-// 読み込み直しで消える物は無い: 会話は保存済み、 打ちかけの入力は頁を離れる時に保存される
-// (= features/chat/useChatStorage.js)。
+// 会話は保存済みで、 打ちかけの入力は頁を離れる時に保存される (= features/chat/useChatStorage.js)
+// ので、 読み込み直しでは消えない。 消えるのは、 選んだだけでまだ送っていない添付 (= 選び直しになる)。
+// それが在る間は移るのを見送り、 無くなった時 (= 送った / 外した) に移る。 見送っている間も画面は
+// 動き続ける (= 1 つ前の build の部品は配られたまま。 build/publishDist.js)。
 
 // 開いている間に確かめる間隔。 vite-plugin-pwa の手引き (= Periodic Service Worker Updates) の
 // 例と同じ 1 時間。
@@ -33,7 +35,10 @@ export function checkForUpdate(nav = navigator) {
 
 let installed = false
 
-export function installUpdateChecks({ win = window, doc = document, nav = navigator } = {}) {
+// unsent = 読み込み直すと消える、 ユーザの手元の物 (= 未送信の添付) の見張り:
+//   { hasAny: () => boolean, subscribe: (listener) => unsubscribe }
+// 渡さなければ、 見送らずにすぐ移る。
+export function installUpdateChecks({ win = window, doc = document, nav = navigator, unsent = null } = {}) {
   if (installed || !nav.serviceWorker) return
   installed = true
 
@@ -42,11 +47,23 @@ export function installUpdateChecks({ win = window, doc = document, nav = naviga
   // 初めて登録された時 (= 管理する service worker が無かった頁に付いた時) は更新ではないので数えない。
   let controlled = !!nav.serviceWorker.controller
   let reloading = false
-  nav.serviceWorker.addEventListener('controllerchange', () => {
-    if (!controlled) { controlled = true; return }
+  let waiting = false
+  const reload = () => {
     if (reloading) return
     reloading = true
     win.location.reload()
+  }
+  nav.serviceWorker.addEventListener('controllerchange', () => {
+    if (!controlled) { controlled = true; return }
+    if (reloading || waiting) return
+    if (!unsent || !unsent.hasAny()) { reload(); return }
+    // 手元の物が無くなるまで見送る。 無くなった知らせで 1 回だけ移る
+    waiting = true
+    const stop = unsent.subscribe(() => {
+      if (unsent.hasAny()) return
+      stop()
+      reload()
+    })
   })
 
   const check = () => { checkForUpdate(nav) }
