@@ -67,6 +67,8 @@ LOCAL_CLIENTS = ("127.0.0.1", "::1", "localhost", "testclient")
 CHECK_TIMEOUT_SEC = 200.0
 # 相手の backend を待つ上限。 相手も届ける前に自分の検査を走らせるので、 その上限より長く取る。
 RELAY_TIMEOUT_SEC = 240.0
+# 相手のタブの一覧を待つ上限。 相手が落ちている時に、 一覧を打った側を待たせない (= 検査は走らないので短くてよい)。
+PEER_LIST_TIMEOUT_SEC = 10.0
 # 相手の backend どうしが呼び合う口 (= 設定された相手の接続元からだけ受ける)。
 RELAYED_PATH = "/agent-messages/relayed"
 PEER_TABS_PATH = "/agent-messages/tabs"
@@ -292,12 +294,12 @@ def peer_of_caller(request: Request) -> tuple[str, dict] | None:
     return None
 
 
-def _call_peer(url: str, payload: dict | None) -> tuple[int, dict]:
+def _call_peer(url: str, payload: dict | None, timeout: float) -> tuple[int, dict]:
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     request = urllib.request.Request(url, data=data, method="POST" if data else "GET",
                                      headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=RELAY_TIMEOUT_SEC) as response:  # noqa: S310 (= url は設定の物)
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 (= url は設定の物)
             raw, status = response.read(), response.status
     except urllib.error.HTTPError as error:
         raw, status = error.read(), error.code
@@ -308,10 +310,11 @@ def _call_peer(url: str, payload: dict | None) -> tuple[int, dict]:
     return status, body if isinstance(body, dict) else {}
 
 
-async def call_peer(name: str, peer: dict, path: str, payload: dict | None = None) -> tuple[int | None, dict]:
+async def call_peer(name: str, peer: dict, path: str, payload: dict | None = None,
+                    timeout: float = RELAY_TIMEOUT_SEC) -> tuple[int | None, dict]:
     """相手の backend を 1 回呼んで (HTTP の状態, 本文) を返す。 繋がらなければ状態は None。"""
     try:
-        return await asyncio.to_thread(_call_peer, peer["url"] + path, payload)
+        return await asyncio.to_thread(_call_peer, peer["url"] + path, payload, timeout)
     except OSError as error:
         logger.warning("agent message: peer %s could not be reached: %s", name, error)
         return None, {}
@@ -466,7 +469,7 @@ async def get_peers(request: Request) -> dict:
         raise_error(403, "agent_message_local_only", "この口は同じ機械の中からだけ使えます")
     peers = []
     for name, peer in AGENT_MESSAGE_PEERS.items():
-        status, body = await call_peer(name, peer, PEER_TABS_PATH)
+        status, body = await call_peer(name, peer, PEER_TABS_PATH, timeout=PEER_LIST_TIMEOUT_SEC)
         if status == 200 and isinstance(body.get("tabs"), list):
             peers.append({"name": name, "tabs": body["tabs"], "error": None})
         else:

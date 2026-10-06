@@ -406,7 +406,7 @@ def carried(monkeypatch) -> list[tuple[str, dict | None]]:
     """相手の backend へ渡された物の記録。 相手は、 預かった連絡を ses_far へ届けたと答える。"""
     calls: list[tuple[str, dict | None]] = []
 
-    def fake_call(url, payload):
+    def fake_call(url, payload, timeout):
         calls.append((url, payload))
         return 200, {"ok": True, "delivered": True, "to": "ses_far", "operator_said": bool((payload or {}).get("operator_said"))}
 
@@ -487,7 +487,7 @@ def test_a_message_the_check_refuses_never_leaves_the_machine(client, tabs, type
 def test_a_machine_that_cannot_be_reached_is_reported(client, tabs, typed, monkeypatch, tmp_path):
     _peers(monkeypatch, tmp_path)
 
-    def down(url, payload):
+    def down(url, payload, timeout):
         raise OSError("no route to host")
     monkeypatch.setattr(am, "_call_peer", down)
     r = _send(client, to="home:notes")
@@ -498,7 +498,7 @@ def test_a_machine_that_cannot_be_reached_is_reported(client, tabs, typed, monke
 def test_the_other_machine_s_refusal_comes_back_as_it_was(client, tabs, typed, monkeypatch, tmp_path):
     _peers(monkeypatch, tmp_path)
     refusal = {"detail": {"code": "agent_message_receiver_not_running", "message": "宛先のタブで claude が動いていません"}}
-    monkeypatch.setattr(am, "_call_peer", lambda url, payload: (409, refusal))
+    monkeypatch.setattr(am, "_call_peer", lambda url, payload, timeout: (409, refusal))
     r = _send(client, to="home:notes")
     assert r.status_code == 409
     assert r.json()["detail"]["code"] == "agent_message_receiver_not_running"
@@ -631,7 +631,8 @@ def test_the_tabs_of_each_peer_are_listed_for_a_caller_on_this_machine(client, t
         "lab": {"url": "http://lab.test", "address": "100.64.0.3"},
     })
 
-    def fake_call(url, payload):
+    def fake_call(url, payload, timeout):
+        assert timeout == am.PEER_LIST_TIMEOUT_SEC  # 落ちている相手で、 一覧を打った側を長く待たせない
         if url.startswith("http://lab.test"):
             raise OSError("down")
         assert (url, payload) == ("http://home.test/agent-messages/tabs", None)
@@ -649,7 +650,7 @@ def test_two_machines_carry_a_message_end_to_end(client, tabs, typed, monkeypatc
     _peers(monkeypatch, tmp_path)
     far = _from_peer()
 
-    def through(url, payload):
+    def through(url, payload, timeout):
         r = far.post(url.removeprefix("http://peer.test"), json=payload)
         return r.status_code, r.json()
     monkeypatch.setattr(am, "_call_peer", through)
