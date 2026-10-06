@@ -432,7 +432,7 @@ endpoints:
       - "宛先で claude が動いていなければ届けない (= 連絡で会話を起動しない)"
       - "config の agent_message_check が 0 以外で終われば届けず、 理由を 403 で返す"
       - "送り主のタブで最後に端末から入った発話が人の物なら <operator-said> として封筒に入れる (= agent_message_operator_check が 0 以外なら入れずに届ける)"
-      - "宛先が <相手の名前>:<タブ> で、 その名前が config の agent_message_peers に在れば、 検査 (= 宛先の名前をそのまま渡す) を通してから相手の backend へ渡す"
+      - "宛先が <相手の名前>:<タブ> で、 その名前が config の agent_message_peers に在れば、 検査 (= 宛先の名前をそのまま渡す) を通してから相手の backend へ渡す。 人の発話は、 頼まれても付けない"
       - "相手の設定に accounts が在れば、 その account のタブからだけ送れる"
     implementation: backend/routes/agent_messages.py
 
@@ -446,7 +446,6 @@ endpoints:
         from_title:    { type: string, description: "送り主のタブの名前" }
         from_session:  { type: string, description: "送り主のタブの id (= 相手の機械での id)" }
         text:          { type: string, description: "本文" }
-        operator_said: { type: string, nullable: true, description: "送り主のタブで人が最後に打った発話" }
       required: [to, from_title, from_session, text]
     response:
       type: object
@@ -454,14 +453,15 @@ endpoints:
         ok:        { type: boolean }
         delivered: { type: boolean }
         to:        { type: string, description: "届け先のタブの id" }
-        operator_said: { type: boolean, description: "人の発話を封筒に入れたか" }
+        operator_said: { type: boolean, description: "常に false (= 人の発話は機械を跨がない)" }
       required: [ok, to, operator_said]
     response_kind: json
     auth: peer
     invariants:
       - "受けるのは config の agent_message_peers に書いた相手の接続元からの呼び出しだけ"
       - "封筒の session は <相手の名前>:<送り主のタブの id>、 相手の名前はこの機械の設定の物 (= 届いた中身からは取らない)"
-      - "届ける前に、 この機械の agent_message_check を本文と人の発話の両方に掛ける (= 人の発話だけが通らなければ本文だけ届ける)"
+      - "届ける前に、 この機械の agent_message_check を本文に掛ける"
+      - "封筒の 1 行目は別の機械からの連絡に固有の文で、 <operator-said> は入れない (= 相手が何を送ってきても)"
       - "相手の設定に accounts が在れば、 その account のタブへだけ届ける"
     implementation: backend/routes/agent_messages.py
 

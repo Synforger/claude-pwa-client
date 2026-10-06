@@ -10,6 +10,12 @@
 書くのは届ける側の backend で、 どの機械から来たかは、 呼び出しの接続元を設定の相手と突き合わせて
 決める (= 送り主の言い分では決まらない)。 相手の機械のタブの一覧は `GET /agent-messages/peers`。
 
+別の機械から届いた連絡は、 1 行目が別の文になる (= `REMOTE_OPENING`)。 受け取った側の claude と、
+端末の入力を読む外の道具が、 「この機械の外から来た」 を 1 行目だけで見分けられる。 **人の発話は
+機械を跨がない**: `<operator-said>` を書けるのは、 その発話が打たれた機械の backend だけで、 別の機械の
+backend が「人がこう打った」 と言ってきても、 こちらには確かめる手段が無い (= 相手の機械に入られていれば、
+その言葉も作れる)。 送る側は付けず、 受ける側は届いても読まない。
+
 人が打つ送信口 (= `/pty/{sid}/send`) とは別の口にしてある。 宛先の claude から見ると、 どちらも
 端末に打たれた文として届くので、 区別は本文の 1 行目 (= `OPENING`) でしか付かない。 この口を通った
 連絡には必ずその行が付き、 人の送信には付かない。
@@ -54,6 +60,10 @@ router = APIRouter()
 # 連絡の 1 行目。 宛先の claude も、 端末の入力を読む外の道具も、 この行で「人が打った文ではない」
 # と見分ける。 変えると見分けが外れるので固定 (= docs/reference/agent-messages.md に同じ行を載せている)。
 OPENING = "Message from another session, relayed by the client (the operator did not type this):"
+# 別の機械のタブから届いた連絡の 1 行目。 こちらも固定で、 同じ機械の中の連絡とは別の文にする
+# (= 1 行目だけで「この機械の外から来た」 と分かる)。
+REMOTE_OPENING = "Message from a session on another machine, relayed by the client (the operator did not type this):"
+OPENINGS = (OPENING, REMOTE_OPENING)
 TAG = "agent-message"
 # 送り主のタブで人が最後に打った発話を入れる場所。 backend だけが書く。
 OPERATOR_TAG = "operator-said"
@@ -99,21 +109,22 @@ def _attr(value: str) -> str:
     return _TAG_LIKE.sub(r"&lt;\1\2", value.replace('"', "'").replace("\n", " "))
 
 
-def _envelope(title: str, session: str, text: str, operator_said: str | None = None) -> str:
+def _envelope(opening: str, title: str, session: str, text: str, operator_said: str | None = None) -> str:
     said = f"<{OPERATOR_TAG}>\n{_plain(operator_said)}\n</{OPERATOR_TAG}>\n" if operator_said else ""
-    return f'{OPENING}\n<{TAG} from="{_attr(title)}" session="{_attr(session)}">\n{said}{_plain(text)}\n</{TAG}>'
+    return f'{opening}\n<{TAG} from="{_attr(title)}" session="{_attr(session)}">\n{said}{_plain(text)}\n</{TAG}>'
 
 
 def envelope(sender_id: str, text: str, operator_said: str | None = None) -> str:
     """本文に「誰から」 を付ける。 中身の側の、 封筒のタグと同じ形の文字列は潰す (= 本文から封筒を
     閉じて外へ文を足すことも、 人の発話を装うことも出来ない)。"""
-    return _envelope(sessions_meta[sender_id].title, sender_id, text, operator_said)
+    return _envelope(OPENING, sessions_meta[sender_id].title, sender_id, text, operator_said)
 
 
-def relayed_envelope(peer: str, title: str, session: str, text: str, operator_said: str | None = None) -> str:
-    """別の機械から届いた連絡の封筒。 形は同じで、 `session` が `<相手の名前>:<送り主のタブの id>` に
-    なる (= そのまま返事の宛先に書ける)。 相手の名前はこちらの設定の物で、 届いた中身からは取らない。"""
-    return _envelope(f"{title} @{peer}", f"{peer}:{session}", text, operator_said)
+def relayed_envelope(peer: str, title: str, session: str, text: str) -> str:
+    """別の機械から届いた連絡の封筒。 1 行目は `REMOTE_OPENING`、 `session` は `<相手の名前>:<送り主の
+    タブの id>` (= そのまま返事の宛先に書ける)。 相手の名前はこちらの設定の物で、 届いた中身からは
+    取らない。 人の発話は入れない (= この機械では確かめられない)。"""
+    return _envelope(REMOTE_OPENING, f"{title} @{peer}", f"{peer}:{session}", text)
 
 
 def _lines_from_the_end(path: Path):
@@ -172,7 +183,7 @@ def last_operator_text(record: Path | None) -> str | None:
             if text is None or not text.strip():
                 continue
             text = unwrap_pasted(text).strip()
-            return None if text.startswith(OPENING) else text
+            return None if text.startswith(OPENINGS) else text
     except OSError:
         logger.warning("agent message: sender's record could not be read: %s", record)
     return None
@@ -238,31 +249,23 @@ async def _judge(session: str, text: str, receiver: str) -> None:
         raise_error(403, "agent_message_refused", f"連絡は届けられませんでした: {reason}", reason=reason)
 
 
-async def _operator_said(sender_id: str, receiver_session, receiver: str) -> str | None:
-    """封筒に入れる人の発話。 receiver_session は、 検査へ渡す宛先の名前を返す関数 (= 分からなければ None)。"""
+async def operator_said_for(sender_id: str, receiver_id: str) -> str | None:
+    """封筒に入れる人の発話。 無い時と、 `agent_message_operator_check` が通さなかった時は None
+    (= 連絡は本文だけで届ける)。 語の `{sender_session}` は送り主の claude の session id。"""
     from backend.config import AGENT_MESSAGE_OPERATOR_CHECK  # noqa: PLC0415
     sender_record = jsonl_path_for_session(sender_id)
     said = last_operator_text(sender_record)
     if said is None or not AGENT_MESSAGE_OPERATOR_CHECK:
         return said
-    session = receiver_session()
-    if session is None:
+    receiver_record = jsonl_path_for_session(receiver_id)
+    if receiver_record is None:
         return None
     status, reason = await _run_check(AGENT_MESSAGE_OPERATOR_CHECK, said,
-                                      {"session": session, "sender_session": sender_record.stem})
+                                      {"session": receiver_record.stem, "sender_session": sender_record.stem})
     if status != 0:
-        logger.info("agent message: operator's words left out sender=%s receiver=%s (%s)", sender_id, receiver, reason)
+        logger.info("agent message: operator's words left out sender=%s receiver=%s (%s)", sender_id, receiver_id, reason)
         return None
     return said
-
-
-async def operator_said_for(sender_id: str, receiver_id: str) -> str | None:
-    """封筒に入れる人の発話。 無い時と、 `agent_message_operator_check` が通さなかった時は None
-    (= 連絡は本文だけで届ける)。 語の `{sender_session}` は送り主の claude の session id。"""
-    def receiver_session() -> str | None:
-        record = jsonl_path_for_session(receiver_id)
-        return record.stem if record else None
-    return await _operator_said(sender_id, receiver_session, receiver_id)
 
 
 # --- 別の機械の backend ----------------------------------------------------------
@@ -325,11 +328,11 @@ def _tab_running(tab_id: str) -> bool:
     return os.environ.get("CPC_E2E") == "1" or claude_in_pane(tab_id)
 
 
-async def send_to_peer(peer_name: str, tab: str, sender: str, text: str, operator_said: bool) -> dict:
+async def send_to_peer(peer_name: str, tab: str, sender: str, text: str) -> dict:
     """別の機械のタブへの連絡。 こちらの検査を通してから相手の backend へ渡す。
 
     検査には、 宛先の session id の代わりに `<相手の名前>:<タブ>` を渡す (= この機械のどの会話でもない
-    名前)。 人の発話も同じ名前で `agent_message_operator_check` に掛ける。
+    名前)。 人の発話は付けない (= 頼まれても。 機械を跨ぐと、 受け取る側で本物か確かめられない)。
     """
     from backend.config import AGENT_MESSAGE_CHECK, AGENT_MESSAGE_PEERS  # noqa: PLC0415
     peer = AGENT_MESSAGE_PEERS[peer_name]
@@ -339,10 +342,8 @@ async def send_to_peer(peer_name: str, tab: str, sender: str, text: str, operato
                     f"このタブは {peer_name} の機械と連絡できません", peer=peer_name)
     if AGENT_MESSAGE_CHECK:
         await _judge(name, text, name)
-    said = await _operator_said(sender, lambda: name, name) if operator_said else None
     status, body = await call_peer(peer_name, peer, RELAYED_PATH, {
-        "to": tab, "from_title": sessions_meta[sender].title, "from_session": sender,
-        "text": text, "operator_said": said,
+        "to": tab, "from_title": sessions_meta[sender].title, "from_session": sender, "text": text,
     })
     if status is None:
         raise_error(502, "agent_message_peer_unreachable", f"{peer_name} の機械に繋がりませんでした", peer=peer_name)
@@ -352,9 +353,9 @@ async def send_to_peer(peer_name: str, tab: str, sender: str, text: str, operato
         raise_error(status if 400 <= status < 600 else 502, detail.get("code") or "agent_message_peer_failed",
                     detail.get("message") or f"{peer_name} の機械が連絡を受け取りませんでした (HTTP {status})",
                     **{**params, "peer": peer_name})
-    logger.info("agent message sender=%s receiver=%s chars=%d operator_said=%s ok=%s",
-                sender, name, len(text), bool(body.get("operator_said")), body.get("ok"))
-    return {**body, "to": f"{peer_name}:{body.get('to', tab)}", "operator_said": bool(body.get("operator_said"))}
+    logger.info("agent message sender=%s receiver=%s chars=%d operator_said=False ok=%s",
+                sender, name, len(text), body.get("ok"))
+    return {**body, "to": f"{peer_name}:{body.get('to', tab)}", "operator_said": False}
 
 
 @router.post("/agent-messages")
@@ -383,7 +384,7 @@ async def post_agent_message(
         raise_error(400, "agent_message_empty", "本文が空です")
     peer_name, tab = split_peer(to)
     if peer_name is not None:
-        return await send_to_peer(peer_name, tab, sender, text, operator_said)
+        return await send_to_peer(peer_name, tab, sender, text)
     receiver_id = resolve_receiver(to)
     if receiver_id == sender:
         raise_error(400, "agent_message_to_self", "自分のタブへは送れません")
@@ -412,20 +413,18 @@ async def post_relayed_agent_message(request: Request, body: dict = Body(...)) -
     """別の機械の backend が、 自分のタブから預かった連絡をこの機械のタブへ届ける。
 
     受けるのは、 `agent_message_peers` に書いた相手の接続元からの呼び出しだけ。 届ける前に、 この機械の
-    検査 (= `agent_message_check`) を本文と人の発話の両方に掛ける (= 人の発話が通らなければ本文だけ届ける)。
+    検査 (= `agent_message_check`) を本文に掛ける。 届ける封筒の 1 行目は `REMOTE_OPENING` で、 人の発話は
+    入れない (= 相手が何を送ってきても。 上の 4 つ以外の項目は読まない)。
 
     json:
-        to            (str):        宛先のタブの id か名前 (= この機械のタブ)
-        from_title    (str):        送り主のタブの名前
-        from_session  (str):        送り主のタブの id (= 相手の機械での id)
-        text          (str):        本文
-        operator_said (str | null): 送り主のタブで人が最後に打った発話 (= 相手の backend が記録から読んだ物)
+        to            (str): 宛先のタブの id か名前 (= この機械のタブ)
+        from_title    (str): 送り主のタブの名前
+        from_session  (str): 送り主のタブの id (= 相手の機械での id)
+        text          (str): 本文
     """
-    from backend.config import AGENT_MESSAGE_CHECK  # noqa: PLC0415
     peer_name, peer = _require_peer(request)
-    to, title, session, text, said = (body.get(k) for k in ("to", "from_title", "from_session", "text", "operator_said"))
-    if not all(isinstance(v, str) and v.strip() for v in (to, title, session, text)) \
-            or not (said is None or isinstance(said, str)):
+    to, title, session, text = (body.get(k) for k in ("to", "from_title", "from_session", "text"))
+    if not all(isinstance(v, str) and v.strip() for v in (to, title, session, text)):
         raise_error(400, "agent_message_bad_relay", "相手の機械から届いた連絡の形が正しくありません")
     receiver_id = resolve_receiver(to)
     if not allowed_for_peer(peer, receiver_id):
@@ -434,19 +433,11 @@ async def post_relayed_agent_message(request: Request, body: dict = Body(...)) -
     if not _tab_running(receiver_id):
         raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いていません")
     await check(receiver_id, text)
-    if said is not None and not said.strip():
-        said = None
-    if said is not None and AGENT_MESSAGE_CHECK:
-        record = jsonl_path_for_session(receiver_id)
-        status, reason = await _run_check(AGENT_MESSAGE_CHECK, said, {"session": record.stem})
-        if status != 0:
-            logger.info("agent message: operator's words left out peer=%s receiver=%s (%s)", peer_name, receiver_id, reason)
-            said = None
-    payload = {"text": relayed_envelope(peer_name, title, session, text, said), "enter": True}
+    payload = {"text": relayed_envelope(peer_name, title, session, text), "enter": True}
     result = await pty_send(receiver_id, payload, None)
-    logger.info("agent message peer=%s sender=%s receiver=%s chars=%d operator_said=%s ok=%s",
-                peer_name, session, receiver_id, len(text), said is not None, result.get("ok"))
-    return {**result, "to": receiver_id, "operator_said": said is not None}
+    logger.info("agent message peer=%s sender=%s receiver=%s chars=%d operator_said=False ok=%s",
+                peer_name, session, receiver_id, len(text), result.get("ok"))
+    return {**result, "to": receiver_id, "operator_said": False}
 
 
 @router.get(PEER_TABS_PATH)

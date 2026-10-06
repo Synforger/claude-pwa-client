@@ -197,7 +197,6 @@ class PostAgentMessagesRelayedRequest(BaseModel):
     from_title: str  # 送り主のタブの名前
     from_session: str  # 送り主のタブの id (= 相手の機械での id)
     text: str  # 本文
-    operator_said: Optional[str] = None  # 送り主のタブで人が最後に打った発話
 
 
 class PostAgentMessagesRelayedResponse(BaseModel):
@@ -206,7 +205,7 @@ class PostAgentMessagesRelayedResponse(BaseModel):
     ok: bool
     delivered: Optional[bool] = None
     to: str  # 届け先のタブの id
-    operator_said: bool  # 人の発話を封筒に入れたか
+    operator_said: bool  # 常に false (= 人の発話は機械を跨がない)
 
 
 class GetAgentMessagesTabsResponse(BaseModel):
