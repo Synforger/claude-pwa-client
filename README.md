@@ -69,7 +69,8 @@ This repository is designed for a personal host machine exposed only inside a Ta
 
 - **`/file` (GET/PUT) and `/file/raw` (image preview) are restricted to HOME plus a secrets deny list** (truth: `backend/routes/files.py::_DENY_RE`); `/file/raw` serves only png / jpg / gif / webp, never SVG:
   - SSH: `~/.ssh/`, and the bare filenames `authorized_keys` / `id_rsa` / `id_ed25519` / `id_ecdsa` / `id_dsa` / `known_hosts`
-  - Cloud credentials: `~/.aws/`, `~/.gnupg/`, `~/.docker/`, `~/.kube/`, `~/.config/gh/`, `~/.netrc`
+  - Cloud credentials: `~/.aws/`, `~/.gnupg/`, `~/.docker/`, `~/.kube/`, `~/.azure/`, `~/.config/gh/`, `~/.config/gcloud/`, `~/Library/Keychains/`, `~/.netrc`
+  - Files that hold tokens in plain text, wherever they sit: `.env` and `.env.*` (templates named `.env.example` / `.env.sample` / `.env.template` stay readable), `.envrc`, any `secrets/` directory, `.credentials.json`, `.claude.json`, `.npmrc`, `.pypirc`, `.git-credentials`, `.pgpass`
   - Shell init / history: `~/.zshrc` / `~/.zshenv` / `~/.zprofile` / `~/.bashrc` / `~/.bash_profile` / `~/.profile` / `~/.zsh_history` / `~/.bash_history`
   - Extensions: `*.pem` / `*.key` / `*.p12` / `*.pfx`
 - **`/hooks/event` accepts localhost only**: claude CLI hooks are loopback by design

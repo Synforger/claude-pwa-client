@@ -234,7 +234,7 @@ endpoints:
     auth: tailnet
     invariants:
       - "HOME 配下外は 403"
-      - "deny list (= .ssh / .aws / secrets) 該当は 403"
+      - "deny list (= .ssh / .aws / .env / secrets など、 鍵と token の置き場) 該当は 403"
       - "binary file は 415 で reject"
     implementation: backend/routes/files.py
 
