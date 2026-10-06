@@ -416,13 +416,13 @@ endpoints:
     description: "タブの中の claude から、 別のタブの claude への連絡 (= multipart / urlencoded form)"
     request_body:
       type: object
-      description: "form: to (= 宛先のタブの id か名前) + from (= 送り主のタブの id) + text (= 本文)"
+      description: "form: to (= 宛先のタブの id か名前。 別の機械のタブは <相手の名前>:<タブ>) + from (= 送り主のタブの id) + text (= 本文)"
     response:
       type: object
       properties:
         ok:        { type: boolean }
         delivered: { type: boolean }
-        to:        { type: string, description: "届け先のタブの id" }
+        to:        { type: string, description: "届け先のタブの id (= 別の機械のタブは <相手の名前>:<id>)" }
         operator_said: { type: boolean, description: "送り主のタブで人が打った発話を封筒に入れたか" }
       required: [ok, to, operator_said]
     response_kind: json
@@ -432,6 +432,82 @@ endpoints:
       - "宛先で claude が動いていなければ届けない (= 連絡で会話を起動しない)"
       - "config の agent_message_check が 0 以外で終われば届けず、 理由を 403 で返す"
       - "送り主のタブで最後に端末から入った発話が人の物なら <operator-said> として封筒に入れる (= agent_message_operator_check が 0 以外なら入れずに届ける)"
+      - "宛先が <相手の名前>:<タブ> で、 その名前が config の agent_message_peers に在れば、 検査 (= 宛先の名前をそのまま渡す) を通してから相手の backend へ渡す"
+      - "相手の設定に accounts が在れば、 その account のタブからだけ送れる"
+    implementation: backend/routes/agent_messages.py
+
+  - method: POST
+    path: /agent-messages/relayed
+    description: "別の機械の backend が、 自分のタブから預かった連絡をこの機械のタブへ届ける (= json)"
+    request_body:
+      type: object
+      properties:
+        to:            { type: string, description: "宛先のタブの id か名前 (= この機械のタブ)" }
+        from_title:    { type: string, description: "送り主のタブの名前" }
+        from_session:  { type: string, description: "送り主のタブの id (= 相手の機械での id)" }
+        text:          { type: string, description: "本文" }
+        operator_said: { type: string, nullable: true, description: "送り主のタブで人が最後に打った発話" }
+      required: [to, from_title, from_session, text]
+    response:
+      type: object
+      properties:
+        ok:        { type: boolean }
+        delivered: { type: boolean }
+        to:        { type: string, description: "届け先のタブの id" }
+        operator_said: { type: boolean, description: "人の発話を封筒に入れたか" }
+      required: [ok, to, operator_said]
+    response_kind: json
+    auth: peer
+    invariants:
+      - "受けるのは config の agent_message_peers に書いた相手の接続元からの呼び出しだけ"
+      - "封筒の session は <相手の名前>:<送り主のタブの id>、 相手の名前はこの機械の設定の物 (= 届いた中身からは取らない)"
+      - "届ける前に、 この機械の agent_message_check を本文と人の発話の両方に掛ける (= 人の発話だけが通らなければ本文だけ届ける)"
+      - "相手の設定に accounts が在れば、 その account のタブへだけ届ける"
+    implementation: backend/routes/agent_messages.py
+
+  - method: GET
+    path: /agent-messages/tabs
+    description: "相手の機械へ、 連絡を受けられるこの機械のタブの一覧を返す"
+    response:
+      type: object
+      properties:
+        tabs:
+          type: array
+          items:
+            type: object
+            properties:
+              id:      { type: string }
+              title:   { type: string }
+              running: { type: boolean, description: "そのタブで claude が動いているか" }
+            required: [id, title, running]
+      required: [tabs]
+    response_kind: json
+    auth: peer
+    invariants:
+      - "受けるのは config の agent_message_peers に書いた相手の接続元からの呼び出しだけ"
+      - "相手の設定の accounts に入らないタブは、 名前も id も返さない"
+    implementation: backend/routes/agent_messages.py
+
+  - method: GET
+    path: /agent-messages/peers
+    description: "設定された相手の機械と、 そこで連絡を受けられるタブの一覧"
+    response:
+      type: object
+      properties:
+        peers:
+          type: array
+          items:
+            type: object
+            properties:
+              name:  { type: string }
+              tabs:  { type: array, nullable: true, description: "繋がらない相手は null" }
+              error: { type: string, nullable: true }
+            required: [name]
+      required: [peers]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "相手ごとに 1 回だけ相手の backend を呼ぶ (= GET /agent-messages/tabs)"
     implementation: backend/routes/agent_messages.py
 
   - method: POST
