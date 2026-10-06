@@ -94,7 +94,7 @@ tmux server は `exit-empty off` + 番兵 session `claudepwa-sentinel` (= backen
 
 - **channel envelope**: data 行 JSON `{"ch": "sys"|"jsonl"|"status"|"overview"|"subagents", ...}`。 jsonl frame は `{ch, pos, ev}` で `ev` は既存 sse-events event そのまま (= wire 内容の schema 変更なし)、 `pos` が行末実 byte 位置 (= client は frame ごとに offset 前進、 SSE id 行は使わない)
 - **購読 sid だけ配る**: jsonl channel は接続 query (= jsonl=sid:off,...) / control の op=jsonl で宣言された sid のみ。 未購読 sid の event (= 巨大 tool_result 含む) はネットワークにも client CPU にも届かない (= 全配信 fan-out の遮断、 電力主犯対策)。 タブ切替 = 再接続でなく購読差替 + 差分 replay
-- **warmup も購読 sid のみ**: 旧 `/jsonl/stream/all` の「接続時に全 sid PTY sweep」 を廃止。 未購読 sid は購読された瞬間に ensure
+- **warmup も購読 sid のみ**: 旧 `/jsonl/stream/all` の「接続時に全 sid PTY sweep」 を廃止。 未購読 sid は購読された瞬間に ensure。 ensure は背景で走り、 replay を待たせない (= 端末の記録が無い再起動の直後は ensure に数秒かかる)
 - **views/ws の吸収**: op=view で視認申告、 SSE 切断 = views 登録自動消滅 (= WS の TCP FIN と同じ stale-free 性質)。 Stop は op=stop (= POST は TCP 保証で届く、 旧 WS 経路と等価)
 - **status / overview**: 接続毎 diff 配信 (= F-09 と同規約) を 1 pump に統合。 subagents は op=subagents で対象 1 sid を watch
 - **subagent の完了印**: その Task の**実結果**が `tool_result` として親転写に返っていること。 引き当ては `meta.json` の `toolUseId`、 実装は `backend/routes/subagents.py::_completed_tool_use_ids`。 誤判定しやすい経路が 2 つある (= どちらも 2026-08-03 に実機で踏んだ):
