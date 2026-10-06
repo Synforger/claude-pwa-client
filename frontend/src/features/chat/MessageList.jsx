@@ -5,7 +5,8 @@
 // 旧 AppShell では .messages を `<div className="messages-container">` が囲み、 同じ container 内に
 // Terminal LRU mount が absolute 配置されていた。 F-1 では Terminal mount は AppShell に残置、
 // .messages のみ ChatPanel 配下に独立。 viewMode='terminal' 時の display:none gate は ChatPanel
-// 側の hidden wrapper で実現する (= 旧 inline style と同等)。
+// 側の hidden wrapper で実現する (= 旧 inline style と同等)。 viewMode='page' (= 頁として開く拡張が
+// 出ている間) は、 container ごと畳んで場所を譲る (= mount は保つ)。
 import { useMemo } from 'react'
 import MessageItem from './MessageItem.jsx'
 import { useT } from '../../i18n/t.js'
@@ -33,7 +34,7 @@ export default function MessageList({
   // だけが本 component 配下に残った。 wrapper を外すと scroll-btn が祖先 (= .app or body) を
   // 基準にして画面外 / 右下端に飛ぶ regression が出るので、 .messages-container は必ず維持する。
   return (
-    <div className="messages-container">
+    <div className="messages-container" style={viewMode === 'page' ? { display: 'none' } : undefined}>
       {/* chat も Terminal と対称に mount しっぱなしで display 切替する。
           terminal モードへ行っても DOM が unmount されないので、 戻った時に
           scroll 位置 / 画像 / プレビューの内部状態がそのまま残る (= 2026-06-16)。 */}
@@ -41,7 +42,7 @@ export default function MessageList({
         ref={scrollerDomRef}
         className="messages"
         onScroll={onScroll}
-        style={viewMode === 'terminal' ? { display: 'none' } : undefined}
+        style={viewMode !== 'chat' ? { display: 'none' } : undefined}
       >
         {orderedMessages.map((msg, i) => (
           <MessageItem
@@ -60,7 +61,7 @@ export default function MessageList({
         ))}
       </div>
 
-      {viewMode !== 'terminal' && showScrollBtn && (
+      {viewMode === 'chat' && showScrollBtn && (
         <button className="scroll-btn" onClick={() => scrollToBottom()} aria-label={t('chat.scroll_latest')}>
           ↓
           {hasNew && <span className="scroll-dot" />}

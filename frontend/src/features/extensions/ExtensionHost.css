@@ -21,6 +21,14 @@
   overflow: hidden;
 }
 
+/* 頁として開く拡張 (= 宣言の view: 'page')。 上のバーと入力欄の間の残り全部を使う。 その間
+ * メッセージの一覧と端末は表示を譲るので (= ChatPanel / TerminalPane)、 伸びる相手はこの枠だけになる。 */
+.extension-band.page {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 0;
+}
+
 .extension-band.fullscreen {
   position: fixed;
   inset: 0;

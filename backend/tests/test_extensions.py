@@ -1,6 +1,6 @@
 """config.json の `extensions` の読み取りと GET /extensions の shape。
 
-拡張の置き場は `/ext/<id>/` に固定で、 config は id / title / icon だけを持つ。 不正な 1 件は
+拡張の置き場は `/ext/<id>/` に固定で、 config は id / title / icon / view だけを持つ。 不正な 1 件は
 その 1 件だけ捨て、 理由は起動時の warn に出る。
 """
 from __future__ import annotations
@@ -37,9 +37,29 @@ def test_valid_entries_keep_config_order_and_derive_path(tmp_path, monkeypatch):
         {"id": "budget-2"},
     ]})
     assert list_extensions() == [
-        {"id": "notes", "title": "Notes", "icon": "📝", "path": "/ext/notes/"},
-        {"id": "budget-2", "title": "budget-2", "icon": "🧩", "path": "/ext/budget-2/"},
+        {"id": "notes", "title": "Notes", "icon": "📝", "path": "/ext/notes/", "view": "band"},
+        {"id": "budget-2", "title": "budget-2", "icon": "🧩", "path": "/ext/budget-2/", "view": "band"},
     ]
+
+
+def test_an_extension_says_how_it_opens_and_a_band_is_the_default(tmp_path, monkeypatch, caplog):
+    """`view` は band (= 既定) か page。 書き損じは拡張ごと捨てずに band で採用し、 指摘を warn に出す。"""
+    _write_config(tmp_path, monkeypatch, {"agents": {"a": {}}, "extensions": [
+        {"id": "reader", "view": "page"},
+        {"id": "player", "view": "band"},
+        {"id": "plain"},
+        {"id": "typo", "view": "pgae"},
+        {"id": "wrong-type", "view": 1},
+    ]})
+    assert [(e["id"], e["view"]) for e in list_extensions()] == [
+        ("reader", "page"), ("player", "band"), ("plain", "band"), ("typo", "band"), ("wrong-type", "band"),
+    ]
+    with caplog.at_level(logging.WARNING):
+        config_mod.validate_runtime_paths()
+    said = [r.getMessage() for r in caplog.records if "config.extensions" in r.getMessage()]
+    assert len(said) == 2
+    assert "config.extensions[3]" in said[0] and "'pgae'" in said[0] and "band, page" in said[0]
+    assert "config.extensions[4]" in said[1]
 
 
 def test_invalid_entries_are_dropped_one_by_one(tmp_path, monkeypatch):
@@ -55,7 +75,7 @@ def test_invalid_entries_are_dropped_one_by_one(tmp_path, monkeypatch):
         {"id": "ok", "title": "dup"},  # 重複
     ]})
     assert list_extensions() == [
-        {"id": "ok", "title": "ok", "icon": "🧩", "path": "/ext/ok/"},
+        {"id": "ok", "title": "ok", "icon": "🧩", "path": "/ext/ok/", "view": "band"},
     ]
 
 
@@ -90,4 +110,4 @@ def test_route_is_served_by_the_app(tmp_path, monkeypatch):
     _write_config(tmp_path, monkeypatch, {"extensions": [{"id": "notes"}]})
     res = TestClient(app).get("/extensions")
     assert res.status_code == 200
-    assert res.json() == [{"id": "notes", "title": "notes", "icon": "🧩", "path": "/ext/notes/"}]
+    assert res.json() == [{"id": "notes", "title": "notes", "icon": "🧩", "path": "/ext/notes/", "view": "band"}]

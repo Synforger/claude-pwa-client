@@ -91,6 +91,7 @@ class GetExtensionsResponseItem(BaseModel):
     title: str  # 一覧の名前と iframe の title (= 未指定なら id)
     icon: str  # 🧩 の一覧で名前の前に出す文字 (= 未指定なら 🧩)
     path: str  # /ext/<id>/ (= id から導出、 config には書かない)
+    view: Literal["band", "page"]  # 開き方。 band = チャットの上の帯、 page = 入力欄の上を全部使う頁 (= 未指定なら band)
 
 
 class GetFileResponse(BaseModel):
