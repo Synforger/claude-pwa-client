@@ -117,6 +117,37 @@ def cwd_to_project_dir(cwd: str, account_id: str | None = None) -> Path:
     return projects_dir_for_account(account_id) / cwd_to_project_dirname(cwd)
 
 
+# 連絡を運び合う別の機械の backend (= agent_message_peers)。 名前は宛先の `<名前>:<タブ>` の左側に
+# そのまま使うので、 `:` を含まない英数字・ハイフン・下線の 32 文字までに絞る。
+PEER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
+
+
+def _agent_message_peers(raw: Any) -> dict[str, dict[str, Any]]:
+    """config の `agent_message_peers` のうち、 形の正しい相手だけを返す (= 1 件の書き損じで全部は消えない)。
+
+        {"<名前>": {"url": "https://...", "address": "<その相手からの呼び出しが届く時の接続元>",
+                    "accounts": ["<この相手と連絡してよいタブの account>", ...]}}
+
+    accounts は省ける (= 省けば全部のタブ)。 url はこちらから送る先、 address は向こうから届いた呼び出しを
+    その相手の物と認める接続元 (= 両方が揃って 1 つの相手)。
+    """
+    peers: dict[str, dict[str, Any]] = {}
+    if not isinstance(raw, dict):
+        return peers
+    for name, entry in raw.items():
+        if not (isinstance(name, str) and PEER_NAME_RE.match(name) and isinstance(entry, dict)):
+            continue
+        url, address, accounts = entry.get("url"), entry.get("address"), entry.get("accounts")
+        if not (isinstance(url, str) and url.startswith(("http://", "https://"))):
+            continue
+        if not (isinstance(address, str) and address.strip()):
+            continue
+        if accounts is not None and not (isinstance(accounts, list) and all(isinstance(a, str) for a in accounts)):
+            continue
+        peers[name] = {"url": url.rstrip("/"), "address": address.strip(), "accounts": accounts}
+    return peers
+
+
 def _accounts() -> dict[str, Any]:
     return get_config().get("accounts") or {
         "personal": {"display_name": "Personal", "env": {}}
@@ -223,6 +254,8 @@ def __getattr__(name: str) -> Any:  # noqa: PLR0911
     if name in ("AGENT_MESSAGE_CHECK", "AGENT_MESSAGE_OPERATOR_CHECK"):
         check = cfg.get(name.lower())
         return check if isinstance(check, list) and all(isinstance(w, str) for w in check) else []
+    if name == "AGENT_MESSAGE_PEERS":
+        return _agent_message_peers(cfg.get("agent_message_peers"))
     if name == "CORS_ALLOW_ORIGINS":
         return cfg.get("cors_allow_origins", [])
     if name == "RATE_LIMITS_LOG_PATH":

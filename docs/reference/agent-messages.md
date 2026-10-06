@@ -25,7 +25,8 @@ curl -s http://127.0.0.1:8765/agent-messages \
 port は backend を起動した port に合わせてください。 タブの名前と id の一覧は
 `curl -s http://127.0.0.1:8765/sessions` で取れます。
 
-送れるのは backend と同じ機械の中からだけです。
+送れるのは backend と同じ機械の中からだけです。 別の機械で動いている backend のタブへ送りたい時は、
+下の「別の機械のタブへ送る」 の設定をします。
 
 ## 届く形
 
@@ -87,6 +88,61 @@ Message from another session, relayed by the client (the operator did not type t
 | `agent_message_refused` | 検査が連絡を通さなかった。 理由が `reason` に入っている |
 | `agent_message_check_failed` | 検査を実行できなかった、 または時間内に終わらなかった |
 | `agent_message_local_only` | 別の機械から呼ばれた |
+| `agent_message_peer_not_allowed` | そのタブは、 その機械と連絡してよい account のタブではない |
+| `agent_message_peer_unreachable` | 相手の機械の backend に繋がらなかった |
+| `agent_message_unknown_peer` | (= 相手の機械へ返る) 設定されていない接続元から連絡を預けようとした |
+
+## 別の機械のタブへ送る (任意)
+
+backend を 2 台の機械で動かしている時、 片方のタブからもう片方のタブへ連絡を送れます。
+**両方の機械の** `backend/config.json` に、 相手を 1 つずつ書きます。
+
+```json
+"agent_message_peers": {
+  "home": {
+    "url": "https://home-mac.example.ts.net",
+    "address": "100.64.0.2",
+    "accounts": ["personal"]
+  }
+}
+```
+
+| 項目 | 中身 |
+|---|---|
+| 名前 (= 上の `home`) | 宛先に書く相手の呼び名。 英数字・ハイフン・下線で 32 文字まで。 機械ごとに好きに付けてよい |
+| `url` | 相手の backend に、 この機械から届く URL |
+| `address` | 相手の backend からの呼び出しが、 この機械に届く時の接続元。 この接続元から来た連絡だけを、 その相手の物として受け取る |
+| `accounts` | (任意) この相手と連絡してよいタブの account。 書くと、 送るのも受けるのもその account のタブだけになり、 相手に見せるタブの一覧にも他のタブは出ない。 書かなければ全部のタブ |
+
+送る時は、 宛先を `相手の名前:タブ` と書きます。
+
+```sh
+curl -s http://127.0.0.1:8765/agent-messages \
+  -F to='home:宛先のタブ名' \
+  -F from="$PWA_SID" \
+  -F 'text=<message.md'
+```
+
+相手の機械で連絡を受けられるタブは `curl -s http://127.0.0.1:8765/agent-messages/peers` で取れます。
+
+届く形は同じで、 `from` に相手の名前が付き、 `session` が `相手の名前:送り主のタブの id` になります。
+返事は、 その `session` の値をそのまま `to` に書けば送り主へ戻ります。
+
+```
+Message from another session, relayed by the client (the operator did not type this):
+<agent-message from="送り主のタブ名 @home" session="home:送り主のタブの id">
+本文
+</agent-message>
+```
+
+- **どの機械から来たかは、 受け取った側が接続元で決めます。** 封筒に入る相手の名前は受け取った側の設定の物で、
+  届いた中身からは取りません
+- 検査を設定している時は、 **送る側と受け取る側の両方**で走ります。 送る側では、 宛先の会話がその機械に
+  無いので、 `{session}` には `相手の名前:タブ` (= 宛先に書いたまま) が入ります。 受け取る側では、 自分の機械の
+  宛先の会話の session id が入ります
+- 相手の機械のタブで Claude が動いていなければ届きません (= 同じ機械の中と同じく、 連絡で会話を起動しません)
+- backend どうしの通信に、 この機能は鍵や合言葉を足しません。 **両方の backend が、 信頼できる機械だけの
+  ネットワーク (= Tailscale の tailnet など) の中に在ること**が前提です
 
 ## 届ける前に検査する (任意)
 
