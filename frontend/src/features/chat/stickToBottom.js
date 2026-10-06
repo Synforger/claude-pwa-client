@@ -9,11 +9,20 @@
 // 「最下端に居る」 とみなす余白 (= px)。 指の振動と iOS のバウンドを吸収する。
 export const AT_BOTTOM_THRESHOLD_PX = 30
 
+// 最下端へ送った後、 送りが「止まった」 と見なすまでの静かな時間 (= ms)。 送りの出来事がこの間
+// 途切れたら止まったとする。 scrollend の polyfill が同じ判定に使う 100ms と同じ値。
+export const SCROLL_SETTLE_MS = 100
+
 // 戻り値: 次の張り付き状態 (= true なら中身が伸びた時に最下端へ送り続ける)。
-export function nextStuck({ stuck, prevTop, top, scrollHeight, clientHeight }) {
+//
+// settling = 最下端へ送った直後で、 その前から続いていた動き (= 指で弾いた惰性、 動いている途中の
+// 送り) がまだ止まっていない間。 この間の上への動きは、 ユーザが今スクロールした物ではないので、
+// 張り付きを外さない (= 外すと、 ↓ を押した直後に残りの惰性で「離れた」 と判定され、 最下端に
+// 着かないまま ↓ がまた出る)。
+export function nextStuck({ stuck, prevTop, top, scrollHeight, clientHeight, settling = false }) {
   const distance = scrollHeight - top - clientHeight
   if (distance <= AT_BOTTOM_THRESHOLD_PX) return true
   // 1px 未満の揺れ (= 小数 scrollTop の丸め) は上スクロールとみなさない。
-  if (top < prevTop - 1) return false
+  if (top < prevTop - 1) return settling ? stuck : false
   return stuck
 }
