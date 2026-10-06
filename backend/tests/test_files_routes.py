@@ -53,9 +53,25 @@ def test_resolve_safe_dotdot_escape_raises():
     "~/somewhere/cert.p12",
     "~/something/id_ed25519",
     "~/.config/gh/hosts.yml",
+    # token を平文で持つ設定 (= ホームの直下に限らず、 repo やアプリの中に在る)
+    "~/somewhere/.envrc",
+    "~/somewhere/.env",
+    "~/somewhere/.env.local",
+    "~/somewhere/.env.production",
+    "~/somewhere/secrets/vapid.json",
+    "~/.claude/.credentials.json",
+    "~/.claude-work/.credentials.json",
+    "~/.claude.json",
+    "~/.npmrc",
+    "~/.pypirc",
+    "~/.git-credentials",
+    "~/.pgpass",
+    "~/.azure/accessTokens.json",
+    "~/.config/gcloud/credentials.db",
+    "~/Library/Keychains/login.keychain-db",
 ])
 def test_resolve_safe_denies_secret_paths(path):
-    # 意図: SSH 鍵 / クラウド認証 / シェル rc / 履歴 / 証明書 は 403 で拒否される
+    # 意図: SSH 鍵 / クラウド認証 / token を持つ設定 / シェル rc / 履歴 / 証明書 は 403 で拒否される
     with pytest.raises(HTTPException) as exc_info:
         _resolve_safe(path)
     assert exc_info.value.status_code == 403
@@ -65,6 +81,21 @@ def test_resolve_safe_allows_ordinary_paths():
     # 意図: deny list に当たらない通常 path は通過する
     p = _resolve_safe(str(HOME / "repos" / "myproj" / "README.md"))
     assert str(p).endswith("README.md")
+
+
+@pytest.mark.parametrize("path", [
+    "~/somewhere/.env.example",
+    "~/somewhere/.env.sample",
+    "~/somewhere/.env.template",
+    "~/somewhere/environment.md",
+    "~/somewhere/secrets_manager.py",
+    "~/somewhere/secrets-handling.md",
+    "~/.claude/settings.json",
+    "~/somewhere/config.json",
+])
+def test_resolve_safe_allows_what_only_looks_like_a_secret(path):
+    # 意図: 雛形の .env と、 名前に secret を含むだけの file は読める (= 名前の一致は「その名前そのもの」 だけ)
+    assert _resolve_safe(path)
 
 
 # --- /task-output (= background task の出力ログ専用経路) ---
