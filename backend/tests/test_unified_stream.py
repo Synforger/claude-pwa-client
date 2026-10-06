@@ -113,7 +113,8 @@ def test_connect_replays_only_subscribed_sid_with_pos(unified_env):
         assert isinstance(jsonl_frames[0]["pos"], int) and jsonl_frames[0]["pos"] > 0
         # sid_b の replay は 1 frame も無い
         assert all(p["ev"].get("sid") != sid_b for p in seen if p["ch"] == "jsonl")
-        # warmup は購読 sid のみ
+        # warmup は購読 sid のみ (= 背景で走るので、 1 tick 譲ってから見る)
+        await asyncio.sleep(0)
         assert ensured == [sid_a]
         # view 申告が登録され、 切断で消える
         assert state_mod.views_by_conn.get("c1") is None  # aclose 済み
@@ -156,6 +157,7 @@ def test_control_jsonl_adds_subscription_with_replay(unified_env):
         conn = _mk_conn({sid_a: None})
         gen = us._unified_gen(conn, initial_view=None)
         await _read_until(gen, lambda p: p.get("ch") == "overview")
+        await asyncio.sleep(0)  # warmup は背景で走る (= 流し直しを待たせない) ので、 1 tick 譲る
         assert ensured == [sid_a]
 
         # 購読差替: sid_b を追加 (= from 無し → 直近 N 行 replay)
@@ -354,7 +356,7 @@ def test_pump_death_closes_connection(unified_env, monkeypatch):
     _state, sid_a, _sid_b, _ensured = unified_env
     monkeypatch.setattr(us, "KEEPALIVE_SEC", 0.05)
 
-    async def _dying_pump(_conn):
+    async def _dying_pump(_conn, _q):
         raise RuntimeError("pump boom")
     monkeypatch.setattr(us, "_jsonl_pump", _dying_pump)
 
@@ -554,7 +556,8 @@ def test_replay_does_not_wait_for_the_terminal(unified_env, monkeypatch):
                 gen, lambda p: p.get("ch") == "jsonl" and p["ev"].get("type") == "user_message", timeout=1.0)
             assert payload["ev"]["sid"] == sid_a
             await _read_until(gen, lambda p: p.get("ch") == "overview", timeout=1.0)
-            # 起動の保証は始まっている (= 止めたのではなく、 並べ替えただけ)
+            # 起動の保証は始まっている (= 止めたのではなく、 並べ替えただけ。 背景なので 1 tick 譲る)
+            await asyncio.sleep(0)
             assert started == [sid_a]
             assert not gate.is_set()
         finally:
@@ -605,6 +608,56 @@ def test_lines_written_while_the_terminal_is_starting_are_not_lost(unified_env, 
             gate.set()
             await gen.aclose()
             await asyncio.sleep(0)
+    _run(run())
+
+
+def test_a_line_published_before_the_loop_turns_is_not_lost(unified_env):
+    """流し直しの file 読みの直後、 loop が 1 回も回らないうちに publish された行も届く。
+
+    live の購読が「pump の task が最初に走った時」 だと、 task を作ってから loop が次に回るまでの間は
+    まだ購読されていない。 流し直しの file 読みはその間に済むので、 そこで増えた行は流し直しにも
+    live にも乗らなかった。 ここでは待ち無しで読み進めて (= `wait_for` を挟まない。 挟むと python の
+    版によって loop が回る)、 その隙間を作る。
+    """
+    _state, sid_a, _sid_b, _ensured = unified_env
+
+    async def run():
+        conn = _mk_conn({sid_a: 0})
+        gen = us._unified_gen(conn, initial_view=None)
+        try:
+            assert _parse(await gen.__anext__())["type"] == "hello"
+            replayed = _parse(await gen.__anext__())
+            assert replayed["ch"] == "jsonl" and replayed["ev"]["uuid"] == f"u-{sid_a}"
+            # 流し直しの file 読みは済んだ。 ここで増えた行は live でしか届かない
+            line = {"type": "assistant", "uuid": "before-the-loop-turns",
+                    "message": {"content": [{"type": "text", "text": "x"}]}}
+            with open(us._latest_jsonl(sid_a), "a", encoding="utf-8") as f:
+                f.write(json.dumps(line) + "\n")
+            state_mod.jsonl_event_broadcaster.publish(sid_a, {**line, "sid": sid_a}, 903)
+            await _read_until(
+                gen, lambda p: p.get("ch") == "jsonl" and p["ev"].get("uuid") == "before-the-loop-turns",
+                timeout=1.0)
+        finally:
+            await gen.aclose()
+            await asyncio.sleep(0)
+    _run(run())
+
+
+def test_disconnect_drops_the_live_subscription(unified_env):
+    """切断で live の購読が外れる (= 流し直しの途中で切れても、 pump が 1 回も走らなくても)。"""
+    _state, sid_a, _sid_b, _ensured = unified_env
+    subs = state_mod.jsonl_event_broadcaster._subs
+
+    async def run():
+        before = len(subs.get(us.ALL_SUBSCRIBER_KEY, ()))
+        conn = _mk_conn({sid_a: 0})
+        gen = us._unified_gen(conn, initial_view=None)
+        await gen.__anext__()   # hello
+        await gen.__anext__()   # 流し直しの 1 行目 (= 購読は済み、 pump の task はまだ 1 回も走っていない)
+        assert len(subs.get(us.ALL_SUBSCRIBER_KEY, ())) == before + 1
+        await gen.aclose()
+        assert len(subs.get(us.ALL_SUBSCRIBER_KEY, ())) == before
+        await asyncio.sleep(0)
     _run(run())
 
 
