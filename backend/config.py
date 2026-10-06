@@ -93,8 +93,11 @@ def default_account_id() -> str | None:
     持たない最初のもの) が「未設定と等価な account」。 これを解決しないと、 古い session
     (= account_id が None のまま作られたタブ) が「どのアカウントにも属さない」 扱いになり、
     自分自身が移行先候補に出てしまう。
+
+    account の一覧は `_accounts()` から取る (= `accounts` を書いていない設定では既定の 1 つ)。
+    生の設定を読むと、 その構成でだけ一覧と既定が食い違う。
     """
-    for name, cfg in (get_config().get("accounts") or {}).items():
+    for name, cfg in _accounts().items():
         env = (cfg or {}).get("env") or {}
         if not env.get("CLAUDE_CONFIG_DIR"):
             return name
