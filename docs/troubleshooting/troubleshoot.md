@@ -17,12 +17,15 @@
    ([Tailscale docs](https://tailscale.com/docs/how-to/set-up-https-certificates))
 3. **OS の時刻が正しいか確認する** (時刻ズレが大きいと CT 検証に失敗する)
 
-上記で解決しない場合、 direct IP の HTTP フォールバックで暫定回避できる:
+上記で解決しない場合、 direct IP の HTTP フォールバックで暫定回避できる。 backend は通常ホスト機の中
+(= `127.0.0.1`) でだけ待ち受けているので、 この回避を使う間だけ `--host 0.0.0.0` で起動し直す:
 
 ```
 http://<your-tailscale-ip>:8765
 ```
 
+- **`--host 0.0.0.0` の間は、 同じ LAN の機器からも認証なしで backend に届く**。 信頼できる LAN でだけ使い、
+  証明書の問題が解決したら `--host 127.0.0.1` に戻す
 - `<your-tailscale-ip>` は Tailscale 管理画面または `tailscale ip` で確認できる (`100.x.x.x`)
 - tailnet 内の通信は WireGuard で暗号化されているため、 HTTPS を剥がしても tailnet 内では
   実害が出ない

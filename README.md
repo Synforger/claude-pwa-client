@@ -79,6 +79,8 @@ This repository is designed for a personal host machine exposed only inside a Ta
 
 WebSockets (`/ws/pty/{sid}`, `/views/ws`, `/jsonl/stream/{sid}`) and the `/sessions/*` HTTP surface carry no authentication and rely on tailnet ACLs. Public or multi-tenant deployment would require additional middleware auth.
 
+For the tailnet to be the only way in, the backend has to listen on loopback (`--host 127.0.0.1`, as every setup example does) with `tailscale serve` in front of it. Started with `--host 0.0.0.0`, the same unauthenticated surface is also open to every device on the host's local network.
+
 For vulnerability reporting, the audit log, and the full threat model, see [SECURITY.md](SECURITY.md).
 
 ## Setup

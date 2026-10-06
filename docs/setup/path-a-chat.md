@@ -41,7 +41,7 @@ task run    # foreground、 Ctrl-C で停止 (= dev)
 > pip install -r backend/requirements.txt
 > cp backend/config.example.json backend/config.json
 > python -m backend.cli.gen_vapid       # backend/secrets/vapid.json 生成
-> uvicorn backend.main:app --host 0.0.0.0 --port 8765
+> uvicorn backend.main:app --host 127.0.0.1 --port 8765
 > ```
 
 > **開発時の注意**: backend のサブパッケージ構成や import 構造を変更した時は、 古い `__pycache__/*.pyc` が import 事故の温床になる。 `task clean` で purge。 その他のトラブルは [../troubleshooting/troubleshoot.md](../troubleshooting/troubleshoot.md) 参照。
@@ -191,6 +191,10 @@ task tailscale-serve    # = tailscale serve --bg http://localhost:8765
 ```
 
 これで `https://<your-host>.tail<xxxx>.ts.net/` が backend を指す。 `tailscale serve status` で接続状態を確認できる。
+
+backend はホスト機の中 (= `127.0.0.1`) でだけ待ち受け、 外からの入口は `tailscale serve` の 1 つになる。
+backend 自身は認証を持たないので、 `--host 0.0.0.0` で起動すると、 tailnet に入っていない同じ LAN の
+機器からもそのまま操作できてしまう。
 
 > Chromium 系ブラウザで HTTPS 証明書エラーが出る場合は
 > [../troubleshooting/troubleshoot.md](../troubleshooting/troubleshoot.md) の Tailscale 証明書 section を参照。
