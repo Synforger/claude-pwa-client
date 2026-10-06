@@ -7,7 +7,7 @@
 // operator's send path does in this mode, and the watcher delivers it.
 
 import { test, expect } from '@playwright/test'
-import { seedSession } from '../../helpers/fixture.js'
+import { seedSession, appendEvent } from '../../helpers/fixture.js'
 import { openClient } from '../../helpers/pwa.js'
 
 const BODY = 'The page builder drops the last row when a title wraps.\nSee page 3 of the sample deck.'
@@ -88,6 +88,48 @@ test.describe('golden: agent-message', () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(asked).toBeVisible()
     await page.screenshot({ path: testInfo.outputPath('agent-message-operator-said.png') })
+  })
+
+  test('a message that arrives while Claude is working is shown, and so is what the operator typed meanwhile', async ({ page, request }, testInfo) => {
+    const receiver = await seedSession(request, 'e2e-tab-b')
+    await openClient(page, { sid: receiver.sid })
+
+    // While Claude works, what enters the terminal is not recorded as a user row:
+    // Claude queues it and, once it hands it over between two steps, records it as
+    // an attachment row. The rows below have the shape of the real record (a relayed
+    // message enters as a paste, so it is recorded inside the paste wrapper).
+    const queued = (uuid, prompt) => ({
+      type: 'attachment',
+      uuid,
+      isSidechain: false,
+      timestamp: new Date().toISOString(),
+      attachment: { type: 'queued_command', prompt, commandMode: 'prompt', origin: { kind: 'human' }, humanTurn: true },
+    })
+    const envelope = [
+      'Message from a session on another machine, relayed by the client (the operator did not type this):',
+      '<agent-message from="tab A @home" session="home:ses_far">',
+      BODY,
+      '</agent-message>',
+    ].join('\n')
+    appendEvent(receiver.jsonl_path, queued('e2e-queued-typed', 'and check the footer too'))
+    appendEvent(receiver.jsonl_path, queued('e2e-queued-relayed', `<pasted_content id="4a58">\n${envelope}\n</pasted_content id="4a58">`))
+
+    const relayed = page.locator('[data-testid=message-bubble-user].relayed')
+    const typed = page.locator('[data-testid=message-bubble-user]:not(.relayed)').filter({ hasText: 'and check the footer too' })
+    const bothShown = async () => {
+      await expect(relayed).toHaveCount(1, { timeout: 20_000 })
+      await expect(relayed.locator('[data-testid=relayed-from]')).toContainText('tab A @home')
+      await expect(relayed).toContainText('The page builder drops the last row')
+      await expect(relayed).not.toContainText('pasted_content')
+      await expect(relayed).not.toContainText('relayed by the client')
+      await expect(typed).toHaveCount(1)
+    }
+    await bothShown()
+    await page.screenshot({ path: testInfo.outputPath('agent-message-while-working.png') })
+
+    // Both come back from the record: a reload does not lose them, nor show them twice.
+    await page.reload()
+    await bothShown()
   })
 
   test('a title no tab carries is refused, and nothing arrives', async ({ page, request }) => {
