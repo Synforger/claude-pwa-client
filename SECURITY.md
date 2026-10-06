@@ -27,6 +27,8 @@ Within that scope the codebase enforces the following minimum boundaries:
 
 WebSocket (`/ws/pty/{sid}`, `/views/ws`, `/jsonl/stream/{sid}`) and most `/sessions/*` HTTP endpoints have **no authentication** and rely on the tailnet ACL. Public-internet or multi-tenant deployment requires adding middleware auth — not the supported configuration.
 
+The tailnet ACL only decides who gets in when the backend listens on loopback (`--host 127.0.0.1`) behind `tailscale serve`, which is what the setup guides configure. A backend started with `--host 0.0.0.0` is reachable by every device on the host's local network without going through the tailnet.
+
 See `README.md § セキュリティモデル` for the same description in Japanese with implementation pointers.
 
 ## In scope
