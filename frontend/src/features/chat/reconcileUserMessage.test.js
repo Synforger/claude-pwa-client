@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { reconcileUserMessage } from './reconcileUserMessage.js'
+import { AGENT_MESSAGE_OPENING, AGENT_MESSAGE_REMOTE_OPENING } from './agentMessage.js'
 
 // 2026-06-24 server-of-truth 純化後の test 群。 旧 5 段 (= text 完全一致 / 部分一致 / 添付
 // 検出 / LOOKBACK_DEDUP) ヒューリスティクスは全廃され、 dedup は uuid 一致のみ + 末尾
@@ -255,5 +256,36 @@ describe('reconcileUserMessage — 再配信の二重表示禁止', () => {
     const next = reconcileUserMessage(cur, '同じ本文', 'U2', null, NOW + 100)
     expect(next).toHaveLength(1)
     expect(next[0].ts).toBe(NOW + 100)
+  })
+})
+
+// 別のタブの claude からの連絡は、 この画面が送った物ではない。 人の送信中の吹き出しを確定しない。
+describe('reconcileUserMessage — 別のタブからの連絡', () => {
+  const relayed = (opening) => `${opening}\n<agent-message from="tools" session="ses_x">\nhello\n</agent-message>`
+
+  it.each([AGENT_MESSAGE_OPENING, AGENT_MESSAGE_REMOTE_OPENING])(
+    'a message from another tab is added beside the bubble the operator is still sending (%s)',
+    (opening) => {
+      const NOW = 1900000000000
+      const cur = [{ id: 'm', role: 'user', text: 'and the footer too', optimistic: true, send_id: 'S1', createdAt: NOW,
+        imageUrls: ['blob:1'] }]
+      // send_id が付いて来ても (= 古い backend)、 付かずに来ても、 楽観 bubble はそのまま残る
+      for (const sendId of ['S1', undefined]) {
+        const next = reconcileUserMessage(cur, relayed(opening), 'U-relayed', sendId, NOW + 500)
+        expect(next).toHaveLength(2)
+        expect(next[0]).toBe(cur[0])
+        expect(next[1]).toMatchObject({ role: 'user', text: relayed(opening), uuid: 'U-relayed', ts: NOW + 500 })
+        expect(next[1].send_id).toBeUndefined()
+        // その後に届く人の発話が、 自分の楽観 bubble を確定する
+        const done = reconcileUserMessage(next, 'and the footer too', 'U-typed', 'S1', NOW + 600)
+        expect(done).toHaveLength(2)
+        expect(done[0]).toMatchObject({ id: 'm', uuid: 'U-typed', text: 'and the footer too', imageUrls: ['blob:1'] })
+      }
+    },
+  )
+
+  it('a message from another tab that was already received is not added twice (replay)', () => {
+    const first = reconcileUserMessage([], relayed(AGENT_MESSAGE_OPENING), 'U-relayed', undefined, 1)
+    expect(reconcileUserMessage(first, relayed(AGENT_MESSAGE_OPENING), 'U-relayed', undefined, 1)).toBe(first)
   })
 })

@@ -40,6 +40,7 @@ from backend.jsonl.session_status import (
     track_turn_start as _track_turn_start,
     update_busy as _update_busy,
 )
+from backend.core.jsonl_predicates import is_agent_message
 from backend.core.jsonl_tail import (
     initial_offset as _initial_offset_impl,
     read_complete_lines as _read_complete_lines,
@@ -412,7 +413,9 @@ def _process_new_lines(sid: str, lines_with_pos: list[tuple[str, int]]) -> None:
             # (= 楽観 bubble ↔ 実 bubble の厳密対応付け、 frontend の reconcile が
             # 優先順位で pop する identity 経路)。 対応候補が無ければ send_id なし = null
             # で流れる (frontend は近傍 optimistic pop の fallback に降格)。
-            if event.get("type") == "user_message":
+            # 別のタブからの連絡は画面が送った物ではないので、 対応付けに入れない (= 入れると、
+            # 人の送信が待っている send_id を連絡が先に取る)。
+            if event.get("type") == "user_message" and not is_agent_message(event.get("text")):
                 jsonl_uuid = event.get("uuid")
                 if jsonl_uuid:
                     bound = send_dedup.bind_jsonl_uuid(sid, jsonl_uuid)
