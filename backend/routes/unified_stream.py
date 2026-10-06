@@ -112,6 +112,32 @@ async def _ensure_pty(sid: str) -> None:
         pass
 
 
+# 走っている「端末の起動の保証」 (= 完了まで参照を持つ。 持たないと途中で回収され得る)。
+_warmups: set[asyncio.Task] = set()
+
+
+def _warm_ptys(sids: list[str]) -> None:
+    """購読 sid の claude 起動を、 背景で保証する (= 呼んだ側を待たせない)。
+
+    旧実装は「起動を保証 → 流し直し」 の順に待っていた。 保証は、 端末の記録が無い時
+    (= backend 再起動の直後) に数秒かかる事が在り、 その間は会話が 1 行も届かなかった
+    (= 2026-10-06 実機: 接続から流し直しまで 8 秒)。 流し直しは記録の file を読むだけで、
+    端末の起動には依らない。 起動が要るのは「これから書かれる行」 の方で、 そちらは live の
+    購読 (= 先に始めて在る) が拾う。 接続が切れても起動は最後まで走らせる (= タブを開いた
+    事実は変わらない)。
+    """
+    if not sids:
+        return
+
+    async def _run() -> None:
+        for sid in sids:
+            await _ensure_pty(sid)
+
+    task = asyncio.create_task(_run())
+    _warmups.add(task)
+    task.add_done_callback(_warmups.discard)
+
+
 def _replay_frames(sid: str, start: int | None) -> list[dict]:
     """1 sid の JSONL を start (= client offset、 無ければ直近 N 行) から event frame 化。
 
@@ -269,9 +295,9 @@ async def _unified_gen(conn: UnifiedConn, initial_view: str | None):
         status_ev = sessions_overview.subscribe()
         pumps.append(asyncio.create_task(_jsonl_pump(conn)))
 
-        # 2) warmup + replay は購読 sid のみ (= 旧 /all の全 sid sweep を廃止)
-        for sid in list(conn.jsonl_sids):
-            await _ensure_pty(sid)
+        # 2) warmup + replay は購読 sid のみ (= 旧 /all の全 sid sweep を廃止)。
+        #    warmup (= 端末の起動の保証) は背景で走らせ、 replay を待たせない
+        _warm_ptys(sorted(conn.jsonl_sids))
         for sid in sorted(conn.jsonl_sids):
             for f in _replay_frames(sid, conn.initial_offsets.get(sid)):
                 yield _frame(f)
@@ -366,7 +392,7 @@ async def stream_unified_control(conn_id: str, body: dict):
     """統合 stream の上り制御。 op:
 
     - {"op":"jsonl","sids":[{"sid":..,"from":<int|null>},..]} : 購読 set 差替。
-      新規追加 sid は PTY ensure + from からの差分 replay を同一接続へ流す。
+      新規追加 sid は from からの差分 replay を同一接続へ流す (= PTY ensure は背景で)。
     - {"op":"view","sid":<sid|null>}   : 視認中 sid 申告 (= 通知抑制判定)
     - {"op":"stop","sid":<sid>}        : Stop 意思の権威記録 (= busy 強制 false)
     - {"op":"subagents","sid":<sid|null>} : subagents channel の対象 sid 切替 (null = 停止)
@@ -391,8 +417,9 @@ async def stream_unified_control(conn_id: str, body: dict):
         # 順序: 先に live set へ加えてから replay (= 隙間ゼロ。 重複は client の uuid
         # dedup + offset 単調性が吸収する、 再接続 replay と同じ規約)
         conn.jsonl_sids = new_set
+        # 端末の起動の保証は背景で (= replay と応答を待たせない)
+        _warm_ptys(sorted(added))
         for sid in sorted(added):
-            await _ensure_pty(sid)
             for f in _replay_frames(sid, froms.get(sid)):
                 await conn.queue.put(f)
         return {"ok": True, "subscribed": sorted(new_set)}
