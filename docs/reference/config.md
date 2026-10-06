@@ -122,7 +122,8 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 
 ```json
 "extensions": [
-  { "id": "<id>", "title": "<name>", "icon": "🎛" }
+  { "id": "<id>", "title": "<name>", "icon": "🎛" },
+  { "id": "<id>", "title": "<name>", "icon": "📄", "view": "page" }
 ]
 ```
 
@@ -130,8 +131,10 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   載り、 path は config に書かない
 - `title` (任意): 未指定なら `id`
 - `icon` (任意): 未指定なら 🧩
+- `view` (任意): 開き方。 `"band"` (= 未指定の時) はチャットの上の帯、 `"page"` は入力欄の上を全部使う頁
 
-不正な entry (= id の書式違反 / id の重複) はその 1 件だけ捨て、 起動ログに理由を出す。 拡張の
+不正な entry (= id の書式違反 / id の重複) はその 1 件だけ捨て、 起動ログに理由を出す。 `view` の
+書き損じは拡張を捨てずに帯として載せ、 起動ログに指摘を出す。 拡張の
 載せ方は [../setup/extensions.md](../setup/extensions.md)。
 
 ## VAPID 鍵 (`backend/secrets/vapid.json`)

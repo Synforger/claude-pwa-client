@@ -12,13 +12,16 @@
 import { useSyncExternalStore } from 'react'
 import TerminalMount from '../features/terminal/TerminalMount.jsx'
 import { subscribe as subscribeUi, getSnapshot as getUiSnapshot } from '../state/ui.js'
+import { usePageExtensionOpen } from '../features/extensions/useExtensions.js'
 
 export default function TerminalPane({ sid }) {
   // viewMode は state/ui.js から自前 pull (= AppShell に props drilling させない)。 sid が null の
   // 時は 'chat' で固定し display:none、 active 切替で TerminalMount が LRU を回す。
   const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
   const activeViewMode = sid ? (ui.viewModes[sid] || 'chat') : 'chat'
-  const hidden = activeViewMode !== 'terminal'
+  // 頁として開く拡張が出ている間は、 端末もその場所を譲る (= 畳むだけで、 xterm は破棄しない)。
+  const pageOpen = usePageExtensionOpen()
+  const hidden = activeViewMode !== 'terminal' || pageOpen
 
   return (
     <div

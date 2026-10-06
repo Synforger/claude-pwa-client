@@ -162,13 +162,18 @@ def _accounts() -> dict[str, Any]:
 # DOM の識別子にそのまま使うので、 英小文字・数字・ハイフンの 32 文字までに絞る。
 EXTENSION_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 EXTENSION_DEFAULT_ICON = "🧩"
+# 拡張の開き方。 band = チャットの上の帯 (= 高さを変えられ、 チャットと並べて使う)、 page = 入力欄の上を
+# 全部使う頁 (= 読み物。 開いている間はメッセージの一覧の場所に出る)。 書かなければ band。
+EXTENSION_VIEWS = ("band", "page")
+EXTENSION_DEFAULT_VIEW = "band"
 
 
 def _scan_extensions() -> tuple[list[dict[str, str]], list[str]]:
-    """config.json の `extensions` を (= 採用した拡張, 捨てた理由) に分ける。
+    """config.json の `extensions` を (= 採用した拡張, 書き損じの指摘) に分ける。
 
-    捨てるのは不正な 1 件だけで、 残りは生かす (= 1 件の書き損じで全拡張が消えない)。
-    理由の文面は起動時の warn にそのまま使う。
+    捨てるのは id が不正な 1 件だけで、 残りは生かす (= 1 件の書き損じで全拡張が消えない)。
+    `view` の書き損じは捨てずに既定の開き方で採用する (= 拡張は使えるまま、 指摘だけ残す)。
+    指摘の文面は起動時の warn にそのまま使う。
     """
     raw = get_config().get("extensions")
     if raw is None:
@@ -191,11 +196,19 @@ def _scan_extensions() -> tuple[list[dict[str, str]], list[str]]:
         seen.add(ext_id)
         title = entry.get("title")
         icon = entry.get("icon")
+        view = entry.get("view", EXTENSION_DEFAULT_VIEW)
+        if view not in EXTENSION_VIEWS:
+            problems.append(
+                f"config.extensions[{i}]: view must be one of {', '.join(EXTENSION_VIEWS)}, "
+                f"got {view!r}; using {EXTENSION_DEFAULT_VIEW!r}"
+            )
+            view = EXTENSION_DEFAULT_VIEW
         accepted.append({
             "id": ext_id,
             "title": title if isinstance(title, str) and title else ext_id,
             "icon": icon if isinstance(icon, str) and icon else EXTENSION_DEFAULT_ICON,
             "path": f"/ext/{ext_id}/",
+            "view": view,
         })
     return accepted, problems
 
