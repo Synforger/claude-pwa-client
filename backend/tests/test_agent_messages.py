@@ -393,12 +393,17 @@ PEER_ADDRESS = "100.64.0.2"
 ACCOUNTS = {"personal": {"env": {}}, "work": {"env": {"CLAUDE_CONFIG_DIR": "~/.claude-work"}}}
 
 
-def _peers(monkeypatch, tmp_path, accounts=("personal",), **values) -> None:
-    """相手の機械を 1 つ (= home) 設定する。 連絡してよいのは personal のタブだけ。"""
+def _peers(monkeypatch, tmp_path, accounts=("personal",), configured=ACCOUNTS, **values) -> None:
+    """相手の機械を 1 つ (= home) 設定する。 連絡してよいのは personal のタブだけ。
+
+    configured はこの機械の設定の `accounts` (= None なら書かない。 口座 1 つの既定の構成)。
+    """
     peer = {"url": "http://peer.test/", "address": PEER_ADDRESS}
     if accounts is not None:
         peer["accounts"] = list(accounts)
-    _config(monkeypatch, tmp_path, accounts=ACCOUNTS, agent_message_peers={"home": peer}, **values)
+    if configured is not None:
+        values = {"accounts": configured, **values}
+    _config(monkeypatch, tmp_path, agent_message_peers={"home": peer}, **values)
 
 
 @pytest.fixture
@@ -467,6 +472,18 @@ def test_a_peer_with_no_accounts_listed_is_open_to_every_tab(client, tabs, typed
     _peers(monkeypatch, tmp_path, accounts=None)
     assert _send(client, to="home:notes", **{"from": work_tab}).status_code == 200
     assert len(carried) == 1
+
+
+def test_a_machine_with_no_accounts_configured_keeps_its_tabs_under_the_default_account(
+        client, tabs, typed, carried, monkeypatch, tmp_path):
+    """設定に `accounts` を書いていない機械のタブは、 既定の口座 (= personal) のタブ。 personal にだけ
+    開いた相手へ送れて、 その相手から受け取れて、 その相手の一覧にも載る。"""
+    _peers(monkeypatch, tmp_path, configured=None)
+    assert _send(client, to="home:notes").status_code == 200
+    assert len(carried) == 1
+    assert _relay(_from_peer()).status_code == 200
+    assert [tab["id"] for tab in _from_peer().get(am.PEER_TABS_PATH).json()["tabs"]] == [
+        "ses_sender", "ses_receiver", "ses_idle"]
 
 
 def test_the_check_judges_a_message_leaving_the_machine_under_the_peer_s_name(client, tabs, typed, carried, monkeypatch, tmp_path):
