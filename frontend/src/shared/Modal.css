@@ -142,12 +142,30 @@
   padding: 12px 16px;
 }
 
-/* 画像のプレビュー: 横幅に合わせて縮める (= 拡大はしない)。 */
+/* 画像のプレビュー: 本体は送らず (= 画像の移動は枠の中で行う)、 残りの高さを枠に渡す */
+.modal-body-image {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 画像を見せる枠。 拡大した画像はここで切り取られる。 指の動きは全部アプリが受ける
+   (= touch-action: none。 ブラウザ自体の送り・拡大に取られない) */
+.file-image-frame {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 大きさと位置は拡大の状態から inline style で入る (= ZoomableImage)。 枠の左上に置かれ、
+   そこから transform で動く。 枠からはみ出た分は枠が切り取る */
 .file-image {
   display: block;
-  max-width: 100%;
-  height: auto;
-  margin: 0 auto;
+  max-width: none;
+  -webkit-user-drag: none;
 }
 
 .file-content {

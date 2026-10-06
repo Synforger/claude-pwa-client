@@ -35,4 +35,15 @@ describe('features/chat — stick to bottom', () => {
     // details を閉じて高さが減り、 scrollTop が新しい最下端に引き戻された (= 上への移動に見える)
     expect(nextStuck(at({ prevTop: 1000, top: 800, scrollHeight: 1400 }))).toBe(true)
   })
+
+  it('stays stuck through an upward move left over from before the jump', () => {
+    // ↓ を押した直後: 指で弾いた惰性がまだ上へ動かしている (= ユーザが今スクロールした物ではない)
+    expect(nextStuck(at({ prevTop: 1000, top: 800, scrollHeight: 2000, settling: true }))).toBe(true)
+    // 落ち着いた後の上への動きは、 ユーザのスクロールとして外す
+    expect(nextStuck(at({ prevTop: 1000, top: 800, scrollHeight: 2000, settling: false }))).toBe(false)
+  })
+
+  it('does not pin a list that was not stuck, even while settling', () => {
+    expect(nextStuck(at({ stuck: false, prevTop: 500, top: 300, scrollHeight: 2000, settling: true }))).toBe(false)
+  })
 })

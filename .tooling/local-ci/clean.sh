@@ -65,7 +65,8 @@ clean_python() {
 clean_node() {
     log_info "cleaning node layer"
     clean_path node_modules dist .next .vite .turbo .cache \
-               frontend/node_modules frontend/dist frontend/.vite
+               frontend/node_modules frontend/dist frontend/dist.next \
+               frontend/.dist-generations.json frontend/.vite
 }
 
 clean_docs() {

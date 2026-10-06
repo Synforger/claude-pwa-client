@@ -14,7 +14,8 @@ e2e/
 │   ├── run-backend.mjs      ← test-mode backend launcher (uvicorn + stub config + tmp data dir)
 │   ├── global-setup.js      ← seed fixtures into the runtime data dir
 │   ├── global-teardown.js   ← purge tmp dir after the run
-│   └── pwa.js               ← `openClient(page)` boilerplate (mount frontend, wait for first SSE)
+│   ├── pwa.js               ← `openClient(page)` boilerplate (mount frontend, wait for first SSE)
+│   └── png.js               ← writes a test-card PNG of any size (image fixtures without binary files)
 ├── fixtures/
 │   ├── README.md            ← fixture conventions + how to add a new one
 │   ├── _runtime/            ← gitignored, created by global-setup, removed by teardown
@@ -25,7 +26,8 @@ e2e/
     │   ├── bg-fg-resume.spec.js
     │   ├── tab-switch-isolation.spec.js
     │   ├── send-then-input-restored.spec.js
-    │   └── terminal-utf8-boundary.spec.js
+    │   ├── terminal-utf8-boundary.spec.js
+    │   └── refetch-chat-restores.spec.js
     ├── _golden/             ← 14 feature golden paths (1:1 with feature-inventory.md categories)
     └── _contract/           ← contract-level guards (heartbeat / DNS rebinding / refresh sync)
 ```

@@ -48,6 +48,10 @@ class _ClaudeBinding:
     jsonl_path: Optional[Path] = None
     # hook (= SessionStart / 任意イベント) の X-PWA-SID 経由で確定したか。
     confirmed: bool = False
+    # jsonl_path の実体を一度でも見たか。 SessionStart hook は claude が JSONL を作る前に
+    # 飛ぶので、 確定した直後の binding は実体をまだ持たない。 「まだ生まれていない」 と
+    # 「在ったのに消えた」 を分けるための印 (= 掃除が落とすのは後者だけ)。
+    born: bool = False
 
 
 # tmux_sid → binding
@@ -126,6 +130,7 @@ def confirm_bind(pwa_sid: str, claude_sid: str, transcript_path: str) -> Optiona
         return path
     binding.jsonl_path = path
     binding.confirmed = True
+    binding.born = path.is_file()
     _confirmed_paths[pwa_sid] = path
     # race 救済: on_created の確率マッチが先に走って別 binding (= confirmed でない古いタブ)
     # に同 JSONL が bind されてた場合、 ここで剥がして二重所有を解消する。 同じ JSONL を
@@ -154,7 +159,8 @@ def list_bindings() -> dict[str, dict]:
     """debug 用: 現在の全 binding を JSON-serializable な dict で返す。
 
     返す前に実体の消えた binding を落とす (= 読み手が「在る」 と言われた binding は
-    必ず実体を持つ)。
+    必ず実体を持つ)。 JSONL がまだ生まれていない binding は、 持ち続けるが一覧には出さない
+    (= 同じ約束。 生まれた時点で出る)。
     """
     prune_dead_bindings()
     return {
@@ -166,6 +172,7 @@ def list_bindings() -> dict[str, dict]:
             "confirmed": b.confirmed,
         }
         for sid, b in _bindings.items()
+        if b.jsonl_path is None or b.born
     }
 
 
@@ -179,6 +186,7 @@ def get_jsonl_for(tmux_sid: str) -> Optional[Path]:
     """
     binding = _bindings.get(tmux_sid)
     if binding is not None and binding.jsonl_path is not None and binding.jsonl_path.is_file():
+        binding.born = True
         return binding.jsonl_path
     healed = _confirmed_paths.get(tmux_sid)
     if healed is not None and healed.is_file():
@@ -188,6 +196,7 @@ def get_jsonl_for(tmux_sid: str) -> Optional[Path]:
                 claude_cwd=str(healed.parent), start_time=time.time(),
             )
             _bindings[tmux_sid] = binding
+        binding.born = True
         if binding.jsonl_path != healed or not binding.confirmed:
             binding.jsonl_path = healed
             binding.confirmed = True
@@ -195,6 +204,9 @@ def get_jsonl_for(tmux_sid: str) -> Optional[Path]:
                 "jsonl_watcher self-healed binding from confirmed path: sid=%s -> %s",
                 tmux_sid, healed.name,
             )
+            # 確定した binding を変えたら必ず保存する (= confirm_bind / 掃除と同じ)。 メモリだけ
+            # 戻すと、 保存した file は落としたままになり、 次の再起動でこのタブを見失う。
+            _save_bindings()
         return healed
     return None
 
@@ -202,15 +214,24 @@ def get_jsonl_for(tmux_sid: str) -> Optional[Path]:
 def prune_dead_bindings() -> list[str]:
     """JSONL 実体が消えた binding を落とし、 落とした sid を返す。
 
+    落とすのは「在ったのに消えた」 binding だけ。 「まだ生まれていない」 (= SessionStart hook で
+    確定したが、 claude が JSONL を作る前) は残す。
+
     _load_bindings は起動時に「実体が無い binding は復元しない」 を既にやっている。
     この関数はその判断を backend が動いている間にも効かせる (= 起動時だけ掃除できて、
     稼働中に消えた分は誰も落とさない、 という非対称を無くす)。 実体が消えた binding を
     残しても chat tail は読めず、 健康確認が赤いまま自己修復しない。
     """
-    dead = [
-        sid for sid, b in _bindings.items()
-        if b.jsonl_path is not None and not b.jsonl_path.is_file()
-    ]
+    dead = []
+    for sid, b in _bindings.items():
+        if b.jsonl_path is None:
+            continue
+        if b.jsonl_path.is_file():
+            b.born = True
+        elif b.born:
+            # 在ったのに消えた。 一度も実体を見ていない binding (= claude がまだ最初の行を
+            # 書いていない) は落とさない: 落とすと、 その状態が保存されて再起動で戻らない。
+            dead.append(sid)
     for sid in dead:
         logger.info("jsonl_watcher prune: jsonl gone, dropping binding sid=%s", sid)
         del _bindings[sid]
@@ -275,6 +296,7 @@ def _load_bindings() -> None:
             start_time=float(d.get("start_time") or time.time()),
             jsonl_path=path,
             confirmed=bool(d.get("confirmed", True)),
+            born=True,
         )
         _confirmed_paths[sid] = path
         restored += 1

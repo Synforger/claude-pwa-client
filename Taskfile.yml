@@ -63,6 +63,9 @@ tasks:
           .venv/bin/pip install --upgrade -r backend/requirements.txt
         fi
       - cd frontend && npm install
+      # contracts は独立した npm の置き場で、 `task ci` の最後の段 (= contracts:check) がその依存を使う。
+      # ここで入れておかないと、 setup の直後の `task ci` がその段で落ちる。
+      - cd contracts && npm install
       - |
         if [ ! -f backend/config.json ]; then
           cp backend/config.example.json backend/config.json
@@ -377,6 +380,9 @@ tasks:
       - |
         if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
           PY="$CONDA_EXE run -n {{.CONDA_ENV}} --live-stream python"
+        elif [ -x .venv/bin/python ]; then
+          # conda の無い環境では `task setup` が依存を .venv に入れる (= lint:backend / test:backend と同じ選び方)
+          PY=.venv/bin/python
         else
           PY=python3
         fi
