@@ -7,6 +7,7 @@ import ErrorBoundary from './layout/ErrorBoundary.jsx'
 import { hardRefreshAppShell } from './utils/appRefresh.js'
 import { installListeners } from './transport/lifecycle.ts'
 import { installUpdateChecks } from './utils/appUpdate.js'
+import { subscribe as subscribeEphemeral, getSnapshot as getEphemeralSnapshot } from './state/ephemeral.js'
 
 // transport lifecycle (= visibility / pagehide / pageshow / freeze) の配線。
 // fg 復帰時の接続 bump + hidden 遷移時の offset flush はここが唯一の起点
@@ -42,7 +43,13 @@ if ('serviceWorker' in navigator) {
   })
   // 開いたままの画面を新しい build へ移す配線 (= 前面へ戻った時と一定の間隔で更新を確かめ、
   // 新しい service worker が有効になったら 1 回だけ読み込み直す)。 中身は utils/appUpdate.js。
-  installUpdateChecks()
+  // 選んだだけで送っていない添付 (= どのタブの物でも) が在る間は、 読み込み直しを見送る。
+  installUpdateChecks({
+    unsent: {
+      hasAny: () => Object.values(getEphemeralSnapshot().attachments).some((items) => items && items.length > 0),
+      subscribe: subscribeEphemeral,
+    },
+  })
 }
 
 // ルーティング:

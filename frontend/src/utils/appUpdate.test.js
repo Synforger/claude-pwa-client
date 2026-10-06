@@ -87,6 +87,58 @@ describe('installUpdateChecks', () => {
     expect(win.location.reload).toHaveBeenCalledTimes(1)
   })
 
+  // 未送信の添付の見張りの代わり: 在る / 無いを手で切り替え、 変わった知らせを聞き手へ送る
+  function fakeUnsent(initial) {
+    let any = initial
+    const listeners = new Set()
+    return {
+      hasAny: () => any,
+      subscribe: (fn) => { listeners.add(fn); return () => listeners.delete(fn) },
+      set: (value) => { any = value; for (const fn of [...listeners]) fn() },
+      listeners,
+    }
+  }
+
+  it('reloads at once when nothing unsent is on the screen', () => {
+    const nav = fakeNavigator({ controlled: true })
+    const win = fakeWindow()
+    installUpdateChecks({ win, doc: document, nav, unsent: fakeUnsent(false) })
+    nav.fire('controllerchange')
+    expect(win.location.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('holds the reload while an attachment is picked but not sent, and reloads once it is gone', () => {
+    const nav = fakeNavigator({ controlled: true })
+    const win = fakeWindow()
+    const unsent = fakeUnsent(true)
+    installUpdateChecks({ win, doc: document, nav, unsent })
+    nav.fire('controllerchange')
+    expect(win.location.reload).not.toHaveBeenCalled()
+    // 別の変化 (= もう 1 つ足した等) では移らない
+    unsent.set(true)
+    expect(win.location.reload).not.toHaveBeenCalled()
+    // 送った / 外した
+    unsent.set(false)
+    expect(win.location.reload).toHaveBeenCalledTimes(1)
+    // 以後の変化では読み込み直さず、 見張りも外れている
+    unsent.set(true)
+    unsent.set(false)
+    expect(win.location.reload).toHaveBeenCalledTimes(1)
+    expect(unsent.listeners.size).toBe(0)
+  })
+
+  it('a second new build during the hold does not add a second reload', () => {
+    const nav = fakeNavigator({ controlled: true })
+    const win = fakeWindow()
+    const unsent = fakeUnsent(true)
+    installUpdateChecks({ win, doc: document, nav, unsent })
+    nav.fire('controllerchange')
+    nav.fire('controllerchange')
+    expect(unsent.listeners.size).toBe(1)
+    unsent.set(false)
+    expect(win.location.reload).toHaveBeenCalledTimes(1)
+  })
+
   it('checks for a new build when the app comes back to the foreground', async () => {
     const nav = fakeNavigator({ controlled: true })
     const win = fakeWindow()

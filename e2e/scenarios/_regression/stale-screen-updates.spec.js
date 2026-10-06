@@ -8,6 +8,10 @@ import { redeploy, restoreDeploy } from '../../helpers/redeploy.js'
 
 const SID = 'ses_e2echatgld'
 
+// 1x1 transparent PNG.
+const TINY_PNG_B64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4XmNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg=='
+
 // The build a screen is running, read off the entry script it loaded
 // (null while the page is in the middle of loading again).
 function runningBuild(page) {
@@ -51,6 +55,38 @@ test.describe('regression: an open screen moves to a newly deployed build', () =
     await expect.poll(() => runningBuild(page), { timeout: 20_000 }).toContain('_r2')
     await page.locator('[data-testid=chat-input]').waitFor({ state: 'visible' })
     await expect(page.locator('[data-testid=chat-input]')).toHaveValue('half-typed, not sent yet')
+  })
+
+  test('a new build waits while an attachment is picked but not sent, and arrives once it is gone', async ({ page, request }) => {
+    await seedSession(request, 'e2e-chat-golden')
+    await openClient(page, { sid: SID })
+    await waitForServiceWorker(page)
+    const before = await runningBuild(page)
+
+    // Pick a file and leave it unsent.
+    const chooser = page.waitForEvent('filechooser')
+    await page.locator('[data-testid=more-menu-toggle]').click()
+    await page.locator('[data-testid=more-menu-file-attach]').click()
+    await (await chooser).setFiles({ name: 'tiny.png', mimeType: 'image/png', buffer: Buffer.from(TINY_PNG_B64, 'base64') })
+    await expect(page.locator('[data-testid=attachments-bar]')).toBeVisible()
+
+    // Count the moments a new service worker takes over (the moment the screen used to reload).
+    await page.evaluate(() => {
+      window.__takeovers = 0
+      navigator.serviceWorker.addEventListener('controllerchange', () => { window.__takeovers += 1 })
+    })
+    redeploy('r2')
+    await backgroundAndReturn(page)
+
+    // The new build has taken over, and the screen is still the same page with the file on it.
+    await expect.poll(() => page.evaluate(() => window.__takeovers).catch(() => null), { timeout: 20_000 }).toBe(1)
+    await page.waitForTimeout(1000)
+    expect(await runningBuild(page)).toBe(before)
+    await expect(page.locator('[data-testid=attachments-bar]')).toBeVisible()
+
+    // Taking the file off lets the screen move to the new build.
+    await page.locator('.attach-remove').click()
+    await expect.poll(() => runningBuild(page), { timeout: 20_000 }).toContain('_r2')
   })
 
   test('a part loaded on demand still opens on a screen one build behind', async ({ page, request }) => {
