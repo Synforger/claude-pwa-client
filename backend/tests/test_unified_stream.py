@@ -163,6 +163,7 @@ def test_control_jsonl_adds_subscription_with_replay(unified_env):
             "c1", {"op": "jsonl", "sids": [{"sid": sid_a}, {"sid": sid_b}]})
         assert res["ok"] is True and sorted(res["subscribed"]) == [sid_a, sid_b]
         assert conn.jsonl_sids == {sid_a, sid_b}
+        await asyncio.sleep(0)  # warmup は背景で走る (= 応答を待たせない) ので、 1 tick 譲る
         assert ensured == [sid_a, sid_b]  # 追加分だけ warmup
 
         # 追加 sid の replay が同一接続に流れてくる
@@ -519,4 +520,116 @@ def test_status_pump_suppresses_unchanged_payloads(unified_env):
             assert frame["ch"] == "status"
         finally:
             task.cancel()
+    _run(run())
+
+
+def _slow_terminal(monkeypatch):
+    """端末の起動が、 門を開けるまで返らない状態を作る (= 再起動の直後に 8 秒かかった実機の形)。"""
+    gate = asyncio.Event()
+    started: list[str] = []
+
+    async def _blocked(sid, **_kwargs):
+        started.append(sid)
+        await gate.wait()
+    monkeypatch.setattr("backend.terminal.routes.ensure_pty_session_for", _blocked)
+    return gate, started
+
+
+def test_replay_does_not_wait_for_the_terminal(unified_env, monkeypatch):
+    """流し直しは、 端末の起動を保証する処理を待たずに流れる。
+
+    旧実装は接続のたびに「端末の起動を保証 → 流し直し」 の順で待っていた。 端末の記録が無い時
+    (= backend 再起動の直後) はその保証が数秒かかり、 その間は会話が 1 行も届かなかった
+    (= 2026-10-06 実機: 接続から流し直しまで 8 秒)。
+    """
+    _state, sid_a, _sid_b, _ensured = unified_env
+    gate, started = _slow_terminal(monkeypatch)
+
+    async def run():
+        conn = _mk_conn({sid_a: 0})
+        gen = us._unified_gen(conn, initial_view=None)
+        try:
+            # 端末の起動が返らないまま、 hello → 流し直しの行 → status / overview まで届く
+            _frame, payload = await _read_until(
+                gen, lambda p: p.get("ch") == "jsonl" and p["ev"].get("type") == "user_message", timeout=1.0)
+            assert payload["ev"]["sid"] == sid_a
+            await _read_until(gen, lambda p: p.get("ch") == "overview", timeout=1.0)
+            # 起動の保証は始まっている (= 止めたのではなく、 並べ替えただけ)
+            assert started == [sid_a]
+            assert not gate.is_set()
+        finally:
+            gate.set()
+            await gen.aclose()
+            await asyncio.sleep(0)
+    _run(run())
+
+
+def test_lines_written_while_the_terminal_is_starting_are_not_lost(unified_env, monkeypatch):
+    """端末の起動が続いている間に書かれた行も届く (= 順を入れ替えても、 隙間で行が落ちない)。"""
+    _state, sid_a, _sid_b, _ensured = unified_env
+    gate, _started = _slow_terminal(monkeypatch)
+
+    async def run():
+        conn = _mk_conn({sid_a: 0})
+        gen = us._unified_gen(conn, initial_view=None)
+        try:
+            first = _parse(await asyncio.wait_for(gen.__anext__(), timeout=1.0))
+            assert first["type"] == "hello"
+            # hello の直後 (= 流し直しの file 読みの前) と、 流し直しが済んだ後の 2 回、 行が増える
+            jpath = us._latest_jsonl(sid_a)
+
+            def write(uuid, pos):
+                line = {"type": "assistant", "uuid": uuid, "message": {"content": [{"type": "text", "text": uuid}]}}
+                with open(jpath, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(line) + "\n")
+                state_mod.jsonl_event_broadcaster.publish(sid_a, {**line, "sid": sid_a}, pos)
+
+            write("during-replay", 901)
+            seen: list[str] = []
+
+            async def read_until(uuid):
+                for _ in range(20):
+                    payload = _parse(await asyncio.wait_for(gen.__anext__(), timeout=1.0))
+                    if payload.get("ch") == "jsonl":
+                        seen.append(payload["ev"].get("uuid"))
+                    if uuid in seen:
+                        return
+                raise AssertionError(f"{uuid} did not arrive; saw {seen}")
+
+            await read_until("during-replay")
+            write("after-replay", 902)
+            await read_until("after-replay")
+            assert f"u-{sid_a}" in seen  # 流し直しの分も在る
+            assert not gate.is_set()  # ここまで、 端末の起動は返っていない
+        finally:
+            gate.set()
+            await gen.aclose()
+            await asyncio.sleep(0)
+    _run(run())
+
+
+def test_control_subscription_replays_without_waiting_for_the_terminal(unified_env, monkeypatch):
+    """タブを切り替えた時 (= control で購読を足す) も、 流し直しは端末の起動を待たない。"""
+    _state, sid_a, sid_b, _ensured = unified_env
+    gate, started = _slow_terminal(monkeypatch)
+
+    async def run():
+        conn = us.UnifiedConn(conn_id="c-ctl")
+        us._conns[conn.conn_id] = conn
+        try:
+            res = await asyncio.wait_for(
+                us.stream_unified_control(conn.conn_id, {"op": "jsonl", "sids": [{"sid": sid_b, "from": None}]}),
+                timeout=1.0)
+            assert res["subscribed"] == [sid_b]
+            frames = []
+            while not conn.queue.empty():
+                frames.append(conn.queue.get_nowait())
+            assert any(f["ev"].get("type") == "user_message" and f["ev"].get("sid") == sid_b for f in frames)
+            await asyncio.sleep(0)
+            assert started == [sid_b]
+            assert not gate.is_set()
+        finally:
+            gate.set()
+            await asyncio.sleep(0)
+            us._conns.pop(conn.conn_id, None)
     _run(run())
