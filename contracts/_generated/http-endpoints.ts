@@ -193,8 +193,6 @@ export interface PostAgentMessagesRelayedRequest {
   from_session: string
   /** 本文 */
   text: string
-  /** 送り主のタブで人が最後に打った発話 */
-  operator_said?: string | null
 }
 
 /** POST /agent-messages/relayed response */
@@ -203,7 +201,7 @@ export interface PostAgentMessagesRelayedResponse {
   delivered?: boolean
   /** 届け先のタブの id */
   to: string
-  /** 人の発話を封筒に入れたか */
+  /** 常に false (= 人の発話は機械を跨がない) */
   operator_said: boolean
 }
 
