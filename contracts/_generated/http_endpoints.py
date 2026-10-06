@@ -186,8 +186,39 @@ class PostAgentMessagesResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ok: bool
     delivered: Optional[bool] = None
-    to: str  # 届け先のタブの id
+    to: str  # 届け先のタブの id (= 別の機械のタブは <相手の名前>:<id>)
     operator_said: bool  # 送り主のタブで人が打った発話を封筒に入れたか
+
+
+class PostAgentMessagesRelayedRequest(BaseModel):
+    """POST /agent-messages/relayed request body"""
+    model_config = ConfigDict(extra="forbid")
+    to: str  # 宛先のタブの id か名前 (= この機械のタブ)
+    from_title: str  # 送り主のタブの名前
+    from_session: str  # 送り主のタブの id (= 相手の機械での id)
+    text: str  # 本文
+    operator_said: Optional[str] = None  # 送り主のタブで人が最後に打った発話
+
+
+class PostAgentMessagesRelayedResponse(BaseModel):
+    """POST /agent-messages/relayed response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    delivered: Optional[bool] = None
+    to: str  # 届け先のタブの id
+    operator_said: bool  # 人の発話を封筒に入れたか
+
+
+class GetAgentMessagesTabsResponse(BaseModel):
+    """GET /agent-messages/tabs response"""
+    model_config = ConfigDict(extra="forbid")
+    tabs: list[dict[str, Any]]
+
+
+class GetAgentMessagesPeersResponse(BaseModel):
+    """GET /agent-messages/peers response"""
+    model_config = ConfigDict(extra="forbid")
+    peers: list[dict[str, Any]]
 
 
 class PostPtySidSendRawKeyRequest(BaseModel):

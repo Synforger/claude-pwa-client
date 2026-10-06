@@ -177,10 +177,54 @@ export type PostAgentMessagesRequest = Record<string, unknown>
 export interface PostAgentMessagesResponse {
   ok: boolean
   delivered?: boolean
-  /** 届け先のタブの id */
+  /** 届け先のタブの id (= 別の機械のタブは <相手の名前>:<id>) */
   to: string
   /** 送り主のタブで人が打った発話を封筒に入れたか */
   operator_said: boolean
+}
+
+/** POST /agent-messages/relayed request body */
+export interface PostAgentMessagesRelayedRequest {
+  /** 宛先のタブの id か名前 (= この機械のタブ) */
+  to: string
+  /** 送り主のタブの名前 */
+  from_title: string
+  /** 送り主のタブの id (= 相手の機械での id) */
+  from_session: string
+  /** 本文 */
+  text: string
+  /** 送り主のタブで人が最後に打った発話 */
+  operator_said?: string | null
+}
+
+/** POST /agent-messages/relayed response */
+export interface PostAgentMessagesRelayedResponse {
+  ok: boolean
+  delivered?: boolean
+  /** 届け先のタブの id */
+  to: string
+  /** 人の発話を封筒に入れたか */
+  operator_said: boolean
+}
+
+/** GET /agent-messages/tabs response */
+export interface GetAgentMessagesTabsResponse {
+  tabs: ({
+      id: string
+      title: string
+      /** そのタブで claude が動いているか */
+      running: boolean
+    })[]
+}
+
+/** GET /agent-messages/peers response */
+export interface GetAgentMessagesPeersResponse {
+  peers: ({
+      name: string
+      /** 繋がらない相手は null */
+      tabs?: unknown[] | null
+      error?: string | null
+    })[]
 }
 
 /** POST /pty/{sid}/send-raw-key request body */
