@@ -158,6 +158,23 @@ def test_the_opening_line_is_the_same_everywhere_it_is_written():
         assert opening in (root / "docs/reference/agent-messages.md").read_text()
 
 
+def test_every_way_of_typing_into_a_tab_is_listed_where_the_docs_say_what_to_close():
+    """1 行目での見分けは、 Claude が人の発話を打つ口を使えない間だけ成り立つ。 docs はその口を全部並べる
+    (= 口を足して docs に載せ忘れると、 並びのとおりに止めた利用者の所で 1 つ開いたままになる)。"""
+    from backend.terminal import routes as terminal
+
+    def types_into_a_tab(route) -> bool:
+        methods = getattr(route, "methods", None)      # WebSocket の route は methods を持たない
+        return "/pty/" in route.path and (methods is None or "POST" in methods)
+
+    doc = (Path(__file__).resolve().parents[2] / "docs/reference/agent-messages.md").read_text()
+    paths = [route.path for route in terminal.router.routes if types_into_a_tab(route)]
+    assert len(paths) >= 4, paths
+    for path in paths:
+        # 閉じの ` まで見る (= `/send` が `/send-raw-key` の行で通ってしまわないように)
+        assert path.replace("{session_id}", "<タブの id>") + "`" in doc, path
+
+
 # --- 検査コマンド -----------------------------------------------------------------
 
 
