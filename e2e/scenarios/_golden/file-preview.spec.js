@@ -76,6 +76,7 @@ function under(imgBox, point) {
 // stamped with the time the step says (the speed of a flick is read from the time
 // between events, so it must not depend on how busy the test machine is).
 //   { at: ms from the start, type: 'down' | 'move' | 'up' | 'dblclick', id, x, y }
+//   { at: ms from the start, type: 'rest' }   nothing is sent: the fingers stay where they are until then
 function play(frame, steps) {
   return frame.evaluate(async (el, list) => {
     const names = { down: 'pointerdown', move: 'pointermove', up: 'pointerup' }
@@ -83,6 +84,7 @@ function play(frame, steps) {
     for (const s of list) {
       const wait = s.at - (performance.now() - t0)
       if (wait > 0) await new Promise((r) => setTimeout(r, wait))
+      if (s.type === 'rest') continue
       if (s.type === 'dblclick') {
         // What the browser sends after two quick taps on the same spot.
         el.dispatchEvent(new MouseEvent('dblclick', { clientX: s.x, clientY: s.y, bubbles: true, cancelable: true }))
@@ -110,7 +112,9 @@ const FRAME_MS = 16
 const REST_MS = 150
 
 // One finger from `from`, moved by (dx, dy) over `ms`. `hold` keeps it still before
-// lifting; `lift: false` leaves it down.
+// lifting; `lift: false` leaves it down, and the gesture still lasts through `hold`
+// (the preview reads "lifted from rest" off the time since the last move, so a `lift`
+// played afterwards must come that much later, however fast the test gets there).
 function drag(from, dx, dy, { ms = 160, hold = 0, lift = true } = {}) {
   const steps = [{ at: 0, type: 'down', id: 1, x: from.x, y: from.y }]
   const count = Math.max(1, Math.round(ms / FRAME_MS))
@@ -118,6 +122,7 @@ function drag(from, dx, dy, { ms = 160, hold = 0, lift = true } = {}) {
     steps.push({ at: (ms * i) / count, type: 'move', id: 1, x: from.x + (dx * i) / count, y: from.y + (dy * i) / count })
   }
   if (lift) steps.push({ at: ms + hold, type: 'up', id: 1, x: from.x + dx, y: from.y + dy })
+  else if (hold) steps.push({ at: ms + hold, type: 'rest' })
   return steps
 }
 
@@ -139,6 +144,8 @@ function pinch(center, fromSpan, toSpan, { ms = 160, hold = REST_MS, lift = true
     const [a1, b1] = at(toSpan)
     steps.push({ at: ms + hold, type: 'up', id: 1, x: a1, y: center.y })
     steps.push({ at: ms + hold, type: 'up', id: 2, x: b1, y: center.y })
+  } else if (hold) {
+    steps.push({ at: ms + hold, type: 'rest' })
   }
   return steps
 }
