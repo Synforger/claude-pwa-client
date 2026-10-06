@@ -258,22 +258,22 @@ async def _status_pump(
         sessions_overview.unsubscribe(ev)
 
 
-async def _jsonl_pump(conn: UnifiedConn) -> None:
-    """jsonl channel: broadcaster "all" を購読し、 conn の購読 sid だけ通す (= fan-out 遮断)。
+async def _jsonl_pump(conn: UnifiedConn, q: asyncio.Queue) -> None:
+    """jsonl channel: broadcaster "all" の購読 q から、 conn の購読 sid だけ通す (= fan-out 遮断)。
 
     in-process の Queue 消費は sid フィルタ 1 発なので全 sid 分受けても負荷は無視できる。
     wire に乗るのは購読 sid のみ (= 未購読 sid の巨大 tool_result はネットワークにも
     client CPU にも一切届かない)。
+
+    q は generator 側が replay の file 読みより**前に**購読した物で、 解除も generator が持つ
+    (= _status_pump の ev と同じ形)。 ここで購読すると、 購読が始まるのは task が最初に走った時
+    (= loop が次に回った時) になり、 それまでに publish された行は replay にも live にも乗らない。
     """
-    q = jsonl_event_broadcaster.subscribe(ALL_SUBSCRIBER_KEY)
-    try:
-        while True:
-            event, pos = await q.get()
-            if (event.get("sid") or "") not in conn.jsonl_sids:
-                continue
-            await conn.queue.put({"ch": "jsonl", "pos": pos, "ev": event})
-    finally:
-        jsonl_event_broadcaster.unsubscribe(ALL_SUBSCRIBER_KEY, q)
+    while True:
+        event, pos = await q.get()
+        if (event.get("sid") or "") not in conn.jsonl_sids:
+            continue
+        await conn.queue.put({"ch": "jsonl", "pos": pos, "ev": event})
 
 
 async def _unified_gen(conn: UnifiedConn, initial_view: str | None):
@@ -285,15 +285,18 @@ async def _unified_gen(conn: UnifiedConn, initial_view: str | None):
     pumps: list[asyncio.Task] = []
     status_ev: asyncio.Event | None = None
     status_pump_started = False
+    jsonl_q: asyncio.Queue | None = None
     try:
         yield _frame({"ch": "sys", "type": "hello", "conn": conn.conn_id})
 
-        # 1) live pump を replay より**先に**起動する (= 2026-07-15 修正: replay の file 読みと
-        #    pump 購読の隙間に monitor が publish した行が恒久欠落していた。 pump 先行なら
-        #    隙間の event は conn.queue に積まれ、 replay 後の live loop で配信される。
-        #    replay と重複し得るが client の uuid dedup + offset 単調ガードが吸収する)
+        # 1) live の購読を replay より**先に**済ませる (= 2026-07-15 修正: replay の file 読みと
+        #    購読の隙間に monitor が publish した行が恒久欠落していた。 購読が先なら
+        #    隙間の event は q に積まれ、 replay 後の live loop で配信される。
+        #    replay と重複し得るが client の uuid dedup + offset 単調ガードが吸収する)。
+        #    購読はここで同期に行う (= pump の task を作っただけでは、 まだ購読されていない)
         status_ev = sessions_overview.subscribe()
-        pumps.append(asyncio.create_task(_jsonl_pump(conn)))
+        jsonl_q = jsonl_event_broadcaster.subscribe(ALL_SUBSCRIBER_KEY)
+        pumps.append(asyncio.create_task(_jsonl_pump(conn, jsonl_q)))
 
         # 2) warmup + replay は購読 sid のみ (= 旧 /all の全 sid sweep を廃止)。
         #    warmup (= 端末の起動の保証) は背景で走らせ、 replay を待たせない
@@ -345,6 +348,8 @@ async def _unified_gen(conn: UnifiedConn, initial_view: str | None):
         # (= 起動済みなら task 側 finally が unsubscribe する)
         if status_ev is not None and not status_pump_started:
             sessions_overview.unsubscribe(status_ev)
+        if jsonl_q is not None:
+            jsonl_event_broadcaster.unsubscribe(ALL_SUBSCRIBER_KEY, jsonl_q)
         _stop_subagents_watcher(conn)
         # 再接続で同 conn_id が新 generator に置き換わっている場合は一切消さない
         # (= 旧接続の遅れた後始末が新接続の view 登録を消すと、 「見てるのに通知が鳴る」
