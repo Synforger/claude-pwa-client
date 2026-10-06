@@ -4,7 +4,7 @@ import {
   getSnapshot as getUiSnapshot,
   setScroll,
 } from '../../state/ui.js'
-import { nextStuck } from './stickToBottom.js'
+import { nextStuck, AT_BOTTOM_THRESHOLD_PX, SCROLL_SETTLE_MS } from './stickToBottom.js'
 
 // 最下端へ一瞬で飛ぶ。 `.messages` は CSS で scroll-behavior: smooth なので、 scrollTop への代入は
 // アニメーションになる。 アニメーションの目標は開始時点の最下端に固定され、 途中で中身が伸びると
@@ -64,7 +64,22 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
   const scrollerDomRef = useRef(null)
   const msgLengthRef = useRef({})
   const lastTopRef = useRef(0)
+  // 最下端へ送った直後で、 その前から続いていた動きがまだ止まっていない間 true (= stickToBottom.js)。
+  // ユーザが触るか、 送りが止まると false に戻る。
+  const settlingRef = useRef(false)
+  const settleTimerRef = useRef(null)
   const sid = activeSession?.id
+
+  const endSettling = useCallback(() => {
+    settlingRef.current = false
+    if (settleTimerRef.current) { clearTimeout(settleTimerRef.current); settleTimerRef.current = null }
+  }, [])
+  // 送りの出来事が SCROLL_SETTLE_MS 途切れたら「止まった」 とする。 scrollend の出来事は使わない
+  // (= 自前の「最下端へ飛ぶ」 が終わるたびにも出るので、 残りの動きが続いている最中に終わってしまう)
+  const keepSettling = useCallback(() => {
+    if (settleTimerRef.current) clearTimeout(settleTimerRef.current)
+    settleTimerRef.current = setTimeout(endSettling, SCROLL_SETTLE_MS)
+  }, [endSettling])
 
   // 同期: 最下端 (= 最新が見える状態) に移動
   const scrollToBottomSync = useCallback(() => {
@@ -87,7 +102,15 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
     isAtBottomRef.current = true
     setHasNew(false)
     setShowScrollBtn(false)
+    // この前から続いている動き (= 指で弾いた惰性など) が止まるまでは、 上への動きで張り付きを外さない
+    settlingRef.current = true
+    keepSettling()
+    // iOS は惰性で動いている間、 位置の代入を惰性が上書きする。 送りを一度止めてから飛ぶ
+    // (= overflow を 1 回切ると惰性が止まる)。
+    const overflowY = el.style.overflowY
+    el.style.overflowY = 'hidden'
     jumpToBottom(el)
+    el.style.overflowY = overflowY
     lastTopRef.current = el.scrollTop
     // 直後の paint 後にもう 1 回 (= 同 tick で scrollHeight が確定しないケース吸収)
     requestAnimationFrame(() => {
@@ -97,7 +120,19 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
         lastTopRef.current = e.scrollTop
       }
     })
-  }, [setHasNew, setShowScrollBtn])
+  }, [setHasNew, setShowScrollBtn, keepSettling])
+
+  // ユーザが触ったら、 そこから先の動きはユーザの物 (= 上へ送れば張り付きを外す)。
+  useEffect(() => {
+    const el = scrollerDomRef.current
+    if (!el) return undefined
+    const inputs = ['touchstart', 'wheel', 'pointerdown', 'keydown']
+    for (const type of inputs) el.addEventListener(type, endSettling, { passive: true })
+    return () => {
+      for (const type of inputs) el.removeEventListener(type, endSettling)
+      endSettling()
+    }
+  }, [endSettling, sid])
 
   // 起動 / タブ切替: paint 前に底へ flush (= 前 session の scroll 残留防止)。
   // scrollToBottom 経由 (= 自前 rAF retry) で行う。
@@ -201,21 +236,31 @@ export function useAutoScroll({ messages, activeSession, viewMode }) {
   const onScroll = useCallback(() => {
     const el = scrollerDomRef.current
     if (!el) return
-    const top = el.scrollTop
+    let top = el.scrollTop
+    const settling = settlingRef.current
     const stuck = nextStuck({
       stuck: isAtBottomRef.current,
       prevTop: lastTopRef.current,
       top,
       scrollHeight: el.scrollHeight,
       clientHeight: el.clientHeight,
+      settling,
     })
+    if (settling) {
+      keepSettling()
+      // 残っていた動きに最下端から引き離されたら、 送り直す (= ↓ を押した側が勝つ)
+      if (stuck && el.scrollHeight - top - el.clientHeight > AT_BOTTOM_THRESHOLD_PX) {
+        jumpToBottom(el)
+        top = el.scrollTop
+      }
+    }
     lastTopRef.current = top
     isAtBottomRef.current = stuck
     if (stuck) setHasNew(false)
     // ↓ ボタンは張り付きが外れている時だけ出す (= 中身が伸びて一瞬距離が開いても出さない)。
     // 同値時は React が re-render を bailout するので、 毎回 set で OK。
     setShowScrollBtn(!stuck)
-  }, [setHasNew, setShowScrollBtn])
+  }, [setHasNew, setShowScrollBtn, keepSettling])
 
   return {
     scrollerDomRef,
