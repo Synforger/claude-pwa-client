@@ -215,7 +215,9 @@ _EXTENSION_FIXTURE_HTML = """<!doctype html>
 """
 
 
+# `/ext/fixture-page/` は、 頁として開く拡張 (= config の `view: "page"`) の fixture。 中身は同じ 1 枚。
 @fixture_router.api_route("/ext/fixture/", methods=["GET", "HEAD"], include_in_schema=False)
+@fixture_router.api_route("/ext/fixture-page/", methods=["GET", "HEAD"], include_in_schema=False)
 async def e2e_extension_fixture(request: Request) -> HTMLResponse:
     """e2e の拡張 fixture (= 静的 HTML 1 枚)。 CPC_E2E=1 かつ loopback の時だけ返す。"""
     _ensure_localhost(request)

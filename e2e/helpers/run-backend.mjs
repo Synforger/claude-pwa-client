@@ -53,7 +53,11 @@ const config = {
   },
   // Served by the test backend itself (= backend/routes/debug_e2e.py fixture_router),
   // standing in for an extension that Tailscale Serve would mount in production.
-  extensions: [{ id: 'fixture', title: 'Fixture', icon: '🧪' }],
+  // The second one opens as a page (the whole space above the chat input) instead of a band.
+  extensions: [
+    { id: 'fixture', title: 'Fixture', icon: '🧪' },
+    { id: 'fixture-page', title: 'Fixture page', icon: '📄', view: 'page' },
+  ],
   claude_path: '/usr/bin/true',
   cors_allow_origins: ['*'],
 }

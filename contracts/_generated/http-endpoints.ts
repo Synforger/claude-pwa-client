@@ -92,6 +92,8 @@ export interface GetExtensionsResponseItem {
   icon: string
   /** /ext/<id>/ (= id から導出、 config には書かない) */
   path: string
+  /** 開き方。 band = チャットの上の帯、 page = 入力欄の上を全部使う頁 (= 未指定なら band) */
+  view: "band" | "page"
 }
 
 export type GetExtensionsResponse = GetExtensionsResponseItem[]

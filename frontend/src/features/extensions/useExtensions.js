@@ -4,8 +4,9 @@
 // 残す (= 画面共有の `useMoonlightAvailable` と同じ判定)。 宣言していても Tailscale Serve に載って
 // いない拡張はボタンを出さない。 🧩 の一覧 (= ExtensionMenu) と枠 (= ExtensionHost) が同じ結果を読むので、 取得は
 // module 内で 1 回だけ行う (= PWA の再読込で取り直す)。
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { apiFetch } from '../../utils/api.js'
+import { subscribe as subscribeUi, getSnapshot as getUiSnapshot } from '../../state/ui.js'
 
 // 宣言の一覧から、 head(path) が true を返した物だけを宣言順で残す。 1 件の失敗は他を巻き込まない。
 export async function resolveReachable(declared, head) {
@@ -46,4 +47,17 @@ export function useExtensions() {
     return () => { cancelled = true }
   }, [])
   return extensions
+}
+
+// 拡張の開き方は宣言の `view` が持つ: 'band' = チャットの上の帯、 'page' = 入力欄の上を全部使う頁。
+// 頁が開いている間、 メッセージの一覧と端末はその場所を譲る (= 入力欄は残る)。 枠 (= ExtensionHost) と
+// それらが同じ判定を読むように、 判定はここ 1 か所に置く。
+export function isPageOpen(extensions, openId) {
+  return extensions.some((ext) => ext.id === openId && ext.view === 'page')
+}
+
+export function usePageExtensionOpen() {
+  const extensions = useExtensions()
+  const openId = useSyncExternalStore(subscribeUi, () => getUiSnapshot().overlays.extensionOpen)
+  return isPageOpen(extensions, openId)
 }

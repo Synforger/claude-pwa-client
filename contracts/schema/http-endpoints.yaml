@@ -209,13 +209,15 @@ endpoints:
           title: { type: string, description: "一覧の名前と iframe の title (= 未指定なら id)" }
           icon:  { type: string, description: "🧩 の一覧で名前の前に出す文字 (= 未指定なら 🧩)" }
           path:  { type: string, description: "/ext/<id>/ (= id から導出、 config には書かない)" }
-        required: [id, title, icon, path]
+          view:  { type: string, enum: [band, page], description: "開き方。 band = チャットの上の帯、 page = 入力欄の上を全部使う頁 (= 未指定なら band)" }
+        required: [id, title, icon, path, view]
     response_kind: json
     auth: tailnet
     invariants:
       - "config.json の extensions キーから配信、 未設定なら空配列"
       - "順序は config 定義順を保持"
       - "不正な id / 重複 id の entry はその 1 件だけ捨てる (= 理由は起動時に warn)"
+      - "view の書き損じは捨てずに band で返す (= 指摘は起動時に warn)"
       - "backend は拡張へ proxy しない (= 経路は Tailscale Serve、 到達判定は frontend の HEAD)"
     implementation: backend/routes/extensions.py
 

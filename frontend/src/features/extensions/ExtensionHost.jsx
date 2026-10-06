@@ -14,6 +14,9 @@ import './ExtensionHost.css'
 //
 // 帯の高さは下端の取っ手をドラッグして変え、 端末ごとに保存する (= 範囲と既定値は bandHeight.js)。
 // ドラッグ中は取っ手が pointer を capture し、 iframe に指を取られない。
+//
+// 宣言が `view: 'page'` の拡張は、 帯ではなく頁として開く (= 入力欄の上の残り全部を使う。 メッセージの
+// 一覧と端末は、 開いている間その場所を譲る)。 頁には決める高さが無いので、 取っ手も全画面も出さない。
 export default function ExtensionHost() {
   const extensions = useExtensions()
   const openId = useSyncExternalStore(subscribeUi, () => getUiSnapshot().overlays.extensionOpen)
@@ -46,14 +49,15 @@ export default function ExtensionHost() {
   if (open && !mountedIds.includes(open.id)) {
     setMountedIds([...mountedIds, open.id])
   }
-  const full = open !== null && fullId === open.id
+  const page = open !== null && open.view === 'page'
+  const full = open !== null && !page && fullId === open.id
   const mounted = extensions.filter((ext) => mountedIds.includes(ext.id))
   if (mounted.length === 0) return null
 
   return (
     <div
-      className={`extension-band ${open ? '' : 'collapsed'} ${full ? 'fullscreen' : ''} ${resizing ? 'resizing' : ''}`}
-      style={open && !full ? { height: `${bandPct}dvh` } : undefined}
+      className={`extension-band ${open ? '' : 'collapsed'} ${page ? 'page' : ''} ${full ? 'fullscreen' : ''} ${resizing ? 'resizing' : ''}`}
+      style={open && !full && !page ? { height: `${bandPct}dvh` } : undefined}
       data-testid="extension-band"
     >
       {mounted.map((ext) => (
@@ -66,7 +70,7 @@ export default function ExtensionHost() {
           data-testid={`extension-iframe-${ext.id}`}
         />
       ))}
-      {open && (
+      {open && !page && (
         <button
           className="extension-ctrl-btn extension-ctrl-full"
           onClick={() => setFullId(full ? null : open.id)}
@@ -89,7 +93,7 @@ export default function ExtensionHost() {
           ✕
         </button>
       )}
-      {open && !full && (
+      {open && !full && !page && (
         <div
           className="extension-resize"
           onPointerDown={onResizeStart}
