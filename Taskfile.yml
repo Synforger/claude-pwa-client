@@ -380,6 +380,9 @@ tasks:
       - |
         if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
           PY="$CONDA_EXE run -n {{.CONDA_ENV}} --live-stream python"
+        elif [ -x .venv/bin/python ]; then
+          # conda の無い環境では `task setup` が依存を .venv に入れる (= lint:backend / test:backend と同じ選び方)
+          PY=.venv/bin/python
         else
           PY=python3
         fi
