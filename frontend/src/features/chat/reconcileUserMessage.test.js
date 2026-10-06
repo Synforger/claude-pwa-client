@@ -259,6 +259,41 @@ describe('reconcileUserMessage — 再配信の二重表示禁止', () => {
   })
 })
 
+// Claude の作業中に送った発話は、 Claude が受け取るまで確定の event が来ない。 その間に応答の bubble が
+// いくつ積まれても、 画面を開き直して確定待ち (= optimistic の印なし) になっていても、 1 個のまま確定する。
+describe('reconcileUserMessage — 確定待ちのまま長く待った発話', () => {
+  const NOW = 1900000000000
+  const waiting = (text, extra = {}) => ({ id: `w-${text}`, role: 'user', text, send_id: `S-${text}`, createdAt: NOW, ...extra })
+  const replies = (n) => Array.from({ length: n }, (_, i) => ({ id: `a${i}`, role: 'agent', text: `step ${i}`, ts: NOW + 1000 + i }))
+
+  it('confirms a waiting bubble however many replies came after it, instead of adding a second one', () => {
+    const cur = [waiting('and the footer too'), ...replies(40)]
+    const next = reconcileUserMessage(cur, 'and the footer too', 'U-q', undefined, NOW + 200)
+    expect(next).toHaveLength(cur.length)
+    expect(next.filter(m => m.role === 'user')).toEqual([
+      expect.objectContaining({ id: 'w-and the footer too', uuid: 'U-q', ts: NOW + 200, send_id: 'S-and the footer too' }),
+    ])
+  })
+
+  it('does not let an event older than the bubble confirm it (a replay of history)', () => {
+    const cur = [waiting('ok'), ...replies(3)]
+    const next = reconcileUserMessage(cur, 'ok', 'U-old', undefined, NOW - 60 * 60 * 1000)
+    expect(next).toHaveLength(cur.length + 1)
+    expect(next[0].uuid).toBeUndefined()
+    expect(next[next.length - 1]).toMatchObject({ uuid: 'U-old', text: 'ok' })
+  })
+
+  it('confirms the same text sent twice in the order it was sent', () => {
+    const cur = [waiting('ok', { id: 'first' }), ...replies(2), waiting('ok', { id: 'second', createdAt: NOW + 5000 })]
+    const one = reconcileUserMessage(cur, 'ok', 'U-1', undefined, NOW + 100)
+    expect(one.find(m => m.id === 'first').uuid).toBe('U-1')
+    expect(one.find(m => m.id === 'second').uuid).toBeUndefined()
+    const two = reconcileUserMessage(one, 'ok', 'U-2', undefined, NOW + 5100)
+    expect(two).toHaveLength(cur.length)
+    expect(two.find(m => m.id === 'second').uuid).toBe('U-2')
+  })
+})
+
 // 別のタブの claude からの連絡は、 この画面が送った物ではない。 人の送信中の吹き出しを確定しない。
 describe('reconcileUserMessage — 別のタブからの連絡', () => {
   const relayed = (opening) => `${opening}\n<agent-message from="tools" session="ses_x">\nhello\n</agent-message>`

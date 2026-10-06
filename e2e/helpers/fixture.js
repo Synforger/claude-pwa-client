@@ -35,3 +35,29 @@ export async function seedSession(request, name) {
 export function appendEvent(jsonlPath, event) {
   appendFileSync(jsonlPath, JSON.stringify(event) + '\n', { encoding: 'utf-8' })
 }
+
+// Mark a seeded session as one whose Claude is working, or put it back. While it is working, a
+// send from the screen writes what Claude writes for a message typed mid-task: a queue-operation
+// row and no user row. The scenario writes the hand-over (`queuedHandOver`) when it wants Claude
+// to take the message.
+export async function setWorking(request, sid, working) {
+  const res = await request.post(`/debug/e2e/working/${sid}`, { data: { working } })
+  if (!res.ok()) throw new Error(`/debug/e2e/working failed: ${res.status()} ${await res.text()}`)
+}
+
+// The rows Claude writes when it takes a queued message between two steps. The attachment row
+// carries the time the message was typed, though it is written after rows that are later in time.
+export function queuedHandOver(jsonlPath, { uuid, text, typedAt }) {
+  appendEvent(jsonlPath, { type: 'queue-operation', operation: 'remove', timestamp: new Date().toISOString(), content: text })
+  appendEvent(jsonlPath, {
+    type: 'attachment', uuid, isSidechain: false, timestamp: typedAt,
+    attachment: { type: 'queued_command', prompt: text, commandMode: 'prompt', origin: { kind: 'human' }, humanTurn: true, timestamp: typedAt },
+  })
+}
+
+// Make the backend forget which send each waiting message came from, as it does by itself a
+// minute after a send: a message Claude takes later than that arrives with no send id.
+export async function forgetSends(request) {
+  const res = await request.post('/debug/e2e/forget-sends')
+  if (!res.ok()) throw new Error(`/debug/e2e/forget-sends failed: ${res.status()} ${await res.text()}`)
+}

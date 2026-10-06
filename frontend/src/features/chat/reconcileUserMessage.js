@@ -21,8 +21,8 @@ import { parseAgentMessage } from './agentMessage.js'
 //           「二重送信に見える」。 send_id は確定後も一生持たせる)
 //     3. 近傍最後の optimistic bubble を pop (= fallback、 backend restart / TTL 超え /
 //        対応付け失敗時の safety net。 単独では近似だが第 1・第 2 で拾えない時の最終手段)
-//     3.5 同文採用 guard: identity が全部切れた配信でも、 直近に uuid 未確定の同文 user bubble が
-//        居ればそれを確定させる (= 新規 append しない)。 uuid 未確定の同文 = 対応付けそこねた
+//     3.5 同文採用 guard: identity が全部切れた配信でも、 uuid 未確定の同文 user bubble が
+//        居ればそれを確定させる (= 新規 append しない。 何件前に居ても拾う)。 uuid 未確定の同文 = 対応付けそこねた
 //        自分の送信であって新規発話ではない、 が物理。 意図的な同文連投は既存 bubble が uuid
 //        確定済なのでここに落ちず、 正しく append される
 //     4. どれも該当しなければ単純 append (= replay / proactive / fork lineage 復元)
@@ -88,15 +88,18 @@ export function reconcileUserMessage(cur, eventText, eventUuid, eventSendId, eve
   }
   if (popIdx >= 0) return _confirmAt(cur, popIdx, text, eventUuid, eventSendId, eventTs)
 
-  // 3.5 同文採用 guard: 直近 8 bubble に uuid 未確定の同文 user bubble → それを確定
+  // 3.5 同文採用 guard: uuid 未確定の同文 user bubble → それを確定
   // (= 見た目二重の構造的禁止。 uuid 確定済の同文は意図的連投なので対象外 = append へ)。
+  // 何件前に居るかでは絞らない。 Claude の作業中に送った発話は、 Claude が受け取るまで確定の event が
+  // 来ず、 その間に応答の bubble がいくつでも積まれる。 確定待ちのまま画面を開き直すと optimistic の
+  // 印も落ちているので (= useChatStorage の pending)、 ここが最後の受け皿になる。 絞るのは時刻だけ:
+  // その bubble より過去の event (= 履歴 replay) には確定させない (= 3 と同じ判定)。 同文が複数
+  // 待っている時は、 送った順 (= 古い方) から確定する。
   if (text) {
-    for (let i = cur.length - 1; i >= Math.max(0, cur.length - 8); i--) {
-      const m = cur[i]
-      if (m && m.role === 'user' && !m.uuid && (m.text || '') === text) {
-        return _confirmAt(cur, i, text, eventUuid, eventSendId || m.send_id, eventTs)
-      }
-    }
+    const idx = cur.findIndex(
+      m => m && m.role === 'user' && !m.uuid && (m.text || '') === text && !isStaleFor(eventTs, m.createdAt ?? m.ts),
+    )
+    if (idx >= 0) return _confirmAt(cur, idx, text, eventUuid, eventSendId || cur[idx].send_id, eventTs)
   }
 
   // 4. 新規 append (replay / proactive / fork lineage 復元)。

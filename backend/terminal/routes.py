@@ -322,17 +322,37 @@ def handle_text_control(ctrl: dict) -> dict | None:
     return None
 
 
+# e2e で「claude が作業中」 として扱う session (= `set_e2e_working` が出し入れする)。 本物の claude は
+# 作業中に入った発話を user 行にせず、 積んだ事だけを記録する。 その違いを scenario から選べるようにする。
+_E2E_WORKING: set[str] = set()
+
+
+def set_e2e_working(session_id: str, working: bool) -> None:
+    """e2e の session を「claude が作業中」 にする / 戻す (= debug の口から呼ぶ)。"""
+    (_E2E_WORKING.add if working else _E2E_WORKING.discard)(session_id)
+
+
 def _e2e_inject_user_row(session_id: str, text: str) -> dict:
     """ADR-021 e2e mode helper: synthesize a server-stamped `user` row directly
     into the bound JSONL file. The watcher's tail loop picks it up and the
     unified SSE pump delivers a `user_message` event, exercising the same
     reconcileUserMessage path the real-world tmux send-keys roundtrip would.
+
+    While the session is marked as working (`set_e2e_working`), the row written is the one
+    Claude writes for a message typed mid-task: a `queue-operation` enqueue row and no user row.
+    The scenario then writes the hand-over itself (the `queued_command` attachment row).
     """
     jsonl_path = jsonl_path_for_session(session_id)
     if jsonl_path is None:
         raise HTTPException(status_code=409, detail="no binding for session (= seed missing?)")
     user_uuid = str(_uuid_mod.uuid4())
     ts = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    if session_id in _E2E_WORKING:
+        row = {"type": "queue-operation", "operation": "enqueue", "timestamp": ts, "content": text}
+        jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+        with jsonl_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        return {"ok": True, "queued": True, "typed_at": ts, "e2e": True}
     row = {
         "type": "user",
         "uuid": user_uuid,
