@@ -89,6 +89,7 @@ import backend.terminal.pty_discover as pty_discover  # noqa: E402
 import backend.routes.agent_messages as agent_messages_routes  # noqa: E402
 import backend.routes.chat as chat_routes  # noqa: E402
 import backend.routes.extensions as extensions_routes  # noqa: E402
+import backend.routes.favorites as favorites_routes  # noqa: E402
 import backend.routes.files as files_routes  # noqa: E402
 import backend.routes.hooks as hooks_routes  # noqa: E402
 import backend.routes.restart as restart_routes  # noqa: E402
@@ -267,6 +268,7 @@ async def healthz() -> dict:
 app.include_router(agent_messages_routes.router)
 app.include_router(chat_routes.router)
 app.include_router(extensions_routes.router)
+app.include_router(favorites_routes.router)
 app.include_router(files_routes.router)
 app.include_router(hooks_routes.router)
 app.include_router(jsonl_routes.router)

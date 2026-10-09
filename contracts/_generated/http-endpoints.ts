@@ -131,6 +131,41 @@ export interface GetFilesTreeResponse {
     })[]
 }
 
+/** GET /favorites response */
+export interface GetFavoritesResponse {
+  favorites: ({
+      /** 絶対 path */
+      path: string
+      /** path の末尾の名前 */
+      name: string
+      is_dir: boolean
+    })[]
+}
+
+/** POST /favorites request body */
+export interface PostFavoritesRequest {
+  /** 絶対 path or `~/...` */
+  path: string
+}
+
+/** POST /favorites response */
+export interface PostFavoritesResponse {
+  favorites: ({
+      path: string
+      name: string
+      is_dir: boolean
+    })[]
+}
+
+/** DELETE /favorites response */
+export interface DeleteFavoritesResponse {
+  favorites: ({
+      path: string
+      name: string
+      is_dir: boolean
+    })[]
+}
+
 /** GET /sessions/{sid}/subagents response */
 export interface GetSessionsSidSubagentsResponse {
   subagents?: unknown[]

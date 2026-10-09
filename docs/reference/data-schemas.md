@@ -95,6 +95,31 @@ dedup キー = `endpoint`。 backend は 410/404 応答で dead subscription を
 
 > **再生成は禁忌**: 鍵を作り直すと既存 `subscriptions.json` の全 entry が `applicationServerKey` 不一致で 410 / silent drop となり、 全 client で「通知を有効にする」 を再実行しないと復活しない。 backup を取らずに削除 / `--force` 再生成しないこと。
 
+## `~/.claude-pwa-client/favorites.txt`
+
+お気に入り (= ⭐) の一覧。 **backend の状態ではなく利用者の物** なので、 置き場は repo の外 (= `~/.claude-pwa-client/`。
+環境変数 `CPC_USER_DIR` で変えられる)。 画面は `GET` / `POST` / `DELETE /favorites` から読み書きし、 エージェントは
+file を直に書く。 各タブのエージェントには、 この file の path が環境変数 `PWA_FAVORITES` で渡る。
+
+**形式**: テキスト、 1 行に 1 path (= `~/...` か絶対 path)。
+
+```
+~/sample/design/overview.md
+~/sample/project-a
+```
+
+- 登録は末尾に 1 行足すだけ (= `echo '~/sample/notes.md' >> "$PWA_FAVORITES"`)。 画面には、 次に ⭐ かファイルツリーを開いた時に出る
+- file に持つのは path だけ。 フォルダかどうかと表示名は、 backend が読むたびに実物から導く
+- 同じ path の行が 2 つ在っても一覧では 1 件。 path として読めない行 (= 空行、 メモ書き) は一覧に出ず、 画面から足す・外す操作でも消えない
+- 消えた file を指す行も一覧に残る (= 外すのは利用者)
+
+**writer**: `backend/routes/favorites.py` (= `atomic_write_text` 経由) と、 エージェント / 利用者の手書き。
+
+backup: 任意 (= 失っても、 もう一度 ⭐ を付け直せば戻る)。
+
+以前の版はこの一覧を各ブラウザの localStorage (= `cpc.fileTree.favorites`) に持っていた。 残っている分は、 その
+ブラウザで画面を開いた最初の 1 回で host の一覧へ足され、 localStorage の側は消える。
+
 ## 関連
 
 - backend 再起動 / kickstart 手順は `../troubleshooting/sunshine.md` / LaunchAgent 関連は `../setup/path-a-chat.md § backend を常駐起動する`

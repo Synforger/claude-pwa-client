@@ -21,7 +21,15 @@
 ├── logs/              (rotating log、 git ignore)
 └── frontend/
     └── dist/          (ビルド成果物)
+
+~/.claude-pwa-client/  (利用者とエージェントが書く物。 repo の外)
+├── favorites.txt
+└── uploads/tmp/       (添付の一時置き場。 既定がこの下で、 場所は config.json の `uploads_tmp` が決める)
 ```
+
+`backend/data/` は backend だけが読み書きする運用 state。 利用者とそのエージェントが直に書く物は
+repo の外の USER_DIR に置く (= エージェントの書き込み先を作業中の repo に限る類の守りが在る環境でも、
+どの repo にも属さない場所なら書ける。 checkout の中に置くと、 その守りの下のエージェントは足せない)。
 """
 from __future__ import annotations
 
@@ -35,7 +43,7 @@ REPO_ROOT = BACKEND_DIR.parent
 
 def _env_path(name: str, default: Path) -> Path:
     # env override をここに集中させる。 test mode (= playwright webServer) は
-    # CPC_DATA_DIR / CPC_LOGS_DIR / CPC_CONFIG_PATH / CPC_SECRETS_DIR を投げて
+    # CPC_DATA_DIR / CPC_LOGS_DIR / CPC_CONFIG_PATH / CPC_SECRETS_DIR / CPC_USER_DIR を投げて
     # 本番 data と隔離する。 未設定なら従来の hardcoded path。
     raw = os.environ.get(name)
     return Path(raw).expanduser().resolve() if raw else default
@@ -56,15 +64,21 @@ JSONL_BINDINGS_PATH = DATA_DIR / "jsonl_bindings.json"
 SESSION_HISTORY_PATH = DATA_DIR / "session_history.json"
 VAPID_PATH = SECRETS_DIR / "vapid.json"
 
+# 利用者とエージェントが書く物の置き場 (= repo の外)。 画面は backend 経由で、 エージェントは file を直に書く。
+USER_DIR = _env_path("CPC_USER_DIR", Path.home() / ".claude-pwa-client")
+# お気に入り: 1 行に 1 path のテキスト (= エージェントは 1 行足すだけで登録できる)
+FAVORITES_PATH = USER_DIR / "favorites.txt"
+
 
 def ensure_runtime_dirs() -> None:
-    """起動時に呼ぶ。 data/ secrets/ logs/ を 必要なら作る。 SECRETS_DIR は
+    """起動時に呼ぶ。 data/ secrets/ logs/ と USER_DIR を 必要なら作る。 SECRETS_DIR は
     perm 700 で作り、 既存なら chmod で 700 に揃える (個人 Mac 1 ユーザ運用
     前提だが、 同マシンに別ユーザがいる場合の保険)。"""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     SECRETS_DIR.mkdir(parents=True, exist_ok=True)
     SECRETS_DIR.chmod(stat.S_IRWXU)
+    USER_DIR.mkdir(parents=True, exist_ok=True)
 
 
 ensure_runtime_dirs()
