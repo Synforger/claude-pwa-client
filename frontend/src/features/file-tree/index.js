@@ -12,7 +12,11 @@
 
 import { register as registerOverlay } from '../../registry/overlayRegistry.js'
 
-import './favorites.js'
+import { refreshFavs } from './favorites.js'
+
+// 一覧は host が持つ。 ⭐ を開いた瞬間に空で出ないよう、 起動時に 1 回取っておく
+// (= 開いた時にも取り直すので、 ここで失敗しても次に開いた時に揃う)。
+refreshFavs()
 
 const noopDispatch = () => null
 registerOverlay('treeOpen', {

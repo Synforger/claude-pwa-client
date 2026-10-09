@@ -128,6 +128,30 @@ class GetFilesTreeResponse(BaseModel):
     entries: Optional[list[dict[str, Any]]] = None
 
 
+class GetFavoritesResponse(BaseModel):
+    """GET /favorites response"""
+    model_config = ConfigDict(extra="forbid")
+    favorites: list[dict[str, Any]]
+
+
+class PostFavoritesRequest(BaseModel):
+    """POST /favorites request body"""
+    model_config = ConfigDict(extra="forbid")
+    path: str  # 絶対 path or `~/...`
+
+
+class PostFavoritesResponse(BaseModel):
+    """POST /favorites response"""
+    model_config = ConfigDict(extra="forbid")
+    favorites: list[dict[str, Any]]
+
+
+class DeleteFavoritesResponse(BaseModel):
+    """DELETE /favorites response"""
+    model_config = ConfigDict(extra="forbid")
+    favorites: list[dict[str, Any]]
+
+
 class GetSessionsSidSubagentsResponse(BaseModel):
     """GET /sessions/{sid}/subagents response"""
     model_config = ConfigDict(extra="forbid")

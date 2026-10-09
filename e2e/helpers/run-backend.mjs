@@ -17,6 +17,9 @@ const RUNTIME = resolve(E2E_ROOT, 'fixtures', '_runtime')
 const DATA_DIR = resolve(RUNTIME, 'data')
 const LOGS_DIR = resolve(RUNTIME, 'logs')
 const SECRETS_DIR = resolve(RUNTIME, 'secrets')
+// What the user and their agents write (favorites.txt). The default is under the real HOME,
+// so the test backend gets its own, or a run would rewrite the operator's list.
+const USER_DIR = resolve(RUNTIME, 'user')
 const CONFIG_PATH = resolve(RUNTIME, 'config.json')
 
 const PORT = process.env.CPC_E2E_PORT || '18765'
@@ -27,6 +30,7 @@ rmSync(RUNTIME, { recursive: true, force: true })
 mkdirSync(DATA_DIR, { recursive: true })
 mkdirSync(LOGS_DIR, { recursive: true })
 mkdirSync(SECRETS_DIR, { recursive: true, mode: 0o700 })
+mkdirSync(USER_DIR, { recursive: true })
 
 // Isolate the e2e account's claude config dir to fixtures/_runtime/.claude
 // so the resolved projects dir is fixtures/_runtime/.claude/projects, NOT
@@ -88,6 +92,7 @@ const env = {
   CPC_DATA_DIR: DATA_DIR,
   CPC_LOGS_DIR: LOGS_DIR,
   CPC_SECRETS_DIR: SECRETS_DIR,
+  CPC_USER_DIR: USER_DIR,
   CPC_CONFIG_PATH: CONFIG_PATH,
   CPC_E2E: '1',
   CPC_TMUX_SOCKET: TMUX_SOCKET,
