@@ -194,12 +194,16 @@ def test_the_check_sees_the_body_and_the_receiver_s_session_and_lets_it_through(
 
 
 def test_a_message_the_check_refuses_is_not_delivered_and_carries_the_reason(client, tabs, typed, monkeypatch, tmp_path):
-    _checker(monkeypatch, tmp_path, "print('scanning', file=sys.stderr)\nprint('not sent: it carries private text', file=sys.stderr)\nsys.exit(1)\n")
+    _checker(monkeypatch, tmp_path, "print('scanning', file=sys.stderr)\n"
+             "print('    message:3: other text \\'a run of it\\'', file=sys.stderr)\n"
+             "print('not sent: it carries private text', file=sys.stderr)\nsys.exit(1)\n")
     r = _send(client)
     assert r.status_code == 403
     detail = r.json()["detail"]
     assert detail["code"] == "agent_message_refused"
     assert detail["params"]["reason"] == "not sent: it carries private text"
+    assert detail["params"]["hits"] == ["message:3: other text 'a run of it'"]     # 字下げされた行 = 当たった箇所
+    assert detail["message"].endswith("not sent: it carries private text\n  message:3: other text 'a run of it'")
     assert typed == []
     assert list((tmp_path / "uploads").iterdir()) == []
 
