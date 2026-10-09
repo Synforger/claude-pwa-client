@@ -120,6 +120,25 @@ backup: 任意 (= 失っても、 もう一度 ⭐ を付け直せば戻る)。
 以前の版はこの一覧を各ブラウザの localStorage (= `cpc.fileTree.favorites`) に持っていた。 残っている分は、 その
 ブラウザで画面を開いた最初の 1 回で host の一覧へ足され、 localStorage の側は消える。
 
+## `~/.claude-pwa-client/notes/<タブの id>.md`
+
+タブごとのメモ (= 📋)。 お気に入りと同じく **利用者の物** で、 置き場は repo の外。 画面は
+`GET` / `PUT /sessions/{sid}/note` から読み書きし、 そのタブのエージェントは file を直に書く。 各タブの
+エージェントには、 自分のタブの file の path が環境変数 `PWA_NOTE` で渡る。
+
+**形式**: markdown のテキスト 1 本。 画面はチャットと同じ描き方で出す (= 書いてある path はタップで開く)。
+
+- メモはそのタブの下書き。 他のタブからは見えず、 タブを消すと file も消える
+- 残したい物は、 エージェントに頼んで作業中の repo の側へ移す (= ここは保存先ではない)
+- 空にしたメモ (= 画面の「リセット」、 か空文字の `PUT`) は file ごと消える
+- エージェントが書いた分は、 メモを開いたままでも、 そのタブの会話が進んだ時に読み直される
+- 上限は 1MB (= `/file` と同じ)
+
+**writer**: `backend/routes/notes.py` (= `atomic_write_text` 経由) と、 そのタブのエージェント。 タブの削除
+(= `DELETE /sessions/{sid}`) が file を消す。
+
+backup: 不要 (= 下書き)。
+
 ## 関連
 
 - backend 再起動 / kickstart 手順は `../troubleshooting/sunshine.md` / LaunchAgent 関連は `../setup/path-a-chat.md § backend を常駐起動する`

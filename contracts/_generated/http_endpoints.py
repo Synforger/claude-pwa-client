@@ -152,6 +152,26 @@ class DeleteFavoritesResponse(BaseModel):
     favorites: list[dict[str, Any]]
 
 
+class GetSessionsSidNoteResponse(BaseModel):
+    """GET /sessions/{sid}/note response"""
+    model_config = ConfigDict(extra="forbid")
+    path: str  # メモの file の絶対 path (= エージェントには PWA_NOTE で渡る物)
+    content: str
+
+
+class PutSessionsSidNoteRequest(BaseModel):
+    """PUT /sessions/{sid}/note request body"""
+    model_config = ConfigDict(extra="forbid")
+    content: str
+
+
+class PutSessionsSidNoteResponse(BaseModel):
+    """PUT /sessions/{sid}/note response"""
+    model_config = ConfigDict(extra="forbid")
+    path: str
+    content: str
+
+
 class GetSessionsSidSubagentsResponse(BaseModel):
     """GET /sessions/{sid}/subagents response"""
     model_config = ConfigDict(extra="forbid")

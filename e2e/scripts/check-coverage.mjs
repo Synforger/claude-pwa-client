@@ -17,7 +17,7 @@ const REQUIRED = [
   'session-drawer',
   'file-tree',
   'file-preview',
-  'tasks',
+  'notes',
   'subagents',
   'plan-approval',
   'ask-user-question',

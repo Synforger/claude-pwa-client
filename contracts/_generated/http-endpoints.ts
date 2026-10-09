@@ -166,6 +166,24 @@ export interface DeleteFavoritesResponse {
     })[]
 }
 
+/** GET /sessions/{sid}/note response */
+export interface GetSessionsSidNoteResponse {
+  /** メモの file の絶対 path (= エージェントには PWA_NOTE で渡る物) */
+  path: string
+  content: string
+}
+
+/** PUT /sessions/{sid}/note request body */
+export interface PutSessionsSidNoteRequest {
+  content: string
+}
+
+/** PUT /sessions/{sid}/note response */
+export interface PutSessionsSidNoteResponse {
+  path: string
+  content: string
+}
+
 /** GET /sessions/{sid}/subagents response */
 export interface GetSessionsSidSubagentsResponse {
   subagents?: unknown[]

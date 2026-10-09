@@ -24,6 +24,7 @@
 
 ~/.claude-pwa-client/  (利用者とエージェントが書く物。 repo の外)
 ├── favorites.txt
+├── notes/<タブの id>.md  (タブごとのメモ。 タブを消すと消える)
 └── uploads/tmp/       (添付の一時置き場。 既定がこの下で、 場所は config.json の `uploads_tmp` が決める)
 ```
 
@@ -68,6 +69,15 @@ VAPID_PATH = SECRETS_DIR / "vapid.json"
 USER_DIR = _env_path("CPC_USER_DIR", Path.home() / ".claude-pwa-client")
 # お気に入り: 1 行に 1 path のテキスト (= エージェントは 1 行足すだけで登録できる)
 FAVORITES_PATH = USER_DIR / "favorites.txt"
+# タブごとのメモ: `<タブの id>.md` (= そのタブの物。 タブを消すと一緒に消える)
+NOTES_DIR = USER_DIR / "notes"
+
+
+def note_path(session_id: str) -> Path:
+    """そのタブのメモの file。 id は backend が発行した物だけを渡す (= 区切りを含む id は置き場の外を指す)。"""
+    if not session_id or Path(session_id).name != session_id:
+        raise ValueError(f"not a session id: {session_id!r}")
+    return NOTES_DIR / f"{session_id}.md"
 
 
 def ensure_runtime_dirs() -> None:
@@ -79,6 +89,8 @@ def ensure_runtime_dirs() -> None:
     SECRETS_DIR.mkdir(parents=True, exist_ok=True)
     SECRETS_DIR.chmod(stat.S_IRWXU)
     USER_DIR.mkdir(parents=True, exist_ok=True)
+    # エージェントが最初の 1 回から書けるよう、 メモの置き場も先に作る
+    NOTES_DIR.mkdir(parents=True, exist_ok=True)
 
 
 ensure_runtime_dirs()

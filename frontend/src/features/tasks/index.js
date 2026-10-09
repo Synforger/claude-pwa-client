@@ -1,22 +1,16 @@
 // features/tasks 配線 entry (= W2 真の完成、 ADR-026 + 残骸 sweep)。
 //
-// TasksModal は OverlayHost 経由 lazy 化 (= Phase E-2、 2026-06-29)。
 // task kind の system message render は features/tasks 責務として本 file で register
-// (= 旧 src/messageRegistry.js から本 feature に集約)。
+// (= 旧 src/messageRegistry.js から本 feature に集約)。 入力欄の上の帯 (= ActivityBar) は
+// ChatPanel が直に置く。 📋 のボタンが開くのはタブのメモ (= features/notes) で、 task の一覧の
+// 画面は持たない。
 
-import { register as registerOverlay } from '../../registry/overlayRegistry.js'
 import { register as registerStream } from '../../registry/streamRegistry.js'
 import { register as registerMessage } from '../../registry/messageRegistry.js'
 
 import TaskNotification from './TaskNotification.jsx'
 
 const noopDispatch = () => null
-
-// TasksModal の OverlayHost 経由 lazy 配線 (= Component spec)
-registerOverlay('tasks', {
-  dispatch: noopDispatch,
-  Component: () => import('./TasksModal.jsx'),
-})
 
 // task_notification SSE event → wiring signal
 registerStream('task_notification', { dispatch: noopDispatch })
