@@ -25,7 +25,7 @@ A PWA client for operating [Claude Code](https://docs.claude.com/en/docs/claude-
 - **Subagent / workflow viewer**: browse `Task` / `Workflow` transcripts in a dedicated panel
 - **Notification-center sync**: OS notifications, badges, and the backend unread counter are reconciled when the PWA returns to the foreground
 - **File preview**: tap a path to render Markdown with syntax highlighting for 50+ languages; images (png / jpg / gif / webp) open in the same preview and zoom with a pinch, Ctrl / ⌘ + wheel, or a double tap
-- **File tree + favorites**: browse the tree from the ⋯ menu, star favorites for one-tap navigation
+- **File tree + favorites**: browse the tree from the ⋯ menu, star favorites for one-tap navigation. The list is kept on the host, so every device shows the same favorites and nothing is lost when a browser clears its storage; an agent adds one by appending a line to the file named in `PWA_FAVORITES`
 - **Task panel**: the 📋 button lists tasks created via `TaskCreate`
 - **Image / text attachments**: multipart upload with persisted history
 - **Input that grows with the text**: the message box grows as you type and stops at six lines, scrolling inside past that. Once the text is longer, a toggle on the top edge opens the box over the whole visible chat area — up to the on-screen keyboard on a phone — and sending folds it back

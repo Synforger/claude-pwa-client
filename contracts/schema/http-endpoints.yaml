@@ -1,7 +1,7 @@
 # HTTP endpoints schema (= front <-> back contract、 真値)
 #
 # scope:
-#   - 34 endpoint を全件列挙 (= interface-current.md § 1 起点)
+#   - 40 endpoint を全件列挙 (= interface-current.md § 1 起点)
 #   - method / path / request body or query / response / 認証 / 不変条件
 #
 # 認証 (= auth field):
@@ -317,6 +317,84 @@ endpoints:
       - "HOME 配下外は 403"
       - "1 階層分のみ (= 再帰展開なし)"
     implementation: backend/routes/files.py
+
+  - method: GET
+    path: /favorites
+    description: "お気に入りの一覧 (= 真値は利用者の置き場の favorites.txt、 1 行に 1 path)"
+    response:
+      type: object
+      properties:
+        favorites:
+          type: array
+          items:
+            type: object
+            properties:
+              path:   { type: string, description: "絶対 path" }
+              name:   { type: string, description: "path の末尾の名前" }
+              is_dir: { type: boolean }
+            required: [path, name, is_dir]
+      required: [favorites]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "file に持つのは path だけ。 name と is_dir は読むたびに実物から導く"
+      - "実物を見に行くのは HOME 配下だけ (= HOME の外は is_dir=false)"
+      - "path として読めない行は一覧に出さない。 同じ path は 1 件にまとめる"
+    implementation: backend/routes/favorites.py
+
+  - method: POST
+    path: /favorites
+    description: "お気に入りへ 1 件足す"
+    request_body:
+      type: object
+      required: [path]
+      properties:
+        path: { type: string, description: "絶対 path or `~/...`" }
+    response:
+      type: object
+      properties:
+        favorites:
+          type: array
+          items:
+            type: object
+            properties:
+              path:   { type: string }
+              name:   { type: string }
+              is_dir: { type: boolean }
+            required: [path, name, is_dir]
+      required: [favorites]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "既に在る path は足さない (= 綴りが違っても同じ場所なら 1 件)"
+      - "file の末尾に 1 行足すだけで、 他の行は書き換えない"
+      - "絶対 path でも `~` 始まりでもない物、 改行を含む物は 400"
+    implementation: backend/routes/favorites.py
+
+  - method: DELETE
+    path: /favorites
+    description: "お気に入りから 1 件外す"
+    request_query:
+      path: { type: string, description: "絶対 path or `~/...`" }
+    response:
+      type: object
+      properties:
+        favorites:
+          type: array
+          items:
+            type: object
+            properties:
+              path:   { type: string }
+              name:   { type: string }
+              is_dir: { type: boolean }
+            required: [path, name, is_dir]
+      required: [favorites]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "その path の行だけを抜く (= path として読めない行は残す)"
+      - "一覧に無い path を渡されても file は書き換えない"
+    implementation: backend/routes/favorites.py
 
   - method: GET
     path: /sessions/{sid}/subagents

@@ -50,6 +50,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from backend.config import CLAUDE_PATH
+from backend.paths import FAVORITES_PATH
 from backend.terminal import input_ready
 from backend.terminal.control_mode import (
     ControlModeLineBuffer,
@@ -94,6 +95,25 @@ PTY_INITIAL_ARGV: list[str] = ["zsh", "-il"]
 # tmux session 名に使える文字に session_id を sanitize する。 tmux は
 # `.`, `:`, ` `, `\` などを名前に許さない。 安全のため英数 + - + _ だけ通す。
 _TMUX_NAME_SAFE = re.compile(r"[^A-Za-z0-9_-]")
+
+
+# backend がタブごとに決めて渡す環境変数 (= agent cfg の `env` では上書きさせない)
+_SESSION_ENV_RESERVED = frozenset({"PWA_SID", "PWA_FAVORITES"})
+
+
+def tmux_session_env_args(session_id: str, extra_env: dict | None) -> list[str]:
+    """tmux session env に注入する `-e KEY=VALUE` の並び。
+
+    - `PWA_SID`       = このタブの識別子
+    - `PWA_FAVORITES` = お気に入りの file (= エージェントは 1 行足すだけで登録できる。 routes/favorites.py)
+    - agent cfg の `env`
+    """
+    args = ["-e", f"PWA_SID={session_id}", "-e", f"PWA_FAVORITES={FAVORITES_PATH}"]
+    for k, v in (extra_env or {}).items():
+        if v is None or k in _SESSION_ENV_RESERVED:
+            continue
+        args.extend(["-e", f"{k}={v}"])
+    return args
 
 
 def _tmux_session_name(session_id: str) -> str:
@@ -270,12 +290,7 @@ async def spawn_pty_session(
         # tmux session env として注入する。 -e は既存 session への reattach 時は無視される
         # ので、 同タブで env を後から切り替えるなら kill_tmux_session で session 自体を
         # 落とす必要がある (= 切替後の起動分から有効)。
-        env_args: list[str] = ["-e", f"PWA_SID={session_id}"]
-        if extra_env:
-            for k, v in extra_env.items():
-                if v is None or k == "PWA_SID":
-                    continue
-                env_args.extend(["-e", f"{k}={v}"])
+        env_args = tmux_session_env_args(session_id, extra_env)
         argv = [
             *tmux_base_argv(), "-CC", "new-session", "-A", "-s", tmux_name,
             *env_args,

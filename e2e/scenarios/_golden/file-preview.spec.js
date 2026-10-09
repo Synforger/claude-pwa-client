@@ -204,23 +204,21 @@ test.describe('golden: file-preview', () => {
     await seedSession(request, 'e2e-chat-golden')
     await openClient(page, { sid: SID })
 
-    // Pin a favorite to a file the backend will happily serve under HOME.
+    // Pin a favorite to a file the backend will happily serve under HOME. The list lives on
+    // the host, so it is pinned through the endpoint and taken off again at the end.
     const fixturePath = process.env.HOME + '/repos/claude-pwa-client.v2/README.md'
-    await page.evaluate((path) => {
-      localStorage.setItem('cpc.fileTree.favorites', JSON.stringify([{ path, name: 'README.md' }]))
-      window.dispatchEvent(new CustomEvent('cpc-favorites-changed'))
-    }, fixturePath)
-    await page.reload({ waitUntil: 'domcontentloaded' })
-    await page.locator('[data-testid=chat-input]').waitFor({ state: 'visible' })
-    await page.waitForTimeout(1500)
+    await request.post('/favorites', { data: { path: fixturePath } })
+    try {
+      await page.locator('[data-testid=favorites-open-button]').click()
+      // The favorites picker shows the pinned row; click it.
+      await page.getByText('README.md').first().click()
 
-    await page.locator('[data-testid=favorites-open-button]').click()
-    // The favorites picker shows the pinned row; click it.
-    await page.getByText('README.md').first().click()
-
-    const modal = page.locator('[data-testid=file-preview-modal]')
-    await expect(modal).toBeVisible({ timeout: 10_000 })
-    await expect(modal.locator('[data-testid=file-preview-path]')).toContainText('README.md')
+      const modal = page.locator('[data-testid=file-preview-modal]')
+      await expect(modal).toBeVisible({ timeout: 10_000 })
+      await expect(modal.locator('[data-testid=file-preview-path]')).toContainText('README.md')
+    } finally {
+      await request.delete('/favorites', { params: { path: fixturePath } })
+    }
   })
 
   test('an image path in the chat opens as an image', async ({ page, request }) => {
