@@ -78,6 +78,9 @@ _TAIL_CHUNK = 256 * 1024
 LOCAL_CLIENTS = ("127.0.0.1", "::1", "localhost", "testclient")
 # 検査コマンドを待つ上限。 外の検査が自分で持つ上限より長く取る (= 先に切ると理由が失われる)。
 CHECK_TIMEOUT_SEC = 200.0
+# 検査が「どこが当たったか」 として出した行のうち、 送り主へ返す数と 1 行の長さ
+HIT_LINES = 20
+HIT_LINE_CHARS = 300
 # 相手の backend を待つ上限。 相手も届ける前に自分の検査を走らせるので、 その上限より長く取る。
 RELAY_TIMEOUT_SEC = 240.0
 # 相手のタブの一覧を待つ上限。 相手が落ちている時に、 一覧を打った側を待たせない (= 検査は走らないので短くてよい)。
@@ -188,9 +191,12 @@ def _write_private(text: str) -> Path:
     return path
 
 
-async def _run_check(command: list[str], text: str, names: dict[str, str]) -> tuple[int | None, str]:
-    """検査コマンドを 1 回走らせて (終了コード、 理由の 1 行) を返す。 実行できなければ終了コードは None。
-    語の中の `{file}` は text を書いた file に、 names の `{名前}` はその値に置き換わる。"""
+async def _run_check(command: list[str], text: str, names: dict[str, str]) -> tuple[int | None, str, list[str]]:
+    """検査コマンドを 1 回走らせて (終了コード、 理由の 1 行、 当たった箇所の行) を返す。 実行できなければ
+    終了コードは None。 語の中の `{file}` は text を書いた file に、 names の `{名前}` はその値に置き換わる。
+
+    理由は標準エラーの最後の 1 行。 その前に在る字下げされた行 (= 空白 4 つ以上で始まる行) は、 検査が
+    「本文のどこが当たったか」 を言っている行として、 字下げを外して返す (= 送り主が直す場所を取り違えない)。"""
     path = _write_private(text)
     names = {**names, "file": str(path)}
     argv = []
@@ -202,13 +208,15 @@ async def _run_check(command: list[str], text: str, names: dict[str, str]) -> tu
         done = await asyncio.to_thread(subprocess.run, argv, capture_output=True, text=True,
                                        timeout=CHECK_TIMEOUT_SEC)
     except subprocess.TimeoutExpired:
-        return None, "the check did not finish in time"
+        return None, "the check did not finish in time", []
     except OSError as error:
         logger.warning("agent message check could not run: %s", error)
-        return None, "the check could not run"
+        return None, "the check could not run", []
     finally:
         path.unlink(missing_ok=True)
-    return done.returncode, (done.stderr.strip().splitlines() or ["the check refused the message"])[-1]
+    lines = [line for line in done.stderr.splitlines() if line.strip()]      # 先頭の行の字下げを落とさない
+    hits = [line.strip()[:HIT_LINE_CHARS] for line in lines[:-1] if line.startswith("    ")][:HIT_LINES]
+    return done.returncode, (lines or ["the check refused the message"])[-1].strip(), hits
 
 
 async def check(receiver_id: str, text: str) -> None:
@@ -230,12 +238,14 @@ async def check(receiver_id: str, text: str) -> None:
 async def _judge(session: str, text: str, receiver: str) -> None:
     """検査コマンドを、 宛先を `session` として走らせる (= 設定が在る前提)。 通れば戻る。"""
     from backend.config import AGENT_MESSAGE_CHECK  # noqa: PLC0415
-    status, reason = await _run_check(AGENT_MESSAGE_CHECK, text, {"session": session})
+    status, reason, hits = await _run_check(AGENT_MESSAGE_CHECK, text, {"session": session})
     if status is None:
         raise_error(503, "agent_message_check_failed", f"連絡の検査を実行できませんでした: {reason}")
     if status != 0:
         logger.info("agent message refused receiver=%s exit=%s", receiver, status)
-        raise_error(403, "agent_message_refused", f"連絡は届けられませんでした: {reason}", reason=reason)
+        where = "".join(f"\n  {hit}" for hit in hits)
+        raise_error(403, "agent_message_refused", f"連絡は届けられませんでした: {reason}{where}",
+                    reason=reason, **({"hits": hits} if hits else {}))
 
 
 async def operator_said_for(sender_id: str, receiver_id: str) -> str | None:
@@ -249,7 +259,7 @@ async def operator_said_for(sender_id: str, receiver_id: str) -> str | None:
     receiver_record = jsonl_path_for_session(receiver_id)
     if receiver_record is None:
         return None
-    status, reason = await _run_check(AGENT_MESSAGE_OPERATOR_CHECK, said,
+    status, reason, _hits = await _run_check(AGENT_MESSAGE_OPERATOR_CHECK, said,
                                       {"session": receiver_record.stem, "sender_session": sender_record.stem})
     if status != 0:
         logger.info("agent message: operator's words left out sender=%s receiver=%s (%s)", sender_id, receiver_id, reason)

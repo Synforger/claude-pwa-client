@@ -103,7 +103,7 @@ backend に認証は無いので、 同じ機械の中の Claude は次の口を
 | `agent_message_ambiguous_receiver` | 同じ名前のタブが複数ある。 返ってきた id のどれかを指定する |
 | `agent_message_receiver_not_running` | 宛先のタブで Claude が動いていない。 連絡で会話を起動することはしない |
 | `agent_message_receiver_not_ready` | 宛先の会話がまだ始まっていないため、 検査できない (= 検査を設定している時のみ) |
-| `agent_message_refused` | 検査が連絡を通さなかった。 理由が `reason` に入っている |
+| `agent_message_refused` | 検査が連絡を通さなかった。 理由が `reason` に、 検査が「本文のどこが当たったか」 を出していればその行が `hits` に入っている |
 | `agent_message_check_failed` | 検査を実行できなかった、 または時間内に終わらなかった |
 | `agent_message_local_only` | 別の機械から呼ばれた |
 | `agent_message_peer_not_allowed` | そのタブは、 その機械と連絡してよい account のタブではない |
@@ -180,7 +180,7 @@ Message from a session on another machine, relayed by the client (the operator d
 ```
 
 - `{file}` は本文を書いたファイルの path に、 `{session}` は宛先の Claude の session id に置き換わります
-- 終了コードが 0 なら届けます。 0 以外なら届けず、 標準エラーの最後の 1 行を理由として送り主に返します
+- 終了コードが 0 なら届けます。 0 以外なら届けず、 標準エラーの最後の 1 行を理由として送り主に返します。 その前に、 空白 4 つ以上で字下げした行が在れば、 「本文のどこが当たったか」 として一緒に返します (= 20 行まで)
 - 書いていなければ、 検査なしで届けます
 
 タブごとに読ませている資料が違い、 あるタブの資料の中身を別のタブへ流したくない場合に使います。
