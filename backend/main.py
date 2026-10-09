@@ -92,6 +92,7 @@ import backend.routes.extensions as extensions_routes  # noqa: E402
 import backend.routes.favorites as favorites_routes  # noqa: E402
 import backend.routes.files as files_routes  # noqa: E402
 import backend.routes.hooks as hooks_routes  # noqa: E402
+import backend.routes.notes as notes_routes  # noqa: E402
 import backend.routes.restart as restart_routes  # noqa: E402
 import backend.routes.subagents as subagents_routes  # noqa: E402
 import backend.routes.unified_stream as unified_stream_routes  # noqa: E402
@@ -272,6 +273,7 @@ app.include_router(favorites_routes.router)
 app.include_router(files_routes.router)
 app.include_router(hooks_routes.router)
 app.include_router(jsonl_routes.router)
+app.include_router(notes_routes.router)
 app.include_router(pty_routes.router)
 app.include_router(restart_routes.router)
 app.include_router(push.router)

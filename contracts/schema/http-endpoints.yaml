@@ -1,7 +1,7 @@
 # HTTP endpoints schema (= front <-> back contract、 真値)
 #
 # scope:
-#   - 40 endpoint を全件列挙 (= interface-current.md § 1 起点)
+#   - 42 endpoint を全件列挙 (= interface-current.md § 1 起点)
 #   - method / path / request body or query / response / 認証 / 不変条件
 #
 # 認証 (= auth field):
@@ -395,6 +395,46 @@ endpoints:
       - "その path の行だけを抜く (= path として読めない行は残す)"
       - "一覧に無い path を渡されても file は書き換えない"
     implementation: backend/routes/favorites.py
+
+  - method: GET
+    path: /sessions/{sid}/note
+    description: "そのタブのメモを読む (= 真値は利用者の置き場の notes/<sid>.md)"
+    response:
+      type: object
+      properties:
+        path:    { type: string, description: "メモの file の絶対 path (= エージェントには PWA_NOTE で渡る物)" }
+        content: { type: string }
+      required: [path, content]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "file が無いタブは content が空文字 (= 404 にしない)"
+      - "存在しないタブは 404"
+      - "1MB 超は 413"
+    implementation: backend/routes/notes.py
+
+  - method: PUT
+    path: /sessions/{sid}/note
+    description: "そのタブのメモを書く"
+    request_body:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string }
+    response:
+      type: object
+      properties:
+        path:    { type: string }
+        content: { type: string }
+      required: [path, content]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "書くのはそのタブの file だけ (= 他のタブからは見えない)"
+      - "content が空文字なら file ごと消す"
+      - "存在しないタブは 404、 1MB 超は 413"
+      - "タブを消すと (= DELETE /sessions/{sid}) メモも消える"
+    implementation: backend/routes/notes.py
 
   - method: GET
     path: /sessions/{sid}/subagents

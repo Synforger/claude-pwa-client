@@ -50,7 +50,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from backend.config import CLAUDE_PATH
-from backend.paths import FAVORITES_PATH
+from backend.paths import FAVORITES_PATH, note_path
 from backend.terminal import input_ready
 from backend.terminal.control_mode import (
     ControlModeLineBuffer,
@@ -98,7 +98,7 @@ _TMUX_NAME_SAFE = re.compile(r"[^A-Za-z0-9_-]")
 
 
 # backend がタブごとに決めて渡す環境変数 (= agent cfg の `env` では上書きさせない)
-_SESSION_ENV_RESERVED = frozenset({"PWA_SID", "PWA_FAVORITES"})
+_SESSION_ENV_RESERVED = frozenset({"PWA_SID", "PWA_FAVORITES", "PWA_NOTE"})
 
 
 def tmux_session_env_args(session_id: str, extra_env: dict | None) -> list[str]:
@@ -106,9 +106,14 @@ def tmux_session_env_args(session_id: str, extra_env: dict | None) -> list[str]:
 
     - `PWA_SID`       = このタブの識別子
     - `PWA_FAVORITES` = お気に入りの file (= エージェントは 1 行足すだけで登録できる。 routes/favorites.py)
+    - `PWA_NOTE`      = このタブのメモの file (= エージェントが書くと 📋 に出る。 routes/notes.py)
     - agent cfg の `env`
     """
-    args = ["-e", f"PWA_SID={session_id}", "-e", f"PWA_FAVORITES={FAVORITES_PATH}"]
+    args = [
+        "-e", f"PWA_SID={session_id}",
+        "-e", f"PWA_FAVORITES={FAVORITES_PATH}",
+        "-e", f"PWA_NOTE={note_path(session_id)}",
+    ]
     for k, v in (extra_env or {}).items():
         if v is None or k in _SESSION_ENV_RESERVED:
             continue
