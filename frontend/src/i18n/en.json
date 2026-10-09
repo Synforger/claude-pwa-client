@@ -38,6 +38,8 @@
   "topbar.menu.language_en": "English",
   "chat.input.placeholder": "Type a message...",
   "chat.input.placeholder_no_session": "Create a conversation from the ☰ menu on the left",
+  "chat.input.expand": "Expand the input",
+  "chat.input.collapse": "Collapse the input",
   "chat.send": "Send",
   "chat.stop": "Stop",
   "chat.stop_pending": "Waiting for reconnect (retrying)",

@@ -69,3 +69,105 @@ test.describe('golden: chat', () => {
     await expect(page.locator('[data-testid=message-bubble-agent]')).toContainText(replyText)
   })
 })
+
+// The input grows with what is typed, stops at six lines, and past that offers
+// a toggle that opens it over the visible chat area.
+test.describe('golden: chat input size', () => {
+  const input = '[data-testid=chat-input]'
+  const toggle = '[data-testid=chat-input-size-toggle]'
+  const lines = (n) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\n')
+  const height = (page) => page.locator(input).evaluate((el) => el.getBoundingClientRect().height)
+  // The collapsed limit, read from the page's own styles (= six lines + padding + border).
+  const cap = (page) => page.locator(input).evaluate((el) => {
+    const cs = getComputedStyle(el)
+    const px = (v) => parseFloat(v) || 0
+    return px(cs.lineHeight) * 6 + px(cs.paddingTop) + px(cs.paddingBottom)
+      + px(cs.borderTopWidth) + px(cs.borderBottomWidth)
+  })
+
+  test('grows with the text and stops at six lines', async ({ page, request }) => {
+    await seedSession(request, 'e2e-chat-golden')
+    await openClient(page, { sid: SID })
+
+    const natural = await height(page)
+    const limit = await cap(page)
+    expect(limit).toBeGreaterThan(natural)
+
+    await page.locator(input).fill('one line')
+    expect(await height(page)).toBeCloseTo(natural, 0)
+    await expect(page.locator(toggle)).toHaveCount(0)
+
+    await page.locator(input).fill(lines(5))
+    const five = await height(page)
+    expect(five).toBeGreaterThan(natural)
+    expect(five).toBeLessThan(limit)
+
+    await page.locator(input).fill(lines(6))
+    expect(await height(page)).toBeCloseTo(limit, 0)
+    await expect(page.locator(toggle)).toHaveCount(0)
+
+    await page.locator(input).fill(lines(7))
+    expect(await height(page)).toBeCloseTo(limit, 0)
+    await expect(page.locator(toggle)).toBeVisible()
+    await expect(page.locator(toggle)).toHaveAttribute('aria-expanded', 'false')
+    // The seventh line is there, reached by scrolling inside the input.
+    expect(await page.locator(input).evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+
+    // Back under the limit: the input shrinks and the toggle goes away.
+    await page.locator(input).fill('one line')
+    expect(await height(page)).toBeCloseTo(natural, 0)
+    await expect(page.locator(toggle)).toHaveCount(0)
+  })
+
+  test('the toggle opens the input over the chat area, and sending folds it back', async ({ page, request }) => {
+    await seedSession(request, 'e2e-chat-golden')
+    await openClient(page, { sid: SID })
+
+    await page.locator(input).fill(lines(12))
+    const limit = await cap(page)
+    const reserved = () => page.evaluate(
+      () => getComputedStyle(document.documentElement).getPropertyValue('--chat-input-h').trim(),
+    )
+    const before = await reserved()
+    const area = page.locator('.inputarea')
+    const collapsed = await area.boundingBox()
+    const listTop = await page.locator('.cpc-chat-panel > :first-child').evaluate(
+      (el) => el.getBoundingClientRect().top,
+    )
+
+    await page.locator(toggle).click()
+    await expect(area).toHaveClass(/expanded/)
+    await expect(page.locator(toggle)).toHaveAttribute('aria-expanded', 'true')
+    const open = await area.boundingBox()
+    // From the top of the message list down to where the input already ended, in the same column.
+    expect(open.y).toBeCloseTo(listTop, 0)
+    expect(open.y + open.height).toBeCloseTo(collapsed.y + collapsed.height, 0)
+    expect(open.x).toBeCloseTo(collapsed.x, 0)
+    expect(open.width).toBeCloseTo(collapsed.width, 0)
+    expect(await height(page)).toBeGreaterThan(limit)
+    // The text keeps the focus, and what the overlays reserve below them does not move.
+    await expect(page.locator(input)).toBeFocused()
+    expect(await reserved()).toBe(before)
+
+    // An overlay opened afterwards is on top of the expanded input.
+    await page.locator('[data-testid=favorites-open-button]').click()
+    await expect(page.locator('.tree-overlay')).toBeVisible()
+    const onTop = await page.evaluate(() => {
+      const el = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2)
+      return !!el && !!el.closest('.tree-overlay')
+    })
+    expect(onTop).toBe(true)
+    await page.locator('.tree-overlay .modal-close').click()
+
+    await page.locator(toggle).click()
+    await expect(area).not.toHaveClass(/expanded/)
+    expect(await height(page)).toBeCloseTo(limit, 0)
+
+    await page.locator(toggle).click()
+    await expect(area).toHaveClass(/expanded/)
+    await page.locator('[data-testid=chat-send-button]').click()
+    await expect(area).not.toHaveClass(/expanded/)
+    await expect(page.locator(input)).toHaveValue('')
+    await expect(page.locator(toggle)).toHaveCount(0)
+  })
+})

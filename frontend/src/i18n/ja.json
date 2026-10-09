@@ -38,6 +38,8 @@
   "topbar.menu.language_en": "English",
   "chat.input.placeholder": "メッセージを入力...",
   "chat.input.placeholder_no_session": "左の ☰ から会話を作成してください",
+  "chat.input.expand": "入力欄を広げる",
+  "chat.input.collapse": "入力欄を畳む",
   "chat.send": "送信",
   "chat.stop": "停止",
   "chat.stop_pending": "接続復帰待ち (再送中)",
