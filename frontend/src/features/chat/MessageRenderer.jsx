@@ -167,6 +167,9 @@ function remarkFilePaths() {
       }
 
       parent.children.splice(index, 1, ...parts)
+      // 差し替えた分は飛ばして続ける (= 作ったリンクの中の文字へ降りると、 同じ path がもう一度
+      // リンクになって入れ子になり、 1 回のタップで開く処理が 2 回走る)
+      return index + parts.length
     })
 
     // インラインコード（`~/...`）もリンクに変換

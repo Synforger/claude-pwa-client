@@ -64,7 +64,7 @@ export default function Topbar() {
           💬
         </button>
       )}
-      {/* topbar 右側のアイコン群。 並びは左→右で ⭐ お気に入り → 📋 タスク →
+      {/* topbar 右側のアイコン群。 並びは左→右で ⭐ お気に入り → 📋 メモ →
           🤖 サブエージェント → (📑 plan 承認、 条件付き) → 🖥 モニター → 🧩 拡張。 */}
       {activeViewMode === 'chat' && activeSid && (
         <button
@@ -80,10 +80,10 @@ export default function Topbar() {
       {activeViewMode === 'chat' && activeSid && (
         <button
           className="topbar-icon-btn"
-          onClick={() => setOverlay('tasks', true)}
-          aria-label={t('topbar.tasks_label')}
-          title={t('topbar.tasks')}
-          data-testid="tasks-open-button"
+          onClick={() => setOverlay('notes', true)}
+          aria-label={t('topbar.notes_label')}
+          title={t('topbar.notes')}
+          data-testid="notes-open-button"
         >
           📋
         </button>

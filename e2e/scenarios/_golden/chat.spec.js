@@ -128,9 +128,12 @@ test.describe('golden: chat input size', () => {
     const reserved = () => page.evaluate(
       () => getComputedStyle(document.documentElement).getPropertyValue('--chat-input-h').trim(),
     )
-    const before = await reserved()
     const area = page.locator('.inputarea')
     const collapsed = await area.boundingBox()
+    // The reserved height follows the input a beat later (a ResizeObserver writes it), so it is
+    // taken once it has caught up with the six-line input, not right after typing.
+    await expect.poll(async () => parseFloat(await reserved())).toBeCloseTo(collapsed.height, 0)
+    const before = await reserved()
     const listTop = await page.locator('.cpc-chat-panel > :first-child').evaluate(
       (el) => el.getBoundingClientRect().top,
     )

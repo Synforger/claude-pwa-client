@@ -1,0 +1,16 @@
+/* 📋 のメモ。 枠はファイルプレビューと同じ物 (= shared/Modal.css と .md-preview) を使い、 ここは差分だけ。 */
+.note-title {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.note-empty {
+  white-space: pre-line;
+}
+
+/* メモは文章なので、 長い行は折り返す (= コード用の編集欄は折り返さない) */
+.note-editor {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}

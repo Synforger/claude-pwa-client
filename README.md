@@ -26,7 +26,7 @@ A PWA client for operating [Claude Code](https://docs.claude.com/en/docs/claude-
 - **Notification-center sync**: OS notifications, badges, and the backend unread counter are reconciled when the PWA returns to the foreground
 - **File preview**: tap a path to render Markdown with syntax highlighting for 50+ languages; images (png / jpg / gif / webp) open in the same preview and zoom with a pinch, Ctrl / ⌘ + wheel, or a double tap
 - **File tree + favorites**: browse the tree from the ⋯ menu, star favorites for one-tap navigation. The list is kept on the host, so every device shows the same favorites and nothing is lost when a browser clears its storage; an agent adds one by appending a line to the file named in `PWA_FAVORITES`
-- **Task panel**: the 📋 button lists tasks created via `TaskCreate`
+- **Notes per tab**: the 📋 button opens a scratch pad that belongs to the tab — rendered like the chat, so a path written in it opens with a tap, and editable in place. The tab's agent writes to the same file (its path is in `PWA_NOTE`), so "put that in the notes" works; the notes go away with the tab
 - **Image / text attachments**: multipart upload with persisted history
 - **Input that grows with the text**: the message box grows as you type and stops at six lines, scrolling inside past that. Once the text is longer, a toggle on the top edge opens the box over the whole visible chat area — up to the on-screen keyboard on a phone — and sending folds it back
 - **Long replies fold without losing formatting**: a reply past 4,000 characters collapses to a preview and expands in place, staying rendered as markdown either way. The preview is cut at a block boundary outside code fences, so tables and code blocks are never sliced in half
