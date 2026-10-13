@@ -225,6 +225,14 @@ export interface PostPtySidSendWithFilesResponse {
   saved_files?: string[]
 }
 
+/** POST /sessions/{sid}/rollover request body */
+export type PostSessionsSidRolloverRequest = Record<string, unknown>
+
+/** POST /sessions/{sid}/rollover response */
+export interface PostSessionsSidRolloverResponse {
+  rolling: boolean
+}
+
 /** POST /agent-messages request body */
 export type PostAgentMessagesRequest = Record<string, unknown>
 
