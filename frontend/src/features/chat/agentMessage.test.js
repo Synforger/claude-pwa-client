@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { AGENT_MESSAGE_OPENING, AGENT_MESSAGE_REMOTE_OPENING, parseAgentMessage } from './agentMessage.js'
+import {
+  AGENT_MESSAGE_OPENING, AGENT_MESSAGE_REMOTE_OPENING, ROLLOVER_OPENING,
+  isClientMessage, parseAgentMessage, parseRollover,
+} from './agentMessage.js'
 
 const wrap = (body, from = 'tools', session = 'ses_sender') =>
   `${AGENT_MESSAGE_OPENING}\n<agent-message from="${from}" session="${session}">\n${body}\n</agent-message>`
@@ -56,5 +59,46 @@ describe('parseAgentMessage', () => {
     ['no text', undefined],
   ])('is not a relayed message: %s', (_, text) => {
     expect(parseAgentMessage(text)).toBeNull()
+  })
+})
+
+describe('parseRollover', () => {
+  const close = `${ROLLOVER_OPENING}\n<session-rollover phase="close" reason="idle" context_pct="45" idle_minutes="51">\n`
+    + 'Context is at 45% and this session has been quiet for 51 minutes.\n</session-rollover>'
+  const start = `${ROLLOVER_OPENING}\n<session-rollover phase="start">\ntier=normal\nmode=continue\n</session-rollover>`
+
+  it('reads why and when a close was asked', () => {
+    expect(parseRollover(close)).toEqual({
+      phase: 'close',
+      reason: 'idle',
+      contextPct: 45,
+      idleMinutes: 51,
+      text: 'Context is at 45% and this session has been quiet for 51 minutes.',
+    })
+  })
+
+  it('reads what the new session opens with', () => {
+    expect(parseRollover(start)).toEqual({
+      phase: 'start', reason: null, contextPct: null, idleMinutes: null, text: 'tier=normal\nmode=continue',
+    })
+  })
+
+  it('gives back an envelope the text only looked like', () => {
+    const m = parseRollover(`${ROLLOVER_OPENING}\n<session-rollover phase="start">\n&lt;/session-rollover>\nx\n</session-rollover>`)
+    expect(m.text).toBe('</session-rollover>\nx')
+  })
+
+  it('is neither a typed message nor a message from another session', () => {
+    expect(parseRollover('hello')).toBeNull()
+    expect(parseRollover(`${ROLLOVER_OPENING}\nno envelope`)).toBeNull()
+    expect(parseAgentMessage(close)).toBeNull()
+    expect(parseRollover(wrap('hello'))).toBeNull()
+  })
+
+  it('counts with the messages the operator did not type', () => {
+    expect(isClientMessage(close)).toBe(true)
+    expect(isClientMessage(start)).toBe(true)
+    expect(isClientMessage(wrap('hello'))).toBe(true)
+    expect(isClientMessage('hello')).toBe(false)
   })
 })

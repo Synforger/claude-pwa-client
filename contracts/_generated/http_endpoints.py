@@ -220,6 +220,18 @@ class PostPtySidSendWithFilesResponse(BaseModel):
     saved_files: Optional[list[str]] = None
 
 
+class PostSessionsSidRolloverRequest(BaseModel):
+    """POST /sessions/{sid}/rollover request body"""
+    model_config = ConfigDict(extra="forbid")
+    pass
+
+
+class PostSessionsSidRolloverResponse(BaseModel):
+    """POST /sessions/{sid}/rollover response"""
+    model_config = ConfigDict(extra="forbid")
+    rolling: bool
+
+
 class PostAgentMessagesRequest(BaseModel):
     """POST /agent-messages request body"""
     model_config = ConfigDict(extra="forbid")

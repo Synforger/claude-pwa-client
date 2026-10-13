@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { reconcileUserMessage } from './reconcileUserMessage.js'
-import { AGENT_MESSAGE_OPENING, AGENT_MESSAGE_REMOTE_OPENING } from './agentMessage.js'
+import { AGENT_MESSAGE_OPENING, AGENT_MESSAGE_REMOTE_OPENING, ROLLOVER_OPENING } from './agentMessage.js'
 
 // 2026-06-24 server-of-truth 純化後の test 群。 旧 5 段 (= text 完全一致 / 部分一致 / 添付
 // 検出 / LOOKBACK_DEDUP) ヒューリスティクスは全廃され、 dedup は uuid 一致のみ + 末尾
@@ -318,6 +318,16 @@ describe('reconcileUserMessage — 別のタブからの連絡', () => {
       }
     },
   )
+
+  it('a rollover message is added beside the bubble the operator is still sending', () => {
+    const asked = `${ROLLOVER_OPENING}\n<session-rollover phase="close" reason="context" context_pct="62" idle_minutes="0">\nContext is at 62%.\n</session-rollover>`
+    const cur = [{ id: 'm', role: 'user', text: 'and the footer too', optimistic: true, send_id: 'S1', createdAt: 1 }]
+    const next = reconcileUserMessage(cur, asked, 'U-asked', 'S1', 2)
+    expect(next).toHaveLength(2)
+    expect(next[0]).toBe(cur[0])
+    expect(next[1]).toMatchObject({ role: 'user', text: asked, uuid: 'U-asked' })
+    expect(next[1].send_id).toBeUndefined()
+  })
 
   it('a message from another tab that was already received is not added twice (replay)', () => {
     const first = reconcileUserMessage([], relayed(AGENT_MESSAGE_OPENING), 'U-relayed', undefined, 1)

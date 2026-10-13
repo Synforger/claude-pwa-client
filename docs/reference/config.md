@@ -68,6 +68,8 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
     (= `claude "<本文>"`。 打鍵ではなく引数なので複数行も崩れない)
   - 会話の再開 (= backend 再起動跨ぎの自動再開 / フォーク / 別アカウントでの継続) は
     `claude --resume <id>` ではなく `<launch_alias> --resume <id>` を入力する
+- `rollover` (任意): context が決めた割合に届いた会話を締めさせて、 同じタブで新しい会話を起動し直す
+  条件。 書いていないエージェントでは何も起きない。 項目と流れは [rollover.md](rollover.md)
 
 ### `accounts` — マルチアカウント
 
