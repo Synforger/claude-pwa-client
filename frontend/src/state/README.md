@@ -1,6 +1,6 @@
-# state/ — 7 領域分離 + createStore 共通 helper (= ADR-010, ADR-017)
+# state/ — 8 領域分離 + createStore 共通 helper (= ADR-010, ADR-017)
 
-> **目的**: v1 で 38+ state item が 17 個の hook に散らかってた状態を、 7 領域 (= messages / ephemeral / sessions / ui / push / promptState / locale) に物理分離し、 1 つの場所で「どの state が真値で、 どの state が ephemeral か」 を見渡せる構造にする。
+> **目的**: v1 で 38+ state item が 17 個の hook に散らかってた状態を、 8 領域 (= messages / ephemeral / sessions / ui / push / promptState / locale / voice) に物理分離し、 1 つの場所で「どの state が真値で、 どの state が ephemeral か」 を見渡せる構造にする。
 
 ## 構成
 
@@ -14,7 +14,8 @@ state/
 ├── ui.js               overlays / scroll / keyboard / viewModes
 ├── push.js             Web Push 購読 singleton (= J-2 で usePushSubscription の useState 4 個を統合)
 ├── promptState.js      terminal prompt 検出 state (= SSE `prompt_state` event の受け皿、 banner / quick-reply が subscribe)
-└── locale.js           UI 言語切替 (= 2026-07-02 追加、 i18n/t.js と SessionDrawer が subscribe)
+├── locale.js           UI 言語切替 (= 2026-07-02 追加、 i18n/t.js と SessionDrawer が subscribe)
+└── voice.js            声 (= agent の返事を音で聞く) の、 タブごとの 持つか / ON か / 鳴らせなかった理由
 ```
 
 > 旧 `transport.js` は W2 Phase J-12 で dead 削除 (= 全 setter が orphan、 isOnline は `transport/lifecycle.js::registerConnection` 経由に集約済)。
@@ -44,6 +45,8 @@ state/
 | scroll.* | UI ephemeral | なし | ui.js | features/chat scroll listener |
 | keyboard.* | UI ephemeral | なし | ui.js | features/ios-native + features/terminal |
 | viewModes[sid] | UI 真値 | localStorage | ui.js | layout/Layout (= chat ↔ terminal toggle) |
+| voice.available[sid] | ephemeral (backend 真値の写し) | なし | voice.js | features/voice (= タブを開いた時に GET /sessions/{sid}/voice) |
+| voice.on[sid] / voice.error[sid] | UI ephemeral | なし | voice.js | features/voice (= 上部の 🔊 / 鳴らせなかった時) |
 | push.hasRealSub / pushBusy / localFlag | ephemeral (backend 真値の写し) | なし | push.js | features/push-notify (= J-2、 AppEffects mount + SessionDrawer remount の両経路で singleton 共有) |
 
 ## createStore 使い方 (= ADR-017)

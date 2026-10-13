@@ -31,6 +31,7 @@ const REQUIRED = [
   'terminal',
   'agent-message',
   'session-rollover',
+  'voice',
 ]
 
 if (!existsSync(GOLDEN_DIR)) {
