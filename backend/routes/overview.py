@@ -65,6 +65,31 @@ def _read_rate_limits_tail_cached() -> list[dict]:
     return fresh
 
 
+def _context_pct(sess: dict | None, a: dict) -> int:
+    """context の使用率。 statusline が記録したその会話の最新行が在ればその値、 無ければ会話の記録から
+    数えた値。 画面の表示も自動の入れ替えの判定もこの 1 つを見る。"""
+    return sess.get("context_pct") if sess and sess.get("context_pct") is not None else a["ctx_pct"]
+
+
+def context_pct_of(sid: str) -> int:
+    """そのタブの今の context の使用率 (= 画面が出している値と同じ)。"""
+    jp = jsonl_watcher.get_jsonl_for(sid)
+    claude_sid = jp.stem if jp else None
+    sess = None
+    if claude_sid:
+        sess = next((p for p in reversed(_read_rate_limits_tail_cached()) if p.get("session_id") == claude_sid), None)
+    return _context_pct(sess, agent_status.get(sid) or {"ctx_pct": 0})
+
+
+def is_busy(sid: str) -> bool:
+    """そのタブの claude が推論中か。 JSONL 由来の権威値と画面の実況 (= TUI の推論中スピナー) の OR で、
+    user_stopped (= Stop 押下) は両者に優先して false。"""
+    st = stream_states.get(sid)
+    if st is None or st.user_stopped:
+        return False
+    return bool(st.busy or st.pane_working)
+
+
 def _build_all_status() -> dict:
     """全 session の status を 1 dict で返す (= /sessions/status/stream payload)。
 
@@ -101,7 +126,7 @@ def _build_all_status() -> dict:
         last_acct, seven_day_pct_acct = _acct_view(acct)
         out[sid] = {
             "model": (sess.get("model") if sess else None) or a["model"],
-            "ctx_pct": (sess.get("context_pct") if sess and sess.get("context_pct") is not None else a["ctx_pct"]),
+            "ctx_pct": _context_pct(sess, a),
             "plan_mode": a["plan_mode"],
             "current_tool": a["current_tool"],
             "todos": a["todos"],
@@ -140,16 +165,8 @@ def _build_sessions_overview() -> dict:
     from backend.terminal.prompt_detector_loop import is_waiting_input  # noqa: PLC0415
     out: dict[str, dict] = {}
     for sid in list(sessions_meta.keys()):
-        st = stream_states.get(sid)
-        a = agent_status.get(sid) or {}
-        if st is None:
-            busy = False
-        elif st.user_stopped:
-            busy = False
-        else:
-            busy = bool(st.busy or st.pane_working)
         out[sid] = {
-            "busy": busy,
+            "busy": is_busy(sid),
             "last_seen_at": session_last_seen_at.get(sid),
             # 入力待ち (= AskUserQuestion / TUI 選択肢) の軽量フラグ。 統合 transport は
             # 未購読 sid の chat event を配らないため、 ドロワーの質問待ちバッジの

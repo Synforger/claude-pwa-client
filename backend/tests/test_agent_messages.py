@@ -312,7 +312,7 @@ def test_a_long_record_is_read_from_its_end_across_rows_longer_than_one_read(tmp
     big = {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "content": "x" * 5000}]}}
     record = _record(tmp_path, [_human("early"), big, _human("the one " + "y" * 300), big, big])
     assert am.last_operator_text(record) == "the one " + "y" * 300
-    assert [json.loads(line)["type"] for line in am._lines_from_the_end(record)] == ["user"] * 5
+    assert [json.loads(line)["type"] for line in am.lines_from_the_end(record)] == ["user"] * 5
 
 
 def _two_records(monkeypatch, tmp_path, sender_rows):

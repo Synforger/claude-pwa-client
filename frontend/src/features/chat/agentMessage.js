@@ -14,7 +14,7 @@ const OPENINGS = [AGENT_MESSAGE_OPENING, AGENT_MESSAGE_REMOTE_OPENING]
 // 送り主のタブで人が最後に打った発話。 backend が封筒の先頭に入れる (= 在る時だけ)。
 const OPERATOR_SAID = /^<operator-said>\n([\s\S]*?)\n<\/operator-said>\n?/
 // backend は中身の側の「封筒のタグと同じ形」 を &lt; に替えて届ける。 表示では元に戻す。
-const restore = (text) => text.replace(/&lt;(\/?)(agent-message|operator-said)/g, '<$1$2')
+const restore = (text) => text.replace(/&lt;(\/?)(agent-message|operator-said|session-rollover)/g, '<$1$2')
 
 const ENVELOPE = /^<agent-message from="([^"\n]*)" session="([^"\n]*)">\n([\s\S]*)\n<\/agent-message>\s*$/
 
@@ -34,3 +34,41 @@ export function parseAgentMessage(text) {
   const body = said ? m[3].slice(said[0].length) : m[3]
   return { from: m[1], session: m[2], text: restore(body), operatorSaid: said ? restore(said[1]) : null, remote }
 }
+
+// 自動の入れ替え (= 会話を締めて、 同じタブで新しい会話を起動し直す) で backend が打つ発話。 締めを頼む発話
+// (= phase="close") と、 起動し直した会話の最初の発話 (= phase="start") が在る。 1 行目は backend の
+// `core/jsonl_predicates.py` と同じ文字列で、 backend の test が両者の一致を見ている。
+export const ROLLOVER_OPENING =
+  'Automatic session rollover, sent by the client (the operator did not type this):'
+
+const ROLLOVER = /^<session-rollover phase="(close|start)"((?: [a-z_]+="[^"\n]*")*)>\n([\s\S]*)\n<\/session-rollover>\s*$/
+
+const attribute = (attributes, name) => {
+  const m = new RegExp(` ${name}="([^"\n]*)"`).exec(attributes)
+  return m ? m[1] : null
+}
+
+/** 自動の入れ替えの発話なら { phase, reason, contextPct, idleMinutes, text } (= 締めか起動か / 締めを頼んだ
+ *  理由 `context` か `idle` / その時の context の割合 / 静かだった分数 / 本文)、 違えば null。
+ *  起動の発話は reason と数字を持たない (= null)。 */
+export function parseRollover(text) {
+  if (typeof text !== 'string') return null
+  const trimmed = text.trimStart()
+  if (!trimmed.startsWith(ROLLOVER_OPENING)) return null
+  const m = ROLLOVER.exec(trimmed.slice(ROLLOVER_OPENING.length).trimStart())
+  if (!m) return null
+  const number = (name) => {
+    const value = attribute(m[2], name)
+    return value !== null && /^\d+$/.test(value) ? Number(value) : null
+  }
+  return {
+    phase: m[1],
+    reason: attribute(m[2], 'reason'),
+    contextPct: number('context_pct'),
+    idleMinutes: number('idle_minutes'),
+    text: restore(m[3]),
+  }
+}
+
+/** 端末から入ったが人が打っていない発話か (= 別のタブからの連絡と、 自動の入れ替えの発話)。 */
+export const isClientMessage = (text) => !!(parseAgentMessage(text) || parseRollover(text))
