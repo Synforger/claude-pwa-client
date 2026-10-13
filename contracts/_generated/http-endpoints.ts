@@ -233,6 +233,38 @@ export interface PostSessionsSidRolloverResponse {
   rolling: boolean
 }
 
+/** GET /sessions/{sid}/voice response */
+export interface GetSessionsSidVoiceResponse {
+  enabled: boolean
+  /** 言い方の印の名前 (= 設定に書いた順) */
+  marks: string[]
+  /** 印の無い文の印 (= 印を 1 つも持たなければ空文字) */
+  default: string
+}
+
+/** POST /sessions/{sid}/voice/utterances request body */
+export interface PostSessionsSidVoiceUtterancesRequest {
+  /** agent の返事の文 (= markdown のまま) */
+  text: string
+}
+
+/** POST /sessions/{sid}/voice/utterances response */
+export interface PostSessionsSidVoiceUtterancesResponse {
+  utterances: ({
+      /** その文の言い方の印 (= 文頭に印が無ければ既定の印) */
+      mark: string
+      text: string
+    })[]
+}
+
+/** POST /sessions/{sid}/voice/synthesis request body */
+export interface PostSessionsSidVoiceSynthesisRequest {
+  /** 声にする 1 文 (= utterances が返した文) */
+  text: string
+  /** 言い方の印 (= 省けば既定の印) */
+  mark?: string
+}
+
 /** POST /agent-messages request body */
 export type PostAgentMessagesRequest = Record<string, unknown>
 
