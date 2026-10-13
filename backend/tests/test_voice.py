@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import http.client
 import json
 
 import pytest
@@ -12,7 +13,7 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 import backend.config as config_mod
-from backend._generated import http_endpoints as http
+from backend._generated import http_endpoints as declared
 from backend.routes import voice
 from backend.state import SessionDef
 
@@ -105,15 +106,15 @@ def test_a_tab_with_no_voice_takes_no_speech(client, tabs, engine):
 
 def test_the_answers_have_the_declared_shape(client, tabs):
     """宣言 (= contracts/schema/http-endpoints.yaml) から作った型に、 実際の応答が通る。"""
-    http.GetSessionsSidVoiceResponse.model_validate(client.get("/sessions/ses_voice/voice").json())
-    http.GetSessionsSidVoiceResponse.model_validate(client.get("/sessions/ses_plain/voice").json())
+    declared.GetSessionsSidVoiceResponse.model_validate(client.get("/sessions/ses_voice/voice").json())
+    declared.GetSessionsSidVoiceResponse.model_validate(client.get("/sessions/ses_plain/voice").json())
     body = {"text": "[happy] できたよ！"}
-    http.PostSessionsSidVoiceUtterancesRequest.model_validate(body)
-    said = http.PostSessionsSidVoiceUtterancesResponse.model_validate(
+    declared.PostSessionsSidVoiceUtterancesRequest.model_validate(body)
+    said = declared.PostSessionsSidVoiceUtterancesResponse.model_validate(
         client.post("/sessions/ses_voice/voice/utterances", json=body).json())
     assert said.utterances == [{"mark": "happy", "text": "できたよ！"}]
-    http.PostSessionsSidVoiceSynthesisRequest.model_validate({"text": "できたよ！", "mark": "happy"})
-    http.PostSessionsSidVoiceSynthesisRequest.model_validate({"text": "できたよ！"})
+    declared.PostSessionsSidVoiceSynthesisRequest.model_validate({"text": "できたよ！", "mark": "happy"})
+    declared.PostSessionsSidVoiceSynthesisRequest.model_validate({"text": "できたよ！"})
 
 
 # --- 設定の読み方 ----------------------------------------------------------------
@@ -231,9 +232,11 @@ def test_a_sentence_too_long_for_one_breath_is_refused(client, tabs, engine):
     assert engine == []
 
 
-def test_an_engine_that_is_not_running_says_so(client, tabs, monkeypatch):
+@pytest.mark.parametrize("error", [
+    OSError("connection refused"), TimeoutError("timed out"), http.client.IncompleteRead(b"RIFF")])
+def test_an_engine_that_is_not_running_or_drops_the_answer_says_so(client, tabs, monkeypatch, error):
     def down(url, body, timeout):
-        raise OSError("connection refused")
+        raise error
     monkeypatch.setattr(voice, "_call_engine", down)
     r = client.post("/sessions/ses_voice/voice/synthesis", json={"text": "うん。"})
     assert (r.status_code, _code(r)) == (502, "voice_engine_unreachable")

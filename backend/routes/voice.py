@@ -31,6 +31,7 @@
 from __future__ import annotations
 
 import asyncio
+import http.client
 import json
 import logging
 import re
@@ -142,7 +143,8 @@ async def _text_of(request: Request) -> tuple[str, dict]:
 
 
 def _call_engine(url: str, body: dict | None, timeout: float) -> tuple[int, str, bytes]:
-    """engine を 1 回呼んで (HTTP の状態, 返った物の種類, 中身) を返す。 繋がらなければ OSError。"""
+    """engine を 1 回呼んで (HTTP の状態, 返った物の種類, 中身) を返す。 繋がらなければ OSError、 応答の途中で
+    切れれば http.client.HTTPException。"""
     data = json.dumps(body).encode("utf-8") if body is not None else b""
     request = urllib.request.Request(url, data=data, method="POST", headers={"Content-Type": "application/json"})
     try:
@@ -156,8 +158,8 @@ async def _engine(step: str, url: str, body: dict | None) -> tuple[str, bytes]:
     """engine の 1 段を呼ぶ。 繋がらない・断られた時は、 どの段かを付けて 502 にする。"""
     try:
         status, kind, raw = await asyncio.to_thread(_call_engine, url, body, ENGINE_TIMEOUT_SEC)
-    except OSError as error:
-        logger.warning("voice: engine could not be reached step=%s: %s", step, error)
+    except (OSError, http.client.HTTPException) as error:
+        logger.warning("voice: engine could not be reached step=%s: %r", step, error)
         raise_error(502, "voice_engine_unreachable", "音声合成の engine に繋がりません")
     if status != 200:
         _engine_failed(step, status)
