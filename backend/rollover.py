@@ -146,12 +146,15 @@ async def tick() -> str | None:
         except OSError:
             continue
         busy = is_busy(sid)
-        if busy and asked(record):
-            closing = True          # 頼まれて締めへ向かっている
-            continue
         pct = context_pct_of(sid)
         reason = due(cfg, pct, idle_minutes, busy)
-        if reason is not None and not asked(record):
+        if not busy and reason is None:
+            continue                # 手が空いていて条件も立っていない。 記録を読むまでもない
+        # 記録を読むのは別スレッドで (= 初めて見る記録は末尾から遡って読む。 その間、 他の処理を止めない)
+        was_asked = await asyncio.to_thread(asked, record)
+        if busy and was_asked:
+            closing = True          # 頼まれて締めへ向かっている
+        elif reason is not None and not was_asked:
             wanted.append((reason != "idle", -idle_minutes, sid, reason, pct, str(record)))
     for key in [k for k in _seen if k not in records]:
         del _seen[key]
