@@ -42,7 +42,9 @@ _EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿️‍]")
 _SPACES = re.compile(r"[ \t　]+")
 # 文の終わり: 句点・感嘆符・疑問符の並びと、 それに続く閉じ括弧。
 _SENTENCE = re.compile(r".*?[。！？!?]+[」』）)】]*|.+$")
-_MARK = re.compile(r"^\s*\[([A-Za-z]+)\]\s*")
+# 印の名前の形 (= 設定に書く名前も、 文頭の `[名前]` も、 この形だけを印として認める)。
+MARK_NAME = r"[A-Za-z]+"
+_MARK = re.compile(rf"^\s*\[({MARK_NAME})\]\s*")
 
 
 def _drop_path(match: re.Match[str]) -> str:
@@ -65,7 +67,7 @@ def _plain(line: str) -> str:
     return _SPACES.sub(" ", line).strip()
 
 
-def _speakable(text: str) -> bool:
+def speakable(text: str) -> bool:
     """読む文字 (= 文字か数字) が 1 つでも在るか。 記号だけの並びは声にしない。"""
     return any(ch.isalnum() for ch in text)
 
@@ -90,6 +92,6 @@ def utterances(text: str, marks: Iterable[str], default: str) -> list[Utterance]
                 mark = head.group(1)
                 sentence = sentence[head.end():]
             sentence = sentence.strip()
-            if sentence and _speakable(sentence):
+            if sentence and speakable(sentence):
                 out.append(Utterance(mark, sentence))
     return out

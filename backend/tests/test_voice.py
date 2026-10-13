@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 import backend.config as config_mod
+from backend._generated import http_endpoints as http
 from backend.routes import voice
 from backend.state import SessionDef
 
@@ -102,6 +103,19 @@ def test_a_tab_with_no_voice_takes_no_speech(client, tabs, engine):
     assert engine == []
 
 
+def test_the_answers_have_the_declared_shape(client, tabs):
+    """宣言 (= contracts/schema/http-endpoints.yaml) から作った型に、 実際の応答が通る。"""
+    http.GetSessionsSidVoiceResponse.model_validate(client.get("/sessions/ses_voice/voice").json())
+    http.GetSessionsSidVoiceResponse.model_validate(client.get("/sessions/ses_plain/voice").json())
+    body = {"text": "[happy] できたよ！"}
+    http.PostSessionsSidVoiceUtterancesRequest.model_validate(body)
+    said = http.PostSessionsSidVoiceUtterancesResponse.model_validate(
+        client.post("/sessions/ses_voice/voice/utterances", json=body).json())
+    assert said.utterances == [{"mark": "happy", "text": "できたよ！"}]
+    http.PostSessionsSidVoiceSynthesisRequest.model_validate({"text": "できたよ！", "mark": "happy"})
+    http.PostSessionsSidVoiceSynthesisRequest.model_validate({"text": "できたよ！"})
+
+
 # --- 設定の読み方 ----------------------------------------------------------------
 
 @pytest.mark.parametrize("broken", [
@@ -115,6 +129,8 @@ def test_a_tab_with_no_voice_takes_no_speech(client, tabs, engine):
     {**VOICE, "marks": {"not a name": {}}},
     {**VOICE, "marks": ["calm"]},
     {**VOICE, "default": "angry"},
+    {**VOICE, "default": ["calm"]},
+    {"engine": "http://127.0.0.1:10101", "speaker": 1, "default": "calm"},
 ])
 def test_a_voice_setting_of_the_wrong_shape_counts_as_no_voice(broken):
     assert voice.voice_settings(broken) is None
@@ -196,6 +212,12 @@ def test_a_mark_the_agent_does_not_have_is_refused(client, tabs, engine):
     assert engine == []
 
 
+def test_a_mark_that_is_no_name_is_refused(client, tabs, engine):
+    r = client.post("/sessions/ses_voice/voice/synthesis", json={"text": "うん。", "mark": 3})
+    assert (r.status_code, _code(r)) == (400, "voice_bad_request")
+    assert engine == []
+
+
 @pytest.mark.parametrize("text", ["", "   ", "…。"])
 def test_a_sentence_with_nothing_to_say_is_refused(client, tabs, engine, text):
     r = client.post("/sessions/ses_voice/voice/synthesis", json={"text": text})
@@ -233,3 +255,24 @@ def test_an_engine_that_answers_something_that_is_no_query_says_so(client, tabs,
     monkeypatch.setattr(voice, "_call_engine", lambda url, body, timeout: (200, "text/html", b"<html>"))
     r = client.post("/sessions/ses_voice/voice/synthesis", json={"text": "うん。"})
     assert (r.status_code, _code(r)) == (502, "voice_engine_failed")
+
+
+def test_an_engine_that_answers_something_that_is_no_sound_says_so(client, tabs, monkeypatch):
+    def fake(url, body, timeout):
+        if "/audio_query" in url:
+            return 200, "application/json", json.dumps(QUERY).encode()
+        return 200, "application/json", b'{"detail": "busy"}'
+    monkeypatch.setattr(voice, "_call_engine", fake)
+    r = client.post("/sessions/ses_voice/voice/synthesis", json={"text": "うん。"})
+    assert (r.status_code, _code(r)) == (502, "voice_engine_failed")
+    assert r.json()["detail"]["params"] == {"step": "synthesis", "status": 200}
+
+
+def test_a_setting_of_the_wrong_shape_is_logged_once(client, tabs, monkeypatch, tmp_path, caplog):
+    _config(monkeypatch, tmp_path, speaker={"voice": {**VOICE, "speaker": "100"}})
+    monkeypatch.setattr(voice, "_warned", set())
+    with caplog.at_level("WARNING", logger=voice.logger.name):
+        assert client.get("/sessions/ses_voice/voice").json()["enabled"] is False
+        assert client.get("/sessions/ses_voice/voice").json()["enabled"] is False
+    assert [r.getMessage() for r in caplog.records].count(
+        "voice: agent=speaker has a voice setting of the wrong shape; it has no voice") == 1

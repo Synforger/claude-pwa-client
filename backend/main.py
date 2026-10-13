@@ -98,6 +98,7 @@ import backend.rollover as rollover  # noqa: E402
 import backend.routes.rollover as rollover_routes  # noqa: E402
 import backend.routes.subagents as subagents_routes  # noqa: E402
 import backend.routes.unified_stream as unified_stream_routes  # noqa: E402
+import backend.routes.voice as voice_routes  # noqa: E402
 import backend.terminal.routes as pty_routes  # noqa: E402
 import backend.terminal.runner as pty_runner  # noqa: E402
 
@@ -287,6 +288,7 @@ app.include_router(rollover_routes.router)
 app.include_router(push.router)
 app.include_router(subagents_routes.router)
 app.include_router(unified_stream_routes.router)
+app.include_router(voice_routes.router)
 
 # ADR-012 /debug/* (= 3 file 分割: observability / e2e seed / healthcheck)。 localhost +
 # Host header allowlist の 2 段防御で外からは触れない (e2e は CPC_E2E env の 3 段目付き)。
