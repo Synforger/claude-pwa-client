@@ -16,7 +16,7 @@ W2 architecture overhaul (= 2026-06-29 着地) で frontend `state/` は **7 領
 
 | `promptState.js` | terminal prompt 検出 state (= SSE `prompt_state` event の受け皿、 tier / excerpt / controls) | なし | transport 経由の `prompt_state` event、 features/status-bar (= banner + quick-reply が subscribe) |
 | `locale.js` | UI 言語 (= 2026-07-02 追加) | localStorage | i18n/t.js + SessionDrawer が subscribe |
-| `voice.js` | 声 (= agent の返事を音で聞く) の、 タブごとの `available[sid]` (= agent が声を持つか) / `on[sid]` (= 上部の 🔊) / `error[sid]` (= 鳴らせなかった理由) | なし (= 音は人が押した後でないと鳴らせないので、 読み込み直すと OFF) | features/voice (= `voice.js` の配線。 🔊 の押下と、 鳴らせた / 鳴らせなかった時) |
+| `voice.js` | 声 (= agent の返事を音で聞く) の、 タブごとの `available[sid]` (= agent が声を持つか) / `marks[sid]` (= 言い方の印の名前。 吹き出しの表示から外す) / `on[sid]` (= 上部の 🔊) / `error[sid]` (= 鳴らせなかった理由) | なし (= 音は人が押した後でないと鳴らせないので、 読み込み直すと OFF) | features/voice (= `voice.js` の配線。 🔊 の押下と、 鳴らせた / 鳴らせなかった時) |
 
 旧 `transport.js` store は W2 Phase J-12 で dead 削除済 (= 全 setter が orphan)、 接続生存 signal は `transport/connectionStatus.js::registerConnection` 経由に集約された。
 
@@ -29,6 +29,7 @@ W2 architecture overhaul (= 2026-06-29 着地) で frontend `state/` は **7 領
 | `frontend/src/features/session-drawer/` | sessions + ui (overlays.drawer) | タブ一覧 / 切替 / 削除 / fork、 ☰ ボタンで開閉 |
 | `frontend/src/features/status-bar/useStatus.js` | sessions (status[sid]) | StatusBar (モデル / 残予算 / 5h/7d/ctx) の描画、 `/sessions/status/stream` SSE 由来 |
 | `frontend/src/features/topbar/` | sessions (activeSession) + ui (viewModes[sid] / overlays) | header の各種アイコン (= ⭐ / 📋 / 🤖 / 💬 toggle 等) |
+| `frontend/src/features/chat/MessageList.jsx` | voice (marks[activeId]) | 声を持つ agent のタブで、 吹き出しの表示から言い方の印を外す |
 | `frontend/src/features/voice/` | voice | 上部の 🔊 (= `VoiceToggle.jsx`)。 チャットの event の受け口から届いた event のうち、 新しく届いた返事を文ごとに音にして鳴らす |
 | `frontend/src/features/push-notify/` | push + ui (overlays.notifyMode) | Web Push 購読 / 解除、 通知 mode 切替 |
 | `frontend/src/features/app-effects/` | ui + push (= visibility 連動 desktopOpen close、 deep-link、 viewModes 永続化等) | app-wide effect (= 9 種類) を 1 経路で wire |

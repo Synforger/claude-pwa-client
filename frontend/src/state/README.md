@@ -15,7 +15,7 @@ state/
 ├── push.js             Web Push 購読 singleton (= J-2 で usePushSubscription の useState 4 個を統合)
 ├── promptState.js      terminal prompt 検出 state (= SSE `prompt_state` event の受け皿、 banner / quick-reply が subscribe)
 ├── locale.js           UI 言語切替 (= 2026-07-02 追加、 i18n/t.js と SessionDrawer が subscribe)
-└── voice.js            声 (= agent の返事を音で聞く) の、 タブごとの 持つか / ON か / 鳴らせなかった理由
+└── voice.js            声 (= agent の返事を音で聞く) の、 タブごとの 持つか / 印の一覧 / ON か / 鳴らせなかった理由
 ```
 
 > 旧 `transport.js` は W2 Phase J-12 で dead 削除 (= 全 setter が orphan、 isOnline は `transport/lifecycle.js::registerConnection` 経由に集約済)。
@@ -45,7 +45,7 @@ state/
 | scroll.* | UI ephemeral | なし | ui.js | features/chat scroll listener |
 | keyboard.* | UI ephemeral | なし | ui.js | features/ios-native + features/terminal |
 | viewModes[sid] | UI 真値 | localStorage | ui.js | layout/Layout (= chat ↔ terminal toggle) |
-| voice.available[sid] | ephemeral (backend 真値の写し) | なし | voice.js | features/voice (= タブを開いた時に GET /sessions/{sid}/voice) |
+| voice.available[sid] / voice.marks[sid] | ephemeral (backend 真値の写し) | なし | voice.js | features/voice (= タブを開いた時に GET /sessions/{sid}/voice) |
 | voice.on[sid] / voice.error[sid] | UI ephemeral | なし | voice.js | features/voice (= 上部の 🔊 / 鳴らせなかった時) |
 | push.hasRealSub / pushBusy / localFlag | ephemeral (backend 真値の写し) | なし | push.js | features/push-notify (= J-2、 AppEffects mount + SessionDrawer remount の両経路で singleton 共有) |
 

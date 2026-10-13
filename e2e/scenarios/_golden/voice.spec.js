@@ -2,6 +2,7 @@
 // A tab whose agent has a voice shows a 🔊 toggle in the topbar. While it is on, a reply
 // that newly arrives is cut into sentences and each sentence is fetched as sound and
 // played, in order. What was already there is not said, and turning it off stops it.
+// A mark at the head of a sentence says how to say it, and is not shown in the bubble.
 //
 // The speech engine is the test backend's own fixture (silence for every sentence, and a
 // refusal for a sentence that starts with "[fail]"), so the whole path runs: screen ->
@@ -81,6 +82,11 @@ test.describe('golden: voice', () => {
       { mark: 'calm', text: 'The notes are in .' },
     ])
     await expect(page.locator('[data-testid=voice-error]')).toHaveCount(0)
+    // The mark is for the voice: the bubble shows the reply without it.
+    const said = page.locator('[data-testid=message-bubble-agent]').filter({ hasText: 'The tests pass.' })
+    await expect(said).toHaveCount(1)
+    await expect(said).toContainText('Done! The tests pass.')
+    await expect(said).not.toContainText('[happy]')
     await page.screenshot({ path: testInfo.outputPath('voice-on.png') })
 
     // What a tool call says it does is said too; the call itself is not.

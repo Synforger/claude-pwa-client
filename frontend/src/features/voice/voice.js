@@ -3,7 +3,7 @@
 
 import { apiFetch } from '../../transport/http.ts'
 import { translateHttpErrorDetail } from '../../utils/httpError.js'
-import { getSnapshot, setVoiceAvailable, setVoiceOn, setVoiceError } from '../../state/voice.js'
+import { getSnapshot, setVoiceAvailable, setVoiceMarks, setVoiceOn, setVoiceError } from '../../state/voice.js'
 import { createListener } from './listener.js'
 import { createPlayer } from './player.js'
 import { unlockAudio, playSound } from './audio.js'
@@ -65,12 +65,15 @@ export function setVoice(sid, on) {
   }
 }
 
-// そのタブの agent が声を持つかを backend に訊いて、 store に写す。
+// そのタブの agent が声を持つかと、 印の一覧を backend に訊いて、 store に写す。
 export async function refreshVoiceAvailable(sid) {
   try {
     const r = await apiFetch(base(sid))
-    setVoiceAvailable(sid, r.ok && (await r.json()).enabled === true)
+    const voice = r.ok ? await r.json() : null
+    setVoiceAvailable(sid, voice?.enabled === true)
+    setVoiceMarks(sid, voice?.enabled === true ? voice.marks : [])
   } catch {
     setVoiceAvailable(sid, false)
+    setVoiceMarks(sid, [])
   }
 }
