@@ -41,7 +41,7 @@ task run    # foreground、 Ctrl-C で停止 (= dev)
 > pip install -r backend/requirements.txt
 > cp backend/config.example.json backend/config.json
 > python -m backend.cli.gen_vapid       # backend/secrets/vapid.json 生成
-> uvicorn backend.main:app --host 0.0.0.0 --port 8765
+> uvicorn backend.main:app --host 127.0.0.1 --port 8765
 > ```
 
 > **開発時の注意**: backend のサブパッケージ構成や import 構造を変更した時は、 古い `__pycache__/*.pyc` が import 事故の温床になる。 `task clean` で purge。 その他のトラブルは [../troubleshooting/troubleshoot.md](../troubleshooting/troubleshoot.md) 参照。
@@ -110,6 +110,10 @@ PWA がチャットを表示し通知を出すには、 claude の hook が back
 - backend は PWA タブを起動する時、 tmux session env に `PWA_SID` (= タブ識別子) を注入する。
   hook はそれを `X-PWA-SID` ヘッダに載せて送ることで、 backend が「どのタブの claude か」 を
   確定して jsonl に bind する
+- 同じ時に `PWA_FAVORITES` (= お気に入りの file の path) と `PWA_NOTE` (= そのタブのメモの file の path) も
+  注入する。 エージェントは、 お気に入りの file に 1 行足すだけで path を登録でき、 メモの file に書けば
+  📋 のメモに出る (= 形式は [data-schemas.md](../reference/data-schemas.md))。
+  注入は、 タブの tmux session が新しく作られる時だけ (= 動いているタブには、 次に起動し直した時から入る)
 - ターミナルから直接起動した claude は `PWA_SID` を持たないので backend 側で無視される (= 無害)。
   同じ settings を全 claude セッションで共有して問題ない
 - `SessionStart` だけでも bind は成立する。 `Stop` / `Notification` を足すと turn 完了や
@@ -191,6 +195,10 @@ task tailscale-serve    # = tailscale serve --bg http://localhost:8765
 ```
 
 これで `https://<your-host>.tail<xxxx>.ts.net/` が backend を指す。 `tailscale serve status` で接続状態を確認できる。
+
+backend はホスト機の中 (= `127.0.0.1`) でだけ待ち受け、 外からの入口は `tailscale serve` の 1 つになる。
+backend 自身は認証を持たないので、 `--host 0.0.0.0` で起動すると、 tailnet に入っていない同じ LAN の
+機器からもそのまま操作できてしまう。
 
 > Chromium 系ブラウザで HTTPS 証明書エラーが出る場合は
 > [../troubleshooting/troubleshoot.md](../troubleshooting/troubleshoot.md) の Tailscale 証明書 section を参照。

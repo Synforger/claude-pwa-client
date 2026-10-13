@@ -28,6 +28,7 @@ from backend.core.fork import (
 from backend.core.jsonl_tail import split_jsonl_text
 from backend.errors import raise_error
 from backend.jsonl import resolver as jsonl_resolver
+from backend.paths import note_path
 from backend.state import (
     atomic_write_text,
     register_session,
@@ -415,6 +416,11 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
         # delete 経路の kill 失敗 = backend に session が残るゴースト化の原因。 warning で
         # 残す (= 2026-06-22)。
         logger.warning("session cleanup failed for %s", session_id, exc_info=True)
+    # このタブのメモ (= タブの持ち物) を消す
+    try:
+        note_path(session_id).unlink(missing_ok=True)
+    except Exception:
+        logger.warning("note unlink failed for %s", session_id, exc_info=True)
     # 一時ファイルをクリーンアップ
     for p in session_tmp_files.pop(session_id, []):
         try:

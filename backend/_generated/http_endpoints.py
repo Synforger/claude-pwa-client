@@ -91,6 +91,7 @@ class GetExtensionsResponseItem(BaseModel):
     title: str  # 一覧の名前と iframe の title (= 未指定なら id)
     icon: str  # 🧩 の一覧で名前の前に出す文字 (= 未指定なら 🧩)
     path: str  # /ext/<id>/ (= id から導出、 config には書かない)
+    view: Literal["band", "page"]  # 開き方。 band = チャットの上の帯、 page = 入力欄の上を全部使う頁 (= 未指定なら band)
 
 
 class GetFileResponse(BaseModel):
@@ -125,6 +126,50 @@ class GetFilesTreeResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     path: Optional[str] = None
     entries: Optional[list[dict[str, Any]]] = None
+
+
+class GetFavoritesResponse(BaseModel):
+    """GET /favorites response"""
+    model_config = ConfigDict(extra="forbid")
+    favorites: list[dict[str, Any]]
+
+
+class PostFavoritesRequest(BaseModel):
+    """POST /favorites request body"""
+    model_config = ConfigDict(extra="forbid")
+    path: str  # 絶対 path or `~/...`
+
+
+class PostFavoritesResponse(BaseModel):
+    """POST /favorites response"""
+    model_config = ConfigDict(extra="forbid")
+    favorites: list[dict[str, Any]]
+
+
+class DeleteFavoritesResponse(BaseModel):
+    """DELETE /favorites response"""
+    model_config = ConfigDict(extra="forbid")
+    favorites: list[dict[str, Any]]
+
+
+class GetSessionsSidNoteResponse(BaseModel):
+    """GET /sessions/{sid}/note response"""
+    model_config = ConfigDict(extra="forbid")
+    path: str  # メモの file の絶対 path (= エージェントには PWA_NOTE で渡る物)
+    content: str
+
+
+class PutSessionsSidNoteRequest(BaseModel):
+    """PUT /sessions/{sid}/note request body"""
+    model_config = ConfigDict(extra="forbid")
+    content: str
+
+
+class PutSessionsSidNoteResponse(BaseModel):
+    """PUT /sessions/{sid}/note response"""
+    model_config = ConfigDict(extra="forbid")
+    path: str
+    content: str
 
 
 class GetSessionsSidSubagentsResponse(BaseModel):
@@ -186,8 +231,38 @@ class PostAgentMessagesResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ok: bool
     delivered: Optional[bool] = None
-    to: str  # 届け先のタブの id
+    to: str  # 届け先のタブの id (= 別の機械のタブは <相手の名前>:<id>)
     operator_said: bool  # 送り主のタブで人が打った発話を封筒に入れたか
+
+
+class PostAgentMessagesRelayedRequest(BaseModel):
+    """POST /agent-messages/relayed request body"""
+    model_config = ConfigDict(extra="forbid")
+    to: str  # 宛先のタブの id か名前 (= この機械のタブ)
+    from_title: str  # 送り主のタブの名前
+    from_session: str  # 送り主のタブの id (= 相手の機械での id)
+    text: str  # 本文
+
+
+class PostAgentMessagesRelayedResponse(BaseModel):
+    """POST /agent-messages/relayed response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    delivered: Optional[bool] = None
+    to: str  # 届け先のタブの id
+    operator_said: bool  # 常に false (= 人の発話は機械を跨がない)
+
+
+class GetAgentMessagesTabsResponse(BaseModel):
+    """GET /agent-messages/tabs response"""
+    model_config = ConfigDict(extra="forbid")
+    tabs: list[dict[str, Any]]
+
+
+class GetAgentMessagesPeersResponse(BaseModel):
+    """GET /agent-messages/peers response"""
+    model_config = ConfigDict(extra="forbid")
+    peers: list[dict[str, Any]]
 
 
 class PostPtySidSendRawKeyRequest(BaseModel):

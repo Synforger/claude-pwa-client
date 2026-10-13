@@ -51,6 +51,50 @@ def unwrap_pasted(text: str) -> str:
     return _PASTED_CLOSE_RE.sub("", _PASTED_OPEN_RE.sub("", text))
 
 
+# 別のタブの claude から届いた連絡の 1 行目。 宛先の claude も、 端末の入力を読む外の道具も、 この行で
+# 「人が打った文ではない」 と見分ける。 変えると見分けが外れるので固定 (= docs/reference/agent-messages.md
+# に同じ行を載せている)。 封筒を作るのは routes/agent_messages.py。
+AGENT_MESSAGE_OPENING = "Message from another session, relayed by the client (the operator did not type this):"
+# 別の機械のタブから届いた連絡の 1 行目。 こちらも固定で、 同じ機械の中の連絡とは別の文にする
+# (= 1 行目だけで「この機械の外から来た」 と分かる)。
+AGENT_MESSAGE_REMOTE_OPENING = "Message from a session on another machine, relayed by the client (the operator did not type this):"
+AGENT_MESSAGE_OPENINGS = (AGENT_MESSAGE_OPENING, AGENT_MESSAGE_REMOTE_OPENING)
+
+
+def is_agent_message(text) -> bool:
+    """別のタブの claude から届いた連絡の本文か (= 端末から入るが、 人が打った物でも画面が送った物でもない)。"""
+    return isinstance(text, str) and unwrap_pasted(text).lstrip().startswith(AGENT_MESSAGE_OPENINGS)
+
+
+def is_human_origin(origin) -> bool:
+    """端末から入った発話に claude が付ける出どころ (= 人が打った物と、 端末へ打ち込まれた連絡)。"""
+    return isinstance(origin, dict) and origin.get("kind") == "human"
+
+
+def blocks_text(content) -> str:
+    """発話の本文 (= 文字列ならそのまま、 block の並びなら text の block を改行で繋ぐ)。"""
+    if isinstance(content, str):
+        return content
+    return "\n".join(b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
+
+
+def queued_prompt_text(line: dict) -> str | None:
+    """claude の作業中に端末から入った発話なら、 その本文。 違えば None。
+
+    claude は作業の途中に入った発話を積んでおき、 作業の合間に渡せた分を user 行ではなく
+    `attachment` 行 (= `queued_command`) として記録する。 後から user 行には書き直さない。 手が空く
+    まで渡らなかった分だけが普通の user 行になる (= 同じ発話が両方に載ることは無い)。 同じ行の形で
+    background task の完了通知 (= `commandMode: "task-notification"`) も来るので、 端末から入った物は
+    `commandMode` と `origin` で見分ける。
+    """
+    queued = line.get("attachment") if line.get("type") == "attachment" else None
+    if not isinstance(queued, dict) or queued.get("type") != "queued_command":
+        return None
+    if queued.get("commandMode") != "prompt" or not is_human_origin(queued.get("origin")):
+        return None
+    return blocks_text(queued.get("prompt"))
+
+
 def is_sidechain(line: dict) -> bool:
     """サブエージェント (= Task で起動した子 agent) の行か。 親 chat には混ぜない。"""
     return bool(line.get("isSidechain"))

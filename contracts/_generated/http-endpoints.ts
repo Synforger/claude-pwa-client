@@ -92,6 +92,8 @@ export interface GetExtensionsResponseItem {
   icon: string
   /** /ext/<id>/ (= id から導出、 config には書かない) */
   path: string
+  /** 開き方。 band = チャットの上の帯、 page = 入力欄の上を全部使う頁 (= 未指定なら band) */
+  view: "band" | "page"
 }
 
 export type GetExtensionsResponse = GetExtensionsResponseItem[]
@@ -127,6 +129,59 @@ export interface GetFilesTreeResponse {
       path: string
       is_dir: boolean
     })[]
+}
+
+/** GET /favorites response */
+export interface GetFavoritesResponse {
+  favorites: ({
+      /** 絶対 path */
+      path: string
+      /** path の末尾の名前 */
+      name: string
+      is_dir: boolean
+    })[]
+}
+
+/** POST /favorites request body */
+export interface PostFavoritesRequest {
+  /** 絶対 path or `~/...` */
+  path: string
+}
+
+/** POST /favorites response */
+export interface PostFavoritesResponse {
+  favorites: ({
+      path: string
+      name: string
+      is_dir: boolean
+    })[]
+}
+
+/** DELETE /favorites response */
+export interface DeleteFavoritesResponse {
+  favorites: ({
+      path: string
+      name: string
+      is_dir: boolean
+    })[]
+}
+
+/** GET /sessions/{sid}/note response */
+export interface GetSessionsSidNoteResponse {
+  /** メモの file の絶対 path (= エージェントには PWA_NOTE で渡る物) */
+  path: string
+  content: string
+}
+
+/** PUT /sessions/{sid}/note request body */
+export interface PutSessionsSidNoteRequest {
+  content: string
+}
+
+/** PUT /sessions/{sid}/note response */
+export interface PutSessionsSidNoteResponse {
+  path: string
+  content: string
 }
 
 /** GET /sessions/{sid}/subagents response */
@@ -177,10 +232,52 @@ export type PostAgentMessagesRequest = Record<string, unknown>
 export interface PostAgentMessagesResponse {
   ok: boolean
   delivered?: boolean
-  /** 届け先のタブの id */
+  /** 届け先のタブの id (= 別の機械のタブは <相手の名前>:<id>) */
   to: string
   /** 送り主のタブで人が打った発話を封筒に入れたか */
   operator_said: boolean
+}
+
+/** POST /agent-messages/relayed request body */
+export interface PostAgentMessagesRelayedRequest {
+  /** 宛先のタブの id か名前 (= この機械のタブ) */
+  to: string
+  /** 送り主のタブの名前 */
+  from_title: string
+  /** 送り主のタブの id (= 相手の機械での id) */
+  from_session: string
+  /** 本文 */
+  text: string
+}
+
+/** POST /agent-messages/relayed response */
+export interface PostAgentMessagesRelayedResponse {
+  ok: boolean
+  delivered?: boolean
+  /** 届け先のタブの id */
+  to: string
+  /** 常に false (= 人の発話は機械を跨がない) */
+  operator_said: boolean
+}
+
+/** GET /agent-messages/tabs response */
+export interface GetAgentMessagesTabsResponse {
+  tabs: ({
+      id: string
+      title: string
+      /** そのタブで claude が動いているか */
+      running: boolean
+    })[]
+}
+
+/** GET /agent-messages/peers response */
+export interface GetAgentMessagesPeersResponse {
+  peers: ({
+      name: string
+      /** 繋がらない相手は null */
+      tabs?: unknown[] | null
+      error?: string | null
+    })[]
 }
 
 /** POST /pty/{sid}/send-raw-key request body */

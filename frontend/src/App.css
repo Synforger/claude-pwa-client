@@ -75,17 +75,60 @@
 /* 入力エリア */
 .inputarea {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   /* iPhone Safari の PWA standalone でホームインジケータぶん下を確保。 通常 web は 0。 */
   padding: 10px calc(12px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
   border-top: 1px solid var(--border);
   background: var(--bg2);
-  flex-shrink: 0;
   /* ChatInput と ⋯ popup を 1 つの stacking context にまとめ、 ファイルプレビュー /
      ファイルツリーより常に上に出す (= ディレクトリ見ながら / md 開きながら入力可)。
      吹き出し系 (= plan / picker / confirm = 200+) はこの上を通る。 */
   position: relative;
   z-index: 60;
+}
+
+/* 入力欄と、 その右のボタンの列 */
+.inputarea-row {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 行の高さを数で決める (= 「何行で止めるか」 を高さに直すのに使う。 features/chat/inputSizing.js) */
+.inputarea textarea {
+  line-height: 1.4;
+}
+
+/* 入力欄が伸びてもボタンは下端に居る (= 親指の位置を動かさない) */
+.inputarea-row .buttons {
+  justify-content: flex-end;
+}
+
+/* 上端の開閉のボタン。 隠れている行が在る時と、 広げている時にだけ出る。 */
+.inputarea-edge {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.input-size-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 24px;
+  padding: 0;
+  background: var(--bg3);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+
+/* 広げた時: 流れから外して「今 見えている範囲」 に固定する (= 矩形は useInputSizing が style で渡す)。
+   後から開いたファイルプレビュー / ファイルツリー (= 40 以上) はこの上に出る。 */
+.inputarea.expanded {
+  position: fixed;
+  z-index: 30;
 }
 
 textarea {

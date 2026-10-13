@@ -72,7 +72,7 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 ### `accounts` — マルチアカウント
 
 複数の Claude Code アカウントを切り替えて利用する場合に定義する (任意。 未定義なら
-単一アカウントとして動作)。 個人 / 会社 で別の Pro / Max サブスクリプションを使い分ける、
+`personal` という名前の単一アカウントとして動作)。 個人 / 会社 で別の Pro / Max サブスクリプションを使い分ける、
 あるいは別ユーザの認証コンテキストで動かす用途を想定。
 
 - `display_name`: UI に表示するアカウント名
@@ -99,6 +99,8 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 - `uploads_tmp`: 添付ファイルの一時保存先ディレクトリ
 - `agent_message_check` (任意): タブどうしの連絡を届ける前に走らせる検査コマンド (= 語のリスト)。
   書き方は [agent-messages.md](agent-messages.md) の「届ける前に検査する」 を参照
+- `agent_message_peers` (任意): 連絡を運び合う別の機械の backend (= 名前 → `url` / `address` / `accounts`)。
+  書いた時だけ、 宛先 `相手の名前:タブ` で別の機械のタブへ送れる。 詳細: [`agent-messages.md`](agent-messages.md)
 - `agent_message_operator_check` (任意): 連絡に人の発話を付けてよいかを決めるコマンド (= 語のリスト)。
   同じ節を参照
 - `rate_limits_log`: 使用率 (5h / 7d / context) を記録する JSONL の path。 **このファイルを
@@ -120,7 +122,8 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 
 ```json
 "extensions": [
-  { "id": "<id>", "title": "<name>", "icon": "🎛" }
+  { "id": "<id>", "title": "<name>", "icon": "🎛" },
+  { "id": "<id>", "title": "<name>", "icon": "📄", "view": "page" }
 ]
 ```
 
@@ -128,8 +131,10 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   載り、 path は config に書かない
 - `title` (任意): 未指定なら `id`
 - `icon` (任意): 未指定なら 🧩
+- `view` (任意): 開き方。 `"band"` (= 未指定の時) はチャットの上の帯、 `"page"` は入力欄の上を全部使う頁
 
-不正な entry (= id の書式違反 / id の重複) はその 1 件だけ捨て、 起動ログに理由を出す。 拡張の
+不正な entry (= id の書式違反 / id の重複) はその 1 件だけ捨て、 起動ログに理由を出す。 `view` の
+書き損じは拡張を捨てずに帯として載せ、 起動ログに指摘を出す。 拡張の
 載せ方は [../setup/extensions.md](../setup/extensions.md)。
 
 ## VAPID 鍵 (`backend/secrets/vapid.json`)
