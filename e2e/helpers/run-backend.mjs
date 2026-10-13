@@ -48,6 +48,20 @@ const config = {
       display_name: 'E2E Agent',
       launch_alias: 'agent_e2e',
     },
+    // An agent with a voice. The speech engine is the test backend's own fixture
+    // (= backend/routes/debug_e2e.py), standing in for an engine process.
+    agent_e2e_voice: {
+      cwd: process.env.HOME || '/tmp',
+      model: 'Opus',
+      display_name: 'E2E Voice Agent',
+      launch_alias: 'agent_e2e_voice',
+      voice: {
+        engine: `http://127.0.0.1:${PORT}/ext/fixture-voice`,
+        speaker: 1,
+        marks: { calm: { speedScale: 1.1 }, happy: { speedScale: 1.2 } },
+        default: 'calm',
+      },
+    },
   },
   accounts: {
     e2e: {

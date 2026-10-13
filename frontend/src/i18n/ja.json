@@ -18,6 +18,9 @@
   "topbar.notes_label": "メモ",
   "topbar.subagents": "サブエージェント一覧",
   "topbar.subagents_label": "サブエージェント",
+  "topbar.voice_label": "声",
+  "topbar.voice_on": "返事を声で聞く",
+  "topbar.voice_off": "声を止める",
   "topbar.plan_approval": "plan 承認",
   "topbar.plan_approval_label": "plan 承認待ち",
   "topbar.screenshare_open": "画面共有を開く (Sunshine 経由、 ペア済前提)",
@@ -206,5 +209,13 @@
   "prompt.free_text_hint": "Type something = 下の欄に入力して送信 ・ Chat about this = ⏎ のあと普通にチャット",
   "chat.input.answer_placeholder": "回答を入力 — 送信でそのまま質問への回答になります",
   "prompt.typing_answer_short": "回答欄に記入して送信",
-  "backend.not_ready": "claude を起動中です。 数秒おいてから送ってください"
+  "backend.not_ready": "claude を起動中です。 数秒おいてから送ってください",
+  "backend.voice_unknown_session": "タブが見つかりません",
+  "backend.voice_not_enabled": "このタブのエージェントは声を持っていません",
+  "backend.voice_bad_request": "声の口への頼み方が違います",
+  "backend.voice_unknown_mark": "このエージェントに無い印です: {mark}",
+  "backend.voice_nothing_to_say": "声にする文字がありません",
+  "backend.voice_text_too_long": "文が長すぎて声にできません（上限 {limit} 文字）",
+  "backend.voice_engine_unreachable": "音声合成の engine に繋がりません",
+  "backend.voice_engine_failed": "音声合成の engine が失敗しました（{step}: {status}）"
 }

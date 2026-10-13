@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import MessageRenderer from './MessageRenderer.jsx'
+import { hideMarks } from '../voice/index.js'
 import AskUserQuestionBubble from '../ask-user-question/AskUserQuestionBubble.jsx'
 import AttachedImages from '../attachments/AttachedImages.jsx'
 import { getEntry as getMessageEntry } from '../../registry/messageRegistry.js'
@@ -312,7 +313,12 @@ function MetaLine({ meta, streaming, trailing }) {
   )
 }
 
-const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentTool, runningSubagents, onOpenSubagents, onFork, isLast }) {
+const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentTool, runningSubagents, onOpenSubagents, onFork, isLast, voiceMarks }) {
+  // agent の文の表示。 声を持つ agent のタブでは、 言い方の印を外す (= 記録とコピーの文は msg.text のまま)。
+  const agentText = useMemo(
+    () => (msg.role === 'agent' ? hideMarks(msg.text, voiceMarks) : msg.text),
+    [msg.role, msg.text, voiceMarks],
+  )
   const t = useT()
   // 「いま生きている bubble か」 は保存された flag ではなく **表示位置から導出する**。
   // msg.streaming は bubble 生成時に立ち、 落ちるのは result event を受けた 1 個だけ。
@@ -427,7 +433,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
               先に描画して実応答順に揃える。 */}
           {msg.text && (
             <span className="bubble">
-              <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={live} />
+              <MessageRenderer text={agentText} onOpenFile={onOpenFile} streaming={live} />
             </span>
           )}
           {msg.tools?.length > 0 && (
@@ -526,7 +532,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
         <div className="agent-block">
           {msg.text && (
             <span className="bubble">
-              <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={live} />
+              <MessageRenderer text={agentText} onOpenFile={onOpenFile} streaming={live} />
             </span>
           )}
           <StopReasonChip meta={msg.meta} streaming={live} />
@@ -588,6 +594,7 @@ function areEqual(prev, next) {
     && prev.runningSubagents === next.runningSubagents
     && prev.onOpenSubagents === next.onOpenSubagents
     && prev.onFork === next.onFork
+    && prev.voiceMarks === next.voiceMarks
     // isLast は「進行中か」 の導出元。 落とすと、 新しい bubble が来て末尾でなく
     // なった bubble が「…」 を出したまま固まる。
     && prev.isLast === next.isLast

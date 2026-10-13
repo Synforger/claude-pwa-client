@@ -21,6 +21,7 @@ import { useT } from '../../i18n/t.js'
 import { useStatus } from '../status-bar/useStatus.js'
 import { useMoonlightAvailable } from '../screenshare/useMoonlightAvailable.js'
 import ExtensionMenu from '../extensions/ExtensionMenu.jsx'
+import VoiceToggle from '../voice/VoiceToggle.jsx'
 
 export default function Topbar() {
   const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
@@ -65,7 +66,8 @@ export default function Topbar() {
         </button>
       )}
       {/* topbar 右側のアイコン群。 並びは左→右で ⭐ お気に入り → 📋 メモ →
-          🤖 サブエージェント → (📑 plan 承認、 条件付き) → 🖥 モニター → 🧩 拡張。 */}
+          🤖 サブエージェント → (📑 plan 承認、 条件付き) → (🔊 声、 声を持つ agent のタブだけ) →
+          🖥 モニター → 🧩 拡張。 */}
       {activeViewMode === 'chat' && activeSid && (
         <button
           className="topbar-icon-btn"
@@ -113,6 +115,7 @@ export default function Topbar() {
           📑<span className="topbar-plan-dot" />
         </button>
       )}
+      {activeViewMode === 'chat' && <VoiceToggle sid={activeSid} />}
       {moonlightAvailable && (
         <button
           className={`screen-toggle ${ui.overlays.desktopOpen ? 'active' : ''}`}
