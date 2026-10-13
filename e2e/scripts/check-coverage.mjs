@@ -30,6 +30,7 @@ const REQUIRED = [
   'ios-native',
   'terminal',
   'agent-message',
+  'session-rollover',
 ]
 
 if (!existsSync(GOLDEN_DIR)) {
