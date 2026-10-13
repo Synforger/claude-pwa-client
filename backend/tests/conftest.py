@@ -27,6 +27,23 @@ os.environ.setdefault("CPC_LOGS_DIR", tempfile.mkdtemp(prefix="cpc-test-logs-"))
 # folder が出来て、 お気に入りの test が本物の一覧を書き換える。 これも backend を import する前に決める。
 os.environ.setdefault("CPC_USER_DIR", tempfile.mkdtemp(prefix="cpc-test-user-"))
 
+import backend.config as _config_mod  # noqa: E402  (= 上の 2 つを決めた後で読む)
+
+# `backend.config` が自分で定義している名前。 これ以外 (= AGENTS 等) は、 読むたびに設定から作って配られる。
+_CONFIG_OWN_NAMES = frozenset(vars(_config_mod))
+
+
+def drop_shadowed_config_names() -> list[str]:
+    """設定から配られる名前に被さった実体の属性を取り除き、 取り除いた名前を返す。
+
+    `monkeypatch.setattr(backend.config, "AGENTS", ...)` は、 後始末で「元の値」 を実体の属性として書き戻す
+    (= 元は属性ではなく、 読んだ時に設定から作られた値)。 残ると、 以後の test は設定を差し替えても
+    その古い値を読む (= 1 本で回すと通り、 全体で回すと落ちる)。"""
+    shadowed = sorted(set(vars(_config_mod)) - _CONFIG_OWN_NAMES)
+    for name in shadowed:
+        delattr(_config_mod, name)
+    return shadowed
+
 
 # --- minimum config fixture (= test では本物の backend/config.json を使わない) ---
 # 2026-06-21 (finding backend-F-36): config.py の遅延化に伴い、 test では
@@ -58,6 +75,8 @@ def _stub_config(monkeypatch, tmp_path_factory):
     cfg_path.write_text(json.dumps(_TEST_CONFIG))
     import backend.config as config_mod
 
+    # 前の test が残した物を、 この test が読む前に取り除く (= monkeypatch の後始末はこの fixture の後に走る)。
+    drop_shadowed_config_names()
     monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
     config_mod.get_config.cache_clear()
     yield

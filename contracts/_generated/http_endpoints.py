@@ -232,6 +232,33 @@ class PostSessionsSidRolloverResponse(BaseModel):
     rolling: bool
 
 
+class GetSessionsSidVoiceResponse(BaseModel):
+    """GET /sessions/{sid}/voice response"""
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
+    marks: list[str]  # 言い方の印の名前 (= 設定に書いた順)
+    default: str  # 印の無い文の印 (= 印を 1 つも持たなければ空文字)
+
+
+class PostSessionsSidVoiceUtterancesRequest(BaseModel):
+    """POST /sessions/{sid}/voice/utterances request body"""
+    model_config = ConfigDict(extra="forbid")
+    text: str  # agent の返事の文 (= markdown のまま)
+
+
+class PostSessionsSidVoiceUtterancesResponse(BaseModel):
+    """POST /sessions/{sid}/voice/utterances response"""
+    model_config = ConfigDict(extra="forbid")
+    utterances: list[dict[str, Any]]
+
+
+class PostSessionsSidVoiceSynthesisRequest(BaseModel):
+    """POST /sessions/{sid}/voice/synthesis request body"""
+    model_config = ConfigDict(extra="forbid")
+    text: str  # 声にする 1 文 (= utterances が返した文)
+    mark: Optional[str] = None  # 言い方の印 (= 省けば既定の印)
+
+
 class PostAgentMessagesRequest(BaseModel):
     """POST /agent-messages request body"""
     model_config = ConfigDict(extra="forbid")

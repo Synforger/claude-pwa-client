@@ -550,6 +550,71 @@ endpoints:
       - "config の agent_message_check が在れば、 本文を「どの会話でもない宛先」 の名前 (= rollover:<sid>) で検査し、 0 以外で終われば 403 で返して終了しない"
     implementation: backend/routes/rollover.py
 
+  - method: GET
+    path: /sessions/{sid}/voice
+    description: "そのタブが声を持つか (= agent の設定に voice が在るか) と、 言い方の印の一覧"
+    response:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        marks:   { type: array, items: { type: string }, description: "言い方の印の名前 (= 設定に書いた順)" }
+        default: { type: string, description: "印の無い文の印 (= 印を 1 つも持たなければ空文字)" }
+      required: [enabled, marks, default]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "agent の設定に voice が無い / 形が違うタブは enabled=false (= エラーにしない)"
+      - "タブが無ければ 404 voice_unknown_session"
+    implementation: backend/routes/voice.py
+
+  - method: POST
+    path: /sessions/{sid}/voice/utterances
+    description: "agent の返事の文を、 声にする文の並びにする (= コード・表・path・URL を飛ばし、 文に切り、 文頭の印を剥がす)"
+    request_body:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, description: "agent の返事の文 (= markdown のまま)" }
+    response:
+      type: object
+      properties:
+        utterances:
+          type: array
+          items:
+            type: object
+            properties:
+              mark: { type: string, description: "その文の言い方の印 (= 文頭に印が無ければ既定の印)" }
+              text: { type: string }
+            required: [mark, text]
+      required: [utterances]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "声にする物が無い返事は空の並び (= エラーにしない)"
+      - "文頭の印は、 その行の終わりまで効く (= 行の中で別の印が出れば切り替わる)。 設定に無い名前の [..] は文として残る"
+      - "声を持たないタブは 409 voice_not_enabled、 text が文字列でなければ 400 voice_bad_request、 上限より長ければ 413 voice_text_too_long"
+      - "音声合成の engine は呼ばない"
+    implementation: backend/routes/voice.py
+
+  - method: POST
+    path: /sessions/{sid}/voice/synthesis
+    description: "1 文を、 印の言い方で音にして返す (= 音声合成の engine が返した音をそのまま返す)"
+    request_body:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, description: "声にする 1 文 (= utterances が返した文)" }
+        mark: { type: string, description: "言い方の印 (= 省けば既定の印)" }
+    response_kind: raw
+    auth: tailnet
+    invariants:
+      - "応答は engine が返した音 (= audio/wav)、 Cache-Control: no-store"
+      - "engine が問い合わせに返した値へ、 設定の query、 その上に印の値を当てる (= engine が返した値に無い名前は送らない)"
+      - "印が speaker を持てば、 その文だけその声の番号で言う"
+      - "設定に無い印は 400 voice_unknown_mark、 声にする文字が無ければ 400 voice_nothing_to_say、 上限より長ければ 413 voice_text_too_long (= どれも engine を呼ぶ前に返す)"
+      - "engine に繋がらなければ 502 voice_engine_unreachable、 engine が断れば 502 voice_engine_failed (= params に step と status)"
+    implementation: backend/routes/voice.py
+
   - method: POST
     path: /agent-messages
     description: "タブの中の claude から、 別のタブの claude への連絡 (= multipart / urlencoded form)"
