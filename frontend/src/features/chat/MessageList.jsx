@@ -9,6 +9,7 @@
 // 出ている間) は、 container ごと畳んで場所を譲る (= mount は保つ)。
 import { useMemo } from 'react'
 import MessageItem from './MessageItem.jsx'
+import { useVoiceMarks } from '../voice/index.js'
 import { useT } from '../../i18n/t.js'
 import { sortByTs } from './sortByTs.js'
 
@@ -27,6 +28,8 @@ export default function MessageList({
   scrollToBottom,
 }) {
   const t = useT()
+  // 声を持つ agent のタブでは、 言い方の印 (= 文頭の `[名前]`) を吹き出しの表示から外す。
+  const voiceMarks = useVoiceMarks()
   // 表示直前に時系列ソート (= 順序バグ根治)。 displayMessages 参照が変わった時だけ再計算。
   const orderedMessages = useMemo(() => sortByTs(displayMessages || []), [displayMessages])
   // .messages-container は scroll-btn (= position: absolute) の基準点 (= position: relative)。
@@ -53,6 +56,7 @@ export default function MessageList({
             runningSubagents={runningSubagents}
             onOpenSubagents={onOpenSubagents}
             onFork={onFork}
+            voiceMarks={voiceMarks}
             // 「進行中の bubble か」 は msg.streaming 単体では決まらない (= tool を呼んだ
             // 中間 message には result event が来ないので flag が落ちない)。 時系列
             // ソート後の末尾かどうかと合わせて MessageItem 側で導出する。

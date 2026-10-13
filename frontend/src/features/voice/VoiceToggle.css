@@ -1,0 +1,27 @@
+/* 🔊 (= 声の切り替え)。 ボタンの形は上部の bar の .screen-toggle (= App.css) をそのまま使う。
+   鳴らせなかった時は枠を赤くし、 理由をボタンの直下に出す (= .voice-toggle-wrap が位置の錨)。 */
+.voice-toggle-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.screen-toggle.failed {
+  border-color: #e06c75;
+  color: #e06c75;
+}
+.voice-error {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: max-content;
+  max-width: min(320px, 80vw);
+  padding: 6px 10px;
+  border: 1px solid #e06c75;
+  border-radius: 6px;
+  background: var(--bg2);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
+}

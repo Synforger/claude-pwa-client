@@ -18,6 +18,9 @@
   "topbar.notes_label": "Notes",
   "topbar.subagents": "Subagent list",
   "topbar.subagents_label": "Subagents",
+  "topbar.voice_label": "Voice",
+  "topbar.voice_on": "Hear replies aloud",
+  "topbar.voice_off": "Stop the voice",
   "topbar.plan_approval": "Plan approval",
   "topbar.plan_approval_label": "Plan approval pending",
   "topbar.screenshare_open": "Open screen share (via Sunshine, requires pairing)",
@@ -206,5 +209,13 @@
   "prompt.free_text_hint": "Type something → type in the box below and send · Chat about this → press ⏎, then just chat",
   "chat.input.answer_placeholder": "Type your answer — sending replies to the question",
   "prompt.typing_answer_short": "Type in the box below, then send",
-  "backend.not_ready": "Claude is still starting up. Try again in a moment."
+  "backend.not_ready": "Claude is still starting up. Try again in a moment.",
+  "backend.voice_unknown_session": "Tab not found",
+  "backend.voice_not_enabled": "This tab's agent has no voice",
+  "backend.voice_bad_request": "Malformed request to the voice endpoint",
+  "backend.voice_unknown_mark": "This agent has no such mark: {mark}",
+  "backend.voice_nothing_to_say": "Nothing to say in this text",
+  "backend.voice_text_too_long": "Too long to say (limit {limit} characters)",
+  "backend.voice_engine_unreachable": "The speech engine cannot be reached",
+  "backend.voice_engine_failed": "The speech engine failed ({step}: {status})"
 }

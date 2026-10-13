@@ -3,6 +3,7 @@ import { apiFetch } from '../../utils/api.js'
 import { generateId } from '../../utils/id.js'
 import { useStreamBuffer } from './useStreamBuffer.js'
 import { processStreamEvent } from './processStreamEvent.js'
+import { observeVoiceEvent } from '../voice/index.js'
 import { reconcileUserMessage } from './reconcileUserMessage.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
 import { chatTransport } from '../../transport/select.ts'
@@ -143,7 +144,9 @@ export function useChatStream({
   useLayoutEffect(() => { loadingRef.current = loading }, [loading])
   useLayoutEffect(() => { isOnlineRef.current = isOnline }, [isOnline])
   useLayoutEffect(() => {
-    handleEventRef.current = (curSid, event) => {
+    // fromHistory = 履歴の読み込み (= GET) で届いた event か。 声は stream で新しく届いた物だけを鳴らす。
+    handleEventRef.current = (curSid, event, fromHistory = false) => {
+      observeVoiceEvent(curSid, event, { history: fromHistory })
       if (event.type === 'user_message') {
         buffer.cancelAndFlush(curSid)
         setMessages(prev => {
@@ -211,7 +214,7 @@ export function useChatStream({
           if (data && Array.isArray(data.events)) {
             for (const ev of data.events) {
               if (cancelled) break
-              handleEventRef.current?.(sid, ev)
+              handleEventRef.current?.(sid, ev, true)
             }
           }
         }
@@ -600,7 +603,7 @@ export function useChatStream({
     buffer.resetBuf(sid)
     setMessages(prev => ({ ...prev, [sid]: [] }))
     optimisticRef.current[sid] = null
-    for (const ev of events) handleEventRef.current?.(sid, ev)
+    for (const ev of events) handleEventRef.current?.(sid, ev, true)
     chatTransport.resetOffset(sid)
     chatTransport.bumpReconnect()
     scrollToBottom()

@@ -1,0 +1,7 @@
+{
+  "sid": "ses_e2evoice01",
+  "agent_id": "agent_e2e_voice",
+  "account_id": "e2e",
+  "title": "voice golden",
+  "notify_mode": "both"
+}
