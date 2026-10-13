@@ -42,6 +42,7 @@ import MessageList from '../features/chat/MessageList.jsx'
 import { sortByTs } from '../features/chat/sortByTs.js'
 import AttachmentsBar from '../features/chat/AttachmentsBar.jsx'
 import PlanApprovalBubble from '../features/plan-approval/PlanApprovalBubble.jsx'
+import { usePageExtensionOpen } from '../features/extensions/useExtensions.js'
 
 // 起動時の初回 GC 遅延 (= localStorage 復元 + 初期 fetch の messages 確定を待つ)。
 const IMAGE_GC_INITIAL_MS = 5000
@@ -92,6 +93,11 @@ export default function ChatPanel({ sid }) {
     [activeSid, ui.viewModes],
   )
   const hidden = activeViewMode === 'terminal'
+  // 頁として開く拡張が出ている間、 メッセージの一覧はその場所を譲る (= 入力欄は残る)。 一覧と自動
+  // スクロールには 'chat' でも 'terminal' でもない表示として渡す (= 閉じた時は、 端末から戻った時と
+  // 同じ経路で最新へ寄せ直される)。
+  const pageOpen = usePageExtensionOpen()
+  const listMode = pageOpen ? 'page' : activeViewMode
 
   const { messages, setMessages, input, setInput } = useChatStorage(sessions)
   const { attachments, fileInputRef, handleFileSelect, removeAttachment, clearAttachments } = useAttachments(activeSession)
@@ -103,7 +109,7 @@ export default function ChatPanel({ sid }) {
     hasNew,
     scrollToBottom,
     onScroll,
-  } = useAutoScroll({ messages, activeSession, viewMode: activeViewMode })
+  } = useAutoScroll({ messages, activeSession, viewMode: listMode })
   // 「今この sid を見てる」 + Stop 意思を WebSocket で backend に通知。
   const { sendStopIntent } = useViewsWs(activeSid)
   // F-36: 送信失敗時に localText を ChatInput 内部 state に戻すための buffer。
@@ -342,7 +348,7 @@ export default function ChatPanel({ sid }) {
       <MessageList
         scrollerDomRef={scrollerDomRef}
         onScroll={onScroll}
-        viewMode={activeViewMode}
+        viewMode={listMode}
         displayMessages={displayMessages}
         onOpenFile={handleOpenPath}
         activeSubagentTool={activeSubagentTool}

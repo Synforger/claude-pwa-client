@@ -3,6 +3,7 @@
 claude の JSONL 1 行が processStreamEvent.js の期待する event 形式に正しく
 変換されることを、 行種別ごとに確認する。
 """
+from backend.core.jsonl_predicates import AGENT_MESSAGE_OPENINGS
 from backend.jsonl.events import jsonl_line_to_events, parse_task_notification
 
 
@@ -391,12 +392,51 @@ def test_mode_and_permission_mode_events():
 
 
 def test_attachment_queued_command_skipped():
-    # 2026-06-12 棚卸し以降は内部メタとして chat 非表示。
+    # 端末から入った発話と分からない物 (= 出どころも種類も無い) は chat 非表示のまま。
     line = {
         "type": "attachment", "uuid": "u-att",
         "attachment": {"type": "queued_command", "content": "/clear"},
     }
     assert jsonl_line_to_events(line) == []
+
+
+def _queued(prompt, mode="prompt", origin="human", uuid="u-q1"):
+    # 実物の形 (= claude の作業中に端末へ入り、 作業の合間に claude へ渡った発話の記録)
+    return {
+        "type": "attachment", "uuid": uuid, "parentUuid": "u-parent", "isSidechain": False,
+        "timestamp": "2026-10-06T07:10:49.184Z",
+        "attachment": {"type": "queued_command", "prompt": prompt, "commandMode": mode,
+                       "origin": {"kind": origin}, "humanTurn": True,
+                       "source_uuid": "s-1", "delivery_id": "d-1", "timestamp": "2026-10-06T07:10:49.184Z"},
+    }
+
+
+def test_words_typed_while_claude_works_are_a_user_message():
+    (event,) = jsonl_line_to_events(_queued("and the footer too"))
+    assert event == {"type": "user_message", "text": "and the footer too", "uuid": "u-q1", "ts": 1791270649184}
+
+
+def test_a_message_from_another_tab_that_arrives_while_claude_works_is_shown():
+    # 連絡は端末への貼り付けとして入るので、 包みが付いた形で記録される。 画面は 1 行目で連絡と見分ける。
+    for opening in AGENT_MESSAGE_OPENINGS:
+        relayed = f'{opening}\n<agent-message from="tools" session="ses_x">\nthe new build is in\n</agent-message>'
+        (event,) = jsonl_line_to_events(_queued(f'<pasted_content id="4a58">\n{relayed}\n</pasted_content id="4a58">'))
+        assert event["type"] == "user_message"
+        assert event["text"] == relayed
+
+
+def test_queued_words_given_as_blocks_are_read_as_text():
+    (event,) = jsonl_line_to_events(_queued([{"type": "text", "text": "see the picture"}, {"type": "image", "source": {}}]))
+    assert event["text"] == "see the picture"
+
+
+def test_a_queued_line_that_nobody_typed_is_not_a_user_message():
+    assert jsonl_line_to_events(_queued("<task-notification>done</task-notification>", mode="task-notification",
+                                        origin="task-notification")) == []
+    assert jsonl_line_to_events(_queued("from a peer", origin="peer")) == []
+    assert jsonl_line_to_events(_queued("a notice", mode="task-notification")) == []
+    assert jsonl_line_to_events(_queued("<command-name>/compact</command-name>")) == []
+    assert jsonl_line_to_events(_queued("   ")) == []
 
 
 def test_attachment_deferred_tools_skipped():

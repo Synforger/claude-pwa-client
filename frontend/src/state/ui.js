@@ -9,7 +9,7 @@ const INITIAL = {
     drawer: false,
     menu: false,
     favs: false,
-    tasks: false,
+    notes: false,
     subagents: false,
     subagentsFocus: null,
     previewPath: null,

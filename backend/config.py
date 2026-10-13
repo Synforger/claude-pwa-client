@@ -93,8 +93,11 @@ def default_account_id() -> str | None:
     持たない最初のもの) が「未設定と等価な account」。 これを解決しないと、 古い session
     (= account_id が None のまま作られたタブ) が「どのアカウントにも属さない」 扱いになり、
     自分自身が移行先候補に出てしまう。
+
+    account の一覧は `_accounts()` から取る (= `accounts` を書いていない設定では既定の 1 つ)。
+    生の設定を読むと、 その構成でだけ一覧と既定が食い違う。
     """
-    for name, cfg in (get_config().get("accounts") or {}).items():
+    for name, cfg in _accounts().items():
         env = (cfg or {}).get("env") or {}
         if not env.get("CLAUDE_CONFIG_DIR"):
             return name
@@ -117,6 +120,37 @@ def cwd_to_project_dir(cwd: str, account_id: str | None = None) -> Path:
     return projects_dir_for_account(account_id) / cwd_to_project_dirname(cwd)
 
 
+# 連絡を運び合う別の機械の backend (= agent_message_peers)。 名前は宛先の `<名前>:<タブ>` の左側に
+# そのまま使うので、 `:` を含まない英数字・ハイフン・下線の 32 文字までに絞る。
+PEER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
+
+
+def _agent_message_peers(raw: Any) -> dict[str, dict[str, Any]]:
+    """config の `agent_message_peers` のうち、 形の正しい相手だけを返す (= 1 件の書き損じで全部は消えない)。
+
+        {"<名前>": {"url": "https://...", "address": "<その相手からの呼び出しが届く時の接続元>",
+                    "accounts": ["<この相手と連絡してよいタブの account>", ...]}}
+
+    accounts は省ける (= 省けば全部のタブ)。 url はこちらから送る先、 address は向こうから届いた呼び出しを
+    その相手の物と認める接続元 (= 両方が揃って 1 つの相手)。
+    """
+    peers: dict[str, dict[str, Any]] = {}
+    if not isinstance(raw, dict):
+        return peers
+    for name, entry in raw.items():
+        if not (isinstance(name, str) and PEER_NAME_RE.match(name) and isinstance(entry, dict)):
+            continue
+        url, address, accounts = entry.get("url"), entry.get("address"), entry.get("accounts")
+        if not (isinstance(url, str) and url.startswith(("http://", "https://"))):
+            continue
+        if not (isinstance(address, str) and address.strip()):
+            continue
+        if accounts is not None and not (isinstance(accounts, list) and all(isinstance(a, str) for a in accounts)):
+            continue
+        peers[name] = {"url": url.rstrip("/"), "address": address.strip(), "accounts": accounts}
+    return peers
+
+
 def _accounts() -> dict[str, Any]:
     return get_config().get("accounts") or {
         "personal": {"display_name": "Personal", "env": {}}
@@ -128,13 +162,18 @@ def _accounts() -> dict[str, Any]:
 # DOM の識別子にそのまま使うので、 英小文字・数字・ハイフンの 32 文字までに絞る。
 EXTENSION_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 EXTENSION_DEFAULT_ICON = "🧩"
+# 拡張の開き方。 band = チャットの上の帯 (= 高さを変えられ、 チャットと並べて使う)、 page = 入力欄の上を
+# 全部使う頁 (= 読み物。 開いている間はメッセージの一覧の場所に出る)。 書かなければ band。
+EXTENSION_VIEWS = ("band", "page")
+EXTENSION_DEFAULT_VIEW = "band"
 
 
 def _scan_extensions() -> tuple[list[dict[str, str]], list[str]]:
-    """config.json の `extensions` を (= 採用した拡張, 捨てた理由) に分ける。
+    """config.json の `extensions` を (= 採用した拡張, 書き損じの指摘) に分ける。
 
-    捨てるのは不正な 1 件だけで、 残りは生かす (= 1 件の書き損じで全拡張が消えない)。
-    理由の文面は起動時の warn にそのまま使う。
+    捨てるのは id が不正な 1 件だけで、 残りは生かす (= 1 件の書き損じで全拡張が消えない)。
+    `view` の書き損じは捨てずに既定の開き方で採用する (= 拡張は使えるまま、 指摘だけ残す)。
+    指摘の文面は起動時の warn にそのまま使う。
     """
     raw = get_config().get("extensions")
     if raw is None:
@@ -157,11 +196,19 @@ def _scan_extensions() -> tuple[list[dict[str, str]], list[str]]:
         seen.add(ext_id)
         title = entry.get("title")
         icon = entry.get("icon")
+        view = entry.get("view", EXTENSION_DEFAULT_VIEW)
+        if view not in EXTENSION_VIEWS:
+            problems.append(
+                f"config.extensions[{i}]: view must be one of {', '.join(EXTENSION_VIEWS)}, "
+                f"got {view!r}; using {EXTENSION_DEFAULT_VIEW!r}"
+            )
+            view = EXTENSION_DEFAULT_VIEW
         accepted.append({
             "id": ext_id,
             "title": title if isinstance(title, str) and title else ext_id,
             "icon": icon if isinstance(icon, str) and icon else EXTENSION_DEFAULT_ICON,
             "path": f"/ext/{ext_id}/",
+            "view": view,
         })
     return accepted, problems
 
@@ -223,6 +270,8 @@ def __getattr__(name: str) -> Any:  # noqa: PLR0911
     if name in ("AGENT_MESSAGE_CHECK", "AGENT_MESSAGE_OPERATOR_CHECK"):
         check = cfg.get(name.lower())
         return check if isinstance(check, list) and all(isinstance(w, str) for w in check) else []
+    if name == "AGENT_MESSAGE_PEERS":
+        return _agent_message_peers(cfg.get("agent_message_peers"))
     if name == "CORS_ALLOW_ORIGINS":
         return cfg.get("cors_allow_origins", [])
     if name == "RATE_LIMITS_LOG_PATH":

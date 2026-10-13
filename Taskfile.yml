@@ -129,9 +129,9 @@ tasks:
     cmds:
       - |
         if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
-          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream uvicorn backend.main:app --host 0.0.0.0 --port {{.PORT}}
+          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream uvicorn backend.main:app --host 127.0.0.1 --port {{.PORT}}
         else
-          .venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port {{.PORT}}
+          .venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port {{.PORT}}
         fi
 
   build:

@@ -23,6 +23,9 @@ sys.path.insert(0, str(REPO_ROOT))
 # rotating handler を付けるので、 これが無いと test がわざと起こす例外 (= "pump boom" 等) が
 # 動いている backend の backend.error.log に混ざる。 backend を import する前に決める。
 os.environ.setdefault("CPC_LOGS_DIR", tempfile.mkdtemp(prefix="cpc-test-logs-"))
+# 利用者の置き場 (= 既定は HOME の下) も使い捨てにする。 これが無いと、 test を回した人の HOME に
+# folder が出来て、 お気に入りの test が本物の一覧を書き換える。 これも backend を import する前に決める。
+os.environ.setdefault("CPC_USER_DIR", tempfile.mkdtemp(prefix="cpc-test-user-"))
 
 
 # --- minimum config fixture (= test では本物の backend/config.json を使わない) ---

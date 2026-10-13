@@ -148,6 +148,14 @@ def test_default_account_is_the_one_without_a_config_dir(tmp_path, monkeypatch):
     assert config_mod.default_account_id() == "personal"
 
 
+def test_default_account_is_the_built_in_one_when_no_accounts_are_configured(tmp_path, monkeypatch):
+    """`accounts` を書いていない設定では、 口座の一覧は既定の 1 つ (= personal)。 account_id 未設定の
+    session が属するのもそれ (= 一覧と既定が同じ物を指す)。"""
+    config_mod = _write_accounts_config(tmp_path, monkeypatch, None)
+    assert list(config_mod.ACCOUNTS) == ["personal"]
+    assert config_mod.default_account_id() == "personal"
+
+
 def test_default_account_is_none_when_every_account_is_scoped(tmp_path, monkeypatch):
     config_mod = _write_accounts_config(tmp_path, monkeypatch, {
         "a": {"env": {"CLAUDE_CONFIG_DIR": "/a"}},

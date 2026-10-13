@@ -130,7 +130,7 @@
               "request_query": { "type": "object", "additionalProperties": { "$ref": "#/$defs/fieldSchema" } },
               "response": { "$ref": "#/$defs/fieldSchema" },
               "response_kind": { "enum": ["json", "sse", "multipart", "raw"] },
-              "auth": { "enum": ["tailnet", "localhost", "uid_check", "none"] },
+              "auth": { "enum": ["tailnet", "localhost", "uid_check", "peer", "none"] },
               "rate_limit": { "type": "string" },
               "invariants": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
               "implementation": { "type": "string", "description": "backend file:func reference" }

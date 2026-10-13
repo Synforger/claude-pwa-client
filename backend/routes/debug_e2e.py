@@ -18,7 +18,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
@@ -137,6 +137,28 @@ class PendingPlanInjectRequest(BaseModel):
     choices: list[dict[str, Any]] = Field(default_factory=list)
 
 
+@router.post("/e2e/working/{session_id}")
+async def post_e2e_working(request: Request, session_id: str, working: bool = Body(..., embed=True)) -> dict:
+    """session を「claude が作業中」 にする / 戻す。 作業中の間、 画面からの送信は claude と同じく
+    user 行を書かず、 積んだ記録 (= queue-operation の enqueue) だけを残す。"""
+    _ensure_localhost(request)
+    _ensure_e2e_enabled()
+    from backend.terminal.routes import set_e2e_working  # noqa: PLC0415
+    set_e2e_working(session_id, working)
+    return {"ok": True, "working": working}
+
+
+@router.post("/e2e/forget-sends")
+async def post_e2e_forget_sends(request: Request) -> dict:
+    """送信の identity (= send_id) の控えを全部忘れる。 本番では送ってから 60 秒で忘れる (= TTL) ので、
+    claude が長く作業した後に受け取った発話には send_id が付かない。 その状態を待たずに作る。"""
+    _ensure_localhost(request)
+    _ensure_e2e_enabled()
+    from backend.terminal.send_dedup import send_dedup  # noqa: PLC0415
+    send_dedup.reset()
+    return {"ok": True}
+
+
 @router.post("/e2e/inject-pending-plan/{session_id}")
 async def post_e2e_inject_pending_plan(
     request: Request,
@@ -215,7 +237,9 @@ _EXTENSION_FIXTURE_HTML = """<!doctype html>
 """
 
 
+# `/ext/fixture-page/` は、 頁として開く拡張 (= config の `view: "page"`) の fixture。 中身は同じ 1 枚。
 @fixture_router.api_route("/ext/fixture/", methods=["GET", "HEAD"], include_in_schema=False)
+@fixture_router.api_route("/ext/fixture-page/", methods=["GET", "HEAD"], include_in_schema=False)
 async def e2e_extension_fixture(request: Request) -> HTMLResponse:
     """e2e の拡張 fixture (= 静的 HTML 1 枚)。 CPC_E2E=1 かつ loopback の時だけ返す。"""
     _ensure_localhost(request)
