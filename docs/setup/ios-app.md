@@ -48,3 +48,17 @@ backend に会話の部品を入れておきます ([iPhone の app で話す](.
 - app には、 組み込まれる部品 (= Capacitor・Pipecat・WebRTC) のライセンス表示が入っています
   (= `shell/ios/App/App/Acknowledgements.txt`)。 部品の版を変えた時は、 この file も新しい版の物に書き直します。
   一覧は repo の [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) にも載っています
+
+## 落ちた時
+
+app が落ちると、 iPhone はその時の記録を残します。 iPhone を Mac につないだまま (= ケーブルか同じ Wi-Fi)、 次で
+落ちた理由と場所を出せます。 `<UDID>` は `xcrun devicectl list devices` の Identifier です。
+
+```sh
+task ios:crashes DEVICE=<UDID>                     # 一番新しい 1 件
+task ios:crashes DEVICE=<UDID> SINCE=2026-10-15    # その日付から後の全部
+```
+
+「ended by: TCC — … NS…UsageDescription …」 と出たら、 その許可の文が `Info.plist` に足りていません
+(= `task lint` の `ios-privacy-check` が、 足りない文をコードから探します)。
+
