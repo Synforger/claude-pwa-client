@@ -48,6 +48,26 @@ const config = {
       display_name: 'E2E Agent',
       launch_alias: 'agent_e2e',
     },
+    // An agent with a voice that also listens. The speech and listening engines are the
+    // test backend's own fixtures (= backend/routes/debug_e2e.py), standing in for engine processes.
+    agent_e2e_voice: {
+      cwd: process.env.HOME || '/tmp',
+      model: 'Opus',
+      display_name: 'E2E Voice Agent',
+      launch_alias: 'agent_e2e_voice',
+      voice: {
+        engine: `http://127.0.0.1:${PORT}/ext/fixture-voice`,
+        speaker: 1,
+        marks: { calm: { speedScale: 1.1 }, happy: { speedScale: 1.2 } },
+        default: 'calm',
+        // CPC_E2E_LISTEN_ENGINE / CPC_E2E_TURN_MODEL point the agent at a real listening engine and a
+        // real Smart Turn model (= the live scenario, scenarios/live/voice-conversation.spec.js).
+        listen: {
+          engine: process.env.CPC_E2E_LISTEN_ENGINE || `http://127.0.0.1:${PORT}/ext/fixture-listen`,
+          ...(process.env.CPC_E2E_TURN_MODEL ? { turn: process.env.CPC_E2E_TURN_MODEL } : {}),
+        },
+      },
+    },
   },
   accounts: {
     e2e: {

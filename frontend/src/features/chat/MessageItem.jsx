@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import MessageRenderer from './MessageRenderer.jsx'
+import { hideMarks, hideVoiceInputMark } from '../voice/index.js'
 import AskUserQuestionBubble from '../ask-user-question/AskUserQuestionBubble.jsx'
 import AttachedImages from '../attachments/AttachedImages.jsx'
 import { getEntry as getMessageEntry } from '../../registry/messageRegistry.js'
@@ -7,7 +8,7 @@ import { formatToolResultContent, formatDuration, formatModelName, formatTokens 
 import { diffLines, compactDiff } from '../../utils/diff.js'
 import { apiFetch } from '../../utils/api.js'
 import { useT } from '../../i18n/t.js'
-import { parseAgentMessage } from './agentMessage.js'
+import { parseAgentMessage, parseRollover } from './agentMessage.js'
 import './MessageItem.css'
 
 const RESULT_PREVIEW_CHARS = 800
@@ -312,7 +313,15 @@ function MetaLine({ meta, streaming, trailing }) {
   )
 }
 
-const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentTool, runningSubagents, onOpenSubagents, onFork, isLast }) {
+const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentTool, runningSubagents, onOpenSubagents, onFork, isLast, voiceMarks }) {
+  // 表示する文。 agent の文からは言い方の印を (= 声を持つ agent のタブだけ)、 人の文からは声で聞いている印を
+  // 外す (= 印が付くのは 🔊 を持つタブだけ。 印の一覧を書かない声の設定でも外れるよう、 一覧には頼らない)。
+  // 記録とコピーの文は msg.text のまま。
+  const shownText = useMemo(() => {
+    if (msg.role === 'agent') return hideMarks(msg.text, voiceMarks)
+    if (msg.role === 'user') return hideVoiceInputMark(msg.text)
+    return msg.text
+  }, [msg.role, msg.text, voiceMarks])
   const t = useT()
   // 「いま生きている bubble か」 は保存された flag ではなく **表示位置から導出する**。
   // msg.streaming は bubble 生成時に立ち、 落ちるのは result event を受けた 1 個だけ。
@@ -324,6 +333,8 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
   const live = !!msg.streaming && !!isLast
   // 別のタブの claude から届いた連絡は、 人が打った発話と同じ user 行で届く。 本文の形から導出する。
   const relayed = useMemo(() => (msg.role === 'user' ? parseAgentMessage(msg.text) : null), [msg.role, msg.text])
+  // 自動の入れ替えの発話 (= 締めを頼む発話と、 起動し直した会話の最初の発話) も同じ user 行で届く。
+  const rollover = useMemo(() => (msg.role === 'user' ? parseRollover(msg.text) : null), [msg.role, msg.text])
   // system kind は messageRegistry に「fromEvent + Render」 ペアで集約しており、
   // ここでは generic lookup で表示コンポーネントを引くだけ (= F-04 consumer)。
   // 新しい system kind を増やす時は messageRegistry に Render を 1 個足すだけで配線完了、
@@ -386,7 +397,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
 
   return (
     <div
-      className={`message ${msg.role}${relayed ? ' relayed' : ''}`}
+      className={`message ${msg.role}${relayed || rollover ? ' relayed' : ''}`}
       data-testid={`message-bubble-${msg.role}`}
       data-cpc-role={msg.role}
       data-cpc-uuid={msg.uuid || ''}
@@ -405,7 +416,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
           )}
           {msg.text && (
             <span className="bubble">
-              <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={live} />
+              <MessageRenderer text={shownText} onOpenFile={onOpenFile} streaming={live} />
             </span>
           )}
         </div>
@@ -425,7 +436,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
               先に描画して実応答順に揃える。 */}
           {msg.text && (
             <span className="bubble">
-              <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={live} />
+              <MessageRenderer text={shownText} onOpenFile={onOpenFile} streaming={live} />
             </span>
           )}
           {msg.tools?.length > 0 && (
@@ -524,7 +535,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
         <div className="agent-block">
           {msg.text && (
             <span className="bubble">
-              <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={live} />
+              <MessageRenderer text={shownText} onOpenFile={onOpenFile} streaming={live} />
             </span>
           )}
           <StopReasonChip meta={msg.meta} streaming={live} />
@@ -543,9 +554,23 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
             <MessageRenderer text={relayed.text} onOpenFile={onOpenFile} streaming={false} />
           </span>
         </div>
+      ) : rollover ? (
+        <div className="relayed-block">
+          <div className="relayed-from" data-testid="rollover-label">
+            {t(rollover.phase === 'close' ? 'chat.rollover_close' : 'chat.rollover_start')}
+          </div>
+          <span className="bubble" data-testid="rollover-body">
+            {rollover.phase === 'close' ? (
+              t(rollover.reason === 'idle' ? 'chat.rollover_reason_idle' : 'chat.rollover_reason_context',
+                { pct: rollover.contextPct ?? '?', minutes: rollover.idleMinutes ?? '?' })
+            ) : (
+              <MessageRenderer text={rollover.text} onOpenFile={onOpenFile} streaming={false} />
+            )}
+          </span>
+        </div>
       ) : (
         <span className="bubble">
-          <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={live} />
+          <MessageRenderer text={shownText} onOpenFile={onOpenFile} streaming={live} />
         </span>
       )}
       {/* 送信失敗 (= backend で JSONL user 行 +1 を確認できず、 再送 1 回も届かなかった)
@@ -572,6 +597,7 @@ function areEqual(prev, next) {
     && prev.runningSubagents === next.runningSubagents
     && prev.onOpenSubagents === next.onOpenSubagents
     && prev.onFork === next.onFork
+    && prev.voiceMarks === next.voiceMarks
     // isLast は「進行中か」 の導出元。 落とすと、 新しい bubble が来て末尾でなく
     // なった bubble が「…」 を出したまま固まる。
     && prev.isLast === next.isLast

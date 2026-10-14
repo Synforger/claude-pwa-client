@@ -8,7 +8,7 @@
 //                  go on loading its parts)
 // keepOld: false — they are gone (a build two deploys old, or a wiped folder)
 import { cpSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, extname, join, resolve } from 'node:path'
+import { dirname, extname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -30,22 +30,23 @@ export function redeploy(tag, { keepOld = true } = {}) {
   if (!existsSync(BACKUP)) cpSync(DIST, BACKUP, { recursive: true })
   const assets = join(DIST, 'assets')
   const oldNames = readdirSync(assets)
+  // A folder under assets/ (the voice parts) is renamed as a whole; the files in it keep their names.
   const renames = new Map(oldNames.map((name) => {
     const ext = extname(name)
-    return [name, `${name.slice(0, -ext.length)}_${tag}${ext}`]
+    return [name, ext ? `${name.slice(0, -ext.length)}_${tag}${ext}` : `${name}_${tag}`]
   }))
   // New copies first, under their new names, with references pointing at new names.
-  for (const [from, to] of renames) cpSync(join(assets, from), join(assets, to))
+  for (const [from, to] of renames) cpSync(join(assets, from), join(assets, to), { recursive: true })
   const fresh = new Set(renames.values())
   for (const path of textFiles(DIST)) {
-    const inAssets = dirname(path) === assets
-    if (inAssets && !fresh.has(path.slice(assets.length + 1))) continue // an old file stays as it was
+    const inAssets = path.startsWith(assets + sep)
+    if (inAssets && !fresh.has(relative(assets, path).split(sep)[0])) continue // an old file stays as it was
     let text = readFileSync(path, 'utf-8')
     for (const [from, to] of renames) text = text.split(from).join(to)
     if (path === join(DIST, 'sw.js')) text = text.replace(/(claude-pwa-shell-[0-9a-zA-Z]+)/, `$1${tag}`)
     writeFileSync(path, text)
   }
-  if (!keepOld) for (const name of oldNames) rmSync(join(assets, name), { force: true })
+  if (!keepOld) for (const name of oldNames) rmSync(join(assets, name), { recursive: true, force: true })
   return { names: renames }
 }
 

@@ -65,7 +65,8 @@ export default function Topbar() {
         </button>
       )}
       {/* topbar 右側のアイコン群。 並びは左→右で ⭐ お気に入り → 📋 メモ →
-          🤖 サブエージェント → (📑 plan 承認、 条件付き) → 🖥 モニター → 🧩 拡張。 */}
+          🤖 サブエージェント → (📑 plan 承認、 条件付き) → (🔊 声、 声を持つ agent のタブだけ) →
+          🖥 モニター → 🧩 拡張。 */}
       {activeViewMode === 'chat' && activeSid && (
         <button
           className="topbar-icon-btn"

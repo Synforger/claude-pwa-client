@@ -1,4 +1,4 @@
-// 入力欄 + 送信ボタン + 停止ボタン (条件出現)。 App.jsx から切り出した
+// 入力欄 + 会話のボタン (= 声を持つタブだけ) + 送信ボタン + 停止ボタン (条件出現)。 App.jsx から切り出した
 // プレゼンテーショナルコンポーネント (= 状態とハンドラは props で受ける)。
 // terminal 表示中は App 側で描画しない (= activeViewMode のガードは呼び出し側)。
 //
@@ -17,6 +17,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useT } from '../../i18n/t.js'
 import { setDraftSource } from './draftSource.js'
 import { useInputSizing } from './useInputSizing.js'
+import VoiceButtons from '../voice/VoiceButtons.jsx'
 
 // streaming flush で App が再 render しても、 ChatInput の props が参照同値なら shallow
 // equal で skip させる (= 打鍵 jank 対策、 2026-06-22)。 App 側で callback を useCallback、
@@ -59,13 +60,11 @@ function ChatInputInner({
     return () => setDraftSource(null)
   }, [])
 
-  // 入力欄の大きさ: 畳んだ時は打った分だけ伸びて上限で止まり、 上限を超えた時に出る開閉のボタンで
-  // 「見えている範囲いっぱい」 に広げられる。 slot は流れの中の場所、 inputarea は広げた時に
-  // そこから外れて固定される本体。
-  const slotRef = useRef(null)
+  // 入力欄の大きさ: 打った分だけ伸び、 畳んだ時は 3 行、 広げた時は 6 行で止まる。 畳んだ時の上限を
+  // 超えると上端に開閉のボタンが出る (= 普段は上のメッセージを読みながら打てる高さに留める)。
   const inputAreaRef = useRef(null)
   const textareaRef = useRef(null)
-  const sizing = useInputSizing({ text: localText, slotRef, areaRef: inputAreaRef, textareaRef })
+  const sizing = useInputSizing({ text: localText, textareaRef })
   const collapseInput = sizing.collapse
 
   useEffect(() => {
@@ -121,9 +120,9 @@ function ChatInputInner({
   // 流れの中で占めている実高さを CSS variable に流す: FilePreviewModal の overlay が下端を
   // ChatInput 上端で止めるのに使う (= 固定 80px だと送信ボタン + safe-area で足りずプレビューが
   // 被る、 実測値で確実に避ける)。 textarea の伸び / safe-area 変化に追従するため ResizeObserver。
-  // 測るのは slot (= 広げている間も畳んだ時の高さを保つ) なので、 広げても overlay は動かない。
+  // 広げた時も入力欄は流れの中に居るので、 overlay の下端も一緒に上がる。
   useEffect(() => {
-    const el = slotRef.current
+    const el = inputAreaRef.current
     if (!el || typeof ResizeObserver === 'undefined') return
     const set = () => {
       document.documentElement.style.setProperty('--chat-input-h', `${el.offsetHeight}px`)
@@ -135,83 +134,82 @@ function ChatInputInner({
   }, [])
 
   return (
-    <div className="inputarea-slot" ref={slotRef} style={sizing.slotStyle}>
-      <div
-        className={`inputarea${answerMode ? ' answer-mode' : ''}${sizing.expanded ? ' expanded' : ''}`}
-        ref={inputAreaRef}
-        style={sizing.areaStyle}
-      >
-        {sizing.showToggle && (
-          <div className="inputarea-edge">
-            <button
-              type="button"
-              className="input-size-toggle"
-              onPointerDown={e => e.preventDefault()}
-              onClick={toggleSize}
-              aria-expanded={sizing.expanded}
-              aria-label={sizing.expanded ? t('chat.input.collapse') : t('chat.input.expand')}
-              title={sizing.expanded ? t('chat.input.collapse') : t('chat.input.expand')}
-              data-testid="chat-input-size-toggle"
-            >
-              <svg viewBox="0 0 16 10" width="16" height="10" aria-hidden="true">
-                <path
-                  d={sizing.expanded ? 'M2 2l6 6 6-6' : 'M2 8l6-6 6 6'}
-                  fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                />
-              </svg>
-            </button>
-          </div>
-        )}
-        <div className="inputarea-row">
-          <textarea
-            ref={textareaRef}
-            value={localText}
-            onChange={e => setLocalText(e.target.value)}
-            onKeyDown={(e) => {
-              // デスクトップ (= 物理キーボード + マウス) のみ Enter を送信に倒す。
-              // モバイル (タッチ専用) は Enter = 改行のまま、 送信は明示ボタンのみ
-              // (= 音声入力 / IME 変換中の暴発を避ける)。 判定は `pointer: fine` メディア
-              // クエリで物理ポインタの有無を見る (UA 文字列より頑健、 iPad Magic Keyboard 等の
-              // 例外ケースも自然に拾える)。 Shift+Enter / 日本語 IME 変換中は常に改行。
-              if (e.key !== 'Enter') return
-              if (e.shiftKey || e.nativeEvent.isComposing) return
-              if (!window.matchMedia || !window.matchMedia('(pointer: fine)').matches) return
-              if (inputDisabled || !activeSid) return
-              e.preventDefault()
-              handleSend()
-            }}
-            placeholder={
-              !activeSession ? t('chat.input.placeholder_no_session')
-                // 未回答の AskUserQuestion がある間は「この欄がそのまま回答になる」 誘導に切替
-                // (= Type something 選択後は banner が消えるので、 誘導は入力欄自身に出す)
-                : answerMode ? t('chat.input.answer_placeholder')
-                : t('chat.input.placeholder')
-            }
-            rows={2}
-            disabled={inputDisabled}
-            data-testid="chat-input"
-          />
-          <div className="buttons">
-            <button
-              onClick={handleSend}
-              disabled={!activeSession || (!localText.trim() && currentAttachments.length === 0)}
-              className="send"
-              aria-label={t('chat.send')}
-              data-testid="chat-send-button"
-            >
-              {t('chat.send')}
-            </button>
-            {/* 停止ボタンは常時配置、 現在の推論を止められない状態 (= !showStopButton) では disabled。
-                消えて再登場すると位置ズレでユーザが押し損ねる懸念があるため、 常時同じ場所に固定。 */}
-            <button
-              onClick={onStop}
-              disabled={!showStopButton || stopUnavailable}
-              title={stopUnavailable ? t('chat.stop_pending') : t('chat.stop')}
-              className={`stop ${stopUnavailable ? 'pending' : ''}`}
-              aria-label={t('chat.stop')}
-              data-testid="chat-stop-button"
-            >■</button>
-          </div>
+    <div
+      className={`inputarea${answerMode ? ' answer-mode' : ''}`}
+      ref={inputAreaRef}
+    >
+      {sizing.showToggle && (
+        <div className="inputarea-edge">
+          <button
+            type="button"
+            className="input-size-toggle"
+            onPointerDown={e => e.preventDefault()}
+            onClick={toggleSize}
+            aria-expanded={sizing.expanded}
+            aria-label={sizing.expanded ? t('chat.input.collapse') : t('chat.input.expand')}
+            title={sizing.expanded ? t('chat.input.collapse') : t('chat.input.expand')}
+            data-testid="chat-input-size-toggle"
+          >
+            <svg viewBox="0 0 16 10" width="16" height="10" aria-hidden="true">
+              <path
+                d={sizing.expanded ? 'M2 2l6 6 6-6' : 'M2 8l6-6 6 6'}
+                fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
+      )}
+      <div className="inputarea-row">
+        <textarea
+          ref={textareaRef}
+          value={localText}
+          onChange={e => setLocalText(e.target.value)}
+          onKeyDown={(e) => {
+            // デスクトップ (= 物理キーボード + マウス) のみ Enter を送信に倒す。
+            // モバイル (タッチ専用) は Enter = 改行のまま、 送信は明示ボタンのみ
+            // (= 音声入力 / IME 変換中の暴発を避ける)。 判定は `pointer: fine` メディア
+            // クエリで物理ポインタの有無を見る (UA 文字列より頑健、 iPad Magic Keyboard 等の
+            // 例外ケースも自然に拾える)。 Shift+Enter / 日本語 IME 変換中は常に改行。
+            if (e.key !== 'Enter') return
+            if (e.shiftKey || e.nativeEvent.isComposing) return
+            if (!window.matchMedia || !window.matchMedia('(pointer: fine)').matches) return
+            if (inputDisabled || !activeSid) return
+            e.preventDefault()
+            handleSend()
+          }}
+          placeholder={
+            !activeSession ? t('chat.input.placeholder_no_session')
+              // 未回答の AskUserQuestion がある間は「この欄がそのまま回答になる」 誘導に切替
+              // (= Type something 選択後は banner が消えるので、 誘導は入力欄自身に出す)
+              : answerMode ? t('chat.input.answer_placeholder')
+              : t('chat.input.placeholder')
+          }
+          rows={2}
+          disabled={inputDisabled}
+          data-testid="chat-input"
+        />
+        {/* 声のボタン (= 🎙 と 🔊) は声を持つ agent のタブにだけ出る。 聞き取った文は、 打っている途中の文に触れずに送る。 */}
+        <VoiceButtons sid={activeSid} onSend={onSend} />
+        <div className="buttons">
+          <button
+            onClick={handleSend}
+            disabled={!activeSession || (!localText.trim() && currentAttachments.length === 0)}
+            className="send"
+            aria-label={t('chat.send')}
+            data-testid="chat-send-button"
+          >
+            {t('chat.send')}
+          </button>
+          {/* 停止ボタンは常時配置、 現在の推論を止められない状態 (= !showStopButton) では disabled。
+              消えて再登場すると位置ズレでユーザが押し損ねる懸念があるため、 常時同じ場所に固定。 */}
+          <button
+            onClick={onStop}
+            disabled={!showStopButton || stopUnavailable}
+            title={stopUnavailable ? t('chat.stop_pending') : t('chat.stop')}
+            className={`stop ${stopUnavailable ? 'pending' : ''}`}
+            aria-label={t('chat.stop')}
+            data-testid="chat-stop-button"
+          >■</button>
         </div>
       </div>
     </div>

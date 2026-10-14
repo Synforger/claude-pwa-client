@@ -65,7 +65,8 @@ export default defineConfig([
     ],
     languageOptions: {
       ecmaVersion: 2020,
-      globals: globals.browser,
+      // __VOICE_ASSET_BASE__ = 会話の部品の置き場 (= build/voiceAssets.js が vite の define で埋める)
+      globals: { ...globals.browser, __VOICE_ASSET_BASE__: 'readonly' },
       parserOptions: {
         ecmaVersion: 'latest',
         ecmaFeatures: { jsx: true },

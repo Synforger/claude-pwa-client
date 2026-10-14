@@ -68,6 +68,11 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
     (= `claude "<本文>"`。 打鍵ではなく引数なので複数行も崩れない)
   - 会話の再開 (= backend 再起動跨ぎの自動再開 / フォーク / 別アカウントでの継続) は
     `claude --resume <id>` ではなく `<launch_alias> --resume <id>` を入力する
+- `rollover` (任意): context が決めた割合に届いた会話を締めさせて、 同じタブで新しい会話を起動し直す
+  条件。 書いていないエージェントでは何も起きない。 項目と流れは [rollover.md](rollover.md)
+- `voice` (任意): エージェントの返事を音声合成の engine で音にするための設定 (= engine の URL と声の番号、
+  言い方の印。 人の声を聞き取る engine と、 言い終えを判定する model も足せて、 足すと話すだけで送る会話に
+  なる)。 書いていないエージェントは声を持たない。 項目と口は [voice.md](voice.md)
 
 ### `accounts` — マルチアカウント
 

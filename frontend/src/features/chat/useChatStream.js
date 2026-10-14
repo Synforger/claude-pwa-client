@@ -3,6 +3,7 @@ import { apiFetch } from '../../utils/api.js'
 import { generateId } from '../../utils/id.js'
 import { useStreamBuffer } from './useStreamBuffer.js'
 import { processStreamEvent } from './processStreamEvent.js'
+import { observeVoiceEvent, voiceInputText } from '../voice/index.js'
 import { reconcileUserMessage } from './reconcileUserMessage.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
 import { chatTransport } from '../../transport/select.ts'
@@ -143,7 +144,9 @@ export function useChatStream({
   useLayoutEffect(() => { loadingRef.current = loading }, [loading])
   useLayoutEffect(() => { isOnlineRef.current = isOnline }, [isOnline])
   useLayoutEffect(() => {
-    handleEventRef.current = (curSid, event) => {
+    // fromHistory = 履歴の読み込み (= GET) で届いた event か。 声は stream で新しく届いた物だけを鳴らす。
+    handleEventRef.current = (curSid, event, fromHistory = false) => {
+      observeVoiceEvent(curSid, event, { history: fromHistory })
       if (event.type === 'user_message') {
         buffer.cancelAndFlush(curSid)
         setMessages(prev => {
@@ -211,7 +214,7 @@ export function useChatStream({
           if (data && Array.isArray(data.events)) {
             for (const ev of data.events) {
               if (cancelled) break
-              handleEventRef.current?.(sid, ev)
+              handleEventRef.current?.(sid, ev, true)
             }
           }
         }
@@ -265,7 +268,9 @@ export function useChatStream({
     // 2026-07-02: 連続送信 (queue mode) 対応で loading 中 alert block を撤去。 busy 中でも POST
     // を通す。 tmux は keystroke を Claude の入力欄に積んで、 Claude Code v2 の queue mode が
     // 現 turn 完了後に順次処理する。 PWA 側に queue state 管理は持たない。
-    const sendText = text
+    // 🔊 が ON のタブでは、 送る文の頭に声で聞いている印が付く (= features/voice/inputMark.js)。 楽観 bubble
+    // も同じ文を持つ (= 記録に載る文と揃えて、 確定の照合をずらさない)。 失敗で入力欄へ戻すのは印の無い text。
+    const sendText = voiceInputText(sid, text)
     setInput(prev => ({ ...prev, [sid]: '' }))
     setLoading(prev => ({ ...prev, [sid]: true }))
     optimisticRef.current[sid] = { want: 'busy', startedAt: Date.now() }
@@ -304,7 +309,7 @@ export function useChatStream({
         id: optimisticUserId,
         send_id,
         role: 'user',
-        text,
+        text: sendText,
         optimistic: true,
         // sort 用 ts は**刻印しない** (= 2026-07-27 clock domain 統一)。 端末時計を sort キーに
         // 混ぜると server ts (= jsonl 時刻) との相対順が時計ズレで狂う。 ts 無しは sortByTs の
@@ -600,7 +605,7 @@ export function useChatStream({
     buffer.resetBuf(sid)
     setMessages(prev => ({ ...prev, [sid]: [] }))
     optimisticRef.current[sid] = null
-    for (const ev of events) handleEventRef.current?.(sid, ev)
+    for (const ev of events) handleEventRef.current?.(sid, ev, true)
     chatTransport.resetOffset(sid)
     chatTransport.bumpReconnect()
     scrollToBottom()

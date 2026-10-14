@@ -12,7 +12,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { render, cleanup } from '@testing-library/react'
 import MessageItem from './MessageItem.jsx'
-import { AGENT_MESSAGE_OPENING } from './agentMessage.js'
+import { AGENT_MESSAGE_OPENING, ROLLOVER_OPENING } from './agentMessage.js'
 
 afterEach(cleanup)
 
@@ -53,6 +53,27 @@ describe('MessageItem render smoke', () => {
     expect(getByTestId('relayed-operator').textContent).toContain('have the owner fix it')
     expect(container.textContent).toContain('a title that wraps overlaps')
     expect(container.textContent).not.toContain('operator-said')
+  })
+
+  it('a request to close for a rollover says why, not the envelope', () => {
+    const text = `${ROLLOVER_OPENING}\n<session-rollover phase="close" reason="context" context_pct="62" idle_minutes="0">\nContext is at 62%.\n</session-rollover>`
+    const { container, getByTestId } = render(
+      <MessageItem {...baseProps} msg={{ id: 'u5', role: 'user', text }} />,
+    )
+    expect(getByTestId('rollover-label').textContent).toBeTruthy()
+    expect(getByTestId('rollover-body').textContent).toContain('62')
+    expect(container.textContent).not.toContain('session-rollover')
+    expect(container.querySelector('.message.user.relayed')).not.toBeNull()
+  })
+
+  it('the first message of a session started by a rollover shows what it was handed', () => {
+    const text = `${ROLLOVER_OPENING}\n<session-rollover phase="start">\ncarry on with the build\n</session-rollover>`
+    const { container, getByTestId } = render(
+      <MessageItem {...baseProps} msg={{ id: 'u6', role: 'user', text }} />,
+    )
+    expect(getByTestId('rollover-body').textContent).toContain('carry on with the build')
+    expect(container.textContent).not.toContain('session-rollover')
+    expect(container.querySelector('.message.user.relayed')).not.toBeNull()
   })
 
   it('a message the operator typed is not marked as relayed', () => {

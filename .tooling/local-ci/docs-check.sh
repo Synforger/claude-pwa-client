@@ -101,6 +101,22 @@ def is_ignored(path):
     return any(fnmatch.fnmatch(path, pat) or pat in path for pat in ignores)
 
 def md_files():
+    # Inside a git checkout, read exactly the files git would carry (= tracked, plus
+    # new files that are not ignored). Build output, downloaded packages and other
+    # ignored folders hold third-party docs whose links point outside this repo.
+    import subprocess
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "-co", "--exclude-standard", "-z", "--", "*.md"],
+            cwd=ROOT, capture_output=True, check=True).stdout.decode("utf-8")
+    except (OSError, subprocess.CalledProcessError):
+        listed = None
+    if listed is not None:
+        for rel in listed.split("\0"):
+            parts = rel.split("/")
+            if rel and not any(p in EXCLUDE_DIRS for p in parts[:-1]):
+                yield os.path.join(ROOT, rel)
+        return
     for dirpath, dirnames, filenames in os.walk(ROOT):
         dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS]
         for fn in filenames:

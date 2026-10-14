@@ -13,5 +13,8 @@
   "devDependencies": {
     "@playwright/test": "^1.49.0",
     "ws": "^8.21.0"
+  },
+  "allowScripts": {
+    "fsevents": false
   }
 }

@@ -37,6 +37,16 @@ function listFiles(root, dir = root) {
   return out
 }
 
+// 中身の無くなった folder を消す (= assets の下の部品の folder。 消した build の分)。
+function removeEmptyDirs(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const path = join(dir, entry.name)
+    removeEmptyDirs(path)
+    if (readdirSync(path).length === 0) rmSync(path, { recursive: true, force: true })
+  }
+}
+
 // 同じ folder の中で書いてから rename する (= 読む側には、 古い中身か新しい中身のどちらかだけが見える)。
 function replaceFile(from, to) {
   mkdirSync(dirname(to), { recursive: true })
@@ -102,6 +112,7 @@ export function publishDist(nextDir, distDir, { generationsPath = join(dirname(d
     rmSync(join(distDir, f), { force: true })
     removed += 1
   }
+  if (existsSync(distAssetsDir)) removeEmptyDirs(distAssetsDir)
   const nextTop = new Set(nextFiles.filter((f) => !isAsset(f)))
   for (const f of listFiles(distDir).filter((x) => !isAsset(x))) {
     if (!nextTop.has(f)) { rmSync(join(distDir, f), { force: true }); removed += 1 }

@@ -52,6 +52,19 @@ describe('publishDist', () => {
     expect(result).toEqual({ added: 2, removed: 2 })
   })
 
+  it('drops a folder of parts once no kept build uses it', () => {
+    const withParts = (tag) => {
+      writeBuild(tag)
+      mkdirSync(join(next(), 'assets', `voice-${tag}`), { recursive: true })
+      writeFileSync(join(next(), 'assets', `voice-${tag}`, 'model.onnx'), tag)
+    }
+    withParts('aaa'); publishDist(next(), dist())
+    withParts('bbb'); publishDist(next(), dist())
+    expect(assets()).toContain('voice-aaa')
+    withParts('ccc'); publishDist(next(), dist())
+    expect(assets()).toEqual(['Drawer-bbb.js', 'Drawer-ccc.js', 'index-bbb.js', 'index-ccc.js', 'voice-bbb', 'voice-ccc'])
+  })
+
   it('never shows an entry page whose files are missing, at any step', () => {
     writeBuild('aaa'); publishDist(next(), dist())
     writeBuild('bbb')
