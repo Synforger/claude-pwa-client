@@ -17,7 +17,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useT } from '../../i18n/t.js'
 import { setDraftSource } from './draftSource.js'
 import { useInputSizing } from './useInputSizing.js'
-import ConversationButton from '../voice/ConversationButton.jsx'
+import VoiceButtons from '../voice/VoiceButtons.jsx'
 
 // streaming flush で App が再 render しても、 ChatInput の props が参照同値なら shallow
 // equal で skip させる (= 打鍵 jank 対策、 2026-06-22)。 App 側で callback を useCallback、
@@ -188,8 +188,8 @@ function ChatInputInner({
           disabled={inputDisabled}
           data-testid="chat-input"
         />
-        {/* 会話のボタンは声を持つ agent のタブにだけ出る。 聞き取った文は、 打っている途中の文に触れずに送る。 */}
-        <ConversationButton sid={activeSid} onSend={onSend} />
+        {/* 声のボタン (= 🎙 と 🔊) は声を持つ agent のタブにだけ出る。 聞き取った文は、 打っている途中の文に触れずに送る。 */}
+        <VoiceButtons sid={activeSid} onSend={onSend} />
         <div className="buttons">
           <button
             onClick={handleSend}

@@ -6,7 +6,7 @@ vi.mock('./conversation.js', () => ({ openConversation: vi.fn() }))
 
 const { apiFetch } = await import('../../transport/http.ts')
 const { openConversation } = await import('./conversation.js')
-const { toggleConversation } = await import('./voice.js')
+const { toggleVoice, toggleMic, _resetForTest: resetVoice } = await import('./voice.js')
 const { getSnapshot, setVoiceAvailable, setVoiceListen, setVoiceTurn, _resetForTest } = await import('../../state/voice.js')
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -17,6 +17,7 @@ let mic
 let voiceInfo
 beforeEach(() => {
   _resetForTest()
+  resetVoice()
   apiFetch.mockReset()
   voiceInfo = { enabled: true, marks: [], default: '', listen: true, turn: true, conversation: CONVERSATION, tuning_error: '' }
   // GET /voice はその時の voiceInfo を、 他の口は空の 200 を返す
@@ -41,9 +42,9 @@ beforeEach(() => {
 
 const calls = (method, suffix) => apiFetch.mock.calls.filter(([path, opts]) => path.endsWith(suffix) && (opts?.method || 'GET') === method)
 
-describe('toggleConversation — one button opens and closes the conversation', () => {
+describe('toggleVoice / toggleMic — the voice, and the microphone inside it', () => {
   it('opens: the voice plays, this screen holds the conversation, and the turn model is handed over', async () => {
-    toggleConversation('ses_a', vi.fn())
+    toggleVoice('ses_a', vi.fn())
     expect(getSnapshot().on.ses_a).toBe(true)
     expect(getSnapshot().phase.ses_a).toBe('starting')
     await settle()
@@ -57,18 +58,18 @@ describe('toggleConversation — one button opens and closes the conversation', 
   })
 
   it('reads the pauses again each time it opens, so what the agent changed counts from the next time', async () => {
-    toggleConversation('ses_a', vi.fn())
+    toggleVoice('ses_a', vi.fn())
     await settle()
-    toggleConversation('ses_a', vi.fn())
+    toggleVoice('ses_a', vi.fn())
     await settle()
     voiceInfo = { ...voiceInfo, conversation: { ...CONVERSATION, pause_ms: 900 } }
-    toggleConversation('ses_a', vi.fn())
+    toggleVoice('ses_a', vi.fn())
     await settle()
     expect(openConversation.mock.calls[1][0].settings.pause_ms).toBe(900)
   })
 
   it('stops the reply that is playing when the speaker cuts in', async () => {
-    toggleConversation('ses_a', vi.fn())
+    toggleVoice('ses_a', vi.fn())
     await settle()
     expect(() => openConversation.mock.calls[0][0].interrupt()).not.toThrow()
     expect(getSnapshot().speaking.ses_a).toBeUndefined()
@@ -76,7 +77,7 @@ describe('toggleConversation — one button opens and closes the conversation', 
 
   it('sends what was heard to the tab, naming this screen as the holder', async () => {
     const send = vi.fn()
-    toggleConversation('ses_a', send)
+    toggleVoice('ses_a', send)
     await settle()
     const deps = openConversation.mock.calls[0][0]
     const client = calls('POST', '/voice/conversation')[0][1].jsonBody.client
@@ -90,7 +91,7 @@ describe('toggleConversation — one button opens and closes the conversation', 
   })
 
   it('writes a sound that was not speech down as nothing, without a word', async () => {
-    toggleConversation('ses_a', vi.fn())
+    toggleVoice('ses_a', vi.fn())
     await settle()
     apiFetch.mockResolvedValue(ok({ text: '' }))
     expect(await openConversation.mock.calls[0][0].transcribe(new Blob(['wav']))).toBe('')
@@ -99,16 +100,16 @@ describe('toggleConversation — one button opens and closes the conversation', 
 
   it('sends nothing once it is closed', async () => {
     const send = vi.fn()
-    toggleConversation('ses_a', send)
+    toggleVoice('ses_a', send)
     await settle()
     const deps = openConversation.mock.calls[0][0]
-    toggleConversation('ses_a', vi.fn())
+    toggleVoice('ses_a', vi.fn())
     deps.send('遅れて届いた文')
     expect(send).not.toHaveBeenCalled()
   })
 
   it('closes, and says so, when another screen has opened the conversation', async () => {
-    toggleConversation('ses_a', vi.fn())
+    toggleVoice('ses_a', vi.fn())
     await settle()
     apiFetch.mockResolvedValue({ ok: false, status: 409, json: async () => ({ detail: { code: 'voice_conversation_elsewhere' } }) })
     expect(await openConversation.mock.calls[0][0].transcribe(new Blob(['wav']))).toBe('')
@@ -117,11 +118,11 @@ describe('toggleConversation — one button opens and closes the conversation', 
   })
 
   it('closes on a second press: the microphone, the conversation, and the voice', async () => {
-    toggleConversation('ses_a', vi.fn())
+    toggleVoice('ses_a', vi.fn())
     await settle()
     const handle = await openConversation.mock.results[0].value
     apiFetch.mockClear()
-    toggleConversation('ses_a', vi.fn())
+    toggleVoice('ses_a', vi.fn())
     await settle()
     expect(handle.close).toHaveBeenCalled()
     expect(calls('DELETE', '/voice/conversation')).toHaveLength(1)
@@ -132,28 +133,79 @@ describe('toggleConversation — one button opens and closes the conversation', 
 
   it('only turns the voice on and off for an agent that does not listen', async () => {
     setVoiceListen('ses_a', false)
-    toggleConversation('ses_a', vi.fn())
+    toggleVoice('ses_a', vi.fn())
     await settle()
     expect(getSnapshot().on.ses_a).toBe(true)
     expect(openConversation).not.toHaveBeenCalled()
     expect(calls('POST', '/voice/conversation')).toHaveLength(0)
-    toggleConversation('ses_a', vi.fn())
+    toggleVoice('ses_a', vi.fn())
     expect(getSnapshot().on.ses_a).toBeUndefined()
   })
 
-  it('says why when the microphone is refused, and stays closed', async () => {
+  it('says why when the microphone is refused, and keeps the voice on', async () => {
     mic.refuse = 'NotAllowedError'
-    toggleConversation('ses_a', vi.fn())
+    toggleVoice('ses_a', vi.fn())
     await settle(); await settle()
-    expect(getSnapshot().on.ses_a).toBeUndefined()
+    expect(getSnapshot().on.ses_a).toBe(true)
+    expect(getSnapshot().phase.ses_a).toBeUndefined()
     expect(getSnapshot().error.ses_a).toContain('Permission denied')
+    expect(openConversation).not.toHaveBeenCalled()
+  })
+
+  it('mutes the microphone and keeps the voice on; unmuting listens again', async () => {
+    toggleVoice('ses_a', vi.fn())
+    await settle()
+    const handle = await openConversation.mock.results[0].value
+    apiFetch.mockClear()
+    toggleMic('ses_a', vi.fn())
+    await settle()
+    expect(handle.close).toHaveBeenCalled()
+    expect(mic.stopped).toBe(1)
+    expect(calls('DELETE', '/voice/conversation')).toHaveLength(1)
+    expect(getSnapshot().on.ses_a).toBe(true)
+    expect(getSnapshot().phase.ses_a).toBeUndefined()
+    toggleMic('ses_a', vi.fn())
+    expect(getSnapshot().phase.ses_a).toBe('starting')
+    await settle()
+    expect(openConversation).toHaveBeenCalledTimes(2)
+    expect(getSnapshot().on.ses_a).toBe(true)
+  })
+
+  it('starts muted the next time the voice is turned on, once the microphone was muted', async () => {
+    toggleVoice('ses_a', vi.fn())
+    await settle()
+    toggleMic('ses_a', vi.fn())
+    toggleVoice('ses_a', vi.fn())                 // off
+    toggleVoice('ses_a', vi.fn())                 // on again
+    await settle()
+    expect(getSnapshot().on.ses_a).toBe(true)
+    expect(getSnapshot().phase.ses_a).toBeUndefined()
+    expect(openConversation).toHaveBeenCalledTimes(1)
+  })
+
+  it('turning the voice off from muted leaves nothing open', async () => {
+    toggleVoice('ses_a', vi.fn())
+    await settle()
+    toggleMic('ses_a', vi.fn())
+    toggleVoice('ses_a', vi.fn())
+    expect(getSnapshot().on.ses_a).toBeUndefined()
+    expect(getSnapshot().phase.ses_a).toBeUndefined()
+  })
+
+  it('has no microphone to mute while the voice is off, or for an agent that does not listen', async () => {
+    toggleMic('ses_a', vi.fn())
+    expect(getSnapshot().phase.ses_a).toBeUndefined()
+    setVoiceListen('ses_a', false)
+    toggleVoice('ses_a', vi.fn())
+    toggleMic('ses_a', vi.fn())
+    await settle()
     expect(openConversation).not.toHaveBeenCalled()
   })
 
   it('hands over no turn model when the agent has none', async () => {
     voiceInfo = { ...voiceInfo, turn: false }
     setVoiceTurn('ses_a', false)
-    toggleConversation('ses_a', vi.fn())
+    toggleVoice('ses_a', vi.fn())
     await settle()
     expect(openConversation.mock.calls[0][0].turnModelUrl).toBeNull()
   })

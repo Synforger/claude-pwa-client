@@ -21,7 +21,8 @@ import { test, expect } from '@playwright/test'
 import { seedSession, appendEvent } from '../../helpers/fixture.js'
 import { openClient } from '../../helpers/pwa.js'
 
-const button = '[data-testid=chat-conversation-button]'
+const button = '[data-testid=chat-voice-button]'
+const micButton = '[data-testid=chat-mic-button]'
 
 // A reply of the agent's, written to the tab's record the way Claude writes one.
 function reply(jsonlPath, id, content) {
@@ -161,7 +162,7 @@ test.describe('golden: voice', () => {
     await page.screenshot({ path: testInfo.outputPath('voice-typed.png') })
   })
 
-  test('opening the conversation loads the listening parts and listens; closing it lets the microphone go', async ({ page, request }, testInfo) => {
+  test('turning the voice on opens the microphone too; muting and turning the voice off let the microphone go', async ({ page, request }, testInfo) => {
     const tab = await seedSession(request, 'e2e-voice')
     const loaded = []
     page.on('response', (r) => {
@@ -171,8 +172,10 @@ test.describe('golden: voice', () => {
     await openClient(page, { sid: tab.sid })
     const mics = () => page.evaluate(() => window.__voice.mics.map((t) => t.readyState))
 
+    await expect(page.locator(micButton)).toHaveCount(0)
     await page.locator(button).click()
-    await expect(page.locator(button)).toHaveAttribute('data-state', 'listening', { timeout: 30_000 })
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'on')
+    await expect(page.locator(micButton)).toHaveAttribute('data-state', 'listening', { timeout: 30_000 })
     await expect(page.locator('[data-testid=voice-error]')).toHaveCount(0)
     expect(await mics()).toEqual(['live'])
     // The voice activity model and the model runtime came from the build; this screen holds the conversation.
@@ -187,9 +190,24 @@ test.describe('golden: voice', () => {
     expect(worklet.headers()['content-type']).toMatch(/javascript/)
     await page.screenshot({ path: testInfo.outputPath('voice-listening.png') })
 
+    // Muting lets the microphone go and keeps the voice on.
+    await page.locator(micButton).click()
+    await expect(page.locator(micButton)).toHaveAttribute('data-state', 'muted')
+    await expect(page.locator(micButton)).toHaveAttribute('aria-pressed', 'false')
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'on')
+    await expect.poll(mics, { timeout: 5_000 }).toEqual(['ended'])
+    await page.screenshot({ path: testInfo.outputPath('voice-muted.png') })
+
+    // Unmuting listens again on a new microphone.
+    await page.locator(micButton).click()
+    await expect(page.locator(micButton)).toHaveAttribute('data-state', 'listening', { timeout: 30_000 })
+    await expect.poll(mics, { timeout: 5_000 }).toEqual(['ended', 'live'])
+
+    // Turning the voice off closes everything, and the microphone button goes.
     await page.locator(button).click()
     await expect(page.locator(button)).toHaveAttribute('data-state', 'off')
-    await expect.poll(mics, { timeout: 5_000 }).toEqual(['ended'])
+    await expect(page.locator(micButton)).toHaveCount(0)
+    await expect.poll(mics, { timeout: 5_000 }).toEqual(['ended', 'ended'])
   })
 
   test('a sentence the engine refuses shows why above the button, and closing clears it', async ({ page, request }, testInfo) => {
