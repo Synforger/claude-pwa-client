@@ -7,8 +7,10 @@
 //   - 続きが来たら、 前の声とつなげて 1 つの発話にする
 // Smart Turn を持たない時は、 声の区間の検出が「途切れた」 と言った所で送る。
 //
-// Pipecat に足した物: 文字にした文が言いさし (= 読点や「えーと」 で終わる) なら、 言い終えた判定でも送らずに
-// 続きを待つ。 文字にしている間に続きを話し始めたら、 その発話は送らずに続きとつなげる。
+// Pipecat に足した物:
+//   - 声の区間が終わった時点で、 判定と並べて文字にし始める (= 判定を待つ間・続きを待つ間に文字が出来ている)
+//   - 文字にした文が言いさし (= 読点や「えーと」 で終わる) なら、 言い終えた判定でも送らずに続きを待つ
+//   - 文字にしている間に続きを話し始めたら、 その発話は送らずに続きとつなげる
 //
 // deps:
 //   judge(audio) -> Promise<boolean> | null    言い終えたか (= null なら判定しない)
@@ -26,7 +28,7 @@ export function createTurnTaker({
   onPhase = () => {}, onError = () => {}, timers = globalThis, now = () => Date.now(),
 }) {
   let pieces = []        // この発話の声 (= 区間ごとの Float32Array)
-  let heard = null       // 文字にした結果 (= { count: 文字にした区間の数, text })
+  let writing = null     // 文字にしている / した結果 (= { count: 文字にした区間の数, text: Promise<string> })
   let endedAt = 0        // 最後の区間が終わった時刻 (= 声が途切れてから pauseMs 後)
   let wait = null        // 続きを待つ時計
   let generation = 0     // 新しい声が来るたびに進む (= 古い判定・古い文字の答えで送らない)
@@ -44,35 +46,41 @@ export function createTurnTaker({
     idlePhase()
   }
 
+  // 今の区間までを文字にする (= 同じ区間の数なら、 前に頼んだ結果を使う)
+  function write() {
+    const count = pieces.length
+    if (writing?.count !== count) {
+      const text = transcribe(join(pieces.slice(0, count)))
+      text.catch(() => {})   // 失敗は、 その結果を待つ finish が受ける
+      writing = { count, text }
+    }
+    return writing
+  }
+
   // 待っている発話を文字にして送る。 force = 待ち切った (= 言いさしでも送る)
   async function finish({ force = false } = {}) {
     clearWait()
     if (!pieces.length || closed) return
     const asked = generation
-    const count = pieces.length
+    const { count, text: written } = write()
     let text
-    if (heard?.count === count) {
-      text = heard.text
-    } else {
-      hearing += 1
-      onPhase('hearing')
-      try {
-        text = await transcribe(join(pieces.slice(0, count)))
-      } catch (error) {
-        if (!closed) onError(error)
-        if (asked === generation) { pieces = pieces.slice(count); heard = null }
-        return
-      } finally {
-        hearing -= 1
-      }
-      heard = { count, text }
+    hearing += 1
+    onPhase('hearing')
+    try {
+      text = await written
+    } catch (error) {
+      if (!closed) onError(error)
+      if (asked === generation) { pieces = pieces.slice(count); writing = null }
+      return
+    } finally {
+      hearing -= 1
     }
     if (closed) return
     // 文字にしている間に続きを話し始めた: 送らずに、 続きとつなげて決め直す
     if (asked !== generation) return
     if (!force && text && unfinished(text)) { holdUntilQuiet(); return }
     pieces = pieces.slice(count)
-    heard = null
+    writing = null
     if (text) send(text)
     idlePhase()
   }
@@ -91,6 +99,7 @@ export function createTurnTaker({
       pieces.push(audio)
       endedAt = now()
       const asked = ++generation
+      write()
       if (!judge) { await finish(); return }
       onPhase('judging')
       let complete
@@ -118,7 +127,7 @@ export function createTurnTaker({
       closed = true
       clearWait()
       pieces = []
-      heard = null
+      writing = null
     },
   }
 }
