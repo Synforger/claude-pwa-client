@@ -704,10 +704,33 @@ def wipe_input_line(session_id: str) -> None:
     _run_tmux("send-keys", "-t", _tmux_session_name(session_id), *build_wipe_keys())
 
 
+def input_box_text(plain: str) -> str | None:
+    """claude の画面 (= 色を外した文字) から、 入力欄の文を取り出す (= 最後の 2 本の横線の間。 行頭の ❯ は外す)。
+
+    横線が 2 本無い画面 (= claude が起動していない / 全画面の選択肢を出している) は None。
+    """
+    lines = plain.split("\n")
+    rules = [i for i, line in enumerate(lines) if line.startswith("─")]
+    if len(rules) < 2:
+        return None
+    body = "\n".join(lines[rules[-2] + 1:rules[-1]])
+    return body.replace("❯", "", 1).strip()
+
+
+def read_input_box(session_id: str) -> str | None:
+    """その session の claude の入力欄の文 (= 読めなければ None)。"""
+    from backend.terminal.ansi_text import strip_ansi  # noqa: PLC0415
+
+    pane = capture_pane_ansi_tail(session_id)
+    return input_box_text(strip_ansi(pane)) if pane else None
+
+
 async def send_text_two_stage(
     session_id: str,
     text: str,
     key: str | None = None,
+    *,
+    wipe: bool = True,
 ) -> bool:
     """本文送信の 2 段送信 (= C-u wipe → 本文 paste → 猶予 → [展開 paste] → Enter 単発)。
 
@@ -726,10 +749,14 @@ async def send_text_two_stage(
     queue 文で汚れていても wipe してから本文を送るため。 C-u 単発は 1 行しか消せず複数行残留に
     新本文が結合するので、 (C-u, BSpace) 往復で全行を畳む (= wipe_input_line、 build_wipe_keys)。
     空入力への往復は no-op。
+
+    wipe=False は入力欄を消さずに、 在る文の後ろへ打つ (= 声の発話を Escape の後に打つ時。 claude が入力欄へ
+    戻した前の発話を残し、 続けて 1 つの発話として送る)。
     """
     from backend.terminal.ansi_text import strip_ansi  # noqa: PLC0415
 
-    wipe_input_line(session_id)
+    if wipe:
+        wipe_input_line(session_id)
     multiline = "\n" in text
     before = ""
     if multiline:

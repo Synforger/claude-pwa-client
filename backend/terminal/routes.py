@@ -22,6 +22,7 @@ import logging
 import os
 import time
 import uuid as _uuid_mod
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Body, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
@@ -36,9 +37,11 @@ from backend.terminal.runner import (
     jsonl_path_for_session,
     pty_sessions,
     resize_pty,
+    read_input_box,
     send_text_two_stage,
     spawn_pty_session,
     tmux_send_keys,
+    wipe_input_line,
     write_pty,
 )
 from backend.state import sessions_meta, stream_states
@@ -74,6 +77,13 @@ router = APIRouter()
 # 声の発話で turn を止めた後、 止まった印 (= 中断の行) が書かれるのを待つ上限 (= 秒)。 実測 (= Claude Code 2.1.299:
 # ツールの実行中 0.25 秒、 文を書いている途中 0.22 秒) の 12 倍。 過ぎても本文は送る (= 発話を落とさない)。
 VOICE_INTERRUPT_WAIT_SEC = 3.0
+# Escape の後、 claude の受け方 (= 中断の行 / 入力欄へ戻す) を見に行く間隔
+ESCAPE_POLL_SEC = 0.05
+# 入力欄へ戻った文を見てから打ち始めるまでの猶予 (= 戻すのは実測 0.17〜0.19 秒で、 見えた後の描き残しを待つ)
+ESCAPE_SETTLE_SEC = 0.1
+
+# 停止ボタンの後の、 入力欄を消す task (= 走っている間は参照を持っておく。 試験はこれを待つ)
+_stop_clears: dict[str, asyncio.Task] = {}
 
 
 def _note_queue_on_unconfirmed(
@@ -404,12 +414,13 @@ async def _send_body(session_id: str, text: str, key: str | None = None) -> dict
 
     単発の key (= Escape で停止 / quick-reply) はここを通らない ― 停止を本文の後ろに並ばせない。
 
-    声の発話 (= 頭に `[voice]` の印) は、 turn の実行中なら先に止めてから打つ (= `_interrupt_for_voice`)。
+    声の発話 (= 頭に `[voice]` の印) は、 turn の実行中なら先に止めてから、 入力欄を消さずに後ろへ打つ
+    (= `_escape_for_voice`。 claude が入力欄へ戻した前の発話と 1 つになって届く)。
     """
     _, is_slash = _delivery_counter(text)
     lock = _send_locks.setdefault(session_id, asyncio.Lock())
     async with lock:
-        interrupted = await _interrupt_for_voice(session_id, text)
+        escaped = await _escape_for_voice(session_id, text)
         jsonl_path = jsonl_path_for_session(session_id)
         initial_pos = 0
         if jsonl_path is not None:
@@ -420,10 +431,15 @@ async def _send_body(session_id: str, text: str, key: str | None = None) -> dict
                 initial_pos = 0
         # 送信直前の busy を capture (= turn 実行中送信なら confirmed:False 時に queue 積みとみなす)。
         _st_send = stream_states.get(session_id)
-        was_busy = bool(_st_send and _st_send.busy) and not interrupted
+        was_busy = bool(_st_send and _st_send.busy) and not (escaped and (escaped.stopped or escaped.restored))
         # 2 段送信 protocol (= C-u wipe → paste → Enter、 詳細 = runner.send_text_two_stage docstring)。
-        # queue に既に積まれた過去 message には触れない (= C-u は入力欄のみ)。
-        ok = await send_text_two_stage(session_id, text, key=key)
+        # queue に既に積まれた過去 message には触れない (= C-u は入力欄のみ)。 Escape を打った声の発話は消さずに
+        # 後ろへ打つ (= 戻された前の発話とは空白 1 つで区切る)。
+        if escaped is None:
+            ok = await send_text_two_stage(session_id, text, key=key)
+        else:
+            ok = await send_text_two_stage(session_id, (" " + text) if escaped.restored else text, key=key,
+                                           wipe=False)
         if ok:
             # prompt_detector の tier C grace period 用に「今 user が送信した」 を記録。
             # 直後 tick で末尾が prompt-like でも 1.5s は待機扱いにしない (= 自分の入力を
@@ -439,33 +455,98 @@ async def _send_body(session_id: str, text: str, key: str | None = None) -> dict
     return _note_queue_on_unconfirmed(session_id, was_busy, is_slash, result)
 
 
-async def _interrupt_for_voice(session_id: str, text: str) -> bool:
-    """声の発話が turn の実行中に届いたら、 Escape で turn を止め、 止まるのを見届ける (= 止めたら True)。
+@dataclass
+class _Escaped:
+    """Escape を claude が受け終えた形。"""
+    stopped: bool    # 中断の行を書いた (= 書き出した後の turn を止めた。 入力欄は空のまま)
+    restored: bool   # 入力欄の文が変わった (= 何も書き出す前の turn を取り消し、 送った文を入力欄へ戻した)
 
-    声で話している間に agent が先へ進み続けないように、 声の発話は turn を止めてから届ける (= 「やっぱりやめよう」
-    も会話として読める)。 停止ボタン (= 止めて、 待っている入力も捨てる) とは別の動きで、 停止の印
-    (= user_stopped) は付けない。 止まったかは、 claude が書く中断の行 (= `[Request interrupted by user]` と
-    その `for tool use`) で見る。 打った文が止める途中に飲まれないよう、 行が書かれてから打つ (= 上限
-    VOICE_INTERRUPT_WAIT_SEC。 過ぎたら止まったかに関わらず打つ)。
-    """
-    if not text.startswith(VOICE_INPUT_MARK):
-        return False
-    st = stream_states.get(session_id)
-    if st is None or not st.busy or st.user_stopped:
-        return False
+
+@dataclass
+class _EscapeSent:
+    """打った Escape と、 打つ前の様子 (= 受け終えたかを、 ここからの差で見る)。"""
+    jsonl_path: object
+    pos: int
+    box_before: str | None
+    started: float
+
+
+async def _send_escape(session_id: str) -> _EscapeSent | None:
+    """Escape を打つ (= 打てなければ None)。 打つ前の記録の長さと入力欄の文を控える。"""
     jsonl_path = jsonl_path_for_session(session_id)
     try:
         pos = jsonl_path.stat().st_size if jsonl_path is not None else 0
     except OSError:
         pos = 0
+    before = await asyncio.to_thread(read_input_box, session_id)
     started = time.monotonic()
     if not tmux_send_keys(session_id, key="Escape"):
+        return None
+    return _EscapeSent(jsonl_path=jsonl_path, pos=pos, box_before=before, started=started)
+
+
+async def _escape_settled(session_id: str, sent: _EscapeSent) -> _Escaped:
+    """打った Escape を claude が受け終えるのを見届ける。
+
+    claude (= 2.1.299 で実測) は Escape を 2 通りに受ける。 turn がもう何かを書き出していれば、 止めて中断の行
+    (= `[Request interrupted by user]` とその `for tool use`) を書く。 まだ何も書き出していなければ、 turn を
+    取り消し、 送った文を入力欄へ戻す (= 0.2 秒ほど。 中断の行は書かない。 待っていた発話も一緒に戻る)。 どちらかを
+    見るまで、 上限 VOICE_INTERRUPT_WAIT_SEC まで待つ。
+    """
+    pos = sent.pos
+    stopped = restored = False
+    while not (stopped or restored) and time.monotonic() - sent.started < VOICE_INTERRUPT_WAIT_SEC:
+        await asyncio.sleep(ESCAPE_POLL_SEC)
+        if sent.jsonl_path is not None:
+            found, pos = _count_interrupts(sent.jsonl_path, pos)
+            stopped = found > 0
+        box = await asyncio.to_thread(read_input_box, session_id)
+        restored = box is not None and bool(box) and box != sent.box_before
+    if restored:
+        await asyncio.sleep(ESCAPE_SETTLE_SEC)   # 戻した文を描き終えるまで (= 途中に打つと混ざる)
+    logger.info("escape: session=%s stopped=%s restored=%s ms=%d", session_id, stopped, restored,
+                (time.monotonic() - sent.started) * 1000)
+    return _Escaped(stopped=stopped, restored=restored)
+
+
+async def _escape_for_voice(session_id: str, text: str) -> _Escaped | None:
+    """声の発話が turn の実行中に届いたら、 Escape で turn を止める (= 止めなければ None)。
+
+    声で話している間に agent が先へ進み続けないように、 声の発話は turn を止めてから届ける (= 「やっぱりやめよう」
+    も会話として読める)。 本文は入力欄を消さずに後ろへ打つ (= `_send_body`): claude が入力欄へ戻した前の発話
+    (= 途中の間で「言い終えた」 と判定されて先に送られた区間) と、 1 つの発話になって届く。 停止ボタン (= 止めて、
+    入力欄も消す) とは別の動きで、 停止の印 (= user_stopped) は付けない。
+    """
+    if not text.startswith(VOICE_INPUT_MARK):
+        return None
+    st = stream_states.get(session_id)
+    if st is None or not st.busy or st.user_stopped:
+        return None
+    sent = await _send_escape(session_id)
+    return None if sent is None else await _escape_settled(session_id, sent)
+
+
+async def _stop(session_id: str) -> bool:
+    """停止ボタン: Escape で turn を止め、 claude が入力欄へ戻した文 (= 取り消した発話と、 待っていた発話) を消す。
+
+    Escape は本文の送信の後ろに並ばせず、 すぐ打つ (= 停止が遅れる害の方が大きい)。 消すのは、 claude が受け終える
+    のを見届けてから、 本文の送信と順番に (= 送っている途中の本文を、 Enter の前に消さない)。
+    """
+    st = stream_states.get(session_id)
+    busy = st is not None and st.busy
+    sent = await _send_escape(session_id)
+    if sent is None:
         return False
-    stopped = jsonl_path is not None and await _wait_count_added(
-        _count_interrupts, jsonl_path, pos, VOICE_INTERRUPT_WAIT_SEC)
-    logger.info("voice interrupt: session=%s stopped=%s ms=%d", session_id, stopped,
-                (time.monotonic() - started) * 1000)
-    return stopped
+    _stop_clears[session_id] = asyncio.create_task(_clear_after_stop(session_id, sent, busy))
+    return True
+
+
+async def _clear_after_stop(session_id: str, sent: _EscapeSent, busy: bool) -> None:
+    lock = _send_locks.setdefault(session_id, asyncio.Lock())
+    async with lock:
+        if busy:
+            await _escape_settled(session_id, sent)
+        await asyncio.to_thread(wipe_input_line, session_id)
 
 
 @router.post("/pty/{session_id}/send")
@@ -527,6 +608,9 @@ async def pty_send(
     # 本文 (= text + enter) は、 同じ session の他の本文と重ならないように 1 通ずつ打って確かめる。
     if text and enter:
         return await _send_body(session_id, text, key)
+    # 停止ボタン (= 本文の無い Escape): 止めて、 入力欄に戻された文も消す。
+    if key == "Escape" and not text and not enter:
+        return {"ok": await _stop(session_id)}
     # 単発 key 送信 (= Escape で停止 / AskUserQuestion typeNum 等) と、 enter 無しの text (= 自由記述の
     # 1 回目) は wipe も確認もしない (= key の意味を壊さない、 送信完了の概念が無い)。 並びもしない。
     ok = tmux_send_keys(session_id, text=text, key=key, enter=enter)

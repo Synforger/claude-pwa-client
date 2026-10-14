@@ -510,7 +510,8 @@ endpoints:
       - "text と key は択一"
       - "delivered = JSONL line count 増分で判定 (= confirm.py)"
       - "15s timeout で incomplete=true"
-      - "頭に [voice] の印が付いた本文は、 turn の実行中なら先に Escape で止め、 claude が中断の行を書いてから打つ (= 上限 3 秒、 過ぎても打つ)。 停止の印 (= user_stopped) は付けない"
+      - "頭に [voice] の印が付いた本文は、 turn の実行中なら先に Escape で止め、 claude が中断の行を書くか入力欄へ前の発話を戻すのを見届けてから (= 上限 3 秒、 過ぎても打つ)、 入力欄を消さずに後ろへ打つ (= 戻された発話と空白 1 つで区切り、 1 つの発話になる)。 停止の印 (= user_stopped) は付けない"
+      - "本文の無い key=Escape は停止ボタン: すぐ打って返り、 claude が受け終えるのを見届けてから、 本文の送信と順番に入力欄を消す"
     implementation: backend/terminal/routes.py
 
   - method: POST
