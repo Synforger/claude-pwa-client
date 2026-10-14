@@ -1,7 +1,7 @@
 // Golden path: notes feature.
-// The topbar 📋 button opens the notes of the tab: one text file on the host that the
-// screen and the tab's agent both write. It shows as written (line breaks, leading spaces and
-// aligned columns kept, paths to tap), is edited in place, and is emptied with Reset.
+// The topbar 📋 button opens the notes of the tab: one markdown file on the host that the
+// screen and the tab's agent both write. It renders like a markdown file, never folds, keeps the
+// line breaks and spaces of a paragraph as written, is edited in place, and is emptied with Reset.
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -18,8 +18,12 @@ const NOTE_FILE = resolve(
 const modal = '[data-testid=notes-modal]'
 const body = '[data-testid=notes-body]'
 const shown = '[data-testid=notes-text]'
-// A tree laid out with box-drawing lines, leading spaces and spaces that align a column.
-const TREE = 'root/\n├─ a/      → one / two\n│  └─ dd   → three\n└─ ccc/    → ~/cpc-e2e-notes/spec.md\n'
+// A heading, then a tree laid out with box-drawing lines, a leading space and spaces that align a
+// column, then a path.
+const NOTE = '# Tree\n\nroot/\n├─ a/      → one / two\n  └─ dd   → three\n\n~/cpc-e2e-notes/spec.md\n'
+const TREE_LINES = ['root/', '├─ a/      → one / two', '  └─ dd   → three']
+// The lines of the paragraph as shown (= a line break mark ends a line; spaces read back as spaces).
+const shownLines = (page) => page.locator(`${shown} p`).first().evaluate((el) => el.innerText.replace(/\u00a0/g, ' ').split('\n'))
 
 // One step of the agent's own: a tool call and its result (= what moves `current_tool`).
 function toolStep(jsonlPath, id) {
@@ -51,27 +55,15 @@ test.describe('golden: notes', () => {
     expect(existsSync(NOTE_FILE)).toBe(false)
 
     await page.locator('[data-testid=notes-edit]').click()
-    await page.locator('[data-testid=notes-editor]').fill(TREE)
+    await page.locator('[data-testid=notes-editor]').fill(NOTE)
     await page.locator('[data-testid=notes-save]').click()
 
-    // Shown as written: every line on its own, spaces kept, the path as something to tap.
-    await expect(page.locator(shown)).toHaveText(TREE, { useInnerText: true })
+    // Rendered like a markdown file: the heading is a heading, the tree keeps its lines and spaces,
+    // and the path is something to tap.
+    await expect(page.locator(`${shown} h1`)).toHaveText('Tree')
+    expect(await shownLines(page)).toEqual(TREE_LINES)
     await expect(page.locator(`${shown} .file-link`)).toHaveText('~/cpc-e2e-notes/spec.md')
-    // The aligned arrows sit in one column (= the text is in a monospace face).
-    const arrows = await page.locator(shown).evaluate((el) => {
-      const xs = []
-      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
-      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-        for (let i = n.data.indexOf('→'); i >= 0; i = n.data.indexOf('→', i + 1)) {
-          const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + 1)
-          xs.push(Math.round(r.getBoundingClientRect().left))
-        }
-      }
-      return xs
-    })
-    expect(arrows).toHaveLength(3)
-    expect(new Set(arrows).size).toBe(1)
-    expect(readFileSync(NOTE_FILE, 'utf8')).toBe(TREE)
+    expect(readFileSync(NOTE_FILE, 'utf8')).toBe(NOTE)
 
     // Still there after closing and reopening, and after a reload.
     await page.locator(`${modal} .modal-close`).click()
@@ -79,12 +71,12 @@ test.describe('golden: notes', () => {
     await page.reload({ waitUntil: 'domcontentloaded' })
     await page.locator('[data-testid=chat-input]').waitFor({ state: 'visible' })
     await page.locator('[data-testid=notes-open-button]').click()
-    await expect(page.locator(shown)).toHaveText(TREE, { useInnerText: true })
+    await expect(page.locator(`${shown} h1`)).toHaveText('Tree')
 
     // Reset asks first, then empties the notes and removes the file.
     await page.locator('[data-testid=notes-reset]').click()
     await page.locator('.confirm-btn.no').click()
-    await expect(page.locator(shown)).toHaveText(TREE, { useInnerText: true })
+    await expect(page.locator(`${shown} h1`)).toHaveText('Tree')
     await page.locator('[data-testid=notes-reset]').click()
     await page.locator('.confirm-btn.yes').click()
     await expect(page.locator(`${body} .note-empty`)).toBeVisible()
@@ -104,6 +96,19 @@ test.describe('golden: notes', () => {
     writeFileSync(NOTE_FILE, 'second draft by the agent\n')
     toolStep(seeded.jsonl_path, `note-${Date.now()}`)
     await expect(page.locator(body)).toContainText('second draft by the agent', { timeout: 10_000 })
+  })
+
+  test('long notes are shown whole, never folded', async ({ page, request }) => {
+    await seedSession(request, 'e2e-chat-golden')
+    mkdirSync(dirname(NOTE_FILE), { recursive: true })
+    // Longer than the chat folds a reply (= 4,000 characters), and ending with a heading.
+    writeFileSync(NOTE_FILE, `# head\n\n${'a line of the notes\n'.repeat(400)}\n## the last heading\n`)
+    await openClient(page, { sid: SID })
+
+    await page.locator('[data-testid=notes-open-button]').click()
+    await expect(page.locator(`${shown} h2`)).toHaveText('the last heading')
+    await expect(page.locator(`${body} .md-collapse-toggle`)).toHaveCount(0)
+    await expect(page.locator(`${body} .md-oversized`)).toHaveCount(0)
   })
 
   test('a path in the notes opens in the preview', async ({ page, request }) => {
