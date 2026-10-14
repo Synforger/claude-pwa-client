@@ -12,7 +12,8 @@ import UIKit
 /// 落とすしかなかった。 こちらは iOS が両方のボタンを付ける。 中身は終わりの無い生の映像として伝え (= 再生の範囲を
 /// 無限)、 小窓を閉じても通話は続く。
 ///
-/// iOS が付ける再生の操作は読み替える: 再生 / 停止 = マイクの入 / 切 (= 入っている間が「再生中」)、 10 秒戻し / 送り =
+/// iOS が付ける再生の操作は読み替える: 再生 / 停止 = 押すたびにマイクの入 / 切を入れ替える (= iOS には常に「再生中」
+/// と伝える。 一時停止中と伝えると、 app を抜けた時に小窓が自動で出ない。 マイクの入 / 切は帯に出す)、 10 秒戻し / 送り =
 /// 会話を上 (= 古い方) / 下 (= 新しい方) へ窓の 3 分の 2 ずつ送る。 上へ送って読んでいる間に新しい行が来ても位置は
 /// そのままで、 帯に「▼ 新しい行」 と出す (= 一番下まで戻すと、 また新しい行に付いていく)。
 ///
@@ -32,8 +33,8 @@ import UIKit
     private var lines: [(who: String, text: String)] = []
     private var state = "waiting"
     private var timer: Timer?
-    /// マイクが入っているか (= 小窓の再生 / 停止の表示。 iOS は main actor の外から読む)
-    nonisolated(unsafe) private var micOn = false
+    /// マイクが入っているか (= 帯に出す)
+    private var micOn = false
     /// 小窓の再生 / 停止で、 マイクを入れる / 切る (= 引数は入れるか)
     var onMic: ((Bool) -> Void)?
     /// 一番下から上へ送った量 (pt)。 0 なら新しい行に付いていく
@@ -66,10 +67,10 @@ import UIKit
         CAPLog.print("[CallPicture] ready (starts when the app goes to the background)")
     }
 
-    /// マイクの入 / 切を、 小窓の再生 / 停止の表示に合わせる (= 画面の 🎙 から切り替えた時も)。
+    /// マイクの入 / 切を、 小窓の帯に合わせる (= 画面の 🎙 から切り替えた時も)。
     func setMic(_ on: Bool) {
         micOn = on
-        controller?.invalidatePlaybackState()
+        render()
     }
 
     /// 小窓を今出す (= 自動で出なかった時の、 画面のボタンから)。 出せない時は false。
@@ -161,7 +162,7 @@ import UIKit
         // 上の帯: 今の状態
         Self.bandColor.setFill()
         context.fill(CGRect(x: 0, y: 0, width: size.width, height: Self.bandHeight))
-        let bandText = Self.stateText(state) + (newBelow ? "   ▼ 新しい行" : "")
+        let bandText = Self.stateText(state) + (micOn ? "" : "  🎙✕") + (newBelow ? "   ▼ 新しい行" : "")
         let band = NSAttributedString(string: bandText, attributes: [
             .font: UIFont.systemFont(ofSize: 18, weight: .semibold), .foregroundColor: Self.bandText,
         ])
@@ -274,9 +275,11 @@ import UIKit
 // 再生の操作: 生の映像として伝え、 再生 / 停止と送りは通話の操作に読み替える
 extension CallPicture: AVPictureInPictureSampleBufferPlaybackDelegate {
     nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController, setPlaying playing: Bool) {
+        // 常に「再生中」 と伝えているので、 押されるたびに来るのは停止の頼み。 押されたらマイクを入れ替える
         Task { @MainActor in
-            self.setMic(playing)
-            self.onMic?(playing)
+            let on = !self.micOn
+            self.setMic(on)
+            self.onMic?(on)
         }
     }
 
@@ -287,7 +290,7 @@ extension CallPicture: AVPictureInPictureSampleBufferPlaybackDelegate {
     }
 
     nonisolated func pictureInPictureControllerIsPlaybackPaused(_ controller: AVPictureInPictureController) -> Bool {
-        !micOn
+        false
     }
 
     nonisolated func pictureInPictureController(
