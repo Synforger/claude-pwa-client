@@ -531,21 +531,22 @@ async def _stop(session_id: str) -> bool:
 
     Escape は本文の送信の後ろに並ばせず、 すぐ打つ (= 停止が遅れる害の方が大きい)。 消すのは、 claude が受け終える
     のを見届けてから、 本文の送信と順番に (= 送っている途中の本文を、 Enter の前に消さない)。
+
+    ⚠ 作業中の印 (= busy) に関わらず、 毎回見届ける。 送った直後はまだ印が立たず、 印を見て待たずに消した間は、
+    Escape のすぐ後に消すキーが届いた。 端末は Escape の直後のキーと 2 つで 1 つのキー (= Alt + キー) と読むので、
+    停止が効かずに turn が続いた (= 2026-10-15 の実験用タブ)。
     """
-    st = stream_states.get(session_id)
-    busy = st is not None and st.busy
     sent = await _send_escape(session_id)
     if sent is None:
         return False
-    _stop_clears[session_id] = asyncio.create_task(_clear_after_stop(session_id, sent, busy))
+    _stop_clears[session_id] = asyncio.create_task(_clear_after_stop(session_id, sent))
     return True
 
 
-async def _clear_after_stop(session_id: str, sent: _EscapeSent, busy: bool) -> None:
+async def _clear_after_stop(session_id: str, sent: _EscapeSent) -> None:
     lock = _send_locks.setdefault(session_id, asyncio.Lock())
     async with lock:
-        if busy:
-            await _escape_settled(session_id, sent)
+        await _escape_settled(session_id, sent)
         await asyncio.to_thread(wipe_input_line, session_id)
 
 
