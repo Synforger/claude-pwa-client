@@ -61,6 +61,13 @@ def test_classify_interrupt_marker_list_is_interrupt():
     assert classify_jsonl_line(line) is LineKind.INTERRUPT
 
 
+def test_classify_interrupt_during_a_tool_is_interrupt():
+    # ツールの実行中に止めると、 claude は `for tool use` を付けて書く (= 実測、 Claude Code 2.1.299)。 発話と
+    # 数えると、 止めたのに busy=True に戻る
+    line = _user_list({"type": "text", "text": "[Request interrupted by user for tool use]"})
+    assert classify_jsonl_line(line) is LineKind.INTERRUPT
+
+
 def test_classify_mixed_interrupt_and_text_is_start():
     # INTERRUPT marker + 通常 text の list は通常 text 側で START (= 安全側に倒さない)
     line = _user_list(
