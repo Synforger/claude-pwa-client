@@ -10,7 +10,10 @@ import UIKit
 /// 小窓は「絵を流し込む PiP」 (= `AVSampleBufferDisplayLayer`) で出す。 通話の PiP
 /// (= `AVPictureInPictureVideoCallViewController`) は iOS 16 から閉じる・戻るのボタンを描かず、 小窓を消すには app を
 /// 落とすしかなかった。 こちらは iOS が両方のボタンを付ける。 中身は終わりの無い生の映像として伝え (= 再生の範囲を
-/// 無限)、 再生の操作には何もしない。 小窓を閉じても通話は続く。
+/// 無限)、 小窓を閉じても通話は続く。
+///
+/// iOS が付ける再生の操作は、 通話の操作に読み替える: 再生 / 停止 = マイクの入 / 切 (= 入っている間が「再生中」)、
+/// 10 秒送り = agent の今の声を止める (`onSkip(true)`)、 10 秒戻し = 直前の返事をもう一度 (`onSkip(false)`)。
 ///
 /// 文と状態は backend の会話が送る (= `backend/voice_call/agent.py` の小窓)。 変わる度に吹き出しを絵に描いて流し込む。
 /// 流し込む先の層は、 画面の隅に 1 pt で置く (= PiP は画面に載っている層からしか始められない)。
@@ -28,6 +31,12 @@ import UIKit
     private var lines: [(who: String, text: String)] = []
     private var state = "waiting"
     private var timer: Timer?
+    /// マイクが入っているか (= 小窓の再生 / 停止の表示。 iOS は main actor の外から読む)
+    nonisolated(unsafe) private var micOn = false
+    /// 小窓の再生 / 停止で、 マイクを入れる / 切る (= 引数は入れるか)
+    var onMic: ((Bool) -> Void)?
+    /// 小窓の送りのボタン (= 引数は進むか。 戻るなら false)
+    var onSkip: ((Bool) -> Void)?
 
     func start(over screen: UIView) {
         guard AVPictureInPictureController.isPictureInPictureSupported() else {
@@ -44,8 +53,6 @@ import UIKit
         let source = AVPictureInPictureController.ContentSource(sampleBufferDisplayLayer: layer, playbackDelegate: self)
         let controller = AVPictureInPictureController(contentSource: source)
         controller.canStartPictureInPictureAutomaticallyFromInline = true
-        controller.requiresLinearPlayback = true
-        Self.hidePlaybackControls(of: controller)
         controller.delegate = self
         self.controller = controller
         timer = Timer.scheduledTimer(withTimeInterval: Self.refreshSecs, repeats: true) { [weak self] _ in
@@ -54,15 +61,10 @@ import UIKit
         CAPLog.print("[CallPicture] ready (starts when the app goes to the background)")
     }
 
-    /// 小窓の再生・停止・送りのボタンと進み具合の棒を消し、 閉じると戻るのボタンだけを残す。 文書に載っている
-    /// `requiresLinearPlayback` は送りを効かなくするだけで、 ボタンは残る。 消せるのは文書に無い `controlsStyle`
-    /// (= 1) だけなので、 iOS がその名前を持っている時だけ設定する (= 無くなった iOS では、 ボタンが残るだけ)。
-    private static func hidePlaybackControls(of controller: AVPictureInPictureController) {
-        guard controller.responds(to: NSSelectorFromString("setControlsStyle:")) else {
-            CAPLog.print("[CallPicture] controlsStyle is not available; playback buttons stay")
-            return
-        }
-        controller.setValue(1, forKey: "controlsStyle")
+    /// マイクの入 / 切を、 小窓の再生 / 停止の表示に合わせる (= 画面の 🎙 から切り替えた時も)。
+    func setMic(_ on: Bool) {
+        micOn = on
+        controller?.invalidatePlaybackState()
     }
 
     func stop() {
@@ -231,9 +233,14 @@ import UIKit
     }
 }
 
-// 再生の操作: 生の映像として伝え、 操作には何もしない (= 一時停止も早送りも無い)
+// 再生の操作: 生の映像として伝え、 再生 / 停止と送りは通話の操作に読み替える
 extension CallPicture: AVPictureInPictureSampleBufferPlaybackDelegate {
-    nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController, setPlaying playing: Bool) {}
+    nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController, setPlaying playing: Bool) {
+        Task { @MainActor in
+            self.setMic(playing)
+            self.onMic?(playing)
+        }
+    }
 
     nonisolated func pictureInPictureControllerTimeRangeForPlayback(
         _ controller: AVPictureInPictureController
@@ -242,7 +249,7 @@ extension CallPicture: AVPictureInPictureSampleBufferPlaybackDelegate {
     }
 
     nonisolated func pictureInPictureControllerIsPlaybackPaused(_ controller: AVPictureInPictureController) -> Bool {
-        false
+        !micOn
     }
 
     nonisolated func pictureInPictureController(
@@ -253,6 +260,8 @@ extension CallPicture: AVPictureInPictureSampleBufferPlaybackDelegate {
         _ controller: AVPictureInPictureController, skipByInterval skipInterval: CMTime,
         completion completionHandler: @escaping () -> Void
     ) {
+        let forward = CMTimeGetSeconds(skipInterval) > 0
+        Task { @MainActor in self.onSkip?(forward) }
         completionHandler()
     }
 }
