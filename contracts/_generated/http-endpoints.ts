@@ -250,6 +250,8 @@ export interface GetSessionsSidVoiceResponse {
     pause_ms: number
     /** 言い終えていない時に、 送るまで待つ無音 (ミリ秒。 声が途切れた時から) */
     wait_ms: number
+    /** 言い終えた発話を送る前に待つ時間 (ミリ秒)。 この間に話し始めたら続きとつなげる。 0 なら待たない */
+    resume_ms: number
     /** 聞き取った文がこれで終わる時は、 wait_ms まで待つ */
     unfinished_endings: string[]
     /** 返事が鳴っている間も聞き、 話し始めたら返事を止めるか */

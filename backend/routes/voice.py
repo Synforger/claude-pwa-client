@@ -102,10 +102,14 @@ LISTEN_TIMEOUT_SEC = MAX_LISTEN_SEC * _SEEN_LISTEN_SEC_PER_AUDIO_SEC * 2
 #   wait_ms:   言い終えていないと判定した時に、 送るまで待つ無音 (= 声が途切れた時から数える。 Pipecat の既定)
 #   unfinished_endings: 聞き取った文がこれで終わる時は、 言い終えた判定でも送らずに wait_ms まで待つ
 #              (= 読点と、 考えている間に出る語。 文末の句点は外して見る)
+#   resume_ms: 言い終えたと判定した後、 送る前に待つ無音。 この間に話し始めたら、 続きとつなげて 1 つの発話にする
+#              (= Smart Turn は長い発話の途中の間でも「言い終えた」 と出すことがある。 0 なら待たずに送る。
+#              既定は声の agent の頼みの値)
 #   interrupt: 返事が鳴っている間も聞き、 話し始めたら返事を止める (= false なら、 鳴っている間は聞かない)
 CONVERSATION_DEFAULTS = {
     "pause_ms": 700,
     "wait_ms": 3000,
+    "resume_ms": 400,
     "unfinished_endings": ["、", ",", "，", "…", "...", "なんか", "えーと", "えっと", "えー", "あのー", "あの",
                            "うーん", "まあ", "その"],
     "interrupt": True,
@@ -159,6 +163,9 @@ def _conversation(raw) -> dict | None:
     out = {**CONVERSATION_DEFAULTS, **raw}
     endings = out["unfinished_endings"]
     if not (_is_ms(out["pause_ms"]) and _is_ms(out["wait_ms"]) and out["wait_ms"] > out["pause_ms"]):
+        return None
+    resume = out["resume_ms"]
+    if not (isinstance(resume, int) and not isinstance(resume, bool) and resume >= 0):
         return None
     if not isinstance(endings, list) or not all(isinstance(e, str) and e.strip() for e in endings):
         return None

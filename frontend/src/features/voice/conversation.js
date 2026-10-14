@@ -48,7 +48,9 @@ export async function openConversation({
   audioContext, stream, turnModelUrl, settings, fetchModel, transcribe, send, isSpeaking, subscribeSpeaking,
   interrupt, onPhase, onError,
 }) {
-  const { pause_ms: pauseMs, wait_ms: waitMs, unfinished_endings: endings, interrupt: interrupts } = settings
+  const {
+    pause_ms: pauseMs, wait_ms: waitMs, resume_ms: resumeMs = 0, unfinished_endings: endings, interrupt: interrupts,
+  } = settings
   const base = assetBase()
   // 本体 (= wasm と mjs) は部品の置き場から読む。 複数の thread は、 画面が cross-origin isolated の時しか
   // 使えない (= この画面は違う)。
@@ -63,6 +65,7 @@ export async function openConversation({
     unfinished: (text) => isUnfinished(text, endings),
     pauseMs,
     waitMs,
+    resumeMs,
     onPhase,
     onError,
   })

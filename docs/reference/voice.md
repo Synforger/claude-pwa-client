@@ -178,6 +178,7 @@ curl -s http://127.0.0.1:50021/speakers
 |---|---|---|
 | `pause_ms` | `700` | 声が途切れてから、 言い終えたかの判定に入るまでの無音 (ミリ秒)。 短いほど早く送られ、 語と語の間でも判定する |
 | `wait_ms` | `3000` | 言い終えていない時に、 送るまで待つ無音 (ミリ秒。 声が途切れた時から数える)。 `pause_ms` より長く |
+| `resume_ms` | `400` | 言い終えたと判定した後、 送る前に待つ時間 (ミリ秒)。 この間に話し始めると、 続きとつなげて 1 つの発話にする (= 長く話している途中の間で「言い終えた」 と判定されても、 文が切れない)。 長いほど切れにくく、 送るのが遅れる。 `0` なら待たない |
 | `unfinished_endings` | 読点・三点と、 「なんか」「えーと」「えっと」「えー」「あのー」「あの」「うーん」「まあ」「その」 | 聞き取った文がこれで終わる時は、 言い終えた判定でも `wait_ms` まで待つ (= 文末の句点は外して見る)。 書くと一覧ごと置き換わる |
 | `interrupt` | `true` | 返事が鳴っている間も聞き、 話し始めたら返事を止める。 `false` なら、 鳴っている間は聞かない (= スピーカーの返事を拾ってしまう時に) |
 
@@ -385,7 +386,7 @@ curl -s http://127.0.0.1:8765/sessions/<タブの id>/voice
 ```json
 {
   "enabled": true, "marks": ["calm", "happy"], "default": "calm", "listen": true, "turn": true,
-  "conversation": { "pause_ms": 700, "wait_ms": 3000, "unfinished_endings": ["、", "えーと"], "interrupt": true },
+  "conversation": { "pause_ms": 700, "wait_ms": 3000, "resume_ms": 400, "unfinished_endings": ["、", "えーと"], "interrupt": true },
   "tuning_error": ""
 }
 ```
@@ -523,7 +524,7 @@ curl -s http://127.0.0.1:8765/sessions/<タブの id>/voice/transcription \
 | 🔊 にしても話を聞かない | 🔊 だけではマイクを開かない。 🎙 を押す |
 | 🎙 を開くと「マイクを使えません」 と出る | ブラウザがマイクを許していない / 画面を `https://` でも `localhost` でもない URL で開いている |
 | 話しても何も送られない | 声が聞き取れなかった (= 会話の間は、 空の文は黙って捨てる)。 engine を `--vad` 無しで起動していると、 逆に話していない文が送られることがある |
-| 話している途中で送られる | `listen.turn` が無い (= 声が `pause_ms` 途切れた所で送る)。 在る時は `conversation.pause_ms` を延ばすか、 途中で言いがちな語を `unfinished_endings` に足す |
+| 話している途中で送られる | `listen.turn` が無い (= 声が `pause_ms` 途切れた所で送る)。 在る時は `conversation.resume_ms` か `pause_ms` を延ばすか、 途中で言いがちな語を `unfinished_endings` に足す |
 | 返事が自分で止まる / 返事の文が送られる | スピーカーの返事をマイクが拾っている。 イヤホンを使うか、 `conversation.interrupt` を `false` にする |
 | 声や間の取り方を変えても効かない | 調整の file を使えていない (= `GET /sessions/<タブの id>/voice` の `tuning_error` に理由が出る)。 間の取り方は 🎙 を開き直すと効く |
 | 「別の画面で会話が開かれたので、 ここは閉じました」 と出る | 同じタブのマイクを、 別の端末か別のウィンドウで開いた |
