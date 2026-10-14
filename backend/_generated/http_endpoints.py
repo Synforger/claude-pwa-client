@@ -240,6 +240,8 @@ class GetSessionsSidVoiceResponse(BaseModel):
     default: str  # 印の無い文の印 (= 印を 1 つも持たなければ空文字)
     listen: bool  # 人の声を聞き取るか (= 設定に voice.listen が在るか)
     turn: bool  # 言い終えを判定する model を持つか (= 設定に voice.listen.turn が在るか)
+    conversation: Optional[dict[str, Any]] = None  # 会話の間の取り方 (= 設定と調整の file の値、 書いていない項目は既定。 声を持たなければ null)
+    tuning_error: str  # 調整の file (= voice.tuning) を使えない理由 (= 使えている / 書いていなければ空文字)
 
 
 class PostSessionsSidVoiceUtterancesRequest(BaseModel):

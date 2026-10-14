@@ -561,11 +561,23 @@ endpoints:
         default: { type: string, description: "印の無い文の印 (= 印を 1 つも持たなければ空文字)" }
         listen:  { type: boolean, description: "人の声を聞き取るか (= 設定に voice.listen が在るか)" }
         turn:    { type: boolean, description: "言い終えを判定する model を持つか (= 設定に voice.listen.turn が在るか)" }
-      required: [enabled, marks, default, listen, turn]
+        conversation:
+          type: object
+          nullable: true
+          description: "会話の間の取り方 (= 設定と調整の file の値、 書いていない項目は既定。 声を持たなければ null)"
+          properties:
+            pause_ms:  { type: integer, description: "声が途切れてから、 言い終えたかの判定に入るまでの無音 (ミリ秒)" }
+            wait_ms:   { type: integer, description: "言い終えていない時に、 送るまで待つ無音 (ミリ秒。 声が途切れた時から)" }
+            unfinished_endings: { type: array, items: { type: string }, description: "聞き取った文がこれで終わる時は、 wait_ms まで待つ" }
+            interrupt: { type: boolean, description: "返事が鳴っている間も聞き、 話し始めたら返事を止めるか" }
+          required: [pause_ms, wait_ms, unfinished_endings, interrupt]
+        tuning_error: { type: string, description: "調整の file (= voice.tuning) を使えない理由 (= 使えている / 書いていなければ空文字)" }
+      required: [enabled, marks, default, listen, turn, conversation, tuning_error]
     response_kind: json
     auth: tailnet
     invariants:
       - "agent の設定に voice が無い / 形が違うタブは enabled=false (= エラーにしない)"
+      - "調整の file が無い / 読めない / 形が違う時は、 設定の値のまま答え、 理由を tuning_error に入れる"
       - "タブが無ければ 404 voice_unknown_session"
     implementation: backend/routes/voice.py
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
   getSnapshot, subscribe, setVoiceAvailable, setVoiceMarks, setVoiceOn, setVoiceError, setVoiceListen, setVoiceTurn, setVoicePhase,
-  setVoiceSpeaking,
+  setVoiceSpeaking, setVoiceConversation,
   _resetForTest,
 } from './voice.js'
 
@@ -9,7 +9,7 @@ describe('state/voice', () => {
   beforeEach(() => _resetForTest())
 
   it('starts with no tab known to have a voice, none on, and no error', () => {
-    expect(getSnapshot()).toEqual({ available: {}, marks: {}, on: {}, error: {}, listen: {}, turn: {}, phase: {}, speaking: {} })
+    expect(getSnapshot()).toEqual({ available: {}, marks: {}, on: {}, error: {}, listen: {}, turn: {}, phase: {}, speaking: {}, conversation: {} })
   })
 
   it('keeps what is set per tab', () => {
@@ -22,9 +22,11 @@ describe('state/voice', () => {
     setVoiceTurn('a', true)
     setVoicePhase('a', 'talking')
     setVoiceSpeaking('a', true)
+    setVoiceConversation('a', { pause_ms: 700 })
     expect(getSnapshot()).toEqual({
       available: { a: true, b: false }, marks: { a: ['calm', 'happy'] }, on: { a: true }, error: { a: 'engine down' },
-      listen: { a: true }, turn: { a: true }, phase: { a: 'talking' }, speaking: { a: true } })
+      listen: { a: true }, turn: { a: true }, phase: { a: 'talking' }, speaking: { a: true },
+      conversation: { a: { pause_ms: 700 } } })
   })
 
   it('keeps only true flags, and only the known phases of a conversation', () => {
@@ -36,6 +38,8 @@ describe('state/voice', () => {
     setVoicePhase('a', null); setVoiceSpeaking('a', false)
     expect(getSnapshot().phase).toEqual({})
     expect(getSnapshot().speaking).toEqual({})
+    setVoiceConversation('a', 'slow'); setVoiceConversation('b', null)
+    expect(getSnapshot().conversation).toEqual({})
   })
 
   it('drops the entry when the voice is turned off or the error is cleared', () => {

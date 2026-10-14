@@ -29,6 +29,7 @@
   "chat.conversation_hearing": "Writing down what you said",
   "chat.conversation_replying": "The reply is playing; listening again after it",
   "voice.conversation_elsewhere": "The conversation was opened on another screen, so it was closed here",
+  "voice.conversation_unavailable": "Could not read the conversation settings of this tab",
   "topbar.plan_approval": "Plan approval",
   "topbar.plan_approval_label": "Plan approval pending",
   "topbar.screenshare_open": "Open screen share (via Sunshine, requires pairing)",

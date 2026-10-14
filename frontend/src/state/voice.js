@@ -10,10 +10,11 @@
 //   turn:      その agent が言い終えを判定する model を持つか (= 同じ GET の写し。 持たなければ無い)
 //   phase:     会話の今 (= PHASES のどれか。 会話を開いていなければ無い)
 //   speaking:  返事を鳴らしている (= 次の文の合成を待つ間も含む) か
+//   conversation: 会話の間の取り方 (= 同じ GET の写し。 声を持たなければ無い)
 
 import { createStore } from './_store.js'
 
-const INITIAL = { available: {}, marks: {}, on: {}, error: {}, listen: {}, turn: {}, phase: {}, speaking: {} }
+const INITIAL = { available: {}, marks: {}, on: {}, error: {}, listen: {}, turn: {}, phase: {}, speaking: {}, conversation: {} }
 
 // 会話の段: 'starting' 部品を読み込んでいる / 'listening' 聞いている / 'talking' 人が話している /
 //           'judging' 言い終えたかを見ている / 'hearing' 話した音を文字にしている
@@ -52,6 +53,9 @@ export function setVoiceListen(sid, listens) { setFor('listen', sid, listens ===
 export function setVoiceTurn(sid, judges) { setFor('turn', sid, judges === true ? true : null) }
 export function setVoicePhase(sid, phase) { setFor('phase', sid, PHASES.includes(phase) ? phase : null) }
 export function setVoiceSpeaking(sid, speaking) { setFor('speaking', sid, speaking ? true : null) }
+export function setVoiceConversation(sid, settings) {
+  setFor('conversation', sid, settings && typeof settings === 'object' ? settings : null)
+}
 
 // test 用: store を INITIAL に戻す (= module singleton なので各 test の beforeEach で呼ぶ)。
 export function _resetForTest() {

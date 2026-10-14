@@ -6,7 +6,7 @@ import { apiFetch } from '../../transport/http.ts'
 import { translateHttpErrorDetail } from '../../utils/httpError.js'
 import {
   getSnapshot, subscribe, setVoiceAvailable, setVoiceMarks, setVoiceOn, setVoiceError, setVoiceListen, setVoiceTurn,
-  setVoicePhase, setVoiceSpeaking,
+  setVoicePhase, setVoiceSpeaking, setVoiceConversation,
 } from '../../state/voice.js'
 import { tRaw } from '../../i18n/t.js'
 import { createListener } from './listener.js'
@@ -86,11 +86,13 @@ export async function refreshVoiceAvailable(sid) {
     setVoiceMarks(sid, voice?.enabled === true ? voice.marks : [])
     setVoiceListen(sid, voice?.enabled === true && voice.listen === true)
     setVoiceTurn(sid, voice?.enabled === true && voice.turn === true)
+    setVoiceConversation(sid, voice?.enabled === true ? voice.conversation : null)
   } catch {
     setVoiceAvailable(sid, false)
     setVoiceMarks(sid, [])
     setVoiceListen(sid, false)
     setVoiceTurn(sid, false)
+    setVoiceConversation(sid, null)
   }
 }
 
@@ -163,33 +165,39 @@ function refuseMic(sid, error) {
 async function open(sid, entry, send) {
   const claimed = await apiFetch(`${base(sid)}/conversation`, { method: 'POST', jsonBody: { client: CLIENT } })
   if (!claimed.ok) throw await refused(claimed)
+  // 間の取り方は、 開くたびに取り直す (= agent が調整の file を書き換えた分を、 次に開いた時から使う)
+  await refreshVoiceAvailable(sid)
   await entry.stream
   const { openConversation } = await import('./conversation.js')
   if (entry.closed) return
+  const settings = getSnapshot().conversation[sid]
+  if (!settings) throw new Error(tRaw('voice.conversation_unavailable'))
   const handle = await openConversation({
     audioContext: entry.audioContext,
     stream: entry.stream,
     turnModelUrl: getSnapshot().turn[sid] ? `${base(sid)}/turn-model` : null,
+    settings,
     fetchModel: async (url) => {
       const r = await apiFetch(url, { timeout: 0 })
       if (!r.ok) throw await refused(r)
       return r.arrayBuffer()
     },
-    hear: async (wav) => {
-      let text
+    transcribe: async (wav) => {
       try {
-        text = await transcribe(sid, wav)
+        return await transcribe(sid, wav)
       } catch (error) {
         if (error?.code === 'voice_conversation_elsewhere') {
           closeConversation(sid)
           setVoiceError(sid, tRaw('voice.conversation_elsewhere'))
-          return
+          return ''
         }
         throw error
       }
-      // 声でない音 (= 物音) は、 文字にすると空になる。 会話の間は黙って捨てる
-      if (text && !entry.closed) send(text)
     },
+    // 声でない音 (= 物音) は、 文字にすると空になり、 ここへは来ない
+    send: (text) => { if (!entry.closed) send(text) },
+    // 返事の途中で人が話し始めた: 鳴っている音と、 まだ鳴らしていない文を捨てる (= 次の返事はまた鳴らす)
+    interrupt: () => player.stop(sid),
     ...speakingOf(sid),
     onPhase: (phase) => { if (!entry.closed) setVoicePhase(sid, phase) },
     onError: (error) => {

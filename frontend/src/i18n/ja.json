@@ -29,6 +29,7 @@
   "chat.conversation_hearing": "話した文を書き起こしています",
   "chat.conversation_replying": "返事を鳴らしています。 鳴り終えたら、 また聞きます",
   "voice.conversation_elsewhere": "別の画面で会話が開かれたので、 ここは閉じました",
+  "voice.conversation_unavailable": "このタブの会話の設定を読めませんでした",
   "topbar.plan_approval": "plan 承認",
   "topbar.plan_approval_label": "plan 承認待ち",
   "topbar.screenshare_open": "画面共有を開く (Sunshine 経由、 ペア済前提)",
