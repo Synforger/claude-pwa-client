@@ -106,6 +106,7 @@
 | `default` (任意) | 印の無い文に使う印。 省くと `marks` の最初の印 |
 | `listen` (任意) | 人の声を聞き取る engine。 書くと会話のボタンが 🎙 になる。 下の表 |
 | `conversation` (任意) | 話して送る会話の間の取り方。 [下の表](#会話の間の取り方) |
+| `compressor` (任意) | 文ごとの音に掛けるコンプレッサー。 [下の表](#音の強弱を均す) |
 | `tuning` (任意) | 声の調整の file の path。 [調整の file](#調整の-file) |
 
 `listen` の項目:
@@ -142,6 +143,28 @@ curl -s http://127.0.0.1:50021/speakers
 
 値は会話をオンにした時に読みます。 変えた後は、 会話をオンにし直すと効きます。
 
+### 音の強弱を均す
+
+声のスタイルによっては、 文の中の山と谷の差が大きく、 スタイルを切り替えると音量が揃っていないように聞こえます。
+`compressor` を書くと、 文ごとの音に [ffmpeg](https://ffmpeg.org/) のコンプレッサー (= `acompressor`) を掛けてから
+画面へ返します。 書かなければ掛けません。 backend の機械に ffmpeg が要ります。
+
+```json
+"compressor": { "threshold_db": -18, "ratio": 3, "attack_ms": 10, "release_ms": 150, "makeup_db": 6, "limit_db": -1 }
+```
+
+| 項目 | 既定 | 中身 |
+|---|---|---|
+| `threshold_db` | `-18.06` | これより大きい所を縮める (dB) |
+| `ratio` | `2` | 縮める比 (= 1〜20) |
+| `attack_ms` / `release_ms` | `20` / `250` | 縮め始める速さ / 戻す速さ (ミリ秒) |
+| `makeup_db` | `0` | 縮めた後に全体を持ち上げる量 (dB)。 縮めると全体が小さくなるので、 戻す時に書く |
+| `limit_db` | 無し | 書くと、 最後に音の山がこの大きさを超えないように抑える (dB、 `alimiter`) |
+
+- 書いていない項目は ffmpeg の既定です。 値の範囲は ffmpeg が受ける範囲で、 外れた値は形の違う設定として扱います
+- 1 文に掛かるのは 0.1 秒ほどです (= 音の長さにほぼよらない)
+- ffmpeg が無い / 失敗した時は、 掛けずに engine の音のまま返し、 backend の log に理由を 1 行出します
+
 ### 調整の file
 
 `tuning` に path を書くと、 その file (= JSON) の値を設定の値の上に重ねます。 声と間の取り方を、 backend の設定に
@@ -159,7 +182,7 @@ curl -s http://127.0.0.1:50021/speakers
 }
 ```
 
-- 書ける項目は `speaker` / `query` / `marks` / `default` / `conversation` です。 engine の URL と `listen` は、
+- 書ける項目は `speaker` / `query` / `marks` / `default` / `conversation` / `compressor` です。 engine の URL と `listen` は、
   backend の設定にだけ書きます
 - 書いた項目は、 設定の同じ項目をまるごと置き換えます (= `marks` を書くと、 設定の `marks` は使わない)
 - backend は file を毎回読みます。 書き換えると、 声は次の文から、 間の取り方は次に会話をオンにした時から効きます。
