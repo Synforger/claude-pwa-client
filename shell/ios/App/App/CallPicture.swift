@@ -21,8 +21,8 @@ import UIKit
 /// 文と状態は backend の会話が送る (= `backend/voice_call/agent.py` の小窓)。 変わる度に吹き出しを絵に描いて流し込む。
 /// 流し込む先の層は、 画面の隅に 1 pt で置く (= PiP は画面に載っている層からしか始められない)。
 @MainActor final class CallPicture: NSObject {
-    /// 描く大きさ (pt)。 小窓は iOS がこの縦横比のまま縮めて出す
-    private static let canvas = CGSize(width: 300, height: 400)
+    /// 描く大きさ (pt)。 吹き出しの寸法と色は `PictureBubble` (= ChatMarkdown.swift。 Mac の確かめの道具と共有)
+    private static let canvas = PictureBubble.canvas
     /// 覚えておく吹き出しの数 (= 窓に入らない古い物は描かれない。 これは覚えすぎないための上限)
     private static let keptLines = 40
     /// 文が変わらない間も絵を流し込む間隔 (= 流れが止まった層を、 PiP が古い物と見なさないように)
@@ -36,6 +36,8 @@ import UIKit
     private let host = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
     private var controller: AVPictureInPictureController?
     private var lines: [(who: String, text: String)] = []
+    /// 組んだ吹き出し (= 文ごと。 描き直す度に markdown を読み直さない)
+    private var laidOut: [String: (content: ChatMarkdown, size: CGSize)] = [:]
     private var state = "waiting"
     private var timer: Timer?
     /// マイクが入っているか (= 再生 / 停止の絵と帯。 iOS は main actor の外から読む)
@@ -52,8 +54,6 @@ import UIKit
     private var newBelow = false
     /// 前に描いた会話の高さ (= 上へ送れる量の上限を決める)
     private var contentHeight: CGFloat = 0
-    /// 小窓を出せるかの変わり目を log に出す (= 自動で出ない時の切り分け)
-    private var possibleObservation: NSKeyValueObservation?
     private var sceneObservers: [NSObjectProtocol] = []
 
     func start(over screen: UIView) {
@@ -108,22 +108,29 @@ import UIKit
         controller.canStartPictureInPictureAutomaticallyFromInline = true
         controller.delegate = self
         self.controller = controller
-        possibleObservation = controller.observe(\.isPictureInPicturePossible, options: [.initial, .new]) { _, change in
-            CAPLog.print("[CallPicture] possible=\(change.newValue.map(String.init(describing:)) ?? "?")")
-        }
+        syncPlayback()
     }
 
     private func setLeaving(_ on: Bool) {
         leaving = on
-        controller?.invalidatePlaybackState()
-        CAPLog.print("[CallPicture] leaving=\(on) possible=\(controller?.isPictureInPicturePossible ?? false) active=\(controller?.isPictureInPictureActive ?? false)")
+        syncPlayback()
     }
 
     /// マイクの入 / 切を、 小窓の再生 / 停止の絵と帯に合わせる (= 画面の 🎙 から切り替えた時も)。
     func setMic(_ on: Bool) {
         micOn = on
-        controller?.invalidatePlaybackState()
+        syncPlayback()
         render()
+    }
+
+    /// 再生 / 停止を iOS と絵の時計の両方にそろえる (= 再生中と伝えながら時計を止めたままだと、 iOS は送りの後に
+    /// 再生 / 停止の絵を取り違え、 送るたびに絵が入れ替わった)。 Apple の見本 (= 絵を流し込む PiP) と同じく、
+    /// 再生中は時計を進め、 止めている間は止める。
+    private func syncPlayback() {
+        if let timebase = layer.controlTimebase {
+            CMTimebaseSetRate(timebase, rate: (micOn || leaving) ? 1 : 0)
+        }
+        controller?.invalidatePlaybackState()
     }
 
     /// 小窓を今出す (= 自動で出なかった時の、 画面のボタンから)。 出せない時は false。
@@ -143,7 +150,6 @@ import UIKit
     }
 
     func stop() {
-        possibleObservation = nil
         sceneObservers.forEach(NotificationCenter.default.removeObserver)
         sceneObservers = []
         timer?.invalidate()
@@ -161,11 +167,16 @@ import UIKit
         switch kind {
         case "line":
             guard case let .string(who)?? = fields["who"], case let .string(text)?? = fields["text"] else { return }
+            // 取り消された発話の送り直し (= backend が同じ親の発話に付ける印) は、 最後の人の発話を置き換える
+            if case .boolean(true)?? = fields["replace"], let last = lines.lastIndex(where: { $0.who == who }) {
+                lines[last] = (who, text)
+                break
+            }
             lines.append((who, text))
             if lines.count > Self.keptLines { lines.removeFirst(lines.count - Self.keptLines) }
             if scrolledUp > 0 {
                 // 読んでいる所を動かさない (= 新しい行の分だけ、 上へ送った量を増やす)
-                scrolledUp += Self.bubbleSize(who: who, text: text).height + Self.gap
+                scrolledUp += bubble(who: who, text: text).size.height + Self.gap
                 newBelow = true
             }
         case "state":
@@ -191,16 +202,15 @@ import UIKit
         layer.enqueue(sample)
     }
 
-    private static let background = UIColor(white: 0.07, alpha: 1)
+    private static let background = PictureBubble.background
     private static let bandColor = UIColor(red: 0.12, green: 0.16, blue: 0.23, alpha: 1)
     private static let bandText = UIColor(red: 0.61, green: 0.79, blue: 1, alpha: 1)
-    private static let mineColor = UIColor(red: 0.18, green: 0.44, blue: 0.84, alpha: 1)
-    private static let theirsColor = UIColor(white: 0.17, alpha: 1)
+    private static let mineColor = PictureBubble.mineColor
+    private static let theirsColor = PictureBubble.theirsColor
     private static let bandHeight: CGFloat = 40
-    private static let margin: CGFloat = 10
-    private static let gap: CGFloat = 8
-    private static let padding = CGSize(width: 10, height: 7)
-    private static let textFont = UIFont.systemFont(ofSize: 20)
+    private static let margin = PictureBubble.margin
+    private static let gap = PictureBubble.gap
+    private static let padding = PictureBubble.padding
 
     private static func stateText(_ state: String) -> String {
         switch state {
@@ -231,10 +241,11 @@ import UIKit
         context.clip(to: area)
         var bottom = size.height - Self.margin + scrolledUp
         var height: CGFloat = 0
+        var drawn = Set<String>()
         for line in lines.reversed() {
             let mine = line.who == "user"
-            let text = Self.styled(line.text, color: mine ? UIColor.white : UIColor(white: 0.93, alpha: 1))
-            let bubble = Self.bubbleSize(of: text)
+            let (content, bubble) = bubble(who: line.who, text: line.text)
+            drawn.insert(Self.layoutKey(line.who, line.text))
             height += bubble.height + Self.gap
             let x = mine ? size.width - Self.margin - bubble.width : Self.margin
             let frame = CGRect(x: x, y: bottom - bubble.height, width: bubble.width, height: bubble.height)
@@ -242,51 +253,22 @@ import UIKit
             guard frame.minY < size.height, frame.maxY > area.minY else { continue }   // 窓の外は描かない
             (mine ? Self.mineColor : Self.theirsColor).setFill()
             UIBezierPath(roundedRect: frame, cornerRadius: 12).fill()
-            text.draw(with: frame.insetBy(dx: Self.padding.width, dy: Self.padding.height),
-                      options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+            content.draw(at: CGPoint(x: frame.minX + Self.padding.width, y: frame.minY + Self.padding.height), in: context)
         }
+        laidOut = laidOut.filter { drawn.contains($0.key) }   // 覚えている行の分だけ残す
         contentHeight = height
         context.restoreGState()
     }
 
-    private static let maxBubbleWidth = (canvas.width - margin * 2) * 0.85
+    private static func layoutKey(_ who: String, _ text: String) -> String { who + "\u{0}" + text }
 
-    private static func bubbleSize(who: String, text: String) -> CGSize {
-        bubbleSize(of: styled(text, color: .white))
-    }
-
-    private static func bubbleSize(of text: NSAttributedString) -> CGSize {
-        let bounds = text.boundingRect(
-            with: CGSize(width: maxBubbleWidth - padding.width * 2, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
-        return CGSize(width: ceil(bounds.width) + padding.width * 2, height: ceil(bounds.height) + padding.height * 2)
-    }
-
-    /// 行の中の markdown (= 太字・斜体・コード・リンクの文字) を描く文字にする (= 表や見出しのような行単位の形は、
-    /// backend が小窓で読める行に直して送る)。 読めない文は、 そのままの文字で描く。
-    private static func styled(_ text: String, color: UIColor) -> NSAttributedString {
-        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        guard let parsed = try? AttributedString(markdown: text, options: options) else {
-            return NSAttributedString(string: text, attributes: [.font: textFont, .foregroundColor: color])
-        }
-        let styled = NSMutableAttributedString()
-        for run in parsed.runs {
-            var font = textFont
-            if let intent = run.inlinePresentationIntent {
-                if intent.contains(.code) {
-                    font = .monospacedSystemFont(ofSize: textFont.pointSize - 1, weight: .regular)
-                }
-                var traits: UIFontDescriptor.SymbolicTraits = []
-                if intent.contains(.stronglyEmphasized) { traits.insert(.traitBold) }
-                if intent.contains(.emphasized) { traits.insert(.traitItalic) }
-                if !traits.isEmpty, let bolder = font.fontDescriptor.withSymbolicTraits(traits) {
-                    font = UIFont(descriptor: bolder, size: font.pointSize)
-                }
-            }
-            styled.append(NSAttributedString(
-                string: String(parsed[run.range].characters), attributes: [.font: font, .foregroundColor: color]))
-        }
-        return styled
+    /// 1 行の吹き出し (= 組んだ物を覚えておく)
+    private func bubble(who: String, text: String) -> (content: ChatMarkdown, size: CGSize) {
+        let key = Self.layoutKey(who, text)
+        if let laid = laidOut[key] { return laid }
+        let laid = PictureBubble.layout(text, mine: who == "user")
+        laidOut[key] = laid
+        return laid
     }
 
     /// 絵を、 すぐに出す 1 枚の映像の frame にする。
@@ -332,6 +314,7 @@ import UIKit
 // 再生の操作: 生の映像として伝え、 再生 / 停止と送りは通話の操作に読み替える
 extension CallPicture: AVPictureInPictureSampleBufferPlaybackDelegate {
     nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController, setPlaying playing: Bool) {
+        CAPLog.print("[CallPicture] play/pause pressed: playing=\(playing)")
         Task { @MainActor in
             self.setMic(playing)
             self.onMic?(playing)
