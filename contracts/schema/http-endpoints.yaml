@@ -599,13 +599,18 @@ endpoints:
             properties:
               mark: { type: string, description: "その文の言い方の印 (= 文頭に印が無ければ既定の印)" }
               text: { type: string }
-            required: [mark, text]
+              values:
+                type: object
+                description: "印に添えた値 (= engine の問い合わせの値の名前 → 数。 添えていなければ空)"
+                additionalProperties: { type: number }
+            required: [mark, text, values]
       required: [utterances]
     response_kind: json
     auth: tailnet
     invariants:
       - "声にする物が無い返事は空の並び (= エラーにしない)"
       - "文頭の印は、 その行の終わりまで効く (= 行の中で別の印が出れば切り替わる)。 設定に無い名前の [..] は文として残る"
+      - "印に添えた値 (= [happy i=1.2 s=1.1]) は印と同じく行の終わりまで効く。 名前の違う値と範囲の外の値は values に入れない (= その文は印の値で言う。 backend の log に出す)"
       - "声を持たないタブは 409 voice_not_enabled、 text が文字列でなければ 400 voice_bad_request、 上限より長ければ 413 voice_text_too_long"
       - "音声合成の engine は呼ばない"
     implementation: backend/routes/voice.py
@@ -619,11 +624,16 @@ endpoints:
       properties:
         text: { type: string, description: "声にする 1 文 (= utterances が返した文)" }
         mark: { type: string, description: "言い方の印 (= 省けば既定の印)" }
+        values:
+          type: object
+          description: "印に添えた値 (= utterances が返した values。 省略可)"
+          additionalProperties: { type: number }
     response_kind: raw
     auth: tailnet
     invariants:
       - "応答は engine が返した音 (= audio/wav)、 Cache-Control: no-store"
-      - "engine が問い合わせに返した値へ、 設定の query、 その上に印の値を当てる (= engine が返した値に無い名前は送らない)"
+      - "engine が問い合わせに返した値へ、 設定の query、 その上に印の値、 その上に values を当てる (= engine が返した値に無い名前は送らない)"
+      - "values のうち名前の違う物と範囲の外の物は使わない (= 断らずに印の値で言い、 backend の log に出す)。 values が組でなければ 400 voice_bad_request"
       - "印が speaker を持てば、 その文だけその声の番号で言う"
       - "設定に無い印は 400 voice_unknown_mark、 声にする文字が無ければ 400 voice_nothing_to_say、 上限より長ければ 413 voice_text_too_long (= どれも engine を呼ぶ前に返す)"
       - "engine に繋がらなければ 502 voice_engine_unreachable、 engine が断れば 502 voice_engine_failed (= params に step と status)"
