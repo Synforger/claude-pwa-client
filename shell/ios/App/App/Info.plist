@@ -35,6 +35,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Takes a photo to attach to a message.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Listens to what you say to the agent, also while the app is in the background.</string>
 	<key>UIApplicationSceneManifest</key>
