@@ -41,6 +41,31 @@ describe('createTurnTaker — what is said goes once the speaker has finished', 
     expect(phases).toEqual(['talking', 'judging', 'hearing', 'listening'])
   })
 
+  it('starts writing down as the voice stops, without waiting for Smart Turn', async () => {
+    let answer
+    const { taker, written, sent } = rig({ judge: () => new Promise((resolve) => { answer = resolve }) })
+    taker.speechStart()
+    const ending = taker.speechEnd(piece(1))
+    expect(written).toEqual([[1]])
+    answer(true)
+    await ending
+    expect(written).toEqual([[1]])        // what Smart Turn waited on is not written down twice
+    expect(sent).toEqual(['1'])
+  })
+
+  it('has the words ready when the wait ends, so they go at once', async () => {
+    let written = 0
+    const { taker, sent } = rig({
+      judge: async () => false,
+      transcribe: async () => { await new Promise((resolve) => setTimeout(resolve, 1500)); written += 1; return 'おはよう。' },
+    })
+    taker.speechStart()
+    await taker.speechEnd(piece(1))
+    await vi.advanceTimersByTimeAsync(WAIT_MS - PAUSE_MS)
+    expect(sent).toEqual(['おはよう。'])
+    expect(written).toBe(1)
+  })
+
   it('waits while the speaker is still thinking, and sends once they stay quiet for the rest of the wait', async () => {
     const { taker, sent, phases } = rig({ judge: async () => false })
     taker.speechStart()

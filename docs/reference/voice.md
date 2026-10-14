@@ -171,12 +171,16 @@ curl -s http://127.0.0.1:50021/speakers
 whisper-server --host 127.0.0.1 --port 10102 \
   --model /path/to/ggml-large-v3-turbo-q5_0.bin --language ja \
   --convert --no-timestamps \
-  --vad --vad-model /path/to/ggml-silero-v5.1.2.bin
+  --vad --vad-model /path/to/ggml-silero-v5.1.2.bin \
+  --vad-threshold 0.3 --vad-speech-pad-ms 300 --vad-min-speech-duration-ms 100
 ```
 
 - `--convert` は、 ブラウザが録る形式 (= Chromium は webm/opus、 Safari は mp4/AAC) を engine の側で変換します。
   [ffmpeg](https://ffmpeg.org/) が要ります。 変換の途中の file は、 engine を起動した folder に置かれます
 - `--vad` を付けないと、 無音や小さな雑音だけの録音に、 話していない文が返ることがあります
+- 画面は、 声の前に 0.5 秒の無音を付けて送ります。 `--vad` の既定の値のままだと、 柔らかい出だし (= 「おはよう」
+  の「お」) や短い語 (= 「はい」「うん」) を声と見ずに削ることがあります。 上の 3 つの値は、 声と見なす境目を画面の
+  声の検出と同じ 0.3 にし、 声の前後を 0.3 秒残し、 0.1 秒の短い語も残します
 - model は whisper.cpp の配布物から選びます (= 日本語は多言語の model を使う。 `.en` の付く model は英語だけ)
 
 ### 言い終えを判定する model を置く
