@@ -25,6 +25,27 @@ def mark_voice_input(text: str) -> str:
     return f"{VOICE_INPUT_MARK} {text}"
 
 
+# iPhone の app の小窓 (= PiP) に出す文。 別のタブからの連絡と自動の入れ替えは、 封筒の頭で見分けて出さない
+# (= 人の発話ではない)。 返事の行の頭の言い方の印 (= `[happy]` / `[mute]`) は外す
+_ENVELOPE_HEADS = ("Message from ", "Automatic session rollover", "<")
+_LINE_MARK = re.compile(r"^\[[a-z][^\]\n]*\]\s*", re.MULTILINE)
+
+
+def shown_user_text(text: str | None) -> str | None:
+    """タブの人の発話を、 小窓に出す文にする (= 声で聞いている印は外す。 出さない物は None)。"""
+    said = (text or "").strip()
+    if said.startswith(VOICE_INPUT_MARK):
+        said = said[len(VOICE_INPUT_MARK):].strip()
+    if not said or said.startswith(_ENVELOPE_HEADS):
+        return None
+    return said
+
+
+def shown_reply_text(text: str | None) -> str:
+    """タブの返事を、 小窓に出す文にする (= 声にしない `[mute]` の行も出す。 印だけを外す)。"""
+    return _LINE_MARK.sub("", text or "").strip()
+
+
 def is_unfinished(text: str, endings: list[str]) -> bool:
     """言いさしか (= 送らずに続きを待つ)。 文の終わりの句点・記号・空白は見ずに比べる。"""
     said = text.strip()
