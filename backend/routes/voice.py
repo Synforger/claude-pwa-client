@@ -13,6 +13,7 @@
       "default": "calm",
       "listen":  { "engine": "http://127.0.0.1:10102", "prompt": "Claude、PWA。", "turn": "/path/to/smart-turn.onnx" },
       "conversation": { "pause_ms": 700, "wait_ms": 3000 },
+      "compressor": { "threshold_db": -18, "ratio": 3, "makeup_db": 6, "limit_db": -1 },
       "tuning":  "/path/to/agent/voice.json"
     }
 
@@ -25,6 +26,7 @@
              (= `POST /inference`) を持つ engine の URL と、 聞き取りの手がかりにする語 (= 省略可) と、 言い終えたかを
              判定する Smart Turn の model の file (= 省略可。 画面がこの口から受け取って、 画面の中で判定する)
     conversation: 話して送る会話の間の取り方 (= 省略可。 項目は CONVERSATION_DEFAULTS)
+    compressor: 文ごとの音に掛けるコンプレッサー (= 省略可。 書かなければ掛けない。 項目は backend/core/compressor.py)
     tuning:  声の調整の file (= 省略可)。 TUNABLE の項目を JSON で書き、 ここの値の上に重ねる。 毎回読むので、
              書き換えれば次の文から効く (= agent が自分の声を調整する置き場。 engine の URL はここに置かない)
 
@@ -64,6 +66,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, Response
 
 import backend.config as _config
+from backend.core.compressor import CompressorError, compress, compressor_settings
 from backend.core.speech import MARK_NAME, speakable, utterances
 from backend.errors import raise_error
 from backend.state import sessions_meta
@@ -108,7 +111,7 @@ CONVERSATION_DEFAULTS = {
     "interrupt": True,
 }
 # 調整の file に書ける項目 (= 声と間の取り方。 engine の URL と聞き取りは設定にだけ書く)
-TUNABLE = ("speaker", "query", "marks", "default", "conversation")
+TUNABLE = ("speaker", "query", "marks", "default", "conversation", "compressor")
 
 _MARK_NAME = re.compile(MARK_NAME)
 # 形の違う `voice` を書いた agent (= 1 度だけ log に出す)。
@@ -198,9 +201,12 @@ def voice_settings(raw) -> dict | None:
     conversation, tuning = _conversation(raw.get("conversation")), raw.get("tuning", "")
     if conversation is None or not isinstance(tuning, str):
         return None
+    compressor = compressor_settings(raw.get("compressor"))
+    if compressor is False:
+        return None
     return {"engine": engine.rstrip("/"), "speaker": speaker, "query": query,
             "marks": {name: dict(value) for name, value in marks.items()}, "default": default, "listen": listen,
-            "conversation": conversation, "tuning": tuning}
+            "conversation": conversation, "compressor": compressor, "tuning": tuning}
 
 
 # 調整の file を読んだ結果 (= path → (更新時刻と大きさ, 値, 読めなかった理由))。 変わった時だけ読み直す。
@@ -428,9 +434,26 @@ async def post_synthesis(request: Request, session_id: str) -> Response:
     kind, sound = await _engine("synthesis", f"{settings['engine']}/synthesis?speaker={speaker}", query)
     if not kind.startswith("audio/"):
         _engine_failed("synthesis", 200)
+    if settings["compressor"] is not None:   # 空の {} も「既定の値で掛ける」
+        sound = await _compressed(sound, settings["compressor"])
     logger.info("voice: session=%s mark=%s chars=%d bytes=%d ms=%d", session_id, name or "-", len(text),
                 len(sound), (time.monotonic() - started) * 1000)
     return Response(content=sound, media_type=kind, headers={"Cache-Control": "no-store"})
+
+
+# log に出した、 コンプレッサーを掛けられなかった理由 (= 同じ理由は 1 度だけ出す)
+_compressor_logged: set[str] = set()
+
+
+async def _compressed(sound: bytes, compressor: dict) -> bytes:
+    """コンプレッサーを掛けた音。 掛けられなければ、 engine の音のまま (= 声は止めない) で log に理由を出す。"""
+    try:
+        return await compress(sound, compressor)
+    except CompressorError as error:
+        if str(error) not in _compressor_logged:
+            _compressor_logged.add(str(error))
+            logger.warning("voice: the compressor was skipped: %s", error)
+        return sound
 
 
 # 文の前後の無音 (= 秒)。 engine は無音も話す速さで縮める (= 実測、 AivisSpeech Engine 1.2.0: speedScale 1.5 で 2/3、
