@@ -33,6 +33,7 @@ from backend.jsonl.session_status import (
 )
 from backend.state import sessions_meta
 from backend.terminal import input_ready
+import backend.rollover as rollover
 
 # backend-F-40 注記: jsonl_watcher は hooks を import しない (= confirm_bind → _save_bindings
 # のみ、 hook 経路と無関係) ので module-level import で循環しない。 旧版は防御的に関数内
@@ -95,6 +96,7 @@ async def hooks_event(request: Request) -> dict:
     対応イベント (= 初期実装):
         - Stop: turn 完了。 payload.output を通知本文に
         - Notification: 通知ダイアログ系。 payload.message を通知本文に
+        - UserPromptSubmit: turn 開始。 自動の入れ替えの見張りを起こす (= `backend/rollover.py`)
     その他のイベントは受信ログだけ残して 200 OK を返す (= claude の hook を
     詰まらせない、 後で対応イベントを増やしていく)。
 
@@ -286,9 +288,18 @@ async def _handle_stop(ctx: HookContext) -> dict:
     # turn 完了の即時化 (= backend-F-12)。 mutate 経路は session_status 1 本に絞る。
     assert ctx.pwa_session_id is not None  # dispatcher が解決済
     _apply_immediate_stop(ctx.pwa_session_id)
+    rollover.turn_ended(ctx.pwa_session_id)
     # fire-and-forget: webpush 送信は数百 ms かかる場合があるので hook の curl を待たせない。
     asyncio.create_task(broadcast_push(body, ctx.title, ctx.pwa_session_id))
     return {"ok": True, "pushed": "Stop"}
+
+
+async def _handle_user_prompt_submit(ctx: HookContext) -> dict:
+    """UserPromptSubmit: そのタブが推論を始めた (= 人の発話でも、 別のタブからの連絡でも)。 自動の
+    入れ替えの見張りを待たずに起こす (= 見回りの間に終わる短い推論でも、 割合を超えていれば頼める)。"""
+    assert ctx.pwa_session_id is not None
+    rollover.turn_started(ctx.pwa_session_id)
+    return {"ok": True, "observed": "UserPromptSubmit"}
 
 
 async def _handle_notification(ctx: HookContext) -> dict:
@@ -309,5 +320,6 @@ HOOK_HANDLERS: dict[str, _HookSpec] = {
     "PreToolUse": _HookSpec(handler=_handle_pre_tool_use, needs_pwa_session=False),
     "SessionStart": _HookSpec(handler=_handle_session_start, needs_pwa_session=False),
     "Stop": _HookSpec(handler=_handle_stop, needs_pwa_session=True),
+    "UserPromptSubmit": _HookSpec(handler=_handle_user_prompt_submit, needs_pwa_session=True),
     "Notification": _HookSpec(handler=_handle_notification, needs_pwa_session=True),
 }

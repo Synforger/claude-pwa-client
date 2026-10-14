@@ -261,17 +261,39 @@ def test_unknown_pwa_sid_header_does_not_bind(fake_bindings, captured_pushes, mo
     assert jsonl_watcher.get_jsonl_for("ses_intruder") is None
 
 
+def test_a_turn_starting_and_ending_in_a_pwa_tab_reaches_the_rollover_watch(fake_bindings, captured_pushes, monkeypatch):
+    """推論の始まり (= 人の発話でも、 別のタブからの連絡でも同じ hook) と終わりを、 入れ替えの見張りへ渡す。
+    PWA のタブでない claude の hook は渡さない。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    seen: list[tuple[str, str]] = []
+    monkeypatch.setattr(hooks_router.rollover, "turn_started", lambda sid: seen.append(("started", sid)))
+    monkeypatch.setattr(hooks_router.rollover, "turn_ended", lambda sid: seen.append(("ended", sid)))
+    fake_bindings("ses_tab", "claude-in-tab")
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    client = TestClient(app)
+    client.post("/hooks/event", json={"hook_event_name": "UserPromptSubmit", "session_id": "claude-in-tab"})
+    client.post("/hooks/event", json={"hook_event_name": "Stop", "session_id": "claude-in-tab",
+                                      "last_assistant_message": "done"})
+    res = client.post("/hooks/event", json={"hook_event_name": "UserPromptSubmit", "session_id": "claude-desktop"})
+    assert res.json()["ignored"] == "non_pwa_session"
+    assert seen == [("started", "ses_tab"), ("ended", "ses_tab")]
+
+
 # --- backend-F-30 / crosscut-F-15: HOOK_HANDLERS registry ------------------
 
 
 def test_registry_has_all_known_events():
-    """既知 event (= Stop / Notification / SessionStart / PreToolUse) が registry に登録済。"""
+    """既知 event (= Stop / Notification / UserPromptSubmit / SessionStart / PreToolUse) が registry に登録済。"""
     assert set(hooks_router.HOOK_HANDLERS.keys()) == {
-        "Stop", "Notification", "SessionStart", "PreToolUse",
+        "Stop", "Notification", "UserPromptSubmit", "SessionStart", "PreToolUse",
     }
-    # mutate 系 (= Stop / Notification) は needs_pwa_session=True
+    # PWA のタブに結び付く系 (= Stop / Notification / UserPromptSubmit) は needs_pwa_session=True
     assert hooks_router.HOOK_HANDLERS["Stop"].needs_pwa_session is True
     assert hooks_router.HOOK_HANDLERS["Notification"].needs_pwa_session is True
+    assert hooks_router.HOOK_HANDLERS["UserPromptSubmit"].needs_pwa_session is True
     # early 系 (= 自己解決経路) は needs_pwa_session=False
     assert hooks_router.HOOK_HANDLERS["SessionStart"].needs_pwa_session is False
     assert hooks_router.HOOK_HANDLERS["PreToolUse"].needs_pwa_session is False
