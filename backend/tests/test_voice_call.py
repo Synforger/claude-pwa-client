@@ -524,3 +524,39 @@ def test_the_picture_state_follows_speaking_sending_and_the_voice():
               BotStartedSpeakingFrame(), BotStoppedSpeakingFrame()]
     down, _ = asyncio.run(run_test(_bridge([]), frames_to_send=frames))
     assert [d["state"] for d in _shown(down) if d["pip"] == "state"] == ["listening", "thinking", "speaking", "waiting"]
+
+
+def _button(kind: str):
+    from pipecat.processors.frameworks.rtvi import RTVIClientMessageFrame
+
+    return RTVIClientMessageFrame(msg_id="m1", type=kind)
+
+
+def test_the_picture_skip_button_stops_the_voice_and_replay_says_the_last_reply_again():
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.frames.frames import InterruptionFrame, TTSSpeakFrame
+    from pipecat.processors.frameworks.rtvi import RTVIClientMessageFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    later = int(time.time() * 1000) + 60_000
+    events = [_reply("r1", "晴れです。\n[happy]やった。", later)]
+    frames = [SleepFrame(sleep=0.2), _button("voice-skip"), SleepFrame(sleep=0.05), _button("voice-replay"),
+              SleepFrame(sleep=0.05)]
+    down, _ = asyncio.run(run_test(_bridge([], events), frames_to_send=frames))
+    said = [type(f).__name__ if isinstance(f, InterruptionFrame) else f.text
+            for f in down if isinstance(f, (InterruptionFrame, TTSSpeakFrame))]
+    assert said == ["[calm]晴れです。", "[happy]やった。",          # 返事
+                    "InterruptionFrame",                           # 進む: 今の声を止める
+                    "InterruptionFrame", "[calm]晴れです。", "[happy]やった。"]   # 戻る: もう一度
+    assert not any(isinstance(f, RTVIClientMessageFrame) for f in down)
+
+
+def test_the_picture_replay_button_before_any_reply_does_nothing():
+    pytest.importorskip("pipecat")
+    from pipecat.frames.frames import InterruptionFrame, TTSSpeakFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    down, _ = asyncio.run(run_test(_bridge([]), frames_to_send=[_button("voice-replay"), SleepFrame(sleep=0.05)]))
+    assert not any(isinstance(f, (InterruptionFrame, TTSSpeakFrame)) for f in down)

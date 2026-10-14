@@ -16,18 +16,21 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 // app の native の部品 (= BackgroundVoice) の代わり。 呼ばれた口を記録し、 知らせを手で流せる。
 let plugin
-let notify
+let listeners
+// app の state の知らせ (= 受け手を種類ごとに覚える偽の app の、 state の受け手を呼ぶ)
+const notify = (data) => listeners.state?.(data)
 beforeEach(() => {
   _resetForTest()
   resetVoice()
   apiFetch.mockReset()
   apiFetch.mockImplementation(async () => ({ ok: true, status: 200, json: async () => ({}) }))
   openConversation.mockReset()
+  listeners = {}
   plugin = {
     start: vi.fn(async () => {}),
     setMic: vi.fn(async () => {}),
     stop: vi.fn(async () => {}),
-    addListener: vi.fn((event, callback) => { notify = callback }),
+    addListener: vi.fn((event, callback) => { listeners[event] = callback }),
   }
   vi.stubGlobal('window', {
     location: { href: 'https://host.example/' },
@@ -154,5 +157,20 @@ describe('inside the iPhone app, the app holds the microphone and the voice', ()
     setVoiceVolume(-1)
     expect(volumeOf().volume).toBe(0)
     setVoiceVolume(1)
+  })
+
+  it('follows the microphone switched from the PiP window, so the 🎙 shows the same', async () => {
+    toggleVoice('ses_a', vi.fn())
+    await settle()
+    notify({ state: 'connected' })
+    listeners.mic({ on: true })
+    expect(getSnapshot().phase.ses_a).toBe('listening')
+    toggleMic('ses_a', vi.fn())   // 🎙 を押すと、 小窓で入れたマイクを切る
+    expect(plugin.setMic).toHaveBeenLastCalledWith({ on: false })
+    listeners.mic({ on: true })
+    listeners.mic({ on: false })
+    expect(getSnapshot().phase.ses_a).toBeUndefined()
+    listeners.mic({})             // 形の違う知らせは見ない
+    expect(getSnapshot().phase.ses_a).toBeUndefined()
   })
 })

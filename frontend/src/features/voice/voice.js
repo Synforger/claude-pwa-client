@@ -50,7 +50,7 @@ let nativeCall
 function call() {
   if (nativeCall === undefined) {
     const plugin = nativeVoice()
-    nativeCall = plugin ? createNativeCall({ plugin, onState: onNativeState }) : null
+    nativeCall = plugin ? createNativeCall({ plugin, onState: onNativeState, onMic: onNativeMic }) : null
   }
   return nativeCall
 }
@@ -297,6 +297,13 @@ function openCall(sid) {
 }
 
 // app の会話の知らせ (= つながった / 切れた / 失敗した)。
+// 小窓 (= PiP) の再生 / 停止で app がマイクを切り替えた: 🎙 の表示を合わせる (= 入力欄の 🎙 と同じ状態)。
+function onNativeMic(sid, on) {
+  if (on) micWanted.add(sid)
+  else micWanted.delete(sid)
+  setVoicePhase(sid, on ? 'listening' : null)
+}
+
 function onNativeState(sid, state, message, { fatal } = {}) {
   if (state === 'connected') {
     setVoicePhase(sid, micWanted.has(sid) ? 'listening' : null)

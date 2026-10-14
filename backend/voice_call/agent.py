@@ -15,6 +15,9 @@
 送るのは `{"pip": "line", "who": "user" | "agent", "text"}` (= 会話を始めた後のタブの発話と返事。 声にしない返事も
 出す) と `{"pip": "state", "state": "listening" | "thinking" | "speaking" | "waiting"}` (= 人が話し始めた /
 タブへ送った / 声が鳴り始めた / 鳴り終えた)。 描くのは app (= `shell/ios/App/App/CallPicture.swift`)。
+
+小窓のボタン: app は小窓の送りのボタンを RTVI の client-message で知らせる。 `voice-skip` (= 進む) は今の声と
+まだ鳴らしていない文を止め、 `voice-replay` (= 戻る) は直前の返事をもう一度声にする。
 """
 from __future__ import annotations
 
@@ -37,7 +40,7 @@ from pipecat.frames.frames import (
     UserStartedSpeakingFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
-from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
+from pipecat.processors.frameworks.rtvi import RTVIClientMessageFrame, RTVIServerMessageFrame
 
 from backend.voice_call.rules import (
     MAX_HEARD,
@@ -82,6 +85,8 @@ class AgentBridge(FrameProcessor):
         self._since_ms = 0
         # 人の新しい発話を送った後、 タブの記録にその発話が載るまでの間か
         self._awaiting_turn = False
+        # 直前の返事の、 声にした文の並び (= 小窓の戻るのボタンで、 もう一度言う)
+        self._last_reply: list[str] = []
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -94,6 +99,10 @@ class AgentBridge(FrameProcessor):
         if isinstance(frame, (EndFrame, CancelFrame)):
             await self._stop()
             await self.push_frame(frame, direction)
+            return
+        if isinstance(frame, RTVIClientMessageFrame):
+            # 小窓のボタン (= app から。 ここで受け止め、 下流へは流さない)
+            await self._button(frame.type)
             return
         if isinstance(frame, LLMContextFrame):
             # 発話のまとめ役が渡す、 人の 1 回分の発話 (= ここで受け止め、 下流の声の段へは流さない)
@@ -178,10 +187,13 @@ class AgentBridge(FrameProcessor):
                 await self._show_line("agent", shown_reply_text(text))
             if not text or self._awaiting_turn:
                 continue
+            self._last_reply = []
             for said in await self._utterances(text):
                 if self._awaiting_turn:
                     break
-                await self.push_frame(TTSSpeakFrame(marked(said.get("mark") or "", said.get("text") or "", said.get("values"))))
+                line = marked(said.get("mark") or "", said.get("text") or "", said.get("values"))
+                self._last_reply.append(line)
+                await self.push_frame(TTSSpeakFrame(line))
 
     def _fresh_speech(self, event: dict) -> str | None:
         found = speech_of(event)
@@ -201,6 +213,15 @@ class AgentBridge(FrameProcessor):
         return isinstance(ts, (int, float)) and ts > self._since_ms
 
     # --- 小窓 -------------------------------------------------------------------------------------------------
+
+    async def _button(self, kind: str) -> None:
+        if kind == "voice-skip":
+            await self.push_frame(InterruptionFrame())
+        elif kind == "voice-replay" and self._last_reply:
+            await self.push_frame(InterruptionFrame())
+            for line in self._last_reply:
+                await self.push_frame(TTSSpeakFrame(line))
+        logger.info("voice call: picture button %s", kind)
 
     async def _show_line(self, who: str, text: str) -> None:
         if text:
