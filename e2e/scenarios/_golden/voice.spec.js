@@ -114,12 +114,14 @@ test.describe('golden: voice', () => {
     await expect(said).not.toContainText('[happy]')
     await page.screenshot({ path: testInfo.outputPath('voice-on.png') })
 
-    // What a tool call says it does is said too; the call itself is not.
+    // A tool call is not said, nor what it says it does; the words written after it are.
     reply(tab.jsonl_path, 'tool', [
       { type: 'tool_use', id: 'tool_voice_1', name: 'Bash', input: { command: 'ls -la', description: 'List the files here' } },
     ])
+    reply(tab.jsonl_path, 'between', [{ type: 'text', text: 'Three files.' }])
     await expect.poll(started, { timeout: 20_000 }).toBe(4)
-    expect(asked.synthesis.at(-1)).toEqual({ mark: 'calm', text: 'List the files here' })
+    expect(asked.synthesis.at(-1)).toEqual({ mark: 'calm', text: 'Three files.' })
+    expect(asked.synthesis.map((u) => u.text)).not.toContain('List the files here')
 
     // A reload closes it again (sound needs a press), and brings nothing back to be said.
     await page.reload({ waitUntil: 'domcontentloaded' })

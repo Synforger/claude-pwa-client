@@ -17,12 +17,12 @@ describe('speechParts — what in an event may be said', () => {
     expect(speechParts(reply('u1', 1, [text('できたよ。')]))).toEqual([{ key: 'u1:text', text: 'できたよ。' }])
   })
 
-  it('takes what a tool call says it does, and not the call itself', () => {
+  it('leaves tool calls out, what they say they do included', () => {
     const parts = speechParts(reply('u1', 1, [
       tool('t1', { command: 'ls -la', description: 'List the files' }),
       tool('t2', { file_path: '/tmp/a.txt' }, 'Read'),
     ]))
-    expect(parts).toEqual([{ key: 'tool:t1', text: 'List the files' }])
+    expect(parts).toEqual([])
   })
 
   it('leaves thinking out', () => {
@@ -85,13 +85,13 @@ describe('createListener — only what newly arrives is said', () => {
     expect(said).toEqual([['s', '一度だけ。']])
   })
 
-  it('says the text and the tool heading of one reply as they arrive in separate rows', () => {
+  it('says the words written between tool calls, and not the tool calls', () => {
     const { listener, said } = listening()
     listener.start('s')
     listener.observe('s', reply('a', 100, [text('調べるね。')]))
-    listener.observe('s', reply('a', 100, [tool('t1', { command: 'ls', description: 'ファイルを一覧する' })]))
-    listener.observe('s', reply('a', 100, [text('調べるね。'), tool('t1', { command: 'ls', description: 'ファイルを一覧する' })]))
-    expect(said).toEqual([['s', '調べるね。'], ['s', 'ファイルを一覧する']])
+    listener.observe('s', reply('b', 101, [tool('t1', { command: 'ls', description: 'ファイルを一覧する' })]))
+    listener.observe('s', reply('c', 102, [text('3 つあったよ。')]))
+    expect(said).toEqual([['s', '調べるね。'], ['s', '3 つあったよ。']])
   })
 
   it('does not say a reply that carries no time', () => {

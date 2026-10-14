@@ -1,7 +1,7 @@
 // 届いた event のうち、 どれを声にするかを決める (= 音も通信も持たない)。
 //
-// 声にするのは agent の返事の文と、 ツールの呼び出しに付いた説明文 (= 「今何をしているか」 の 1 行)。
-// thinking と、 説明文の無いツールの呼び出しは声にしない。
+// 声にするのは agent の返事の文 (= ツールの合間に書いた文も含む)。 thinking と、 ツールの呼び出し (= その説明文も)
+// は声にしない (= 何をしているかは画面で見えるので、 声では言わない)。
 //
 // 鳴らすのは「新しく届いた物」 だけ:
 //   - 履歴の読み込み (= タブを開いた時の GET) で届いた物は、 聞いた事にして鳴らさない
@@ -11,8 +11,7 @@
 import { MAX_MESSAGES } from '../../constants.js'
 
 // 1 つのタブで覚えておく「聞いた物」 の数。 超えた分は古い順に忘れる (= ON にする前の物は、 忘れても時刻で
-// 弾かれる)。 画面が 1 つのタブに持つ吹き出しの数に、 吹き出し 1 つの候補 (= 文 1 つとツールの説明文) の
-// 見込みを掛けた数。
+// 弾かれる)。 画面が 1 つのタブに持つ吹き出しの数に、 吹き出し 1 つの候補の見込みを掛けた数。
 const PARTS_PER_MESSAGE = 10
 export const MAX_HEARD = MAX_MESSAGES * PARTS_PER_MESSAGE
 
@@ -21,15 +20,8 @@ export function speechParts(event) {
   if (!event || event.type !== 'assistant' || event.parent_tool_use_id) return []
   const content = event.message?.content
   if (!Array.isArray(content)) return []
-  const parts = []
   const text = content.filter(b => b?.type === 'text').map(b => b.text || '').join('')
-  if (text.trim() && event.uuid) parts.push({ key: `${event.uuid}:text`, text })
-  for (const block of content) {
-    if (block?.type !== 'tool_use' || !block.id) continue
-    const description = typeof block.input?.description === 'string' ? block.input.description.trim() : ''
-    if (description) parts.push({ key: `tool:${block.id}`, text: description })
-  }
-  return parts
+  return text.trim() && event.uuid ? [{ key: `${event.uuid}:text`, text }] : []
 }
 
 // isOn(sid) が真のタブの、 新しく届いた物を say(sid, text) へ渡す。
