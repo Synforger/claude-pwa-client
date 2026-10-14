@@ -10,6 +10,7 @@ claude-pwa-client を **インストールして使うため**の文書です。
 | 画面共有も使いたい (任意) | [setup/path-b-screenshare.md](setup/path-b-screenshare.md) |
 | 自作のアプリを上部バーから開きたい (任意) | [setup/extensions.md](setup/extensions.md) |
 | Windows (WSL2) で動かしたい | [setup/windows-wsl.md](setup/windows-wsl.md) |
+| iPhone で、 裏に回っても声で話したい (任意) | [setup/ios-app.md](setup/ios-app.md) |
 
 ## 運用ガイド
 

@@ -314,6 +314,32 @@ export interface DeleteSessionsSidVoiceConversationResponse {
   closed: boolean
 }
 
+/** POST /sessions/{sid}/voice/call request body */
+export interface PostSessionsSidVoiceCallRequest {
+  sdp: string
+  type: string
+  pc_id?: string
+  restart_pc?: boolean
+}
+
+/** POST /sessions/{sid}/voice/call response */
+export interface PostSessionsSidVoiceCallResponse {
+  sdp: string
+  type: string
+  pc_id: string
+}
+
+/** PATCH /sessions/{sid}/voice/call request body */
+export interface PatchSessionsSidVoiceCallRequest {
+  pc_id: string
+  candidates: (Record<string, unknown>)[]
+}
+
+/** PATCH /sessions/{sid}/voice/call response */
+export interface PatchSessionsSidVoiceCallResponse {
+  status: string
+}
+
 /** POST /agent-messages request body */
 export type PostAgentMessagesRequest = Record<string, unknown>
 
