@@ -10,7 +10,7 @@ import { translateHttpErrorDetail } from '../../utils/httpError.js'
 import { useEscape } from '../../hooks/useEscape.js'
 import { useT } from '../../i18n/t.js'
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
-import { splitPaths } from '../chat/filePaths.js'
+import MessageRenderer from '../chat/MessageRenderer.jsx'
 import '../../shared/Modal.css'
 import './NoteModal.css'
 
@@ -18,8 +18,8 @@ import './NoteModal.css'
 //
 // 真値は host の file 1 本 (= GET / PUT /sessions/{sid}/note)。 そのタブのエージェントも同じ file を
 // 直に書くので、 画面はここに写しを持たず、 開いた時と、 そのタブの会話が進むたびに読み直す。
-// 見る時は書いたとおりの文 (= 改行と空白を残し、 字は書く欄と同じ等幅。 書いてある path はタップで開く)、
-// 書く時はただのテキスト欄。 markdown としては読まない (= 段落として読むと改行と行頭の空白がつぶれる)。
+// 見る時は markdown のファイルと同じ描き方 (= 見出し / 表 / コード。 書いてある path はタップで開く) で、
+// 長くても畳まず、 段落の改行と空白は書いたとおりに残す。 書く時はただのテキスト欄。
 // メモはそのタブの下書きで、 タブを消すと消える。
 export default function NoteModal() {
   const t = useT()
@@ -141,11 +141,10 @@ export default function NoteModal() {
           ) : content === '' ? (
             <p className="dim note-empty">{t('notes.empty')}</p>
           ) : (
-            <pre className="note-text" data-testid="notes-text">
-              {splitPaths(content).map((part, i) => (part.path
-                ? <span key={i} className="file-link" onClick={() => handleOpenFile(part.path)}>{part.path}</span>
-                : part.text))}
-            </pre>
+            // 枠の見た目は markdown のファイルプレビューと同じ物 (= 見出し / 表 / コードの罫と余白)
+            <div className="md-preview" data-testid="notes-text">
+              <MessageRenderer text={content} onOpenFile={handleOpenFile} asWritten />
+            </div>
           )}
         </div>
         <ConfirmDialog

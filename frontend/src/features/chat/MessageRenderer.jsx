@@ -5,8 +5,9 @@ import remarkGfm from 'remark-gfm'
 import { visit } from 'unist-util-visit'
 import { useThrottledStreamingText } from './useThrottledStreamingText.js'
 import { recordPerfSample } from '../../features/app-effects/perfProbe.js'
-import { MARKDOWN_PATH_RE as PATH_RE } from './filePaths.js'
 import './MessageRenderer.css'
+
+const PATH_RE = /(?<![(`])(~\/[^\s`"')\]]+|\/Users\/[^\s`"')\]]+)/g
 
 // 長いメッセージの扱いは 2 段。 役割ごとに閾値を分ける (= 1 つの数字で兼ねると、 守りたい
 // degeneration と畳みたい長文が 2 桁離れているので両立しない)。
@@ -135,6 +136,43 @@ function LargeTextMessage({ text }) {
       )}
     </div>
   )
+}
+
+// remark プラグイン (= メモ用): 段落の中の改行と空白を、 書いたとおりに見せる。 改行は改行の印 (= <br>) に、
+// 行頭の空白と 2 つ以上続く空白は詰められない空白 (= U+00A0) に替える。 markdown は段落の 2 行目以降の
+// 行頭の空白を読む時に落とすので、 文の先頭の階層の段落だけ、 元の文から取り戻す (= リストの続きの字下げは
+// 書式なので戻さない)。 取り戻すのは、 元の文との違いが空白だけの時 (= `\*` のような逃がしは読んだ後の値のまま)。
+const NBSP = '\u00A0'
+const keepSpaces = (line) =>
+  line.replace(/^ +/, (m) => NBSP.repeat(m.length)).replace(/ {2,}/g, (m) => NBSP.repeat(m.length))
+
+function remarkAsWritten() {
+  return (tree, file) => {
+    const source = String(file)
+    visit(tree, 'paragraph', (para, _index, parent) => {
+      const top = parent?.type === 'root'
+      const children = []
+      para.children.forEach((node, k) => {
+        if (node.type !== 'text') { children.push(node); return }
+        let value = node.value
+        if (top && node.position) {
+          const start = node.position.start.offset
+          let raw = source.slice(start, node.position.end.offset)
+          // 段落の 1 行目の行頭の空白 (= 3 つまでは段落の書き出しとして落とされる)
+          if (k === 0) {
+            const lead = source.slice(source.lastIndexOf('\n', start - 1) + 1, start)
+            if (/^ +$/.test(lead)) raw = lead + raw
+          }
+          if (raw !== value && raw.replace(/\s/g, '') === value.replace(/\s/g, '')) value = raw
+        }
+        value.split('\n').forEach((line, i) => {
+          if (i > 0) children.push({ type: 'break' })
+          if (line) children.push({ type: 'text', value: keepSpaces(line) })
+        })
+      })
+      para.children = children
+    })
+  }
 }
 
 // remarkプラグイン: テキストノード内のファイルパスをlinkノードに変換
@@ -297,7 +335,8 @@ function CollapsibleMarkdown({ text, plugins, components }) {
   )
 }
 
-const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile, streaming }) {
+// asWritten = メモの描き方: 長さで畳まず (= 素の文へ退くこともしない)、 段落の改行と空白を書いたとおりに残す。
+const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile, streaming, asWritten }) {
   // 2026-07-10 発熱対策: streaming 中の markdown 更新を 500ms に 1 回へ間引く。 完了時は即最終形。
   // 2026-07-15 R1: さらに増分化 — 再パースは「伸びている末尾ブロック」 だけ (= 下の chunk 分割)。
   const throttledText = useThrottledStreamingText(text, streaming)
@@ -323,8 +362,8 @@ const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile, 
   // text で 1 回だけ走らせれば見た目は同じ。 remarkPlugins 配列は memo 化して
   // ReactMarkdown 内部の effect を毎回再評価させない。
   const plugins = useMemo(
-    () => (streaming ? [remarkGfm] : [remarkGfm, remarkFilePaths]),
-    [streaming],
+    () => (streaming ? [remarkGfm] : asWritten ? [remarkGfm, remarkAsWritten, remarkFilePaths] : [remarkGfm, remarkFilePaths]),
+    [streaming, asWritten],
   )
   const components = useMemo(() => buildComponents(onOpenFile), [onOpenFile])
 
@@ -337,7 +376,7 @@ const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile, 
   // 巨大メッセージは markdown を通さず plain text に倒す (= degeneration 等でメインスレッドが
   // 固まるのを防ぐ)。 streaming 中で途中まで巨大になったものも同様にガードされる。
   // deferred ではなく現在 text で判定 (= 巨大化を遅らせず即時に重い経路を切る)。
-  if (isOversizedMessage(text)) {
+  if (!asWritten && isOversizedMessage(text)) {
     return <LargeTextMessage text={text} />
   }
   if (streamingParts) {
@@ -353,7 +392,7 @@ const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile, 
     )
   }
   // 長文は markdown のまま畳む (= 描画する text で判定して、 表示と判定をずらさない)。
-  if (isCollapsibleMessage(deferredText)) {
+  if (!asWritten && isCollapsibleMessage(deferredText)) {
     return (
       <Profiler id="md-render" onRender={onProfile}>
         <CollapsibleMarkdown text={deferredText} plugins={plugins} components={components} />
