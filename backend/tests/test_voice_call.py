@@ -176,6 +176,21 @@ def test_the_picture_shows_what_was_said_without_marks_and_no_envelopes():
         assert shown_user_text(hidden) is None
     assert shown_reply_text("[calm]晴れです。\n[mute]表は画面で。\n[happy i=1.2]やった。") == "晴れです。\n表は画面で。\nやった。"
     assert shown_reply_text("[1] は脚注のまま") == "[1] は脚注のまま"
+    for interrupt in ("[Request interrupted by user]", "[Request interrupted by user for tool use]"):
+        assert shown_user_text(interrupt) is None
+
+
+def test_the_picture_turns_block_markdown_into_lines_and_keeps_inline_marks():
+    reply = "\n".join([
+        "## 結果", "",
+        "| 名前 | 値 |", "|------|---:|", "| A | **1** |", "| B | `2` |", "",
+        "- 1 つ目", "  - 入れ子", "> 引用", "```python", "print(1)", "```", "---", "**終わり**",
+    ])
+    assert shown_reply_text(reply) == "\n".join([
+        "**結果**", "",
+        "**名前 ｜ 値**", "A ｜ **1**", "B ｜ `2`", "",
+        "・1 つ目", "  ・入れ子", "引用", "print(1)", "**終わり**",
+    ])
 
 
 # --- agent の段 (= Pipecat を通す) -----------------------------------------------------------------------------
