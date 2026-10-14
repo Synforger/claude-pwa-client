@@ -9,15 +9,29 @@
 // 人が話している (= 枠が脈打つ) / 言い終えを見ている・文字にしている (= 薄い点滅) / 消音 (= 斜線)。
 // 失敗の理由はボタンの上に出る。
 
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { subscribe, getSnapshot } from '../../state/voice.js'
 import { useT } from '../../i18n/t.js'
-import { toggleVoice, toggleMic, closeConversation, refreshVoiceAvailable } from './voice.js'
+import { subscribe as onVolume, getSnapshot as volumeOf, VOLUME_MAX } from '../../state/voiceVolume.js'
+import { toggleVoice, toggleMic, closeConversation, refreshVoiceAvailable, changeVolume } from './voice.js'
 import './VoiceButtons.css'
+
+// 🔊 をこの長さ押し続けると、 声の大きさのつまみが出る (= iOS の長押しのメニューより先に出す)
+const LONG_PRESS_MS = 450
 
 export default function VoiceButtons({ sid, onSend }) {
   const voice = useSyncExternalStore(subscribe, getSnapshot)
+  const { volume } = useSyncExternalStore(onVolume, volumeOf)
   const t = useT()
+  const [sliderOpen, setSliderOpen] = useState(false)
+  // 長押しで開いた時は、 指を離した時の click で声を切り替えない
+  const press = useRef({ timer: null, long: false })
+  const startPress = () => {
+    press.current.long = false
+    clearTimeout(press.current.timer)
+    press.current.timer = setTimeout(() => { press.current.long = true; setSliderOpen(true) }, LONG_PRESS_MS)
+  }
+  const endPress = () => clearTimeout(press.current.timer)
 
   useEffect(() => { if (sid) refreshVoiceAvailable(sid) }, [sid])
   // タブを移ったら、 そのタブの声とマイクを閉じる (= 送る関数は、 今見ているタブへ送る)。
@@ -48,7 +62,15 @@ export default function VoiceButtons({ sid, onSend }) {
       <button
         type="button"
         className={`voice-toggle ${voiceState}${error ? ' failed' : ''}`}
-        onClick={() => toggleVoice(sid, onSend)}
+        onClick={() => {
+          if (press.current.long) { press.current.long = false; return }
+          toggleVoice(sid, onSend)
+        }}
+        onPointerDown={startPress}
+        onPointerUp={endPress}
+        onPointerLeave={endPress}
+        onPointerCancel={endPress}
+        onContextMenu={(e) => e.preventDefault()}
         aria-pressed={on}
         aria-label={t('chat.voice_label')}
         title={t(`chat.voice_${voiceState}`)}
@@ -57,6 +79,21 @@ export default function VoiceButtons({ sid, onSend }) {
       >
         {on ? '🔊' : '🔇'}
       </button>
+      {sliderOpen && (
+        <span className="voice-volume" data-testid="voice-volume">
+          <input
+            type="range"
+            min={0}
+            max={VOLUME_MAX * 100}
+            step={5}
+            value={Math.round(volume * 100)}
+            onChange={(e) => changeVolume(sid, Number(e.target.value) / 100)}
+            aria-label={t('chat.voice_volume')}
+          />
+          <span className="voice-volume-value">{Math.round(volume * 100)}%</span>
+          <button type="button" onClick={() => setSliderOpen(false)} aria-label={t('chat.voice_volume_close')}>✕</button>
+        </span>
+      )}
       {error && <span className="voice-error" role="alert" data-testid="voice-error">{error}</span>}
     </span>
   )

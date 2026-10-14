@@ -316,6 +316,18 @@ class PostSessionsSidVoiceCallResponse(BaseModel):
     pc_id: str
 
 
+class PostSessionsSidVoiceCallVolumeRequest(BaseModel):
+    """POST /sessions/{sid}/voice/call/volume request body"""
+    model_config = ConfigDict(extra="forbid")
+    volume: float  # 0 〜 2 (= 1 で engine の音のまま)
+
+
+class PostSessionsSidVoiceCallVolumeResponse(BaseModel):
+    """POST /sessions/{sid}/voice/call/volume response"""
+    model_config = ConfigDict(extra="forbid")
+    calls: int  # 倍率を伝えた通話の数 (= 通話が無ければ 0)
+
+
 class PatchSessionsSidVoiceCallRequest(BaseModel):
     """PATCH /sessions/{sid}/voice/call request body"""
     model_config = ConfigDict(extra="forbid")

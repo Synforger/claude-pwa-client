@@ -36,7 +36,7 @@ from pipecat.workers.runner import WorkerRunner
 
 from backend.voice_call.agent import AgentBridge
 from backend.voice_call.client import BackendClient
-from backend.voice_call.services import ListenSTT, VoiceTTS
+from backend.voice_call.services import ListenSTT, VoiceTTS, Volume
 
 logger = logging.getLogger(__name__)
 
@@ -92,10 +92,11 @@ def watch_output(gaps: OutputGaps) -> None:
     RawAudioTrack.recv = recv
 
 
-async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, start: dict) -> None:
+async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, start: dict, volume: Volume) -> None:
     """1 本の電話の会話を、 つながっている間走らせる。
 
     start: backend が渡す、 そのタブの声の設定 (= marks の名前の並び / conversation / turn の model の path)
+    volume: その端末の声の大きさの倍率 (= 通話中に backend から変わる)
     """
     conversation = start["conversation"]
     gaps = OutputGaps()
@@ -124,7 +125,7 @@ async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, st
         ListenSTT(backend, on_lost=lost),
         user_aggregator,
         AgentBridge(conversation, send=backend.send, events=backend.events, utterances=backend.utterances),
-        VoiceTTS(backend, start["marks"]),
+        VoiceTTS(backend, start["marks"], volume),
         transport.output(),
     ])
 

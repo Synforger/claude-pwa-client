@@ -232,5 +232,7 @@
   "backend.voice_listen_not_enabled": "このタブのエージェントは声を聞き取りません",
   "backend.voice_audio_too_large": "録った音が大きすぎます（上限 {limit} バイト）",
   "backend.voice_listen_unreachable": "聞き取りの engine に繋がりません",
-  "backend.voice_listen_failed": "聞き取りの engine が失敗しました（{status}）"
+  "backend.voice_listen_failed": "聞き取りの engine が失敗しました（{status}）",
+  "chat.voice_volume": "声の大きさ (= この端末だけ)",
+  "chat.voice_volume_close": "閉じる"
 }

@@ -6,7 +6,8 @@ vi.mock('./conversation.js', () => ({ openConversation: vi.fn() }))
 
 const { apiFetch } = await import('../../transport/http.ts')
 const { openConversation } = await import('./conversation.js')
-const { toggleVoice, toggleMic, closeConversation, observeVoiceEvent, _resetForTest: resetVoice } = await import('./voice.js')
+const { toggleVoice, toggleMic, closeConversation, observeVoiceEvent, changeVolume, _resetForTest: resetVoice } = await import('./voice.js')
+const { getSnapshot: volumeOf, setVoiceVolume } = await import('../../state/voiceVolume.js')
 const { getSnapshot, setVoiceAvailable, setVoiceListen, _resetForTest } = await import('../../state/voice.js')
 
 const { API_BASE } = await import('../../constants.js')
@@ -43,7 +44,7 @@ describe('inside the iPhone app, the app holds the microphone and the voice', ()
     expect(getSnapshot().on.ses_a).toBe(true)
     expect(getSnapshot().phase.ses_a).toBe('starting')
     await settle()
-    const url = new URL(`${API_BASE}/sessions/ses_a/voice/call`, 'https://host.example/').href
+    const url = new URL(`${API_BASE}/sessions/ses_a/voice/call?volume=1`, 'https://host.example/').href
     expect(plugin.start).toHaveBeenCalledWith({ url, mic: true })
     expect(openConversation).not.toHaveBeenCalled()
     notify({ state: 'connected' })
@@ -99,5 +100,24 @@ describe('inside the iPhone app, the app holds the microphone and the voice', ()
     await settle()
     expect(plugin.start).not.toHaveBeenCalled()
     expect(getSnapshot().on.ses_a).toBe(true)
+  })
+
+  it('passes this device\'s volume to the call, and a new volume while the call is open', async () => {
+    setVoiceVolume(0.6)
+    toggleVoice('ses_a', vi.fn())
+    await settle()
+    expect(plugin.start.mock.calls[0][0].url).toMatch(/[?&]volume=0\.6$/)
+    changeVolume('ses_a', 1.35)
+    const posted = apiFetch.mock.calls.filter(([path]) => path.endsWith('/voice/call/volume'))
+    expect(posted.map(([, opts]) => opts.jsonBody)).toEqual([{ volume: 1.35 }])
+    setVoiceVolume(1)
+  })
+
+  it('keeps the volume between 0 and 2', () => {
+    setVoiceVolume(5)
+    expect(volumeOf().volume).toBe(2)
+    setVoiceVolume(-1)
+    expect(volumeOf().volume).toBe(0)
+    setVoiceVolume(1)
   })
 })

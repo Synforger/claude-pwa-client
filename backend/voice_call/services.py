@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import io
 import wave
+from dataclasses import dataclass
 from collections.abc import AsyncGenerator, Awaitable, Callable
 
+import numpy as np
 from pipecat.frames.frames import ErrorFrame, Frame, TranscriptionFrame, TTSAudioRawFrame
 from pipecat.services.settings import STTSettings, TTSSettings
 from pipecat.services.stt_service import SegmentedSTTService
@@ -20,6 +22,20 @@ from backend.voice_call.rules import split_mark
 
 # 聞き取りの所要時間の見込み (= Pipecat の既定のまま。 書いておかないと Pipecat が毎回警告を出す)
 TTFS_P99_LATENCY_SECS = 1.0
+
+
+@dataclass
+class Volume:
+    """その端末の、 声の大きさの倍率 (= 端末の画面のつまみ。 0 〜 2、 1 で engine の音のまま)。 通話中に変わる。"""
+    value: float = 1.0
+
+
+def scaled(pcm: bytes, gain: float) -> bytes:
+    """16 bit の音に倍率を掛ける (= 上限を超えた所は上限で止める)。"""
+    if gain == 1.0:
+        return pcm
+    samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) * gain
+    return np.clip(samples, -32768, 32767).astype(np.int16).tobytes()
 
 
 class ListenSTT(SegmentedSTTService):
@@ -47,11 +63,12 @@ class ListenSTT(SegmentedSTTService):
 class VoiceTTS(TTSService):
     """1 文を、 その印の言い方で、 backend の声の口で音にする。"""
 
-    def __init__(self, backend: BackendClient, marks: list[str], **kwargs):
+    def __init__(self, backend: BackendClient, marks: list[str], volume: Volume, **kwargs):
         super().__init__(settings=TTSSettings(model=None, voice=None, language=None),
                          push_start_frame=True, push_stop_frames=True, **kwargs)
         self._backend = backend
         self._marks = set(marks)
+        self._volume = volume
 
     async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame, None]:
         mark, text = split_mark(text, self._marks)
@@ -62,4 +79,6 @@ class VoiceTTS(TTSService):
             return
         with wave.open(io.BytesIO(sound)) as wav:
             rate, channels, pcm = wav.getframerate(), wav.getnchannels(), wav.readframes(wav.getnframes())
+        if wav.getsampwidth() == 2:
+            pcm = scaled(pcm, self._volume.value)
         yield TTSAudioRawFrame(audio=pcm, sample_rate=rate, num_channels=channels, context_id=context_id)

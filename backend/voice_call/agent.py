@@ -4,7 +4,9 @@
 同じ口でそのタブへ送る (= 声で聞いている印は送る口の側で付く)。 言いさし (= 「、」「なんか」 などで終わる) は
 送らずに続きを待ち、 続きが来ないまま待ちの時間が過ぎたら送る (= 画面の会話の `turnTaker.js` と同じ決まり)。
 
-帰り: そのタブの agent が書いた返事を、 届いた順に声にする。 何を声にするかは画面の `listener.js` と同じ決まり
+帰り: そのタブの agent が書いた返事を、 届いた順に声にする。 人の新しい発話をタブへ送った時点で、 鳴っている声と
+まだ鳴らしていない文は捨て、 タブの記録にその発話が載る (= 新しい turn が始まる) までに届いた文は、 前の turn の
+物として言わない (= agent が新しい発話を考えている間に、 前の返事の続きが鳴らないように)。 何を声にするかは画面の `listener.js` と同じ決まり
 (= 返事の文だけ。 thinking とツールの呼び出しと sub-agent の物は言わない。 会話を始める前の物と、 同じ物の 2 度目は
 言わない)。 返事は誰の発話への物でも言う (= 画面から打った文への返事も、 電話で聞ける)。 文の切り分けと言い方の
 印は、 画面と同じ backend の口 (= `utterances`) が決める。
@@ -57,6 +59,8 @@ class AgentBridge(FrameProcessor):
         self._replies_task: asyncio.Task | None = None
         self._heard: OrderedDict[str, None] = OrderedDict()
         self._since_ms = 0
+        # 人の新しい発話を送った後、 タブの記録にその発話が載るまでの間か
+        self._awaiting_turn = False
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -107,6 +111,9 @@ class AgentBridge(FrameProcessor):
         text = "".join(self._pending)
         self._pending = []
         if text:
+            # 前の turn の声は、 ここで全部止める (= 送り終えるまで待たない。 送るのに数秒掛かることがある)
+            self._awaiting_turn = True
+            await self.broadcast_interruption()
             sent = await self._send(text)
             logger.info("voice call: sent chars=%d ok=%s", len(text), sent)
 
@@ -114,10 +121,15 @@ class AgentBridge(FrameProcessor):
 
     async def _follow_replies(self) -> None:
         async for event in self._events():
+            if event.get("type") == "user_message":
+                self._awaiting_turn = False   # 新しい turn が始まった
+                continue
             text = self._fresh_speech(event)
-            if not text:
+            if not text or self._awaiting_turn:
                 continue
             for said in await self._utterances(text):
+                if self._awaiting_turn:
+                    break
                 await self.push_frame(TTSSpeakFrame(marked(said.get("mark") or "", said.get("text") or "")))
 
     def _fresh_speech(self, event: dict) -> str | None:
