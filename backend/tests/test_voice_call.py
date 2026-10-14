@@ -184,3 +184,32 @@ def test_the_output_gaps_count_only_short_silences_inside_speech():
         gaps.saw(empty, late_ms=0.0)
     gaps.saw(False, late_ms=37.0)
     assert (gaps.frames, gaps.gaps, round(gaps.late_max_ms)) == (62, 1, 37)
+
+
+def test_the_call_log_rotates_and_keeps_only_pipecat_warnings(tmp_path, monkeypatch):
+    pytest.importorskip("pipecat")
+    import logging
+
+    from loguru import logger as pipecat_logger
+
+    from backend.voice_call import worker
+
+    monkeypatch.setattr(worker, "LOG_PATH", tmp_path / "voice-call.log")
+    root = logging.getLogger()
+    before = list(root.handlers)
+    try:
+        worker.setup_logging()
+        pipecat_logger.debug("a debug line from pipecat")
+        pipecat_logger.warning("a warning from pipecat")
+        logging.getLogger("backend.voice_call.pipeline").info("voice call: started")
+        for handler in root.handlers:
+            handler.flush()
+        text = (tmp_path / "voice-call.log").read_text()
+    finally:
+        for handler in root.handlers[len(before):]:
+            root.removeHandler(handler)
+            handler.close()
+    assert "a warning from pipecat" in text and "voice call: started" in text
+    assert "a debug line from pipecat" not in text
+    added = [h for h in logging.getLogger().handlers if h not in before]
+    assert added == []

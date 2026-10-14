@@ -429,7 +429,8 @@ curl -s http://127.0.0.1:8765/sessions/<タブの id>/voice/call \
   "sdp_mline_index": 0}]}` を送ります
 - 声を持たないタブ・聞き取りを持たないタブは、 つなぐ前に断ります
 - 会話は、 通話ごとに backend が起こす別の process で動きます (= 音の送り出しを、 backend の他の仕事で遅らせない)。
-  通話の終わりに、 送り出しに短い無音が挟まった回数が log に出ます (= `voice call: ended output … gaps=…`)
+  会話の process の log は `logs/voice-call.log` です (= backend の log と同じく 5 MB で回し、 3 世代まで残す)。
+  通話の終わりに、 送り出しに短い無音が挟まった回数が出ます (= `voice call: ended output … gaps=…`)
 
 ### 言い終えを判定する model を受け取る
 
