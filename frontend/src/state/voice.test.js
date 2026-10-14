@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
-  getSnapshot, subscribe, setVoiceAvailable, setVoiceMarks, setVoiceOn, setVoiceError, setVoiceListen, setVoiceListening,
+  getSnapshot, subscribe, setVoiceAvailable, setVoiceMarks, setVoiceOn, setVoiceError, setVoiceListen, setVoiceTurn, setVoicePhase,
+  setVoiceSpeaking,
   _resetForTest,
 } from './voice.js'
 
@@ -8,7 +9,7 @@ describe('state/voice', () => {
   beforeEach(() => _resetForTest())
 
   it('starts with no tab known to have a voice, none on, and no error', () => {
-    expect(getSnapshot()).toEqual({ available: {}, marks: {}, on: {}, error: {}, listen: {}, listening: {} })
+    expect(getSnapshot()).toEqual({ available: {}, marks: {}, on: {}, error: {}, listen: {}, turn: {}, phase: {}, speaking: {} })
   })
 
   it('keeps what is set per tab', () => {
@@ -18,19 +19,23 @@ describe('state/voice', () => {
     setVoiceError('a', 'engine down')
     setVoiceMarks('a', ['calm', 'happy'])
     setVoiceListen('a', true)
-    setVoiceListening('a', 'recording')
+    setVoiceTurn('a', true)
+    setVoicePhase('a', 'talking')
+    setVoiceSpeaking('a', true)
     expect(getSnapshot()).toEqual({
       available: { a: true, b: false }, marks: { a: ['calm', 'happy'] }, on: { a: true }, error: { a: 'engine down' },
-      listen: { a: true }, listening: { a: 'recording' } })
+      listen: { a: true }, turn: { a: true }, phase: { a: 'talking' }, speaking: { a: true } })
   })
 
-  it('keeps only a tab that listens, and only the two phases of the 🎙', () => {
-    setVoiceListen('a', false); setVoiceListen('b', 'yes'); setVoiceListen('c', null)
+  it('keeps only true flags, and only the known phases of a conversation', () => {
+    setVoiceListen('a', false); setVoiceListen('b', 'yes'); setVoiceTurn('c', 1)
     expect(getSnapshot().listen).toEqual({})
-    setVoiceListening('a', 'hearing'); setVoiceListening('b', 'talking')
-    expect(getSnapshot().listening).toEqual({ a: 'hearing' })
-    setVoiceListening('a', null)
-    expect(getSnapshot().listening).toEqual({})
+    expect(getSnapshot().turn).toEqual({})
+    setVoicePhase('a', 'hearing'); setVoicePhase('b', 'recording')
+    expect(getSnapshot().phase).toEqual({ a: 'hearing' })
+    setVoicePhase('a', null); setVoiceSpeaking('a', false)
+    expect(getSnapshot().phase).toEqual({})
+    expect(getSnapshot().speaking).toEqual({})
   })
 
   it('drops the entry when the voice is turned off or the error is cleared', () => {

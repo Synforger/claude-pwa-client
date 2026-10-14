@@ -60,7 +60,12 @@ const config = {
         speaker: 1,
         marks: { calm: { speedScale: 1.1 }, happy: { speedScale: 1.2 } },
         default: 'calm',
-        listen: { engine: `http://127.0.0.1:${PORT}/ext/fixture-listen` },
+        // CPC_E2E_LISTEN_ENGINE / CPC_E2E_TURN_MODEL point the agent at a real listening engine and a
+        // real Smart Turn model (= the live scenario, scenarios/live/voice-conversation.spec.js).
+        listen: {
+          engine: process.env.CPC_E2E_LISTEN_ENGINE || `http://127.0.0.1:${PORT}/ext/fixture-listen`,
+          ...(process.env.CPC_E2E_TURN_MODEL ? { turn: process.env.CPC_E2E_TURN_MODEL } : {}),
+        },
       },
     },
   },

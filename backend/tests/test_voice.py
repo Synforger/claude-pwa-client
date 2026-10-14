@@ -85,11 +85,11 @@ def _code(response) -> str:
 
 def test_a_tab_of_an_agent_with_a_voice_says_so_and_names_its_marks(client, tabs):
     assert client.get("/sessions/ses_voice/voice").json() == {
-        "enabled": True, "marks": ["calm", "happy", "sleepy"], "default": "calm", "listen": False}
+        "enabled": True, "marks": ["calm", "happy", "sleepy"], "default": "calm", "listen": False, "turn": False}
 
 
 def test_a_tab_of_an_agent_with_no_voice_says_so(client, tabs):
-    assert client.get("/sessions/ses_plain/voice").json() == {"enabled": False, "marks": [], "default": "", "listen": False}
+    assert client.get("/sessions/ses_plain/voice").json() == {"enabled": False, "marks": [], "default": "", "listen": False, "turn": False}
 
 
 def test_a_tab_that_does_not_exist_is_not_found(client, tabs, engine):
@@ -139,6 +139,7 @@ def test_the_answers_have_the_declared_shape(client, tabs):
     {**VOICE, "listen": {}},
     {**VOICE, "listen": {"engine": "ws://127.0.0.1:10102"}},
     {**VOICE, "listen": {"engine": "http://127.0.0.1:10102", "prompt": ["Claude"]}},
+    {**VOICE, "listen": {"engine": "http://127.0.0.1:10102", "turn": 1}},
 ])
 def test_a_voice_setting_of_the_wrong_shape_counts_as_no_voice(broken):
     assert voice.voice_settings(broken) is None
@@ -315,6 +316,12 @@ def test_a_tab_that_listens_says_so(client, tabs):
     body = client.get("/sessions/ses_listen/voice").json()
     assert body["enabled"] is True
     assert body["listen"] is True
+    assert body["turn"] is False
+
+
+def test_a_tab_with_a_turn_model_says_so(client, tabs, monkeypatch, tmp_path):
+    _config(monkeypatch, tmp_path, listener={"voice": {**VOICE, "listen": {**LISTEN, "turn": "/models/turn.onnx"}}})
+    assert client.get("/sessions/ses_listen/voice").json()["turn"] is True
 
 
 def test_what_was_said_comes_back_as_one_line(client, tabs, listener):
@@ -401,3 +408,89 @@ def test_the_sound_goes_to_the_engine_as_a_form(monkeypatch):
         f'--{boundary}\r\nContent-Disposition: form-data; name="response_format"\r\n\r\njson\r\n'
         f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="speech"\r\n'
         f'Content-Type: audio/webm\r\n\r\n'.encode() + WEBM + f'\r\n--{boundary}--\r\n'.encode())
+
+
+
+# --- 言い終えを判定する model と、 会話の持ち主 ---------------------------------------
+
+def test_the_turn_model_file_is_served_as_it_is(client, tabs, monkeypatch, tmp_path):
+    model = tmp_path / "turn.onnx"
+    model.write_bytes(b"ONNX model bytes")
+    _config(monkeypatch, tmp_path, listener={"voice": {**VOICE, "listen": {**LISTEN, "turn": str(model)}}})
+    r = client.get("/sessions/ses_listen/voice/turn-model")
+    assert r.status_code == 200
+    assert r.content == b"ONNX model bytes"
+    assert r.headers["content-type"] == "application/octet-stream"
+    assert r.headers["cache-control"] == "no-cache"
+    assert r.headers.get("etag")
+
+
+def test_a_turn_model_that_is_not_set_or_not_there_is_not_found(client, tabs, monkeypatch, tmp_path):
+    assert _code(client.get("/sessions/ses_listen/voice/turn-model")) == "voice_turn_model_missing"
+    _config(monkeypatch, tmp_path, speaker={"voice": VOICE},
+            listener={"voice": {**VOICE, "listen": {**LISTEN, "turn": str(tmp_path / "gone.onnx")}}})
+    r = client.get("/sessions/ses_listen/voice/turn-model")
+    assert (r.status_code, _code(r)) == (404, "voice_turn_model_missing")
+    r = client.get("/sessions/ses_voice/voice/turn-model")
+    assert (r.status_code, _code(r)) == (409, "voice_listen_not_enabled")
+
+
+@pytest.fixture
+def conversations(monkeypatch):
+    held: dict[str, str] = {}
+    monkeypatch.setattr(voice, "_conversations", held)
+    return held
+
+
+def _from(client, name, sid="ses_listen"):
+    return client.post(f"/sessions/{sid}/voice/transcription", content=WEBM,
+                       headers={"Content-Type": "audio/webm", "X-Voice-Conversation": name})
+
+
+def test_the_screen_that_opened_the_conversation_last_holds_it(client, tabs, listener, conversations):
+    assert client.post("/sessions/ses_listen/voice/conversation", json={"client": "mac-1"}).json() == {"client": "mac-1"}
+    assert _from(client, "mac-1").status_code == 200
+    assert client.post("/sessions/ses_listen/voice/conversation", json={"client": "phone-1"}).status_code == 200
+    r = _from(client, "mac-1")
+    assert (r.status_code, _code(r)) == (409, "voice_conversation_elsewhere")
+    assert _from(client, "phone-1").status_code == 200
+    assert len(listener) == 2
+
+
+def test_a_screen_that_sends_first_after_a_restart_holds_the_conversation(client, tabs, listener, conversations):
+    assert _from(client, "mac-1").status_code == 200
+    assert conversations == {"ses_listen": "mac-1"}
+    assert _code(_from(client, "phone-1")) == "voice_conversation_elsewhere"
+
+
+def test_only_the_holder_closes_the_conversation(client, tabs, conversations):
+    client.post("/sessions/ses_listen/voice/conversation", json={"client": "phone-1"})
+    r = client.request("DELETE", "/sessions/ses_listen/voice/conversation", json={"client": "mac-1"})
+    assert r.json() == {"closed": False}
+    assert conversations == {"ses_listen": "phone-1"}
+    r = client.request("DELETE", "/sessions/ses_listen/voice/conversation", json={"client": "phone-1"})
+    assert r.json() == {"closed": True}
+    assert conversations == {}
+
+
+@pytest.mark.parametrize("body", [None, {}, {"client": ""}, {"client": "a b"}, {"client": "x" * 65}, {"client": 1}])
+def test_a_conversation_needs_a_proper_client_name(client, tabs, conversations, body):
+    r = client.post("/sessions/ses_listen/voice/conversation", json=body)
+    assert (r.status_code, _code(r)) == (400, "voice_bad_request")
+    assert conversations == {}
+
+
+def test_a_tab_that_does_not_listen_has_no_conversation(client, tabs, conversations):
+    r = client.post("/sessions/ses_voice/voice/conversation", json={"client": "mac-1"})
+    assert (r.status_code, _code(r)) == (409, "voice_listen_not_enabled")
+    r = client.post("/sessions/ses_plain/voice/conversation", json={"client": "mac-1"})
+    assert (r.status_code, _code(r)) == (409, "voice_not_enabled")
+
+
+def test_the_conversation_answers_have_the_declared_shape(client, tabs, conversations):
+    body = {"client": "mac-1"}
+    declared.PostSessionsSidVoiceConversationRequest.model_validate(body)
+    declared.PostSessionsSidVoiceConversationResponse.model_validate(
+        client.post("/sessions/ses_listen/voice/conversation", json=body).json())
+    declared.DeleteSessionsSidVoiceConversationResponse.model_validate(
+        client.request("DELETE", "/sessions/ses_listen/voice/conversation", json=body).json())
