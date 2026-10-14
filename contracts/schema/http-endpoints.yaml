@@ -702,6 +702,57 @@ endpoints:
     implementation: backend/routes/voice.py
 
   - method: POST
+    path: /sessions/{sid}/voice/call
+    description: "電話の会話の接続を申し込む (= iPhone の app が WebRTC でつなぐ。 SDP の offer を渡し、 answer を受け取る。 つながった時から、 backend の中で声の会話が回る)"
+    request_body:
+      type: object
+      description: "Pipecat の SmallWebRTC の offer (= sdp / type、 つなぎ直しの時は pc_id / restart_pc)"
+      properties:
+        sdp: { type: string }
+        type: { type: string }
+        pc_id: { type: string }
+        restart_pc: { type: boolean }
+      required: [sdp, type]
+    response:
+      type: object
+      description: "SDP の answer (= sdp / type / pc_id)"
+      properties:
+        sdp: { type: string }
+        type: { type: string }
+        pc_id: { type: string }
+      required: [sdp, type, pc_id]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "声を持たないタブは 409 voice_not_enabled、 聞き取りを持たないタブは 409 voice_listen_not_enabled (= つなぐ前に返す)"
+      - "電話の会話の部品 (= backend/requirements-voice-call.txt) が入っていなければ 501 voice_call_unavailable"
+      - "つながると、 その電話がタブの会話の持ち主になる (= 画面の会話と同じ決まり。 後から開いた画面が持てば、 電話は次の発話で切れる)"
+      - "人の発話は、 声で聞いている印を付けて、 画面で打った時と同じ口でタブへ送る。 タブの返事は、 画面の声と同じ決まりで声にして電話へ返す"
+    implementation: backend/routes/voice_call.py
+
+  - method: PATCH
+    path: /sessions/{sid}/voice/call
+    description: "電話の会話の経路の候補 (= ICE candidate) を足す"
+    request_body:
+      type: object
+      description: "Pipecat の SmallWebRTC の patch"
+      properties:
+        pc_id: { type: string }
+        candidates: { type: array, items: { type: object } }
+      required: [pc_id, candidates]
+    response:
+      type: object
+      properties:
+        status: { type: string }
+      required: [status]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "まだ 1 本もつないでいない backend では 404 voice_call_unknown、 知らない pc_id も 404"
+      - "電話の会話の部品が入っていなければ 501 voice_call_unavailable"
+    implementation: backend/routes/voice_call.py
+
+  - method: POST
     path: /agent-messages
     description: "タブの中の claude から、 別のタブの claude への連絡 (= multipart / urlencoded form)"
     request_body:

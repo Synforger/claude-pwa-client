@@ -401,11 +401,21 @@ async def post_synthesis(request: Request, session_id: str) -> Response:
         text (str): 声にする 1 文 (= `utterances` が返した文)
         mark (str, 省略可): 言い方の印 (= 省けば既定の印)
     """
-    settings = _enabled(session_id)
     text, body = await _text_of(request)
-    name = body.get("mark", settings["default"])
-    if not isinstance(name, str):
+    name = body.get("mark")
+    if name is not None and not isinstance(name, str):
         raise_error(400, "voice_bad_request", "mark は文字列で渡します")
+    kind, sound = await synthesize(session_id, text, name)
+    return Response(content=sound, media_type=kind, headers={"Cache-Control": "no-store"})
+
+
+async def synthesize(session_id: str, text: str, mark: str | None = None) -> tuple[str, bytes]:
+    """1 文を、 印の言い方で音にする (= 画面の口と、 電話の会話が使う)。 返すのは (Content-Type, 音)。
+
+    mark を省けば既定の印。 文の形と印が違えば、 画面の口と同じ形の error を投げる。
+    """
+    settings = _enabled(session_id)
+    name = settings["default"] if mark is None else mark
     if name and name not in settings["marks"]:
         raise_error(400, "voice_unknown_mark", f"この agent に無い印です: {name}", mark=name)
     text = text.strip()
@@ -438,7 +448,7 @@ async def post_synthesis(request: Request, session_id: str) -> Response:
         sound = await _compressed(sound, settings["compressor"])
     logger.info("voice: session=%s mark=%s chars=%d bytes=%d ms=%d", session_id, name or "-", len(text),
                 len(sound), (time.monotonic() - started) * 1000)
-    return Response(content=sound, media_type=kind, headers={"Cache-Control": "no-store"})
+    return kind, sound
 
 
 # log に出した、 コンプレッサーを掛けられなかった理由 (= 同じ理由は 1 度だけ出す)
@@ -477,7 +487,7 @@ async def post_transcription(request: Request, session_id: str) -> dict:
     body: 録った音そのもの (= Content-Type は audio/… 。 形式の変換は engine が行う)
     header: X-Voice-Conversation (省略可) = 会話を開いた画面の名前。 持ち主でない画面の音は断る
     """
-    listen = _listening(session_id)
+    _listening(session_id)   # 声を聞き取らないタブは、 音を読む前に断る
     client = request.headers.get(CONVERSATION_HEADER, "")
     if client and _conversations.setdefault(session_id, client) != client:
         raise_error(409, "voice_conversation_elsewhere", "このタブの会話は、 別の画面で開かれています")
@@ -494,7 +504,12 @@ async def post_transcription(request: Request, session_id: str) -> dict:
                     limit=MAX_AUDIO_BYTES)
     if not audio:
         raise_error(400, "voice_bad_request", "音が空です")
+    return {"text": await transcribe(session_id, audio, audio_type)}
 
+
+async def transcribe(session_id: str, audio: bytes, audio_type: str) -> str:
+    """録った音を聞き取って、 その文を返す (= 画面の口と、 電話の会話が使う。 声が聞き取れなければ空の文)。"""
+    listen = _listening(session_id)
     fields = {"response_format": "json", **({"prompt": listen["prompt"]} if listen["prompt"] else {})}
     started = time.monotonic()
     try:
@@ -514,7 +529,7 @@ async def post_transcription(request: Request, session_id: str) -> dict:
     text = " ".join(line.strip() for line in heard["text"].splitlines() if line.strip())
     logger.info("voice: heard session=%s bytes=%d chars=%d ms=%d", session_id, len(audio), len(text),
                 (time.monotonic() - started) * 1000)
-    return {"text": text}
+    return text
 
 
 @router.get("/sessions/{session_id}/voice/turn-model")
@@ -557,3 +572,31 @@ async def close_conversation(request: Request, session_id: str) -> dict:
     if closed:
         del _conversations[session_id]
     return {"closed": closed}
+
+
+# --- 電話の会話 (= backend/voice_call/) が使う口 ------------------------------------------------------------------
+
+def conversation_settings(session_id: str) -> dict:
+    """会話に使う、 そのタブの声の設定 (= 持ち主は動かさない)。 声を持たない / 聞き取らないタブは、 画面の口と
+    同じ error を投げる。"""
+    _listening(session_id)
+    return _enabled(session_id)
+
+
+def claim_conversation(session_id: str, client: str) -> dict:
+    """会話の持ち主になって、 そのタブの声の設定を返す (= 画面が会話を開く時と同じ。 前の持ち主の音は次から断る)。"""
+    settings = conversation_settings(session_id)
+    _conversations[session_id] = client
+    logger.info("voice: conversation opened session=%s client=%s", session_id, client)
+    return settings
+
+
+def owns_conversation(session_id: str, client: str) -> bool:
+    """client が今もそのタブの会話の持ち主か (= 別の画面が開き直していれば偽)。"""
+    return _conversations.get(session_id) == client
+
+
+def release_conversation(session_id: str, client: str) -> None:
+    """会話を手放す (= 持ち主の時だけ。 別の画面が持っていれば、 そのまま)。"""
+    if _conversations.get(session_id) == client:
+        del _conversations[session_id]

@@ -299,6 +299,36 @@ class DeleteSessionsSidVoiceConversationResponse(BaseModel):
     closed: bool  # 閉じたか (= 別の画面が持っていれば false で、 そのまま)
 
 
+class PostSessionsSidVoiceCallRequest(BaseModel):
+    """POST /sessions/{sid}/voice/call request body"""
+    model_config = ConfigDict(extra="forbid")
+    sdp: str
+    type: str
+    pc_id: Optional[str] = None
+    restart_pc: Optional[bool] = None
+
+
+class PostSessionsSidVoiceCallResponse(BaseModel):
+    """POST /sessions/{sid}/voice/call response"""
+    model_config = ConfigDict(extra="forbid")
+    sdp: str
+    type: str
+    pc_id: str
+
+
+class PatchSessionsSidVoiceCallRequest(BaseModel):
+    """PATCH /sessions/{sid}/voice/call request body"""
+    model_config = ConfigDict(extra="forbid")
+    pc_id: str
+    candidates: list[dict[str, Any]]
+
+
+class PatchSessionsSidVoiceCallResponse(BaseModel):
+    """PATCH /sessions/{sid}/voice/call response"""
+    model_config = ConfigDict(extra="forbid")
+    status: str
+
+
 class PostAgentMessagesRequest(BaseModel):
     """POST /agent-messages request body"""
     model_config = ConfigDict(extra="forbid")
