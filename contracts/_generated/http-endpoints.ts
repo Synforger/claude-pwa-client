@@ -242,6 +242,8 @@ export interface GetSessionsSidVoiceResponse {
   default: string
   /** 人の声を聞き取るか (= 設定に voice.listen が在るか) */
   listen: boolean
+  /** 言い終えを判定する model を持つか (= 設定に voice.listen.turn が在るか) */
+  turn: boolean
 }
 
 /** POST /sessions/{sid}/voice/utterances request body */
@@ -274,6 +276,29 @@ export type PostSessionsSidVoiceTranscriptionRequest = Record<string, unknown>
 export interface PostSessionsSidVoiceTranscriptionResponse {
   /** 聞き取った文 (= 1 行。 声が聞き取れなければ空文字) */
   text: string
+}
+
+/** POST /sessions/{sid}/voice/conversation request body */
+export interface PostSessionsSidVoiceConversationRequest {
+  /** 画面が名乗る名前 (= 英数字と - _ の 64 文字まで。 画面を読み込むたびに作る) */
+  client: string
+}
+
+/** POST /sessions/{sid}/voice/conversation response */
+export interface PostSessionsSidVoiceConversationResponse {
+  client: string
+}
+
+/** DELETE /sessions/{sid}/voice/conversation request body */
+export interface DeleteSessionsSidVoiceConversationRequest {
+  /** 会話を開いた時に名乗った名前 */
+  client: string
+}
+
+/** DELETE /sessions/{sid}/voice/conversation response */
+export interface DeleteSessionsSidVoiceConversationResponse {
+  /** 閉じたか (= 別の画面が持っていれば false で、 そのまま) */
+  closed: boolean
 }
 
 /** POST /agent-messages request body */

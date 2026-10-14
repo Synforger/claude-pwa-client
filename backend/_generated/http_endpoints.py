@@ -239,6 +239,7 @@ class GetSessionsSidVoiceResponse(BaseModel):
     marks: list[str]  # 言い方の印の名前 (= 設定に書いた順)
     default: str  # 印の無い文の印 (= 印を 1 つも持たなければ空文字)
     listen: bool  # 人の声を聞き取るか (= 設定に voice.listen が在るか)
+    turn: bool  # 言い終えを判定する model を持つか (= 設定に voice.listen.turn が在るか)
 
 
 class PostSessionsSidVoiceUtterancesRequest(BaseModel):
@@ -270,6 +271,30 @@ class PostSessionsSidVoiceTranscriptionResponse(BaseModel):
     """POST /sessions/{sid}/voice/transcription response"""
     model_config = ConfigDict(extra="forbid")
     text: str  # 聞き取った文 (= 1 行。 声が聞き取れなければ空文字)
+
+
+class PostSessionsSidVoiceConversationRequest(BaseModel):
+    """POST /sessions/{sid}/voice/conversation request body"""
+    model_config = ConfigDict(extra="forbid")
+    client: str  # 画面が名乗る名前 (= 英数字と - _ の 64 文字まで。 画面を読み込むたびに作る)
+
+
+class PostSessionsSidVoiceConversationResponse(BaseModel):
+    """POST /sessions/{sid}/voice/conversation response"""
+    model_config = ConfigDict(extra="forbid")
+    client: str
+
+
+class DeleteSessionsSidVoiceConversationRequest(BaseModel):
+    """DELETE /sessions/{sid}/voice/conversation request body"""
+    model_config = ConfigDict(extra="forbid")
+    client: str  # 会話を開いた時に名乗った名前
+
+
+class DeleteSessionsSidVoiceConversationResponse(BaseModel):
+    """DELETE /sessions/{sid}/voice/conversation response"""
+    model_config = ConfigDict(extra="forbid")
+    closed: bool  # 閉じたか (= 別の画面が持っていれば false で、 そのまま)
 
 
 class PostAgentMessagesRequest(BaseModel):

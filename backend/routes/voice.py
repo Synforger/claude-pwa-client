@@ -11,7 +11,7 @@
         "happy": { "speedScale": 1.15, "tempoDynamicsScale": 1.3 }
       },
       "default": "calm",
-      "listen":  { "engine": "http://127.0.0.1:10102", "prompt": "Claude、PWA。" }
+      "listen":  { "engine": "http://127.0.0.1:10102", "prompt": "Claude、PWA。", "turn": "/path/to/smart-turn.onnx" }
     }
 
     engine:  VOICEVOX と同じ口 (= `POST /audio_query` と `POST /synthesis`) を持つ engine の URL
@@ -20,7 +20,8 @@
     marks:   言い方の印。 名前 → その印の文に当てる値。 `speaker` を書いた印は、 その文だけ別の声の番号で言う
     default: 印の無い文の印 (= 省けば最初の印)
     listen:  人の声を聞き取る engine (= 省けば聞き取らない)。 whisper.cpp の `whisper-server` と同じ口
-             (= `POST /inference`) を持つ engine の URL と、 聞き取りの手がかりにする語 (= 省略可)
+             (= `POST /inference`) を持つ engine の URL と、 聞き取りの手がかりにする語 (= 省略可) と、 言い終えたかを
+             判定する Smart Turn の model の file (= 省略可。 画面がこの口から受け取って、 画面の中で判定する)
 
 返事の流れは 2 段。 画面は返事の文を `utterances` へ渡して声にする文の並びを受け取り、 1 文ずつ `synthesis`
 へ渡して音を受け取る (= 1 文目の音が出来た時点で鳴らし始められる。 engine は文の途中の音を返さない)。
@@ -28,9 +29,14 @@
     1. POST /sessions/{sid}/voice/utterances    返事の文 → 声にする文と、 その印
     2. POST /sessions/{sid}/voice/synthesis     1 文と印 → 音 (= audio/wav)
 
-人の声は 1 段。 画面が録った音 (= 🎙 を押している間の音) を渡し、 聞き取った文を受け取る (= 送るのは画面が普段の送信口で行う)。
+人の声は、 画面が声の区切り (= 言い終えた所) を見つけて、 その音を渡し、 聞き取った文を受け取る (= 送るのは画面が
+普段の送信口で行う)。 声の区切りを見つけるのは画面の中 (= 声の区間の検出と Smart Turn) で、 backend は model の
+file を配るだけ。 会話を開いていられる画面は 1 つのタブに 1 つ (= 後から開いた画面が持ち、 前の画面の音は断る)。
 
-    3. POST /sessions/{sid}/voice/transcription 録った音 → 聞き取った文
+    3. POST   /sessions/{sid}/voice/transcription  録った音 → 聞き取った文
+    4. GET    /sessions/{sid}/voice/turn-model     Smart Turn の model の file
+    5. POST   /sessions/{sid}/voice/conversation   この画面で会話を開く (= 前の画面から持ち主を移す)
+       DELETE /sessions/{sid}/voice/conversation   会話を閉じる
 
 何を声にするか (= コードや path を飛ばし、 文に切り、 印を剥がす) は `backend/core/speech.py` が持つ。
 ここが持つのは、 どのタブが声を持つか・engine へ渡す値・失敗の返し方。
@@ -47,9 +53,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Request
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 
 import backend.config as _config
 from backend.core.speech import MARK_NAME, speakable, utterances
@@ -120,10 +127,10 @@ def _listen(raw) -> dict | None | bool:
         return None
     if not isinstance(raw, dict) or not _is_url(raw.get("engine")):
         return False
-    prompt = raw.get("prompt", "")
-    if not isinstance(prompt, str):
+    prompt, turn = raw.get("prompt", ""), raw.get("turn", "")
+    if not isinstance(prompt, str) or not isinstance(turn, str):
         return False
-    return {"engine": raw["engine"].rstrip("/"), "prompt": prompt}
+    return {"engine": raw["engine"].rstrip("/"), "prompt": prompt, "turn": turn}
 
 
 def voice_settings(raw) -> dict | None:
@@ -160,6 +167,32 @@ def _settings_of(session_id: str) -> dict | None:
         _warned.add(meta.agent_id)
         logger.warning("voice: agent=%s has a voice setting of the wrong shape; it has no voice", meta.agent_id)
     return settings
+
+
+# 会話を開いている画面 (= タブの id → 画面が名乗った名前)。 backend を再起動すると忘れる (= 次に音を送った画面が
+# 持ち主になる)。
+_conversations: dict[str, str] = {}
+CONVERSATION_HEADER = "X-Voice-Conversation"
+_CLIENT_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def _listening(session_id: str) -> dict:
+    """そのタブの聞き取りの設定。 声を持たなければ 409 voice_not_enabled、 聞き取らなければ 409。"""
+    listen = _enabled(session_id)["listen"]
+    if not listen:
+        raise_error(409, "voice_listen_not_enabled", "このタブの agent は声を聞き取りません")
+    return listen
+
+
+async def _client_of(request: Request) -> str:
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    client = body.get("client") if isinstance(body, dict) else None
+    if not isinstance(client, str) or not _CLIENT_NAME.fullmatch(client):
+        raise_error(400, "voice_bad_request", "本文に client (= 英数字と - _ の 64 文字まで) が要ります")
+    return client
 
 
 def _enabled(session_id: str) -> dict:
@@ -232,9 +265,10 @@ async def get_voice(session_id: str) -> dict:
     """そのタブが声を持つかと、 言い方の印の一覧。"""
     settings = _settings_of(session_id)
     if settings is None:
-        return {"enabled": False, "marks": [], "default": "", "listen": False}
+        return {"enabled": False, "marks": [], "default": "", "listen": False, "turn": False}
+    listen = settings["listen"]
     return {"enabled": True, "marks": list(settings["marks"]), "default": settings["default"],
-            "listen": bool(settings["listen"])}
+            "listen": bool(listen), "turn": bool(listen and listen["turn"])}
 
 
 @router.post("/sessions/{session_id}/voice/utterances")
@@ -302,11 +336,12 @@ async def post_transcription(request: Request, session_id: str) -> dict:
     """録った音を聞き取って、 その文を返す (= 声が聞き取れなければ空の文)。
 
     body: 録った音そのもの (= Content-Type は audio/… 。 形式の変換は engine が行う)
+    header: X-Voice-Conversation (省略可) = 会話を開いた画面の名前。 持ち主でない画面の音は断る
     """
-    settings = _enabled(session_id)
-    listen = settings["listen"]
-    if not listen:
-        raise_error(409, "voice_listen_not_enabled", "このタブの agent は声を聞き取りません")
+    listen = _listening(session_id)
+    client = request.headers.get(CONVERSATION_HEADER, "")
+    if client and _conversations.setdefault(session_id, client) != client:
+        raise_error(409, "voice_conversation_elsewhere", "このタブの会話は、 別の画面で開かれています")
     audio_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
     if not audio_type.startswith("audio/"):
         raise_error(400, "voice_bad_request", "本文は録った音 (= Content-Type が audio/…) で渡します")
@@ -341,3 +376,45 @@ async def post_transcription(request: Request, session_id: str) -> dict:
     logger.info("voice: heard session=%s bytes=%d chars=%d ms=%d", session_id, len(audio), len(text),
                 (time.monotonic() - started) * 1000)
     return {"text": text}
+
+
+@router.get("/sessions/{session_id}/voice/turn-model")
+async def get_turn_model(session_id: str) -> FileResponse:
+    """言い終えたかを判定する Smart Turn の model の file (= 画面が受け取って、 画面の中で判定する)。"""
+    turn = _listening(session_id)["turn"]
+    path = Path(turn).expanduser() if turn else None
+    if path is None or not path.is_file():
+        if turn:
+            logger.warning("voice: the turn model file is not there: %s", turn)
+        raise_error(404, "voice_turn_model_missing", "言い終えを判定する model がありません")
+    # 中身が変わった時だけ取り直させる (= 毎回 ETag で確かめる。 file は数 MB)。
+    return FileResponse(path, media_type="application/octet-stream", headers={"Cache-Control": "no-cache"})
+
+
+@router.post("/sessions/{session_id}/voice/conversation")
+async def open_conversation(request: Request, session_id: str) -> dict:
+    """この画面で会話を開く (= 前に開いていた画面からは、 次に音を送った時に断る)。
+
+    body:
+        client (str): 画面が名乗る名前 (= 画面を読み込むたびに作る)
+    """
+    _listening(session_id)
+    client = await _client_of(request)
+    _conversations[session_id] = client
+    logger.info("voice: conversation opened session=%s", session_id)
+    return {"client": client}
+
+
+@router.delete("/sessions/{session_id}/voice/conversation")
+async def close_conversation(request: Request, session_id: str) -> dict:
+    """会話を閉じる (= 持ち主の画面からだけ。 別の画面が持っていれば、 そのまま)。
+
+    body:
+        client (str): 会話を開いた時に名乗った名前
+    """
+    _listening(session_id)
+    client = await _client_of(request)
+    closed = _conversations.get(session_id) == client
+    if closed:
+        del _conversations[session_id]
+    return {"closed": closed}

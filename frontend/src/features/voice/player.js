@@ -12,13 +12,15 @@
 //   play(sid, sound) -> { done: Promise<void>, stop() }          音を鳴らす
 //   onError(sid, error)                                          鳴らせなかった (= その返事の残りは捨てる)
 //   onPlayed(sid)                                                1 文が鳴り終えた
+//   onBusy(sid, busy)                                            鳴らす物を抱え始めた / 全部鳴り終えた (= 止めた時も)
+//                                                                (= 合成を待っている間も「抱えている」 に数える)
 
-export function createPlayer({ utterances, sound, play, onError = () => {}, onPlayed = () => {} }) {
-  const tabs = new Map()   // sid -> { run: number, abort: AbortController, making: Promise, playing: Promise, current }
+export function createPlayer({ utterances, sound, play, onError = () => {}, onPlayed = () => {}, onBusy = () => {} }) {
+  const tabs = new Map()   // sid -> { run, abort, making, playing, current, pending: 抱えている返事の数 }
   const tab = (sid) => {
     let t = tabs.get(sid)
     if (!t) {
-      t = { run: 0, abort: new AbortController(), making: Promise.resolve(), playing: Promise.resolve(), current: null }
+      t = { run: 0, abort: new AbortController(), making: Promise.resolve(), playing: Promise.resolve(), current: null, pending: 0 }
       tabs.set(sid, t)
     }
     return t
@@ -36,6 +38,8 @@ export function createPlayer({ utterances, sound, play, onError = () => {}, onPl
       reply.failed = true
       onError(sid, error)
     }
+    t.pending += 1
+    if (t.pending === 1) onBusy(sid, true)
 
     t.making = t.making.then(async () => {
       if (!live()) return
@@ -69,6 +73,12 @@ export function createPlayer({ utterances, sound, play, onError = () => {}, onPl
         try { await made } catch { return }
       }
     })
+    // この返事の文を作り終えた時点の「鳴らす列」 の終わりが、 この返事の最後の 1 文 (= 後の返事は、 まだ並んでいない)。
+    t.making.then(() => t.playing).then(() => {
+      if (!live()) return
+      t.pending -= 1
+      if (t.pending === 0) onBusy(sid, false)
+    })
   }
 
   function stop(sid) {
@@ -80,6 +90,7 @@ export function createPlayer({ utterances, sound, play, onError = () => {}, onPl
     t.current = null
     t.making = Promise.resolve()
     t.playing = Promise.resolve()
+    if (t.pending > 0) { t.pending = 0; onBusy(sid, false) }
   }
 
   // test 用: そのタブの、 並んでいる分が全部済むまで待つ。

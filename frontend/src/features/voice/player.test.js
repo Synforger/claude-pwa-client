@@ -148,3 +148,38 @@ describe('createPlayer — sentences are made and played in order', () => {
     expect(log.filter(l => l.startsWith('play '))).toEqual(['play 二。'])
   })
 })
+
+describe('createPlayer — says when it holds something to play', () => {
+  it('is busy from the first reply until the last sentence of the last reply has played', async () => {
+    const busy = []
+    const gate = deferred()
+    const { player } = rig({
+      onBusy: (sid, b) => busy.push(`${sid}:${b}`),
+      play: (_sid, data) => ({ done: data === '三。' ? gate.promise : Promise.resolve(), stop() {} }),
+    })
+    player.say('s', '一。二。')
+    player.say('s', '三。')
+    await tick()
+    expect(busy).toEqual(['s:true'])            // 2 本目では知らせ直さない
+    await tick(); await tick()
+    expect(busy).toEqual(['s:true'])            // 3 文目が鳴っている間は、 まだ抱えている
+    gate.resolve()
+    await player.idle('s'); await tick()
+    expect(busy).toEqual(['s:true', 's:false'])
+  })
+
+  it('is quiet as soon as it is stopped, and stays quiet', async () => {
+    const busy = []
+    const gate = deferred()
+    const { player } = rig({ onBusy: (sid, b) => busy.push(b), play: () => ({ done: gate.promise, stop() {} }) })
+    player.say('s', '一。二。')
+    await tick(); await tick()
+    player.stop('s')
+    expect(busy).toEqual([true, false])
+    gate.resolve()
+    await tick(); await tick()
+    expect(busy).toEqual([true, false])
+    player.stop('s')
+    expect(busy).toEqual([true, false])          // 抱えていなければ知らせない
+  })
+})

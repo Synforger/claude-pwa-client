@@ -1,12 +1,15 @@
 // Golden path: voice.
-// A tab whose agent has a voice shows a 🔊 toggle in the topbar. While it is on, a reply
-// that newly arrives is cut into sentences and each sentence is fetched as sound and
-// played, in order. What was already there is not said, and turning it off stops it.
-// A mark at the head of a sentence says how to say it, and is not shown in the bubble.
-// What the person types while it is on goes with a `[voice]` mark at its head, so the
-// agent knows the reply will be heard; the bubble does not show that mark either.
-// The 🎙 in the input row records while it is held; on release, the recording goes to the
-// listening engine and what it heard is sent to the tab the same way.
+// A tab whose agent has a voice shows one conversation button in the input row (and nothing
+// in the topbar). While the conversation is open, a reply that newly arrives is cut into
+// sentences and each sentence is fetched as sound and played, in order. What was already
+// there is not said, and closing the conversation stops it. A mark at the head of a sentence
+// says how to say it, and is not shown in the bubble. What the person types while it is open
+// goes with a `[voice]` mark at its head, so the agent knows the reply will be heard; the
+// bubble does not show that mark either.
+// Opening the conversation of an agent that listens loads the listening parts (voice activity
+// detection in the page) and starts listening to the microphone; closing it lets the
+// microphone go. What is said, judged and written down is the live scenario's to check
+// (scenarios/live/voice-conversation.spec.js): a tone cannot stand in for speech.
 //
 // The speech engine is the test backend's own fixture (silence for every sentence, and a
 // refusal for a sentence that starts with "[fail]"), so the whole path runs: screen ->
@@ -18,7 +21,7 @@ import { test, expect } from '@playwright/test'
 import { seedSession, appendEvent } from '../../helpers/fixture.js'
 import { openClient } from '../../helpers/pwa.js'
 
-const toggle = '[data-testid=voice-toggle]'
+const button = '[data-testid=chat-conversation-button]'
 
 // A reply of the agent's, written to the tab's record the way Claude writes one.
 function reply(jsonlPath, id, content) {
@@ -31,24 +34,40 @@ const text = (t) => ({ type: 'text', text: t })
 
 test.describe('golden: voice', () => {
   test.beforeEach(async ({ page }) => {
-    // Count the sounds the page actually starts, and the ones it cuts short.
     await page.addInitScript(() => {
-      window.__voice = { started: 0, stopped: 0 }
+      // Count the sounds the page actually starts, and the ones it cuts short.
+      window.__voice = { started: 0, stopped: 0, mics: [] }
       const Node = window.AudioBufferSourceNode
       const start = Node.prototype.start
       const stop = Node.prototype.stop
       Node.prototype.start = function (...args) { window.__voice.started += 1; return start.apply(this, args) }
       Node.prototype.stop = function (...args) { window.__voice.stopped += 1; return stop.apply(this, args) }
+      // A tone from WebAudio stands in for the microphone (the same in every browser this runs).
+      // It is put on the prototype: WebKit silently ignores an assignment on navigator.mediaDevices.
+      Object.defineProperty(MediaDevices.prototype, 'getUserMedia', {
+        configurable: true,
+        writable: true,
+        value: async () => {
+          const ctx = new AudioContext()
+          const tone = ctx.createOscillator()
+          const out = ctx.createMediaStreamDestination()
+          tone.connect(out)
+          tone.start()
+          window.__voice.mics.push(...out.stream.getTracks())
+          return out.stream
+        },
+      })
     })
   })
 
-  test('a tab whose agent has no voice shows no toggle', async ({ page, request }) => {
+  test('a tab whose agent has no voice shows no conversation button', async ({ page, request }) => {
     const plain = await seedSession(request, 'e2e-chat-basic')
     await openClient(page, { sid: plain.sid })
-    await expect(page.locator(toggle)).toHaveCount(0)
+    await page.locator('[data-testid=chat-input]').waitFor({ state: 'visible' })
+    await expect(page.locator(button)).toHaveCount(0)
   })
 
-  test('new replies are said sentence by sentence while the toggle is on', async ({ page, request }, testInfo) => {
+  test('new replies are said sentence by sentence while the conversation is open', async ({ page, request }, testInfo) => {
     const tab = await seedSession(request, 'e2e-voice')
     const asked = { utterances: [], synthesis: [] }
     page.on('request', (r) => {
@@ -59,18 +78,19 @@ test.describe('golden: voice', () => {
     await openClient(page, { sid: tab.sid })
     const started = () => page.evaluate(() => window.__voice.started)
 
-    // Off to begin with, and what arrives while it is off is not said.
-    await expect(page.locator(toggle)).toBeVisible()
-    await expect(page.locator(toggle)).toHaveAttribute('aria-pressed', 'false')
+    // Closed to begin with, nothing in the topbar, and what arrives while it is closed is not said.
+    await expect(page.locator(button)).toBeVisible()
+    await expect(page.locator(button)).toHaveAttribute('aria-pressed', 'false')
+    await expect(page.locator('[data-testid=voice-toggle]')).toHaveCount(0)
     reply(tab.jsonl_path, 'off', [text('Written while the voice was off.')])
     await expect(page.locator('[data-testid=message-bubble-agent]').filter({ hasText: 'while the voice was off' }))
       .toHaveCount(1, { timeout: 20_000 })
     expect(asked.utterances).toEqual([])
     await page.screenshot({ path: testInfo.outputPath('voice-off.png') })
 
-    // On: nothing that was already there is said.
-    await page.locator(toggle).click()
-    await expect(page.locator(toggle)).toHaveAttribute('aria-pressed', 'true')
+    // Open: nothing that was already there is said.
+    await page.locator(button).click()
+    await expect(page.locator(button)).toHaveAttribute('aria-pressed', 'true')
     await page.waitForTimeout(1500)
     expect(asked.utterances).toEqual([])
     expect(await started()).toBe(0)
@@ -101,16 +121,16 @@ test.describe('golden: voice', () => {
     await expect.poll(started, { timeout: 20_000 }).toBe(4)
     expect(asked.synthesis.at(-1)).toEqual({ mark: 'calm', text: 'List the files here' })
 
-    // A reload turns it off again (sound needs a press), and brings nothing back to be said.
+    // A reload closes it again (sound needs a press), and brings nothing back to be said.
     await page.reload({ waitUntil: 'domcontentloaded' })
     await page.locator('[data-testid=chat-input]').waitFor({ state: 'visible', timeout: 15_000 })
-    await expect(page.locator(toggle)).toHaveAttribute('aria-pressed', 'false')
-    await page.locator(toggle).click()
+    await expect(page.locator(button)).toHaveAttribute('aria-pressed', 'false')
+    await page.locator(button).click()
     await page.waitForTimeout(1500)
     expect(await started()).toBe(0)
   })
 
-  test('what is typed while the toggle is on reaches the agent with a voice mark, which the bubble hides', async ({ page, request }, testInfo) => {
+  test('what is typed while the conversation is open reaches the agent with a voice mark, which the bubble hides', async ({ page, request }, testInfo) => {
     const tab = await seedSession(request, 'e2e-voice')
     const sent = []
     page.on('request', (r) => {
@@ -120,15 +140,15 @@ test.describe('golden: voice', () => {
     const input = page.locator('[data-testid=chat-input]')
     const confirmed = (hasText) => page.locator('[data-testid=message-bubble-user][data-cpc-optimistic="0"]').filter({ hasText })
 
-    // Off: the text goes as it was typed.
+    // Closed: the text goes as it was typed.
     await input.fill('typed while the voice is off')
     await page.locator('[data-testid=chat-send-button]').click()
     await expect(confirmed('typed while the voice is off')).toHaveCount(1, { timeout: 15_000 })
     expect(sent).toEqual(['typed while the voice is off'])
 
-    // On: the agent is told the reply will be heard; the record keeps the mark, the bubble does not show it.
-    await page.locator(toggle).click()
-    await expect(page.locator(toggle)).toHaveAttribute('aria-pressed', 'true')
+    // Open: the agent is told the reply will be heard; the record keeps the mark, the bubble does not show it.
+    await page.locator(button).click()
+    await expect(page.locator(button)).toHaveAttribute('aria-pressed', 'true')
     await input.fill('typed while the voice is on')
     await page.locator('[data-testid=chat-send-button]').click()
     const bubble = confirmed('typed while the voice is on')
@@ -139,75 +159,42 @@ test.describe('golden: voice', () => {
     await page.screenshot({ path: testInfo.outputPath('voice-typed.png') })
   })
 
-  test('the 🎙 records while held, and on release sends what the engine heard with the voice mark', async ({ page, request }, testInfo) => {
-    // A tone from WebAudio stands in for the microphone (the same in every browser this runs).
-    // It is put on the prototype: WebKit silently ignores an assignment on navigator.mediaDevices.
-    await page.addInitScript(() => {
-      Object.defineProperty(MediaDevices.prototype, 'getUserMedia', {
-        configurable: true,
-        writable: true,
-        value: async () => {
-          const ctx = new AudioContext()
-          const tone = ctx.createOscillator()
-          const out = ctx.createMediaStreamDestination()
-          tone.connect(out)
-          tone.start()
-          return out.stream
-        },
-      })
-    })
+  test('opening the conversation loads the listening parts and listens; closing it lets the microphone go', async ({ page, request }, testInfo) => {
     const tab = await seedSession(request, 'e2e-voice')
-    const asked = { transcription: [], sent: [] }
-    page.on('request', (r) => {
-      if (r.method() !== 'POST') return
-      if (r.url().endsWith('/voice/transcription')) asked.transcription.push(r.headers()['content-type'])
-      if (r.url().endsWith('/send')) asked.sent.push(r.postDataJSON().text)
+    const loaded = []
+    page.on('response', (r) => {
+      const path = new URL(r.url()).pathname
+      if (path.startsWith('/assets/voice-') || path.endsWith('/voice/conversation')) loaded.push(`${r.status()} ${path}`)
     })
     await openClient(page, { sid: tab.sid })
-    const mic = page.locator('[data-testid=chat-mic-button]')
-    await expect(mic).toBeVisible()
-    await expect(mic).toHaveAttribute('data-phase', 'idle')
+    const mics = () => page.evaluate(() => window.__voice.mics.map((t) => t.readyState))
 
-    // Holding it down records, and turns the voice on so the reply is heard.
-    const box = await mic.boundingBox()
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-    await page.mouse.down()
-    await expect(mic).toHaveAttribute('data-phase', 'recording')
-    await expect(page.locator(toggle)).toHaveAttribute('aria-pressed', 'true')
-    await page.screenshot({ path: testInfo.outputPath('voice-mic-recording.png') })
-    // Still recording after a while, and after the pointer drifts off the button.
-    await page.waitForTimeout(1200)
-    await page.mouse.move(box.x - 40, box.y - 40)
-    await expect(mic).toHaveAttribute('data-phase', 'recording')
-
-    // Letting go sends the recording to be heard, and what was heard goes to the tab.
-    await page.mouse.up()
-    const bubble = page.locator('[data-testid=message-bubble-user][data-cpc-optimistic="0"]')
-      .filter({ hasText: 'what the fixture heard' })
-    await expect(bubble).toHaveCount(1, { timeout: 15_000 })
-    await expect(bubble).not.toContainText('[voice]')
-    await expect(mic).toHaveAttribute('data-phase', 'idle')
-    expect(asked.transcription).toHaveLength(1)
-    expect(asked.transcription[0]).toMatch(/^audio\//)
-    expect(asked.sent).toEqual(['[voice] what the fixture heard'])
+    await page.locator(button).click()
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'listening', { timeout: 30_000 })
     await expect(page.locator('[data-testid=voice-error]')).toHaveCount(0)
-    await page.screenshot({ path: testInfo.outputPath('voice-mic-sent.png') })
-    await page.setViewportSize({ width: 390, height: 844 })
-    await page.screenshot({ path: testInfo.outputPath('voice-mic-narrow.png') })
+    expect(await mics()).toEqual(['live'])
+    // The voice activity model and the model runtime came from the build; this screen holds the conversation.
+    for (const part of ['silero_vad_v5.onnx', 'ort-wasm-simd-threaded.wasm']) {
+      expect(loaded.some((l) => l.startsWith('200 ') && l.endsWith(part)), part).toBe(true)
+    }
+    expect(loaded.some((l) => l.startsWith('200 ') && l.endsWith('/voice/conversation'))).toBe(true)
+    // The audio worklet is fetched from the worklet's own scope, out of the page's sight: it is served next to the model.
+    const model = loaded.find((l) => l.endsWith('silero_vad_v5.onnx')).split(' ')[1]
+    const worklet = await request.get(model.replace('silero_vad_v5.onnx', 'vad.worklet.bundle.min.js'))
+    expect(worklet.status()).toBe(200)
+    expect(worklet.headers()['content-type']).toMatch(/javascript/)
+    await page.screenshot({ path: testInfo.outputPath('voice-listening.png') })
+
+    await page.locator(button).click()
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'off')
+    await expect.poll(mics, { timeout: 5_000 }).toEqual(['ended'])
   })
 
-  test('a tab whose agent does not listen shows no 🎙', async ({ page, request }) => {
-    const plain = await seedSession(request, 'e2e-chat-basic')
-    await openClient(page, { sid: plain.sid })
-    await page.locator('[data-testid=chat-input]').waitFor({ state: 'visible' })
-    await expect(page.locator('[data-testid=chat-mic-button]')).toHaveCount(0)
-  })
-
-  test('a sentence the engine refuses shows why under the toggle, and off clears it', async ({ page, request }, testInfo) => {
+  test('a sentence the engine refuses shows why above the button, and closing clears it', async ({ page, request }, testInfo) => {
     const tab = await seedSession(request, 'e2e-voice')
     await openClient(page, { sid: tab.sid })
-    await page.locator(toggle).click()
-    await expect(page.locator(toggle)).toHaveAttribute('aria-pressed', 'true')
+    await page.locator(button).click()
+    await expect(page.locator(button)).toHaveAttribute('aria-pressed', 'true')
 
     reply(tab.jsonl_path, 'fail', [text('[fail] the engine refuses this one! This one is never asked!')])
     const error = page.locator('[data-testid=voice-error]')
@@ -225,8 +212,8 @@ test.describe('golden: voice', () => {
     await expect.poll(() => page.evaluate(() => window.__voice.started), { timeout: 20_000 }).toBe(1)
     await expect(error).toHaveCount(0)
 
-    await page.locator(toggle).click()
-    await expect(page.locator(toggle)).toHaveAttribute('aria-pressed', 'false')
+    await page.locator(button).click()
+    await expect(page.locator(button)).toHaveAttribute('aria-pressed', 'false')
     reply(tab.jsonl_path, 'silent', [text('Not said: the voice is off.')])
     await expect(page.locator('[data-testid=message-bubble-agent]').filter({ hasText: 'the voice is off' }))
       .toHaveCount(1, { timeout: 20_000 })

@@ -1,8 +1,9 @@
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig, loadEnv, defaultClientConditions } from 'vite'
 import react from '@vitejs/plugin-react'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { stampServiceWorker } from './build/stampServiceWorker.js'
+import { voiceAssetsPlugin } from './build/voiceAssets.js'
 
 // Generate public/manifest.json from manifest.template.json by injecting
 // values from VITE_APP_* env vars. Runs once at config time so both `vite`
@@ -37,7 +38,10 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, import.meta.dirname, '')
   generateManifest(env)
   return {
-    plugins: [react(), stampServiceWorkerPlugin()],
+    plugins: [react(), stampServiceWorkerPlugin(), voiceAssetsPlugin()],
+    // onnxruntime-web は、 本体 (= wasm) を外の置き場から読む版を使う (= 会話の部品の置き場から読む。
+    // build/voiceAssets.js)。 同梱版を選ぶと、 本体が bundle の側にも 14MB 出力される。
+    resolve: { conditions: ['onnxruntime-web-use-extern-wasm', ...defaultClientConditions] },
     build: {
       // 初回 download を縮める chunk 分割。 react は安定で再利用可、
       // markdown 系は遅延 load 候補なので別 chunk に逃がして main を軽くする。
