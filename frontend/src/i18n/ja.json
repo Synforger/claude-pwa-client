@@ -21,6 +21,12 @@
   "topbar.voice_label": "声",
   "topbar.voice_on": "返事を声で聞く",
   "topbar.voice_off": "声を止める",
+  "chat.mic_label": "話す",
+  "chat.mic_start": "話して、 もう 1 度押すと送ります",
+  "chat.mic_stop": "話した文を送る",
+  "chat.mic_hearing": "話した文を聞き取っています",
+  "voice.heard_nothing": "声が聞き取れませんでした",
+  "voice.mic_refused": "マイクを使えません: {reason}",
   "topbar.plan_approval": "plan 承認",
   "topbar.plan_approval_label": "plan 承認待ち",
   "topbar.screenshare_open": "画面共有を開く (Sunshine 経由、 ペア済前提)",
@@ -217,5 +223,9 @@
   "backend.voice_nothing_to_say": "声にする文字がありません",
   "backend.voice_text_too_long": "文が長すぎて声にできません（上限 {limit} 文字）",
   "backend.voice_engine_unreachable": "音声合成の engine に繋がりません",
-  "backend.voice_engine_failed": "音声合成の engine が失敗しました（{step}: {status}）"
+  "backend.voice_engine_failed": "音声合成の engine が失敗しました（{step}: {status}）",
+  "backend.voice_listen_not_enabled": "このタブのエージェントは声を聞き取りません",
+  "backend.voice_audio_too_large": "録った音が大きすぎます（上限 {limit} バイト）",
+  "backend.voice_listen_unreachable": "聞き取りの engine に繋がりません",
+  "backend.voice_listen_failed": "聞き取りの engine が失敗しました（{status}）"
 }

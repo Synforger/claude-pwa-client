@@ -5,6 +5,8 @@
 // A mark at the head of a sentence says how to say it, and is not shown in the bubble.
 // What the person types while it is on goes with a `[voice]` mark at its head, so the
 // agent knows the reply will be heard; the bubble does not show that mark either.
+// The 🎙 in the input row records what is said; pressed again, the recording goes to the
+// listening engine and what it heard is sent to the tab the same way.
 //
 // The speech engine is the test backend's own fixture (silence for every sentence, and a
 // refusal for a sentence that starts with "[fail]"), so the whole path runs: screen ->
@@ -135,6 +137,65 @@ test.describe('golden: voice', () => {
     await expect(bubble).not.toContainText('[voice]')
     expect(readFileSync(tab.jsonl_path, 'utf8')).toContain('[voice] typed while the voice is on')
     await page.screenshot({ path: testInfo.outputPath('voice-typed.png') })
+  })
+
+  test('the 🎙 records what is said, and sends what the engine heard with the voice mark', async ({ page, request }, testInfo) => {
+    // A tone from WebAudio stands in for the microphone (the same in every browser this runs).
+    // It is put on the prototype: WebKit silently ignores an assignment on navigator.mediaDevices.
+    await page.addInitScript(() => {
+      Object.defineProperty(MediaDevices.prototype, 'getUserMedia', {
+        configurable: true,
+        writable: true,
+        value: async () => {
+          const ctx = new AudioContext()
+          const tone = ctx.createOscillator()
+          const out = ctx.createMediaStreamDestination()
+          tone.connect(out)
+          tone.start()
+          return out.stream
+        },
+      })
+    })
+    const tab = await seedSession(request, 'e2e-voice')
+    const asked = { transcription: [], sent: [] }
+    page.on('request', (r) => {
+      if (r.method() !== 'POST') return
+      if (r.url().endsWith('/voice/transcription')) asked.transcription.push(r.headers()['content-type'])
+      if (r.url().endsWith('/send')) asked.sent.push(r.postDataJSON().text)
+    })
+    await openClient(page, { sid: tab.sid })
+    const mic = page.locator('[data-testid=chat-mic-button]')
+    await expect(mic).toBeVisible()
+    await expect(mic).toHaveAttribute('data-phase', 'idle')
+
+    // Pressing it starts recording, and turns the voice on so the reply is heard.
+    await mic.click()
+    await expect(mic).toHaveAttribute('data-phase', 'recording')
+    await expect(page.locator(toggle)).toHaveAttribute('aria-pressed', 'true')
+    await page.screenshot({ path: testInfo.outputPath('voice-mic-recording.png') })
+    await page.waitForTimeout(1200)
+
+    // Pressing it again sends the recording to be heard, and what was heard goes to the tab.
+    await mic.click()
+    const bubble = page.locator('[data-testid=message-bubble-user][data-cpc-optimistic="0"]')
+      .filter({ hasText: 'what the fixture heard' })
+    await expect(bubble).toHaveCount(1, { timeout: 15_000 })
+    await expect(bubble).not.toContainText('[voice]')
+    await expect(mic).toHaveAttribute('data-phase', 'idle')
+    expect(asked.transcription).toHaveLength(1)
+    expect(asked.transcription[0]).toMatch(/^audio\//)
+    expect(asked.sent).toEqual(['[voice] what the fixture heard'])
+    await expect(page.locator('[data-testid=voice-error]')).toHaveCount(0)
+    await page.screenshot({ path: testInfo.outputPath('voice-mic-sent.png') })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.screenshot({ path: testInfo.outputPath('voice-mic-narrow.png') })
+  })
+
+  test('a tab whose agent does not listen shows no 🎙', async ({ page, request }) => {
+    const plain = await seedSession(request, 'e2e-chat-basic')
+    await openClient(page, { sid: plain.sid })
+    await page.locator('[data-testid=chat-input]').waitFor({ state: 'visible' })
+    await expect(page.locator('[data-testid=chat-mic-button]')).toHaveCount(0)
   })
 
   test('a sentence the engine refuses shows why under the toggle, and off clears it', async ({ page, request }, testInfo) => {
