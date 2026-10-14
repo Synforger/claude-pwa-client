@@ -14,6 +14,7 @@ import { createPlayer } from './player.js'
 import { unlockAudio, playSound } from './audio.js'
 import { markVoiceInput } from './inputMark.js'
 import { nativeVoice, createNativeCall } from './nativeCall.js'
+import { getSnapshot as volumeOf, setVoiceVolume } from '../../state/voiceVolume.js'
 
 const base = (sid) => `/sessions/${encodeURIComponent(sid)}/voice`
 
@@ -234,8 +235,14 @@ async function open(sid, entry, send) {
         throw error
       }
     },
-    // 声でない音 (= 物音) は、 文字にすると空になり、 ここへは来ない
-    send: (text) => { if (!entry.closed) send(text) },
+    // 声でない音 (= 物音) は、 文字にすると空になり、 ここへは来ない。 送る時に前の turn の声は全部止め、
+    // 新しい turn が始まるまで返事を鳴らさない (= listener.js)
+    send: (text) => {
+      if (entry.closed) return
+      player.stop(sid)
+      listener.holdUntilNextTurn(sid)
+      send(text)
+    },
     // 返事の途中で人が話し始めた: 鳴っている音と、 まだ鳴らしていない文を捨てる (= 次の返事はまた鳴らす)
     interrupt: () => player.stop(sid),
     ...speakingOf(sid),
@@ -269,7 +276,7 @@ function openCall(sid) {
   setVoiceError(sid, null)
   setVoiceOn(sid, true)
   setVoicePhase(sid, muted.has(sid) ? null : 'starting')
-  call().start(sid, { mic: !muted.has(sid) }).catch((error) => {
+  call().start(sid, { mic: !muted.has(sid), volume: volumeOf().volume }).catch((error) => {
     closeConversation(sid)
     setVoiceError(sid, error?.message || String(error))
   })
@@ -306,4 +313,13 @@ function closeMic(sid) {
   entry.stream?.then((stream) => { for (const track of stream.getTracks()) track.stop() }).catch(() => {})
   entry.audioContext?.close().catch(() => {})
   apiFetch(`${base(sid)}/conversation`, { method: 'DELETE', jsonBody: { client: CLIENT } }).catch(() => {})
+}
+
+// 🔊 の長押しのつまみを動かした時に呼ぶ。 その端末の声の大きさを覚え、 画面の声にはその場で、 app の通話の声には
+// 次の文から効かせる (= 通話の声は backend の中で作るので、 backend へ伝える)。
+export function changeVolume(sid, volume) {
+  setVoiceVolume(volume)
+  if (!call()?.has(sid)) return
+  apiFetch(`${base(sid)}/call/volume`, { method: 'POST', jsonBody: { volume: volumeOf().volume } })
+    .catch((error) => setVoiceError(sid, error?.message || String(error)))
 }

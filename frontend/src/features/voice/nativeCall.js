@@ -13,9 +13,12 @@ export function nativeVoice() {
   return cap?.isNativePlatform?.() ? cap.Plugins?.BackgroundVoice || null : null
 }
 
-// そのタブの電話の口の URL (= app の native の部品は、 画面の origin を知らないので絶対 URL で渡す)。
-export function callUrl(sid) {
-  return new URL(`${API_BASE}/sessions/${encodeURIComponent(sid)}/voice/call`, window.location.href).href
+// そのタブの電話の口の URL (= app の native の部品は、 画面の origin を知らないので絶対 URL で渡す)。 volume は
+// その端末の声の大きさの倍率 (= backend の会話が声に掛ける)。
+export function callUrl(sid, volume = 1) {
+  const url = new URL(`${API_BASE}/sessions/${encodeURIComponent(sid)}/voice/call`, window.location.href)
+  url.searchParams.set('volume', String(volume))
+  return url.href
 }
 
 // app の会話を 1 本だけ持つ (= app の部品も backend の会話も、 1 本ずつ)。
@@ -32,10 +35,10 @@ export function createNativeCall({ plugin, onState }) {
   }
   return {
     has: (sid) => current === sid,
-    async start(sid, { mic }) {
+    async start(sid, { mic, volume = 1 }) {
       listen()
       current = sid
-      await plugin.start({ url: callUrl(sid), mic })
+      await plugin.start({ url: callUrl(sid, volume), mic })
     },
     async setMic(sid, on) {
       if (current === sid) await plugin.setMic({ on })

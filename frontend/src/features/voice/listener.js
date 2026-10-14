@@ -7,6 +7,8 @@
 //   - 履歴の読み込み (= タブを開いた時の GET) で届いた物は、 聞いた事にして鳴らさない
 //   - ON にした時点までに届いていた物は鳴らさない (= 時刻は event が運ぶ backend の時刻だけで比べる)
 //   - 同じ物が 2 度届いても 1 度だけ鳴らす (= 繋ぎ直しで、 同じ event が流れ直すことがある)
+//   - 会話で新しい発話を送った後は、 タブの記録にその発話が載る (= 新しい turn が始まる) まで鳴らさない
+//     (= agent が新しい発話を考えている間に、 前の返事の続きが鳴らないように)
 
 import { MAX_MESSAGES } from '../../constants.js'
 
@@ -26,24 +28,27 @@ export function speechParts(event) {
 
 // isOn(sid) が真のタブの、 新しく届いた物を say(sid, text) へ渡す。
 export function createListener({ isOn, say }) {
-  const tabs = new Map()   // sid -> { heard: Set<key>, lastTs: number, since: number | null }
+  const tabs = new Map()   // sid -> { heard: Set<key>, lastTs: number, since: number | null, holding: boolean }
   const tab = (sid) => {
     let t = tabs.get(sid)
-    if (!t) { t = { heard: new Set(), lastTs: 0, since: null }; tabs.set(sid, t) }
+    if (!t) { t = { heard: new Set(), lastTs: 0, since: null, holding: false }; tabs.set(sid, t) }
     return t
   }
 
   return {
     // ON にした時に呼ぶ: これより前に届いていた物は鳴らさない。
     start(sid) { const t = tab(sid); t.since = t.lastTs },
-    stop(sid) { tab(sid).since = null },
+    stop(sid) { const t = tab(sid); t.since = null; t.holding = false },
+    // 会話で新しい発話を送った時に呼ぶ: その発話で次の turn が始まるまで、 届いた返事を鳴らさない。
+    holdUntilNextTurn(sid) { tab(sid).holding = true },
     // 届いた event を 1 つ見る。 history = 履歴の読み込みで届いた物か。
     observe(sid, event, { history = false } = {}) {
+      if (event?.type === 'user_message' && !history) tab(sid).holding = false
       const parts = speechParts(event)
       if (!parts.length) return
       const t = tab(sid)
       const ts = typeof event.ts === 'number' ? event.ts : null
-      const fresh = !history && ts != null && t.since != null && ts > t.since && isOn(sid)
+      const fresh = !history && ts != null && t.since != null && ts > t.since && isOn(sid) && !t.holding
       for (const part of parts) {
         if (t.heard.has(part.key)) continue
         t.heard.add(part.key)
