@@ -151,7 +151,7 @@ export function useChatStream({
         buffer.cancelAndFlush(curSid)
         setMessages(prev => {
           const cur = prev[curSid] || []
-          const next = reconcileUserMessage(cur, event.text || '', event.uuid, event.send_id, event.ts)
+          const next = reconcileUserMessage(cur, event.text || '', event.uuid, event.send_id, event.ts, event.parentUuid)
           return next === cur ? prev : { ...prev, [curSid]: next }
         })
         return
