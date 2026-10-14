@@ -18,6 +18,7 @@ import UIKit
 ///   stop()                切る
 /// 画面へ知らせる event:
 ///   state { state }       connecting / connected / disconnected / error (= error の時は message も)
+///   mic { on }            小窓の再生 / 停止でマイクを入れた / 切った (= 画面の 🎙 を合わせる)
 @objc(BackgroundVoicePlugin)
 public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "BackgroundVoicePlugin"
@@ -60,6 +61,7 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
             }
             do {
                 try await client.enableMic(enable: on)
+                self.picture?.setMic(on)
                 call.resolve()
             } catch {
                 call.reject("could not switch the microphone: \(error)")
@@ -97,11 +99,35 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
             if let screen = bridge?.webView {
                 let picture = CallPicture()
                 picture.start(over: screen)
+                picture.setMic(mic)
+                picture.onMic = { [weak self] on in self?.switchMicFromPicture(on) }
+                picture.onSkip = { [weak self] forward in self?.sendButton(forward ? "voice-skip" : "voice-replay") }
                 self.picture = picture
             }
         } catch {
             self.client = nil
             notify("error", message: "\(error)")
+        }
+    }
+
+    /// 小窓の再生 / 停止: マイクを切り替え、 画面の 🎙 に知らせる。
+    @MainActor private func switchMicFromPicture(_ on: Bool) {
+        guard let client else { return }
+        Task { @MainActor in
+            do {
+                try await client.enableMic(enable: on)
+                notifyListeners("mic", data: ["on": on])
+            } catch {
+                CAPLog.print("[BackgroundVoice] could not switch the microphone from the picture: \(error)")
+                self.picture?.setMic(!on)
+            }
+        }
+    }
+
+    /// 小窓の送りのボタンを、 backend の会話へ知らせる (= `backend/voice_call/agent.py` の小窓のボタン)。
+    @MainActor private func sendButton(_ kind: String) {
+        do { try client?.sendClientMessage(msgType: kind) } catch {
+            CAPLog.print("[BackgroundVoice] could not send \(kind): \(error)")
         }
     }
 

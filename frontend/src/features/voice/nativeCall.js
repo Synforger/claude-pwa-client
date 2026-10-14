@@ -24,7 +24,8 @@ export function callUrl(sid, volume = 1) {
 // app の会話を 1 本だけ持つ (= app の部品も backend の会話も、 1 本ずつ)。
 //   onState(sid, state, message, { fatal })   connecting / connected / disconnected / error (= fatal: 通話が続けられ
 //                                             ない error か。 app が言わなければ undefined)
-export function createNativeCall({ plugin, onState }) {
+//   onMic(sid, on)                            小窓 (= PiP) の再生 / 停止で、 app がマイクを入れた / 切った
+export function createNativeCall({ plugin, onState, onMic = () => {} }) {
   let current = null
   let listening = false
   const listen = () => {
@@ -32,6 +33,9 @@ export function createNativeCall({ plugin, onState }) {
     listening = true
     plugin.addListener('state', ({ state, message, fatal } = {}) => {
       if (current) onState(current, state, message, { fatal })
+    })
+    plugin.addListener('mic', ({ on } = {}) => {
+      if (current && typeof on === 'boolean') onMic(current, on)
     })
   }
   return {
