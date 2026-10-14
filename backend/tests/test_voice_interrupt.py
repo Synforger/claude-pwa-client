@@ -125,9 +125,21 @@ def test_the_stop_button_clears_what_the_stop_put_back(pane, claude):  # noqa: F
     assert pane["box"]["ses_a"] == ""
 
 
-def test_the_stop_button_on_an_idle_agent_does_not_wait(pane, claude):  # noqa: F811
+def test_the_stop_button_waits_for_the_escape_even_before_the_turn_shows_busy(pane, claude):  # noqa: F811
+    # 送った直後は作業中の印がまだ立たない。 印を見て待たずに消していた間は、 Escape のすぐ後に消すキーが届き、
+    # 端末が 2 つを Alt + キーと読んで停止が効かなかった。 印に関わらず、 受け終えるのを見届けてから消す
+    claude["busy"].busy = False
+    together(send("ses_a", "これをやって"))
+    claude["on_escape"] = "restore"
+    together(stop("ses_a"))
+    assert keys(pane)[3:] == ["key:Escape", "restore", "wipe"]
+    assert pane["box"]["ses_a"] == ""
+
+
+def test_the_stop_button_on_an_idle_agent_still_clears(pane, claude, monkeypatch):  # noqa: F811
     claude["busy"].busy = False
     claude["on_escape"] = "nothing"
+    monkeypatch.setattr(routes, "VOICE_INTERRUPT_WAIT_SEC", 0.2)
     together(stop("ses_a"))
     assert keys(pane) == ["key:Escape", "wipe"]
 
