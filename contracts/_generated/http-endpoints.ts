@@ -240,11 +240,8 @@ export interface GetSessionsSidVoiceResponse {
   marks: string[]
   /** 印の無い文の印 (= 印を 1 つも持たなければ空文字) */
   default: string
-  /** 人の声を聞き取るか (= 設定に voice.listen が在れば値、 無ければ null) */
-  listen?: {
-    /** 1 回に録る長さの上限 (= 秒。 画面はこの長さで録るのを止める) */
-    max_seconds: number
-  } | null
+  /** 人の声を聞き取るか (= 設定に voice.listen が在るか) */
+  listen: boolean
 }
 
 /** POST /sessions/{sid}/voice/utterances request body */

@@ -6,7 +6,7 @@
 //   on:        このタブの返事を鳴らすか (= 上部の 🔊 の ON / OFF。 画面を読み込み直すと OFF に戻る:
 //              音は、 人がボタンを押した後でないと鳴らせない)
 //   error:     最後に鳴らせなかった理由の文 (= 次に鳴った時と、 OFF にした時に消える)
-//   listen:    その agent が人の声を聞き取るなら、 1 回に録る長さの上限 (= 秒。 同じ GET の写し。 聞き取らなければ無い)
+//   listen:    その agent が人の声を聞き取るか (= 同じ GET の写し。 聞き取らなければ無い)
 //   listening: 🎙 の今 (= 'recording' 録っている / 'hearing' 聞き取りを待っている。 どちらでもなければ無い)
 
 import { createStore } from './_store.js'
@@ -42,9 +42,7 @@ export function setVoiceMarks(sid, marks) {
 }
 export function setVoiceOn(sid, on) { setFor('on', sid, on ? true : null) }
 export function setVoiceError(sid, text) { setFor('error', sid, text || null) }
-export function setVoiceListen(sid, maxSeconds) {
-  setFor('listen', sid, typeof maxSeconds === 'number' && maxSeconds > 0 ? maxSeconds : null)
-}
+export function setVoiceListen(sid, listens) { setFor('listen', sid, listens === true ? true : null) }
 export function setVoiceListening(sid, phase) {
   setFor('listening', sid, phase === 'recording' || phase === 'hearing' ? phase : null)
 }

@@ -5,7 +5,7 @@
 // A mark at the head of a sentence says how to say it, and is not shown in the bubble.
 // What the person types while it is on goes with a `[voice]` mark at its head, so the
 // agent knows the reply will be heard; the bubble does not show that mark either.
-// The 🎙 in the input row records what is said; pressed again, the recording goes to the
+// The 🎙 in the input row records while it is held; on release, the recording goes to the
 // listening engine and what it heard is sent to the tab the same way.
 //
 // The speech engine is the test backend's own fixture (silence for every sentence, and a
@@ -139,7 +139,7 @@ test.describe('golden: voice', () => {
     await page.screenshot({ path: testInfo.outputPath('voice-typed.png') })
   })
 
-  test('the 🎙 records what is said, and sends what the engine heard with the voice mark', async ({ page, request }, testInfo) => {
+  test('the 🎙 records while held, and on release sends what the engine heard with the voice mark', async ({ page, request }, testInfo) => {
     // A tone from WebAudio stands in for the microphone (the same in every browser this runs).
     // It is put on the prototype: WebKit silently ignores an assignment on navigator.mediaDevices.
     await page.addInitScript(() => {
@@ -168,15 +168,20 @@ test.describe('golden: voice', () => {
     await expect(mic).toBeVisible()
     await expect(mic).toHaveAttribute('data-phase', 'idle')
 
-    // Pressing it starts recording, and turns the voice on so the reply is heard.
-    await mic.click()
+    // Holding it down records, and turns the voice on so the reply is heard.
+    const box = await mic.boundingBox()
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
     await expect(mic).toHaveAttribute('data-phase', 'recording')
     await expect(page.locator(toggle)).toHaveAttribute('aria-pressed', 'true')
     await page.screenshot({ path: testInfo.outputPath('voice-mic-recording.png') })
+    // Still recording after a while, and after the pointer drifts off the button.
     await page.waitForTimeout(1200)
+    await page.mouse.move(box.x - 40, box.y - 40)
+    await expect(mic).toHaveAttribute('data-phase', 'recording')
 
-    // Pressing it again sends the recording to be heard, and what was heard goes to the tab.
-    await mic.click()
+    // Letting go sends the recording to be heard, and what was heard goes to the tab.
+    await page.mouse.up()
     const bubble = page.locator('[data-testid=message-bubble-user][data-cpc-optimistic="0"]')
       .filter({ hasText: 'what the fixture heard' })
     await expect(bubble).toHaveCount(1, { timeout: 15_000 })
