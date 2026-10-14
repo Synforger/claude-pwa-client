@@ -180,17 +180,15 @@ def test_the_picture_shows_what_was_said_without_marks_and_no_envelopes():
         assert shown_user_text(interrupt) is None
 
 
-def test_the_picture_turns_block_markdown_into_lines_and_keeps_inline_marks():
+def test_the_picture_gets_the_reply_as_markdown_without_the_marks():
+    # 小窓 (= app の ChatMarkdown.swift) が表・見出し・箇条書き・コードの枠まで描くので、 markdown は崩さずに送る
     reply = "\n".join([
-        "## 結果", "",
-        "| 名前 | 値 |", "|------|---:|", "| A | **1** |", "| B | `2` |", "",
-        "- 1 つ目", "  - 入れ子", "> 引用", "```python", "print(1)", "```", "---", "**終わり**",
+        "[calm]## 結果", "",
+        "| 名前 | 値 |", "|------|---:|", "| A | **1** |", "",
+        "- 1 つ目", "  - 入れ子", "```", "src/", "└── a.py", "```",
+        "[link](https://example.com) は残す",
     ])
-    assert shown_reply_text(reply) == "\n".join([
-        "**結果**", "",
-        "**名前 ｜ 値**", "A ｜ **1**", "B ｜ `2`", "",
-        "・1 つ目", "  ・入れ子", "引用", "print(1)", "**終わり**",
-    ])
+    assert shown_reply_text(reply) == reply.removeprefix("[calm]")
 
 
 # --- agent の段 (= Pipecat を通す) -----------------------------------------------------------------------------
@@ -541,6 +539,34 @@ def test_the_picture_gets_the_tab_lines_with_the_recent_ones_from_before_the_cal
         {"pip": "line", "who": "agent", "text": "前から在った返事。"},
         {"pip": "line", "who": "user", "text": "明日の天気は"},
         {"pip": "line", "who": "agent", "text": "晴れです。\n表は画面に置きました。"},
+    ]
+
+
+def test_the_picture_replaces_a_turn_sent_again_under_the_same_parent():
+    # 声の会話は、 途中の間で区切られて先に送った前半を取り消し、 後半をつなげて送り直す。 claude は取り消した発話を
+    # 記録に残し、 送り直した発話を同じ親に付ける。 小窓には 1 区間ずつ長くなる発話が並んでいた (= 2026-10-15)
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    later = int(time.time() * 1000) + 60_000
+    events = [
+        {"type": "user_message", "text": "[voice] 前から在った前半", "uuid": "o1", "parentUuid": "Q", "ts": 0},
+        {"type": "user_message", "text": "[voice] 前から在った前半 後半", "uuid": "o2", "parentUuid": "Q", "ts": 0},
+        {"type": "user_message", "text": "[voice] てか、次のやつは。", "uuid": "u1", "parentUuid": "P", "ts": later},
+        {"type": "user_message", "text": "[voice] てか、次のやつは。 時間がかかりそう。", "uuid": "u2", "parentUuid": "P",
+         "ts": later},
+        _reply("r1", "[calm]次は比べる所。", later),
+        {"type": "user_message", "text": "[voice] なるほど。", "uuid": "u3", "parentUuid": "R", "ts": later},
+    ]
+    down, _ = asyncio.run(run_test(_bridge([], events), frames_to_send=[SleepFrame(sleep=0.2)]))
+    assert [d for d in _shown(down) if d["pip"] == "line"] == [
+        {"pip": "line", "who": "user", "text": "前から在った前半 後半"},   # 溜めている間に置き換えた
+        {"pip": "line", "who": "user", "text": "てか、次のやつは。"},
+        {"pip": "line", "who": "user", "text": "てか、次のやつは。 時間がかかりそう。", "replace": True},
+        {"pip": "line", "who": "agent", "text": "次は比べる所。"},
+        {"pip": "line", "who": "user", "text": "なるほど。"},
     ]
 
 
