@@ -20,6 +20,10 @@ final class SmallWebRTCConnection: NSObject {
         RTCInitializeSSL()
         let videoEncoderFactory = RTCDefaultVideoEncoderFactory()
         let videoDecoderFactory = RTCDefaultVideoDecoderFactory()
+        if let audioDevice = SmallWebRTCTransport.audioDevice {
+            return RTCPeerConnectionFactory(
+                encoderFactory: videoEncoderFactory, decoderFactory: videoDecoderFactory, audioDevice: audioDevice)
+        }
         return RTCPeerConnectionFactory(encoderFactory: videoEncoderFactory, decoderFactory: videoDecoderFactory)
     }()
 

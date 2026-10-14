@@ -35,6 +35,7 @@ import { useStatus } from '../features/status-bar/useStatus.js'
 import { useSessionBadges } from '../features/push-notify/useSessionBadges.js'
 import { useRunningSubagents } from '../features/chat/useRunningSubagents.js'
 import { setBadge } from '../features/push-notify/badge.js'
+import { openFromNotification } from '../features/push-notify/openInApp.js'
 import ActivityBar from '../features/tasks/ActivityBar.jsx'
 import { PromptStateBanner } from '../features/status-bar/PromptStateBanner.jsx'
 import ChatInput from '../features/chat/ChatInput.jsx'
@@ -216,7 +217,7 @@ export default function ChatPanel({ sid }) {
       if (d?.type === 'push-received') {
         fetchLatest()
       } else if (d?.type === 'open-session' && d.sid) {
-        setActiveId(d.sid)
+        openFromNotification(d.sid, setActiveId)
       }
     }
     navigator.serviceWorker.addEventListener('message', onMessage)

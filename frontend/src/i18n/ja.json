@@ -102,6 +102,8 @@
   "drawer.push.on": "🔔 通知 ON (タップで無効化)",
   "drawer.push.broken": "⚠ 通知が失効しています (タップで再有効化)",
   "drawer.push.off": "🔕 通知 OFF (タップで有効化)",
+  "drawer.open_in_app.on": "📱 通知を app で開く: ON (タップで PWA に戻す)",
+  "drawer.open_in_app.off": "📱 通知を app で開く: OFF (タップで有効化)",
   "drawer.menu.update_app": "↺ アプリを更新",
   "drawer.menu.update_app_title": "最新コードに更新 (履歴・通知許可は保持)",
   "drawer.menu.restart_backend": "⟳ バックエンドを再起動",

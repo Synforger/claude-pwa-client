@@ -5,6 +5,12 @@ import WebRTC
 
 /// An RTVI transport to connect with the SmallWebRTCTransport  backend.
 public class SmallWebRTCTransport: Transport {
+    /// The audio device WebRTC plays and records through, or nil for WebRTC's built-in one.
+    /// Set it before the first connection: the peer connection factory is made once per process,
+    /// off the main actor, and reads it then (so it is written once and never raced).
+    /// (claude-pwa-client: the only change to the vendored 1.3.0.)
+    nonisolated(unsafe) public static var audioDevice: RTCAudioDevice?
+
     private var iceConfig: IceConfig?
     private var options: PipecatClientOptions?
     private var smallWebRTConnectionParams: SmallWebRTCTransportConnectionParams?

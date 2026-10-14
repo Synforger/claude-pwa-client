@@ -1,4 +1,5 @@
 import AVFoundation
+import AVKit
 import Capacitor
 import Foundation
 import PipecatClientIOS
@@ -29,6 +30,13 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
     ]
 
     private var client: PipecatClient?
+    private var picture: CallPicture?
+
+    override public func load() {
+        // WebRTC の音の出入りを自前の部品にする (= ダッキングを最小に、 🎙 オフの間はマイクを閉じる)。 WebRTC の
+        // 部品の工場はこの process で 1 度だけ作られるので、 最初の接続より前に渡す。
+        SmallWebRTCTransport.audioDevice = CallAudioDevice.shared
+    }
 
     @objc func start(_ call: CAPPluginCall) {
         guard let raw = call.getString("url"), let url = URL(string: raw) else {
@@ -59,6 +67,7 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
             }
             do {
                 try await client.enableMic(enable: on)
+                CallAudioDevice.shared.setMic(on)
                 call.resolve()
             } catch {
                 call.reject("could not switch the microphone: \(error)")
@@ -85,6 +94,7 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
 
     @MainActor private func connect(_ url: URL, mic: Bool) async {
         await disconnect()
+        CallAudioDevice.shared.setMic(mic)
         let client = PipecatClient(
             options: PipecatClientOptions(transport: SmallWebRTCTransport(iceConfig: nil), enableMic: mic))
         client.delegate = self
@@ -93,6 +103,11 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
         do {
             try await client.connect(
                 transportParams: SmallWebRTCTransportConnectionParams(webrtcRequestParams: APIRequest(endpoint: url)))
+            if let screen = bridge?.webView {
+                let picture = CallPicture()
+                picture.start(over: screen)
+                self.picture = picture
+            }
         } catch {
             self.client = nil
             notify("error", message: "\(error)")
@@ -100,6 +115,8 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @MainActor private func disconnect() async {
+        picture?.stop()
+        picture = nil
         guard let client else { return }
         self.client = nil
         try? await client.disconnect()
@@ -118,4 +135,62 @@ extension BackgroundVoicePlugin: PipecatClientDelegate {
     public func onConnected() { notify("connected") }
     public func onDisconnected() { notify("disconnected") }
     public func onError(message: RTVIMessageInbound) { notify("error", message: "\(message)") }
+}
+
+/// 通話の間、 app を抜けたら PiP の小さな窓に文字を出す (= iOS 15 からの通話の PiP。 カメラは使わない)。
+///
+/// 試しの段: 窓には固定の文と、 1 秒ごとに進む時刻を出す (= 裏に回っている間も中身が書き換わるかを見る)。
+@MainActor final class CallPicture: NSObject, AVPictureInPictureControllerDelegate {
+    private var controller: AVPictureInPictureController?
+    private let content = AVPictureInPictureVideoCallViewController()
+    private let label = UILabel()
+    private var timer: Timer?
+
+    func start(over screen: UIView) {
+        guard AVPictureInPictureController.isPictureInPictureSupported() else {
+            CAPLog.print("[CallPicture] PiP is not supported on this device")
+            return
+        }
+        content.preferredContentSize = CGSize(width: 900, height: 1200)
+        content.view.backgroundColor = .black
+        label.numberOfLines = 0
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 44, weight: .medium)
+        label.frame = content.view.bounds.insetBy(dx: 40, dy: 40)
+        label.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        content.view.addSubview(label)
+        tick()
+        let source = AVPictureInPictureController.ContentSource(
+            activeVideoCallSourceView: screen, contentViewController: content)
+        let controller = AVPictureInPictureController(contentSource: source)
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        controller.delegate = self
+        self.controller = controller
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.tick() }
+        }
+        CAPLog.print("[CallPicture] ready (starts when the app goes to the background)")
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        controller?.stopPictureInPicture()
+        controller = nil
+    }
+
+    private func tick() {
+        let time = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        label.text = "PiP の試し\n\(time)"
+    }
+
+    nonisolated func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
+        CAPLog.print("[CallPicture] started")
+    }
+
+    nonisolated func pictureInPictureController(
+        _ controller: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error
+    ) {
+        CAPLog.print("[CallPicture] failed to start: \(error)")
+    }
 }
