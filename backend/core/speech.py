@@ -8,6 +8,10 @@
 その行の終わりまで効く (= 行の中で別の印が出れば、 そこから切り替わる)。 印の無い行は既定の印。
 一覧に無い `[…]` と、 文の途中の `[…]` は、 ただの文として残る。
 
+予約の印 `[mute]` (= MUTE_MARK) の行は声にしない (= 吹き出しには出る。 声で言う事と目で見せる事を 1 つの返事の
+中で分ける)。 効く範囲は他の印と同じく行の終わりまでで、 行の中で別の印が出れば、 そこから声に戻る。 設定の marks
+に同じ名前が在っても、 予約の印として扱う。
+
 印には、 その文だけの値を添えられる (= `[happy i=1.2 s=1.1]`)。 添えた値は印の値の上に重なり、 印と同じく
 行の終わりまで効く。 添えられるのは VALUES の名前 (= 短い別名でも、 engine の名前でも) で、 範囲は
 VALUE_RANGES。 名前の違う値と範囲の外の値は、 その文では使わない (= 印の値で言う)。
@@ -52,6 +56,8 @@ _SENTENCE = re.compile(r".*?[。！？!?]+[」』）)】]*|.+$")
 VOICE_INPUT_MARK = "[voice]"
 # 印の名前の形 (= 設定に書く名前も、 文頭の `[名前]` も、 この形だけを印として認める)。
 MARK_NAME = r"[A-Za-z]+"
+# 予約の印: この印の行は声にしない (= 設定の marks には書かない。 書いても予約が勝つ)。
+MUTE_MARK = "mute"
 # 印に添えられる値: 短い別名 → engine の問い合わせの値の名前。
 VALUES = {
     "i": "intonationScale",
@@ -138,7 +144,7 @@ def utterances(text: str, marks: Iterable[str], default: str, dropped: list[str]
 
     dropped を渡すと、 印に添えたのに使わなかった値の説明を足す (= 呼び手が log に出す)。
     """
-    known = set(marks)
+    known = set(marks) | {MUTE_MARK}
     out: list[Utterance] = []
     fenced = False
     for raw in text.splitlines():
@@ -157,6 +163,6 @@ def utterances(text: str, marks: Iterable[str], default: str, dropped: list[str]
                 if dropped is not None:
                     dropped.extend(unused)
             sentence = sentence.strip()
-            if sentence and speakable(sentence):
+            if sentence and speakable(sentence) and mark != MUTE_MARK:
                 out.append(Utterance(mark, sentence, values))
     return out

@@ -236,7 +236,7 @@ class GetSessionsSidVoiceResponse(BaseModel):
     """GET /sessions/{sid}/voice response"""
     model_config = ConfigDict(extra="forbid")
     enabled: bool
-    marks: list[str]  # 言い方の印の名前 (= 設定に書いた順)
+    marks: list[str]  # 言い方の印の名前 (= 設定に書いた順。 最後に予約の印 mute。 声を持たなければ空)
     default: str  # 印の無い文の印 (= 印を 1 つも持たなければ空文字)
     listen: bool  # 人の声を聞き取るか (= 設定に voice.listen が在るか)
     turn: bool  # 言い終えを判定する model を持つか (= 設定に voice.listen.turn が在るか)

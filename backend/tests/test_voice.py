@@ -86,7 +86,7 @@ def _code(response) -> str:
 
 def test_a_tab_of_an_agent_with_a_voice_says_so_and_names_its_marks(client, tabs):
     assert client.get("/sessions/ses_voice/voice").json() == {
-        "enabled": True, "marks": ["calm", "happy", "sleepy"], "default": "calm", "listen": False, "turn": False,
+        "enabled": True, "marks": ["calm", "happy", "sleepy", "mute"], "default": "calm", "listen": False, "turn": False,
         "conversation": voice.CONVERSATION_DEFAULTS, "tuning_error": ""}
 
 
@@ -630,7 +630,7 @@ def test_the_tuning_file_is_laid_over_the_setting(client, tuned, engine):
     _write(tuned, {"speaker": 200, "marks": {"calm": {"speedScale": 0.9}}, "default": "calm",
                    "conversation": {"pause_ms": 900}})
     got = client.get("/sessions/ses_tuned/voice").json()
-    assert (got["marks"], got["conversation"]["pause_ms"], got["tuning_error"]) == (["calm"], 900, "")
+    assert (got["marks"], got["conversation"]["pause_ms"], got["tuning_error"]) == (["calm", "mute"], 900, "")
     client.post("/sessions/ses_tuned/voice/synthesis", json={"text": "やあ。"})
     assert engine[0][0].endswith("speaker=200&text=%E3%82%84%E3%81%82%E3%80%82")
     assert engine[1][1]["speedScale"] == 0.9
@@ -654,7 +654,7 @@ def test_a_tuning_file_that_cannot_be_used_leaves_the_setting_and_says_why(clien
     if content is not None:
         _write(tuned, content)
     got = client.get("/sessions/ses_tuned/voice").json()
-    assert got["enabled"] and got["marks"] == ["calm", "happy", "sleepy"]
+    assert got["enabled"] and got["marks"] == ["calm", "happy", "sleepy", "mute"]
     assert reason in got["tuning_error"]
     client.post("/sessions/ses_tuned/voice/synthesis", json={"text": "やあ。"})
     assert engine[0][0].startswith("http://127.0.0.1:10101/audio_query?speaker=100&")
