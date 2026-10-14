@@ -1,4 +1,4 @@
-// 入力欄 + 送信ボタン + 停止ボタン (条件出現)。 App.jsx から切り出した
+// 入力欄 + 🎙 (= 声を聞き取るタブだけ) + 送信ボタン + 停止ボタン (条件出現)。 App.jsx から切り出した
 // プレゼンテーショナルコンポーネント (= 状態とハンドラは props で受ける)。
 // terminal 表示中は App 側で描画しない (= activeViewMode のガードは呼び出し側)。
 //
@@ -17,6 +17,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useT } from '../../i18n/t.js'
 import { setDraftSource } from './draftSource.js'
 import { useInputSizing } from './useInputSizing.js'
+import MicButton from '../voice/MicButton.jsx'
 
 // streaming flush で App が再 render しても、 ChatInput の props が参照同値なら shallow
 // equal で skip させる (= 打鍵 jank 対策、 2026-06-22)。 App 側で callback を useCallback、
@@ -191,6 +192,8 @@ function ChatInputInner({
             disabled={inputDisabled}
             data-testid="chat-input"
           />
+          {/* 🎙 は声を聞き取る agent のタブにだけ出る。 聞き取った文は、 打っている途中の文に触れずに送る。 */}
+          <MicButton sid={activeSid} onSend={onSend} />
           <div className="buttons">
             <button
               onClick={handleSend}

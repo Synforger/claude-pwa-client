@@ -21,6 +21,12 @@
   "topbar.voice_label": "Voice",
   "topbar.voice_on": "Hear replies aloud",
   "topbar.voice_off": "Stop the voice",
+  "chat.mic_label": "Speak",
+  "chat.mic_start": "Speak, then press again to send",
+  "chat.mic_stop": "Send what you said",
+  "chat.mic_hearing": "Listening to what you said",
+  "voice.heard_nothing": "No speech was heard",
+  "voice.mic_refused": "The microphone cannot be used: {reason}",
   "topbar.plan_approval": "Plan approval",
   "topbar.plan_approval_label": "Plan approval pending",
   "topbar.screenshare_open": "Open screen share (via Sunshine, requires pairing)",
@@ -217,5 +223,9 @@
   "backend.voice_nothing_to_say": "Nothing to say in this text",
   "backend.voice_text_too_long": "Too long to say (limit {limit} characters)",
   "backend.voice_engine_unreachable": "The speech engine cannot be reached",
-  "backend.voice_engine_failed": "The speech engine failed ({step}: {status})"
+  "backend.voice_engine_failed": "The speech engine failed ({step}: {status})",
+  "backend.voice_listen_not_enabled": "This tab's agent does not listen",
+  "backend.voice_audio_too_large": "The recording is too large (limit {limit} bytes)",
+  "backend.voice_listen_unreachable": "The listening engine cannot be reached",
+  "backend.voice_listen_failed": "The listening engine failed ({status})"
 }

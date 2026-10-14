@@ -559,7 +559,14 @@ endpoints:
         enabled: { type: boolean }
         marks:   { type: array, items: { type: string }, description: "言い方の印の名前 (= 設定に書いた順)" }
         default: { type: string, description: "印の無い文の印 (= 印を 1 つも持たなければ空文字)" }
-      required: [enabled, marks, default]
+        listen:
+          type: object
+          nullable: true
+          description: "人の声を聞き取るか (= 設定に voice.listen が在れば値、 無ければ null)"
+          properties:
+            max_seconds: { type: number, description: "1 回に録る長さの上限 (= 秒。 画面はこの長さで録るのを止める)" }
+          required: [max_seconds]
+      required: [enabled, marks, default, listen]
     response_kind: json
     auth: tailnet
     invariants:
@@ -613,6 +620,27 @@ endpoints:
       - "印が speaker を持てば、 その文だけその声の番号で言う"
       - "設定に無い印は 400 voice_unknown_mark、 声にする文字が無ければ 400 voice_nothing_to_say、 上限より長ければ 413 voice_text_too_long (= どれも engine を呼ぶ前に返す)"
       - "engine に繋がらなければ 502 voice_engine_unreachable、 engine が断れば 502 voice_engine_failed (= params に step と status)"
+    implementation: backend/routes/voice.py
+
+  - method: POST
+    path: /sessions/{sid}/voice/transcription
+    description: "録った音を、 聞き取りの engine で文にして返す (= 送るのは画面が普段の送信口で行う)"
+    request_body:
+      type: object
+      description: "本文は録った音そのもの (= Content-Type は audio/…。 形式の変換は engine が行う)"
+    response:
+      type: object
+      properties:
+        text: { type: string, description: "聞き取った文 (= 1 行。 声が聞き取れなければ空文字)" }
+      required: [text]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "engine の /inference へ multipart で渡す (= file と response_format=json、 設定に prompt が在れば prompt)"
+      - "engine が区切りごとに挟む改行は、 空白 1 つにまとめる"
+      - "声を持たないタブは 409 voice_not_enabled、 聞き取りを持たないタブは 409 voice_listen_not_enabled"
+      - "Content-Type が audio/ でない / 本文が空なら 400 voice_bad_request、 上限より大きければ 413 voice_audio_too_large (= どれも engine を呼ぶ前に返す)"
+      - "engine に繋がらなければ 502 voice_listen_unreachable、 engine が断る / 文を返さなければ 502 voice_listen_failed (= params に status)"
     implementation: backend/routes/voice.py
 
   - method: POST

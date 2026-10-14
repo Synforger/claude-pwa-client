@@ -1,11 +1,14 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { getSnapshot, subscribe, setVoiceAvailable, setVoiceMarks, setVoiceOn, setVoiceError, _resetForTest } from './voice.js'
+import {
+  getSnapshot, subscribe, setVoiceAvailable, setVoiceMarks, setVoiceOn, setVoiceError, setVoiceListen, setVoiceListening,
+  _resetForTest,
+} from './voice.js'
 
 describe('state/voice', () => {
   beforeEach(() => _resetForTest())
 
   it('starts with no tab known to have a voice, none on, and no error', () => {
-    expect(getSnapshot()).toEqual({ available: {}, marks: {}, on: {}, error: {} })
+    expect(getSnapshot()).toEqual({ available: {}, marks: {}, on: {}, error: {}, listen: {}, listening: {} })
   })
 
   it('keeps what is set per tab', () => {
@@ -14,8 +17,20 @@ describe('state/voice', () => {
     setVoiceOn('a', true)
     setVoiceError('a', 'engine down')
     setVoiceMarks('a', ['calm', 'happy'])
+    setVoiceListen('a', 110.8)
+    setVoiceListening('a', 'recording')
     expect(getSnapshot()).toEqual({
-      available: { a: true, b: false }, marks: { a: ['calm', 'happy'] }, on: { a: true }, error: { a: 'engine down' } })
+      available: { a: true, b: false }, marks: { a: ['calm', 'happy'] }, on: { a: true }, error: { a: 'engine down' },
+      listen: { a: 110.8 }, listening: { a: 'recording' } })
+  })
+
+  it('keeps only a real length to listen for, and only the two phases of the 🎙', () => {
+    setVoiceListen('a', 0); setVoiceListen('b', '60'); setVoiceListen('c', null)
+    expect(getSnapshot().listen).toEqual({})
+    setVoiceListening('a', 'hearing'); setVoiceListening('b', 'talking')
+    expect(getSnapshot().listening).toEqual({ a: 'hearing' })
+    setVoiceListening('a', null)
+    expect(getSnapshot().listening).toEqual({})
   })
 
   it('drops the entry when the voice is turned off or the error is cleared', () => {

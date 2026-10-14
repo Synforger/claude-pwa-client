@@ -20,7 +20,7 @@ import wave
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
@@ -283,3 +283,20 @@ async def e2e_voice_fixture_synthesis(request: Request, speaker: int, query: dic
     if str(query.get("kana", "")).startswith("[fail]"):
         raise HTTPException(status_code=500, detail="the fixture engine was asked to fail")
     return Response(content=_silence(), media_type="audio/wav")
+
+
+# 聞き取りの e2e 用 fixture (= 本番では別の process が持つ whisper-server を、 test backend が代わりに返す)。
+# 音を受けたら、 決まった 1 文を、 engine と同じく区切りの改行つきで返す (= 中身は聞かない)。
+VOICE_FIXTURE_HEARD = "what the fixture heard"
+
+
+@fixture_router.post("/ext/fixture-listen/inference", include_in_schema=False)
+async def e2e_listen_fixture_inference(
+    request: Request, file: UploadFile = File(...), response_format: str = Form("json"),
+) -> dict:
+    """e2e の聞き取りの fixture。 CPC_E2E=1 かつ loopback の時だけ返す。"""
+    _ensure_localhost(request)
+    _ensure_e2e_enabled()
+    if not await file.read():
+        raise HTTPException(status_code=400, detail="the fixture engine was given no sound")
+    return {"text": f" {VOICE_FIXTURE_HEARD}\n"}

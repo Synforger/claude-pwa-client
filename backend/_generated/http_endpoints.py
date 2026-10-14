@@ -238,6 +238,7 @@ class GetSessionsSidVoiceResponse(BaseModel):
     enabled: bool
     marks: list[str]  # 言い方の印の名前 (= 設定に書いた順)
     default: str  # 印の無い文の印 (= 印を 1 つも持たなければ空文字)
+    listen: Optional[dict[str, Any]] = None  # 人の声を聞き取るか (= 設定に voice.listen が在れば値、 無ければ null)
 
 
 class PostSessionsSidVoiceUtterancesRequest(BaseModel):
@@ -257,6 +258,18 @@ class PostSessionsSidVoiceSynthesisRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text: str  # 声にする 1 文 (= utterances が返した文)
     mark: Optional[str] = None  # 言い方の印 (= 省けば既定の印)
+
+
+class PostSessionsSidVoiceTranscriptionRequest(BaseModel):
+    """POST /sessions/{sid}/voice/transcription request body"""
+    model_config = ConfigDict(extra="forbid")
+    pass
+
+
+class PostSessionsSidVoiceTranscriptionResponse(BaseModel):
+    """POST /sessions/{sid}/voice/transcription response"""
+    model_config = ConfigDict(extra="forbid")
+    text: str  # 聞き取った文 (= 1 行。 声が聞き取れなければ空文字)
 
 
 class PostAgentMessagesRequest(BaseModel):

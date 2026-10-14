@@ -1,0 +1,23 @@
+/* 入力欄の 🎙。 文字の欄と送信の列の間に、 行の高さいっぱいの 1 列として立つ (= 親指の届く位置)。 */
+.mic {
+  align-self: stretch;
+  flex-shrink: 0;
+  width: 48px;
+  padding: 0;
+  background: var(--bg3);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 20px;
+}
+
+/* 録っている間: 押すと送る */
+.mic.recording {
+  background: #3a1a1a;
+  border-color: #ff5f57;
+  color: #ff5f57;
+}
+
+/* 聞き取りを待つ間 */
+.mic.hearing {
+  color: var(--text-dim);
+}
