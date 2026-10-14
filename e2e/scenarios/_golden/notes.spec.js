@@ -4,11 +4,14 @@
 // line breaks and spaces of a paragraph as written, is edited in place, and is emptied with Reset.
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
 import { seedSession, appendEvent } from '../../helpers/fixture.js'
 import { openClient } from '../../helpers/pwa.js'
+// The size limits are constants in the frontend; read from there so changing them means no edit here.
+import { TEXT_ZOOM_MAX, TEXT_ZOOM_MIN } from '../../../frontend/src/hooks/textZoom.js'
 
 const SID = 'ses_e2echatgld'
 // Where the test backend keeps this tab's notes (= what the agent gets as PWA_NOTE).
@@ -24,6 +27,47 @@ const NOTE = '# Tree\n\nroot/\n├─ a/      → one / two\n  └─ dd   → t
 const TREE_LINES = ['root/', '├─ a/      → one / two', '  └─ dd   → three']
 // The lines of the paragraph as shown (= a line break mark ends a line; spaces read back as spaces).
 const shownLines = (page) => page.locator(`${shown} p`).first().evaluate((el) => el.innerText.replace(/\u00a0/g, ' ').split('\n'))
+
+// A code block and a table wider than any phone, and a path to a markdown file with the same.
+const WIDE_LINE = Array.from({ length: 24 }, (_, i) => `column${i}`).join(' ')
+const WIDE_TABLE = `| ${Array.from({ length: 10 }, (_, i) => `heading_number_${i}`).join(' | ')} |\n`
+  + `|${' --- |'.repeat(10)}\n| ${Array.from({ length: 10 }, (_, i) => `cell_with_long_text_${i}`).join(' | ')} |\n`
+const WIDE_MD = `# wide\n\n\`\`\`\n${WIDE_LINE}\n\`\`\`\n\n${WIDE_TABLE}`
+// /file/raw only serves files under HOME (= see file-preview.spec.js).
+const WIDE_FILE = join(homedir(), '.cache', 'cpc-e2e', 'notes-wide.md')
+
+// How far the shown markdown reaches past its frame sideways (= 0 when it never moves sideways),
+// and the size it is drawn at.
+const sideways = (frame) => frame.evaluate((el) => el.scrollWidth - el.clientWidth)
+const zoomOf = (content) => content.evaluate((el) => Number(el.style.zoom || 1))
+
+// Fingers and the wheel are sent as events made inside the page: the browsers under test have no
+// multi-touch input of their own. A touch carries only what the screen reads (= where each finger is).
+function pinch(frame, from, to) {
+  return frame.evaluate((el, { from, to }) => {
+    const r = el.getBoundingClientRect()
+    const cx = r.left + r.width / 2
+    const cy = r.top + r.height / 2
+    const fingers = (spread) => [{ clientX: cx - spread / 2, clientY: cy }, { clientX: cx + spread / 2, clientY: cy }]
+    const send = (type, touches) => {
+      const event = new Event(type, { bubbles: true, cancelable: true })
+      Object.defineProperty(event, 'touches', { value: touches })
+      el.dispatchEvent(event)
+    }
+    send('touchstart', fingers(from))
+    for (let k = 1; k <= 5; k += 1) send('touchmove', fingers(from + (to - from) * k / 5))
+    send('touchend', [])
+  }, { from, to })
+}
+function ctrlWheel(frame, deltaY) {
+  return frame.evaluate((el, deltaY) => {
+    const r = el.getBoundingClientRect()
+    el.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true, cancelable: true, ctrlKey: true, deltaY, deltaMode: 0,
+      clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
+    }))
+  }, deltaY)
+}
 
 // One step of the agent's own: a tool call and its result (= what moves `current_tool`).
 function toolStep(jsonlPath, id) {
@@ -41,7 +85,7 @@ function toolStep(jsonlPath, id) {
 
 test.describe('golden: notes', () => {
   test.beforeEach(() => { rmSync(NOTE_FILE, { force: true }) })
-  test.afterEach(() => { rmSync(NOTE_FILE, { force: true }) })
+  test.afterEach(() => { rmSync(NOTE_FILE, { force: true }); rmSync(WIDE_FILE, { force: true }) })
 
   test('the 📋 button opens the notes; they are written in place, kept on the host, and emptied with Reset', async ({ page, request }) => {
     await seedSession(request, 'e2e-chat-golden')
@@ -122,5 +166,84 @@ test.describe('golden: notes', () => {
     await expect(page.locator('[data-testid=file-preview-modal]')).toBeVisible({ timeout: 10_000 })
     await expect(page.locator('[data-testid=file-preview-path]')).toContainText('cpc-e2e-notes/spec.md')
     await expect(page.locator(modal)).toHaveCount(0)
+  })
+
+  // Nothing moves sideways: a wide code block and a wide table fold into the width, in the notes
+  // and in a markdown file opened from them.
+  test('wide code blocks and tables fold into the width, in the notes and in a markdown preview', async ({ page, request }) => {
+    await seedSession(request, 'e2e-chat-golden')
+    mkdirSync(dirname(NOTE_FILE), { recursive: true })
+    mkdirSync(dirname(WIDE_FILE), { recursive: true })
+    writeFileSync(NOTE_FILE, `${WIDE_MD}\n${WIDE_FILE}\n`)
+    writeFileSync(WIDE_FILE, WIDE_MD)
+    await openClient(page, { sid: SID })
+
+    await page.locator('[data-testid=notes-open-button]').click()
+    await expect(page.locator(`${shown} table`)).toBeVisible()
+    expect(await sideways(page.locator(body))).toBeLessThanOrEqual(0)
+    expect(await sideways(page.locator(`${shown} pre`))).toBeLessThanOrEqual(0)
+
+    await page.locator(`${body} .file-link`).click()
+    const preview = page.locator('[data-testid=file-preview-modal]')
+    await expect(preview.locator('.md-preview table')).toBeVisible({ timeout: 10_000 })
+    expect(await sideways(preview.locator('.modal-body'))).toBeLessThanOrEqual(0)
+    expect(await sideways(preview.locator('.md-preview pre'))).toBeLessThanOrEqual(0)
+  })
+
+  // Two fingers (or Ctrl/⌘ + the wheel, which is also how a trackpad pinch arrives) change the
+  // size of the text, which lays out again in the width. The size is one value for the notes and
+  // the markdown preview, kept on the device.
+  test('a pinch or Ctrl + wheel resizes the text; the size is shared with the markdown preview and kept', async ({ page, request }) => {
+    await seedSession(request, 'e2e-chat-golden')
+    mkdirSync(dirname(NOTE_FILE), { recursive: true })
+    mkdirSync(dirname(WIDE_FILE), { recursive: true })
+    writeFileSync(NOTE_FILE, `${WIDE_MD}\n${WIDE_FILE}\n`)
+    writeFileSync(WIDE_FILE, WIDE_MD)
+    await openClient(page, { sid: SID })
+
+    await page.locator('[data-testid=notes-open-button]').click()
+    const frame = page.locator(body)
+    const content = page.locator(shown)
+    await expect(content.locator('table')).toBeVisible()
+    expect(await zoomOf(content)).toBe(1)
+    const height = await content.evaluate((el) => el.getBoundingClientRect().height)
+
+    // Fingers spread to one and a half times their distance: the text grows as much, and still
+    // folds into the width (= the block grows taller, nothing moves sideways).
+    await pinch(frame, 100, 150)
+    expect(await zoomOf(content)).toBeCloseTo(1.5, 2)
+    expect(await content.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThan(height)
+    expect(await sideways(frame)).toBeLessThanOrEqual(0)
+
+    // Spreading on stops at the upper limit. A table with more columns than fit even with every
+    // cell folded to one character is drawn just small enough to fit.
+    await pinch(frame, 100, 400)
+    expect(await zoomOf(content)).toBe(TEXT_ZOOM_MAX)
+    expect(await sideways(frame)).toBeLessThanOrEqual(0)
+
+    // Down to the lower limit, the table's lines stay at least one screen pixel (= a thinner line
+    // is not drawn at all).
+    await pinch(frame, 400, 100)
+    expect(await zoomOf(content)).toBe(TEXT_ZOOM_MIN)
+    const line = await content.locator('td').first().evaluate((el) => parseFloat(getComputedStyle(el).borderTopWidth))
+    expect(line * TEXT_ZOOM_MIN).toBeGreaterThanOrEqual(1)
+
+    // The wheel with Ctrl: 2 ** (deltaY × 0.002 × 10) per event (= the d3-zoom default).
+    await pinch(frame, 50, 100)
+    expect(await zoomOf(content)).toBeCloseTo(1, 2)
+    await ctrlWheel(frame, -25)
+    expect(await zoomOf(content)).toBeCloseTo(Math.SQRT2, 2)
+
+    // The markdown preview opened from the notes shows the same size.
+    await page.locator(`${body} .file-link`).click()
+    const preview = page.locator('[data-testid=file-preview-modal] .md-preview')
+    await expect(preview.locator('table')).toBeVisible({ timeout: 10_000 })
+    expect(await zoomOf(preview)).toBeCloseTo(Math.SQRT2, 2)
+
+    // Kept across a reload.
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('[data-testid=notes-open-button]').click()
+    await expect(content.locator('table')).toBeVisible({ timeout: 10_000 })
+    expect(await zoomOf(content)).toBeCloseTo(Math.SQRT2, 2)
   })
 })
