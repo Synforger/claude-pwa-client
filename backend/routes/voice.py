@@ -581,22 +581,3 @@ def conversation_settings(session_id: str) -> dict:
     同じ error を投げる。"""
     _listening(session_id)
     return _enabled(session_id)
-
-
-def claim_conversation(session_id: str, client: str) -> dict:
-    """会話の持ち主になって、 そのタブの声の設定を返す (= 画面が会話を開く時と同じ。 前の持ち主の音は次から断る)。"""
-    settings = conversation_settings(session_id)
-    _conversations[session_id] = client
-    logger.info("voice: conversation opened session=%s client=%s", session_id, client)
-    return settings
-
-
-def owns_conversation(session_id: str, client: str) -> bool:
-    """client が今もそのタブの会話の持ち主か (= 別の画面が開き直していれば偽)。"""
-    return _conversations.get(session_id) == client
-
-
-def release_conversation(session_id: str, client: str) -> None:
-    """会話を手放す (= 持ち主の時だけ。 別の画面が持っていれば、 そのまま)。"""
-    if _conversations.get(session_id) == client:
-        del _conversations[session_id]
