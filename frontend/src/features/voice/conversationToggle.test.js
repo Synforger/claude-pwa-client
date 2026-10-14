@@ -47,6 +47,12 @@ function talk(send = vi.fn(), sid = 'ses_a') {
   toggleMic(sid)
 }
 
+// 声もマイクも切って、 会話を終える (= talk の後)
+function hangUp(sid = 'ses_a') {
+  toggleVoice(sid)
+  toggleMic(sid)
+}
+
 const calls = (method, suffix) => apiFetch.mock.calls.filter(([path, opts]) => path.endsWith(suffix) && (opts?.method || 'GET') === method)
 
 describe('toggleVoice / toggleMic — the voice, and the microphone inside it', () => {
@@ -80,10 +86,10 @@ describe('toggleVoice / toggleMic — the voice, and the microphone inside it', 
   it('reads the pauses again each time it opens, so what the agent changed counts from the next time', async () => {
     talk(vi.fn())
     await settle()
-    toggleVoice('ses_a', vi.fn())
+    hangUp()
     await settle()
     voiceInfo = { ...voiceInfo, conversation: { ...CONVERSATION, pause_ms: 900 } }
-    toggleVoice('ses_a', vi.fn())
+    talk(vi.fn())
     await settle()
     expect(openConversation.mock.calls[1][0].settings.pause_ms).toBe(900)
   })
@@ -141,7 +147,7 @@ describe('toggleVoice / toggleMic — the voice, and the microphone inside it', 
     talk(send)
     await settle()
     const deps = openConversation.mock.calls[0][0]
-    toggleVoice('ses_a', vi.fn())
+    hangUp()
     deps.send('遅れて届いた文')
     expect(send).not.toHaveBeenCalled()
   })
@@ -155,12 +161,12 @@ describe('toggleVoice / toggleMic — the voice, and the microphone inside it', 
     expect(getSnapshot().error.ses_a).toBeTruthy()
   })
 
-  it('closes on a second press: the microphone, the conversation, and the voice', async () => {
+  it('closes once both the voice and the microphone are off: the microphone, the conversation, and the voice', async () => {
     talk(vi.fn())
     await settle()
     const handle = await openConversation.mock.results[0].value
     apiFetch.mockClear()
-    toggleVoice('ses_a', vi.fn())
+    hangUp()
     await settle()
     expect(handle.close).toHaveBeenCalled()
     expect(calls('DELETE', '/voice/conversation')).toHaveLength(1)
@@ -209,14 +215,18 @@ describe('toggleVoice / toggleMic — the voice, and the microphone inside it', 
     expect(getSnapshot().on.ses_a).toBe(true)
   })
 
-  it('opens the microphone again the next time the voice is turned on, when it was left open', async () => {
+  it('turning the voice off keeps the microphone listening, and the voice comes back on the next press', async () => {
     talk()
     await settle()
-    toggleVoice('ses_a', vi.fn())                 // off
-    toggleVoice('ses_a', vi.fn())                 // on again
+    toggleVoice('ses_a', vi.fn())                 // 声だけ止める
     await settle()
-    expect(getSnapshot().phase.ses_a).toBe('starting')
-    expect(openConversation).toHaveBeenCalledTimes(2)
+    expect(getSnapshot().on.ses_a).toBe(true)
+    expect(getSnapshot().quiet.ses_a).toBe(true)
+    expect(getSnapshot().phase.ses_a).toBeTruthy()   // マイクは開いたまま
+    expect(mic.stopped).toBe(0)
+    toggleVoice('ses_a', vi.fn())                 // 声を戻す
+    expect(getSnapshot().quiet.ses_a).toBeUndefined()
+    expect(openConversation).toHaveBeenCalledTimes(1)
   })
 
   it('starts with the microphone closed the next time the voice is turned on, once it was closed', async () => {
@@ -240,14 +250,20 @@ describe('toggleVoice / toggleMic — the voice, and the microphone inside it', 
     expect(getSnapshot().phase.ses_a).toBeUndefined()
   })
 
-  it('has no microphone to mute while the voice is off, or for an agent that does not listen', async () => {
-    toggleMic('ses_a', vi.fn())
-    expect(getSnapshot().phase.ses_a).toBeUndefined()
-    setVoiceListen('ses_a', false)
-    toggleVoice('ses_a', vi.fn())
+  it('starts a conversation with only the microphone, without the voice; an agent that does not listen has none', async () => {
     toggleMic('ses_a', vi.fn())
     await settle()
-    expect(openConversation).not.toHaveBeenCalled()
+    expect(getSnapshot().on.ses_a).toBe(true)
+    expect(getSnapshot().quiet.ses_a).toBe(true)
+    expect(openConversation).toHaveBeenCalledTimes(1)
+    toggleMic('ses_a', vi.fn())                   // マイクを切ると、 声も無いので会話を終える
+    await settle()
+    expect(getSnapshot().on.ses_a).toBeUndefined()
+    setVoiceListen('ses_a', false)
+    toggleMic('ses_a', vi.fn())
+    await settle()
+    expect(getSnapshot().on.ses_a).toBeUndefined()
+    expect(openConversation).toHaveBeenCalledTimes(1)
   })
 
   it('hands over no turn model when the agent has none', async () => {
