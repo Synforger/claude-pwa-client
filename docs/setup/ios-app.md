@@ -45,5 +45,6 @@ app を開いて 🔊 を押すと、 マイクの許可を訊かれます。
 backend に会話の部品を入れておきます ([iPhone の app で話す](../reference/voice.md#iphone-の-app-で話す))。
 
 - 無料の Apple ID で入れた app は、 7 日で開けなくなります。 Xcode からもう 1 度 ▶ で入れ直すと、 また 7 日使えます
-- app の中のライセンス表示は、 `shell/` の部品 (= Capacitor・Pipecat・WebRTC) の物です。 repo の
-  [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) に全部載っています
+- app には、 組み込まれる部品 (= Capacitor・Pipecat・WebRTC) のライセンス表示が入っています
+  (= `shell/ios/App/App/Acknowledgements.txt`)。 部品の版を変えた時は、 この file も新しい版の物に書き直します。
+  一覧は repo の [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) にも載っています
