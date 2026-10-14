@@ -1,4 +1,4 @@
-/* 📋 のメモ。 枠はファイルプレビューと同じ物 (= shared/Modal.css) を使い、 ここは差分だけ。 */
+/* 📋 のメモ。 枠はファイルプレビューと同じ物 (= shared/Modal.css と .md-preview) を使い、 ここは差分だけ。 */
 .note-title {
   font-size: 13px;
   color: var(--text);
@@ -8,18 +8,9 @@
   white-space: pre-line;
 }
 
-/* 見る時も書く時も、 書いたとおりに出す: 改行と空白を残し、 長い行は折り返す (= コード用の編集欄は
-   折り返さない)。 見る時の字は書く欄 (= .file-editor) と同じ等幅で、 空白で揃えた桁が揃ったまま見える。 */
-.note-editor,
-.note-text {
+/* メモは文章なので、 長い行は折り返す (= コード用の編集欄は折り返さない) */
+.note-editor {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-size: 14px;
-}
-
-.note-text {
-  margin: 0;
-  color: var(--text);
-  font-family: 'Menlo', 'Monaco', monospace;
-  line-height: 1.5;
 }
