@@ -254,6 +254,13 @@ tasks:
       - task: lint:frontend
       - task: lint:ios-privacy
 
+  ios:crashes:
+    desc: Show why the iPhone app crashed, from the crash reports on a connected iPhone (DEVICE=<UDID>, SINCE=YYYY-MM-DD)
+    cmds:
+      - python3 shell/ios/tools/crash-reports/crash-reports.py --device "{{.DEVICE}}" {{if .SINCE}}--since "{{.SINCE}}"{{end}}
+    requires:
+      vars: [DEVICE]
+
   lint:ios-privacy:
     desc: Every feature the iPhone app uses (camera, microphone, …) has its usage description in Info.plist
     cmds:
