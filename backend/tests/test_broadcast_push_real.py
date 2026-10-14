@@ -66,6 +66,20 @@ def test_broadcast_skipped_when_session_viewed(monkeypatch):
     assert push_mod.unread_count == 0
 
 
+def test_broadcast_skipped_for_a_tab_on_a_call_but_not_for_other_tabs(monkeypatch):
+    """iPhone の app の通話がつながっているタブへは送らない (= 返事は声で聞いている)。 他のタブへは送る。"""
+    sent: list = []
+    _setup(monkeypatch, [{"endpoint": "a"}], sent)
+    monkeypatch.setattr(state_mod, "views_by_conn", {})
+    monkeypatch.setattr(state_mod, "calls_by_conn", {"pc1": "ses_x"})
+    _run(push_mod.broadcast_push("hello", session_id="ses_x"))
+    assert sent == []
+    assert push_mod.unread_count == 0
+    _run(push_mod.broadcast_push("hello", session_id="ses_y"))
+    assert len(sent) == 1
+    assert push_mod.unread_count == 1
+
+
 def test_broadcast_collects_dead_subscriptions(monkeypatch):
     """410 Gone の subscription は dead 除去経路に載る。"""
     sent: list = []

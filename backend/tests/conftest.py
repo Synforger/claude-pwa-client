@@ -89,6 +89,7 @@ _STATE_GLOBALS = (
     "shared_status",
     "sessions_meta",
     "stream_states",
+    "calls_by_conn",
 )
 
 
