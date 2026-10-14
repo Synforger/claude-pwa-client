@@ -7,7 +7,7 @@ import { apiFetch } from '../../transport/http.ts'
 import { translateHttpErrorDetail } from '../../utils/httpError.js'
 import {
   getSnapshot, subscribe, setVoiceAvailable, setVoiceMarks, setVoiceOn, setVoiceError, setVoiceListen, setVoiceTurn,
-  setVoicePhase, setVoiceSpeaking, setVoiceConversation,
+  setVoicePhase, setVoiceSpeaking, setVoiceConversation, setVoiceQuiet,
 } from '../../state/voice.js'
 import { tRaw } from '../../i18n/t.js'
 import { createListener } from './listener.js'
@@ -57,7 +57,7 @@ function call() {
 
 const listener = createListener({
   // app の会話の間は、 返事の声も backend の中の会話が鳴らす (= 画面では鳴らさない)
-  isOn: (sid) => !!getSnapshot().on[sid] && !call()?.has(sid),
+  isOn: (sid) => !!getSnapshot().on[sid] && !call()?.has(sid) && !getSnapshot().quiet[sid],
   say: (sid, text) => player.say(sid, text),
 })
 
@@ -167,6 +167,30 @@ export function toggleVoice(sid) {
   if (call() && getSnapshot().listen[sid]) { openCall(sid); return }
   setVoice(sid, true)
   if (getSnapshot().on[sid] && getSnapshot().listen[sid] && micWanted.has(sid)) openMic(sid)
+}
+
+// iPhone の app の中で、 そのタブの通話がつながっているか (= ⋯ メニューの「小窓で表示」 を出すか)。
+export function hasAppCall(sid) {
+  return !!sid && !!call()?.has(sid) && !!getSnapshot().on[sid]
+}
+
+// 通話の小窓 (= PiP) を今出す (= 自動で出なかった時。 出せなければ理由を声のボタンの上に出す)。
+export function showCallPicture(sid) {
+  if (!hasAppCall(sid)) return
+  call().showPicture(sid).catch((error) => setVoiceError(sid, error?.message || String(error)))
+}
+
+// 入力欄の声の入 / 切のボタンを押した時に呼ぶ (= 会話の間だけ出る)。 切にすると返事を声にしない (= 鳴っている声も
+// 止める)。 マイクと、 小窓の文字はそのまま。 app の会話では、 backend の会話が声を作るのをやめる。
+export function toggleSpeech(sid) {
+  if (!getSnapshot().on[sid]) return
+  const quiet = !getSnapshot().quiet[sid]
+  setVoiceQuiet(sid, quiet)
+  if (call()?.has(sid)) {
+    call().setSpeech(sid, !quiet).catch((error) => setVoiceError(sid, error?.message || String(error)))
+  } else if (quiet) {
+    player.stop(sid)
+  }
 }
 
 // 入力欄の 🎙 を押した時に呼ぶ (= 声がオンの間だけ出る)。 マイクを開くと閉じるを入れ替える。 声はそのまま鳴る
@@ -290,13 +314,13 @@ function openCall(sid) {
   setVoiceError(sid, null)
   setVoiceOn(sid, true)
   setVoicePhase(sid, micWanted.has(sid) ? 'starting' : null)
-  call().start(sid, { mic: micWanted.has(sid), volume: volumeOf().volume }).catch((error) => {
+  const speech = !getSnapshot().quiet[sid]
+  call().start(sid, { mic: micWanted.has(sid), volume: volumeOf().volume, speech }).catch((error) => {
     closeConversation(sid)
     setVoiceError(sid, error?.message || String(error))
   })
 }
 
-// app の会話の知らせ (= つながった / 切れた / 失敗した)。
 // 小窓 (= PiP) の再生 / 停止で app がマイクを切り替えた: 🎙 の表示を合わせる (= 入力欄の 🎙 と同じ状態)。
 function onNativeMic(sid, on) {
   if (on) micWanted.add(sid)
@@ -304,6 +328,7 @@ function onNativeMic(sid, on) {
   setVoicePhase(sid, on ? 'listening' : null)
 }
 
+// app の会話の知らせ (= つながった / 切れた / 失敗した)。
 function onNativeState(sid, state, message, { fatal } = {}) {
   if (state === 'connected') {
     setVoicePhase(sid, micWanted.has(sid) ? 'listening' : null)

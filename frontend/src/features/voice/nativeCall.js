@@ -14,10 +14,11 @@ export function nativeVoice() {
 }
 
 // そのタブの電話の口の URL (= app の native の部品は、 画面の origin を知らないので絶対 URL で渡す)。 volume は
-// その端末の声の大きさの倍率 (= backend の会話が声に掛ける)。
-export function callUrl(sid, volume = 1) {
+// その端末の声の大きさの倍率 (= backend の会話が声に掛ける)。 speech が false なら、 返事を声にしない会話で始める。
+export function callUrl(sid, volume = 1, speech = true) {
   const url = new URL(`${API_BASE}/sessions/${encodeURIComponent(sid)}/voice/call`, window.location.href)
   url.searchParams.set('volume', String(volume))
+  if (!speech) url.searchParams.set('speech', '0')
   return url.href
 }
 
@@ -40,10 +41,16 @@ export function createNativeCall({ plugin, onState, onMic = () => {} }) {
   }
   return {
     has: (sid) => current === sid,
-    async start(sid, { mic, volume = 1 }) {
+    async start(sid, { mic, volume = 1, speech = true }) {
       listen()
       current = sid
-      await plugin.start({ url: callUrl(sid, volume), mic })
+      await plugin.start({ url: callUrl(sid, volume, speech), mic })
+    },
+    async setSpeech(sid, on) {
+      if (current === sid) await plugin.setSpeech({ on })
+    },
+    async showPicture(sid) {
+      if (current === sid) await plugin.showPicture()
     },
     async setMic(sid, on) {
       if (current === sid) await plugin.setMic({ on })

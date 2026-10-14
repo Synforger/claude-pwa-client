@@ -491,7 +491,7 @@ def _shown(down) -> list[dict]:
     return [f.data for f in down if isinstance(f, RTVIServerMessageFrame)]
 
 
-def test_the_picture_gets_the_tab_lines_said_after_the_call_started():
+def test_the_picture_gets_the_tab_lines_with_the_recent_ones_from_before_the_call_first():
     pytest.importorskip("pipecat")
     import time
 
@@ -510,9 +510,23 @@ def test_the_picture_gets_the_tab_lines_said_after_the_call_started():
     ]
     down, _ = asyncio.run(run_test(_bridge([], events), frames_to_send=[SleepFrame(sleep=0.2)]))
     assert [d for d in _shown(down) if d["pip"] == "line"] == [
+        {"pip": "line", "who": "user", "text": "前から在った発話"},      # 会話を始める前の分 (= まとめて先に)
+        {"pip": "line", "who": "agent", "text": "前から在った返事。"},
         {"pip": "line", "who": "user", "text": "明日の天気は"},
         {"pip": "line", "who": "agent", "text": "晴れです。\n表は画面に置きました。"},
     ]
+
+
+def test_the_picture_gets_only_the_last_lines_from_before_the_call_once_the_record_settles():
+    pytest.importorskip("pipecat")
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    from backend.voice_call.agent import HISTORY_SETTLE_SECS, PICTURE_HISTORY
+
+    events = [{"type": "user_message", "text": f"発話 {i}", "uuid": f"u{i}", "ts": i + 1} for i in range(PICTURE_HISTORY + 5)]
+    down, _ = asyncio.run(run_test(_bridge([], events), frames_to_send=[SleepFrame(sleep=HISTORY_SETTLE_SECS + 0.2)]))
+    lines = [d["text"] for d in _shown(down) if d["pip"] == "line"]
+    assert lines == [f"発話 {i}" for i in range(5, PICTURE_HISTORY + 5)]
 
 
 def test_the_picture_state_follows_speaking_sending_and_the_voice():
@@ -526,13 +540,13 @@ def test_the_picture_state_follows_speaking_sending_and_the_voice():
     assert [d["state"] for d in _shown(down) if d["pip"] == "state"] == ["listening", "thinking", "speaking", "waiting"]
 
 
-def _button(kind: str):
+def _speech(on: bool):
     from pipecat.processors.frameworks.rtvi import RTVIClientMessageFrame
 
-    return RTVIClientMessageFrame(msg_id="m1", type=kind)
+    return RTVIClientMessageFrame(msg_id="m1", type="voice-speech", data={"on": on})
 
 
-def test_the_picture_skip_button_stops_the_voice_and_replay_says_the_last_reply_again():
+def test_with_the_speech_off_replies_are_shown_but_not_said_and_turning_it_off_stops_the_voice():
     pytest.importorskip("pipecat")
     import time
 
@@ -541,22 +555,33 @@ def test_the_picture_skip_button_stops_the_voice_and_replay_says_the_last_reply_
     from pipecat.tests.utils import SleepFrame, run_test
 
     later = int(time.time() * 1000) + 60_000
-    events = [_reply("r1", "晴れです。\n[happy]やった。", later)]
-    frames = [SleepFrame(sleep=0.2), _button("voice-skip"), SleepFrame(sleep=0.05), _button("voice-replay"),
-              SleepFrame(sleep=0.05)]
-    down, _ = asyncio.run(run_test(_bridge([], events), frames_to_send=frames))
-    said = [type(f).__name__ if isinstance(f, InterruptionFrame) else f.text
-            for f in down if isinstance(f, (InterruptionFrame, TTSSpeakFrame))]
-    assert said == ["[calm]晴れです。", "[happy]やった。",          # 返事
-                    "InterruptionFrame",                           # 進む: 今の声を止める
-                    "InterruptionFrame", "[calm]晴れです。", "[happy]やった。"]   # 戻る: もう一度
+
+    async def stream_after_switch(bridge):
+        down, _ = await run_test(bridge, frames_to_send=[_speech(False), SleepFrame(sleep=0.2)])
+        return down
+
+    bridge = _bridge([], [_reply("r1", "晴れです。", later)])
+    down = asyncio.run(stream_after_switch(bridge))
+    assert not any(isinstance(f, TTSSpeakFrame) for f in down)                 # 声にしない
+    assert any(isinstance(f, InterruptionFrame) for f in down)                 # 切った時に鳴っている声を止める
+    assert {"pip": "line", "who": "agent", "text": "晴れです。"} in _shown(down)   # 小窓には出す
     assert not any(isinstance(f, RTVIClientMessageFrame) for f in down)
 
 
-def test_the_picture_replay_button_before_any_reply_does_nothing():
+def test_a_call_started_with_the_speech_off_says_nothing_until_it_is_turned_on():
     pytest.importorskip("pipecat")
-    from pipecat.frames.frames import InterruptionFrame, TTSSpeakFrame
+    import time
+
+    from pipecat.frames.frames import TTSSpeakFrame
     from pipecat.tests.utils import SleepFrame, run_test
 
-    down, _ = asyncio.run(run_test(_bridge([]), frames_to_send=[_button("voice-replay"), SleepFrame(sleep=0.05)]))
-    assert not any(isinstance(f, (InterruptionFrame, TTSSpeakFrame)) for f in down)
+    from backend.voice_call.agent import AgentBridge
+
+    later = int(time.time() * 1000) + 60_000
+    events = [_reply("r1", "晴れです。", later)]
+    quiet = _bridge([], events)
+    bridge = AgentBridge(SETTINGS["conversation"], send=quiet._send, events=quiet._events,
+                         utterances=quiet._utterances, speech=False)
+    down, _ = asyncio.run(run_test(bridge, frames_to_send=[SleepFrame(sleep=0.2), _speech(True), SleepFrame(sleep=0.05)]))
+    assert not any(isinstance(f, TTSSpeakFrame) for f in down)   # 前の返事は、 入れ直しても言わない
+

@@ -8,10 +8,13 @@ import {
 import { subscribe as subscribeSessions, getSnapshot as getSessionsSnapshot } from '../../state/sessions.js'
 import { bumpAttachmentPicker } from '../../state/ephemeral.js'
 import { refetchChat } from '../chat/useChatStream.js'
+import { subscribe as subscribeVoice, getSnapshot as getVoiceSnapshot } from '../../state/voice.js'
+import { hasAppCall, showCallPicture } from '../voice/voice.js'
 import { useOutsideClick } from '../../hooks/useOutsideClick.js'
 import { useT } from '../../i18n/t.js'
 
-// ⋯ メニュー: ファイル添付 / ファイルツリー / ⌨↔💬 表示切替 / チャット再取得 / セッション終了 の集約。
+// ⋯ メニュー: ファイル添付 / ファイルツリー / ⌨↔💬 表示切替 / チャット再取得 / 通話の小窓 / セッション終了 の集約。
+// 「小窓で表示」 は iPhone の app の中で、 そのタブの通話がつながっている時だけ出る。
 // 置き場はステータスバーの右端 (= 2026-09-23 に上部バーから移設、 上部バーの右端は拡張のボタンが使う)。
 // セッションが無い時は出さない。 開いているセッションと表示モードは自前で store から引く
 // (= ADR-010 props 自己解決契約)。 状態 (open) はローカル useState、 outside click で閉じる。
@@ -28,11 +31,19 @@ export default function MoreMenu() {
   const setActiveViewMode = useCallback((mode) => {
     if (activeSid) setViewMode(activeSid, mode)
   }, [activeSid])
+  // 通話の有無で「小窓で表示」 を出し分ける (= 声の store が変われば描き直す)
+  useSyncExternalStore(subscribeVoice, getVoiceSnapshot)
   if (!activeSid) return null
-  return <MoreMenuBody activeViewMode={activeViewMode} setActiveViewMode={setActiveViewMode} />
+  return (
+    <MoreMenuBody
+      activeSid={activeSid}
+      activeViewMode={activeViewMode}
+      setActiveViewMode={setActiveViewMode}
+    />
+  )
 }
 
-function MoreMenuBody({ activeViewMode, setActiveViewMode }) {
+function MoreMenuBody({ activeSid, activeViewMode, setActiveViewMode }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef(null)
   useOutsideClick(rootRef, () => setOpen(false))
@@ -85,6 +96,15 @@ function MoreMenuBody({ activeViewMode, setActiveViewMode }) {
           >
             {t('topbar.menu.refetch_chat')}
           </button>
+          {hasAppCall(activeSid) && (
+            <button
+              className="more-menu-item"
+              onClick={() => { showCallPicture(activeSid); close() }}
+              data-testid="more-menu-call-picture"
+            >
+              {t('topbar.menu.call_picture')}
+            </button>
+          )}
           {/* 2026-07-03: Language toggle は SessionDrawer ⋯ に移設。 通知 / アプリ更新と同じ
               「PWA レベル設定」 の並びに寄せた方が意味的に自然。 */}
           <button

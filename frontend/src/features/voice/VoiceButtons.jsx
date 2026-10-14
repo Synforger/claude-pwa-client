@@ -1,10 +1,12 @@
-// 入力欄の声のボタン 2 つ。 声を持つ agent のタブにだけ出る。
+// 入力欄の声のボタン 3 つ。 声を持つ agent のタブにだけ出る。
 //
 //   🔊 / 🔇 (= 外側): agent の返事を声で鳴らすか。 オンの間に送った文には、 声で聞いている印が付く。 オフにすると、
 //                    マイクも閉じて普段の文字のチャットに戻る
 //   🎙 (= 内側):      マイクを開く / 閉じる。 声がオンで、 その agent が声を聞き取る時だけ出る。 開いている間は話す
 //                    だけで送られ、 閉じている間は打って送り、 返事だけを声で聞く。 声をオンにしただけではマイクを
 //                    取らず、 🎙 を開いたまま声を切ったタブだけ、 次に声をオンにした時もマイクを開く
+//   🗣 (= 🎙 と 🔊 の間): 会話の間、 agent の返事を声にするか。 切にすると声だけが止まり、 マイクと文字 (= iPhone の app
+//                    の小窓も) はそのまま。 会話の間だけ出る
 //
 // 🔊 にできるのは 1 つのタブだけで、 別のタブを見ている間も、 そのタブの会話は続く (= 返事を鳴らし、 話した文は
 // そのタブへ送る)。 別のタブで 🔊 にすると、 前のタブの会話は閉じる。
@@ -17,7 +19,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { subscribe, getSnapshot } from '../../state/voice.js'
 import { useT } from '../../i18n/t.js'
 import { subscribe as onVolume, getSnapshot as volumeOf, VOLUME_MAX } from '../../state/voiceVolume.js'
-import { toggleVoice, toggleMic, refreshVoiceAvailable, changeVolume } from './voice.js'
+import { toggleVoice, toggleMic, toggleSpeech, refreshVoiceAvailable, changeVolume } from './voice.js'
 import './VoiceButtons.css'
 
 // 🔊 をこの長さ押し続けると、 声の大きさのつまみが出る (= iOS の長押しのメニューより先に出す)
@@ -60,6 +62,7 @@ export default function VoiceButtons({ sid }) {
   // マイクが開いているかは、 会話の今 (= phase) が在るかで決まる
   const micState = voice.phase[sid] || 'muted'
   const error = voice.error[sid] || ''
+  const speechState = voice.quiet[sid] ? 'quiet' : 'speaking'
   return (
     <span className="voice-buttons">
       {on && voice.listen[sid] && (
@@ -74,6 +77,20 @@ export default function VoiceButtons({ sid }) {
           data-state={micState}
         >
           🎙
+        </button>
+      )}
+      {on && (
+        <button
+          type="button"
+          className={`voice-speech ${speechState}`}
+          onClick={() => toggleSpeech(sid)}
+          aria-pressed={speechState === 'speaking'}
+          aria-label={t('chat.speech_label')}
+          title={t(`chat.speech_${speechState}`)}
+          data-testid="chat-speech-button"
+          data-state={speechState}
+        >
+          🗣
         </button>
       )}
       <button
