@@ -189,7 +189,7 @@ function ChatInputInner({
           data-testid="chat-input"
         />
         {/* 声のボタン (= 🎙 と 🔊) は声を持つ agent のタブにだけ出る。 聞き取った文は、 打っている途中の文に触れずに送る。 */}
-        <VoiceButtons sid={activeSid} onSend={onSend} />
+        <VoiceButtons sid={activeSid} />
         <div className="buttons">
           <button
             onClick={handleSend}

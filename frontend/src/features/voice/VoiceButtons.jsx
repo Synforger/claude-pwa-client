@@ -6,6 +6,9 @@
 //                    だけで送られ、 閉じている間は打って送り、 返事だけを声で聞く。 声をオンにしただけではマイクを
 //                    取らず、 🎙 を開いたまま声を切ったタブだけ、 次に声をオンにした時もマイクを開く
 //
+// 🔊 にできるのは 1 つのタブだけで、 別のタブを見ている間も、 そのタブの会話は続く (= 返事を鳴らし、 話した文は
+// そのタブへ送る)。 別のタブで 🔊 にすると、 前のタブの会話は閉じる。
+//
 // 色と動きで今を見せる: 🔊 は鳴らせる (= 青の枠) / 鳴っている (= 青の枠が脈打つ)。 🎙 は聞いている (= 緑の枠) /
 // 人が話している (= 枠が脈打つ) / 言い終えを見ている・文字にしている (= 薄い点滅) / 閉じている (= 斜線)。
 // 失敗の理由はボタンの上に出る。
@@ -14,13 +17,13 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { subscribe, getSnapshot } from '../../state/voice.js'
 import { useT } from '../../i18n/t.js'
 import { subscribe as onVolume, getSnapshot as volumeOf, VOLUME_MAX } from '../../state/voiceVolume.js'
-import { toggleVoice, toggleMic, closeConversation, refreshVoiceAvailable, changeVolume } from './voice.js'
+import { toggleVoice, toggleMic, refreshVoiceAvailable, changeVolume } from './voice.js'
 import './VoiceButtons.css'
 
 // 🔊 をこの長さ押し続けると、 声の大きさのつまみが出る (= iOS の長押しのメニューより先に出す)
 const LONG_PRESS_MS = 450
 
-export default function VoiceButtons({ sid, onSend }) {
+export default function VoiceButtons({ sid }) {
   const voice = useSyncExternalStore(subscribe, getSnapshot)
   const { volume } = useSyncExternalStore(onVolume, volumeOf)
   const t = useT()
@@ -35,8 +38,6 @@ export default function VoiceButtons({ sid, onSend }) {
   const endPress = () => clearTimeout(press.current.timer)
 
   useEffect(() => { if (sid) refreshVoiceAvailable(sid) }, [sid])
-  // タブを移ったら、 そのタブの声とマイクを閉じる (= 送る関数は、 今見ているタブへ送る)。
-  useEffect(() => () => { if (sid && getSnapshot().on[sid]) closeConversation(sid) }, [sid])
 
   if (!sid || !voice.available[sid]) return null
   const on = !!voice.on[sid]
@@ -50,7 +51,7 @@ export default function VoiceButtons({ sid, onSend }) {
         <button
           type="button"
           className={`voice-mic ${micState}`}
-          onClick={() => toggleMic(sid, onSend)}
+          onClick={() => toggleMic(sid)}
           aria-pressed={micState !== 'muted'}
           aria-label={t('chat.mic_label')}
           title={t(`chat.mic_${micState}`)}
@@ -65,7 +66,7 @@ export default function VoiceButtons({ sid, onSend }) {
         className={`voice-toggle ${voiceState}${error ? ' failed' : ''}`}
         onClick={() => {
           if (press.current.long) { press.current.long = false; return }
-          toggleVoice(sid, onSend)
+          toggleVoice(sid)
         }}
         onPointerDown={startPress}
         onPointerUp={endPress}
