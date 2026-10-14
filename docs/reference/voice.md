@@ -70,6 +70,32 @@
 - 人の声かの判定と、 言い終えたかの判定は、 ブラウザの中で行います。 判定に使う部品 (= 言い終えを判定する
   model を含めて約 26 MB) は、 画面を読み込んでから初めてマイクを開いた時に読み込まれます
 
+## iPhone の app で話す
+
+iPhone では、 ブラウザで開いた画面は、 ホーム画面へ出たり別の app へ移ったりすると、 マイクも声も止まります
+(= iOS は、 裏に回った Web の画面の音を止める)。 iPhone の app (= [作り方](../setup/ios-app.md)) で開くと、
+🔊 にしたタブの会話は、 ホーム画面へ出ても、 画面を消しても続きます。
+
+- ボタンと使い方は、 ブラウザと同じです (= 🔊 で声、 🎙 でマイク)
+- app の中では、 マイクと声を app が持ち、 backend と WebRTC でつなぎます。 人が話しているかと言い終えたかの判定、
+  聞き取り、 タブへの送信、 返事の声は、 全部 backend の中で行います。 間の取り方と言い方の印は、 ブラウザと同じ
+  設定に従います
+- app の中で別のタブへ移ると、 会話は閉じます。 そのタブのまま app の外へ出た時だけ、 会話が続きます
+- 返事の声は、 誰が送った文への返事でも鳴ります (= 別の画面から打った文への返事も、 iPhone で聞ける)
+- エコー除去は iPhone の通話用の音声処理が行います
+- 会話を開けるのは、 ブラウザと合わせて 1 つのタブにつき 1 つです。 app で開くと、 先に開いていた画面は次に
+  話した時に閉じます
+
+backend には、 会話の部品を足して入れます (= 使う時だけ。 約 670 MB)。
+
+```sh
+pip install -r backend/requirements-voice-call.txt
+```
+
+入れた後に backend を再起動します。 部品が入っていない backend では、 app で 🔊 にすると
+`voice_call_unavailable` が出ます。 iPhone と backend の間の音は、 外部のサービスを通さず、 直接つなぎます
+(= iPhone から backend の機械へ届く網の中で使う。 Tailscale の中など)。
+
 ## 設定
 
 `backend/config.json` の、 声を持たせたいエージェントに `voice` を足します。
@@ -384,6 +410,25 @@ curl -s http://127.0.0.1:8765/sessions/<タブの id>/voice/conversation \
   いれば何もせず `{"closed": false}` を返します
 - 持ち主は backend の中だけに持ちます (= 再起動すると忘れ、 次に音を送った画面が持ち主になる)
 
+### 電話の会話をつなぐ
+
+iPhone の app が使う口です。 本文の形は [Pipecat](https://github.com/pipecat-ai/pipecat) の SmallWebRTC の口と
+同じで、 app は Pipecat の iOS の部品で申し込みます。
+
+```sh
+curl -s http://127.0.0.1:8765/sessions/<タブの id>/voice/call \
+  -H 'Content-Type: application/json' -d '{"sdp": "<SDP の offer>", "type": "offer"}'
+```
+
+```json
+{ "sdp": "<SDP の answer>", "type": "answer", "pc_id": "SmallWebRTCConnection#…" }
+```
+
+- つながると、 その電話がタブの会話の持ち主になります (= [会話を開く・閉じる](#会話を開く閉じる) と同じ決まり)
+- 経路の候補は、 同じ URL へ `PATCH` で `{"pc_id": "…", "candidates": [{"candidate": "…", "sdp_mid": "0",
+  "sdp_mline_index": 0}]}` を送ります
+- 声を持たないタブ・聞き取りを持たないタブは、 つなぐ前に断ります
+
 ### 言い終えを判定する model を受け取る
 
 ```sh
@@ -423,6 +468,8 @@ curl -s http://127.0.0.1:8765/sessions/<タブの id>/voice/transcription \
 | 返事が自分で止まる / 返事の文が送られる | スピーカーの返事をマイクが拾っている。 イヤホンを使うか、 `conversation.interrupt` を `false` にする |
 | 声や間の取り方を変えても効かない | 調整の file を使えていない (= `GET /sessions/<タブの id>/voice` の `tuning_error` に理由が出る)。 間の取り方は 🎙 を開き直すと効く |
 | 「別の画面で会話が開かれたので、 ここは閉じました」 と出る | 同じタブのマイクを、 別の端末か別のウィンドウで開いた |
+| iPhone の app で、 裏に回ると声が止まる | app ではなくブラウザ (= Safari やホーム画面に置いた Web の画面) で開いている |
+| iPhone の app で 🔊 にしても、 つながらない | backend に会話の部品が入っていない (= `voice_call_unavailable`) / iPhone から backend の機械へ直接届かない網にいる |
 | ボタンの上に理由が出る | 下の表の code に当たる文が出ている |
 
 口の失敗は、 HTTP の状態と `detail.code` で返ります。
@@ -443,3 +490,5 @@ curl -s http://127.0.0.1:8765/sessions/<タブの id>/voice/transcription \
 | `voice_listen_failed` | 502 | 聞き取りの engine が断った / 文を返さなかった。 `detail.params.status` が engine の返した状態 (= 形式の変換に失敗すると 500。 `--convert` と ffmpeg を見る) |
 | `voice_turn_model_missing` | 404 | 言い終えを判定する model が無い。 `listen.turn` の path に file が在るかを見る (= 在る場所を書いていて file が無い時は、 backend の log に 1 行出る) |
 | `voice_conversation_elsewhere` | 409 | そのタブの会話は、 別の画面が開いている |
+| `voice_call_unavailable` | 501 | backend に会話の部品が入っていない (= `pip install -r backend/requirements-voice-call.txt` の後に再起動) |
+| `voice_call_unknown` | 404 | 経路の候補を、 まだつないでいない接続へ送った |

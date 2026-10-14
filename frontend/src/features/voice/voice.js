@@ -13,6 +13,7 @@ import { createListener } from './listener.js'
 import { createPlayer } from './player.js'
 import { unlockAudio, playSound } from './audio.js'
 import { markVoiceInput } from './inputMark.js'
+import { nativeVoice, createNativeCall } from './nativeCall.js'
 
 const base = (sid) => `/sessions/${encodeURIComponent(sid)}/voice`
 
@@ -42,8 +43,19 @@ const player = createPlayer({
   onBusy: (sid, busy) => setVoiceSpeaking(sid, busy),
 })
 
+// iPhone の app の中の会話 (= マイクと声を app が持つ。 ブラウザでは null)。 最初に使う時に作る。
+let nativeCall
+function call() {
+  if (nativeCall === undefined) {
+    const plugin = nativeVoice()
+    nativeCall = plugin ? createNativeCall({ plugin, onState: onNativeState }) : null
+  }
+  return nativeCall
+}
+
 const listener = createListener({
-  isOn: (sid) => !!getSnapshot().on[sid],
+  // app の会話の間は、 返事の声も backend の中の会話が鳴らす (= 画面では鳴らさない)
+  isOn: (sid) => !!getSnapshot().on[sid] && !call()?.has(sid),
   say: (sid, text) => player.say(sid, text),
 })
 
@@ -137,6 +149,7 @@ const muted = new Set()
 //   オンの時: 全部閉じる。 マイクを閉じ、 返事も鳴らさない
 export function toggleVoice(sid, send) {
   if (getSnapshot().on[sid]) { closeConversation(sid); return }
+  if (call() && getSnapshot().listen[sid]) { openCall(sid); return }
   setVoice(sid, true)
   if (getSnapshot().on[sid] && getSnapshot().listen[sid] && !muted.has(sid)) openMic(sid, send)
 }
@@ -145,6 +158,13 @@ export function toggleVoice(sid, send) {
 // (= 消音の間も、 打って送った文には声で聞いている印が付く)。
 export function toggleMic(sid, send) {
   if (!getSnapshot().on[sid] || !getSnapshot().listen[sid]) return
+  if (call()?.has(sid)) {
+    if (muted.has(sid)) muted.delete(sid)
+    else muted.add(sid)
+    setVoicePhase(sid, muted.has(sid) ? null : 'listening')
+    call().setMic(sid, !muted.has(sid)).catch((error) => setVoiceError(sid, error?.message || String(error)))
+    return
+  }
   if (conversations.has(sid)) {
     muted.add(sid)
     closeMic(sid)
@@ -233,14 +253,46 @@ async function open(sid, entry, send) {
 // 会話を閉じる (= 🔊 を押し直した / タブを移った / 画面から消えた / 別の画面が会話を開いた時)。 マイクを閉じ、
 // 返事も鳴らさない。
 export function closeConversation(sid) {
+  if (call()?.has(sid)) {
+    call().stop(sid).catch(() => {})
+    setVoicePhase(sid, null)
+    setVoiceOn(sid, false)
+    setVoiceError(sid, null)
+    return
+  }
   closeMic(sid)
   setVoice(sid, false)
+}
+
+// app の会話を開く (= 声もマイクも app が持ち、 判定から先は backend の中で回る)。
+function openCall(sid) {
+  setVoiceError(sid, null)
+  setVoiceOn(sid, true)
+  setVoicePhase(sid, muted.has(sid) ? null : 'starting')
+  call().start(sid, { mic: !muted.has(sid) }).catch((error) => {
+    closeConversation(sid)
+    setVoiceError(sid, error?.message || String(error))
+  })
+}
+
+// app の会話の知らせ (= つながった / 切れた / 失敗した)。
+function onNativeState(sid, state, message) {
+  if (state === 'connected') {
+    setVoicePhase(sid, muted.has(sid) ? null : 'listening')
+  } else if (state === 'error') {
+    closeConversation(sid)
+    setVoiceError(sid, message || state)
+  } else if (state === 'disconnected' && getSnapshot().on[sid]) {
+    // backend が会話を終えた (= 別の画面が会話を開いた / backend が止まった)
+    closeConversation(sid)
+  }
 }
 
 // テストの間で、 消音を選んだタブと開いている会話を忘れる
 export function _resetForTest() {
   muted.clear()
   conversations.clear()
+  nativeCall = undefined
 }
 
 // マイクだけを閉じる (= 消音。 声はそのまま鳴る)。

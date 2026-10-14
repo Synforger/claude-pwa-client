@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-claude-pwa-client は以下の OSS に依存している。 全 deps のライセンスは Apache License 2.0 (= 本リポジトリ自体のライセンス) と**互換**で、 GPL / AGPL / LGPL / SSPL 等の strong copyleft はゼロ。
+claude-pwa-client は以下の OSS に依存している。 全 deps のライセンスは Apache License 2.0 (= 本リポジトリ自体のライセンス) と**互換**で、 GPL / AGPL / SSPL 等の strong copyleft はゼロ。 LGPL (= weak copyleft) は、 任意で入れる電話の会話の部品にだけ含まれる (= [下の説明](#weak-copyleft-説明))。
 
 > 本 file は `scripts/gen-third-party-notices.py` で自動生成 (= `task gen-notices`)。 dependency を追加 / 削除 / version bump した時は再生成すること。
 
@@ -267,6 +267,59 @@ claude-pwa-client は以下の OSS に依存している。 全 deps のライ�
 | vfile | MIT | https://github.com/vfile/vfile |
 | zwitch | MIT | https://github.com/wooorm/zwitch |
 
+## Voice call (optional backend) dependencies
+
+`pip install -r backend/requirements-voice-call.txt` で入れた時だけ加わる部品 (= iPhone の app との声の会話、 `backend/voice_call/`)。 上の Backend の表に在る物は除く。
+
+| Package | License | URL |
+|---|---|---|
+| aiofiles | Apache Software License | https://github.com/Tinche/aiofiles |
+| aioice | BSD-3-Clause | https://github.com/aiortc/aioice |
+| aiortc | BSD-3-Clause | https://github.com/aiortc/aiortc |
+| av | BSD-3-Clause | https://pyav.basswood-io.com |
+| dnspython | ISC | https://www.dnspython.org |
+| docopt | MIT License | http://docopt.org |
+| docstring_parser | MIT License | https://github.com/rr-/docstring_parser |
+| flatbuffers | Apache Software License | https://google.github.io/flatbuffers/ |
+| google-crc32c | Apache-2.0 | https://github.com/googleapis/python-crc32c |
+| ifaddr | MIT License | https://github.com/pydron/ifaddr |
+| jiter | MIT | https://github.com/pydantic/jiter/ |
+| llvmlite | BSD-2-Clause AND Apache-2.0 WITH LLVM-exception | http://llvmlite.readthedocs.io |
+| loguru | MIT License | https://github.com/Delgan/loguru |
+| loudness | MIT | https://github.com/iver56/loudness |
+| Markdown | BSD-3-Clause | https://Python-Markdown.github.io/ |
+| mpmath | BSD License | http://mpmath.org/ |
+| num2words | GNU Library or Lesser General Public License (LGPL) | https://github.com/savoirfairelinux/num2words |
+| numba | BSD License | https://numba.pydata.org |
+| numpy | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 | https://numpy.org |
+| onnxruntime | MIT License | https://onnxruntime.ai |
+| openai | Apache-2.0 | https://github.com/openai/openai-python |
+| opencv-python-headless | Apache Software License | https://github.com/opencv/opencv-python |
+| pillow | MIT-CMU | https://python-pillow.github.io |
+| pipecat-ai | BSD-2-Clause | https://pipecat.ai |
+| protobuf | 3-Clause BSD License | https://developers.google.com/protocol-buffers/ |
+| pyee | MIT License | https://github.com/jfhbrook/pyee |
+| pylibsrtp | BSD-3-Clause | https://github.com/aiortc/pylibsrtp |
+| pyOpenSSL | Apache Software License | https://pyopenssl.org/ |
+| resampy | ISC License (ISCL) | https://github.com/bmcfee/resampy |
+| sentencex | MIT | https://github.com/wikimedia/sentencex |
+| sniffio | Apache Software License; MIT License | https://github.com/python-trio/sniffio |
+| soundfile | BSD License | https://github.com/bastibe/python-soundfile |
+| soxr | LGPL-2.1-or-later | https://github.com/dofuuz/python-soxr |
+| sympy | BSD License | https://sympy.org |
+| wait_for2 | Apache-2.0 | https://github.com/Traktormaster/wait-for2 |
+
+## iOS app (`shell/`) dependencies
+
+iPhone の app を作る時だけ使う部品。 Swift Package Manager と npm が取ってきて app に組み込む (= 本リポには同梱しない)。 app を配る時は、 下のライセンス表示を app と一緒に渡す。
+
+| Package | License | URL |
+|---|---|---|
+| @capacitor/core / @capacitor/ios / @capacitor/cli (= capacitor-swift-pm) | MIT | https://github.com/ionic-team/capacitor |
+| pipecat-client-ios | BSD-2-Clause | https://github.com/pipecat-ai/pipecat-client-ios |
+| pipecat-client-ios-small-webrtc | BSD-2-Clause | https://github.com/pipecat-ai/pipecat-client-ios-small-webrtc |
+| WebRTC (= stasel/WebRTC が配る Google WebRTC の build) | BSD-3-Clause + WebRTC Additional IP Rights Grant (= build scripts は BSD-3-Clause) | https://github.com/stasel/WebRTC / https://webrtc.org/support/license |
+
 ## External services / processes (not bundled)
 
 以下は backend が **subprocess / HTTP で連携**するだけで、 本リポジトリに バンドル / static link されていない。 GPL の copyleft は別プロセス連携には 波及しない (= FSF GPL FAQ 「プロセス分離は通常 derivative work には当たらない」)。
@@ -446,3 +499,5 @@ SOFTWARE.
 ## Weak copyleft 説明
 
 **MPL-2.0** (= pywebpush / py-vapid / certifi / pathspec) は file-level weak copyleft。 該当 file 自体を改変した場合のみ改変版を MPL-2.0 で公開する義務があるが、 別 file から import / dynamic link する分には影響しない (= 本リポは import 利用のみで MPL ファイルを改変していない)。
+
+**LGPL** (= num2words / soxr、 それに av が同梱する FFmpeg の library と soundfile が同梱する libsndfile) は、 任意の電話の会話の部品にだけ含まれる。 どれも pip が利用者の環境へ入れ、 Python から動的に読み込む library で、 本リポはこれらを同梱・改変・static link しない。 LGPL の義務 (= 差し替え可能な形で渡す・改変を公開する) が生じるのは、 これらを同梱して配る時だけ。
