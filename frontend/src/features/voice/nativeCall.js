@@ -22,15 +22,16 @@ export function callUrl(sid, volume = 1) {
 }
 
 // app の会話を 1 本だけ持つ (= app の部品も backend の会話も、 1 本ずつ)。
-//   onState(sid, state, message)   connecting / connected / disconnected / error
+//   onState(sid, state, message, { fatal })   connecting / connected / disconnected / error (= fatal: 通話が続けられ
+//                                             ない error か。 app が言わなければ undefined)
 export function createNativeCall({ plugin, onState }) {
   let current = null
   let listening = false
   const listen = () => {
     if (listening) return
     listening = true
-    plugin.addListener('state', ({ state, message } = {}) => {
-      if (current) onState(current, state, message)
+    plugin.addListener('state', ({ state, message, fatal } = {}) => {
+      if (current) onState(current, state, message, { fatal })
     })
   }
   return {
