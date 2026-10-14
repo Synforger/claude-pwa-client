@@ -45,12 +45,24 @@ import UIKit
         let controller = AVPictureInPictureController(contentSource: source)
         controller.canStartPictureInPictureAutomaticallyFromInline = true
         controller.requiresLinearPlayback = true
+        Self.hidePlaybackControls(of: controller)
         controller.delegate = self
         self.controller = controller
         timer = Timer.scheduledTimer(withTimeInterval: Self.refreshSecs, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.render() }
         }
         CAPLog.print("[CallPicture] ready (starts when the app goes to the background)")
+    }
+
+    /// 小窓の再生・停止・送りのボタンと進み具合の棒を消し、 閉じると戻るのボタンだけを残す。 文書に載っている
+    /// `requiresLinearPlayback` は送りを効かなくするだけで、 ボタンは残る。 消せるのは文書に無い `controlsStyle`
+    /// (= 1) だけなので、 iOS がその名前を持っている時だけ設定する (= 無くなった iOS では、 ボタンが残るだけ)。
+    private static func hidePlaybackControls(of controller: AVPictureInPictureController) {
+        guard controller.responds(to: NSSelectorFromString("setControlsStyle:")) else {
+            CAPLog.print("[CallPicture] controlsStyle is not available; playback buttons stay")
+            return
+        }
+        controller.setValue(1, forKey: "controlsStyle")
     }
 
     func stop() {
