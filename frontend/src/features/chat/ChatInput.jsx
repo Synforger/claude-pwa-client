@@ -150,7 +150,7 @@ function ChatInputInner({
             title={sizing.expanded ? t('chat.input.collapse') : t('chat.input.expand')}
             data-testid="chat-input-size-toggle"
           >
-            <svg viewBox="0 0 16 10" width="16" height="10" aria-hidden="true">
+            <svg viewBox="0 0 16 10" width="10" height="6" aria-hidden="true">
               <path
                 d={sizing.expanded ? 'M2 2l6 6 6-6' : 'M2 8l6-6 6 6'}
                 fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
