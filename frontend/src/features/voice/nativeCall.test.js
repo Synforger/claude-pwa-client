@@ -39,14 +39,27 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('inside the iPhone app, the app holds the microphone and the voice', () => {
-  it('opens a call to the tab instead of listening in the screen', async () => {
+  it('opens a call to the tab instead of listening in the screen, with the microphone off', async () => {
     toggleVoice('ses_a', vi.fn())
     expect(getSnapshot().on.ses_a).toBe(true)
-    expect(getSnapshot().phase.ses_a).toBe('starting')
+    expect(getSnapshot().phase.ses_a).toBeUndefined()
     await settle()
     const url = new URL(`${API_BASE}/sessions/ses_a/voice/call?volume=1`, 'https://host.example/').href
-    expect(plugin.start).toHaveBeenCalledWith({ url, mic: true })
+    expect(plugin.start).toHaveBeenCalledWith({ url, mic: false })
     expect(openConversation).not.toHaveBeenCalled()
+    notify({ state: 'connected' })
+    expect(getSnapshot().phase.ses_a).toBeUndefined()
+  })
+
+  it('starts the next call with the microphone on, when it was left on', async () => {
+    toggleVoice('ses_a', vi.fn())
+    await settle()
+    toggleMic('ses_a', vi.fn())
+    closeConversation('ses_a')
+    toggleVoice('ses_a', vi.fn())
+    expect(getSnapshot().phase.ses_a).toBe('starting')
+    await settle()
+    expect(plugin.start).toHaveBeenLastCalledWith(expect.objectContaining({ mic: true }))
     notify({ state: 'connected' })
     expect(getSnapshot().phase.ses_a).toBe('listening')
   })
@@ -60,16 +73,16 @@ describe('inside the iPhone app, the app holds the microphone and the voice', ()
     expect(apiFetch.mock.calls.filter(([path]) => path.endsWith('/voice/utterances'))).toHaveLength(0)
   })
 
-  it('mutes and unmutes the microphone in the app, and the voice keeps playing', async () => {
+  it('turns the microphone in the app on and off, and the voice keeps playing', async () => {
     toggleVoice('ses_a', vi.fn())
     await settle()
+    toggleMic('ses_a', vi.fn())
+    expect(plugin.setMic).toHaveBeenLastCalledWith({ on: true })
+    expect(getSnapshot().phase.ses_a).toBe('listening')
     toggleMic('ses_a', vi.fn())
     expect(plugin.setMic).toHaveBeenLastCalledWith({ on: false })
     expect(getSnapshot().phase.ses_a).toBeUndefined()
     expect(getSnapshot().on.ses_a).toBe(true)
-    toggleMic('ses_a', vi.fn())
-    expect(plugin.setMic).toHaveBeenLastCalledWith({ on: true })
-    expect(getSnapshot().phase.ses_a).toBe('listening')
   })
 
   it('hangs up when the voice is turned off, and when the backend ends the call', async () => {
