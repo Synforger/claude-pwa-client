@@ -4,7 +4,7 @@ vi.mock('../../transport/http.ts', () => ({ apiFetch: vi.fn() }))
 vi.mock('./audio.js', () => ({ unlockAudio: vi.fn(), playSound: vi.fn() }))
 
 const { apiFetch } = await import('../../transport/http.ts')
-const { pressMic, cancelListening } = await import('./voice.js')
+const { startListening, finishListening, cancelListening } = await import('./voice.js')
 const { startRecording } = await import('./recorder.js')
 const { getSnapshot, setVoiceListen, setVoiceAvailable, _resetForTest } = await import('../../state/voice.js')
 
@@ -49,24 +49,24 @@ describe('startRecording — one sound from the microphone', () => {
   })
 })
 
-describe('pressMic — press to speak, press again to send', () => {
+describe('startListening / finishListening — hold to speak, release to send', () => {
   beforeEach(() => {
     _resetForTest()
     apiFetch.mockReset()
     setVoiceAvailable('ses_a', true)
-    setVoiceListen('ses_a', 110)
+    setVoiceListen('ses_a', true)
   })
   afterEach(() => vi.useRealTimers())
 
-  it('turns the voice on, records, and sends what was heard to the tab', async () => {
+  it('turns the voice on, records while held, and sends what was heard on release', async () => {
     const media = fakeMedia()
     const send = vi.fn()
-    await pressMic('ses_a', send, media)
+    await startListening('ses_a', media)
     expect(getSnapshot().on.ses_a).toBe(true)
     expect(getSnapshot().listening.ses_a).toBe('recording')
 
     apiFetch.mockResolvedValue(heard('明日の予定を教えて'))
-    await pressMic('ses_a', send, media)
+    await finishListening('ses_a', send)
     const [path, opts] = apiFetch.mock.calls[0]
     expect(path).toBe('/sessions/ses_a/voice/transcription')
     expect(opts.method).toBe('POST')
@@ -78,37 +78,47 @@ describe('pressMic — press to speak, press again to send', () => {
     expect(media.closed).toBe(1)
   })
 
+  it('keeps recording for as long as it is held', async () => {
+    vi.useFakeTimers()
+    const send = vi.fn()
+    await startListening('ses_a', fakeMedia())
+    await vi.advanceTimersByTimeAsync(15 * 60 * 1000)
+    expect(getSnapshot().listening.ses_a).toBe('recording')
+    expect(apiFetch).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
+  })
+
   it('sends nothing when no speech was heard, and says so', async () => {
     const send = vi.fn()
-    await pressMic('ses_a', send, fakeMedia())
+    await startListening('ses_a', fakeMedia())
     apiFetch.mockResolvedValue(heard('  '))
-    await pressMic('ses_a', send, fakeMedia())
+    await finishListening('ses_a', send)
     expect(send).not.toHaveBeenCalled()
     expect(getSnapshot().error.ses_a).toBeTruthy()
     expect(getSnapshot().listening.ses_a).toBeUndefined()
   })
 
   it('says why when the microphone cannot be opened', async () => {
-    await pressMic('ses_a', vi.fn(), fakeMedia({ refuse: true }))
+    await startListening('ses_a', fakeMedia({ refuse: true }))
     expect(getSnapshot().error.ses_a).toContain('Permission denied')
     expect(getSnapshot().listening.ses_a).toBeUndefined()
   })
 
   it('says why when the backend refuses the sound', async () => {
     const send = vi.fn()
-    await pressMic('ses_a', send, fakeMedia())
+    await startListening('ses_a', fakeMedia())
     apiFetch.mockResolvedValue({ ok: false, status: 502, json: async () => ({ detail: { code: 'voice_listen_unreachable' } }) })
-    await pressMic('ses_a', send, fakeMedia())
+    await finishListening('ses_a', send)
     expect(send).not.toHaveBeenCalled()
     expect(getSnapshot().error.ses_a).toBeTruthy()
   })
 
   it('does not send what was said in a tab that was left while it was being heard', async () => {
     const send = vi.fn()
-    await pressMic('ses_a', send, fakeMedia())
+    await startListening('ses_a', fakeMedia())
     let answer
     apiFetch.mockReturnValue(new Promise((resolve) => { answer = resolve }))
-    const finishing = pressMic('ses_a', send, fakeMedia())
+    const finishing = finishListening('ses_a', send)
     await settle()
     expect(getSnapshot().listening.ses_a).toBe('hearing')
     await cancelListening('ses_a')
@@ -117,49 +127,40 @@ describe('pressMic — press to speak, press again to send', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
-  it('ignores a press while what was said is being heard', async () => {
+  it('does not start again while what was said is being heard', async () => {
     const send = vi.fn()
-    await pressMic('ses_a', send, fakeMedia())
+    const media = fakeMedia()
+    await startListening('ses_a', media)
     let answer
     apiFetch.mockReturnValue(new Promise((resolve) => { answer = resolve }))
-    const finishing = pressMic('ses_a', send, fakeMedia())
+    const finishing = finishListening('ses_a', send)
     await settle()
-    await pressMic('ses_a', send, fakeMedia())
-    expect(apiFetch).toHaveBeenCalledTimes(1)
+    await startListening('ses_a', media)
+    expect(media.opened).toBe(1)
     answer(heard('一度だけ'))
     await finishing
     expect(send).toHaveBeenCalledTimes(1)
   })
 
-  it('stops recording by itself at the longest it may listen, and sends', async () => {
-    vi.useFakeTimers()
-    setVoiceListen('ses_a', 2)
-    const send = vi.fn()
-    await pressMic('ses_a', send, fakeMedia())
-    apiFetch.mockResolvedValue(heard('長い話'))
-    await vi.advanceTimersByTimeAsync(2000)
-    expect(send).toHaveBeenCalledWith('長い話')
-  })
-
-  it('lets go of a microphone that has not opened yet when pressed again, and closes it once it opens', async () => {
+  it('lets go when released before the microphone has opened, and closes it once it opens', async () => {
     const media = fakeMedia()
     let opened
     const open = media.open
     media.open = () => new Promise((resolve) => { opened = () => resolve(open()) })
-    const first = pressMic('ses_a', vi.fn(), media)
+    const starting = startListening('ses_a', media)
     await settle()
     expect(getSnapshot().listening.ses_a).toBe('recording')
-    await pressMic('ses_a', vi.fn(), media)
+    await finishListening('ses_a', vi.fn())
     expect(getSnapshot().listening.ses_a).toBeUndefined()
     opened()
-    await first
+    await starting
     expect(media.closed).toBe(1)
     expect(apiFetch).not.toHaveBeenCalled()
   })
 
   it('closes the microphone when the tab is left while recording', async () => {
     const media = fakeMedia()
-    await pressMic('ses_a', vi.fn(), media)
+    await startListening('ses_a', media)
     await cancelListening('ses_a')
     expect(media.closed).toBe(1)
     expect(getSnapshot().listening.ses_a).toBeUndefined()

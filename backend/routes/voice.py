@@ -28,7 +28,7 @@
     1. POST /sessions/{sid}/voice/utterances    返事の文 → 声にする文と、 その印
     2. POST /sessions/{sid}/voice/synthesis     1 文と印 → 音 (= audio/wav)
 
-人の声は 1 段。 画面が録った音を渡し、 聞き取った文を受け取る (= 送るのは画面が普段の送信口で行う)。
+人の声は 1 段。 画面が録った音 (= 🎙 を押している間の音) を渡し、 聞き取った文を受け取る (= 送るのは画面が普段の送信口で行う)。
 
     3. POST /sessions/{sid}/voice/transcription 録った音 → 聞き取った文
 
@@ -70,17 +70,14 @@ MAX_UTTERANCE_CHARS = _SEEN_UTTERANCE_CHARS * 2
 _SEEN_SYNTHESIS_SEC_PER_CHAR = 3.2 / 38
 ENGINE_TIMEOUT_SEC = MAX_UTTERANCE_CHARS * _SEEN_SYNTHESIS_SEC_PER_CHAR * 2
 
-# 実測 (= 人が agent へ送った発話 352 本): 99% が 349 文字以下 (= それより長い物は貼り付け)。 合成の声で
-# 読ませると 1 秒に約 6.3 文字。 1 回に録る長さの上限は、 その長さを言い切る時間の 2 倍 (= 画面が録るのを止める)。
-_SEEN_SPOKEN_CHARS = 349
-_SEEN_SPOKEN_CHARS_PER_SEC = 6.3
-MAX_LISTEN_SEC = _SEEN_SPOKEN_CHARS / _SEEN_SPOKEN_CHARS_PER_SEC * 2
-# 実測: ブラウザの録音の宣言 bitrate は最大 192 kbps (= WebKit の mp4/AAC。 Chromium の webm/opus は 128 kbps)。
-# 音の大きさの上限は、 録る長さの上限をその bitrate で録った大きさの 2 倍。
+# 1 回に録る長さは、 画面で 🎙 を押している間 (= 離した所で終わり) で、 画面は区切らない。 backend が受ける音の
+# 上限は、 10 分話し続けた音 (= 1 回の発話として普段まず当たらない長さ) を、 ブラウザが宣言する最大の bitrate
+# (= 実測 192 kbps。 WebKit の mp4/AAC。 Chromium の webm/opus は 128 kbps) で録った大きさの 2 倍。
+MAX_LISTEN_SEC = 10 * 60
 _SEEN_RECORDING_BITS_PER_SEC = 192_000
 MAX_AUDIO_BYTES = int(MAX_LISTEN_SEC * _SEEN_RECORDING_BITS_PER_SEC / 8 * 2)
 # 実測 (= whisper.cpp 1.9.2 + large-v3-turbo の q5_0、 Apple M2): 124 秒の音の聞き取りに 7.7 秒 (= 形式の変換込み)。
-# engine を待つ上限は、 録る長さの上限に掛かる時間の 2 倍。
+# engine を待つ上限は、 上限の長さの音に掛かる時間の 2 倍。
 _SEEN_LISTEN_SEC_PER_AUDIO_SEC = 7.7 / 124
 LISTEN_TIMEOUT_SEC = MAX_LISTEN_SEC * _SEEN_LISTEN_SEC_PER_AUDIO_SEC * 2
 
@@ -235,9 +232,9 @@ async def get_voice(session_id: str) -> dict:
     """そのタブが声を持つかと、 言い方の印の一覧。"""
     settings = _settings_of(session_id)
     if settings is None:
-        return {"enabled": False, "marks": [], "default": "", "listen": None}
-    listen = {"max_seconds": MAX_LISTEN_SEC} if settings["listen"] else None
-    return {"enabled": True, "marks": list(settings["marks"]), "default": settings["default"], "listen": listen}
+        return {"enabled": False, "marks": [], "default": "", "listen": False}
+    return {"enabled": True, "marks": list(settings["marks"]), "default": settings["default"],
+            "listen": bool(settings["listen"])}
 
 
 @router.post("/sessions/{session_id}/voice/utterances")

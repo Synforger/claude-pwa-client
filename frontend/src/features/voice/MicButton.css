@@ -8,9 +8,14 @@
   color: var(--text);
   border: 1px solid var(--border);
   font-size: 20px;
+  /* 押し続けても、 文字の選択や長押しのメニューに変わらない */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
-/* 録っている間: 押すと送る。 赤い地と、 脈打つ枠で「聞いている」 を見せる */
+/* 録っている間 (= 押している間): 離すと送る。 赤い地と、 脈打つ枠で「聞いている」 を見せる */
 .mic.recording {
   background: #7a1f1f;
   border-color: #ff5f57;

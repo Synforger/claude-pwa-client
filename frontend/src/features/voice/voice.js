@@ -83,28 +83,33 @@ export async function refreshVoiceAvailable(sid) {
     const voice = r.ok ? await r.json() : null
     setVoiceAvailable(sid, voice?.enabled === true)
     setVoiceMarks(sid, voice?.enabled === true ? voice.marks : [])
-    setVoiceListen(sid, voice?.enabled === true ? voice.listen?.max_seconds : null)
+    setVoiceListen(sid, voice?.enabled === true && voice.listen === true)
   } catch {
     setVoiceAvailable(sid, false)
     setVoiceMarks(sid, [])
-    setVoiceListen(sid, null)
+    setVoiceListen(sid, false)
   }
 }
 
 // --- 🎙 (= 人の声) ---------------------------------------------------------------
 
-// 録っている途中の物 (= タブの id ごと)。 recording.stop() で録った音、 timer は上限の長さで止める時計。
+// 録っている途中の物 (= タブの id ごと。 stop() で録った音、 cancel() で捨てる)。
 const recordings = new Map()
 
-// 🎙 を押した時に呼ぶ (= 人が押した handler の中から)。 send(text) は、 聞き取った文をこのタブへ送る関数。
-//   録っていない時: 話し始める。 返事を声で聞く状態にし (= 押した手の中で音を鳴らせるようにする)、 鳴っている
-//                   返事はその場で止める (= 人が話し始めたら、 そちらが先)
-//   録っている時:   録るのを止めて、 聞き取った文を送る (= マイクがまだ開いていなければ、 録り始めを取りやめる)
-//   聞き取りを待っている時: 何もしない
-export async function pressMic(sid, send, media) {
-  const phase = getSnapshot().listening[sid]
-  if (phase === 'hearing') return
-  if (phase === 'recording') { await finishListening(sid, send); return }
+// 録った音を backend に聞き取らせて、 その文を返す (= 声が聞き取れなければ空の文)。
+export async function transcribe(sid, sound) {
+  // 待つ上限は置かない: 聞き取りは音の長さに比例して掛かり、 backend が engine を待つ上限で必ず返る。
+  const r = await apiFetch(`${base(sid)}/transcription`, {
+    method: 'POST', body: sound, headers: { 'Content-Type': sound.type || 'audio/webm' }, timeout: 0,
+  })
+  if (!r.ok) throw await refused(r)
+  return ((await r.json()).text || '').trim()
+}
+
+// 🎙 を押し始めた時に呼ぶ (= 人が押した handler の中から)。 返事を声で聞く状態にし (= 押した手の中で音を鳴らせる
+// ようにする)、 鳴っている返事はその場で止める (= 人が話し始めたら、 そちらが先)。 押している間、 録る。
+export async function startListening(sid, media) {
+  if (getSnapshot().listening[sid]) return
   if (!getSnapshot().on[sid]) setVoice(sid, true)
   else player.stop(sid)
   setVoiceListening(sid, 'recording')
@@ -116,31 +121,23 @@ export async function pressMic(sid, send, media) {
     setVoiceError(sid, tRaw('voice.mic_refused', { reason: error?.message || String(error) }))
     return
   }
-  // 録り始めを待つ間に止められていれば (= タブを移った)、 マイクを閉じて終わる。
+  // マイクが開く前に離された / タブを移った: マイクを閉じて終わる。
   if (getSnapshot().listening[sid] !== 'recording') { await recording.cancel(); return }
-  const maxSeconds = getSnapshot().listen[sid]
-  const timer = maxSeconds ? setTimeout(() => { finishListening(sid, send) }, maxSeconds * 1000) : null
-  recordings.set(sid, { recording, timer })
+  recordings.set(sid, recording)
 }
 
-async function finishListening(sid, send) {
-  const held = recordings.get(sid)
-  if (!held) {
-    // マイクを開く段が返っていない (= 許可を訊かれたまま / マイクが無い)。 押し直しで抜けられるようにする。
+// 🎙 を離した時に呼ぶ。 録った音を聞き取らせて、 その文を send(text) でこのタブへ送る。
+// マイクがまだ開いていなければ (= 許可を訊かれている間など)、 録り始めを取りやめる。
+export async function finishListening(sid, send) {
+  const recording = recordings.get(sid)
+  if (!recording) {
     if (getSnapshot().listening[sid] === 'recording') setVoiceListening(sid, null)
     return
   }
   recordings.delete(sid)
-  if (held.timer) clearTimeout(held.timer)
   setVoiceListening(sid, 'hearing')
   try {
-    const sound = await held.recording.stop()
-    // 待つ上限は置かない: 聞き取りは音の長さに比例して掛かり、 backend が engine を待つ上限で必ず返る。
-    const r = await apiFetch(`${base(sid)}/transcription`, {
-      method: 'POST', body: sound, headers: { 'Content-Type': sound.type || 'audio/webm' }, timeout: 0,
-    })
-    if (!r.ok) throw await refused(r)
-    const text = ((await r.json()).text || '').trim()
+    const text = await transcribe(sid, await recording.stop())
     // 聞き取りを待つ間にタブを移っていれば送らない (= 送る関数は、 今見ているタブへ送る)。
     if (getSnapshot().listening[sid] !== 'hearing') return
     if (!text) { setVoiceError(sid, tRaw('voice.heard_nothing')); return }
@@ -156,9 +153,8 @@ async function finishListening(sid, send) {
 
 // 🎙 を手放す (= タブを移った / 画面から消えた時)。 録っている音は捨て、 聞き取りを待っている文は送らない。
 export async function cancelListening(sid) {
-  const held = recordings.get(sid)
+  const recording = recordings.get(sid)
   recordings.delete(sid)
-  if (held?.timer) clearTimeout(held.timer)
   setVoiceListening(sid, null)
-  if (held) await held.recording.cancel()
+  if (recording) await recording.cancel()
 }

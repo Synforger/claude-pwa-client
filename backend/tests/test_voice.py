@@ -85,11 +85,11 @@ def _code(response) -> str:
 
 def test_a_tab_of_an_agent_with_a_voice_says_so_and_names_its_marks(client, tabs):
     assert client.get("/sessions/ses_voice/voice").json() == {
-        "enabled": True, "marks": ["calm", "happy", "sleepy"], "default": "calm", "listen": None}
+        "enabled": True, "marks": ["calm", "happy", "sleepy"], "default": "calm", "listen": False}
 
 
 def test_a_tab_of_an_agent_with_no_voice_says_so(client, tabs):
-    assert client.get("/sessions/ses_plain/voice").json() == {"enabled": False, "marks": [], "default": "", "listen": None}
+    assert client.get("/sessions/ses_plain/voice").json() == {"enabled": False, "marks": [], "default": "", "listen": False}
 
 
 def test_a_tab_that_does_not_exist_is_not_found(client, tabs, engine):
@@ -311,10 +311,10 @@ def _say(client, sid="ses_listen", audio=WEBM, kind="audio/webm;codecs=opus"):
     return client.post(f"/sessions/{sid}/voice/transcription", content=audio, headers={"Content-Type": kind})
 
 
-def test_a_tab_that_listens_says_how_long_it_may_listen(client, tabs):
+def test_a_tab_that_listens_says_so(client, tabs):
     body = client.get("/sessions/ses_listen/voice").json()
     assert body["enabled"] is True
-    assert body["listen"] == {"max_seconds": voice.MAX_LISTEN_SEC}
+    assert body["listen"] is True
 
 
 def test_what_was_said_comes_back_as_one_line(client, tabs, listener):
