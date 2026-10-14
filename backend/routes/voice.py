@@ -424,12 +424,27 @@ async def post_synthesis(request: Request, session_id: str) -> Response:
     for key, value in {**settings["query"], **values}.items():
         if key in query:
             query[key] = value
+    _keep_pauses(query)
     kind, sound = await _engine("synthesis", f"{settings['engine']}/synthesis?speaker={speaker}", query)
     if not kind.startswith("audio/"):
         _engine_failed("synthesis", 200)
     logger.info("voice: session=%s mark=%s chars=%d bytes=%d ms=%d", session_id, name or "-", len(text),
                 len(sound), (time.monotonic() - started) * 1000)
     return Response(content=sound, media_type=kind, headers={"Cache-Control": "no-store"})
+
+
+# 文の前後の無音 (= 秒)。 engine は無音も話す速さで縮める (= 実測、 AivisSpeech Engine 1.2.0: speedScale 1.5 で 2/3、
+# 2.0 で 1/2)。 速さを変えても文の間が詰まらないように、 速さを掛けて渡す (= 書いた秒数のまま空く)。
+_PAUSES = ("prePhonemeLength", "postPhonemeLength")
+
+
+def _keep_pauses(query: dict) -> None:
+    speed = query.get("speedScale")
+    if not _is_number(speed) or speed <= 0:
+        return
+    for key in _PAUSES:
+        if _is_number(query.get(key)):
+            query[key] = query[key] * speed
 
 
 @router.post("/sessions/{session_id}/voice/transcription")

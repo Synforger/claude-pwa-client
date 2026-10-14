@@ -213,12 +213,33 @@ def test_a_sentence_is_asked_of_the_engine_and_comes_back_as_sound(client, tabs,
     assert query_body is None
     assert synth_url == "http://127.0.0.1:10101/synthesis?speaker=100"
     # 見本の値に、 共通の値 (= query) を当て、 その上に印の値を当てる。 印が触らない値は共通か見本のまま。
-    assert synth_body == {**QUERY, "prePhonemeLength": 0.05, "speedScale": 1.15, "tempoDynamicsScale": 1.3}
+    # 文の前の無音は、 速さを掛けて渡す (= 書いた 0.05 秒のまま空く)
+    assert synth_body == {**QUERY, "prePhonemeLength": pytest.approx(0.05 * 1.15), "speedScale": 1.15,
+                          "tempoDynamicsScale": 1.3}
+
+
+def test_the_pauses_around_a_sentence_stay_as_written_whatever_the_speed(client, tabs, engine, monkeypatch, tmp_path):
+    """engine は前後の無音も speedScale で縮めるので、 速さを掛けて渡す。"""
+    _config(monkeypatch, tmp_path, speaker={"voice": {
+        **VOICE, "query": {"prePhonemeLength": 0.05}, "marks": {"fast": {"speedScale": 2.0}, "plain": {}},
+        "default": "plain"}})
+    r = client.post("/sessions/ses_voice/voice/synthesis", json={"text": "やあ。", "mark": "fast"})
+    assert r.status_code == 200, r.text
+    assert engine[-1][1]["prePhonemeLength"] == pytest.approx(0.1)
+    client.post("/sessions/ses_voice/voice/synthesis", json={"text": "やあ。", "mark": "plain"})
+    assert engine[-1][1]["prePhonemeLength"] == pytest.approx(0.05)
+
+
+def test_a_pause_the_engine_does_not_have_is_not_sent(client, tabs, engine, monkeypatch, tmp_path):
+    _config(monkeypatch, tmp_path, speaker={"voice": {**VOICE, "query": {"postPhonemeLength": 0.45},
+                                                      "marks": {"fast": {"speedScale": 2.0}}, "default": "fast"}})
+    client.post("/sessions/ses_voice/voice/synthesis", json={"text": "やあ。", "mark": "fast"})
+    assert "postPhonemeLength" not in engine[-1][1]
 
 
 def test_a_sentence_with_no_mark_is_said_the_default_way(client, tabs, engine):
     client.post("/sessions/ses_voice/voice/synthesis", json={"text": "うん。"})
-    assert engine[1][1] == {**QUERY, "prePhonemeLength": 0.05, "speedScale": 1.1, "pitchScale": -0.06}
+    assert engine[1][1] == {**QUERY, "prePhonemeLength": pytest.approx(0.05 * 1.1), "speedScale": 1.1, "pitchScale": -0.06}
 
 
 def test_a_mark_may_name_another_style_of_the_voice(client, tabs, engine):
