@@ -311,7 +311,7 @@ claude-pwa-client は以下の OSS に依存している。 全 deps のライ�
 
 ## iOS app (`shell/`) dependencies
 
-iPhone の app を作る時だけ使う部品。 Swift Package Manager と npm が取ってきて app に組み込む (= 本リポには同梱しない)。 app を配る時は、 下のライセンス表示を app と一緒に渡す。
+iPhone の app を作る時だけ使う部品。 Swift Package Manager と npm が取ってきて app に組み込む (= 本リポには同梱しない)。 ライセンスの原文 (= WebRTC の特許の許諾を含む) は `shell/ios/App/App/Acknowledgements.txt` にまとめて app に同梱する。
 
 | Package | License | URL |
 |---|---|---|
