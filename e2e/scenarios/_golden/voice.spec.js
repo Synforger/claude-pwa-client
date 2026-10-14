@@ -3,12 +3,15 @@
 // that newly arrives is cut into sentences and each sentence is fetched as sound and
 // played, in order. What was already there is not said, and turning it off stops it.
 // A mark at the head of a sentence says how to say it, and is not shown in the bubble.
+// What the person types while it is on goes with a `[voice]` mark at its head, so the
+// agent knows the reply will be heard; the bubble does not show that mark either.
 //
 // The speech engine is the test backend's own fixture (silence for every sentence, and a
 // refusal for a sentence that starts with "[fail]"), so the whole path runs: screen ->
 // voice endpoints -> engine. Whether a real engine sounds right is not something a
 // browser test can tell.
 
+import { readFileSync } from 'node:fs'
 import { test, expect } from '@playwright/test'
 import { seedSession, appendEvent } from '../../helpers/fixture.js'
 import { openClient } from '../../helpers/pwa.js'
@@ -103,6 +106,35 @@ test.describe('golden: voice', () => {
     await page.locator(toggle).click()
     await page.waitForTimeout(1500)
     expect(await started()).toBe(0)
+  })
+
+  test('what is typed while the toggle is on reaches the agent with a voice mark, which the bubble hides', async ({ page, request }, testInfo) => {
+    const tab = await seedSession(request, 'e2e-voice')
+    const sent = []
+    page.on('request', (r) => {
+      if (r.method() === 'POST' && r.url().endsWith('/send')) sent.push(r.postDataJSON().text)
+    })
+    await openClient(page, { sid: tab.sid })
+    const input = page.locator('[data-testid=chat-input]')
+    const confirmed = (hasText) => page.locator('[data-testid=message-bubble-user][data-cpc-optimistic="0"]').filter({ hasText })
+
+    // Off: the text goes as it was typed.
+    await input.fill('typed while the voice is off')
+    await page.locator('[data-testid=chat-send-button]').click()
+    await expect(confirmed('typed while the voice is off')).toHaveCount(1, { timeout: 15_000 })
+    expect(sent).toEqual(['typed while the voice is off'])
+
+    // On: the agent is told the reply will be heard; the record keeps the mark, the bubble does not show it.
+    await page.locator(toggle).click()
+    await expect(page.locator(toggle)).toHaveAttribute('aria-pressed', 'true')
+    await input.fill('typed while the voice is on')
+    await page.locator('[data-testid=chat-send-button]').click()
+    const bubble = confirmed('typed while the voice is on')
+    await expect(bubble).toHaveCount(1, { timeout: 15_000 })
+    expect(sent.at(-1)).toBe('[voice] typed while the voice is on')
+    await expect(bubble).not.toContainText('[voice]')
+    expect(readFileSync(tab.jsonl_path, 'utf8')).toContain('[voice] typed while the voice is on')
+    await page.screenshot({ path: testInfo.outputPath('voice-typed.png') })
   })
 
   test('a sentence the engine refuses shows why under the toggle, and off clears it', async ({ page, request }, testInfo) => {

@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import MessageRenderer from './MessageRenderer.jsx'
-import { hideMarks } from '../voice/index.js'
+import { hideMarks, hideVoiceInputMark } from '../voice/index.js'
 import AskUserQuestionBubble from '../ask-user-question/AskUserQuestionBubble.jsx'
 import AttachedImages from '../attachments/AttachedImages.jsx'
 import { getEntry as getMessageEntry } from '../../registry/messageRegistry.js'
@@ -314,11 +314,14 @@ function MetaLine({ meta, streaming, trailing }) {
 }
 
 const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentTool, runningSubagents, onOpenSubagents, onFork, isLast, voiceMarks }) {
-  // agent の文の表示。 声を持つ agent のタブでは、 言い方の印を外す (= 記録とコピーの文は msg.text のまま)。
-  const agentText = useMemo(
-    () => (msg.role === 'agent' ? hideMarks(msg.text, voiceMarks) : msg.text),
-    [msg.role, msg.text, voiceMarks],
-  )
+  // 表示する文。 agent の文からは言い方の印を (= 声を持つ agent のタブだけ)、 人の文からは声で聞いている印を
+  // 外す (= 印が付くのは 🔊 を持つタブだけ。 印の一覧を書かない声の設定でも外れるよう、 一覧には頼らない)。
+  // 記録とコピーの文は msg.text のまま。
+  const shownText = useMemo(() => {
+    if (msg.role === 'agent') return hideMarks(msg.text, voiceMarks)
+    if (msg.role === 'user') return hideVoiceInputMark(msg.text)
+    return msg.text
+  }, [msg.role, msg.text, voiceMarks])
   const t = useT()
   // 「いま生きている bubble か」 は保存された flag ではなく **表示位置から導出する**。
   // msg.streaming は bubble 生成時に立ち、 落ちるのは result event を受けた 1 個だけ。
@@ -413,7 +416,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
           )}
           {msg.text && (
             <span className="bubble">
-              <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={live} />
+              <MessageRenderer text={shownText} onOpenFile={onOpenFile} streaming={live} />
             </span>
           )}
         </div>
@@ -433,7 +436,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
               先に描画して実応答順に揃える。 */}
           {msg.text && (
             <span className="bubble">
-              <MessageRenderer text={agentText} onOpenFile={onOpenFile} streaming={live} />
+              <MessageRenderer text={shownText} onOpenFile={onOpenFile} streaming={live} />
             </span>
           )}
           {msg.tools?.length > 0 && (
@@ -532,7 +535,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
         <div className="agent-block">
           {msg.text && (
             <span className="bubble">
-              <MessageRenderer text={agentText} onOpenFile={onOpenFile} streaming={live} />
+              <MessageRenderer text={shownText} onOpenFile={onOpenFile} streaming={live} />
             </span>
           )}
           <StopReasonChip meta={msg.meta} streaming={live} />
@@ -567,7 +570,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
         </div>
       ) : (
         <span className="bubble">
-          <MessageRenderer text={msg.text} onOpenFile={onOpenFile} streaming={live} />
+          <MessageRenderer text={shownText} onOpenFile={onOpenFile} streaming={live} />
         </span>
       )}
       {/* 送信失敗 (= backend で JSONL user 行 +1 を確認できず、 再送 1 回も届かなかった)
