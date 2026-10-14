@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import io
 import wave
 from dataclasses import dataclass
@@ -19,6 +20,9 @@ from pipecat.utils.time import time_now_iso8601
 
 from backend.voice_call.client import BackendClient, ConversationLost
 from backend.voice_call.rules import split_mark
+
+# 声を作っている間に、 待っていると知らせる回数 (= Pipecat が待つのをやめるまでの時間に何回知らせるか)
+KEEPALIVES_PER_TIMEOUT = 3
 
 # 聞き取りの所要時間の見込み (= Pipecat の既定のまま。 書いておかないと Pipecat が毎回警告を出す)
 TTFS_P99_LATENCY_SECS = 1.0
@@ -72,8 +76,19 @@ class VoiceTTS(TTSService):
 
     async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame, None]:
         mark, values, text = split_mark(text, self._marks)
+        # 声を作っている間は、 その文を待っていると Pipecat に知らせ続ける (= Pipecat は 1 文の音を
+        # stop_frame_timeout_s (= 既定 3 秒) で待つのをやめ、 「音が無いまま終わった」 の error を出す。 長い文は作るのに
+        # それより掛かる: 2026-10-14 に 90 文字の文が 3.3 秒掛かり、 その error で通話が切れた)
+        synthesis = asyncio.ensure_future(self._backend.synthesize(text, mark, values))
         try:
-            sound = await self._backend.synthesize(text, mark, values)
+            while not synthesis.done():
+                await asyncio.wait({synthesis}, timeout=self._stop_frame_timeout_s / KEEPALIVES_PER_TIMEOUT)
+                if not synthesis.done():
+                    self._refresh_audio_context(context_id)
+            sound = synthesis.result()
+        except asyncio.CancelledError:
+            synthesis.cancel()
+            raise
         except Exception as error:  # noqa: BLE001 (= 1 文の失敗で会話は止めない)
             yield ErrorFrame(error=f"speaking failed: {error}")
             return
