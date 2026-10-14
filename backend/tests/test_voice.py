@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
 
 import pytest
 from fastapi import FastAPI
@@ -85,11 +86,14 @@ def _code(response) -> str:
 
 def test_a_tab_of_an_agent_with_a_voice_says_so_and_names_its_marks(client, tabs):
     assert client.get("/sessions/ses_voice/voice").json() == {
-        "enabled": True, "marks": ["calm", "happy", "sleepy"], "default": "calm", "listen": False, "turn": False}
+        "enabled": True, "marks": ["calm", "happy", "sleepy"], "default": "calm", "listen": False, "turn": False,
+        "conversation": voice.CONVERSATION_DEFAULTS, "tuning_error": ""}
 
 
 def test_a_tab_of_an_agent_with_no_voice_says_so(client, tabs):
-    assert client.get("/sessions/ses_plain/voice").json() == {"enabled": False, "marks": [], "default": "", "listen": False, "turn": False}
+    assert client.get("/sessions/ses_plain/voice").json() == {
+        "enabled": False, "marks": [], "default": "", "listen": False, "turn": False,
+        "conversation": None, "tuning_error": ""}
 
 
 def test_a_tab_that_does_not_exist_is_not_found(client, tabs, engine):
@@ -140,6 +144,15 @@ def test_the_answers_have_the_declared_shape(client, tabs):
     {**VOICE, "listen": {"engine": "ws://127.0.0.1:10102"}},
     {**VOICE, "listen": {"engine": "http://127.0.0.1:10102", "prompt": ["Claude"]}},
     {**VOICE, "listen": {"engine": "http://127.0.0.1:10102", "turn": 1}},
+    {**VOICE, "conversation": "slow"},
+    {**VOICE, "conversation": {"pause": 700}},
+    {**VOICE, "conversation": {"pause_ms": 0}},
+    {**VOICE, "conversation": {"pause_ms": 0.7}},
+    {**VOICE, "conversation": {"pause_ms": 3000, "wait_ms": 3000}},
+    {**VOICE, "conversation": {"unfinished_endings": "、"}},
+    {**VOICE, "conversation": {"unfinished_endings": ["、", " "]}},
+    {**VOICE, "conversation": {"interrupt": "yes"}},
+    {**VOICE, "tuning": ["voice.json"]},
 ])
 def test_a_voice_setting_of_the_wrong_shape_counts_as_no_voice(broken):
     assert voice.voice_settings(broken) is None
@@ -148,7 +161,12 @@ def test_a_voice_setting_of_the_wrong_shape_counts_as_no_voice(broken):
 def test_marks_and_the_base_query_may_be_left_out():
     settings = voice.voice_settings({"engine": "http://127.0.0.1:10101", "speaker": 1})
     assert settings == {"engine": "http://127.0.0.1:10101", "speaker": 1, "query": {}, "marks": {}, "default": "",
-                        "listen": None}
+                        "listen": None, "conversation": voice.CONVERSATION_DEFAULTS, "tuning": ""}
+
+
+def test_the_conversation_takes_the_defaults_for_what_is_not_written():
+    settings = voice.voice_settings({**VOICE, "conversation": {"pause_ms": 900, "interrupt": False}})
+    assert settings["conversation"] == {**voice.CONVERSATION_DEFAULTS, "pause_ms": 900, "interrupt": False}
 
 
 def test_the_default_mark_is_the_first_one_when_none_is_named():
@@ -494,3 +512,66 @@ def test_the_conversation_answers_have_the_declared_shape(client, tabs, conversa
         client.post("/sessions/ses_listen/voice/conversation", json=body).json())
     declared.DeleteSessionsSidVoiceConversationResponse.model_validate(
         client.request("DELETE", "/sessions/ses_listen/voice/conversation", json=body).json())
+
+
+# --- 調整の file (= agent が自分の声と間の取り方を書く) ---------------------------------
+
+@pytest.fixture
+def tuned(isolated_state, monkeypatch, tmp_path):
+    """調整の file を持つ agent のタブ (= ses_tuned)。 返すのは file の path (= まだ書いていない)。"""
+    path = tmp_path / "voice.json"
+    _config(monkeypatch, tmp_path, tuned={"voice": {**VOICE, "listen": LISTEN, "tuning": str(path)}})
+    isolated_state.sessions_meta["ses_tuned"] = SessionDef(id="ses_tuned", agent_id="tuned", title="t", created_at=0)
+    monkeypatch.setattr(voice, "_tuning_files", {})
+    monkeypatch.setattr(voice, "_tuning_logged", {})
+    return path
+
+
+def _write(path, data) -> None:
+    """書き換えを確実に別物と見せる (= 同じ大きさ・同じ時刻の書き換えを cache が見落とさないように)。"""
+    text = data if isinstance(data, str) else json.dumps(data)
+    before = path.stat().st_mtime_ns if path.exists() else 0
+    path.write_text(text)
+    os.utime(path, ns=(before + 1_000_000_000, before + 1_000_000_000))
+
+
+def test_the_tuning_file_is_laid_over_the_setting(client, tuned, engine):
+    _write(tuned, {"speaker": 200, "marks": {"calm": {"speedScale": 0.9}}, "default": "calm",
+                   "conversation": {"pause_ms": 900}})
+    got = client.get("/sessions/ses_tuned/voice").json()
+    assert (got["marks"], got["conversation"]["pause_ms"], got["tuning_error"]) == (["calm"], 900, "")
+    client.post("/sessions/ses_tuned/voice/synthesis", json={"text": "やあ。"})
+    assert engine[0][0].endswith("speaker=200&text=%E3%82%84%E3%81%82%E3%80%82")
+    assert engine[1][1]["speedScale"] == 0.9
+
+
+def test_a_change_to_the_tuning_file_counts_from_the_next_request(client, tuned):
+    _write(tuned, {"conversation": {"pause_ms": 800}})
+    assert client.get("/sessions/ses_tuned/voice").json()["conversation"]["pause_ms"] == 800
+    _write(tuned, {"conversation": {"pause_ms": 600}})
+    assert client.get("/sessions/ses_tuned/voice").json()["conversation"]["pause_ms"] == 600
+
+
+@pytest.mark.parametrize("content, reason", [
+    (None, "ありません"),
+    ("{ not json", "JSON として読めません"),
+    ([1, 2], "object で書きます"),
+    ({"engine": "http://elsewhere:1"}, "書けない項目があります: engine"),
+    ({"speaker": "200"}, "値の形が違います"),
+])
+def test_a_tuning_file_that_cannot_be_used_leaves_the_setting_and_says_why(client, tuned, engine, content, reason):
+    if content is not None:
+        _write(tuned, content)
+    got = client.get("/sessions/ses_tuned/voice").json()
+    assert got["enabled"] and got["marks"] == ["calm", "happy", "sleepy"]
+    assert reason in got["tuning_error"]
+    client.post("/sessions/ses_tuned/voice/synthesis", json={"text": "やあ。"})
+    assert engine[0][0].startswith("http://127.0.0.1:10101/audio_query?speaker=100&")
+
+
+def test_why_a_tuning_file_cannot_be_used_is_logged_once(client, tuned, caplog):
+    _write(tuned, "{ not json")
+    with caplog.at_level("WARNING", logger=voice.logger.name):
+        client.get("/sessions/ses_tuned/voice")
+        client.get("/sessions/ses_tuned/voice")
+    assert sum("voice.json" in r.getMessage() for r in caplog.records) == 1
