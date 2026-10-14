@@ -67,7 +67,7 @@ from fastapi.responses import FileResponse, Response
 
 import backend.config as _config
 from backend.core.compressor import CompressorError, compress, compressor_settings
-from backend.core.speech import MARK_NAME, mark_values, speakable, utterances
+from backend.core.speech import MARK_NAME, MUTE_MARK, mark_values, speakable, utterances
 from backend.errors import raise_error
 from backend.state import sessions_meta
 
@@ -380,7 +380,9 @@ async def get_voice(session_id: str) -> dict:
         return {"enabled": False, "marks": [], "default": "", "listen": False, "turn": False,
                 "conversation": None, "tuning_error": ""}
     listen = settings["listen"]
-    return {"enabled": True, "marks": list(settings["marks"]), "default": settings["default"],
+    # 印の一覧には予約の印も入れる (= 画面は、 この一覧の印を吹き出しから隠す)
+    marks = [*settings["marks"], *([] if MUTE_MARK in settings["marks"] else [MUTE_MARK])]
+    return {"enabled": True, "marks": marks, "default": settings["default"],
             "listen": bool(listen), "turn": bool(listen and listen["turn"]),
             "conversation": settings["conversation"], "tuning_error": settings["tuning_error"]}
 

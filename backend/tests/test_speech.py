@@ -170,3 +170,21 @@ def test_the_ends_of_a_range_are_in_it():
 
 def test_values_after_a_name_that_is_no_mark_are_text():
     assert valued("[voice i=1.2] 聞こえる？") == [("calm", {}, "[voice i=1.2] 聞こえる？")]
+
+
+# --- 予約の印 [mute] -----------------------------------------------------------------------------------------
+
+def test_a_mute_line_is_not_spoken():
+    assert said("[mute] 下の表を見て。\nまとめると、 良さそう。") == [("calm", "まとめると、 良さそう。")]
+
+
+def test_a_mute_mark_holds_to_the_end_of_its_line_and_another_mark_brings_the_voice_back():
+    assert said("[mute] 長い引用。 続きの引用。[happy] ここは言う！") == [("happy", "ここは言う！")]
+
+
+def test_mute_is_reserved_even_when_the_marks_name_it():
+    assert said("[mute] 言わない。", marks=(*MARKS, "mute")) == []
+
+
+def test_mute_in_the_middle_of_a_sentence_is_text():
+    assert said("印は [mute] と書く。") == [("calm", "印は [mute] と書く。")]
