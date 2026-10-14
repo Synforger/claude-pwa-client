@@ -13,7 +13,15 @@ from starlette.testclient import TestClient
 
 from backend.routes import voice_call
 from backend.tests.test_voice import tabs  # noqa: F401 (= 声のタブの用意を使い回す)
-from backend.voice_call.rules import is_unfinished, mark_voice_input, marked, speech_of, split_mark
+from backend.voice_call.rules import (
+    is_unfinished,
+    mark_voice_input,
+    marked,
+    shown_reply_text,
+    shown_user_text,
+    speech_of,
+    split_mark,
+)
 
 SETTINGS = {
     "marks": {"calm": {}, "happy": {}},
@@ -99,6 +107,16 @@ def test_a_candidate_before_any_call_is_unknown(client, tabs):  # noqa: F811
     assert r.json()["detail"]["code"] == "voice_call_unknown"
 
 
+def test_the_picture_shows_what_was_said_without_marks_and_no_envelopes():
+    assert shown_user_text("[voice] 明日の天気を教えて") == "明日の天気を教えて"
+    assert shown_user_text("画面から打った文") == "画面から打った文"
+    for hidden in (None, "", "  ", "Message from another session, relayed by the client: …",
+                   "Automatic session rollover, sent by the client …", "<session-rollover phase=\"start\">"):
+        assert shown_user_text(hidden) is None
+    assert shown_reply_text("[calm]晴れです。\n[mute]表は画面で。\n[happy i=1.2]やった。") == "晴れです。\n表は画面で。\nやった。"
+    assert shown_reply_text("[1] は脚注のまま") == "[1] は脚注のまま"
+
+
 # --- agent の段 (= Pipecat を通す) -----------------------------------------------------------------------------
 
 def _bridge(sent: list[str], events: list[dict] | None = None):
@@ -136,9 +154,11 @@ def test_a_finished_turn_goes_to_the_tab():
 
     sent: list[str] = []
     from pipecat.frames.frames import InterruptionFrame
+    from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
 
+    # 下流へは、 前の turn の声を止める割り込みと、 小窓への「考えています」 だけ
     asyncio.run(run_test(_bridge(sent), frames_to_send=[_said("明日の天気を教えて"), SleepFrame(sleep=0.2)],
-                         expected_down_frames=[InterruptionFrame]))
+                         expected_down_frames=[InterruptionFrame, RTVIServerMessageFrame]))
     assert sent == ["明日の天気を教えて"]
 
 
@@ -384,3 +404,47 @@ def test_a_sentence_that_takes_long_to_make_is_still_said():
     down, up = asyncio.run(run_test(tts, frames_to_send=[TTSSpeakFrame("長い文です。"), SleepFrame(sleep=1.5)]))
     assert any(isinstance(f, TTSAudioRawFrame) for f in down)
     assert not [f for f in [*down, *up] if isinstance(f, ErrorFrame)]   # error は上流へ流れる
+
+
+
+# --- 小窓 (= iPhone の app の PiP へ送る会話と状態) ----------------------------------------------------------------
+
+def _shown(down) -> list[dict]:
+    from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
+
+    return [f.data for f in down if isinstance(f, RTVIServerMessageFrame)]
+
+
+def test_the_picture_gets_the_tab_lines_said_after_the_call_started():
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    later = int(time.time() * 1000) + 60_000
+    events = [
+        {"type": "user_message", "text": "[voice] 前から在った発話", "uuid": "u0", "ts": 0},
+        _reply("old", "前から在った返事。", 0),
+        {"type": "user_message", "text": "[voice] 明日の天気は", "uuid": "u1", "ts": later},
+        {"type": "user_message", "text": "Message from another session, relayed by the client …", "uuid": "u2",
+         "ts": later},
+        _reply("r1", "[calm]晴れです。\n[mute]表は画面に置きました。", later),
+        _reply("r1", "[calm]晴れです。\n[mute]表は画面に置きました。", later),
+        _reply("sub", "下調べ。", later, parent_tool_use_id="t"),
+    ]
+    down, _ = asyncio.run(run_test(_bridge([], events), frames_to_send=[SleepFrame(sleep=0.2)]))
+    assert [d for d in _shown(down) if d["pip"] == "line"] == [
+        {"pip": "line", "who": "user", "text": "明日の天気は"},
+        {"pip": "line", "who": "agent", "text": "晴れです。\n表は画面に置きました。"},
+    ]
+
+
+def test_the_picture_state_follows_speaking_sending_and_the_voice():
+    pytest.importorskip("pipecat")
+    from pipecat.frames.frames import BotStartedSpeakingFrame, BotStoppedSpeakingFrame, UserStartedSpeakingFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    frames = [UserStartedSpeakingFrame(), _said("明日の天気を教えて"), SleepFrame(sleep=0.2),
+              BotStartedSpeakingFrame(), BotStoppedSpeakingFrame()]
+    down, _ = asyncio.run(run_test(_bridge([]), frames_to_send=frames))
+    assert [d["state"] for d in _shown(down) if d["pip"] == "state"] == ["listening", "thinking", "speaking", "waiting"]

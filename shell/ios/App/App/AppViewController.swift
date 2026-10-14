@@ -5,5 +5,6 @@ import UIKit
 class AppViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(BackgroundVoicePlugin())
+        bridge?.registerPluginInstance(AppLinkPlugin())
     }
 }

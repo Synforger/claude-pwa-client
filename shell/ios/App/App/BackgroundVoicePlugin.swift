@@ -29,6 +29,7 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
     ]
 
     private var client: PipecatClient?
+    private var picture: CallPicture?
 
     @objc func start(_ call: CAPPluginCall) {
         guard let raw = call.getString("url"), let url = URL(string: raw) else {
@@ -93,6 +94,11 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
         do {
             try await client.connect(
                 transportParams: SmallWebRTCTransportConnectionParams(webrtcRequestParams: APIRequest(endpoint: url)))
+            if let screen = bridge?.webView {
+                let picture = CallPicture()
+                picture.start(over: screen)
+                self.picture = picture
+            }
         } catch {
             self.client = nil
             notify("error", message: "\(error)")
@@ -100,6 +106,8 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @MainActor private func disconnect() async {
+        picture?.stop()
+        picture = nil
         guard let client else { return }
         self.client = nil
         try? await client.disconnect()
@@ -118,4 +126,10 @@ extension BackgroundVoicePlugin: PipecatClientDelegate {
     public func onConnected() { notify("connected") }
     public func onDisconnected() { notify("disconnected") }
     public func onError(message: RTVIMessageInbound) { notify("error", message: "\(message)") }
+
+    /// backend の会話が送る小窓の会話と状態 (= `CallPicture`)。
+    public func onServerMessage(data: Any) {
+        guard let message = data as? Value else { return }
+        Task { @MainActor in self.picture?.receive(message) }
+    }
 }

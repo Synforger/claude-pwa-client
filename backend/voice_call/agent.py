@@ -10,6 +10,11 @@
 (= 返事の文だけ。 thinking とツールの呼び出しと sub-agent の物は言わない。 会話を始める前の物と、 同じ物の 2 度目は
 言わない)。 返事は誰の発話への物でも言う (= 画面から打った文への返事も、 電話で聞ける)。 文の切り分けと言い方の
 印は、 画面と同じ backend の口 (= `utterances`) が決める。
+
+小窓: iPhone の app の PiP に出す会話と状態を、 通話の data の通り道 (= RTVI の server-message) で app へ送る。
+送るのは `{"pip": "line", "who": "user" | "agent", "text"}` (= 会話を始めた後のタブの発話と返事。 声にしない返事も
+出す) と `{"pip": "state", "state": "listening" | "thinking" | "speaking" | "waiting"}` (= 人が話し始めた /
+タブへ送った / 声が鳴り始めた / 鳴り終えた)。 描くのは app (= `shell/ios/App/App/CallPicture.swift`)。
 """
 from __future__ import annotations
 
@@ -20,6 +25,8 @@ from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable
 
 from pipecat.frames.frames import (
+    BotStartedSpeakingFrame,
+    BotStoppedSpeakingFrame,
     CancelFrame,
     EndFrame,
     Frame,
@@ -30,8 +37,16 @@ from pipecat.frames.frames import (
     UserStartedSpeakingFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
 
-from backend.voice_call.rules import MAX_HEARD, is_unfinished, marked, speech_of
+from backend.voice_call.rules import (
+    MAX_HEARD,
+    is_unfinished,
+    marked,
+    shown_reply_text,
+    shown_user_text,
+    speech_of,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +100,12 @@ class AgentBridge(FrameProcessor):
             if not frame.speculation:
                 await self._said(frame.context)
             return
+        if isinstance(frame, UserStartedSpeakingFrame):
+            await self._show_state("listening")
+        elif isinstance(frame, BotStartedSpeakingFrame):
+            await self._show_state("speaking")
+        elif isinstance(frame, BotStoppedSpeakingFrame):
+            await self._show_state("waiting")
         if isinstance(frame, UserStartedSpeakingFrame) and self._hold_task:
             # 待っている間に続きを話し始めた: 待ちを止め、 次の発話と合わせて送る
             await self.cancel_task(self._hold_task)
@@ -139,6 +160,8 @@ class AgentBridge(FrameProcessor):
         async with self._send_lock:
             sent = await self._send(text)
         logger.info("voice call: sent chars=%d ok=%s", len(text), sent)
+        if sent and not closing:
+            await self._show_state("thinking")
 
     # --- 帰り -------------------------------------------------------------------------------------------------
 
@@ -146,8 +169,13 @@ class AgentBridge(FrameProcessor):
         async for event in self._events():
             if event.get("type") == "user_message":
                 self._awaiting_turn = False   # 新しい turn が始まった
+                said = shown_user_text(event.get("text"))
+                if said and self._since(event):
+                    await self._show_line("user", said)
                 continue
             text = self._fresh_speech(event)
+            if text:
+                await self._show_line("agent", shown_reply_text(text))
             if not text or self._awaiting_turn:
                 continue
             for said in await self._utterances(text):
@@ -165,8 +193,21 @@ class AgentBridge(FrameProcessor):
         self._heard[key] = None
         while len(self._heard) > MAX_HEARD:
             self._heard.popitem(last=False)
+        return text if self._since(event) else None
+
+    def _since(self, event: dict) -> bool:
+        """会話を始めた後の event か (= 前から在った物は、 声にも小窓にも出さない)。"""
         ts = event.get("ts")
-        return text if isinstance(ts, (int, float)) and ts > self._since_ms else None
+        return isinstance(ts, (int, float)) and ts > self._since_ms
+
+    # --- 小窓 -------------------------------------------------------------------------------------------------
+
+    async def _show_line(self, who: str, text: str) -> None:
+        if text:
+            await self.push_frame(RTVIServerMessageFrame(data={"pip": "line", "who": who, "text": text}))
+
+    async def _show_state(self, state: str) -> None:
+        await self.push_frame(RTVIServerMessageFrame(data={"pip": "state", "state": state}))
 
     async def _stop(self) -> None:
         for task in (self._hold_task, self._replies_task):

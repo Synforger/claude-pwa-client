@@ -19,6 +19,8 @@
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		A8F8BD98414C4C079CA99405 /* BackgroundVoicePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8D65D683E2F48EFAD232866 /* BackgroundVoicePlugin.swift */; };
 		3F8F17F4AF5D4E729920F288 /* AppViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0915254AFF644D2992B42D65 /* AppViewController.swift */; };
+		CAFC32558D2E03550D06408E /* CallPicture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27AFB3573664F14C3BA59924 /* CallPicture.swift */; };
+		914D5C3154235413CC296486 /* AppLinkPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 116EB2B7DFFD806EA548F4B5 /* AppLinkPlugin.swift */; };
 		A1C0DE0000000000000000C1 /* PipecatClientIOS in Frameworks */ = {isa = PBXBuildFile; productRef = A1C0DE0000000000000000B1 /* PipecatClientIOS */; };
 		A1C0DE0000000000000000C2 /* PipecatClientIOSSmallWebrtc in Frameworks */ = {isa = PBXBuildFile; productRef = A1C0DE0000000000000000B2 /* PipecatClientIOSSmallWebrtc */; };
 /* End PBXBuildFile section */
@@ -38,6 +40,8 @@
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		E8D65D683E2F48EFAD232866 /* BackgroundVoicePlugin.swift */ = {isa = PBXFileReference; name = "BackgroundVoicePlugin.swift"; path = "BackgroundVoicePlugin.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; };
 		0915254AFF644D2992B42D65 /* AppViewController.swift */ = {isa = PBXFileReference; name = "AppViewController.swift"; path = "AppViewController.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; };
+		27AFB3573664F14C3BA59924 /* CallPicture.swift */ = {isa = PBXFileReference; name = "CallPicture.swift"; path = "CallPicture.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; };
+		116EB2B7DFFD806EA548F4B5 /* AppLinkPlugin.swift */ = {isa = PBXFileReference; name = "AppLinkPlugin.swift"; path = "AppLinkPlugin.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -86,6 +90,8 @@
 				50B271D01FEDC1A000F3C39B /* public */,
 				E8D65D683E2F48EFAD232866 /* BackgroundVoicePlugin.swift */,
 				0915254AFF644D2992B42D65 /* AppViewController.swift */,
+				27AFB3573664F14C3BA59924 /* CallPicture.swift */,
+				116EB2B7DFFD806EA548F4B5 /* AppLinkPlugin.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -180,6 +186,8 @@
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				A8F8BD98414C4C079CA99405 /* BackgroundVoicePlugin.swift in Sources */,
 				3F8F17F4AF5D4E729920F288 /* AppViewController.swift in Sources */,
+				CAFC32558D2E03550D06408E /* CallPicture.swift in Sources */,
+				914D5C3154235413CC296486 /* AppLinkPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
