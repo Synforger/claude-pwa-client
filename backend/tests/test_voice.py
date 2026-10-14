@@ -153,6 +153,11 @@ def test_the_answers_have_the_declared_shape(client, tabs):
     {**VOICE, "conversation": {"unfinished_endings": ["、", " "]}},
     {**VOICE, "conversation": {"interrupt": "yes"}},
     {**VOICE, "tuning": ["voice.json"]},
+    {**VOICE, "compressor": "on"},
+    {**VOICE, "compressor": {"threshold": -18}},
+    {**VOICE, "compressor": {"ratio": 30}},
+    {**VOICE, "compressor": {"limit_db": 1}},
+    {**VOICE, "compressor": {"makeup_db": "6"}},
 ])
 def test_a_voice_setting_of_the_wrong_shape_counts_as_no_voice(broken):
     assert voice.voice_settings(broken) is None
@@ -161,7 +166,7 @@ def test_a_voice_setting_of_the_wrong_shape_counts_as_no_voice(broken):
 def test_marks_and_the_base_query_may_be_left_out():
     settings = voice.voice_settings({"engine": "http://127.0.0.1:10101", "speaker": 1})
     assert settings == {"engine": "http://127.0.0.1:10101", "speaker": 1, "query": {}, "marks": {}, "default": "",
-                        "listen": None, "conversation": voice.CONVERSATION_DEFAULTS, "tuning": ""}
+                        "listen": None, "conversation": voice.CONVERSATION_DEFAULTS, "compressor": None, "tuning": ""}
 
 
 def test_the_conversation_takes_the_defaults_for_what_is_not_written():
@@ -228,6 +233,42 @@ def test_the_pauses_around_a_sentence_stay_as_written_whatever_the_speed(client,
     assert engine[-1][1]["prePhonemeLength"] == pytest.approx(0.1)
     client.post("/sessions/ses_voice/voice/synthesis", json={"text": "やあ。", "mark": "plain"})
     assert engine[-1][1]["prePhonemeLength"] == pytest.approx(0.05)
+
+
+def test_the_compressor_is_put_on_each_sentence_when_written(client, tabs, engine, monkeypatch, tmp_path):
+    _config(monkeypatch, tmp_path, speaker={"voice": {**VOICE, "compressor": {"ratio": 3}}})
+    seen = []
+
+    async def fake(sound, settings):
+        seen.append((sound, settings))
+        return b"RIFF-compressed"
+
+    monkeypatch.setattr(voice, "compress", fake)
+    r = client.post("/sessions/ses_voice/voice/synthesis", json={"text": "やあ。"})
+    assert (r.content, seen) == (b"RIFF-compressed", [(WAV, {"ratio": 3})])
+
+
+def test_no_compressor_is_put_on_when_none_is_written(client, tabs, engine, monkeypatch):
+    async def fake(sound, settings):
+        raise AssertionError("not to be called")
+
+    monkeypatch.setattr(voice, "compress", fake)
+    assert client.post("/sessions/ses_voice/voice/synthesis", json={"text": "やあ。"}).content == WAV
+
+
+def test_a_compressor_that_fails_leaves_the_engine_sound_and_says_why_once(client, tabs, engine, monkeypatch,
+                                                                           tmp_path, caplog):
+    _config(monkeypatch, tmp_path, speaker={"voice": {**VOICE, "compressor": {}}})
+    monkeypatch.setattr(voice, "_compressor_logged", set())
+
+    async def broken(sound, settings):
+        raise voice.CompressorError("ffmpeg is not on PATH")
+
+    monkeypatch.setattr(voice, "compress", broken)
+    with caplog.at_level("WARNING", logger=voice.logger.name):
+        for _ in range(2):
+            assert client.post("/sessions/ses_voice/voice/synthesis", json={"text": "やあ。"}).content == WAV
+    assert sum("compressor was skipped" in r.getMessage() for r in caplog.records) == 1
 
 
 def test_a_pause_the_engine_does_not_have_is_not_sent(client, tabs, engine, monkeypatch, tmp_path):
