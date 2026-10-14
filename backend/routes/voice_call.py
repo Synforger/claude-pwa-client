@@ -27,6 +27,7 @@ from fastapi import APIRouter, Body, Request
 
 from backend.errors import raise_error
 from backend.routes.voice import conversation_settings
+from backend.state import calls_by_conn
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,7 @@ async def _forget_when_done(pc_id: str, proc: asyncio.subprocess.Process) -> Non
     await proc.wait()
     if _workers.get(pc_id, (None, None))[1] is proc:
         del _workers[pc_id]
+        calls_by_conn.pop(pc_id, None)
     logger.info("voice call: the call process ended pc_id=%s code=%s", pc_id, proc.returncode)
 
 
@@ -103,6 +105,7 @@ async def post_call(request: Request, session_id: str, body: dict = Body(...)) -
         raise_error(502, "voice_call_failed", "電話の会話をつなげませんでした", reason=reply.get("message", ""))
     answer = reply["answer"]
     _workers[answer["pc_id"]] = (session_id, proc)
+    calls_by_conn[answer["pc_id"]] = session_id   # 通話の間、 このタブへの通知を送らない (= core/push.py)
     asyncio.create_task(_forget_when_done(answer["pc_id"], proc))
     logger.info("voice call: connecting session=%s pc_id=%s", session_id, answer["pc_id"])
     return answer

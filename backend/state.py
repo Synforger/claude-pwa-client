@@ -391,6 +391,17 @@ def is_session_viewed(session_id: str) -> bool:
     return False
 
 
+# iPhone の app の通話がつながっているタブ (= 通話の接続の id → タブの id)。 通話の process が終わると消える
+# (= `routes/voice_call.py`)。 broadcast_push は、 通話で返事を声で聞いているタブへの通知を送らない。 backend を
+# 再起動すると空になる (= 通知を送る側に倒れる)。
+calls_by_conn: dict[str, str] = {}
+
+
+def is_session_on_call(session_id: str) -> bool:
+    """session_id のタブに、 つながっている通話が 1 つでもあるか。"""
+    return bool(session_id) and session_id in calls_by_conn.values()
+
+
 class OverviewBroadcaster:
     """全 session の busy 変化を /sessions/overview/stream に push する
     fan-out。 複数接続 (= 複数デバイス / 複数タブ) が購読しても取りこぼさないよう、 1 個の

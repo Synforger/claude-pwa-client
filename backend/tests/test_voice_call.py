@@ -94,6 +94,67 @@ def test_a_tab_that_cannot_hold_a_conversation_is_refused_before_connecting(clie
     assert client.post("/sessions/ses_missing/voice/call", json=OFFER).status_code == 404
 
 
+class _FakeCall:
+    """会話の process の偽物: 申し込みに answer を返し、 finish が立つまで走り続ける。"""
+
+    def __init__(self, finish):
+        import json
+        import threading
+
+        self._finish: threading.Event = finish
+        self.returncode = None
+        answer = {"type": "answer", "answer": {"sdp": "v=0", "type": "answer", "pc_id": "pc1"}}
+
+        class _In:
+            def write(self, data):
+                pass
+
+            async def drain(self):
+                pass
+
+        class _Out:
+            async def readline(self):
+                return (json.dumps(answer) + "\n").encode()
+
+        self.stdin, self.stdout = _In(), _Out()
+
+    async def wait(self):
+        while not self._finish.is_set():
+            await asyncio.sleep(0.01)
+        self.returncode = 0
+        return 0
+
+    def kill(self):
+        self._finish.set()
+
+
+def test_a_tab_is_on_a_call_from_the_answer_until_the_call_process_ends(tabs, monkeypatch):  # noqa: F811
+    import threading
+    import time
+
+    from backend.state import is_session_on_call
+
+    finish = threading.Event()
+
+    async def spawn(*args, **kwargs):
+        return _FakeCall(finish)
+
+    monkeypatch.setattr(voice_call.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(voice_call.asyncio, "create_subprocess_exec", spawn)
+    app = FastAPI()
+    app.include_router(voice_call.router)
+    voice_call._workers.clear()
+    with TestClient(app) as c:   # 通話の終わりを待つ task が、 申し込みの後も走り続けるように
+        assert c.post("/sessions/ses_listen/voice/call", json=OFFER).status_code == 200
+        assert is_session_on_call("ses_listen")
+        assert not is_session_on_call("ses_voice")
+        finish.set()
+        deadline = time.monotonic() + 2
+        while is_session_on_call("ses_listen") and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert not is_session_on_call("ses_listen")
+
+
 def test_without_the_call_parts_the_backend_says_so(client, tabs, monkeypatch):  # noqa: F811
     monkeypatch.setattr(voice_call.importlib.util, "find_spec", lambda name: None)
     r = client.post("/sessions/ses_listen/voice/call", json=OFFER)
