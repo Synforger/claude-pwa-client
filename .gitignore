@@ -14,6 +14,7 @@ frontend/.env.local
 __pycache__/
 *.pyc
 node_modules/
+engines/apple-speech/.build/
 .DS_Store
 logs/
 .worktrees/

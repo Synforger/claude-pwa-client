@@ -212,10 +212,18 @@ tasks:
   # ===========================================================================
 
   test:
-    desc: Run backend pytest + frontend vitest
+    desc: Run backend pytest + frontend vitest (+ the macOS engines on macOS)
     cmds:
       - task: test:backend
       - task: test:frontend
+      - task: test:engines
+
+  test:engines:
+    desc: Build engines/apple-speech and run its tests (macOS only; skipped elsewhere)
+    platforms: [darwin]
+    cmds:
+      - bash engines/apple-speech/build.sh
+      - engines/apple-speech/.build/apple-speech-tests
 
   test:backend:
     desc: pytest over backend/tests/

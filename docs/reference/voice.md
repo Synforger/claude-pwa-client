@@ -8,8 +8,9 @@
 (= `POST /audio_query` と `POST /synthesis`) を持つ engine を、 自分で起動しておきます
 (= VOICEVOX / AivisSpeech など)。
 
-聞き取りの engine も同梱していません。 [whisper.cpp](https://github.com/ggml-org/whisper.cpp) の `whisper-server`
-と同じ HTTP の口 (= `POST /inference`) を持つ engine を、 自分で起動しておきます。
+聞き取りの engine は、 [whisper.cpp](https://github.com/ggml-org/whisper.cpp) の `whisper-server` と同じ HTTP の口
+(= `POST /inference`) を持つ engine を、 自分で起動しておきます。 macOS 26 以降なら、 macOS に入っている聞き取りを
+同じ口で出す engine (= [`engines/apple-speech/`](#macos-の聞き取りを使う)) も使えます。
 
 既定では何もしません。 声を持たせたいエージェントにだけ、 設定を足します。
 
@@ -182,6 +183,26 @@ whisper-server --host 127.0.0.1 --port 10102 \
   の「お」) や短い語 (= 「はい」「うん」) を声と見ずに削ることがあります。 上の 3 つの値は、 声と見なす境目を画面の
   声の検出と同じ 0.3 にし、 声の前後を 0.3 秒残し、 0.1 秒の短い語も残します
 - model は whisper.cpp の配布物から選びます (= 日本語は多言語の model を使う。 `.en` の付く model は英語だけ)
+
+### macOS の聞き取りを使う
+
+`engines/apple-speech/` は、 macOS に入っている聞き取り (= Speech framework の SpeechTranscriber) を、 `whisper-server`
+と同じ口で出す engine です。 聞き取りは Mac の中で行い、 音は外へ出ません。 macOS 26 以降と、 Swift の compiler
+(= Xcode か Command Line Tools) が要ります。
+
+```sh
+bash engines/apple-speech/build.sh
+engines/apple-speech/.build/apple-speech --host 127.0.0.1 --port 10104 --locale ja-JP
+```
+
+`listen.engine` を `http://127.0.0.1:10104` にすると、 この engine で聞き取ります。
+
+- `prompt` の語 (= 句読点で区切った固有名詞など) は、 聞き取りの手がかりの語として渡ります
+- 受ける音は、 macOS が読める形式です (= WAV / AIFF / CAF / m4a など)。 会話のボタンは WAV で送ります
+- 起動した時に、 その言語の model が Mac に無ければ入れ、 1 度空の音で温めます。 端末で聞き取れない言語なら、
+  起動せずに理由を出して終わります
+- 聞き取った文は log に書きません (= 書くのは、 要求ごとの状態・音の長さ・掛かった時間)
+- `whisper-server` の `--vad` に当たる設定はありません。 雑音と無音は、 空の文で返ります
 
 ### 言い終えを判定する model を置く
 
