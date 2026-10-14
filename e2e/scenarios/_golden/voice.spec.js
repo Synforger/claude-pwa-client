@@ -141,15 +141,20 @@ test.describe('golden: voice', () => {
 
   test('the 🎙 records what is said, and sends what the engine heard with the voice mark', async ({ page, request }, testInfo) => {
     // A tone from WebAudio stands in for the microphone (the same in every browser this runs).
+    // It is put on the prototype: WebKit silently ignores an assignment on navigator.mediaDevices.
     await page.addInitScript(() => {
-      navigator.mediaDevices.getUserMedia = async () => {
-        const ctx = new AudioContext()
-        const tone = ctx.createOscillator()
-        const out = ctx.createMediaStreamDestination()
-        tone.connect(out)
-        tone.start()
-        return out.stream
-      }
+      Object.defineProperty(MediaDevices.prototype, 'getUserMedia', {
+        configurable: true,
+        writable: true,
+        value: async () => {
+          const ctx = new AudioContext()
+          const tone = ctx.createOscillator()
+          const out = ctx.createMediaStreamDestination()
+          tone.connect(out)
+          tone.start()
+          return out.stream
+        },
+      })
     })
     const tab = await seedSession(request, 'e2e-voice')
     const asked = { transcription: [], sent: [] }

@@ -99,7 +99,7 @@ const recordings = new Map()
 // 🎙 を押した時に呼ぶ (= 人が押した handler の中から)。 send(text) は、 聞き取った文をこのタブへ送る関数。
 //   録っていない時: 話し始める。 返事を声で聞く状態にし (= 押した手の中で音を鳴らせるようにする)、 鳴っている
 //                   返事はその場で止める (= 人が話し始めたら、 そちらが先)
-//   録っている時:   録るのを止めて、 聞き取った文を送る
+//   録っている時:   録るのを止めて、 聞き取った文を送る (= マイクがまだ開いていなければ、 録り始めを取りやめる)
 //   聞き取りを待っている時: 何もしない
 export async function pressMic(sid, send, media) {
   const phase = getSnapshot().listening[sid]
@@ -125,7 +125,11 @@ export async function pressMic(sid, send, media) {
 
 async function finishListening(sid, send) {
   const held = recordings.get(sid)
-  if (!held) return
+  if (!held) {
+    // マイクを開く段が返っていない (= 許可を訊かれたまま / マイクが無い)。 押し直しで抜けられるようにする。
+    if (getSnapshot().listening[sid] === 'recording') setVoiceListening(sid, null)
+    return
+  }
   recordings.delete(sid)
   if (held.timer) clearTimeout(held.timer)
   setVoiceListening(sid, 'hearing')

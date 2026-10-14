@@ -141,6 +141,22 @@ describe('pressMic — press to speak, press again to send', () => {
     expect(send).toHaveBeenCalledWith('長い話')
   })
 
+  it('lets go of a microphone that has not opened yet when pressed again, and closes it once it opens', async () => {
+    const media = fakeMedia()
+    let opened
+    const open = media.open
+    media.open = () => new Promise((resolve) => { opened = () => resolve(open()) })
+    const first = pressMic('ses_a', vi.fn(), media)
+    await settle()
+    expect(getSnapshot().listening.ses_a).toBe('recording')
+    await pressMic('ses_a', vi.fn(), media)
+    expect(getSnapshot().listening.ses_a).toBeUndefined()
+    opened()
+    await first
+    expect(media.closed).toBe(1)
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+
   it('closes the microphone when the tab is left while recording', async () => {
     const media = fakeMedia()
     await pressMic('ses_a', vi.fn(), media)

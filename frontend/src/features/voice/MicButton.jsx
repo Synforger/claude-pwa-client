@@ -1,5 +1,6 @@
 // 入力欄の 🎙: 押して話し、 もう 1 度押すと、 聞き取った文をこのタブへ送る。 声を聞き取る agent のタブにだけ出る。
-// 録っている間は ⏹ (= 押すと送る)、 聞き取りを待つ間は押せない。 失敗の理由は上部の 🔊 の下に出る。
+// 録っている間は赤い地で脈打ち (= 押すと送る)、 聞き取りを待つ間は押せない。 失敗の理由は上部の 🔊 の下に出る。
+// 録っている間も 🎙 のまま (= 隣の停止ボタン ■ と見分けられるように、 形ではなく色と動きで見せる)。
 
 import { useEffect, useSyncExternalStore } from 'react'
 import { subscribe, getSnapshot } from '../../state/voice.js'
@@ -31,7 +32,7 @@ export default function MicButton({ sid, onSend }) {
       data-testid="chat-mic-button"
       data-phase={phase || 'idle'}
     >
-      {phase === 'recording' ? '⏹' : phase === 'hearing' ? '…' : '🎙'}
+      {phase === 'hearing' ? '…' : '🎙'}
     </button>
   )
 }
