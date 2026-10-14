@@ -131,7 +131,10 @@ def test_a_finished_turn_goes_to_the_tab():
     from pipecat.tests.utils import run_test
 
     sent: list[str] = []
-    asyncio.run(run_test(_bridge(sent), frames_to_send=[_said("明日の天気を教えて")], expected_down_frames=[]))
+    from pipecat.frames.frames import InterruptionFrame
+
+    asyncio.run(run_test(_bridge(sent), frames_to_send=[_said("明日の天気を教えて")],
+                         expected_down_frames=[InterruptionFrame]))
     assert sent == ["明日の天気を教えて"]
 
 
@@ -151,8 +154,7 @@ def test_an_unfinished_turn_goes_alone_once_the_wait_is_over():
     from pipecat.tests.utils import SleepFrame, run_test
 
     sent: list[str] = []
-    asyncio.run(run_test(_bridge(sent), frames_to_send=[_said("えーとなんか"), SleepFrame(sleep=0.3)],
-                         expected_down_frames=[]))
+    asyncio.run(run_test(_bridge(sent), frames_to_send=[_said("えーとなんか"), SleepFrame(sleep=0.3)]))
     assert sent == ["えーとなんか"]
 
 
@@ -213,3 +215,50 @@ def test_the_call_log_rotates_and_keeps_only_pipecat_warnings(tmp_path, monkeypa
     assert "a debug line from pipecat" not in text
     added = [h for h in logging.getLogger().handlers if h not in before]
     assert added == []
+
+
+def test_after_a_new_turn_is_sent_the_old_reply_is_not_said_until_the_tab_takes_the_turn():
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.frames.frames import InterruptionFrame, TTSSpeakFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    later = int(time.time() * 1000) + 60_000
+    events = [
+        _reply("old-rest", "前の返事の続き。", later),        # 送った後、 新しい turn の前に届いた
+        {"type": "user_message", "uuid": "u-new", "text": "[voice] 次の話", "ts": later},
+        _reply("new", "新しい返事。", later + 1),
+    ]
+
+    async def scenario():
+        sent: list[str] = []
+        bridge = _bridge(sent, events)
+        down, _ = await run_test(bridge, frames_to_send=[_said("次の話"), SleepFrame(sleep=0.2)])
+        return sent, down
+
+    sent, down = asyncio.run(scenario())
+    assert sent == ["次の話"]
+    assert any(isinstance(f, InterruptionFrame) for f in down)
+    assert [f.text for f in down if isinstance(f, TTSSpeakFrame)] == ["[calm]新しい返事。"]
+
+
+def test_the_volume_of_a_call_is_checked_and_reaches_no_call_when_there_is_none(client, tabs):  # noqa: F811
+    assert client.post("/sessions/ses_listen/voice/call/volume", json={"volume": 0.5}).json() == {"calls": 0}
+    for bad in (-0.1, 2.1, "loud", None):
+        r = client.post("/sessions/ses_listen/voice/call/volume", json={"volume": bad})
+        assert r.status_code == 400 and r.json()["detail"]["code"] == "voice_bad_request"
+    r = client.post("/sessions/ses_listen/voice/call?volume=3", json=OFFER)
+    assert r.status_code == 400
+
+
+def test_the_volume_scales_the_voice_and_stops_at_the_limit():
+    pytest.importorskip("pipecat")
+    import numpy as np
+
+    from backend.voice_call.services import scaled
+
+    pcm = np.array([1000, -1000, 30000, -30000], dtype=np.int16).tobytes()
+    assert np.frombuffer(scaled(pcm, 0.5), dtype=np.int16).tolist() == [500, -500, 15000, -15000]
+    assert np.frombuffer(scaled(pcm, 2.0), dtype=np.int16).tolist() == [2000, -2000, 32767, -32768]
+    assert scaled(pcm, 1.0) == pcm

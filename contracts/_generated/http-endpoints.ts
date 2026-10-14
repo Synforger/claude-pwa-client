@@ -329,6 +329,18 @@ export interface PostSessionsSidVoiceCallResponse {
   pc_id: string
 }
 
+/** POST /sessions/{sid}/voice/call/volume request body */
+export interface PostSessionsSidVoiceCallVolumeRequest {
+  /** 0 〜 2 (= 1 で engine の音のまま) */
+  volume: number
+}
+
+/** POST /sessions/{sid}/voice/call/volume response */
+export interface PostSessionsSidVoiceCallVolumeResponse {
+  /** 倍率を伝えた通話の数 (= 通話が無ければ 0) */
+  calls: number
+}
+
 /** PATCH /sessions/{sid}/voice/call request body */
 export interface PatchSessionsSidVoiceCallRequest {
   pc_id: string

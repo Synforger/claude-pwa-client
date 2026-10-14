@@ -94,3 +94,21 @@
   line-height: 1.4;
   white-space: normal;
 }
+
+/* 🔊 の長押しで出る、 声の大きさのつまみ (= 入力欄の上に浮かせる) */
+.voice-volume {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  z-index: 20;
+}
+.voice-volume input[type="range"] { width: 160px; }
+.voice-volume-value { min-width: 3.5em; text-align: right; font-variant-numeric: tabular-nums; }
+.voice-volume button { background: none; border: none; color: inherit; font-size: 14px; padding: 2px 4px; }

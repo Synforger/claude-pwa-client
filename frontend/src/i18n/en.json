@@ -232,5 +232,7 @@
   "backend.voice_listen_not_enabled": "This tab's agent does not listen",
   "backend.voice_audio_too_large": "The recording is too large (limit {limit} bytes)",
   "backend.voice_listen_unreachable": "The listening engine cannot be reached",
-  "backend.voice_listen_failed": "The listening engine failed ({status})"
+  "backend.voice_listen_failed": "The listening engine failed ({status})",
+  "chat.voice_volume": "Voice volume (this device only)",
+  "chat.voice_volume_close": "Close"
 }
