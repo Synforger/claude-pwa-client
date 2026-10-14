@@ -3,7 +3,7 @@ import { apiFetch } from '../../utils/api.js'
 import { generateId } from '../../utils/id.js'
 import { useStreamBuffer } from './useStreamBuffer.js'
 import { processStreamEvent } from './processStreamEvent.js'
-import { observeVoiceEvent, voiceInputText } from '../voice/index.js'
+import { observeVoiceEvent, voiceInputText, subscribeVoice, voiceOnSids } from '../voice/index.js'
 import { reconcileUserMessage } from './reconcileUserMessage.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
 import { chatTransport } from '../../transport/select.ts'
@@ -203,8 +203,20 @@ export function useChatStream({
   //
   // 購読宣言 (= setSubscribedSids) は unified の電力設計: 宣言した sid だけ wire に乗る
   // (2026-07-14)。 legacy は no-op (= 全 sid 配信)。
+  //
+  // 🔊 がオンのタブも購読に入れる (= 見ているタブが変わっても、 そのタブの返事を鳴らし続ける。 features/voice)。
+  const subscribedRef = useRef({ shown: null, voice: [] })
+  const declareSubscribed = useCallback(() => {
+    const { shown, voice } = subscribedRef.current
+    chatTransport.setSubscribedSids([...new Set([...(shown ? [shown] : []), ...voice])])
+  }, [])
+  const voiceSids = useSyncExternalStore(subscribeVoice, voiceOnSids)
   useEffect(() => {
-    if (!sid) { chatTransport.setSubscribedSids([]); return undefined }
+    subscribedRef.current.voice = voiceSids ? voiceSids.split(' ') : []
+    declareSubscribed()
+  }, [voiceSids, declareSubscribed])
+  useEffect(() => {
+    if (!sid) { subscribedRef.current.shown = null; declareSubscribed(); return undefined }
     let cancelled = false
     ;(async () => {
       try {
@@ -219,10 +231,10 @@ export function useChatStream({
           }
         }
       } catch { /* GET 失敗は stream の replay が埋める */ }
-      if (!cancelled) chatTransport.setSubscribedSids([sid])
+      if (!cancelled) { subscribedRef.current.shown = sid; declareSubscribed() }
     })()
     return () => { cancelled = true }
-  }, [sid])
+  }, [sid, declareSubscribed])
 
   // iOS bg 復帰時の再接続は transport/lifecycle.ts の unifiedTransport.bumpReconnect() が
   // 一手に担う (= 旧 reconnectKey 駆動の visibilitychange effect は 2026-07-27 退役)。
@@ -254,26 +266,29 @@ export function useChatStream({
   // 後には次の send_id で通す (= continuous send / queue mode 意図を保持)。
   const sendingRef = useRef({})
 
-  const sendMessage = useCallback(async (textOverride) => {
-    if (!sid) return
-    if (sendingRef.current[sid]) return
-    sendingRef.current[sid] = true
+  // targetSid = 送り先のタブ (= 省くと今見ているタブ)。 声の会話は、 見ているタブが変わっても 🔊 のタブへ送る
+  // (= features/voice/voice.js の setVoiceSender)。
+  const sendMessage = useCallback(async (textOverride, targetSid) => {
+    const to = targetSid || sid
+    if (!to) return
+    if (sendingRef.current[to]) return
+    sendingRef.current[to] = true
     try {
     // ChatInput が内部 state で打鍵を抱えるようになったので、 送信時には override (= 直近の
     // localText) を優先する。 タブ切替で flush 済の draft を後追い送信するケース等は引数なしで
     // 呼ばれて従来通り input dict を読む。
-    const text = (typeof textOverride === 'string' ? textOverride : (input[sid] || '')).trim()
-    const files = attachments[sid] || []
+    const text = (typeof textOverride === 'string' ? textOverride : (input[to] || '')).trim()
+    const files = attachments[to] || []
     if (!text && files.length === 0) return
     // 2026-07-02: 連続送信 (queue mode) 対応で loading 中 alert block を撤去。 busy 中でも POST
     // を通す。 tmux は keystroke を Claude の入力欄に積んで、 Claude Code v2 の queue mode が
     // 現 turn 完了後に順次処理する。 PWA 側に queue state 管理は持たない。
     // 🔊 が ON のタブでは、 送る文の頭に声で聞いている印が付く (= features/voice/inputMark.js)。 楽観 bubble
     // も同じ文を持つ (= 記録に載る文と揃えて、 確定の照合をずらさない)。 失敗で入力欄へ戻すのは印の無い text。
-    const sendText = voiceInputText(sid, text)
-    setInput(prev => ({ ...prev, [sid]: '' }))
-    setLoading(prev => ({ ...prev, [sid]: true }))
-    optimisticRef.current[sid] = { want: 'busy', startedAt: Date.now() }
+    const sendText = voiceInputText(to, text)
+    setInput(prev => ({ ...prev, [to]: '' }))
+    setLoading(prev => ({ ...prev, [to]: true }))
+    optimisticRef.current[to] = { want: 'busy', startedAt: Date.now() }
     // 送信 1 単位の identity (= Idempotency-Key ヘッダで backend へ送る + 楽観 bubble に焼く +
     // SSE `user_message` event との厳密対応付け)。 全経路で 1 identity で串刺し、 局所
     // ヒューリスティック (時間窓 idempotency / 近傍 optimistic pop) から identity 経路に格上げ。
@@ -290,7 +305,7 @@ export function useChatStream({
     // 表示用の imageUrls / fileNames を載せる (= MessageItem の user-block 経路で render)。
     // imageUrls は ObjectURL なのでアプリリロード後は消えるが、 当該セッション中は見える。
     setMessages(prev => {
-      const cur = prev[sid] || []
+      const cur = prev[to] || []
       // updater idempotent: 同一 send_id の楽観 bubble が既に居るなら no-op。 React updater が
       // 再 invoke されても bubble を複製しない (= 「送信」 identity で updater 冪等化)。
       if (cur.some(m => m.send_id === send_id)) return prev
@@ -331,13 +346,15 @@ export function useChatStream({
       const emptyAgent = { id: emptyAgentId, role: 'agent', text: '', tools: [], streaming: true, createdAt: Date.now() }
       return {
         ...prev,
-        [sid]: tailIsEmptyStreamingAgent
+        [to]: tailIsEmptyStreamingAgent
           ? [...cur, userBubble]
           : [...cur, userBubble, emptyAgent],
       }
     })
-    if (isAtBottomRef) isAtBottomRef.current = true
-    scrollToBottom()
+    if (to === sid) {
+      if (isAtBottomRef) isAtBottomRef.current = true
+      scrollToBottom()
+    }
     // 配信成功判定は backend `/pty/{sid}/send` の自前 JSONL 監視 (= terminal/confirm.py
     // `_confirm_after_send`) に一本化。 ok:False (= HTTP / 添付失敗) 時のみ failBubble を発火し、
     // ok:True なら SSE 経由の reconcile を信じる (= 旧 SEND_TIMEOUT 15s timer は backend 確認と
@@ -345,7 +362,7 @@ export function useChatStream({
     // 2026-06-30 撤去)。
     const failBubble = (extraInput) => {
       setMessages(prev => {
-        const arr = prev[sid] || []
+        const arr = prev[to] || []
         const idx = arr.findIndex(m => m && m.id === optimisticUserId)
         if (idx < 0) return prev // 既に reconcile で消費済 (= 正常確定)
         const target = arr[idx]
@@ -358,12 +375,12 @@ export function useChatStream({
             next.pop()
           } else break
         }
-        return { ...prev, [sid]: next }
+        return { ...prev, [to]: next }
       })
-      setLoading(prev => ({ ...prev, [sid]: false }))
-      optimisticRef.current[sid] = null
-      if (extraInput) setInput(prev => ({ ...prev, [sid]: prev[sid] || text }))
-      try { onSendFailed?.(sid, text) } catch { /* ignore consumer error */ }
+      setLoading(prev => ({ ...prev, [to]: false }))
+      optimisticRef.current[to] = null
+      if (extraInput) setInput(prev => ({ ...prev, [to]: prev[to] || text }))
+      try { onSendFailed?.(to, text) } catch { /* ignore consumer error */ }
     }
     if (files.length > 0) {
       // multipart: backend がファイルを uploads/tmp に保存して path を本文に追記して
@@ -376,7 +393,7 @@ export function useChatStream({
       let uploadOk = true
       let uploadErrDetail = ''
       try {
-        const r = await apiFetch(`/pty/${encodeURIComponent(sid)}/send-with-files`, {
+        const r = await apiFetch(`/pty/${encodeURIComponent(to)}/send-with-files`, {
           method: 'POST',
           headers: { 'Idempotency-Key': send_id },
           body: form,
@@ -401,7 +418,7 @@ export function useChatStream({
         uploadErrDetail = e?.message || String(e)
       }
       if (uploadOk) {
-        clearAttachments(sid)
+        clearAttachments(to)
       } else {
         // 添付送信失敗時の UI 復旧 (= 2026-06-22 lifecycle sweep + 2026-06-24 共通化):
         // 旧実装は alert だけで楽観 user bubble + 空 streaming agent bubble + loading=true が
@@ -416,7 +433,7 @@ export function useChatStream({
       // 時は input に text を戻して再送可能にし、 楽観 user bubble に「届かなかった」 マークを付ける。
       let result
       try {
-        const r = await apiFetch(`/pty/${encodeURIComponent(sid)}/send`, {
+        const r = await apiFetch(`/pty/${encodeURIComponent(to)}/send`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Idempotency-Key': send_id },
           body: JSON.stringify({ text: sendText, enter: true }),
@@ -433,7 +450,7 @@ export function useChatStream({
       }
     }
     } finally {
-      sendingRef.current[sid] = false
+      sendingRef.current[to] = false
     }
   }, [sid, input, attachments, setInput, setMessages, clearAttachments, scrollToBottom, isAtBottomRef, setLoading, onSendFailed])
 

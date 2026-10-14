@@ -224,6 +224,49 @@ test.describe('golden: voice', () => {
     await expect.poll(mics, { timeout: 5_000 }).toEqual(['ended', 'ended', 'live'])
   })
 
+  test('the voice goes on in its tab while another tab is shown, until the voice is turned on in another tab', async ({ page, request }, testInfo) => {
+    const tab = await seedSession(request, 'e2e-voice')
+    const other = await seedSession(request, 'e2e-chat-basic')
+    const second = await seedSession(request, 'e2e-voice-second')
+    await openClient(page, { sid: tab.sid })
+    const started = () => page.evaluate(() => window.__voice.started)
+    const mics = () => page.evaluate(() => window.__voice.mics.map((t) => t.readyState))
+    const show = async (sid) => {
+      await page.locator('[data-testid=drawer-toggle]').click()
+      await page.locator(`[data-testid=session-list-item][data-cpc-sid="${sid}"] [data-testid=session-list-item-select]`).click()
+    }
+
+    await page.locator(button).click()
+    await page.locator(micButton).click()
+    await expect(page.locator(micButton)).toHaveAttribute('data-state', 'listening', { timeout: 30_000 })
+
+    // Another tab is shown: the microphone stays open, and a reply in the voice tab is said.
+    await show(other.sid)
+    await expect(page.locator('[data-testid=message-bubble-agent]').filter({ hasText: 'Ready for your test.' })).toHaveCount(1)
+    await expect(page.locator(button)).toHaveCount(0)
+    expect(await mics()).toEqual(['live'])
+    reply(tab.jsonl_path, 'away', [text('Said while another tab is shown.')])
+    await expect.poll(started, { timeout: 20_000 }).toBe(1)
+    await page.screenshot({ path: testInfo.outputPath('voice-other-tab.png') })
+
+    // Back in the voice tab, the voice is still on and the microphone still listens.
+    await show(tab.sid)
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'on')
+    await expect(page.locator(micButton)).toHaveAttribute('data-state', 'listening')
+
+    // Turning the voice on in another tab closes the first: one tab holds the voice.
+    await show(second.sid)
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'off')
+    await page.locator(button).click()
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'on')
+    await expect.poll(mics, { timeout: 5_000 }).toEqual(['ended'])
+    reply(tab.jsonl_path, 'closed', [text('Not said once the voice moved.')])
+    await page.waitForTimeout(1500)
+    expect(await started()).toBe(1)
+    await show(tab.sid)
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'off')
+  })
+
   test('a sentence the engine refuses shows why above the button, and closing clears it', async ({ page, request }, testInfo) => {
     const tab = await seedSession(request, 'e2e-voice')
     await openClient(page, { sid: tab.sid })
