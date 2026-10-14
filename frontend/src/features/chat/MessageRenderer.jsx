@@ -5,9 +5,8 @@ import remarkGfm from 'remark-gfm'
 import { visit } from 'unist-util-visit'
 import { useThrottledStreamingText } from './useThrottledStreamingText.js'
 import { recordPerfSample } from '../../features/app-effects/perfProbe.js'
+import { MARKDOWN_PATH_RE as PATH_RE } from './filePaths.js'
 import './MessageRenderer.css'
-
-const PATH_RE = /(?<![(`])(~\/[^\s`"')\]]+|\/Users\/[^\s`"')\]]+)/g
 
 // 長いメッセージの扱いは 2 段。 役割ごとに閾値を分ける (= 1 つの数字で兼ねると、 守りたい
 // degeneration と畳みたい長文が 2 桁離れているので両立しない)。
