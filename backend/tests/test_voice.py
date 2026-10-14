@@ -29,6 +29,7 @@ VOICE = {
     },
     "default": "calm",
 }
+LISTEN = {"engine": "http://127.0.0.1:10102/", "prompt": "Claude、PWA。"}
 # engine が返す AudioQuery の見本 (= 上書きできる key はここに在る物だけ)。
 QUERY = {"accent_phrases": [], "speedScale": 1.0, "pitchScale": 0.0, "intonationScale": 1.0,
          "tempoDynamicsScale": 1.0, "prePhonemeLength": 0.1, "kana": ""}
@@ -44,9 +45,11 @@ def _config(monkeypatch, tmp_path, **agents) -> None:
 
 @pytest.fixture
 def tabs(isolated_state, monkeypatch, tmp_path):
-    """声を持つ agent のタブ (= ses_voice) と、 持たない agent のタブ (= ses_plain)。"""
-    _config(monkeypatch, tmp_path, speaker={"voice": VOICE}, quiet={})
+    """声を持つ agent のタブ (= ses_voice)、 声を聞き取りもする agent のタブ (= ses_listen)、 声を持たない agent の
+    タブ (= ses_plain)。"""
+    _config(monkeypatch, tmp_path, speaker={"voice": VOICE}, quiet={}, listener={"voice": {**VOICE, "listen": LISTEN}})
     meta = isolated_state.sessions_meta
+    meta["ses_listen"] = SessionDef(id="ses_listen", agent_id="listener", title="hear", created_at=0)
     meta["ses_voice"] = SessionDef(id="ses_voice", agent_id="speaker", title="talk", created_at=0)
     meta["ses_plain"] = SessionDef(id="ses_plain", agent_id="quiet", title="work", created_at=0)
     return meta
@@ -82,11 +85,11 @@ def _code(response) -> str:
 
 def test_a_tab_of_an_agent_with_a_voice_says_so_and_names_its_marks(client, tabs):
     assert client.get("/sessions/ses_voice/voice").json() == {
-        "enabled": True, "marks": ["calm", "happy", "sleepy"], "default": "calm"}
+        "enabled": True, "marks": ["calm", "happy", "sleepy"], "default": "calm", "listen": None}
 
 
 def test_a_tab_of_an_agent_with_no_voice_says_so(client, tabs):
-    assert client.get("/sessions/ses_plain/voice").json() == {"enabled": False, "marks": [], "default": ""}
+    assert client.get("/sessions/ses_plain/voice").json() == {"enabled": False, "marks": [], "default": "", "listen": None}
 
 
 def test_a_tab_that_does_not_exist_is_not_found(client, tabs, engine):
@@ -132,6 +135,10 @@ def test_the_answers_have_the_declared_shape(client, tabs):
     {**VOICE, "default": "angry"},
     {**VOICE, "default": ["calm"]},
     {"engine": "http://127.0.0.1:10101", "speaker": 1, "default": "calm"},
+    {**VOICE, "listen": "on"},
+    {**VOICE, "listen": {}},
+    {**VOICE, "listen": {"engine": "ws://127.0.0.1:10102"}},
+    {**VOICE, "listen": {"engine": "http://127.0.0.1:10102", "prompt": ["Claude"]}},
 ])
 def test_a_voice_setting_of_the_wrong_shape_counts_as_no_voice(broken):
     assert voice.voice_settings(broken) is None
@@ -139,7 +146,8 @@ def test_a_voice_setting_of_the_wrong_shape_counts_as_no_voice(broken):
 
 def test_marks_and_the_base_query_may_be_left_out():
     settings = voice.voice_settings({"engine": "http://127.0.0.1:10101", "speaker": 1})
-    assert settings == {"engine": "http://127.0.0.1:10101", "speaker": 1, "query": {}, "marks": {}, "default": ""}
+    assert settings == {"engine": "http://127.0.0.1:10101", "speaker": 1, "query": {}, "marks": {}, "default": "",
+                        "listen": None}
 
 
 def test_the_default_mark_is_the_first_one_when_none_is_named():
@@ -279,3 +287,117 @@ def test_a_setting_of_the_wrong_shape_is_logged_once(client, tabs, monkeypatch, 
         assert client.get("/sessions/ses_voice/voice").json()["enabled"] is False
     assert [r.getMessage() for r in caplog.records].count(
         "voice: agent=speaker has a voice setting of the wrong shape; it has no voice") == 1
+
+
+# --- 人の声を聞き取る ------------------------------------------------------------
+
+WEBM = b"\x1aE\xdf\xa3 recorded speech"
+
+
+@pytest.fixture
+def listener(monkeypatch) -> list[dict]:
+    """聞き取りの engine へ届いた呼び出しの記録。 engine は、 区切りごとに改行を挟んだ文を返す。"""
+    calls: list[dict] = []
+
+    def fake(url, fields, audio, audio_type, timeout):
+        calls.append({"url": url, "fields": fields, "audio": audio, "type": audio_type, "timeout": timeout})
+        return 200, "application/json", json.dumps({"text": " 明日の予定を教えて。\n よろしく\n"}).encode()
+
+    monkeypatch.setattr(voice, "_call_listener", fake)
+    return calls
+
+
+def _say(client, sid="ses_listen", audio=WEBM, kind="audio/webm;codecs=opus"):
+    return client.post(f"/sessions/{sid}/voice/transcription", content=audio, headers={"Content-Type": kind})
+
+
+def test_a_tab_that_listens_says_how_long_it_may_listen(client, tabs):
+    body = client.get("/sessions/ses_listen/voice").json()
+    assert body["enabled"] is True
+    assert body["listen"] == {"max_seconds": voice.MAX_LISTEN_SEC}
+
+
+def test_what_was_said_comes_back_as_one_line(client, tabs, listener):
+    r = _say(client)
+    assert r.status_code == 200
+    assert r.json() == {"text": "明日の予定を教えて。 よろしく"}
+    assert listener == [{"url": "http://127.0.0.1:10102/inference",
+                         "fields": {"response_format": "json", "prompt": "Claude、PWA。"},
+                         "audio": WEBM, "type": "audio/webm", "timeout": voice.LISTEN_TIMEOUT_SEC}]
+
+
+def test_no_prompt_is_sent_when_none_is_set(client, tabs, listener, monkeypatch, tmp_path):
+    _config(monkeypatch, tmp_path, listener={"voice": {**VOICE, "listen": {"engine": "http://127.0.0.1:10102"}}})
+    assert _say(client).status_code == 200
+    assert listener[0]["fields"] == {"response_format": "json"}
+
+
+def test_silence_comes_back_as_an_empty_text(client, tabs, monkeypatch):
+    monkeypatch.setattr(voice, "_call_listener", lambda *a: (200, "application/json", b'{"text": "\\n"}'))
+    assert _say(client).json() == {"text": ""}
+
+
+def test_a_tab_that_does_not_listen_takes_no_sound(client, tabs, listener):
+    r = _say(client, "ses_voice")
+    assert (r.status_code, _code(r)) == (409, "voice_listen_not_enabled")
+    r = _say(client, "ses_plain")
+    assert (r.status_code, _code(r)) == (409, "voice_not_enabled")
+    r = _say(client, "ses_gone")
+    assert (r.status_code, _code(r)) == (404, "voice_unknown_session")
+    assert listener == []
+
+
+@pytest.mark.parametrize("audio,kind", [(WEBM, "application/json"), (WEBM, ""), (b"", "audio/mp4")])
+def test_a_body_that_is_no_sound_is_refused_before_the_engine(client, tabs, listener, audio, kind):
+    r = _say(client, audio=audio, kind=kind)
+    assert (r.status_code, _code(r)) == (400, "voice_bad_request")
+    assert listener == []
+
+
+def test_a_sound_over_the_limit_is_refused_before_the_engine(client, tabs, listener):
+    r = _say(client, audio=b"\0" * (voice.MAX_AUDIO_BYTES + 1))
+    assert (r.status_code, _code(r)) == (413, "voice_audio_too_large")
+    assert r.json()["detail"]["params"] == {"limit": voice.MAX_AUDIO_BYTES}
+    assert listener == []
+
+
+def test_a_listening_engine_that_cannot_be_reached_says_so(client, tabs, monkeypatch):
+    def down(*_):
+        raise ConnectionRefusedError
+    monkeypatch.setattr(voice, "_call_listener", down)
+    r = _say(client)
+    assert (r.status_code, _code(r)) == (502, "voice_listen_unreachable")
+
+
+@pytest.mark.parametrize("answer", [
+    (500, "application/json", b'{"error": "FFmpeg conversion failed."}'),
+    (200, "text/html", b"<html>"),
+    (200, "application/json", b'{"error": "busy"}'),
+])
+def test_a_listening_engine_that_fails_says_so(client, tabs, monkeypatch, answer):
+    monkeypatch.setattr(voice, "_call_listener", lambda *a: answer)
+    r = _say(client)
+    assert (r.status_code, _code(r)) == (502, "voice_listen_failed")
+    assert r.json()["detail"]["params"] == {"status": answer[0]}
+
+
+def test_the_listening_answers_have_the_declared_shape(client, tabs, listener):
+    declared.GetSessionsSidVoiceResponse.model_validate(client.get("/sessions/ses_listen/voice").json())
+    declared.PostSessionsSidVoiceTranscriptionResponse.model_validate(_say(client).json())
+
+
+def test_the_sound_goes_to_the_engine_as_a_form(monkeypatch):
+    """engine へは、 文字の欄と音の `file` を multipart で渡す (= whisper-server の /inference の形)。"""
+    sent = {}
+
+    def fake_post(url, data, content_type, timeout):
+        sent.update(url=url, data=data, content_type=content_type)
+        return 200, "application/json", b'{"text": ""}'
+    monkeypatch.setattr(voice, "_post", fake_post)
+    voice._call_listener("http://e/inference", {"response_format": "json"}, WEBM, "audio/webm", 1.0)
+    boundary = sent["content_type"].split("boundary=")[1]
+    assert sent["content_type"].startswith("multipart/form-data; boundary=")
+    assert sent["data"] == (
+        f'--{boundary}\r\nContent-Disposition: form-data; name="response_format"\r\n\r\njson\r\n'
+        f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="speech"\r\n'
+        f'Content-Type: audio/webm\r\n\r\n'.encode() + WEBM + f'\r\n--{boundary}--\r\n'.encode())
