@@ -354,3 +354,33 @@ def test_a_turn_still_waiting_when_the_call_ends_is_sent():
     bridge._resume_secs = 30   # 待ちの間に通話が終わる
     asyncio.run(run_test(bridge, frames_to_send=[_said("最後の一言")]))
     assert sent == ["最後の一言"]
+
+
+def test_a_sentence_that_takes_long_to_make_is_still_said():
+    # Pipecat は 1 文の音を stop_frame_timeout_s で待つのをやめ、 「音が無いまま終わった」 の error を出す。 作るのに
+    # それより掛かる長い文で、 通話が切れていた (= 2026-10-14、 90 文字の文が 3.3 秒)
+    pytest.importorskip("pipecat")
+    import io
+    import wave
+
+    from pipecat.frames.frames import ErrorFrame, TTSAudioRawFrame, TTSSpeakFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    from backend.voice_call.services import VoiceTTS, Volume
+
+    sound = io.BytesIO()
+    with wave.open(sound, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(24000)
+        wav.writeframes(b"\x00\x01" * 2400)
+
+    class SlowVoice:
+        async def synthesize(self, text, mark, values=None):
+            await asyncio.sleep(1.0)
+            return sound.getvalue()
+
+    tts = VoiceTTS(SlowVoice(), ["calm"], Volume(), stop_frame_timeout_s=0.3)
+    down, up = asyncio.run(run_test(tts, frames_to_send=[TTSSpeakFrame("長い文です。"), SleepFrame(sleep=1.5)]))
+    assert any(isinstance(f, TTSAudioRawFrame) for f in down)
+    assert not [f for f in [*down, *up] if isinstance(f, ErrorFrame)]   # error は上流へ流れる

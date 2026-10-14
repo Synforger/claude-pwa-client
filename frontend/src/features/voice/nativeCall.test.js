@@ -99,6 +99,28 @@ describe('inside the iPhone app, the app holds the microphone and the voice', ()
     expect(getSnapshot().on.ses_a).toBeUndefined()
   })
 
+  it('keeps the call when the app reports an error the call survives, and shows why', async () => {
+    toggleVoice('ses_a', vi.fn())
+    await settle()
+    // app 1.9.0 が実際に渡した文 (= Pipecat の error を Swift の文字列のまま。 2026-10-14 23:42)
+    notify({
+      state: 'error',
+      message: 'RTVIMessageInbound(id: nil, label: Optional("rtvi-ai"), type: Optional("error"), data: Optional("'
+        + '{\\"fatal\\":false,\\"error\\":\\"TTS context 2b42b5f4 completed with no audio\\"}"))',
+    })
+    expect(plugin.stop).not.toHaveBeenCalled()
+    expect(getSnapshot().on.ses_a).toBe(true)
+    expect(getSnapshot().error.ses_a).toBe('TTS context 2b42b5f4 completed with no audio')
+
+    notify({ state: 'error', message: 'a sentence failed', fatal: false })
+    expect(plugin.stop).not.toHaveBeenCalled()
+    expect(getSnapshot().error.ses_a).toBe('a sentence failed')
+
+    notify({ state: 'error', message: 'the call broke', fatal: true })
+    expect(plugin.stop).toHaveBeenCalledTimes(1)
+    expect(getSnapshot().on.ses_a).toBeUndefined()
+  })
+
   it('shows why when the call could not be made', async () => {
     toggleVoice('ses_a', vi.fn())
     await settle()

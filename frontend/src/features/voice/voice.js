@@ -297,9 +297,12 @@ function openCall(sid) {
 }
 
 // app の会話の知らせ (= つながった / 切れた / 失敗した)。
-function onNativeState(sid, state, message) {
+function onNativeState(sid, state, message, { fatal } = {}) {
   if (state === 'connected') {
     setVoicePhase(sid, micWanted.has(sid) ? 'listening' : null)
+  } else if (state === 'error' && !isFatal(fatal, message)) {
+    // 1 文を言えなかった等、 通話は続けられる error: 理由だけ出し、 通話は閉じない
+    setVoiceError(sid, errorText(message) || state)
   } else if (state === 'error') {
     closeConversation(sid)
     setVoiceError(sid, message || state)
@@ -307,6 +310,20 @@ function onNativeState(sid, state, message) {
     // backend が会話を終えた (= 別の画面が会話を開いた / backend が止まった)
     closeConversation(sid)
   }
+}
+
+// 通話を続けられない error か。 app 1.9.0 は fatal を項目で渡さず、 Pipecat の error の中身 (= `"fatal":false` を
+// 含む JSON) を Swift の文字列のまま渡す (= `RTVIMessageInbound(... data: Optional("{\"fatal\":false, ...}"))`)。
+// 次の版の app は fatal を項目で渡す。 どちらも無ければ、 続けられない error として扱う
+function isFatal(fatal, message) {
+  if (typeof fatal === 'boolean') return fatal
+  return !/\\?"fatal\\?"\s*:\s*false/.test(String(message || ''))
+}
+
+// error の文 (= Pipecat の error の中身の `error` を取り出す。 取り出せなければ渡された文のまま)
+function errorText(message) {
+  const found = /\\?"error\\?"\s*:\s*\\?"((?:[^"\\]|\\[^"])*)\\?"/.exec(String(message || ''))
+  return found ? found[1] : message
 }
 
 // テストの間で、 🎙 を開いたタブと開いている会話を忘れる
