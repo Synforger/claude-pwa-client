@@ -113,3 +113,14 @@ if [ -n "${audit_trigger}" ]; then
         echo "warning: ${AUDIT} not found / not executable; skipping W2 residue audit."
     fi
 fi
+
+# -----------------------------------------------------------------------------
+# 5. iOS usage descriptions: every feature the iPhone app uses (camera,
+#    microphone, …) needs its NS…UsageDescription in Info.plist, or iOS ends
+#    the app the moment the feature is touched. Runs when staged files touch
+#    the web code, the native code, or the Info.plist.
+# -----------------------------------------------------------------------------
+privacy_trigger="$(git diff --cached --name-only --diff-filter=ACMRT | grep -E '^(frontend/src/|shell/ios/App/App/)' || true)"
+if [ -n "${privacy_trigger}" ]; then
+    python3 "${REPO_ROOT}/.tooling/local-ci/ios-privacy-check.py" >/dev/null || exit 1
+fi
