@@ -434,12 +434,12 @@ async def _send_body(session_id: str, text: str, key: str | None = None) -> dict
         was_busy = bool(_st_send and _st_send.busy) and not (escaped and (escaped.stopped or escaped.restored))
         # 2 段送信 protocol (= C-u wipe → paste → Enter、 詳細 = runner.send_text_two_stage docstring)。
         # queue に既に積まれた過去 message には触れない (= C-u は入力欄のみ)。 Escape を打った声の発話は消さずに
-        # 後ろへ打つ (= 戻された前の発話とは空白 1 つで区切る)。
+        # 後ろへ打つ (= 戻された前の発話とは空白 1 つで区切り、 声の印は前の発話の頭の 1 つだけにする)。
         if escaped is None:
             ok = await send_text_two_stage(session_id, text, key=key)
         else:
-            ok = await send_text_two_stage(session_id, (" " + text) if escaped.restored else text, key=key,
-                                           wipe=False)
+            tail = " " + text[len(VOICE_INPUT_MARK):].lstrip() if escaped.restored else text
+            ok = await send_text_two_stage(session_id, tail, key=key, wipe=False)
         if ok:
             # prompt_detector の tier C grace period 用に「今 user が送信した」 を記録。
             # 直後 tick で末尾が prompt-like でも 1.5s は待機扱いにしない (= 自分の入力を
