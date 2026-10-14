@@ -11,7 +11,9 @@
         "happy": { "speedScale": 1.15, "tempoDynamicsScale": 1.3 }
       },
       "default": "calm",
-      "listen":  { "engine": "http://127.0.0.1:10102", "prompt": "Claude、PWA。", "turn": "/path/to/smart-turn.onnx" }
+      "listen":  { "engine": "http://127.0.0.1:10102", "prompt": "Claude、PWA。", "turn": "/path/to/smart-turn.onnx" },
+      "conversation": { "pause_ms": 700, "wait_ms": 3000 },
+      "tuning":  "/path/to/agent/voice.json"
     }
 
     engine:  VOICEVOX と同じ口 (= `POST /audio_query` と `POST /synthesis`) を持つ engine の URL
@@ -22,6 +24,9 @@
     listen:  人の声を聞き取る engine (= 省けば聞き取らない)。 whisper.cpp の `whisper-server` と同じ口
              (= `POST /inference`) を持つ engine の URL と、 聞き取りの手がかりにする語 (= 省略可) と、 言い終えたかを
              判定する Smart Turn の model の file (= 省略可。 画面がこの口から受け取って、 画面の中で判定する)
+    conversation: 話して送る会話の間の取り方 (= 省略可。 項目は CONVERSATION_DEFAULTS)
+    tuning:  声の調整の file (= 省略可)。 TUNABLE の項目を JSON で書き、 ここの値の上に重ねる。 毎回読むので、
+             書き換えれば次の文から効く (= agent が自分の声を調整する置き場。 engine の URL はここに置かない)
 
 返事の流れは 2 段。 画面は返事の文を `utterances` へ渡して声にする文の並びを受け取り、 1 文ずつ `synthesis`
 へ渡して音を受け取る (= 1 文目の音が出来た時点で鳴らし始められる。 engine は文の途中の音を返さない)。
@@ -88,6 +93,23 @@ MAX_AUDIO_BYTES = int(MAX_LISTEN_SEC * _SEEN_RECORDING_BITS_PER_SEC / 8 * 2)
 _SEEN_LISTEN_SEC_PER_AUDIO_SEC = 7.7 / 124
 LISTEN_TIMEOUT_SEC = MAX_LISTEN_SEC * _SEEN_LISTEN_SEC_PER_AUDIO_SEC * 2
 
+# 会話の間の取り方の既定 (= 設定か調整の file の `conversation` で変える)。
+#   pause_ms:  声が途切れてから、 言い終えたかの判定に入るまでの無音。 語と語の間の息継ぎで判定しない長さ
+#              (= Pipecat の既定は 0.2 秒。 考えながら話すと、 語の間がそれより長く空く)
+#   wait_ms:   言い終えていないと判定した時に、 送るまで待つ無音 (= 声が途切れた時から数える。 Pipecat の既定)
+#   unfinished_endings: 聞き取った文がこれで終わる時は、 言い終えた判定でも送らずに wait_ms まで待つ
+#              (= 読点と、 考えている間に出る語。 文末の句点は外して見る)
+#   interrupt: 返事が鳴っている間も聞き、 話し始めたら返事を止める (= false なら、 鳴っている間は聞かない)
+CONVERSATION_DEFAULTS = {
+    "pause_ms": 700,
+    "wait_ms": 3000,
+    "unfinished_endings": ["、", ",", "，", "…", "...", "なんか", "えーと", "えっと", "えー", "あのー", "あの",
+                           "うーん", "まあ", "その"],
+    "interrupt": True,
+}
+# 調整の file に書ける項目 (= 声と間の取り方。 engine の URL と聞き取りは設定にだけ書く)
+TUNABLE = ("speaker", "query", "marks", "default", "conversation")
+
 _MARK_NAME = re.compile(MARK_NAME)
 # 形の違う `voice` を書いた agent (= 1 度だけ log に出す)。
 _warned: set[str] = set()
@@ -121,6 +143,27 @@ def _is_url(value) -> bool:
     return isinstance(value, str) and value.startswith(("http://", "https://"))
 
 
+def _is_ms(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _conversation(raw) -> dict | None:
+    """会話の間の取り方 (= 書いていない項目は既定)。 形が違えば None。"""
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict) or set(raw) - set(CONVERSATION_DEFAULTS):
+        return None
+    out = {**CONVERSATION_DEFAULTS, **raw}
+    endings = out["unfinished_endings"]
+    if not (_is_ms(out["pause_ms"]) and _is_ms(out["wait_ms"]) and out["wait_ms"] > out["pause_ms"]):
+        return None
+    if not isinstance(endings, list) or not all(isinstance(e, str) and e.strip() for e in endings):
+        return None
+    if not isinstance(out["interrupt"], bool):
+        return None
+    return {**out, "unfinished_endings": list(endings)}
+
+
 def _listen(raw) -> dict | None | bool:
     """聞き取りの設定。 書いていなければ None、 形が違えば False。"""
     if raw is None:
@@ -152,8 +195,61 @@ def voice_settings(raw) -> dict | None:
     default = raw.get("default", next(iter(marks), ""))
     if not isinstance(default, str) or (default not in marks if marks else default != ""):
         return None
+    conversation, tuning = _conversation(raw.get("conversation")), raw.get("tuning", "")
+    if conversation is None or not isinstance(tuning, str):
+        return None
     return {"engine": engine.rstrip("/"), "speaker": speaker, "query": query,
-            "marks": {name: dict(value) for name, value in marks.items()}, "default": default, "listen": listen}
+            "marks": {name: dict(value) for name, value in marks.items()}, "default": default, "listen": listen,
+            "conversation": conversation, "tuning": tuning}
+
+
+# 調整の file を読んだ結果 (= path → (更新時刻と大きさ, 値, 読めなかった理由))。 変わった時だけ読み直す。
+_tuning_files: dict[str, tuple[tuple[int, int], dict, str]] = {}
+# log に出した、 調整の file を使えない理由 (= path → 理由。 変わった時だけ出す)
+_tuning_logged: dict[str, str] = {}
+
+
+def _tuning_file(path: str) -> tuple[dict, str]:
+    """調整の file の値と、 使えない理由 (= 使えれば空文字)。"""
+    file = Path(path).expanduser()
+    try:
+        stat = file.stat()
+    except OSError:
+        return {}, "調整の file がありません"
+    stamp = (stat.st_mtime_ns, stat.st_size)
+    cached = _tuning_files.get(path)
+    if cached and cached[0] == stamp:
+        return cached[1], cached[2]
+    values, error = {}, ""
+    try:
+        data = json.loads(file.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        error = f"調整の file を JSON として読めません ({exc})"
+    else:
+        if not isinstance(data, dict):
+            error = "調整の file は JSON の object で書きます"
+        elif unknown := sorted(set(data) - set(TUNABLE)):
+            error = f"調整の file に書けない項目があります: {', '.join(unknown)} (= 書けるのは {', '.join(TUNABLE)})"
+        else:
+            values = data
+    _tuning_files[path] = (stamp, values, error)
+    return values, error
+
+
+def _tuned(raw: dict, settings: dict) -> tuple[dict, str]:
+    """設定の値に調整の file の値を重ねる。 file を使えない時は、 設定の値のままと、 その理由を返す。"""
+    path = settings["tuning"]
+    values, error = _tuning_file(path)
+    if values:
+        tuned = voice_settings({**raw, **values})
+        if tuned is None:
+            error = "調整の file の値の形が違います (= 声の番号は整数、 値は数、 既定の印は marks の名前、 など)"
+        else:
+            settings = tuned
+    if error and _tuning_logged.get(path) != error:
+        logger.warning("voice: %s: %s; the backend setting is used", path, error)
+    _tuning_logged[path] = error
+    return settings, error
 
 
 def _settings_of(session_id: str) -> dict | None:
@@ -166,7 +262,10 @@ def _settings_of(session_id: str) -> dict | None:
     if raw is not None and settings is None and meta.agent_id not in _warned:
         _warned.add(meta.agent_id)
         logger.warning("voice: agent=%s has a voice setting of the wrong shape; it has no voice", meta.agent_id)
-    return settings
+    if settings is None:
+        return None
+    settings, error = _tuned(raw, settings) if settings["tuning"] else (settings, "")
+    return {**settings, "tuning_error": error}
 
 
 # 会話を開いている画面 (= タブの id → 画面が名乗った名前)。 backend を再起動すると忘れる (= 次に音を送った画面が
@@ -262,13 +361,15 @@ def _engine_failed(step: str, status: int) -> None:
 
 @router.get("/sessions/{session_id}/voice")
 async def get_voice(session_id: str) -> dict:
-    """そのタブが声を持つかと、 言い方の印の一覧。"""
+    """そのタブが声を持つかと、 言い方の印の一覧と、 会話の間の取り方。"""
     settings = _settings_of(session_id)
     if settings is None:
-        return {"enabled": False, "marks": [], "default": "", "listen": False, "turn": False}
+        return {"enabled": False, "marks": [], "default": "", "listen": False, "turn": False,
+                "conversation": None, "tuning_error": ""}
     listen = settings["listen"]
     return {"enabled": True, "marks": list(settings["marks"]), "default": settings["default"],
-            "listen": bool(listen), "turn": bool(listen and listen["turn"])}
+            "listen": bool(listen), "turn": bool(listen and listen["turn"]),
+            "conversation": settings["conversation"], "tuning_error": settings["tuning_error"]}
 
 
 @router.post("/sessions/{session_id}/voice/utterances")

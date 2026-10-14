@@ -244,6 +244,19 @@ export interface GetSessionsSidVoiceResponse {
   listen: boolean
   /** 言い終えを判定する model を持つか (= 設定に voice.listen.turn が在るか) */
   turn: boolean
+  /** 会話の間の取り方 (= 設定と調整の file の値、 書いていない項目は既定。 声を持たなければ null) */
+  conversation?: {
+    /** 声が途切れてから、 言い終えたかの判定に入るまでの無音 (ミリ秒) */
+    pause_ms: number
+    /** 言い終えていない時に、 送るまで待つ無音 (ミリ秒。 声が途切れた時から) */
+    wait_ms: number
+    /** 聞き取った文がこれで終わる時は、 wait_ms まで待つ */
+    unfinished_endings: string[]
+    /** 返事が鳴っている間も聞き、 話し始めたら返事を止めるか */
+    interrupt: boolean
+  } | null
+  /** 調整の file (= voice.tuning) を使えない理由 (= 使えている / 書いていなければ空文字) */
+  tuning_error: string
 }
 
 /** POST /sessions/{sid}/voice/utterances request body */

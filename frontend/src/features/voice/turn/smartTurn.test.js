@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createSmartTurn, COMPLETE_ABOVE } from './smartTurn.js'
+import { createSmartTurn, COMPLETE_ABOVE, judgedPart } from './smartTurn.js'
 
 // 作り物の onnxruntime: 渡された入力を覚えて、 決まった確率を返す。
 function fakeOrt(probability) {
@@ -35,5 +35,23 @@ describe('createSmartTurn — whether the speaker has finished', () => {
     expect(COMPLETE_ABOVE).toBe(0.5)
     expect(await (await createSmartTurn(fakeOrt(0.51))).complete(new Float32Array(10))).toBe(true)
     expect(await (await createSmartTurn(fakeOrt(0.5))).complete(new Float32Array(10))).toBe(false)
+  })
+})
+
+describe('judgedPart — Smart Turn sees as much silence after the voice as Pipecat gives it', () => {
+  it('cuts the longer wait off the end, keeping 6 frames (0.2 s) of it', () => {
+    const audio = new Float32Array(100 * 512)
+    // 0.7 s = 21 frames of 32 ms come after the voice; Smart Turn keeps 6 of them
+    expect(judgedPart(audio, 700).length).toBe((100 - 15) * 512)
+  })
+
+  it('leaves the voice as it is when the wait is already 0.2 s', () => {
+    const audio = new Float32Array(100 * 512)
+    expect(judgedPart(audio, 200)).toBe(audio)
+  })
+
+  it('never cuts into a voice shorter than the wait', () => {
+    const audio = new Float32Array(10 * 512)
+    expect(judgedPart(audio, 700)).toBe(audio)
   })
 })
