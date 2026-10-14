@@ -106,7 +106,7 @@
   justify-content: flex-end;
 }
 
-/* 上端の開閉のボタン。 隠れている行が在る時と、 広げている時にだけ出る。 */
+/* 上端の開閉のボタン。 中身が畳んだ時の上限 (= 3 行) を超えている時にだけ出る。 */
 .inputarea-edge {
   display: flex;
   justify-content: flex-end;
@@ -122,13 +122,6 @@
   background: var(--bg3);
   color: var(--text-dim);
   border: 1px solid var(--border);
-}
-
-/* 広げた時: 流れから外して「今 見えている範囲」 に固定する (= 矩形は useInputSizing が style で渡す)。
-   後から開いたファイルプレビュー / ファイルツリー (= 40 以上) はこの上に出る。 */
-.inputarea.expanded {
-  position: fixed;
-  z-index: 30;
 }
 
 textarea {
