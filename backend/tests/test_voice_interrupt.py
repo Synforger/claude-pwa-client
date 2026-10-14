@@ -109,8 +109,8 @@ def test_a_voice_turn_joins_the_turn_it_cancelled(pane, claude):  # noqa: F811
     claude["busy"].busy = True
     claude["on_escape"] = "restore"
     together(send("ses_a", "[voice] まあでもそりゃそうか"))
-    assert keys(pane)[3:] == ["key:Escape", "restore", "paste: [voice] まあでもそりゃそうか", "enter"]
-    assert pane["delivered"][-1] == ("ses_a", "[voice] うーん、モデル自体は小さい [voice] まあでもそりゃそうか")
+    assert keys(pane)[3:] == ["key:Escape", "restore", "paste: まあでもそりゃそうか", "enter"]
+    assert pane["delivered"][-1] == ("ses_a", "[voice] うーん、モデル自体は小さい まあでもそりゃそうか")
 
 
 def test_the_stop_button_clears_what_the_stop_put_back(pane, claude):  # noqa: F811

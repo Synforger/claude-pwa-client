@@ -34,7 +34,30 @@ import { isClientMessage } from './agentMessage.js'
 // 別 uuid event が来て重複 append」 の構造的 resurface 経路を根絶する (= 2026-06-23〜06-24
 // 連発した重複表示バグの根治)。 加えて 2026-07-03 の 3 連発火症状は send_id 経路で
 // backend dedup + updater 冪等化 + 厳密 pop の 3 段で根絶される。
-export function reconcileUserMessage(cur, eventText, eventUuid, eventSendId, eventTs) {
+export function reconcileUserMessage(cur, eventText, eventUuid, eventSendId, eventTs, eventParent) {
+  const next = _reconcile(cur, eventText, eventUuid, eventSendId, eventTs)
+  return eventParent && eventUuid ? _dropReplaced(next, eventUuid, eventParent) : next
+}
+
+// claude は、 前の発話を取り消して (= 何も書き出す前の Escape / 発話の編集) 新しい発話を送ると、 前の発話を記録に
+// 残したまま、 新しい発話を同じ親 (= parentUuid) に付ける。 声の会話は、 途中の間で区切られて先に送られた前半を
+// 取り消し、 後半をつなげて送り直すので、 区間ごとに 1 行ずつ長くなる発話が並んでいた (= 2026-10-15)。 同じ親の
+// 発話は、 新しい方 (= 記録の時刻が後) だけを出す。 履歴の読み直しでも、 受け取り済の発話に親を書き足して外す。
+function _dropReplaced(cur, uuid, parent) {
+  const idx = cur.findIndex(m => m && m.role === 'user' && m.uuid === uuid)
+  if (idx < 0) return cur
+  let next = cur
+  if (cur[idx].parentUuid !== parent) {
+    next = [...cur]
+    next[idx] = { ...cur[idx], parentUuid: parent }
+  }
+  const same = next.filter(m => m && m.role === 'user' && m.uuid && m.parentUuid === parent)
+  if (same.length < 2) return next
+  const newest = same.reduce((a, b) => ((b.ts ?? 0) >= (a.ts ?? 0) ? b : a))
+  return next.filter(m => !(m && m.role === 'user' && m.uuid && m.parentUuid === parent && m !== newest))
+}
+
+function _reconcile(cur, eventText, eventUuid, eventSendId, eventTs) {
   // 1. uuid 完全一致 → 受信済の replay。 no-op。
   if (eventUuid && cur.some(m => m.role === 'user' && m.uuid === eventUuid)) {
     return cur
