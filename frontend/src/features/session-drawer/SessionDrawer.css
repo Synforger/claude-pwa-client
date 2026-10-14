@@ -72,7 +72,6 @@
   cursor: pointer;
   padding: 4px 8px;
   border-radius: 6px;
-  letter-spacing: 1px;
 }
 .drawer-global-menu:hover {
   color: var(--text);
@@ -111,6 +110,29 @@
 }
 .drawer-global-popup button:disabled:hover {
   background: none;
+}
+/* 文字の大きさ: 名前と − / % / ＋ を 1 行に並べる */
+.drawer-global-size-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.drawer-global-size-label {
+  flex: 1;
+  padding: 0 12px;
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.drawer-global-popup .drawer-global-size-row button {
+  width: auto;
+  min-width: 36px;
+  padding: 10px 8px;
+  text-align: center;
+}
+.drawer-global-popup .drawer-global-size-row .drawer-global-size-value {
+  min-width: 52px;
+  font-variant-numeric: tabular-nums;
 }
 /* 言語切替 (= 日本語 / English) 2 button 排他トグル。 通常のメニュー行と別に横並べにする。 */
 /* 「アプリを更新」 の横に小さく出す、 今動いている build の名前 */

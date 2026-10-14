@@ -11,7 +11,7 @@ import { test, expect } from '@playwright/test'
 import { seedSession, appendEvent } from '../../helpers/fixture.js'
 import { openClient } from '../../helpers/pwa.js'
 // The size limits are constants in the frontend; read from there so changing them means no edit here.
-import { TEXT_ZOOM_MAX, TEXT_ZOOM_MIN } from '../../../frontend/src/hooks/textZoom.js'
+import { TEXT_ZOOM_MAX, TEXT_ZOOM_MIN } from '../../../frontend/src/state/textZoom.js'
 
 const SID = 'ses_e2echatgld'
 // Where the test backend keeps this tab's notes (= what the agent gets as PWA_NOTE).
@@ -255,5 +255,51 @@ test.describe('golden: notes', () => {
     await page.locator('[data-testid=notes-open-button]').click()
     await expect(content.locator('table')).toBeVisible({ timeout: 10_000 })
     expect(await zoomOf(content)).toBeCloseTo(Math.SQRT2, 2)
+  })
+
+  // The ⚙ settings in the drawer show and set the same size: − / ＋ go by 10%, the % goes back to 100%.
+  // A pinch on the text shows up there too.
+  test('the settings set the same size as a pinch', async ({ page, request }) => {
+    await seedSession(request, 'e2e-chat-golden')
+    mkdirSync(dirname(NOTE_FILE), { recursive: true })
+    writeFileSync(NOTE_FILE, WIDE_MD)
+    await openClient(page, { sid: SID })
+    const value = page.locator('[data-testid=text-size-value]')
+    const openSettings = async () => {
+      await page.locator('[data-testid=drawer-toggle]').click()
+      await page.locator('[data-testid=drawer-settings]').click()
+    }
+    const closeDrawer = () => page.locator('.drawer-close').click()
+
+    await openSettings()
+    await expect(page.locator('[data-testid=drawer-settings]')).toHaveText('\u2699\uFE0E')
+    await expect(value).toHaveText('100%')
+    await page.locator('[data-testid=text-size-larger]').click()
+    await page.locator('[data-testid=text-size-larger]').click()
+    await expect(value).toHaveText('120%')
+    await closeDrawer()
+
+    await page.locator('[data-testid=notes-open-button]').click()
+    const content = page.locator(shown)
+    await expect(content.locator('table')).toBeVisible()
+    expect(await zoomOf(content)).toBeCloseTo(1.2, 2)
+
+    // A pinch from 120% to one and a quarter of that.
+    await pinch(page.locator(body), 100, 125)
+    expect(await zoomOf(content)).toBeCloseTo(1.5, 2)
+    await page.locator(`${modal} .modal-close`).click()
+    await openSettings()
+    await expect(value).toHaveText('150%')
+
+    // Back to 100%, and down to the lower limit where − stops.
+    await value.click()
+    await expect(value).toHaveText('100%')
+    for (let k = 0; k < 5; k += 1) await page.locator('[data-testid=text-size-smaller]').click()
+    await expect(value).toHaveText(`${TEXT_ZOOM_MIN * 100}%`)
+    await expect(page.locator('[data-testid=text-size-smaller]')).toBeDisabled()
+    await closeDrawer()
+    await page.locator('[data-testid=notes-open-button]').click()
+    await expect(content.locator('table')).toBeVisible()
+    expect(await zoomOf(content)).toBe(TEXT_ZOOM_MIN)
   })
 })
