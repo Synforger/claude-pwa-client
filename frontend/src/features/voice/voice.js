@@ -1,24 +1,24 @@
 // 声の配線: 届いた event → 声にする物を選ぶ (= listener.js) → 音にして鳴らす (= player.js)。
-// 人の声は 🎙 → 録る (= recorder.js) → backend が聞き取った文 → そのタブへ送る。
+// 人の声は、 会話を開いている間 (= conversation.js) 、 言い終えるたびに backend が文字にして、 そのタブへ送る。
 // 通信は backend の声の口 (= docs/reference/voice.md)、 音は audio.js。
 
 import { apiFetch } from '../../transport/http.ts'
 import { translateHttpErrorDetail } from '../../utils/httpError.js'
 import {
-  getSnapshot, setVoiceAvailable, setVoiceMarks, setVoiceOn, setVoiceError, setVoiceListen, setVoiceListening,
+  getSnapshot, subscribe, setVoiceAvailable, setVoiceMarks, setVoiceOn, setVoiceError, setVoiceListen, setVoiceTurn,
+  setVoicePhase, setVoiceSpeaking,
 } from '../../state/voice.js'
 import { tRaw } from '../../i18n/t.js'
 import { createListener } from './listener.js'
 import { createPlayer } from './player.js'
 import { unlockAudio, playSound } from './audio.js'
 import { markVoiceInput } from './inputMark.js'
-import { startRecording } from './recorder.js'
 
 const base = (sid) => `/sessions/${encodeURIComponent(sid)}/voice`
 
 async function refused(response) {
   const detail = (await response.json().catch(() => null))?.detail
-  return new Error(translateHttpErrorDetail(detail, `HTTP ${response.status}`))
+  return Object.assign(new Error(translateHttpErrorDetail(detail, `HTTP ${response.status}`)), { code: detail?.code })
 }
 
 const player = createPlayer({
@@ -39,6 +39,7 @@ const player = createPlayer({
     setVoiceError(sid, error?.message || String(error))
   },
   onPlayed: (sid) => setVoiceError(sid, null),
+  onBusy: (sid, busy) => setVoiceSpeaking(sid, busy),
 })
 
 const listener = createListener({
@@ -84,77 +85,133 @@ export async function refreshVoiceAvailable(sid) {
     setVoiceAvailable(sid, voice?.enabled === true)
     setVoiceMarks(sid, voice?.enabled === true ? voice.marks : [])
     setVoiceListen(sid, voice?.enabled === true && voice.listen === true)
+    setVoiceTurn(sid, voice?.enabled === true && voice.turn === true)
   } catch {
     setVoiceAvailable(sid, false)
     setVoiceMarks(sid, [])
     setVoiceListen(sid, false)
+    setVoiceTurn(sid, false)
   }
 }
 
-// --- 🎙 (= 人の声) ---------------------------------------------------------------
+// --- 会話 (= 人の声) ---------------------------------------------------------------
 
-// 録っている途中の物 (= タブの id ごと。 stop() で録った音、 cancel() で捨てる)。
-const recordings = new Map()
+// この画面の名前 (= 会話を開いていられるのは 1 つのタブに 1 つの画面。 backend はこの名前で持ち主を見分ける)。
+const CLIENT = `screen-${Math.random().toString(36).slice(2, 12)}`
+const conversations = new Map()   // sid -> { closed, handle, stream, audioContext }
 
-// 録った音を backend に聞き取らせて、 その文を返す (= 声が聞き取れなければ空の文)。
+const MIC = { audio: { channelCount: 1, echoCancellation: true, autoGainControl: true, noiseSuppression: true } }
+
+// 言い終えた声 (= WAV の Blob) を backend に文字にしてもらう (= 声が聞き取れなければ空の文)。
 export async function transcribe(sid, sound) {
   // 待つ上限は置かない: 聞き取りは音の長さに比例して掛かり、 backend が engine を待つ上限で必ず返る。
   const r = await apiFetch(`${base(sid)}/transcription`, {
-    method: 'POST', body: sound, headers: { 'Content-Type': sound.type || 'audio/webm' }, timeout: 0,
+    method: 'POST', body: sound, timeout: 0,
+    headers: { 'Content-Type': sound.type || 'audio/wav', 'X-Voice-Conversation': CLIENT },
   })
   if (!r.ok) throw await refused(r)
   return ((await r.json()).text || '').trim()
 }
 
-// 🎙 を押し始めた時に呼ぶ (= 人が押した handler の中から)。 返事を声で聞く状態にし (= 押した手の中で音を鳴らせる
-// ようにする)、 鳴っている返事はその場で止める (= 人が話し始めたら、 そちらが先)。 押している間、 録る。
-export async function startListening(sid, media) {
-  if (getSnapshot().listening[sid]) return
-  if (!getSnapshot().on[sid]) setVoice(sid, true)
-  else player.stop(sid)
-  setVoiceListening(sid, 'recording')
-  let recording
-  try {
-    recording = await startRecording(media)
-  } catch (error) {
-    setVoiceListening(sid, null)
-    setVoiceError(sid, tRaw('voice.mic_refused', { reason: error?.message || String(error) }))
-    return
-  }
-  // マイクが開く前に離された / タブを移った: マイクを閉じて終わる。
-  if (getSnapshot().listening[sid] !== 'recording') { await recording.cancel(); return }
-  recordings.set(sid, recording)
-}
-
-// 🎙 を離した時に呼ぶ。 録った音を聞き取らせて、 その文を send(text) でこのタブへ送る。
-// マイクがまだ開いていなければ (= 許可を訊かれている間など)、 録り始めを取りやめる。
-export async function finishListening(sid, send) {
-  const recording = recordings.get(sid)
-  if (!recording) {
-    if (getSnapshot().listening[sid] === 'recording') setVoiceListening(sid, null)
-    return
-  }
-  recordings.delete(sid)
-  setVoiceListening(sid, 'hearing')
-  try {
-    const text = await transcribe(sid, await recording.stop())
-    // 聞き取りを待つ間にタブを移っていれば送らない (= 送る関数は、 今見ているタブへ送る)。
-    if (getSnapshot().listening[sid] !== 'hearing') return
-    if (!text) { setVoiceError(sid, tRaw('voice.heard_nothing')); return }
-    setVoiceError(sid, null)
-    send(text)
-  } catch (error) {
-    console.warn('[voice] could not hear what was said:', error)
-    setVoiceError(sid, error?.message || String(error))
-  } finally {
-    if (getSnapshot().listening[sid] === 'hearing') setVoiceListening(sid, null)
+function speakingOf(sid) {
+  return {
+    isSpeaking: () => !!getSnapshot().speaking[sid],
+    subscribeSpeaking: (onChange) => {
+      let was = !!getSnapshot().speaking[sid]
+      return subscribe(() => {
+        const now = !!getSnapshot().speaking[sid]
+        if (now !== was) { was = now; onChange(now) }
+      })
+    },
   }
 }
 
-// 🎙 を手放す (= タブを移った / 画面から消えた時)。 録っている音は捨て、 聞き取りを待っている文は送らない。
-export async function cancelListening(sid) {
-  const recording = recordings.get(sid)
-  recordings.delete(sid)
-  setVoiceListening(sid, null)
-  if (recording) await recording.cancel()
+// 入力欄の会話のボタンを押した時に呼ぶ (= 人が押した handler の中から。 音とマイクを扱えるようにするのがここ)。
+// send(text) は、 聞き取った文をこのタブへ送る関数。
+//   開いていない時: 開く。 返事を声で鳴らし始め、 その agent が声を聞き取るなら、 マイクを開いて聞き始める
+//   開いている時:   閉じる。 マイクを閉じ、 返事も鳴らさない
+export function toggleConversation(sid, send) {
+  if (getSnapshot().on[sid]) { closeConversation(sid); return }
+  setVoice(sid, true)
+  if (!getSnapshot().on[sid] || !getSnapshot().listen[sid]) return
+  const entry = { closed: false, handle: null, stream: null, audioContext: null }
+  conversations.set(sid, entry)
+  setVoicePhase(sid, 'starting')
+  try {
+    entry.audioContext = new AudioContext()
+    entry.stream = navigator.mediaDevices.getUserMedia(MIC)
+    entry.stream.catch(() => {})
+  } catch (error) {
+    refuseMic(sid, error)
+    return
+  }
+  open(sid, entry, send).catch((error) => {
+    if (entry.closed) return
+    console.warn('[voice] could not open the conversation:', error)
+    const micRefused = error?.name === 'NotAllowedError' || error?.name === 'NotFoundError'
+    closeConversation(sid)
+    if (micRefused) refuseMic(sid, error)
+    else setVoiceError(sid, error?.message || String(error))
+  })
+}
+
+function refuseMic(sid, error) {
+  closeConversation(sid)
+  setVoiceError(sid, tRaw('voice.mic_refused', { reason: error?.message || String(error) }))
+}
+
+async function open(sid, entry, send) {
+  const claimed = await apiFetch(`${base(sid)}/conversation`, { method: 'POST', jsonBody: { client: CLIENT } })
+  if (!claimed.ok) throw await refused(claimed)
+  await entry.stream
+  const { openConversation } = await import('./conversation.js')
+  if (entry.closed) return
+  const handle = await openConversation({
+    audioContext: entry.audioContext,
+    stream: entry.stream,
+    turnModelUrl: getSnapshot().turn[sid] ? `${base(sid)}/turn-model` : null,
+    fetchModel: async (url) => {
+      const r = await apiFetch(url, { timeout: 0 })
+      if (!r.ok) throw await refused(r)
+      return r.arrayBuffer()
+    },
+    hear: async (wav) => {
+      let text
+      try {
+        text = await transcribe(sid, wav)
+      } catch (error) {
+        if (error?.code === 'voice_conversation_elsewhere') {
+          closeConversation(sid)
+          setVoiceError(sid, tRaw('voice.conversation_elsewhere'))
+          return
+        }
+        throw error
+      }
+      // 声でない音 (= 物音) は、 文字にすると空になる。 会話の間は黙って捨てる
+      if (text && !entry.closed) send(text)
+    },
+    ...speakingOf(sid),
+    onPhase: (phase) => { if (!entry.closed) setVoicePhase(sid, phase) },
+    onError: (error) => {
+      if (entry.closed) return
+      console.warn('[voice] a turn could not be sent:', error)
+      setVoiceError(sid, error?.message || String(error))
+    },
+  })
+  if (entry.closed) { await handle.close(); return }
+  entry.handle = handle
+}
+
+// 会話を閉じる (= ボタンを押し直した / タブを移った / 画面から消えた時)。 マイクを閉じ、 返事も鳴らさない。
+export function closeConversation(sid) {
+  const entry = conversations.get(sid)
+  conversations.delete(sid)
+  setVoice(sid, false)
+  setVoicePhase(sid, null)
+  if (!entry) return
+  entry.closed = true
+  entry.handle?.close()
+  entry.stream?.then((stream) => { for (const track of stream.getTracks()) track.stop() }).catch(() => {})
+  entry.audioContext?.close().catch(() => {})
+  apiFetch(`${base(sid)}/conversation`, { method: 'DELETE', jsonBody: { client: CLIENT } }).catch(() => {})
 }

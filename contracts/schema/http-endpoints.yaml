@@ -560,7 +560,8 @@ endpoints:
         marks:   { type: array, items: { type: string }, description: "言い方の印の名前 (= 設定に書いた順)" }
         default: { type: string, description: "印の無い文の印 (= 印を 1 つも持たなければ空文字)" }
         listen:  { type: boolean, description: "人の声を聞き取るか (= 設定に voice.listen が在るか)" }
-      required: [enabled, marks, default, listen]
+        turn:    { type: boolean, description: "言い終えを判定する model を持つか (= 設定に voice.listen.turn が在るか)" }
+      required: [enabled, marks, default, listen, turn]
     response_kind: json
     auth: tailnet
     invariants:
@@ -630,11 +631,62 @@ endpoints:
     response_kind: json
     auth: tailnet
     invariants:
+      - "header X-Voice-Conversation が在れば、 その名前が会話の持ち主でない時は 409 voice_conversation_elsewhere (= 持ち主が居なければ、 その名前が持ち主になる)"
       - "engine の /inference へ multipart で渡す (= file と response_format=json、 設定に prompt が在れば prompt)"
       - "engine が区切りごとに挟む改行は、 空白 1 つにまとめる"
       - "声を持たないタブは 409 voice_not_enabled、 聞き取りを持たないタブは 409 voice_listen_not_enabled"
       - "Content-Type が audio/ でない / 本文が空なら 400 voice_bad_request、 上限より大きければ 413 voice_audio_too_large (= どれも engine を呼ぶ前に返す)"
       - "engine に繋がらなければ 502 voice_listen_unreachable、 engine が断る / 文を返さなければ 502 voice_listen_failed (= params に status)"
+    implementation: backend/routes/voice.py
+
+  - method: GET
+    path: /sessions/{sid}/voice/turn-model
+    description: "言い終えを判定する Smart Turn の model の file (= 設定の voice.listen.turn。 画面が受け取って、 画面の中で判定する)"
+    response_kind: raw
+    auth: tailnet
+    invariants:
+      - "応答は file の中身そのまま (= application/octet-stream)、 Cache-Control: no-cache (= ETag で確かめ直す)"
+      - "聞き取りを持たないタブは 409 voice_listen_not_enabled、 設定に turn が無い / file が無ければ 404 voice_turn_model_missing"
+    implementation: backend/routes/voice.py
+
+  - method: POST
+    path: /sessions/{sid}/voice/conversation
+    description: "この画面で会話を開く (= そのタブの会話の持ち主をこの画面にする)"
+    request_body:
+      type: object
+      required: [client]
+      properties:
+        client: { type: string, description: "画面が名乗る名前 (= 英数字と - _ の 64 文字まで。 画面を読み込むたびに作る)" }
+    response:
+      type: object
+      properties:
+        client: { type: string }
+      required: [client]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "後から開いた画面が持ち主になる (= 前の持ち主の音は transcription が 409 voice_conversation_elsewhere で断る)"
+      - "持ち主は backend の memory にだけ在る (= 再起動で忘れる)"
+      - "client の形が違えば 400 voice_bad_request、 聞き取りを持たないタブは 409 voice_listen_not_enabled"
+    implementation: backend/routes/voice.py
+
+  - method: DELETE
+    path: /sessions/{sid}/voice/conversation
+    description: "会話を閉じる (= 持ち主の画面からだけ)"
+    request_body:
+      type: object
+      required: [client]
+      properties:
+        client: { type: string, description: "会話を開いた時に名乗った名前" }
+    response:
+      type: object
+      properties:
+        closed: { type: boolean, description: "閉じたか (= 別の画面が持っていれば false で、 そのまま)" }
+      required: [closed]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "持ち主でない名前からは閉じない (= closed=false)"
     implementation: backend/routes/voice.py
 
   - method: POST

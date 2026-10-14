@@ -3,15 +3,21 @@
 // shape (= どれもタブの id ごと):
 //   available: そのタブの agent が声を持つか (= backend `GET /sessions/{sid}/voice` の写し。 訊くまでは無い)
 //   marks:     その agent の言い方の印の名前 (= 同じ GET の写し。 吹き出しの表示から印を外すのに使う)
-//   on:        このタブの返事を鳴らすか (= 上部の 🔊 の ON / OFF。 画面を読み込み直すと OFF に戻る:
+//   on:        このタブの返事を鳴らすか (= 入力欄の会話のボタンの ON / OFF。 画面を読み込み直すと OFF に戻る:
 //              音は、 人がボタンを押した後でないと鳴らせない)
 //   error:     最後に鳴らせなかった理由の文 (= 次に鳴った時と、 OFF にした時に消える)
 //   listen:    その agent が人の声を聞き取るか (= 同じ GET の写し。 聞き取らなければ無い)
-//   listening: 🎙 の今 (= 'recording' 録っている / 'hearing' 聞き取りを待っている。 どちらでもなければ無い)
+//   turn:      その agent が言い終えを判定する model を持つか (= 同じ GET の写し。 持たなければ無い)
+//   phase:     会話の今 (= PHASES のどれか。 会話を開いていなければ無い)
+//   speaking:  返事を鳴らしている (= 次の文の合成を待つ間も含む) か
 
 import { createStore } from './_store.js'
 
-const INITIAL = { available: {}, marks: {}, on: {}, error: {}, listen: {}, listening: {} }
+const INITIAL = { available: {}, marks: {}, on: {}, error: {}, listen: {}, turn: {}, phase: {}, speaking: {} }
+
+// 会話の段: 'starting' 部品を読み込んでいる / 'listening' 聞いている / 'talking' 人が話している /
+//           'judging' 言い終えたかを見ている / 'hearing' 話した音を文字にしている
+export const PHASES = ['starting', 'listening', 'talking', 'judging', 'hearing']
 
 const store = createStore(INITIAL, { name: 'voice' })
 
@@ -43,9 +49,9 @@ export function setVoiceMarks(sid, marks) {
 export function setVoiceOn(sid, on) { setFor('on', sid, on ? true : null) }
 export function setVoiceError(sid, text) { setFor('error', sid, text || null) }
 export function setVoiceListen(sid, listens) { setFor('listen', sid, listens === true ? true : null) }
-export function setVoiceListening(sid, phase) {
-  setFor('listening', sid, phase === 'recording' || phase === 'hearing' ? phase : null)
-}
+export function setVoiceTurn(sid, judges) { setFor('turn', sid, judges === true ? true : null) }
+export function setVoicePhase(sid, phase) { setFor('phase', sid, PHASES.includes(phase) ? phase : null) }
+export function setVoiceSpeaking(sid, speaking) { setFor('speaking', sid, speaking ? true : null) }
 
 // test 用: store を INITIAL に戻す (= module singleton なので各 test の beforeEach で呼ぶ)。
 export function _resetForTest() {
