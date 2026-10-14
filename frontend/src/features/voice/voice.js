@@ -141,36 +141,37 @@ function speakingOf(sid) {
   }
 }
 
-// 消音を選んだタブ (= この画面の中だけ覚える。 選んでいなければ、 声をオンにした時にマイクも開く)
-const muted = new Set()
+// 🎙 でマイクを開いたタブ (= この画面の中だけ覚える。 開いたままにしたタブは、 次に声をオンにした時もマイクを開く。
+// 選んでいなければ、 声だけを鳴らしてマイクは取らない)
+const micWanted = new Set()
 
 // 入力欄の 🔊 を押した時に呼ぶ (= 人が押した handler の中から。 音とマイクを扱えるようにするのがここ)。
 // send(text) は、 聞き取った文をこのタブへ送る関数。
-//   オフの時: 返事を声で鳴らし始める。 その agent が声を聞き取り、 このタブで消音を選んでいなければ、 マイクも開く
+//   オフの時: 返事を声で鳴らし始める。 その agent が声を聞き取り、 このタブで 🎙 を開いたままにしていれば、 マイクも開く
 //   オンの時: 全部閉じる。 マイクを閉じ、 返事も鳴らさない
 export function toggleVoice(sid, send) {
   if (getSnapshot().on[sid]) { closeConversation(sid); return }
   if (call() && getSnapshot().listen[sid]) { openCall(sid); return }
   setVoice(sid, true)
-  if (getSnapshot().on[sid] && getSnapshot().listen[sid] && !muted.has(sid)) openMic(sid, send)
+  if (getSnapshot().on[sid] && getSnapshot().listen[sid] && micWanted.has(sid)) openMic(sid, send)
 }
 
-// 入力欄の 🎙 を押した時に呼ぶ (= 声がオンの間だけ出る)。 マイクの消音と解除を入れ替える。 声はそのまま鳴る
-// (= 消音の間も、 打って送った文には声で聞いている印が付く)。
+// 入力欄の 🎙 を押した時に呼ぶ (= 声がオンの間だけ出る)。 マイクを開くと閉じるを入れ替える。 声はそのまま鳴る
+// (= マイクを閉じている間も、 打って送った文には声で聞いている印が付く)。
 export function toggleMic(sid, send) {
   if (!getSnapshot().on[sid] || !getSnapshot().listen[sid]) return
   if (call()?.has(sid)) {
-    if (muted.has(sid)) muted.delete(sid)
-    else muted.add(sid)
-    setVoicePhase(sid, muted.has(sid) ? null : 'listening')
-    call().setMic(sid, !muted.has(sid)).catch((error) => setVoiceError(sid, error?.message || String(error)))
+    if (micWanted.has(sid)) micWanted.delete(sid)
+    else micWanted.add(sid)
+    setVoicePhase(sid, micWanted.has(sid) ? 'listening' : null)
+    call().setMic(sid, micWanted.has(sid)).catch((error) => setVoiceError(sid, error?.message || String(error)))
     return
   }
   if (conversations.has(sid)) {
-    muted.add(sid)
+    micWanted.delete(sid)
     closeMic(sid)
   } else {
-    muted.delete(sid)
+    micWanted.add(sid)
     openMic(sid, send)
   }
 }
@@ -275,8 +276,8 @@ export function closeConversation(sid) {
 function openCall(sid) {
   setVoiceError(sid, null)
   setVoiceOn(sid, true)
-  setVoicePhase(sid, muted.has(sid) ? null : 'starting')
-  call().start(sid, { mic: !muted.has(sid), volume: volumeOf().volume }).catch((error) => {
+  setVoicePhase(sid, micWanted.has(sid) ? 'starting' : null)
+  call().start(sid, { mic: micWanted.has(sid), volume: volumeOf().volume }).catch((error) => {
     closeConversation(sid)
     setVoiceError(sid, error?.message || String(error))
   })
@@ -285,7 +286,7 @@ function openCall(sid) {
 // app の会話の知らせ (= つながった / 切れた / 失敗した)。
 function onNativeState(sid, state, message) {
   if (state === 'connected') {
-    setVoicePhase(sid, muted.has(sid) ? null : 'listening')
+    setVoicePhase(sid, micWanted.has(sid) ? 'listening' : null)
   } else if (state === 'error') {
     closeConversation(sid)
     setVoiceError(sid, message || state)
@@ -295,14 +296,14 @@ function onNativeState(sid, state, message) {
   }
 }
 
-// テストの間で、 消音を選んだタブと開いている会話を忘れる
+// テストの間で、 🎙 を開いたタブと開いている会話を忘れる
 export function _resetForTest() {
-  muted.clear()
+  micWanted.clear()
   conversations.clear()
   nativeCall = undefined
 }
 
-// マイクだけを閉じる (= 消音。 声はそのまま鳴る)。
+// マイクだけを閉じる (= 声はそのまま鳴る)。
 function closeMic(sid) {
   const entry = conversations.get(sid)
   conversations.delete(sid)

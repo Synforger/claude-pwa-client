@@ -59,6 +59,7 @@ test.describe('live: voice conversation', () => {
 
     await page.locator('[data-testid=chat-voice-button]').click()
     const mic = page.locator('[data-testid=chat-mic-button]')
+    await mic.click()
     await expect(mic).toHaveAttribute('data-state', /listening|talking|judging|hearing/, { timeout: 30_000 })
     const listeningAt = Date.now()
     expect(seen.model).toEqual([200])
