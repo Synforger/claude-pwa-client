@@ -131,7 +131,7 @@ async def patch_call(session_id: str, body: dict = Body(...)) -> dict:
 
 @router.post("/sessions/{session_id}/voice/call/volume")
 async def post_call_volume(session_id: str, body: dict = Body(...)) -> dict:
-    """そのタブの通話の声の大きさの倍率を変える (= 次の文から効く)。 通話が無ければ何もしない。
+    """そのタブの通話の声の大きさの倍率を変える (= 話している途中でもその場で効く)。 通話が無ければ何もしない。
 
     body:
         volume (number): 0 〜 2 (= 1 で engine の音のまま)

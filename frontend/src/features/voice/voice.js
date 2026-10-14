@@ -410,8 +410,8 @@ function closeMic(sid) {
   apiFetch(`${base(sid)}/conversation`, { method: 'DELETE', jsonBody: { client: CLIENT } }).catch(() => {})
 }
 
-// 🔊 の長押しのつまみを動かした時に呼ぶ。 その端末の声の大きさを覚え、 画面の声にはその場で、 app の通話の声には
-// 次の文から効かせる (= 通話の声は backend の中で作るので、 backend へ伝える)。
+// 🔊 の長押しのつまみを動かした時に呼ぶ。 その端末の声の大きさを覚え、 画面の声にも app の通話の声にもその場で効かせる
+// (= 通話の声は backend の中で送るので、 backend へ伝える)。
 export function changeVolume(sid, volume) {
   setVoiceVolume(volume)
   if (!call()?.has(sid)) return

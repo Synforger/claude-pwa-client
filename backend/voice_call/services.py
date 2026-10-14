@@ -30,7 +30,11 @@ TTFS_P99_LATENCY_SECS = 1.0
 
 @dataclass
 class Volume:
-    """その端末の、 声の大きさの倍率 (= 端末の画面のつまみ。 0 〜 2、 1 で engine の音のまま)。 通話中に変わる。"""
+    """その端末の、 声の大きさの倍率 (= 端末の画面のつまみ。 0 〜 2、 1 で engine の音のまま)。 通話中に変わる。
+
+    掛けるのは声を作る時ではなく、 送り口へ渡す時 (= pipeline の `scale_output`)。 返事の文は話し終えるより先に全部
+    作られるので、 作る時に掛けると、 話している途中に動かしたつまみはその返事に効かない。
+    """
     value: float = 1.0
 
 
@@ -67,12 +71,11 @@ class ListenSTT(SegmentedSTTService):
 class VoiceTTS(TTSService):
     """1 文を、 その印の言い方で、 backend の声の口で音にする。"""
 
-    def __init__(self, backend: BackendClient, marks: list[str], volume: Volume, **kwargs):
+    def __init__(self, backend: BackendClient, marks: list[str], **kwargs):
         super().__init__(settings=TTSSettings(model=None, voice=None, language=None),
                          push_start_frame=True, push_stop_frames=True, **kwargs)
         self._backend = backend
         self._marks = set(marks)
-        self._volume = volume
 
     async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame, None]:
         mark, values, text = split_mark(text, self._marks)
@@ -94,6 +97,4 @@ class VoiceTTS(TTSService):
             return
         with wave.open(io.BytesIO(sound)) as wav:
             rate, channels, pcm = wav.getframerate(), wav.getnchannels(), wav.readframes(wav.getnframes())
-        if wav.getsampwidth() == 2:
-            pcm = scaled(pcm, self._volume.value)
         yield TTSAudioRawFrame(audio=pcm, sample_rate=rate, num_channels=channels, context_id=context_id)

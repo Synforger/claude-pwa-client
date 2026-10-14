@@ -747,7 +747,7 @@ endpoints:
 
   - method: POST
     path: /sessions/{sid}/voice/call/volume
-    description: "そのタブの通話の声の大きさの倍率を変える (= 端末の画面のつまみ。 次の文から効く)"
+    description: "そのタブの通話の声の大きさの倍率を変える (= 端末の画面のつまみ。 話している途中でもその場で効く)"
     request_body:
       type: object
       properties:
