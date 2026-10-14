@@ -41,6 +41,9 @@ export function createNativeCall({ plugin, onState, onMic = () => {} }) {
   }
   return {
     has: (sid) => current === sid,
+    // 古い版の app は、 声の入 / 切と小窓で表示の口を持たない (= 呼ぶと「関数ではない」 で落ちる)
+    get canSetSpeech() { return typeof plugin.setSpeech === 'function' },
+    get canShowPicture() { return typeof plugin.showPicture === 'function' },
     async start(sid, { mic, volume = 1, speech = true }) {
       listen()
       current = sid

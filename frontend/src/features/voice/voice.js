@@ -153,25 +153,59 @@ function speakingOf(sid) {
   }
 }
 
-// 🎙 でマイクを開いたタブ (= この画面の中だけ覚える。 開いたままにしたタブは、 次に声をオンにした時もマイクを開く。
-// 選んでいなければ、 声だけを鳴らしてマイクは取らない)
+// 🎙 でマイクを開いているタブ (= この画面の中だけ覚える)
 const micWanted = new Set()
 
-// 入力欄の 🔊 を押した時に呼ぶ (= 人が押した handler の中から。 音とマイクを扱えるようにするのがここ)。
-//   オフの時: 返事を声で鳴らし始める。 その agent が声を聞き取り、 このタブで 🎙 を開いたままにしていれば、 マイクも開く。
-//            別のタブの声は閉じる (= 🔊 は 1 つのタブだけ)
-//   オンの時: 全部閉じる。 マイクを閉じ、 返事も鳴らさない
-export function toggleVoice(sid) {
-  if (getSnapshot().on[sid]) { closeConversation(sid); return }
+// 入力欄の声のボタンは 2 つで、 それぞれ別に入 / 切できる: 🔊 = agent の返事の声、 🎙 = 人のマイク。 どちらかが入って
+// いる間は会話がつながり (= 🔊 は 1 つのタブだけ。 別のタブで始めると、 前のタブの会話は閉じる)、 両方切ると会話を
+// 終える。 🎙 だけで始めると、 声の入力だけで返事は声にしない会話になる (= 返事は文字と、 app の小窓で読む)。
+// どちらも人が押した handler の中から呼ぶ (= 音とマイクを扱えるようにするのがここ)。
+
+// 会話を始める (= 声を鳴らすかは quiet、 マイクを開くかは micWanted で決めてから呼ぶ)。
+function startConversation(sid) {
   for (const other of Object.keys(getSnapshot().on)) closeConversation(other)
   if (call() && getSnapshot().listen[sid]) { openCall(sid); return }
   setVoice(sid, true)
   if (getSnapshot().on[sid] && getSnapshot().listen[sid] && micWanted.has(sid)) openMic(sid)
 }
 
-// iPhone の app の中で、 そのタブの通話がつながっているか (= ⋯ メニューの「小窓で表示」 を出すか)。
+// マイクが開いているか (= app の会話では app に頼んだ状態、 画面の会話では開いている会話が在るか)。
+function micOpen(sid) {
+  return call()?.has(sid) ? micWanted.has(sid) : conversations.has(sid)
+}
+
+// 返事を声にするか (= 会話の間。 切にすると鳴っている声も止める。 マイクと、 app の小窓の文字はそのまま)。
+function setSpeech(sid, on) {
+  setVoiceQuiet(sid, !on)
+  if (call()?.has(sid)) {
+    call().setSpeech(sid, on).catch((error) => setVoiceError(sid, error?.message || String(error)))
+  } else if (!on) {
+    player.stop(sid)
+  }
+}
+
+// 入力欄の 🔊 を押した時に呼ぶ。
+//   会話していない時: 返事を声で鳴らす会話を始める (= マイクは取らない)
+//   声を鳴らしている時: 声を止める。 マイクも閉じていれば会話を終える
+//   声を止めている時: 声を鳴らす
+// 声の入 / 切を受け付けない古い iPhone の app の会話では、 押すと会話を終える (= 前の 🔊 と同じ)。
+export function toggleVoice(sid) {
+  const snap = getSnapshot()
+  if (!snap.on[sid]) {
+    micWanted.delete(sid)
+    setVoiceQuiet(sid, false)
+    startConversation(sid)
+    return
+  }
+  if (call()?.has(sid) && !call().canSetSpeech) { closeConversation(sid); return }
+  if (snap.quiet[sid]) { setSpeech(sid, true); return }
+  if (micOpen(sid)) { setSpeech(sid, false); return }
+  closeConversation(sid)
+}
+
+// iPhone の app の中で、 そのタブの通話がつながっていて、 app が小窓を出せる版か (= ⋯ メニューの「小窓で表示」)。
 export function hasAppCall(sid) {
-  return !!sid && !!call()?.has(sid) && !!getSnapshot().on[sid]
+  return !!sid && !!call()?.has(sid) && !!getSnapshot().on[sid] && call().canShowPicture
 }
 
 // 通話の小窓 (= PiP) を今出す (= 自動で出なかった時。 出せなければ理由を声のボタンの上に出す)。
@@ -180,31 +214,29 @@ export function showCallPicture(sid) {
   call().showPicture(sid).catch((error) => setVoiceError(sid, error?.message || String(error)))
 }
 
-// 入力欄の声の入 / 切のボタンを押した時に呼ぶ (= 会話の間だけ出る)。 切にすると返事を声にしない (= 鳴っている声も
-// 止める)。 マイクと、 小窓の文字はそのまま。 app の会話では、 backend の会話が声を作るのをやめる。
-export function toggleSpeech(sid) {
-  if (!getSnapshot().on[sid]) return
-  const quiet = !getSnapshot().quiet[sid]
-  setVoiceQuiet(sid, quiet)
-  if (call()?.has(sid)) {
-    call().setSpeech(sid, !quiet).catch((error) => setVoiceError(sid, error?.message || String(error)))
-  } else if (quiet) {
-    player.stop(sid)
-  }
-}
 
-// 入力欄の 🎙 を押した時に呼ぶ (= 声がオンの間だけ出る)。 マイクを開くと閉じるを入れ替える。 声はそのまま鳴る
-// (= マイクを閉じている間も、 打って送った文には声で聞いている印が付く)。
+// 入力欄の 🎙 を押した時に呼ぶ (= その agent が声を聞き取る時だけ出る)。
+//   会話していない時: 声の入力だけの会話を始める (= 返事は声にしない)
+//   会話している時: マイクを開く / 閉じる。 閉じた時に声も止めていれば、 会話を終える
 export function toggleMic(sid) {
-  if (!getSnapshot().on[sid] || !getSnapshot().listen[sid]) return
+  const snap = getSnapshot()
+  if (!snap.listen[sid]) return
+  if (!snap.on[sid]) {
+    micWanted.add(sid)
+    setVoiceQuiet(sid, true)
+    startConversation(sid)
+    return
+  }
+  const closing = micOpen(sid)
+  if (closing && snap.quiet[sid]) { micWanted.delete(sid); closeConversation(sid); return }
   if (call()?.has(sid)) {
-    if (micWanted.has(sid)) micWanted.delete(sid)
+    if (closing) micWanted.delete(sid)
     else micWanted.add(sid)
     setVoicePhase(sid, micWanted.has(sid) ? 'listening' : null)
     call().setMic(sid, micWanted.has(sid)).catch((error) => setVoiceError(sid, error?.message || String(error)))
     return
   }
-  if (conversations.has(sid)) {
+  if (closing) {
     micWanted.delete(sid)
     closeMic(sid)
   } else {
