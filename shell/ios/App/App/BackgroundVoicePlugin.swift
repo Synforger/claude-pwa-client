@@ -15,6 +15,8 @@ import UIKit
 /// 画面から呼ぶ口:
 ///   start({ url, mic })   電話の口の URL へつなぐ (= mic が false ならマイクを切った状態で始める)
 ///   setMic({ on })        マイクを入れる / 切る (= 声はそのまま鳴る)
+///   setSpeech({ on })     返事を声にする / しない (= backend の会話へ知らせる。 マイクと小窓はそのまま)
+///   showPicture()         小窓を今出す (= 自動で出なかった時。 出せなければ reject)
 ///   stop()                切る
 /// 画面へ知らせる event:
 ///   state { state }       connecting / connected / disconnected / error (= error の時は message も)
@@ -26,6 +28,8 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "start", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setMic", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setSpeech", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "showPicture", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise),
     ]
 
@@ -69,6 +73,28 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    @objc func setSpeech(_ call: CAPPluginCall) {
+        let on = call.getBool("on") ?? true
+        Task { @MainActor in
+            do {
+                try self.client?.sendClientMessage(msgType: "voice-speech", data: .object(["on": .boolean(on)]))
+                call.resolve()
+            } catch {
+                call.reject("could not switch the voice: \(error)")
+            }
+        }
+    }
+
+    @objc func showPicture(_ call: CAPPluginCall) {
+        Task { @MainActor in
+            if self.picture?.show() == true {
+                call.resolve()
+            } else {
+                call.reject("picture in picture is not possible now")
+            }
+        }
+    }
+
     @objc func stop(_ call: CAPPluginCall) {
         Task { @MainActor in
             await self.disconnect()
@@ -101,7 +127,6 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
                 picture.start(over: screen)
                 picture.setMic(mic)
                 picture.onMic = { [weak self] on in self?.switchMicFromPicture(on) }
-                picture.onSkip = { [weak self] forward in self?.sendButton(forward ? "voice-skip" : "voice-replay") }
                 self.picture = picture
             }
         } catch {
@@ -121,13 +146,6 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
                 CAPLog.print("[BackgroundVoice] could not switch the microphone from the picture: \(error)")
                 self.picture?.setMic(!on)
             }
-        }
-    }
-
-    /// 小窓の送りのボタンを、 backend の会話へ知らせる (= `backend/voice_call/agent.py` の小窓のボタン)。
-    @MainActor private func sendButton(_ kind: String) {
-        do { try client?.sendClientMessage(msgType: kind) } catch {
-            CAPLog.print("[BackgroundVoice] could not send \(kind): \(error)")
         }
     }
 

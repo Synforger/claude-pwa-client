@@ -11,10 +11,13 @@
 //   phase:     会話の今 (= PHASES のどれか。 会話を開いていなければ無い)
 //   speaking:  返事を鳴らしている (= 次の文の合成を待つ間も含む) か
 //   conversation: 会話の間の取り方 (= 同じ GET の写し。 声を持たなければ無い)
+//   quiet:     会話の間、 agent の返事を声にしない (= 入力欄の声の入 / 切のボタン。 マイクと文字はそのまま)
 
 import { createStore } from './_store.js'
 
-const INITIAL = { available: {}, marks: {}, on: {}, error: {}, listen: {}, turn: {}, phase: {}, speaking: {}, conversation: {} }
+const INITIAL = {
+  available: {}, marks: {}, on: {}, error: {}, listen: {}, turn: {}, phase: {}, speaking: {}, conversation: {}, quiet: {},
+}
 
 // 会話の段: 'starting' 部品を読み込んでいる / 'listening' 聞いている / 'talking' 人が話している /
 //           'judging' 言い終えたかを見ている / 'hearing' 話した音を文字にしている
@@ -53,6 +56,7 @@ export function setVoiceListen(sid, listens) { setFor('listen', sid, listens ===
 export function setVoiceTurn(sid, judges) { setFor('turn', sid, judges === true ? true : null) }
 export function setVoicePhase(sid, phase) { setFor('phase', sid, PHASES.includes(phase) ? phase : null) }
 export function setVoiceSpeaking(sid, speaking) { setFor('speaking', sid, speaking ? true : null) }
+export function setVoiceQuiet(sid, quiet) { setFor('quiet', sid, quiet ? true : null) }
 export function setVoiceConversation(sid, settings) {
   setFor('conversation', sid, settings && typeof settings === 'object' ? settings : null)
 }

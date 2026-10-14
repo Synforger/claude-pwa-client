@@ -71,8 +71,10 @@ async def post_call(request: Request, session_id: str, body: dict = Body(...)) -
 
     body: Pipecat の SmallWebRTC の offer (= sdp / type / pc_id / restart_pc)
     query: volume (省略可) = その端末の声の大きさの倍率 (= 0 〜 2。 省けば 1)
+           speech (省略可) = 0 なら、 返事を声にしない会話で始める (= 画面の声の入 / 切。 通話中は app が切り替える)
     """
     volume = _volume_of(request.query_params.get("volume", "1"))
+    speech = request.query_params.get("speech", "1") != "0"
     # 会話を持てないタブ (= 声を持たない / 聞き取らない) は、 つなぐ前に断る
     settings = conversation_settings(session_id)
     if importlib.util.find_spec("pipecat") is None:
@@ -86,6 +88,7 @@ async def post_call(request: Request, session_id: str, body: dict = Body(...)) -
         "type": "start", "base_url": f"http://{host}:{port}", "session_id": session_id,
         "client": f"call-{uuid.uuid4().hex[:12]}", "marks": list(settings["marks"]),
         "conversation": settings["conversation"], "turn": settings["listen"]["turn"], "volume": volume,
+        "speech": speech,
     }
     proc = await asyncio.create_subprocess_exec(
         sys.executable, "-m", "backend.voice_call.worker", cwd=str(REPO_ROOT),

@@ -124,7 +124,8 @@ async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, st
         transport.input(),
         ListenSTT(backend, on_lost=lost),
         user_aggregator,
-        AgentBridge(conversation, send=backend.send, events=backend.events, utterances=backend.utterances),
+        AgentBridge(conversation, send=backend.send, events=backend.events, utterances=backend.utterances,
+                    speech=start.get("speech", True)),
         VoiceTTS(backend, start["marks"], volume),
         transport.output(),
     ])
