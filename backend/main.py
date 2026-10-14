@@ -94,8 +94,12 @@ import backend.routes.files as files_routes  # noqa: E402
 import backend.routes.hooks as hooks_routes  # noqa: E402
 import backend.routes.notes as notes_routes  # noqa: E402
 import backend.routes.restart as restart_routes  # noqa: E402
+import backend.rollover as rollover  # noqa: E402
+import backend.routes.rollover as rollover_routes  # noqa: E402
 import backend.routes.subagents as subagents_routes  # noqa: E402
 import backend.routes.unified_stream as unified_stream_routes  # noqa: E402
+import backend.routes.voice as voice_routes  # noqa: E402
+import backend.routes.voice_call as voice_call_routes  # noqa: E402
 import backend.terminal.routes as pty_routes  # noqa: E402
 import backend.terminal.runner as pty_runner  # noqa: E402
 
@@ -196,6 +200,10 @@ async def lifespan(app: FastAPI):
         logger.exception("startup maintenance failed")
     maintenance_task = asyncio.create_task(maintenance.maintenance_loop())
 
+    # 自動の入れ替え: 設定に条件を書いた agent のタブを見回り、 条件が立ったら締めを頼む
+    # (= `backend/rollover.py`。 条件の無い agent のタブには何もしない)。
+    rollover_task = asyncio.create_task(rollover.rollover_loop())
+
     # tmux pane に「入力待ち」 (= subprocess prompt / TUI 選択肢 / bypass 下の思わぬ待機)
     # が発生したら SSE で chip UI + Web Push で通知する。 全 session 500ms poll。
     from backend.terminal.prompt_detector_loop import prompt_detector_loop
@@ -220,8 +228,9 @@ async def lifespan(app: FastAPI):
     blocker_monitor_task.cancel()
     uploads_gc_task.cancel()
     maintenance_task.cancel()
+    rollover_task.cancel()
     prompt_detector_task.cancel()
-    for _t in (blocker_monitor_task, uploads_gc_task, maintenance_task, prompt_detector_task):
+    for _t in (blocker_monitor_task, uploads_gc_task, maintenance_task, rollover_task, prompt_detector_task):
         try:
             await _t
         except (asyncio.CancelledError, Exception):
@@ -276,9 +285,12 @@ app.include_router(jsonl_routes.router)
 app.include_router(notes_routes.router)
 app.include_router(pty_routes.router)
 app.include_router(restart_routes.router)
+app.include_router(rollover_routes.router)
 app.include_router(push.router)
 app.include_router(subagents_routes.router)
 app.include_router(unified_stream_routes.router)
+app.include_router(voice_routes.router)
+app.include_router(voice_call_routes.router)
 
 # ADR-012 /debug/* (= 3 file 分割: observability / e2e seed / healthcheck)。 localhost +
 # Host header allowlist の 2 段防御で外からは触れない (e2e は CPC_E2E env の 3 段目付き)。

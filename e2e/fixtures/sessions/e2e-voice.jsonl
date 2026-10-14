@@ -1,0 +1,2 @@
+{"type":"user","uuid":"u-e2e-voice-0001","message":{"role":"user","content":"Tell me when it is done."},"timestamp":"2026-06-28T10:00:00Z"}
+{"type":"assistant","uuid":"a-e2e-voice-0001","parentUuid":"u-e2e-voice-0001","message":{"id":"msg_e2e_voice_01","role":"assistant","content":[{"type":"text","text":"This reply was written before the voice was turned on."}],"stop_reason":"end_turn","model":"claude-opus-4-7","usage":{"input_tokens":10,"output_tokens":7}},"timestamp":"2026-06-28T10:00:01Z"}

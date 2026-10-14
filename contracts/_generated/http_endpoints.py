@@ -220,6 +220,115 @@ class PostPtySidSendWithFilesResponse(BaseModel):
     saved_files: Optional[list[str]] = None
 
 
+class PostSessionsSidRolloverRequest(BaseModel):
+    """POST /sessions/{sid}/rollover request body"""
+    model_config = ConfigDict(extra="forbid")
+    pass
+
+
+class PostSessionsSidRolloverResponse(BaseModel):
+    """POST /sessions/{sid}/rollover response"""
+    model_config = ConfigDict(extra="forbid")
+    rolling: bool
+
+
+class GetSessionsSidVoiceResponse(BaseModel):
+    """GET /sessions/{sid}/voice response"""
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
+    marks: list[str]  # 言い方の印の名前 (= 設定に書いた順)
+    default: str  # 印の無い文の印 (= 印を 1 つも持たなければ空文字)
+    listen: bool  # 人の声を聞き取るか (= 設定に voice.listen が在るか)
+    turn: bool  # 言い終えを判定する model を持つか (= 設定に voice.listen.turn が在るか)
+    conversation: Optional[dict[str, Any]] = None  # 会話の間の取り方 (= 設定と調整の file の値、 書いていない項目は既定。 声を持たなければ null)
+    tuning_error: str  # 調整の file (= voice.tuning) を使えない理由 (= 使えている / 書いていなければ空文字)
+
+
+class PostSessionsSidVoiceUtterancesRequest(BaseModel):
+    """POST /sessions/{sid}/voice/utterances request body"""
+    model_config = ConfigDict(extra="forbid")
+    text: str  # agent の返事の文 (= markdown のまま)
+
+
+class PostSessionsSidVoiceUtterancesResponse(BaseModel):
+    """POST /sessions/{sid}/voice/utterances response"""
+    model_config = ConfigDict(extra="forbid")
+    utterances: list[dict[str, Any]]
+
+
+class PostSessionsSidVoiceSynthesisRequest(BaseModel):
+    """POST /sessions/{sid}/voice/synthesis request body"""
+    model_config = ConfigDict(extra="forbid")
+    text: str  # 声にする 1 文 (= utterances が返した文)
+    mark: Optional[str] = None  # 言い方の印 (= 省けば既定の印)
+
+
+class PostSessionsSidVoiceTranscriptionRequest(BaseModel):
+    """POST /sessions/{sid}/voice/transcription request body"""
+    model_config = ConfigDict(extra="forbid")
+    pass
+
+
+class PostSessionsSidVoiceTranscriptionResponse(BaseModel):
+    """POST /sessions/{sid}/voice/transcription response"""
+    model_config = ConfigDict(extra="forbid")
+    text: str  # 聞き取った文 (= 1 行。 声が聞き取れなければ空文字)
+
+
+class PostSessionsSidVoiceConversationRequest(BaseModel):
+    """POST /sessions/{sid}/voice/conversation request body"""
+    model_config = ConfigDict(extra="forbid")
+    client: str  # 画面が名乗る名前 (= 英数字と - _ の 64 文字まで。 画面を読み込むたびに作る)
+
+
+class PostSessionsSidVoiceConversationResponse(BaseModel):
+    """POST /sessions/{sid}/voice/conversation response"""
+    model_config = ConfigDict(extra="forbid")
+    client: str
+
+
+class DeleteSessionsSidVoiceConversationRequest(BaseModel):
+    """DELETE /sessions/{sid}/voice/conversation request body"""
+    model_config = ConfigDict(extra="forbid")
+    client: str  # 会話を開いた時に名乗った名前
+
+
+class DeleteSessionsSidVoiceConversationResponse(BaseModel):
+    """DELETE /sessions/{sid}/voice/conversation response"""
+    model_config = ConfigDict(extra="forbid")
+    closed: bool  # 閉じたか (= 別の画面が持っていれば false で、 そのまま)
+
+
+class PostSessionsSidVoiceCallRequest(BaseModel):
+    """POST /sessions/{sid}/voice/call request body"""
+    model_config = ConfigDict(extra="forbid")
+    sdp: str
+    type: str
+    pc_id: Optional[str] = None
+    restart_pc: Optional[bool] = None
+
+
+class PostSessionsSidVoiceCallResponse(BaseModel):
+    """POST /sessions/{sid}/voice/call response"""
+    model_config = ConfigDict(extra="forbid")
+    sdp: str
+    type: str
+    pc_id: str
+
+
+class PatchSessionsSidVoiceCallRequest(BaseModel):
+    """PATCH /sessions/{sid}/voice/call request body"""
+    model_config = ConfigDict(extra="forbid")
+    pc_id: str
+    candidates: list[dict[str, Any]]
+
+
+class PatchSessionsSidVoiceCallResponse(BaseModel):
+    """PATCH /sessions/{sid}/voice/call response"""
+    model_config = ConfigDict(extra="forbid")
+    status: str
+
+
 class PostAgentMessagesRequest(BaseModel):
     """POST /agent-messages request body"""
     model_config = ConfigDict(extra="forbid")

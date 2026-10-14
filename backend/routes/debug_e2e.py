@@ -12,14 +12,16 @@ prod build にも登録されたままだが、 env が無ければ全 endpoint 
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import os
 import uuid
+import wave
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Body, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from backend.routes.debug import _ensure_localhost
@@ -245,3 +247,56 @@ async def e2e_extension_fixture(request: Request) -> HTMLResponse:
     _ensure_localhost(request)
     _ensure_e2e_enabled()
     return HTMLResponse(_EXTENSION_FIXTURE_HTML)
+
+
+# 声の口の e2e 用 fixture (= 本番では別の process が持つ音声合成の engine を、 test backend が代わりに返す)。
+# 問い合わせには engine と同じ形の値を、 合成には無音の短い WAV を返す。 `text` が `[fail]` で始まる文の
+# 合成は断る (= engine が失敗した時の画面を scenario が見るための口)。
+_VOICE_FIXTURE_SECONDS = 0.2
+_VOICE_FIXTURE_RATE = 8000
+
+
+def _silence() -> bytes:
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(_VOICE_FIXTURE_RATE)
+        w.writeframes(b"\x00\x00" * int(_VOICE_FIXTURE_RATE * _VOICE_FIXTURE_SECONDS))
+    return out.getvalue()
+
+
+@fixture_router.post("/ext/fixture-voice/audio_query", include_in_schema=False)
+async def e2e_voice_fixture_query(request: Request, text: str, speaker: int) -> dict:
+    """e2e の音声合成の fixture: 問い合わせ。 CPC_E2E=1 かつ loopback の時だけ返す。"""
+    _ensure_localhost(request)
+    _ensure_e2e_enabled()
+    return {"accent_phrases": [], "speedScale": 1.0, "pitchScale": 0.0, "intonationScale": 1.0,
+            "prePhonemeLength": 0.1, "kana": text}
+
+
+@fixture_router.post("/ext/fixture-voice/synthesis", include_in_schema=False)
+async def e2e_voice_fixture_synthesis(request: Request, speaker: int, query: dict = Body(...)) -> Response:
+    """e2e の音声合成の fixture: 合成。 CPC_E2E=1 かつ loopback の時だけ返す。"""
+    _ensure_localhost(request)
+    _ensure_e2e_enabled()
+    if str(query.get("kana", "")).startswith("[fail]"):
+        raise HTTPException(status_code=500, detail="the fixture engine was asked to fail")
+    return Response(content=_silence(), media_type="audio/wav")
+
+
+# 聞き取りの e2e 用 fixture (= 本番では別の process が持つ whisper-server を、 test backend が代わりに返す)。
+# 音を受けたら、 決まった 1 文を、 engine と同じく区切りの改行つきで返す (= 中身は聞かない)。
+VOICE_FIXTURE_HEARD = "what the fixture heard"
+
+
+@fixture_router.post("/ext/fixture-listen/inference", include_in_schema=False)
+async def e2e_listen_fixture_inference(
+    request: Request, file: UploadFile = File(...), response_format: str = Form("json"),
+) -> dict:
+    """e2e の聞き取りの fixture。 CPC_E2E=1 かつ loopback の時だけ返す。"""
+    _ensure_localhost(request)
+    _ensure_e2e_enabled()
+    if not await file.read():
+        raise HTTPException(status_code=400, detail="the fixture engine was given no sound")
+    return {"text": f" {VOICE_FIXTURE_HEARD}\n"}

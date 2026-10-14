@@ -2,10 +2,14 @@
 // Edit / Write は MessageItem 側で diff 描画するため diffInput を返す。
 import { truncate } from './_shared.js'
 
+// Bash の見出しは、 claude が呼び出しに付ける「何をするか」 の 1 行 (= input.description)。
+// コマンドは label に残るので、 行を開けば読める (= 見出しと違う label は開いた中に出る)。
+// 説明文が無い呼び出しは、 コマンドを見出しにする。
 export const Bash = {
   format(input) {
     const label = `$ ${input?.command ?? ''}`
-    return { label, shortLabel: truncate(label) }
+    const description = typeof input?.description === 'string' ? input.description.trim() : ''
+    return { label, shortLabel: truncate(description || label) }
   },
 }
 

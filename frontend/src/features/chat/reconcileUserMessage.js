@@ -1,7 +1,7 @@
 import { generateId } from '../../utils/id.js'
 import { MAX_MESSAGES } from '../../constants.js'
 import { isStaleFor } from './replayGuard.js'
-import { parseAgentMessage } from './agentMessage.js'
+import { isClientMessage } from './agentMessage.js'
 
 // SSE 経由で受信した user_message を messages 配列に統合する純粋関数。
 //
@@ -41,8 +41,8 @@ export function reconcileUserMessage(cur, eventText, eventUuid, eventSendId, eve
   }
   const text = eventText || ''
 
-  // 別のタブからの連絡は楽観 bubble の相手にしない (= 冒頭の設計)。
-  if (parseAgentMessage(text)) return _append(cur, text, eventUuid, null, eventTs)
+  // 別のタブからの連絡と自動の入れ替えの発話は、 楽観 bubble の相手にしない (= 冒頭の設計)。
+  if (isClientMessage(text)) return _append(cur, text, eventUuid, null, eventTs)
 
   // 2. send_id 一致 (identity 経路)。
   if (eventSendId) {

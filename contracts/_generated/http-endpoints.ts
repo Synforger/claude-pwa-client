@@ -225,6 +225,121 @@ export interface PostPtySidSendWithFilesResponse {
   saved_files?: string[]
 }
 
+/** POST /sessions/{sid}/rollover request body */
+export type PostSessionsSidRolloverRequest = Record<string, unknown>
+
+/** POST /sessions/{sid}/rollover response */
+export interface PostSessionsSidRolloverResponse {
+  rolling: boolean
+}
+
+/** GET /sessions/{sid}/voice response */
+export interface GetSessionsSidVoiceResponse {
+  enabled: boolean
+  /** 言い方の印の名前 (= 設定に書いた順) */
+  marks: string[]
+  /** 印の無い文の印 (= 印を 1 つも持たなければ空文字) */
+  default: string
+  /** 人の声を聞き取るか (= 設定に voice.listen が在るか) */
+  listen: boolean
+  /** 言い終えを判定する model を持つか (= 設定に voice.listen.turn が在るか) */
+  turn: boolean
+  /** 会話の間の取り方 (= 設定と調整の file の値、 書いていない項目は既定。 声を持たなければ null) */
+  conversation?: {
+    /** 声が途切れてから、 言い終えたかの判定に入るまでの無音 (ミリ秒) */
+    pause_ms: number
+    /** 言い終えていない時に、 送るまで待つ無音 (ミリ秒。 声が途切れた時から) */
+    wait_ms: number
+    /** 聞き取った文がこれで終わる時は、 wait_ms まで待つ */
+    unfinished_endings: string[]
+    /** 返事が鳴っている間も聞き、 話し始めたら返事を止めるか */
+    interrupt: boolean
+  } | null
+  /** 調整の file (= voice.tuning) を使えない理由 (= 使えている / 書いていなければ空文字) */
+  tuning_error: string
+}
+
+/** POST /sessions/{sid}/voice/utterances request body */
+export interface PostSessionsSidVoiceUtterancesRequest {
+  /** agent の返事の文 (= markdown のまま) */
+  text: string
+}
+
+/** POST /sessions/{sid}/voice/utterances response */
+export interface PostSessionsSidVoiceUtterancesResponse {
+  utterances: ({
+      /** その文の言い方の印 (= 文頭に印が無ければ既定の印) */
+      mark: string
+      text: string
+    })[]
+}
+
+/** POST /sessions/{sid}/voice/synthesis request body */
+export interface PostSessionsSidVoiceSynthesisRequest {
+  /** 声にする 1 文 (= utterances が返した文) */
+  text: string
+  /** 言い方の印 (= 省けば既定の印) */
+  mark?: string
+}
+
+/** POST /sessions/{sid}/voice/transcription request body */
+export type PostSessionsSidVoiceTranscriptionRequest = Record<string, unknown>
+
+/** POST /sessions/{sid}/voice/transcription response */
+export interface PostSessionsSidVoiceTranscriptionResponse {
+  /** 聞き取った文 (= 1 行。 声が聞き取れなければ空文字) */
+  text: string
+}
+
+/** POST /sessions/{sid}/voice/conversation request body */
+export interface PostSessionsSidVoiceConversationRequest {
+  /** 画面が名乗る名前 (= 英数字と - _ の 64 文字まで。 画面を読み込むたびに作る) */
+  client: string
+}
+
+/** POST /sessions/{sid}/voice/conversation response */
+export interface PostSessionsSidVoiceConversationResponse {
+  client: string
+}
+
+/** DELETE /sessions/{sid}/voice/conversation request body */
+export interface DeleteSessionsSidVoiceConversationRequest {
+  /** 会話を開いた時に名乗った名前 */
+  client: string
+}
+
+/** DELETE /sessions/{sid}/voice/conversation response */
+export interface DeleteSessionsSidVoiceConversationResponse {
+  /** 閉じたか (= 別の画面が持っていれば false で、 そのまま) */
+  closed: boolean
+}
+
+/** POST /sessions/{sid}/voice/call request body */
+export interface PostSessionsSidVoiceCallRequest {
+  sdp: string
+  type: string
+  pc_id?: string
+  restart_pc?: boolean
+}
+
+/** POST /sessions/{sid}/voice/call response */
+export interface PostSessionsSidVoiceCallResponse {
+  sdp: string
+  type: string
+  pc_id: string
+}
+
+/** PATCH /sessions/{sid}/voice/call request body */
+export interface PatchSessionsSidVoiceCallRequest {
+  pc_id: string
+  candidates: (Record<string, unknown>)[]
+}
+
+/** PATCH /sessions/{sid}/voice/call response */
+export interface PatchSessionsSidVoiceCallResponse {
+  status: string
+}
+
 /** POST /agent-messages request body */
 export type PostAgentMessagesRequest = Record<string, unknown>
 

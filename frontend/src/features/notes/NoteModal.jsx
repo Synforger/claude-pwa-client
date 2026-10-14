@@ -18,7 +18,8 @@ import './NoteModal.css'
 //
 // 真値は host の file 1 本 (= GET / PUT /sessions/{sid}/note)。 そのタブのエージェントも同じ file を
 // 直に書くので、 画面はここに写しを持たず、 開いた時と、 そのタブの会話が進むたびに読み直す。
-// 見る時はチャットと同じ描き方 (= 書いてある path はタップで開く)、 書く時はただのテキスト欄。
+// 見る時は markdown のファイルと同じ描き方 (= 見出し / 表 / コード。 書いてある path はタップで開く) で、
+// 長くても畳まず、 段落の改行と空白は書いたとおりに残す。 書く時はただのテキスト欄。
 // メモはそのタブの下書きで、 タブを消すと消える。
 export default function NoteModal() {
   const t = useT()
@@ -85,7 +86,7 @@ export default function NoteModal() {
   const handleEdit = () => { setEditText(content ?? ''); setError(null); setEditMode(true) }
   const handleCancel = () => { setEditMode(false); setError(null) }
   const handleReset = async () => { setResetConfirm(false); await write('') }
-  // チャットと同じ: path をタップしたらプレビューで開く。 メモは畳む (= プレビューと同じ場所に重なるため)
+  // path をタップしたらプレビューで開く。 メモは畳む (= プレビューと同じ場所に重なるため)
   const handleOpenFile = useCallback((path) => {
     setOverlay('notes', false)
     setOverlay('previewPath', path)
@@ -141,8 +142,8 @@ export default function NoteModal() {
             <p className="dim note-empty">{t('notes.empty')}</p>
           ) : (
             // 枠の見た目は markdown のファイルプレビューと同じ物 (= 見出し / 表 / コードの罫と余白)
-            <div className="md-preview">
-              <MessageRenderer text={content} onOpenFile={handleOpenFile} />
+            <div className="md-preview" data-testid="notes-text">
+              <MessageRenderer text={content} onOpenFile={handleOpenFile} asWritten />
             </div>
           )}
         </div>

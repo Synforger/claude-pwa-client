@@ -1,0 +1,18 @@
+{
+  "name": "claude-pwa-client-shell",
+  "private": true,
+  "description": "iOS shell that loads the PWA from the backend and keeps the microphone and the voice running in the background",
+  "scripts": {
+    "sync": "cap sync ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.5.3",
+    "@capacitor/ios": "8.5.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.3"
+  },
+  "overrides": {
+    "uuid": "11.1.1"
+  }
+}

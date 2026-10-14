@@ -51,6 +51,7 @@ from backend.core.jsonl_predicates import (
     AGENT_MESSAGE_OPENING as OPENING,
     AGENT_MESSAGE_OPENINGS as OPENINGS,
     AGENT_MESSAGE_REMOTE_OPENING as REMOTE_OPENING,
+    CLIENT_OPENINGS,
     blocks_text,
     is_human_origin,
     is_user_prompt,
@@ -133,7 +134,7 @@ def relayed_envelope(peer: str, title: str, session: str, text: str) -> str:
     return _envelope(REMOTE_OPENING, f"{title} @{peer}", f"{peer}:{session}", text)
 
 
-def _lines_from_the_end(path: Path):
+def lines_from_the_end(path: Path):
     """記録の行を新しい順に返す。 file を丸ごと読まない (= 記録は 10MB を超える)。"""
     with path.open("rb") as fh:
         fh.seek(0, os.SEEK_END)
@@ -151,7 +152,7 @@ def _lines_from_the_end(path: Path):
             yield rest
 
 
-def _typed(row: dict) -> str | None:
+def entered_text(row: dict) -> str | None:
     """端末から入った発話ならその本文。 会話を始めた発話か、 claude の作業中に打たれて積まれた発話。"""
     if is_human_origin(row.get("origin")) and is_user_prompt(row):
         return blocks_text((row.get("message") or {}).get("content"))
@@ -159,23 +160,23 @@ def _typed(row: dict) -> str | None:
 
 
 def last_operator_text(record: Path | None) -> str | None:
-    """そのタブで人が最後に打った発話。 最後に端末から入った発話が別のタブからの連絡なら None
-    (= 今の作業を始めたのは人ではない)。 記録が読めない時も None。"""
+    """そのタブで人が最後に打った発話。 最後に端末から入った発話が別のタブからの連絡か自動の入れ替えの
+    発話なら None (= 今の作業を始めたのは人ではない)。 記録が読めない時も None。"""
     if record is None:
         return None
     try:
-        for raw in _lines_from_the_end(record):
+        for raw in lines_from_the_end(record):
             if b'"user"' not in raw and b"queued_command" not in raw:
                 continue
             try:
                 row = json.loads(raw)
             except ValueError:
                 continue
-            text = _typed(row) if isinstance(row, dict) else None
+            text = entered_text(row) if isinstance(row, dict) else None
             if text is None or not text.strip():
                 continue
             text = unwrap_pasted(text).strip()
-            return None if text.startswith(OPENINGS) else text
+            return None if text.startswith(CLIENT_OPENINGS) else text
     except OSError:
         logger.warning("agent message: sender's record could not be read: %s", record)
     return None
@@ -232,10 +233,10 @@ async def check(receiver_id: str, text: str) -> None:
     if record is None:
         raise_error(409, "agent_message_receiver_not_ready",
                     "宛先の会話がまだ始まっていないため、 検査できません")
-    await _judge(record.stem, text, receiver_id)
+    await judge(record.stem, text, receiver_id)
 
 
-async def _judge(session: str, text: str, receiver: str) -> None:
+async def judge(session: str, text: str, receiver: str) -> None:
     """検査コマンドを、 宛先を `session` として走らせる (= 設定が在る前提)。 通れば戻る。"""
     from backend.config import AGENT_MESSAGE_CHECK  # noqa: PLC0415
     status, reason, hits = await _run_check(AGENT_MESSAGE_CHECK, text, {"session": session})
@@ -340,7 +341,7 @@ async def send_to_peer(peer_name: str, tab: str, sender: str, text: str) -> dict
         raise_error(403, "agent_message_peer_not_allowed",
                     f"このタブは {peer_name} の機械と連絡できません", peer=peer_name)
     if AGENT_MESSAGE_CHECK:
-        await _judge(name, text, name)
+        await judge(name, text, name)
     status, body = await call_peer(peer_name, peer, RELAYED_PATH, {
         "to": tab, "from_title": sessions_meta[sender].title, "from_session": sender, "text": text,
     })
