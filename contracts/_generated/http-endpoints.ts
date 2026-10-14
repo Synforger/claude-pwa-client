@@ -236,7 +236,7 @@ export interface PostSessionsSidRolloverResponse {
 /** GET /sessions/{sid}/voice response */
 export interface GetSessionsSidVoiceResponse {
   enabled: boolean
-  /** 言い方の印の名前 (= 設定に書いた順) */
+  /** 言い方の印の名前 (= 設定に書いた順。 最後に予約の印 mute。 声を持たなければ空) */
   marks: string[]
   /** 印の無い文の印 (= 印を 1 つも持たなければ空文字) */
   default: string

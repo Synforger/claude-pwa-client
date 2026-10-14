@@ -558,7 +558,7 @@ endpoints:
       type: object
       properties:
         enabled: { type: boolean }
-        marks:   { type: array, items: { type: string }, description: "言い方の印の名前 (= 設定に書いた順)" }
+        marks:   { type: array, items: { type: string }, description: "言い方の印の名前 (= 設定に書いた順。 最後に予約の印 mute。 声を持たなければ空)" }
         default: { type: string, description: "印の無い文の印 (= 印を 1 つも持たなければ空文字)" }
         listen:  { type: boolean, description: "人の声を聞き取るか (= 設定に voice.listen が在るか)" }
         turn:    { type: boolean, description: "言い終えを判定する model を持つか (= 設定に voice.listen.turn が在るか)" }
@@ -612,6 +612,7 @@ endpoints:
     invariants:
       - "声にする物が無い返事は空の並び (= エラーにしない)"
       - "文頭の印は、 その行の終わりまで効く (= 行の中で別の印が出れば切り替わる)。 設定に無い名前の [..] は文として残る"
+      - "予約の印 [mute] の行は声にしない (= 返さない。 行の終わりまで効き、 設定の marks に同じ名前が在っても予約が勝つ)"
       - "印に添えた値 (= [happy i=1.2 s=1.1]) は印と同じく行の終わりまで効く。 名前の違う値と範囲の外の値は values に入れない (= その文は印の値で言う。 backend の log に出す)"
       - "声を持たないタブは 409 voice_not_enabled、 text が文字列でなければ 400 voice_bad_request、 上限より長ければ 413 voice_text_too_long"
       - "音声合成の engine は呼ばない"
