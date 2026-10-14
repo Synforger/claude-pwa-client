@@ -71,7 +71,7 @@ test.describe('golden: chat', () => {
 })
 
 // The input grows with what is typed and stops at three lines, so the reply above stays
-// readable. Past that a toggle lets it grow to six lines, still in the page's flow.
+// readable. Past that a small toggle on its top edge lets it grow to six lines, still in the page's flow.
 test.describe('golden: chat input size', () => {
   const input = '[data-testid=chat-input]'
   const toggle = '[data-testid=chat-input-size-toggle]'
@@ -100,10 +100,14 @@ test.describe('golden: chat input size', () => {
     await page.locator(input).fill(lines(3))
     expect(await height(page)).toBeCloseTo(Math.max(folded, natural), 0)
     await expect(page.locator(toggle)).toHaveCount(0)
+    const areaHeight = () => page.locator('.inputarea').evaluate((el) => el.getBoundingClientRect().height)
+    const withoutToggle = await areaHeight()
 
     await page.locator(input).fill(lines(4))
     expect(await height(page)).toBeCloseTo(Math.max(folded, natural), 0)
     await expect(page.locator(toggle)).toBeVisible()
+    // The toggle sits on the top edge and takes no line of its own: the input area does not grow.
+    expect(await areaHeight()).toBeCloseTo(withoutToggle, 0)
     await expect(page.locator(toggle)).toHaveAttribute('aria-expanded', 'false')
     // The fourth line is there, reached by scrolling inside the input.
     expect(await overflows(page)).toBe(true)
