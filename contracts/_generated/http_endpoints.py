@@ -261,6 +261,7 @@ class PostSessionsSidVoiceSynthesisRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text: str  # 声にする 1 文 (= utterances が返した文)
     mark: Optional[str] = None  # 言い方の印 (= 省けば既定の印)
+    values: Optional[dict[str, Any]] = None  # 印に添えた値 (= utterances が返した values。 省略可)
 
 
 class PostSessionsSidVoiceTranscriptionRequest(BaseModel):

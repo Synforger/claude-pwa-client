@@ -271,6 +271,8 @@ export interface PostSessionsSidVoiceUtterancesResponse {
       /** その文の言い方の印 (= 文頭に印が無ければ既定の印) */
       mark: string
       text: string
+      /** 印に添えた値 (= engine の問い合わせの値の名前 → 数。 添えていなければ空) */
+      values: Record<string, number>
     })[]
 }
 
@@ -280,6 +282,8 @@ export interface PostSessionsSidVoiceSynthesisRequest {
   text: string
   /** 言い方の印 (= 省けば既定の印) */
   mark?: string
+  /** 印に添えた値 (= utterances が返した values。 省略可) */
+  values?: Record<string, number>
 }
 
 /** POST /sessions/{sid}/voice/transcription request body */

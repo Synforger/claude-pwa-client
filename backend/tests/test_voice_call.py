@@ -56,9 +56,12 @@ def test_only_the_reply_text_of_the_main_agent_is_spoken():
 
 def test_a_mark_survives_the_trip_to_the_voice():
     marks = {"calm": {}, "happy": {}}
-    assert split_mark(marked("happy", "やった。"), marks) == ("happy", "やった。")
-    assert split_mark(marked("", "印なし。"), marks) == (None, "印なし。")
-    assert split_mark("[note]一覧に無い印。", marks) == (None, "[note]一覧に無い印。")
+    assert split_mark(marked("happy", "やった。"), marks) == ("happy", {}, "やった。")
+    assert split_mark(marked("", "印なし。"), marks) == (None, {}, "印なし。")
+    assert split_mark("[note]一覧に無い印。", marks) == (None, {}, "[note]一覧に無い印。")
+    # 印に添えた値も、 合成の部品まで運ぶ
+    values = {"intonationScale": 1.2, "speedScale": 0.9}
+    assert split_mark(marked("happy", "やった。", values), marks) == ("happy", values, "やった。")
 
 
 # --- 口 -------------------------------------------------------------------------------------------------------

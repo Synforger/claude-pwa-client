@@ -41,7 +41,7 @@ class AgentBridge(FrameProcessor):
     conversation                         間の取り方 (= backend の `voice.conversation`)
     send(text) -> 送れたか               そのタブへ 1 通送る
     events() -> そのタブの event の流れ  返事を拾う元
-    utterances(text) -> [{mark, text}]   返事の文を、 声にする文の並びにする
+    utterances(text) -> [{mark, text, values}]   返事の文を、 声にする文の並びにする
     """
 
     def __init__(self, conversation: dict, *, send: Callable[[str], Awaitable[bool]],
@@ -130,7 +130,7 @@ class AgentBridge(FrameProcessor):
             for said in await self._utterances(text):
                 if self._awaiting_turn:
                     break
-                await self.push_frame(TTSSpeakFrame(marked(said.get("mark") or "", said.get("text") or "")))
+                await self.push_frame(TTSSpeakFrame(marked(said.get("mark") or "", said.get("text") or "", said.get("values"))))
 
     def _fresh_speech(self, event: dict) -> str | None:
         found = speech_of(event)

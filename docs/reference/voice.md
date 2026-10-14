@@ -302,6 +302,31 @@ curl -L -o ~/.local/share/smart-turn/smart-turn-v3.2-cpu.onnx \
 - 印の無い行は `default` の印で言います
 - `marks` に無い名前の `[…]` と、 文の途中の `[…]` は、 ただの文として読みます
 
+### 印に値を添える
+
+印の名前の後に `名前=数` を空白で区切って並べると、 その文だけ、 印の値の上にその値を重ねて言います。
+感情の強さや速さを、 文ごとに選べます。
+
+```
+[happy i=1.4] やった！ 全部通ったよ！
+[soft i=0.6 s=0.9] 今日はここまでにしようか。
+```
+
+| 短い名前 | engine の名前 | 範囲 | 中身 |
+|---|---|---|---|
+| `i` | `intonationScale` | 0〜2.0 | 感情の強さ (= スタイルの言い方にどれだけ寄せるか) |
+| `s` | `speedScale` | 0.5〜2.0 | 速さ |
+| `t` | `tempoDynamicsScale` | 0〜2.0 | 緩急 |
+| `p` | `pitchScale` | -0.15〜0.15 | 高さ |
+| `v` | `volumeScale` | 0〜2.0 | 大きさ |
+
+- 短い名前でも、 engine の名前 (= `[happy intonationScale=1.4]`) でも書けます。 範囲は AivisSpeech Engine
+  1.2.0 が示す範囲です
+- 添えた値は、 印と同じく、 その行の終わりまで効きます。 行の中で別の印が出れば、 そこからはその印の値です
+- 範囲の外の値と、 表に無い名前の値は、 その文では使わず、 印の値で言います (= 声は止めません)。 使わなかった
+  値は backend の log に出ます
+- 画面の吹き出しには、 値ごと印は出ません
+
 印を使うかどうかは、 エージェントへの指示 (= そのエージェントの `CLAUDE.md` など) で決めます。 backend は、
 書かれた印を読むだけです。
 
@@ -374,15 +399,17 @@ curl -s http://127.0.0.1:8765/sessions/<タブの id>/voice
 ```sh
 curl -s http://127.0.0.1:8765/sessions/<タブの id>/voice/utterances \
   -H 'Content-Type: application/json' \
-  -d '{"text": "[happy] できたよ！\n場所は `~/notes/a.md` だよ。"}'
+  -d '{"text": "[happy i=1.4] できたよ！\n場所は `~/notes/a.md` だよ。"}'
 ```
 
 ```json
 { "utterances": [
-  { "mark": "happy", "text": "できたよ！" },
-  { "mark": "calm",  "text": "場所は だよ。" }
+  { "mark": "happy", "text": "できたよ！", "values": { "intonationScale": 1.4 } },
+  { "mark": "calm",  "text": "場所は だよ。", "values": {} }
 ] }
 ```
+
+`values` は印に添えた値です (= engine の名前 → 数。 添えていなければ空)。
 
 声にする物が無い返事 (= コードだけ、 など) は、 空の並びを返します。 この口は engine を呼びません。
 
@@ -398,6 +425,7 @@ curl -s http://127.0.0.1:8765/sessions/<タブの id>/voice/synthesis \
 |---|---|
 | `text` | 声にする 1 文 (= `utterances` が返した `text`) |
 | `mark` (任意) | 言い方の印。 省くと `default` の印 |
+| `values` (任意) | 印に添えた値 (= `utterances` が返した `values`)。 印の値の上に重ねます |
 
 engine が返した音 (= WAV 形式) を、 そのまま返します。 backend は音を保存しません。
 
