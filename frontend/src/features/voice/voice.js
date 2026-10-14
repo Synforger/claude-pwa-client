@@ -1,5 +1,6 @@
 // 声の配線: 届いた event → 声にする物を選ぶ (= listener.js) → 音にして鳴らす (= player.js)。
 // 人の声は、 会話を開いている間 (= conversation.js) 、 言い終えるたびに backend が文字にして、 そのタブへ送る。
+// 🔊 にできるのは同時に 1 つのタブだけで、 別のタブを見ている間も、 会話はそのタブで続く。
 // 通信は backend の声の口 (= docs/reference/voice.md)、 音は audio.js。
 
 import { apiFetch } from '../../transport/http.ts'
@@ -59,6 +60,17 @@ const listener = createListener({
   isOn: (sid) => !!getSnapshot().on[sid] && !call()?.has(sid),
   say: (sid, text) => player.say(sid, text),
 })
+
+// 🔊 がオンのタブ (= 空白で区切った文字列。 中身が同じなら同じ値なので、 そのまま store の写しに使える)。
+export const voiceOnSids = () => Object.keys(getSnapshot().on).sort().join(' ')
+export { subscribe as subscribeVoice }
+
+// 聞き取った文をタブへ送る関数 (= send(sid, text)。 チャットの画面が登録する)。 会話は開いた時の送信関数を
+// 掴まず、 送る時にここを通す (= 見ているタブが変わっても、 🔊 のタブへ送る)。
+let sender = null
+export function setVoiceSender(send) {
+  sender = send
+}
 
 // 届いた event を 1 つ渡す (= チャットの event の受け口から呼ぶ)。 history = 履歴の読み込みで届いた物か。
 export function observeVoiceEvent(sid, event, { history = false } = {}) {
@@ -146,19 +158,20 @@ function speakingOf(sid) {
 const micWanted = new Set()
 
 // 入力欄の 🔊 を押した時に呼ぶ (= 人が押した handler の中から。 音とマイクを扱えるようにするのがここ)。
-// send(text) は、 聞き取った文をこのタブへ送る関数。
-//   オフの時: 返事を声で鳴らし始める。 その agent が声を聞き取り、 このタブで 🎙 を開いたままにしていれば、 マイクも開く
+//   オフの時: 返事を声で鳴らし始める。 その agent が声を聞き取り、 このタブで 🎙 を開いたままにしていれば、 マイクも開く。
+//            別のタブの声は閉じる (= 🔊 は 1 つのタブだけ)
 //   オンの時: 全部閉じる。 マイクを閉じ、 返事も鳴らさない
-export function toggleVoice(sid, send) {
+export function toggleVoice(sid) {
   if (getSnapshot().on[sid]) { closeConversation(sid); return }
+  for (const other of Object.keys(getSnapshot().on)) closeConversation(other)
   if (call() && getSnapshot().listen[sid]) { openCall(sid); return }
   setVoice(sid, true)
-  if (getSnapshot().on[sid] && getSnapshot().listen[sid] && micWanted.has(sid)) openMic(sid, send)
+  if (getSnapshot().on[sid] && getSnapshot().listen[sid] && micWanted.has(sid)) openMic(sid)
 }
 
 // 入力欄の 🎙 を押した時に呼ぶ (= 声がオンの間だけ出る)。 マイクを開くと閉じるを入れ替える。 声はそのまま鳴る
 // (= マイクを閉じている間も、 打って送った文には声で聞いている印が付く)。
-export function toggleMic(sid, send) {
+export function toggleMic(sid) {
   if (!getSnapshot().on[sid] || !getSnapshot().listen[sid]) return
   if (call()?.has(sid)) {
     if (micWanted.has(sid)) micWanted.delete(sid)
@@ -172,11 +185,11 @@ export function toggleMic(sid, send) {
     closeMic(sid)
   } else {
     micWanted.add(sid)
-    openMic(sid, send)
+    openMic(sid)
   }
 }
 
-function openMic(sid, send) {
+function openMic(sid) {
   const entry = { closed: false, handle: null, stream: null, audioContext: null }
   conversations.set(sid, entry)
   setVoiceError(sid, null)
@@ -189,7 +202,7 @@ function openMic(sid, send) {
     refuseMic(sid, error)
     return
   }
-  open(sid, entry, send).catch((error) => {
+  open(sid, entry).catch((error) => {
     if (entry.closed) return
     console.warn('[voice] could not open the microphone:', error)
     const micRefused = error?.name === 'NotAllowedError' || error?.name === 'NotFoundError'
@@ -204,7 +217,7 @@ function refuseMic(sid, error) {
   setVoiceError(sid, tRaw('voice.mic_refused', { reason: error?.message || String(error) }))
 }
 
-async function open(sid, entry, send) {
+async function open(sid, entry) {
   const claimed = await apiFetch(`${base(sid)}/conversation`, { method: 'POST', jsonBody: { client: CLIENT } })
   if (!claimed.ok) throw await refused(claimed)
   // 間の取り方は、 開くたびに取り直す (= agent が調整の file を書き換えた分を、 次に開いた時から使う)
@@ -242,7 +255,7 @@ async function open(sid, entry, send) {
       if (entry.closed) return
       player.stop(sid)
       listener.holdUntilNextTurn(sid)
-      send(text)
+      sender?.(sid, text)
     },
     // 返事の途中で人が話し始めた: 鳴っている音と、 まだ鳴らしていない文を捨てる (= 次の返事はまた鳴らす)
     interrupt: () => player.stop(sid),
@@ -258,7 +271,7 @@ async function open(sid, entry, send) {
   entry.handle = handle
 }
 
-// 会話を閉じる (= 🔊 を押し直した / タブを移った / 画面から消えた / 別の画面が会話を開いた時)。 マイクを閉じ、
+// 会話を閉じる (= 🔊 を押し直した / 別のタブで 🔊 にした / 別の画面が会話を開いた時)。 マイクを閉じ、
 // 返事も鳴らさない。
 export function closeConversation(sid) {
   if (call()?.has(sid)) {

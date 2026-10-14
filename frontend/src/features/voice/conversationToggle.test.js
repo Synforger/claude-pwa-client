@@ -6,7 +6,7 @@ vi.mock('./conversation.js', () => ({ openConversation: vi.fn() }))
 
 const { apiFetch } = await import('../../transport/http.ts')
 const { openConversation } = await import('./conversation.js')
-const { toggleVoice, toggleMic, _resetForTest: resetVoice } = await import('./voice.js')
+const { toggleVoice, toggleMic, setVoiceSender, voiceOnSids, _resetForTest: resetVoice } = await import('./voice.js')
 const { getSnapshot, setVoiceAvailable, setVoiceListen, setVoiceTurn, _resetForTest } = await import('../../state/voice.js')
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -40,10 +40,11 @@ beforeEach(() => {
   setVoiceTurn('ses_a', true)
 })
 
-// 声をオンにしてから 🎙 でマイクを開く (= 声をオンにしただけでは、 マイクを取らない)
-function talk(send = vi.fn()) {
-  toggleVoice('ses_a', vi.fn())
-  toggleMic('ses_a', send)
+// 声をオンにしてから 🎙 でマイクを開く (= 声をオンにしただけでは、 マイクを取らない)。 send は聞き取った文の送り手
+function talk(send = vi.fn(), sid = 'ses_a') {
+  setVoiceSender(send)
+  toggleVoice(sid)
+  toggleMic(sid)
 }
 
 const calls = (method, suffix) => apiFetch.mock.calls.filter(([path, opts]) => path.endsWith(suffix) && (opts?.method || 'GET') === method)
@@ -106,7 +107,25 @@ describe('toggleVoice / toggleMic — the voice, and the microphone inside it', 
     expect(opts.headers).toEqual({ 'Content-Type': 'audio/wav', 'X-Voice-Conversation': client })
     expect(text).toBe('明日の予定は？')
     deps.send(text)
-    expect(send).toHaveBeenCalledWith('明日の予定は？')
+    expect(send).toHaveBeenCalledWith('ses_a', '明日の予定は？')
+  })
+
+  it('keeps one tab in the voice: turning it on in another tab closes the first', async () => {
+    setVoiceAvailable('ses_b', true)
+    setVoiceListen('ses_b', true)
+    const send = vi.fn()
+    talk(send)
+    await settle()
+    const first = await openConversation.mock.results[0].value
+    expect(voiceOnSids()).toBe('ses_a')
+    talk(send, 'ses_b')
+    await settle()
+    expect(first.close).toHaveBeenCalled()
+    expect(getSnapshot().on.ses_a).toBeUndefined()
+    expect(voiceOnSids()).toBe('ses_b')
+    // 聞き取った文は、 その会話のタブへ送る
+    openConversation.mock.calls[1][0].send('次のタブ')
+    expect(send).toHaveBeenLastCalledWith('ses_b', '次のタブ')
   })
 
   it('writes a sound that was not speech down as nothing, without a word', async () => {
