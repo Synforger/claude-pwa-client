@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useSyncExternalStore } from 'react'
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -19,6 +19,7 @@ import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown
 import { apiFetch, apiUrl } from '../../utils/api.js'
 import { isFav, toggleFav, subscribeFavs } from '../file-tree/favorites.js'
 import { useEscape } from '../../hooks/useEscape.js'
+import { useTextZoom } from '../../hooks/useTextZoom.js'
 import { useT } from '../../i18n/t.js'
 import { translateHttpErrorDetail } from '../../utils/httpError.js'
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
@@ -229,6 +230,11 @@ function FilePreviewModalBody({ path, onClose }) {
   const [loading, setLoading] = useState(true)
   const [editMode, setEditMode] = useState(false)
   const [editText, setEditText] = useState('')
+  // markdown を見る時の字の大きさ (= 2 本の指 / Ctrl・⌘ + ホイール。 📋 のメモと同じ値)。 画像は別の拡大
+  // (= ZoomableImage)、 コードと編集欄には掛けない (= 本文の要素が在る時だけ効く)。
+  const bodyRef = useRef(null)
+  const markdownRef = useRef(null)
+  useTextZoom(bodyRef, markdownRef)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(null)
 
@@ -367,7 +373,7 @@ function FilePreviewModalBody({ path, onClose }) {
             {!editMode && <button className="modal-close" onClick={onClose}>✕</button>}
           </div>
         </div>
-        <div className={isImage ? 'modal-body modal-body-image' : 'modal-body'}>
+        <div className={isImage ? 'modal-body modal-body-image' : 'modal-body'} ref={bodyRef}>
           {(loading || (isImage && !imageLoaded && !imageFailed)) && <span className="dim">{t('file_preview.loading')}</span>}
           {error && <span className="error">{error}</span>}
           {imageFailed && <span className="error">{t('file_preview.image_error')}</span>}
@@ -392,7 +398,7 @@ function FilePreviewModalBody({ path, onClose }) {
             />
           ) : content !== null && (
             isMarkdown ? (
-              <div className="md-preview">
+              <div className="md-preview" ref={markdownRef}>
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {content}
                 </ReactMarkdown>
