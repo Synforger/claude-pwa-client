@@ -71,9 +71,9 @@ class VoiceTTS(TTSService):
         self._volume = volume
 
     async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame, None]:
-        mark, text = split_mark(text, self._marks)
+        mark, values, text = split_mark(text, self._marks)
         try:
-            sound = await self._backend.synthesize(text, mark)
+            sound = await self._backend.synthesize(text, mark, values)
         except Exception as error:  # noqa: BLE001 (= 1 文の失敗で会話は止めない)
             yield ErrorFrame(error=f"speaking failed: {error}")
             return

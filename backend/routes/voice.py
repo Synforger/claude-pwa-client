@@ -67,7 +67,7 @@ from fastapi.responses import FileResponse, Response
 
 import backend.config as _config
 from backend.core.compressor import CompressorError, compress, compressor_settings
-from backend.core.speech import MARK_NAME, speakable, utterances
+from backend.core.speech import MARK_NAME, mark_values, speakable, utterances
 from backend.errors import raise_error
 from backend.state import sessions_meta
 
@@ -389,8 +389,11 @@ async def post_utterances(request: Request, session_id: str) -> dict:
     text, _ = await _text_of(request)
     if len(text) > MAX_REPLY_CHARS:
         raise_error(413, "voice_text_too_long", f"文が長すぎます (上限 {MAX_REPLY_CHARS} 文字)", limit=MAX_REPLY_CHARS)
-    said = utterances(text, settings["marks"], settings["default"])
-    return {"utterances": [{"mark": u.mark, "text": u.text} for u in said]}
+    dropped: list[str] = []
+    said = utterances(text, settings["marks"], settings["default"], dropped)
+    if dropped:
+        logger.info("voice: session=%s mark values not used: %s", session_id, ", ".join(dropped))
+    return {"utterances": [{"mark": u.mark, "text": u.text, "values": u.values} for u in said]}
 
 
 @router.post("/sessions/{session_id}/voice/synthesis")
@@ -400,19 +403,24 @@ async def post_synthesis(request: Request, session_id: str) -> Response:
     body:
         text (str): 声にする 1 文 (= `utterances` が返した文)
         mark (str, 省略可): 言い方の印 (= 省けば既定の印)
+        values (object, 省略可): 印に添えた値 (= `utterances` が返した値。 名前 → 数)
     """
     text, body = await _text_of(request)
-    name = body.get("mark")
+    name, values = body.get("mark"), body.get("values")
     if name is not None and not isinstance(name, str):
         raise_error(400, "voice_bad_request", "mark は文字列で渡します")
-    kind, sound = await synthesize(session_id, text, name)
+    if values is not None and not isinstance(values, dict):
+        raise_error(400, "voice_bad_request", "values は名前 → 数の組で渡します")
+    kind, sound = await synthesize(session_id, text, name, values)
     return Response(content=sound, media_type=kind, headers={"Cache-Control": "no-store"})
 
 
-async def synthesize(session_id: str, text: str, mark: str | None = None) -> tuple[str, bytes]:
+async def synthesize(session_id: str, text: str, mark: str | None = None,
+                     values: dict | None = None) -> tuple[str, bytes]:
     """1 文を、 印の言い方で音にする (= 画面の口と、 電話の会話が使う)。 返すのは (Content-Type, 音)。
 
-    mark を省けば既定の印。 文の形と印が違えば、 画面の口と同じ形の error を投げる。
+    mark を省けば既定の印。 values は印に添えた値で、 印の値の上に重ねる (= 名前の違う物と範囲の外の物は
+    使わない。 core/speech.py の mark_values)。 文の形と印が違えば、 画面の口と同じ形の error を投げる。
     """
     settings = _enabled(session_id)
     name = settings["default"] if mark is None else mark
@@ -425,7 +433,10 @@ async def synthesize(session_id: str, text: str, mark: str | None = None) -> tup
         raise_error(413, "voice_text_too_long", f"文が長すぎます (上限 {MAX_UTTERANCE_CHARS} 文字)",
                     limit=MAX_UTTERANCE_CHARS)
 
-    values = dict(settings["marks"].get(name, {}))
+    added, dropped = mark_values(values)
+    if dropped:
+        logger.info("voice: session=%s mark values not used: %s", session_id, ", ".join(dropped))
+    values = {**settings["marks"].get(name, {}), **added}
     speaker = values.pop("speaker", settings["speaker"])
     started = time.monotonic()
     asked = urllib.parse.urlencode({"speaker": speaker, "text": text}, quote_via=urllib.parse.quote)
@@ -446,8 +457,9 @@ async def synthesize(session_id: str, text: str, mark: str | None = None) -> tup
         _engine_failed("synthesis", 200)
     if settings["compressor"] is not None:   # 空の {} も「既定の値で掛ける」
         sound = await _compressed(sound, settings["compressor"])
-    logger.info("voice: session=%s mark=%s chars=%d bytes=%d ms=%d", session_id, name or "-", len(text),
-                len(sound), (time.monotonic() - started) * 1000)
+    logger.info("voice: session=%s mark=%s%s chars=%d bytes=%d ms=%d", session_id, name or "-",
+                "".join(f" {k}={v}" for k, v in added.items()), len(text), len(sound),
+                (time.monotonic() - started) * 1000)
     return kind, sound
 
 

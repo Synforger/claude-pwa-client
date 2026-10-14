@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import re
 
+from backend.core.speech import parse_mark
+
 # 声で聞いている印 (= 画面の `features/voice/inputMark.js` と同じ印と、 付けない文の決まり)
 VOICE_INPUT_MARK = "[voice]"
 _SPECIAL_HEAD = ("/", "!", "#")
@@ -45,18 +47,22 @@ def speech_of(event: dict) -> tuple[str, str] | None:
     return (f"{uuid}:text", text) if text.strip() and uuid else None
 
 
-# 声にする 1 文の頭に付ける言い方の印 (= `[calm]今日は…`)。 返事の文に agent が書く印と同じ書き方。
-_MARKED = re.compile(r"^\[(?P<mark>[^\]]+)\](?P<text>.*)$", re.DOTALL)
+# 声にする 1 文の頭に付ける言い方の印 (= `[calm]今日は…` / `[happy intonationScale=1.2]…`)。 返事の文に agent が
+# 書く印と同じ書き方で、 読むのも同じ所 (= core/speech.py の parse_mark)。
 
 
-def marked(mark: str, text: str) -> str:
-    """言い方の印を付けた 1 文 (= 合成の部品へ渡す形)。"""
-    return f"[{mark}]{text}" if mark else text
+def marked(mark: str, text: str, values: dict | None = None) -> str:
+    """言い方の印 (= 添えた値も) を付けた 1 文 (= 合成の部品へ渡す形)。"""
+    if not mark:
+        return text
+    added = "".join(f" {name}={value}" for name, value in (values or {}).items())
+    return f"[{mark}{added}]{text}"
 
 
-def split_mark(text: str, marks: dict) -> tuple[str | None, str]:
-    """`marked` で付けた印を剥がす (= 一覧に無い印は、 ただの文として残す)。 返すのは (印 または None, 文)。"""
-    found = _MARKED.match(text)
-    if found and found["mark"] in marks:
-        return found["mark"], found["text"]
-    return None, text
+def split_mark(text: str, marks) -> tuple[str | None, dict, str]:
+    """`marked` で付けた印を剥がす (= 一覧に無い印は、 ただの文として残す)。 返すのは (印 または None, 値, 文)。"""
+    found = parse_mark(text, marks)
+    if found:
+        mark, values, _, rest = found
+        return mark, values, rest
+    return None, {}, text
