@@ -134,9 +134,7 @@ import UIKit
         var bottom = size.height - Self.margin
         for line in lines.reversed() {
             let mine = line.who == "user"
-            let text = NSAttributedString(string: line.text, attributes: [
-                .font: Self.textFont, .foregroundColor: mine ? UIColor.white : UIColor(white: 0.93, alpha: 1),
-            ])
+            let text = Self.styled(line.text, color: mine ? UIColor.white : UIColor(white: 0.93, alpha: 1))
             let bounds = text.boundingRect(
                 with: CGSize(width: maxBubble - Self.padding.width * 2, height: .greatestFiniteMagnitude),
                 options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
@@ -152,6 +150,33 @@ import UIKit
             if bottom < area.minY { break }
         }
         context.restoreGState()
+    }
+
+    /// 行の中の markdown (= 太字・斜体・コード・リンクの文字) を描く文字にする (= 表や見出しのような行単位の形は、
+    /// backend が小窓で読める行に直して送る)。 読めない文は、 そのままの文字で描く。
+    private static func styled(_ text: String, color: UIColor) -> NSAttributedString {
+        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        guard let parsed = try? AttributedString(markdown: text, options: options) else {
+            return NSAttributedString(string: text, attributes: [.font: textFont, .foregroundColor: color])
+        }
+        let styled = NSMutableAttributedString()
+        for run in parsed.runs {
+            var font = textFont
+            if let intent = run.inlinePresentationIntent {
+                if intent.contains(.code) {
+                    font = .monospacedSystemFont(ofSize: textFont.pointSize - 1, weight: .regular)
+                }
+                var traits: UIFontDescriptor.SymbolicTraits = []
+                if intent.contains(.stronglyEmphasized) { traits.insert(.traitBold) }
+                if intent.contains(.emphasized) { traits.insert(.traitItalic) }
+                if !traits.isEmpty, let bolder = font.fontDescriptor.withSymbolicTraits(traits) {
+                    font = UIFont(descriptor: bolder, size: font.pointSize)
+                }
+            }
+            styled.append(NSAttributedString(
+                string: String(parsed[run.range].characters), attributes: [.font: font, .foregroundColor: color]))
+        }
+        return styled
     }
 
     /// 絵を、 すぐに出す 1 枚の映像の frame にする。
