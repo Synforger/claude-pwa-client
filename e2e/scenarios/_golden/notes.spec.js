@@ -1,7 +1,7 @@
 // Golden path: notes feature.
-// The topbar 📋 button opens the notes of the tab: one markdown file on the host that the
-// screen and the tab's agent both write. It renders like the chat, is edited in place, and
-// is emptied with Reset.
+// The topbar 📋 button opens the notes of the tab: one text file on the host that the
+// screen and the tab's agent both write. It shows as written (line breaks, leading spaces and
+// aligned columns kept, paths to tap), is edited in place, and is emptied with Reset.
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -17,6 +17,9 @@ const NOTE_FILE = resolve(
 )
 const modal = '[data-testid=notes-modal]'
 const body = '[data-testid=notes-body]'
+const shown = '[data-testid=notes-text]'
+// A tree laid out with box-drawing lines, leading spaces and spaces that align a column.
+const TREE = 'root/\n├─ a/      → one / two\n│  └─ dd   → three\n└─ ccc/    → ~/cpc-e2e-notes/spec.md\n'
 
 // One step of the agent's own: a tool call and its result (= what moves `current_tool`).
 function toolStep(jsonlPath, id) {
@@ -48,14 +51,27 @@ test.describe('golden: notes', () => {
     expect(existsSync(NOTE_FILE)).toBe(false)
 
     await page.locator('[data-testid=notes-edit]').click()
-    await page.locator('[data-testid=notes-editor]').fill('# Input design\n\n- stops at six lines\n\n~/cpc-e2e-notes/spec.md\n')
+    await page.locator('[data-testid=notes-editor]').fill(TREE)
     await page.locator('[data-testid=notes-save]').click()
 
-    // Rendered like the chat: a heading, a list, and the path as something to tap.
-    await expect(page.locator(`${body} h1`)).toHaveText('Input design')
-    await expect(page.locator(`${body} li`)).toHaveText('stops at six lines')
-    await expect(page.locator(`${body} .file-link`)).toContainText('~/cpc-e2e-notes/spec.md')
-    expect(readFileSync(NOTE_FILE, 'utf8')).toBe('# Input design\n\n- stops at six lines\n\n~/cpc-e2e-notes/spec.md\n')
+    // Shown as written: every line on its own, spaces kept, the path as something to tap.
+    await expect(page.locator(shown)).toHaveText(TREE, { useInnerText: true })
+    await expect(page.locator(`${shown} .file-link`)).toHaveText('~/cpc-e2e-notes/spec.md')
+    // The aligned arrows sit in one column (= the text is in a monospace face).
+    const arrows = await page.locator(shown).evaluate((el) => {
+      const xs = []
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        for (let i = n.data.indexOf('→'); i >= 0; i = n.data.indexOf('→', i + 1)) {
+          const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + 1)
+          xs.push(Math.round(r.getBoundingClientRect().left))
+        }
+      }
+      return xs
+    })
+    expect(arrows).toHaveLength(3)
+    expect(new Set(arrows).size).toBe(1)
+    expect(readFileSync(NOTE_FILE, 'utf8')).toBe(TREE)
 
     // Still there after closing and reopening, and after a reload.
     await page.locator(`${modal} .modal-close`).click()
@@ -63,12 +79,12 @@ test.describe('golden: notes', () => {
     await page.reload({ waitUntil: 'domcontentloaded' })
     await page.locator('[data-testid=chat-input]').waitFor({ state: 'visible' })
     await page.locator('[data-testid=notes-open-button]').click()
-    await expect(page.locator(`${body} h1`)).toHaveText('Input design')
+    await expect(page.locator(shown)).toHaveText(TREE, { useInnerText: true })
 
     // Reset asks first, then empties the notes and removes the file.
     await page.locator('[data-testid=notes-reset]').click()
     await page.locator('.confirm-btn.no').click()
-    await expect(page.locator(`${body} h1`)).toHaveText('Input design')
+    await expect(page.locator(shown)).toHaveText(TREE, { useInnerText: true })
     await page.locator('[data-testid=notes-reset]').click()
     await page.locator('.confirm-btn.yes').click()
     await expect(page.locator(`${body} .note-empty`)).toBeVisible()
