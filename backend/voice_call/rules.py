@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import re
 
-from backend.core.speech import parse_mark
+from backend.core.speech import VOICE_INPUT_MARK, parse_mark
 
-# 声で聞いている印 (= 画面の `features/voice/inputMark.js` と同じ印と、 付けない文の決まり)
-VOICE_INPUT_MARK = "[voice]"
+# 声で聞いている印を付けない文の頭 (= 印そのものは core/speech.py の VOICE_INPUT_MARK)
 _SPECIAL_HEAD = ("/", "!", "#")
 
 # 覚えておく「言った物」 の数 (= 超えた分は古い順に忘れる。 会話を始める前の物は時刻で弾かれる)

@@ -49,6 +49,7 @@ from backend.terminal.confirm import (
     _confirm_after_send,
     _count_command_lines,
     _count_in_lines,
+    _count_interrupts,
     _count_user_prompts,
     _delivery_counter,
     _is_command_line,
@@ -56,6 +57,7 @@ from backend.terminal.confirm import (
     _wait_count_added,
 )
 from backend.terminal.first_message import launch_with_first_message
+from backend.core.speech import VOICE_INPUT_MARK
 from backend.terminal.input_ready import wait_ready
 from backend.terminal.send_dedup import send_dedup
 from backend.terminal.session_resolver import (
@@ -68,6 +70,10 @@ from backend.terminal.session_resolver import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# 声の発話で turn を止めた後、 止まった印 (= 中断の行) が書かれるのを待つ上限 (= 秒)。 実測 (= Claude Code 2.1.299:
+# ツールの実行中 0.25 秒、 文を書いている途中 0.22 秒) の 12 倍。 過ぎても本文は送る (= 発話を落とさない)。
+VOICE_INTERRUPT_WAIT_SEC = 3.0
 
 
 def _note_queue_on_unconfirmed(
@@ -397,10 +403,13 @@ async def _send_body(session_id: str, text: str, key: str | None = None) -> dict
     積まれて、 turn が終わるまで行が書かれない (= 持ったまま待つと、 続けて送った発話が 4 秒ずつ詰まる)。
 
     単発の key (= Escape で停止 / quick-reply) はここを通らない ― 停止を本文の後ろに並ばせない。
+
+    声の発話 (= 頭に `[voice]` の印) は、 turn の実行中なら先に止めてから打つ (= `_interrupt_for_voice`)。
     """
     _, is_slash = _delivery_counter(text)
     lock = _send_locks.setdefault(session_id, asyncio.Lock())
     async with lock:
+        interrupted = await _interrupt_for_voice(session_id, text)
         jsonl_path = jsonl_path_for_session(session_id)
         initial_pos = 0
         if jsonl_path is not None:
@@ -411,7 +420,7 @@ async def _send_body(session_id: str, text: str, key: str | None = None) -> dict
                 initial_pos = 0
         # 送信直前の busy を capture (= turn 実行中送信なら confirmed:False 時に queue 積みとみなす)。
         _st_send = stream_states.get(session_id)
-        was_busy = bool(_st_send and _st_send.busy)
+        was_busy = bool(_st_send and _st_send.busy) and not interrupted
         # 2 段送信 protocol (= C-u wipe → paste → Enter、 詳細 = runner.send_text_two_stage docstring)。
         # queue に既に積まれた過去 message には触れない (= C-u は入力欄のみ)。
         ok = await send_text_two_stage(session_id, text, key=key)
@@ -428,6 +437,35 @@ async def _send_body(session_id: str, text: str, key: str | None = None) -> dict
             return _note_queue_on_unconfirmed(session_id, was_busy, is_slash, result)
     result = await _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slash)
     return _note_queue_on_unconfirmed(session_id, was_busy, is_slash, result)
+
+
+async def _interrupt_for_voice(session_id: str, text: str) -> bool:
+    """声の発話が turn の実行中に届いたら、 Escape で turn を止め、 止まるのを見届ける (= 止めたら True)。
+
+    声で話している間に agent が先へ進み続けないように、 声の発話は turn を止めてから届ける (= 「やっぱりやめよう」
+    も会話として読める)。 停止ボタン (= 止めて、 待っている入力も捨てる) とは別の動きで、 停止の印
+    (= user_stopped) は付けない。 止まったかは、 claude が書く中断の行 (= `[Request interrupted by user]` と
+    その `for tool use`) で見る。 打った文が止める途中に飲まれないよう、 行が書かれてから打つ (= 上限
+    VOICE_INTERRUPT_WAIT_SEC。 過ぎたら止まったかに関わらず打つ)。
+    """
+    if not text.startswith(VOICE_INPUT_MARK):
+        return False
+    st = stream_states.get(session_id)
+    if st is None or not st.busy or st.user_stopped:
+        return False
+    jsonl_path = jsonl_path_for_session(session_id)
+    try:
+        pos = jsonl_path.stat().st_size if jsonl_path is not None else 0
+    except OSError:
+        pos = 0
+    started = time.monotonic()
+    if not tmux_send_keys(session_id, key="Escape"):
+        return False
+    stopped = jsonl_path is not None and await _wait_count_added(
+        _count_interrupts, jsonl_path, pos, VOICE_INTERRUPT_WAIT_SEC)
+    logger.info("voice interrupt: session=%s stopped=%s ms=%d", session_id, stopped,
+                (time.monotonic() - started) * 1000)
+    return stopped
 
 
 @router.post("/pty/{session_id}/send")
