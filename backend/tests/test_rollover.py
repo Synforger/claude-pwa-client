@@ -251,6 +251,49 @@ def test_a_session_that_rolled_over_keeps_being_watched(tabs):
     assert tabs.tick() == "ses_a"
 
 
+def test_a_turn_that_starts_and_ends_between_looks_is_still_counted_as_working(tabs, monkeypatch):
+    """別のタブからの連絡への返事は数秒で終わり、 間隔の見回りでは推論中に見えない。 推論を始めた合図を
+    受けた見回りは、 そのタブを推論中と数える (= 2026-10-14、 60% を超えたまま 1 時間頼まれなかった)。"""
+    monkeypatch.setattr(watch, "_started", set())
+    tabs.add("ses_a", pct=61, busy=False)
+    assert tabs.tick() is None             # 手が空いて見える
+    watch.turn_started("ses_a")
+    assert tabs.tick() == "ses_a"
+    assert 'reason="context" context_pct="61"' in tabs.sent[0][1]
+    assert watch._started == set()         # 合図は 1 度の見回りで使い切る
+
+
+def test_a_turn_that_ended_before_the_look_is_not_counted(tabs, monkeypatch):
+    """見回りが見る前に推論が終わったタブは、 人が返事を読んでいるかもしれないので頼まない。"""
+    monkeypatch.setattr(watch, "_started", set())
+    tabs.add("ses_a", pct=70, busy=False)
+    watch.turn_started("ses_a")
+    watch.turn_ended("ses_a")
+    assert tabs.tick() is None and tabs.sent == []
+
+
+def test_a_turn_starting_wakes_the_watch_without_waiting_for_the_interval(monkeypatch):
+    monkeypatch.setattr(watch, "_started", set())
+    looked = asyncio.Event()
+
+    async def fake_tick():
+        looked.set()
+
+    monkeypatch.setattr(watch, "tick", fake_tick)
+
+    async def scenario():
+        loop = asyncio.create_task(watch.rollover_loop(interval_sec=3600))
+        await asyncio.sleep(0)             # loop が合図を作って待ちに入る
+        watch.turn_started("ses_a")
+        await asyncio.wait_for(looked.wait(), 2)
+        loop.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await loop
+
+    _run(scenario())
+    monkeypatch.setattr(watch, "_wake", None)
+
+
 def test_tabs_without_a_condition_or_a_running_claude_are_not_asked(tabs):
     tabs.add("ses_plain", pct=99, idle_minutes=999)
     tabs.settings["ses_plain"] = None

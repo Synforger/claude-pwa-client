@@ -14,9 +14,12 @@
     idle:    手が空いているタブの context がこの割合を超えていて、 会話の記録がこの分数だけ
              更新されていなければ頼む
 
-見張りは一定の間隔でタブを見回る。 判定の材料は毎回、 実物から取る (= 割合は画面が出している値、
-静かな時間は会話の記録 file の最終更新、 頼んだかどうかは記録の中の発話)。 backend の記憶には持たない
-ので、 backend を再起動しても同じ答えになる。
+見張りは一定の間隔でタブを見回り、 どれかのタブが推論を始めた時 (= `UserPromptSubmit` の hook) にも
+すぐ見回る。 間隔だけだと、 見回りの間に始まって終わる短い推論 (= 別のタブからの連絡への返事は数秒で
+終わる) は 1 度も推論中と数えられず、 割合を超えたまま静かな側の条件が立つまで頼めない。 推論を始めた
+タブは、 その見回りでは推論中と数える (= 画面の実況が追いつく前でも)。 判定の材料は毎回、 実物から取る
+(= 割合は画面が出している値、 静かな時間は会話の記録 file の最終更新、 頼んだかどうかは記録の中の発話)。
+backend の記憶には持たないので、 backend を再起動しても同じ答えになる。
 
 頼むのは 1 度に 1 つのタブだけで、 頼まれて締めへ向かっているタブが在る間は次を頼まない (= 締めは
 作業 tree への commit と push を伴うことが多く、 同じ作業 tree を使う会話の締めが重なると互いの
@@ -52,6 +55,22 @@ _seen: dict[str, tuple[int, str | None]] = {}
 # 締めを頼む発話を打ったが、 まだ記録に現れていない会話。 推論中の claude へ打った発話は積まれて、
 # 作業の合間に渡るまで記録に書かれない。 その間に次の見回りが同じ発話をもう 1 度打たないための物。
 _pending: set[str] = set()
+# 推論を始めて、 まだ見回りが見ていないタブ。 hook が入れ、 推論が終われば (= `Stop` の hook) 抜く。
+_started: set[str] = set()
+# 推論を始めたタブが在る時に、 間隔を待たずに見回りを起こす合図 (= 見回りの loop が作る)。
+_wake: asyncio.Event | None = None
+
+
+def turn_started(session_id: str) -> None:
+    """そのタブが推論を始めた (= `UserPromptSubmit` の hook)。 次の見回りをすぐ起こす。"""
+    _started.add(session_id)
+    if _wake is not None:
+        _wake.set()
+
+
+def turn_ended(session_id: str) -> None:
+    """そのタブの推論が終わった (= `Stop` の hook)。 見回りが見る前に終わった推論は、 推論中と数えない。"""
+    _started.discard(session_id)
 
 
 def settings_for(session_id: str) -> dict | None:
@@ -132,6 +151,8 @@ def asked(record: Path) -> bool:
 async def tick() -> str | None:
     """全部のタブを 1 回見回り、 頼むべきタブが在れば 1 つにだけ頼む。 → 頼んだタブの id (= 無ければ None)。"""
     now = time.time()
+    started = set(_started)
+    _started.clear()
     records: set[str] = set()
     wanted: list[tuple[bool, float, str, str, int, str]] = []   # (静かでないか, −静かな分数, タブ, 理由, 割合, 記録)
     closing = False
@@ -145,7 +166,7 @@ async def tick() -> str | None:
             idle_minutes = (now - record.stat().st_mtime) / 60
         except OSError:
             continue
-        busy = is_busy(sid)
+        busy = is_busy(sid) or sid in started
         pct = context_pct_of(sid)
         reason = due(cfg, pct, idle_minutes, busy)
         if not busy and reason is None:
@@ -176,12 +197,19 @@ async def tick() -> str | None:
 
 
 async def rollover_loop(interval_sec: float = TICK_SEC) -> None:
-    """interval_sec ごとに見回る。"""
+    """interval_sec ごとに見回る。 その間にどれかのタブが推論を始めたら、 待たずに見回る。"""
+    global _wake
+    _wake = asyncio.Event()
     logger.info("rollover_loop started (interval=%ds)", interval_sec)
     try:
         while True:
             try:
-                await asyncio.sleep(interval_sec)
+                try:
+                    await asyncio.wait_for(_wake.wait(), interval_sec)
+                except TimeoutError:
+                    # benign: the interval elapsed without a turn starting; that is the regular look
+                    pass
+                _wake.clear()
                 await tick()
             except asyncio.CancelledError:
                 raise
