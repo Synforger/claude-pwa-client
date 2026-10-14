@@ -1,12 +1,13 @@
 """電話の会話の、 agent の段 (= Pipecat の並びで LLM が居る場所に、 タブの agent を置く)。
 
-行き: 発話のまとめ役 (= Pipecat の user aggregator) が人の 1 回分の発話を渡してくる。 それを、 声で聞いている印を
-付けて、 画面で打った時と同じ口 (= `pty_send`) でそのタブへ送る。 言いさし (= 「、」「なんか」 などで終わる) は
+行き: 発話のまとめ役 (= Pipecat の user aggregator) が人の 1 回分の発話を渡してくる。 それを、 画面で打った時と
+同じ口でそのタブへ送る (= 声で聞いている印は送る口の側で付く)。 言いさし (= 「、」「なんか」 などで終わる) は
 送らずに続きを待ち、 続きが来ないまま待ちの時間が過ぎたら送る (= 画面の会話の `turnTaker.js` と同じ決まり)。
 
 帰り: そのタブの agent が書いた返事を、 届いた順に声にする。 何を声にするかは画面の `listener.js` と同じ決まり
 (= 返事の文だけ。 thinking とツールの呼び出しと sub-agent の物は言わない。 会話を始める前の物と、 同じ物の 2 度目は
-言わない)。 返事は誰の発話への物でも言う (= 画面から打った文への返事も、 電話で聞ける)。
+言わない)。 返事は誰の発話への物でも言う (= 画面から打った文への返事も、 電話で聞ける)。 文の切り分けと言い方の
+印は、 画面と同じ backend の口 (= `utterances`) が決める。
 """
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ import asyncio
 import logging
 import time
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 
 from pipecat.frames.frames import (
     CancelFrame,
@@ -27,33 +28,30 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
-from backend.core.speech import utterances
-from backend.state import jsonl_event_broadcaster
-from backend.voice_call.rules import MAX_HEARD, is_unfinished, mark_voice_input, marked, speech_of
+from backend.voice_call.rules import MAX_HEARD, is_unfinished, marked, speech_of
 
 logger = logging.getLogger(__name__)
+
 
 class AgentBridge(FrameProcessor):
     """人の発話をタブへ送り、 タブの返事を声の文にして流す。
 
-    send(text) -> 送れたか                   そのタブへ 1 通送る
-    owns() -> 今も会話の持ち主か             別の画面が会話を開き直したら、 送らずに on_lost を呼ぶ
-    on_lost()                                会話を終える
+    conversation                         間の取り方 (= backend の `voice.conversation`)
+    send(text) -> 送れたか               そのタブへ 1 通送る
+    events() -> そのタブの event の流れ  返事を拾う元
+    utterances(text) -> [{mark, text}]   返事の文を、 声にする文の並びにする
     """
 
-    def __init__(self, session_id: str, settings: dict, *, send: Callable[[str], Awaitable[bool]],
-                 owns: Callable[[], bool], on_lost: Callable[[], Awaitable[None]], **kwargs):
+    def __init__(self, conversation: dict, *, send: Callable[[str], Awaitable[bool]],
+                 events: Callable[[], AsyncIterator[dict]],
+                 utterances: Callable[[str], Awaitable[list[dict]]], **kwargs):
         super().__init__(**kwargs)
-        self._sid = session_id
-        self._marks = settings["marks"]
-        self._default = settings["default"]
-        conversation = settings["conversation"]
         self._endings = conversation["unfinished_endings"]
         # 言いさしの後に待つ時間 (= 声が途切れてから wait_ms。 まとめ役が発話を渡すのは pause_ms の無音の後)
         self._hold_secs = max(0.0, (conversation["wait_ms"] - conversation["pause_ms"]) / 1000)
         self._send = send
-        self._owns = owns
-        self._on_lost = on_lost
+        self._events = events
+        self._utterances = utterances
         self._pending: list[str] = []
         self._hold_task: asyncio.Task | None = None
         self._replies_task: asyncio.Task | None = None
@@ -64,7 +62,9 @@ class AgentBridge(FrameProcessor):
         await super().process_frame(frame, direction)
         if isinstance(frame, StartFrame):
             await self.push_frame(frame, direction)
-            self._start_replies()
+            if not self._replies_task:
+                self._since_ms = int(time.time() * 1000)
+                self._replies_task = self.create_task(self._follow_replies(), "voice-call-replies")
             return
         if isinstance(frame, (EndFrame, CancelFrame)):
             await self._stop()
@@ -106,46 +106,32 @@ class AgentBridge(FrameProcessor):
     async def _flush(self) -> None:
         text = "".join(self._pending)
         self._pending = []
-        if not text:
-            return
-        if not self._owns():
-            logger.info("voice call: session=%s another screen opened the conversation; ending the call", self._sid)
-            await self._on_lost()
-            return
-        sent = await self._send(mark_voice_input(text))
-        logger.info("voice call: session=%s sent chars=%d ok=%s", self._sid, len(text), sent)
+        if text:
+            sent = await self._send(text)
+            logger.info("voice call: sent chars=%d ok=%s", len(text), sent)
 
     # --- 帰り -------------------------------------------------------------------------------------------------
 
-    def _start_replies(self) -> None:
-        if self._replies_task:
-            return
-        self._since_ms = int(time.time() * 1000)
-        queue = jsonl_event_broadcaster.subscribe(self._sid)
-        self._replies_task = self.create_task(self._follow_replies(queue), "voice-call-replies")
+    async def _follow_replies(self) -> None:
+        async for event in self._events():
+            text = self._fresh_speech(event)
+            if not text:
+                continue
+            for said in await self._utterances(text):
+                await self.push_frame(TTSSpeakFrame(marked(said.get("mark") or "", said.get("text") or "")))
 
-    async def _follow_replies(self, queue: asyncio.Queue) -> None:
-        try:
-            while True:
-                event, _ = await queue.get()
-                for text in self._fresh_speech(event):
-                    for said in utterances(text, self._marks, self._default):
-                        await self.push_frame(TTSSpeakFrame(marked(said.mark, said.text)))
-        finally:
-            jsonl_event_broadcaster.unsubscribe(self._sid, queue)
-
-    def _fresh_speech(self, event: dict) -> list[str]:
+    def _fresh_speech(self, event: dict) -> str | None:
         found = speech_of(event)
         if found is None:
-            return []
+            return None
         key, text = found
         if key in self._heard:
-            return []
+            return None
         self._heard[key] = None
         while len(self._heard) > MAX_HEARD:
             self._heard.popitem(last=False)
         ts = event.get("ts")
-        return [text] if isinstance(ts, (int, float)) and ts > self._since_ms else []
+        return text if isinstance(ts, (int, float)) and ts > self._since_ms else None
 
     async def _stop(self) -> None:
         for task in (self._hold_task, self._replies_task):

@@ -428,6 +428,8 @@ curl -s http://127.0.0.1:8765/sessions/<タブの id>/voice/call \
 - 経路の候補は、 同じ URL へ `PATCH` で `{"pc_id": "…", "candidates": [{"candidate": "…", "sdp_mid": "0",
   "sdp_mline_index": 0}]}` を送ります
 - 声を持たないタブ・聞き取りを持たないタブは、 つなぐ前に断ります
+- 会話は、 通話ごとに backend が起こす別の process で動きます (= 音の送り出しを、 backend の他の仕事で遅らせない)。
+  通話の終わりに、 送り出しに短い無音が挟まった回数が log に出ます (= `voice call: ended output … gaps=…`)
 
 ### 言い終えを判定する model を受け取る
 
@@ -492,3 +494,4 @@ curl -s http://127.0.0.1:8765/sessions/<タブの id>/voice/transcription \
 | `voice_conversation_elsewhere` | 409 | そのタブの会話は、 別の画面が開いている |
 | `voice_call_unavailable` | 501 | backend に会話の部品が入っていない (= `pip install -r backend/requirements-voice-call.txt` の後に再起動) |
 | `voice_call_unknown` | 404 | 経路の候補を、 まだつないでいない接続へ送った |
+| `voice_call_failed` | 502 | 会話をつなげなかった。 理由が `detail.params.reason` に入っている (= backend の log にも 1 行出る) |

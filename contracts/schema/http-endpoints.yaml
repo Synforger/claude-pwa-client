@@ -726,6 +726,7 @@ endpoints:
     invariants:
       - "声を持たないタブは 409 voice_not_enabled、 聞き取りを持たないタブは 409 voice_listen_not_enabled (= つなぐ前に返す)"
       - "電話の会話の部品 (= backend/requirements-voice-call.txt) が入っていなければ 501 voice_call_unavailable"
+      - "会話は通話ごとに別の process で動く (= backend 本体の他の仕事で音の送り出しを遅らせない)。 その process が answer を返せなければ 502 voice_call_failed (= params に reason)"
       - "つながると、 その電話がタブの会話の持ち主になる (= 画面の会話と同じ決まり。 後から開いた画面が持てば、 電話は次の発話で切れる)"
       - "人の発話は、 声で聞いている印を付けて、 画面で打った時と同じ口でタブへ送る。 タブの返事は、 画面の声と同じ決まりで声にして電話へ返す"
     implementation: backend/routes/voice_call.py
@@ -748,8 +749,7 @@ endpoints:
     response_kind: json
     auth: tailnet
     invariants:
-      - "まだ 1 本もつないでいない backend では 404 voice_call_unknown、 知らない pc_id も 404"
-      - "電話の会話の部品が入っていなければ 501 voice_call_unavailable"
+      - "知らない pc_id (= つないでいない / もう終わった接続) は 404 voice_call_unknown"
     implementation: backend/routes/voice_call.py
 
   - method: POST

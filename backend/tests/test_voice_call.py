@@ -6,14 +6,12 @@
 from __future__ import annotations
 
 import asyncio
-import builtins
 
 import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from backend.routes import voice_call
-from backend.state import jsonl_event_broadcaster
 from backend.tests.test_voice import tabs  # noqa: F401 (= 声のタブの用意を使い回す)
 from backend.voice_call.rules import is_unfinished, mark_voice_input, marked, speech_of, split_mark
 
@@ -69,7 +67,7 @@ def test_a_mark_survives_the_trip_to_the_voice():
 def client() -> TestClient:
     app = FastAPI()
     app.include_router(voice_call.router)
-    voice_call._handler = None
+    voice_call._workers.clear()
     return TestClient(app)
 
 
@@ -85,14 +83,7 @@ def test_a_tab_that_cannot_hold_a_conversation_is_refused_before_connecting(clie
 
 
 def test_without_the_call_parts_the_backend_says_so(client, tabs, monkeypatch):  # noqa: F811
-    real_import = builtins.__import__
-
-    def no_pipecat(name, *args, **kwargs):
-        if name.startswith("pipecat") or name == "backend.voice_call.pipeline":
-            raise ImportError(name)
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", no_pipecat)
+    monkeypatch.setattr(voice_call.importlib.util, "find_spec", lambda name: None)
     r = client.post("/sessions/ses_listen/voice/call", json=OFFER)
     assert r.status_code == 501
     assert r.json()["detail"]["code"] == "voice_call_unavailable"
@@ -106,18 +97,24 @@ def test_a_candidate_before_any_call_is_unknown(client, tabs):  # noqa: F811
 
 # --- agent の段 (= Pipecat を通す) -----------------------------------------------------------------------------
 
-def _bridge(sent: list[str], owns: bool = True, lost: list[bool] | None = None):
+def _bridge(sent: list[str], events: list[dict] | None = None):
     from backend.voice_call.agent import AgentBridge
 
     async def send(text: str) -> bool:
         sent.append(text)
         return True
 
-    async def on_lost() -> None:
-        if lost is not None:
-            lost.append(True)
+    async def stream():
+        await asyncio.sleep(0.05)   # 会話を始めた後に届く
+        for event in events or []:
+            yield event
+        await asyncio.sleep(3600)
 
-    return AgentBridge("ses_listen", SETTINGS, send=send, owns=lambda: owns, on_lost=on_lost)
+    async def utterances(text: str) -> list[dict]:
+        return [{"mark": "calm" if not line.startswith("[happy]") else "happy",
+                 "text": line.removeprefix("[happy]")} for line in text.split("\n")]
+
+    return AgentBridge(SETTINGS["conversation"], send=send, events=stream, utterances=utterances)
 
 
 def _said(text: str):
@@ -129,13 +126,13 @@ def _said(text: str):
     return LLMContextFrame(context=context)
 
 
-def test_a_finished_turn_goes_to_the_tab_with_the_voice_mark():
+def test_a_finished_turn_goes_to_the_tab():
     pytest.importorskip("pipecat")
     from pipecat.tests.utils import run_test
 
     sent: list[str] = []
     asyncio.run(run_test(_bridge(sent), frames_to_send=[_said("明日の天気を教えて")], expected_down_frames=[]))
-    assert sent == ["[voice] 明日の天気を教えて"]
+    assert sent == ["明日の天気を教えて"]
 
 
 def test_an_unfinished_turn_waits_for_the_rest_and_goes_as_one():
@@ -146,7 +143,7 @@ def test_an_unfinished_turn_waits_for_the_rest_and_goes_as_one():
     sent: list[str] = []
     frames = [_said("それで、"), SleepFrame(sleep=0.05), UserStartedSpeakingFrame(), _said("明日は晴れ。")]
     asyncio.run(run_test(_bridge(sent), frames_to_send=frames))
-    assert sent == ["[voice] それで、明日は晴れ。"]
+    assert sent == ["それで、明日は晴れ。"]
 
 
 def test_an_unfinished_turn_goes_alone_once_the_wait_is_over():
@@ -156,18 +153,7 @@ def test_an_unfinished_turn_goes_alone_once_the_wait_is_over():
     sent: list[str] = []
     asyncio.run(run_test(_bridge(sent), frames_to_send=[_said("えーとなんか"), SleepFrame(sleep=0.3)],
                          expected_down_frames=[]))
-    assert sent == ["[voice] えーとなんか"]
-
-
-def test_a_turn_after_another_screen_took_over_ends_the_call_without_sending():
-    pytest.importorskip("pipecat")
-    from pipecat.tests.utils import run_test
-
-    sent: list[str] = []
-    lost: list[bool] = []
-    asyncio.run(run_test(_bridge(sent, owns=False, lost=lost), frames_to_send=[_said("こんにちは")],
-                         expected_down_frames=[]))
-    assert sent == [] and lost == [True]
+    assert sent == ["えーとなんか"]
 
 
 def test_new_replies_are_spoken_once_with_their_marks():
@@ -177,24 +163,24 @@ def test_new_replies_are_spoken_once_with_their_marks():
     from pipecat.frames.frames import TTSSpeakFrame
     from pipecat.tests.utils import SleepFrame, run_test
 
-    class Publish(SleepFrame):
-        """届いた時に返事を流す (= 会話を始めた後に、 タブの agent が書いた物)。"""
+    later = int(time.time() * 1000) + 60_000
+    events = [
+        _reply("old", "前から在った物。", 0),
+        _reply("r1", "晴れです。\n[happy]やった。", later),
+        _reply("r1", "晴れです。\n[happy]やった。", later),
+        _reply("sub", "下調べ。", later, parent_tool_use_id="t"),
+    ]
+    down, _ = asyncio.run(run_test(_bridge([], events), frames_to_send=[SleepFrame(sleep=0.2)]))
+    assert [f.text for f in down if isinstance(f, TTSSpeakFrame)] == ["[calm]晴れです。", "[happy]やった。"]
 
-    async def scenario():
-        bridge = _bridge([])
-        later = int(time.time() * 1000) + 60_000
 
-        async def publish_soon():
-            await asyncio.sleep(0.05)
-            jsonl_event_broadcaster.publish("ses_listen", _reply("old", "前から在った物。", 0))
-            jsonl_event_broadcaster.publish("ses_listen", _reply("r1", "晴れです。\n[happy]やった。", later))
-            jsonl_event_broadcaster.publish("ses_listen", _reply("r1", "晴れです。\n[happy]やった。", later))
-            jsonl_event_broadcaster.publish("ses_listen", _reply("sub", "下調べ。", later, parent_tool_use_id="t"))
+def test_the_output_gaps_count_only_short_silences_inside_speech():
+    pytest.importorskip("pipecat")
+    from backend.voice_call.pipeline import OutputGaps
 
-        task = asyncio.create_task(publish_soon())
-        down, _ = await run_test(bridge, frames_to_send=[Publish(sleep=0.2)])
-        await task
-        return [f.text for f in down if isinstance(f, TTSSpeakFrame)]
-
-    assert asyncio.run(scenario()) == ["[calm]晴れです。", "[happy]やった。"]
-    assert jsonl_event_broadcaster.subscriber_count("ses_listen") == 0
+    gaps = OutputGaps()
+    # 話す前の無音 → 話す → 1 枠の途切れ → 話す → 文の間の長い無音 → 話す
+    for empty in [True] * 3 + [False] * 4 + [True] + [False] * 2 + [True] * 50 + [False]:
+        gaps.saw(empty, late_ms=0.0)
+    gaps.saw(False, late_ms=37.0)
+    assert (gaps.frames, gaps.gaps, round(gaps.late_max_ms)) == (62, 1, 37)
