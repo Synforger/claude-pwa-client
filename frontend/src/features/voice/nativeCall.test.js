@@ -7,7 +7,7 @@ vi.mock('./conversation.js', () => ({ openConversation: vi.fn() }))
 const { apiFetch } = await import('../../transport/http.ts')
 const { openConversation } = await import('./conversation.js')
 const {
-  toggleVoice, toggleMic, toggleSpeech, closeConversation, observeVoiceEvent, changeVolume, hasAppCall, showCallPicture,
+  toggleVoice, toggleMic, closeConversation, observeVoiceEvent, changeVolume, hasAppCall, showCallPicture,
   _resetForTest: resetVoice,
 } = await import('./voice.js')
 const { getSnapshot: volumeOf, setVoiceVolume } = await import('../../state/voiceVolume.js')
@@ -59,15 +59,12 @@ describe('inside the iPhone app, the app holds the microphone and the voice', ()
     expect(getSnapshot().phase.ses_a).toBeUndefined()
   })
 
-  it('starts the next call with the microphone on, when it was left on', async () => {
-    toggleVoice('ses_a', vi.fn())
-    await settle()
+  it('starts a call with the microphone on and the voice off from the microphone alone', async () => {
     toggleMic('ses_a', vi.fn())
-    closeConversation('ses_a')
-    toggleVoice('ses_a', vi.fn())
     expect(getSnapshot().phase.ses_a).toBe('starting')
     await settle()
     expect(plugin.start).toHaveBeenLastCalledWith(expect.objectContaining({ mic: true }))
+    expect(plugin.start.mock.calls.at(-1)[0].url).toContain('speech=0')
     notify({ state: 'connected' })
     expect(getSnapshot().phase.ses_a).toBe('listening')
   })
@@ -179,21 +176,22 @@ describe('inside the iPhone app, the app holds the microphone and the voice', ()
     expect(getSnapshot().phase.ses_a).toBeUndefined()
   })
 
-  it('turns the agent voice off and on in the call, and starts a call without the voice when it is off', async () => {
+  it('turns the agent voice off and on in the call while the microphone stays, and an old app just ends the call', async () => {
     toggleVoice('ses_a', vi.fn())
     await settle()
-    toggleSpeech('ses_a')
+    toggleMic('ses_a', vi.fn())
+    toggleVoice('ses_a', vi.fn())
     expect(getSnapshot().quiet.ses_a).toBe(true)
     await settle()
     expect(plugin.setSpeech).toHaveBeenLastCalledWith({ on: false })
-    toggleSpeech('ses_a')
+    toggleVoice('ses_a', vi.fn())
     expect(getSnapshot().quiet.ses_a).toBeUndefined()
     expect(plugin.setSpeech).toHaveBeenLastCalledWith({ on: true })
-    toggleSpeech('ses_a')
-    closeConversation('ses_a')
+    delete plugin.setSpeech                       // 声の入 / 切の口を持たない古い版の app
     toggleVoice('ses_a', vi.fn())
     await settle()
-    expect(plugin.start.mock.calls.at(-1)[0].url).toContain('speech=0')
+    expect(plugin.stop).toHaveBeenCalled()
+    expect(getSnapshot().on.ses_a).toBeUndefined()
   })
 
   it('shows the picture-in-picture on request only while the tab has a call, and says why when it cannot', async () => {
@@ -203,6 +201,10 @@ describe('inside the iPhone app, the app holds the microphone and the voice', ()
     toggleVoice('ses_a', vi.fn())
     await settle()
     expect(hasAppCall('ses_a')).toBe(true)
+    const show = plugin.showPicture
+    delete plugin.showPicture                     // 小窓で表示の口を持たない古い版の app には出さない
+    expect(hasAppCall('ses_a')).toBe(false)
+    plugin.showPicture = show
     plugin.showPicture.mockRejectedValueOnce(new Error('picture in picture is not possible now'))
     showCallPicture('ses_a')
     await settle()
