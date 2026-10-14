@@ -95,6 +95,8 @@ class AgentBridge(FrameProcessor):
         # 小窓: 送った行 (= 同じ物を 2 度送らない) と、 会話を始める前の行の溜め
         self._shown: OrderedDict[str, None] = OrderedDict()
         self._history: deque[tuple[str, str]] = deque(maxlen=PICTURE_HISTORY)
+        # 小窓へ最後に出した人の発話の親 (= 同じ親の発話が来たら、 その発話を置き換える)
+        self._last_user_parent: str | None = None
         self._history_task: asyncio.Task | None = None
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
@@ -190,7 +192,12 @@ class AgentBridge(FrameProcessor):
                 self._awaiting_turn = False   # 新しい turn が始まった
                 said = shown_user_text(event.get("text"))
                 if said:
-                    await self._picture_line("user", said, event, event.get("uuid"))
+                    # claude は取り消した発話を記録に残し、 送り直した発話を同じ親に付ける (= 声の会話は、 途中の間で
+                    # 区切られて先に送った前半を取り消し、 後半をつなげて送り直す)。 同じ親なら前の発話を置き換える
+                    parent = event.get("parentUuid")
+                    replace = parent is not None and parent == self._last_user_parent
+                    self._last_user_parent = parent
+                    await self._picture_line("user", said, event, event.get("uuid"), replace=replace)
                 continue
             found = speech_of(event)
             if found:
@@ -230,8 +237,11 @@ class AgentBridge(FrameProcessor):
             await self.push_frame(InterruptionFrame())   # 鳴っている声とまだ鳴らしていない文を止める
         logger.info("voice call: speech %s", "on" if on else "off")
 
-    async def _picture_line(self, who: str, text: str, event: dict, key: str | None) -> None:
-        """タブの 1 行を小窓へ。 会話を始める前の行は溜めて、 読み直しが途切れた所でまとめて送る。"""
+    async def _picture_line(self, who: str, text: str, event: dict, key: str | None, *, replace: bool = False) -> None:
+        """タブの 1 行を小窓へ。 会話を始める前の行は溜めて、 読み直しが途切れた所でまとめて送る。
+
+        replace: 小窓の最後の人の発話を、 この行で置き換える (= 取り消された発話の送り直し)。
+        """
         key = key or f"{who}:{event.get('ts')}:{text}"
         if not text or key in self._shown:
             return
@@ -240,9 +250,13 @@ class AgentBridge(FrameProcessor):
             self._shown.popitem(last=False)
         if self._since(event):
             await self._send_history()
-            await self._show_line(who, text)
+            await self._show_line(who, text, replace=replace)
             return
-        self._history.append((who, text))
+        last_user = next((i for i in range(len(self._history) - 1, -1, -1) if self._history[i][0] == "user"), None)
+        if replace and last_user is not None:
+            self._history[last_user] = (who, text)
+        else:
+            self._history.append((who, text))
         if self._history_task:
             await self.cancel_task(self._history_task)
         self._history_task = self.create_task(self._send_history_when_settled(), "voice-call-picture-history")
@@ -260,9 +274,12 @@ class AgentBridge(FrameProcessor):
             who, text = self._history.popleft()
             await self._show_line(who, text)
 
-    async def _show_line(self, who: str, text: str) -> None:
+    async def _show_line(self, who: str, text: str, *, replace: bool = False) -> None:
         if text:
-            await self.push_frame(RTVIServerMessageFrame(data={"pip": "line", "who": who, "text": text}))
+            data = {"pip": "line", "who": who, "text": text}
+            if replace:
+                data["replace"] = True
+            await self.push_frame(RTVIServerMessageFrame(data=data))
 
     async def _show_state(self, state: str) -> None:
         await self.push_frame(RTVIServerMessageFrame(data={"pip": "state", "state": state}))

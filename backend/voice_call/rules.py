@@ -30,18 +30,9 @@ def mark_voice_input(text: str) -> str:
 # (= 人の発話ではない)。 割り込んだ時に claude が書く中断の行も出さない。 返事の行の頭の言い方の印
 # (= `[happy]` / `[mute]`) は外す
 _ENVELOPE_HEADS = ("Message from ", "Automatic session rollover", "<")
-_LINE_MARK = re.compile(r"^\[[a-z][^\]\n]*\]\s*", re.MULTILINE)
+_LINE_MARK = re.compile(r"^\[[a-z][^\]\n]*\](?!\()\s*", re.MULTILINE)   # (= 行の頭のリンク `[文字](URL)` は残す)
 
-# 小窓は行の中の markdown (= 太字・斜体・コード) だけを描く (= app の `CallPicture.swift`)。 行単位の形は
-# ここで小窓で読める行に直す: 表は区切りの行を外してセルを「｜」 でつなぎ (= 見出しの行は太字)、 見出しは太字、
-# 箇条書きは「・」、 引用の印・コードの囲みの行・区切りの線は外す
-_TABLE_ROW = re.compile(r"^\s*\|(.*)\|\s*$")
-_TABLE_RULE = re.compile(r"^\s*\|?(\s*:?-{3,}:?\s*\|)+\s*(:?-{3,}:?\s*)?$")
-_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$")
-_BULLET = re.compile(r"^(\s*)[-*+]\s+")
-_QUOTE = re.compile(r"^\s*>\s?")
-_FENCE = re.compile(r"^\s*(```|~~~)")
-_RULE = re.compile(r"^\s*([-*_])(\s*\1){2,}\s*$")
+# 小窓は返事を markdown のまま受け取り、 表・見出し・箇条書き・コードの枠まで描く (= app の `ChatMarkdown.swift`)
 
 
 def shown_user_text(text: str | None) -> str | None:
@@ -55,27 +46,8 @@ def shown_user_text(text: str | None) -> str | None:
 
 
 def shown_reply_text(text: str | None) -> str:
-    """タブの返事を、 小窓に出す文にする (= 声にしない `[mute]` の行も出す。 印を外し、 行単位の markdown を直す)。"""
-    lines: list[str] = []
-    in_table = False
-    for line in _LINE_MARK.sub("", text or "").split("\n"):
-        if _FENCE.match(line) or _TABLE_RULE.match(line):
-            continue
-        row = _TABLE_ROW.match(line)
-        if row:
-            cells = " ｜ ".join(cell.strip() for cell in row.group(1).split("|"))
-            lines.append(cells if in_table else f"**{cells}**")
-            in_table = True
-            continue
-        in_table = False
-        if _RULE.match(line):
-            continue
-        heading = _HEADING.match(line)
-        if heading:
-            lines.append(f"**{heading.group(1)}**")
-            continue
-        lines.append(_BULLET.sub(r"\1・", _QUOTE.sub("", line)))
-    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    """タブの返事を、 小窓に出す文にする (= 声にしない `[mute]` の行も出す。 行の頭の言い方の印だけを外す)。"""
+    return _LINE_MARK.sub("", text or "").strip()
 
 
 def is_unfinished(text: str, endings: list[str]) -> bool:
