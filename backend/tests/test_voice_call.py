@@ -364,6 +364,33 @@ def test_the_volume_scales_the_voice_and_stops_at_the_limit():
     assert scaled(pcm, 1.0) == pcm
 
 
+def test_the_volume_moved_while_a_reply_is_said_reaches_the_rest_of_it(monkeypatch):
+    # 返事の文は話し終えるより先に全部作られる。 作る時に倍率を掛けていた間は、 話している途中に動かしたつまみが
+    # その返事に効かなかった (= 2026-10-15、 8 文の返事が 11 秒で作り終わり、 その後の 30 秒の間に動かした)
+    pytest.importorskip("pipecat")
+    import numpy as np
+    from pipecat.transports.smallwebrtc.transport import RawAudioTrack
+
+    from backend.voice_call.pipeline import scale_output
+    from backend.voice_call.services import Volume
+
+    monkeypatch.setattr(RawAudioTrack, "add_audio_bytes", RawAudioTrack.add_audio_bytes)   # 試験の後に戻す
+    volume = Volume(1.0)
+    scale_output(volume)
+    track = RawAudioTrack(sample_rate=24000)
+    reply = np.full(240 * 2, 1000, dtype=np.int16).tobytes()   # 作り終わった返事の、 20 ms 分
+    sent_first, rest = reply[:480], reply[480:]
+
+    async def send():
+        track.add_audio_bytes(sent_first)
+        volume.value = 0.5   # 前半を送った所でつまみを動かす
+        track.add_audio_bytes(rest)
+
+    asyncio.run(send())
+    levels = [int(np.frombuffer(chunk, dtype=np.int16)[0]) for chunk, _ in track._chunk_queue]
+    assert levels == [1000, 500]
+
+
 # --- 長い発話 (= 途中の間で「言い終えた」 と判定される) --------------------------------------------------------
 
 def _talk(conversation: dict, gap: float, send_secs: float) -> list[str]:
@@ -462,7 +489,7 @@ def test_a_sentence_that_takes_long_to_make_is_still_said():
     from pipecat.frames.frames import ErrorFrame, TTSAudioRawFrame, TTSSpeakFrame
     from pipecat.tests.utils import SleepFrame, run_test
 
-    from backend.voice_call.services import VoiceTTS, Volume
+    from backend.voice_call.services import VoiceTTS
 
     sound = io.BytesIO()
     with wave.open(sound, "wb") as wav:
@@ -476,7 +503,7 @@ def test_a_sentence_that_takes_long_to_make_is_still_said():
             await asyncio.sleep(1.0)
             return sound.getvalue()
 
-    tts = VoiceTTS(SlowVoice(), ["calm"], Volume(), stop_frame_timeout_s=0.3)
+    tts = VoiceTTS(SlowVoice(), ["calm"], stop_frame_timeout_s=0.3)
     down, up = asyncio.run(run_test(tts, frames_to_send=[TTSSpeakFrame("長い文です。"), SleepFrame(sleep=1.5)]))
     assert any(isinstance(f, TTSAudioRawFrame) for f in down)
     assert not [f for f in [*down, *up] if isinstance(f, ErrorFrame)]   # error は上流へ流れる
