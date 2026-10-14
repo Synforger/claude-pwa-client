@@ -18,7 +18,8 @@ from backend.voice_call.rules import is_unfinished, mark_voice_input, marked, sp
 SETTINGS = {
     "marks": {"calm": {}, "happy": {}},
     "default": "calm",
-    "conversation": {"pause_ms": 200, "wait_ms": 300, "unfinished_endings": ["、", "なんか"], "interrupt": True},
+    "conversation": {"pause_ms": 200, "wait_ms": 300, "resume_ms": 50, "unfinished_endings": ["、", "なんか"],
+                     "interrupt": True},
 }
 
 
@@ -131,12 +132,12 @@ def _said(text: str):
 
 def test_a_finished_turn_goes_to_the_tab():
     pytest.importorskip("pipecat")
-    from pipecat.tests.utils import run_test
+    from pipecat.tests.utils import SleepFrame, run_test
 
     sent: list[str] = []
     from pipecat.frames.frames import InterruptionFrame
 
-    asyncio.run(run_test(_bridge(sent), frames_to_send=[_said("明日の天気を教えて")],
+    asyncio.run(run_test(_bridge(sent), frames_to_send=[_said("明日の天気を教えて"), SleepFrame(sleep=0.2)],
                          expected_down_frames=[InterruptionFrame]))
     assert sent == ["明日の天気を教えて"]
 
@@ -265,3 +266,91 @@ def test_the_volume_scales_the_voice_and_stops_at_the_limit():
     assert np.frombuffer(scaled(pcm, 0.5), dtype=np.int16).tolist() == [500, -500, 15000, -15000]
     assert np.frombuffer(scaled(pcm, 2.0), dtype=np.int16).tolist() == [2000, -2000, 32767, -32768]
     assert scaled(pcm, 1.0) == pcm
+
+
+# --- 長い発話 (= 途中の間で「言い終えた」 と判定される) --------------------------------------------------------
+
+def _talk(conversation: dict, gap: float, send_secs: float) -> list[str]:
+    """本物の発話のまとめ役と agent の段をつなぎ、 3 つの区間を gap 秒ずつ空けて話す。 判定は毎回「言い終えた」。"""
+    from pipecat.audio.turn.base_turn_analyzer import BaseTurnAnalyzer, BaseTurnParams, EndOfTurnState
+    from pipecat.frames.frames import TranscriptionFrame, VADUserStartedSpeakingFrame, VADUserStoppedSpeakingFrame
+    from pipecat.pipeline.pipeline import Pipeline
+    from pipecat.processors.aggregators.llm_context import LLMContext
+    from pipecat.processors.aggregators.llm_response_universal import (
+        LLMContextAggregatorPair,
+        LLMUserAggregatorParams,
+    )
+    from pipecat.tests.utils import SleepFrame, run_test
+    from pipecat.turns.user_stop.turn_analyzer_user_turn_stop_strategy import TurnAnalyzerUserTurnStopStrategy
+    from pipecat.turns.user_turn_strategies import UserTurnStrategies
+
+    from backend.voice_call.agent import AgentBridge
+
+    class AlwaysComplete(BaseTurnAnalyzer):
+        @property
+        def speech_triggered(self):
+            return False
+
+        @property
+        def params(self):
+            return BaseTurnParams()
+
+        def append_audio(self, buffer, is_speech):
+            return EndOfTurnState.INCOMPLETE
+
+        async def analyze_end_of_turn(self):
+            return EndOfTurnState.COMPLETE, None
+
+        def clear(self):
+            pass
+
+    sent: list[str] = []
+
+    async def send(text: str) -> bool:
+        await asyncio.sleep(send_secs)   # 送るのに掛かる時間 (= 本物は数秒掛かることがある)
+        sent.append(text)
+        return True
+
+    async def stream():
+        await asyncio.sleep(3600)
+        yield {}
+
+    async def utterances(text: str) -> list[dict]:
+        return []
+
+    aggregator, _ = LLMContextAggregatorPair(LLMContext(), user_params=LLMUserAggregatorParams(
+        user_turn_strategies=UserTurnStrategies(stop=[TurnAnalyzerUserTurnStopStrategy(turn_analyzer=AlwaysComplete())]),
+        user_mute_strategies=[]))
+    bridge = AgentBridge(conversation, send=send, events=stream, utterances=utterances)
+    frames = []
+    for i, text in enumerate(("一つ目の区間", "二つ目の区間", "三つ目の区間")):
+        frames += [VADUserStartedSpeakingFrame(start_secs=0.2), SleepFrame(sleep=0.1),
+                   VADUserStoppedSpeakingFrame(stop_secs=0.2), SleepFrame(sleep=0.02),
+                   TranscriptionFrame(text, "u", "t"), SleepFrame(sleep=gap if i < 2 else send_secs * 4)]
+    asyncio.run(run_test(Pipeline([aggregator, bridge]), frames_to_send=frames))
+    return sent
+
+
+def test_a_part_said_before_a_pause_is_not_lost_when_the_rest_starts_while_it_is_sent():
+    # 途中の間で「言い終えた」 と判定された区間を送っている間に続きを話し始めると、 まとめ役の割り込みが送る処理を
+    # 打ち切り、 その区間が消えていた (= 長く話すと最後の区間だけが届いた)
+    pytest.importorskip("pipecat")
+    sent = _talk({**SETTINGS["conversation"], "resume_ms": 0}, gap=0.15, send_secs=0.4)
+    assert sent == ["一つ目の区間", "二つ目の区間", "三つ目の区間"]
+
+
+def test_a_part_said_before_a_pause_is_joined_with_the_rest_that_starts_within_the_wait():
+    pytest.importorskip("pipecat")
+    sent = _talk({**SETTINGS["conversation"], "resume_ms": 600}, gap=0.15, send_secs=0.1)
+    assert sent == ["一つ目の区間二つ目の区間三つ目の区間"]
+
+
+def test_a_turn_still_waiting_when_the_call_ends_is_sent():
+    pytest.importorskip("pipecat")
+    from pipecat.tests.utils import run_test
+
+    sent: list[str] = []
+    bridge = _bridge(sent)
+    bridge._resume_secs = 30   # 待ちの間に通話が終わる
+    asyncio.run(run_test(bridge, frames_to_send=[_said("最後の一言")]))
+    assert sent == ["最後の一言"]

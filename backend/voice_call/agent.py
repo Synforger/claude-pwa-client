@@ -4,8 +4,8 @@
 同じ口でそのタブへ送る (= 声で聞いている印は送る口の側で付く)。 言いさし (= 「、」「なんか」 などで終わる) は
 送らずに続きを待ち、 続きが来ないまま待ちの時間が過ぎたら送る (= 画面の会話の `turnTaker.js` と同じ決まり)。
 
-帰り: そのタブの agent が書いた返事を、 届いた順に声にする。 人の新しい発話をタブへ送った時点で、 鳴っている声と
-まだ鳴らしていない文は捨て、 タブの記録にその発話が載る (= 新しい turn が始まる) までに届いた文は、 前の turn の
+帰り: そのタブの agent が書いた返事を、 届いた順に声にする。 人の新しい発話を受け取った時点で前の返事の続きは
+言わず、 タブへ送る時点で鳴っている声とまだ鳴らしていない文は捨て、 タブの記録にその発話が載る (= 新しい turn が始まる) までに届いた文は、 前の turn の
 物として言わない (= agent が新しい発話を考えている間に、 前の返事の続きが鳴らないように)。 何を声にするかは画面の `listener.js` と同じ決まり
 (= 返事の文だけ。 thinking とツールの呼び出しと sub-agent の物は言わない。 会話を始める前の物と、 同じ物の 2 度目は
 言わない)。 返事は誰の発話への物でも言う (= 画面から打った文への返事も、 電話で聞ける)。 文の切り分けと言い方の
@@ -23,6 +23,7 @@ from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
     Frame,
+    InterruptionFrame,
     LLMContextFrame,
     StartFrame,
     TTSSpeakFrame,
@@ -51,6 +52,11 @@ class AgentBridge(FrameProcessor):
         self._endings = conversation["unfinished_endings"]
         # 言いさしの後に待つ時間 (= 声が途切れてから wait_ms。 まとめ役が発話を渡すのは pause_ms の無音の後)
         self._hold_secs = max(0.0, (conversation["wait_ms"] - conversation["pause_ms"]) / 1000)
+        # 言い終えた発話を送る前に待つ時間 (= この間に話し始めたら、 続きとつなげる)
+        self._resume_secs = conversation["resume_ms"] / 1000
+        # 送るのは 1 通ずつ、 届いた順に (= 送る処理は割り込みで打ち切られない task で回す)
+        self._send_lock = asyncio.Lock()
+        self._said_at = 0.0
         self._send = send
         self._events = events
         self._utterances = utterances
@@ -80,9 +86,11 @@ class AgentBridge(FrameProcessor):
                 await self._said(frame.context)
             return
         if isinstance(frame, UserStartedSpeakingFrame) and self._hold_task:
-            # 言いさしの続きを話し始めた: 待ちを止め、 次の発話と合わせて送る
+            # 待っている間に続きを話し始めた: 待ちを止め、 次の発話と合わせて送る
             await self.cancel_task(self._hold_task)
             self._hold_task = None
+            logger.info("voice call: resumed %d ms after the turn ended; joined with the next",
+                        (time.monotonic() - self._said_at) * 1000)
         await self.push_frame(frame, direction)
 
     # --- 行き -------------------------------------------------------------------------------------------------
@@ -94,28 +102,43 @@ class AgentBridge(FrameProcessor):
         if not text:
             return
         self._pending.append(text)
+        self._said_at = time.monotonic()
+        # 人が話し終えた時点で、 前の turn の返事の続きは言わない (= 送る前の待ちの間に届いた物も)
+        self._awaiting_turn = True
         if self._hold_task:
             await self.cancel_task(self._hold_task)
             self._hold_task = None
-        if is_unfinished("".join(self._pending), self._endings):
-            self._hold_task = self.create_task(self._send_after_hold(), "voice-call-hold")
-            return
-        await self._flush()
+        # 言いさしなら続きを wait_ms まで、 言い終えていても resume_ms だけ待つ (= 待つ間に話し始めたら、
+        # UserStartedSpeakingFrame で待ちを止め、 次の発話とつなげて送る)
+        hold = self._hold_secs if is_unfinished("".join(self._pending), self._endings) else self._resume_secs
+        self._hold_task = self.create_task(self._send_after_hold(hold), "voice-call-hold")
 
-    async def _send_after_hold(self) -> None:
-        await asyncio.sleep(self._hold_secs)
+    async def _send_after_hold(self, secs: float) -> None:
+        if secs > 0:
+            await asyncio.sleep(secs)
         self._hold_task = None
         await self._flush()
 
-    async def _flush(self) -> None:
+    async def _flush(self, *, closing: bool = False) -> None:
+        """待っている発話を送る。
+
+        ⚠ 送る処理は、 この段の frame の処理 (= process_frame) の中で待たない。 人が話し始めると発話のまとめ役が
+        割り込み (= InterruptionFrame) を流し、 Pipecat は処理中の frame の処理を打ち切る。 送っている途中の
+        発話はそこで消えていた (= 長く話すと、 途中の間で「言い終えた」 と判定された区間が全部消え、 最後の区間
+        だけが届いた)。 ここは待ちの task から呼ばれ、 割り込みでは止まらない。
+        """
         text = "".join(self._pending)
         self._pending = []
-        if text:
-            # 前の turn の声は、 ここで全部止める (= 送り終えるまで待たない。 送るのに数秒掛かることがある)
-            self._awaiting_turn = True
-            await self.broadcast_interruption()
+        if not text:
+            return
+        # 前の turn の声は、 ここで全部止める (= 送り終えるまで待たない。 送るのに数秒掛かることがある)。 止めるのは
+        # 下流 (= 声の段と出口) だけ: broadcast_interruption は、 この段の frame の待ち行列も空にし、 待っている
+        # 次の発話を捨てる
+        if not closing:
+            await self.push_frame(InterruptionFrame())
+        async with self._send_lock:
             sent = await self._send(text)
-            logger.info("voice call: sent chars=%d ok=%s", len(text), sent)
+        logger.info("voice call: sent chars=%d ok=%s", len(text), sent)
 
     # --- 帰り -------------------------------------------------------------------------------------------------
 
@@ -150,6 +173,8 @@ class AgentBridge(FrameProcessor):
             if task:
                 await self.cancel_task(task)
         self._hold_task = self._replies_task = None
+        # 待っている間に通話が終わった発話も送る (= 話し終えてすぐ切った時に、 最後の発話を捨てない)
+        await self._flush(closing=True)
 
 
 def _text_of(message: dict) -> str:

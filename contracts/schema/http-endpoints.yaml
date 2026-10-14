@@ -569,9 +569,10 @@ endpoints:
           properties:
             pause_ms:  { type: integer, description: "声が途切れてから、 言い終えたかの判定に入るまでの無音 (ミリ秒)" }
             wait_ms:   { type: integer, description: "言い終えていない時に、 送るまで待つ無音 (ミリ秒。 声が途切れた時から)" }
+            resume_ms: { type: integer, description: "言い終えた発話を送る前に待つ時間 (ミリ秒)。 この間に話し始めたら続きとつなげる。 0 なら待たない" }
             unfinished_endings: { type: array, items: { type: string }, description: "聞き取った文がこれで終わる時は、 wait_ms まで待つ" }
             interrupt: { type: boolean, description: "返事が鳴っている間も聞き、 話し始めたら返事を止めるか" }
-          required: [pause_ms, wait_ms, unfinished_endings, interrupt]
+          required: [pause_ms, wait_ms, resume_ms, unfinished_endings, interrupt]
         tuning_error: { type: string, description: "調整の file (= voice.tuning) を使えない理由 (= 使えている / 書いていなければ空文字)" }
       required: [enabled, marks, default, listen, turn, conversation, tuning_error]
     response_kind: json
