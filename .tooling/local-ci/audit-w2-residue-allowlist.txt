@@ -43,5 +43,5 @@ C:frontend/src/features/extensions/ExtensionHost.css:45:.extension-ctrl-btn
 C:frontend/src/features/extensions/ExtensionMenu.css:9:.ext-menu-popup
 # 拡張の帯の下端の取っ手: 親 .extension-band が position:relative の anchor、 意図した absolute positioning。
 C:frontend/src/features/extensions/ExtensionHost.css:72:.extension-resize
-# 会話のボタンの上に出る「失敗の理由」: 親 .conversation-wrap が position:relative の anchor、 意図した absolute positioning。
-C:frontend/src/features/voice/ConversationButton.css:63:.conversation-error
+# 声のボタンの上に出る「失敗の理由」: 親 .voice-buttons が position:relative の anchor、 意図した absolute positioning
+C:frontend/src/features/voice/VoiceButtons.css:81:.voice-error

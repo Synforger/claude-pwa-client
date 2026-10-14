@@ -57,9 +57,9 @@ test.describe('live: voice conversation', () => {
     page.on('console', (m) => { if (m.type() === 'warning' || m.type() === 'error') console.log('[page]', m.text().slice(0, 200)) })
     await openClient(page, { sid: tab.sid })
 
-    const button = page.locator('[data-testid=chat-conversation-button]')
-    await button.click()
-    await expect(button).toHaveAttribute('data-state', /listening|talking|judging|hearing/, { timeout: 30_000 })
+    await page.locator('[data-testid=chat-voice-button]').click()
+    const mic = page.locator('[data-testid=chat-mic-button]')
+    await expect(mic).toHaveAttribute('data-state', /listening|talking|judging|hearing/, { timeout: 30_000 })
     const listeningAt = Date.now()
     expect(seen.model).toEqual([200])
 
