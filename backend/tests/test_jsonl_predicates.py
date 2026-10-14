@@ -46,6 +46,7 @@ def test_is_user_prompt_interrupt_marker_rejected():
     assert p.is_user_prompt(_user_str("[Request interrupted by user]")) is False
     assert p.is_user_prompt(_user_str("  [REQUEST INTERRUPTED BY USER]  ")) is False
     assert p.is_user_prompt(_user_list(_text("[Request interrupted by user]"))) is False
+    assert p.is_user_prompt(_user_list(_text("[Request interrupted by user for tool use]"))) is False
 
 
 def test_is_user_prompt_mixed_blocks_uses_plain_side():
