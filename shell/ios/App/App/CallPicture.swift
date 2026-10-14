@@ -10,10 +10,11 @@ import UIKit
 /// 小窓は「絵を流し込む PiP」 (= `AVSampleBufferDisplayLayer`) で出す。 通話の PiP
 /// (= `AVPictureInPictureVideoCallViewController`) は iOS 16 から閉じる・戻るのボタンを描かず、 小窓を消すには app を
 /// 落とすしかなかった。 こちらは iOS が両方のボタンを付ける。 中身は終わりの無い生の映像として伝え (= 再生の範囲を
-/// 無限)、 小窓を閉じても通話は続く。
+/// 無限)、 小窓を閉じても通話は続く。 ただし再生の範囲は「とても長い録画の途中」 として伝える (= 生の映像だと、 iOS は
+/// 送りのボタンを効かなくする)。 小窓を閉じたら仕組みを作り直す (= 一度閉じた仕組みは、 次に抜けても自動で出ない)。
 ///
-/// iOS が付ける再生の操作は読み替える: 再生 / 停止 = 押すたびにマイクの入 / 切を入れ替える (= iOS には常に「再生中」
-/// と伝える。 一時停止中と伝えると、 app を抜けた時に小窓が自動で出ない。 マイクの入 / 切は帯に出す)、 10 秒戻し / 送り =
+/// iOS が付ける再生の操作は読み替える: 再生 / 停止 = マイクの入 / 切 (= 入っている間が「再生中」。 ただし app を抜ける
+/// 瞬間だけは「再生中」 と伝える。 一時停止中だと、 iOS は小窓を自動で出さない)、 10 秒戻し / 送り =
 /// 会話を上 (= 古い方) / 下 (= 新しい方) へ窓の 3 分の 2 ずつ送る。 上へ送って読んでいる間に新しい行が来ても位置は
 /// そのままで、 帯に「▼ 新しい行」 と出す (= 一番下まで戻すと、 また新しい行に付いていく)。
 ///
@@ -27,14 +28,22 @@ import UIKit
     /// 文が変わらない間も絵を流し込む間隔 (= 流れが止まった層を、 PiP が古い物と見なさないように)
     private static let refreshSecs = 2.0
 
-    private let layer = AVSampleBufferDisplayLayer()
+    private var layer = AVSampleBufferDisplayLayer()
+    /// 閉じた後に作り直した時の、 前の仕組み (= すぐ捨てると、 閉じる途中の仕組みが落ちる。 通話の終わりで捨てる)
+    private var retired: [AVPictureInPictureController] = []
+    /// 小窓を閉じてから作り直すまで待つ間 (= 閉じる動きが終わるのを待つ)
+    private static let rearmDelay: UInt64 = 600_000_000
     private let host = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
     private var controller: AVPictureInPictureController?
     private var lines: [(who: String, text: String)] = []
     private var state = "waiting"
     private var timer: Timer?
-    /// マイクが入っているか (= 帯に出す)
-    private var micOn = false
+    /// マイクが入っているか (= 再生 / 停止の絵と帯。 iOS は main actor の外から読む)
+    nonisolated(unsafe) private var micOn = false
+    /// app を抜けようとしている間か (= この間は「再生中」 と伝え、 小窓を自動で出させる)
+    nonisolated(unsafe) private var leaving = false
+    /// 再生の範囲 (= とても長い録画の途中。 送りのボタンを効かせるため。 今の位置は真ん中に置いたまま動かさない)
+    private static let span = CMTime(seconds: 48 * 3600, preferredTimescale: 600)
     /// 小窓の再生 / 停止で、 マイクを入れる / 切る (= 引数は入れるか)
     var onMic: ((Bool) -> Void)?
     /// 一番下から上へ送った量 (pt)。 0 なら新しい行に付いていく
@@ -43,6 +52,9 @@ import UIKit
     private var newBelow = false
     /// 前に描いた会話の高さ (= 上へ送れる量の上限を決める)
     private var contentHeight: CGFloat = 0
+    /// 小窓を出せるかの変わり目を log に出す (= 自動で出ない時の切り分け)
+    private var possibleObservation: NSKeyValueObservation?
+    private var sceneObservers: [NSObjectProtocol] = []
 
     func start(over screen: UIView) {
         guard AVPictureInPictureController.isPictureInPictureSupported() else {
@@ -51,25 +63,66 @@ import UIKit
         }
         host.isUserInteractionEnabled = false
         screen.addSubview(host)
-        layer.frame = host.bounds
-        layer.videoGravity = .resizeAspect
-        host.layer.addSublayer(layer)
-        render()
-
-        let source = AVPictureInPictureController.ContentSource(sampleBufferDisplayLayer: layer, playbackDelegate: self)
-        let controller = AVPictureInPictureController(contentSource: source)
-        controller.canStartPictureInPictureAutomaticallyFromInline = true
-        controller.delegate = self
-        self.controller = controller
+        freshLayer()
+        arm()
+        sceneObservers = [
+            NotificationCenter.default.addObserver(
+                forName: UIScene.willDeactivateNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.setLeaving(true) }
+            },
+            NotificationCenter.default.addObserver(
+                forName: UIScene.didActivateNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.setLeaving(false) }
+            },
+        ]
         timer = Timer.scheduledTimer(withTimeInterval: Self.refreshSecs, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.render() }
         }
         CAPLog.print("[CallPicture] ready (starts when the app goes to the background)")
     }
 
-    /// マイクの入 / 切を、 小窓の帯に合わせる (= 画面の 🎙 から切り替えた時も)。
+    /// 絵を流し込む層を新しくする (= 始めた時と、 閉じた後に作り直す時。 前の層は前の仕組みと一緒に残す)。
+    private func freshLayer() {
+        layer.removeFromSuperlayer()
+        layer = AVSampleBufferDisplayLayer()
+        layer.frame = host.bounds
+        layer.videoGravity = .resizeAspect
+        var timebase: CMTimebase?
+        CMTimebaseCreateWithSourceClock(
+            allocator: kCFAllocatorDefault, sourceClock: CMClockGetHostTimeClock(), timebaseOut: &timebase)
+        if let timebase {
+            CMTimebaseSetTime(timebase, time: CMTimeMultiplyByRatio(Self.span, multiplier: 1, divisor: 2))
+            CMTimebaseSetRate(timebase, rate: 0)
+            layer.controlTimebase = timebase
+        }
+        host.layer.addSublayer(layer)
+        render()
+    }
+
+    /// 小窓の仕組みを作る (= 始めた時と、 小窓を閉じた後)。
+    private func arm() {
+        let source = AVPictureInPictureController.ContentSource(sampleBufferDisplayLayer: layer, playbackDelegate: self)
+        let controller = AVPictureInPictureController(contentSource: source)
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        controller.delegate = self
+        self.controller = controller
+        possibleObservation = controller.observe(\.isPictureInPicturePossible, options: [.initial, .new]) { _, change in
+            CAPLog.print("[CallPicture] possible=\(change.newValue.map(String.init(describing:)) ?? "?")")
+        }
+    }
+
+    private func setLeaving(_ on: Bool) {
+        leaving = on
+        controller?.invalidatePlaybackState()
+        CAPLog.print("[CallPicture] leaving=\(on) possible=\(controller?.isPictureInPicturePossible ?? false) active=\(controller?.isPictureInPictureActive ?? false)")
+    }
+
+    /// マイクの入 / 切を、 小窓の再生 / 停止の絵と帯に合わせる (= 画面の 🎙 から切り替えた時も)。
     func setMic(_ on: Bool) {
         micOn = on
+        controller?.invalidatePlaybackState()
         render()
     }
 
@@ -90,10 +143,14 @@ import UIKit
     }
 
     func stop() {
+        possibleObservation = nil
+        sceneObservers.forEach(NotificationCenter.default.removeObserver)
+        sceneObservers = []
         timer?.invalidate()
         timer = nil
         controller?.stopPictureInPicture()
         controller = nil
+        retired.removeAll()
         layer.flushAndRemoveImage()
         host.removeFromSuperview()
     }
@@ -275,22 +332,20 @@ import UIKit
 // 再生の操作: 生の映像として伝え、 再生 / 停止と送りは通話の操作に読み替える
 extension CallPicture: AVPictureInPictureSampleBufferPlaybackDelegate {
     nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController, setPlaying playing: Bool) {
-        // 常に「再生中」 と伝えているので、 押されるたびに来るのは停止の頼み。 押されたらマイクを入れ替える
         Task { @MainActor in
-            let on = !self.micOn
-            self.setMic(on)
-            self.onMic?(on)
+            self.setMic(playing)
+            self.onMic?(playing)
         }
     }
 
     nonisolated func pictureInPictureControllerTimeRangeForPlayback(
         _ controller: AVPictureInPictureController
     ) -> CMTimeRange {
-        CMTimeRange(start: .negativeInfinity, duration: .positiveInfinity)
+        CMTimeRange(start: .zero, duration: CallPicture.span)
     }
 
     nonisolated func pictureInPictureControllerIsPlaybackPaused(_ controller: AVPictureInPictureController) -> Bool {
-        false
+        !(micOn || leaving)
     }
 
     nonisolated func pictureInPictureController(
@@ -308,8 +363,13 @@ extension CallPicture: AVPictureInPictureSampleBufferPlaybackDelegate {
 }
 
 extension CallPicture: AVPictureInPictureControllerDelegate {
+    nonisolated func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
+        CAPLog.print("[CallPicture] will start")
+    }
+
     nonisolated func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
         CAPLog.print("[CallPicture] started")
+        Task { @MainActor in self.setLeaving(false) }   // 出たので、 再生 / 停止の絵をマイクの状態に戻す
     }
 
     nonisolated func pictureInPictureController(
@@ -320,6 +380,16 @@ extension CallPicture: AVPictureInPictureControllerDelegate {
 
     nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
         CAPLog.print("[CallPicture] stopped")
+        // 一度閉じた仕組みは次に抜けても自動で出ないので、 通話の間なら作り直す (= 閉じる動きが終わってから、 新しい層で)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: CallPicture.rearmDelay)
+            guard self.timer != nil, let old = self.controller, !old.isPictureInPictureActive else { return }
+            old.delegate = nil
+            self.retired.append(old)
+            self.freshLayer()
+            self.arm()
+            CAPLog.print("[CallPicture] re-armed")
+        }
     }
 
     /// 戻るのボタン: app が前に出る (= 画面は通話の前のまま。 戻せたと答える)
