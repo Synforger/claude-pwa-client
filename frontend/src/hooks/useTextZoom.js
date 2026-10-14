@@ -8,10 +8,6 @@
 // 指の途中は React の state を通さず、 本文の style を直に書く (= 動かすたびに markdown を描き直さない)。
 // 端末に覚えるのは、 指を離した時とホイールの 1 回ごと。
 //
-// 表だけは、 どのマスも 1 字まで折っても余白と罫の分の幅が残るので、 列が多いと広げた時に枠に収まらない。
-// それ以上折れない表は、 枠の幅に収まる所までその表だけ小さく描く (= 横には送らない、 の決まりを守る)。
-// 本文の大きさが変わるたび (= 中身が描かれた / 枠の幅が変わった / 倍率を変えた) に測り直す。
-//
 // 1 本の指の縦の送りはブラウザに任せる (= touch-action: pan-x pan-y を本文の CSS に書く)。 2 本の指は
 // touch の出来事で受ける (= pointer の出来事は、 ブラウザが送りを始めると pointercancel で取り上げられる)。
 import { useEffect, useLayoutEffect, useRef } from 'react'
@@ -23,50 +19,18 @@ function applyZoom(content, zoom) {
   content.style.setProperty('--text-zoom', String(zoom))
 }
 
-// 枠に収まらない表を、 収まる大きさまで小さく描く (= 表ごとの zoom。 本文の倍率の上に掛かる)
-function fitWideTables(content) {
-  const width = content.getBoundingClientRect().width
-  for (const table of content.querySelectorAll('table')) {
-    table.style.zoom = ''
-    const tableWidth = table.getBoundingClientRect().width
-    if (tableWidth > width + 0.5) table.style.zoom = String(width / tableWidth)
-  }
-}
-
 export function useTextZoom(frameRef, contentRef) {
   const zoomRef = useRef(null)
   if (zoomRef.current === null) zoomRef.current = loadTextZoom()
-  const resizeRef = useRef(null)     // 本文と枠の大きさを見張る ResizeObserver
-  const observedRef = useRef(null)   // 見張っている本文の要素
 
   useLayoutEffect(() => {
     const content = contentRef.current
-    if (content) {
-      applyZoom(content, zoomRef.current)
-      fitWideTables(content)
-    }
-    const resize = resizeRef.current
-    if (resize && observedRef.current !== content) {
-      if (observedRef.current) resize.unobserve(observedRef.current)
-      if (content) resize.observe(content)
-      observedRef.current = content
-    }
+    if (content) applyZoom(content, zoomRef.current)
   })
 
   useEffect(() => {
     const frame = frameRef.current
     if (!frame) return undefined
-
-    // 中身が後から描かれた (= markdown の描画は遅れて来る) / 枠の幅が変わった時に、 表を測り直す
-    const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => {
-      if (contentRef.current) fitWideTables(contentRef.current)
-    })
-    if (resize) {
-      resize.observe(frame)
-      if (contentRef.current) resize.observe(contentRef.current)
-    }
-    resizeRef.current = resize
-    observedRef.current = contentRef.current
 
     // anchorY = 指 (= カーソル) の在る高さ。 そこに見えていた所が、 変えた後も同じ高さに来るよう送り直す。
     const setZoom = (next, anchorY) => {
@@ -77,7 +41,6 @@ export function useTextZoom(frameRef, contentRef) {
       const before = content.getBoundingClientRect()
       zoomRef.current = next
       applyZoom(content, next)
-      fitWideTables(content)
       frame.scrollTop += scrollToKeep(before, content.getBoundingClientRect(), anchorY)
     }
 
@@ -132,9 +95,6 @@ export function useTextZoom(frameRef, contentRef) {
       frame.addEventListener('gestureend', onGestureEnd)
     }
     return () => {
-      resize?.disconnect()
-      resizeRef.current = null
-      observedRef.current = null
       frame.removeEventListener('touchstart', onTouchStart)
       frame.removeEventListener('touchmove', onTouchMove)
       frame.removeEventListener('touchend', onTouchEnd)
