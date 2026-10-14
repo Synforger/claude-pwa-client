@@ -128,16 +128,36 @@ function speakingOf(sid) {
   }
 }
 
-// 入力欄の会話のボタンを押した時に呼ぶ (= 人が押した handler の中から。 音とマイクを扱えるようにするのがここ)。
+// 消音を選んだタブ (= この画面の中だけ覚える。 選んでいなければ、 声をオンにした時にマイクも開く)
+const muted = new Set()
+
+// 入力欄の 🔊 を押した時に呼ぶ (= 人が押した handler の中から。 音とマイクを扱えるようにするのがここ)。
 // send(text) は、 聞き取った文をこのタブへ送る関数。
-//   開いていない時: 開く。 返事を声で鳴らし始め、 その agent が声を聞き取るなら、 マイクを開いて聞き始める
-//   開いている時:   閉じる。 マイクを閉じ、 返事も鳴らさない
-export function toggleConversation(sid, send) {
+//   オフの時: 返事を声で鳴らし始める。 その agent が声を聞き取り、 このタブで消音を選んでいなければ、 マイクも開く
+//   オンの時: 全部閉じる。 マイクを閉じ、 返事も鳴らさない
+export function toggleVoice(sid, send) {
   if (getSnapshot().on[sid]) { closeConversation(sid); return }
   setVoice(sid, true)
+  if (getSnapshot().on[sid] && getSnapshot().listen[sid] && !muted.has(sid)) openMic(sid, send)
+}
+
+// 入力欄の 🎙 を押した時に呼ぶ (= 声がオンの間だけ出る)。 マイクの消音と解除を入れ替える。 声はそのまま鳴る
+// (= 消音の間も、 打って送った文には声で聞いている印が付く)。
+export function toggleMic(sid, send) {
   if (!getSnapshot().on[sid] || !getSnapshot().listen[sid]) return
+  if (conversations.has(sid)) {
+    muted.add(sid)
+    closeMic(sid)
+  } else {
+    muted.delete(sid)
+    openMic(sid, send)
+  }
+}
+
+function openMic(sid, send) {
   const entry = { closed: false, handle: null, stream: null, audioContext: null }
   conversations.set(sid, entry)
+  setVoiceError(sid, null)
   setVoicePhase(sid, 'starting')
   try {
     entry.audioContext = new AudioContext()
@@ -149,16 +169,16 @@ export function toggleConversation(sid, send) {
   }
   open(sid, entry, send).catch((error) => {
     if (entry.closed) return
-    console.warn('[voice] could not open the conversation:', error)
+    console.warn('[voice] could not open the microphone:', error)
     const micRefused = error?.name === 'NotAllowedError' || error?.name === 'NotFoundError'
-    closeConversation(sid)
+    closeMic(sid)
     if (micRefused) refuseMic(sid, error)
     else setVoiceError(sid, error?.message || String(error))
   })
 }
 
 function refuseMic(sid, error) {
-  closeConversation(sid)
+  closeMic(sid)
   setVoiceError(sid, tRaw('voice.mic_refused', { reason: error?.message || String(error) }))
 }
 
@@ -210,11 +230,23 @@ async function open(sid, entry, send) {
   entry.handle = handle
 }
 
-// 会話を閉じる (= ボタンを押し直した / タブを移った / 画面から消えた時)。 マイクを閉じ、 返事も鳴らさない。
+// 会話を閉じる (= 🔊 を押し直した / タブを移った / 画面から消えた / 別の画面が会話を開いた時)。 マイクを閉じ、
+// 返事も鳴らさない。
 export function closeConversation(sid) {
+  closeMic(sid)
+  setVoice(sid, false)
+}
+
+// テストの間で、 消音を選んだタブと開いている会話を忘れる
+export function _resetForTest() {
+  muted.clear()
+  conversations.clear()
+}
+
+// マイクだけを閉じる (= 消音。 声はそのまま鳴る)。
+function closeMic(sid) {
   const entry = conversations.get(sid)
   conversations.delete(sid)
-  setVoice(sid, false)
   setVoicePhase(sid, null)
   if (!entry) return
   entry.closed = true

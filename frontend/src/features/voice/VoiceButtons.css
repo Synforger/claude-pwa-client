@@ -1,0 +1,96 @@
+/* 入力欄の声のボタン 2 つ (= 🎙 と 🔊)。 文字の欄と送信の列の間に、 行の高さいっぱいの列として立つ (= 親指の届く位置)。
+   🔊 は送信の列の隣から動かない (= 🎙 は、 出る時その左に並ぶ)。 失敗の理由はボタンの上に出す (= .voice-buttons が
+   位置の錨。 入力欄は画面の下端に在る)。 */
+.voice-buttons {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+}
+.voice-toggle,
+.voice-mic {
+  align-self: stretch;
+  width: 44px;
+  padding: 0;
+  background: var(--bg3);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 20px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 🔊: 返事を声で鳴らす */
+.voice-toggle.on,
+.voice-toggle.replying {
+  background: #1f2d3d;
+  border-color: #58a6ff;
+}
+.voice-toggle.replying {
+  animation: voice-replying 1s ease-in-out infinite;
+}
+.voice-toggle.failed {
+  border-color: #e06c75;
+}
+
+/* 🎙: 開いている間 */
+.voice-mic.starting,
+.voice-mic.listening,
+.voice-mic.talking,
+.voice-mic.judging,
+.voice-mic.hearing {
+  background: #163a24;
+  border-color: #3fb950;
+}
+/* 人が話している: 枠が脈打つ */
+.voice-mic.talking {
+  animation: voice-talking 1s ease-in-out infinite;
+}
+/* 部品の読み込み・言い終えを見ている・文字にしている: 薄い点滅 */
+.voice-mic.starting,
+.voice-mic.judging,
+.voice-mic.hearing {
+  animation: voice-waiting 1.4s ease-in-out infinite;
+}
+/* 消音: 薄くして斜線を引く */
+.voice-mic.muted {
+  opacity: 0.6;
+  background-image: linear-gradient(to top right, transparent calc(50% - 1px), #e06c75 calc(50% - 1px),
+    #e06c75 calc(50% + 1px), transparent calc(50% + 1px));
+}
+
+@keyframes voice-replying {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(88, 166, 255, 0.7); }
+  50% { box-shadow: 0 0 0 5px rgba(88, 166, 255, 0); }
+}
+@keyframes voice-talking {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.7); }
+  50% { box-shadow: 0 0 0 5px rgba(63, 185, 80, 0); }
+}
+@keyframes voice-waiting {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-toggle.replying,
+  .voice-mic.talking,
+  .voice-mic.starting,
+  .voice-mic.judging,
+  .voice-mic.hearing { animation: none; }
+}
+
+.voice-error {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: max-content;
+  max-width: min(320px, 80vw);
+  padding: 6px 10px;
+  border: 1px solid #e06c75;
+  border-radius: 6px;
+  background: var(--bg2);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
+}
