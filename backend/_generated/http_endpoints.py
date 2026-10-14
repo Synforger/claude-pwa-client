@@ -238,7 +238,7 @@ class GetSessionsSidVoiceResponse(BaseModel):
     enabled: bool
     marks: list[str]  # 言い方の印の名前 (= 設定に書いた順)
     default: str  # 印の無い文の印 (= 印を 1 つも持たなければ空文字)
-    listen: Optional[dict[str, Any]] = None  # 人の声を聞き取るか (= 設定に voice.listen が在れば値、 無ければ null)
+    listen: bool  # 人の声を聞き取るか (= 設定に voice.listen が在るか)
 
 
 class PostSessionsSidVoiceUtterancesRequest(BaseModel):

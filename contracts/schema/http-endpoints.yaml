@@ -559,13 +559,7 @@ endpoints:
         enabled: { type: boolean }
         marks:   { type: array, items: { type: string }, description: "言い方の印の名前 (= 設定に書いた順)" }
         default: { type: string, description: "印の無い文の印 (= 印を 1 つも持たなければ空文字)" }
-        listen:
-          type: object
-          nullable: true
-          description: "人の声を聞き取るか (= 設定に voice.listen が在れば値、 無ければ null)"
-          properties:
-            max_seconds: { type: number, description: "1 回に録る長さの上限 (= 秒。 画面はこの長さで録るのを止める)" }
-          required: [max_seconds]
+        listen:  { type: boolean, description: "人の声を聞き取るか (= 設定に voice.listen が在るか)" }
       required: [enabled, marks, default, listen]
     response_kind: json
     auth: tailnet

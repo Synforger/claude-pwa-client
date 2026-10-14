@@ -17,15 +17,15 @@ describe('state/voice', () => {
     setVoiceOn('a', true)
     setVoiceError('a', 'engine down')
     setVoiceMarks('a', ['calm', 'happy'])
-    setVoiceListen('a', 110.8)
+    setVoiceListen('a', true)
     setVoiceListening('a', 'recording')
     expect(getSnapshot()).toEqual({
       available: { a: true, b: false }, marks: { a: ['calm', 'happy'] }, on: { a: true }, error: { a: 'engine down' },
-      listen: { a: 110.8 }, listening: { a: 'recording' } })
+      listen: { a: true }, listening: { a: 'recording' } })
   })
 
-  it('keeps only a real length to listen for, and only the two phases of the 🎙', () => {
-    setVoiceListen('a', 0); setVoiceListen('b', '60'); setVoiceListen('c', null)
+  it('keeps only a tab that listens, and only the two phases of the 🎙', () => {
+    setVoiceListen('a', false); setVoiceListen('b', 'yes'); setVoiceListen('c', null)
     expect(getSnapshot().listen).toEqual({})
     setVoiceListening('a', 'hearing'); setVoiceListening('b', 'talking')
     expect(getSnapshot().listening).toEqual({ a: 'hearing' })
