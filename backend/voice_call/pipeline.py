@@ -76,9 +76,14 @@ def watch_output(gaps: OutputGaps) -> None:
     original = RawAudioTrack.recv
 
     async def recv(self):
+        # 送り出しと同じく、 この枠の時刻まで待ってから手元を見る (= 待つ前に見ると、 待つ間に届いた音まで
+        # 途切れと数える)。 待った後に元の recv を呼ぶので、 元の recv はもう待たない。
         late_ms = 0.0
         if self._timestamp > 0:
-            late_ms = max(0.0, (time.time() - (self._start + self._timestamp / self._sample_rate)) * 1000)
+            due = self._start + self._timestamp / self._sample_rate
+            if due > time.time():
+                await asyncio.sleep(due - time.time())
+            late_ms = max(0.0, (time.time() - due) * 1000)
         empty = not self._chunk_queue
         frame = await original(self)
         gaps.saw(empty, late_ms)
