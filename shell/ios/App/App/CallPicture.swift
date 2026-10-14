@@ -12,8 +12,9 @@ import UIKit
 /// 落とすしかなかった。 こちらは iOS が両方のボタンを付ける。 中身は終わりの無い生の映像として伝え (= 再生の範囲を
 /// 無限)、 小窓を閉じても通話は続く。
 ///
-/// iOS が付ける再生の操作は、 通話の操作に読み替える: 再生 / 停止 = マイクの入 / 切 (= 入っている間が「再生中」)、
-/// 10 秒送り = agent の今の声を止める (`onSkip(true)`)、 10 秒戻し = 直前の返事をもう一度 (`onSkip(false)`)。
+/// iOS が付ける再生の操作は読み替える: 再生 / 停止 = マイクの入 / 切 (= 入っている間が「再生中」)、 10 秒戻し / 送り =
+/// 会話を上 (= 古い方) / 下 (= 新しい方) へ窓の 3 分の 2 ずつ送る。 上へ送って読んでいる間に新しい行が来ても位置は
+/// そのままで、 帯に「▼ 新しい行」 と出す (= 一番下まで戻すと、 また新しい行に付いていく)。
 ///
 /// 文と状態は backend の会話が送る (= `backend/voice_call/agent.py` の小窓)。 変わる度に吹き出しを絵に描いて流し込む。
 /// 流し込む先の層は、 画面の隅に 1 pt で置く (= PiP は画面に載っている層からしか始められない)。
@@ -35,8 +36,12 @@ import UIKit
     nonisolated(unsafe) private var micOn = false
     /// 小窓の再生 / 停止で、 マイクを入れる / 切る (= 引数は入れるか)
     var onMic: ((Bool) -> Void)?
-    /// 小窓の送りのボタン (= 引数は進むか。 戻るなら false)
-    var onSkip: ((Bool) -> Void)?
+    /// 一番下から上へ送った量 (pt)。 0 なら新しい行に付いていく
+    private var scrolledUp: CGFloat = 0
+    /// 上へ送っている間に、 下に新しい行が来たか
+    private var newBelow = false
+    /// 前に描いた会話の高さ (= 上へ送れる量の上限を決める)
+    private var contentHeight: CGFloat = 0
 
     func start(over screen: UIView) {
         guard AVPictureInPictureController.isPictureInPictureSupported() else {
@@ -67,6 +72,22 @@ import UIKit
         controller?.invalidatePlaybackState()
     }
 
+    /// 小窓を今出す (= 自動で出なかった時の、 画面のボタンから)。 出せない時は false。
+    func show() -> Bool {
+        guard let controller, controller.isPictureInPicturePossible else { return false }
+        controller.startPictureInPicture()
+        return true
+    }
+
+    /// 会話を上 (= 古い方。 up が true) か下へ、 窓の 3 分の 2 だけ送る。
+    func scroll(up: Bool) {
+        let step = (Self.canvas.height - Self.bandHeight) * 2 / 3
+        let most = max(0, contentHeight - (Self.canvas.height - Self.bandHeight - Self.margin))
+        scrolledUp = up ? min(most, scrolledUp + step) : max(0, scrolledUp - step)
+        if scrolledUp == 0 { newBelow = false }
+        render()
+    }
+
     func stop() {
         timer?.invalidate()
         timer = nil
@@ -84,6 +105,11 @@ import UIKit
             guard case let .string(who)?? = fields["who"], case let .string(text)?? = fields["text"] else { return }
             lines.append((who, text))
             if lines.count > Self.keptLines { lines.removeFirst(lines.count - Self.keptLines) }
+            if scrolledUp > 0 {
+                // 読んでいる所を動かさない (= 新しい行の分だけ、 上へ送った量を増やす)
+                scrolledUp += Self.bubbleSize(who: who, text: text).height + Self.gap
+                newBelow = true
+            }
         case "state":
             guard case let .string(state)?? = fields["state"] else { return }
             self.state = state
@@ -135,7 +161,8 @@ import UIKit
         // 上の帯: 今の状態
         Self.bandColor.setFill()
         context.fill(CGRect(x: 0, y: 0, width: size.width, height: Self.bandHeight))
-        let band = NSAttributedString(string: Self.stateText(state), attributes: [
+        let bandText = Self.stateText(state) + (newBelow ? "   ▼ 新しい行" : "")
+        let band = NSAttributedString(string: bandText, attributes: [
             .font: UIFont.systemFont(ofSize: 18, weight: .semibold), .foregroundColor: Self.bandText,
         ])
         band.draw(at: CGPoint(x: Self.margin, y: (Self.bandHeight - band.size().height) / 2))
@@ -144,26 +171,37 @@ import UIKit
         let area = CGRect(x: 0, y: Self.bandHeight, width: size.width, height: size.height - Self.bandHeight)
         context.saveGState()
         context.clip(to: area)
-        let maxBubble = (size.width - Self.margin * 2) * 0.85
-        var bottom = size.height - Self.margin
+        var bottom = size.height - Self.margin + scrolledUp
+        var height: CGFloat = 0
         for line in lines.reversed() {
             let mine = line.who == "user"
             let text = Self.styled(line.text, color: mine ? UIColor.white : UIColor(white: 0.93, alpha: 1))
-            let bounds = text.boundingRect(
-                with: CGSize(width: maxBubble - Self.padding.width * 2, height: .greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
-            let bubble = CGSize(width: ceil(bounds.width) + Self.padding.width * 2,
-                                height: ceil(bounds.height) + Self.padding.height * 2)
+            let bubble = Self.bubbleSize(of: text)
+            height += bubble.height + Self.gap
             let x = mine ? size.width - Self.margin - bubble.width : Self.margin
             let frame = CGRect(x: x, y: bottom - bubble.height, width: bubble.width, height: bubble.height)
+            bottom = frame.minY - Self.gap
+            guard frame.minY < size.height, frame.maxY > area.minY else { continue }   // 窓の外は描かない
             (mine ? Self.mineColor : Self.theirsColor).setFill()
             UIBezierPath(roundedRect: frame, cornerRadius: 12).fill()
             text.draw(with: frame.insetBy(dx: Self.padding.width, dy: Self.padding.height),
                       options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
-            bottom = frame.minY - Self.gap
-            if bottom < area.minY { break }
         }
+        contentHeight = height
         context.restoreGState()
+    }
+
+    private static let maxBubbleWidth = (canvas.width - margin * 2) * 0.85
+
+    private static func bubbleSize(who: String, text: String) -> CGSize {
+        bubbleSize(of: styled(text, color: .white))
+    }
+
+    private static func bubbleSize(of text: NSAttributedString) -> CGSize {
+        let bounds = text.boundingRect(
+            with: CGSize(width: maxBubbleWidth - padding.width * 2, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+        return CGSize(width: ceil(bounds.width) + padding.width * 2, height: ceil(bounds.height) + padding.height * 2)
     }
 
     /// 行の中の markdown (= 太字・斜体・コード・リンクの文字) を描く文字にする (= 表や見出しのような行単位の形は、
@@ -260,8 +298,8 @@ extension CallPicture: AVPictureInPictureSampleBufferPlaybackDelegate {
         _ controller: AVPictureInPictureController, skipByInterval skipInterval: CMTime,
         completion completionHandler: @escaping () -> Void
     ) {
-        let forward = CMTimeGetSeconds(skipInterval) > 0
-        Task { @MainActor in self.onSkip?(forward) }
+        let up = CMTimeGetSeconds(skipInterval) < 0
+        Task { @MainActor in self.scroll(up: up) }
         completionHandler()
     }
 }

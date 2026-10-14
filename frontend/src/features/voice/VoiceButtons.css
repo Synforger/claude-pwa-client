@@ -1,4 +1,4 @@
-/* 入力欄の声のボタン 2 つ (= 🎙 と 🔊)。 文字の欄と送信の列の間に、 行の高さいっぱいの列として立つ (= 親指の届く位置)。
+/* 入力欄の声のボタン 3 つ (= 🎙 と 🗣 と 🔊)。 文字の欄と送信の列の間に、 行の高さいっぱいの列として立つ (= 親指の届く位置)。
    🔊 は送信の列の隣から動かない (= 🎙 は、 出る時その左に並ぶ)。 失敗の理由はボタンの上に出す (= .voice-buttons が
    位置の錨。 入力欄は画面の下端に在る)。 */
 .voice-buttons {
@@ -7,6 +7,7 @@
   flex-shrink: 0;
 }
 .voice-toggle,
+.voice-speech,
 .voice-mic {
   align-self: stretch;
   width: 44px;
@@ -51,8 +52,9 @@
 .voice-mic.hearing {
   animation: voice-waiting 1.4s ease-in-out infinite;
 }
-/* 消音: 薄くして斜線を引く */
-.voice-mic.muted {
+/* 消音: 薄くして斜線を引く (= 🎙 の閉じている間と、 🗣 の返事を声にしない間) */
+.voice-mic.muted,
+.voice-speech.quiet {
   opacity: 0.6;
   background-image: linear-gradient(to top right, transparent calc(50% - 1px), #e06c75 calc(50% - 1px),
     #e06c75 calc(50% + 1px), transparent calc(50% + 1px));

@@ -6,7 +6,10 @@ vi.mock('./conversation.js', () => ({ openConversation: vi.fn() }))
 
 const { apiFetch } = await import('../../transport/http.ts')
 const { openConversation } = await import('./conversation.js')
-const { toggleVoice, toggleMic, closeConversation, observeVoiceEvent, changeVolume, _resetForTest: resetVoice } = await import('./voice.js')
+const {
+  toggleVoice, toggleMic, toggleSpeech, closeConversation, observeVoiceEvent, changeVolume, hasAppCall, showCallPicture,
+  _resetForTest: resetVoice,
+} = await import('./voice.js')
 const { getSnapshot: volumeOf, setVoiceVolume } = await import('../../state/voiceVolume.js')
 const { getSnapshot, setVoiceAvailable, setVoiceListen, _resetForTest } = await import('../../state/voice.js')
 
@@ -29,6 +32,8 @@ beforeEach(() => {
   plugin = {
     start: vi.fn(async () => {}),
     setMic: vi.fn(async () => {}),
+    setSpeech: vi.fn(async () => {}),
+    showPicture: vi.fn(async () => {}),
     stop: vi.fn(async () => {}),
     addListener: vi.fn((event, callback) => { listeners[event] = callback }),
   }
@@ -172,5 +177,36 @@ describe('inside the iPhone app, the app holds the microphone and the voice', ()
     expect(getSnapshot().phase.ses_a).toBeUndefined()
     listeners.mic({})             // 形の違う知らせは見ない
     expect(getSnapshot().phase.ses_a).toBeUndefined()
+  })
+
+  it('turns the agent voice off and on in the call, and starts a call without the voice when it is off', async () => {
+    toggleVoice('ses_a', vi.fn())
+    await settle()
+    toggleSpeech('ses_a')
+    expect(getSnapshot().quiet.ses_a).toBe(true)
+    await settle()
+    expect(plugin.setSpeech).toHaveBeenLastCalledWith({ on: false })
+    toggleSpeech('ses_a')
+    expect(getSnapshot().quiet.ses_a).toBeUndefined()
+    expect(plugin.setSpeech).toHaveBeenLastCalledWith({ on: true })
+    toggleSpeech('ses_a')
+    closeConversation('ses_a')
+    toggleVoice('ses_a', vi.fn())
+    await settle()
+    expect(plugin.start.mock.calls.at(-1)[0].url).toContain('speech=0')
+  })
+
+  it('shows the picture-in-picture on request only while the tab has a call, and says why when it cannot', async () => {
+    expect(hasAppCall('ses_a')).toBe(false)
+    showCallPicture('ses_a')
+    expect(plugin.showPicture).not.toHaveBeenCalled()
+    toggleVoice('ses_a', vi.fn())
+    await settle()
+    expect(hasAppCall('ses_a')).toBe(true)
+    plugin.showPicture.mockRejectedValueOnce(new Error('picture in picture is not possible now'))
+    showCallPicture('ses_a')
+    await settle()
+    expect(plugin.showPicture).toHaveBeenCalledTimes(1)
+    expect(getSnapshot().error.ses_a).toBe('picture in picture is not possible now')
   })
 })
