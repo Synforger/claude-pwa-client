@@ -40,6 +40,12 @@ const WIDE_FILE = join(homedir(), '.cache', 'cpc-e2e', 'notes-wide.md')
 // and the size it is drawn at.
 const sideways = (frame) => frame.evaluate((el) => el.scrollWidth - el.clientWidth)
 const zoomOf = (content) => content.evaluate((el) => Number(el.style.zoom || 1))
+// How many lines the text of an element is laid out on.
+const lineCount = (el) => {
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  return new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size
+}
 
 // Fingers and the wheel are sent as events made inside the page: the browsers under test have no
 // multi-touch input of their own. A touch carries only what the screen reads (= where each finger is).
@@ -168,9 +174,10 @@ test.describe('golden: notes', () => {
     await expect(page.locator(modal)).toHaveCount(0)
   })
 
-  // Nothing moves sideways: a wide code block and a wide table fold into the width, in the notes
-  // and in a markdown file opened from them.
-  test('wide code blocks and tables fold into the width, in the notes and in a markdown preview', async ({ page, request }) => {
+  // The text never moves sideways as a whole. A code block keeps its lines and scrolls inside
+  // itself; a table folds its cells at word breaks and, when still too wide, scrolls inside itself
+  // (= the GitHub rendering). The same in the notes and in a markdown file opened from them.
+  test('the text stays put; a wide code block or table scrolls inside itself, in the notes and in a markdown preview', async ({ page, request }) => {
     await seedSession(request, 'e2e-chat-golden')
     mkdirSync(dirname(NOTE_FILE), { recursive: true })
     mkdirSync(dirname(WIDE_FILE), { recursive: true })
@@ -178,16 +185,20 @@ test.describe('golden: notes', () => {
     writeFileSync(WIDE_FILE, WIDE_MD)
     await openClient(page, { sid: SID })
 
+    const check = async (frame, content) => {
+      expect(await sideways(frame)).toBeLessThanOrEqual(0)
+      expect(await sideways(content.locator('pre'))).toBeGreaterThan(0)
+      expect(await sideways(content.locator('table'))).toBeGreaterThan(0)
+      expect(await content.locator('td').first().evaluate(lineCount)).toBe(1)
+    }
     await page.locator('[data-testid=notes-open-button]').click()
     await expect(page.locator(`${shown} table`)).toBeVisible()
-    expect(await sideways(page.locator(body))).toBeLessThanOrEqual(0)
-    expect(await sideways(page.locator(`${shown} pre`))).toBeLessThanOrEqual(0)
+    await check(page.locator(body), page.locator(shown))
 
     await page.locator(`${body} .file-link`).click()
     const preview = page.locator('[data-testid=file-preview-modal]')
     await expect(preview.locator('.md-preview table')).toBeVisible({ timeout: 10_000 })
-    expect(await sideways(preview.locator('.modal-body'))).toBeLessThanOrEqual(0)
-    expect(await sideways(preview.locator('.md-preview pre'))).toBeLessThanOrEqual(0)
+    await check(preview.locator('.modal-body'), preview.locator('.md-preview'))
   })
 
   // Two fingers (or Ctrl/⌘ + the wheel, which is also how a trackpad pinch arrives) change the
@@ -208,15 +219,14 @@ test.describe('golden: notes', () => {
     expect(await zoomOf(content)).toBe(1)
     const height = await content.evaluate((el) => el.getBoundingClientRect().height)
 
-    // Fingers spread to one and a half times their distance: the text grows as much, and still
-    // folds into the width (= the block grows taller, nothing moves sideways).
+    // Fingers spread to one and a half times their distance: the text grows as much, and lays out
+    // again in the width (= it grows taller, the text as a whole never moves sideways).
     await pinch(frame, 100, 150)
     expect(await zoomOf(content)).toBeCloseTo(1.5, 2)
     expect(await content.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThan(height)
     expect(await sideways(frame)).toBeLessThanOrEqual(0)
 
-    // Spreading on stops at the upper limit. A table with more columns than fit even with every
-    // cell folded to one character is drawn just small enough to fit.
+    // Spreading on stops at the upper limit; the text still stays put.
     await pinch(frame, 100, 400)
     expect(await zoomOf(content)).toBe(TEXT_ZOOM_MAX)
     expect(await sideways(frame)).toBeLessThanOrEqual(0)
