@@ -32,12 +32,6 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
     private var client: PipecatClient?
     private var picture: CallPicture?
 
-    override public func load() {
-        // WebRTC の音の出入りを自前の部品にする (= ダッキングを最小に、 🎙 オフの間はマイクを閉じる)。 WebRTC の
-        // 部品の工場はこの process で 1 度だけ作られるので、 最初の接続より前に渡す。
-        SmallWebRTCTransport.audioDevice = CallAudioDevice.shared
-    }
-
     @objc func start(_ call: CAPPluginCall) {
         guard let raw = call.getString("url"), let url = URL(string: raw) else {
             call.reject("url is required")
@@ -67,7 +61,6 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
             }
             do {
                 try await client.enableMic(enable: on)
-                CallAudioDevice.shared.setMic(on)
                 call.resolve()
             } catch {
                 call.reject("could not switch the microphone: \(error)")
@@ -94,7 +87,6 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
 
     @MainActor private func connect(_ url: URL, mic: Bool) async {
         await disconnect()
-        CallAudioDevice.shared.setMic(mic)
         let client = PipecatClient(
             options: PipecatClientOptions(transport: SmallWebRTCTransport(iceConfig: nil), enableMic: mic))
         client.delegate = self
