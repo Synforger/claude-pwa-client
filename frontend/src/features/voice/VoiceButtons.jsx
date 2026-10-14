@@ -22,6 +22,8 @@ import './VoiceButtons.css'
 
 // 🔊 をこの長さ押し続けると、 声の大きさのつまみが出る (= iOS の長押しのメニューより先に出す)
 const LONG_PRESS_MS = 450
+// つまみを閉じるために 🔊 を押した時、 その押下の click とみなす間 (= 押してから click が届くまでの時間の上限)
+const CLOSING_CLICK_MS = 1000
 
 export default function VoiceButtons({ sid }) {
   const voice = useSyncExternalStore(subscribe, getSnapshot)
@@ -29,7 +31,20 @@ export default function VoiceButtons({ sid }) {
   const t = useT()
   const [sliderOpen, setSliderOpen] = useState(false)
   // 長押しで開いた時は、 指を離した時の click で声を切り替えない
-  const press = useRef({ timer: null, long: false })
+  const press = useRef({ timer: null, long: false, closedAt: 0 })
+  // つまみは、 つまみの外を押しても閉じる。 🔊 を押して閉じた時は、 その押下で声を切り替えない
+  const sliderRef = useRef(null)
+  const toggleRef = useRef(null)
+  useEffect(() => {
+    if (!sliderOpen) return undefined
+    const closeOutside = (e) => {
+      if (sliderRef.current?.contains(e.target)) return
+      if (toggleRef.current?.contains(e.target)) press.current.closedAt = Date.now()
+      setSliderOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOutside, true)
+    return () => document.removeEventListener('pointerdown', closeOutside, true)
+  }, [sliderOpen])
   const startPress = () => {
     press.current.long = false
     clearTimeout(press.current.timer)
@@ -64,8 +79,11 @@ export default function VoiceButtons({ sid }) {
       <button
         type="button"
         className={`voice-toggle ${voiceState}${error ? ' failed' : ''}`}
+        ref={toggleRef}
         onClick={() => {
-          if (press.current.long) { press.current.long = false; return }
+          const closing = Date.now() - press.current.closedAt < CLOSING_CLICK_MS
+          press.current.closedAt = 0
+          if (press.current.long || closing) { press.current.long = false; return }
           toggleVoice(sid)
         }}
         onPointerDown={startPress}
@@ -82,7 +100,7 @@ export default function VoiceButtons({ sid }) {
         {on ? '🔊' : '🔇'}
       </button>
       {sliderOpen && (
-        <span className="voice-volume" data-testid="voice-volume">
+        <span className="voice-volume" data-testid="voice-volume" ref={sliderRef}>
           <input
             type="range"
             min={0}

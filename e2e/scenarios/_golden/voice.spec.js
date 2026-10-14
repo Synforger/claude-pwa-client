@@ -267,6 +267,43 @@ test.describe('golden: voice', () => {
     await expect(page.locator(button)).toHaveAttribute('data-state', 'off')
   })
 
+  test('a long press on the voice button shows the volume, and a press outside it closes it', async ({ page, request }, testInfo) => {
+    const tab = await seedSession(request, 'e2e-voice')
+    await openClient(page, { sid: tab.sid })
+    const volume = page.locator('[data-testid=voice-volume]')
+    const longPress = async () => {
+      const box = await page.locator(button).boundingBox()
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      await page.mouse.down()
+      await page.waitForTimeout(700)
+      await page.mouse.up()
+    }
+    await page.locator(button).click()
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'on')
+
+    await longPress()
+    await expect(volume).toBeVisible()
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'on')
+    await page.screenshot({ path: testInfo.outputPath('voice-volume.png') })
+    // Moving the slider keeps it open.
+    await volume.locator('input[type=range]').fill('120')
+    await expect(volume).toContainText('120%')
+    // A press elsewhere on the page closes it, and leaves the voice as it was.
+    await page.locator('[data-testid=message-bubble-agent]').first().click()
+    await expect(volume).toHaveCount(0)
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'on')
+
+    // A press on the voice button while it is open only closes it.
+    await longPress()
+    await expect(volume).toBeVisible()
+    await page.locator(button).click()
+    await expect(volume).toHaveCount(0)
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'on')
+    // The next press turns the voice off as usual.
+    await page.locator(button).click()
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'off')
+  })
+
   test('a sentence the engine refuses shows why above the button, and closing clears it', async ({ page, request }, testInfo) => {
     const tab = await seedSession(request, 'e2e-voice')
     await openClient(page, { sid: tab.sid })
