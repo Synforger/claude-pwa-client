@@ -1,17 +1,20 @@
 // 文章の字の大きさを、 2 本の指 / Ctrl・⌘ + ホイール / Mac の Safari のつまむ動きで変える (= 📋 のメモと
-// markdown のプレビュー)。 倍率の値と計算は textZoom.js。
+// markdown のプレビュー)。 倍率の値は state/textZoom.js (= 設定の「文字の大きさ」 と同じ 1 つの値)、 指と
+// ホイールの計算は textZoom.js。
 //
 // frameRef = 送る枠 (= .modal-body)。 指の出来事はここで受け、 倍率を変えた後の送りもここで直す。
 // contentRef = 倍率を掛ける本文 (= .md-preview)。 読み込みや切り替えで作り直されるので、 描くたびに
 // 今の倍率を当て直す。
 //
-// 指の途中は React の state を通さず、 本文の style を直に書く (= 動かすたびに markdown を描き直さない)。
-// 端末に覚えるのは、 指を離した時とホイールの 1 回ごと。
+// 指の途中は store を通さず、 本文の style を直に書く (= 動かすたびに markdown を描き直さない)。 store に
+// 書くのは、 指を離した時とホイールの 1 回ごと。 store から読むのは開いた時だけ (= メモとプレビューは画面を
+// 覆うので、 開いている間に設定の側から値が変わることは無い)。
 //
 // 1 本の指の縦の送りはブラウザに任せる (= touch-action: pan-x pan-y を本文の CSS に書く)。 2 本の指は
 // touch の出来事で受ける (= pointer の出来事は、 ブラウザが送りを始めると pointercancel で取り上げられる)。
 import { useEffect, useLayoutEffect, useRef } from 'react'
-import { clampTextZoom, loadTextZoom, saveTextZoom, scrollToKeep, spread, wheelFactor } from './textZoom.js'
+import { scrollToKeep, spread, wheelFactor } from './textZoom.js'
+import { clampTextZoom, getSnapshot, setTextZoom } from '../state/textZoom.js'
 
 // 本文に倍率を掛ける (= CSS の zoom と、 罫の太さを保つための --text-zoom)
 function applyZoom(content, zoom) {
@@ -20,8 +23,9 @@ function applyZoom(content, zoom) {
 }
 
 export function useTextZoom(frameRef, contentRef) {
+  // 本文に今掛けている倍率 (= 指の途中は store より先に進む)
   const zoomRef = useRef(null)
-  if (zoomRef.current === null) zoomRef.current = loadTextZoom()
+  if (zoomRef.current === null) zoomRef.current = getSnapshot().zoom
 
   useLayoutEffect(() => {
     const content = contentRef.current
@@ -56,13 +60,13 @@ export function useTextZoom(frameRef, contentRef) {
     const onTouchEnd = () => {
       if (!pinch) return
       pinch = null
-      saveTextZoom(zoomRef.current)
+      setTextZoom(zoomRef.current)
     }
     const onWheel = (event) => {
       if (!event.ctrlKey || !contentRef.current) return
       event.preventDefault()
       setZoom(zoomRef.current * wheelFactor(event.deltaY, event.deltaMode), event.clientY)
-      saveTextZoom(zoomRef.current)
+      setTextZoom(zoomRef.current)
     }
     // Mac の Safari のトラックパッドは wheel ではなく gesture の出来事で渡す。 画面に触れる端末では上の
     // touch と重なるので使わない。
@@ -80,7 +84,7 @@ export function useTextZoom(frameRef, contentRef) {
     const onGestureEnd = () => {
       if (gestureFrom === null) return
       gestureFrom = null
-      saveTextZoom(zoomRef.current)
+      setTextZoom(zoomRef.current)
     }
     const touchScreen = 'ontouchstart' in window
 

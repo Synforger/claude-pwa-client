@@ -25,7 +25,7 @@ A PWA client for operating [Claude Code](https://docs.claude.com/en/docs/claude-
 - **Subagent / workflow viewer**: browse `Task` / `Workflow` transcripts in a dedicated panel
 - **Notification-center sync**: OS notifications, badges, and the backend unread counter are reconciled when the PWA returns to the foreground
 - **File preview**: tap a path to render Markdown with syntax highlighting for 50+ languages; images (png / jpg / gif / webp) open in the same preview and zoom with a pinch, Ctrl / ⌘ + wheel, or a double tap
-- **Markdown whose text stays put**: in the file preview and the notes, the text folds into the width and never moves sideways as a whole. A code block keeps its lines and scrolls inside itself; a table folds its cells at word breaks and, when still too wide, scrolls inside itself (as GitHub renders them). A pinch or Ctrl / ⌘ + wheel resizes the text, which lays out again in the width, so shrinking it fits more of a wide block. The size is shared by both and kept on the device
+- **Markdown whose text stays put**: in the file preview and the notes, the text folds into the width and never moves sideways as a whole. A code block keeps its lines and scrolls inside itself; a table folds its cells at word breaks and, when still too wide, scrolls inside itself (as GitHub renders them). A pinch or Ctrl / ⌘ + wheel resizes the text, which lays out again in the width, so shrinking it fits more of a wide block. The size is shared by both, kept on the device, and also set by 10% steps from the ⚙ settings in the conversation list
 - **File tree + favorites**: browse the tree from the ⋯ menu, star favorites for one-tap navigation. The list is kept on the host, so every device shows the same favorites and nothing is lost when a browser clears its storage; an agent adds one by appending a line to the file named in `PWA_FAVORITES`
 - **Notes per tab**: the 📋 button opens a scratch pad that belongs to the tab. It renders like a markdown file and is never folded, however long; the line breaks and spaces of a paragraph stay as written, so a list typed line by line or a tree drawn with box lines keeps its shape. A path written in it opens with a tap, and it is editable in place. The tab's agent writes to the same file (its path is in `PWA_NOTE`), so "put that in the notes" works; the notes go away with the tab
 - **Image / text attachments**: multipart upload with persisted history
@@ -120,7 +120,7 @@ task run
 task tailscale-serve
 ```
 
-Open `https://<your-host>.tail<xxxx>.ts.net/` on your phone; on iOS Safari use Share → Add to Home Screen to install it as a PWA. Enable notifications from the ⋯ menu → "Enable notifications" (requires iOS 16.4+ and the home-screen install).
+Open `https://<your-host>.tail<xxxx>.ts.net/` on your phone; on iOS Safari use Share → Add to Home Screen to install it as a PWA. Enable notifications from the ⚙ settings in the conversation list → "Enable notifications" (requires iOS 16.4+ and the home-screen install).
 
 ### Resident operation (LaunchAgent, recommended on macOS)
 
