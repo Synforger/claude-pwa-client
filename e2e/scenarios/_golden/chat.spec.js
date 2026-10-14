@@ -70,48 +70,43 @@ test.describe('golden: chat', () => {
   })
 })
 
-// The input grows with what is typed, stops at six lines, and past that offers
-// a toggle that opens it over the visible chat area.
+// The input grows with what is typed and stops at three lines, so the reply above stays
+// readable. Past that a toggle lets it grow to six lines, still in the page's flow.
 test.describe('golden: chat input size', () => {
   const input = '[data-testid=chat-input]'
   const toggle = '[data-testid=chat-input-size-toggle]'
   const lines = (n) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\n')
   const height = (page) => page.locator(input).evaluate((el) => el.getBoundingClientRect().height)
-  // The collapsed limit, read from the page's own styles (= six lines + padding + border).
-  const cap = (page) => page.locator(input).evaluate((el) => {
+  // A line limit, read from the page's own styles (= n lines + padding + border).
+  const cap = (page, n) => page.locator(input).evaluate((el, n) => {
     const cs = getComputedStyle(el)
     const px = (v) => parseFloat(v) || 0
-    return px(cs.lineHeight) * 6 + px(cs.paddingTop) + px(cs.paddingBottom)
+    return px(cs.lineHeight) * n + px(cs.paddingTop) + px(cs.paddingBottom)
       + px(cs.borderTopWidth) + px(cs.borderBottomWidth)
-  })
+  }, n)
+  const overflows = (page) => page.locator(input).evaluate((el) => el.scrollHeight > el.clientHeight)
 
-  test('grows with the text and stops at six lines', async ({ page, request }) => {
+  test('grows with the text and stops at three lines', async ({ page, request }) => {
     await seedSession(request, 'e2e-chat-golden')
     await openClient(page, { sid: SID })
 
     const natural = await height(page)
-    const limit = await cap(page)
-    expect(limit).toBeGreaterThan(natural)
+    const folded = await cap(page, 3)
 
     await page.locator(input).fill('one line')
     expect(await height(page)).toBeCloseTo(natural, 0)
     await expect(page.locator(toggle)).toHaveCount(0)
 
-    await page.locator(input).fill(lines(5))
-    const five = await height(page)
-    expect(five).toBeGreaterThan(natural)
-    expect(five).toBeLessThan(limit)
-
-    await page.locator(input).fill(lines(6))
-    expect(await height(page)).toBeCloseTo(limit, 0)
+    await page.locator(input).fill(lines(3))
+    expect(await height(page)).toBeCloseTo(Math.max(folded, natural), 0)
     await expect(page.locator(toggle)).toHaveCount(0)
 
-    await page.locator(input).fill(lines(7))
-    expect(await height(page)).toBeCloseTo(limit, 0)
+    await page.locator(input).fill(lines(4))
+    expect(await height(page)).toBeCloseTo(Math.max(folded, natural), 0)
     await expect(page.locator(toggle)).toBeVisible()
     await expect(page.locator(toggle)).toHaveAttribute('aria-expanded', 'false')
-    // The seventh line is there, reached by scrolling inside the input.
-    expect(await page.locator(input).evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+    // The fourth line is there, reached by scrolling inside the input.
+    expect(await overflows(page)).toBe(true)
 
     // Back under the limit: the input shrinks and the toggle goes away.
     await page.locator(input).fill('one line')
@@ -119,58 +114,49 @@ test.describe('golden: chat input size', () => {
     await expect(page.locator(toggle)).toHaveCount(0)
   })
 
-  test('the toggle opens the input over the chat area, and sending folds it back', async ({ page, request }) => {
+  test('the toggle lets the input grow to six lines, and sending folds it back', async ({ page, request }) => {
     await seedSession(request, 'e2e-chat-golden')
     await openClient(page, { sid: SID })
 
-    await page.locator(input).fill(lines(12))
-    const limit = await cap(page)
-    const reserved = () => page.evaluate(
-      () => getComputedStyle(document.documentElement).getPropertyValue('--chat-input-h').trim(),
-    )
+    const natural = await height(page)
+    const folded = Math.max(await cap(page, 3), natural)
+    const open = await cap(page, 6)
     const area = page.locator('.inputarea')
-    const collapsed = await area.boundingBox()
-    // The reserved height follows the input a beat later (a ResizeObserver writes it), so it is
-    // taken once it has caught up with the six-line input, not right after typing.
-    await expect.poll(async () => parseFloat(await reserved())).toBeCloseTo(collapsed.height, 0)
-    const before = await reserved()
-    const listTop = await page.locator('.cpc-chat-panel > :first-child').evaluate(
-      (el) => el.getBoundingClientRect().top,
-    )
+
+    await page.locator(input).fill(lines(5))
+    expect(await height(page)).toBeCloseTo(folded, 0)
+    const before = await area.boundingBox()
 
     await page.locator(toggle).click()
-    await expect(area).toHaveClass(/expanded/)
     await expect(page.locator(toggle)).toHaveAttribute('aria-expanded', 'true')
-    const open = await area.boundingBox()
-    // From the top of the message list down to where the input already ended, in the same column.
-    expect(open.y).toBeCloseTo(listTop, 0)
-    expect(open.y + open.height).toBeCloseTo(collapsed.y + collapsed.height, 0)
-    expect(open.x).toBeCloseTo(collapsed.x, 0)
-    expect(open.width).toBeCloseTo(collapsed.width, 0)
-    expect(await height(page)).toBeGreaterThan(limit)
-    // The text keeps the focus, and what the overlays reserve below them does not move.
+    // Five lines fit in six: the input shows them all, growing upward from where it ended.
+    await expect.poll(() => height(page)).toBeGreaterThan(folded)
+    expect(await height(page)).toBeLessThan(open)
+    expect(await overflows(page)).toBe(false)
+    const after = await area.boundingBox()
+    expect(after.y + after.height).toBeCloseTo(before.y + before.height, 0)
+    expect(after.y).toBeLessThan(before.y)
+    // The text keeps the focus.
     await expect(page.locator(input)).toBeFocused()
-    expect(await reserved()).toBe(before)
 
-    // An overlay opened afterwards is on top of the expanded input.
-    await page.locator('[data-testid=favorites-open-button]').click()
-    await expect(page.locator('.tree-overlay')).toBeVisible()
-    const onTop = await page.evaluate(() => {
-      const el = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2)
-      return !!el && !!el.closest('.tree-overlay')
-    })
-    expect(onTop).toBe(true)
-    await page.locator('.tree-overlay .modal-close').click()
+    // More than six lines: it stops at six and scrolls inside.
+    await page.locator(input).fill(lines(12))
+    expect(await height(page)).toBeCloseTo(open, 0)
+    expect(await overflows(page)).toBe(true)
 
+    // The toggle folds it back to three lines.
     await page.locator(toggle).click()
-    await expect(area).not.toHaveClass(/expanded/)
-    expect(await height(page)).toBeCloseTo(limit, 0)
+    await expect(page.locator(toggle)).toHaveAttribute('aria-expanded', 'false')
+    expect(await height(page)).toBeCloseTo(folded, 0)
 
+    // Sending folds it back too.
     await page.locator(toggle).click()
-    await expect(area).toHaveClass(/expanded/)
+    await expect(page.locator(toggle)).toHaveAttribute('aria-expanded', 'true')
     await page.locator('[data-testid=chat-send-button]').click()
-    await expect(area).not.toHaveClass(/expanded/)
     await expect(page.locator(input)).toHaveValue('')
     await expect(page.locator(toggle)).toHaveCount(0)
+    await page.locator(input).fill(lines(5))
+    await expect(page.locator(toggle)).toHaveAttribute('aria-expanded', 'false')
+    expect(await height(page)).toBeCloseTo(folded, 0)
   })
 })
