@@ -21,9 +21,9 @@ beforeEach(() => {
   openConversation.mockImplementation(async () => ({ close: vi.fn(async () => {}) }))
   mic = { stopped: 0, refuse: null }
   globalThis.AudioContext = class { close() { return Promise.resolve() } }
-  Object.defineProperty(globalThis.navigator, 'mediaDevices', {
-    configurable: true,
-    value: {
+  // Node 20 には navigator が無い (= 21 から在る)。 voice.js が読むのはマイクだけなので、 それだけの物に差し替える
+  vi.stubGlobal('navigator', {
+    mediaDevices: {
       getUserMedia: async () => {
         if (mic.refuse) throw Object.assign(new Error('Permission denied'), { name: mic.refuse })
         return { getTracks: () => [{ stop: () => { mic.stopped += 1 } }] }
