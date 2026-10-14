@@ -1,5 +1,4 @@
 import AVFoundation
-import AVKit
 import Capacitor
 import Foundation
 import PipecatClientIOS
@@ -127,62 +126,10 @@ extension BackgroundVoicePlugin: PipecatClientDelegate {
     public func onConnected() { notify("connected") }
     public func onDisconnected() { notify("disconnected") }
     public func onError(message: RTVIMessageInbound) { notify("error", message: "\(message)") }
-}
 
-/// 通話の間、 app を抜けたら PiP の小さな窓に文字を出す (= iOS 15 からの通話の PiP。 カメラは使わない)。
-///
-/// 試しの段: 窓には固定の文と、 1 秒ごとに進む時刻を出す (= 裏に回っている間も中身が書き換わるかを見る)。
-@MainActor final class CallPicture: NSObject, AVPictureInPictureControllerDelegate {
-    private var controller: AVPictureInPictureController?
-    private let content = AVPictureInPictureVideoCallViewController()
-    private let label = UILabel()
-    private var timer: Timer?
-
-    func start(over screen: UIView) {
-        guard AVPictureInPictureController.isPictureInPictureSupported() else {
-            CAPLog.print("[CallPicture] PiP is not supported on this device")
-            return
-        }
-        content.preferredContentSize = CGSize(width: 900, height: 1200)
-        content.view.backgroundColor = .black
-        label.numberOfLines = 0
-        label.textColor = .white
-        label.font = .systemFont(ofSize: 44, weight: .medium)
-        label.frame = content.view.bounds.insetBy(dx: 40, dy: 40)
-        label.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        content.view.addSubview(label)
-        tick()
-        let source = AVPictureInPictureController.ContentSource(
-            activeVideoCallSourceView: screen, contentViewController: content)
-        let controller = AVPictureInPictureController(contentSource: source)
-        controller.canStartPictureInPictureAutomaticallyFromInline = true
-        controller.delegate = self
-        self.controller = controller
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
-        }
-        CAPLog.print("[CallPicture] ready (starts when the app goes to the background)")
-    }
-
-    func stop() {
-        timer?.invalidate()
-        timer = nil
-        controller?.stopPictureInPicture()
-        controller = nil
-    }
-
-    private func tick() {
-        let time = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-        label.text = "PiP の試し\n\(time)"
-    }
-
-    nonisolated func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
-        CAPLog.print("[CallPicture] started")
-    }
-
-    nonisolated func pictureInPictureController(
-        _ controller: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error
-    ) {
-        CAPLog.print("[CallPicture] failed to start: \(error)")
+    /// backend の会話が送る小窓の会話と状態 (= `CallPicture`)。
+    public func onServerMessage(data: Any) {
+        guard let message = data as? Value else { return }
+        Task { @MainActor in self.picture?.receive(message) }
     }
 }
