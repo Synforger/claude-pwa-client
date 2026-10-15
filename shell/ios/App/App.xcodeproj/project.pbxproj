@@ -18,6 +18,7 @@
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		A8F8BD98414C4C079CA99405 /* BackgroundVoicePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8D65D683E2F48EFAD232866 /* BackgroundVoicePlugin.swift */; };
+		BCBC26DE1C608AACBCD5342A /* ListenOnlyAudioDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25622B59A6F7952D635D4178 /* ListenOnlyAudioDevice.swift */; };
 		3F8F17F4AF5D4E729920F288 /* AppViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0915254AFF644D2992B42D65 /* AppViewController.swift */; };
 		CAFC32558D2E03550D06408E /* CallPicture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27AFB3573664F14C3BA59924 /* CallPicture.swift */; };
 		E059D0E7755B6899E8CFCD32 /* ChatMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F8EC326BCC7FB8659886884 /* ChatMarkdown.swift */; };
@@ -77,6 +78,7 @@
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		E8D65D683E2F48EFAD232866 /* BackgroundVoicePlugin.swift */ = {isa = PBXFileReference; name = "BackgroundVoicePlugin.swift"; path = "BackgroundVoicePlugin.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; };
+		25622B59A6F7952D635D4178 /* ListenOnlyAudioDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListenOnlyAudioDevice.swift; sourceTree = "<group>"; };
 		0915254AFF644D2992B42D65 /* AppViewController.swift */ = {isa = PBXFileReference; name = "AppViewController.swift"; path = "AppViewController.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; };
 		27AFB3573664F14C3BA59924 /* CallPicture.swift */ = {isa = PBXFileReference; name = "CallPicture.swift"; path = "CallPicture.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; };
 		3F8EC326BCC7FB8659886884 /* ChatMarkdown.swift */ = {isa = PBXFileReference; name = "ChatMarkdown.swift"; path = "ChatMarkdown.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; };
@@ -185,6 +187,7 @@
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
 				E8D65D683E2F48EFAD232866 /* BackgroundVoicePlugin.swift */,
+				25622B59A6F7952D635D4178 /* ListenOnlyAudioDevice.swift */,
 				0915254AFF644D2992B42D65 /* AppViewController.swift */,
 				27AFB3573664F14C3BA59924 /* CallPicture.swift */,
 				3F8EC326BCC7FB8659886884 /* ChatMarkdown.swift */,
@@ -355,7 +358,7 @@
 			mainGroup = 504EC2FB1FED79650016851F;
 			packageReferences = (
 				D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */,
-				A1C0DE0000000000000000A2 /* XCRemoteSwiftPackageReference "pipecat-client-ios-small-webrtc" */,
+				A1C0DE0000000000000000A2 /* XCLocalSwiftPackageReference "pipecat-client-ios-small-webrtc" */,
 				A1C0DE0000000000000000A1 /* XCRemoteSwiftPackageReference "pipecat-client-ios" */,
 			);
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
@@ -436,6 +439,7 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				A8F8BD98414C4C079CA99405 /* BackgroundVoicePlugin.swift in Sources */,
+				BCBC26DE1C608AACBCD5342A /* ListenOnlyAudioDevice.swift in Sources */,
 				3F8F17F4AF5D4E729920F288 /* AppViewController.swift in Sources */,
 				CAFC32558D2E03550D06408E /* CallPicture.swift in Sources */,
 				E059D0E7755B6899E8CFCD32 /* ChatMarkdown.swift in Sources */,
@@ -832,6 +836,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "CapApp-SPM";
 		};
+		A1C0DE0000000000000000A2 /* XCLocalSwiftPackageReference "pipecat-client-ios-small-webrtc" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "Packages/pipecat-client-ios-small-webrtc";
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -843,20 +851,12 @@
 				version = 1.3.0;
 			};
 		};
-		A1C0DE0000000000000000A2 /* XCRemoteSwiftPackageReference "pipecat-client-ios-small-webrtc" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/pipecat-ai/pipecat-client-ios-small-webrtc";
-			requirement = {
-				kind = exactVersion;
-				version = 1.3.0;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		A1C0DE0000000000000000B2 /* PipecatClientIOSSmallWebrtc */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A1C0DE0000000000000000A2 /* XCRemoteSwiftPackageReference "pipecat-client-ios-small-webrtc" */;
+			package = A1C0DE0000000000000000A2 /* XCLocalSwiftPackageReference "pipecat-client-ios-small-webrtc" */;
 			productName = PipecatClientIOSSmallWebrtc;
 		};
 		A1C0DE0000000000000000B1 /* PipecatClientIOS */ = {
