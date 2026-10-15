@@ -115,7 +115,20 @@ class ListenSTT(SegmentedSTTService):
         await super().process_frame(frame, direction)
         if isinstance(frame, VADUserStartedSpeakingFrame) and self._on_words and not self._peek_task:
             self._peek_task = self.create_task(self._peek(), "voice-call-peek")
-        elif isinstance(frame, VADUserStoppedSpeakingFrame) and self._peek_task:
+        elif isinstance(frame, VADUserStoppedSpeakingFrame):
+            await self._stop_peek()
+
+    async def stop(self, frame):
+        await self._stop_peek()
+        await super().stop(frame)
+
+    async def cancel(self, frame):
+        # 話している途中に通話が切れた時も、 途中の聞き取りを残さない (= 残すと Pipecat が終わり際に警告を出す)
+        await self._stop_peek()
+        await super().cancel(frame)
+
+    async def _stop_peek(self) -> None:
+        if self._peek_task:
             await self.cancel_task(self._peek_task)
             self._peek_task = None
 

@@ -800,3 +800,28 @@ def test_audio_that_arrives_while_the_app_has_the_microphone_off_is_dropped(capl
     lines = [r.getMessage() for r in caplog.records if "microphone" in r.getMessage()]
     assert lines == ["voice call: audio arrives while the app has the microphone off; dropping it",
                      "voice call: the microphone is on again; listening"]
+
+
+def test_the_listener_leaves_no_try_running_when_the_call_ends_while_speaking(monkeypatch):
+    pytest.importorskip("pipecat")
+    from pipecat.frames.frames import InputAudioRawFrame, VADUserStartedSpeakingFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    import backend.voice_call.services as services
+    monkeypatch.setattr(services, "PEEK_SECS", 0.05)
+
+    class Backend:
+        async def transcribe(self, wav: bytes) -> str:
+            return ""
+
+    async def on_words(text: str) -> None:
+        pass
+
+    async def lost() -> None:
+        pass
+
+    stt = services.ListenSTT(Backend(), on_lost=lost, on_words=on_words)
+    audio = InputAudioRawFrame(audio=bytes(320), sample_rate=16000, num_channels=1)
+    # 話し始めたまま (= 言い終えの知らせが来ないまま) 通話が終わる
+    asyncio.run(run_test(stt, frames_to_send=[VADUserStartedSpeakingFrame(), audio, SleepFrame(sleep=0.2)]))
+    assert stt._peek_task is None
