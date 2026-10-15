@@ -64,6 +64,10 @@
 		4E8B96C1D5E3A057798186E4 /* Journal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97DE974036FF2C46E1599406 /* Journal.swift */; };
 		18CB0DB3F5BF31D771EC0BED /* Permissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72D50EC3B73B69570ACBBD3C /* Permissions.swift */; };
 		31623EA1DA3B2AA0BFED5D8D /* NotificationPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF5B9099B02C6E074E04647B /* NotificationPresenter.swift */; };
+		54DA788CE69E1BB61FBE7C51 /* TabEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 952BBB782FCFBAD1C7FCAC8B /* TabEntity.swift */; };
+		E04780A960A1078E734CAEC1 /* TabEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 952BBB782FCFBAD1C7FCAC8B /* TabEntity.swift */; };
+		2A0C2E7DA33AB947DE0CEDCC /* BoardWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95E4C2A152CDE3852B356A82 /* BoardWidget.swift */; };
+		581745977B2F8B791B3AF082 /* Widgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EACCF2A3EE4EED274C0D6F1 /* Widgets.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -122,6 +126,9 @@
 		1664B27B4A99793898E40294 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		72D50EC3B73B69570ACBBD3C /* Permissions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Permissions.swift; sourceTree = "<group>"; };
 		BF5B9099B02C6E074E04647B /* NotificationPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPresenter.swift; sourceTree = "<group>"; };
+		952BBB782FCFBAD1C7FCAC8B /* TabEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabEntity.swift; sourceTree = "<group>"; };
+		95E4C2A152CDE3852B356A82 /* BoardWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardWidget.swift; sourceTree = "<group>"; };
+		1EACCF2A3EE4EED274C0D6F1 /* Widgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Widgets.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -205,6 +212,7 @@
 		43F4545BBBFB930036CC29DB /* Device */ = {
 			isa = PBXGroup;
 			children = (
+				1EACCF2A3EE4EED274C0D6F1 /* Widgets.swift */,
 				72D50EC3B73B69570ACBBD3C /* Permissions.swift */,
 				97DE974036FF2C46E1599406 /* Journal.swift */,
 				9D9DEE0E89F304427DC2B61C /* Workout.swift */,
@@ -243,6 +251,7 @@
 		60068F95D7FA45275A90C0CB /* Widgets */ = {
 			isa = PBXGroup;
 			children = (
+				95E4C2A152CDE3852B356A82 /* BoardWidget.swift */,
 				5F81591511451ABB905223F0 /* AgentWidgets.swift */,
 				A93561661473D599F6D6B75D /* TabsWidget.swift */,
 				A18BCB527EE558CEFCCF65DD /* AgentActivityWidget.swift */,
@@ -254,6 +263,7 @@
 		B46A6AFB1DC88CE23F6E63F1 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				952BBB782FCFBAD1C7FCAC8B /* TabEntity.swift */,
 				8CA2FF5CC87079F222CB3410 /* AgentActivity.swift */,
 				F167AEDFE595215DA1198456 /* ServerAddress.swift */,
 			);
@@ -418,6 +428,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				581745977B2F8B791B3AF082 /* Widgets.swift in Sources */,
+				54DA788CE69E1BB61FBE7C51 /* TabEntity.swift in Sources */,
 				31623EA1DA3B2AA0BFED5D8D /* NotificationPresenter.swift in Sources */,
 				18CB0DB3F5BF31D771EC0BED /* Permissions.swift in Sources */,
 				4E8B96C1D5E3A057798186E4 /* Journal.swift in Sources */,
@@ -460,6 +472,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2A0C2E7DA33AB947DE0CEDCC /* BoardWidget.swift in Sources */,
+				E04780A960A1078E734CAEC1 /* TabEntity.swift in Sources */,
 				24CA12C463A6918939877528 /* AgentActivity.swift in Sources */,
 				74B2AD9E41BC896BB6E01106 /* ServerAddress.swift in Sources */,
 				6AE558725CE163C8B03BE0E2 /* AgentWidgets.swift in Sources */,

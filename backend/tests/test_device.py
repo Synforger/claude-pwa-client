@@ -13,6 +13,7 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
+from backend.device.boards import BadBoard, BoardStore
 from backend.device.hub import DeviceFailed, DeviceHub, DeviceOffline, DeviceTimeout, UnknownOp
 
 CATALOG = [
@@ -160,6 +161,7 @@ def device_app(tmp_path, monkeypatch):
 
     monkeypatch.setattr(device, "hub", _hub(tmp_path))
     monkeypatch.setattr(device, "screen", ScreenStore(tmp_path / "files"))
+    monkeypatch.setattr(device, "boards", BoardStore(tmp_path / "boards.json"))
     app = FastAPI()
     app.include_router(device.router)
     return app, device
@@ -276,6 +278,62 @@ def test_a_frame_older_than_the_stale_limit_is_not_live(tmp_path, monkeypatch):
     assert store.status()["live"] is False
 
 
+# --- Board のウィジェット -----------------------------------------------------------------------------------
+
+def test_a_board_replaces_its_fields_survives_a_new_store_and_is_cleared(tmp_path):
+    store = BoardStore(tmp_path / "boards.json")
+    store.set("main", {"title": "Build", "text": "passing", "value": 42})
+    assert store.set("main", {"text": "running"})["text"] == "running"
+    again = BoardStore(tmp_path / "boards.json")
+    assert set(again.get("main")) == {"text", "updated_at"}
+    assert again.clear("main") is True and again.clear("main") is False
+    assert again.get("main") is None and again.all() == {}
+
+
+def test_a_board_refuses_a_bad_name_an_unknown_field_and_nothing_to_show(tmp_path):
+    store = BoardStore(tmp_path / "boards.json")
+    for name, content in (("a/b", {"text": "x"}), ("", {"text": "x"}), ("main", {"colour": "red"}),
+                          ("main", {"tab": "abc"}), ("main", {"text": ""}), ("main", {"text": ["x"]})):
+        with pytest.raises(BadBoard):
+            store.set(name, content)
+    assert store.all() == {}
+
+
+def test_boards_are_read_from_anywhere_and_written_only_from_this_mac(device_app):
+    app, _ = device_app
+    remote = TestClient(app)
+    assert remote.put("/device/boards/main", json={"text": "x"}).status_code == 403
+    assert remote.delete("/device/boards/main").status_code == 403
+    local = TestClient(app, base_url="http://127.0.0.1:8765", client=("127.0.0.1", 50000))
+    put = local.put("/device/boards/main", json={"title": "Build", "value": "3/5"})
+    assert put.status_code == 200 and put.json()["reloaded"] is False
+    assert remote.get("/device/boards/main").json()["board"]["value"] == "3/5"
+    assert remote.get("/device/boards").json()["boards"].keys() == {"main"}
+    assert remote.get("/device/boards/other").json()["board"] is None
+    assert local.put("/device/boards/main", json={"colour": "red"}).status_code == 400
+    assert local.delete("/device/boards/main").json() == {"name": "main", "removed": True, "reloaded": False}
+
+
+def test_writing_a_board_has_a_connected_app_redraw_its_widgets(device_app, monkeypatch):
+    app, device = device_app
+    monkeypatch.setattr(device, "_ensure_localhost", lambda request: None)
+    hello = {**HELLO, "catalog": CATALOG + [{"name": "widget.reload", "kind": "act", "summary": "redraw", "params": []}]}
+    with TestClient(app) as client, client.websocket_connect("/device/ws") as ws:
+        ws.send_text(json.dumps(hello))
+        answer: dict = {}
+
+        def put():
+            answer.update(client.put("/device/boards/main", json={"text": "hello"}).json())
+
+        thread = threading.Thread(target=put)
+        thread.start()
+        call = json.loads(ws.receive_text())
+        assert call["op"] == "widget.reload"
+        ws.send_text(json.dumps({"type": "result", "id": call["id"], "ok": True, "result": {"reloaded": True}}))
+        thread.join(5)
+        assert answer["reloaded"] is True and answer["board"]["text"] == "hello"
+
+
 # --- 命令 ---------------------------------------------------------------------------------------------------
 
 def _cli():
@@ -324,6 +382,33 @@ def test_the_command_exits_with_a_number_that_says_why(monkeypatch, capsys):
     monkeypatch.setattr(cli, "_request", offline)
     assert cli.main(["health", "steps"]) == 3
     assert "not connected" in capsys.readouterr().err
+
+
+def test_the_widget_command_reads_sets_and_clears_boards_and_passes_other_operations_to_the_app(
+        monkeypatch, capsys):
+    cli = _cli()
+    calls: list[tuple] = []
+
+    def request(method, path, body=None, timeout=600):
+        calls.append((method, path, body))
+        if path == "/device/catalog":
+            return {"connected": True, "catalog": [{"name": "widget.reload", "kind": "act", "params": []}]}
+        return {"ok": True, "result": {"reloaded": True}}
+
+    monkeypatch.setattr(cli, "_request", request)
+    assert cli.main(["widget"]) == 0
+    assert cli.main(["widget", "set", "--text", "build ok", "--value", "42"]) == 0
+    assert cli.main(["widget", "set", "--board", "build", "--title", "CI"]) == 0
+    assert cli.main(["widget", "clear", "--board", "build"]) == 0
+    assert cli.main(["widget", "reload"]) == 0
+    assert calls[:4] == [("GET", "/device/boards", None),
+                         ("PUT", "/device/boards/main", {"text": "build ok", "value": "42"}),
+                         ("PUT", "/device/boards/build", {"title": "CI"}),
+                         ("DELETE", "/device/boards/build", None)]
+    assert calls[-1] == ("POST", "/device/ops", {"op": "widget.reload", "args": {}})
+    capsys.readouterr()
+    assert cli.main(["widget", "set", "--colour", "red"]) == 2
+    assert "usage: cpc device widget" in capsys.readouterr().err
 
 
 def test_the_command_shows_the_screen(monkeypatch, capsys):

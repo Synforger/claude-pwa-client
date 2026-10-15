@@ -1,3 +1,4 @@
+import AppIntents
 import SwiftUI
 import WidgetKit
 
@@ -5,14 +6,104 @@ import WidgetKit
 ///
 /// 中身は backend の `/sessions` (= タブの名前) と `/sessions/overview` (= 状態) を引いて作る。 iOS が決める間隔で
 /// 引き直す (= 頼むのは 15 分ごと)。 押すと app が開き、 1 つのタブを出している時はそのタブを開く。
+///
+/// iOS 17 からは、 長押しの「ウィジェットを編集」 で出すタブを選べる (= 状態の順 / 全部 / 選んだタブ)。 それより前の
+/// iOS では選べず、 状態の順で出す (= `TabsWidgetFixed`)。
+@available(iOS 17.0, *)
 struct TabsWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "Tabs", provider: TabsProvider()) { entry in
+        AppIntentConfiguration(kind: "Tabs", intent: TabsConfiguration.self, provider: TabsChosenProvider()) { entry in
             TabsView(entry: entry).widgetBackground()
         }
         .configurationDisplayName("Tabs")
         .description("Which tabs are working and which are waiting for you.")
-        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryInline, .accessoryCircular])
+        .supportedFamilies(TabsWidgetFixed.families)
+    }
+}
+
+/// iOS 17 より前の Tabs (= 選べない。 iOS 17 からは一覧に出さない)。
+struct TabsWidgetFixed: Widget {
+    static let families: [WidgetFamily] = [.systemSmall, .systemMedium, .accessoryRectangular, .accessoryInline,
+                                           .accessoryCircular]
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "TabsFixed", provider: TabsProvider()) { entry in
+            TabsView(entry: entry).widgetBackground()
+        }
+        .configurationDisplayName("Tabs")
+        .description("Which tabs are working and which are waiting for you.")
+        .supportedFamilies(Self.shown)
+    }
+
+    /// iOS 17 からは、 選べる Tabs と並んで 2 つ出ないように、 置ける場所を無くす
+    private static var shown: [WidgetFamily] {
+        if #available(iOS 17.0, *) { return [] }
+        return families
+    }
+}
+
+/// 出すタブの選び方 (= ウィジェットの編集の選択肢)。
+@available(iOS 17.0, *)
+enum TabsShow: String, AppEnum {
+    /// 答え待ち → 作業中 → 静かの順 (= ロック画面には答え待ちと作業中だけ)
+    case status
+    /// 全部のタブを、 一覧の順で
+    case all
+    /// 選んだタブだけを、 選んだ順で
+    case chosen
+
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "Show"
+    static var caseDisplayRepresentations: [TabsShow: DisplayRepresentation] = [
+        .status: "Waiting and working first",
+        .all: "All tabs",
+        .chosen: "Chosen tabs",
+    ]
+}
+
+@available(iOS 17.0, *)
+struct TabsConfiguration: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "Tabs"
+    static var description = IntentDescription("Which tabs to show.")
+
+    @Parameter(title: "Show", default: .status)
+    var show: TabsShow
+
+    @Parameter(title: "Tabs")
+    var tabs: [TabEntity]?
+
+    static var parameterSummary: some ParameterSummary {
+        When(\.$show, .equalTo, .chosen) {
+            Summary { \.$show; \.$tabs }
+        } otherwise: {
+            Summary { \.$show }
+        }
+    }
+}
+
+@available(iOS 17.0, *)
+struct TabsChosenProvider: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> TabsEntry { .sample }
+
+    func snapshot(for configuration: TabsConfiguration, in context: Context) async -> TabsEntry {
+        context.isPreview ? .sample : await load(configuration)
+    }
+
+    func timeline(for configuration: TabsConfiguration, in context: Context) async -> Timeline<TabsEntry> {
+        let entry = await load(configuration)
+        return Timeline(entries: [entry], policy: .after(entry.date.addingTimeInterval(TabsProvider.refresh)))
+    }
+
+    private func load(_ configuration: TabsConfiguration) async -> TabsEntry {
+        switch configuration.show {
+        case .status: return await TabsProvider.load()
+        case .all: return await TabsProvider.load(order: .listed, showIdle: true)
+        case .chosen:
+            let ids = (configuration.tabs ?? []).map(\.id)
+            if ids.isEmpty {
+                return TabsEntry(date: Date(), tabs: [], problem: "Edit the widget to choose tabs", showIdle: true)
+            }
+            return await TabsProvider.load(order: .chosen(ids), showIdle: true)
+        }
     }
 }
 
@@ -28,6 +119,8 @@ struct TabsEntry: TimelineEntry {
     let tabs: [TabState]
     /// 引けなかった理由 (= backend に届かない時)
     let problem: String?
+    /// 静かなタブもロック画面に出す (= 全部 / 選んだタブを出す時)
+    var showIdle = false
 
     var working: Int { tabs.filter { $0.kind == .working }.count }
     var waiting: Int { tabs.filter { $0.kind == .waiting }.count }
@@ -58,7 +151,10 @@ struct TabsProvider: TimelineProvider {
         }
     }
 
-    static func load() async -> TabsEntry {
+    /// タブの並べ方 (= 状態の順 / 一覧の順 / 選んだ順で、 選んだタブだけ)
+    enum Order { case status, listed, chosen([String]) }
+
+    static func load(order: Order = .status, showIdle: Bool = false) async -> TabsEntry {
         do {
             async let names = fetch("/sessions")
             async let states = fetch("/sessions/overview")
@@ -70,10 +166,18 @@ struct TabsProvider: TimelineProvider {
                 let kind: TabState.Kind = state["waiting_input"] as? Bool == true ? .waiting
                     : state["busy"] as? Bool == true ? .working : .idle
                 return TabState(id: id, title: row["title"] as? String ?? id, kind: kind)
-            }.sorted { $0.kind.rawValue < $1.kind.rawValue }
-            return TabsEntry(date: Date(), tabs: tabs, problem: nil)
+            }
+            let ordered: [TabState]
+            switch order {
+            case .status: ordered = tabs.sorted { $0.kind.rawValue < $1.kind.rawValue }
+            case .listed: ordered = tabs
+            case .chosen(let ids):
+                let byID = Dictionary(tabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                ordered = ids.compactMap { byID[$0] }
+            }
+            return TabsEntry(date: Date(), tabs: ordered, problem: nil, showIdle: showIdle)
         } catch {
-            return TabsEntry(date: Date(), tabs: [], problem: "Can't reach the server")
+            return TabsEntry(date: Date(), tabs: [], problem: "Can't reach the server", showIdle: showIdle)
         }
     }
 
@@ -101,7 +205,7 @@ struct TabsView: View {
         case .accessoryRectangular:
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.problem ?? entry.summary).font(.headline)
-                ForEach(entry.tabs.filter { $0.kind != .idle }.prefix(2)) { tab in
+                ForEach(entry.tabs.filter { entry.showIdle || $0.kind != .idle }.prefix(2)) { tab in
                     Text("\(Self.mark(tab.kind)) \(tab.title)").font(.caption).lineLimit(1)
                 }
             }

@@ -110,11 +110,34 @@ backend の一覧から Siri へ教え直します。 ショートカット app 
 
 ## ウィジェット
 
-ホーム画面とロック画面に **Tabs** のウィジェットを置けます。 作業中のタブと、 答えを待っているタブの数と名前を
-出し、 押すとそのタブを開きます。
+ホーム画面とロック画面に、 2 つのウィジェットを置けます。
+
+| ウィジェット | 出す物 | 長押しの「ウィジェットを編集」 で選べる物 |
+|---|---|---|
+| **Tabs** | 作業中のタブと、 答えを待っているタブの数と名前。 押すとそのタブを開く | 出すタブ (= 答え待ちと作業中を先に / 全部のタブ / 選んだタブだけ) |
+| **Board** | Claude が置いた見出し・本文・大きく出す短い値。 押すと app を開く (= board がタブを持っていればそのタブ) | 出す board (= 選ばなければ `main`) |
+
+編集で選べるのと Board は iOS 17 以降です。 それより前の iOS では、 選べない Tabs だけが出ます (= 答え待ちと作業中が先)。
 
 中身は iPhone が決める間隔で引き直されます (= 頼んでいるのは 15 分ごと)。 今の状態を確かめたい時は、 app を
 開いてください。
+
+### Board に置く
+
+```sh
+cpc device widget                                   # 置いてある board の全部
+cpc device widget set --title "Build" --value "3/5" --text "testing the backend"
+cpc device widget set --board weather --value "18°" --text "rain after 15:00"
+cpc device widget set --text "the review is ready" --tab <タブの id>   # 押すとそのタブを開く
+cpc device widget clear --board weather
+```
+
+- `set` は board を置き換えます (= 渡さなかった欄は消えます)。 `--title` `--text` `--value` のどれか 1 つは要ります
+- board は名前で分かれ、 1 つが 1 枚のウィジェットの中身です (= 名前は英数字と `-` `_` の 32 文字まで。 既定は `main`)。
+  まだ置いていない名前も、 ウィジェットの編集で名前を打って選べます
+- 置いた物は backend が持ち (= `backend/data/device_boards.json`)、 backend を立ち上げ直しても残ります
+- app が起きている間 (= 画面に出ている時か、 声の会話が裏で続いている時) は、 置いたその場でウィジェットが描き直ります
+  (= 答えの `reloaded` が `true`)。 そうでない時は、 次に iPhone が引き直した時に出ます
 
 ## ロック画面の進み具合
 
