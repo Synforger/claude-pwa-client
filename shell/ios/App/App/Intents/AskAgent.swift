@@ -29,7 +29,7 @@ struct TabQuery: EntityQuery {
     func suggestedEntities() async throws -> [TabEntity] { try await Self.tabs() }
 
     static func tabs() async throws -> [TabEntity] {
-        let (data, _) = try await URLSession.shared.data(from: try AgentServer.url("/sessions"))
+        let (data, _) = try await URLSession.shared.data(from: try ServerAddress.url("/sessions"))
         let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] ?? []
         return rows.compactMap { row in
             guard let id = row["id"] as? String else { return nil }
@@ -58,7 +58,7 @@ struct AskAgentIntent: AppIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let text = request.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { throw DeviceError("the request is empty") }
-        var call = URLRequest(url: try AgentServer.url("/pty/\(tab.id)/send"))
+        var call = URLRequest(url: try ServerAddress.url("/pty/\(tab.id)/send"))
         call.httpMethod = "POST"
         call.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // 送信 1 回の名前 (= Siri が同じ頼みを 2 度打っても、 backend が 2 度目を落とす)
@@ -87,18 +87,5 @@ struct AgentShortcuts: AppShortcutsProvider {
             shortTitle: "Ask the Agent",
             systemImageName: "bubble.left.and.text.bubble.right"
         )
-    }
-}
-
-/// app が話す backend (= 画面と同じ所)。
-enum AgentServer {
-    static func url(_ path: String) throws -> URL {
-        guard let server = DeviceLink.serverURL(),
-              var parts = URLComponents(url: server, resolvingAgainstBaseURL: false) else {
-            throw DeviceError("the app does not know its server; build it with CPC_SHELL_SERVER_URL")
-        }
-        parts.path = path
-        guard let url = parts.url else { throw DeviceError("bad path \(path)") }
-        return url
     }
 }

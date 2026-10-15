@@ -3,10 +3,10 @@ import Photos
 import UIKit
 import Vision
 
-/// 写真の中身: iPhone の写真ライブラリの写真を並べ、 写っている文字を読み、 文字で探し、 1 枚を Mac へ渡す。
+/// 写真の中身: iPhone の写真ライブラリの写真を並べ、 写っている文字と物を読み、 それで探し、 1 枚を Mac へ渡す。
 ///
 /// 写真そのものの整理 (= アルバム分け・消す) は、 iCloud で同期された Mac の写真で行う (= この app では持たない)。
-/// 文字は iPhone の中で読む (= Vision。 日本語と英語)。
+/// 文字と物は iPhone の中で読む (= Vision。 文字は日本語と英語、 物は Vision の分類の名前 = 英語)。
 enum PhotoText {
     static let ops: [DeviceOperation] = [
         DeviceOp(DeviceSpec(name: "photos.recent", kind: .read, summary: "the newest photos (id, date, place)",
@@ -33,6 +33,26 @@ enum PhotoText {
                 if lines.contains(where: { $0.lowercased().contains(query) }) {
                     hits.append(["photo": row(asset), "text": lines])
                 }
+            }
+            return DeviceOutput(hits)
+        },
+        DeviceOp(DeviceSpec(name: "photos.labels", kind: .read, summary: "what is in a photo (Vision's labels, in English)",
+                            params: [.string("id", "photo id from photos.recent (default: the newest photo)")],
+                            timeout: 60)) { args in
+            try await allow()
+            let asset = try pick(args.string("id"))
+            return DeviceOutput(["photo": row(asset), "labels": try await labels(asset)])
+        },
+        DeviceOp(DeviceSpec(name: "photos.find", kind: .read, summary: "photos showing something (matched against Vision's labels)",
+                            params: [.string("query", "what to look for, in English (e.g. dog, receipt, beach)", required: true),
+                                     .int("count", "how many of the newest photos to look through (default 50)")],
+                            timeout: 300)) { args in
+            try await allow()
+            let query = try args.required("query").lowercased()
+            var hits: [[String: Any]] = []
+            for asset in newest(min(args.int("count") ?? 50, 500)) {
+                let found = try await labels(asset).filter { ($0["label"] as? String ?? "").contains(query) }
+                if !found.isEmpty { hits.append(["photo": row(asset), "labels": found]) }
             }
             return DeviceOutput(hits)
         },
@@ -90,6 +110,28 @@ enum PhotoText {
                                                   contentMode: .aspectFit, options: options) { image, info in
                 if let image { done.resume(returning: image) } else {
                     done.resume(throwing: (info?[PHImageErrorKey] as? Error) ?? DeviceError("could not load the photo"))
+                }
+            }
+        }
+    }
+
+    /// 写っている物の名前に入れる確からしさの下限 (= これ以上の物を、 高い順に返す)
+    private static let labelMin: Float = 0.3
+
+    private static func labels(_ asset: PHAsset) async throws -> [[String: Any]] {
+        let image = try await picture(asset, side: 1024)
+        guard let cg = image.cgImage else { return [] }
+        return try await withCheckedThrowingContinuation { done in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let request = VNClassifyImageRequest()
+                do {
+                    try VNImageRequestHandler(cgImage: cg, orientation: .up).perform([request])
+                    let found = (request.results ?? []).filter { $0.confidence >= labelMin }
+                        .sorted { $0.confidence > $1.confidence }
+                        .map { ["label": $0.identifier, "confidence": Double(($0.confidence * 100).rounded() / 100)] as [String: Any] }
+                    done.resume(returning: found)
+                } catch {
+                    done.resume(throwing: error)
                 }
             }
         }

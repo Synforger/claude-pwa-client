@@ -26,7 +26,7 @@ final class DeviceLink: NSObject {
 
     /// app の起動時に呼ぶ (= 画面と同じ backend へつなぐ)。
     func start() {
-        guard url == nil, let server = Self.serverURL() else { return }
+        guard url == nil, let server = ServerAddress.base() else { return }
         var parts = URLComponents(url: server, resolvingAgainstBaseURL: false)
         parts?.scheme = server.scheme == "https" ? "wss" : "ws"
         parts?.path = "/device/ws"
@@ -116,15 +116,6 @@ final class DeviceLink: NSObject {
         guard let data = try? JSONSerialization.data(withJSONObject: message),
               let text = String(data: data, encoding: .utf8) else { return }
         task?.send(.string(text)) { _ in }
-    }
-
-    /// 画面を読み込む backend の URL (= `npx cap sync` が capacitor.config.json の server.url に書く)。 Siri の口も使う。
-    static func serverURL() -> URL? {
-        guard let file = Bundle.main.url(forResource: "capacitor.config", withExtension: "json"),
-              let data = try? Data(contentsOf: file),
-              let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let server = config["server"] as? [String: Any], let raw = server["url"] as? String else { return nil }
-        return URL(string: raw)
     }
 
     private static func appVersion() -> String {

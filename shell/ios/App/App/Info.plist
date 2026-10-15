@@ -58,7 +58,9 @@
 	<key>NSMotionUsageDescription</key>
 	<string>Reads your steps and whether you were walking or riding when you ask the agent to.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Finds, reads the text in, and deletes photos when you ask the agent to.</string>
+	<string>Finds photos and reads what is in them when you ask the agent to.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

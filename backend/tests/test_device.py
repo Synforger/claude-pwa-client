@@ -141,9 +141,11 @@ def test_a_waiting_call_ends_when_the_app_goes_and_a_newer_app_takes_over(tmp_pa
 
 @pytest.fixture
 def device_app(tmp_path, monkeypatch):
+    from backend.device.screen import ScreenStore
     from backend.routes import device
 
     monkeypatch.setattr(device, "hub", _hub(tmp_path))
+    monkeypatch.setattr(device, "screen", ScreenStore(tmp_path / "files"))
     app = FastAPI()
     app.include_router(device.router)
     return app, device
@@ -184,6 +186,49 @@ def test_a_socket_that_does_not_say_hello_is_closed(device_app):
         ws.send_text(json.dumps({"type": "result"}))
         with pytest.raises(Exception):
             ws.receive_text()
+
+
+# --- 画面の配信 ---------------------------------------------------------------------------------------------
+
+JPEG = b"\xff\xd8\xff\xe0" + b"0" * 100
+
+
+def test_the_screen_keeps_the_last_frame_and_says_whether_it_is_live(device_app):
+    app, device = device_app
+    local = TestClient(app, base_url="http://127.0.0.1:8765", client=("127.0.0.1", 50000))
+    assert local.get("/device/screen").json()["path"] is None
+    with TestClient(app) as phone:   # (= iPhone は tailnet から送る)
+        assert phone.post("/device/screen/state", json={"live": True}).json() == {"live": True}
+        assert phone.post("/device/screen", content=JPEG, headers={"Content-Type": "image/jpeg"}).json() == {"bytes": len(JPEG)}
+        assert phone.post("/device/screen", content=JPEG + b"1").status_code == 200
+    status = local.get("/device/screen").json()
+    assert status["live"] is True and status["bytes"] == len(JPEG) + 1
+    assert Path(status["path"]).read_bytes() == JPEG + b"1"
+    with TestClient(app) as phone:
+        phone.post("/device/screen/state", json={"live": False})
+    assert local.get("/device/screen").json()["live"] is False
+
+
+def test_the_screen_refuses_what_is_not_a_jpeg_and_is_read_only_on_this_mac(device_app):
+    app, device = device_app
+    with TestClient(app) as phone:
+        assert phone.post("/device/screen", content=b"<html>").status_code == 400
+        assert phone.post("/device/screen", content=b"\xff\xd8" + b"0" * (5 * 1024 * 1024)).status_code == 400
+        assert phone.post("/device/screen/state", json={"live": "yes"}).status_code == 400
+        assert phone.get("/device/screen").status_code == 403
+
+
+def test_a_frame_older_than_the_stale_limit_is_not_live(tmp_path, monkeypatch):
+    import os
+    import time
+
+    from backend.device import screen as screen_module
+
+    store = screen_module.ScreenStore(tmp_path)
+    store.receive(JPEG)
+    old = time.time() - screen_module.STALE_S - 1
+    os.utime(store.path, (old, old))
+    assert store.status()["live"] is False
 
 
 # --- 命令 ---------------------------------------------------------------------------------------------------
@@ -234,3 +279,11 @@ def test_the_command_exits_with_a_number_that_says_why(monkeypatch, capsys):
     monkeypatch.setattr(cli, "_request", offline)
     assert cli.main(["health", "steps"]) == 3
     assert "not connected" in capsys.readouterr().err
+
+
+def test_the_command_shows_the_screen(monkeypatch, capsys):
+    cli = _cli()
+    monkeypatch.setattr(cli, "_request", lambda method, path, body=None, timeout=600:
+                        {"live": True, "path": "/data/device-files/screen.jpg", "age_s": 0.4} if path == "/device/screen" else None)
+    assert cli.main(["screen"]) == 0
+    assert json.loads(capsys.readouterr().out)["path"].endswith("screen.jpg")

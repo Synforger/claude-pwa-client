@@ -3,8 +3,11 @@
     WS   /device/ws        app がつなぐ (= 起きている間。 最初に hello で操作の一覧を送る)
     POST /device/ops       この Mac の命令 (= `cpc device`) が操作を 1 つ頼む
     GET  /device/catalog   つながっているかと、 できる操作の一覧
+    POST /device/screen    app の画面の配信が 1 枚送る (= JPEG。 最後の 1 枚だけを持つ)
+    POST /device/screen/state  画面の配信の始まりと終わり
+    GET  /device/screen    最後の 1 枚の在処と、 配信しているか (= `cpc device screen`)
 
-頼む口と一覧の口は、 この Mac の中からだけ受ける (= `/debug` と同じ見分け方。 Tailscale を通った頼みは
+頼む口と一覧の口と画面を見る口は、 この Mac の中からだけ受ける (= `/debug` と同じ見分け方。 Tailscale を通った頼みは
 宛名が tailnet の名前になる)。
 """
 from __future__ import annotations
@@ -16,6 +19,7 @@ import logging
 from fastapi import APIRouter, Body, HTTPException, Request, WebSocket, WebSocketDisconnect
 
 from backend.device.hub import DeviceFailed, DeviceHub, DeviceOffline, DeviceTimeout, UnknownOp
+from backend.device.screen import NotJpeg, ScreenStore
 from backend.paths import DATA_DIR
 from backend.routes.debug import _ensure_localhost
 
@@ -26,6 +30,7 @@ router = APIRouter()
 HELLO_TIMEOUT_S = 10.0
 
 hub = DeviceHub(catalog_path=DATA_DIR / "device_catalog.json", files_dir=DATA_DIR / "device-files")
+screen = ScreenStore(files_dir=DATA_DIR / "device-files")
 
 
 @router.websocket("/device/ws")
@@ -88,3 +93,26 @@ async def post_device_op(request: Request, body: dict = Body(...)) -> dict:
 async def get_device_catalog(request: Request) -> dict:
     _ensure_localhost(request)
     return hub.status()
+
+
+@router.post("/device/screen")
+async def post_device_screen(request: Request) -> dict:
+    try:
+        return screen.receive(await request.body())
+    except NotJpeg as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.post("/device/screen/state")
+async def post_device_screen_state(body: dict = Body(...)) -> dict:
+    live = body.get("live")
+    if not isinstance(live, bool):
+        raise HTTPException(status_code=400, detail="live (bool) is required")
+    screen.set_live(live)
+    return {"live": live}
+
+
+@router.get("/device/screen")
+async def get_device_screen(request: Request) -> dict:
+    _ensure_localhost(request)
+    return screen.status()

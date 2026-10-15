@@ -43,6 +43,18 @@ endpoints:
       - "削除済 session は含まない"
     implementation: backend/routes/sessions.py
 
+  - method: GET
+    path: /sessions/overview
+    description: "全セッションの作業中 / 最後に見た時刻 / 入力待ちを 1 回で返す (= stream の overview と同じ中身)"
+    response:
+      type: object
+      description: "sid → { busy, last_seen_at, waiting_input }"
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "中身は /stream/unified の overview channel と同じ builder (= _build_sessions_overview)"
+    implementation: backend/routes/overview.py
+
   - method: POST
     path: /sessions
     description: "セッション新規作成"
@@ -1110,6 +1122,57 @@ endpoints:
       - "app がつながっていなければ 503、 一覧に無い操作は 404 (= detail に known の並び)、 時間切れは 504、 app ができなかったら 502"
       - "一覧に無い操作は app へ送らない"
       - "答えに付いた file は data/device-files/ に書き、 答えには path を返す (= app が付けた名前の / や .. は落とす)"
+    implementation: backend/routes/device.py
+
+  - method: POST
+    path: /device/screen
+    description: "iPhone の app の画面の配信が 1 枚送る (= JPEG。 最後の 1 枚だけを持つ)"
+    request_body:
+      type: string
+      description: "image/jpeg の本体 (= 5MB まで)"
+    response:
+      type: object
+      properties:
+        bytes: { type: integer }
+      required: [bytes]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "JPEG でない物 (= 頭が FF D8 でない) と 5MB を超える物は 400"
+      - "data/device-files/screen.jpg を置き換える"
+    implementation: backend/routes/device.py
+
+  - method: POST
+    path: /device/screen/state
+    description: "画面の配信の始まりと終わり"
+    request_body:
+      type: object
+      required: [live]
+      properties:
+        live: { type: boolean }
+    response:
+      type: object
+      properties:
+        live: { type: boolean }
+      required: [live]
+    response_kind: json
+    auth: tailnet
+    implementation: backend/routes/device.py
+
+  - method: GET
+    path: /device/screen
+    description: "iPhone の画面の最後の 1 枚の在処と、 配信しているか (= cpc device screen)"
+    response:
+      type: object
+      properties:
+        live:  { type: boolean, description: "配信中で、 最後の 1 枚が 5 秒より新しい" }
+        path:  { type: string, nullable: true }
+        at:    { type: number, nullable: true, description: "最後の 1 枚の時刻 (= unix 秒)" }
+        age_s: { type: number, nullable: true }
+        bytes: { type: integer, nullable: true }
+      required: [live, path]
+    response_kind: json
+    auth: localhost
     implementation: backend/routes/device.py
 
   - method: GET

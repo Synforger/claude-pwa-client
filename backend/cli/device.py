@@ -5,6 +5,8 @@
     cpc device <種類>                        その種類の操作と引数
     cpc device <種類> <操作> [--<引数> <値> ...] [--json '{...}'] [--timeout <秒>]
                                              操作を 1 つ頼み、 答えを JSON で出す
+    cpc device screen                        iPhone の画面の最後の 1 枚の在処と、 配信しているか
+                                             (= app の操作ではなく backend が持つ物。 配信は iPhone の画面収録で始める)
 
 操作の一覧の真値は app の中にある (= app がつないだ時に送り、 backend が控える)。 引数の型は一覧に従って
 直す (= int / number / bool / json、 それ以外は文字のまま)。 backend の場所は CPC_URL (= 既定
@@ -141,6 +143,9 @@ def main(argv: list[str]) -> int:
     try:
         if not argv or argv[0] in ("-h", "--help"):
             print(_show_all(_catalog()))
+            return 0
+        if argv[0] == "screen":
+            print(json.dumps(_request("GET", "/device/screen"), ensure_ascii=False, indent=2))
             return 0
         if len(argv) == 1 or argv[1] in ("-h", "--help"):
             print(_show_type(_catalog(), argv[0]))
