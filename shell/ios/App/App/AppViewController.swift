@@ -6,5 +6,7 @@ class AppViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(BackgroundVoicePlugin())
         bridge?.registerPluginInstance(AppLinkPlugin())
+        // app が出した通知を、 前に出ている時も出す (= Capacitor の既定は「出さない」。 中身は NotificationPresenter)
+        bridge?.notificationRouter.localNotificationHandler = NotificationPresenter.shared
     }
 }

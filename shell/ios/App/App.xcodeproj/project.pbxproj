@@ -63,6 +63,7 @@
 		3C86B41DAA35D799E136692B /* Workout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D9DEE0E89F304427DC2B61C /* Workout.swift */; };
 		4E8B96C1D5E3A057798186E4 /* Journal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97DE974036FF2C46E1599406 /* Journal.swift */; };
 		18CB0DB3F5BF31D771EC0BED /* Permissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72D50EC3B73B69570ACBBD3C /* Permissions.swift */; };
+		31623EA1DA3B2AA0BFED5D8D /* NotificationPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF5B9099B02C6E074E04647B /* NotificationPresenter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -120,6 +121,7 @@
 		97DE974036FF2C46E1599406 /* Journal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Journal.swift; sourceTree = "<group>"; };
 		1664B27B4A99793898E40294 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		72D50EC3B73B69570ACBBD3C /* Permissions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Permissions.swift; sourceTree = "<group>"; };
+		BF5B9099B02C6E074E04647B /* NotificationPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPresenter.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -175,6 +177,7 @@
 		504EC3061FED79650016851F /* App */ = {
 			isa = PBXGroup;
 			children = (
+				BF5B9099B02C6E074E04647B /* NotificationPresenter.swift */,
 				1664B27B4A99793898E40294 /* App.entitlements */,
 				EBCCA996553CC6370DA02F12 /* Intents */,
 				43F4545BBBFB930036CC29DB /* Device */,
@@ -415,6 +418,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				31623EA1DA3B2AA0BFED5D8D /* NotificationPresenter.swift in Sources */,
 				18CB0DB3F5BF31D771EC0BED /* Permissions.swift in Sources */,
 				4E8B96C1D5E3A057798186E4 /* Journal.swift in Sources */,
 				3C86B41DAA35D799E136692B /* Workout.swift in Sources */,
