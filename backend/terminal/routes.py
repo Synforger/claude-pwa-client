@@ -84,6 +84,8 @@ ESCAPE_SETTLE_SEC = 0.1
 
 # 停止ボタンの後の、 入力欄を消す task (= 走っている間は参照を持っておく。 試験はこれを待つ)
 _stop_clears: dict[str, asyncio.Task] = {}
+# 声の会話で、 話している途中に先に打った Escape を claude が受けた形 (= 話し終えた発話を送る時に使い、 捨てる)
+_voice_escapes: dict[str, "_Escaped"] = {}
 
 
 def _note_queue_on_unconfirmed(
@@ -420,7 +422,11 @@ async def _send_body(session_id: str, text: str, key: str | None = None) -> dict
     _, is_slash = _delivery_counter(text)
     lock = _send_locks.setdefault(session_id, asyncio.Lock())
     async with lock:
-        escaped = await _escape_for_voice(session_id, text)
+        # 話している途中に先に止めていたら、 その形で打つ (= もう一度 Escape を打たない。 claude が入力欄へ戻した
+        # 文の上で打つと、 その文が消える)。 声でない本文が来たら、 先に止めた形は捨てる
+        early = _voice_escapes.pop(session_id, None)
+        voice = text.startswith(VOICE_INPUT_MARK)
+        escaped = early if voice and early is not None else await _escape_for_voice(session_id, text)
         jsonl_path = jsonl_path_for_session(session_id)
         initial_pos = 0
         if jsonl_path is not None:
@@ -519,11 +525,32 @@ async def _escape_for_voice(session_id: str, text: str) -> _Escaped | None:
     """
     if not text.startswith(VOICE_INPUT_MARK):
         return None
+    return await _escape_running(session_id)
+
+
+async def _escape_running(session_id: str) -> _Escaped | None:
+    """turn の実行中なら Escape で止め、 claude が受け終えるのを見届ける (= 止めなければ None)。"""
     st = stream_states.get(session_id)
     if st is None or not st.busy or st.user_stopped:
         return None
     sent = await _send_escape(session_id)
     return None if sent is None else await _escape_settled(session_id, sent)
+
+
+async def interrupt_for_voice(session_id: str) -> bool:
+    """声の会話で、 話している途中の人の言葉が取れた: turn の実行中なら、 話し終えるのを待たずに止める (= 止めたか)。
+
+    話している間に agent が先へ進まないように、 言葉が取れた時点で止める (= あくびや物音は言葉にならないので止め
+    ない)。 発話は話し終えた後に送り、 その時は止めた形 (= claude が入力欄へ戻した文が在るか) のまま後ろへ打つ
+    (= `_send_body`)。 送る本文の並びに割り込まないよう、 本文と同じ lock の中で打つ。
+    """
+    lock = _send_locks.setdefault(session_id, asyncio.Lock())
+    async with lock:
+        escaped = await _escape_running(session_id)
+        if escaped is None:
+            return False
+        _voice_escapes[session_id] = escaped
+        return True
 
 
 async def _stop(session_id: str) -> bool:

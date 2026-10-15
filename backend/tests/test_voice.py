@@ -666,3 +666,21 @@ def test_why_a_tuning_file_cannot_be_used_is_logged_once(client, tuned, caplog):
         client.get("/sessions/ses_tuned/voice")
         client.get("/sessions/ses_tuned/voice")
     assert sum("voice.json" in r.getMessage() for r in caplog.records) == 1
+
+
+def test_words_heard_while_speaking_stop_the_turn_only_from_the_holder(client, tabs, conversations, monkeypatch):
+    import backend.terminal.routes as terminal
+    stopped: list[str] = []
+
+    async def interrupt(session_id: str) -> bool:
+        stopped.append(session_id)
+        return True
+
+    monkeypatch.setattr(terminal, "interrupt_for_voice", interrupt)
+    client.post("/sessions/ses_listen/voice/conversation", json={"client": "phone-1"})
+    r = client.post("/sessions/ses_listen/voice/interruption", headers={"X-Voice-Conversation": "phone-1"})
+    assert r.json() == {"stopped": True}
+    r = client.post("/sessions/ses_listen/voice/interruption", headers={"X-Voice-Conversation": "mac-1"})
+    assert (r.status_code, _code(r)) == (409, "voice_conversation_elsewhere")
+    assert _code(client.post("/sessions/ses_plain/voice/interruption")) == "voice_not_enabled"
+    assert stopped == ["ses_listen"]
