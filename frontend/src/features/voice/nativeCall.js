@@ -58,6 +58,11 @@ export function createNativeCall({ plugin, onState, onMic = () => {} }) {
     async setMic(sid, on) {
       if (current === sid) await plugin.setMic({ on })
     },
+    // 声の大きさを app にも覚えさせる (= 端末の操作のために通話を外した後、 同じ大きさで掛け直す。 古い版の app は
+    // この口を持たないので呼ばない)
+    async setVolume(sid, volume) {
+      if (current === sid && typeof plugin.setVolume === 'function') await plugin.setVolume({ volume })
+    },
     async stop(sid) {
       if (current !== sid) return
       current = null

@@ -18,11 +18,13 @@ from pipecat.audio.utils import pcm_to_wav
 from pipecat.frames.frames import (
     ErrorFrame,
     Frame,
+    InputAudioRawFrame,
     TranscriptionFrame,
     TTSAudioRawFrame,
     VADUserStartedSpeakingFrame,
     VADUserStoppedSpeakingFrame,
 )
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.settings import STTSettings, TTSSettings
 from pipecat.services.stt_service import SegmentedSTTService
 from pipecat.services.tts_service import TTSService
@@ -59,6 +61,35 @@ def scaled(pcm: bytes, gain: float) -> bytes:
         return pcm
     samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) * gain
     return np.clip(samples, -32768, 32767).astype(np.int16).tobytes()
+
+
+class MicGate(FrameProcessor):
+    """app がマイクを切っている間に届いた音を、 聞き取りの手前で捨てる (= 切っている間は聞き取りも送信もしない)。
+
+    app はマイクを切ると、 その音の track を止め、 切ったことを WebRTC の知らせ (= `trackStatus`) で backend へ送る。
+    Pipecat の受け口はその知らせを映像にしか効かせず、 音は届けば流す。 iPhone の側で音がまた流れ出すと (= 切った
+    まま app を前に出した後に、 外の放送が発話として届いた)、 切っているはずの声が聞き取られていた。 ここで知らせの
+    通りに捨てる。 切っている間に音が届き始めた時と、 また入った時は、 log に出す。
+
+    microphone_on() -> マイクが入っているか   (= 受け口の音の track の状態。 知らせが来る前は入)
+    """
+
+    def __init__(self, microphone_on: Callable[[], bool], **kwargs):
+        super().__init__(**kwargs)
+        self._microphone_on = microphone_on
+        self._dropping = False
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, InputAudioRawFrame):
+            on = self._microphone_on()
+            if on == self._dropping:
+                self._dropping = not on
+                logger.info("voice call: %s", "audio arrives while the app has the microphone off; dropping it"
+                            if self._dropping else "the microphone is on again; listening")
+            if self._dropping:
+                return
+        await self.push_frame(frame, direction)
 
 
 class ListenSTT(SegmentedSTTService):

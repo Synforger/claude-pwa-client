@@ -153,6 +153,17 @@ describe('inside the iPhone app, the app holds the microphone and the voice', ()
     setVoiceVolume(1)
   })
 
+  it('tells the app the new volume too, so a call put back after a device operation keeps it', async () => {
+    plugin.setVolume = vi.fn(async () => {})
+    toggleVoice('ses_a', vi.fn())
+    await settle()
+    changeVolume('ses_a', 0.8)
+    expect(plugin.setVolume).toHaveBeenLastCalledWith({ volume: 0.8 })
+    delete plugin.setVolume   // 古い版の app は、 この口を持たない
+    expect(() => changeVolume('ses_a', 0.9)).not.toThrow()
+    setVoiceVolume(1)
+  })
+
   it('keeps the volume between 0 and 2', () => {
     setVoiceVolume(5)
     expect(volumeOf().volume).toBe(2)

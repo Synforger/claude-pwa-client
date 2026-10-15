@@ -426,6 +426,8 @@ function closeMic(sid) {
 export function changeVolume(sid, volume) {
   setVoiceVolume(volume)
   if (!call()?.has(sid)) return
+  // app にも覚えさせる (= 端末の操作のために通話を外した後、 同じ大きさで掛け直す)
+  call().setVolume(sid, volumeOf().volume).catch(() => {})
   apiFetch(`${base(sid)}/call/volume`, { method: 'POST', jsonBody: { volume: volumeOf().volume } })
     .catch((error) => setVoiceError(sid, error?.message || String(error)))
 }

@@ -768,3 +768,35 @@ def test_the_listener_tries_the_words_while_speaking_until_some_come(monkeypatch
     assert heard == ["やめて"]
     # 言葉が取れた後は試さない (= 途中の 3 回と、 言い終えた区間の 1 回)
     assert Backend.tries == 4
+
+
+def test_audio_that_arrives_while_the_app_has_the_microphone_off_is_dropped(caplog):
+    pytest.importorskip("pipecat")
+    from pipecat.frames.frames import InputAudioRawFrame
+    from pipecat.tests.utils import run_test
+
+    from backend.voice_call.services import MicGate
+
+    state = {"on": True}
+
+    class Flip:
+        """3 つ目の枠の前に app がマイクを切り、 5 つ目の前に入れ直す。"""
+        def __init__(self):
+            self.n = 0
+
+        def __call__(self) -> bool:
+            self.n += 1
+            if self.n == 3:
+                state["on"] = False
+            if self.n == 5:
+                state["on"] = True
+            return state["on"]
+
+    audio = [InputAudioRawFrame(audio=bytes([i]) * 320, sample_rate=16000, num_channels=1) for i in range(6)]
+    with caplog.at_level("INFO"):
+        down, _ = asyncio.run(run_test(MicGate(Flip()), frames_to_send=audio))
+    passed = [f.audio[0] for f in down if isinstance(f, InputAudioRawFrame)]
+    assert passed == [0, 1, 4, 5]
+    lines = [r.getMessage() for r in caplog.records if "microphone" in r.getMessage()]
+    assert lines == ["voice call: audio arrives while the app has the microphone off; dropping it",
+                     "voice call: the microphone is on again; listening"]
