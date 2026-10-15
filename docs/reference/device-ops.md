@@ -26,6 +26,8 @@ cpc device health read --type steps --days 7
 cpc device screen                   # 画面の配信の最後の 1 枚 (= 下の § 画面の配信)
 ```
 
+- `cpc` は `task setup` が `~/.local/bin` に置きます (= 後から置くなら `task cli:install`。 `~/.local/bin` が
+  PATH に無ければ足します)
 - 答えは JSON で出ます。 写真のような file は Mac の `backend/data/device-files/` に書かれ、 答えにはその path が入ります
 - 引数は `--<名前> <値>` で渡します。 まとめて渡す時は `--json '{"type": "steps"}'`、 待つ長さは `--timeout <秒>`
 - 終わりの番号: `0` 答えた / `2` 書き方が違う / `3` app がつながっていない / `4` 一覧に無い操作 / `5` 時間切れ /
