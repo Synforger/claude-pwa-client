@@ -14,7 +14,8 @@ import UIKit
 /// 送りのボタンを効かなくする)。 小窓を閉じたら仕組みを作り直す (= 一度閉じた仕組みは、 次に抜けても自動で出ない)。
 ///
 /// iOS が付ける再生の操作は読み替える: 再生 / 停止 = マイクの入 / 切 (= 入っている間が「再生中」。 ただし app を抜ける
-/// 瞬間だけは「再生中」 と伝える。 一時停止中だと、 iOS は小窓を自動で出さない)、 10 秒戻し / 送り =
+/// 瞬間だけは「再生中」 と伝える。 一時停止中だと、 iOS は小窓を自動で出さない。 押してから 0.3 秒後に効き、 ±10 の時に
+/// iOS が自分で送ってくる停止は捨てる)、 10 秒戻し / 送り =
 /// 会話を上 (= 古い方) へ窓の 3 分の 2 ずつ送る / 一番下 (= 新しい方) へ 1 回で戻す。 上へ送って読んでいる間に新しい行が来ても位置は
 /// そのままで、 帯に「▼ 新しい行」 と出す (= 一番下まで戻すと、 また新しい行に付いていく)。
 ///
@@ -57,6 +58,13 @@ import UIKit
     private var sceneObservers: [NSObjectProtocol] = []
     /// 閉じた小窓の作り直しを、 app が前に出るまで待っているか
     private var rearmPending = false
+    /// 小窓の再生 / 停止を効かせるまで待つ間 (= ±10 を押すと、 iOS は自分でも停止を 1 ミリ秒差で 2 回送ってくる。
+    /// 人の押下は 1 回ずつ届くので、 この間に 2 回目か ±10 が届いた物は iOS の物として捨てる)
+    private static let pressWait: TimeInterval = 0.3
+    /// 待っている再生 / 停止 (= 効かせる task)
+    private var pending: Task<Void, Never>?
+    /// 最後に ±10 が押された時
+    private var lastSkip: CFAbsoluteTime?
 
     func start(over screen: UIView) {
         guard AVPictureInPictureController.isPictureInPictureSupported() else {
@@ -178,6 +186,35 @@ import UIKit
         controller?.invalidatePlaybackState()
     }
 
+    /// 小窓の再生 / 停止が押された: 待つ間に 2 回目か ±10 が来なければ、 マイクを入れる / 切る。
+    private func pressed(_ playing: Bool) {
+        if let lastSkip, CFAbsoluteTimeGetCurrent() - lastSkip < Self.pressWait {
+            Self.report("play-pause-dropped", ["reason": "after-skip", "playing": playing])
+            syncPlayback()
+            return
+        }
+        if pending != nil {
+            dropPressed("twice")
+            return
+        }
+        pending = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(Self.pressWait * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self.pending = nil
+            self.setMic(playing)
+            self.onMic?(playing)
+        }
+    }
+
+    /// 待っている再生 / 停止を捨てる (= iOS が送った物)。 小窓の再生 / 停止の絵は、 今のマイクに戻す。
+    private func dropPressed(_ reason: String) {
+        guard let pending else { return }
+        pending.cancel()
+        self.pending = nil
+        Self.report("play-pause-dropped", ["reason": reason])
+        syncPlayback()
+    }
+
     /// 小窓を今出す (= 自動で出なかった時の、 画面のボタンから)。 出せない時は false。
     func show() -> Bool {
         guard let controller, controller.isPictureInPicturePossible else { return false }
@@ -214,6 +251,8 @@ import UIKit
     }
 
     func stop() {
+        pending?.cancel()
+        pending = nil
         sceneObservers.forEach(NotificationCenter.default.removeObserver)
         sceneObservers = []
         timer?.invalidate()
@@ -383,10 +422,7 @@ import UIKit
 extension CallPicture: AVPictureInPictureSampleBufferPlaybackDelegate {
     nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController, setPlaying playing: Bool) {
         CallPicture.report("play-pause", ["playing": playing, "mic": micOn, "leaving": leaving])
-        Task { @MainActor in
-            self.setMic(playing)
-            self.onMic?(playing)
-        }
+        Task { @MainActor in self.pressed(playing) }
     }
 
     nonisolated func pictureInPictureControllerTimeRangeForPlayback(
@@ -409,6 +445,8 @@ extension CallPicture: AVPictureInPictureSampleBufferPlaybackDelegate {
     ) {
         let up = CMTimeGetSeconds(skipInterval) < 0
         Task { @MainActor in
+            self.lastSkip = CFAbsoluteTimeGetCurrent()
+            self.dropPressed("skip")
             self.scroll(up: up)
             var detail = self.condition
             detail["up"] = up
