@@ -158,3 +158,44 @@ def test_the_input_box_is_read_between_the_last_two_rules():
     assert runner.input_box_text(screen) == "[voice] 戻された文"
     assert runner.input_box_text("\n".join([rule, "❯ ", rule])) == ""
     assert runner.input_box_text("全画面の選択肢") is None
+
+
+# --- 話している途中に言葉が取れた時 (= `routes.interrupt_for_voice`) ---------------------------------------------
+
+def test_words_heard_while_speaking_stop_the_running_turn_and_the_turn_is_typed_after(pane, claude):  # noqa: F811
+    assert together(routes.interrupt_for_voice("ses_a"))[0] is True
+    together(send("ses_a", "[voice] やっぱりやめよう"))
+    # Escape は話している途中の 1 回だけ (= 送る時に打ち直さない)
+    assert keys(pane) == ["key:Escape", "marker", "paste:[voice] やっぱりやめよう", "enter"]
+    assert pane["delivered"] == [("ses_a", "[voice] やっぱりやめよう")]
+    assert claude["busy"].user_stopped is False
+
+
+def test_words_heard_while_speaking_join_the_turn_the_stop_put_back(pane, claude):  # noqa: F811
+    # 前の発話に agent が何も書き出す前に話し始めた: claude は前の発話を入力欄へ戻す。 送る時に Escape を打ち直すと、
+    # 戻された文の上で打つことになり、 その文が消える
+    claude["busy"].busy = False
+    together(send("ses_a", "[voice] うーん、モデル自体は小さい"))
+    claude["busy"].busy = True
+    claude["on_escape"] = "restore"
+    assert together(routes.interrupt_for_voice("ses_a"))[0] is True
+    together(send("ses_a", "[voice] まあでもそりゃそうか"))
+    assert keys(pane)[3:] == ["key:Escape", "restore", "paste: まあでもそりゃそうか", "enter"]
+    assert pane["delivered"][-1] == ("ses_a", "[voice] うーん、モデル自体は小さい まあでもそりゃそうか")
+
+
+def test_words_heard_while_the_agent_is_idle_or_stopped_do_nothing(pane, claude):  # noqa: F811
+    claude["busy"].busy = False
+    assert together(routes.interrupt_for_voice("ses_a"))[0] is False
+    claude["busy"].busy = True
+    claude["busy"].user_stopped = True
+    assert together(routes.interrupt_for_voice("ses_a"))[0] is False
+    assert keys(pane) == []
+    assert routes._voice_escapes == {}
+
+
+def test_a_typed_turn_after_an_early_stop_is_typed_as_usual_and_drops_the_stop(pane, claude):  # noqa: F811
+    together(routes.interrupt_for_voice("ses_a"))
+    together(send("ses_a", "続けて"))
+    assert keys(pane) == ["key:Escape", "marker", "wipe", "paste:続けて", "enter"]
+    assert routes._voice_escapes == {}

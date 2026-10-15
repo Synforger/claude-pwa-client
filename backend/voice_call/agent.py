@@ -16,6 +16,10 @@
 始める前の分は、 タブの記録から直近 PICTURE_HISTORY 行だけを、 記録の読み直しが途切れた所でまとめて送る) と `{"pip": "state", "state": "listening" | "thinking" | "speaking" | "waiting"}` (= 人が話し始めた /
 タブへ送った / 声が鳴り始めた / 鳴り終えた)。 描くのは app (= `shell/ios/App/App/CallPicture.swift`)。
 
+話している途中: 聞き取りの段が、 話している途中の声から言葉を拾えたら (= `heard_words`)、 話し終えるのを待たずに
+タブの turn を止める (= 話している間に agent が先へ進まない。 あくびや物音は言葉にならないので止めない)。 止めるのは
+発話を送るまでに 1 回だけで、 自分の声 (= 下) なら止めない。
+
 自分の声: スピーカーから出た返事の声がマイクに入ると、 発話のまとめ役は人が話し始めたと見て返事を止め、 聞き取った
 文を人の発話として渡してくる (= iPhone のエコー消しが、 音が動き始めた直後の返事を消し切れない時がある)。 止められた
 時に鳴っていた文を覚えておき、 次に渡された発話がその文の一部なら、 タブへは送らずに、 止められた文から言い直す
@@ -70,13 +74,15 @@ class AgentBridge(FrameProcessor):
 
     conversation                         間の取り方 (= backend の `voice.conversation`)
     send(text) -> 送れたか               そのタブへ 1 通送る
+    interrupt() -> 止めたか              そのタブの turn の実行中なら止める (= 話している途中に言葉が取れた時)
     events() -> そのタブの event の流れ  返事を拾う元
     utterances(text) -> [{mark, text, values}]   返事の文を、 声にする文の並びにする
     """
 
     def __init__(self, conversation: dict, *, send: Callable[[str], Awaitable[bool]],
                  events: Callable[[], AsyncIterator[dict]],
-                 utterances: Callable[[str], Awaitable[list[dict]]], speech: bool = True, **kwargs):
+                 utterances: Callable[[str], Awaitable[list[dict]]], speech: bool = True,
+                 interrupt: Callable[[], Awaitable[bool]] | None = None, **kwargs):
         super().__init__(**kwargs)
         self._endings = conversation["unfinished_endings"]
         # 言いさしの後に待つ時間 (= 声が途切れてから wait_ms。 まとめ役が発話を渡すのは pause_ms の無音の後)
@@ -87,6 +93,9 @@ class AgentBridge(FrameProcessor):
         self._send_lock = asyncio.Lock()
         self._said_at = 0.0
         self._send = send
+        self._interrupt = interrupt
+        # 送るまでの発話で、 もう turn を止めたか (= 止めるのは 1 回だけ)
+        self._interrupted = False
         self._events = events
         self._utterances = utterances
         self._pending: list[str] = []
@@ -163,6 +172,24 @@ class AgentBridge(FrameProcessor):
 
     # --- 行き -------------------------------------------------------------------------------------------------
 
+    def wants_words(self) -> bool:
+        """話している途中の言葉を待っているか (= 送るまでの発話で、 まだ turn を止めていない)。"""
+        return self._interrupt is not None and not self._interrupted
+
+    async def heard_words(self, text: str) -> None:
+        """話している途中の声から言葉が取れた: 自分の声でなければ、 タブの turn を止める (= 送るまでに 1 回)。"""
+        if not self.wants_words():
+            return
+        if self._cut and is_own_voice(text, [s.get("text") or "" for s in (self._cut_after, self._cut[0]) if s]):
+            return
+        self._interrupted = True
+        try:
+            stopped = await self._interrupt()
+        except Exception as error:  # noqa: BLE001 (= 止められなくても、 発話は話し終えた後に送る)
+            logger.warning("voice call: could not stop the running turn: %s", error)
+            return
+        logger.info("voice call: the running turn %s", "stopped while the person spoke" if stopped else "was not running")
+
     async def _said(self, context) -> None:
         texts = [_text_of(m) for m in context.get_messages() if m.get("role") == "user"]
         context.set_messages([])
@@ -209,6 +236,7 @@ class AgentBridge(FrameProcessor):
         if not closing:
             self._forget_voiced()
             await self.push_frame(InterruptionFrame())
+        self._interrupted = False   # 次の発話で、 また止められる
         async with self._send_lock:
             sent = await self._send(text)
         logger.info("voice call: sent chars=%d ok=%s", len(text), sent)

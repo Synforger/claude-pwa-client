@@ -134,12 +134,13 @@ async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, st
         logger.info("voice call: another screen opened the conversation; ending the call")
         await runner.cancel()
 
+    bridge = AgentBridge(conversation, send=backend.send, events=backend.events, utterances=backend.utterances,
+                         speech=start.get("speech", True), interrupt=backend.interrupt)
     pipeline = Pipeline([
         transport.input(),
-        ListenSTT(backend, on_lost=lost),
+        ListenSTT(backend, on_lost=lost, on_words=bridge.heard_words, wants_words=bridge.wants_words),
         user_aggregator,
-        AgentBridge(conversation, send=backend.send, events=backend.events, utterances=backend.utterances,
-                    speech=start.get("speech", True)),
+        bridge,
         VoiceTTS(backend, start["marks"]),
         transport.output(),
     ])
