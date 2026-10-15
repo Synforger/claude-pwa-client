@@ -77,13 +77,19 @@ class AgentBridge(FrameProcessor):
     interrupt() -> 止めたか              そのタブの turn の実行中なら止める (= 話している途中に言葉が取れた時)
     events() -> そのタブの event の流れ  返事を拾う元
     utterances(text) -> [{mark, text, values}]   返事の文を、 声にする文の並びにする
+    resume                               つなぎ直した通話なら、 前の通話が閉じた時の {since_ms, sentences}
+                                         (= 鳴り終えていなかった文から言い直し、 閉じた後に届いた返事も声にする)
+    on_handover({since_ms, sentences})   通話が閉じる時に、 鳴り終えていない文を渡す先 (= 次のつなぎ直しへ)
     """
 
     def __init__(self, conversation: dict, *, send: Callable[[str], Awaitable[bool]],
                  events: Callable[[], AsyncIterator[dict]],
                  utterances: Callable[[str], Awaitable[list[dict]]], speech: bool = True,
-                 interrupt: Callable[[], Awaitable[bool]] | None = None, **kwargs):
+                 interrupt: Callable[[], Awaitable[bool]] | None = None, resume: dict | None = None,
+                 on_handover: Callable[[dict], None] | None = None, **kwargs):
         super().__init__(**kwargs)
+        self._resume = resume
+        self._on_handover = on_handover
         self._endings = conversation["unfinished_endings"]
         # 言いさしの後に待つ時間 (= 声が途切れてから wait_ms。 まとめ役が発話を渡すのは pause_ms の無音の後)
         self._hold_secs = max(0.0, (conversation["wait_ms"] - conversation["pause_ms"]) / 1000)
@@ -130,6 +136,8 @@ class AgentBridge(FrameProcessor):
             if not self._replies_task:
                 self._call_started = time.monotonic()
                 self._since_ms = int(time.time() * 1000)
+                if self._resume:
+                    await self._take_over(self._resume)
                 self._replies_task = self.create_task(self._follow_replies(), "voice-call-replies")
             return
         if isinstance(frame, (EndFrame, CancelFrame)):
@@ -377,7 +385,27 @@ class AgentBridge(FrameProcessor):
     async def _show_state(self, state: str) -> None:
         await self.push_frame(RTVIServerMessageFrame(data={"pip": "state", "state": state}))
 
+    # --- つなぎ直し ------------------------------------------------------------------------------------------
+
+    async def _take_over(self, resume: dict) -> None:
+        """前の通話の続き: 閉じた後に届いた返事も拾い、 鳴り終えていなかった文から言い直す。"""
+        since = resume.get("since_ms")
+        if isinstance(since, int):
+            self._since_ms = since
+        sentences = [s for s in resume.get("sentences") or [] if isinstance(s, dict)]
+        logger.info("voice call: redialed; saying %d sentences again from the cut one", len(sentences) if self._speech else 0)
+        if self._speech:
+            for said in sentences:
+                await self._voice(said)
+
+    def _hand_over(self) -> None:
+        if self._on_handover is None:
+            return
+        sentences = list(self._voiced) if self._speech else []
+        self._on_handover({"since_ms": int(time.time() * 1000), "sentences": sentences})
+
     async def _stop(self) -> None:
+        self._hand_over()
         for task in (self._hold_task, self._replies_task, self._history_task):
             if task:
                 await self.cancel_task(task)

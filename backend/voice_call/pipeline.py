@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
@@ -105,11 +106,14 @@ def scale_output(volume: Volume) -> None:
     RawAudioTrack.add_audio_bytes = add_audio_bytes
 
 
-async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, start: dict, volume: Volume) -> None:
+async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, start: dict, volume: Volume,
+                   handover: Callable[[dict], None] | None = None) -> None:
     """1 本の電話の会話を、 つながっている間走らせる。
 
-    start: backend が渡す、 そのタブの声の設定 (= marks の名前の並び / conversation / turn の model の path)
+    start: backend が渡す、 そのタブの声の設定 (= marks の名前の並び / conversation / turn の model の path)。
+           つなぎ直した通話なら resume (= 前の通話の鳴り残し)
     volume: その端末の声の大きさの倍率 (= 通話中に backend から変わる)
+    handover: 通話が閉じる時に、 鳴り終えていない文を backend へ渡す (= 次のつなぎ直しが言い直す)
     """
     conversation = start["conversation"]
     gaps = OutputGaps()
@@ -135,7 +139,8 @@ async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, st
         await runner.cancel()
 
     bridge = AgentBridge(conversation, send=backend.send, events=backend.events, utterances=backend.utterances,
-                         speech=start.get("speech", True), interrupt=backend.interrupt)
+                         speech=start.get("speech", True), interrupt=backend.interrupt,
+                         resume=start.get("resume"), on_handover=handover)
     def microphone_on() -> bool:
         track = connection.audio_input_track()
         return track is None or track.is_enabled()
