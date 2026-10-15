@@ -212,6 +212,24 @@ export function toggleVoice(sid) {
   closeConversation(sid, 'the voice button with the microphone closed')
 }
 
+// Siri の「通話」 (= app を開いた URL の call) で呼ぶ: 返事を声にして、 マイクも開いた会話にする。 会話して
+// いれば、 足りない方 (= 声 / マイク) だけを入れる。 開いたばかりのタブは声を持つかがまだ分からないので、 先に訊く。
+export async function startCall(sid) {
+  if (!sid) return
+  await refreshVoiceAvailable(sid)
+  const snap = getSnapshot()
+  if (!snap.available[sid]) return
+  if (!snap.on[sid]) {
+    if (snap.listen[sid]) micWanted.add(sid)
+    else micWanted.delete(sid)
+    setVoiceQuiet(sid, false)
+    startConversation(sid)
+    return
+  }
+  if (snap.quiet[sid]) setSpeech(sid, true)
+  if (snap.listen[sid] && !micOpen(sid)) toggleMic(sid)
+}
+
 // iPhone の app の中で、 そのタブの通話がつながっていて、 app が小窓を出せる版か (= ⋯ メニューの「小窓で表示」)。
 export function hasAppCall(sid) {
   return !!sid && !!call()?.has(sid) && !!getSnapshot().on[sid] && call().canShowPicture
