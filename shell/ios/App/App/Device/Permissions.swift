@@ -107,7 +107,11 @@ enum Permissions {
             put("screen_time", word(AuthorizationCenter.shared.authorizationStatus), fix: "needs a paid developer team")
         }
         if #available(iOS 17.0, *) {
-            put("workouts", await workoutState(), fix: "\(app) → Workouts (Apple Watch)")
+            if WorkoutScheduler.isSupported {
+                put("workouts", await workoutState(), fix: "\(app) → Workouts (Apple Watch)")
+            } else {
+                kinds["workouts"] = "no Apple Watch paired"   // (= 訊く物が無い。 一番広くない種類にも数えない)
+            }
         }
         if #available(iOS 26.0, *) {
             put("alarms", word(AlarmManager.shared.authorizationState), fix: "\(app) → Alarms")
