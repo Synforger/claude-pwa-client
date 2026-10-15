@@ -63,6 +63,7 @@ tasks:
           .venv/bin/pip install --upgrade -r backend/requirements.txt
         fi
       - cd frontend && npm install
+      - task: cli:install
       # contracts は独立した npm の置き場で、 `task ci` の最後の段 (= contracts:check) がその依存を使う。
       # ここで入れておかないと、 setup の直後の `task ci` がその段で落ちる。
       - cd contracts && npm install
@@ -449,6 +450,17 @@ tasks:
     desc: Detect downstream toolchain drift vs .tooling/versions.yaml truth
     cmds:
       - bash .tooling/local-ci/lint-versions.sh
+
+  cli:install:
+    desc: Put the cpc command on PATH (= a link to bin/cpc in ~/.local/bin)
+    cmds:
+      - mkdir -p "$HOME/.local/bin"
+      - ln -sf "{{.ROOT_DIR}}/bin/cpc" "$HOME/.local/bin/cpc"
+      - |
+        case ":$PATH:" in
+          *":$HOME/.local/bin:"*) echo "→ cpc is on PATH ($HOME/.local/bin/cpc)" ;;
+          *) echo "→ linked $HOME/.local/bin/cpc; add $HOME/.local/bin to PATH to run cpc" ;;
+        esac
 
   version:bump:
     desc: Bump version in bump-targets.yaml + listed files (LEVEL=patch|minor|major, DRY_RUN=1 for plan-only)

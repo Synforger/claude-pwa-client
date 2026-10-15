@@ -1,0 +1,17 @@
+#!/bin/sh
+# cpc: claude-pwa-client の命令 (= 種類ごとのサブコマンドを、 repo の中の実体へ渡す)。
+#
+#   cpc device ...   iPhone の app に操作を頼む (= backend/cli/device.py。 docs/reference/device-ops.md)
+#
+# `task setup` が ~/.local/bin/cpc にこの file への link を置く。 link から呼ばれても repo の中を指す。
+here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+case "$1" in
+  device)
+    shift
+    exec python3 "$here/../backend/cli/device.py" "$@" ;;
+  -h|--help)
+    echo "usage: cpc device [<kind> [<operation> --<arg> <value> ...]]   (docs/reference/device-ops.md)" ;;
+  *)
+    echo "usage: cpc device [<kind> [<operation> --<arg> <value> ...]]   (docs/reference/device-ops.md)" >&2
+    exit 2 ;;
+esac

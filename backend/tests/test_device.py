@@ -312,3 +312,16 @@ def test_the_command_shows_the_screen(monkeypatch, capsys):
                         {"live": True, "path": "/data/device-files/screen.jpg", "age_s": 0.4} if path == "/device/screen" else None)
     assert cli.main(["screen"]) == 0
     assert json.loads(capsys.readouterr().out)["path"].endswith("screen.jpg")
+
+
+def test_the_cpc_command_hands_device_to_the_device_command_even_through_a_link(tmp_path):
+    import subprocess
+    from pathlib import Path
+
+    cpc = Path(__file__).resolve().parents[2] / "bin" / "cpc"
+    link = tmp_path / "cpc"
+    link.symlink_to(cpc)
+    help_ = subprocess.run([str(link), "device", "--help"], capture_output=True, text=True, timeout=30)
+    assert help_.returncode == 0 and "cpc device" in help_.stdout
+    unknown = subprocess.run([str(link), "nothing"], capture_output=True, text=True, timeout=30)
+    assert unknown.returncode == 2 and "usage: cpc device" in unknown.stderr
