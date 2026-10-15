@@ -22,6 +22,21 @@ enum Health {
     /// 書ける量 (= 足す物だけ)
     private static let writable = ["water", "weight", "steps"]
 
+    /// 書く許可の状態 (= 種類ごと。 読む許可は iOS が app に教えない)
+    static func writeStatus() -> [String: String] {
+        guard HKHealthStore.isHealthDataAvailable() else { return [:] }
+        var out: [String: String] = [:]
+        for name in writable {
+            guard let type = quantities[name].map({ HKQuantityType($0.0) }) else { continue }
+            switch store.authorizationStatus(for: type) {
+            case .sharingAuthorized: out[name] = "allowed"
+            case .sharingDenied: out[name] = "denied"
+            default: out[name] = "not asked"
+            }
+        }
+        return out
+    }
+
     static let ops: [DeviceOperation] = [
         DeviceOp(DeviceSpec(name: "health.read", kind: .read,
                             summary: "per-day totals or averages of a health value",
