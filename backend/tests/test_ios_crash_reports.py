@@ -40,11 +40,27 @@ def test_only_the_app_reports_are_listed(monkeypatch):
     ])
 
     class Done:
+        returncode = 0
         stdout = listing
+        stderr = ""
 
     monkeypatch.setattr(crash_reports.subprocess, "run", lambda *a, **k: Done())
     assert crash_reports.listing("UDID") == [("App-2026-10-14-120000.ips", "2026-10-14"),
                                              ("App-2026-10-15-025411.ips", "2026-10-15")]
+
+
+def test_an_unreachable_iphone_says_why_instead_of_a_traceback(monkeypatch, capsys):
+    class Done:
+        returncode = 1
+        stdout = ""
+        stderr = "ERROR: The device is not able to fulfill the requested usage assertion requirements.\n  more"
+
+    monkeypatch.setattr(crash_reports.subprocess, "run", lambda *a, **k: Done())
+    monkeypatch.setattr(crash_reports.sys, "argv", ["crash-reports.py", "--device", "UDID"])
+    assert crash_reports.main() == 1
+    err = capsys.readouterr().err
+    assert "could not reach the iPhone: ERROR: The device is not able to fulfill" in err
+    assert "more" not in err
 
 
 def test_without_a_date_only_the_newest_report_is_chosen():

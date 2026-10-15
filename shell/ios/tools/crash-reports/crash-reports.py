@@ -24,11 +24,21 @@ APP_NAME = "App"
 FRAMES = 12
 
 
+class DeviceError(Exception):
+    """devicectl が iPhone に届かなかった (= 画面が消えて Wi-Fi 越しのつながりが切れた時など)。"""
+
+
+def devicectl(*args: str) -> str:
+    done = subprocess.run(["xcrun", "devicectl", *args], capture_output=True, text=True)
+    if done.returncode != 0:
+        said = (done.stderr or done.stdout).strip().splitlines()
+        raise DeviceError(said[0] if said else f"devicectl exited with {done.returncode}")
+    return done.stdout
+
+
 def listing(device: str) -> list[tuple[str, str]]:
     """iPhone の crash の記録の (file の名前, 日付) の一覧 (= この app の分だけ)。"""
-    out = subprocess.run(
-        ["xcrun", "devicectl", "device", "info", "files", "--device", device, "--domain-type", "systemCrashLogs"],
-        capture_output=True, text=True, check=True).stdout
+    out = devicectl("device", "info", "files", "--device", device, "--domain-type", "systemCrashLogs")
     found = []
     for line in out.splitlines():
         m = re.match(rf"^({APP_NAME}-(\d{{4}}-\d{{2}}-\d{{2}})-\d{{6}}\.ips)\s", line)
@@ -46,10 +56,8 @@ def choose(found: list[tuple[str, str]], since: str | None) -> list[str]:
 
 def fetch(device: str, name: str, out_dir: Path) -> Path:
     target = out_dir / name
-    subprocess.run(
-        ["xcrun", "devicectl", "device", "copy", "from", "--device", device, "--domain-type", "systemCrashLogs",
-         "--source", name, "--destination", str(target)],
-        capture_output=True, text=True, check=True)
+    devicectl("device", "copy", "from", "--device", device, "--domain-type", "systemCrashLogs",
+              "--source", name, "--destination", str(target))
     return target
 
 
@@ -80,6 +88,16 @@ def main() -> int:
     parser.add_argument("--since", help="この日付 (= YYYY-MM-DD) 以降の物だけ。 省けば一番新しい 1 件")
     parser.add_argument("--out", type=Path, help="写した記録を置く folder (= 省けば使い捨ての folder)")
     args = parser.parse_args()
+    try:
+        return report(args)
+    except DeviceError as error:
+        print(f"crash-reports: could not reach the iPhone: {error}", file=sys.stderr)
+        print("crash-reports: unlock it and keep it on the same Wi-Fi (or USB), then check "
+              "`xcrun devicectl list devices` shows it as available", file=sys.stderr)
+        return 1
+
+
+def report(args: argparse.Namespace) -> int:
     found = listing(args.device)
     chosen = choose(found, args.since)
     if not chosen:
