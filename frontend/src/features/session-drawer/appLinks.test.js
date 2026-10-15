@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { listenAppLinks } from './openInApp.js'
+import { listenAppLinks } from './appLinks.js'
 
 // ブラウザか、 app の中か、 を作り分ける。
 function device({ native = false } = {}) {

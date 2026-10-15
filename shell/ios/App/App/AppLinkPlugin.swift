@@ -4,7 +4,7 @@ import Foundation
 /// app を開く URL (= `claudepwa://open?ses=<sid>`) を受けて、 開くタブを画面へ渡す plugin。
 ///
 /// URL を出すのはホーム画面のウィジェット (= `Widgets/TabsWidget.swift`)。 画面の受け手は `frontend/src/features/
-/// push-notify/openInApp.js`。 URL の型は `Info.plist` の `CFBundleURLTypes` が登録する。
+/// session-drawer/appLinks.js`。 URL の型は `Info.plist` の `CFBundleURLTypes` が登録する。
 ///
 /// app が閉じていた時は、 画面の読み込みより先に URL が届く (= Capacitor は plugin が載った後の最初の
 /// `capacitorViewDidAppear` で配る)。 受け手がまだ居ない知らせは、 画面が受け手を付けるまで取っておく

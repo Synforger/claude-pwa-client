@@ -2,7 +2,7 @@
 // useAppEffects.js から物理移送 (= W2 Phase C、 session 切替経路の責務)。
 import { useEffect } from 'react'
 
-import { listenAppLinks } from '../push-notify/openInApp.js'
+import { listenAppLinks } from './appLinks.js'
 
 
 // --- PWA 通知から ?ses=xxx URL で該当 session に切替 ---
