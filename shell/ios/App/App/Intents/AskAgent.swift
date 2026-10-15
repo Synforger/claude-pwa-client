@@ -3,7 +3,7 @@ import Foundation
 
 /// Siri とショートカットから、 app を開かずにタブの agent へ頼みを送る口。
 ///
-/// 「Hey Siri、 <app の名前> で頼む」 と言うと、 送り先のタブ (= 前に選んだ物か、 その場で選ぶ) と頼みの文を
+/// 「Hey Siri、 <app の名前>で頼む」 (= 英語の Siri では「Ask <app の名前>」) と言うと、 送り先のタブ (= 前に選んだ物か、 その場で選ぶ) と頼みの文を
 /// 訊いて、 画面から送るのと同じ口 (= `POST /pty/<sid>/send`) でそのタブへ送る。 タブの一覧は backend の
 /// `/sessions` が真値 (= app は覚えない)。
 
@@ -83,6 +83,9 @@ struct AgentShortcuts: AppShortcutsProvider {
                 "Ask the agent in \(.applicationName)",
                 "Ask \(.applicationName)",
                 "\(.applicationName) request",
+                // (= Siri の言語が日本語の時の言い方)
+                "\(.applicationName)で頼む",
+                "\(.applicationName)に頼む",
             ],
             shortTitle: "Ask the Agent",
             systemImageName: "bubble.left.and.text.bubble.right"

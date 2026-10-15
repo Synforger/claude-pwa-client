@@ -60,6 +60,7 @@ async def device_socket(ws: WebSocket) -> None:
             if isinstance(message, dict):
                 hub.receive(message)
     except WebSocketDisconnect:
+        # benign: the app went away (backgrounded or the call ended); detach below marks it offline.
         pass
     finally:
         hub.detach(link)

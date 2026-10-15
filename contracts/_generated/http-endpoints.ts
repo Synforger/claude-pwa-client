@@ -16,6 +16,9 @@ export interface GetSessionsResponseItem {
 
 export type GetSessionsResponse = GetSessionsResponseItem[]
 
+/** GET /sessions/overview response */
+export type GetSessionsOverviewResponse = Record<string, unknown>
+
 /** POST /sessions request body */
 export interface PostSessionsRequest {
   agent_id: string
@@ -517,6 +520,32 @@ export interface PostDeviceOpsResponse {
   ok: boolean
   /** app の答え (= 大きい答えは files に path の並びで入る) */
   result?: unknown
+}
+
+/** POST /device/screen response */
+export interface PostDeviceScreenResponse {
+  bytes: number
+}
+
+/** POST /device/screen/state request body */
+export interface PostDeviceScreenStateRequest {
+  live: boolean
+}
+
+/** POST /device/screen/state response */
+export interface PostDeviceScreenStateResponse {
+  live: boolean
+}
+
+/** GET /device/screen response */
+export interface GetDeviceScreenResponse {
+  /** 配信中で、 最後の 1 枚が 5 秒より新しい */
+  live: boolean
+  path?: string | null
+  /** 最後の 1 枚の時刻 (= unix 秒) */
+  at?: number | null
+  age_s?: number | null
+  bytes?: number | null
 }
 
 /** GET /device/catalog response */

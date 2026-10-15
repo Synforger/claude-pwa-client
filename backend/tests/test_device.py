@@ -22,6 +22,19 @@ CATALOG = [
 HELLO = {"type": "hello", "device": "iPhone", "app": "1.9.0 (4)", "catalog": CATALOG}
 
 
+def _run(coro):
+    """asyncio.run は loop を閉じて外したまま返すので、 後に走る test (= get_event_loop を使う物) が loop を持てない。
+    新しい loop で回し、 終わったら別の新しい loop を置き直す (= test_unified_stream の _run と同じ)。"""
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(coro)
+    finally:
+        loop.run_until_complete(asyncio.sleep(0))
+        loop.close()
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
+
 def _hub(tmp_path: Path) -> DeviceHub:
     return DeviceHub(catalog_path=tmp_path / "catalog.json", files_dir=tmp_path / "files")
 
@@ -40,7 +53,7 @@ def test_a_call_goes_to_the_app_and_returns_its_answer(tmp_path):
         hub.attach(send, HELLO)
         return await hub.call("health.steps", {"days": 2})
 
-    assert asyncio.run(scenario()) == {"steps": [1200, 8000]}
+    assert _run(scenario()) == {"steps": [1200, 8000]}
     assert sent == [{"type": "call", "id": "1", "op": "health.steps", "args": {"days": 2}}]
 
 
@@ -56,7 +69,7 @@ def test_files_in_an_answer_are_written_and_named_by_path(tmp_path):
         hub.attach(send, HELLO)
         return await hub.call("camera.take", {})
 
-    result = asyncio.run(scenario())
+    result = _run(scenario())
     assert result["width"] == 4
     [path] = result["files"]
     assert Path(path).parent == tmp_path / "files"     # (= app が付けた名前で外へ出ない)
@@ -75,7 +88,7 @@ def test_without_the_app_a_call_says_it_is_not_connected_and_the_last_list_is_ke
         with pytest.raises(DeviceOffline):
             await hub.call("health.steps", {})
 
-    asyncio.run(scenario())
+    _run(scenario())
     status = hub.status()
     assert status["connected"] is False
     assert [op["name"] for op in status["catalog"]] == ["health.steps", "camera.take"]
@@ -93,7 +106,7 @@ def test_an_operation_the_app_does_not_list_is_refused_before_it_is_sent(tmp_pat
         with pytest.raises(UnknownOp):
             await hub.call("photos.delete", {})
 
-    asyncio.run(scenario())
+    _run(scenario())
     assert sent == []
 
 
@@ -115,7 +128,7 @@ def test_a_call_without_an_answer_times_out_and_a_failure_is_passed_on(tmp_path)
         with pytest.raises(DeviceFailed, match="Health access denied"):
             await hub.call("health.steps", {})
 
-    asyncio.run(scenario())
+    _run(scenario())
 
 
 def test_a_waiting_call_ends_when_the_app_goes_and_a_newer_app_takes_over(tmp_path):
@@ -134,7 +147,7 @@ def test_a_waiting_call_ends_when_the_app_goes_and_a_newer_app_takes_over(tmp_pa
         hub.detach(old)                      # (= 替わった後の古い app が切れても、 新しい app は残る)
         assert hub.status()["device"] == "newer"
 
-    asyncio.run(scenario())
+    _run(scenario())
 
 
 # --- 口 -----------------------------------------------------------------------------------------------------

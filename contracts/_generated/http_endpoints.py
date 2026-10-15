@@ -22,6 +22,12 @@ class GetSessionsResponseItem(BaseModel):
     created_at: Optional[str] = None
 
 
+class GetSessionsOverviewResponse(BaseModel):
+    """GET /sessions/overview response"""
+    model_config = ConfigDict(extra="forbid")
+    pass
+
+
 class PostSessionsRequest(BaseModel):
     """POST /sessions request body"""
     model_config = ConfigDict(extra="forbid")
@@ -501,6 +507,34 @@ class PostDeviceOpsResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ok: bool
     result: Optional[Any] = None  # app の答え (= 大きい答えは files に path の並びで入る)
+
+
+class PostDeviceScreenResponse(BaseModel):
+    """POST /device/screen response"""
+    model_config = ConfigDict(extra="forbid")
+    bytes: int
+
+
+class PostDeviceScreenStateRequest(BaseModel):
+    """POST /device/screen/state request body"""
+    model_config = ConfigDict(extra="forbid")
+    live: bool
+
+
+class PostDeviceScreenStateResponse(BaseModel):
+    """POST /device/screen/state response"""
+    model_config = ConfigDict(extra="forbid")
+    live: bool
+
+
+class GetDeviceScreenResponse(BaseModel):
+    """GET /device/screen response"""
+    model_config = ConfigDict(extra="forbid")
+    live: bool  # 配信中で、 最後の 1 枚が 5 秒より新しい
+    path: Optional[str] = None
+    at: Optional[float] = None  # 最後の 1 枚の時刻 (= unix 秒)
+    age_s: Optional[float] = None
+    bytes: Optional[int] = None
 
 
 class GetDeviceCatalogResponse(BaseModel):
