@@ -53,11 +53,31 @@ enum Places {
         return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 
+    /// 言葉で探す。 補完 (= 地図の app の検索欄と同じ) の 1 件目で引いた物を先に置き、 言葉の検索の結果を後ろに続ける。
+    /// (= 言葉の検索だけだと「東京駅」 が「駅」 の分類として読まれ、 今いる所の近くの駅が返ることがある)
     private static func search(_ query: String, near: CLLocationCoordinate2D?, meters: Double = searchMeters) async throws -> [MKMapItem] {
+        let region = near.map { MKCoordinateRegion(center: $0, latitudinalMeters: meters, longitudinalMeters: meters) }
+        var found: [MKMapItem] = []
+        if let first = await Completions.first(query, in: region) {
+            let request = MKLocalSearch.Request(completion: first)
+            if let region { request.region = region }
+            found = (try? await MKLocalSearch(request: request).start().mapItems) ?? []
+        }
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = query
-        if let near { request.region = MKCoordinateRegion(center: near, latitudinalMeters: meters, longitudinalMeters: meters) }
-        return try await MKLocalSearch(request: request).start().mapItems
+        if let region { request.region = region }
+        do {
+            for item in try await MKLocalSearch(request: request).start().mapItems where !found.contains(where: { same($0, item) }) {
+                found.append(item)
+            }
+        } catch where !found.isEmpty {}
+        return found
+    }
+
+    /// 同じ場所か (= 2 つの検索は同じ場所に同じ名前と座標を返す)
+    private static func same(_ a: MKMapItem, _ b: MKMapItem) -> Bool {
+        a.name == b.name && a.placemark.coordinate.latitude == b.placemark.coordinate.latitude
+            && a.placemark.coordinate.longitude == b.placemark.coordinate.longitude
     }
 
     private static func place(_ query: String) async throws -> MKMapItem {
@@ -72,5 +92,43 @@ enum Places {
                     .compactMap { $0 }.joined(separator: " "),
                 "latitude": mark.coordinate.latitude, "longitude": mark.coordinate.longitude,
                 "phone": item.phoneNumber as Any, "url": item.url?.absoluteString as Any]
+    }
+}
+
+/// 補完の 1 件目を待つ (= MKLocalSearchCompleter は文字を渡した後に候補を知らせてくる。 0 件の時も失敗した時も知らせが来る)。
+@MainActor private final class Completions: NSObject, MKLocalSearchCompleterDelegate {
+    private let completer = MKLocalSearchCompleter()
+    private var waiting: CheckedContinuation<MKLocalSearchCompletion?, Never>?
+
+    static func first(_ query: String, in region: MKCoordinateRegion?) async -> MKLocalSearchCompletion? {
+        let completions = Completions()
+        if let region { completions.completer.region = region }
+        return await completions.wait(query)
+    }
+
+    override init() {
+        super.init()
+        completer.delegate = self
+    }
+
+    private func wait(_ query: String) async -> MKLocalSearchCompletion? {
+        await withCheckedContinuation { continuation in
+            waiting = continuation
+            completer.queryFragment = query
+        }
+    }
+
+    private func finish(_ first: MKLocalSearchCompletion?) {
+        waiting?.resume(returning: first)
+        waiting = nil
+    }
+
+    nonisolated func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
+        let first = completer.results.first
+        Task { @MainActor in self.finish(first) }
+    }
+
+    nonisolated func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
+        Task { @MainActor in self.finish(nil) }
     }
 }
