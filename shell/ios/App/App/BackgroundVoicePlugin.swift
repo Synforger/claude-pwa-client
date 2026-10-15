@@ -141,6 +141,7 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
         Task { @MainActor in
             do {
                 try await client.enableMic(enable: on)
+                CAPLog.print("[BackgroundVoice] microphone \(on ? "on" : "off") from the picture")
                 notifyListeners("mic", data: ["on": on])
             } catch {
                 CAPLog.print("[BackgroundVoice] could not switch the microphone from the picture: \(error)")
