@@ -92,7 +92,7 @@ tmux server は `exit-empty off` + 番兵 session `claudepwa-sentinel` (= backen
 
 旧構成のクライアント 1 台あたり SSE/WS 4-5 本 (= jsonl all + status + overview + per-sid subagents + views ws) を、 1 本の SSE + 制御 POST に畳んだ経路。 `backend/routes/unified_stream.py` 実装、 endpoint 契約は `contracts/schema/http-endpoints.yaml` の `/stream/unified` 2 entry が真値。
 
-- **channel envelope**: data 行 JSON `{"ch": "sys"|"jsonl"|"status"|"overview"|"subagents", ...}`。 jsonl frame は `{ch, pos, ev}` で `ev` は既存 sse-events event そのまま (= wire 内容の schema 変更なし)、 `pos` が行末実 byte 位置 (= client は frame ごとに offset 前進、 SSE id 行は使わない)
+- **channel envelope**: data 行 JSON `{"ch": "sys"|"jsonl"|"status"|"overview"|"subagents", ...}`。 jsonl frame は `{ch, pos, ev}` で `ev` は既存 sse-events event そのまま (= wire 内容の schema 変更なし)、 `pos` が行末の byte 位置 (= client は frame ごとに offset 前進、 SSE id 行は使わない)。 位置は下の § タブの記録をつないだ通しの位置
 - **購読 sid だけ配る**: jsonl channel は接続 query (= jsonl=sid:off,...) / control の op=jsonl で宣言された sid のみ。 未購読 sid の event (= 巨大 tool_result 含む) はネットワークにも client CPU にも届かない (= 全配信 fan-out の遮断、 電力主犯対策)。 タブ切替 = 再接続でなく購読差替 + 差分 replay
 - **warmup も購読 sid のみ**: 旧 `/jsonl/stream/all` の「接続時に全 sid PTY sweep」 を廃止。 未購読 sid は購読された瞬間に ensure。 ensure は背景で走り、 replay を待たせない (= 端末の記録が無い再起動の直後は ensure に数秒かかる)
 - **views/ws の吸収**: op=view で視認申告、 SSE 切断 = views 登録自動消滅 (= WS の TCP FIN と同じ stale-free 性質)。 Stop は op=stop (= POST は TCP 保証で届く、 旧 WS 経路と等価)
@@ -106,12 +106,21 @@ tmux server は `exit-empty off` + 番兵 session `claudepwa-sentinel` (= backen
 
 **frontend は既定で本経路を使う**: `frontend/src/transport/unified.ts` (= singleton 本体) + `select.ts` (= 実装選択の 1 点、 consumer は select 経由で受け取る)。 旧 legacy transport と cpc_transport flag は 2026-07-27 に退役 (= unified が唯一の経路)。 offset は cpc_v2_jsonl_offsets、 status hydrate cache は cpc_last_all_status (= transport/statusCache.ts)。
 
+## タブの記録をつないだ通しの位置
+
+1 つのタブの中で claude の会話は入れ替わる (= 自動の入れ替え / セッション終了 / `/clear`) が、 記録 (= jsonl) は会話ごとに別の file になる。 流し直し・履歴 GET・live の 3 経路は、 タブの記録を古い順につないだ 1 本として読み、 `pos` はその通しの byte 位置で渡す (= `backend/jsonl/chain.py`)。
+
+- **並び**: 終わった会話の記録 (= `backend/jsonl/history.py` の控え、 最新 3 件) + 今の会話の記録。 控えに積むのは、 入れ替えとセッション終了の口 (= `restart_session`) と、 口を通らない切り替えを見張りが見つけた時 (= `_initialize_sid_tail`)
+- **起点**: 各記録の起点 (= `base`) は控えに積んだ時に 1 度だけ決め、 古い記録が控えから落ちても、 file が消えても動かさない。 今の会話の起点は、 最後に終わった会話の記録の直後
+- **流し直しの読み方**: `from` が今の会話の中を指していれば、 今の会話だけをそこから読む (= つなぎ直しの普段の形)。 それより前を指していれば、 つないだ記録の直近 N 行のうちその位置より後ろ。 画面を閉じている間に入れ替わったタブは、 前の会話の残り (= 締めの作業と入れ替えの発話) から今の会話まで繋がって流れる
+- **file ごとの位置にしない理由**: client の offset はタブに 1 つで、 どの記録の位置かを持たない。 file ごとの位置だと、 今の会話の記録が前の会話の offset より育った時に、 offset を今の会話の中の位置と読んで頭を飛ばす
+
 ## `GET /jsonl/history/{sid}`: 状態は GET、 stream は差分 (= client=射影)
 
 タブ表示時に **履歴の権威スナップショット**を 1 発で取る経路 (= `backend/jsonl/routes.py::get_chat_history`)。 stream の初回 replay に履歴復元を依存させないための「状態は GET / stream は差分だけ」 分離で、 stream が復帰し損ねても履歴は必ず取れる。
 
 - **返すもの**: `{events, pos}`。 `events` は SSE と同形状 (= 同じ ingest pipeline を通す、 uuid dedup で cache とも stream replay とも重複しない)、 `pos` は読み終えた byte 位置
-- **窓**: `from` 指定ありはその位置以降、 未指定 / 無効は直近 N 行 (= `INITIAL_REPLAY_LINES`)。 frontend は **`from` を付けない**: offset は streaming 中の in-flight を含まず先行し得るため、 offset 起点にすると作業中のツール履歴が飛ばされる
+- **窓**: `from` 指定ありはその位置以降、 未指定 / 無効は直近 N 行 (= `INITIAL_REPLAY_LINES`、 タブの記録をつないだ物の直近 N 行)。 frontend は **`from` を付けない**: offset は streaming 中の in-flight を含まず先行し得るため、 offset 起点にすると作業中のツール履歴が飛ばされる
 - **転送量の削減** (= 2026-07-27、 携帯 + Tailscale 経由の体感速度): 実測 1.18MB → 247KB
   - **JSON gzip** (= `backend/core/compression.py`)。 **SSE は対象外** — content-type が `text/event-stream` のものは素通しする。 streaming を圧縮すると gzip の内部 buffer に event が滞留してライブ更新が詰まるため、 ここは構造的に分けている (= pin: `backend/tests/test_compression.py::test_sse_is_never_compressed`)
   - **表示に使われない本文の除去** (= `_shrink_tool_results`)。 履歴の 65% が tool_result で、 その大半が base64 画像だった。 UI は tool_result 内の画像を「画像」 プレースホルダ 1 語に畳む (= `frontend/src/utils/format.js`) ので本体は 1 byte も表示に使われない → 履歴経路に限り画像本体を落とし、 長大 text も冒頭 `TOOL_RESULT_PREVIEW_CHARS` に切り詰める。 元の文字数は `full_chars` で残し、 UI の文字数ラベルはそれを使うので表示は不変 (= pin: `backend/tests/test_jsonl_routes.py::test_shrink_tool_results_drops_image_payload_but_keeps_placeholder`)

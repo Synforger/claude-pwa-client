@@ -24,6 +24,8 @@ from pathlib import Path
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
+from backend.jsonl import chain
+from backend.jsonl import history as session_history
 from backend.jsonl.events import jsonl_line_to_events
 from backend.terminal.send_dedup import send_dedup
 from backend.observability.correlation import current_corr_id
@@ -222,20 +224,13 @@ def get_chat_history(
     byte 位置 (= stream 購読の起点にすれば replay 重複が消える)。 from (= 描画・永続化した
     offset) 指定ありはその位置以降、 未指定/無効 (= 初回 / cache 消失) は直近 N 行。 GET は
     stream とは別リクエストなので、 stream が復帰し損ねても履歴は必ず取れる。
+
+    読むのはタブの記録を古い順につないだ物で、 pos はその通しの位置 (= backend/jsonl/chain.py)。 今の
+    会話が短ければ、 直近 N 行に前の会話の末尾も入る (= 入れ替えの後も、 それまでの会話がタブに残る)。
     """
-    path = _latest_jsonl(session_id)
-    if path is None:
-        return {"events": [], "pos": 0}
-    try:
-        size = path.stat().st_size
-    except OSError:
-        size = 0
-    if from_pos is not None and 0 <= from_pos <= size:
-        pos = from_pos
-    else:
-        pos = _initial_offset(path)
-    lines, end_pos = _read_complete_lines(path, pos)
-    events = _lines_to_events(lines)
+    segs = chain.segments(session_id, _latest_jsonl(session_id))
+    pairs, end_pos = chain.read(segs, from_pos, INITIAL_REPLAY_LINES)
+    events = _lines_to_events([raw for raw, _pos in pairs])
     for ev in events:
         _inject_envelope(ev, session_id)
         _shrink_tool_results(ev)
@@ -291,6 +286,8 @@ class SessionTailState:
     """
     path: Path | None = None
     offset: int = 0
+    # path の記録の、 タブの記録を通した位置での起点 (= publish する行の位置に足す。 backend/jsonl/chain.py)
+    base: int = 0
     last_line_at: float = field(default_factory=time.monotonic)
     interval: float = POLL_INTERVAL
     next_poll_at: float = 0.0
@@ -331,8 +328,13 @@ def _initialize_sid_tail(sid: str, tstate: SessionTailState, path: Path) -> None
     prev_path = tstate.path
     if not path.exists():
         return
+    if prev_path is not None and prev_path != path:
+        # 会話が終わって次の会話が起動した (= `/clear` など、 backend の口を通らない切り替え)。 終わった
+        # 会話を控えに積む (= 口を通る入れ替えとセッション終了は口の側で積み済みで、 ここは同じ id で no-op)。
+        session_history.record_end(sid, prev_path.stem, str(prev_path))
     tstate.offset = 0
     tstate.path = path
+    tstate.base = chain.base_of(sid, path)
     if prev_path is not None and prev_path != path:
         _reset_jsonl_session_metadata(sid)
     st = stream_states.get(sid)
@@ -474,7 +476,7 @@ def _tick_sid(sid: str, tstate: SessionTailState, now_mono: float) -> None:
     tstate.next_poll_at = now_mono + tstate.interval
     if status != "ok":
         return
-    _process_new_lines(sid, lines)
+    _process_new_lines(sid, [(raw, tstate.base + pos) for raw, pos in lines])
 
 
 # F-01: 信号源 (= watchfiles の awatch から得た「変更があった jsonl path」 set)。
