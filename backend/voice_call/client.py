@@ -56,6 +56,11 @@ class BackendClient:
         body = await self._json("POST", f"{self._voice}/transcription", data=wav, headers=headers)
         return (body.get("text") or "").strip()
 
+    async def interrupt(self) -> bool:
+        """話している途中に言葉が取れた: タブの turn の実行中なら止める (= 止めたか)。"""
+        headers = {"X-Voice-Conversation": self.client}
+        return bool((await self._json("POST", f"{self._voice}/interruption", headers=headers)).get("stopped"))
+
     async def utterances(self, text: str) -> list[dict]:
         return (await self._json("POST", f"{self._voice}/utterances", json={"text": text})).get("utterances") or []
 

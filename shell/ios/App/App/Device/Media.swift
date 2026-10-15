@@ -181,9 +181,9 @@ enum Media {
     private static let shazam: [DeviceOperation] = [
         DeviceOp(DeviceSpec(name: "shazam.listen", kind: .read, summary: "name the song playing around the iPhone",
                             timeout: 60)) { _ in
-            try requireNoCall("Listening for a song")
             let session = SHManagedSession()
-            switch await session.result() {
+            // マイクを使う間は、 声の会話を外す (= 終わったら掛け直す)
+            switch try await BackgroundVoicePlugin.withCallPaused({ await session.result() }) {
             case .match(let match):
                 guard let item = match.mediaItems.first else { throw DeviceError("matched, but with no details") }
                 return DeviceOutput(["title": item.title as Any, "artist": item.artist as Any,

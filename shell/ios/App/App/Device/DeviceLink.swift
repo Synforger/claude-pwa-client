@@ -247,13 +247,6 @@ func iso(_ date: Date) -> String { ISO8601DateFormatter().string(from: date) }
     return top
 }
 
-/// 声の会話がつながっていないか (= マイクやスピーカーを使う操作で確かめる)。
-@MainActor func requireNoCall(_ what: String) throws {
-    guard !BackgroundVoicePlugin.inCall else {
-        throw DeviceError("\(what) uses the microphone or the speaker; end the voice call first")
-    }
-}
-
 /// app が前に出ているか (= 出ていないとできない操作で確かめる)。
 @MainActor func requireForeground(_ what: String) throws {
     guard UIApplication.shared.applicationState == .active else {
