@@ -6,5 +6,7 @@ enum DeviceCatalog {
     static var all: [DeviceOperation] {
         Health.ops + Location.ops + Motion.ops + Home.ops + Bluetooth.ops + NFC.ops
             + Camera.ops + PhotoText.ops + Phone.ops + Media.ops + Progress.ops
+            + Sound.ops + Hardware.ops + Places.ops + Scanning.ops + System.ops + Room.ops
+            + ScreenTime.ops + Workout.ops + Journal.ops
     }
 }

@@ -38,6 +38,7 @@ SAMPLES = {
     "NFCReaderUsageDescription": ("native", "let session = NFCNDEFReaderSession(delegate: d, queue: nil, invalidateAfterFirstRead: true)"),
     "NSAppleMusicUsageDescription": ("native", "MPMediaLibrary.requestAuthorization { _ in }"),
     "NSAlarmKitUsageDescription": ("native", "let manager = AlarmManager.shared"),
+    "NSFocusStatusUsageDescription": ("native", "let center = INFocusStatusCenter.default"),
 }
 
 

@@ -1,6 +1,7 @@
 @_weakLinked import AlarmKit
 import Foundation
 import MediaPlayer
+import MusicKit
 import NaturalLanguage
 import ShazamKit
 import SwiftUI
@@ -9,7 +10,7 @@ import SwiftUI
 /// 音と時間: ミュージックのライブラリ、 アラームとタイマー、 翻訳、 流れている曲の判定。
 enum Media {
     static var ops: [DeviceOperation] {
-        var ops: [DeviceOperation] = music
+        var ops: [DeviceOperation] = music + catalog
         if #available(iOS 26.0, *) { ops += alarms + translation }
         if #available(iOS 17.0, *) { ops += shazam }
         return ops
@@ -48,6 +49,37 @@ enum Media {
             DeviceOutput(nowPlaying())
         },
     ]
+
+    // MARK: Apple Music のカタログ (= ライブラリの外の曲。 鳴らすには Apple Music の契約が要る)
+
+    private static let catalog: [DeviceOperation] = [
+        DeviceOp(DeviceSpec(name: "music.catalog_search", kind: .read, summary: "songs in the Apple Music catalog",
+                            params: [.string("query", "words in the title, artist or album", required: true),
+                                     .int("count", "how many (default 20)")])) { args in
+            try await allowCatalog()
+            var request = MusicCatalogSearchRequest(term: try args.required("query"), types: [Song.self])
+            request.limit = args.int("count") ?? 20
+            let songs = try await request.response().songs
+            return DeviceOutput(songs.map { ["id": $0.id.rawValue, "title": $0.title, "artist": $0.artistName,
+                                             "album": $0.albumTitle as Any,
+                                             "seconds": $0.duration.map { Int($0) } as Any] })
+        },
+        DeviceOp(DeviceSpec(name: "music.catalog_play", kind: .act, summary: "play a song from the Apple Music catalog in the Music app",
+                            params: [.string("id", "song id from music.catalog_search", required: true)])) { args in
+            try await allowCatalog()
+            let id = MusicItemID(try args.required("id"))
+            let request = MusicCatalogResourceRequest<Song>(matching: \.id, equalTo: id)
+            guard let song = try await request.response().items.first else { throw DeviceError("no song with id \(id.rawValue)") }
+            let player = SystemMusicPlayer.shared
+            player.queue = [song]
+            try await player.play()
+            return DeviceOutput(["playing": song.title, "artist": song.artistName])
+        },
+    ]
+
+    private static func allowCatalog() async throws {
+        guard await MusicAuthorization.request() == .authorized else { throw DeviceError("Apple Music access is not allowed") }
+    }
 
     private static func allowMusic() async throws {
         let status: MPMediaLibraryAuthorizationStatus = await withCheckedContinuation { done in
@@ -149,6 +181,7 @@ enum Media {
     private static let shazam: [DeviceOperation] = [
         DeviceOp(DeviceSpec(name: "shazam.listen", kind: .read, summary: "name the song playing around the iPhone",
                             timeout: 60)) { _ in
+            try requireNoCall("Listening for a song")
             let session = SHManagedSession()
             switch await session.result() {
             case .match(let match):

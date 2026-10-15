@@ -45,6 +45,10 @@
 	<string>Finds and talks to Bluetooth devices when you ask the agent to.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Takes a photo to attach to a message, or when you ask the agent to take one.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Checks it is you with Face ID when the agent asks.</string>
+	<key>NSFocusStatusUsageDescription</key>
+	<string>Tells the agent whether a Focus is on when you ask it to.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Reads health data such as steps, sleep and heart rate when you ask the agent to.</string>
 	<key>NSHealthUpdateUsageDescription</key>
@@ -59,6 +63,8 @@
 	<string>Reads your steps and whether you were walking or riding when you ask the agent to.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Finds, reads and deletes photos when you ask the agent to.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Turns what you recorded into text when you ask the agent to.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

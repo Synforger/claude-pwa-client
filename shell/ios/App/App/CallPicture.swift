@@ -45,7 +45,7 @@ import UIKit
     /// app を抜けようとしている間か (= この間は「再生中」 と伝え、 小窓を自動で出させる)
     nonisolated(unsafe) private var leaving = false
     /// 再生の範囲 (= とても長い録画の途中。 送りのボタンを効かせるため。 今の位置は真ん中に置いたまま動かさない)
-    private static let span = CMTime(seconds: 48 * 3600, preferredTimescale: 600)
+    nonisolated private static let span = CMTime(seconds: 48 * 3600, preferredTimescale: 600)
     /// 小窓の再生 / 停止で、 マイクを入れる / 切る (= 引数は入れるか)
     var onMic: ((Bool) -> Void)?
     /// 一番下から上へ送った量 (pt)。 0 なら新しい行に付いていく

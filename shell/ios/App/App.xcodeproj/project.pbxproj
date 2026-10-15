@@ -51,6 +51,15 @@
 		62286616EDAEDFDF502E4148 /* Broadcast.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7C919496DAA811BA6BE9F490 /* Broadcast.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A082F63B69F86E3FA300F993 /* ServerAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = F167AEDFE595215DA1198456 /* ServerAddress.swift */; };
 		662E18372C58DE03279E99EF /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
+		2F66AA0CE1DF0BDFDE32B67C /* Sound.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36D585F0239E0B51A8BCF671 /* Sound.swift */; };
+		4C899F6184ABDCCBC81C25EE /* Hardware.swift in Sources */ = {isa = PBXBuildFile; fileRef = 407C3F790186F94A2DE0D5AB /* Hardware.swift */; };
+		CB1633F12D962548A9EF8BC3 /* Places.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B18E6ABB9D548926CA340BD /* Places.swift */; };
+		3618944005A2F688F3CE5ECA /* Scan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB941E7D051EBB3D9E03DC1 /* Scan.swift */; };
+		A4735734CFA0759112FB9003 /* System.swift in Sources */ = {isa = PBXBuildFile; fileRef = D19D389FA14DC4B74FDD5B60 /* System.swift */; };
+		92680013FEB7496F1214CAED /* Room.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13E1AA7C17DA1D988F481B55 /* Room.swift */; };
+		92CDADB20931CA6C936CF3AC /* ScreenTime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48E277D988D2888DFFD44A75 /* ScreenTime.swift */; };
+		3C86B41DAA35D799E136692B /* Workout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D9DEE0E89F304427DC2B61C /* Workout.swift */; };
+		4E8B96C1D5E3A057798186E4 /* Journal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97DE974036FF2C46E1599406 /* Journal.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -95,6 +104,16 @@
 		D5434A251EF30D5085E628CD /* SampleHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleHandler.swift; sourceTree = "<group>"; };
 		EA2E4D1ED14491C5B3735619 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		7C919496DAA811BA6BE9F490 /* Broadcast.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = Broadcast.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		36D585F0239E0B51A8BCF671 /* Sound.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sound.swift; sourceTree = "<group>"; };
+		407C3F790186F94A2DE0D5AB /* Hardware.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Hardware.swift; sourceTree = "<group>"; };
+		7B18E6ABB9D548926CA340BD /* Places.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Places.swift; sourceTree = "<group>"; };
+		2BB941E7D051EBB3D9E03DC1 /* Scan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Scan.swift; sourceTree = "<group>"; };
+		D19D389FA14DC4B74FDD5B60 /* System.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = System.swift; sourceTree = "<group>"; };
+		13E1AA7C17DA1D988F481B55 /* Room.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Room.swift; sourceTree = "<group>"; };
+		48E277D988D2888DFFD44A75 /* ScreenTime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTime.swift; sourceTree = "<group>"; };
+		9D9DEE0E89F304427DC2B61C /* Workout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workout.swift; sourceTree = "<group>"; };
+		97DE974036FF2C46E1599406 /* Journal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Journal.swift; sourceTree = "<group>"; };
+		1664B27B4A99793898E40294 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -150,6 +169,7 @@
 		504EC3061FED79650016851F /* App */ = {
 			isa = PBXGroup;
 			children = (
+				1664B27B4A99793898E40294 /* App.entitlements */,
 				EBCCA996553CC6370DA02F12 /* Intents */,
 				43F4545BBBFB930036CC29DB /* Device */,
 				9582B6822FE993A50072D4E8 /* SceneDelegate.swift */,
@@ -174,6 +194,15 @@
 		43F4545BBBFB930036CC29DB /* Device */ = {
 			isa = PBXGroup;
 			children = (
+				97DE974036FF2C46E1599406 /* Journal.swift */,
+				9D9DEE0E89F304427DC2B61C /* Workout.swift */,
+				48E277D988D2888DFFD44A75 /* ScreenTime.swift */,
+				13E1AA7C17DA1D988F481B55 /* Room.swift */,
+				D19D389FA14DC4B74FDD5B60 /* System.swift */,
+				2BB941E7D051EBB3D9E03DC1 /* Scan.swift */,
+				7B18E6ABB9D548926CA340BD /* Places.swift */,
+				407C3F790186F94A2DE0D5AB /* Hardware.swift */,
+				36D585F0239E0B51A8BCF671 /* Sound.swift */,
 				63FA29D6A18EF680C045386B /* Progress.swift */,
 				7140C4EA6C57CD863B49EF2B /* PhotoText.swift */,
 				8F2266B3B888D3FDF94B30C6 /* Phone.swift */,
@@ -375,6 +404,15 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4E8B96C1D5E3A057798186E4 /* Journal.swift in Sources */,
+				3C86B41DAA35D799E136692B /* Workout.swift in Sources */,
+				92CDADB20931CA6C936CF3AC /* ScreenTime.swift in Sources */,
+				92680013FEB7496F1214CAED /* Room.swift in Sources */,
+				A4735734CFA0759112FB9003 /* System.swift in Sources */,
+				3618944005A2F688F3CE5ECA /* Scan.swift in Sources */,
+				CB1633F12D962548A9EF8BC3 /* Places.swift in Sources */,
+				4C899F6184ABDCCBC81C25EE /* Hardware.swift in Sources */,
+				2F66AA0CE1DF0BDFDE32B67C /* Sound.swift in Sources */,
 				DD6930D8A504DC944CC2D82B /* AgentActivity.swift in Sources */,
 				86D6EDEFB94DC8F910B52CC5 /* ServerAddress.swift in Sources */,
 				9F2B18F716381E19D2EBD15E /* Progress.swift in Sources */,
@@ -606,6 +644,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				APP_DISPLAY_NAME = "Claude PWA Dev";
+				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -629,6 +668,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				APP_DISPLAY_NAME = "Claude PWA";
+				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (

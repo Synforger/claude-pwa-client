@@ -42,18 +42,32 @@ cpc device screen                   # 画面の配信の最後の 1 枚 (= 下�
 | health | `read` `sleep` `write` | ヘルスケアの値の日ごとの合計や平均 / 睡眠 / 値を 1 つ記録する |
 | location | `now` | 今いる所と住所 |
 | motion | `steps` `activity` | 歩数・距離・階数 (= 7 日まで) / 歩いていたか乗り物に乗っていたか |
+| maps | `search` `route` | 場所を探す / 2 つの場所の間の経路と所要時間 (= 電車とバスは所要時間だけ) |
 | home | `list` `power` `scene` | 家・部屋・機器・シーンの一覧 / 機器の入と切 / シーンを動かす |
 | bluetooth | `scan` | 近くの Bluetooth の機器 |
 | nfc | `read` | iPhone にかざした NFC のタグを読む (= 前に出す) |
 | camera | `take` | カメラの画面を開き、 撮った写真を返す (= 前に出す。 撮るのは人) |
+| scan | `document` `code` | 書類をスキャンしてページと文字を返す / QR コードやバーコードを読む (= 前に出す) |
+| room | `scan` | 部屋を写して回り、 壁・ドア・窓・家具の寸法と 3D の file を返す (= 前に出す。 LiDAR の付いた iPhone) |
 | photos | `recent` `text` `find_text` `labels` `find` `get` `delete` | 新しい写真 / 写っている文字 / 文字で探す / 写っている物 / 写っている物で探す / 1 枚を Mac へ / 消す (= 前に出す) |
-| clipboard | `read` `write` | クリップボードの文字 (= 読むのは前に出す) |
-| shortcuts | `run` | ショートカット app のショートカットを動かす (= 前に出す) |
-| notify | `post` | iPhone に通知を出す |
-| music | `search` `play` `pause` `now` | ミュージックのライブラリの曲を探す・鳴らす・止める / 今の曲 |
+| audio | `record` `transcribe` `sounds` `speak` | 録音 / 録った声を文字にする / 周りの音の種類 (= サイレン・拍手など) / 読み上げる (= どれも前に出す) |
+| shazam | `listen` | 周りで流れている曲の名前 (= iOS 17 以降) |
+| music | `search` `play` `pause` `now` `catalog_search` `catalog_play` | ライブラリの曲を探す・鳴らす・止める / 今の曲 / Apple Music のカタログを探す・鳴らす |
 | alarm | `at` `timer` `list` `cancel` | アラームとタイマー (= iOS 26 以降) |
 | translate | `text` | iPhone の中で訳す (= iOS 26 以降) |
-| shazam | `listen` | 周りで流れている曲の名前 (= iOS 17 以降) |
+| clipboard | `read` `write` | クリップボードの文字 (= 読むのは前に出す) |
+| shortcuts | `run` | ショートカット app のショートカットを動かす (= 前に出す) |
+| app | `open` | URL や他の app を開く (= `tel:` `sms:` `maps://` など。 前に出す) |
+| message / mail | `compose` | SMS とメールの下書きの画面を出す (= 送るのは人。 前に出す) |
+| auth | `check` | Face ID (= か、 パスコード) で本人か確かめる (= 前に出す) |
+| notify | `post` | iPhone に通知を出す |
+| focus | `status` | 集中モード (= おやすみモードなど) か |
+| screentime | `pick` `block` `unblock` | 止める app を人が選ぶ / 止める / 戻す (= 使った時間は iOS が渡さない) |
+| workout | `schedule` `scheduled` | Apple Watch のワークアウトの予定に足す / 予定の一覧 |
+| journal | `pick` | iPhone が覚えている出来事 (= 場所・曲・運動) から人が 1 つ選んで渡す (= 前に出す) |
+| device | `status` | 電池・充電中か・低電力モード・熱・空き容量・機種・iOS の版・音量・明るさ |
+| network | `status` | つながっている回線 (= Wi-Fi・携帯・無し) と、 読める時は Wi-Fi の名前 |
+| haptic / torch / screen | `play` / `set` / `brightness` | 振動させる (= 前に出す) / ライトの入と切 / 画面の明るさ (= 前に出す) |
 | progress | `start` `update` `end` | ロック画面と Dynamic Island に作業の進み具合を出す (= 下の § ロック画面の進み具合) |
 
 - 写っている物 (= `photos.labels` / `photos.find`) の名前は、 iPhone の画像分類の名前で英語です (= 例 `dog` `receipt` `beach`)。
@@ -61,6 +75,12 @@ cpc device screen                   # 画面の配信の最後の 1 枚 (= 下�
   `--min` (= 0〜1、 既定 0.3) で頼むたびに変えられます
 - `photos.delete` は、 消す前に iPhone の画面に毎回確かめが出ます (= iOS の決まりで、 app からは飛ばせない)。 消した写真は
   「最近削除した項目」 に入ります。 アルバムに分けるといった整理は、 iCloud で同期した Mac の写真で行います
+
+- audio と shazam はマイクかスピーカーを使うので、 声の会話の間は断ります (= 会話の途中で音の設定を変えると、 その会話の残りで
+  エコー消しが効かなくなる)。 会話を終えてから頼んでください
+- health・home・nfc・screentime・journal・network の Wi-Fi の名前・focus・music のカタログは、 Apple がその機能の権利を付けた
+  app でしか動きません。 使える権利は Apple ID の種類 (= 無料か、 開発者の会員か) で違い、 使えない物は `... is not allowed` などで
+  終わります
 
 種類ごとに初めて使う時、 iPhone に許可の確認が 1 回出ます。 断った種類は、 **設定 → <app の名前>** で後から許可できます。
 

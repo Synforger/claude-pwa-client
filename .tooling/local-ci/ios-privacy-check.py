@@ -65,9 +65,11 @@ USES: dict[str, dict[str, list[str]]] = {
     "NFCReaderUsageDescription": {"web": [r"NDEFReader"], "native": [r"NFC\w*ReaderSession"]},
     "NSAppleMusicUsageDescription": {
         "web": [],
-        "native": [r"MPMediaLibrary", r"MPMediaQuery", r"MusicAuthorization", r"ApplicationMusicPlayer", r"SystemMusicPlayer"],
+        "native": [r"MPMediaLibrary", r"MPMediaQuery", r"MusicAuthorization", r"ApplicationMusicPlayer", r"SystemMusicPlayer",
+                   r"MusicCatalogSearchRequest"],
     },
     "NSAlarmKitUsageDescription": {"web": [], "native": [r"AlarmManager"]},
+    "NSFocusStatusUsageDescription": {"web": [], "native": [r"INFocusStatusCenter"]},
 }
 
 WEB_SUFFIXES = (".js", ".jsx", ".ts", ".tsx", ".html")
