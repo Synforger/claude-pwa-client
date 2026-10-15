@@ -3,14 +3,25 @@
 // 基準の大きさは agent の声の設定 (= backend の voice) が持ち、 これはその上に掛ける倍率。
 import { createStore } from './_store.js'
 
-const LS_KEY = 'cpc_v2_voice_volume'
+const LS_KEY = 'cpc_v3_voice_volume'
+// 前の鍵 (= iPhone の app の通話に backend の基準 `voice_call_gain_db` が掛かる前の値)。 ブラウザはそのまま引き継ぎ、
+// app は 100% から始め直す (= 基準を下げたのに、 下げる前に絞ったつまみが残ると、 二重に小さくなる)
+const LS_KEY_BEFORE_CALL_GAIN = 'cpc_v2_voice_volume'
 export const VOLUME_MAX = 2
+
+function stored(key) {
+  const raw = localStorage.getItem(key)
+  const value = Number(raw)
+  return raw !== null && Number.isFinite(value) && value >= 0 && value <= VOLUME_MAX ? value : null
+}
 
 function initial() {
   try {
-    const stored = localStorage.getItem(LS_KEY)
-    const value = Number(stored)
-    if (stored !== null && Number.isFinite(value) && value >= 0 && value <= VOLUME_MAX) return value
+    const now = stored(LS_KEY)
+    if (now !== null) return now
+    const inApp = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()
+    const before = inApp ? null : stored(LS_KEY_BEFORE_CALL_GAIN)
+    if (before !== null) return before
   } catch { /* localStorage 不可 (= private mode 等) */ }
   return 1
 }
