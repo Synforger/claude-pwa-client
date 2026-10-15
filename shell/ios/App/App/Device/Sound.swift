@@ -5,8 +5,9 @@ import Speech
 
 /// 音: 録る、 読み上げる、 録った音を文字にする、 周りで鳴っている音の種類を当てる。
 ///
-/// どれもマイクかスピーカーを使うので、 声の会話の間は断る (= 通話の途中で音の設定を変えると、 その通話の残りは
-/// エコー消しが切れる)。 app が起きているのは前に出ている間なので、 前に出している時に頼む。 同時に 2 つは動かさない。
+/// どれもマイクかスピーカーを使うので、 声の会話の間は、 その間だけ通話を外し、 終わったら掛け直す (= 通話の途中で
+/// 音の設定を変えると、 その通話の残りはエコー消しが切れる。 `BackgroundVoicePlugin.withCallPaused`)。 app が起きて
+/// いるのは前に出ている間なので、 前に出している時に頼む。 同時に 2 つは動かさない。
 enum Sound {
     static let ops: [DeviceOperation] = [
         DeviceOp(DeviceSpec(name: "audio.record", kind: .read, summary: "record sound with the microphone and return the file",
@@ -41,7 +42,11 @@ enum Sound {
                             timeout: 300, foreground: true)) { args in
             try begin("Speaking")
             defer { end() }
-            try await Speaker().say(try args.required("text"), language: args.string("language"))
+            let text = try args.required("text")
+            try await BackgroundVoicePlugin.withCallPaused {
+                defer { releaseAudio() }
+                try await Speaker().say(text, language: args.string("language"))
+            }
             return DeviceOutput(["spoken": true])
         },
     ]
@@ -51,13 +56,16 @@ enum Sound {
 
     @MainActor private static func begin(_ what: String) throws {
         try requireForeground(what)
-        try requireNoCall(what)
         guard !busy else { throw DeviceError("another sound operation is running; ask again when it ends") }
         busy = true
     }
 
     @MainActor private static func end() {
         busy = false
+    }
+
+    /// 自分で掛けた音の設定を手放す (= 通話を掛け直す前に。 掛け直した後に手放すと、 通話の音を止める)
+    private static func releaseAudio() {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
@@ -72,18 +80,21 @@ enum Sound {
         guard await microphoneAllowed() else {
             throw DeviceError("microphone access is not allowed (Settings → the app → Microphone)")
         }
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.record, mode: .default)
-        try session.setActive(true)
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("device-\(UUID().uuidString).m4a")
-        let recorder = try AVAudioRecorder(url: file, settings: [
-            AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 44_100, AVNumberOfChannelsKey: 1,
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
-        ])
-        guard recorder.record(forDuration: seconds) else { throw DeviceError("the recording did not start") }
-        try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-        recorder.stop()
-        return file
+        return try await BackgroundVoicePlugin.withCallPaused {
+            defer { releaseAudio() }
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.record, mode: .default)
+            try session.setActive(true)
+            let file = FileManager.default.temporaryDirectory.appendingPathComponent("device-\(UUID().uuidString).m4a")
+            let recorder = try AVAudioRecorder(url: file, settings: [
+                AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 44_100, AVNumberOfChannelsKey: 1,
+                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
+            ])
+            guard recorder.record(forDuration: seconds) else { throw DeviceError("the recording did not start") }
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            recorder.stop()
+            return file
+        }
     }
 
     private static func microphoneAllowed() async -> Bool {
