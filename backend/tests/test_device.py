@@ -223,6 +223,25 @@ def test_the_screen_keeps_the_last_frame_and_says_whether_it_is_live(device_app)
     assert local.get("/device/screen").json()["live"] is False
 
 
+def test_the_screen_is_live_while_the_phone_says_so_even_when_the_frame_is_old(device_app):
+    import os
+    import time
+
+    from backend.device.screen import STALE_S
+
+    app, device = device_app
+    local = TestClient(app, base_url="http://127.0.0.1:8765", client=("127.0.0.1", 50000))
+    with TestClient(app) as phone:
+        phone.post("/device/screen", content=JPEG, headers={"Content-Type": "image/jpeg"})
+    old = time.time() - STALE_S * 2
+    os.utime(device.screen.path, (old, old))
+    assert local.get("/device/screen").json()["live"] is False   # (= 画面が動かず、 知らせも無い)
+    with TestClient(app) as phone:
+        phone.post("/device/screen/state", json={"live": True})   # (= 送る間隔ごとの「生きている」)
+    status = local.get("/device/screen").json()
+    assert status["live"] is True and status["age_s"] >= STALE_S * 2
+
+
 def test_the_screen_refuses_what_is_not_a_jpeg_and_is_read_only_on_this_mac(device_app):
     app, device = device_app
     with TestClient(app) as phone:

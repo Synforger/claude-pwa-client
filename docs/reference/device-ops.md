@@ -128,11 +128,13 @@ cpc device progress end --detail "done"
 iPhone の画面を、 Mac の Claude が見られるように backend へ送ります。 始めるのは人です。
 
 1. コントロールセンターの **画面収録** を長押しする
-2. 一覧から **Broadcast** (= この app の配信) を選び、 **ブロードキャストを開始** を押す
+2. 一覧から app の名前 (= この app の配信) を選び、 **ブロードキャストを開始** を押す
 
 配信中は既定で 1 秒に 1 枚、 画面の絵を送ります (= 長辺 1280px の JPEG)。 backend が持つのは最後の 1 枚だけで、
-`cpc device screen` がその path と、 配信中か・何秒前の絵かを出します。 止める時は、 画面の上の赤い表示か
-コントロールセンターから止めます。
+`cpc device screen` がその path と、 配信中か・何秒前の絵かを出します。 画面が動かない間は iPhone が絵を渡さない
+ので、 絵は古いままでも、 app が送る間隔ごとに配信中と知らせます。 止める時は、 画面の上の赤い表示か
+コントロールセンターから止めます。 配信の始まり・終わり・止まった理由と、 送った枚数ごとの app の memory の使用量は、
+backend の記録に `screen:` の行で残ります。
 
 間隔・大きさ・画質は `backend/config.json` の `device_screen` で変えられます ([config.md](config.md) の全体オプション)。
 app は配信を始める時にこの値を受け取るので、 変えた後は backend を再起動し、 配信を始め直してください。
@@ -146,4 +148,4 @@ app は配信を始める時にこの値を受け取るので、 変えた後は
 | 命令が `... is not allowed` で終わる | その種類の許可が無い。 **設定 → <app の名前>** で許可する |
 | `cpc device` が `has no /device` | backend が古い。 backend を更新して再起動する |
 | ウィジェットが `Can't reach the server` | iPhone から backend に届かない (= Tailscale がつながっているか) |
-| `cpc device screen` の `live` が `false` | 配信していないか、 5 秒より新しい絵が届いていない |
+| `cpc device screen` の `live` が `false` | 配信していないか、 5 秒より新しい絵も「配信中」 の知らせも届いていない。 backend の記録の `screen:` の行で、 最後に何が起きたかを見る |
