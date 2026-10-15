@@ -35,10 +35,30 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NFCReaderUsageDescription</key>
+	<string>Reads NFC tags when you ask the agent to.</string>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>Sets alarms and timers when you ask the agent to.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Searches and plays music when you ask the agent to.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Finds and talks to Bluetooth devices when you ask the agent to.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Takes a photo to attach to a message.</string>
+	<string>Takes a photo to attach to a message, or when you ask the agent to take one.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Reads health data such as steps, sleep and heart rate when you ask the agent to.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Saves health data when you ask the agent to.</string>
+	<key>NSHomeKitUsageDescription</key>
+	<string>Reads and controls your home accessories when you ask the agent to.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Tells the agent where you are when you ask it to.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Listens to what you say to the agent, also while the app is in the background.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Reads your steps and whether you were walking or riding when you ask the agent to.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Finds, reads the text in, and deletes photos when you ask the agent to.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

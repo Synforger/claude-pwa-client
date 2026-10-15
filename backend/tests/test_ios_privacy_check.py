@@ -31,6 +31,13 @@ SAMPLES = {
     "NSFaceIDUsageDescription": ("native", "let c = LAContext()"),
     "NSLocalNetworkUsageDescription": ("native", "let b = NWBrowser(for: d, using: p)"),
     "NSMotionUsageDescription": ("web", "DeviceMotionEvent.requestPermission()"),
+    "NSLocationAlwaysAndWhenInUseUsageDescription": ("native", "manager.requestAlwaysAuthorization()"),
+    "NSHealthShareUsageDescription": ("native", "let store = HKHealthStore()"),
+    "NSHealthUpdateUsageDescription": ("native", "try await store.save(HKQuantitySample(type: t, quantity: q, start: s, end: e))"),
+    "NSHomeKitUsageDescription": ("native", "let manager = HMHomeManager()"),
+    "NFCReaderUsageDescription": ("native", "let session = NFCNDEFReaderSession(delegate: d, queue: nil, invalidateAfterFirstRead: true)"),
+    "NSAppleMusicUsageDescription": ("native", "MPMediaLibrary.requestAuthorization { _ in }"),
+    "NSAlarmKitUsageDescription": ("native", "let manager = AlarmManager.shared"),
 }
 
 
@@ -61,6 +68,15 @@ def test_a_feature_without_its_usage_description_is_red(tmp_path, key):
 def test_a_feature_with_its_usage_description_is_green(tmp_path, key):
     kind, code = SAMPLES[key]
     assert check_module.check(_repo(tmp_path, kind, code, {key: "Says why."})) == []
+
+
+def test_native_code_in_a_subfolder_is_seen(tmp_path):
+    repo = _repo(tmp_path, "web", "export default 1\n", {})
+    sub = repo / "shell" / "ios" / "App" / "App" / "Device"
+    sub.mkdir()
+    (sub / "Health.swift").write_text("let store = HKHealthStore()\n")
+    problems = check_module.check(repo)
+    assert any(p.startswith("NSHealthShareUsageDescription is missing") for p in problems), problems
 
 
 def test_this_repo_is_green():
