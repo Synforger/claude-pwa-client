@@ -43,6 +43,8 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
     private var client: PipecatClient?
     private var picture: CallPicture?
     private var audioWatch: AudioSessionWatch?
+    /// つながって相手の準備ができる前に頼まれた、 返事の声の入 / 切 (= 準備ができた所で送る)
+    private var pendingSpeech: Bool?
 
     @objc func start(_ call: CAPPluginCall) {
         guard let raw = call.getString("url"), let url = URL(string: raw) else {
@@ -84,8 +86,19 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func setSpeech(_ call: CAPPluginCall) {
         let on = call.getBool("on") ?? true
         Task { @MainActor in
+            guard let client = self.client else {
+                call.resolve()
+                return
+            }
+            // 準備ができる前の知らせは Pipecat が断る (= BotNotReadyError。 🎙 で始めて、 つながる前に 🔊 を押した時)
+            if client.state != .ready {
+                self.pendingSpeech = on
+                CAPLog.print("[BackgroundVoice] \(stamp()) voice \(on ? "on" : "off") is sent once the call is ready")
+                call.resolve()
+                return
+            }
             do {
-                try self.client?.sendClientMessage(msgType: "voice-speech", data: .object(["on": .boolean(on)]))
+                try self.sendSpeech(on)
                 call.resolve()
             } catch {
                 call.reject("could not switch the voice: \(error)")
@@ -149,6 +162,10 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    @MainActor private func sendSpeech(_ on: Bool) throws {
+        try client?.sendClientMessage(msgType: "voice-speech", data: .object(["on": .boolean(on)]))
+    }
+
     /// 小窓の再生 / 停止: マイクを切り替え、 画面の 🎙 に知らせる。
     @MainActor private func switchMicFromPicture(_ on: Bool) {
         guard let client else { return }
@@ -168,6 +185,7 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
         picture?.stop()
         picture = nil
         audioWatch = nil
+        pendingSpeech = nil
         guard let client else { return }
         self.client = nil
         try? await client.disconnect()
@@ -185,6 +203,19 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
 
 extension BackgroundVoicePlugin: PipecatClientDelegate {
     public func onConnected() { notify("connected") }
+
+    public func onBotReady(botReadyData: BotReadyData) {
+        Task { @MainActor in
+            guard let on = self.pendingSpeech else { return }
+            self.pendingSpeech = nil
+            do {
+                try self.sendSpeech(on)
+                CAPLog.print("[BackgroundVoice] \(stamp()) voice \(on ? "on" : "off") sent now that the call is ready")
+            } catch {
+                self.notify("error", message: "could not switch the voice: \(error)")
+            }
+        }
+    }
     public func onDisconnected() { notify("disconnected") }
     public func onError(message: RTVIMessageInbound) { notify("error", message: "\(message)") }
 
