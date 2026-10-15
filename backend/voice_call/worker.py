@@ -7,6 +7,7 @@ backend の `routes/voice_call.py` が通話ごとに起こす。 標準入出�
                                                                → 出 {"type": "error", "message": …}
     入   {"type": "patch", "pc_id": …, "candidates": […]}
     入   {"type": "volume", "volume": …}                       (= その端末の声の大きさの倍率。 start にも在る)
+    出   {"type": "handover", "since_ms": …, "sentences": […]}  (= 通話が閉じる時。 鳴り終えていない文)
 
 会話が終わるか、 backend が標準入力を閉じたら終わる。 log は `logs/voice-call.log` に出す (= backend の log と同じく
 5 MB で回して 3 世代まで。 Pipecat 自身の log は WARNING 以上だけ)。 起動に失敗した時の traceback だけは標準エラー
@@ -82,7 +83,8 @@ async def main() -> None:
     async with BackendClient(start["base_url"], start["session_id"], start["client"]) as backend:
         async def connected(connection) -> None:
             nonlocal call
-            call = asyncio.create_task(run_call(connection, backend, start, volume))
+            call = asyncio.create_task(run_call(connection, backend, start, volume,
+                                                handover=lambda left: _write({"type": "handover", **left})))
 
         async def read_requests() -> None:
             while line := await reader.readline():

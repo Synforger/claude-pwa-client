@@ -38,6 +38,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 ANSWER_TIMEOUT_SECS = 30
 # 走っている会話の process (= WebRTC の接続の id → (タブの id, process))
 _workers: dict[str, tuple[str, asyncio.subprocess.Process]] = {}
+# 通話の終わりを待つ task (= pc_id ごと。 つなぎ直しは、 前の通話の分が終わるのを待つ)
+_watchers: dict[str, asyncio.Task] = {}
+# タブごとの、 閉じた通話の鳴り残し (= {since_ms, sentences}。 次のつなぎ直しが受け取り、 それ以外の通話は捨てる)
+_handovers: dict[str, dict] = {}
 # 声の大きさの倍率の上限 (= 端末の画面のつまみの右端。 1 で engine の音のまま)
 VOLUME_MAX = 2.0
 
@@ -58,10 +62,19 @@ async def _write(proc: asyncio.subprocess.Process, message: dict) -> None:
 
 
 async def _forget_when_done(pc_id: str, proc: asyncio.subprocess.Process) -> None:
+    # 閉じる時の鳴り残しを控える (= 同じタブのつなぎ直しが受け取る)
+    while line := await proc.stdout.readline():
+        try:
+            message = json.loads(line)
+        except ValueError:
+            continue
+        if message.get("type") == "handover" and pc_id in _workers:
+            _handovers[_workers[pc_id][0]] = {k: v for k, v in message.items() if k != "type"}
     await proc.wait()
     if _workers.get(pc_id, (None, None))[1] is proc:
         del _workers[pc_id]
         calls_by_conn.pop(pc_id, None)
+    _watchers.pop(pc_id, None)
     logger.info("voice call: the call process ended pc_id=%s code=%s", pc_id, proc.returncode)
 
 
@@ -72,9 +85,12 @@ async def post_call(request: Request, session_id: str, body: dict = Body(...)) -
     body: Pipecat の SmallWebRTC の offer (= sdp / type / pc_id / restart_pc)
     query: volume (省略可) = その端末の声の大きさの倍率 (= 0 〜 2。 省けば 1)
            speech (省略可) = 0 なら、 返事を声にしない会話で始める (= 画面の声の入 / 切。 通話中は app が切り替える)
+           resume (省略可) = 1 なら、 同じタブの通話のつなぎ直し (= 前の通話が閉じ終えるのを待ち、 鳴り終えていな
+                    かった文から言い直す。 閉じた後に届いた返事も声にする)
     """
     volume = _volume_of(request.query_params.get("volume", "1"))
     speech = request.query_params.get("speech", "1") != "0"
+    resume = request.query_params.get("resume") == "1"
     # 会話を持てないタブ (= 声を持たない / 聞き取らない) は、 つなぐ前に断る
     settings = conversation_settings(session_id)
     if importlib.util.find_spec("pipecat") is None:
@@ -83,12 +99,19 @@ async def post_call(request: Request, session_id: str, body: dict = Body(...)) -
     if not isinstance(body.get("sdp"), str) or not isinstance(body.get("type"), str):
         raise_error(400, "voice_bad_request", "本文は SDP の offer (= sdp と type) で渡します")
 
+    # つなぎ直し: 同じタブの前の通話が閉じ終えるのを待ち、 その鳴り残しを受け取る (= つなぎ直しでない通話は、
+    # 前の鳴り残しを捨てる)
+    if resume:
+        ending = [_watchers[pc] for pc, (sid, _) in list(_workers.items()) if sid == session_id and pc in _watchers]
+        if ending:
+            await asyncio.wait(ending, timeout=ANSWER_TIMEOUT_SECS)
+    handover = _handovers.pop(session_id, None)
     host, port = request.scope.get("server") or ("127.0.0.1", 8765)
     start = {
         "type": "start", "base_url": f"http://{host}:{port}", "session_id": session_id,
         "client": f"call-{uuid.uuid4().hex[:12]}", "marks": list(settings["marks"]),
         "conversation": settings["conversation"], "turn": settings["listen"]["turn"], "volume": volume,
-        "speech": speech,
+        "speech": speech, "resume": handover if resume else None,
     }
     proc = await asyncio.create_subprocess_exec(
         sys.executable, "-m", "backend.voice_call.worker", cwd=str(REPO_ROOT),
@@ -109,7 +132,7 @@ async def post_call(request: Request, session_id: str, body: dict = Body(...)) -
     answer = reply["answer"]
     _workers[answer["pc_id"]] = (session_id, proc)
     calls_by_conn[answer["pc_id"]] = session_id   # 通話の間、 このタブへの通知を送らない (= core/push.py)
-    asyncio.create_task(_forget_when_done(answer["pc_id"], proc))
+    _watchers[answer["pc_id"]] = asyncio.create_task(_forget_when_done(answer["pc_id"], proc))
     logger.info("voice call: connecting session=%s pc_id=%s", session_id, answer["pc_id"])
     return answer
 
