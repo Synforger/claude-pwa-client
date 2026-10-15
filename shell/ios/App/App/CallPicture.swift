@@ -15,7 +15,7 @@ import UIKit
 ///
 /// iOS が付ける再生の操作は読み替える: 再生 / 停止 = マイクの入 / 切 (= 入っている間が「再生中」。 ただし app を抜ける
 /// 瞬間だけは「再生中」 と伝える。 一時停止中だと、 iOS は小窓を自動で出さない)、 10 秒戻し / 送り =
-/// 会話を上 (= 古い方) / 下 (= 新しい方) へ窓の 3 分の 2 ずつ送る。 上へ送って読んでいる間に新しい行が来ても位置は
+/// 会話を上 (= 古い方) へ窓の 3 分の 2 ずつ送る / 一番下 (= 新しい方) へ 1 回で戻す。 上へ送って読んでいる間に新しい行が来ても位置は
 /// そのままで、 帯に「▼ 新しい行」 と出す (= 一番下まで戻すと、 また新しい行に付いていく)。
 ///
 /// 文と状態は backend の会話が送る (= `backend/voice_call/agent.py` の小窓)。 変わる度に吹き出しを絵に描いて流し込む。
@@ -55,6 +55,8 @@ import UIKit
     /// 前に描いた会話の高さ (= 上へ送れる量の上限を決める)
     private var contentHeight: CGFloat = 0
     private var sceneObservers: [NSObjectProtocol] = []
+    /// 閉じた小窓の作り直しを、 app が前に出るまで待っているか
+    private var rearmPending = false
 
     func start(over screen: UIView) {
         guard AVPictureInPictureController.isPictureInPictureSupported() else {
@@ -156,6 +158,7 @@ import UIKit
         if on, controller?.isPictureInPictureActive == true { return }
         leaving = on
         syncPlayback()
+        if !on, rearmPending { rearmWhenActive() }
     }
 
     /// マイクの入 / 切を、 小窓の再生 / 停止の絵と帯に合わせる (= 画面の 🎙 から切り替えた時も)。
@@ -182,13 +185,32 @@ import UIKit
         return true
     }
 
-    /// 会話を上 (= 古い方。 up が true) か下へ、 窓の 3 分の 2 だけ送る。
+    /// 会話を上 (= 古い方) へ窓の 3 分の 2 だけ送るか、 一番下 (= 最新) へ戻す (= 下へは 1 回で戻る。 ライブ配信の
+    /// チャットの「新しいメッセージ ↓」 と同じく、 読み返しから戻るのに何度も押させない)。
     func scroll(up: Bool) {
         let step = (Self.canvas.height - Self.bandHeight) * 2 / 3
         let most = max(0, contentHeight - (Self.canvas.height - Self.bandHeight - Self.margin))
-        scrolledUp = up ? min(most, scrolledUp + step) : max(0, scrolledUp - step)
+        scrolledUp = up ? min(most, scrolledUp + step) : 0
         if scrolledUp == 0 { newBelow = false }
         render()
+    }
+
+    /// 閉じた小窓の仕組みを作り直す。 app が前に出ている時だけ作り、 裏に居る間は前に出るまで待つ (= 裏の app は
+    /// 新しい層に絵を描けず、 その層で後から出した小窓は黒いままだった。 小窓が自動で出るのは前から裏へ移る時だけ
+    /// なので、 裏に居る間に作っても使い道が無い)。
+    private func rearmWhenActive() {
+        guard timer != nil, let old = controller, !old.isPictureInPictureActive else { return }
+        guard UIApplication.shared.applicationState == .active else {
+            rearmPending = true
+            Self.report("re-arm-deferred", condition)
+            return
+        }
+        rearmPending = false
+        old.delegate = nil
+        retired.append(old)
+        freshLayer()
+        arm()
+        Self.report("re-armed", condition)
     }
 
     func stop() {
@@ -386,7 +408,17 @@ extension CallPicture: AVPictureInPictureSampleBufferPlaybackDelegate {
         completion completionHandler: @escaping () -> Void
     ) {
         let up = CMTimeGetSeconds(skipInterval) < 0
-        Task { @MainActor in self.scroll(up: up) }
+        Task { @MainActor in
+            self.scroll(up: up)
+            var detail = self.condition
+            detail["up"] = up
+            detail["scrolledUp"] = Double(self.scrolledUp)
+            if let timebase = self.layer.controlTimebase {
+                detail["clock"] = CMTimeGetSeconds(CMTimebaseGetTime(timebase))
+                detail["rate"] = CMTimebaseGetRate(timebase)
+            }
+            CallPicture.report("skip", detail)
+        }
         completionHandler()
     }
 }
@@ -408,16 +440,11 @@ extension CallPicture: AVPictureInPictureControllerDelegate {
     }
 
     nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
-        CallPicture.report("stopped")
         // 一度閉じた仕組みは次に抜けても自動で出ないので、 通話の間なら作り直す (= 閉じる動きが終わってから、 新しい層で)
         Task { @MainActor in
+            CallPicture.report("stopped", ["app": UIApplication.shared.applicationState == .active ? "active" : "not-active"])
             try? await Task.sleep(nanoseconds: CallPicture.rearmDelay)
-            guard self.timer != nil, let old = self.controller, !old.isPictureInPictureActive else { return }
-            old.delegate = nil
-            self.retired.append(old)
-            self.freshLayer()
-            self.arm()
-            CallPicture.report("re-armed", self.condition)
+            self.rearmWhenActive()
         }
     }
 
