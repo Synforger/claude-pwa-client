@@ -7,8 +7,12 @@
     POST /device/screen/state  画面の配信の始まりと終わり
     GET  /device/screen/settings  配信の仕方 (= 間隔・大きさ・質。 配信が始まる時に受け取る)
     GET  /device/screen    最後の 1 枚の在処と、 配信しているか (= `cpc device screen`)
+    GET  /device/boards    Board のウィジェットに出す中身の全部 (= ウィジェットの編集の一覧と `cpc device widget`)
+    GET  /device/boards/{name}     board 1 つの中身 (= ウィジェットが引く)
+    PUT  /device/boards/{name}     board を置き換え、 app がつながっていればウィジェットを描き直させる
+    DELETE /device/boards/{name}   board を消す (= 同じく描き直させる)
 
-頼む口と一覧の口と画面を見る口は、 この Mac の中からだけ受ける (= `/debug` と同じ見分け方。 Tailscale を通った頼みは
+頼む口と一覧の口と画面を見る口と board を書く口は、 この Mac の中からだけ受ける (= `/debug` と同じ見分け方。 Tailscale を通った頼みは
 宛名が tailnet の名前になる)。
 """
 from __future__ import annotations
@@ -19,6 +23,7 @@ import logging
 
 from fastapi import APIRouter, Body, HTTPException, Request, WebSocket, WebSocketDisconnect
 
+from backend.device.boards import DEFAULT_BOARD, BadBoard, BoardStore
 from backend.device.hub import DeviceFailed, DeviceHub, DeviceOffline, DeviceTimeout, UnknownOp
 from backend.device.screen import NotJpeg, ScreenStore, settings
 from backend.paths import DATA_DIR
@@ -29,9 +34,12 @@ router = APIRouter()
 
 # app が最初の hello を送るまで待つ長さ
 HELLO_TIMEOUT_S = 10.0
+# board を書いた後、 app にウィジェットを描き直させる頼みの答えを待つ長さ (= 届かなくても board は書けている)
+RELOAD_TIMEOUT_S = 5.0
 
 hub = DeviceHub(catalog_path=DATA_DIR / "device_catalog.json", files_dir=DATA_DIR / "device-files")
 screen = ScreenStore(files_dir=DATA_DIR / "device-files")
+boards = BoardStore(DATA_DIR / "device_boards.json")
 
 
 @router.websocket("/device/ws")
@@ -124,3 +132,45 @@ async def get_device_screen_settings() -> dict:
 async def get_device_screen(request: Request) -> dict:
     _ensure_localhost(request)
     return screen.status()
+
+
+async def _reload_widgets() -> bool:
+    """app がつながっていれば、 ウィジェットを今すぐ描き直させる (= できたかを返す。 できなければ iOS の間隔で引き直す)。"""
+    try:
+        await hub.call("widget.reload", {}, RELOAD_TIMEOUT_S)
+    except (DeviceOffline, UnknownOp, DeviceTimeout, DeviceFailed):
+        return False
+    return True
+
+
+@router.get("/device/boards")
+async def get_device_boards() -> dict:
+    return {"default": DEFAULT_BOARD, "boards": boards.all()}
+
+
+@router.get("/device/boards/{name}")
+async def get_device_board(name: str) -> dict:
+    try:
+        return {"name": name, "board": boards.get(name)}
+    except BadBoard as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.put("/device/boards/{name}")
+async def put_device_board(request: Request, name: str, body: dict = Body(...)) -> dict:
+    _ensure_localhost(request)
+    try:
+        board = boards.set(name, body)
+    except BadBoard as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {"name": name, "board": board, "reloaded": await _reload_widgets()}
+
+
+@router.delete("/device/boards/{name}")
+async def delete_device_board(request: Request, name: str) -> dict:
+    _ensure_localhost(request)
+    try:
+        removed = boards.clear(name)
+    except BadBoard as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {"name": name, "removed": removed, "reloaded": await _reload_widgets() if removed else False}
