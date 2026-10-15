@@ -253,12 +253,14 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
         await connect(url, mic: micOn, keepPicture: keepPicture)
     }
 
-    /// 掛け直す先 (= 始めた時の URL に、 その後に変わった返事の声の入 / 切と声の大きさを重ねる)
+    /// 掛け直す先 (= 始めた時の URL に、 その後に変わった返事の声の入 / 切と声の大きさを重ねる)。 つなぎ直しの印
+    /// (= resume) を付けるので、 backend は切れた通話で鳴り終えていなかった文から言い直す。
     private func redialURL() -> URL? {
         guard let callURL, var parts = URLComponents(url: callURL, resolvingAgainstBaseURL: false) else { return nil }
-        var query = (parts.queryItems ?? []).filter { $0.name != "volume" && $0.name != "speech" }
+        var query = (parts.queryItems ?? []).filter { !["volume", "speech", "resume"].contains($0.name) }
         if let volume { query.append(URLQueryItem(name: "volume", value: String(volume))) }
         if !speechOn { query.append(URLQueryItem(name: "speech", value: "0")) }
+        query.append(URLQueryItem(name: "resume", value: "1"))
         parts.queryItems = query
         return parts.url
     }

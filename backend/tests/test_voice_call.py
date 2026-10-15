@@ -96,26 +96,37 @@ def test_a_tab_that_cannot_hold_a_conversation_is_refused_before_connecting(clie
 
 
 class _FakeCall:
-    """会話の process の偽物: 申し込みに answer を返し、 finish が立つまで走り続ける。"""
+    """会話の process の偽物: 申し込みに answer を返し、 finish が立つまで走り続ける (= 閉じる時に handover を出す)。"""
 
-    def __init__(self, finish):
+    def __init__(self, finish, *, pc_id: str = "pc1", handover: dict | None = None, starts: list | None = None):
         import json
-        import threading
 
-        self._finish: threading.Event = finish
+        self._finish = finish
         self.returncode = None
-        answer = {"type": "answer", "answer": {"sdp": "v=0", "type": "answer", "pc_id": "pc1"}}
+        answer = {"type": "answer", "answer": {"sdp": "v=0", "type": "answer", "pc_id": pc_id}}
 
         class _In:
             def write(self, data):
-                pass
+                message = json.loads(data)
+                if starts is not None and message.get("type") == "start":
+                    starts.append(message)
 
             async def drain(self):
                 pass
 
         class _Out:
+            def __init__(self):
+                self._lines = [answer]
+
             async def readline(self):
-                return (json.dumps(answer) + "\n").encode()
+                if self._lines:
+                    return (json.dumps(self._lines.pop(0)) + "\n").encode()
+                while not finish.is_set():
+                    await asyncio.sleep(0.01)
+                if handover is not None and not getattr(self, "_handed", False):
+                    self._handed = True
+                    return (json.dumps({"type": "handover", **handover}) + "\n").encode()
+                return b""
 
         self.stdin, self.stdout = _In(), _Out()
 
@@ -156,6 +167,40 @@ def test_a_tab_is_on_a_call_from_the_answer_until_the_call_process_ends(tabs, mo
         assert not is_session_on_call("ses_listen")
 
 
+def test_a_redial_gets_what_the_closed_call_had_left_to_say_and_a_new_call_does_not(tabs, monkeypatch):  # noqa: F811
+    import threading
+
+    left = {"since_ms": 5, "sentences": [{"mark": "calm", "text": "続きの文。"}]}
+    finishes = [threading.Event() for _ in range(3)]
+    starts: list[dict] = []
+    calls = iter([dict(pc_id="pc1", handover=left), dict(pc_id="pc2", handover=left), dict(pc_id="pc3")])
+
+    async def spawn(*args, **kwargs):
+        return _FakeCall(finishes[len(starts)], starts=starts, **next(calls))
+
+    monkeypatch.setattr(voice_call.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(voice_call.asyncio, "create_subprocess_exec", spawn)
+    app = FastAPI()
+    app.include_router(voice_call.router)
+    voice_call._workers.clear()
+    voice_call._handovers.clear()
+    with TestClient(app) as c:
+        assert c.post("/sessions/ses_listen/voice/call", json=OFFER).status_code == 200
+        # つなぎ直し: 前の通話が閉じ終えるのを待ち、 その鳴り残しを受け取る
+        threading.Timer(0.1, finishes[0].set).start()
+        assert c.post("/sessions/ses_listen/voice/call?resume=1", json=OFFER).status_code == 200
+        # つなぎ直しでない通話は、 前の鳴り残しを受け取らない
+        finishes[1].set()
+        threading.Timer(0.1, lambda: None).start()
+        import time
+        time.sleep(0.2)
+        assert c.post("/sessions/ses_listen/voice/call", json=OFFER).status_code == 200
+        finishes[2].set()
+    assert starts[0]["resume"] is None
+    assert starts[1]["resume"] == left
+    assert starts[2]["resume"] is None
+
+
 def test_without_the_call_parts_the_backend_says_so(client, tabs, monkeypatch):  # noqa: F811
     monkeypatch.setattr(voice_call.importlib.util, "find_spec", lambda name: None)
     r = client.post("/sessions/ses_listen/voice/call", json=OFFER)
@@ -194,7 +239,7 @@ def test_the_picture_gets_the_reply_as_markdown_without_the_marks():
 
 # --- agent の段 (= Pipecat を通す) -----------------------------------------------------------------------------
 
-def _bridge(sent: list[str], events: list[dict] | None = None, stops: list[str] | None = None):
+def _bridge(sent: list[str], events: list[dict] | None = None, stops: list[str] | None = None, **kwargs):
     from backend.voice_call.agent import AgentBridge
 
     async def send(text: str) -> bool:
@@ -216,7 +261,7 @@ def _bridge(sent: list[str], events: list[dict] | None = None, stops: list[str] 
         return True
 
     return AgentBridge(SETTINGS["conversation"], send=send, events=stream, utterances=utterances,
-                       interrupt=interrupt if stops is not None else None)
+                       interrupt=interrupt if stops is not None else None, **kwargs)
 
 
 def _said(text: str):
@@ -825,3 +870,34 @@ def test_the_listener_leaves_no_try_running_when_the_call_ends_while_speaking(mo
     # 話し始めたまま (= 言い終えの知らせが来ないまま) 通話が終わる
     asyncio.run(run_test(stt, frames_to_send=[VADUserStartedSpeakingFrame(), audio, SleepFrame(sleep=0.2)]))
     assert stt._peek_task is None
+
+
+def test_a_call_closed_while_speaking_hands_over_the_sentences_not_yet_said():
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.frames.frames import BotStartedSpeakingFrame, BotStoppedSpeakingFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    later = int(time.time() * 1000) + 60_000
+    events = [_reply("r1", "1 文目。\n2 文目。\n3 文目。", later)]
+    handed: list[dict] = []
+    frames = [SleepFrame(sleep=0.2), BotStartedSpeakingFrame(), BotStoppedSpeakingFrame(), BotStartedSpeakingFrame()]
+    asyncio.run(run_test(_bridge([], events, on_handover=handed.append), frames_to_send=frames))
+    # 鳴っていた 2 文目から (= 鳴り終えた 1 文目は渡さない)
+    assert [s["text"] for s in handed[0]["sentences"]] == ["2 文目。", "3 文目。"]
+    assert handed[0]["since_ms"] <= int(time.time() * 1000)
+
+
+def test_a_redialed_call_says_the_handed_over_sentences_and_the_replies_from_the_gap():
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.frames.frames import TTSSpeakFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    now = int(time.time() * 1000)
+    resume = {"since_ms": now - 1000, "sentences": [{"mark": "happy", "text": "途切れた文。"}]}
+    events = [_reply("before", "閉じる前に鳴った返事。", now - 5000), _reply("gap", "間に届いた返事。", now - 500)]
+    down, _ = asyncio.run(run_test(_bridge([], events, resume=resume), frames_to_send=[SleepFrame(sleep=0.2)]))
+    assert [f.text for f in down if isinstance(f, TTSSpeakFrame)] == ["[happy]途切れた文。", "[calm]間に届いた返事。"]
