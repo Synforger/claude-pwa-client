@@ -11,6 +11,11 @@
                                              今の iPhone の画面を、 この Mac が撮って file にする (= 前に出ている
                                              app が何でも撮れる。 Xcode の devicectl を使い、 iPhone がこの Mac と
                                              同じ網に居る間だけ。 app も backend も通さない)
+    cpc device widget                        Board のウィジェットに置いた物の全部
+    cpc device widget set [--board <名前>] [--title <見出し>] [--text <本文>] [--value <短い値>] [--tab <sid>]
+                                             board を置き換える (= 既定の board は main。 app がつながっていれば
+                                             ウィジェットはその場で描き直る。 backend が持つ物)
+    cpc device widget clear [--board <名前>] board を消す
 
 操作の一覧の真値は app の中にある (= app がつないだ時に送り、 backend が控える)。 引数の型は一覧に従って
 直す (= int / number / bool / json、 それ以外は文字のまま)。 backend の場所は CPC_URL (= 既定
@@ -32,6 +37,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -203,6 +209,28 @@ def _screenshot(rest: list[str]) -> dict:
     return {"path": str(out), "bytes": out.stat().st_size, "device": device}
 
 
+WIDGET_USAGE = ("usage: cpc device widget [set [--board <name>] [--title <t>] [--text <t>] [--value <v>] "
+                "[--tab <sid>] | clear [--board <name>]]")
+
+
+def _widget(rest: list[str]):
+    """Board のウィジェットに置く物を見る・置き換える・消す (= backend の `/device/boards`)。"""
+    if not rest:
+        return _request("GET", "/device/boards")
+    action, rest = rest[0], rest[1:]
+    allowed = ("board", "title", "text", "value", "tab") if action == "set" else ("board",)
+    options: dict[str, str] = {}
+    while rest:
+        if not rest[0].startswith("--") or rest[0][2:] not in allowed or len(rest) < 2:
+            raise Stop("usage", WIDGET_USAGE)
+        options[rest[0][2:]] = rest[1]
+        rest = rest[2:]
+    board = urllib.parse.quote(options.pop("board", "main"), safe="")
+    if action == "set":
+        return _request("PUT", f"/device/boards/{board}", options)
+    return _request("DELETE", f"/device/boards/{board}")
+
+
 def main(argv: list[str]) -> int:
     try:
         if not argv or argv[0] in ("-h", "--help"):
@@ -213,6 +241,9 @@ def main(argv: list[str]) -> int:
             return 0
         if argv[0] == "screenshot":
             print(json.dumps(_screenshot(argv[1:]), ensure_ascii=False, indent=2))
+            return 0
+        if argv[0] == "widget" and (len(argv) == 1 or argv[1] in ("set", "clear")):
+            print(json.dumps(_widget(argv[1:]), ensure_ascii=False, indent=2))
             return 0
         if len(argv) == 1 or argv[1] in ("-h", "--help"):
             print(_show_type(_catalog(), argv[0]))

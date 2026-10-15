@@ -6,38 +6,7 @@ import UIKit
 ///
 /// 「Hey Siri、 <app の名前>で頼む」 (= 英語の Siri では「Ask <app の名前>」) と言うと、 送り先のタブ (= 前に選んだ物か、 その場で選ぶ) と頼みの文を
 /// 訊いて、 画面から送るのと同じ口 (= `POST /pty/<sid>/send`) でそのタブへ送る。 タブの一覧は backend の
-/// `/sessions` が真値 (= app は覚えない)。
-
-/// 送り先のタブ (= Siri とショートカットで選ぶ選択肢)。
-@available(iOS 16.0, *)
-struct TabEntity: AppEntity {
-    static var typeDisplayRepresentation: TypeDisplayRepresentation = "Tab"
-    static var defaultQuery = TabQuery()
-
-    let id: String
-    let title: String
-
-    var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(title)") }
-}
-
-/// タブの一覧を backend から引く。
-@available(iOS 16.0, *)
-struct TabQuery: EntityQuery {
-    func entities(for identifiers: [TabEntity.ID]) async throws -> [TabEntity] {
-        try await Self.tabs().filter { identifiers.contains($0.id) }
-    }
-
-    func suggestedEntities() async throws -> [TabEntity] { try await Self.tabs() }
-
-    static func tabs() async throws -> [TabEntity] {
-        let (data, _) = try await URLSession.shared.data(from: try ServerAddress.url("/sessions"))
-        let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] ?? []
-        return rows.compactMap { row in
-            guard let id = row["id"] as? String else { return nil }
-            return TabEntity(id: id, title: row["title"] as? String ?? id)
-        }
-    }
-}
+/// `/sessions` が真値 (= app は覚えない。 選択肢は `Shared/TabEntity.swift`)。
 
 /// タブの agent へ頼みを送る。
 @available(iOS 16.0, *)
