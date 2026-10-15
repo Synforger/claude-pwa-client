@@ -63,7 +63,7 @@ cpc device screenshot               # 今の画面を、 この Mac が撮る (=
 | app | `open` | URL や他の app を開く (= `tel:` `sms:` `maps://` など。 前に出す) |
 | message / mail | `compose` | SMS とメールの下書きの画面を出す (= 送るのは人。 前に出す) |
 | auth | `check` | Face ID (= か、 パスコード) で本人か確かめる (= 前に出す) |
-| notify | `post` | iPhone に通知を出す |
+| notify | `post` | iPhone に通知を出す (= app が画面に出ている時もバナーで出る。 答えに、 その時の通知の設定が載る) |
 | focus | `status` | 集中モード (= おやすみモードなど) か |
 | screentime | `pick` `block` `unblock` | 止める app を人が選ぶ / 止める / 戻す (= 使った時間は iOS が渡さない) |
 | workout | `schedule` `scheduled` | Apple Watch のワークアウトの予定に足す / 予定の一覧 |

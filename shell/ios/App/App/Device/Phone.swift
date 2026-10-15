@@ -44,8 +44,11 @@ enum Phone {
             content.sound = .default
             let after = Double(max(args.int("after") ?? 0, 0))
             let trigger = after > 0 ? UNTimeIntervalNotificationTrigger(timeInterval: after, repeats: false) : nil
-            try await center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger))
-            return DeviceOutput(["posted": true, "after_s": after])
+            let id = UUID().uuidString
+            try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
+            let settings = await NotificationPresenter.settings()
+            NotificationPresenter.report("posted", ["id": id, "after_s": after, "settings": settings])
+            return DeviceOutput(["posted": true, "id": id, "after_s": after, "settings": settings])
         },
     ]
 }
