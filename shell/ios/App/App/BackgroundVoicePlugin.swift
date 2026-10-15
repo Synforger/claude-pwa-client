@@ -4,9 +4,7 @@ import Foundation
 import PipecatClientIOS
 import PipecatClientIOSSmallWebrtc
 import UIKit
-#if DEBUG
 import WebRTC
-#endif
 
 /// マイクと声を、 画面が裏に回っても止めずに持つ plugin (= 画面の 🔊 と 🎙 から呼ぶ)。
 ///
@@ -14,6 +12,12 @@ import WebRTC
 /// `UIBackgroundModes` (= audio・voip) の下で裏でも動き続けるので、 マイクと声はここで持ち、 backend の電話の口
 /// (= `POST /sessions/<sid>/voice/call`) と WebRTC でつなぐ。 声の区間・言い終えの判定・聞き取り・タブへの送信・
 /// 返事の声は、 全部 backend の中で回る (= `backend/voice_call/`)。
+///
+/// 音の設定: iPhone のエコー消し (= Voice-Processing I/O) は、 通話の途中で音の設定 (= category / mode) が変わると
+/// 作り直され、 それまでに覚えた消し方を失う。 この通話では Pipecat の部品 (= SmallWebRTC の AudioManager) と
+/// WebRTC が別々に音の設定を持ち、 Pipecat は経路が変わるたびに自分の設定を、 WebRTC は音の部品を作る時に自分の
+/// 設定を掛けていた。 WebRTC の設定を Pipecat が掛ける物と同じにして、 どちらが掛けても何も変わらないようにする
+/// (= 掛ける前に今の値と比べ、 同じなら掛けない作りは WebRTC の側にある)。
 ///
 /// 画面から呼ぶ口:
 ///   start({ url, mic })   電話の口の URL へつなぐ (= mic が false ならマイクを切った状態で始める)
@@ -122,6 +126,7 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
         // 試しの build だけ: WebRTC 自身の log (= 音の部品の作り直しや経路の変化) も出す
         RTCSetMinDebugLogLevel(.info)
         #endif
+        useOneAudioSession()
         audioWatch = AudioSessionWatch()
         let client = PipecatClient(
             options: PipecatClientOptions(transport: SmallWebRTCTransport(iceConfig: nil), enableMic: mic))
@@ -254,4 +259,15 @@ final class AudioSessionWatch {
         @unknown default: return "reason \(reason.rawValue)"
         }
     }
+}
+
+/// WebRTC が掛ける音の設定を、 Pipecat の部品が掛ける物にそろえる (= 機器の指定が無い時の、 スピーカーで話す形)。
+/// Pipecat の値は `pipecat-client-ios-small-webrtc` の `AudioManager.applyConfiguration()`: playAndRecord /
+/// videoChat / allowBluetooth + mixWithOthers (= 他の app の音と一緒に鳴らせる)。
+func useOneAudioSession() {
+    let config = RTCAudioSessionConfiguration.webRTC()
+    config.category = AVAudioSession.Category.playAndRecord.rawValue
+    config.mode = AVAudioSession.Mode.videoChat.rawValue
+    config.categoryOptions = [.allowBluetooth, .mixWithOthers]
+    RTCAudioSessionConfiguration.setWebRTC(config)
 }
