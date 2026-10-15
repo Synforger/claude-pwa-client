@@ -7,7 +7,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // この Mac の agent の手 (= iPhone の中の操作を backend から受ける。 Device/DeviceLink.swift)
+        DeviceLink.shared.start()
         return true
     }
 

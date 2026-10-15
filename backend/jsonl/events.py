@@ -330,7 +330,8 @@ def _user_events(line: dict) -> list[dict]:
         # claude TUI の slash command / stdout 内部表現は user 発話ではないので chat には出さない
         if HARNESS_XML_RE.match(text):
             return []
-        return [{"type": "user_message", "text": unwrap_pasted(content), "uuid": line.get("uuid"), "ts": _ts_ms(line)}]
+        return [{"type": "user_message", "text": unwrap_pasted(content), "uuid": line.get("uuid"),
+                 "parentUuid": line.get("parentUuid"), "ts": _ts_ms(line)}]
 
     if isinstance(content, list):
         has_tool_result = any(
@@ -347,6 +348,7 @@ def _user_events(line: dict) -> list[dict]:
         ]
         joined = "".join(texts).strip()
         if joined:
-            return [{"type": "user_message", "text": unwrap_pasted("".join(texts)), "uuid": line.get("uuid"), "ts": _ts_ms(line)}]
+            return [{"type": "user_message", "text": unwrap_pasted("".join(texts)), "uuid": line.get("uuid"),
+                     "parentUuid": line.get("parentUuid"), "ts": _ts_ms(line)}]
 
     return []

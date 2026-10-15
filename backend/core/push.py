@@ -32,6 +32,7 @@ from backend.state import (
     NOTIFY_MODES,
     NotifyMode,
     atomic_write_text,
+    is_session_on_call,
     is_session_viewed,
     sessions_meta,
 )
@@ -213,6 +214,10 @@ async def broadcast_push(
     # backend 権威の即時判定なので SW 側 silent + auto-close より早く止まる。
     # 接続切断で自動的に「見てない」 扱いになるので stale 永久抑制も起きない。
     if is_session_viewed(session_id):
+        return
+    # 該当 session に iPhone の app の通話がつながっていれば送らない (= 返事は声で聞いている。 他のタブへの
+    # 通知はそのまま)。 通話の process が終わると記録が消えるので、 止まりっぱなしにはならない。
+    if is_session_on_call(session_id):
         return
 
     body_clean = sanitize_notif_body(message)

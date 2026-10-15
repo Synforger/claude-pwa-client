@@ -29,6 +29,14 @@ import {
 import { deriveSessionBadges } from '../push-notify/useSessionBadges.js'
 import { usePushSubscription } from '../push-notify/usePushSubscription.js'
 import {
+  TEXT_ZOOM_MAX,
+  TEXT_ZOOM_MIN,
+  getSnapshot as getTextZoomSnapshot,
+  setTextZoom,
+  stepTextZoom,
+  subscribe as subscribeTextZoom,
+} from '../../state/textZoom.js'
+import {
   subscribe as subscribeLocale,
   getSnapshot as getLocaleSnapshot,
   setLang,
@@ -61,6 +69,8 @@ export default function SessionDrawer() {
   const sessionsSnap = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
   const messages = useSyncExternalStore(subscribeMessages, getMessagesSnapshot)
   const ephem = useSyncExternalStore(subscribeEphemeral, getEphemeralSnapshot)
+  // メモと markdown のプレビューの字の大きさ (= 本文の上のピンチと同じ 1 つの値)
+  const textZoom = useSyncExternalStore(subscribeTextZoom, getTextZoomSnapshot).zoom
   // ui state: overlays.drawer は OverlayHost が gating するので render 時点で常に truthy。
   // ただし内部 effect (= popup 閉じる等) は本来の open prop と同じ意味付けで使うため、 別名で持つ。
   const uiSnap = useSyncExternalStore(subscribeUi, getUiSnapshot)
@@ -373,8 +383,10 @@ export default function SessionDrawer() {
                 onClick={() => setGlobalMenuOpen(prev => !prev)}
                 aria-label={t('drawer.settings')}
                 title={t('drawer.settings')}
+                data-testid="drawer-settings"
               >
-                ⋯
+                {/* U+FE0E = 絵文字ではなく文字の形で出す (= 他の操作の記号と同じ色と太さ) */}
+                {'\u2699\uFE0E'}
               </button>
             )}
             <button className="drawer-close" onClick={onClose} aria-label={t('drawer.close')}>×</button>
@@ -417,6 +429,40 @@ export default function SessionDrawer() {
                     {t('drawer.restart.failed', { reason: restartError })}
                   </div>
                 )}
+                {/* メモと markdown のプレビューの字の大きさ。 − / ＋ は 10% ずつ、 % を押すと 100% に戻る。
+                    押しても閉じない (= 何度か押して決める) */}
+                <div className="drawer-global-size-row" data-testid="text-size">
+                  <span className="drawer-global-size-label" title={t('drawer.text_size.title')}>
+                    {t('drawer.text_size.label')}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setTextZoom(stepTextZoom(textZoom, -1))}
+                    disabled={textZoom <= TEXT_ZOOM_MIN}
+                    aria-label={t('drawer.text_size.smaller')}
+                    data-testid="text-size-smaller"
+                  >
+                    −
+                  </button>
+                  <button
+                    type="button"
+                    className="drawer-global-size-value"
+                    onClick={() => setTextZoom(1)}
+                    title={t('drawer.text_size.reset')}
+                    data-testid="text-size-value"
+                  >
+                    {Math.round(textZoom * 100)}%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTextZoom(stepTextZoom(textZoom, 1))}
+                    disabled={textZoom >= TEXT_ZOOM_MAX}
+                    aria-label={t('drawer.text_size.larger')}
+                    data-testid="text-size-larger"
+                  >
+                    ＋
+                  </button>
+                </div>
                 {/* 2026-07-03: Language toggle を Topbar ⋯ から SessionDrawer ⋯ に移設。
                     通知 / アプリ更新と同じ「PWA レベル設定」 の並びの方が意味的に自然。 */}
                 <div className="drawer-global-lang-row">

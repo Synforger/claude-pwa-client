@@ -30,3 +30,4 @@ backend/core/maintenance.py   # sunshine.md: historical path of removed code; gi
 text/event-stream
 # installed dependencies (= present only after `task setup`)
 frontend/node_modules/
+logs/voice-call.log   # written by the call process at run time (= backend/voice_call/worker.py)

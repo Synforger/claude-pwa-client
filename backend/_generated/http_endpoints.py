@@ -22,6 +22,12 @@ class GetSessionsResponseItem(BaseModel):
     created_at: Optional[str] = None
 
 
+class GetSessionsOverviewResponse(BaseModel):
+    """GET /sessions/overview response"""
+    model_config = ConfigDict(extra="forbid")
+    pass
+
+
 class PostSessionsRequest(BaseModel):
     """POST /sessions request body"""
     model_config = ConfigDict(extra="forbid")
@@ -236,7 +242,7 @@ class GetSessionsSidVoiceResponse(BaseModel):
     """GET /sessions/{sid}/voice response"""
     model_config = ConfigDict(extra="forbid")
     enabled: bool
-    marks: list[str]  # 言い方の印の名前 (= 設定に書いた順)
+    marks: list[str]  # 言い方の印の名前 (= 設定に書いた順。 最後に予約の印 mute。 声を持たなければ空)
     default: str  # 印の無い文の印 (= 印を 1 つも持たなければ空文字)
     listen: bool  # 人の声を聞き取るか (= 設定に voice.listen が在るか)
     turn: bool  # 言い終えを判定する model を持つか (= 設定に voice.listen.turn が在るか)
@@ -261,6 +267,7 @@ class PostSessionsSidVoiceSynthesisRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text: str  # 声にする 1 文 (= utterances が返した文)
     mark: Optional[str] = None  # 言い方の印 (= 省けば既定の印)
+    values: Optional[dict[str, Any]] = None  # 印に添えた値 (= utterances が返した values。 省略可)
 
 
 class PostSessionsSidVoiceTranscriptionRequest(BaseModel):
@@ -314,6 +321,18 @@ class PostSessionsSidVoiceCallResponse(BaseModel):
     sdp: str
     type: str
     pc_id: str
+
+
+class PostSessionsSidVoiceCallVolumeRequest(BaseModel):
+    """POST /sessions/{sid}/voice/call/volume request body"""
+    model_config = ConfigDict(extra="forbid")
+    volume: float  # 0 〜 2 (= 1 で engine の音のまま)
+
+
+class PostSessionsSidVoiceCallVolumeResponse(BaseModel):
+    """POST /sessions/{sid}/voice/call/volume response"""
+    model_config = ConfigDict(extra="forbid")
+    calls: int  # 倍率を伝えた通話の数 (= 通話が無ければ 0)
 
 
 class PatchSessionsSidVoiceCallRequest(BaseModel):
@@ -473,5 +492,66 @@ class PostStreamUnifiedConnControlResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ok: Optional[bool] = None
     subscribed: Optional[list[Any]] = None
+
+
+class PostDeviceOpsRequest(BaseModel):
+    """POST /device/ops request body"""
+    model_config = ConfigDict(extra="forbid")
+    op: str  # <種類>.<操作> (= app の一覧の名前)
+    args: Optional[dict[str, Any]] = None  # 操作の引数 (= 一覧の params に従う)
+    timeout_s: Optional[float] = None  # 答えを待つ秒 (= 省けば操作が名乗る長さ、 名乗らなければ 30)
+
+
+class PostDeviceOpsResponse(BaseModel):
+    """POST /device/ops response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    result: Optional[Any] = None  # app の答え (= 大きい答えは files に path の並びで入る)
+
+
+class PostDeviceScreenResponse(BaseModel):
+    """POST /device/screen response"""
+    model_config = ConfigDict(extra="forbid")
+    bytes: int
+
+
+class PostDeviceScreenStateRequest(BaseModel):
+    """POST /device/screen/state request body"""
+    model_config = ConfigDict(extra="forbid")
+    live: bool
+
+
+class PostDeviceScreenStateResponse(BaseModel):
+    """POST /device/screen/state response"""
+    model_config = ConfigDict(extra="forbid")
+    live: bool
+
+
+class GetDeviceScreenSettingsResponse(BaseModel):
+    """GET /device/screen/settings response"""
+    model_config = ConfigDict(extra="forbid")
+    interval_s: float  # 1 枚を送る間隔 (秒)
+    max_side: int  # 長辺の上限 (px)
+    quality: float  # JPEG の質 (= 0 より大きく 1 以下)
+
+
+class GetDeviceScreenResponse(BaseModel):
+    """GET /device/screen response"""
+    model_config = ConfigDict(extra="forbid")
+    live: bool  # 配信中で、 最後の 1 枚が 5 秒より新しい
+    path: Optional[str] = None
+    at: Optional[float] = None  # 最後の 1 枚の時刻 (= unix 秒)
+    age_s: Optional[float] = None
+    bytes: Optional[int] = None
+
+
+class GetDeviceCatalogResponse(BaseModel):
+    """GET /device/catalog response"""
+    model_config = ConfigDict(extra="forbid")
+    connected: bool
+    device: Optional[str] = None
+    app: Optional[str] = None  # app の版
+    since: Optional[float] = None  # つないだ時刻 (= unix 秒)
+    catalog: list[Any]  # 操作の並び (= name / kind / summary / params / timeout_s / foreground)
 
 

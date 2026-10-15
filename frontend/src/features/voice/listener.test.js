@@ -129,3 +129,17 @@ describe('createListener — only what newly arrives is said', () => {
     expect(said).toEqual([])
   })
 })
+
+describe('createListener — a new turn sent by voice', () => {
+  it('keeps the rest of the old reply quiet until the tab takes the new turn', () => {
+    const said = []
+    const l = createListener({ isOn: () => true, say: (_sid, line) => said.push(line) })
+    const at = (ts, uuid, line) => ({ type: 'assistant', uuid, ts, message: { content: [{ type: 'text', text: line }] } })
+    l.start('s')
+    l.holdUntilNextTurn('s')
+    l.observe('s', at(10, 'old', '前の返事の続き。'))
+    l.observe('s', { type: 'user_message', uuid: 'u', ts: 11, text: '[voice] 次の話' })
+    l.observe('s', at(12, 'new', '新しい返事。'))
+    expect(said).toEqual(['新しい返事。'])
+  })
+})

@@ -86,7 +86,7 @@ def _code(response) -> str:
 
 def test_a_tab_of_an_agent_with_a_voice_says_so_and_names_its_marks(client, tabs):
     assert client.get("/sessions/ses_voice/voice").json() == {
-        "enabled": True, "marks": ["calm", "happy", "sleepy"], "default": "calm", "listen": False, "turn": False,
+        "enabled": True, "marks": ["calm", "happy", "sleepy", "mute"], "default": "calm", "listen": False, "turn": False,
         "conversation": voice.CONVERSATION_DEFAULTS, "tuning_error": ""}
 
 
@@ -119,7 +119,7 @@ def test_the_answers_have_the_declared_shape(client, tabs):
     declared.PostSessionsSidVoiceUtterancesRequest.model_validate(body)
     said = declared.PostSessionsSidVoiceUtterancesResponse.model_validate(
         client.post("/sessions/ses_voice/voice/utterances", json=body).json())
-    assert said.utterances == [{"mark": "happy", "text": "できたよ！"}]
+    assert said.utterances == [{"mark": "happy", "text": "できたよ！", "values": {}}]
     declared.PostSessionsSidVoiceSynthesisRequest.model_validate({"text": "できたよ！", "mark": "happy"})
     declared.PostSessionsSidVoiceSynthesisRequest.model_validate({"text": "できたよ！"})
 
@@ -186,7 +186,7 @@ def test_a_reply_comes_back_as_the_sentences_to_say(client, tabs):
                     json={"text": "[happy] できたよ！\n場所は `~/a.md` だよ。\n```\ncode\n```"})
     assert r.status_code == 200
     assert r.json() == {"utterances": [
-        {"mark": "happy", "text": "できたよ！"}, {"mark": "calm", "text": "場所は だよ。"}]}
+        {"mark": "happy", "text": "できたよ！", "values": {}}, {"mark": "calm", "text": "場所は だよ。", "values": {}}]}
 
 
 def test_a_reply_with_nothing_to_say_comes_back_empty(client, tabs):
@@ -288,6 +288,35 @@ def test_a_mark_may_name_another_style_of_the_voice(client, tabs, engine):
     (query_url, _), (synth_url, synth_body) = engine
     assert "speaker=103" in query_url and synth_url.endswith("speaker=103")
     assert synth_body == {**QUERY, "prePhonemeLength": 0.05, "intonationScale": 1.2}  # speaker は query の値ではない
+
+
+def test_a_mark_with_values_comes_back_with_them(client, tabs, caplog):
+    with caplog.at_level("INFO", logger=voice.logger.name):
+        r = client.post("/sessions/ses_voice/voice/utterances", json={"text": "[happy i=1.4 s=3] やった！"})
+    assert r.json() == {"utterances": [{"mark": "happy", "text": "やった！", "values": {"intonationScale": 1.4}}]}
+    assert any("not used: s=3" in rec.getMessage() for rec in caplog.records)
+
+
+def test_values_go_over_the_values_of_the_mark(client, tabs, engine):
+    client.post("/sessions/ses_voice/voice/synthesis",
+                json={"text": "やった！", "mark": "happy", "values": {"intonationScale": 1.4, "speedScale": 1.3}})
+    assert engine[1][1] == {**QUERY, "prePhonemeLength": pytest.approx(0.05 * 1.3), "speedScale": 1.3,
+                            "tempoDynamicsScale": 1.3, "intonationScale": 1.4}
+
+
+def test_a_value_out_of_range_is_said_the_way_of_the_mark(client, tabs, engine, caplog):
+    with caplog.at_level("INFO", logger=voice.logger.name):
+        r = client.post("/sessions/ses_voice/voice/synthesis",
+                        json={"text": "やった！", "mark": "happy", "values": {"speedScale": 5}})
+    assert r.status_code == 200
+    assert engine[1][1]["speedScale"] == 1.15
+    assert any("not used: speedScale=5" in rec.getMessage() for rec in caplog.records)
+
+
+def test_values_that_are_no_set_are_refused(client, tabs, engine):
+    r = client.post("/sessions/ses_voice/voice/synthesis", json={"text": "うん。", "values": [1.2]})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "voice_bad_request"
+    assert engine == []
 
 
 def test_a_value_the_engine_does_not_have_is_not_sent(client, tabs, engine, monkeypatch, tmp_path):
@@ -601,7 +630,7 @@ def test_the_tuning_file_is_laid_over_the_setting(client, tuned, engine):
     _write(tuned, {"speaker": 200, "marks": {"calm": {"speedScale": 0.9}}, "default": "calm",
                    "conversation": {"pause_ms": 900}})
     got = client.get("/sessions/ses_tuned/voice").json()
-    assert (got["marks"], got["conversation"]["pause_ms"], got["tuning_error"]) == (["calm"], 900, "")
+    assert (got["marks"], got["conversation"]["pause_ms"], got["tuning_error"]) == (["calm", "mute"], 900, "")
     client.post("/sessions/ses_tuned/voice/synthesis", json={"text": "やあ。"})
     assert engine[0][0].endswith("speaker=200&text=%E3%82%84%E3%81%82%E3%80%82")
     assert engine[1][1]["speedScale"] == 0.9
@@ -625,7 +654,7 @@ def test_a_tuning_file_that_cannot_be_used_leaves_the_setting_and_says_why(clien
     if content is not None:
         _write(tuned, content)
     got = client.get("/sessions/ses_tuned/voice").json()
-    assert got["enabled"] and got["marks"] == ["calm", "happy", "sleepy"]
+    assert got["enabled"] and got["marks"] == ["calm", "happy", "sleepy", "mute"]
     assert reason in got["tuning_error"]
     client.post("/sessions/ses_tuned/voice/synthesis", json={"text": "やあ。"})
     assert engine[0][0].startswith("http://127.0.0.1:10101/audio_query?speaker=100&")

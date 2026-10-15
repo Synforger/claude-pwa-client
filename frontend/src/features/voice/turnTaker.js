@@ -11,6 +11,8 @@
 //   - 声の区間が終わった時点で、 判定と並べて文字にし始める (= 判定を待つ間・続きを待つ間に文字が出来ている)
 //   - 文字にした文が言いさし (= 読点や「えーと」 で終わる) なら、 言い終えた判定でも送らずに続きを待つ
 //   - 文字にしている間に続きを話し始めたら、 その発話は送らずに続きとつなげる
+//   - 言い終えた発話も、 送る前に resumeMs 待つ。 その間に続きを話し始めたら、 送らずに続きとつなげる (= Smart Turn は
+//     長い発話の途中の間でも「言い終えた」 と出すことがある)
 //
 // deps:
 //   judge(audio) -> Promise<boolean> | null    言い終えたか (= null なら判定しない)
@@ -18,13 +20,14 @@
 //   send(text)                                 文字にした文を送る
 //   unfinished(text) -> boolean                言いさしか (= 送らずに続きを待つ)
 //   pauseMs / waitMs                           声の区間の検出が「途切れた」 と言うまでの無音 / 送るまで待つ無音
+//   resumeMs                                   言い終えた発話を送る前に待つ時間 (= 0 なら待たない)
 //   onPhase(phase)                             'listening' / 'talking' / 'judging' / 'hearing'
 //   onError(error)                             判定か文字にするのが失敗した (= 判定の失敗は送り、 文字の失敗は捨てる)
 //
 // Adapted from pipecat (https://github.com/pipecat-ai/pipecat), BSD-2-Clause. 詳細 = THIRD_PARTY_NOTICES.md
 
 export function createTurnTaker({
-  judge, transcribe, send, unfinished = () => false, pauseMs, waitMs,
+  judge, transcribe, send, unfinished = () => false, pauseMs, waitMs, resumeMs = 0,
   onPhase = () => {}, onError = () => {}, timers = globalThis, now = () => Date.now(),
 }) {
   let pieces = []        // この発話の声 (= 区間ごとの Float32Array)
@@ -79,9 +82,22 @@ export function createTurnTaker({
     // 文字にしている間に続きを話し始めた: 送らずに、 続きとつなげて決め直す
     if (asked !== generation) return
     if (!force && text && unfinished(text)) { holdUntilQuiet(); return }
+    if (!force && text && resumeMs > 0) { holdForResume(count, text); return }
+    commit(count, text)
+  }
+
+  // 文字にした発話を送る (= 送った区間を、 待っている声から外す)
+  function commit(count, text) {
     pieces = pieces.slice(count)
     writing = null
     if (text) send(text)
+    idlePhase()
+  }
+
+  // 言い終えた発話を、 送る前に resumeMs だけ待つ (= その間に声が始まれば speechStart が待ちを止め、 続きとつなげる)
+  function holdForResume(count, text) {
+    clearWait()
+    wait = timers.setTimeout(() => { wait = null; if (!closed) commit(count, text) }, resumeMs)
     idlePhase()
   }
 

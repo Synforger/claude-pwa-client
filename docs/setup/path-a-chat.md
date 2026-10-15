@@ -228,7 +228,7 @@ backend はアプリ内で `RotatingFileHandler` を構成しているため、 
 
 **PC 再起動後**: LaunchAgent KeepAlive で自動起動するはずなので、 `task status` で生死確認。 反応無ければ `task restart` で kickstart、 log は `task logs`。
 
-**スマホから再起動する**: LaunchAgent で動いている backend は、 PWA の会話一覧の ⋯ メニューに「⟳ Restart backend」 が出る。 確認の後に `launchctl kickstart -k` と同じ再起動が走り、 開いているタブは数秒で再接続する (= 会話そのものは tmux の中で動き続ける)。 手動で起動した `uvicorn` では、 止めると戻らないため項目自体が出ない。
+**スマホから再起動する**: LaunchAgent で動いている backend は、 PWA の会話一覧の ⚙ (= 設定) に「⟳ Restart backend」 が出る。 確認の後に `launchctl kickstart -k` と同じ再起動が走り、 開いているタブは数秒で再接続する (= 会話そのものは tmux の中で動き続ける)。 手動で起動した `uvicorn` では、 止めると戻らないため項目自体が出ない。
 
 Linux では systemd user service で同等の常駐構成を取れる。 Windows は [windows-wsl.md](./windows-wsl.md) を参照。
 
@@ -237,5 +237,5 @@ Linux では systemd user service で同等の常駐構成を取れる。 Window
 1. Tailscale でホスト機の MagicDNS 名を確認する (例: `your-host.tail<xxxx>.ts.net`)
 2. スマートフォンで `https://<your-host>.tail<xxxx>.ts.net/` を開く
 3. iOS Safari の場合は 共有 → ホーム画面に追加 で PWA 化する
-4. 通知を有効化する場合は ⋯ メニューの「通知を有効にする」を選択する
+4. 通知を有効化する場合は会話一覧の ⚙ (= 設定) の「通知を有効にする」を選択する
    (iOS 16.4+ かつホーム画面追加済みであることが必須)

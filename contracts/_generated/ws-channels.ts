@@ -42,3 +42,29 @@ export interface ViewsClientToServer0V1 {
 }
 
 export type ViewsClientToServer0 = ViewsClientToServer0V0 | ViewsClientToServer0V1
+
+export interface DeviceClientToServer0V0 {
+  type: "hello"
+  device?: string
+  app?: string
+  catalog: unknown[]
+}
+
+export interface DeviceClientToServer0V1 {
+  type: "result"
+  id: string
+  ok: boolean
+  result?: unknown
+  error?: string
+  /** [{name, mime, data (= base64)}] */
+  files?: unknown[]
+}
+
+export type DeviceClientToServer0 = DeviceClientToServer0V0 | DeviceClientToServer0V1
+
+export interface DeviceServerToClient0 {
+  type: "call"
+  id: string
+  op: string
+  args: Record<string, unknown>
+}

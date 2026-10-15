@@ -3,7 +3,21 @@
 // ブラウザは、 人が画面を押した後でないと音を鳴らさせない。 unlockAudio() を、 ボタンを押した handler の
 // 中で 1 度呼んでおくと、 以後は押さなくても鳴らせる。
 
+import { getSnapshot as volumeOf, subscribe as onVolume } from '../../state/voiceVolume.js'
+
 let context = null
+// 鳴らす音が全部通る 1 段 (= その端末の声の大きさの倍率。 つまみを動かすと、 鳴っている音にもその場で効く)
+let master = null
+onVolume(() => { if (master) master.gain.value = volumeOf().volume })
+
+function output() {
+  if (!master) {
+    master = context.createGain()
+    master.gain.value = volumeOf().volume
+    master.connect(context.destination)
+  }
+  return master
+}
 
 export function unlockAudio() {
   const Ctor = globalThis.AudioContext || globalThis.webkitAudioContext
@@ -24,7 +38,7 @@ export function playSound(data) {
     await new Promise((resolve) => {
       source = context.createBufferSource()
       source.buffer = buffer
-      source.connect(context.destination)
+      source.connect(output())
       source.onended = resolve
       source.start()
     })

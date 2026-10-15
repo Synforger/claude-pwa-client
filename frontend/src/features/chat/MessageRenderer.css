@@ -90,12 +90,18 @@
   padding: 4px 12px;
 }
 
-/* ファイルプレビューのMarkdownスタイル */
+/* ファイルプレビューと 📋 のメモの Markdown スタイル。 本文は横に動かさない: 文は枠の幅で折り返し、 枠に
+   入らないコードブロックと表は、 その物の中だけで横に送る (= GitHub の描き方、 github-markdown-css)。
+   字の大きさは 2 本の指 / Ctrl・⌘ + ホイールで変わる (= hooks/useTextZoom.js)。 1 本の指の送りはブラウザに
+   任せ、 2 本の指は画面が受ける。 */
 .md-preview {
   color: var(--text);
   font-size: 14px;
   line-height: 1.7;
+  overflow-wrap: break-word;
+  touch-action: pan-x pan-y;
 }
+.md-preview img { max-width: 100%; height: auto; }
 .md-preview h1, .md-preview h2, .md-preview h3 {
   font-weight: 700;
   margin: 16px 0 8px;
@@ -120,6 +126,7 @@
   font-family: 'Menlo', 'Monaco', monospace;
   font-size: 12px;
 }
+/* コードブロックは行の形が中身なので折り返さず、 ブロックの中で横に送る */
 .md-preview pre {
   background: var(--bg3);
   border-radius: 8px;
@@ -128,14 +135,21 @@
   margin: 8px 0;
 }
 .md-preview pre code { background: none; padding: 0; }
+/* 表は中身の幅まで広がり、 枠を超える所でマスの中を単語の切れ目で折り返す。 それでも入らない表は表の中で
+   横に送る (= 表そのものを送る箱にする。 github-markdown-css の table と同じ) */
 .md-preview table {
   border-collapse: collapse;
-  width: 100%;
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
   margin: 8px 0;
   font-size: 13px;
 }
+/* 罫は字の大きさに依らず画面の 1px 以上 (= 縮めると 1px が 1px 未満になり、 WebKit は描かない)。
+   --text-zoom は本文に掛けている倍率 (= hooks/useTextZoom.js が書く) */
 .md-preview th, .md-preview td {
-  border: 1px solid var(--border);
+  border: max(1px, calc(1px / var(--text-zoom, 1))) solid var(--border);
   padding: 6px 10px;
 }
 .md-preview th { background: var(--bg3); font-weight: 600; }

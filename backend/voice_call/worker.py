@@ -6,15 +6,21 @@ backend の `routes/voice_call.py` が通話ごとに起こす。 標準入出�
     入   {"type": "offer", "sdp": …, "type_": "offer", …}      → 出 {"type": "answer", "answer": {…}}
                                                                → 出 {"type": "error", "message": …}
     入   {"type": "patch", "pc_id": …, "candidates": […]}
+    入   {"type": "volume", "volume": …}                       (= その端末の声の大きさの倍率。 start にも在る)
 
-会話が終わるか、 backend が標準入力を閉じたら終わる。 log は標準エラーへ出す (= backend の log と同じ置き場)。
+会話が終わるか、 backend が標準入力を閉じたら終わる。 log は `logs/voice-call.log` に出す (= backend の log と同じく
+5 MB で回して 3 世代まで。 Pipecat 自身の log は WARNING 以上だけ)。 起動に失敗した時の traceback だけは標準エラー
+(= backend の起動の log) に出る。
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import logging.handlers
 import sys
+
+from loguru import logger as pipecat_logger
 
 from pipecat.transports.smallwebrtc.request_handler import (
     IceCandidate,
@@ -23,10 +29,35 @@ from pipecat.transports.smallwebrtc.request_handler import (
     SmallWebRTCRequestHandler,
 )
 
+from backend.paths import LOGS_DIR
 from backend.voice_call.client import BackendClient
 from backend.voice_call.pipeline import run_call
+from backend.voice_call.services import Volume
 
 logger = logging.getLogger("backend.voice_call.worker")
+
+LOG_PATH = LOGS_DIR / "voice-call.log"
+LOG_MAX_BYTES = 5 * 1024 * 1024   # backend の log と同じ (= backend/main.py)
+LOG_BACKUP_COUNT = 3
+PIPECAT_LOG_LEVEL = "WARNING"     # Pipecat の DEBUG / INFO は通話 1 回で数十 KB になる
+
+
+def setup_logging() -> None:
+    """この process の log を、 回る専用の file に出す。 Pipecat の log (= loguru) も同じ file へ流す。"""
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.handlers.RotatingFileHandler(
+        str(LOG_PATH), maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(process)d %(levelname)s %(name)s %(message)s"))
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.addHandler(handler)
+
+    def to_logging(message) -> None:
+        record = message.record
+        logging.getLogger(f"pipecat.{record['name']}").log(record["level"].no, record["message"])
+
+    pipecat_logger.remove()
+    pipecat_logger.add(to_logging, level=PIPECAT_LOG_LEVEL, format="{message}")
 
 
 def _write(message: dict) -> None:
@@ -45,12 +76,13 @@ async def main() -> None:
     reader = await _lines()
     start = json.loads(await reader.readline())
     handler = SmallWebRTCRequestHandler()
+    volume = Volume(float(start.get("volume", 1.0)))
     call: asyncio.Task | None = None
 
     async with BackendClient(start["base_url"], start["session_id"], start["client"]) as backend:
         async def connected(connection) -> None:
             nonlocal call
-            call = asyncio.create_task(run_call(connection, backend, start))
+            call = asyncio.create_task(run_call(connection, backend, start, volume))
 
         async def read_requests() -> None:
             while line := await reader.readline():
@@ -62,6 +94,8 @@ async def main() -> None:
                         answer = await handler.handle_web_request(
                             request=SmallWebRTCRequest.from_dict(message), webrtc_connection_callback=connected)
                         _write({"type": "answer", "answer": answer})
+                    elif kind == "volume":
+                        volume.value = float(message["volume"])
                     elif kind == "patch":
                         await handler.handle_patch_request(SmallWebRTCPatchRequest(
                             pc_id=message["pc_id"],
@@ -83,6 +117,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, stream=sys.stderr,
-                        format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    setup_logging()
     asyncio.run(main())

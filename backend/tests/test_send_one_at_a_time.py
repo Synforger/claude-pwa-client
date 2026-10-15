@@ -54,6 +54,7 @@ def pane(monkeypatch, tmp_path):
         return True
 
     monkeypatch.setattr(runner, "wipe_input_line", wipe)
+    monkeypatch.setattr(routes, "wipe_input_line", wipe)
     monkeypatch.setattr(runner, "tmux_send_keys", send_keys)
     monkeypatch.setattr(runner, "TWO_STAGE_ENTER_DELAY_SEC", ENTER_DELAY)
     monkeypatch.setattr(routes, "tmux_send_keys", send_keys)

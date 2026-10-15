@@ -43,6 +43,18 @@ endpoints:
       - "削除済 session は含まない"
     implementation: backend/routes/sessions.py
 
+  - method: GET
+    path: /sessions/overview
+    description: "全セッションの作業中 / 最後に見た時刻 / 入力待ちを 1 回で返す (= stream の overview と同じ中身)"
+    response:
+      type: object
+      description: "sid → { busy, last_seen_at, waiting_input }"
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "中身は /stream/unified の overview channel と同じ builder (= _build_sessions_overview)"
+    implementation: backend/routes/overview.py
+
   - method: POST
     path: /sessions
     description: "セッション新規作成"
@@ -510,6 +522,8 @@ endpoints:
       - "text と key は択一"
       - "delivered = JSONL line count 増分で判定 (= confirm.py)"
       - "15s timeout で incomplete=true"
+      - "頭に [voice] の印が付いた本文は、 turn の実行中なら先に Escape で止め、 claude が中断の行を書くか入力欄へ前の発話を戻すのを見届けてから (= 上限 3 秒、 過ぎても打つ)、 入力欄を消さずに後ろへ打つ (= 戻された発話と空白 1 つで区切り、 1 つの発話になる)。 停止の印 (= user_stopped) は付けない"
+      - "本文の無い key=Escape は停止ボタン: すぐ打って返り、 claude が受け終えるのを見届けてから、 本文の送信と順番に入力欄を消す"
     implementation: backend/terminal/routes.py
 
   - method: POST
@@ -557,7 +571,7 @@ endpoints:
       type: object
       properties:
         enabled: { type: boolean }
-        marks:   { type: array, items: { type: string }, description: "言い方の印の名前 (= 設定に書いた順)" }
+        marks:   { type: array, items: { type: string }, description: "言い方の印の名前 (= 設定に書いた順。 最後に予約の印 mute。 声を持たなければ空)" }
         default: { type: string, description: "印の無い文の印 (= 印を 1 つも持たなければ空文字)" }
         listen:  { type: boolean, description: "人の声を聞き取るか (= 設定に voice.listen が在るか)" }
         turn:    { type: boolean, description: "言い終えを判定する model を持つか (= 設定に voice.listen.turn が在るか)" }
@@ -568,9 +582,10 @@ endpoints:
           properties:
             pause_ms:  { type: integer, description: "声が途切れてから、 言い終えたかの判定に入るまでの無音 (ミリ秒)" }
             wait_ms:   { type: integer, description: "言い終えていない時に、 送るまで待つ無音 (ミリ秒。 声が途切れた時から)" }
+            resume_ms: { type: integer, description: "言い終えた発話を送る前に待つ時間 (ミリ秒)。 この間に話し始めたら続きとつなげる。 0 なら待たない" }
             unfinished_endings: { type: array, items: { type: string }, description: "聞き取った文がこれで終わる時は、 wait_ms まで待つ" }
             interrupt: { type: boolean, description: "返事が鳴っている間も聞き、 話し始めたら返事を止めるか" }
-          required: [pause_ms, wait_ms, unfinished_endings, interrupt]
+          required: [pause_ms, wait_ms, resume_ms, unfinished_endings, interrupt]
         tuning_error: { type: string, description: "調整の file (= voice.tuning) を使えない理由 (= 使えている / 書いていなければ空文字)" }
       required: [enabled, marks, default, listen, turn, conversation, tuning_error]
     response_kind: json
@@ -599,13 +614,19 @@ endpoints:
             properties:
               mark: { type: string, description: "その文の言い方の印 (= 文頭に印が無ければ既定の印)" }
               text: { type: string }
-            required: [mark, text]
+              values:
+                type: object
+                description: "印に添えた値 (= engine の問い合わせの値の名前 → 数。 添えていなければ空)"
+                additionalProperties: { type: number }
+            required: [mark, text, values]
       required: [utterances]
     response_kind: json
     auth: tailnet
     invariants:
       - "声にする物が無い返事は空の並び (= エラーにしない)"
       - "文頭の印は、 その行の終わりまで効く (= 行の中で別の印が出れば切り替わる)。 設定に無い名前の [..] は文として残る"
+      - "予約の印 [mute] の行は声にしない (= 返さない。 行の終わりまで効き、 設定の marks に同じ名前が在っても予約が勝つ)"
+      - "印に添えた値 (= [happy i=1.2 s=1.1]) は印と同じく行の終わりまで効く。 名前の違う値と範囲の外の値は values に入れない (= その文は印の値で言う。 backend の log に出す)"
       - "声を持たないタブは 409 voice_not_enabled、 text が文字列でなければ 400 voice_bad_request、 上限より長ければ 413 voice_text_too_long"
       - "音声合成の engine は呼ばない"
     implementation: backend/routes/voice.py
@@ -619,11 +640,16 @@ endpoints:
       properties:
         text: { type: string, description: "声にする 1 文 (= utterances が返した文)" }
         mark: { type: string, description: "言い方の印 (= 省けば既定の印)" }
+        values:
+          type: object
+          description: "印に添えた値 (= utterances が返した values。 省略可)"
+          additionalProperties: { type: number }
     response_kind: raw
     auth: tailnet
     invariants:
       - "応答は engine が返した音 (= audio/wav)、 Cache-Control: no-store"
-      - "engine が問い合わせに返した値へ、 設定の query、 その上に印の値を当てる (= engine が返した値に無い名前は送らない)"
+      - "engine が問い合わせに返した値へ、 設定の query、 その上に印の値、 その上に values を当てる (= engine が返した値に無い名前は送らない)"
+      - "values のうち名前の違う物と範囲の外の物は使わない (= 断らずに印の値で言い、 backend の log に出す)。 values が組でなければ 400 voice_bad_request"
       - "印が speaker を持てば、 その文だけその声の番号で言う"
       - "設定に無い印は 400 voice_unknown_mark、 声にする文字が無ければ 400 voice_nothing_to_say、 上限より長ければ 413 voice_text_too_long (= どれも engine を呼ぶ前に返す)"
       - "engine に繋がらなければ 502 voice_engine_unreachable、 engine が断れば 502 voice_engine_failed (= params に step と status)"
@@ -726,10 +752,29 @@ endpoints:
     invariants:
       - "声を持たないタブは 409 voice_not_enabled、 聞き取りを持たないタブは 409 voice_listen_not_enabled (= つなぐ前に返す)"
       - "電話の会話の部品 (= backend/requirements-voice-call.txt) が入っていなければ 501 voice_call_unavailable"
+      - "query の volume (= 0 〜 2、 省けば 1) は、 その端末の声の大きさの倍率。 範囲の外なら 400 voice_bad_request"
       - "会話は通話ごとに別の process で動く (= backend 本体の他の仕事で音の送り出しを遅らせない)。 その process が answer を返せなければ 502 voice_call_failed (= params に reason)"
       - "つながると、 その電話がタブの会話の持ち主になる (= 画面の会話と同じ決まり。 後から開いた画面が持てば、 電話は次の発話で切れる)"
       - "人の発話は、 声で聞いている印を付けて、 画面で打った時と同じ口でタブへ送る。 タブの返事は、 画面の声と同じ決まりで声にして電話へ返す"
     implementation: backend/routes/voice_call.py
+
+  - method: POST
+    path: /sessions/{sid}/voice/call/volume
+    description: "そのタブの通話の声の大きさの倍率を変える (= 端末の画面のつまみ。 話している途中でもその場で効く)"
+    request_body:
+      type: object
+      properties:
+        volume: { type: number, description: "0 〜 2 (= 1 で engine の音のまま)" }
+      required: [volume]
+    response:
+      type: object
+      properties:
+        calls: { type: integer, description: "倍率を伝えた通話の数 (= 通話が無ければ 0)" }
+      required: [calls]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "volume が数でない / 0 〜 2 の外なら 400 voice_bad_request"
 
   - method: PATCH
     path: /sessions/{sid}/voice/call
@@ -1054,3 +1099,116 @@ endpoints:
       - "op=subagents: watch 対象 sid 切替 (= null で停止)、 対象 1 接続 1 sid"
       - "不明 conn は 404 (= 接続が先、 制御が後)"
     implementation: backend/routes/unified_stream.py
+
+  - method: POST
+    path: /device/ops
+    description: "この Mac の命令 (= cpc device) が、 iPhone の app に操作を 1 つ頼む (= json)"
+    request_body:
+      type: object
+      properties:
+        op:        { type: string, description: "<種類>.<操作> (= app の一覧の名前)" }
+        args:      { type: object, description: "操作の引数 (= 一覧の params に従う)" }
+        timeout_s: { type: number, description: "答えを待つ秒 (= 省けば操作が名乗る長さ、 名乗らなければ 30)" }
+      required: [op]
+    response:
+      type: object
+      properties:
+        ok:     { type: boolean }
+        result: { description: "app の答え (= 大きい答えは files に path の並びで入る)" }
+      required: [ok]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "app がつながっていなければ 503、 一覧に無い操作は 404 (= detail に known の並び)、 時間切れは 504、 app ができなかったら 502"
+      - "一覧に無い操作は app へ送らない"
+      - "答えに付いた file は data/device-files/ に書き、 答えには path を返す (= app が付けた名前の / や .. は落とす)"
+    implementation: backend/routes/device.py
+
+  - method: POST
+    path: /device/screen
+    description: "iPhone の app の画面の配信が 1 枚送る (= JPEG。 最後の 1 枚だけを持つ)"
+    request_body:
+      type: string
+      description: "image/jpeg の本体 (= 5MB まで)"
+    response:
+      type: object
+      properties:
+        bytes: { type: integer }
+      required: [bytes]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "JPEG でない物 (= 頭が FF D8 でない) と 5MB を超える物は 400"
+      - "data/device-files/screen.jpg を置き換える"
+    implementation: backend/routes/device.py
+
+  - method: POST
+    path: /device/screen/state
+    description: "画面の配信の始まりと終わり"
+    request_body:
+      type: object
+      required: [live]
+      properties:
+        live: { type: boolean }
+    response:
+      type: object
+      properties:
+        live: { type: boolean }
+      required: [live]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "終わりの知らせが届かずに切れても、 最後の 1 枚が 5 秒より古ければ配信していない扱い (= GET /device/screen の live)"
+    implementation: backend/routes/device.py
+
+  - method: GET
+    path: /device/screen/settings
+    description: "画面の配信の仕方 (= app の配信が始まる時に受け取る)"
+    response:
+      type: object
+      properties:
+        interval_s: { type: number, description: "1 枚を送る間隔 (秒)" }
+        max_side:   { type: integer, description: "長辺の上限 (px)" }
+        quality:    { type: number, description: "JPEG の質 (= 0 より大きく 1 以下)" }
+      required: [interval_s, max_side, quality]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "backend/config.json の device_screen を既定に重ねた物 (= 型か範囲が違う値は既定のまま)"
+    implementation: backend/routes/device.py
+
+  - method: GET
+    path: /device/screen
+    description: "iPhone の画面の最後の 1 枚の在処と、 配信しているか (= cpc device screen)"
+    response:
+      type: object
+      properties:
+        live:  { type: boolean, description: "配信中で、 最後の 1 枚が 5 秒より新しい" }
+        path:  { type: string, nullable: true }
+        at:    { type: number, nullable: true, description: "最後の 1 枚の時刻 (= unix 秒)" }
+        age_s: { type: number, nullable: true }
+        bytes: { type: integer, nullable: true }
+      required: [live, path]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "まだ 1 枚も届いていない時は path / at / age_s / bytes が null"
+    implementation: backend/routes/device.py
+
+  - method: GET
+    path: /device/catalog
+    description: "iPhone の app がつながっているかと、 できる操作の一覧 (= 居ない時は最後に受けた一覧)"
+    response:
+      type: object
+      properties:
+        connected: { type: boolean }
+        device:    { type: string }
+        app:       { type: string, description: "app の版" }
+        since:     { type: number, description: "つないだ時刻 (= unix 秒)" }
+        catalog:   { type: array, description: "操作の並び (= name / kind / summary / params / timeout_s / foreground)" }
+      required: [connected, catalog]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "一覧の真値は app の中 (= hello で受けた物を data/device_catalog.json に控える)"
+    implementation: backend/routes/device.py

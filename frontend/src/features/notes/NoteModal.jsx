@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import {
   subscribe as subscribeSessions,
   getSnapshot as getSessionsSnapshot,
@@ -8,6 +8,7 @@ import { setOverlay } from '../../state/ui.js'
 import { apiFetch } from '../../utils/api.js'
 import { translateHttpErrorDetail } from '../../utils/httpError.js'
 import { useEscape } from '../../hooks/useEscape.js'
+import { useTextZoom } from '../../hooks/useTextZoom.js'
 import { useT } from '../../i18n/t.js'
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
 import MessageRenderer from '../chat/MessageRenderer.jsx'
@@ -37,6 +38,10 @@ export default function NoteModal() {
   const [editText, setEditText] = useState('')
   const [saving, setSaving] = useState(false)
   const [resetConfirm, setResetConfirm] = useState(false)
+  // 見る時の字の大きさ (= 2 本の指 / Ctrl・⌘ + ホイール。 markdown のプレビューと同じ値)
+  const bodyRef = useRef(null)
+  const textRef = useRef(null)
+  useTextZoom(bodyRef, textRef)
 
   const onClose = useCallback(() => setOverlay('notes', false), [])
 
@@ -125,7 +130,7 @@ export default function NoteModal() {
             {!editMode && <button className="modal-close" onClick={onClose}>✕</button>}
           </div>
         </div>
-        <div className="modal-body" data-testid="notes-body">
+        <div className="modal-body" ref={bodyRef} data-testid="notes-body">
           {error && <span className="error">{error}</span>}
           {editMode ? (
             <textarea
@@ -142,7 +147,7 @@ export default function NoteModal() {
             <p className="dim note-empty">{t('notes.empty')}</p>
           ) : (
             // 枠の見た目は markdown のファイルプレビューと同じ物 (= 見出し / 表 / コードの罫と余白)
-            <div className="md-preview" data-testid="notes-text">
+            <div className="md-preview" ref={textRef} data-testid="notes-text">
               <MessageRenderer text={content} onOpenFile={handleOpenFile} asWritten />
             </div>
           )}

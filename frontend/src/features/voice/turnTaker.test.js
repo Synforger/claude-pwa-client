@@ -8,7 +8,7 @@ const piece = (...values) => new Float32Array(values)
 // 文字にすると、 声の値を「-」 でつないだ文になる (= 言いさしを作りたい値は words で文を差し替える)
 const asText = (audio, words) => words[Array.from(audio).join('-')] ?? Array.from(audio).join('-')
 
-function rig({ judge = async () => true, words = {}, transcribe } = {}) {
+function rig({ judge = async () => true, words = {}, transcribe, resumeMs = 0 } = {}) {
   const sent = []
   const written = []
   const phases = []
@@ -20,6 +20,7 @@ function rig({ judge = async () => true, words = {}, transcribe } = {}) {
     unfinished: (text) => isUnfinished(text, ENDINGS),
     pauseMs: PAUSE_MS,
     waitMs: WAIT_MS,
+    resumeMs,
     onPhase: (p) => phases.push(p),
     onError: (e) => errors.push(e.message),
   })
@@ -220,6 +221,41 @@ describe('createTurnTaker — what is said goes once the speaker has finished', 
     await taker.speechEnd(piece(9))
     await taker.flush()
     expect(sent).toEqual([])
+  })
+
+  it('waits resumeMs before sending what Smart Turn called finished, and sends it if nothing follows', async () => {
+    const { taker, sent } = rig({ resumeMs: 400 })
+    taker.speechStart()
+    await taker.speechEnd(piece(1, 2))
+    expect(sent).toEqual([])
+    await vi.advanceTimersByTimeAsync(399)
+    expect(sent).toEqual([])
+    await vi.advanceTimersByTimeAsync(1)
+    expect(sent).toEqual(['1-2'])
+  })
+
+  it('joins what was called finished with what the speaker goes on to say within resumeMs', async () => {
+    const { taker, sent, written } = rig({ resumeMs: 400 })
+    taker.speechStart()
+    await taker.speechEnd(piece(1))
+    await vi.advanceTimersByTimeAsync(200)
+    taker.speechStart()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(sent).toEqual([])
+    await taker.speechEnd(piece(2))
+    await vi.advanceTimersByTimeAsync(400)
+    expect(sent).toEqual(['1-2'])
+    expect(written.at(-1)).toEqual([1, 2])
+  })
+
+  it('sends what waits for resumeMs at once when the reply starts', async () => {
+    const { taker, sent } = rig({ resumeMs: 400 })
+    taker.speechStart()
+    await taker.speechEnd(piece(3))
+    await taker.flush()
+    expect(sent).toEqual(['3'])
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(sent).toEqual(['3'])
   })
 })
 
