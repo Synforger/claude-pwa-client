@@ -16,6 +16,9 @@ export interface GetSessionsResponseItem {
 
 export type GetSessionsResponse = GetSessionsResponseItem[]
 
+/** GET /sessions/overview response */
+export type GetSessionsOverviewResponse = Record<string, unknown>
+
 /** POST /sessions request body */
 export interface PostSessionsRequest {
   agent_id: string
@@ -500,4 +503,69 @@ export interface PostStreamUnifiedConnControlRequest {
 export interface PostStreamUnifiedConnControlResponse {
   ok?: boolean
   subscribed?: unknown[]
+}
+
+/** POST /device/ops request body */
+export interface PostDeviceOpsRequest {
+  /** <種類>.<操作> (= app の一覧の名前) */
+  op: string
+  /** 操作の引数 (= 一覧の params に従う) */
+  args?: Record<string, unknown>
+  /** 答えを待つ秒 (= 省けば操作が名乗る長さ、 名乗らなければ 30) */
+  timeout_s?: number
+}
+
+/** POST /device/ops response */
+export interface PostDeviceOpsResponse {
+  ok: boolean
+  /** app の答え (= 大きい答えは files に path の並びで入る) */
+  result?: unknown
+}
+
+/** POST /device/screen response */
+export interface PostDeviceScreenResponse {
+  bytes: number
+}
+
+/** POST /device/screen/state request body */
+export interface PostDeviceScreenStateRequest {
+  live: boolean
+}
+
+/** POST /device/screen/state response */
+export interface PostDeviceScreenStateResponse {
+  live: boolean
+}
+
+/** GET /device/screen/settings response */
+export interface GetDeviceScreenSettingsResponse {
+  /** 1 枚を送る間隔 (秒) */
+  interval_s: number
+  /** 長辺の上限 (px) */
+  max_side: number
+  /** JPEG の質 (= 0 より大きく 1 以下) */
+  quality: number
+}
+
+/** GET /device/screen response */
+export interface GetDeviceScreenResponse {
+  /** 配信中で、 最後の 1 枚が 5 秒より新しい */
+  live: boolean
+  path?: string | null
+  /** 最後の 1 枚の時刻 (= unix 秒) */
+  at?: number | null
+  age_s?: number | null
+  bytes?: number | null
+}
+
+/** GET /device/catalog response */
+export interface GetDeviceCatalogResponse {
+  connected: boolean
+  device?: string
+  /** app の版 */
+  app?: string
+  /** つないだ時刻 (= unix 秒) */
+  since?: number
+  /** 操作の並び (= name / kind / summary / params / timeout_s / foreground) */
+  catalog: unknown[]
 }

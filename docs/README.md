@@ -28,6 +28,7 @@ claude-pwa-client を **インストールして使うため**の文書です。
 | タブの中の Claude どうしで連絡させたい | [reference/agent-messages.md](reference/agent-messages.md) |
 | 長くなった会話を自動で締めて、 新しい会話に入れ替えたい | [reference/rollover.md](reference/rollover.md) |
 | エージェントと声で会話したい / 返事を声にしたい | [reference/voice.md](reference/voice.md) |
+| Mac のエージェントに iPhone の中を読ませたい / iPhone で操作させたい | [reference/device-ops.md](reference/device-ops.md) |
 
 ---
 

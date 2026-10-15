@@ -40,7 +40,12 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise),
     ]
 
-    private var client: PipecatClient?
+    private var client: PipecatClient? {
+        didSet { Self.inCall = client != nil }
+    }
+    /// 声の会話がつながっている (= 端末の操作のうちマイクやスピーカーを使う物は、 その間は断る。
+    /// 通話の途中で音の設定を変えると、 その通話の残りはエコー消しが切れる)
+    static private(set) var inCall = false
     private var picture: CallPicture?
     private var audioWatch: AudioSessionWatch?
     /// つながって相手の準備ができる前に頼まれた、 返事の声の入 / 切 (= 準備ができた所で送る)
@@ -294,11 +299,11 @@ final class AudioSessionWatch {
 
 /// WebRTC が掛ける音の設定を、 Pipecat の部品が掛ける物にそろえる (= 機器の指定が無い時の、 スピーカーで話す形)。
 /// Pipecat の値は `pipecat-client-ios-small-webrtc` の `AudioManager.applyConfiguration()`: playAndRecord /
-/// videoChat / allowBluetooth + mixWithOthers (= 他の app の音と一緒に鳴らせる)。
+/// videoChat / allowBluetooth (= 今の名前は allowBluetoothHFP。 値は同じ) + mixWithOthers (= 他の app の音と一緒に鳴らせる)。
 func useOneAudioSession() {
     let config = RTCAudioSessionConfiguration.webRTC()
     config.category = AVAudioSession.Category.playAndRecord.rawValue
     config.mode = AVAudioSession.Mode.videoChat.rawValue
-    config.categoryOptions = [.allowBluetooth, .mixWithOthers]
+    config.categoryOptions = [.allowBluetoothHFP, .mixWithOthers]
     RTCAudioSessionConfiguration.setWebRTC(config)
 }

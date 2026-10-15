@@ -195,6 +195,14 @@ def _mark_user_stopped(session_id: str) -> bool:
     return True
 
 
+@router.get("/sessions/overview")
+def get_sessions_overview() -> dict:
+    """全 session の busy + last_seen_at + waiting_input を 1 回で返す (= stream の overview と同じ中身)。
+
+    stream を張らずに今の状態だけ見たい側 (= iPhone のウィジェット) が引く。"""
+    return _build_sessions_overview()
+
+
 @router.post("/sessions/{session_id}/seen")
 def mark_session_seen(session_id: str) -> dict:
     """指定 session を「今この瞬間に確認した」 とマークし、 全端末に sync 配信する。

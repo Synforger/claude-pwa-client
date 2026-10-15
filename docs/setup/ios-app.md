@@ -1,10 +1,15 @@
 # iPhone の app を作る (任意)
 
 iPhone では、 ブラウザで開いた画面はホーム画面へ出るとマイクも声も止まります。 この app は同じ画面を包み、
-エージェントとの声の会話だけを、 裏に回っても続けます ([iPhone の app で話す](../reference/voice.md#iphone-の-app-で話す))。
+次の 2 つを足します。
+
+- エージェントとの声の会話を、 裏に回っても続ける ([iPhone の app で話す](../reference/voice.md#iphone-の-app-で話す))
+- Mac のタブのエージェントが、 iPhone の中の物を読み、 iPhone で操作する ([iPhone をエージェントの手にする](../reference/device-ops.md))。
+  Siri・ウィジェット・ロック画面の進み具合・画面の配信もここに入る
+
 画面そのものは backend から読み込むので、 画面の更新に app の作り直しは要りません。
 
-声の会話を使わないなら、 この app は要りません (= ブラウザの画面で全部の機能が使えます)。
+どちらも使わないなら、 この app は要りません (= ブラウザの画面で全部の機能が使えます)。
 
 ## 要るもの
 
@@ -31,7 +36,10 @@ Xcode で:
 1. 左の一覧で `App` を選び、 **Signing & Capabilities** の **Team** に自分の Apple ID を選ぶ
 2. 同じ画面の **Bundle Identifier** を、 自分だけの名前に変える (= 例 `com.example.claudepwa`。 無料の Apple ID
    では、 他の人と同じ名前は使えない)
-3. iPhone をケーブルでつなぎ、 上の行き先に iPhone を選んで ▶ を押す
+3. `Widgets` と `Broadcast` の target でも同じ **Team** を選び、 **Bundle Identifier** を 2 で決めた名前の後ろに
+   `.Widgets` / `.Broadcast` を付けた物にする (= 例 `com.example.claudepwa.Widgets`。 app の中に入る extension は、
+   app の名前で始まる必要がある)
+4. iPhone をケーブルでつなぎ、 上の行き先に iPhone を選んで ▶ を押す
 
 初めて入れた時は、 iPhone で次の 2 つを済ませます。
 
