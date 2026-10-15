@@ -473,6 +473,41 @@ async def synthesize(session_id: str, text: str, mark: str | None = None,
     return kind, sound
 
 
+@router.post("/sessions/{session_id}/voice/reading")
+async def post_reading(request: Request, session_id: str) -> dict:
+    """1 文の読み (= engine が声にする時の拍のカナ) を返す。
+
+    body:
+        text (str): 読みにする文
+    """
+    text, _ = await _text_of(request)
+    return {"reading": await reading(session_id, text)}
+
+
+async def reading(session_id: str, text: str) -> str:
+    """1 文を engine が声にする時の読み (= 拍のカナをつなげた物。 間の無音は含めない)。 書いた文字と声がずれる所
+    (= 記号・英字・数字) も、 声のとおりに比べられる。 文の形が違えば、 声にする時と同じ error を投げる。"""
+    settings = _enabled(session_id)
+    text = text.strip()
+    if not speakable(text):
+        raise_error(400, "voice_nothing_to_say", "声にする文字がありません")
+    if len(text) > MAX_UTTERANCE_CHARS:
+        raise_error(413, "voice_text_too_long", f"文が長すぎます (上限 {MAX_UTTERANCE_CHARS} 文字)",
+                    limit=MAX_UTTERANCE_CHARS)
+    asked = urllib.parse.urlencode({"speaker": settings["speaker"], "text": text}, quote_via=urllib.parse.quote)
+    _, raw = await _engine("audio_query", f"{settings['engine']}/audio_query?{asked}", None)
+    try:
+        query = json.loads(raw)
+    except ValueError:
+        query = None
+    if not isinstance(query, dict):
+        _engine_failed("audio_query", 200)
+    return "".join(
+        mora.get("text") or ""
+        for phrase in query.get("accent_phrases") or [] if isinstance(phrase, dict)
+        for mora in phrase.get("moras") or [] if isinstance(mora, dict))
+
+
 # log に出した、 コンプレッサーを掛けられなかった理由 (= 同じ理由は 1 度だけ出す)
 _compressor_logged: set[str] = set()
 

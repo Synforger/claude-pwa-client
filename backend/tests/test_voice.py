@@ -205,6 +205,29 @@ def test_a_request_with_no_text_is_refused(client, tabs, engine, body):
     assert engine == []
 
 
+# --- 読み ------------------------------------------------------------------------
+
+def test_the_reading_of_a_sentence_is_the_kana_of_its_moras(client, tabs, monkeypatch):
+    asked = []
+
+    def fake(url, body, timeout):
+        asked.append(url)
+        phrases = [{"moras": [{"text": "プ"}, {"text": "ラ"}, {"text": "ス"}], "pause_mora": {"text": "、"}},
+                   {"moras": [{"text": "ジュ"}, {"text": "ウ"}], "pause_mora": None}]
+        return 200, "application/json", json.dumps({**QUERY, "accent_phrases": phrases}).encode()
+
+    monkeypatch.setattr(voice, "_call_engine", fake)
+    assert client.post("/sessions/ses_voice/voice/reading", json={"text": "±10"}).json() == {"reading": "プラスジュウ"}
+    assert asked == ["http://127.0.0.1:10101/audio_query?speaker=100&text=%C2%B110"]
+
+
+def test_a_reading_is_refused_like_a_sentence_to_say(client, tabs, engine):
+    assert _code(client.post("/sessions/ses_voice/voice/reading", json={})) == "voice_bad_request"
+    assert _code(client.post("/sessions/ses_voice/voice/reading", json={"text": "。"})) == "voice_nothing_to_say"
+    assert _code(client.post("/sessions/ses_plain/voice/reading", json={"text": "はい"})) == "voice_not_enabled"
+    assert engine == []
+
+
 # --- 音にする --------------------------------------------------------------------
 
 def test_a_sentence_is_asked_of_the_engine_and_comes_back_as_sound(client, tabs, engine):
