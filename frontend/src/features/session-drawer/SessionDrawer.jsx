@@ -28,7 +28,6 @@ import {
 } from './useSessions.js'
 import { deriveSessionBadges } from '../push-notify/useSessionBadges.js'
 import { usePushSubscription } from '../push-notify/usePushSubscription.js'
-import { openInAppAvailable, openInAppEnabled, setOpenInAppEnabled } from '../push-notify/openInApp.js'
 import {
   TEXT_ZOOM_MAX,
   TEXT_ZOOM_MIN,
@@ -130,11 +129,6 @@ export default function SessionDrawer() {
     pushEnabled, pushBroken, pushBusy, pushAvailable, handleTogglePush,
   } = usePushSubscription({ onCloseMenu: () => setGlobalMenuOpen(false) })
   const onTogglePush = handleTogglePush
-  // 「通知を app で開く」 (= この端末だけの切り替え。 出すのは iPhone のホーム画面の PWA だけ)。
-  const [openInApp, setOpenInApp] = useState(openInAppEnabled)
-  const onToggleOpenInApp = useCallback(() => {
-    setOpenInApp((prev) => { setOpenInAppEnabled(!prev); return !prev })
-  }, [])
 
   const [agentPicker, setAgentPicker] = useState(false) // + ボタン押下後の agent 選択メニュー
   const [accounts, setAccounts] = useState([])
@@ -408,14 +402,6 @@ export default function SessionDrawer() {
                       : pushBroken
                         ? t('drawer.push.broken')
                         : t('drawer.push.off')}
-                  </button>
-                )}
-                {openInAppAvailable() && (
-                  <button
-                    onClick={() => { setGlobalMenuOpen(false); onToggleOpenInApp() }}
-                    data-testid="open-in-app"
-                  >
-                    {openInApp ? t('drawer.open_in_app.on') : t('drawer.open_in_app.off')}
                   </button>
                 )}
                 <button

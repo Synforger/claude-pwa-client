@@ -103,8 +103,6 @@
   "drawer.push.on": "🔔 Push ON (tap to disable)",
   "drawer.push.broken": "⚠ Push subscription expired (tap to re-enable)",
   "drawer.push.off": "🔕 Push OFF (tap to enable)",
-  "drawer.open_in_app.on": "📱 Notifications open in: the app (tap for the PWA)",
-  "drawer.open_in_app.off": "🌐 Notifications open in: the PWA (tap for the app)",
   "drawer.text_size.label": "Text size",
   "drawer.text_size.title": "Size of the text in the notes and the markdown preview (a pinch changes it too)",
   "drawer.text_size.smaller": "Smaller",
