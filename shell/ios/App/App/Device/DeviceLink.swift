@@ -118,8 +118,8 @@ final class DeviceLink: NSObject {
         task?.send(.string(text)) { _ in }
     }
 
-    /// 画面を読み込む backend の URL (= `npx cap sync` が capacitor.config.json の server.url に書く)。
-    private static func serverURL() -> URL? {
+    /// 画面を読み込む backend の URL (= `npx cap sync` が capacitor.config.json の server.url に書く)。 Siri の口も使う。
+    static func serverURL() -> URL? {
         guard let file = Bundle.main.url(forResource: "capacitor.config", withExtension: "json"),
               let data = try? Data(contentsOf: file),
               let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

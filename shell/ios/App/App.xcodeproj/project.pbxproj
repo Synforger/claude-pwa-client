@@ -36,6 +36,7 @@
 		83CE1830F46433C94CF8EE65 /* NFC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 905D077F6AD4479D32421D80 /* NFC.swift */; };
 		123109D880218616EE0D5591 /* Phone.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F2266B3B888D3FDF94B30C6 /* Phone.swift */; };
 		60ED8575223DEC700AA5E89E /* PhotoText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7140C4EA6C57CD863B49EF2B /* PhotoText.swift */; };
+		7722CE8EF73F0541F05C35C3 /* AskAgent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4266F8BE7E657D6C47DAF9BD /* AskAgent.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -68,6 +69,7 @@
 		905D077F6AD4479D32421D80 /* NFC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NFC.swift; sourceTree = "<group>"; };
 		8F2266B3B888D3FDF94B30C6 /* Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Phone.swift; sourceTree = "<group>"; };
 		7140C4EA6C57CD863B49EF2B /* PhotoText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoText.swift; sourceTree = "<group>"; };
+		4266F8BE7E657D6C47DAF9BD /* AskAgent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskAgent.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -104,6 +106,7 @@
 		504EC3061FED79650016851F /* App */ = {
 			isa = PBXGroup;
 			children = (
+				EBCCA996553CC6370DA02F12 /* Intents */,
 				43F4545BBBFB930036CC29DB /* Device */,
 				9582B6822FE993A50072D4E8 /* SceneDelegate.swift */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
@@ -141,6 +144,14 @@
 				B2CC38896364C4F735E1EF85 /* Bluetooth.swift */,
 			);
 			path = Device;
+			sourceTree = "<group>";
+		};
+		EBCCA996553CC6370DA02F12 /* Intents */ = {
+			isa = PBXGroup;
+			children = (
+				4266F8BE7E657D6C47DAF9BD /* AskAgent.swift */,
+			);
+			path = Intents;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -229,6 +240,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7722CE8EF73F0541F05C35C3 /* AskAgent.swift in Sources */,
 				60ED8575223DEC700AA5E89E /* PhotoText.swift in Sources */,
 				123109D880218616EE0D5591 /* Phone.swift in Sources */,
 				83CE1830F46433C94CF8EE65 /* NFC.swift in Sources */,
