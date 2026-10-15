@@ -23,6 +23,7 @@ import WebRTC
 ///   start({ url, mic })   電話の口の URL へつなぐ (= mic が false ならマイクを切った状態で始める)
 ///   setMic({ on })        マイクを入れる / 切る (= 声はそのまま鳴る)
 ///   setSpeech({ on })     返事を声にする / しない (= backend の会話へ知らせる。 マイクと小窓はそのまま)
+///   setVolume({ volume }) 声の大きさの倍率を覚える (= 通話を掛け直す時に使う。 鳴っている声へは backend が掛ける)
 ///   showPicture()         小窓を今出す (= 自動で出なかった時。 出せなければ reject)
 ///   stop()                切る
 /// 画面へ知らせる event:
@@ -36,16 +37,22 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "start", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setMic", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setSpeech", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setVolume", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "showPicture", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise),
     ]
 
-    private var client: PipecatClient? {
-        didSet { Self.inCall = client != nil }
-    }
-    /// 声の会話がつながっている (= 端末の操作のうちマイクやスピーカーを使う物は、 その間は断る。
-    /// 通話の途中で音の設定を変えると、 その通話の残りはエコー消しが切れる)
-    static private(set) var inCall = false
+    private var client: PipecatClient?
+    /// 今の通話を持つ plugin (= 端末の操作が、 マイクやスピーカーを使う間だけ通話を外す。 `withCallPaused`)
+    @MainActor private static weak var current: BackgroundVoicePlugin?
+    /// 掛け直す時の値 (= 始めた時の URL に、 その後に変わったマイク・返事の声の入 / 切・声の大きさを重ねる)。
+    /// 通話を切ると URL を忘れる (= 外している間に切られたら、 掛け直さない)
+    private var callURL: URL?
+    private var micOn = true
+    private var speechOn = true
+    private var volume: Double?
+    /// 端末の操作のために通話を外している間 (= 切れたことを画面へ知らせない。 知らせると画面が会話を閉じる)
+    private var pausing = false
     private var picture: CallPicture?
     private var audioWatch: AudioSessionWatch?
     /// つながって相手の準備ができる前に頼まれた、 返事の声の入 / 切 (= 準備ができた所で送る)
@@ -57,6 +64,11 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let mic = call.getBool("mic") ?? true
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        callURL = url
+        micOn = mic
+        speechOn = query.first { $0.name == "speech" }?.value != "0"
+        volume = query.first { $0.name == "volume" }?.value.flatMap(Double.init)
         requestMicrophone { [weak self] granted in
             guard let self else { return }
             guard granted else {
@@ -80,6 +92,7 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
             }
             do {
                 try await client.enableMic(enable: on)
+                self.micOn = on
                 self.picture?.setMic(on)
                 call.resolve()
             } catch {
@@ -91,6 +104,7 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func setSpeech(_ call: CAPPluginCall) {
         let on = call.getBool("on") ?? true
         Task { @MainActor in
+            self.speechOn = on
             guard let client = self.client else {
                 call.resolve()
                 return
@@ -111,6 +125,14 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    @objc func setVolume(_ call: CAPPluginCall) {
+        let volume = call.getDouble("volume")
+        Task { @MainActor in
+            if let volume { self.volume = volume }
+            call.resolve()
+        }
+    }
+
     @objc func showPicture(_ call: CAPPluginCall) {
         Task { @MainActor in
             if self.picture?.show() == true {
@@ -123,6 +145,8 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func stop(_ call: CAPPluginCall) {
         Task { @MainActor in
+            self.callURL = nil
+            self.pausing = false
             await self.disconnect()
             call.resolve()
         }
@@ -140,6 +164,7 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
 
     @MainActor private func connect(_ url: URL, mic: Bool) async {
         await disconnect()
+        Self.current = self
         #if DEBUG
         // 試しの build だけ: WebRTC 自身の log (= 音の部品の作り直しや経路の変化) も出す
         RTCSetMinDebugLogLevel(.info)
@@ -167,6 +192,40 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    /// 通話中に、 マイクかスピーカーを使う端末の操作を頼まれた: 通話を一旦外して操作し、 終わったら同じタブへ掛け直す。
+    ///
+    /// 通話の途中で音の設定を変えると、 その通話の残りはエコー消しが切れる (= iPhone の音声処理が作り直される)。
+    /// 音の設定は通話の外で変え、 掛け直した通話は音の部品を作り直すので、 エコー消しも初めから効く。 body は、 自分で
+    /// 変えた音の設定を戻し終えてから返す (= 掛け直した後に戻すと、 掛け直した通話の音を止める)。 通話していなければ、
+    /// そのまま body を動かす。
+    @MainActor static func withCallPaused<T>(_ body: @MainActor () async throws -> T) async throws -> T {
+        guard let plugin = current, plugin.client != nil, plugin.callURL != nil else { return try await body() }
+        plugin.pausing = true
+        CAPLog.print("[BackgroundVoice] \(stamp()) the call is paused for a device operation")
+        await plugin.disconnect()
+        do {
+            let result = try await body()
+            await plugin.resume()
+            return result
+        } catch {
+            await plugin.resume()
+            throw error
+        }
+    }
+
+    /// 外した通話を、 外した時のマイク・返事の声の入 / 切・声の大きさで掛け直す (= 外している間に切られていたら、 しない)。
+    @MainActor private func resume() async {
+        defer { pausing = false }
+        guard let callURL, var parts = URLComponents(url: callURL, resolvingAgainstBaseURL: false) else { return }
+        var query = (parts.queryItems ?? []).filter { $0.name != "volume" && $0.name != "speech" }
+        if let volume { query.append(URLQueryItem(name: "volume", value: String(volume))) }
+        if !speechOn { query.append(URLQueryItem(name: "speech", value: "0")) }
+        parts.queryItems = query
+        guard let url = parts.url else { return }
+        CAPLog.print("[BackgroundVoice] \(stamp()) the call is resumed after a device operation")
+        await connect(url, mic: micOn)
+    }
+
     @MainActor private func sendSpeech(_ on: Bool) throws {
         try client?.sendClientMessage(msgType: "voice-speech", data: .object(["on": .boolean(on)]))
     }
@@ -177,6 +236,7 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
         Task { @MainActor in
             do {
                 try await client.enableMic(enable: on)
+                self.micOn = on
                 CAPLog.print("[BackgroundVoice] \(stamp()) microphone \(on ? "on" : "off") from the picture")
                 notifyListeners("mic", data: ["on": on])
             } catch {
@@ -221,7 +281,11 @@ extension BackgroundVoicePlugin: PipecatClientDelegate {
             }
         }
     }
-    public func onDisconnected() { notify("disconnected") }
+    public func onDisconnected() {
+        Task { @MainActor in
+            if !self.pausing { self.notify("disconnected") }
+        }
+    }
     public func onError(message: RTVIMessageInbound) { notify("error", message: "\(message)") }
 
     /// backend の会話が送る小窓の会話と状態 (= `CallPicture`)。
