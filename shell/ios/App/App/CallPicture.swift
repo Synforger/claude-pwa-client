@@ -58,7 +58,7 @@ import UIKit
 
     func start(over screen: UIView) {
         guard AVPictureInPictureController.isPictureInPictureSupported() else {
-            CAPLog.print("[CallPicture] \(stamp()) PiP is not supported on this device")
+            Self.report("unsupported")
             return
         }
         host.isUserInteractionEnabled = false
@@ -76,11 +76,50 @@ import UIKit
             ) { [weak self] _ in
                 MainActor.assumeIsolated { self?.setLeaving(false) }
             },
+            // 流し込む層が止まった (= 絵を受けなくなる)。 次の絵を待たずに流し直す
+            NotificationCenter.default.addObserver(
+                forName: .AVSampleBufferDisplayLayerFailedToDecode, object: nil, queue: .main
+            ) { [weak self] note in
+                let error = note.userInfo?[AVSampleBufferDisplayLayerFailedToDecodeNotificationErrorKey]
+                Self.report("layer-failed", ["error": "\(error.map { "\($0)" } ?? "none")"])
+                MainActor.assumeIsolated { self?.render() }
+            },
+            NotificationCenter.default.addObserver(
+                forName: .AVSampleBufferDisplayLayerRequiresFlushToResumeDecodingDidChange, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    Self.report("layer-needs-flush", ["needs": self.layer.requiresFlushToResumeDecoding])
+                    self.render()
+                }
+            },
         ]
         timer = Timer.scheduledTimer(withTimeInterval: Self.refreshSecs, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.render() }
         }
-        CAPLog.print("[CallPicture] \(stamp()) ready (starts when the app goes to the background)")
+        Self.report("ready")
+    }
+
+    /// 小窓の出来事を、 app の log と backend の log (= `logs/backend.error.log` の `sw-log` の `picture:` の行) の両方に
+    /// 出す。 小窓は app が裏に回っている間に動くので、 Xcode をつながない iPhone の出来事は backend にしか残らない。
+    nonisolated static func report(_ event: String, _ detail: [String: Any] = [:]) {
+        CAPLog.print("[CallPicture] \(stamp()) \(event) \(detail)")
+        guard let url = try? ServerAddress.url("/log/sw") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var payload = detail
+        payload["stage"] = "picture:\(event)"
+        payload["at"] = stamp()
+        request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+        URLSession.shared.dataTask(with: request).resume()
+    }
+
+    /// 今の小窓の様子 (= log に添える)
+    private var condition: [String: Any] {
+        ["mic": micOn, "leaving": leaving, "active": controller?.isPictureInPictureActive ?? false,
+         "layer": layer.status == .failed ? "failed" : layer.status == .rendering ? "rendering" : "unknown",
+         "needsFlush": layer.requiresFlushToResumeDecoding]
     }
 
     /// 絵を流し込む層を新しくする (= 始めた時と、 閉じた後に作り直す時。 前の層は前の仕組みと一緒に残す)。
@@ -111,7 +150,10 @@ import UIKit
         syncPlayback()
     }
 
+    /// app を抜ける瞬間の印を立てる / 降ろす。 小窓が出ている間は立てない (= 立てる理由は小窓を自動で出させる事だけ。
+    /// 出ている間に立てると、 降ろす「小窓が出た」 の知らせがもう来ず、 停止を押しても「再生中」 と答え続ける)。
     private func setLeaving(_ on: Bool) {
+        if on, controller?.isPictureInPictureActive == true { return }
         leaving = on
         syncPlayback()
     }
@@ -198,7 +240,11 @@ import UIKit
             draw(in: context.cgContext)
         }
         guard let picture = image.cgImage, let sample = Self.sample(of: picture) else { return }
-        if layer.status == .failed { layer.flush() }
+        // 止まった層は、 流し直すまで絵を受けない (= 小窓が黒いまま。 裏に回った時や音の設定が変わった時に起きる)
+        if layer.status == .failed || layer.requiresFlushToResumeDecoding {
+            Self.report("layer-flushed", condition.merging(["error": "\(layer.error.map { "\($0)" } ?? "none")"]) { $1 })
+            layer.flush()
+        }
         layer.enqueue(sample)
     }
 
@@ -314,7 +360,7 @@ import UIKit
 // 再生の操作: 生の映像として伝え、 再生 / 停止と送りは通話の操作に読み替える
 extension CallPicture: AVPictureInPictureSampleBufferPlaybackDelegate {
     nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController, setPlaying playing: Bool) {
-        CAPLog.print("[CallPicture] \(stamp()) play/pause pressed: playing=\(playing)")
+        CallPicture.report("play-pause", ["playing": playing, "mic": micOn, "leaving": leaving])
         Task { @MainActor in
             self.setMic(playing)
             self.onMic?(playing)
@@ -347,22 +393,22 @@ extension CallPicture: AVPictureInPictureSampleBufferPlaybackDelegate {
 
 extension CallPicture: AVPictureInPictureControllerDelegate {
     nonisolated func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
-        CAPLog.print("[CallPicture] \(stamp()) will start")
+        CallPicture.report("will-start")
     }
 
     nonisolated func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
-        CAPLog.print("[CallPicture] \(stamp()) started")
+        CallPicture.report("started")
         Task { @MainActor in self.setLeaving(false) }   // 出たので、 再生 / 停止の絵をマイクの状態に戻す
     }
 
     nonisolated func pictureInPictureController(
         _ controller: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error
     ) {
-        CAPLog.print("[CallPicture] \(stamp()) failed to start: \(error)")
+        CallPicture.report("failed-to-start", ["error": "\(error)"])
     }
 
     nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
-        CAPLog.print("[CallPicture] \(stamp()) stopped")
+        CallPicture.report("stopped")
         // 一度閉じた仕組みは次に抜けても自動で出ないので、 通話の間なら作り直す (= 閉じる動きが終わってから、 新しい層で)
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: CallPicture.rearmDelay)
@@ -371,7 +417,7 @@ extension CallPicture: AVPictureInPictureControllerDelegate {
             self.retired.append(old)
             self.freshLayer()
             self.arm()
-            CAPLog.print("[CallPicture] \(stamp()) re-armed")
+            CallPicture.report("re-armed", self.condition)
         }
     }
 
