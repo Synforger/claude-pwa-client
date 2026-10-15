@@ -38,7 +38,9 @@ def _run(coro):
     (59, 0, True, None),            # 推論中、 届いていない
     (60, 0, True, "context"),       # 推論中、 ちょうど届いた
     (95, 0, True, "context"),
-    (95, 10, False, None),          # 手が空いているタブは、 割合だけでは頼まない (= 人が読んでいる・打っている)
+    (95, 10, False, "context"),     # 手が空いていても、 推論中の割合に届いていれば静かな時間を待たない
+    (60, 0, False, "context"),      # 推論を終えたばかりで届いている (= 見回りの間に始まって終わった推論)
+    (59, 0, False, None),           # 手が空いていて、 推論中の割合に届いていない
     (40, 49.9, False, None),        # 静かな時間が足りない
     (40, 50, False, "idle"),        # 両方ちょうど
     (39, 600, False, None),         # 割合が足りない
@@ -209,9 +211,17 @@ def test_a_working_tab_is_asked_when_its_context_reaches_the_line(tabs):
     assert 'reason="context" context_pct="61"' in tabs.sent[0][1]
 
 
-def test_a_tab_the_operator_is_reading_is_left_alone(tabs):
-    """推論が終わったばかりのタブは、 割合が高くても静かな時間が経つまで頼まない。"""
+def test_a_tab_over_the_working_line_is_asked_with_its_hands_free(tabs):
+    """推論が終わったばかりのタブでも、 working の割合を越えていれば静かな時間を待たずに頼む (= 待つと、
+    次に人が打った発話を古い会話が受ける)。"""
     tabs.add("ses_a", pct=88, idle_minutes=3, busy=False)
+    assert tabs.tick() == "ses_a"
+    assert 'reason="context" context_pct="88"' in tabs.sent[0][1]
+
+
+def test_a_tab_under_the_working_line_is_left_alone_until_it_is_quiet(tabs):
+    """working の割合より下で手が空いたタブは、 人が返事を読んでいるかもしれないので、 静かな時間が経つまで頼まない。"""
+    tabs.add("ses_a", pct=55, idle_minutes=3, busy=False)
     assert tabs.tick() is None and tabs.sent == []
 
 
@@ -253,23 +263,25 @@ def test_a_session_that_rolled_over_keeps_being_watched(tabs):
 
 def test_a_turn_that_starts_and_ends_between_looks_is_still_counted_as_working(tabs, monkeypatch):
     """別のタブからの連絡への返事は数秒で終わり、 間隔の見回りでは推論中に見えない。 推論を始めた合図を
-    受けた見回りは、 そのタブを推論中と数える (= 2026-10-14、 60% を超えたまま 1 時間頼まれなかった)。"""
+    受けた見回りは、 そのタブを推論中と数え、 静かな側の条件では締めない (= 合図は 1 度の見回りで使い切る)。"""
     monkeypatch.setattr(watch, "_started", set())
-    tabs.add("ses_a", pct=61, busy=False)
-    assert tabs.tick() is None             # 手が空いて見える
+    tabs.add("ses_a", pct=45, idle_minutes=600, busy=False)
     watch.turn_started("ses_a")
-    assert tabs.tick() == "ses_a"
-    assert 'reason="context" context_pct="61"' in tabs.sent[0][1]
+    assert tabs.tick() is None             # 推論中と数えるので、 静かな側の条件では頼まない
     assert watch._started == set()         # 合図は 1 度の見回りで使い切る
+    assert tabs.tick() == "ses_a"          # 次の見回りでは手が空いて見える
+    assert 'reason="idle"' in tabs.sent[0][1]
 
 
-def test_a_turn_that_ended_before_the_look_is_not_counted(tabs, monkeypatch):
-    """見回りが見る前に推論が終わったタブは、 人が返事を読んでいるかもしれないので頼まない。"""
+def test_a_turn_that_crossed_the_line_and_ended_between_looks_is_asked(tabs, monkeypatch):
+    """見回りの間に始まって終わった推論の中で working の割合を越えたタブは、 1 度も推論中に見えないが、
+    手が空いた次の見回りで頼まれる (= 2026-10-15、 越えたまま次に人が打つまで残る穴)。"""
     monkeypatch.setattr(watch, "_started", set())
     tabs.add("ses_a", pct=70, busy=False)
     watch.turn_started("ses_a")
     watch.turn_ended("ses_a")
-    assert tabs.tick() is None and tabs.sent == []
+    assert tabs.tick() == "ses_a"
+    assert 'reason="context" context_pct="70"' in tabs.sent[0][1]
 
 
 def test_a_turn_starting_wakes_the_watch_without_waiting_for_the_interval(monkeypatch):
