@@ -38,12 +38,14 @@ USES: dict[str, dict[str, list[str]]] = {
     },
     "NSPhotoLibraryAddUsageDescription": {
         "web": [],
-        "native": [r"UIImageWriteToSavedPhotosAlbum", r"PHAssetChangeRequest", r"PHAssetCreationRequest"],
+        # 写真を作る書き方だけ (= 消す・変える `PHAssetChangeRequest.deleteAssets` などは読み書きの許可の範囲)
+        "native": [r"UIImageWriteToSavedPhotosAlbum", r"PHAssetChangeRequest\.creationRequest", r"PHAssetCreationRequest"],
     },
     "NSLocationWhenInUseUsageDescription": {
         "web": [r"navigator\.geolocation"],
         "native": [r"CLLocationManager"],
     },
+    "NSLocationAlwaysAndWhenInUseUsageDescription": {"web": [], "native": [r"requestAlwaysAuthorization"]},
     "NSSpeechRecognitionUsageDescription": {
         "web": [r"SpeechRecognition\b"],
         "native": [r"SFSpeechRecognizer"],
@@ -53,7 +55,21 @@ USES: dict[str, dict[str, list[str]]] = {
     "NSBluetoothAlwaysUsageDescription": {"web": [r"navigator\.bluetooth"], "native": [r"CBCentralManager", r"CBPeripheralManager"]},
     "NSFaceIDUsageDescription": {"web": [], "native": [r"LAContext"]},
     "NSLocalNetworkUsageDescription": {"web": [], "native": [r"NWBrowser", r"NetServiceBrowser", r"NWListener"]},
-    "NSMotionUsageDescription": {"web": [r"DeviceMotionEvent\.requestPermission"], "native": [r"CMMotionManager", r"CMPedometer"]},
+    "NSMotionUsageDescription": {
+        "web": [r"DeviceMotionEvent\.requestPermission"],
+        "native": [r"CMMotionManager", r"CMPedometer", r"CMMotionActivityManager"],
+    },
+    "NSHealthShareUsageDescription": {"web": [], "native": [r"HKHealthStore"]},
+    "NSHealthUpdateUsageDescription": {"web": [], "native": [r"\.save\(HK\w*Sample", r"\.save\(\[HK"]},
+    "NSHomeKitUsageDescription": {"web": [], "native": [r"HMHomeManager"]},
+    "NFCReaderUsageDescription": {"web": [r"NDEFReader"], "native": [r"NFC\w*ReaderSession"]},
+    "NSAppleMusicUsageDescription": {
+        "web": [],
+        "native": [r"MPMediaLibrary", r"MPMediaQuery", r"MusicAuthorization", r"ApplicationMusicPlayer", r"SystemMusicPlayer",
+                   r"MusicCatalogSearchRequest"],
+    },
+    "NSAlarmKitUsageDescription": {"web": [], "native": [r"AlarmManager"]},
+    "NSFocusStatusUsageDescription": {"web": [], "native": [r"INFocusStatusCenter"]},
 }
 
 WEB_SUFFIXES = (".js", ".jsx", ".ts", ".tsx", ".html")
@@ -62,7 +78,8 @@ WEB_SUFFIXES = (".js", ".jsx", ".ts", ".tsx", ".html")
 def sources(root: Path) -> dict[str, list[Path]]:
     web = [p for p in (root / "frontend" / "src").rglob("*")
            if p.suffix in WEB_SUFFIXES and ".test." not in p.name and "__tests__" not in p.parts]
-    native = list((root / "shell" / "ios" / "App" / "App").glob("*.swift"))
+    # 種類ごとの folder (= App/Device/ など) に分けた code も見る
+    native = list((root / "shell" / "ios" / "App" / "App").rglob("*.swift"))
     return {"web": web, "native": native}
 
 

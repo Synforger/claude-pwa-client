@@ -282,4 +282,6 @@ def __getattr__(name: str) -> Any:  # noqa: PLR0911
         return cfg.get("vapid_sub", "mailto:admin@example.com")
     if name == "NOTIFICATION_TITLE_DEFAULT":
         return cfg.get("notification_title", "Notification")
+    if name == "DEVICE_SCREEN":
+        return cfg.get("device_screen")
     raise AttributeError(f"module 'backend.config' has no attribute {name!r}")
