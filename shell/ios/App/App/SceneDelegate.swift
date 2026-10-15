@@ -17,6 +17,8 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     /// 前に出るたびに、 まだ訊いていない許可の確認を出す (= 初めて開いた時と、 新しい版で種類が増えた時だけ出る)
     func sceneDidBecomeActive(_ scene: UIScene) {
         Task { @MainActor in _ = await Permissions.askAll() }
+        // Siri の言い方に入るタブの名前を、 今の一覧で教え直す (= 「<app>で<タブ>と通話」)
+        if #available(iOS 16.0, *) { AgentShortcuts.updateAppShortcutParameters() }
     }
 
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
