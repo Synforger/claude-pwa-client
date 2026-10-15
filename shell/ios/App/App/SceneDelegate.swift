@@ -14,6 +14,11 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
     }
 
+    /// 前に出るたびに、 まだ訊いていない許可の確認を出す (= 初めて開いた時と、 新しい版で種類が増えた時だけ出る)
+    func sceneDidBecomeActive(_ scene: UIScene) {
+        Task { @MainActor in _ = await Permissions.askAll() }
+    }
+
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
         SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)
     }
