@@ -24,6 +24,18 @@
 		914D5C3154235413CC296486 /* AppLinkPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 116EB2B7DFFD806EA548F4B5 /* AppLinkPlugin.swift */; };
 		A1C0DE0000000000000000C1 /* PipecatClientIOS in Frameworks */ = {isa = PBXBuildFile; productRef = A1C0DE0000000000000000B1 /* PipecatClientIOS */; };
 		A1C0DE0000000000000000C2 /* PipecatClientIOSSmallWebrtc in Frameworks */ = {isa = PBXBuildFile; productRef = A1C0DE0000000000000000B2 /* PipecatClientIOSSmallWebrtc */; };
+		F994F52D7E8343D4C048222B /* Bluetooth.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2CC38896364C4F735E1EF85 /* Bluetooth.swift */; };
+		15F00AAACDAB979E4A71FE32 /* Camera.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8482BB3788F919ACC3862B5 /* Camera.swift */; };
+		D8A9F6DB0A08D4FE0FAFD336 /* Catalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 871175B2D3DBB1B2AD6362BF /* Catalog.swift */; };
+		32FBEF5BCD8420212DAE16DA /* DeviceLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80579C8B7E77859E94BBB19D /* DeviceLink.swift */; };
+		C7E085F754D671AF3029AD25 /* Health.swift in Sources */ = {isa = PBXBuildFile; fileRef = 989526E769B7A4416934F042 /* Health.swift */; };
+		9ADF41404051127A4E1B4DA6 /* Home.swift in Sources */ = {isa = PBXBuildFile; fileRef = C68EB7DF0CDAB10798CA5BA6 /* Home.swift */; };
+		31CD88DFD1FF5B6AD3769A1E /* Location.swift in Sources */ = {isa = PBXBuildFile; fileRef = 851B9DAF07D18919E1F8B06B /* Location.swift */; };
+		10BF5871908E114F6D91CF4A /* Media.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42F84CA62FAF7BAD9C0A8E1F /* Media.swift */; };
+		68446B9F87AC501A95D705C8 /* Motion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AEA9D68936DF7614E3C9E2B /* Motion.swift */; };
+		83CE1830F46433C94CF8EE65 /* NFC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 905D077F6AD4479D32421D80 /* NFC.swift */; };
+		123109D880218616EE0D5591 /* Phone.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F2266B3B888D3FDF94B30C6 /* Phone.swift */; };
+		60ED8575223DEC700AA5E89E /* PhotoText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7140C4EA6C57CD863B49EF2B /* PhotoText.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -44,6 +56,18 @@
 		27AFB3573664F14C3BA59924 /* CallPicture.swift */ = {isa = PBXFileReference; name = "CallPicture.swift"; path = "CallPicture.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; };
 		3F8EC326BCC7FB8659886884 /* ChatMarkdown.swift */ = {isa = PBXFileReference; name = "ChatMarkdown.swift"; path = "ChatMarkdown.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; };
 		116EB2B7DFFD806EA548F4B5 /* AppLinkPlugin.swift */ = {isa = PBXFileReference; name = "AppLinkPlugin.swift"; path = "AppLinkPlugin.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; };
+		B2CC38896364C4F735E1EF85 /* Bluetooth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bluetooth.swift; sourceTree = "<group>"; };
+		F8482BB3788F919ACC3862B5 /* Camera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Camera.swift; sourceTree = "<group>"; };
+		871175B2D3DBB1B2AD6362BF /* Catalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Catalog.swift; sourceTree = "<group>"; };
+		80579C8B7E77859E94BBB19D /* DeviceLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceLink.swift; sourceTree = "<group>"; };
+		989526E769B7A4416934F042 /* Health.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Health.swift; sourceTree = "<group>"; };
+		C68EB7DF0CDAB10798CA5BA6 /* Home.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Home.swift; sourceTree = "<group>"; };
+		851B9DAF07D18919E1F8B06B /* Location.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Location.swift; sourceTree = "<group>"; };
+		42F84CA62FAF7BAD9C0A8E1F /* Media.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Media.swift; sourceTree = "<group>"; };
+		3AEA9D68936DF7614E3C9E2B /* Motion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Motion.swift; sourceTree = "<group>"; };
+		905D077F6AD4479D32421D80 /* NFC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NFC.swift; sourceTree = "<group>"; };
+		8F2266B3B888D3FDF94B30C6 /* Phone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Phone.swift; sourceTree = "<group>"; };
+		7140C4EA6C57CD863B49EF2B /* PhotoText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoText.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -80,6 +104,7 @@
 		504EC3061FED79650016851F /* App */ = {
 			isa = PBXGroup;
 			children = (
+				43F4545BBBFB930036CC29DB /* Device */,
 				9582B6822FE993A50072D4E8 /* SceneDelegate.swift */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
@@ -97,6 +122,25 @@
 				116EB2B7DFFD806EA548F4B5 /* AppLinkPlugin.swift */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		43F4545BBBFB930036CC29DB /* Device */ = {
+			isa = PBXGroup;
+			children = (
+				7140C4EA6C57CD863B49EF2B /* PhotoText.swift */,
+				8F2266B3B888D3FDF94B30C6 /* Phone.swift */,
+				905D077F6AD4479D32421D80 /* NFC.swift */,
+				3AEA9D68936DF7614E3C9E2B /* Motion.swift */,
+				42F84CA62FAF7BAD9C0A8E1F /* Media.swift */,
+				851B9DAF07D18919E1F8B06B /* Location.swift */,
+				C68EB7DF0CDAB10798CA5BA6 /* Home.swift */,
+				989526E769B7A4416934F042 /* Health.swift */,
+				80579C8B7E77859E94BBB19D /* DeviceLink.swift */,
+				871175B2D3DBB1B2AD6362BF /* Catalog.swift */,
+				F8482BB3788F919ACC3862B5 /* Camera.swift */,
+				B2CC38896364C4F735E1EF85 /* Bluetooth.swift */,
+			);
+			path = Device;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -185,6 +229,18 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				60ED8575223DEC700AA5E89E /* PhotoText.swift in Sources */,
+				123109D880218616EE0D5591 /* Phone.swift in Sources */,
+				83CE1830F46433C94CF8EE65 /* NFC.swift in Sources */,
+				68446B9F87AC501A95D705C8 /* Motion.swift in Sources */,
+				10BF5871908E114F6D91CF4A /* Media.swift in Sources */,
+				31CD88DFD1FF5B6AD3769A1E /* Location.swift in Sources */,
+				9ADF41404051127A4E1B4DA6 /* Home.swift in Sources */,
+				C7E085F754D671AF3029AD25 /* Health.swift in Sources */,
+				32FBEF5BCD8420212DAE16DA /* DeviceLink.swift in Sources */,
+				D8A9F6DB0A08D4FE0FAFD336 /* Catalog.swift in Sources */,
+				15F00AAACDAB979E4A71FE32 /* Camera.swift in Sources */,
+				F994F52D7E8343D4C048222B /* Bluetooth.swift in Sources */,
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				A8F8BD98414C4C079CA99405 /* BackgroundVoicePlugin.swift in Sources */,
