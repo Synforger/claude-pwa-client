@@ -231,6 +231,18 @@ def test_the_screen_refuses_what_is_not_a_jpeg_and_is_read_only_on_this_mac(devi
         assert phone.get("/device/screen").status_code == 403
 
 
+def test_screen_settings_take_the_config_over_the_defaults_and_drop_bad_values(device_app, monkeypatch):
+    from backend.device import screen as screen_module
+
+    app, _ = device_app
+    monkeypatch.setattr("backend.config.DEVICE_SCREEN", {
+        "interval_s": 2, "quality": 1.5, "max_side": "big", "unknown": 3}, raising=False)
+    with TestClient(app) as phone:
+        got = phone.get("/device/screen/settings").json()
+    assert got == {**screen_module.SETTINGS_DEFAULT, "interval_s": 2.0}
+    assert screen_module.settings(None) == screen_module.SETTINGS_DEFAULT
+
+
 def test_a_frame_older_than_the_stale_limit_is_not_live(tmp_path, monkeypatch):
     import os
     import time

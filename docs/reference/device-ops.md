@@ -46,7 +46,7 @@ cpc device screen                   # 画面の配信の最後の 1 枚 (= 下�
 | bluetooth | `scan` | 近くの Bluetooth の機器 |
 | nfc | `read` | iPhone にかざした NFC のタグを読む (= 前に出す) |
 | camera | `take` | カメラの画面を開き、 撮った写真を返す (= 前に出す。 撮るのは人) |
-| photos | `recent` `text` `find_text` `labels` `find` `get` | 新しい写真 / 写っている文字 / 文字で探す / 写っている物 / 写っている物で探す / 1 枚を Mac へ |
+| photos | `recent` `text` `find_text` `labels` `find` `get` `delete` | 新しい写真 / 写っている文字 / 文字で探す / 写っている物 / 写っている物で探す / 1 枚を Mac へ / 消す (= 前に出す) |
 | clipboard | `read` `write` | クリップボードの文字 (= 読むのは前に出す) |
 | shortcuts | `run` | ショートカット app のショートカットを動かす (= 前に出す) |
 | notify | `post` | iPhone に通知を出す |
@@ -57,8 +57,10 @@ cpc device screen                   # 画面の配信の最後の 1 枚 (= 下�
 | progress | `start` `update` `end` | ロック画面と Dynamic Island に作業の進み具合を出す (= 下の § ロック画面の進み具合) |
 
 - 写っている物 (= `photos.labels` / `photos.find`) の名前は、 iPhone の画像分類の名前で英語です (= 例 `dog` `receipt` `beach`)。
-  探す前に `photos.labels` で 1 枚の名前を見ると、 何で探せるかが分かります
-- 写真を消す・アルバムに分けるといった整理は、 この app には無い操作です (= iCloud で同期した Mac の写真で行う)
+  探す前に `photos.labels` で 1 枚の名前を見ると、 何で探せるかが分かります。 どこから「写っている」 と見なすかは
+  `--min` (= 0〜1、 既定 0.3) で頼むたびに変えられます
+- `photos.delete` は、 消す前に iPhone の画面に毎回確かめが出ます (= iOS の決まりで、 app からは飛ばせない)。 消した写真は
+  「最近削除した項目」 に入ります。 アルバムに分けるといった整理は、 iCloud で同期した Mac の写真で行います
 
 種類ごとに初めて使う時、 iPhone に許可の確認が 1 回出ます。 断った種類は、 **設定 → <app の名前>** で後から許可できます。
 
@@ -100,9 +102,12 @@ iPhone の画面を、 Mac の Claude が見られるように backend へ送り
 1. コントロールセンターの **画面収録** を長押しする
 2. 一覧から **Broadcast** (= この app の配信) を選び、 **ブロードキャストを開始** を押す
 
-配信中は 1 秒に 1 枚、 画面の絵を送ります (= 長辺 1280px の JPEG)。 backend が持つのは最後の 1 枚だけで、
+配信中は既定で 1 秒に 1 枚、 画面の絵を送ります (= 長辺 1280px の JPEG)。 backend が持つのは最後の 1 枚だけで、
 `cpc device screen` がその path と、 配信中か・何秒前の絵かを出します。 止める時は、 画面の上の赤い表示か
 コントロールセンターから止めます。
+
+間隔・大きさ・画質は `backend/config.json` の `device_screen` で変えられます ([config.md](config.md) の全体オプション)。
+app は配信を始める時にこの値を受け取るので、 変えた後は backend を再起動し、 配信を始め直してください。
 
 ## 起きない時
 

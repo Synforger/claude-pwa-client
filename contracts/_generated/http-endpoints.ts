@@ -537,6 +537,16 @@ export interface PostDeviceScreenStateResponse {
   live: boolean
 }
 
+/** GET /device/screen/settings response */
+export interface GetDeviceScreenSettingsResponse {
+  /** 1 枚を送る間隔 (秒) */
+  interval_s: number
+  /** 長辺の上限 (px) */
+  max_side: number
+  /** JPEG の質 (= 0 より大きく 1 以下) */
+  quality: number
+}
+
 /** GET /device/screen response */
 export interface GetDeviceScreenResponse {
   /** 配信中で、 最後の 1 枚が 5 秒より新しい */

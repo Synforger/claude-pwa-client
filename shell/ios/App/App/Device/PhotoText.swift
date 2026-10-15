@@ -3,9 +3,9 @@ import Photos
 import UIKit
 import Vision
 
-/// 写真の中身: iPhone の写真ライブラリの写真を並べ、 写っている文字と物を読み、 それで探し、 1 枚を Mac へ渡す。
+/// 写真: iPhone の写真ライブラリの写真を並べ、 写っている文字と物を読み、 それで探し、 1 枚を Mac へ渡し、 消す。
 ///
-/// 写真そのものの整理 (= アルバム分け・消す) は、 iCloud で同期された Mac の写真で行う (= この app では持たない)。
+/// 消す時は、 iOS が毎回確かめる (= app からは確かめを飛ばせない)。 アルバム分けは、 iCloud で同期された Mac の写真で行う。
 /// 文字と物は iPhone の中で読む (= Vision。 文字は日本語と英語、 物は Vision の分類の名前 = 英語)。
 enum PhotoText {
     static let ops: [DeviceOperation] = [
@@ -37,24 +37,49 @@ enum PhotoText {
             return DeviceOutput(hits)
         },
         DeviceOp(DeviceSpec(name: "photos.labels", kind: .read, summary: "what is in a photo (Vision's labels, in English)",
-                            params: [.string("id", "photo id from photos.recent (default: the newest photo)")],
+                            params: [.string("id", "photo id from photos.recent (default: the newest photo)"),
+                                     .number("min", "lowest confidence to list, 0 to 1 (default \(labelMin))")],
                             timeout: 60)) { args in
             try await allow()
             let asset = try pick(args.string("id"))
-            return DeviceOutput(["photo": row(asset), "labels": try await labels(asset)])
+            return DeviceOutput(["photo": row(asset), "labels": try await labels(asset, min: confidence(args))])
         },
         DeviceOp(DeviceSpec(name: "photos.find", kind: .read, summary: "photos showing something (matched against Vision's labels)",
                             params: [.string("query", "what to look for, in English (e.g. dog, receipt, beach)", required: true),
-                                     .int("count", "how many of the newest photos to look through (default 50)")],
+                                     .int("count", "how many of the newest photos to look through (default 50)"),
+                                     .number("min", "lowest confidence to count as showing it, 0 to 1 (default \(labelMin))")],
                             timeout: 300)) { args in
             try await allow()
             let query = try args.required("query").lowercased()
+            let floor = confidence(args)
             var hits: [[String: Any]] = []
             for asset in newest(min(args.int("count") ?? 50, 500)) {
-                let found = try await labels(asset).filter { ($0["label"] as? String ?? "").contains(query) }
+                let found = try await labels(asset, min: floor).filter { ($0["label"] as? String ?? "").contains(query) }
                 if !found.isEmpty { hits.append(["photo": row(asset), "labels": found]) }
             }
             return DeviceOutput(hits)
+        },
+        DeviceOp(DeviceSpec(name: "photos.delete", kind: .delete,
+                            summary: "delete photos (iOS asks on the iPhone every time; they go to Recently Deleted)",
+                            params: [.string("ids", "photo ids from photos.recent, separated by commas", required: true)],
+                            timeout: 120, foreground: true)) { args in
+            // (= iOS の確かめは画面に出るので、 前に出ている時だけ)
+            try requireForeground("Deleting photos")
+            try await allow()
+            let ids = try args.required("ids").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            let assets = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil)
+            guard assets.count == ids.count else {
+                let found = Set((0..<assets.count).map { assets.object(at: $0).localIdentifier })
+                throw DeviceError("no photo with id \(ids.filter { !found.contains($0) }.joined(separator: ", "))")
+            }
+            do {
+                try await PHPhotoLibrary.shared().performChanges { PHAssetChangeRequest.deleteAssets(assets) }
+            } catch {
+                // (= iPhone で「削除しない」 を押された時もここに来る)
+                throw DeviceError("the photos were not deleted: \(error.localizedDescription)")
+            }
+            return DeviceOutput(["deleted": ids])
         },
         DeviceOp(DeviceSpec(name: "photos.get", kind: .read, summary: "one photo as a file on the Mac",
                             params: [.string("id", "photo id from photos.recent (default: the newest photo)"),
@@ -115,10 +140,14 @@ enum PhotoText {
         }
     }
 
-    /// 写っている物の名前に入れる確からしさの下限 (= これ以上の物を、 高い順に返す)
+    /// 写っている物の名前に入れる確からしさの下限の既定 (= 頼みの `min` で毎回変えられる)
     private static let labelMin: Float = 0.3
 
-    private static func labels(_ asset: PHAsset) async throws -> [[String: Any]] {
+    private static func confidence(_ args: DeviceArgs) -> Float {
+        args.number("min").map { Float(min(max($0, 0), 1)) } ?? labelMin
+    }
+
+    private static func labels(_ asset: PHAsset, min floor: Float) async throws -> [[String: Any]] {
         let image = try await picture(asset, side: 1024)
         guard let cg = image.cgImage else { return [] }
         return try await withCheckedThrowingContinuation { done in
@@ -126,7 +155,7 @@ enum PhotoText {
                 let request = VNClassifyImageRequest()
                 do {
                     try VNImageRequestHandler(cgImage: cg, orientation: .up).perform([request])
-                    let found = (request.results ?? []).filter { $0.confidence >= labelMin }
+                    let found = (request.results ?? []).filter { $0.confidence >= floor }
                         .sorted { $0.confidence > $1.confidence }
                         .map { ["label": $0.identifier, "confidence": Double(($0.confidence * 100).rounded() / 100)] as [String: Any] }
                     done.resume(returning: found)

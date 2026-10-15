@@ -117,6 +117,9 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 - `tmux_session_map_dir`: tmux session 名と PWA session id の対応を保存するディレクトリ
 - `vapid_sub`: Web Push の `sub` クレーム (連絡先 mailto:)
 - `notification_title`: Web Push 通知のタイトル文字列
+- `device_screen` (任意): iPhone の app の画面の配信の仕方。 `interval_s` (= 1 枚を送る間隔の秒、 既定 1)・
+  `max_side` (= 長辺の上限の px、 既定 1280)・`quality` (= JPEG の質、 0 より大きく 1 以下、 既定 0.6)。 書いた値だけが
+  既定に重なる。 詳細: [device-ops.md](device-ops.md) の「画面の配信」
 - `cors_allow_origins`: 通常は `[]` (backend が同一オリジンで frontend を配信するため
   CORS は不要)。 Vite dev server からアクセスする場合は `["http://localhost:5173"]` 等を
   設定する

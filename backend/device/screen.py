@@ -14,6 +14,29 @@ MAX_BYTES = 5 * 1024 * 1024
 STALE_S = 5.0
 
 
+# 配信の仕方の既定 (= `backend/config.json` の `device_screen` で 1 つずつ変えられる。 app はこの値を持たず、
+# 配信を始める時に GET /device/screen/settings で受け取る)
+SETTINGS_DEFAULT = {
+    "interval_s": 1.0,   # 1 枚を送る間隔 (秒)
+    "max_side": 1280,    # 長辺の上限 (px)
+    "quality": 0.6,      # JPEG の質 (= 0 より大きく 1 以下)
+}
+
+
+def settings(raw: object) -> dict:
+    """設定の `device_screen` を既定に重ねる (= 型か範囲が違う値は捨てて既定を使う)。"""
+    out = dict(SETTINGS_DEFAULT)
+    if not isinstance(raw, dict):
+        return out
+    for key, value in raw.items():
+        if key not in out or isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+            continue
+        if key == "quality" and value > 1:
+            continue
+        out[key] = int(value) if key == "max_side" else float(value)
+    return out
+
+
 class NotJpeg(ValueError):
     """JPEG でない (= 頭の 2 バイトが FF D8 でない) か、 大きすぎる。"""
 

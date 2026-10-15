@@ -70,6 +70,18 @@ def test_a_feature_with_its_usage_description_is_green(tmp_path, key):
     assert check_module.check(_repo(tmp_path, kind, code, {key: "Says why."})) == []
 
 
+def test_deleting_photos_needs_the_library_sentence_but_not_the_add_one(tmp_path):
+    code = "PHPhotoLibrary.requestAuthorization(for: .readWrite) { _ in }\nPHAssetChangeRequest.deleteAssets(assets)\n"
+    repo = _repo(tmp_path, "native", code, {"NSPhotoLibraryUsageDescription": "Says why."})
+    assert check_module.check(repo) == []
+
+
+def test_creating_a_photo_with_a_change_request_needs_the_add_sentence(tmp_path):
+    code = "PHAssetChangeRequest.creationRequestForAsset(from: image)\n"
+    problems = check_module.check(_repo(tmp_path, "native", code, {}))
+    assert any(p.startswith("NSPhotoLibraryAddUsageDescription is missing") for p in problems), problems
+
+
 def test_native_code_in_a_subfolder_is_seen(tmp_path):
     repo = _repo(tmp_path, "web", "export default 1\n", {})
     sub = repo / "shell" / "ios" / "App" / "App" / "Device"

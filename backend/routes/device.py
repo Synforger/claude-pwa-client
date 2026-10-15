@@ -5,6 +5,7 @@
     GET  /device/catalog   つながっているかと、 できる操作の一覧
     POST /device/screen    app の画面の配信が 1 枚送る (= JPEG。 最後の 1 枚だけを持つ)
     POST /device/screen/state  画面の配信の始まりと終わり
+    GET  /device/screen/settings  配信の仕方 (= 間隔・大きさ・質。 配信が始まる時に受け取る)
     GET  /device/screen    最後の 1 枚の在処と、 配信しているか (= `cpc device screen`)
 
 頼む口と一覧の口と画面を見る口は、 この Mac の中からだけ受ける (= `/debug` と同じ見分け方。 Tailscale を通った頼みは
@@ -19,7 +20,7 @@ import logging
 from fastapi import APIRouter, Body, HTTPException, Request, WebSocket, WebSocketDisconnect
 
 from backend.device.hub import DeviceFailed, DeviceHub, DeviceOffline, DeviceTimeout, UnknownOp
-from backend.device.screen import NotJpeg, ScreenStore
+from backend.device.screen import NotJpeg, ScreenStore, settings
 from backend.paths import DATA_DIR
 from backend.routes.debug import _ensure_localhost
 
@@ -111,6 +112,12 @@ async def post_device_screen_state(body: dict = Body(...)) -> dict:
         raise HTTPException(status_code=400, detail="live (bool) is required")
     screen.set_live(live)
     return {"live": live}
+
+
+@router.get("/device/screen/settings")
+async def get_device_screen_settings() -> dict:
+    from backend.config import DEVICE_SCREEN  # noqa: PLC0415  (= 読むたびに今の設定)
+    return settings(DEVICE_SCREEN)
 
 
 @router.get("/device/screen")

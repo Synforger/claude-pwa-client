@@ -527,6 +527,14 @@ class PostDeviceScreenStateResponse(BaseModel):
     live: bool
 
 
+class GetDeviceScreenSettingsResponse(BaseModel):
+    """GET /device/screen/settings response"""
+    model_config = ConfigDict(extra="forbid")
+    interval_s: float  # 1 枚を送る間隔 (秒)
+    max_side: int  # 長辺の上限 (px)
+    quality: float  # JPEG の質 (= 0 より大きく 1 以下)
+
+
 class GetDeviceScreenResponse(BaseModel):
     """GET /device/screen response"""
     model_config = ConfigDict(extra="forbid")

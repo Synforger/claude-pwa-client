@@ -1162,6 +1162,22 @@ endpoints:
     implementation: backend/routes/device.py
 
   - method: GET
+    path: /device/screen/settings
+    description: "画面の配信の仕方 (= app の配信が始まる時に受け取る)"
+    response:
+      type: object
+      properties:
+        interval_s: { type: number, description: "1 枚を送る間隔 (秒)" }
+        max_side:   { type: integer, description: "長辺の上限 (px)" }
+        quality:    { type: number, description: "JPEG の質 (= 0 より大きく 1 以下)" }
+      required: [interval_s, max_side, quality]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "backend/config.json の device_screen を既定に重ねた物 (= 型か範囲が違う値は既定のまま)"
+    implementation: backend/routes/device.py
+
+  - method: GET
     path: /device/screen
     description: "iPhone の画面の最後の 1 枚の在処と、 配信しているか (= cpc device screen)"
     response:

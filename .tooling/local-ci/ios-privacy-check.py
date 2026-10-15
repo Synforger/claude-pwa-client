@@ -38,7 +38,8 @@ USES: dict[str, dict[str, list[str]]] = {
     },
     "NSPhotoLibraryAddUsageDescription": {
         "web": [],
-        "native": [r"UIImageWriteToSavedPhotosAlbum", r"PHAssetChangeRequest", r"PHAssetCreationRequest"],
+        # 写真を作る書き方だけ (= 消す・変える `PHAssetChangeRequest.deleteAssets` などは読み書きの許可の範囲)
+        "native": [r"UIImageWriteToSavedPhotosAlbum", r"PHAssetChangeRequest\.creationRequest", r"PHAssetCreationRequest"],
     },
     "NSLocationWhenInUseUsageDescription": {
         "web": [r"navigator\.geolocation"],
