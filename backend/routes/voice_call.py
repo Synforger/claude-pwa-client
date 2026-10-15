@@ -56,6 +56,13 @@ def _volume_of(raw) -> float:
     return value
 
 
+def _with_call_gain(volume: float) -> float:
+    """端末のつまみの倍率に、 通話だけの基準 (= `backend/config.json` の `voice_call_gain_db`) を掛ける。 通話は iPhone の
+    app の声で、 画面の声とは鳴らし方が違うので、 画面の声を動かさずに通話の大きさだけを揃える口。 読むたびに今の設定。"""
+    from backend.config import VOICE_CALL_GAIN_DB  # noqa: PLC0415
+    return volume * 10 ** (VOICE_CALL_GAIN_DB / 20)
+
+
 async def _write(proc: asyncio.subprocess.Process, message: dict) -> None:
     proc.stdin.write((json.dumps(message) + "\n").encode("utf-8"))
     await proc.stdin.drain()
@@ -110,7 +117,8 @@ async def post_call(request: Request, session_id: str, body: dict = Body(...)) -
     start = {
         "type": "start", "base_url": f"http://{host}:{port}", "session_id": session_id,
         "client": f"call-{uuid.uuid4().hex[:12]}", "marks": list(settings["marks"]),
-        "conversation": settings["conversation"], "turn": settings["listen"]["turn"], "volume": volume,
+        "conversation": settings["conversation"], "turn": settings["listen"]["turn"],
+        "volume": _with_call_gain(volume),
         "speech": speech, "resume": handover if resume else None,
     }
     proc = await asyncio.create_subprocess_exec(
@@ -162,5 +170,5 @@ async def post_call_volume(session_id: str, body: dict = Body(...)) -> dict:
     volume = _volume_of(body.get("volume"))
     calls = [proc for sid, proc in _workers.values() if sid == session_id and proc.returncode is None]
     for proc in calls:
-        await _write(proc, {"type": "volume", "volume": volume})
+        await _write(proc, {"type": "volume", "volume": _with_call_gain(volume)})
     return {"calls": len(calls)}
