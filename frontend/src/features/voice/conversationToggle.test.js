@@ -6,7 +6,7 @@ vi.mock('./conversation.js', () => ({ openConversation: vi.fn() }))
 
 const { apiFetch } = await import('../../transport/http.ts')
 const { openConversation } = await import('./conversation.js')
-const { toggleVoice, toggleMic, setVoiceSender, voiceOnSids, _resetForTest: resetVoice } = await import('./voice.js')
+const { toggleVoice, toggleMic, startCall, setVoiceSender, voiceOnSids, _resetForTest: resetVoice } = await import('./voice.js')
 const { getSnapshot, setVoiceAvailable, setVoiceListen, setVoiceTurn, _resetForTest } = await import('../../state/voice.js')
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -272,5 +272,31 @@ describe('toggleVoice / toggleMic — the voice, and the microphone inside it', 
     talk(vi.fn())
     await settle()
     expect(openConversation.mock.calls[0][0].turnModelUrl).toBeNull()
+  })
+})
+
+describe('startCall — the call Siri starts: the voice and the microphone together', () => {
+  it('starts a conversation with the voice on and the microphone open', async () => {
+    await startCall('ses_a')
+    expect(getSnapshot().on.ses_a).toBe(true)
+    expect(getSnapshot().quiet.ses_a).toBeFalsy()
+    expect(getSnapshot().phase.ses_a).toBe('starting')
+    await settle()
+    expect(openConversation).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens the microphone of a conversation that only plays the voice', async () => {
+    toggleVoice('ses_a')
+    await settle()
+    expect(openConversation).not.toHaveBeenCalled()
+    await startCall('ses_a')
+    await settle()
+    expect(openConversation).toHaveBeenCalledTimes(1)
+  })
+
+  it('does nothing for a tab without a voice', async () => {
+    voiceInfo = { enabled: false }
+    await startCall('ses_a')
+    expect(getSnapshot().on.ses_a).toBeFalsy()
   })
 })

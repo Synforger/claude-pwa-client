@@ -1,5 +1,6 @@
 import AppIntents
 import Foundation
+import UIKit
 
 /// Siri とショートカットから、 app を開かずにタブの agent へ頼みを送る口。
 ///
@@ -73,6 +74,32 @@ struct AskAgentIntent: AppIntent {
     }
 }
 
+/// タブの agent と通話する: app を前に出して、 そのタブで声とマイクの会話を始める。
+///
+/// 通話の小窓 (= PiP) は、 前に出ている app からしか始められない (= iOS の決まり)。 app を前に出してから会話を
+/// 始めるので、 人が app から抜けると小窓が自動で出る。
+@available(iOS 16.0, *)
+struct CallAgentIntent: AppIntent {
+    static var title: LocalizedStringResource = "Call the Agent"
+    static var description = IntentDescription("Opens the app and starts a voice call with the agent in a tab.")
+    static var openAppWhenRun = true
+
+    @Parameter(title: "Tab")
+    var tab: TabEntity
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Call \(\.$tab)")
+    }
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        guard let url = AppLinkPlugin.callURL(sid: tab.id) else { throw DeviceError("the tab \(tab.title) has no usable id") }
+        // 自分の app を開く URL (= 前に出ている app の場面へ届き、 画面が受けて通話を始める)
+        await UIApplication.shared.open(url)
+        return .result()
+    }
+}
+
 /// Siri の呼び方 (= 言い方の中に app の名前が要る)。
 @available(iOS 16.0, *)
 struct AgentShortcuts: AppShortcutsProvider {
@@ -89,6 +116,19 @@ struct AgentShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Ask the Agent",
             systemImageName: "bubble.left.and.text.bubble.right"
+        )
+        AppShortcut(
+            intent: CallAgentIntent(),
+            phrases: [
+                "Call the agent in \(.applicationName)",
+                "Call \(\.$tab) in \(.applicationName)",
+                "\(.applicationName) call",
+                // (= Siri の言語が日本語の時の言い方)
+                "\(.applicationName)で通話",
+                "\(.applicationName)で\(\.$tab)と通話",
+            ],
+            shortTitle: "Call the Agent",
+            systemImageName: "phone.bubble"
         )
     }
 }
