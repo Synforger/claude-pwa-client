@@ -5,6 +5,7 @@ import asyncio
 import base64
 import importlib.util
 import json
+import os
 import threading
 from pathlib import Path
 
@@ -321,7 +322,10 @@ def test_the_cpc_command_hands_device_to_the_device_command_even_through_a_link(
     cpc = Path(__file__).resolve().parents[2] / "bin" / "cpc"
     link = tmp_path / "cpc"
     link.symlink_to(cpc)
-    help_ = subprocess.run([str(link), "device", "--help"], capture_output=True, text=True, timeout=30)
-    assert help_.returncode == 0 and "cpc device" in help_.stdout
-    unknown = subprocess.run([str(link), "nothing"], capture_output=True, text=True, timeout=30)
+    # backend の住所を必ず届かない所へ向ける (= 動いている backend に頼らない)。 device が実体へ渡れば、 実体が
+    # 「backend に届かない」 (= 7) で終わる
+    env = {**os.environ, "CPC_URL": "http://127.0.0.1:9"}
+    device = subprocess.run([str(link), "device"], capture_output=True, text=True, timeout=30, env=env)
+    assert device.returncode == 7 and device.stderr.startswith("cpc device:")
+    unknown = subprocess.run([str(link), "nothing"], capture_output=True, text=True, timeout=30, env=env)
     assert unknown.returncode == 2 and "usage: cpc device" in unknown.stderr
