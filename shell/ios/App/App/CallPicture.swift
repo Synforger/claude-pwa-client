@@ -58,7 +58,7 @@ import UIKit
 
     func start(over screen: UIView) {
         guard AVPictureInPictureController.isPictureInPictureSupported() else {
-            CAPLog.print("[CallPicture] PiP is not supported on this device")
+            CAPLog.print("[CallPicture] \(stamp()) PiP is not supported on this device")
             return
         }
         host.isUserInteractionEnabled = false
@@ -80,7 +80,7 @@ import UIKit
         timer = Timer.scheduledTimer(withTimeInterval: Self.refreshSecs, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.render() }
         }
-        CAPLog.print("[CallPicture] ready (starts when the app goes to the background)")
+        CAPLog.print("[CallPicture] \(stamp()) ready (starts when the app goes to the background)")
     }
 
     /// 絵を流し込む層を新しくする (= 始めた時と、 閉じた後に作り直す時。 前の層は前の仕組みと一緒に残す)。
@@ -314,7 +314,7 @@ import UIKit
 // 再生の操作: 生の映像として伝え、 再生 / 停止と送りは通話の操作に読み替える
 extension CallPicture: AVPictureInPictureSampleBufferPlaybackDelegate {
     nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController, setPlaying playing: Bool) {
-        CAPLog.print("[CallPicture] play/pause pressed: playing=\(playing)")
+        CAPLog.print("[CallPicture] \(stamp()) play/pause pressed: playing=\(playing)")
         Task { @MainActor in
             self.setMic(playing)
             self.onMic?(playing)
@@ -347,22 +347,22 @@ extension CallPicture: AVPictureInPictureSampleBufferPlaybackDelegate {
 
 extension CallPicture: AVPictureInPictureControllerDelegate {
     nonisolated func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
-        CAPLog.print("[CallPicture] will start")
+        CAPLog.print("[CallPicture] \(stamp()) will start")
     }
 
     nonisolated func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
-        CAPLog.print("[CallPicture] started")
+        CAPLog.print("[CallPicture] \(stamp()) started")
         Task { @MainActor in self.setLeaving(false) }   // 出たので、 再生 / 停止の絵をマイクの状態に戻す
     }
 
     nonisolated func pictureInPictureController(
         _ controller: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error
     ) {
-        CAPLog.print("[CallPicture] failed to start: \(error)")
+        CAPLog.print("[CallPicture] \(stamp()) failed to start: \(error)")
     }
 
     nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
-        CAPLog.print("[CallPicture] stopped")
+        CAPLog.print("[CallPicture] \(stamp()) stopped")
         // 一度閉じた仕組みは次に抜けても自動で出ないので、 通話の間なら作り直す (= 閉じる動きが終わってから、 新しい層で)
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: CallPicture.rearmDelay)
@@ -371,7 +371,7 @@ extension CallPicture: AVPictureInPictureControllerDelegate {
             self.retired.append(old)
             self.freshLayer()
             self.arm()
-            CAPLog.print("[CallPicture] re-armed")
+            CAPLog.print("[CallPicture] \(stamp()) re-armed")
         }
     }
 

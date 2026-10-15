@@ -14,6 +14,7 @@ from starlette.testclient import TestClient
 from backend.routes import voice_call
 from backend.tests.test_voice import tabs  # noqa: F401 (= 声のタブの用意を使い回す)
 from backend.voice_call.rules import (
+    is_own_voice,
     is_unfinished,
     mark_voice_input,
     marked,
@@ -638,3 +639,57 @@ def test_a_call_started_with_the_speech_off_says_nothing_until_it_is_turned_on()
     down, _ = asyncio.run(run_test(bridge, frames_to_send=[SleepFrame(sleep=0.2), _speech(True), SleepFrame(sleep=0.05)]))
     assert not any(isinstance(f, TTSSpeakFrame) for f in down)   # 前の返事は、 入れ直しても言わない
 
+
+
+# --- 自分の声 (= スピーカーの返事がマイクに入って、 人の発話として届いた) ----------------------------------------
+
+def test_what_was_heard_is_its_own_voice_when_it_is_part_of_the_sentence_being_said():
+    # 2026-10-15 に実際に届いた 2 件 (= 返事の頭の「3 つの」 が、 聞き取りでは「3つの」 になった)
+    assert is_own_voice("3つの", ["そう。整理すると 3 つの立ち位置がある。"])
+    assert is_own_voice("3つの", ["3 つの箱の結果を表に出した。"])
+    assert is_own_voice("三つの", ["3 つの箱の結果を表に出した。"])
+    # 文の境目を跨いで聞こえた分
+    assert is_own_voice("出した。 seed", ["3 つの箱の結果を表に出した。", "seed 9 が当たり。"])
+    assert not is_own_voice("ちょっと待って", ["3 つの箱の結果を表に出した。"])
+    assert not is_own_voice("、", ["あ、うん。"])
+
+
+def _cut_reply(heard: str, *, finished_first: bool = False):
+    """2 文の返事を鳴らしている途中で止められ、 heard が人の発話として届く。 返すのは (送った物, 声の段へ渡した文)。"""
+    import time
+
+    from pipecat.frames.frames import BotStartedSpeakingFrame, BotStoppedSpeakingFrame, InterruptionFrame, TTSSpeakFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    later = int(time.time() * 1000) + 60_000
+    events = [_reply("r1", "3 つの箱の結果を表に出した。\nseed 9 が当たり。", later)]
+    frames = [SleepFrame(sleep=0.2), BotStartedSpeakingFrame()]
+    if finished_first:
+        frames += [BotStoppedSpeakingFrame(), BotStartedSpeakingFrame()]
+    frames += [InterruptionFrame(), BotStoppedSpeakingFrame(), _said(heard), SleepFrame(sleep=0.2)]
+    sent: list[str] = []
+    down, _ = asyncio.run(run_test(_bridge(sent, events), frames_to_send=frames))
+    return sent, [f.text for f in down if isinstance(f, TTSSpeakFrame)]
+
+
+def test_its_own_voice_is_not_sent_and_the_cut_sentence_is_said_again():
+    pytest.importorskip("pipecat")
+    sent, said = _cut_reply("3つの")
+    assert sent == []
+    assert said == ["[calm]3 つの箱の結果を表に出した。", "[calm]seed 9 が当たり。",
+                    "[calm]3 つの箱の結果を表に出した。", "[calm]seed 9 が当たり。"]
+
+
+def test_a_real_interruption_is_sent_and_the_reply_is_not_said_again():
+    pytest.importorskip("pipecat")
+    sent, said = _cut_reply("ちょっと待って")
+    assert sent == ["ちょっと待って"]
+    assert said == ["[calm]3 つの箱の結果を表に出した。", "[calm]seed 9 が当たり。"]
+
+
+def test_a_reply_cut_in_its_second_sentence_is_said_again_from_the_second():
+    pytest.importorskip("pipecat")
+    # 1 文目の終わりが聞こえた (= 鳴り終えた 1 文目も比べる)
+    sent, said = _cut_reply("表に出した", finished_first=True)
+    assert sent == []
+    assert said == ["[calm]3 つの箱の結果を表に出した。", "[calm]seed 9 が当たり。", "[calm]seed 9 が当たり。"]

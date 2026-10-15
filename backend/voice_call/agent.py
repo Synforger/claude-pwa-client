@@ -16,6 +16,11 @@
 始める前の分は、 タブの記録から直近 PICTURE_HISTORY 行だけを、 記録の読み直しが途切れた所でまとめて送る) と `{"pip": "state", "state": "listening" | "thinking" | "speaking" | "waiting"}` (= 人が話し始めた /
 タブへ送った / 声が鳴り始めた / 鳴り終えた)。 描くのは app (= `shell/ios/App/App/CallPicture.swift`)。
 
+自分の声: スピーカーから出た返事の声がマイクに入ると、 発話のまとめ役は人が話し始めたと見て返事を止め、 聞き取った
+文を人の発話として渡してくる (= iPhone のエコー消しが、 音が動き始めた直後の返事を消し切れない時がある)。 止められた
+時に鳴っていた文を覚えておき、 次に渡された発話がその文の一部なら、 タブへは送らずに、 止められた文から言い直す
+(= LiveKit Agents の resume_false_interruption と同じ役)。
+
 声の入 / 切: 画面の 🗣 のボタンで、 返事を声にするかを切り替える (= app が RTVI の client-message `voice-speech`
 `{"on": bool}` で知らせる。 始める時は `speech`)。 切の間は返事を声にせず (= 鳴っている声も止める)、 小窓には出す。
 """
@@ -44,6 +49,7 @@ from pipecat.processors.frameworks.rtvi import RTVIClientMessageFrame, RTVIServe
 
 from backend.voice_call.rules import (
     MAX_HEARD,
+    is_own_voice,
     is_unfinished,
     marked,
     shown_reply_text,
@@ -98,12 +104,22 @@ class AgentBridge(FrameProcessor):
         # 小窓へ最後に出した人の発話の親 (= 同じ親の発話が来たら、 その発話を置き換える)
         self._last_user_parent: str | None = None
         self._history_task: asyncio.Task | None = None
+        # 声の段へ渡して、 まだ鳴り終えていない文 (= 先頭が今鳴っている文) と、 最後に鳴り終えた文
+        self._voiced: deque[dict] = deque()
+        self._last_voiced: dict | None = None
+        # 割り込みで止められた時に、 鳴っていた文とその後の文 (= 次の発話が自分の声なら、 ここから言い直す)
+        self._cut: list[dict] = []
+        self._cut_after: dict | None = None
+        # log の時刻 (= 会話を始めた時と、 返事の声が鳴り始めた時)
+        self._call_started = time.monotonic()
+        self._reply_voiced_at: float | None = None
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         if isinstance(frame, StartFrame):
             await self.push_frame(frame, direction)
             if not self._replies_task:
+                self._call_started = time.monotonic()
                 self._since_ms = int(time.time() * 1000)
                 self._replies_task = self.create_task(self._follow_replies(), "voice-call-replies")
             return
@@ -121,11 +137,21 @@ class AgentBridge(FrameProcessor):
             if not frame.speculation:
                 await self._said(frame.context)
             return
+        if isinstance(frame, InterruptionFrame):
+            # 発話のまとめ役が、 人が話し始めたと見て返事を止めた (= この段が自分で流す割り込みは、 ここを通らない)
+            self._remember_cut()
         if isinstance(frame, UserStartedSpeakingFrame):
             await self._show_state("listening")
         elif isinstance(frame, BotStartedSpeakingFrame):
+            if self._reply_voiced_at is None:
+                self._reply_voiced_at = time.monotonic()
             await self._show_state("speaking")
         elif isinstance(frame, BotStoppedSpeakingFrame):
+            # 声の段は 1 文ごとに区切りを出し、 送り口はそれを鳴らし終えた所で知らせる (= 1 文 = 1 回)
+            if self._voiced:
+                self._last_voiced = self._voiced.popleft()
+            if not self._voiced:
+                self._reply_voiced_at = None
             await self._show_state("waiting")
         if isinstance(frame, UserStartedSpeakingFrame) and self._hold_task:
             # 待っている間に続きを話し始めた: 待ちを止め、 次の発話と合わせて送る
@@ -143,6 +169,10 @@ class AgentBridge(FrameProcessor):
         text = "".join(t for t in texts if t).strip()
         if not text:
             return
+        if self._cut and is_own_voice(text, [s.get("text") or "" for s in (self._cut_after, self._cut[0]) if s]):
+            await self._say_again(len(text))
+            return
+        self._cut = []
         self._pending.append(text)
         self._said_at = time.monotonic()
         # 人が話し終えた時点で、 前の turn の返事の続きは言わない (= 送る前の待ちの間に届いた物も)
@@ -177,6 +207,7 @@ class AgentBridge(FrameProcessor):
         # 下流 (= 声の段と出口) だけ: broadcast_interruption は、 この段の frame の待ち行列も空にし、 待っている
         # 次の発話を捨てる
         if not closing:
+            self._forget_voiced()
             await self.push_frame(InterruptionFrame())
         async with self._send_lock:
             sent = await self._send(text)
@@ -207,10 +238,42 @@ class AgentBridge(FrameProcessor):
                 continue
             if not self._speech:
                 continue
+            self._cut = []   # 新しい返事が来たら、 止められた前の返事は言い直さない
             for said in await self._utterances(text):
                 if self._awaiting_turn or not self._speech:
                     break
-                await self.push_frame(TTSSpeakFrame(marked(said.get("mark") or "", said.get("text") or "", said.get("values"))))
+                await self._voice(said)
+
+    async def _voice(self, said: dict) -> None:
+        self._voiced.append(said)
+        await self.push_frame(TTSSpeakFrame(marked(said.get("mark") or "", said.get("text") or "", said.get("values"))))
+
+    # --- 自分の声 -------------------------------------------------------------------------------------------
+
+    def _remember_cut(self) -> None:
+        if not self._voiced:
+            return
+        self._cut = list(self._voiced)
+        self._cut_after = self._last_voiced
+        now = time.monotonic()
+        logger.info("voice call: the reply was cut %.1f s into its voice, %.1f s into the call (%d sentences left)",
+                    now - (self._reply_voiced_at or now), now - self._call_started, len(self._cut))
+        self._forget_voiced()
+
+    def _forget_voiced(self) -> None:
+        self._voiced.clear()
+        self._last_voiced = None
+        self._reply_voiced_at = None
+
+    async def _say_again(self, chars: int) -> None:
+        """聞き取った発話は、 止められた返事の声だった: 送らずに、 止められた文から言い直す。"""
+        cut, self._cut = self._cut, []
+        logger.info("voice call: heard its own voice (chars=%d); saying the reply again from the cut sentence", chars)
+        for said in cut:
+            await self._voice(said)
+        # 自分の声の話し始めで、 送る前の待ちが止まっていたら、 待ち直す
+        if self._pending and not self._hold_task:
+            self._hold_task = self.create_task(self._send_after_hold(self._resume_secs), "voice-call-hold")
 
     def _fresh_speech(self, event: dict) -> str | None:
         found = speech_of(event)
@@ -234,6 +297,8 @@ class AgentBridge(FrameProcessor):
     async def _set_speech(self, on: bool) -> None:
         self._speech = on
         if not on:
+            self._forget_voiced()
+            self._cut = []
             await self.push_frame(InterruptionFrame())   # 鳴っている声とまだ鳴らしていない文を止める
         logger.info("voice call: speech %s", "on" if on else "off")
 
