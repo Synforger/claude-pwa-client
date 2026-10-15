@@ -311,13 +311,15 @@ claude-pwa-client は以下の OSS に依存している。 全 deps のライ�
 
 ## iOS app (`shell/`) dependencies
 
-iPhone の app を作る時だけ使う部品。 Swift Package Manager と npm が取ってきて app に組み込む (= 本リポには同梱しない)。 ライセンスの原文 (= WebRTC の特許の許諾を含む) は `shell/ios/App/App/Acknowledgements.txt` にまとめて app に同梱する。
+iPhone の app を作る時だけ使う部品。 Swift Package Manager と npm が取ってきて app に組み込む (= 本リポには同梱しない。
+pipecat-client-ios-small-webrtc だけは、 手を入れた写しを `shell/ios/App/Packages/pipecat-client-ios-small-webrtc/` に
+同梱する。 上流の LICENSE を同じ folder に置き、 上流との差分は同じ folder の `CPC-PATCHES.md` に並べる)。 ライセンスの原文 (= WebRTC の特許の許諾を含む) は `shell/ios/App/App/Acknowledgements.txt` にまとめて app に同梱する。
 
 | Package | License | URL |
 |---|---|---|
 | @capacitor/core / @capacitor/ios / @capacitor/cli (= capacitor-swift-pm) | MIT | https://github.com/ionic-team/capacitor |
 | pipecat-client-ios | BSD-2-Clause | https://github.com/pipecat-ai/pipecat-client-ios |
-| pipecat-client-ios-small-webrtc | BSD-2-Clause | https://github.com/pipecat-ai/pipecat-client-ios-small-webrtc |
+| pipecat-client-ios-small-webrtc (= 1.3.0 の写しに手を入れて同梱) | BSD-2-Clause | https://github.com/pipecat-ai/pipecat-client-ios-small-webrtc |
 | WebRTC (= stasel/WebRTC が配る Google WebRTC の build) | BSD-3-Clause + WebRTC Additional IP Rights Grant (= build scripts は BSD-3-Clause) | https://github.com/stasel/WebRTC / https://webrtc.org/support/license |
 
 ## External services / processes (not bundled)
