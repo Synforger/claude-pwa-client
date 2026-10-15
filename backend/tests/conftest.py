@@ -93,6 +93,17 @@ _STATE_GLOBALS = (
 )
 
 
+@pytest.fixture(autouse=True)
+def isolated_session_history(monkeypatch, tmp_path):
+    """終わった会話の控え (= backend/jsonl/history.py) を test ごとの tmp に向ける。
+
+    画面へ流す会話の並び (= backend/jsonl/chain.py) がこれを読むので、 実機の控えが混ざると流し直しの
+    中身が開発者の機械に依存する。 セッション終了を通る test が実機の控えへ書く事も、 ここで止まる。"""
+    from backend.jsonl import history
+
+    monkeypatch.setattr(history, "SESSION_HISTORY_PATH", tmp_path / "session_history.json")
+
+
 @pytest.fixture
 def isolated_state(monkeypatch, tmp_path):
     """state.py の global dict を deepcopy で snapshot → test 退場時に復元。
