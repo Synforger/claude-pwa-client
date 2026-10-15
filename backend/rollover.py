@@ -9,15 +9,14 @@
       "idle":    { "context_pct": 40, "minutes": 50 }
     }
 
-    working: 推論中のタブの context がこの割合に届いたら頼む (= 手が空いているタブには打たない。
-             人が返事を読んでいる・打っている最中の会話を締めない)
-    idle:    手が空いているタブの context がこの割合を超えていて、 会話の記録がこの分数だけ
+    working: タブの context がこの割合に届いたら、 推論中でも手が空いていても頼む (= 手が空いたタブを
+             待たせると、 次に人が打つまで古い会話が残り、 その発話を古い会話が受ける)
+    idle:    working の割合より下で、 context がこの割合を超えていて、 会話の記録がこの分数だけ
              更新されていなければ頼む
 
 見張りは一定の間隔でタブを見回り、 どれかのタブが推論を始めた時 (= `UserPromptSubmit` の hook) にも
-すぐ見回る。 間隔だけだと、 見回りの間に始まって終わる短い推論 (= 別のタブからの連絡への返事は数秒で
-終わる) は 1 度も推論中と数えられず、 割合を超えたまま静かな側の条件が立つまで頼めない。 推論を始めた
-タブは、 その見回りでは推論中と数える (= 画面の実況が追いつく前でも)。 判定の材料は毎回、 実物から取る
+すぐ見回る。 推論を始めたタブは、 その見回りでは推論中と数える (= 画面の実況が追いつく前でも)。 見回りの
+間に始まって終わった推論で working の割合を越えたタブも、 手が空いた次の見回りで頼まれる。 判定の材料は毎回、 実物から取る
 (= 割合は画面が出している値、 静かな時間は会話の記録 file の最終更新、 頼んだかどうかは記録の中の発話)。
 backend の記憶には持たないので、 backend を再起動しても同じ答えになる。
 
@@ -85,12 +84,15 @@ def _number(section, key: str) -> float | None:
 
 
 def due(cfg: dict, pct: int | None, idle_minutes: float, busy: bool) -> str | None:
-    """頼む理由 (= 推論中に割合へ届いた `context` / 静かなまま割合を超えている `idle`)。 頼まないなら None。"""
+    """頼む理由 (= working の割合に届いた `context` / 静かなまま idle の割合を超えている `idle`)。 頼まないなら
+    None。 working の割合は推論中でも手が空いていても見る。 idle は手が空いている時だけ。"""
     if pct is None:
         return None
+    at = _number(cfg.get("working"), "context_pct")
+    if at is not None and pct >= at:
+        return "context"
     if busy:
-        at = _number(cfg.get("working"), "context_pct")
-        return "context" if at is not None and pct >= at else None
+        return None
     at, quiet = _number(cfg.get("idle"), "context_pct"), _number(cfg.get("idle"), "minutes")
     if at is not None and quiet is not None and pct >= at and idle_minutes >= quiet:
         return "idle"
