@@ -1,6 +1,6 @@
 """電話の会話 1 本の組み立て (= Pipecat の標準の並び。 LLM の段にタブの agent が居る)。
 
-    受け口 (= WebRTC) → 聞き取り → 発話のまとめ役 (= Silero で声の区間、 Smart Turn で言い終え) → agent → 声 → 送り口
+    受け口 (= WebRTC) → マイクの関所 (= app がマイクを切っている間の音を捨てる) → 聞き取り → 発話のまとめ役 (= Silero で声の区間、 Smart Turn で言い終え) → agent → 声 → 送り口
 
 間の取り方は、 画面の会話と同じ設定 (= `voice.conversation`) から決める:
     pause_ms            声が途切れたと見る無音 (= Silero の stop_secs)
@@ -39,7 +39,7 @@ from pipecat.workers.runner import WorkerRunner
 
 from backend.voice_call.agent import AgentBridge
 from backend.voice_call.client import BackendClient
-from backend.voice_call.services import ListenSTT, VoiceTTS, Volume, scaled
+from backend.voice_call.services import ListenSTT, MicGate, VoiceTTS, Volume, scaled
 
 logger = logging.getLogger(__name__)
 
@@ -136,8 +136,13 @@ async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, st
 
     bridge = AgentBridge(conversation, send=backend.send, events=backend.events, utterances=backend.utterances,
                          speech=start.get("speech", True), interrupt=backend.interrupt)
+    def microphone_on() -> bool:
+        track = connection.audio_input_track()
+        return track is None or track.is_enabled()
+
     pipeline = Pipeline([
         transport.input(),
+        MicGate(microphone_on),
         ListenSTT(backend, on_lost=lost, on_words=bridge.heard_words, wants_words=bridge.wants_words),
         user_aggregator,
         bridge,
