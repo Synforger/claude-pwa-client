@@ -101,6 +101,9 @@ struct CallAgentIntent: AppIntent {
 }
 
 /// Siri の呼び方 (= 言い方の中に app の名前が要る)。
+///
+/// ここに書く言い方は開発言語 (= 英語) の Siri にだけ載る。 他の言語の言い方は `<言語>.lproj/AppShortcuts.strings` が、
+/// ここの言い方を鍵にした訳として持つ (= 鍵 1 つに訳 1 つ。 日本語は `ja.lproj/AppShortcuts.strings`)。
 @available(iOS 16.0, *)
 struct AgentShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
@@ -110,9 +113,6 @@ struct AgentShortcuts: AppShortcutsProvider {
                 "Ask the agent in \(.applicationName)",
                 "Ask \(.applicationName)",
                 "\(.applicationName) request",
-                // (= Siri の言語が日本語の時の言い方)
-                "\(.applicationName)で頼む",
-                "\(.applicationName)に頼む",
             ],
             shortTitle: "Ask the Agent",
             systemImageName: "bubble.left.and.text.bubble.right"
@@ -123,9 +123,6 @@ struct AgentShortcuts: AppShortcutsProvider {
                 "Call the agent in \(.applicationName)",
                 "Call \(\.$tab) in \(.applicationName)",
                 "\(.applicationName) call",
-                // (= Siri の言語が日本語の時の言い方)
-                "\(.applicationName)で通話",
-                "\(.applicationName)で\(\.$tab)と通話",
             ],
             shortTitle: "Call the Agent",
             systemImageName: "phone.bubble"
