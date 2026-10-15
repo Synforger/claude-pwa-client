@@ -334,3 +334,30 @@ describe('reconcileUserMessage — 別のタブからの連絡', () => {
     expect(reconcileUserMessage(first, relayed(AGENT_MESSAGE_OPENING), 'U-relayed', undefined, 1)).toBe(first)
   })
 })
+
+// 声の会話は、 途中の間で区切られて先に送られた前半を取り消し、 後半をつなげて送り直す。 claude は取り消した発話を
+// 記録に残し、 送り直した発話を同じ親に付ける (= 2026-10-15、 1 区間ずつ長くなる発話が 4 行並んだ)。
+describe('reconcileUserMessage: a turn sent again under the same parent replaces the earlier one', () => {
+  const users = (list) => list.filter(m => m.role === 'user').map(m => m.text)
+
+  it('keeps only the newest of the turns under one parent', () => {
+    let cur = reconcileUserMessage([], '[voice] てか、次のやつは。', 'U1', undefined, 1000, 'P')
+    cur = reconcileUserMessage(cur, '[voice] てか、次のやつは。 時間がかかりそう。', 'U2', undefined, 6000, 'P')
+    cur = reconcileUserMessage(cur, '[voice] てか、次のやつは。 時間がかかりそう。 次はどこ？', 'U3', undefined, 12000, 'P')
+    expect(users(cur)).toEqual(['[voice] てか、次のやつは。 時間がかかりそう。 次はどこ？'])
+  })
+
+  it('clears the earlier turns already on the screen when the history is read again', () => {
+    // 直す前に受け取った吹き出しは親を持たない。 読み直しの replay で親を書き足し、 古い方を外す
+    let cur = [{ ...confirmed('前半', 'U1'), ts: 1000 }, { ...confirmed('前半 後半', 'U2'), ts: 6000 }]
+    cur = reconcileUserMessage(cur, '前半', 'U1', undefined, 1000, 'P')
+    cur = reconcileUserMessage(cur, '前半 後半', 'U2', undefined, 6000, 'P')
+    expect(users(cur)).toEqual(['前半 後半'])
+  })
+
+  it('keeps turns under different parents', () => {
+    let cur = reconcileUserMessage([], '一つ目', 'U1', undefined, 1000, 'P1')
+    cur = reconcileUserMessage(cur, '二つ目', 'U2', undefined, 6000, 'P2')
+    expect(users(cur)).toEqual(['一つ目', '二つ目'])
+  })
+})

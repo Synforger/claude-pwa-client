@@ -8,6 +8,14 @@
 その行の終わりまで効く (= 行の中で別の印が出れば、 そこから切り替わる)。 印の無い行は既定の印。
 一覧に無い `[…]` と、 文の途中の `[…]` は、 ただの文として残る。
 
+予約の印 `[mute]` (= MUTE_MARK) の行は声にしない (= 吹き出しには出る。 声で言う事と目で見せる事を 1 つの返事の
+中で分ける)。 効く範囲は他の印と同じく行の終わりまでで、 行の中で別の印が出れば、 そこから声に戻る。 設定の marks
+に同じ名前が在っても、 予約の印として扱う。
+
+印には、 その文だけの値を添えられる (= `[happy i=1.2 s=1.1]`)。 添えた値は印の値の上に重なり、 印と同じく
+行の終わりまで効く。 添えられるのは VALUES の名前 (= 短い別名でも、 engine の名前でも) で、 範囲は
+VALUE_RANGES。 名前の違う値と範囲の外の値は、 その文では使わない (= 印の値で言う)。
+
 core/ に置く理由: 何を声にするかは、 音を作る側 (= routes) と切り離して test できる底の決まり。
 """
 from __future__ import annotations
@@ -18,9 +26,10 @@ from typing import NamedTuple
 
 
 class Utterance(NamedTuple):
-    """声にする 1 文と、 その言い方の印。"""
+    """声にする 1 文と、 その言い方の印と、 印に添えた値 (= engine の名前 → 数。 添えていなければ空)。"""
     mark: str
     text: str
+    values: dict[str, float] = {}
 
 
 _FENCE = re.compile(r"^\s*(```|~~~)")
@@ -42,9 +51,32 @@ _EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿️‍]")
 _SPACES = re.compile(r"[ \t　]+")
 # 文の終わり: 句点・感嘆符・疑問符の並びと、 それに続く閉じ括弧。
 _SENTENCE = re.compile(r".*?[。！？!?]+[」』）)】]*|.+$")
+# 声で聞いている印 (= 🔊 の間に人が送った文の頭に付く。 画面の `features/voice/inputMark.js` と同じ印)。 返事の
+# 印とは逆向きで、 agent へ「この返事は声で聞かれる」 と伝える。 送信口はこの印で声の発話を見分ける。
+VOICE_INPUT_MARK = "[voice]"
 # 印の名前の形 (= 設定に書く名前も、 文頭の `[名前]` も、 この形だけを印として認める)。
 MARK_NAME = r"[A-Za-z]+"
-_MARK = re.compile(rf"^\s*\[({MARK_NAME})\]\s*")
+# 予約の印: この印の行は声にしない (= 設定の marks には書かない。 書いても予約が勝つ)。
+MUTE_MARK = "mute"
+# 印に添えられる値: 短い別名 → engine の問い合わせの値の名前。
+VALUES = {
+    "i": "intonationScale",
+    "s": "speedScale",
+    "t": "tempoDynamicsScale",
+    "p": "pitchScale",
+    "v": "volumeScale",
+}
+# 値の範囲 (= 両端を含む)。 AivisSpeech Engine 1.2.0 が `/openapi.json` の AudioQuery の説明に書く範囲。
+VALUE_RANGES = {
+    "intonationScale": (0.0, 2.0),
+    "speedScale": (0.5, 2.0),
+    "tempoDynamicsScale": (0.0, 2.0),
+    "pitchScale": (-0.15, 0.15),
+    "volumeScale": (0.0, 2.0),
+}
+_NUMBER = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)"
+_PAIR = re.compile(rf"([A-Za-z]+)=({_NUMBER})")
+_MARK = re.compile(rf"^\s*\[({MARK_NAME})((?:\s+[A-Za-z]+={_NUMBER})*)\s*\]\s*")
 
 
 def _drop_path(match: re.Match[str]) -> str:
@@ -72,9 +104,47 @@ def speakable(text: str) -> bool:
     return any(ch.isalnum() for ch in text)
 
 
-def utterances(text: str, marks: Iterable[str], default: str) -> list[Utterance]:
-    """返事の文を、 声にする文の並びにする。 marks は印として認める名前、 default は印の無い行の印。"""
-    known = set(marks)
+def mark_values(pairs) -> tuple[dict[str, float], list[str]]:
+    """印に添えた値 (= `i=1.2 s=1.1` の文字列か、 名前 → 数の組) を、 engine の名前 → 数にする。
+
+    名前は短い別名でも engine の名前でもよい。 返すのは (使う値, 使わなかった物の説明の並び)。 名前の違う物と、
+    数でない物と、 範囲の外の物は使わない。
+    """
+    items = [(m[1], m[2]) for m in _PAIR.finditer(pairs)] if isinstance(pairs, str) else list((pairs or {}).items())
+    used: dict[str, float] = {}
+    dropped: list[str] = []
+    for name, raw in items:
+        key = VALUES.get(name, name)
+        try:
+            value = float(raw) if not isinstance(raw, bool) else None
+        except (TypeError, ValueError):
+            value = None
+        if key not in VALUE_RANGES or value is None:
+            dropped.append(f"{name}={raw}")
+            continue
+        low, high = VALUE_RANGES[key]
+        if not low <= value <= high:
+            dropped.append(f"{name}={raw} (= {key} は {low}〜{high})")
+            continue
+        used[key] = value
+    return used, dropped
+
+
+def parse_mark(sentence: str, marks: Iterable[str]) -> tuple[str, dict[str, float], list[str], str] | None:
+    """文頭の印 (= 値を添えた形も) を読む。 印でなければ None。 返すのは (名前, 値, 使わなかった値, 残りの文)。"""
+    head = _MARK.match(sentence)
+    if not head or head.group(1) not in set(marks):
+        return None
+    values, dropped = mark_values(head.group(2))
+    return head.group(1), values, dropped, sentence[head.end():]
+
+
+def utterances(text: str, marks: Iterable[str], default: str, dropped: list[str] | None = None) -> list[Utterance]:
+    """返事の文を、 声にする文の並びにする。 marks は印として認める名前、 default は印の無い行の印。
+
+    dropped を渡すと、 印に添えたのに使わなかった値の説明を足す (= 呼び手が log に出す)。
+    """
+    known = set(marks) | {MUTE_MARK}
     out: list[Utterance] = []
     fenced = False
     for raw in text.splitlines():
@@ -84,14 +154,15 @@ def utterances(text: str, marks: Iterable[str], default: str) -> list[Utterance]
         if fenced or _TABLE.match(raw) or _RULE.match(raw):
             continue
         line = _plain(raw)
-        mark = default
+        mark, values = default, {}
         for found in _SENTENCE.finditer(line):
             sentence = found.group(0)
-            head = _MARK.match(sentence)
-            if head and head.group(1) in known:
-                mark = head.group(1)
-                sentence = sentence[head.end():]
+            head = parse_mark(sentence, known)
+            if head:
+                mark, values, unused, sentence = head
+                if dropped is not None:
+                    dropped.extend(unused)
             sentence = sentence.strip()
-            if sentence and speakable(sentence):
-                out.append(Utterance(mark, sentence))
+            if sentence and speakable(sentence) and mark != MUTE_MARK:
+                out.append(Utterance(mark, sentence, values))
     return out

@@ -59,8 +59,8 @@ class BackendClient:
     async def utterances(self, text: str) -> list[dict]:
         return (await self._json("POST", f"{self._voice}/utterances", json={"text": text})).get("utterances") or []
 
-    async def synthesize(self, text: str, mark: str | None) -> bytes:
-        body = {"text": text, **({"mark": mark} if mark else {})}
+    async def synthesize(self, text: str, mark: str | None, values: dict | None = None) -> bytes:
+        body = {"text": text, **({"mark": mark} if mark else {}), **({"values": values} if values else {})}
         async with self._http.post(f"{self._voice}/synthesis", json=body) as r:
             if r.status >= 400:
                 raise RuntimeError(f"synthesis -> {r.status} {await r.text()}")

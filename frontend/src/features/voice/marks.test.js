@@ -41,6 +41,16 @@ describe('hideMarks — marks are taken out of the text that is shown', () => {
     expect(hideMarks(undefined, MARKS)).toBe(undefined)
   })
 
+  it('takes off a mark with values, at the head and after a stop', () => {
+    expect(hideMarks('[happy i=1.2 s=0.9] やった！[happy t=1.4] 次も！', MARKS)).toBe('やった！次も！')
+    expect(hideMarks('- [happy intonationScale=0.6] そうだね。', MARKS)).toBe('- そうだね。')
+  })
+
+  it('leaves a bracket that only looks like a mark with values', () => {
+    expect(hideMarks('[voice i=1.2] 聞こえる？', MARKS)).toBe('[voice i=1.2] 聞こえる？')
+    expect(hideMarks('[happy i=] 途中。', MARKS)).toBe('[happy i=] 途中。')
+  })
+
   it('ignores a name that could not be a mark', () => {
     expect(hideMarks('[a|b] x', ['a|b', '.*'])).toBe('[a|b] x')
   })

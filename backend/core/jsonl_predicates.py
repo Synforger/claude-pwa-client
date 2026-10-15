@@ -33,8 +33,10 @@ HARNESS_XML_RE = re.compile(
 # 発話ではなく「中断が完了した」 という終端 marker。 busy 判定でユーザ発話扱いすると claude プロセスは
 # 既に止まっていて応答 (= 終端 stop_reason 行) が来ないため、 busy=True が永遠に落ちず停止ボタンが
 # 送信ボタンに戻らない (2026-06-04 真因確定、 これまでの単一権威化 / probe 観測でも消えなかった元凶)。
+# ツールの実行中に止めた時は `[Request interrupted by user for tool use]` と書く (= 実測、 Claude Code 2.1.299:
+# ツールの結果 (= is_error) の行に続けて、 この文だけの user 行)。 どちらも中断の印で、 発話ではない。
 # 後方 / 前方の空白だけ許容、 大小無視。
-INTERRUPT_USER_RE = re.compile(r"^\s*\[request interrupted by user\]\s*$", re.IGNORECASE)
+INTERRUPT_USER_RE = re.compile(r"^\s*\[request interrupted by user(?: for tool use)?\]\s*$", re.IGNORECASE)
 
 
 # claude は端末への複数行の貼り付けを `<pasted_content id="N">` 〜 `</pasted_content id="N">` で包んで

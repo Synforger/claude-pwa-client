@@ -67,7 +67,7 @@ from fastapi.responses import FileResponse, Response
 
 import backend.config as _config
 from backend.core.compressor import CompressorError, compress, compressor_settings
-from backend.core.speech import MARK_NAME, speakable, utterances
+from backend.core.speech import MARK_NAME, MUTE_MARK, mark_values, speakable, utterances
 from backend.errors import raise_error
 from backend.state import sessions_meta
 
@@ -102,10 +102,14 @@ LISTEN_TIMEOUT_SEC = MAX_LISTEN_SEC * _SEEN_LISTEN_SEC_PER_AUDIO_SEC * 2
 #   wait_ms:   言い終えていないと判定した時に、 送るまで待つ無音 (= 声が途切れた時から数える。 Pipecat の既定)
 #   unfinished_endings: 聞き取った文がこれで終わる時は、 言い終えた判定でも送らずに wait_ms まで待つ
 #              (= 読点と、 考えている間に出る語。 文末の句点は外して見る)
+#   resume_ms: 言い終えたと判定した後、 送る前に待つ無音。 この間に話し始めたら、 続きとつなげて 1 つの発話にする
+#              (= Smart Turn は長い発話の途中の間でも「言い終えた」 と出すことがある。 0 なら待たずに送る。
+#              既定は声の agent の頼みの値)
 #   interrupt: 返事が鳴っている間も聞き、 話し始めたら返事を止める (= false なら、 鳴っている間は聞かない)
 CONVERSATION_DEFAULTS = {
     "pause_ms": 700,
     "wait_ms": 3000,
+    "resume_ms": 400,
     "unfinished_endings": ["、", ",", "，", "…", "...", "なんか", "えーと", "えっと", "えー", "あのー", "あの",
                            "うーん", "まあ", "その"],
     "interrupt": True,
@@ -159,6 +163,9 @@ def _conversation(raw) -> dict | None:
     out = {**CONVERSATION_DEFAULTS, **raw}
     endings = out["unfinished_endings"]
     if not (_is_ms(out["pause_ms"]) and _is_ms(out["wait_ms"]) and out["wait_ms"] > out["pause_ms"]):
+        return None
+    resume = out["resume_ms"]
+    if not (isinstance(resume, int) and not isinstance(resume, bool) and resume >= 0):
         return None
     if not isinstance(endings, list) or not all(isinstance(e, str) and e.strip() for e in endings):
         return None
@@ -373,7 +380,9 @@ async def get_voice(session_id: str) -> dict:
         return {"enabled": False, "marks": [], "default": "", "listen": False, "turn": False,
                 "conversation": None, "tuning_error": ""}
     listen = settings["listen"]
-    return {"enabled": True, "marks": list(settings["marks"]), "default": settings["default"],
+    # 印の一覧には予約の印も入れる (= 画面は、 この一覧の印を吹き出しから隠す)
+    marks = [*settings["marks"], *([] if MUTE_MARK in settings["marks"] else [MUTE_MARK])]
+    return {"enabled": True, "marks": marks, "default": settings["default"],
             "listen": bool(listen), "turn": bool(listen and listen["turn"]),
             "conversation": settings["conversation"], "tuning_error": settings["tuning_error"]}
 
@@ -389,8 +398,11 @@ async def post_utterances(request: Request, session_id: str) -> dict:
     text, _ = await _text_of(request)
     if len(text) > MAX_REPLY_CHARS:
         raise_error(413, "voice_text_too_long", f"文が長すぎます (上限 {MAX_REPLY_CHARS} 文字)", limit=MAX_REPLY_CHARS)
-    said = utterances(text, settings["marks"], settings["default"])
-    return {"utterances": [{"mark": u.mark, "text": u.text} for u in said]}
+    dropped: list[str] = []
+    said = utterances(text, settings["marks"], settings["default"], dropped)
+    if dropped:
+        logger.info("voice: session=%s mark values not used: %s", session_id, ", ".join(dropped))
+    return {"utterances": [{"mark": u.mark, "text": u.text, "values": u.values} for u in said]}
 
 
 @router.post("/sessions/{session_id}/voice/synthesis")
@@ -400,19 +412,24 @@ async def post_synthesis(request: Request, session_id: str) -> Response:
     body:
         text (str): 声にする 1 文 (= `utterances` が返した文)
         mark (str, 省略可): 言い方の印 (= 省けば既定の印)
+        values (object, 省略可): 印に添えた値 (= `utterances` が返した値。 名前 → 数)
     """
     text, body = await _text_of(request)
-    name = body.get("mark")
+    name, values = body.get("mark"), body.get("values")
     if name is not None and not isinstance(name, str):
         raise_error(400, "voice_bad_request", "mark は文字列で渡します")
-    kind, sound = await synthesize(session_id, text, name)
+    if values is not None and not isinstance(values, dict):
+        raise_error(400, "voice_bad_request", "values は名前 → 数の組で渡します")
+    kind, sound = await synthesize(session_id, text, name, values)
     return Response(content=sound, media_type=kind, headers={"Cache-Control": "no-store"})
 
 
-async def synthesize(session_id: str, text: str, mark: str | None = None) -> tuple[str, bytes]:
+async def synthesize(session_id: str, text: str, mark: str | None = None,
+                     values: dict | None = None) -> tuple[str, bytes]:
     """1 文を、 印の言い方で音にする (= 画面の口と、 電話の会話が使う)。 返すのは (Content-Type, 音)。
 
-    mark を省けば既定の印。 文の形と印が違えば、 画面の口と同じ形の error を投げる。
+    mark を省けば既定の印。 values は印に添えた値で、 印の値の上に重ねる (= 名前の違う物と範囲の外の物は
+    使わない。 core/speech.py の mark_values)。 文の形と印が違えば、 画面の口と同じ形の error を投げる。
     """
     settings = _enabled(session_id)
     name = settings["default"] if mark is None else mark
@@ -425,7 +442,10 @@ async def synthesize(session_id: str, text: str, mark: str | None = None) -> tup
         raise_error(413, "voice_text_too_long", f"文が長すぎます (上限 {MAX_UTTERANCE_CHARS} 文字)",
                     limit=MAX_UTTERANCE_CHARS)
 
-    values = dict(settings["marks"].get(name, {}))
+    added, dropped = mark_values(values)
+    if dropped:
+        logger.info("voice: session=%s mark values not used: %s", session_id, ", ".join(dropped))
+    values = {**settings["marks"].get(name, {}), **added}
     speaker = values.pop("speaker", settings["speaker"])
     started = time.monotonic()
     asked = urllib.parse.urlencode({"speaker": speaker, "text": text}, quote_via=urllib.parse.quote)
@@ -446,8 +466,9 @@ async def synthesize(session_id: str, text: str, mark: str | None = None) -> tup
         _engine_failed("synthesis", 200)
     if settings["compressor"] is not None:   # 空の {} も「既定の値で掛ける」
         sound = await _compressed(sound, settings["compressor"])
-    logger.info("voice: session=%s mark=%s chars=%d bytes=%d ms=%d", session_id, name or "-", len(text),
-                len(sound), (time.monotonic() - started) * 1000)
+    logger.info("voice: session=%s mark=%s%s chars=%d bytes=%d ms=%d", session_id, name or "-",
+                "".join(f" {k}={v}" for k, v in added.items()), len(text), len(sound),
+                (time.monotonic() - started) * 1000)
     return kind, sound
 
 

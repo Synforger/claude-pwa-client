@@ -123,3 +123,68 @@ def test_a_mark_with_nothing_after_it_gives_no_utterance():
 
 def test_marks_are_matched_as_written():
     assert said("[Happy] やった！") == [("calm", "[Happy] やった！")]
+
+
+# --- 印に添えた値 -------------------------------------------------------------------
+
+def valued(text: str, marks=MARKS, default="calm") -> list[tuple[str, dict, str]]:
+    return [(u.mark, u.values, u.text) for u in utterances(text, marks, default)]
+
+
+def test_a_mark_without_values_has_none():
+    assert valued("[happy] やった！") == [("happy", {}, "やった！")]
+
+
+def test_values_after_a_mark_are_named_the_way_the_engine_names_them():
+    assert valued("[happy i=1.2 s=0.9 t=1.4 p=0.05 v=1.5] やった！") == [("happy", {
+        "intonationScale": 1.2, "speedScale": 0.9, "tempoDynamicsScale": 1.4, "pitchScale": 0.05, "volumeScale": 1.5,
+    }, "やった！")]
+
+
+def test_a_value_may_be_written_by_the_engine_name():
+    assert valued("[soft intonationScale=0.6] そうだね。") == [("soft", {"intonationScale": 0.6}, "そうだね。")]
+
+
+def test_values_hold_to_the_end_of_their_line_with_their_mark():
+    assert valued("[happy i=1.5] やった！できた！\n次はこれ。") == [
+        ("happy", {"intonationScale": 1.5}, "やった！"), ("happy", {"intonationScale": 1.5}, "できた！"),
+        ("calm", {}, "次はこれ。")]
+
+
+def test_a_new_mark_in_the_line_drops_the_values_of_the_last():
+    assert valued("[happy i=1.5] やった！[soft] 休もう。") == [
+        ("happy", {"intonationScale": 1.5}, "やった！"), ("soft", {}, "休もう。")]
+
+
+@pytest.mark.parametrize("pair", ["i=2.5", "s=0.4", "p=0.2", "v=-1", "x=1.0", "speed=1.2"])
+def test_a_value_out_of_range_or_of_no_known_name_is_not_used(pair):
+    dropped = []
+    said_ = utterances(f"[happy i=1.1 {pair}] やった！", MARKS, "calm", dropped)
+    assert [(u.mark, u.values, u.text) for u in said_] == [("happy", {"intonationScale": 1.1}, "やった！")]
+    assert len(dropped) == 1 and dropped[0].startswith(pair)
+
+
+def test_the_ends_of_a_range_are_in_it():
+    assert valued("[happy s=0.5 p=-0.15] ゆっくり。")[0][1] == {"speedScale": 0.5, "pitchScale": -0.15}
+
+
+def test_values_after_a_name_that_is_no_mark_are_text():
+    assert valued("[voice i=1.2] 聞こえる？") == [("calm", {}, "[voice i=1.2] 聞こえる？")]
+
+
+# --- 予約の印 [mute] -----------------------------------------------------------------------------------------
+
+def test_a_mute_line_is_not_spoken():
+    assert said("[mute] 下の表を見て。\nまとめると、 良さそう。") == [("calm", "まとめると、 良さそう。")]
+
+
+def test_a_mute_mark_holds_to_the_end_of_its_line_and_another_mark_brings_the_voice_back():
+    assert said("[mute] 長い引用。 続きの引用。[happy] ここは言う！") == [("happy", "ここは言う！")]
+
+
+def test_mute_is_reserved_even_when_the_marks_name_it():
+    assert said("[mute] 言わない。", marks=(*MARKS, "mute")) == []
+
+
+def test_mute_in_the_middle_of_a_sentence_is_text():
+    assert said("印は [mute] と書く。") == [("calm", "印は [mute] と書く。")]

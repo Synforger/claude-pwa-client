@@ -248,10 +248,34 @@ tasks:
       - task: test:backend
 
   lint:
-    desc: Run lint for backend (flake8) and frontend (ESLint)
+    desc: Run lint for backend (flake8) and frontend (ESLint), and the iPhone app's usage descriptions
     cmds:
       - task: lint:backend
       - task: lint:frontend
+      - task: lint:ios-privacy
+
+  ios:crashes:
+    desc: Show why the iPhone app crashed, from the crash reports on a connected iPhone (DEVICE=<UDID>, SINCE=YYYY-MM-DD)
+    cmds:
+      - python3 shell/ios/tools/crash-reports/crash-reports.py --device "{{.DEVICE}}" {{if .SINCE}}--since "{{.SINCE}}"{{end}}
+    requires:
+      vars: [DEVICE]
+
+  ios:pip-preview:
+    desc: Draw the PiP chat bubbles of shell/ios/tools/pip-preview/samples (or FILES=…) as PNG on the Mac, with the app's own ChatMarkdown.swift (OUT=<dir>)
+    vars:
+      FILES: '{{.FILES | default "shell/ios/tools/pip-preview/samples/*.md"}}'
+    cmds:
+      - mkdir -p "{{.OUT}}"
+      - bash shell/ios/tools/pip-preview/build.sh "{{.OUT}}/pip-preview"
+      - '"{{.OUT}}/pip-preview" "{{.OUT}}" {{.FILES}}'
+    requires:
+      vars: [OUT]
+
+  lint:ios-privacy:
+    desc: Every feature the iPhone app uses (camera, microphone, …) has its usage description in Info.plist
+    cmds:
+      - python3 .tooling/local-ci/ios-privacy-check.py
 
   lint:backend:
     desc: flake8 critical-only checks over backend/

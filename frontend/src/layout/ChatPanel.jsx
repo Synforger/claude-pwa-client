@@ -38,6 +38,7 @@ import { setBadge } from '../features/push-notify/badge.js'
 import ActivityBar from '../features/tasks/ActivityBar.jsx'
 import { PromptStateBanner } from '../features/status-bar/PromptStateBanner.jsx'
 import ChatInput from '../features/chat/ChatInput.jsx'
+import { setVoiceSender } from '../features/voice/index.js'
 import MessageList from '../features/chat/MessageList.jsx'
 import { sortByTs } from '../features/chat/sortByTs.js'
 import AttachmentsBar from '../features/chat/AttachmentsBar.jsx'
@@ -232,6 +233,13 @@ export default function ChatPanel({ sid }) {
 
   const handleStopClick = useCallback(() => setOverlay('confirmStop', true), [])
   const handleSendClick = useCallback((text) => sendMessage(text), [sendMessage])
+  // 声の会話が聞き取った文の送り先 (= 🔊 のタブ。 見ているタブが変わっても、 そのタブへ送る)。
+  const sendRef = useRef(sendMessage)
+  useEffect(() => { sendRef.current = sendMessage }, [sendMessage])
+  useEffect(() => {
+    setVoiceSender((voiceSid, text) => sendRef.current(text, voiceSid))
+    return () => setVoiceSender(null)
+  }, [])
   const handleSendFailedConsumed = useCallback(() => storeSetSendFailedText(null), [])
   const handleStopRecovered = useCallback(() => storeSetStopUnavailableSid(null), [])
 

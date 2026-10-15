@@ -106,22 +106,34 @@
   justify-content: flex-end;
 }
 
-/* 上端の開閉のボタン。 中身が畳んだ時の上限 (= 3 行) を超えている時にだけ出る。 */
+/* 上端の開閉のボタン。 中身が畳んだ時の上限 (= 3 行) を超えている時にだけ出る。 上の縁に半分かかる
+   小さな印で、 行を取らない (= 出た瞬間に入力エリアが上へ伸びない)。 */
 .inputarea-edge {
-  display: flex;
-  justify-content: flex-end;
+  position: absolute;
+  top: 0;
+  right: calc(12px + env(safe-area-inset-right));
+  transform: translateY(-50%);
 }
 
 .input-size-toggle {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 24px;
+  width: 28px;
+  height: 12px;
   padding: 0;
+  border-radius: 6px;
   background: var(--bg3);
   color: var(--text-dim);
   border: 1px solid var(--border);
+}
+
+/* 押せる範囲は見た目より広くとる (= 指で外さない) */
+.input-size-toggle::before {
+  content: '';
+  position: absolute;
+  inset: -10px -8px;
 }
 
 textarea {

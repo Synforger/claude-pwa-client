@@ -13,12 +13,22 @@ from starlette.testclient import TestClient
 
 from backend.routes import voice_call
 from backend.tests.test_voice import tabs  # noqa: F401 (= 声のタブの用意を使い回す)
-from backend.voice_call.rules import is_unfinished, mark_voice_input, marked, speech_of, split_mark
+from backend.voice_call.rules import (
+    is_own_voice,
+    is_unfinished,
+    mark_voice_input,
+    marked,
+    shown_reply_text,
+    shown_user_text,
+    speech_of,
+    split_mark,
+)
 
 SETTINGS = {
     "marks": {"calm": {}, "happy": {}},
     "default": "calm",
-    "conversation": {"pause_ms": 200, "wait_ms": 300, "unfinished_endings": ["、", "なんか"], "interrupt": True},
+    "conversation": {"pause_ms": 200, "wait_ms": 300, "resume_ms": 50, "unfinished_endings": ["、", "なんか"],
+                     "interrupt": True},
 }
 
 
@@ -56,9 +66,12 @@ def test_only_the_reply_text_of_the_main_agent_is_spoken():
 
 def test_a_mark_survives_the_trip_to_the_voice():
     marks = {"calm": {}, "happy": {}}
-    assert split_mark(marked("happy", "やった。"), marks) == ("happy", "やった。")
-    assert split_mark(marked("", "印なし。"), marks) == (None, "印なし。")
-    assert split_mark("[note]一覧に無い印。", marks) == (None, "[note]一覧に無い印。")
+    assert split_mark(marked("happy", "やった。"), marks) == ("happy", {}, "やった。")
+    assert split_mark(marked("", "印なし。"), marks) == (None, {}, "印なし。")
+    assert split_mark("[note]一覧に無い印。", marks) == (None, {}, "[note]一覧に無い印。")
+    # 印に添えた値も、 合成の部品まで運ぶ
+    values = {"intonationScale": 1.2, "speedScale": 0.9}
+    assert split_mark(marked("happy", "やった。", values), marks) == ("happy", values, "やった。")
 
 
 # --- 口 -------------------------------------------------------------------------------------------------------
@@ -82,6 +95,67 @@ def test_a_tab_that_cannot_hold_a_conversation_is_refused_before_connecting(clie
     assert client.post("/sessions/ses_missing/voice/call", json=OFFER).status_code == 404
 
 
+class _FakeCall:
+    """会話の process の偽物: 申し込みに answer を返し、 finish が立つまで走り続ける。"""
+
+    def __init__(self, finish):
+        import json
+        import threading
+
+        self._finish: threading.Event = finish
+        self.returncode = None
+        answer = {"type": "answer", "answer": {"sdp": "v=0", "type": "answer", "pc_id": "pc1"}}
+
+        class _In:
+            def write(self, data):
+                pass
+
+            async def drain(self):
+                pass
+
+        class _Out:
+            async def readline(self):
+                return (json.dumps(answer) + "\n").encode()
+
+        self.stdin, self.stdout = _In(), _Out()
+
+    async def wait(self):
+        while not self._finish.is_set():
+            await asyncio.sleep(0.01)
+        self.returncode = 0
+        return 0
+
+    def kill(self):
+        self._finish.set()
+
+
+def test_a_tab_is_on_a_call_from_the_answer_until_the_call_process_ends(tabs, monkeypatch):  # noqa: F811
+    import threading
+    import time
+
+    from backend.state import is_session_on_call
+
+    finish = threading.Event()
+
+    async def spawn(*args, **kwargs):
+        return _FakeCall(finish)
+
+    monkeypatch.setattr(voice_call.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(voice_call.asyncio, "create_subprocess_exec", spawn)
+    app = FastAPI()
+    app.include_router(voice_call.router)
+    voice_call._workers.clear()
+    with TestClient(app) as c:   # 通話の終わりを待つ task が、 申し込みの後も走り続けるように
+        assert c.post("/sessions/ses_listen/voice/call", json=OFFER).status_code == 200
+        assert is_session_on_call("ses_listen")
+        assert not is_session_on_call("ses_voice")
+        finish.set()
+        deadline = time.monotonic() + 2
+        while is_session_on_call("ses_listen") and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert not is_session_on_call("ses_listen")
+
+
 def test_without_the_call_parts_the_backend_says_so(client, tabs, monkeypatch):  # noqa: F811
     monkeypatch.setattr(voice_call.importlib.util, "find_spec", lambda name: None)
     r = client.post("/sessions/ses_listen/voice/call", json=OFFER)
@@ -93,6 +167,29 @@ def test_a_candidate_before_any_call_is_unknown(client, tabs):  # noqa: F811
     r = client.patch("/sessions/ses_listen/voice/call", json={"pc_id": "pc", "candidates": []})
     assert r.status_code == 404
     assert r.json()["detail"]["code"] == "voice_call_unknown"
+
+
+def test_the_picture_shows_what_was_said_without_marks_and_no_envelopes():
+    assert shown_user_text("[voice] 明日の天気を教えて") == "明日の天気を教えて"
+    assert shown_user_text("画面から打った文") == "画面から打った文"
+    for hidden in (None, "", "  ", "Message from another session, relayed by the client: …",
+                   "Automatic session rollover, sent by the client …", "<session-rollover phase=\"start\">"):
+        assert shown_user_text(hidden) is None
+    assert shown_reply_text("[calm]晴れです。\n[mute]表は画面で。\n[happy i=1.2]やった。") == "晴れです。\n表は画面で。\nやった。"
+    assert shown_reply_text("[1] は脚注のまま") == "[1] は脚注のまま"
+    for interrupt in ("[Request interrupted by user]", "[Request interrupted by user for tool use]"):
+        assert shown_user_text(interrupt) is None
+
+
+def test_the_picture_gets_the_reply_as_markdown_without_the_marks():
+    # 小窓 (= app の ChatMarkdown.swift) が表・見出し・箇条書き・コードの枠まで描くので、 markdown は崩さずに送る
+    reply = "\n".join([
+        "[calm]## 結果", "",
+        "| 名前 | 値 |", "|------|---:|", "| A | **1** |", "",
+        "- 1 つ目", "  - 入れ子", "```", "src/", "└── a.py", "```",
+        "[link](https://example.com) は残す",
+    ])
+    assert shown_reply_text(reply) == reply.removeprefix("[calm]")
 
 
 # --- agent の段 (= Pipecat を通す) -----------------------------------------------------------------------------
@@ -128,10 +225,15 @@ def _said(text: str):
 
 def test_a_finished_turn_goes_to_the_tab():
     pytest.importorskip("pipecat")
-    from pipecat.tests.utils import run_test
+    from pipecat.tests.utils import SleepFrame, run_test
 
     sent: list[str] = []
-    asyncio.run(run_test(_bridge(sent), frames_to_send=[_said("明日の天気を教えて")], expected_down_frames=[]))
+    from pipecat.frames.frames import InterruptionFrame
+    from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
+
+    # 下流へは、 前の turn の声を止める割り込みと、 小窓への「考えています」 だけ
+    asyncio.run(run_test(_bridge(sent), frames_to_send=[_said("明日の天気を教えて"), SleepFrame(sleep=0.2)],
+                         expected_down_frames=[InterruptionFrame, RTVIServerMessageFrame]))
     assert sent == ["明日の天気を教えて"]
 
 
@@ -151,8 +253,7 @@ def test_an_unfinished_turn_goes_alone_once_the_wait_is_over():
     from pipecat.tests.utils import SleepFrame, run_test
 
     sent: list[str] = []
-    asyncio.run(run_test(_bridge(sent), frames_to_send=[_said("えーとなんか"), SleepFrame(sleep=0.3)],
-                         expected_down_frames=[]))
+    asyncio.run(run_test(_bridge(sent), frames_to_send=[_said("えーとなんか"), SleepFrame(sleep=0.3)]))
     assert sent == ["えーとなんか"]
 
 
@@ -184,3 +285,411 @@ def test_the_output_gaps_count_only_short_silences_inside_speech():
         gaps.saw(empty, late_ms=0.0)
     gaps.saw(False, late_ms=37.0)
     assert (gaps.frames, gaps.gaps, round(gaps.late_max_ms)) == (62, 1, 37)
+
+
+def test_the_call_log_rotates_and_keeps_only_pipecat_warnings(tmp_path, monkeypatch):
+    pytest.importorskip("pipecat")
+    import logging
+
+    from loguru import logger as pipecat_logger
+
+    from backend.voice_call import worker
+
+    monkeypatch.setattr(worker, "LOG_PATH", tmp_path / "voice-call.log")
+    root = logging.getLogger()
+    before = list(root.handlers)
+    try:
+        worker.setup_logging()
+        pipecat_logger.debug("a debug line from pipecat")
+        pipecat_logger.warning("a warning from pipecat")
+        logging.getLogger("backend.voice_call.pipeline").info("voice call: started")
+        for handler in root.handlers:
+            handler.flush()
+        text = (tmp_path / "voice-call.log").read_text()
+    finally:
+        for handler in root.handlers[len(before):]:
+            root.removeHandler(handler)
+            handler.close()
+    assert "a warning from pipecat" in text and "voice call: started" in text
+    assert "a debug line from pipecat" not in text
+    added = [h for h in logging.getLogger().handlers if h not in before]
+    assert added == []
+
+
+def test_after_a_new_turn_is_sent_the_old_reply_is_not_said_until_the_tab_takes_the_turn():
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.frames.frames import InterruptionFrame, TTSSpeakFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    later = int(time.time() * 1000) + 60_000
+    events = [
+        _reply("old-rest", "前の返事の続き。", later),        # 送った後、 新しい turn の前に届いた
+        {"type": "user_message", "uuid": "u-new", "text": "[voice] 次の話", "ts": later},
+        _reply("new", "新しい返事。", later + 1),
+    ]
+
+    async def scenario():
+        sent: list[str] = []
+        bridge = _bridge(sent, events)
+        down, _ = await run_test(bridge, frames_to_send=[_said("次の話"), SleepFrame(sleep=0.2)])
+        return sent, down
+
+    sent, down = asyncio.run(scenario())
+    assert sent == ["次の話"]
+    assert any(isinstance(f, InterruptionFrame) for f in down)
+    assert [f.text for f in down if isinstance(f, TTSSpeakFrame)] == ["[calm]新しい返事。"]
+
+
+def test_the_volume_of_a_call_is_checked_and_reaches_no_call_when_there_is_none(client, tabs):  # noqa: F811
+    assert client.post("/sessions/ses_listen/voice/call/volume", json={"volume": 0.5}).json() == {"calls": 0}
+    for bad in (-0.1, 2.1, "loud", None):
+        r = client.post("/sessions/ses_listen/voice/call/volume", json={"volume": bad})
+        assert r.status_code == 400 and r.json()["detail"]["code"] == "voice_bad_request"
+    r = client.post("/sessions/ses_listen/voice/call?volume=3", json=OFFER)
+    assert r.status_code == 400
+
+
+def test_the_volume_scales_the_voice_and_stops_at_the_limit():
+    pytest.importorskip("pipecat")
+    import numpy as np
+
+    from backend.voice_call.services import scaled
+
+    pcm = np.array([1000, -1000, 30000, -30000], dtype=np.int16).tobytes()
+    assert np.frombuffer(scaled(pcm, 0.5), dtype=np.int16).tolist() == [500, -500, 15000, -15000]
+    assert np.frombuffer(scaled(pcm, 2.0), dtype=np.int16).tolist() == [2000, -2000, 32767, -32768]
+    assert scaled(pcm, 1.0) == pcm
+
+
+def test_the_volume_moved_while_a_reply_is_said_reaches_the_rest_of_it(monkeypatch):
+    # 返事の文は話し終えるより先に全部作られる。 作る時に倍率を掛けていた間は、 話している途中に動かしたつまみが
+    # その返事に効かなかった (= 2026-10-15、 8 文の返事が 11 秒で作り終わり、 その後の 30 秒の間に動かした)
+    pytest.importorskip("pipecat")
+    import numpy as np
+    from pipecat.transports.smallwebrtc.transport import RawAudioTrack
+
+    from backend.voice_call.pipeline import scale_output
+    from backend.voice_call.services import Volume
+
+    monkeypatch.setattr(RawAudioTrack, "add_audio_bytes", RawAudioTrack.add_audio_bytes)   # 試験の後に戻す
+    volume = Volume(1.0)
+    scale_output(volume)
+    track = RawAudioTrack(sample_rate=24000)
+    reply = np.full(240 * 2, 1000, dtype=np.int16).tobytes()   # 作り終わった返事の、 20 ms 分
+    sent_first, rest = reply[:480], reply[480:]
+
+    async def send():
+        track.add_audio_bytes(sent_first)
+        volume.value = 0.5   # 前半を送った所でつまみを動かす
+        track.add_audio_bytes(rest)
+
+    asyncio.run(send())
+    levels = [int(np.frombuffer(chunk, dtype=np.int16)[0]) for chunk, _ in track._chunk_queue]
+    assert levels == [1000, 500]
+
+
+# --- 長い発話 (= 途中の間で「言い終えた」 と判定される) --------------------------------------------------------
+
+def _talk(conversation: dict, gap: float, send_secs: float) -> list[str]:
+    """本物の発話のまとめ役と agent の段をつなぎ、 3 つの区間を gap 秒ずつ空けて話す。 判定は毎回「言い終えた」。"""
+    from pipecat.audio.turn.base_turn_analyzer import BaseTurnAnalyzer, BaseTurnParams, EndOfTurnState
+    from pipecat.frames.frames import TranscriptionFrame, VADUserStartedSpeakingFrame, VADUserStoppedSpeakingFrame
+    from pipecat.pipeline.pipeline import Pipeline
+    from pipecat.processors.aggregators.llm_context import LLMContext
+    from pipecat.processors.aggregators.llm_response_universal import (
+        LLMContextAggregatorPair,
+        LLMUserAggregatorParams,
+    )
+    from pipecat.tests.utils import SleepFrame, run_test
+    from pipecat.turns.user_stop.turn_analyzer_user_turn_stop_strategy import TurnAnalyzerUserTurnStopStrategy
+    from pipecat.turns.user_turn_strategies import UserTurnStrategies
+
+    from backend.voice_call.agent import AgentBridge
+
+    class AlwaysComplete(BaseTurnAnalyzer):
+        @property
+        def speech_triggered(self):
+            return False
+
+        @property
+        def params(self):
+            return BaseTurnParams()
+
+        def append_audio(self, buffer, is_speech):
+            return EndOfTurnState.INCOMPLETE
+
+        async def analyze_end_of_turn(self):
+            return EndOfTurnState.COMPLETE, None
+
+        def clear(self):
+            pass
+
+    sent: list[str] = []
+
+    async def send(text: str) -> bool:
+        await asyncio.sleep(send_secs)   # 送るのに掛かる時間 (= 本物は数秒掛かることがある)
+        sent.append(text)
+        return True
+
+    async def stream():
+        await asyncio.sleep(3600)
+        yield {}
+
+    async def utterances(text: str) -> list[dict]:
+        return []
+
+    aggregator, _ = LLMContextAggregatorPair(LLMContext(), user_params=LLMUserAggregatorParams(
+        user_turn_strategies=UserTurnStrategies(stop=[TurnAnalyzerUserTurnStopStrategy(turn_analyzer=AlwaysComplete())]),
+        user_mute_strategies=[]))
+    bridge = AgentBridge(conversation, send=send, events=stream, utterances=utterances)
+    frames = []
+    for i, text in enumerate(("一つ目の区間", "二つ目の区間", "三つ目の区間")):
+        frames += [VADUserStartedSpeakingFrame(start_secs=0.2), SleepFrame(sleep=0.1),
+                   VADUserStoppedSpeakingFrame(stop_secs=0.2), SleepFrame(sleep=0.02),
+                   TranscriptionFrame(text, "u", "t"), SleepFrame(sleep=gap if i < 2 else send_secs * 4)]
+    asyncio.run(run_test(Pipeline([aggregator, bridge]), frames_to_send=frames))
+    return sent
+
+
+def test_a_part_said_before_a_pause_is_not_lost_when_the_rest_starts_while_it_is_sent():
+    # 途中の間で「言い終えた」 と判定された区間を送っている間に続きを話し始めると、 まとめ役の割り込みが送る処理を
+    # 打ち切り、 その区間が消えていた (= 長く話すと最後の区間だけが届いた)
+    pytest.importorskip("pipecat")
+    sent = _talk({**SETTINGS["conversation"], "resume_ms": 0}, gap=0.15, send_secs=0.4)
+    assert sent == ["一つ目の区間", "二つ目の区間", "三つ目の区間"]
+
+
+def test_a_part_said_before_a_pause_is_joined_with_the_rest_that_starts_within_the_wait():
+    pytest.importorskip("pipecat")
+    sent = _talk({**SETTINGS["conversation"], "resume_ms": 600}, gap=0.15, send_secs=0.1)
+    assert sent == ["一つ目の区間二つ目の区間三つ目の区間"]
+
+
+def test_a_turn_still_waiting_when_the_call_ends_is_sent():
+    pytest.importorskip("pipecat")
+    from pipecat.tests.utils import run_test
+
+    sent: list[str] = []
+    bridge = _bridge(sent)
+    bridge._resume_secs = 30   # 待ちの間に通話が終わる
+    asyncio.run(run_test(bridge, frames_to_send=[_said("最後の一言")]))
+    assert sent == ["最後の一言"]
+
+
+def test_a_sentence_that_takes_long_to_make_is_still_said():
+    # Pipecat は 1 文の音を stop_frame_timeout_s で待つのをやめ、 「音が無いまま終わった」 の error を出す。 作るのに
+    # それより掛かる長い文で、 通話が切れていた (= 2026-10-14、 90 文字の文が 3.3 秒)
+    pytest.importorskip("pipecat")
+    import io
+    import wave
+
+    from pipecat.frames.frames import ErrorFrame, TTSAudioRawFrame, TTSSpeakFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    from backend.voice_call.services import VoiceTTS
+
+    sound = io.BytesIO()
+    with wave.open(sound, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(24000)
+        wav.writeframes(b"\x00\x01" * 2400)
+
+    class SlowVoice:
+        async def synthesize(self, text, mark, values=None):
+            await asyncio.sleep(1.0)
+            return sound.getvalue()
+
+    tts = VoiceTTS(SlowVoice(), ["calm"], stop_frame_timeout_s=0.3)
+    down, up = asyncio.run(run_test(tts, frames_to_send=[TTSSpeakFrame("長い文です。"), SleepFrame(sleep=1.5)]))
+    assert any(isinstance(f, TTSAudioRawFrame) for f in down)
+    assert not [f for f in [*down, *up] if isinstance(f, ErrorFrame)]   # error は上流へ流れる
+
+
+
+# --- 小窓 (= iPhone の app の PiP へ送る会話と状態) ----------------------------------------------------------------
+
+def _shown(down) -> list[dict]:
+    from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
+
+    return [f.data for f in down if isinstance(f, RTVIServerMessageFrame)]
+
+
+def test_the_picture_gets_the_tab_lines_with_the_recent_ones_from_before_the_call_first():
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    later = int(time.time() * 1000) + 60_000
+    events = [
+        {"type": "user_message", "text": "[voice] 前から在った発話", "uuid": "u0", "ts": 0},
+        _reply("old", "前から在った返事。", 0),
+        {"type": "user_message", "text": "[voice] 明日の天気は", "uuid": "u1", "ts": later},
+        {"type": "user_message", "text": "Message from another session, relayed by the client …", "uuid": "u2",
+         "ts": later},
+        _reply("r1", "[calm]晴れです。\n[mute]表は画面に置きました。", later),
+        _reply("r1", "[calm]晴れです。\n[mute]表は画面に置きました。", later),
+        _reply("sub", "下調べ。", later, parent_tool_use_id="t"),
+    ]
+    down, _ = asyncio.run(run_test(_bridge([], events), frames_to_send=[SleepFrame(sleep=0.2)]))
+    assert [d for d in _shown(down) if d["pip"] == "line"] == [
+        {"pip": "line", "who": "user", "text": "前から在った発話"},      # 会話を始める前の分 (= まとめて先に)
+        {"pip": "line", "who": "agent", "text": "前から在った返事。"},
+        {"pip": "line", "who": "user", "text": "明日の天気は"},
+        {"pip": "line", "who": "agent", "text": "晴れです。\n表は画面に置きました。"},
+    ]
+
+
+def test_the_picture_replaces_a_turn_sent_again_under_the_same_parent():
+    # 声の会話は、 途中の間で区切られて先に送った前半を取り消し、 後半をつなげて送り直す。 claude は取り消した発話を
+    # 記録に残し、 送り直した発話を同じ親に付ける。 小窓には 1 区間ずつ長くなる発話が並んでいた (= 2026-10-15)
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    later = int(time.time() * 1000) + 60_000
+    events = [
+        {"type": "user_message", "text": "[voice] 前から在った前半", "uuid": "o1", "parentUuid": "Q", "ts": 0},
+        {"type": "user_message", "text": "[voice] 前から在った前半 後半", "uuid": "o2", "parentUuid": "Q", "ts": 0},
+        {"type": "user_message", "text": "[voice] てか、次のやつは。", "uuid": "u1", "parentUuid": "P", "ts": later},
+        {"type": "user_message", "text": "[voice] てか、次のやつは。 時間がかかりそう。", "uuid": "u2", "parentUuid": "P",
+         "ts": later},
+        _reply("r1", "[calm]次は比べる所。", later),
+        {"type": "user_message", "text": "[voice] なるほど。", "uuid": "u3", "parentUuid": "R", "ts": later},
+    ]
+    down, _ = asyncio.run(run_test(_bridge([], events), frames_to_send=[SleepFrame(sleep=0.2)]))
+    assert [d for d in _shown(down) if d["pip"] == "line"] == [
+        {"pip": "line", "who": "user", "text": "前から在った前半 後半"},   # 溜めている間に置き換えた
+        {"pip": "line", "who": "user", "text": "てか、次のやつは。"},
+        {"pip": "line", "who": "user", "text": "てか、次のやつは。 時間がかかりそう。", "replace": True},
+        {"pip": "line", "who": "agent", "text": "次は比べる所。"},
+        {"pip": "line", "who": "user", "text": "なるほど。"},
+    ]
+
+
+def test_the_picture_gets_only_the_last_lines_from_before_the_call_once_the_record_settles():
+    pytest.importorskip("pipecat")
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    from backend.voice_call.agent import HISTORY_SETTLE_SECS, PICTURE_HISTORY
+
+    events = [{"type": "user_message", "text": f"発話 {i}", "uuid": f"u{i}", "ts": i + 1} for i in range(PICTURE_HISTORY + 5)]
+    down, _ = asyncio.run(run_test(_bridge([], events), frames_to_send=[SleepFrame(sleep=HISTORY_SETTLE_SECS + 0.2)]))
+    lines = [d["text"] for d in _shown(down) if d["pip"] == "line"]
+    assert lines == [f"発話 {i}" for i in range(5, PICTURE_HISTORY + 5)]
+
+
+def test_the_picture_state_follows_speaking_sending_and_the_voice():
+    pytest.importorskip("pipecat")
+    from pipecat.frames.frames import BotStartedSpeakingFrame, BotStoppedSpeakingFrame, UserStartedSpeakingFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    frames = [UserStartedSpeakingFrame(), _said("明日の天気を教えて"), SleepFrame(sleep=0.2),
+              BotStartedSpeakingFrame(), BotStoppedSpeakingFrame()]
+    down, _ = asyncio.run(run_test(_bridge([]), frames_to_send=frames))
+    assert [d["state"] for d in _shown(down) if d["pip"] == "state"] == ["listening", "thinking", "speaking", "waiting"]
+
+
+def _speech(on: bool):
+    from pipecat.processors.frameworks.rtvi import RTVIClientMessageFrame
+
+    return RTVIClientMessageFrame(msg_id="m1", type="voice-speech", data={"on": on})
+
+
+def test_with_the_speech_off_replies_are_shown_but_not_said_and_turning_it_off_stops_the_voice():
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.frames.frames import InterruptionFrame, TTSSpeakFrame
+    from pipecat.processors.frameworks.rtvi import RTVIClientMessageFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    later = int(time.time() * 1000) + 60_000
+
+    async def stream_after_switch(bridge):
+        down, _ = await run_test(bridge, frames_to_send=[_speech(False), SleepFrame(sleep=0.2)])
+        return down
+
+    bridge = _bridge([], [_reply("r1", "晴れです。", later)])
+    down = asyncio.run(stream_after_switch(bridge))
+    assert not any(isinstance(f, TTSSpeakFrame) for f in down)                 # 声にしない
+    assert any(isinstance(f, InterruptionFrame) for f in down)                 # 切った時に鳴っている声を止める
+    assert {"pip": "line", "who": "agent", "text": "晴れです。"} in _shown(down)   # 小窓には出す
+    assert not any(isinstance(f, RTVIClientMessageFrame) for f in down)
+
+
+def test_a_call_started_with_the_speech_off_says_nothing_until_it_is_turned_on():
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.frames.frames import TTSSpeakFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    from backend.voice_call.agent import AgentBridge
+
+    later = int(time.time() * 1000) + 60_000
+    events = [_reply("r1", "晴れです。", later)]
+    quiet = _bridge([], events)
+    bridge = AgentBridge(SETTINGS["conversation"], send=quiet._send, events=quiet._events,
+                         utterances=quiet._utterances, speech=False)
+    down, _ = asyncio.run(run_test(bridge, frames_to_send=[SleepFrame(sleep=0.2), _speech(True), SleepFrame(sleep=0.05)]))
+    assert not any(isinstance(f, TTSSpeakFrame) for f in down)   # 前の返事は、 入れ直しても言わない
+
+
+
+# --- 自分の声 (= スピーカーの返事がマイクに入って、 人の発話として届いた) ----------------------------------------
+
+def test_what_was_heard_is_its_own_voice_when_it_is_part_of_the_sentence_being_said():
+    # 2026-10-15 に実際に届いた 2 件 (= 返事の頭の「3 つの」 が、 聞き取りでは「3つの」 になった)
+    assert is_own_voice("3つの", ["そう。整理すると 3 つの立ち位置がある。"])
+    assert is_own_voice("3つの", ["3 つの箱の結果を表に出した。"])
+    assert is_own_voice("三つの", ["3 つの箱の結果を表に出した。"])
+    # 文の境目を跨いで聞こえた分
+    assert is_own_voice("出した。 seed", ["3 つの箱の結果を表に出した。", "seed 9 が当たり。"])
+    assert not is_own_voice("ちょっと待って", ["3 つの箱の結果を表に出した。"])
+    assert not is_own_voice("、", ["あ、うん。"])
+
+
+def _cut_reply(heard: str, *, finished_first: bool = False):
+    """2 文の返事を鳴らしている途中で止められ、 heard が人の発話として届く。 返すのは (送った物, 声の段へ渡した文)。"""
+    import time
+
+    from pipecat.frames.frames import BotStartedSpeakingFrame, BotStoppedSpeakingFrame, InterruptionFrame, TTSSpeakFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    later = int(time.time() * 1000) + 60_000
+    events = [_reply("r1", "3 つの箱の結果を表に出した。\nseed 9 が当たり。", later)]
+    frames = [SleepFrame(sleep=0.2), BotStartedSpeakingFrame()]
+    if finished_first:
+        frames += [BotStoppedSpeakingFrame(), BotStartedSpeakingFrame()]
+    frames += [InterruptionFrame(), BotStoppedSpeakingFrame(), _said(heard), SleepFrame(sleep=0.2)]
+    sent: list[str] = []
+    down, _ = asyncio.run(run_test(_bridge(sent, events), frames_to_send=frames))
+    return sent, [f.text for f in down if isinstance(f, TTSSpeakFrame)]
+
+
+def test_its_own_voice_is_not_sent_and_the_cut_sentence_is_said_again():
+    pytest.importorskip("pipecat")
+    sent, said = _cut_reply("3つの")
+    assert sent == []
+    assert said == ["[calm]3 つの箱の結果を表に出した。", "[calm]seed 9 が当たり。",
+                    "[calm]3 つの箱の結果を表に出した。", "[calm]seed 9 が当たり。"]
+
+
+def test_a_real_interruption_is_sent_and_the_reply_is_not_said_again():
+    pytest.importorskip("pipecat")
+    sent, said = _cut_reply("ちょっと待って")
+    assert sent == ["ちょっと待って"]
+    assert said == ["[calm]3 つの箱の結果を表に出した。", "[calm]seed 9 が当たり。"]
+
+
+def test_a_reply_cut_in_its_second_sentence_is_said_again_from_the_second():
+    pytest.importorskip("pipecat")
+    # 1 文目の終わりが聞こえた (= 鳴り終えた 1 文目も比べる)
+    sent, said = _cut_reply("表に出した", finished_first=True)
+    assert sent == []
+    assert said == ["[calm]3 つの箱の結果を表に出した。", "[calm]seed 9 が当たり。", "[calm]seed 9 が当たり。"]

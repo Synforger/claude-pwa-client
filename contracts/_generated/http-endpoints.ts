@@ -16,6 +16,9 @@ export interface GetSessionsResponseItem {
 
 export type GetSessionsResponse = GetSessionsResponseItem[]
 
+/** GET /sessions/overview response */
+export type GetSessionsOverviewResponse = Record<string, unknown>
+
 /** POST /sessions request body */
 export interface PostSessionsRequest {
   agent_id: string
@@ -236,7 +239,7 @@ export interface PostSessionsSidRolloverResponse {
 /** GET /sessions/{sid}/voice response */
 export interface GetSessionsSidVoiceResponse {
   enabled: boolean
-  /** 言い方の印の名前 (= 設定に書いた順) */
+  /** 言い方の印の名前 (= 設定に書いた順。 最後に予約の印 mute。 声を持たなければ空) */
   marks: string[]
   /** 印の無い文の印 (= 印を 1 つも持たなければ空文字) */
   default: string
@@ -250,6 +253,8 @@ export interface GetSessionsSidVoiceResponse {
     pause_ms: number
     /** 言い終えていない時に、 送るまで待つ無音 (ミリ秒。 声が途切れた時から) */
     wait_ms: number
+    /** 言い終えた発話を送る前に待つ時間 (ミリ秒)。 この間に話し始めたら続きとつなげる。 0 なら待たない */
+    resume_ms: number
     /** 聞き取った文がこれで終わる時は、 wait_ms まで待つ */
     unfinished_endings: string[]
     /** 返事が鳴っている間も聞き、 話し始めたら返事を止めるか */
@@ -271,6 +276,8 @@ export interface PostSessionsSidVoiceUtterancesResponse {
       /** その文の言い方の印 (= 文頭に印が無ければ既定の印) */
       mark: string
       text: string
+      /** 印に添えた値 (= engine の問い合わせの値の名前 → 数。 添えていなければ空) */
+      values: Record<string, number>
     })[]
 }
 
@@ -280,6 +287,8 @@ export interface PostSessionsSidVoiceSynthesisRequest {
   text: string
   /** 言い方の印 (= 省けば既定の印) */
   mark?: string
+  /** 印に添えた値 (= utterances が返した values。 省略可) */
+  values?: Record<string, number>
 }
 
 /** POST /sessions/{sid}/voice/transcription request body */
@@ -327,6 +336,18 @@ export interface PostSessionsSidVoiceCallResponse {
   sdp: string
   type: string
   pc_id: string
+}
+
+/** POST /sessions/{sid}/voice/call/volume request body */
+export interface PostSessionsSidVoiceCallVolumeRequest {
+  /** 0 〜 2 (= 1 で engine の音のまま) */
+  volume: number
+}
+
+/** POST /sessions/{sid}/voice/call/volume response */
+export interface PostSessionsSidVoiceCallVolumeResponse {
+  /** 倍率を伝えた通話の数 (= 通話が無ければ 0) */
+  calls: number
 }
 
 /** PATCH /sessions/{sid}/voice/call request body */
@@ -482,4 +503,69 @@ export interface PostStreamUnifiedConnControlRequest {
 export interface PostStreamUnifiedConnControlResponse {
   ok?: boolean
   subscribed?: unknown[]
+}
+
+/** POST /device/ops request body */
+export interface PostDeviceOpsRequest {
+  /** <種類>.<操作> (= app の一覧の名前) */
+  op: string
+  /** 操作の引数 (= 一覧の params に従う) */
+  args?: Record<string, unknown>
+  /** 答えを待つ秒 (= 省けば操作が名乗る長さ、 名乗らなければ 30) */
+  timeout_s?: number
+}
+
+/** POST /device/ops response */
+export interface PostDeviceOpsResponse {
+  ok: boolean
+  /** app の答え (= 大きい答えは files に path の並びで入る) */
+  result?: unknown
+}
+
+/** POST /device/screen response */
+export interface PostDeviceScreenResponse {
+  bytes: number
+}
+
+/** POST /device/screen/state request body */
+export interface PostDeviceScreenStateRequest {
+  live: boolean
+}
+
+/** POST /device/screen/state response */
+export interface PostDeviceScreenStateResponse {
+  live: boolean
+}
+
+/** GET /device/screen/settings response */
+export interface GetDeviceScreenSettingsResponse {
+  /** 1 枚を送る間隔 (秒) */
+  interval_s: number
+  /** 長辺の上限 (px) */
+  max_side: number
+  /** JPEG の質 (= 0 より大きく 1 以下) */
+  quality: number
+}
+
+/** GET /device/screen response */
+export interface GetDeviceScreenResponse {
+  /** 配信中で、 最後の 1 枚が 5 秒より新しい */
+  live: boolean
+  path?: string | null
+  /** 最後の 1 枚の時刻 (= unix 秒) */
+  at?: number | null
+  age_s?: number | null
+  bytes?: number | null
+}
+
+/** GET /device/catalog response */
+export interface GetDeviceCatalogResponse {
+  connected: boolean
+  device?: string
+  /** app の版 */
+  app?: string
+  /** つないだ時刻 (= unix 秒) */
+  since?: number
+  /** 操作の並び (= name / kind / summary / params / timeout_s / foreground) */
+  catalog: unknown[]
 }

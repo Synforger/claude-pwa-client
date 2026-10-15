@@ -162,7 +162,7 @@ test.describe('golden: voice', () => {
     await page.screenshot({ path: testInfo.outputPath('voice-typed.png') })
   })
 
-  test('turning the voice on opens the microphone too; muting and turning the voice off let the microphone go', async ({ page, request }, testInfo) => {
+  test('turning the voice on leaves the microphone alone; the microphone button takes it, and closing or turning the voice off lets it go', async ({ page, request }, testInfo) => {
     const tab = await seedSession(request, 'e2e-voice')
     const loaded = []
     page.on('response', (r) => {
@@ -175,6 +175,15 @@ test.describe('golden: voice', () => {
     await expect(page.locator(micButton)).toHaveCount(0)
     await page.locator(button).click()
     await expect(page.locator(button)).toHaveAttribute('data-state', 'on')
+    // The voice alone takes no microphone: only the voice plays.
+    await expect(page.locator(micButton)).toHaveAttribute('data-state', 'muted')
+    await expect(page.locator(micButton)).toHaveAttribute('aria-pressed', 'false')
+    expect(await mics()).toEqual([])
+    expect(loaded.some((l) => l.endsWith('/voice/conversation'))).toBe(false)
+    await page.screenshot({ path: testInfo.outputPath('voice-only.png') })
+
+    // The microphone button takes the microphone.
+    await page.locator(micButton).click()
     await expect(page.locator(micButton)).toHaveAttribute('data-state', 'listening', { timeout: 30_000 })
     await expect(page.locator('[data-testid=voice-error]')).toHaveCount(0)
     expect(await mics()).toEqual(['live'])
@@ -190,7 +199,7 @@ test.describe('golden: voice', () => {
     expect(worklet.headers()['content-type']).toMatch(/javascript/)
     await page.screenshot({ path: testInfo.outputPath('voice-listening.png') })
 
-    // Muting lets the microphone go and keeps the voice on.
+    // Closing the microphone lets it go and keeps the voice on.
     await page.locator(micButton).click()
     await expect(page.locator(micButton)).toHaveAttribute('data-state', 'muted')
     await expect(page.locator(micButton)).toHaveAttribute('aria-pressed', 'false')
@@ -198,7 +207,7 @@ test.describe('golden: voice', () => {
     await expect.poll(mics, { timeout: 5_000 }).toEqual(['ended'])
     await page.screenshot({ path: testInfo.outputPath('voice-muted.png') })
 
-    // Unmuting listens again on a new microphone.
+    // Opening it again listens on a new microphone.
     await page.locator(micButton).click()
     await expect(page.locator(micButton)).toHaveAttribute('data-state', 'listening', { timeout: 30_000 })
     await expect.poll(mics, { timeout: 5_000 }).toEqual(['ended', 'live'])
@@ -208,6 +217,91 @@ test.describe('golden: voice', () => {
     await expect(page.locator(button)).toHaveAttribute('data-state', 'off')
     await expect(page.locator(micButton)).toHaveCount(0)
     await expect.poll(mics, { timeout: 5_000 }).toEqual(['ended', 'ended'])
+
+    // The microphone was left open, so the next time the voice is turned on, it takes the microphone again.
+    await page.locator(button).click()
+    await expect(page.locator(micButton)).toHaveAttribute('data-state', 'listening', { timeout: 30_000 })
+    await expect.poll(mics, { timeout: 5_000 }).toEqual(['ended', 'ended', 'live'])
+  })
+
+  test('the voice goes on in its tab while another tab is shown, until the voice is turned on in another tab', async ({ page, request }, testInfo) => {
+    const tab = await seedSession(request, 'e2e-voice')
+    const other = await seedSession(request, 'e2e-chat-basic')
+    const second = await seedSession(request, 'e2e-voice-second')
+    await openClient(page, { sid: tab.sid })
+    const started = () => page.evaluate(() => window.__voice.started)
+    const mics = () => page.evaluate(() => window.__voice.mics.map((t) => t.readyState))
+    const show = async (sid) => {
+      await page.locator('[data-testid=drawer-toggle]').click()
+      await page.locator(`[data-testid=session-list-item][data-cpc-sid="${sid}"] [data-testid=session-list-item-select]`).click()
+    }
+
+    await page.locator(button).click()
+    await page.locator(micButton).click()
+    await expect(page.locator(micButton)).toHaveAttribute('data-state', 'listening', { timeout: 30_000 })
+
+    // Another tab is shown: the microphone stays open, and a reply in the voice tab is said.
+    await show(other.sid)
+    await expect(page.locator('[data-testid=message-bubble-agent]').filter({ hasText: 'Ready for your test.' })).toHaveCount(1)
+    await expect(page.locator(button)).toHaveCount(0)
+    expect(await mics()).toEqual(['live'])
+    reply(tab.jsonl_path, 'away', [text('Said while another tab is shown.')])
+    await expect.poll(started, { timeout: 20_000 }).toBe(1)
+    await page.screenshot({ path: testInfo.outputPath('voice-other-tab.png') })
+
+    // Back in the voice tab, the voice is still on and the microphone still listens.
+    await show(tab.sid)
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'on')
+    await expect(page.locator(micButton)).toHaveAttribute('data-state', 'listening')
+
+    // Turning the voice on in another tab closes the first: one tab holds the voice.
+    await show(second.sid)
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'off')
+    await page.locator(button).click()
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'on')
+    await expect.poll(mics, { timeout: 5_000 }).toEqual(['ended'])
+    reply(tab.jsonl_path, 'closed', [text('Not said once the voice moved.')])
+    await page.waitForTimeout(1500)
+    expect(await started()).toBe(1)
+    await show(tab.sid)
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'off')
+  })
+
+  test('a long press on the voice button shows the volume, and a press outside it closes it', async ({ page, request }, testInfo) => {
+    const tab = await seedSession(request, 'e2e-voice')
+    await openClient(page, { sid: tab.sid })
+    const volume = page.locator('[data-testid=voice-volume]')
+    const longPress = async () => {
+      const box = await page.locator(button).boundingBox()
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      await page.mouse.down()
+      await page.waitForTimeout(700)
+      await page.mouse.up()
+    }
+    await page.locator(button).click()
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'on')
+
+    await longPress()
+    await expect(volume).toBeVisible()
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'on')
+    await page.screenshot({ path: testInfo.outputPath('voice-volume.png') })
+    // Moving the slider keeps it open.
+    await volume.locator('input[type=range]').fill('120')
+    await expect(volume).toContainText('120%')
+    // A press elsewhere on the page closes it, and leaves the voice as it was.
+    await page.locator('[data-testid=message-bubble-agent]').first().click()
+    await expect(volume).toHaveCount(0)
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'on')
+
+    // A press on the voice button while it is open only closes it.
+    await longPress()
+    await expect(volume).toBeVisible()
+    await page.locator(button).click()
+    await expect(volume).toHaveCount(0)
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'on')
+    // The next press turns the voice off as usual.
+    await page.locator(button).click()
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'off')
   })
 
   test('a sentence the engine refuses shows why above the button, and closing clears it', async ({ page, request }, testInfo) => {

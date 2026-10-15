@@ -11,6 +11,9 @@
 送り出しの途切れ: Pipecat は返事の音を 10 ms ずつ WebRTC へ渡し、 渡した分が送られてから次を渡す。 次が 10 ms
 以内に間に合わないと、 その 10 ms は無音で埋まる (= 聞こえる「ぷつっ」)。 会話を専用の process で動かすのは、
 backend 本体の他の仕事でこの受け渡しを遅らせないため。 話している途中に挟まった短い無音の回数を log に出す。
+
+声の大きさ: 端末のつまみの倍率は、 送り口へ渡す時に掛ける。 送り出しは前に渡した音が送られるまで次を渡さないので、
+先に溜まるのは 1 回分 (= 40 ms) だけで、 話している途中に動かしても、 その場で大きさが変わる。
 """
 from __future__ import annotations
 
@@ -36,7 +39,7 @@ from pipecat.workers.runner import WorkerRunner
 
 from backend.voice_call.agent import AgentBridge
 from backend.voice_call.client import BackendClient
-from backend.voice_call.services import ListenSTT, VoiceTTS
+from backend.voice_call.services import ListenSTT, VoiceTTS, Volume, scaled
 
 logger = logging.getLogger(__name__)
 
@@ -92,14 +95,26 @@ def watch_output(gaps: OutputGaps) -> None:
     RawAudioTrack.recv = recv
 
 
-async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, start: dict) -> None:
+def scale_output(volume: Volume) -> None:
+    """この process の送り口へ渡す音に、 その時の倍率を掛ける (= 会話 1 本につき 1 process なので、 型ごと包んでよい)。"""
+    original = RawAudioTrack.add_audio_bytes
+
+    def add_audio_bytes(self, audio_bytes: bytes):
+        return original(self, scaled(audio_bytes, volume.value))
+
+    RawAudioTrack.add_audio_bytes = add_audio_bytes
+
+
+async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, start: dict, volume: Volume) -> None:
     """1 本の電話の会話を、 つながっている間走らせる。
 
     start: backend が渡す、 そのタブの声の設定 (= marks の名前の並び / conversation / turn の model の path)
+    volume: その端末の声の大きさの倍率 (= 通話中に backend から変わる)
     """
     conversation = start["conversation"]
     gaps = OutputGaps()
     watch_output(gaps)
+    scale_output(volume)
     transport = SmallWebRTCTransport(
         webrtc_connection=connection, params=TransportParams(audio_in_enabled=True, audio_out_enabled=True))
     turn = LocalSmartTurnAnalyzerV3(
@@ -123,7 +138,8 @@ async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, st
         transport.input(),
         ListenSTT(backend, on_lost=lost),
         user_aggregator,
-        AgentBridge(conversation, send=backend.send, events=backend.events, utterances=backend.utterances),
+        AgentBridge(conversation, send=backend.send, events=backend.events, utterances=backend.utterances,
+                    speech=start.get("speech", True)),
         VoiceTTS(backend, start["marks"]),
         transport.output(),
     ])

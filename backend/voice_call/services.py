@@ -5,10 +5,13 @@
 """
 from __future__ import annotations
 
+import asyncio
 import io
 import wave
+from dataclasses import dataclass
 from collections.abc import AsyncGenerator, Awaitable, Callable
 
+import numpy as np
 from pipecat.frames.frames import ErrorFrame, Frame, TranscriptionFrame, TTSAudioRawFrame
 from pipecat.services.settings import STTSettings, TTSSettings
 from pipecat.services.stt_service import SegmentedSTTService
@@ -18,8 +21,29 @@ from pipecat.utils.time import time_now_iso8601
 from backend.voice_call.client import BackendClient, ConversationLost
 from backend.voice_call.rules import split_mark
 
+# 声を作っている間に、 待っていると知らせる回数 (= Pipecat が待つのをやめるまでの時間に何回知らせるか)
+KEEPALIVES_PER_TIMEOUT = 3
+
 # 聞き取りの所要時間の見込み (= Pipecat の既定のまま。 書いておかないと Pipecat が毎回警告を出す)
 TTFS_P99_LATENCY_SECS = 1.0
+
+
+@dataclass
+class Volume:
+    """その端末の、 声の大きさの倍率 (= 端末の画面のつまみ。 0 〜 2、 1 で engine の音のまま)。 通話中に変わる。
+
+    掛けるのは声を作る時ではなく、 送り口へ渡す時 (= pipeline の `scale_output`)。 返事の文は話し終えるより先に全部
+    作られるので、 作る時に掛けると、 話している途中に動かしたつまみはその返事に効かない。
+    """
+    value: float = 1.0
+
+
+def scaled(pcm: bytes, gain: float) -> bytes:
+    """16 bit の音に倍率を掛ける (= 上限を超えた所は上限で止める)。"""
+    if gain == 1.0:
+        return pcm
+    samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) * gain
+    return np.clip(samples, -32768, 32767).astype(np.int16).tobytes()
 
 
 class ListenSTT(SegmentedSTTService):
@@ -54,9 +78,20 @@ class VoiceTTS(TTSService):
         self._marks = set(marks)
 
     async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame, None]:
-        mark, text = split_mark(text, self._marks)
+        mark, values, text = split_mark(text, self._marks)
+        # 声を作っている間は、 その文を待っていると Pipecat に知らせ続ける (= Pipecat は 1 文の音を
+        # stop_frame_timeout_s (= 既定 3 秒) で待つのをやめ、 「音が無いまま終わった」 の error を出す。 長い文は作るのに
+        # それより掛かる: 2026-10-14 に 90 文字の文が 3.3 秒掛かり、 その error で通話が切れた)
+        synthesis = asyncio.ensure_future(self._backend.synthesize(text, mark, values))
         try:
-            sound = await self._backend.synthesize(text, mark)
+            while not synthesis.done():
+                await asyncio.wait({synthesis}, timeout=self._stop_frame_timeout_s / KEEPALIVES_PER_TIMEOUT)
+                if not synthesis.done():
+                    self._refresh_audio_context(context_id)
+            sound = synthesis.result()
+        except asyncio.CancelledError:
+            synthesis.cancel()
+            raise
         except Exception as error:  # noqa: BLE001 (= 1 文の失敗で会話は止めない)
             yield ErrorFrame(error=f"speaking failed: {error}")
             return

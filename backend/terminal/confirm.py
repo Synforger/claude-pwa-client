@@ -21,6 +21,7 @@ import json
 import logging
 import re
 
+from backend.core.jsonl_predicates import INTERRUPT_USER_RE
 from backend.core.jsonl_predicates import is_user_prompt as _is_user_prompt_pred
 from backend.core.jsonl_tail import read_complete_lines
 
@@ -96,6 +97,26 @@ def _count_command_lines(path, from_pos: int = 0) -> tuple[int, int]:
     except OSError:
         return (0, from_pos)
     return (_count_in_lines(lines, _is_command_line), end_pos)
+
+
+def _is_interrupt_line(d: dict) -> bool:
+    """claude が turn を止めた時に書く中断の印の行か (= `[Request interrupted by user]` とその `for tool use`)。"""
+    content = (d.get("message") or {}).get("content")
+    if isinstance(content, str):
+        return bool(INTERRUPT_USER_RE.match(content))
+    if isinstance(content, list):
+        return any(isinstance(b, dict) and b.get("type") == "text" and INTERRUPT_USER_RE.match(b.get("text") or "")
+                   for b in content)
+    return False
+
+
+def _count_interrupts(path, from_pos: int = 0) -> tuple[int, int]:
+    """from_pos 以降に書かれた中断の印の行の数と、 読み終えた位置。"""
+    try:
+        lines, end_pos = read_complete_lines(path, from_pos)
+    except OSError:
+        return (0, from_pos)
+    return (_count_in_lines(lines, _is_interrupt_line), end_pos)
 
 
 async def _wait_count_added(counter, path, initial_pos: int, timeout: float) -> bool:

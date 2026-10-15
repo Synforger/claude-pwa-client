@@ -38,10 +38,10 @@ from dataclasses import dataclass, field
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from backend.core.jsonl_tail import read_complete_lines_with_pos
+from backend.jsonl import chain
 from backend.jsonl.events import jsonl_line_to_events
 from backend.jsonl.routes import (
-    _initial_offset,
+    INITIAL_REPLAY_LINES,
     _inject_envelope,
     _latest_jsonl,
     _parse_all_from,
@@ -139,37 +139,31 @@ def _warm_ptys(sids: list[str]) -> None:
 
 
 def _replay_frames(sid: str, start: int | None) -> list[dict]:
-    """1 sid の JSONL を start (= client offset、 無ければ直近 N 行) から event frame 化。
+    """1 sid の記録を start (= client offset、 無ければ直近 N 行) から event frame 化。
 
-    per-line 実 byte pos を pos に載せる (= client は frame ごとに offset を前進できる)。
+    読むのはタブの記録を古い順につないだ物で、 pos はその通しの位置 (= backend/jsonl/chain.py)。 画面を
+    閉じている間に会話が入れ替わっても、 前の会話の残り (= 締めの作業と、 入れ替えの発話) から流れる。
+    per-line の位置を pos に載せる (= client は frame ごとに offset を前進できる)。
     prompt_state snapshot も末尾に付ける (= 切断中の遷移取りこぼしを接続時に収束、
     旧 per-sid / all SSE と同じ規約)。
+
+    久しぶりに購読された sid は client offset が大きく遅れている。 全区間 replay は表示上限
+    (= frontend MAX_MESSAGES) を大幅に超えて CPU を焼くだけなので、 直近 N 行 (= INITIAL_REPLAY_LINES)
+    に clamp する (= それ以前は client の localStorage cache が持っている)。
     """
     frames: list[dict] = []
-    path = _latest_jsonl(sid)
-    if path is not None:
+    pairs, _end = chain.read(chain.segments(sid, _latest_jsonl(sid)), start, INITIAL_REPLAY_LINES)
+    for raw, line_pos in pairs:
+        raw = raw.strip()
+        if not raw:
+            continue
         try:
-            size = path.stat().st_size
-        except OSError:
-            size = 0
-        pos = start if (start is not None and 0 <= start <= size) else _initial_offset(path)
-        # 久しぶりに購読された sid は client offset が大きく遅れている。 全区間 replay は
-        # 表示上限 (= frontend MAX_MESSAGES) を大幅に超えて CPU を焼くだけなので、 直近
-        # N 行 (= INITIAL_REPLAY_LINES) に clamp する (= それ以前は client の localStorage
-        # cache が持っている)。
-        pos = max(pos, _initial_offset(path))
-        pairs, _new_pos = read_complete_lines_with_pos(path, pos)
-        for raw, line_pos in pairs:
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                obj = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            for event in jsonl_line_to_events(obj):
-                _inject_envelope(event, sid)
-                frames.append({"ch": "jsonl", "pos": line_pos, "ev": event})
+            obj = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        for event in jsonl_line_to_events(obj):
+            _inject_envelope(event, sid)
+            frames.append({"ch": "jsonl", "pos": line_pos, "ev": event})
     from backend.terminal.prompt_detector_loop import current_prompt_event  # noqa: PLC0415
     snap = _inject_envelope(current_prompt_event(sid), sid)
     frames.append({"ch": "jsonl", "pos": None, "ev": snap})

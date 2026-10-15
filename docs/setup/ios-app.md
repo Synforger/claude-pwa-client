@@ -1,10 +1,15 @@
 # iPhone の app を作る (任意)
 
 iPhone では、 ブラウザで開いた画面はホーム画面へ出るとマイクも声も止まります。 この app は同じ画面を包み、
-エージェントとの声の会話だけを、 裏に回っても続けます ([iPhone の app で話す](../reference/voice.md#iphone-の-app-で話す))。
+次の 2 つを足します。
+
+- エージェントとの声の会話を、 裏に回っても続ける ([iPhone の app で話す](../reference/voice.md#iphone-の-app-で話す))
+- Mac のタブのエージェントが、 iPhone の中の物を読み、 iPhone で操作する ([iPhone をエージェントの手にする](../reference/device-ops.md))。
+  Siri・ウィジェット・ロック画面の進み具合・画面の配信もここに入る
+
 画面そのものは backend から読み込むので、 画面の更新に app の作り直しは要りません。
 
-声の会話を使わないなら、 この app は要りません (= ブラウザの画面で全部の機能が使えます)。
+どちらも使わないなら、 この app は要りません (= ブラウザの画面で全部の機能が使えます)。
 
 ## 要るもの
 
@@ -31,7 +36,10 @@ Xcode で:
 1. 左の一覧で `App` を選び、 **Signing & Capabilities** の **Team** に自分の Apple ID を選ぶ
 2. 同じ画面の **Bundle Identifier** を、 自分だけの名前に変える (= 例 `com.example.claudepwa`。 無料の Apple ID
    では、 他の人と同じ名前は使えない)
-3. iPhone をケーブルでつなぎ、 上の行き先に iPhone を選んで ▶ を押す
+3. `Widgets` と `Broadcast` の target でも同じ **Team** を選び、 **Bundle Identifier** を 2 で決めた名前の後ろに
+   `.Widgets` / `.Broadcast` を付けた物にする (= 例 `com.example.claudepwa.Widgets`。 app の中に入る extension は、
+   app の名前で始まる必要がある)
+4. iPhone をケーブルでつなぎ、 上の行き先に iPhone を選んで ▶ を押す
 
 初めて入れた時は、 iPhone で次の 2 つを済ませます。
 
@@ -45,5 +53,20 @@ app を開いて 🔊 を押すと、 マイクの許可を訊かれます。
 backend に会話の部品を入れておきます ([iPhone の app で話す](../reference/voice.md#iphone-の-app-で話す))。
 
 - 無料の Apple ID で入れた app は、 7 日で開けなくなります。 Xcode からもう 1 度 ▶ で入れ直すと、 また 7 日使えます
-- app の中のライセンス表示は、 `shell/` の部品 (= Capacitor・Pipecat・WebRTC) の物です。 repo の
-  [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) に全部載っています
+- app には、 組み込まれる部品 (= Capacitor・Pipecat・WebRTC) のライセンス表示が入っています
+  (= `shell/ios/App/App/Acknowledgements.txt`)。 部品の版を変えた時は、 この file も新しい版の物に書き直します。
+  一覧は repo の [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) にも載っています
+
+## 落ちた時
+
+app が落ちると、 iPhone はその時の記録を残します。 iPhone を Mac につないだまま (= ケーブルか同じ Wi-Fi)、 次で
+落ちた理由と場所を出せます。 `<UDID>` は `xcrun devicectl list devices` の Identifier です。
+
+```sh
+task ios:crashes DEVICE=<UDID>                     # 一番新しい 1 件
+task ios:crashes DEVICE=<UDID> SINCE=2026-10-15    # その日付から後の全部
+```
+
+「ended by: TCC — … NS…UsageDescription …」 と出たら、 その許可の文が `Info.plist` に足りていません
+(= `task lint` の `ios-privacy-check` が、 足りない文をコードから探します)。
+

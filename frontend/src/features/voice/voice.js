@@ -1,12 +1,13 @@
 // 声の配線: 届いた event → 声にする物を選ぶ (= listener.js) → 音にして鳴らす (= player.js)。
 // 人の声は、 会話を開いている間 (= conversation.js) 、 言い終えるたびに backend が文字にして、 そのタブへ送る。
+// 🔊 にできるのは同時に 1 つのタブだけで、 別のタブを見ている間も、 会話はそのタブで続く。
 // 通信は backend の声の口 (= docs/reference/voice.md)、 音は audio.js。
 
 import { apiFetch } from '../../transport/http.ts'
 import { translateHttpErrorDetail } from '../../utils/httpError.js'
 import {
   getSnapshot, subscribe, setVoiceAvailable, setVoiceMarks, setVoiceOn, setVoiceError, setVoiceListen, setVoiceTurn,
-  setVoicePhase, setVoiceSpeaking, setVoiceConversation,
+  setVoicePhase, setVoiceSpeaking, setVoiceConversation, setVoiceQuiet,
 } from '../../state/voice.js'
 import { tRaw } from '../../i18n/t.js'
 import { createListener } from './listener.js'
@@ -14,6 +15,7 @@ import { createPlayer } from './player.js'
 import { unlockAudio, playSound } from './audio.js'
 import { markVoiceInput } from './inputMark.js'
 import { nativeVoice, createNativeCall } from './nativeCall.js'
+import { getSnapshot as volumeOf, setVoiceVolume } from '../../state/voiceVolume.js'
 
 const base = (sid) => `/sessions/${encodeURIComponent(sid)}/voice`
 
@@ -48,16 +50,27 @@ let nativeCall
 function call() {
   if (nativeCall === undefined) {
     const plugin = nativeVoice()
-    nativeCall = plugin ? createNativeCall({ plugin, onState: onNativeState }) : null
+    nativeCall = plugin ? createNativeCall({ plugin, onState: onNativeState, onMic: onNativeMic }) : null
   }
   return nativeCall
 }
 
 const listener = createListener({
   // app の会話の間は、 返事の声も backend の中の会話が鳴らす (= 画面では鳴らさない)
-  isOn: (sid) => !!getSnapshot().on[sid] && !call()?.has(sid),
+  isOn: (sid) => !!getSnapshot().on[sid] && !call()?.has(sid) && !getSnapshot().quiet[sid],
   say: (sid, text) => player.say(sid, text),
 })
+
+// 🔊 がオンのタブ (= 空白で区切った文字列。 中身が同じなら同じ値なので、 そのまま store の写しに使える)。
+export const voiceOnSids = () => Object.keys(getSnapshot().on).sort().join(' ')
+export { subscribe as subscribeVoice }
+
+// 聞き取った文をタブへ送る関数 (= send(sid, text)。 チャットの画面が登録する)。 会話は開いた時の送信関数を
+// 掴まず、 送る時にここを通す (= 見ているタブが変わっても、 🔊 のタブへ送る)。
+let sender = null
+export function setVoiceSender(send) {
+  sender = send
+}
 
 // 届いた event を 1 つ渡す (= チャットの event の受け口から呼ぶ)。 history = 履歴の読み込みで届いた物か。
 export function observeVoiceEvent(sid, event, { history = false } = {}) {
@@ -140,41 +153,99 @@ function speakingOf(sid) {
   }
 }
 
-// 消音を選んだタブ (= この画面の中だけ覚える。 選んでいなければ、 声をオンにした時にマイクも開く)
-const muted = new Set()
+// 🎙 でマイクを開いているタブ (= この画面の中だけ覚える)
+const micWanted = new Set()
 
-// 入力欄の 🔊 を押した時に呼ぶ (= 人が押した handler の中から。 音とマイクを扱えるようにするのがここ)。
-// send(text) は、 聞き取った文をこのタブへ送る関数。
-//   オフの時: 返事を声で鳴らし始める。 その agent が声を聞き取り、 このタブで消音を選んでいなければ、 マイクも開く
-//   オンの時: 全部閉じる。 マイクを閉じ、 返事も鳴らさない
-export function toggleVoice(sid, send) {
-  if (getSnapshot().on[sid]) { closeConversation(sid); return }
+// 入力欄の声のボタンは 2 つで、 それぞれ別に入 / 切できる: 🔊 = agent の返事の声、 🎙 = 人のマイク。 どちらかが入って
+// いる間は会話がつながり (= 🔊 は 1 つのタブだけ。 別のタブで始めると、 前のタブの会話は閉じる)、 両方切ると会話を
+// 終える。 🎙 だけで始めると、 声の入力だけで返事は声にしない会話になる (= 返事は文字と、 app の小窓で読む)。
+// どちらも人が押した handler の中から呼ぶ (= 音とマイクを扱えるようにするのがここ)。
+
+// 会話を始める (= 声を鳴らすかは quiet、 マイクを開くかは micWanted で決めてから呼ぶ)。
+function startConversation(sid) {
+  for (const other of Object.keys(getSnapshot().on)) closeConversation(other)
   if (call() && getSnapshot().listen[sid]) { openCall(sid); return }
   setVoice(sid, true)
-  if (getSnapshot().on[sid] && getSnapshot().listen[sid] && !muted.has(sid)) openMic(sid, send)
+  if (getSnapshot().on[sid] && getSnapshot().listen[sid] && micWanted.has(sid)) openMic(sid)
 }
 
-// 入力欄の 🎙 を押した時に呼ぶ (= 声がオンの間だけ出る)。 マイクの消音と解除を入れ替える。 声はそのまま鳴る
-// (= 消音の間も、 打って送った文には声で聞いている印が付く)。
-export function toggleMic(sid, send) {
-  if (!getSnapshot().on[sid] || !getSnapshot().listen[sid]) return
+// マイクが開いているか (= app の会話では app に頼んだ状態、 画面の会話では開いている会話が在るか)。
+function micOpen(sid) {
+  return call()?.has(sid) ? micWanted.has(sid) : conversations.has(sid)
+}
+
+// 返事を声にするか (= 会話の間。 切にすると鳴っている声も止める。 マイクと、 app の小窓の文字はそのまま)。
+function setSpeech(sid, on) {
+  setVoiceQuiet(sid, !on)
   if (call()?.has(sid)) {
-    if (muted.has(sid)) muted.delete(sid)
-    else muted.add(sid)
-    setVoicePhase(sid, muted.has(sid) ? null : 'listening')
-    call().setMic(sid, !muted.has(sid)).catch((error) => setVoiceError(sid, error?.message || String(error)))
+    call().setSpeech(sid, on).catch((error) => setVoiceError(sid, error?.message || String(error)))
+  } else if (!on) {
+    player.stop(sid)
+  }
+}
+
+// 入力欄の 🔊 を押した時に呼ぶ。
+//   会話していない時: 返事を声で鳴らす会話を始める (= マイクは取らない)
+//   声を鳴らしている時: 声を止める。 マイクも閉じていれば会話を終える
+//   声を止めている時: 声を鳴らす
+// 声の入 / 切を受け付けない古い iPhone の app の会話では、 押すと会話を終える (= 前の 🔊 と同じ)。
+export function toggleVoice(sid) {
+  const snap = getSnapshot()
+  if (!snap.on[sid]) {
+    micWanted.delete(sid)
+    setVoiceQuiet(sid, false)
+    startConversation(sid)
     return
   }
-  if (conversations.has(sid)) {
-    muted.add(sid)
+  if (call()?.has(sid) && !call().canSetSpeech) { closeConversation(sid); return }
+  if (snap.quiet[sid]) { setSpeech(sid, true); return }
+  if (micOpen(sid)) { setSpeech(sid, false); return }
+  closeConversation(sid)
+}
+
+// iPhone の app の中で、 そのタブの通話がつながっていて、 app が小窓を出せる版か (= ⋯ メニューの「小窓で表示」)。
+export function hasAppCall(sid) {
+  return !!sid && !!call()?.has(sid) && !!getSnapshot().on[sid] && call().canShowPicture
+}
+
+// 通話の小窓 (= PiP) を今出す (= 自動で出なかった時。 出せなければ理由を声のボタンの上に出す)。
+export function showCallPicture(sid) {
+  if (!hasAppCall(sid)) return
+  call().showPicture(sid).catch((error) => setVoiceError(sid, error?.message || String(error)))
+}
+
+
+// 入力欄の 🎙 を押した時に呼ぶ (= その agent が声を聞き取る時だけ出る)。
+//   会話していない時: 声の入力だけの会話を始める (= 返事は声にしない)
+//   会話している時: マイクを開く / 閉じる。 閉じた時に声も止めていれば、 会話を終える
+export function toggleMic(sid) {
+  const snap = getSnapshot()
+  if (!snap.listen[sid]) return
+  if (!snap.on[sid]) {
+    micWanted.add(sid)
+    setVoiceQuiet(sid, true)
+    startConversation(sid)
+    return
+  }
+  const closing = micOpen(sid)
+  if (closing && snap.quiet[sid]) { micWanted.delete(sid); closeConversation(sid); return }
+  if (call()?.has(sid)) {
+    if (closing) micWanted.delete(sid)
+    else micWanted.add(sid)
+    setVoicePhase(sid, micWanted.has(sid) ? 'listening' : null)
+    call().setMic(sid, micWanted.has(sid)).catch((error) => setVoiceError(sid, error?.message || String(error)))
+    return
+  }
+  if (closing) {
+    micWanted.delete(sid)
     closeMic(sid)
   } else {
-    muted.delete(sid)
-    openMic(sid, send)
+    micWanted.add(sid)
+    openMic(sid)
   }
 }
 
-function openMic(sid, send) {
+function openMic(sid) {
   const entry = { closed: false, handle: null, stream: null, audioContext: null }
   conversations.set(sid, entry)
   setVoiceError(sid, null)
@@ -187,7 +258,7 @@ function openMic(sid, send) {
     refuseMic(sid, error)
     return
   }
-  open(sid, entry, send).catch((error) => {
+  open(sid, entry).catch((error) => {
     if (entry.closed) return
     console.warn('[voice] could not open the microphone:', error)
     const micRefused = error?.name === 'NotAllowedError' || error?.name === 'NotFoundError'
@@ -202,7 +273,7 @@ function refuseMic(sid, error) {
   setVoiceError(sid, tRaw('voice.mic_refused', { reason: error?.message || String(error) }))
 }
 
-async function open(sid, entry, send) {
+async function open(sid, entry) {
   const claimed = await apiFetch(`${base(sid)}/conversation`, { method: 'POST', jsonBody: { client: CLIENT } })
   if (!claimed.ok) throw await refused(claimed)
   // 間の取り方は、 開くたびに取り直す (= agent が調整の file を書き換えた分を、 次に開いた時から使う)
@@ -234,8 +305,14 @@ async function open(sid, entry, send) {
         throw error
       }
     },
-    // 声でない音 (= 物音) は、 文字にすると空になり、 ここへは来ない
-    send: (text) => { if (!entry.closed) send(text) },
+    // 声でない音 (= 物音) は、 文字にすると空になり、 ここへは来ない。 送る時に前の turn の声は全部止め、
+    // 新しい turn が始まるまで返事を鳴らさない (= listener.js)
+    send: (text) => {
+      if (entry.closed) return
+      player.stop(sid)
+      listener.holdUntilNextTurn(sid)
+      sender?.(sid, text)
+    },
     // 返事の途中で人が話し始めた: 鳴っている音と、 まだ鳴らしていない文を捨てる (= 次の返事はまた鳴らす)
     interrupt: () => player.stop(sid),
     ...speakingOf(sid),
@@ -250,7 +327,7 @@ async function open(sid, entry, send) {
   entry.handle = handle
 }
 
-// 会話を閉じる (= 🔊 を押し直した / タブを移った / 画面から消えた / 別の画面が会話を開いた時)。 マイクを閉じ、
+// 会話を閉じる (= 🔊 を押し直した / 別のタブで 🔊 にした / 別の画面が会話を開いた時)。 マイクを閉じ、
 // 返事も鳴らさない。
 export function closeConversation(sid) {
   if (call()?.has(sid)) {
@@ -268,17 +345,28 @@ export function closeConversation(sid) {
 function openCall(sid) {
   setVoiceError(sid, null)
   setVoiceOn(sid, true)
-  setVoicePhase(sid, muted.has(sid) ? null : 'starting')
-  call().start(sid, { mic: !muted.has(sid) }).catch((error) => {
+  setVoicePhase(sid, micWanted.has(sid) ? 'starting' : null)
+  const speech = !getSnapshot().quiet[sid]
+  call().start(sid, { mic: micWanted.has(sid), volume: volumeOf().volume, speech }).catch((error) => {
     closeConversation(sid)
     setVoiceError(sid, error?.message || String(error))
   })
 }
 
+// 小窓 (= PiP) の再生 / 停止で app がマイクを切り替えた: 🎙 の表示を合わせる (= 入力欄の 🎙 と同じ状態)。
+function onNativeMic(sid, on) {
+  if (on) micWanted.add(sid)
+  else micWanted.delete(sid)
+  setVoicePhase(sid, on ? 'listening' : null)
+}
+
 // app の会話の知らせ (= つながった / 切れた / 失敗した)。
-function onNativeState(sid, state, message) {
+function onNativeState(sid, state, message, { fatal } = {}) {
   if (state === 'connected') {
-    setVoicePhase(sid, muted.has(sid) ? null : 'listening')
+    setVoicePhase(sid, micWanted.has(sid) ? 'listening' : null)
+  } else if (state === 'error' && !isFatal(fatal, message)) {
+    // 1 文を言えなかった等、 通話は続けられる error: 理由だけ出し、 通話は閉じない
+    setVoiceError(sid, errorText(message) || state)
   } else if (state === 'error') {
     closeConversation(sid)
     setVoiceError(sid, message || state)
@@ -288,14 +376,28 @@ function onNativeState(sid, state, message) {
   }
 }
 
-// テストの間で、 消音を選んだタブと開いている会話を忘れる
+// 通話を続けられない error か。 app 1.9.0 は fatal を項目で渡さず、 Pipecat の error の中身 (= `"fatal":false` を
+// 含む JSON) を Swift の文字列のまま渡す (= `RTVIMessageInbound(... data: Optional("{\"fatal\":false, ...}"))`)。
+// 次の版の app は fatal を項目で渡す。 どちらも無ければ、 続けられない error として扱う
+function isFatal(fatal, message) {
+  if (typeof fatal === 'boolean') return fatal
+  return !/\\?"fatal\\?"\s*:\s*false/.test(String(message || ''))
+}
+
+// error の文 (= Pipecat の error の中身の `error` を取り出す。 取り出せなければ渡された文のまま)
+function errorText(message) {
+  const found = /\\?"error\\?"\s*:\s*\\?"((?:[^"\\]|\\[^"])*)\\?"/.exec(String(message || ''))
+  return found ? found[1] : message
+}
+
+// テストの間で、 🎙 を開いたタブと開いている会話を忘れる
 export function _resetForTest() {
-  muted.clear()
+  micWanted.clear()
   conversations.clear()
   nativeCall = undefined
 }
 
-// マイクだけを閉じる (= 消音。 声はそのまま鳴る)。
+// マイクだけを閉じる (= 声はそのまま鳴る)。
 function closeMic(sid) {
   const entry = conversations.get(sid)
   conversations.delete(sid)
@@ -306,4 +408,13 @@ function closeMic(sid) {
   entry.stream?.then((stream) => { for (const track of stream.getTracks()) track.stop() }).catch(() => {})
   entry.audioContext?.close().catch(() => {})
   apiFetch(`${base(sid)}/conversation`, { method: 'DELETE', jsonBody: { client: CLIENT } }).catch(() => {})
+}
+
+// 🔊 の長押しのつまみを動かした時に呼ぶ。 その端末の声の大きさを覚え、 画面の声にも app の通話の声にもその場で効かせる
+// (= 通話の声は backend の中で送るので、 backend へ伝える)。
+export function changeVolume(sid, volume) {
+  setVoiceVolume(volume)
+  if (!call()?.has(sid)) return
+  apiFetch(`${base(sid)}/call/volume`, { method: 'POST', jsonBody: { volume: volumeOf().volume } })
+    .catch((error) => setVoiceError(sid, error?.message || String(error)))
 }
