@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 from fastapi import FastAPI
@@ -399,6 +400,23 @@ def test_the_volume_of_a_call_is_checked_and_reaches_no_call_when_there_is_none(
         assert r.status_code == 400 and r.json()["detail"]["code"] == "voice_bad_request"
     r = client.post("/sessions/ses_listen/voice/call?volume=3", json=OFFER)
     assert r.status_code == 400
+
+
+def test_the_call_gain_from_the_config_scales_the_screen_volume_and_defaults_to_none():
+    from backend import config
+    from backend.routes.voice_call import _with_call_gain
+
+    def written(extra: dict) -> None:
+        config.CONFIG_PATH.write_text(json.dumps({**json.loads(config.CONFIG_PATH.read_text()), **extra}))
+        config.get_config.cache_clear()
+
+    assert _with_call_gain(0.5) == 0.5
+    written({"voice_call_gain_db": -20})
+    assert _with_call_gain(1.0) == pytest.approx(0.1)
+    assert _with_call_gain(0.5) == pytest.approx(0.05)
+    for unset in ({"voice_call_gain_db": "quiet"}, {"voice_call_gain_db": True}):
+        written(unset)
+        assert _with_call_gain(0.5) == 0.5
 
 
 def test_the_volume_scales_the_voice_and_stops_at_the_limit():
