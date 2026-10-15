@@ -53,3 +53,31 @@ class ViewsClientToServer0V1(BaseModel):
 
 ViewsClientToServer0 = Union[ViewsClientToServer0V0, ViewsClientToServer0V1]
 
+class DeviceClientToServer0V0(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["hello"]
+    device: Optional[str] = None
+    app: Optional[str] = None
+    catalog: list[Any]
+
+
+class DeviceClientToServer0V1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["result"]
+    id: str
+    ok: bool
+    result: Optional[Any] = None
+    error: Optional[str] = None
+    files: Optional[list[Any]] = None  # [{name, mime, data (= base64)}]
+
+
+DeviceClientToServer0 = Union[DeviceClientToServer0V0, DeviceClientToServer0V1]
+
+class DeviceServerToClient0(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["call"]
+    id: str
+    op: str
+    args: dict[str, Any]
+
+

@@ -501,3 +501,32 @@ export interface PostStreamUnifiedConnControlResponse {
   ok?: boolean
   subscribed?: unknown[]
 }
+
+/** POST /device/ops request body */
+export interface PostDeviceOpsRequest {
+  /** <種類>.<操作> (= app の一覧の名前) */
+  op: string
+  /** 操作の引数 (= 一覧の params に従う) */
+  args?: Record<string, unknown>
+  /** 答えを待つ秒 (= 省けば操作が名乗る長さ、 名乗らなければ 30) */
+  timeout_s?: number
+}
+
+/** POST /device/ops response */
+export interface PostDeviceOpsResponse {
+  ok: boolean
+  /** app の答え (= 大きい答えは files に path の並びで入る) */
+  result?: unknown
+}
+
+/** GET /device/catalog response */
+export interface GetDeviceCatalogResponse {
+  connected: boolean
+  device?: string
+  /** app の版 */
+  app?: string
+  /** つないだ時刻 (= unix 秒) */
+  since?: number
+  /** 操作の並び (= name / kind / summary / params / timeout_s / foreground) */
+  catalog: unknown[]
+}

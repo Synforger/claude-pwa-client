@@ -488,3 +488,28 @@ class PostStreamUnifiedConnControlResponse(BaseModel):
     subscribed: Optional[list[Any]] = None
 
 
+class PostDeviceOpsRequest(BaseModel):
+    """POST /device/ops request body"""
+    model_config = ConfigDict(extra="forbid")
+    op: str  # <種類>.<操作> (= app の一覧の名前)
+    args: Optional[dict[str, Any]] = None  # 操作の引数 (= 一覧の params に従う)
+    timeout_s: Optional[float] = None  # 答えを待つ秒 (= 省けば操作が名乗る長さ、 名乗らなければ 30)
+
+
+class PostDeviceOpsResponse(BaseModel):
+    """POST /device/ops response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    result: Optional[Any] = None  # app の答え (= 大きい答えは files に path の並びで入る)
+
+
+class GetDeviceCatalogResponse(BaseModel):
+    """GET /device/catalog response"""
+    model_config = ConfigDict(extra="forbid")
+    connected: bool
+    device: Optional[str] = None
+    app: Optional[str] = None  # app の版
+    since: Optional[float] = None  # つないだ時刻 (= unix 秒)
+    catalog: list[Any]  # 操作の並び (= name / kind / summary / params / timeout_s / foreground)
+
+

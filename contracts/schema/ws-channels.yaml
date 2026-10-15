@@ -1,7 +1,7 @@
 # WebSocket channel schema (= front <-> back contract、 真値)
 #
 # scope:
-#   - 2 channel (= /ws/pty/{sid}、 /views/ws) を全件列挙
+#   - 3 channel (= /ws/pty/{sid}、 /views/ws、 /device/ws) を全件列挙
 #   - direction / frame format / input / output / lifecycle / invariants を明示
 #   - ADR-013 (= PWA Lifecycle) の heartbeat 25s + timeout 60s 仕様を明文化
 #
@@ -115,3 +115,51 @@ channels:
       - "activeSid 変化時に即新 sid を送信 (= タブ切替 0 遅延の前提)"
       - "stop intent は features/terminal の stop ボタン押下時に sid 指定で送る"
       - "応答メッセージなし = sessions_overview SSE 経由で他端末に視認状態が伝播"
+
+  device:
+    path: /device/ws
+    direction: bidirectional
+    frame_format: text
+    client_to_server:
+      - kind: text
+        description: "app の名乗り (= 最初の 1 通) と、 頼みへの答え"
+        schema:
+          oneOf:
+            - type: object
+              required: [type, catalog]
+              properties:
+                type:    { const: hello }
+                device:  { type: string }
+                app:     { type: string }
+                catalog: { type: array }
+            - type: object
+              required: [type, id, ok]
+              properties:
+                type:   { const: result }
+                id:     { type: string }
+                ok:     { type: boolean }
+                result: {}
+                error:  { type: string }
+                files:  { type: array, description: "[{name, mime, data (= base64)}]" }
+    server_to_client:
+      - kind: text
+        description: "操作の頼み"
+        schema:
+          type: object
+          required: [type, id, op, args]
+          properties:
+            type: { const: call }
+            id:   { type: string }
+            op:   { type: string }
+            args: { type: object }
+    lifecycle:
+      connect: "app が前に出た時と、 通話を始めた時に open"
+      reconnect: "app が起きている間、 切れたら間を空けて open し直す"
+      heartbeat: "app が 25s 間隔で ping"
+      on_reconnect: "hello で一覧を送り直す"
+      bg_fg: "iOS が app を止めると切れる (= 通話中は止まらない)"
+      disconnect: "待っている頼みは、 つながっていないで終わる"
+    auth: tailnet
+    invariants:
+      - "最初の 1 通が hello でなければ閉じる"
+      - "つなぐ app は 1 台 (= 後からつないだ方に替わり、 前の app の待ちは終わる)"

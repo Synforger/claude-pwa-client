@@ -1087,3 +1087,45 @@ endpoints:
       - "op=subagents: watch 対象 sid 切替 (= null で停止)、 対象 1 接続 1 sid"
       - "不明 conn は 404 (= 接続が先、 制御が後)"
     implementation: backend/routes/unified_stream.py
+
+  - method: POST
+    path: /device/ops
+    description: "この Mac の命令 (= cpc device) が、 iPhone の app に操作を 1 つ頼む (= json)"
+    request_body:
+      type: object
+      properties:
+        op:        { type: string, description: "<種類>.<操作> (= app の一覧の名前)" }
+        args:      { type: object, description: "操作の引数 (= 一覧の params に従う)" }
+        timeout_s: { type: number, description: "答えを待つ秒 (= 省けば操作が名乗る長さ、 名乗らなければ 30)" }
+      required: [op]
+    response:
+      type: object
+      properties:
+        ok:     { type: boolean }
+        result: { description: "app の答え (= 大きい答えは files に path の並びで入る)" }
+      required: [ok]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "app がつながっていなければ 503、 一覧に無い操作は 404 (= detail に known の並び)、 時間切れは 504、 app ができなかったら 502"
+      - "一覧に無い操作は app へ送らない"
+      - "答えに付いた file は data/device-files/ に書き、 答えには path を返す (= app が付けた名前の / や .. は落とす)"
+    implementation: backend/routes/device.py
+
+  - method: GET
+    path: /device/catalog
+    description: "iPhone の app がつながっているかと、 できる操作の一覧 (= 居ない時は最後に受けた一覧)"
+    response:
+      type: object
+      properties:
+        connected: { type: boolean }
+        device:    { type: string }
+        app:       { type: string, description: "app の版" }
+        since:     { type: number, description: "つないだ時刻 (= unix 秒)" }
+        catalog:   { type: array, description: "操作の並び (= name / kind / summary / params / timeout_s / foreground)" }
+      required: [connected, catalog]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "一覧の真値は app の中 (= hello で受けた物を data/device_catalog.json に控える)"
+    implementation: backend/routes/device.py
