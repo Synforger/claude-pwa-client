@@ -41,7 +41,8 @@ struct ChatMarkdown {
     static let cellPadding = CGSize(width: 5, height: 3)
     /// コードの枠の内側の余白
     static let codePadding: CGFloat = 5
-    /// 表とコードを縮める下限 (= 元の字の大きさに対する割合)。 これでも入らない表はマスの中で折り返し、 コードは右で切る
+    /// 表とコードを縮める下限 (= 元の字の大きさに対する割合)。 これでも入らない表はマスの中で折り返し (= 語の途中で
+    /// 切れるなら、 行ごとに縦へ積む)、 コードは行を折り返す
     static let smallestScale: CGFloat = 0.6
 
     init(markdown: String, width: CGFloat, style: Style) {
@@ -308,8 +309,8 @@ struct ChatMarkdown {
             }
 
         case let .code(source):
-            // 行を折り返さない (= ツリーや字下げの位置を崩さない)。 幅の揃った字で、 入らなければ縮め、 それでも入らない
-            // 行は右で切る
+            // 幅の揃った字で、 入らなければ縮める (= ツリーや字下げの位置を崩さないよう、 まず縮める)。 それでも入らない
+            // 行は折り返し、 続きの行は元の行の字下げに揃える (= 小窓は横へ送れないので、 切らずに全部見せる)
             let lines = source.components(separatedBy: "\n")
             let inner = width - codePadding * 2
             var font = monospaced(size: style.font.pointSize - 2)
@@ -318,22 +319,30 @@ struct ChatMarkdown {
             if widest > inner {
                 font = monospaced(size: max(font.pointSize * smallestScale, font.pointSize * inner / widest))
             }
-            let rendered = lines.map { NSAttributedString(string: $0, attributes: textAttributes(font, style.color)) }
-            let lineHeight = ceil(font.ascender - font.descender + font.leading)
+            let rendered = lines.map { line -> NSAttributedString in
+                let indent = String(line.prefix(while: { $0 == " " || $0 == "\t" }))
+                let paragraph = NSMutableParagraphStyle()
+                paragraph.lineBreakMode = .byCharWrapping
+                paragraph.headIndent = min(inner / 2, NSAttributedString(string: indent, attributes: textAttributes(font, style.color))
+                    .size().width)
+                var attributes = textAttributes(font, style.color)
+                attributes[.paragraphStyle] = paragraph
+                // 空の行も 1 行の高さを持たせる
+                return NSAttributedString(string: line.isEmpty ? " " : line, attributes: attributes)
+            }
+            let heights = rendered.map { measure($0, width: inner).height }
             let used = min(inner, ceil(rendered.map { $0.size().width }.max() ?? 0))
-            let frame = CGRect(x: 0, y: top, width: used + codePadding * 2,
-                               height: CGFloat(lines.count) * lineHeight + codePadding * 2)
+            let frame = CGRect(x: 0, y: top, width: used + codePadding * 2, height: heights.reduce(0, +) + codePadding * 2)
             return Laid(frame: frame) { origin, context in
                 let box = frame.offsetBy(dx: origin.x, dy: origin.y)
                 context.setFillColor(style.codeBackground.cgColor)
                 context.addPath(CGPath(roundedRect: box, cornerWidth: 6, cornerHeight: 6, transform: nil))
                 context.fillPath()
-                context.saveGState()
-                context.clip(to: box.insetBy(dx: codePadding, dy: 0))
-                for (i, line) in rendered.enumerated() {
-                    line.draw(at: CGPoint(x: box.minX + codePadding, y: box.minY + codePadding + CGFloat(i) * lineHeight))
+                var y = box.minY + codePadding
+                for (line, height) in zip(rendered, heights) {
+                    draw(line, in: CGRect(x: box.minX + codePadding, y: y, width: inner, height: height))
+                    y += height
                 }
-                context.restoreGState()
             }
 
         case let .table(rows, header, alignments):
@@ -365,6 +374,12 @@ struct ChatMarkdown {
             let narrow = widths.filter { $0 <= fair }.reduce(0, +)
             let wide = widths.filter { $0 > fair }.reduce(0, +)
             widths = widths.map { $0 <= fair ? $0 : floor($0 / max(1, wide) * (room - narrow)) }
+        }
+        // 英数字の語がマスの幅に入らない列が在る = 語の途中で切れて読めない (= 「22:35」 が「22 / :3 / 5」 になる)。
+        // その時は、 行ごとに「見出し: 中身」 を縦に積む
+        let unbroken = (0..<columns).map { c in cells.map { c < $0.count ? widestWord($0[c]) : 0 }.max() ?? 0 }
+        if zip(widths, unbroken).contains(where: { $0 < $1 }) {
+            return layStacked(rows: rows, header: header, width: width, style: style, top: top)
         }
         let aligned = cells.map { row in
             row.enumerated().map { c, cell -> NSAttributedString in
@@ -414,6 +429,57 @@ struct ChatMarkdown {
             context.strokePath()
         }
     }
+
+    /// 縦に積んだ表: 1 行を 1 つの段にし、 列ごとに「見出し: 中身」 を 1 行ずつ並べる (= 見出しの行が無ければ中身だけ)。
+    /// 段の間に線を引く。
+    private static func layStacked(
+        rows: [[NSAttributedString]], header: Int, width: CGFloat, style: Style, top: CGFloat
+    ) -> Laid {
+        let titles = header > 0 ? rows.first ?? [] : []
+        let body = Array(rows.dropFirst(header))
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        let entries = body.map { row -> NSAttributedString in
+            let entry = NSMutableAttributedString()
+            for (c, cell) in row.enumerated() {
+                if entry.length > 0 { entry.append(NSAttributedString(string: "\n", attributes: textAttributes(style.font, style.color))) }
+                if c < titles.count, titles[c].length > 0 {
+                    entry.append(NSAttributedString(string: titles[c].string + ": ",
+                                                    attributes: textAttributes(bold(style.font, scale: 0.85), style.dim)))
+                }
+                entry.append(cell)
+            }
+            entry.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: entry.length))
+            return entry
+        }
+        let inner = width - cellPadding.width * 2
+        let heights = entries.map { measure($0, width: inner).height + cellPadding.height * 2 }
+        let frame = CGRect(x: 0, y: top, width: width, height: heights.reduce(0, +))
+        return Laid(frame: frame) { origin, context in
+            let box = frame.offsetBy(dx: origin.x, dy: origin.y)
+            var y = box.minY
+            for (i, (entry, height)) in zip(entries, heights).enumerated() {
+                if i > 0 {
+                    context.setFillColor(style.line.cgColor)
+                    context.fill(CGRect(x: box.minX, y: y, width: box.width, height: 1))
+                }
+                draw(entry, in: CGRect(x: box.minX + cellPadding.width, y: y + cellPadding.height,
+                                       width: inner, height: height - cellPadding.height * 2))
+                y += height
+            }
+        }
+    }
+
+    /// マスの中で一番広い英数字の語の幅 (= 空白と「/」 の後ろでは折り返せる。 日本語の文字はどこでも折り返せるので数えない)
+    private static func widestWord(_ text: NSAttributedString) -> CGFloat {
+        let source = text.string as NSString
+        return wordPattern.matches(in: text.string, range: NSRange(location: 0, length: source.length))
+            .map { ceil(text.attributedSubstring(from: $0.range).size().width) }
+            .max() ?? 0
+    }
+
+    /// 英数字と記号の続き (= 「/」 は語の終わりに付けて、 その後ろで切る)
+    private static let wordPattern = try! NSRegularExpression(pattern: "[!-.0-~]+/?")
 
     private static func scaled(_ text: NSAttributedString, by scale: CGFloat) -> NSAttributedString {
         let copy = NSMutableAttributedString(attributedString: text)
