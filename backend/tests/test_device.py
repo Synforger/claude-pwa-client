@@ -334,6 +334,56 @@ def test_the_command_shows_the_screen(monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)["path"].endswith("screen.jpg")
 
 
+def _devices_listing(*devices: tuple[str, str]) -> dict:
+    """devicectl の `list devices` の JSON (= (UDID, reality) の組から)。"""
+    return {"result": {"devices": [
+        {"hardwareProperties": {"udid": udid, "reality": reality, "platform": "iOS"},
+         "connectionProperties": {"pairingState": "paired"}} for udid, reality in devices]}}
+
+
+def _fake_devicectl(cli, monkeypatch, listing: dict, *, reach: bool = True) -> list[list[str]]:
+    from pathlib import Path
+    from subprocess import CompletedProcess
+
+    calls: list[list[str]] = []
+
+    def devicectl(args):
+        calls.append(args)
+        if args[:2] == ["list", "devices"]:
+            Path(args[args.index("--json-output") + 1]).write_text(json.dumps(listing))
+            return CompletedProcess(args, 0, "", "")
+        if not reach:
+            return CompletedProcess(args, 1, "", "ERROR: The device is not connected.")
+        Path(args[args.index("--destination") + 1]).write_bytes(b"\x89PNG")
+        return CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(cli, "_devicectl", devicectl)
+    return calls
+
+
+def test_the_screenshot_is_taken_by_the_mac_from_the_one_paired_iphone(monkeypatch, capsys, tmp_path):
+    cli = _cli()
+    monkeypatch.delenv("CPC_DEVICE", raising=False)
+    calls = _fake_devicectl(cli, monkeypatch, _devices_listing(("SIM-1", "simulated"), ("PHONE-1", "physical")))
+    out = tmp_path / "shot.png"
+    assert cli.main(["screenshot", "--out", str(out)]) == 0
+    assert json.loads(capsys.readouterr().out) == {"path": str(out), "bytes": 4, "device": "PHONE-1"}
+    assert calls[-1][:5] == ["device", "capture", "screenshot", "--device", "PHONE-1"]
+
+
+def test_the_screenshot_asks_which_iphone_when_several_are_paired_and_says_when_it_cannot_reach(
+        monkeypatch, capsys, tmp_path):
+    cli = _cli()
+    monkeypatch.delenv("CPC_DEVICE", raising=False)
+    _fake_devicectl(cli, monkeypatch, _devices_listing(("PHONE-1", "physical"), ("PHONE-2", "physical")))
+    assert cli.main(["screenshot", "--out", str(tmp_path / "a.png")]) == 2
+    assert "PHONE-1, PHONE-2" in capsys.readouterr().err
+    _fake_devicectl(cli, monkeypatch, _devices_listing(("PHONE-1", "physical")), reach=False)
+    assert cli.main(["screenshot", "--device", "PHONE-1", "--out", str(tmp_path / "b.png")]) == 3
+    assert "same network" in capsys.readouterr().err
+    assert cli.main(["screenshot", "--out"]) == 2
+
+
 def test_the_cpc_command_hands_device_to_the_device_command_even_through_a_link(tmp_path):
     import subprocess
     from pathlib import Path
