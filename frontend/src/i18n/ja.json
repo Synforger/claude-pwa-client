@@ -103,8 +103,6 @@
   "drawer.push.on": "🔔 通知 ON (タップで無効化)",
   "drawer.push.broken": "⚠ 通知が失効しています (タップで再有効化)",
   "drawer.push.off": "🔕 通知 OFF (タップで有効化)",
-  "drawer.open_in_app.on": "📱 通知の開き先: app (タップで PWA に)",
-  "drawer.open_in_app.off": "🌐 通知の開き先: PWA (タップで app に)",
   "drawer.text_size.label": "文字の大きさ",
   "drawer.text_size.title": "メモと markdown のプレビューの字の大きさ (ピンチでも変わる)",
   "drawer.text_size.smaller": "小さく",
