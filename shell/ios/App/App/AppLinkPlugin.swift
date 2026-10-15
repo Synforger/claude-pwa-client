@@ -3,9 +3,8 @@ import Foundation
 
 /// app を開く URL (= `claudepwa://open?ses=<sid>`) を受けて、 開くタブを画面へ渡す plugin。
 ///
-/// app には iPhone の通知 (= APNs) が届かないので、 通知はホーム画面の PWA が受ける。 PWA で「通知を app で開く」
-/// をオンにした端末では、 通知を押して開いた PWA がこの URL を開き、 iOS が app へ移す (= `frontend/src/features/
-/// push-notify/openInApp.js`)。 URL の型は `Info.plist` の `CFBundleURLTypes` が登録する。
+/// URL を出すのはホーム画面のウィジェット (= `Widgets/TabsWidget.swift`)。 画面の受け手は `frontend/src/features/
+/// session-drawer/appLinks.js`。 URL の型は `Info.plist` の `CFBundleURLTypes` が登録する。
 ///
 /// app が閉じていた時は、 画面の読み込みより先に URL が届く (= Capacitor は plugin が載った後の最初の
 /// `capacitorViewDidAppear` で配る)。 受け手がまだ居ない知らせは、 画面が受け手を付けるまで取っておく
