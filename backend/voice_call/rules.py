@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from backend.core.jsonl_predicates import is_harness_xml_text
 from backend.core.speech import VOICE_INPUT_MARK, parse_mark
@@ -57,6 +58,26 @@ def is_unfinished(text: str, endings: list[str]) -> bool:
         return False
     bare = said.rstrip("。．.!！?？ \t\n")
     return any(said.endswith(e) or (bare and bare.endswith(e)) for e in endings)
+
+
+# 聞き取った文と声にした文を比べる前に外す物 (= 空白・句読点・記号。 字の幅は NFKC でそろえ、 漢数字は算用数字に
+# 寄せる: 聞き取りは「3つの」、 返事は「3 つの」 や「三つの」 と書く)
+_NOT_COMPARED = re.compile(r"[\s\W_]+")
+_KANJI_DIGITS = str.maketrans("〇一二三四五六七八九", "0123456789")
+
+
+def _compared(text: str) -> str:
+    return _NOT_COMPARED.sub("", unicodedata.normalize("NFKC", text).translate(_KANJI_DIGITS)).lower()
+
+
+def is_own_voice(heard: str, spoken: list[str]) -> bool:
+    """聞き取った文が、 その時に声にしていた文の一部か (= スピーカーの声がマイクに入って、 人の発話として届いた)。
+
+    spoken: 割り込みで止められた時に鳴っていた文と、 その前の文 (= 言い方の印は外した物)。 文の境目を跨いで
+    聞こえた分も拾うよう、 つなげて比べる。
+    """
+    said = _compared(heard)
+    return bool(said) and said in _compared("".join(spoken))
 
 
 def speech_of(event: dict) -> tuple[str, str] | None:
