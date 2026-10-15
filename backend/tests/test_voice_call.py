@@ -722,7 +722,7 @@ def test_what_was_heard_is_its_own_voice_when_it_is_part_of_the_sentence_being_s
     assert not is_own_voice("、", ["あ、うん。"])
 
 
-def _cut_reply(heard: str, *, finished_first: bool = False):
+def _cut_reply(heard: str, *, finished_first: bool = False, **bridge_kwargs):
     """2 文の返事を鳴らしている途中で止められ、 heard が人の発話として届く。 返すのは (送った物, 声の段へ渡した文)。"""
     import time
 
@@ -736,7 +736,7 @@ def _cut_reply(heard: str, *, finished_first: bool = False):
         frames += [BotStoppedSpeakingFrame(), BotStartedSpeakingFrame()]
     frames += [InterruptionFrame(), BotStoppedSpeakingFrame(), _said(heard), SleepFrame(sleep=0.2)]
     sent: list[str] = []
-    down, _ = asyncio.run(run_test(_bridge(sent, events), frames_to_send=frames))
+    down, _ = asyncio.run(run_test(_bridge(sent, events, **bridge_kwargs), frames_to_send=frames))
     return sent, [f.text for f in down if isinstance(f, TTSSpeakFrame)]
 
 
@@ -761,6 +761,26 @@ def test_a_reply_cut_in_its_second_sentence_is_said_again_from_the_second():
     sent, said = _cut_reply("表に出した", finished_first=True)
     assert sent == []
     assert said == ["[calm]3 つの箱の結果を表に出した。", "[calm]seed 9 が当たり。", "[calm]seed 9 が当たり。"]
+
+
+# 書いた文字と声がずれる文の読み (= engine の拍のカナ)
+READINGS = {"3 つの箱の結果を表に出した。": "ミッツノハコノケッカヲヒョウニダシタ", "seed 9 が当たり。": "シードキュウガアタリ",
+            "±10 は押しても壊れない。": "プラスジュウワオシテモコワレナイ", "シード": "シード", "プラス": "プラス",
+            "ちょっと待って": "チョットマッテ"}
+
+
+async def _reading(text: str) -> str:
+    return READINGS.get(text, "")
+
+
+def test_its_own_voice_written_differently_from_how_it_sounds_is_seen_by_its_reading():
+    pytest.importorskip("pipecat")
+    sent, said = _cut_reply("シード", finished_first=True, reading=_reading)
+    assert sent == []
+    assert said == ["[calm]3 つの箱の結果を表に出した。", "[calm]seed 9 が当たり。", "[calm]seed 9 が当たり。"]
+    # 読みが無ければ、 書いた文字だけで見分ける (= 人の発話として送る)
+    sent, _ = _cut_reply("シード", finished_first=True)
+    assert sent == ["シード"]
 
 
 # --- 話している途中に言葉が取れた時 -----------------------------------------------------------------------------
@@ -789,6 +809,17 @@ def test_its_own_voice_heard_while_it_is_cut_does_not_stop_the_turn():
     bridge = _bridge([], stops=stops)
     bridge._cut = [{"text": "3 つの箱の結果を表に出した。"}]
     asyncio.run(bridge.heard_words("3つの"))
+    assert stops == [] and bridge.wants_words()
+    asyncio.run(bridge.heard_words("ちょっと待って"))
+    assert stops == ["stop"]
+
+
+def test_its_own_voice_read_out_from_a_symbol_does_not_stop_the_turn():
+    pytest.importorskip("pipecat")
+    stops: list[str] = []
+    bridge = _bridge([], stops=stops, reading=_reading)
+    bridge._cut = [{"text": "±10 は押しても壊れない。"}]
+    asyncio.run(bridge.heard_words("プラス"))
     assert stops == [] and bridge.wants_words()
     asyncio.run(bridge.heard_words("ちょっと待って"))
     assert stops == ["stop"]
