@@ -67,7 +67,7 @@ cpc device screen                   # 画面の配信の最後の 1 枚 (= 下�
 | screentime | `pick` `block` `unblock` | 止める app を人が選ぶ / 止める / 戻す (= 使った時間は iOS が渡さない) |
 | workout | `schedule` `scheduled` | Apple Watch のワークアウトの予定に足す / 予定の一覧 |
 | journal | `pick` | iPhone が覚えている出来事 (= 場所・曲・運動) から人が 1 つ選んで渡す (= 前に出す) |
-| permissions | `status` | この app が受けている許可を種類ごとに (= 確認の画面は出さない)。 一番広くない種類と、 設定のどこで変えるかを `not_max` に並べる |
+| permissions | `status` `request` | この app が受けている許可を種類ごとに (= 確認の画面は出さない)。 一番広くない種類と、 設定のどこで変えるかを `not_max` に並べる / まだ訊いていない種類の確認を順に全部出し、 訊いた種類 (`asked`) と今の状態、 権利が無くて訊けない種類 (`not_possible`) を返す (= 前に出す) |
 | device | `status` | 電池・充電中か・低電力モード・熱・空き容量・機種・iOS の版・音量・明るさ |
 | network | `status` | つながっている回線 (= Wi-Fi・携帯・無し) と、 読める時は Wi-Fi の名前 |
 | haptic / torch / screen | `play` / `set` / `brightness` | 振動させる (= 前に出す) / ライトの入と切 / 画面の明るさ (= 前に出す) |
@@ -87,8 +87,10 @@ cpc device screen                   # 画面の配信の最後の 1 枚 (= 下�
   app でしか動きません。 使える権利は Apple ID の種類 (= 無料か、 開発者の会員か) で違い、 使えない物は `... is not allowed` などで
   終わります
 
-種類ごとに初めて使う時、 iPhone に許可の確認が 1 回出ます。 断った種類は、 **設定 → <app の名前>** で後から許可できます。
-どれが許可されているかは `cpc device permissions status` で見られます (= ヘルスケアの読む許可だけは、 iOS が app に教えません)。
+app を初めて開いた時、 使う種類の許可の確認が順に出ます。 新しい版で種類が増えた時は、 その種類の確認だけが次に開いた時に
+出ます。 確認を閉じたまま残った種類は、 `cpc device permissions request` でもう一度まとめて出せます。 断った種類は、
+**設定 → <app の名前>** で後から許可できます。 どれが許可されているかは `cpc device permissions status` で見られます
+(= ヘルスケアの読む許可だけは、 iOS が app に教えません)。
 
 ## Siri とショートカット
 
