@@ -24,6 +24,7 @@ cpc device                          # つながっているかと、 できる�
 cpc device health                   # その種類の操作と引数
 cpc device health read --type steps --days 7
 cpc device screen                   # 画面の配信の最後の 1 枚 (= 下の § 画面の配信)
+cpc device screenshot               # 今の画面を、 この Mac が撮る (= 下の § 画面の配信)
 ```
 
 - `cpc` は `task setup` が `~/.local/bin` に置きます (= 後から置くなら `task cli:install`。 `~/.local/bin` が
@@ -144,6 +145,17 @@ backend の記録に `screen:` の行で残ります。
 
 間隔・大きさ・画質は `backend/config.json` の `device_screen` で変えられます ([config.md](config.md) の全体オプション)。
 app は配信を始める時にこの値を受け取るので、 変えた後は backend を再起動し、 配信を始め直してください。
+
+### Mac から撮る
+
+iPhone がこの Mac と同じ網 (= 家の Wi-Fi) に居る間は、 配信を始めなくても、 `cpc device screenshot` で今の画面を
+1 枚撮れます。 前に出ている app が何でも撮れ、 通話も切れません (= 1 枚 2〜3 秒)。 撮るのは Mac の Xcode の
+`devicectl` で、 app も backend も通しません。 ロック中はロック画面が撮れます。
+
+- 撮った file は `backend/data/device-files/` に置かれ、 path が JSON で返ります (= `--out <png>` で置き場を変える)
+- iPhone は、 この Mac と対になっている実機 (= Xcode で 1 度つないだ物) が 1 台ならそれを使います。 複数なら
+  `--device <UDID>` か環境変数 `CPC_DEVICE` で選びます (= UDID は `xcrun devicectl list devices`)
+- iPhone が別の網に居ると、 `the Mac could not reach the iPhone` で終わります (= 終わりの番号 3)。 その時は配信を使います
 
 ## 起きない時
 
