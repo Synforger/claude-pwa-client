@@ -13,6 +13,7 @@ enum System {
                             timeout: 120, foreground: true)) { args in
             try requireForeground("Face ID")
             let context = LAContext()
+            UserDefaults.standard.set(true, forKey: Permissions.faceIDAsked)
             do {
                 let passed = try await context.evaluatePolicy(.deviceOwnerAuthentication,
                                                               localizedReason: try args.required("reason"))
