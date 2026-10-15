@@ -139,7 +139,7 @@ async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, st
         await runner.cancel()
 
     bridge = AgentBridge(conversation, send=backend.send, events=backend.events, utterances=backend.utterances,
-                         speech=start.get("speech", True), interrupt=backend.interrupt,
+                         speech=start.get("speech", True), interrupt=backend.interrupt, reading=backend.reading,
                          resume=start.get("resume"), on_handover=handover)
     def microphone_on() -> bool:
         track = connection.audio_input_track()

@@ -656,6 +656,27 @@ endpoints:
     implementation: backend/routes/voice.py
 
   - method: POST
+    path: /sessions/{sid}/voice/reading
+    description: "1 文の読み (= engine が声にする時の拍のカナ) を返す (= 電話の会話が、 聞き取った文が自分の声かを、 書いた文字でなく声のとおりに見分ける)"
+    request_body:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, description: "読みにする文" }
+    response:
+      type: object
+      properties:
+        reading: { type: string, description: "拍のカナをつなげた物 (= 間の無音は含めない)" }
+      required: [reading]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "engine の /audio_query に、 設定の声の番号で問い合わせる (= 音は作らない)"
+      - "声を持たないタブは 409 voice_not_enabled、 text が無ければ 400 voice_bad_request、 声にする文字が無ければ 400 voice_nothing_to_say、 上限より長ければ 413 voice_text_too_long (= どれも engine を呼ぶ前に返す)"
+      - "engine に繋がらなければ 502 voice_engine_unreachable、 engine が断れば 502 voice_engine_failed"
+    implementation: backend/routes/voice.py
+
+  - method: POST
     path: /sessions/{sid}/voice/transcription
     description: "録った音を、 聞き取りの engine で文にして返す (= 送るのは画面が普段の送信口で行う)"
     request_body:

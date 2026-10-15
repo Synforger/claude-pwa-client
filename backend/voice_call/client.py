@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from collections.abc import AsyncIterator
 from urllib.parse import quote
@@ -14,6 +15,8 @@ from urllib.parse import quote
 import aiohttp
 
 from backend.voice_call.rules import mark_voice_input
+
+logger = logging.getLogger(__name__)
 
 
 class ConversationLost(Exception):
@@ -60,6 +63,17 @@ class BackendClient:
         """話している途中に言葉が取れた: タブの turn の実行中なら止める (= 止めたか)。"""
         headers = {"X-Voice-Conversation": self.client}
         return bool((await self._json("POST", f"{self._voice}/interruption", headers=headers)).get("stopped"))
+
+    async def reading(self, text: str) -> str:
+        """文の読み (= engine が声にする時の拍のカナ)。 読めなければ空文字 (= 自分の声の見分けに使うだけなので、
+        engine が止まっていても会話は続ける)。"""
+        try:
+            return (await self._json("POST", f"{self._voice}/reading", json={"text": text})).get("reading") or ""
+        except ConversationLost:
+            raise
+        except Exception as error:  # noqa: BLE001
+            logger.info("voice call: no reading for %d chars: %s", len(text), error)
+            return ""
 
     async def utterances(self, text: str) -> list[dict]:
         return (await self._json("POST", f"{self._voice}/utterances", json={"text": text})).get("utterances") or []

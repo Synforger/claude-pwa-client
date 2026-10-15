@@ -80,13 +80,16 @@ class AgentBridge(FrameProcessor):
     resume                               つなぎ直した通話なら、 前の通話が閉じた時の {since_ms, sentences}
                                          (= 鳴り終えていなかった文から言い直し、 閉じた後に届いた返事も声にする)
     on_handover({since_ms, sentences})   通話が閉じる時に、 鳴り終えていない文を渡す先 (= 次のつなぎ直しへ)
+    reading(text) -> str                 文の読み (= engine の拍のカナ。 聞き取った文が自分の声かを、 書いた文字で
+                                         見分けられない時に声のとおりに比べる。 省けば書いた文字だけで見分ける)
     """
 
     def __init__(self, conversation: dict, *, send: Callable[[str], Awaitable[bool]],
                  events: Callable[[], AsyncIterator[dict]],
                  utterances: Callable[[str], Awaitable[list[dict]]], speech: bool = True,
                  interrupt: Callable[[], Awaitable[bool]] | None = None, resume: dict | None = None,
-                 on_handover: Callable[[dict], None] | None = None, **kwargs):
+                 on_handover: Callable[[dict], None] | None = None,
+                 reading: Callable[[str], Awaitable[str]] | None = None, **kwargs):
         super().__init__(**kwargs)
         self._resume = resume
         self._on_handover = on_handover
@@ -100,6 +103,10 @@ class AgentBridge(FrameProcessor):
         self._said_at = 0.0
         self._send = send
         self._interrupt = interrupt
+        # 文の読み (= 自分の声を、 書いた文字でなく声のとおりに見分ける。 無ければ書いた文字だけで見分ける)
+        self._reading = reading
+        # 止められた返事の文の読み (= 文 → 読み。 止められるたびに忘れる)
+        self._readings: dict[str, str] = {}
         # 送るまでの発話で、 もう turn を止めたか (= 止めるのは 1 回だけ)
         self._interrupted = False
         self._events = events
@@ -188,7 +195,7 @@ class AgentBridge(FrameProcessor):
         """話している途中の声から言葉が取れた: 自分の声でなければ、 タブの turn を止める (= 送るまでに 1 回)。"""
         if not self.wants_words():
             return
-        if self._cut and is_own_voice(text, [s.get("text") or "" for s in (self._cut_after, self._cut[0]) if s]):
+        if await self._is_own_voice(text):
             return
         self._interrupted = True
         try:
@@ -204,7 +211,7 @@ class AgentBridge(FrameProcessor):
         text = "".join(t for t in texts if t).strip()
         if not text:
             return
-        if self._cut and is_own_voice(text, [s.get("text") or "" for s in (self._cut_after, self._cut[0]) if s]):
+        if await self._is_own_voice(text):
             await self._say_again(len(text))
             return
         self._cut = []
@@ -286,9 +293,28 @@ class AgentBridge(FrameProcessor):
 
     # --- 自分の声 -------------------------------------------------------------------------------------------
 
+    async def _is_own_voice(self, heard: str) -> bool:
+        """聞き取った文が、 止められた時に鳴っていた文 (= とその前の文) の声か。 まず書いた文字で比べ、 合わなければ
+        読み (= 拍のカナ) どうしで比べる (= 「±10」 は「プラスジュウ」 と声になり、 書いた文字では見分けられない)。"""
+        if not self._cut:
+            return False
+        spoken = [s.get("text") or "" for s in (self._cut_after, self._cut[0]) if s]
+        if is_own_voice(heard, spoken):
+            return True
+        if self._reading is None:
+            return False
+        for text in spoken:
+            if text and text not in self._readings:
+                self._readings[text] = await self._reading(text)
+        own = is_own_voice(await self._reading(heard), [self._readings.get(text, "") for text in spoken])
+        if own:
+            logger.info("voice call: heard its own voice by its reading (chars=%d)", len(heard))
+        return own
+
     def _remember_cut(self) -> None:
         if not self._voiced:
             return
+        self._readings.clear()
         self._cut = list(self._voiced)
         self._cut_after = self._last_voiced
         now = time.monotonic()

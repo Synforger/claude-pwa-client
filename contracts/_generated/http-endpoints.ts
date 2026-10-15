@@ -291,6 +291,18 @@ export interface PostSessionsSidVoiceSynthesisRequest {
   values?: Record<string, number>
 }
 
+/** POST /sessions/{sid}/voice/reading request body */
+export interface PostSessionsSidVoiceReadingRequest {
+  /** 読みにする文 */
+  text: string
+}
+
+/** POST /sessions/{sid}/voice/reading response */
+export interface PostSessionsSidVoiceReadingResponse {
+  /** 拍のカナをつなげた物 (= 間の無音は含めない) */
+  reading: string
+}
+
 /** POST /sessions/{sid}/voice/transcription request body */
 export type PostSessionsSidVoiceTranscriptionRequest = Record<string, unknown>
 
