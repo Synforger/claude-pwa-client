@@ -61,6 +61,51 @@ AGENT_MESSAGE_OPENING = "Message from another session, relayed by the client (th
 # (= 1 行目だけで「この機械の外から来た」 と分かる)。
 AGENT_MESSAGE_REMOTE_OPENING = "Message from a session on another machine, relayed by the client (the operator did not type this):"
 AGENT_MESSAGE_OPENINGS = (AGENT_MESSAGE_OPENING, AGENT_MESSAGE_REMOTE_OPENING)
+# 連絡の封筒のタグと、 送り主のタブで人が最後に打った発話を入れる場所 (= backend だけが書く)。
+AGENT_MESSAGE_TAG = "agent-message"
+OPERATOR_SAID_TAG = "operator-said"
+# 封筒のタグと同じ形の文字列を、 中身の側から書けなくする (= 本文で封筒を閉じる / 人の発話を装う)。
+_TAG_LIKE = re.compile(rf"<(/?)({AGENT_MESSAGE_TAG}|{OPERATOR_SAID_TAG})")
+
+
+def _plain(text: str) -> str:
+    return _TAG_LIKE.sub(r"&lt;\1\2", text.strip())
+
+
+def _attr(value: str) -> str:
+    """封筒の欄に入れる値。 欄を閉じる文字と改行を潰し、 封筒のタグと同じ形の文字列も本文と同じに潰す。"""
+    return _TAG_LIKE.sub(r"&lt;\1\2", value.replace('"', "'").replace("\n", " "))
+
+
+def agent_envelope(opening: str, title: str, session: str, text: str, operator_said: str | None = None) -> str:
+    """連絡の封筒 (= 1 行目・送り主のタブ名・返事の宛先・本文。 画面は「From <タブ名>」 の吹き出しにする)。"""
+    said = f"<{OPERATOR_SAID_TAG}>\n{_plain(operator_said)}\n</{OPERATOR_SAID_TAG}>\n" if operator_said else ""
+    return (f'{opening}\n<{AGENT_MESSAGE_TAG} from="{_attr(title)}" session="{_attr(session)}">\n'
+            f"{said}{_plain(text)}\n</{AGENT_MESSAGE_TAG}>")
+
+
+def peer_message_text(line: dict) -> str | None:
+    """Claude Code の口 (= SendMessage) で別の session から届いた連絡なら、 連絡の封筒に包んだ本文。 違えば None。
+
+    claude はこの連絡を、 手が空いている時は印 (= isMeta) の付いた user 行に、 作業中は `attachment` 行
+    (= `queued_command`) に書き、 どちらも出どころに `origin.kind: "peer"` と送り主の名前・本文を持たせる。
+    印の付いた行は harness の注入と同じ扱いで捨てていたので、 画面に出なかった。 backend の連絡の口を通った
+    連絡と同じ封筒にして、 同じ吹き出しで出す。
+    """
+    origin = None
+    if line.get("type") == "user":
+        origin = line.get("origin")
+    elif line.get("type") == "attachment":
+        queued = line.get("attachment")
+        if isinstance(queued, dict) and queued.get("type") == "queued_command":
+            origin = queued.get("origin")
+    if not isinstance(origin, dict) or origin.get("kind") != "peer":
+        return None
+    body = origin.get("body")
+    if not isinstance(body, str) or not body.strip():
+        return None
+    sender = origin.get("from") or ""
+    return agent_envelope(AGENT_MESSAGE_OPENING, origin.get("name") or sender or "another session", sender, body)
 
 
 def is_agent_message(text) -> bool:

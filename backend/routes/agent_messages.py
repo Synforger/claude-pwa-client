@@ -38,7 +38,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 import subprocess
 import urllib.error
 import urllib.request
@@ -49,7 +48,7 @@ from fastapi import APIRouter, Body, Form, Request
 
 from backend.core.jsonl_predicates import (
     AGENT_MESSAGE_OPENING as OPENING,
-    AGENT_MESSAGE_OPENINGS as OPENINGS,
+    agent_envelope as _envelope,
     AGENT_MESSAGE_REMOTE_OPENING as REMOTE_OPENING,
     CLIENT_OPENINGS,
     blocks_text,
@@ -67,12 +66,8 @@ from backend.terminal.runner import jsonl_path_for_session
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# 連絡の 1 行目 (= `OPENING` / `REMOTE_OPENING`) は、 記録を読む側も使うので core/jsonl_predicates.py に置く。
-TAG = "agent-message"
-# 送り主のタブで人が最後に打った発話を入れる場所。 backend だけが書く。
-OPERATOR_TAG = "operator-said"
-# 封筒のタグと同じ形の文字列を、 中身の側から書けなくする (= 本文で封筒を閉じる / 人の発話を装う)。
-_TAG_LIKE = re.compile(rf"<(/?)({TAG}|{OPERATOR_TAG})")
+# 連絡の 1 行目 (= `OPENING` / `REMOTE_OPENING`) と封筒の組み方は、 記録を読む側も使うので
+# core/jsonl_predicates.py に置く。
 # 記録を末尾から読む時の 1 回分。 1 行がこれより長くても読める (= 足りなければ前へ継ぎ足す)。
 _TAIL_CHUNK = 256 * 1024
 # この口を叩けるのは同じ機械の中だけ (= タブの中の claude)。 "testclient" は starlette TestClient の host。
@@ -105,20 +100,6 @@ def resolve_receiver(to: str) -> str:
                 f"同じ名前のタブが {len(named)} 個あります。 id で指定してください: {', '.join(named)}",
                 to=to, ids=", ".join(named))
     raise AssertionError("unreachable")
-
-
-def _plain(text: str) -> str:
-    return _TAG_LIKE.sub(r"&lt;\1\2", text.strip())
-
-
-def _attr(value: str) -> str:
-    """封筒の欄に入れる値。 欄を閉じる文字と改行を潰し、 封筒のタグと同じ形の文字列も本文と同じに潰す。"""
-    return _TAG_LIKE.sub(r"&lt;\1\2", value.replace('"', "'").replace("\n", " "))
-
-
-def _envelope(opening: str, title: str, session: str, text: str, operator_said: str | None = None) -> str:
-    said = f"<{OPERATOR_TAG}>\n{_plain(operator_said)}\n</{OPERATOR_TAG}>\n" if operator_said else ""
-    return f'{opening}\n<{TAG} from="{_attr(title)}" session="{_attr(session)}">\n{said}{_plain(text)}\n</{TAG}>'
 
 
 def envelope(sender_id: str, text: str, operator_said: str | None = None) -> str:
