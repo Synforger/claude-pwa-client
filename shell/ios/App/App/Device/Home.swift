@@ -54,11 +54,14 @@ enum Home {
 }
 
 /// 家の一覧を読み終えるまで待つ (= HMHomeManager は作った後に一覧を知らせてくる)。
-@MainActor private final class Homes: NSObject, HMHomeManagerDelegate {
+@MainActor final class Homes: NSObject, HMHomeManagerDelegate {
     private static var shared: Homes?
     private let manager = HMHomeManager()
     private var loaded = false
     private var waiting: [CheckedContinuation<[HMHome], Error>] = []
+
+    /// 家の許可の状態 (= 家の一覧を 1 度読んだ後だけ分かる。 係を作るだけで iOS が許可を訊くので、 ここでは作らない)
+    static var authorization: HMHomeManagerAuthorizationStatus? { shared?.manager.authorizationStatus }
 
     static func load() async throws -> [HMHome] {
         let homes = shared ?? Homes()
