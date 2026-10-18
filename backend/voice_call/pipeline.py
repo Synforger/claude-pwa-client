@@ -139,7 +139,7 @@ async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, st
         await runner.cancel()
 
     bridge = AgentBridge(conversation, send=backend.send, events=backend.events, utterances=backend.utterances,
-                         speech=start.get("speech", True), interrupt=backend.interrupt, reading=backend.reading,
+                         speech=start.get("speech", True), stop=backend.stop, reading=backend.reading,
                          resume=start.get("resume"), on_handover=handover)
     def microphone_on() -> bool:
         track = connection.audio_input_track()
@@ -148,7 +148,7 @@ async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, st
     pipeline = Pipeline([
         transport.input(),
         MicGate(microphone_on),
-        ListenSTT(backend, on_lost=lost, on_words=bridge.heard_words, wants_words=bridge.wants_words),
+        ListenSTT(backend, on_lost=lost),
         user_aggregator,
         bridge,
         VoiceTTS(backend, start["marks"]),

@@ -312,12 +312,6 @@ export interface PostSessionsSidVoiceTranscriptionResponse {
   text: string
 }
 
-/** POST /sessions/{sid}/voice/interruption response */
-export interface PostSessionsSidVoiceInterruptionResponse {
-  /** 止めたか (= turn の実行中でなければ false で、 何もしない) */
-  stopped: boolean
-}
-
 /** POST /sessions/{sid}/voice/conversation request body */
 export interface PostSessionsSidVoiceConversationRequest {
   /** 画面が名乗る名前 (= 英数字と - _ の 64 文字まで。 画面を読み込むたびに作る) */

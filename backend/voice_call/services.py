@@ -8,21 +8,17 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
-import time
 import wave
 from dataclasses import dataclass
 from collections.abc import AsyncGenerator, Awaitable, Callable
 
 import numpy as np
-from pipecat.audio.utils import pcm_to_wav
 from pipecat.frames.frames import (
     ErrorFrame,
     Frame,
     InputAudioRawFrame,
     TranscriptionFrame,
     TTSAudioRawFrame,
-    VADUserStartedSpeakingFrame,
-    VADUserStoppedSpeakingFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.settings import STTSettings, TTSSettings
@@ -40,9 +36,6 @@ logger = logging.getLogger(__name__)
 
 # 聞き取りの所要時間の見込み (= Pipecat の既定のまま。 書いておかないと Pipecat が毎回警告を出す)
 TTFS_P99_LATENCY_SECS = 1.0
-
-# 話している途中の声を文字にしてみる間隔 (= 言葉が取れるまで。 取れたら、 その声の区間ではもう試さない)
-PEEK_SECS = 0.5
 
 
 @dataclass
@@ -93,67 +86,13 @@ class MicGate(FrameProcessor):
 
 
 class ListenSTT(SegmentedSTTService):
-    """言い終えた区間の声を、 backend の聞き取りの口で文字にする。 別の画面が会話を開いたら on_lost を呼ぶ。
+    """言い終えた区間の声を、 backend の聞き取りの口で文字にする。 別の画面が会話を開いたら on_lost を呼ぶ。"""
 
-    話している途中も、 PEEK_SECS ごとに、 そこまでの声を文字にしてみる。 言葉が取れたら on_words に渡す (= agent
-    の段が、 話し終えるのを待たずにタブの turn を止める)。 途中の文字は渡すだけで、 送る文にはしない (= 送る文は、
-    言い終えた区間を 1 回で文字にした物)。 wants_words が偽の間 (= もう止めた) は試さない。
-    """
-
-    def __init__(self, backend: BackendClient, on_lost: Callable[[], Awaitable[None]], *,
-                 on_words: Callable[[str], Awaitable[None]] | None = None,
-                 wants_words: Callable[[], bool] = lambda: True, **kwargs):
+    def __init__(self, backend: BackendClient, on_lost: Callable[[], Awaitable[None]], **kwargs):
         super().__init__(settings=STTSettings(model=None, language=None),
                          ttfs_p99_latency=TTFS_P99_LATENCY_SECS, **kwargs)
         self._backend = backend
         self._on_lost = on_lost
-        self._on_words = on_words
-        self._wants_words = wants_words
-        self._peek_task: asyncio.Task | None = None
-
-    async def process_frame(self, frame: Frame, direction):
-        await super().process_frame(frame, direction)
-        if isinstance(frame, VADUserStartedSpeakingFrame) and self._on_words and not self._peek_task:
-            self._peek_task = self.create_task(self._peek(), "voice-call-peek")
-        elif isinstance(frame, VADUserStoppedSpeakingFrame):
-            await self._stop_peek()
-
-    async def stop(self, frame):
-        await self._stop_peek()
-        await super().stop(frame)
-
-    async def cancel(self, frame):
-        # 話している途中に通話が切れた時も、 途中の聞き取りを残さない (= 残すと Pipecat が終わり際に警告を出す)
-        await self._stop_peek()
-        await super().cancel(frame)
-
-    async def _stop_peek(self) -> None:
-        if self._peek_task:
-            await self.cancel_task(self._peek_task)
-            self._peek_task = None
-
-    async def _peek(self) -> None:
-        """話している間、 そこまでの声を文字にしてみて、 言葉が取れたら on_words に渡す (= 1 つの声の区間で 1 回)。"""
-        tries = 0
-        while self._wants_words():
-            await asyncio.sleep(PEEK_SECS)
-            if not self._wants_words():
-                return
-            tries += 1
-            started = time.monotonic()
-            pcm = bytes(self._audio_buffer) + self._trailing_silence()
-            try:
-                text = await self._backend.transcribe(pcm_to_wav(pcm, self.sample_rate))
-            except ConversationLost:
-                return   # 言い終えた区間の聞き取りが、 同じ断りを受けて会話を閉じる
-            except Exception as error:  # noqa: BLE001 (= 途中の聞き取りの失敗では止めない。 送る文は別に聞き取る)
-                logger.warning("voice call: listening while speaking failed: %s", error)
-                return
-            if text:
-                logger.info("voice call: words heard while speaking (try=%d audio_ms=%d ms=%d chars=%d)", tries,
-                            len(pcm) * 500 // self.sample_rate, (time.monotonic() - started) * 1000, len(text))
-                await self._on_words(text)
-                return
 
     async def run_stt(self, audio: bytes) -> AsyncGenerator[Frame, None]:
         try:

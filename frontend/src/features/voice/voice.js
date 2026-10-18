@@ -140,15 +140,6 @@ export async function transcribe(sid, sound) {
   return ((await r.json()).text || '').trim()
 }
 
-// 話している途中の言葉が取れた: タブの turn の実行中なら止める (= 止めたか)。
-export async function interruptTurn(sid) {
-  const r = await apiFetch(`${base(sid)}/interruption`, {
-    method: 'POST', headers: { 'X-Voice-Conversation': CLIENT },
-  })
-  if (!r.ok) throw await refused(r)
-  return !!(await r.json()).stopped
-}
-
 function speakingOf(sid) {
   return {
     isSpeaking: () => !!getSnapshot().speaking[sid],
@@ -343,8 +334,6 @@ async function open(sid, entry) {
     },
     // 返事の途中で人が話し始めた: 鳴っている音と、 まだ鳴らしていない文を捨てる (= 次の返事はまた鳴らす)
     interrupt: () => player.stop(sid),
-    // 話している途中に言葉が取れた: 話し終えるのを待たずに、 タブの turn を止める
-    stopTurn: () => interruptTurn(sid),
     ...speakingOf(sid),
     onPhase: (phase) => { if (!entry.closed) setVoicePhase(sid, phase) },
     onError: (error) => {
