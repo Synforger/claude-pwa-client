@@ -227,6 +227,11 @@ def test_the_picture_shows_what_was_said_without_marks_and_no_envelopes():
         assert shown_user_text(interrupt) is None
 
 
+def test_the_picture_shows_an_image_as_its_description_outside_code():
+    reply = "[calm]図を置いた。\n![売上の推移](/srv/shared/chart.png) と ![](https://example.com/a.png)\n```\n![そのまま](x.png)\n```"
+    assert shown_reply_text(reply) == "図を置いた。\n🖼 売上の推移 と 🖼 画像\n```\n![そのまま](x.png)\n```"
+
+
 def test_the_picture_gets_the_reply_as_markdown_without_the_marks():
     # 小窓 (= app の ChatMarkdown.swift) が表・見出し・箇条書き・コードの枠まで描くので、 markdown は崩さずに送る
     reply = "\n".join([

@@ -46,9 +46,24 @@ def shown_user_text(text: str | None) -> str | None:
     return said
 
 
+# 返事の中の画像 (= `![説明](出どころ)`) と、 コードの囲みの線
+_IMAGE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
+_FENCE = re.compile(r"^\s*(```|~~~)")
+
+
 def shown_reply_text(text: str | None) -> str:
-    """タブの返事を、 小窓に出す文にする (= 声にしない `[mute]` の行も出す。 行の頭の言い方の印だけを外す)。"""
-    return _LINE_MARK.sub("", text or "").strip()
+    """タブの返事を、 小窓に出す文にする (= 声にしない `[mute]` の行も出す。 行の頭の言い方の印だけを外す)。
+
+    画像は小窓に描かず「🖼 説明」 の 1 行にする (= 画面では画像として出る。 コードの囲みの中はそのまま)。
+    """
+    lines, fenced = [], False
+    for line in _LINE_MARK.sub("", text or "").split("\n"):
+        if _FENCE.match(line):
+            fenced = not fenced
+        elif not fenced:
+            line = _IMAGE.sub(lambda m: "🖼 " + (m.group(1).strip() or "画像"), line)
+        lines.append(line)
+    return "\n".join(lines).strip()
 
 
 def is_unfinished(text: str, endings: list[str]) -> bool:
