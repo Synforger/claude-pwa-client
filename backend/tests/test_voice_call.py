@@ -912,6 +912,73 @@ def test_the_client_reports_when_the_tab_starts_and_stops_working_and_stops_it_l
                          (f"/stream/unified/{conn}/control", {"op": "stop", "sid": "ses_a"})]
 
 
+def test_the_client_reads_a_record_line_longer_than_the_reader_limit():
+    # 画像を読んだ結果のような 1 MB を超える行で、 aiohttp の行読みは止まっていた (= その後の返事が届かなかった)
+    pytest.importorskip("aiohttp")
+    from aiohttp import web
+    from aiohttp.test_utils import TestServer
+
+    from backend.voice_call.client import BackendClient
+
+    big = {"type": "user_message", "text": "x" * 1_500_000}
+
+    async def stream_with_data(request):
+        response = web.StreamResponse()
+        await response.prepare(request)
+        body = "data: " + json.dumps({"ch": "jsonl", "ev": big}) + "\n\n"
+        for start in range(0, len(body), 7000):
+            await response.write(body[start:start + 7000].encode())
+        await response.write(b'data: {"ch": "jsonl", "ev": {"type": "user_message", "text": "after"}}\n\n')
+        return response
+
+    app = web.Application()
+    app.router.add_get("/stream/unified", stream_with_data)
+
+    async def scenario():
+        async with TestServer(app) as server, BackendClient(str(server.make_url("")), "ses_a", "phone-1") as backend:
+            return [event async for event in backend.events()]
+
+    got = asyncio.run(scenario())
+    assert [len(e["text"]) for e in got] == [1_500_000, 5]
+
+
+def test_a_broken_reply_stream_is_reconnected_and_nothing_is_said_twice(monkeypatch, caplog):
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.frames.frames import TTSSpeakFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    import backend.voice_call.agent as agent
+    from backend.voice_call.agent import AgentBridge
+    monkeypatch.setattr(agent, "REPLIES_RETRY_SECS", 0.05)
+
+    later = int(time.time() * 1000) + 60_000
+    rounds = [0]
+
+    async def stream():
+        rounds[0] += 1
+        await asyncio.sleep(0.02)
+        yield _reply("r1", "最初の返事。", later)
+        if rounds[0] == 1:
+            raise ValueError("the line was too long")
+        yield _reply("r2", "つなぎ直した後の返事。", later + 1)
+        await asyncio.sleep(3600)
+
+    async def send(text: str) -> bool:
+        return True
+
+    async def utterances(text: str) -> list[dict]:
+        return [{"mark": "calm", "text": text}]
+
+    bridge = AgentBridge(SETTINGS["conversation"], send=send, events=stream, utterances=utterances)
+    with caplog.at_level("WARNING"):
+        down, _ = asyncio.run(run_test(bridge, frames_to_send=[SleepFrame(sleep=0.3)]))
+    assert rounds[0] == 2
+    assert [f.text for f in down if isinstance(f, TTSSpeakFrame)] == ["[calm]最初の返事。", "[calm]つなぎ直した後の返事。"]
+    assert any("reply stream broke (ValueError" in r.getMessage() for r in caplog.records)
+
+
 def test_audio_that_arrives_while_the_app_has_the_microphone_off_is_dropped(caplog):
     pytest.importorskip("pipecat")
     from pipecat.frames.frames import InputAudioRawFrame

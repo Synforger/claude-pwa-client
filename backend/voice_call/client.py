@@ -101,11 +101,15 @@ class BackendClient:
 
         記録の event に加えて、 タブが作業中かが変わったら `{"type": "busy", "busy": bool}` を返す (= 画面の青丸と
         停止ボタンと同じ値。 つないだ直後に 1 回)。
+
+        ⚠ 行は長さに関わらず読む。 aiohttp の行読み (= `async for … in r.content`) は 128 KB を超える 1 行で
+        `LineTooLong` を出して止まる。 記録には画像を読んだ結果のような 1 MB を超える行が入り、 つなぐたびに読み直しが
+        そこで止まって、 その後の返事が声にも小窓にも出なくなった。
         """
         params = {"conn": self._conn, "jsonl": self._sid}
         busy = None
         async with self._http.get(f"{self._base}/stream/unified", params=params) as r:
-            async for raw in r.content:
+            async for raw in _lines(r.content):
                 line = raw.decode("utf-8", "replace").strip()
                 if not line.startswith("data:"):
                     continue
@@ -121,3 +125,15 @@ class BackendClient:
                     if now != busy:
                         busy = now
                         yield {"type": "busy", "busy": now}
+
+
+async def _lines(content: aiohttp.StreamReader) -> AsyncIterator[bytes]:
+    """届いた順に 1 行ずつ返す (= 長さの上限なし。 最後に改行の無い残りは捨てる)。"""
+    pending = bytearray()
+    async for chunk in content.iter_any():
+        pending += chunk
+        start = 0
+        while (end := pending.find(b"\n", start)) != -1:
+            yield bytes(pending[start:end])
+            start = end + 1
+        del pending[:start]
