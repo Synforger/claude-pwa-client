@@ -418,8 +418,8 @@ def test_a_reply_to_a_newer_turn_drops_what_is_left_of_the_older_one():
     assert said == ["[calm]前の返事の 1 文目。", "[calm]前の返事の 2 文目。", "InterruptionFrame", "[calm]新しい返事。"]
 
 
-def test_replies_of_the_same_turn_are_all_said():
-    # ツールの合間に書いた文は、 同じ turn の続き (= 前の文の残りを捨てない)
+def test_a_newer_reply_of_the_same_turn_also_drops_what_is_left_of_the_older_one():
+    # ツールの合間に書いた文も、 新しい返事 (= いつも一番新しい返事を聞く。 2026-10-19 に同じ turn の中で切り替わらなかった)
     pytest.importorskip("pipecat")
     import time
 
@@ -427,10 +427,41 @@ def test_replies_of_the_same_turn_are_all_said():
     from pipecat.tests.utils import SleepFrame, run_test
 
     later = int(time.time() * 1000) + 60_000
-    events = [_reply("r1", "調べるね。", later), _reply("r2", "分かった。", later + 1)]
+    events = [_reply("r1", "調べるね。\nまず表を見る。", later), _reply("r2", "分かった。", later + 1)]
     down, _ = asyncio.run(run_test(_bridge([], events), frames_to_send=[SleepFrame(sleep=0.2)]))
+    said = [type(f).__name__ if isinstance(f, InterruptionFrame) else f.text
+            for f in down if isinstance(f, (TTSSpeakFrame, InterruptionFrame))]
+    assert said == ["[calm]調べるね。", "[calm]まず表を見る。", "InterruptionFrame", "[calm]分かった。"]
+
+
+def test_a_reply_after_the_older_one_was_said_cuts_nothing():
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.frames.frames import BotStartedSpeakingFrame, BotStoppedSpeakingFrame, InterruptionFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    later = int(time.time() * 1000) + 60_000
+
+    async def stream():
+        await asyncio.sleep(0.05)
+        yield _reply("r1", "調べるね。", later)
+        await asyncio.sleep(0.2)   # 1 つ目を鳴らし終えた後に届く
+        yield _reply("r2", "分かった。", later + 1)
+        await asyncio.sleep(3600)
+
+    from backend.voice_call.agent import AgentBridge
+
+    async def send(text: str) -> bool:
+        return True
+
+    async def utterances(text: str) -> list[dict]:
+        return [{"mark": "calm", "text": text}]
+
+    bridge = AgentBridge(SETTINGS["conversation"], send=send, events=stream, utterances=utterances)
+    frames = [SleepFrame(sleep=0.1), BotStartedSpeakingFrame(), BotStoppedSpeakingFrame(), SleepFrame(sleep=0.3)]
+    down, _ = asyncio.run(run_test(bridge, frames_to_send=frames))
     assert not any(isinstance(f, InterruptionFrame) for f in down)
-    assert [f.text for f in down if isinstance(f, TTSSpeakFrame)] == ["[calm]調べるね。", "[calm]分かった。"]
 
 
 def test_the_volume_of_a_call_is_checked_and_reaches_no_call_when_there_is_none(client, tabs):  # noqa: F811

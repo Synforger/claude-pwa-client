@@ -9,8 +9,8 @@
 //   - 同じ物が 2 度届いても 1 度だけ鳴らす (= 繋ぎ直しで、 同じ event が流れ直すことがある)
 //   - 会話で新しい発話を送った後は、 タブの記録にその発話が載る (= 新しい turn が始まる) まで鳴らさない
 //     (= agent が新しい発話を考えている間に、 前の返事の続きが鳴らないように)
-//   - 記録に新しい発話 (= 打った文や、 別のタブからの連絡) が載った後の返事が届いたら、 前の turn の返事の鳴り残しを
-//     止めてから鳴らす (= cut(sid)。 同じ turn の中で続く返事は止めない)
+//   - 新しい返事が届いたら、 前の返事の鳴り残しを止めてから鳴らす (= cut(sid)。 同じ turn の中のツールの合間の文でも。
+//     いつも一番新しい返事を聞く)
 
 import { MAX_MESSAGES } from '../../constants.js'
 
@@ -28,13 +28,13 @@ export function speechParts(event) {
   return text.trim() && event.uuid ? [{ key: `${event.uuid}:text`, text }] : []
 }
 
-// isOn(sid) が真のタブの、 新しく届いた物を say(sid, text) へ渡す。 新しい turn の返事の前に cut(sid) を呼ぶ。
+// isOn(sid) が真のタブの、 新しく届いた物を say(sid, text) へ渡す。 2 つ目からの返事の前に cut(sid) を呼ぶ。
 export function createListener({ isOn, say, cut = () => {} }) {
-  // sid -> { heard: Set<key>, lastTs, since: number | null, holding, turn: 載った発話の数, saidTurn: 最後に鳴らした返事の turn }
+  // sid -> { heard: Set<key>, lastTs, since: number | null, holding, said: もう返事を鳴らしたか }
   const tabs = new Map()
   const tab = (sid) => {
     let t = tabs.get(sid)
-    if (!t) { t = { heard: new Set(), lastTs: 0, since: null, holding: false, turn: 0, saidTurn: null }; tabs.set(sid, t) }
+    if (!t) { t = { heard: new Set(), lastTs: 0, since: null, holding: false, said: false }; tabs.set(sid, t) }
     return t
   }
 
@@ -46,7 +46,7 @@ export function createListener({ isOn, say, cut = () => {} }) {
     holdUntilNextTurn(sid) { tab(sid).holding = true },
     // 届いた event を 1 つ見る。 history = 履歴の読み込みで届いた物か。
     observe(sid, event, { history = false } = {}) {
-      if (event?.type === 'user_message' && !history) { tab(sid).holding = false; tab(sid).turn += 1 }
+      if (event?.type === 'user_message' && !history) tab(sid).holding = false
       const parts = speechParts(event)
       if (!parts.length) return
       const t = tab(sid)
@@ -57,8 +57,8 @@ export function createListener({ isOn, say, cut = () => {} }) {
         t.heard.add(part.key)
         if (t.heard.size > MAX_HEARD) t.heard.delete(t.heard.values().next().value)
         if (!fresh) continue
-        if (t.saidTurn != null && t.saidTurn < t.turn) cut(sid)
-        t.saidTurn = t.turn
+        if (t.said) cut(sid)
+        t.said = true
         say(sid, part.text)
       }
       if (ts != null && ts > t.lastTs) t.lastTs = ts
