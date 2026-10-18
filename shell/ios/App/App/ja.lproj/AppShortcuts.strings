@@ -1,0 +1,11 @@
+/* Siri の言語が日本語の時の言い方。 鍵は AgentShortcuts (= Intents/AskAgent.swift) の英語の言い方そのもの。 */
+
+/* タブの agent へ頼みを送る */
+"Ask the agent in ${applicationName}" = "${applicationName}で頼む";
+"Ask ${applicationName}" = "${applicationName}に頼む";
+"${applicationName} request" = "${applicationName}にお願い";
+
+/* タブの agent と通話する */
+"Call the agent in ${applicationName}" = "${applicationName}で通話";
+"Call ${tab} in ${applicationName}" = "${applicationName}で${tab}と通話";
+"${applicationName} call" = "${applicationName}に電話";

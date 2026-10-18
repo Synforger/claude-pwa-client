@@ -1,7 +1,8 @@
 """iPhone の画面の最後の 1 枚 (= app の画面の配信が 1 秒に 1 枚送る JPEG)。
 
 持つのは最後の 1 枚だけ (= `screen.jpg` を置き換える)。 配信しているかは、 配信の始まりと終わりの知らせと、 最後に
-届いた時刻から決める (= 終わりの知らせが届かずに切れても、 STALE_S 秒で配信していない扱いになる)。
+絵か「生きている」 知らせが届いた時刻から決める (= 画面が動かない間は絵が来ないので、 app は送る間隔ごとに知らせる。
+終わりの知らせが届かずに切れても、 STALE_S 秒で配信していない扱いになる)。
 """
 from __future__ import annotations
 
@@ -10,7 +11,7 @@ from pathlib import Path
 
 # 1 枚の上限 (= 長辺 1280px の JPEG は数百 KB。 桁違いの物は受けない)
 MAX_BYTES = 5 * 1024 * 1024
-# 最後の 1 枚がこれより古ければ、 配信していない扱い (= 送る間隔 1 秒の 5 倍)
+# 最後の 1 枚と「生きている」 知らせがこれより古ければ、 配信していない扱い (= 送る間隔 1 秒の 5 倍)
 STALE_S = 5.0
 
 
@@ -45,6 +46,9 @@ class ScreenStore:
     def __init__(self, files_dir: Path):
         self.path = files_dir / "screen.jpg"
         self._live = False
+        # 配信が「生きている」 と最後に知らせた時刻 (= 画面が動かない間、 iPhone は絵を送らないので、 絵の新しさだけ
+        # では配信中かを決められない)
+        self._beat: float | None = None
 
     def receive(self, data: bytes) -> dict:
         if len(data) > MAX_BYTES:
@@ -60,12 +64,15 @@ class ScreenStore:
 
     def set_live(self, live: bool) -> None:
         self._live = live
+        self._beat = time.time() if live else None
 
     def status(self) -> dict:
         try:
             stat = self.path.stat()
         except OSError:
             return {"live": False, "path": None, "at": None, "age_s": None, "bytes": None}
-        age = max(time.time() - stat.st_mtime, 0.0)
-        return {"live": self._live and age < STALE_S, "path": str(self.path), "at": stat.st_mtime,
+        now = time.time()
+        age = max(now - stat.st_mtime, 0.0)
+        heard = max(now - max(stat.st_mtime, self._beat or 0.0), 0.0)
+        return {"live": self._live and heard < STALE_S, "path": str(self.path), "at": stat.st_mtime,
                 "age_s": round(age, 1), "bytes": stat.st_size}

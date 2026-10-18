@@ -19,9 +19,13 @@ import WebRTC
 /// 設定を掛けていた。 WebRTC の設定を Pipecat が掛ける物と同じにして、 どちらが掛けても何も変わらないようにする
 /// (= 掛ける前に今の値と比べ、 同じなら掛けない作りは WebRTC の側にある)。
 ///
+/// マイクを切った通話: 声を流すだけの部品 (= `ListenOnlyAudioDevice`) でつなぎ、 マイクを一度も開かない。 既定の
+/// 部品は声を流すだけでもマイクを回すので、 iOS がオレンジの光を点け、 他の音を下げ、 音量ボタンを通話の音量にして
+/// いた。 マイクの入 / 切は通話の部品を替えるので、 その度に同じタブへ掛け直す (= 1〜2 秒途切れる。 小窓は閉じない)。
+///
 /// 画面から呼ぶ口:
 ///   start({ url, mic })   電話の口の URL へつなぐ (= mic が false ならマイクを切った状態で始める)
-///   setMic({ on })        マイクを入れる / 切る (= 声はそのまま鳴る)
+///   setMic({ on })        マイクを入れる / 切る (= 通話を掛け直す。 下の「マイクを切った通話」)
 ///   setSpeech({ on })     返事を声にする / しない (= backend の会話へ知らせる。 マイクと小窓はそのまま)
 ///   setVolume({ volume }) 声の大きさの倍率を覚える (= 通話を掛け直す時に使う。 鳴っている声へは backend が掛ける)
 ///   showPicture()         小窓を今出す (= 自動で出なかった時。 出せなければ reject)
@@ -57,6 +61,10 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
     private var audioWatch: AudioSessionWatch?
     /// つながって相手の準備ができる前に頼まれた、 返事の声の入 / 切 (= 準備ができた所で送る)
     private var pendingSpeech: Bool?
+    /// 今の通話をマイクありでつないだか (= 通話していなければ nil)
+    private var connectedMic: Bool?
+    /// マイクの入 / 切で掛け直している間
+    private var redialing = false
 
     @objc func start(_ call: CAPPluginCall) {
         guard let raw = call.getString("url"), let url = URL(string: raw) else {
@@ -86,18 +94,23 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func setMic(_ call: CAPPluginCall) {
         let on = call.getBool("on") ?? true
         Task { @MainActor in
-            guard let client = self.client else {
-                call.resolve()
-                return
-            }
-            do {
-                try await client.enableMic(enable: on)
-                self.micOn = on
-                self.picture?.setMic(on)
-                call.resolve()
-            } catch {
-                call.reject("could not switch the microphone: \(error)")
-            }
+            await self.switchMic(on)
+            call.resolve()
+        }
+    }
+
+    /// マイクを入れる / 切る: 通話の部品を替えて、 同じタブへ掛け直す (= 小窓はそのまま。 通話していなければ覚えるだけ)。
+    /// 掛け直しは 1 本ずつ (= 掛け直す間に また切り替えられたら、 終わった後に今のマイクと比べて、 もう 1 度)。
+    @MainActor private func switchMic(_ on: Bool) async {
+        guard on != micOn else { return }
+        micOn = on
+        picture?.setMic(on)
+        guard client != nil, !redialing else { return }
+        redialing = true
+        defer { redialing = false }
+        while client != nil, let connected = connectedMic, connected != micOn {
+            CAPLog.print("[BackgroundVoice] \(stamp()) microphone \(micOn ? "on" : "off"): the call is redialed")
+            await redial(keepPicture: true)
         }
     }
 
@@ -162,28 +175,34 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    @MainActor private func connect(_ url: URL, mic: Bool) async {
-        await disconnect()
+    /// つなぐ。 マイクを切っているなら、 声を流すだけの部品でつなぐ (= マイクを開かない)。 keepPicture なら、 出ている
+    /// 小窓をそのまま使う (= 裏に回っている間は、 閉じた小窓を出し直せない)。
+    @MainActor private func connect(_ url: URL, mic: Bool, keepPicture: Bool = false) async {
+        await disconnect(keepPicture: keepPicture)
         Self.current = self
         #if DEBUG
         // 試しの build だけ: WebRTC 自身の log (= 音の部品の作り直しや経路の変化) も出す
         RTCSetMinDebugLogLevel(.info)
         #endif
-        useOneAudioSession()
+        if mic { useOneAudioSession() }
         audioWatch = AudioSessionWatch()
-        let client = PipecatClient(
-            options: PipecatClientOptions(transport: SmallWebRTCTransport(iceConfig: nil), enableMic: mic))
+        let transport = SmallWebRTCTransport(iceConfig: nil, audioDevice: mic ? nil : ListenOnlyAudioDevice.shared)
+        let client = PipecatClient(options: PipecatClientOptions(transport: transport, enableMic: mic))
         client.delegate = self
         self.client = client
+        connectedMic = mic
         notify("connecting")
         do {
             try await client.connect(
                 transportParams: SmallWebRTCTransportConnectionParams(webrtcRequestParams: APIRequest(endpoint: url)))
-            if let screen = bridge?.webView {
+            if let picture {
+                picture.setMic(mic)
+            } else if let screen = bridge?.webView {
                 let picture = CallPicture()
                 picture.start(over: screen)
                 picture.setMic(mic)
                 picture.onMic = { [weak self] on in self?.switchMicFromPicture(on) }
+                picture.onStop = { [weak self] in self?.stopFromPicture() }
                 self.picture = picture
             }
         } catch {
@@ -216,43 +235,74 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
     /// 外した通話を、 外した時のマイク・返事の声の入 / 切・声の大きさで掛け直す (= 外している間に切られていたら、 しない)。
     @MainActor private func resume() async {
         defer { pausing = false }
-        guard let callURL, var parts = URLComponents(url: callURL, resolvingAgainstBaseURL: false) else { return }
-        var query = (parts.queryItems ?? []).filter { $0.name != "volume" && $0.name != "speech" }
-        if let volume { query.append(URLQueryItem(name: "volume", value: String(volume))) }
-        if !speechOn { query.append(URLQueryItem(name: "speech", value: "0")) }
-        parts.queryItems = query
-        guard let url = parts.url else { return }
+        guard let url = redialURL() else { return }
         CAPLog.print("[BackgroundVoice] \(stamp()) the call is resumed after a device operation")
         await connect(url, mic: micOn)
+    }
+
+    /// 今の通話を切って、 今のマイク・返事の声の入 / 切・声の大きさで掛け直す。 裏に回っていても掛け直し終えるまで
+    /// iOS に止めさせない (= 切った瞬間に音が止まり、 app が眠らされる)。
+    @MainActor private func redial(keepPicture: Bool) async {
+        guard let url = redialURL() else { return }
+        pausing = true
+        let hold = UIApplication.shared.beginBackgroundTask(withName: "redial the call")
+        defer {
+            pausing = false
+            if hold != .invalid { UIApplication.shared.endBackgroundTask(hold) }
+        }
+        await disconnect(keepPicture: keepPicture)
+        await connect(url, mic: micOn, keepPicture: keepPicture)
+    }
+
+    /// 掛け直す先 (= 始めた時の URL に、 その後に変わった返事の声の入 / 切と声の大きさを重ねる)。 つなぎ直しの印
+    /// (= resume) を付けるので、 backend は切れた通話で鳴り終えていなかった文から言い直す。
+    private func redialURL() -> URL? {
+        guard let callURL, var parts = URLComponents(url: callURL, resolvingAgainstBaseURL: false) else { return nil }
+        var query = (parts.queryItems ?? []).filter { !["volume", "speech", "resume"].contains($0.name) }
+        if let volume { query.append(URLQueryItem(name: "volume", value: String(volume))) }
+        if !speechOn { query.append(URLQueryItem(name: "speech", value: "0")) }
+        query.append(URLQueryItem(name: "resume", value: "1"))
+        parts.queryItems = query
+        return parts.url
     }
 
     @MainActor private func sendSpeech(_ on: Bool) throws {
         try client?.sendClientMessage(msgType: "voice-speech", data: .object(["on": .boolean(on)]))
     }
 
-    /// 小窓の再生 / 停止: マイクを切り替え、 画面の 🎙 に知らせる。
-    @MainActor private func switchMicFromPicture(_ on: Bool) {
-        guard let client else { return }
-        Task { @MainActor in
-            do {
-                try await client.enableMic(enable: on)
-                self.micOn = on
-                CAPLog.print("[BackgroundVoice] \(stamp()) microphone \(on ? "on" : "off") from the picture")
-                notifyListeners("mic", data: ["on": on])
-            } catch {
-                CAPLog.print("[BackgroundVoice] could not switch the microphone from the picture: \(error)")
-                self.picture?.setMic(!on)
-            }
+    /// 小窓の停止 (= agent が考えている / 話している間): 声と turn を止めるよう backend の会話へ知らせる。
+    @MainActor private func stopFromPicture() {
+        CAPLog.print("[BackgroundVoice] \(stamp()) stop from the picture")
+        do {
+            try client?.sendClientMessage(msgType: "voice-stop")
+        } catch {
+            CAPLog.print("[BackgroundVoice] \(stamp()) could not send the stop: \(error)")
         }
     }
 
-    @MainActor private func disconnect() async {
-        picture?.stop()
-        picture = nil
+    /// 小窓の再生 / 停止: マイクを切り替え、 画面の 🎙 に知らせる。
+    @MainActor private func switchMicFromPicture(_ on: Bool) {
+        guard client != nil else { return }
+        Task { @MainActor in
+            CAPLog.print("[BackgroundVoice] \(stamp()) microphone \(on ? "on" : "off") from the picture")
+            notifyListeners("mic", data: ["on": on])
+            await self.switchMic(on)   // (= 画面が 🎙 で呼び返しても、 その前にここでマイクの値が変わっている)
+        }
+    }
+
+    /// 切る。 keepPicture なら小窓を残し、 切れた知らせも受けない (= 掛け直す間。 古い通話の知らせが、 掛け直した
+    /// 後に届いて画面が会話を閉じないように)。
+    @MainActor private func disconnect(keepPicture: Bool = false) async {
+        if !keepPicture {
+            picture?.stop()
+            picture = nil
+        }
         audioWatch = nil
         pendingSpeech = nil
+        connectedMic = nil
         guard let client else { return }
         self.client = nil
+        if keepPicture { client.delegate = nil }
         try? await client.disconnect()
         client.release()
     }

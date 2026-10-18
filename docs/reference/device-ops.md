@@ -24,6 +24,7 @@ cpc device                          # つながっているかと、 できる�
 cpc device health                   # その種類の操作と引数
 cpc device health read --type steps --days 7
 cpc device screen                   # 画面の配信の最後の 1 枚 (= 下の § 画面の配信)
+cpc device screenshot               # 今の画面を、 この Mac が撮る (= 下の § 画面の配信)
 ```
 
 - `cpc` は `task setup` が `~/.local/bin` に置きます (= 後から置くなら `task cli:install`。 `~/.local/bin` が
@@ -62,12 +63,12 @@ cpc device screen                   # 画面の配信の最後の 1 枚 (= 下�
 | app | `open` | URL や他の app を開く (= `tel:` `sms:` `maps://` など。 前に出す) |
 | message / mail | `compose` | SMS とメールの下書きの画面を出す (= 送るのは人。 前に出す) |
 | auth | `check` | Face ID (= か、 パスコード) で本人か確かめる (= 前に出す) |
-| notify | `post` | iPhone に通知を出す |
+| notify | `post` | iPhone に通知を出す (= app が画面に出ている時もバナーで出る。 答えに、 その時の通知の設定が載る) |
 | focus | `status` | 集中モード (= おやすみモードなど) か |
 | screentime | `pick` `block` `unblock` | 止める app を人が選ぶ / 止める / 戻す (= 使った時間は iOS が渡さない) |
 | workout | `schedule` `scheduled` | Apple Watch のワークアウトの予定に足す / 予定の一覧 |
 | journal | `pick` | iPhone が覚えている出来事 (= 場所・曲・運動) から人が 1 つ選んで渡す (= 前に出す) |
-| permissions | `status` | この app が受けている許可を種類ごとに (= 確認の画面は出さない)。 一番広くない種類と、 設定のどこで変えるかを `not_max` に並べる |
+| permissions | `status` `request` | この app が受けている許可を種類ごとに (= 確認の画面は出さない)。 一番広くない種類と、 設定のどこで変えるかを `not_max` に並べる / まだ訊いていない種類の確認を順に全部出し、 訊いた種類 (`asked`) と今の状態、 権利が無くて訊けない種類 (`not_possible`) を返す (= 前に出す) |
 | device | `status` | 電池・充電中か・低電力モード・熱・空き容量・機種・iOS の版・音量・明るさ |
 | network | `status` | つながっている回線 (= Wi-Fi・携帯・無し) と、 読める時は Wi-Fi の名前 |
 | haptic / torch / screen | `play` / `set` / `brightness` | 振動させる (= 前に出す) / ライトの入と切 / 画面の明るさ (= 前に出す) |
@@ -87,8 +88,10 @@ cpc device screen                   # 画面の配信の最後の 1 枚 (= 下�
   app でしか動きません。 使える権利は Apple ID の種類 (= 無料か、 開発者の会員か) で違い、 使えない物は `... is not allowed` などで
   終わります
 
-種類ごとに初めて使う時、 iPhone に許可の確認が 1 回出ます。 断った種類は、 **設定 → <app の名前>** で後から許可できます。
-どれが許可されているかは `cpc device permissions status` で見られます (= ヘルスケアの読む許可だけは、 iOS が app に教えません)。
+app を初めて開いた時、 使う種類の許可の確認が順に出ます。 新しい版で種類が増えた時は、 その種類の確認だけが次に開いた時に
+出ます。 確認を閉じたまま残った種類は、 `cpc device permissions request` でもう一度まとめて出せます。 断った種類は、
+**設定 → <app の名前>** で後から許可できます。 どれが許可されているかは `cpc device permissions status` で見られます
+(= ヘルスケアの読む許可だけは、 iOS が app に教えません)。
 
 ## Siri とショートカット
 
@@ -99,13 +102,42 @@ cpc device screen                   # 画面の配信の最後の 1 枚 (= 下�
 ショートカット app では **Ask the Agent** の操作として出ます。 送り先のタブを決めておいたショートカットを作ると、
 頼みの文だけを話せば済みます。
 
+「Hey Siri、 <app の名前>で<タブの名前>と通話」 (= 英語なら「Call <タブの名前> in <app の名前>」) と言うと、 app が
+前に出て、 そのタブで声とマイクの会話が始まります (= 🔊 と 🎙 を押した時と同じ)。 タブの名前を言わなければ
+「<app の名前>で通話」 で、 タブを訊かれます。 会話が始まった後に app から抜けると、 通話の小窓が出ます (= 小窓は
+前に出ている app からしか始められないので、 この操作は app を開きます)。 タブの名前は、 app を開くたびに
+backend の一覧から Siri へ教え直します。 ショートカット app では **Call the Agent** の操作として出ます。
+
 ## ウィジェット
 
-ホーム画面とロック画面に **Tabs** のウィジェットを置けます。 作業中のタブと、 答えを待っているタブの数と名前を
-出し、 押すとそのタブを開きます。
+ホーム画面とロック画面に、 2 つのウィジェットを置けます。
+
+| ウィジェット | 出す物 | 長押しの「ウィジェットを編集」 で選べる物 |
+|---|---|---|
+| **Tabs** | 作業中のタブと、 答えを待っているタブの数と名前。 押すとそのタブを開く | 出すタブ (= 答え待ちと作業中を先に / 全部のタブ / 選んだタブだけ) |
+| **Board** | Claude が置いた見出し・本文・大きく出す短い値。 押すと app を開く (= board がタブを持っていればそのタブ) | 出す board (= 選ばなければ `main`) |
+
+編集で選べるのと Board は iOS 17 以降です。 それより前の iOS では、 選べない Tabs だけが出ます (= 答え待ちと作業中が先)。
 
 中身は iPhone が決める間隔で引き直されます (= 頼んでいるのは 15 分ごと)。 今の状態を確かめたい時は、 app を
 開いてください。
+
+### Board に置く
+
+```sh
+cpc device widget                                   # 置いてある board の全部
+cpc device widget set --title "Build" --value "3/5" --text "testing the backend"
+cpc device widget set --board weather --value "18°" --text "rain after 15:00"
+cpc device widget set --text "the review is ready" --tab <タブの id>   # 押すとそのタブを開く
+cpc device widget clear --board weather
+```
+
+- `set` は board を置き換えます (= 渡さなかった欄は消えます)。 `--title` `--text` `--value` のどれか 1 つは要ります
+- board は名前で分かれ、 1 つが 1 枚のウィジェットの中身です (= 名前は英数字と `-` `_` の 32 文字まで。 既定は `main`)。
+  まだ置いていない名前も、 ウィジェットの編集で名前を打って選べます
+- 置いた物は backend が持ち (= `backend/data/device_boards.json`)、 backend を立ち上げ直しても残ります
+- app が起きている間 (= 画面に出ている時か、 声の会話が裏で続いている時) は、 置いたその場でウィジェットが描き直ります
+  (= 答えの `reloaded` が `true`)。 そうでない時は、 次に iPhone が引き直した時に出ます
 
 ## ロック画面の進み具合
 
@@ -126,14 +158,27 @@ cpc device progress end --detail "done"
 iPhone の画面を、 Mac の Claude が見られるように backend へ送ります。 始めるのは人です。
 
 1. コントロールセンターの **画面収録** を長押しする
-2. 一覧から **Broadcast** (= この app の配信) を選び、 **ブロードキャストを開始** を押す
+2. 一覧から app の名前 (= この app の配信) を選び、 **ブロードキャストを開始** を押す
 
 配信中は既定で 1 秒に 1 枚、 画面の絵を送ります (= 長辺 1280px の JPEG)。 backend が持つのは最後の 1 枚だけで、
-`cpc device screen` がその path と、 配信中か・何秒前の絵かを出します。 止める時は、 画面の上の赤い表示か
-コントロールセンターから止めます。
+`cpc device screen` がその path と、 配信中か・何秒前の絵かを出します。 画面が動かない間は iPhone が絵を渡さない
+ので、 絵は古いままでも、 app が送る間隔ごとに配信中と知らせます。 止める時は、 画面の上の赤い表示か
+コントロールセンターから止めます。 配信の始まり・終わり・止まった理由と、 送った枚数ごとの app の memory の使用量は、
+backend の記録に `screen:` の行で残ります。
 
 間隔・大きさ・画質は `backend/config.json` の `device_screen` で変えられます ([config.md](config.md) の全体オプション)。
 app は配信を始める時にこの値を受け取るので、 変えた後は backend を再起動し、 配信を始め直してください。
+
+### Mac から撮る
+
+iPhone がこの Mac と同じ網 (= 家の Wi-Fi) に居る間は、 配信を始めなくても、 `cpc device screenshot` で今の画面を
+1 枚撮れます。 前に出ている app が何でも撮れ、 通話も切れません (= 1 枚 2〜3 秒)。 撮るのは Mac の Xcode の
+`devicectl` で、 app も backend も通しません。 ロック中はロック画面が撮れます。
+
+- 撮った file は `backend/data/device-files/` に置かれ、 path が JSON で返ります (= `--out <png>` で置き場を変える)
+- iPhone は、 この Mac と対になっている実機 (= Xcode で 1 度つないだ物) が 1 台ならそれを使います。 複数なら
+  `--device <UDID>` か環境変数 `CPC_DEVICE` で選びます (= UDID は `xcrun devicectl list devices`)
+- iPhone が別の網に居ると、 `the Mac could not reach the iPhone` で終わります (= 終わりの番号 3)。 その時は配信を使います
 
 ## 起きない時
 
@@ -144,4 +189,4 @@ app は配信を始める時にこの値を受け取るので、 変えた後は
 | 命令が `... is not allowed` で終わる | その種類の許可が無い。 **設定 → <app の名前>** で許可する |
 | `cpc device` が `has no /device` | backend が古い。 backend を更新して再起動する |
 | ウィジェットが `Can't reach the server` | iPhone から backend に届かない (= Tailscale がつながっているか) |
-| `cpc device screen` の `live` が `false` | 配信していないか、 5 秒より新しい絵が届いていない |
+| `cpc device screen` の `live` が `false` | 配信していないか、 5 秒より新しい絵も「配信中」 の知らせも届いていない。 backend の記録の `screen:` の行で、 最後に何が起きたかを見る |

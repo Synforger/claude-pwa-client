@@ -59,6 +59,7 @@ const listener = createListener({
   // app の会話の間は、 返事の声も backend の中の会話が鳴らす (= 画面では鳴らさない)
   isOn: (sid) => !!getSnapshot().on[sid] && !call()?.has(sid) && !getSnapshot().quiet[sid],
   say: (sid, text) => player.say(sid, text),
+  cut: (sid) => player.stop(sid),
 })
 
 // 🔊 がオンのタブ (= 空白で区切った文字列。 中身が同じなら同じ値なので、 そのまま store の写しに使える)。
@@ -140,15 +141,6 @@ export async function transcribe(sid, sound) {
   return ((await r.json()).text || '').trim()
 }
 
-// 話している途中の言葉が取れた: タブの turn の実行中なら止める (= 止めたか)。
-export async function interruptTurn(sid) {
-  const r = await apiFetch(`${base(sid)}/interruption`, {
-    method: 'POST', headers: { 'X-Voice-Conversation': CLIENT },
-  })
-  if (!r.ok) throw await refused(r)
-  return !!(await r.json()).stopped
-}
-
 function speakingOf(sid) {
   return {
     isSpeaking: () => !!getSnapshot().speaking[sid],
@@ -172,7 +164,7 @@ const micWanted = new Set()
 
 // 会話を始める (= 声を鳴らすかは quiet、 マイクを開くかは micWanted で決めてから呼ぶ)。
 function startConversation(sid) {
-  for (const other of Object.keys(getSnapshot().on)) closeConversation(other)
+  for (const other of Object.keys(getSnapshot().on)) closeConversation(other, 'another tab started a conversation')
   if (call() && getSnapshot().listen[sid]) { openCall(sid); return }
   setVoice(sid, true)
   if (getSnapshot().on[sid] && getSnapshot().listen[sid] && micWanted.has(sid)) openMic(sid)
@@ -206,10 +198,28 @@ export function toggleVoice(sid) {
     startConversation(sid)
     return
   }
-  if (call()?.has(sid) && !call().canSetSpeech) { closeConversation(sid); return }
+  if (call()?.has(sid) && !call().canSetSpeech) { closeConversation(sid, 'the voice button (an app without the voice switch)'); return }
   if (snap.quiet[sid]) { setSpeech(sid, true); return }
   if (micOpen(sid)) { setSpeech(sid, false); return }
-  closeConversation(sid)
+  closeConversation(sid, 'the voice button with the microphone closed')
+}
+
+// Siri の「通話」 (= app を開いた URL の call) で呼ぶ: 返事を声にして、 マイクも開いた会話にする。 会話して
+// いれば、 足りない方 (= 声 / マイク) だけを入れる。 開いたばかりのタブは声を持つかがまだ分からないので、 先に訊く。
+export async function startCall(sid) {
+  if (!sid) return
+  await refreshVoiceAvailable(sid)
+  const snap = getSnapshot()
+  if (!snap.available[sid]) return
+  if (!snap.on[sid]) {
+    if (snap.listen[sid]) micWanted.add(sid)
+    else micWanted.delete(sid)
+    setVoiceQuiet(sid, false)
+    startConversation(sid)
+    return
+  }
+  if (snap.quiet[sid]) setSpeech(sid, true)
+  if (snap.listen[sid] && !micOpen(sid)) toggleMic(sid)
 }
 
 // iPhone の app の中で、 そのタブの通話がつながっていて、 app が小窓を出せる版か (= ⋯ メニューの「小窓で表示」)。
@@ -237,11 +247,12 @@ export function toggleMic(sid) {
     return
   }
   const closing = micOpen(sid)
-  if (closing && snap.quiet[sid]) { micWanted.delete(sid); closeConversation(sid); return }
+  if (closing && snap.quiet[sid]) { micWanted.delete(sid); closeConversation(sid, 'the microphone button with the voice off'); return }
   if (call()?.has(sid)) {
     if (closing) micWanted.delete(sid)
     else micWanted.add(sid)
     setVoicePhase(sid, micWanted.has(sid) ? 'listening' : null)
+    logCall(sid, 'mic', { on: micWanted.has(sid), from: 'screen' })
     call().setMic(sid, micWanted.has(sid)).catch((error) => setVoiceError(sid, error?.message || String(error)))
     return
   }
@@ -307,7 +318,7 @@ async function open(sid, entry) {
         return await transcribe(sid, wav)
       } catch (error) {
         if (error?.code === 'voice_conversation_elsewhere') {
-          closeConversation(sid)
+          closeConversation(sid, 'another screen opened the conversation')
           setVoiceError(sid, tRaw('voice.conversation_elsewhere'))
           return ''
         }
@@ -324,8 +335,6 @@ async function open(sid, entry) {
     },
     // 返事の途中で人が話し始めた: 鳴っている音と、 まだ鳴らしていない文を捨てる (= 次の返事はまた鳴らす)
     interrupt: () => player.stop(sid),
-    // 話している途中に言葉が取れた: 話し終えるのを待たずに、 タブの turn を止める
-    stopTurn: () => interruptTurn(sid),
     ...speakingOf(sid),
     onPhase: (phase) => { if (!entry.closed) setVoicePhase(sid, phase) },
     onError: (error) => {
@@ -339,9 +348,10 @@ async function open(sid, entry) {
 }
 
 // 会話を閉じる (= 🔊 を押し直した / 別のタブで 🔊 にした / 別の画面が会話を開いた時)。 マイクを閉じ、
-// 返事も鳴らさない。
-export function closeConversation(sid) {
+// 返事も鳴らさない。 reason = なぜ閉じるか (= app の通話では backend の log に残す)。
+export function closeConversation(sid, reason = 'closed') {
   if (call()?.has(sid)) {
+    logCall(sid, 'close', { reason })
     call().stop(sid).catch(() => {})
     setVoicePhase(sid, null)
     setVoiceOn(sid, false)
@@ -358,14 +368,16 @@ function openCall(sid) {
   setVoiceOn(sid, true)
   setVoicePhase(sid, micWanted.has(sid) ? 'starting' : null)
   const speech = !getSnapshot().quiet[sid]
+  logCall(sid, 'open', { mic: micWanted.has(sid), speech })
   call().start(sid, { mic: micWanted.has(sid), volume: volumeOf().volume, speech }).catch((error) => {
-    closeConversation(sid)
+    closeConversation(sid, 'the app could not start the call')
     setVoiceError(sid, error?.message || String(error))
   })
 }
 
 // 小窓 (= PiP) の再生 / 停止で app がマイクを切り替えた: 🎙 の表示を合わせる (= 入力欄の 🎙 と同じ状態)。
 function onNativeMic(sid, on) {
+  logCall(sid, 'mic', { on, from: 'picture' })
   if (on) micWanted.add(sid)
   else micWanted.delete(sid)
   setVoicePhase(sid, on ? 'listening' : null)
@@ -373,18 +385,25 @@ function onNativeMic(sid, on) {
 
 // app の会話の知らせ (= つながった / 切れた / 失敗した)。
 function onNativeState(sid, state, message, { fatal } = {}) {
+  logCall(sid, 'state', { state, ...(message ? { message: String(message).slice(0, 300) } : {}) })
   if (state === 'connected') {
     setVoicePhase(sid, micWanted.has(sid) ? 'listening' : null)
   } else if (state === 'error' && !isFatal(fatal, message)) {
     // 1 文を言えなかった等、 通話は続けられる error: 理由だけ出し、 通話は閉じない
     setVoiceError(sid, errorText(message) || state)
   } else if (state === 'error') {
-    closeConversation(sid)
+    closeConversation(sid, 'the app reported an error the call cannot go on with')
     setVoiceError(sid, message || state)
   } else if (state === 'disconnected' && getSnapshot().on[sid]) {
     // backend が会話を終えた (= 別の画面が会話を開いた / backend が止まった)
-    closeConversation(sid)
+    closeConversation(sid, 'the app reported the call disconnected')
   }
+}
+
+// app の通話の開け閉めとマイクの入 / 切を backend の log へ (= logs/backend.log の `sw-log` の行。 通話が途中で
+// 切れた時に、 画面が閉じたのか app が切れたと言ったのか、 どのボタンだったのかを後から見分ける)。
+function logCall(sid, stage, detail = {}) {
+  apiFetch('/log/sw', { method: 'POST', jsonBody: { stage: `voice:${stage}`, sid, ...detail } }).catch(() => {})
 }
 
 // 通話を続けられない error か。 app 1.9.0 は fatal を項目で渡さず、 Pipecat の error の中身 (= `"fatal":false` を

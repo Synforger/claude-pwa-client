@@ -1,5 +1,5 @@
 {
-  "originHash" : "e4ec8e0a3ed01a491fe356eb651dbac28fa1bbb8cdedda108ea606e129174e05",
+  "originHash" : "1a0735e26ae8bb41bf9a61caae750b74bd2c1ee4a8831c4fd557fc80fb22d3fb",
   "pins" : [
     {
       "identity" : "capacitor-swift-pm",
@@ -16,15 +16,6 @@
       "location" : "https://github.com/pipecat-ai/pipecat-client-ios",
       "state" : {
         "revision" : "ebf07b85ed99bfec27ae579c5b56430ec88eafdf",
-        "version" : "1.3.0"
-      }
-    },
-    {
-      "identity" : "pipecat-client-ios-small-webrtc",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/pipecat-ai/pipecat-client-ios-small-webrtc",
-      "state" : {
-        "revision" : "ec380646b4f6e1cc50bcdf610c60103f49304bf5",
         "version" : "1.3.0"
       }
     },

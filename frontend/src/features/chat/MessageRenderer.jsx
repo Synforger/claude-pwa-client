@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 import { visit } from 'unist-util-visit'
 import { useThrottledStreamingText } from './useThrottledStreamingText.js'
 import { recordPerfSample } from '../../features/app-effects/perfProbe.js'
+import { apiUrl } from '../../utils/api.js'
 import './MessageRenderer.css'
 
 const PATH_RE = /(?<![(`])(~\/[^\s`"')\]]+|\/Users\/[^\s`"')\]]+)/g
@@ -259,14 +260,54 @@ function CodeBlock({ children }) {
   )
 }
 
+// 画像の出どころ (= `![説明](出どころ)`) を、 画面が読む URL にする純関数 (= テスト対象)。
+//   - Mac の path (= 絶対 path、 `~/…`、 `file://…`) は backend の画像の口から読む (= ホームの下だけ・秘密の置き場は
+//     拒否・10 MB まで。 画像は記録にも通話にも流れず、 画面が別に取りに行く)
+//   - http / https はそのまま
+//   - それ以外 (= 相対の path、 data: で埋め込んだ画像) は出さない (= 空文字)。 埋め込みは記録に大きな 1 行を作る
+export function imageSource(url) {
+  if (typeof url !== 'string' || !url) return ''
+  let path = null
+  if (url.startsWith('file://')) {
+    try { path = decodeURI(url.slice('file://'.length)) } catch { return '' }
+  } else if (url.startsWith('~/') || (url.startsWith('/') && !url.startsWith('//'))) {
+    path = url
+  }
+  if (path != null) return apiUrl(`/file/raw?path=${encodeURIComponent(path)}`)
+  return /^https?:\/\//i.test(url) ? defaultUrlTransform(url) : ''
+}
+
+// 画像の口から読む URL なら、 その Mac の path (= 押した時に file のプレビューで開く)。 違えば null。
+function localPathOf(src) {
+  const raw = apiUrl('/file/raw?path=')
+  return src.startsWith(raw) ? decodeURIComponent(src.slice(raw.length)) : null
+}
+
 // url sanitizer は全 render 共通の純関数 (= identity 安定、 memo を壊さない)。
-function urlTransform(url) {
+function urlTransform(url, key) {
+  // 画像の出どころは imageSource で決める (= Mac の path も読めるようにする)。
+  if (key === 'src') return imageSource(url)
   // cpc-file:// は内部で onOpenFile に流す独自スキーム = pass-through。
   // それ以外は react-markdown 既定の sanitizer を使い、 javascript: / data:
   // 等の危険スキームをブロック。 過去ここで `(url) => url` にしてた結果、
   // 任意 URL スキームがそのまま <a href> に出ていた (XSS 経路)。
   if (typeof url === 'string' && url.startsWith('cpc-file://')) return url
   return defaultUrlTransform(url)
+}
+
+// 返事の中の画像。 読めない時は説明の文字を出す。 押すと、 Mac の画像は file のプレビューで、 外の画像は新しいタブで開く。
+function MarkdownImage({ src, alt, onOpenFile }) {
+  const t = useT()
+  const [failed, setFailed] = useState(false)
+  if (!src || failed) {
+    return <span className="md-image-missing">🖼 {alt || t('markdown.image_missing')}</span>
+  }
+  const local = localPathOf(src)
+  const open = () => {
+    if (local != null) onOpenFile(local)
+    else window.open(src, '_blank', 'noreferrer')
+  }
+  return <img className="md-image" src={src} alt={alt || ''} loading="lazy" onError={() => setFailed(true)} onClick={open} />
 }
 
 // components map の factory。 onOpenFile ごとに 1 回だけ作る (= chunk memo が効く前提。
@@ -294,6 +335,9 @@ function buildComponents(onOpenFile) {
     },
     table({ children }) {
       return <div className="table-wrapper"><table>{children}</table></div>
+    },
+    img({ src, alt }) {
+      return <MarkdownImage src={src} alt={alt} onOpenFile={onOpenFile} />
     },
   }
 }

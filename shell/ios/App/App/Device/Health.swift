@@ -57,6 +57,25 @@ enum Health {
         },
     ]
 
+    /// app が読む物と書く物の全部 (= `Permissions.askAll` がまとめて訊く)
+    private static var allRead: Set<HKObjectType> {
+        Set(quantities.values.map { HKQuantityType($0.0) as HKObjectType }).union([HKCategoryType(.sleepAnalysis)])
+    }
+    private static var allShare: Set<HKSampleType> {
+        Set(writable.compactMap { quantities[$0].map { HKQuantityType($0.0) as HKSampleType } })
+    }
+
+    /// まだ確認を出していない種類が在るか
+    static func shouldAsk() async -> Bool {
+        guard HKHealthStore.isHealthDataAvailable() else { return false }
+        return (try? await store.statusForAuthorizationRequest(toShare: allShare, read: allRead)) == .shouldRequest
+    }
+
+    /// 読む物と書く物の確認を 1 枚で出す
+    static func askAll() async throws {
+        try await ensure(read: allRead, share: allShare)
+    }
+
     private static func ensure(read: Set<HKObjectType>, share: Set<HKSampleType> = []) async throws {
         guard HKHealthStore.isHealthDataAvailable() else { throw DeviceError("Health is not available on this device") }
         try await store.requestAuthorization(toShare: share, read: read)

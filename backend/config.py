@@ -284,4 +284,7 @@ def __getattr__(name: str) -> Any:  # noqa: PLR0911
         return cfg.get("notification_title", "Notification")
     if name == "DEVICE_SCREEN":
         return cfg.get("device_screen")
+    if name == "VOICE_CALL_GAIN_DB":
+        gain = cfg.get("voice_call_gain_db", 0)
+        return float(gain) if isinstance(gain, (int, float)) and not isinstance(gain, bool) else 0.0
     raise AttributeError(f"module 'backend.config' has no attribute {name!r}")

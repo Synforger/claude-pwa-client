@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1C0DE0000000000000000E3 /* AppShortcuts.strings in Resources */ = {isa = PBXBuildFile; fileRef = A1C0DE0000000000000000E1 /* AppShortcuts.strings */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
@@ -18,6 +19,7 @@
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		A8F8BD98414C4C079CA99405 /* BackgroundVoicePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8D65D683E2F48EFAD232866 /* BackgroundVoicePlugin.swift */; };
+		BCBC26DE1C608AACBCD5342A /* ListenOnlyAudioDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25622B59A6F7952D635D4178 /* ListenOnlyAudioDevice.swift */; };
 		3F8F17F4AF5D4E729920F288 /* AppViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0915254AFF644D2992B42D65 /* AppViewController.swift */; };
 		CAFC32558D2E03550D06408E /* CallPicture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27AFB3573664F14C3BA59924 /* CallPicture.swift */; };
 		E059D0E7755B6899E8CFCD32 /* ChatMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F8EC326BCC7FB8659886884 /* ChatMarkdown.swift */; };
@@ -61,9 +63,15 @@
 		3C86B41DAA35D799E136692B /* Workout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D9DEE0E89F304427DC2B61C /* Workout.swift */; };
 		4E8B96C1D5E3A057798186E4 /* Journal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97DE974036FF2C46E1599406 /* Journal.swift */; };
 		18CB0DB3F5BF31D771EC0BED /* Permissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72D50EC3B73B69570ACBBD3C /* Permissions.swift */; };
+		31623EA1DA3B2AA0BFED5D8D /* NotificationPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF5B9099B02C6E074E04647B /* NotificationPresenter.swift */; };
+		54DA788CE69E1BB61FBE7C51 /* TabEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 952BBB782FCFBAD1C7FCAC8B /* TabEntity.swift */; };
+		E04780A960A1078E734CAEC1 /* TabEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 952BBB782FCFBAD1C7FCAC8B /* TabEntity.swift */; };
+		2A0C2E7DA33AB947DE0CEDCC /* BoardWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95E4C2A152CDE3852B356A82 /* BoardWidget.swift */; };
+		581745977B2F8B791B3AF082 /* Widgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EACCF2A3EE4EED274C0D6F1 /* Widgets.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A1C0DE0000000000000000E2 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/AppShortcuts.strings; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -77,6 +85,7 @@
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		E8D65D683E2F48EFAD232866 /* BackgroundVoicePlugin.swift */ = {isa = PBXFileReference; name = "BackgroundVoicePlugin.swift"; path = "BackgroundVoicePlugin.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; };
+		25622B59A6F7952D635D4178 /* ListenOnlyAudioDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListenOnlyAudioDevice.swift; sourceTree = "<group>"; };
 		0915254AFF644D2992B42D65 /* AppViewController.swift */ = {isa = PBXFileReference; name = "AppViewController.swift"; path = "AppViewController.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; };
 		27AFB3573664F14C3BA59924 /* CallPicture.swift */ = {isa = PBXFileReference; name = "CallPicture.swift"; path = "CallPicture.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; };
 		3F8EC326BCC7FB8659886884 /* ChatMarkdown.swift */ = {isa = PBXFileReference; name = "ChatMarkdown.swift"; path = "ChatMarkdown.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; };
@@ -116,6 +125,10 @@
 		97DE974036FF2C46E1599406 /* Journal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Journal.swift; sourceTree = "<group>"; };
 		1664B27B4A99793898E40294 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		72D50EC3B73B69570ACBBD3C /* Permissions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Permissions.swift; sourceTree = "<group>"; };
+		BF5B9099B02C6E074E04647B /* NotificationPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPresenter.swift; sourceTree = "<group>"; };
+		952BBB782FCFBAD1C7FCAC8B /* TabEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabEntity.swift; sourceTree = "<group>"; };
+		95E4C2A152CDE3852B356A82 /* BoardWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardWidget.swift; sourceTree = "<group>"; };
+		1EACCF2A3EE4EED274C0D6F1 /* Widgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Widgets.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -171,6 +184,7 @@
 		504EC3061FED79650016851F /* App */ = {
 			isa = PBXGroup;
 			children = (
+				BF5B9099B02C6E074E04647B /* NotificationPresenter.swift */,
 				1664B27B4A99793898E40294 /* App.entitlements */,
 				EBCCA996553CC6370DA02F12 /* Intents */,
 				43F4545BBBFB930036CC29DB /* Device */,
@@ -181,10 +195,12 @@
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				A1C0DE0000000000000000D2 /* Acknowledgements.txt */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
+				A1C0DE0000000000000000E1 /* AppShortcuts.strings */,
 				504EC3131FED79650016851F /* Info.plist */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
 				E8D65D683E2F48EFAD232866 /* BackgroundVoicePlugin.swift */,
+				25622B59A6F7952D635D4178 /* ListenOnlyAudioDevice.swift */,
 				0915254AFF644D2992B42D65 /* AppViewController.swift */,
 				27AFB3573664F14C3BA59924 /* CallPicture.swift */,
 				3F8EC326BCC7FB8659886884 /* ChatMarkdown.swift */,
@@ -196,6 +212,7 @@
 		43F4545BBBFB930036CC29DB /* Device */ = {
 			isa = PBXGroup;
 			children = (
+				1EACCF2A3EE4EED274C0D6F1 /* Widgets.swift */,
 				72D50EC3B73B69570ACBBD3C /* Permissions.swift */,
 				97DE974036FF2C46E1599406 /* Journal.swift */,
 				9D9DEE0E89F304427DC2B61C /* Workout.swift */,
@@ -234,6 +251,7 @@
 		60068F95D7FA45275A90C0CB /* Widgets */ = {
 			isa = PBXGroup;
 			children = (
+				95E4C2A152CDE3852B356A82 /* BoardWidget.swift */,
 				5F81591511451ABB905223F0 /* AgentWidgets.swift */,
 				A93561661473D599F6D6B75D /* TabsWidget.swift */,
 				A18BCB527EE558CEFCCF65DD /* AgentActivityWidget.swift */,
@@ -245,6 +263,7 @@
 		B46A6AFB1DC88CE23F6E63F1 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				952BBB782FCFBAD1C7FCAC8B /* TabEntity.swift */,
 				8CA2FF5CC87079F222CB3410 /* AgentActivity.swift */,
 				F167AEDFE595215DA1198456 /* ServerAddress.swift */,
 			);
@@ -351,11 +370,12 @@
 			knownRegions = (
 				en,
 				Base,
+				ja,
 			);
 			mainGroup = 504EC2FB1FED79650016851F;
 			packageReferences = (
 				D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */,
-				A1C0DE0000000000000000A2 /* XCRemoteSwiftPackageReference "pipecat-client-ios-small-webrtc" */,
+				A1C0DE0000000000000000A2 /* XCLocalSwiftPackageReference "pipecat-client-ios-small-webrtc" */,
 				A1C0DE0000000000000000A1 /* XCRemoteSwiftPackageReference "pipecat-client-ios" */,
 			);
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
@@ -375,6 +395,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */,
+				A1C0DE0000000000000000E3 /* AppShortcuts.strings in Resources */,
 				50B271D11FEDC1A000F3C39B /* public in Resources */,
 				504EC30F1FED79650016851F /* Assets.xcassets in Resources */,
 				A1C0DE0000000000000000D1 /* Acknowledgements.txt in Resources */,
@@ -407,6 +428,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				581745977B2F8B791B3AF082 /* Widgets.swift in Sources */,
+				54DA788CE69E1BB61FBE7C51 /* TabEntity.swift in Sources */,
+				31623EA1DA3B2AA0BFED5D8D /* NotificationPresenter.swift in Sources */,
 				18CB0DB3F5BF31D771EC0BED /* Permissions.swift in Sources */,
 				4E8B96C1D5E3A057798186E4 /* Journal.swift in Sources */,
 				3C86B41DAA35D799E136692B /* Workout.swift in Sources */,
@@ -436,6 +460,7 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				A8F8BD98414C4C079CA99405 /* BackgroundVoicePlugin.swift in Sources */,
+				BCBC26DE1C608AACBCD5342A /* ListenOnlyAudioDevice.swift in Sources */,
 				3F8F17F4AF5D4E729920F288 /* AppViewController.swift in Sources */,
 				CAFC32558D2E03550D06408E /* CallPicture.swift in Sources */,
 				E059D0E7755B6899E8CFCD32 /* ChatMarkdown.swift in Sources */,
@@ -447,6 +472,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2A0C2E7DA33AB947DE0CEDCC /* BoardWidget.swift in Sources */,
+				E04780A960A1078E734CAEC1 /* TabEntity.swift in Sources */,
 				24CA12C463A6918939877528 /* AgentActivity.swift in Sources */,
 				74B2AD9E41BC896BB6E01106 /* ServerAddress.swift in Sources */,
 				6AE558725CE163C8B03BE0E2 /* AgentWidgets.swift in Sources */,
@@ -481,6 +508,14 @@
 				504EC3111FED79650016851F /* Base */,
 			);
 			name = LaunchScreen.storyboard;
+			sourceTree = "<group>";
+		};
+		A1C0DE0000000000000000E1 /* AppShortcuts.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				A1C0DE0000000000000000E2 /* ja */,
+			);
+			name = AppShortcuts.strings;
 			sourceTree = "<group>";
 		};
 /* End PBXVariantGroup section */
@@ -745,7 +780,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Broadcast/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Broadcast;
+				INFOPLIST_KEY_CFBundleDisplayName = "Claude PWA Dev";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -770,7 +805,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Broadcast/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Broadcast;
+				INFOPLIST_KEY_CFBundleDisplayName = "Claude PWA";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -832,6 +867,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "CapApp-SPM";
 		};
+		A1C0DE0000000000000000A2 /* XCLocalSwiftPackageReference "pipecat-client-ios-small-webrtc" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "Packages/pipecat-client-ios-small-webrtc";
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -843,20 +882,12 @@
 				version = 1.3.0;
 			};
 		};
-		A1C0DE0000000000000000A2 /* XCRemoteSwiftPackageReference "pipecat-client-ios-small-webrtc" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/pipecat-ai/pipecat-client-ios-small-webrtc";
-			requirement = {
-				kind = exactVersion;
-				version = 1.3.0;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		A1C0DE0000000000000000B2 /* PipecatClientIOSSmallWebrtc */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A1C0DE0000000000000000A2 /* XCRemoteSwiftPackageReference "pipecat-client-ios-small-webrtc" */;
+			package = A1C0DE0000000000000000A2 /* XCLocalSwiftPackageReference "pipecat-client-ios-small-webrtc" */;
 			productName = PipecatClientIOSSmallWebrtc;
 		};
 		A1C0DE0000000000000000B1 /* PipecatClientIOS */ = {

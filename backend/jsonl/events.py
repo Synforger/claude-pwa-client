@@ -21,7 +21,7 @@ import re
 
 # harness 内部表現 / interrupt marker の判定 regex は行レベル純粋プリミティブとして
 # core/jsonl_predicates.py に集約 (= jsonl / terminal 両 subsystem が使う共有底層)。
-from backend.core.jsonl_predicates import HARNESS_XML_RE, queued_prompt_text, unwrap_pasted
+from backend.core.jsonl_predicates import HARNESS_XML_RE, peer_message_text, queued_prompt_text, unwrap_pasted
 from backend.core.jsonl_tail import parse_jsonl_timestamp
 
 
@@ -76,6 +76,11 @@ def jsonl_line_to_events(line: dict) -> list[dict]:
         return []
     if line.get("isSidechain"):
         return []
+    # 別の session から Claude Code の口で届いた連絡 (= 印の付いた行と作業中の行の両方。 先に拾う)
+    peer = peer_message_text(line)
+    if peer is not None:
+        return [{"type": "user_message", "text": peer, "uuid": line.get("uuid"),
+                 "parentUuid": line.get("parentUuid"), "ts": _ts_ms(line)}]
     if line.get("isMeta"):
         # harness が注入するメタメッセージ (= tool call の malformed retry 指示 / caveat 等)。
         # ユーザー発言でも claude の応答でもないので chat には出さない。

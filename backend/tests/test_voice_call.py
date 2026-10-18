@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 from fastapi import FastAPI
@@ -96,26 +97,37 @@ def test_a_tab_that_cannot_hold_a_conversation_is_refused_before_connecting(clie
 
 
 class _FakeCall:
-    """会話の process の偽物: 申し込みに answer を返し、 finish が立つまで走り続ける。"""
+    """会話の process の偽物: 申し込みに answer を返し、 finish が立つまで走り続ける (= 閉じる時に handover を出す)。"""
 
-    def __init__(self, finish):
+    def __init__(self, finish, *, pc_id: str = "pc1", handover: dict | None = None, starts: list | None = None):
         import json
-        import threading
 
-        self._finish: threading.Event = finish
+        self._finish = finish
         self.returncode = None
-        answer = {"type": "answer", "answer": {"sdp": "v=0", "type": "answer", "pc_id": "pc1"}}
+        answer = {"type": "answer", "answer": {"sdp": "v=0", "type": "answer", "pc_id": pc_id}}
 
         class _In:
             def write(self, data):
-                pass
+                message = json.loads(data)
+                if starts is not None and message.get("type") == "start":
+                    starts.append(message)
 
             async def drain(self):
                 pass
 
         class _Out:
+            def __init__(self):
+                self._lines = [answer]
+
             async def readline(self):
-                return (json.dumps(answer) + "\n").encode()
+                if self._lines:
+                    return (json.dumps(self._lines.pop(0)) + "\n").encode()
+                while not finish.is_set():
+                    await asyncio.sleep(0.01)
+                if handover is not None and not getattr(self, "_handed", False):
+                    self._handed = True
+                    return (json.dumps({"type": "handover", **handover}) + "\n").encode()
+                return b""
 
         self.stdin, self.stdout = _In(), _Out()
 
@@ -156,6 +168,40 @@ def test_a_tab_is_on_a_call_from_the_answer_until_the_call_process_ends(tabs, mo
         assert not is_session_on_call("ses_listen")
 
 
+def test_a_redial_gets_what_the_closed_call_had_left_to_say_and_a_new_call_does_not(tabs, monkeypatch):  # noqa: F811
+    import threading
+
+    left = {"since_ms": 5, "sentences": [{"mark": "calm", "text": "続きの文。"}]}
+    finishes = [threading.Event() for _ in range(3)]
+    starts: list[dict] = []
+    calls = iter([dict(pc_id="pc1", handover=left), dict(pc_id="pc2", handover=left), dict(pc_id="pc3")])
+
+    async def spawn(*args, **kwargs):
+        return _FakeCall(finishes[len(starts)], starts=starts, **next(calls))
+
+    monkeypatch.setattr(voice_call.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(voice_call.asyncio, "create_subprocess_exec", spawn)
+    app = FastAPI()
+    app.include_router(voice_call.router)
+    voice_call._workers.clear()
+    voice_call._handovers.clear()
+    with TestClient(app) as c:
+        assert c.post("/sessions/ses_listen/voice/call", json=OFFER).status_code == 200
+        # つなぎ直し: 前の通話が閉じ終えるのを待ち、 その鳴り残しを受け取る
+        threading.Timer(0.1, finishes[0].set).start()
+        assert c.post("/sessions/ses_listen/voice/call?resume=1", json=OFFER).status_code == 200
+        # つなぎ直しでない通話は、 前の鳴り残しを受け取らない
+        finishes[1].set()
+        threading.Timer(0.1, lambda: None).start()
+        import time
+        time.sleep(0.2)
+        assert c.post("/sessions/ses_listen/voice/call", json=OFFER).status_code == 200
+        finishes[2].set()
+    assert starts[0]["resume"] is None
+    assert starts[1]["resume"] == left
+    assert starts[2]["resume"] is None
+
+
 def test_without_the_call_parts_the_backend_says_so(client, tabs, monkeypatch):  # noqa: F811
     monkeypatch.setattr(voice_call.importlib.util, "find_spec", lambda name: None)
     r = client.post("/sessions/ses_listen/voice/call", json=OFFER)
@@ -181,6 +227,11 @@ def test_the_picture_shows_what_was_said_without_marks_and_no_envelopes():
         assert shown_user_text(interrupt) is None
 
 
+def test_the_picture_shows_an_image_as_its_description_outside_code():
+    reply = "[calm]図を置いた。\n![売上の推移](/srv/shared/chart.png) と ![](https://example.com/a.png)\n```\n![そのまま](x.png)\n```"
+    assert shown_reply_text(reply) == "図を置いた。\n🖼 売上の推移 と 🖼 画像\n```\n![そのまま](x.png)\n```"
+
+
 def test_the_picture_gets_the_reply_as_markdown_without_the_marks():
     # 小窓 (= app の ChatMarkdown.swift) が表・見出し・箇条書き・コードの枠まで描くので、 markdown は崩さずに送る
     reply = "\n".join([
@@ -194,7 +245,7 @@ def test_the_picture_gets_the_reply_as_markdown_without_the_marks():
 
 # --- agent の段 (= Pipecat を通す) -----------------------------------------------------------------------------
 
-def _bridge(sent: list[str], events: list[dict] | None = None, stops: list[str] | None = None):
+def _bridge(sent: list[str], events: list[dict] | None = None, stops: list[str] | None = None, **kwargs):
     from backend.voice_call.agent import AgentBridge
 
     async def send(text: str) -> bool:
@@ -211,12 +262,11 @@ def _bridge(sent: list[str], events: list[dict] | None = None, stops: list[str] 
         return [{"mark": "calm" if not line.startswith("[happy]") else "happy",
                  "text": line.removeprefix("[happy]")} for line in text.split("\n")]
 
-    async def interrupt() -> bool:
+    async def stop() -> None:
         stops.append("stop")
-        return True
 
     return AgentBridge(SETTINGS["conversation"], send=send, events=stream, utterances=utterances,
-                       interrupt=interrupt if stops is not None else None)
+                       stop=stop if stops is not None else None, **kwargs)
 
 
 def _said(text: str):
@@ -236,9 +286,9 @@ def test_a_finished_turn_goes_to_the_tab():
     from pipecat.frames.frames import InterruptionFrame
     from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
 
-    # 下流へは、 前の turn の声を止める割り込みと、 小窓への「考えています」 だけ
+    # 下流へは、 前の turn の声を止める割り込みと、 小窓への「考えていない」 (= 最初の 1 回) と「考えています」 だけ
     asyncio.run(run_test(_bridge(sent), frames_to_send=[_said("明日の天気を教えて"), SleepFrame(sleep=0.2)],
-                         expected_down_frames=[InterruptionFrame, RTVIServerMessageFrame]))
+                         expected_down_frames=[InterruptionFrame, RTVIServerMessageFrame, RTVIServerMessageFrame]))
     assert sent == ["明日の天気を教えて"]
 
 
@@ -347,6 +397,41 @@ def test_after_a_new_turn_is_sent_the_old_reply_is_not_said_until_the_tab_takes_
     assert [f.text for f in down if isinstance(f, TTSSpeakFrame)] == ["[calm]新しい返事。"]
 
 
+def test_a_reply_to_a_newer_turn_drops_what_is_left_of_the_older_one():
+    # 返事の途中に、 別のタブからの連絡で新しい turn が始まり、 その返事が届いた: 古い方の残りを言い続けていた
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.frames.frames import InterruptionFrame, TTSSpeakFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    later = int(time.time() * 1000) + 60_000
+    events = [
+        _reply("r1", "前の返事の 1 文目。\n前の返事の 2 文目。", later),
+        {"type": "user_message", "uuid": "m1", "text": "Message from another session …", "ts": later + 1},
+        _reply("r2", "新しい返事。", later + 2),
+    ]
+    down, _ = asyncio.run(run_test(_bridge([], events), frames_to_send=[SleepFrame(sleep=0.2)]))
+    said = [type(f).__name__ if isinstance(f, InterruptionFrame) else f.text
+            for f in down if isinstance(f, (TTSSpeakFrame, InterruptionFrame))]
+    assert said == ["[calm]前の返事の 1 文目。", "[calm]前の返事の 2 文目。", "InterruptionFrame", "[calm]新しい返事。"]
+
+
+def test_replies_of_the_same_turn_are_all_said():
+    # ツールの合間に書いた文は、 同じ turn の続き (= 前の文の残りを捨てない)
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.frames.frames import InterruptionFrame, TTSSpeakFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    later = int(time.time() * 1000) + 60_000
+    events = [_reply("r1", "調べるね。", later), _reply("r2", "分かった。", later + 1)]
+    down, _ = asyncio.run(run_test(_bridge([], events), frames_to_send=[SleepFrame(sleep=0.2)]))
+    assert not any(isinstance(f, InterruptionFrame) for f in down)
+    assert [f.text for f in down if isinstance(f, TTSSpeakFrame)] == ["[calm]調べるね。", "[calm]分かった。"]
+
+
 def test_the_volume_of_a_call_is_checked_and_reaches_no_call_when_there_is_none(client, tabs):  # noqa: F811
     assert client.post("/sessions/ses_listen/voice/call/volume", json={"volume": 0.5}).json() == {"calls": 0}
     for bad in (-0.1, 2.1, "loud", None):
@@ -354,6 +439,23 @@ def test_the_volume_of_a_call_is_checked_and_reaches_no_call_when_there_is_none(
         assert r.status_code == 400 and r.json()["detail"]["code"] == "voice_bad_request"
     r = client.post("/sessions/ses_listen/voice/call?volume=3", json=OFFER)
     assert r.status_code == 400
+
+
+def test_the_call_gain_from_the_config_scales_the_screen_volume_and_defaults_to_none():
+    from backend import config
+    from backend.routes.voice_call import _with_call_gain
+
+    def written(extra: dict) -> None:
+        config.CONFIG_PATH.write_text(json.dumps({**json.loads(config.CONFIG_PATH.read_text()), **extra}))
+        config.get_config.cache_clear()
+
+    assert _with_call_gain(0.5) == 0.5
+    written({"voice_call_gain_db": -20})
+    assert _with_call_gain(1.0) == pytest.approx(0.1)
+    assert _with_call_gain(0.5) == pytest.approx(0.05)
+    for unset in ({"voice_call_gain_db": "quiet"}, {"voice_call_gain_db": True}):
+        written(unset)
+        assert _with_call_gain(0.5) == 0.5
 
 
 def test_the_volume_scales_the_voice_and_stops_at_the_limit():
@@ -659,7 +761,7 @@ def test_what_was_heard_is_its_own_voice_when_it_is_part_of_the_sentence_being_s
     assert not is_own_voice("、", ["あ、うん。"])
 
 
-def _cut_reply(heard: str, *, finished_first: bool = False):
+def _cut_reply(heard: str, *, finished_first: bool = False, **bridge_kwargs):
     """2 文の返事を鳴らしている途中で止められ、 heard が人の発話として届く。 返すのは (送った物, 声の段へ渡した文)。"""
     import time
 
@@ -673,7 +775,7 @@ def _cut_reply(heard: str, *, finished_first: bool = False):
         frames += [BotStoppedSpeakingFrame(), BotStartedSpeakingFrame()]
     frames += [InterruptionFrame(), BotStoppedSpeakingFrame(), _said(heard), SleepFrame(sleep=0.2)]
     sent: list[str] = []
-    down, _ = asyncio.run(run_test(_bridge(sent, events), frames_to_send=frames))
+    down, _ = asyncio.run(run_test(_bridge(sent, events, **bridge_kwargs), frames_to_send=frames))
     return sent, [f.text for f in down if isinstance(f, TTSSpeakFrame)]
 
 
@@ -700,74 +802,221 @@ def test_a_reply_cut_in_its_second_sentence_is_said_again_from_the_second():
     assert said == ["[calm]3 つの箱の結果を表に出した。", "[calm]seed 9 が当たり。", "[calm]seed 9 が当たり。"]
 
 
-# --- 話している途中に言葉が取れた時 -----------------------------------------------------------------------------
+# 書いた文字と声がずれる文の読み (= engine の拍のカナ)
+READINGS = {"3 つの箱の結果を表に出した。": "ミッツノハコノケッカヲヒョウニダシタ", "seed 9 が当たり。": "シードキュウガアタリ",
+            "±10 は押しても壊れない。": "プラスジュウワオシテモコワレナイ", "シード": "シード", "プラス": "プラス",
+            "ちょっと待って": "チョットマッテ"}
 
-def test_words_heard_while_speaking_stop_the_turn_once_until_the_turn_is_sent():
+
+async def _reading(text: str) -> str:
+    return READINGS.get(text, "")
+
+
+def test_its_own_voice_written_differently_from_how_it_sounds_is_seen_by_its_reading():
     pytest.importorskip("pipecat")
+    sent, said = _cut_reply("シード", finished_first=True, reading=_reading)
+    assert sent == []
+    assert said == ["[calm]3 つの箱の結果を表に出した。", "[calm]seed 9 が当たり。", "[calm]seed 9 が当たり。"]
+    # 読みが無ければ、 書いた文字だけで見分ける (= 人の発話として送る)
+    sent, _ = _cut_reply("シード", finished_first=True)
+    assert sent == ["シード"]
+
+
+# --- 小窓の再生 / 停止 (= 考えている / 話している間は、 停止で turn も止める) --------------------------------------
+
+def _busy(on: bool) -> dict:
+    return {"type": "busy", "busy": on}
+
+
+def _stop():
+    from pipecat.processors.frameworks.rtvi import RTVIClientMessageFrame
+
+    return RTVIClientMessageFrame(msg_id="m2", type="voice-stop", data=None)
+
+
+def test_the_picture_is_busy_while_the_tab_works_and_until_its_voice_is_said():
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.frames.frames import BotStartedSpeakingFrame, BotStoppedSpeakingFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    later = int(time.time() * 1000) + 60_000
+    events = [_busy(True), _reply("r1", "晴れです。", later), _busy(False)]
+    frames = [SleepFrame(sleep=0.2), BotStartedSpeakingFrame(), BotStoppedSpeakingFrame()]
+    down, _ = asyncio.run(run_test(_bridge([], events), frames_to_send=frames))
+    # 作業を終えた後も、 返事の声が鳴り終えるまでは「考えている / 話している」
+    assert [d["busy"] for d in _shown(down) if d["pip"] == "busy"] == [True, False]
+
+
+def test_a_turn_said_over_the_reply_stops_only_the_voice_and_goes_to_the_working_tab():
+    pytest.importorskip("pipecat")
+    from pipecat.frames.frames import InterruptionFrame
     from pipecat.tests.utils import SleepFrame, run_test
 
     sent: list[str] = []
     stops: list[str] = []
-    bridge = _bridge(sent, stops=stops)
-
-    async def speak():
-        await bridge.heard_words("やっぱり")
-        await bridge.heard_words("やっぱりやめ")   # 同じ発話の次の声の区間
-    asyncio.run(speak())
-    assert stops == ["stop"] and not bridge.wants_words()
-    asyncio.run(run_test(bridge, frames_to_send=[_said("やっぱりやめよう"), SleepFrame(sleep=0.2)]))
-    assert sent == ["やっぱりやめよう"]
-    assert bridge.wants_words()   # 送った後の次の発話では、 また止める
+    events = [_busy(True)]
+    down, _ = asyncio.run(run_test(_bridge(sent, events, stops=stops),
+                                   frames_to_send=[SleepFrame(sleep=0.1), _said("あとこれも"), SleepFrame(sleep=0.2)]))
+    assert sent == ["あとこれも"]
+    assert stops == []   # turn は止めない (= 発話は claude が作業の合間に読む)
+    assert any(isinstance(f, InterruptionFrame) for f in down)
 
 
-def test_its_own_voice_heard_while_it_is_cut_does_not_stop_the_turn():
+def test_the_stop_from_the_picture_stops_the_voice_and_the_turn_and_says_nothing_until_the_next_turn():
     pytest.importorskip("pipecat")
-    stops: list[str] = []
-    bridge = _bridge([], stops=stops)
-    bridge._cut = [{"text": "3 つの箱の結果を表に出した。"}]
-    asyncio.run(bridge.heard_words("3つの"))
-    assert stops == [] and bridge.wants_words()
-    asyncio.run(bridge.heard_words("ちょっと待って"))
-    assert stops == ["stop"]
+    import time
 
-
-def test_without_a_way_to_stop_no_words_are_wanted():
-    pytest.importorskip("pipecat")
-    assert not _bridge([]).wants_words()
-
-
-def test_the_listener_tries_the_words_while_speaking_until_some_come(monkeypatch):
-    pytest.importorskip("pipecat")
-    from pipecat.frames.frames import InputAudioRawFrame, VADUserStartedSpeakingFrame, VADUserStoppedSpeakingFrame
+    from pipecat.frames.frames import InterruptionFrame, TTSSpeakFrame
     from pipecat.tests.utils import SleepFrame, run_test
 
-    import backend.voice_call.services as services
-    monkeypatch.setattr(services, "PEEK_SECS", 0.05)
-    answers = ["", "", "やめて"]   # あくびの間は言葉にならず、 3 回目で言葉が取れた
+    later = int(time.time() * 1000) + 60_000
+    events = [
+        _reply("rest", "止める前の返事の続き。", later),     # 止めた後に届いた
+        {"type": "user_message", "uuid": "u-new", "text": "[voice] 次の話", "ts": later},
+        _reply("new", "新しい返事。", later + 1),
+    ]
+    sent: list[str] = []
+    stops: list[str] = []
+    # 言い終えた直後 (= 送る前の待ちの間) に停止を押した: その発話も送らない
+    # (= 停止の知らせは Pipecat が先に通す種類の枠なので、 発話を受け止めてから送る)
+    frames = [_said("待って"), SleepFrame(sleep=0.01), _stop(), SleepFrame(sleep=0.3)]
+    bridge = _bridge(sent, events, stops=stops)
+    bridge._tab_busy = True
+    down, _ = asyncio.run(run_test(bridge, frames_to_send=frames))
+    assert stops == ["stop"]
+    assert sent == []
+    assert any(isinstance(f, InterruptionFrame) for f in down)
+    assert [f.text for f in down if isinstance(f, TTSSpeakFrame)] == ["[calm]新しい返事。"]
 
-    class Backend:
-        tries = 0
 
-        async def transcribe(self, wav: bytes) -> str:
-            Backend.tries += 1
-            return answers.pop(0) if answers else ""
+def test_the_stop_after_the_tab_has_finished_stops_only_the_voice_left():
+    # 停止ボタンは入力欄も消すので、 作業を終えたタブには打たない (= 画面で打ちかけの文を消さない)
+    pytest.importorskip("pipecat")
+    import time
 
-    heard: list[str] = []
+    from pipecat.frames.frames import InterruptionFrame
+    from pipecat.tests.utils import SleepFrame, run_test
 
-    async def on_words(text: str) -> None:
-        heard.append(text)
+    later = int(time.time() * 1000) + 60_000
+    stops: list[str] = []
+    events = [_busy(True), _reply("r1", "長い返事の 1 文目。\n2 文目。", later), _busy(False)]
+    frames = [SleepFrame(sleep=0.2), _stop(), SleepFrame(sleep=0.1)]
+    down, _ = asyncio.run(run_test(_bridge([], events, stops=stops), frames_to_send=frames))
+    assert stops == []
+    assert any(isinstance(f, InterruptionFrame) for f in down)
+    assert [d["busy"] for d in _shown(down) if d["pip"] == "busy"] == [True, False]
 
-    async def lost() -> None:
-        pass
 
-    stt = services.ListenSTT(Backend(), on_lost=lost, on_words=on_words, wants_words=lambda: not heard)
-    audio = InputAudioRawFrame(audio=bytes(320), sample_rate=16000, num_channels=1)
-    frames = [VADUserStartedSpeakingFrame(), audio, SleepFrame(sleep=0.4), audio, VADUserStoppedSpeakingFrame(),
-              SleepFrame(sleep=0.1)]
-    asyncio.run(run_test(stt, frames_to_send=frames))
-    assert heard == ["やめて"]
-    # 言葉が取れた後は試さない (= 途中の 3 回と、 言い終えた区間の 1 回)
-    assert Backend.tries == 4
+def test_the_client_reports_when_the_tab_starts_and_stops_working_and_stops_it_like_the_stop_button():
+    pytest.importorskip("aiohttp")
+    from aiohttp import web
+    from aiohttp.test_utils import TestServer
+
+    from backend.voice_call.client import BackendClient
+
+    calls: list[tuple[str, dict]] = []
+    overview = [{"ses_a": {"busy": False}, "ses_b": {"busy": True}}, {"ses_a": {"busy": False}, "ses_b": {"busy": False}},
+                {"ses_a": {"busy": True}}, {"ses_a": {"busy": True}}, {}]
+
+    async def stream(request):
+        response = web.StreamResponse()
+        await response.prepare(request)
+        calls.append(("stream", dict(request.query)))
+        for data in overview:
+            await response.write(f"data: {json.dumps({'ch': 'overview', 'data': data})}\n\n".encode())
+        await response.write(b'data: {"ch": "jsonl", "ev": {"type": "user_message", "text": "x"}}\n\n')
+        return response
+
+    async def record(request):
+        calls.append((request.path, await request.json()))
+        return web.json_response({"ok": True})
+
+    app = web.Application()
+    app.router.add_get("/stream/unified", stream)
+    app.router.add_post("/pty/ses_a/send", record)
+    app.router.add_post("/stream/unified/{conn}/control", record)
+
+    async def scenario():
+        async with TestServer(app) as server, BackendClient(str(server.make_url("")), "ses_a", "phone-1") as backend:
+            got = [event async for event in backend.events()]
+            await backend.stop()
+            return got
+
+    got = asyncio.run(scenario())
+    # 変わった時だけ (= 他のタブの変化と、 同じ値の繰り返しは返さない。 タブが一覧から消えたら作業していない)
+    assert got == [_busy(False), _busy(True), _busy(False), {"type": "user_message", "text": "x"}]
+    conn = calls[0][1]["conn"]
+    assert calls[1:] == [("/pty/ses_a/send", {"key": "Escape"}),
+                         (f"/stream/unified/{conn}/control", {"op": "stop", "sid": "ses_a"})]
+
+
+def test_the_client_reads_a_record_line_longer_than_the_reader_limit():
+    # 画像を読んだ結果のような 1 MB を超える行で、 aiohttp の行読みは止まっていた (= その後の返事が届かなかった)
+    pytest.importorskip("aiohttp")
+    from aiohttp import web
+    from aiohttp.test_utils import TestServer
+
+    from backend.voice_call.client import BackendClient
+
+    big = {"type": "user_message", "text": "x" * 1_500_000}
+
+    async def stream_with_data(request):
+        response = web.StreamResponse()
+        await response.prepare(request)
+        body = "data: " + json.dumps({"ch": "jsonl", "ev": big}) + "\n\n"
+        for start in range(0, len(body), 7000):
+            await response.write(body[start:start + 7000].encode())
+        await response.write(b'data: {"ch": "jsonl", "ev": {"type": "user_message", "text": "after"}}\n\n')
+        return response
+
+    app = web.Application()
+    app.router.add_get("/stream/unified", stream_with_data)
+
+    async def scenario():
+        async with TestServer(app) as server, BackendClient(str(server.make_url("")), "ses_a", "phone-1") as backend:
+            return [event async for event in backend.events()]
+
+    got = asyncio.run(scenario())
+    assert [len(e["text"]) for e in got] == [1_500_000, 5]
+
+
+def test_a_broken_reply_stream_is_reconnected_and_nothing_is_said_twice(monkeypatch, caplog):
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.frames.frames import TTSSpeakFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    import backend.voice_call.agent as agent
+    from backend.voice_call.agent import AgentBridge
+    monkeypatch.setattr(agent, "REPLIES_RETRY_SECS", 0.05)
+
+    later = int(time.time() * 1000) + 60_000
+    rounds = [0]
+
+    async def stream():
+        rounds[0] += 1
+        await asyncio.sleep(0.02)
+        yield _reply("r1", "最初の返事。", later)
+        if rounds[0] == 1:
+            raise ValueError("the line was too long")
+        yield _reply("r2", "つなぎ直した後の返事。", later + 1)
+        await asyncio.sleep(3600)
+
+    async def send(text: str) -> bool:
+        return True
+
+    async def utterances(text: str) -> list[dict]:
+        return [{"mark": "calm", "text": text}]
+
+    bridge = AgentBridge(SETTINGS["conversation"], send=send, events=stream, utterances=utterances)
+    with caplog.at_level("WARNING"):
+        down, _ = asyncio.run(run_test(bridge, frames_to_send=[SleepFrame(sleep=0.3)]))
+    assert rounds[0] == 2
+    assert [f.text for f in down if isinstance(f, TTSSpeakFrame)] == ["[calm]最初の返事。", "[calm]つなぎ直した後の返事。"]
+    assert any("reply stream broke (ValueError" in r.getMessage() for r in caplog.records)
 
 
 def test_audio_that_arrives_while_the_app_has_the_microphone_off_is_dropped(caplog):
@@ -800,3 +1049,34 @@ def test_audio_that_arrives_while_the_app_has_the_microphone_off_is_dropped(capl
     lines = [r.getMessage() for r in caplog.records if "microphone" in r.getMessage()]
     assert lines == ["voice call: audio arrives while the app has the microphone off; dropping it",
                      "voice call: the microphone is on again; listening"]
+
+
+def test_a_call_closed_while_speaking_hands_over_the_sentences_not_yet_said():
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.frames.frames import BotStartedSpeakingFrame, BotStoppedSpeakingFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    later = int(time.time() * 1000) + 60_000
+    events = [_reply("r1", "1 文目。\n2 文目。\n3 文目。", later)]
+    handed: list[dict] = []
+    frames = [SleepFrame(sleep=0.2), BotStartedSpeakingFrame(), BotStoppedSpeakingFrame(), BotStartedSpeakingFrame()]
+    asyncio.run(run_test(_bridge([], events, on_handover=handed.append), frames_to_send=frames))
+    # 鳴っていた 2 文目から (= 鳴り終えた 1 文目は渡さない)
+    assert [s["text"] for s in handed[0]["sentences"]] == ["2 文目。", "3 文目。"]
+    assert handed[0]["since_ms"] <= int(time.time() * 1000)
+
+
+def test_a_redialed_call_says_the_handed_over_sentences_and_the_replies_from_the_gap():
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.frames.frames import TTSSpeakFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    now = int(time.time() * 1000)
+    resume = {"since_ms": now - 1000, "sentences": [{"mark": "happy", "text": "途切れた文。"}]}
+    events = [_reply("before", "閉じる前に鳴った返事。", now - 5000), _reply("gap", "間に届いた返事。", now - 500)]
+    down, _ = asyncio.run(run_test(_bridge([], events, resume=resume), frames_to_send=[SleepFrame(sleep=0.2)]))
+    assert [f.text for f in down if isinstance(f, TTSSpeakFrame)] == ["[happy]途切れた文。", "[calm]間に届いた返事。"]

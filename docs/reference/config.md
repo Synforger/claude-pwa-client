@@ -120,6 +120,9 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 - `device_screen` (任意): iPhone の app の画面の配信の仕方。 `interval_s` (= 1 枚を送る間隔の秒、 既定 1)・
   `max_side` (= 長辺の上限の px、 既定 1280)・`quality` (= JPEG の質、 0 より大きく 1 以下、 既定 0.6)。 書いた値だけが
   既定に重なる。 詳細: [device-ops.md](device-ops.md) の「画面の配信」
+- `voice_call_gain_db` (任意): iPhone の app の通話の声だけに掛ける大きさ (dB、 既定 0)。 画面の 🔊 のつまみの倍率の
+  上に掛かる。 app の通話は画面の声と鳴らし方が違うので、 つまみ 100% で他の app の音と揃わない時に、 画面の声を
+  動かさずに通話の声だけを下げる (= 例: `-26` で約 20 分の 1)。 次に掛けた通話から効く
 - `cors_allow_origins`: 通常は `[]` (backend が同一オリジンで frontend を配信するため
   CORS は不要)。 Vite dev server からアクセスする場合は `["http://localhost:5173"]` 等を
   設定する
