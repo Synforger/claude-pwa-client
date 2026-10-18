@@ -6,7 +6,9 @@
 
 帰り: そのタブの agent が書いた返事を、 届いた順に声にする。 人の新しい発話を受け取った時点で前の返事の続きは
 言わず、 タブへ送る時点で鳴っている声とまだ鳴らしていない文は捨て、 タブの記録にその発話が載る (= 新しい turn が始まる) までに届いた文は、 前の turn の
-物として言わない (= agent が新しい発話を考えている間に、 前の返事の続きが鳴らないように)。 何を声にするかは画面の `listener.js` と同じ決まり
+物として言わない (= agent が新しい発話を考えている間に、 前の返事の続きが鳴らないように)。 人が話さなくても、 記録に
+新しい発話 (= 画面から打った文や、 別のタブからの連絡) が載った後の返事が届いたら、 前の turn の返事の鳴り残しは捨てて
+新しい方から言う (= 同じ turn の中で続く返事は捨てない)。 何を声にするかは画面の `listener.js` と同じ決まり
 (= 返事の文だけ。 thinking とツールの呼び出しと sub-agent の物は言わない。 会話を始める前の物と、 同じ物の 2 度目は
 言わない)。 返事は誰の発話への物でも言う (= 画面から打った文への返事も、 電話で聞ける)。 文の切り分けと言い方の
 印は、 画面と同じ backend の口 (= `utterances`) が決める。
@@ -139,6 +141,10 @@ class AgentBridge(FrameProcessor):
         self._history_task: asyncio.Task | None = None
         # 声の段へ渡して、 まだ鳴り終えていない文 (= 先頭が今鳴っている文) と、 最後に鳴り終えた文
         self._voiced: deque[dict] = deque()
+        # 記録に載った発話の数 (= turn の番号) と、 今鳴らしている返事の turn (= これより新しい turn の返事が来たら、
+        # 鳴り残しを捨てる)
+        self._turn = 0
+        self._voiced_turn = 0
         self._last_voiced: dict | None = None
         # 割り込みで止められた時に、 鳴っていた文とその後の文 (= 次の発話が自分の声なら、 ここから言い直す)
         self._cut: list[dict] = []
@@ -278,6 +284,7 @@ class AgentBridge(FrameProcessor):
                 continue
             if event.get("type") == "user_message":
                 self._awaiting_turn = False   # 新しい turn が始まった
+                self._turn += 1
                 said = shown_user_text(event.get("text"))
                 if said:
                     # claude は取り消した発話を記録に残し、 送り直した発話を同じ親に付ける (= 声の会話は、 途中の間で
@@ -296,6 +303,12 @@ class AgentBridge(FrameProcessor):
             if not self._speech:
                 continue
             self._cut = []   # 新しい返事が来たら、 止められた前の返事は言い直さない
+            if self._voiced and self._voiced_turn < self._turn:
+                logger.info("voice call: a reply to a newer turn came; dropping %d sentences left of the older one",
+                            len(self._voiced))
+                self._forget_voiced()
+                await self.push_frame(InterruptionFrame())
+            self._voiced_turn = self._turn
             for said in await self._utterances(text):
                 if self._awaiting_turn or not self._speech:
                     break

@@ -59,6 +59,7 @@ const listener = createListener({
   // app の会話の間は、 返事の声も backend の中の会話が鳴らす (= 画面では鳴らさない)
   isOn: (sid) => !!getSnapshot().on[sid] && !call()?.has(sid) && !getSnapshot().quiet[sid],
   say: (sid, text) => player.say(sid, text),
+  cut: (sid) => player.stop(sid),
 })
 
 // 🔊 がオンのタブ (= 空白で区切った文字列。 中身が同じなら同じ値なので、 そのまま store の写しに使える)。
