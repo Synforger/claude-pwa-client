@@ -205,6 +205,29 @@ def test_a_request_with_no_text_is_refused(client, tabs, engine, body):
     assert engine == []
 
 
+# --- 読み ------------------------------------------------------------------------
+
+def test_the_reading_of_a_sentence_is_the_kana_of_its_moras(client, tabs, monkeypatch):
+    asked = []
+
+    def fake(url, body, timeout):
+        asked.append(url)
+        phrases = [{"moras": [{"text": "プ"}, {"text": "ラ"}, {"text": "ス"}], "pause_mora": {"text": "、"}},
+                   {"moras": [{"text": "ジュ"}, {"text": "ウ"}], "pause_mora": None}]
+        return 200, "application/json", json.dumps({**QUERY, "accent_phrases": phrases}).encode()
+
+    monkeypatch.setattr(voice, "_call_engine", fake)
+    assert client.post("/sessions/ses_voice/voice/reading", json={"text": "±10"}).json() == {"reading": "プラスジュウ"}
+    assert asked == ["http://127.0.0.1:10101/audio_query?speaker=100&text=%C2%B110"]
+
+
+def test_a_reading_is_refused_like_a_sentence_to_say(client, tabs, engine):
+    assert _code(client.post("/sessions/ses_voice/voice/reading", json={})) == "voice_bad_request"
+    assert _code(client.post("/sessions/ses_voice/voice/reading", json={"text": "。"})) == "voice_nothing_to_say"
+    assert _code(client.post("/sessions/ses_plain/voice/reading", json={"text": "はい"})) == "voice_not_enabled"
+    assert engine == []
+
+
 # --- 音にする --------------------------------------------------------------------
 
 def test_a_sentence_is_asked_of_the_engine_and_comes_back_as_sound(client, tabs, engine):
@@ -666,21 +689,3 @@ def test_why_a_tuning_file_cannot_be_used_is_logged_once(client, tuned, caplog):
         client.get("/sessions/ses_tuned/voice")
         client.get("/sessions/ses_tuned/voice")
     assert sum("voice.json" in r.getMessage() for r in caplog.records) == 1
-
-
-def test_words_heard_while_speaking_stop_the_turn_only_from_the_holder(client, tabs, conversations, monkeypatch):
-    import backend.terminal.routes as terminal
-    stopped: list[str] = []
-
-    async def interrupt(session_id: str) -> bool:
-        stopped.append(session_id)
-        return True
-
-    monkeypatch.setattr(terminal, "interrupt_for_voice", interrupt)
-    client.post("/sessions/ses_listen/voice/conversation", json={"client": "phone-1"})
-    r = client.post("/sessions/ses_listen/voice/interruption", headers={"X-Voice-Conversation": "phone-1"})
-    assert r.json() == {"stopped": True}
-    r = client.post("/sessions/ses_listen/voice/interruption", headers={"X-Voice-Conversation": "mac-1"})
-    assert (r.status_code, _code(r)) == (409, "voice_conversation_elsewhere")
-    assert _code(client.post("/sessions/ses_plain/voice/interruption")) == "voice_not_enabled"
-    assert stopped == ["ses_listen"]

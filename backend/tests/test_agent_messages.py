@@ -152,8 +152,10 @@ def test_only_a_caller_on_this_machine_may_send(tabs, typed):
 
 def test_the_opening_line_is_the_same_everywhere_it_is_written():
     """1 行目は、 backend が付け、 画面が読み、 docs が外の道具に教える。 3 つが同じ文字列であること。"""
+    from backend.core.jsonl_predicates import AGENT_MESSAGE_OPENINGS
+
     root = Path(__file__).resolve().parents[2]
-    for opening in am.OPENINGS:
+    for opening in AGENT_MESSAGE_OPENINGS:
         assert f"'{opening}'" in (root / "frontend/src/features/chat/agentMessage.js").read_text()
         assert opening in (root / "docs/reference/agent-messages.md").read_text()
 

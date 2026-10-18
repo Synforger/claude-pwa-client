@@ -7,25 +7,46 @@
                                              操作を 1 つ頼み、 答えを JSON で出す
     cpc device screen                        iPhone の画面の最後の 1 枚の在処と、 配信しているか
                                              (= app の操作ではなく backend が持つ物。 配信は iPhone の画面収録で始める)
+    cpc device screenshot [--out <png>] [--device <UDID>]
+                                             今の iPhone の画面を、 この Mac が撮って file にする (= 前に出ている
+                                             app が何でも撮れる。 Xcode の devicectl を使い、 iPhone がこの Mac と
+                                             同じ網に居る間だけ。 app も backend も通さない)
+    cpc device widget                        Board のウィジェットに置いた物の全部
+    cpc device widget set [--board <名前>] [--title <見出し>] [--text <本文>] [--value <短い値>] [--tab <sid>]
+                                             board を置き換える (= 既定の board は main。 app がつながっていれば
+                                             ウィジェットはその場で描き直る。 backend が持つ物)
+    cpc device widget clear [--board <名前>] board を消す
 
 操作の一覧の真値は app の中にある (= app がつないだ時に送り、 backend が控える)。 引数の型は一覧に従って
 直す (= int / number / bool / json、 それ以外は文字のまま)。 backend の場所は CPC_URL (= 既定
 http://127.0.0.1:8765)。
 
-終わりの番号: 0 = 答えた / 2 = 書き方が違う / 3 = app がつながっていない / 4 = 一覧に無い操作 /
-5 = 時間切れ / 6 = app ができなかった / 7 = backend に届かない
+終わりの番号: 0 = 答えた / 2 = 書き方が違う / 3 = app がつながっていない (= screenshot は iPhone に届かない) /
+4 = 一覧に無い操作 / 5 = 時間切れ / 6 = app ができなかった / 7 = backend に届かない
+
+screenshot の iPhone は、 この Mac と対になっている実機が 1 台ならそれ (= 複数なら --device か CPC_DEVICE で
+UDID を渡す)。 撮った file は backend の写真の取り出しと同じ所 (= CPC_DATA_DIR、 既定 backend/data の
+device-files/) に置き、 path を JSON で出す。
 """
 from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
+import tempfile
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
+from pathlib import Path
 
 URL = os.environ.get("CPC_URL", "http://127.0.0.1:8765").rstrip("/")
 EXIT = {"usage": 2, "offline": 3, "unknown": 4, "timeout": 5, "failed": 6, "unreachable": 7}
 _HTTP_EXIT = {503: "offline", 404: "unknown", 504: "timeout", 502: "failed", 400: "usage"}
+FILES_DIR = Path(os.environ.get("CPC_DATA_DIR") or Path(__file__).resolve().parents[1] / "data") / "device-files"
+# 撮るのを待つ上限 (秒)。 届く iPhone なら 2〜3 秒で返る
+SCREENSHOT_TIMEOUT_S = 60
 
 
 class Stop(Exception):
@@ -139,6 +160,77 @@ def _args(rest: list[str], spec: dict | None) -> tuple[dict, float | None]:
     return args, timeout
 
 
+def _devicectl(args: list[str]) -> subprocess.CompletedProcess:
+    """Xcode の devicectl を 1 回呼ぶ (= 終わりの番号と出力を返す)。"""
+    try:
+        return subprocess.run(["xcrun", "devicectl", *args], capture_output=True, text=True,
+                              timeout=SCREENSHOT_TIMEOUT_S, check=False)
+    except FileNotFoundError:
+        raise Stop("failed", "this Mac has no xcrun (screenshot needs Xcode)") from None
+    except subprocess.TimeoutExpired:
+        raise Stop("timeout", f"the iPhone did not answer within {SCREENSHOT_TIMEOUT_S} s") from None
+
+
+def _the_iphone() -> str:
+    """この Mac と対になっている実機の iPhone の UDID (= 1 台だけの時)。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        listing = Path(tmp) / "devices.json"
+        done = _devicectl(["list", "devices", "--quiet", "--json-output", str(listing)])
+        if done.returncode != 0 or not listing.exists():
+            raise Stop("failed", f"devicectl could not list devices: {(done.stderr or done.stdout).strip()[-300:]}")
+        devices = json.loads(listing.read_text()).get("result", {}).get("devices", [])
+    udids = [d["hardwareProperties"]["udid"] for d in devices
+             if d.get("hardwareProperties", {}).get("reality") == "physical"
+             and d.get("hardwareProperties", {}).get("platform") == "iOS"
+             and d.get("connectionProperties", {}).get("pairingState") == "paired"]
+    if not udids:
+        raise Stop("offline", "no iPhone is paired with this Mac")
+    if len(udids) > 1:
+        raise Stop("usage", f"several iPhones are paired; pass --device <UDID> or set CPC_DEVICE: {', '.join(udids)}")
+    return udids[0]
+
+
+def _screenshot(rest: list[str]) -> dict:
+    """今の iPhone の画面を、 この Mac が撮って file にする。"""
+    options: dict[str, str] = {}
+    while rest:
+        if rest[0] not in ("--out", "--device") or len(rest) < 2:
+            raise Stop("usage", "usage: cpc device screenshot [--out <png>] [--device <UDID>]")
+        options[rest[0][2:]] = rest[1]
+        rest = rest[2:]
+    device = options.get("device") or os.environ.get("CPC_DEVICE") or _the_iphone()
+    out = Path(options["out"]) if "out" in options else FILES_DIR / time.strftime("%Y%m%d-%H%M%S-screenshot.png")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    done = _devicectl(["device", "capture", "screenshot", "--device", device, "--destination", str(out), "--quiet"])
+    if done.returncode != 0 or not out.exists():
+        reason = (done.stderr or done.stdout).strip().splitlines()
+        raise Stop("offline", "the Mac could not reach the iPhone (it has to be on the same network as this Mac): "
+                   + (reason[-1] if reason else f"devicectl ended with {done.returncode}"))
+    return {"path": str(out), "bytes": out.stat().st_size, "device": device}
+
+
+WIDGET_USAGE = ("usage: cpc device widget [set [--board <name>] [--title <t>] [--text <t>] [--value <v>] "
+                "[--tab <sid>] | clear [--board <name>]]")
+
+
+def _widget(rest: list[str]):
+    """Board のウィジェットに置く物を見る・置き換える・消す (= backend の `/device/boards`)。"""
+    if not rest:
+        return _request("GET", "/device/boards")
+    action, rest = rest[0], rest[1:]
+    allowed = ("board", "title", "text", "value", "tab") if action == "set" else ("board",)
+    options: dict[str, str] = {}
+    while rest:
+        if not rest[0].startswith("--") or rest[0][2:] not in allowed or len(rest) < 2:
+            raise Stop("usage", WIDGET_USAGE)
+        options[rest[0][2:]] = rest[1]
+        rest = rest[2:]
+    board = urllib.parse.quote(options.pop("board", "main"), safe="")
+    if action == "set":
+        return _request("PUT", f"/device/boards/{board}", options)
+    return _request("DELETE", f"/device/boards/{board}")
+
+
 def main(argv: list[str]) -> int:
     try:
         if not argv or argv[0] in ("-h", "--help"):
@@ -146,6 +238,12 @@ def main(argv: list[str]) -> int:
             return 0
         if argv[0] == "screen":
             print(json.dumps(_request("GET", "/device/screen"), ensure_ascii=False, indent=2))
+            return 0
+        if argv[0] == "screenshot":
+            print(json.dumps(_screenshot(argv[1:]), ensure_ascii=False, indent=2))
+            return 0
+        if argv[0] == "widget" and (len(argv) == 1 or argv[1] in ("set", "clear")):
+            print(json.dumps(_widget(argv[1:]), ensure_ascii=False, indent=2))
             return 0
         if len(argv) == 1 or argv[1] in ("-h", "--help"):
             print(_show_type(_catalog(), argv[0]))

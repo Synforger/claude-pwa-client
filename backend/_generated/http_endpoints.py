@@ -270,6 +270,18 @@ class PostSessionsSidVoiceSynthesisRequest(BaseModel):
     values: Optional[dict[str, Any]] = None  # 印に添えた値 (= utterances が返した values。 省略可)
 
 
+class PostSessionsSidVoiceReadingRequest(BaseModel):
+    """POST /sessions/{sid}/voice/reading request body"""
+    model_config = ConfigDict(extra="forbid")
+    text: str  # 読みにする文
+
+
+class PostSessionsSidVoiceReadingResponse(BaseModel):
+    """POST /sessions/{sid}/voice/reading response"""
+    model_config = ConfigDict(extra="forbid")
+    reading: str  # 拍のカナをつなげた物 (= 間の無音は含めない)
+
+
 class PostSessionsSidVoiceTranscriptionRequest(BaseModel):
     """POST /sessions/{sid}/voice/transcription request body"""
     model_config = ConfigDict(extra="forbid")
@@ -280,12 +292,6 @@ class PostSessionsSidVoiceTranscriptionResponse(BaseModel):
     """POST /sessions/{sid}/voice/transcription response"""
     model_config = ConfigDict(extra="forbid")
     text: str  # 聞き取った文 (= 1 行。 声が聞き取れなければ空文字)
-
-
-class PostSessionsSidVoiceInterruptionResponse(BaseModel):
-    """POST /sessions/{sid}/voice/interruption response"""
-    model_config = ConfigDict(extra="forbid")
-    stopped: bool  # 止めたか (= turn の実行中でなければ false で、 何もしない)
 
 
 class PostSessionsSidVoiceConversationRequest(BaseModel):

@@ -291,6 +291,18 @@ export interface PostSessionsSidVoiceSynthesisRequest {
   values?: Record<string, number>
 }
 
+/** POST /sessions/{sid}/voice/reading request body */
+export interface PostSessionsSidVoiceReadingRequest {
+  /** 読みにする文 */
+  text: string
+}
+
+/** POST /sessions/{sid}/voice/reading response */
+export interface PostSessionsSidVoiceReadingResponse {
+  /** 拍のカナをつなげた物 (= 間の無音は含めない) */
+  reading: string
+}
+
 /** POST /sessions/{sid}/voice/transcription request body */
 export type PostSessionsSidVoiceTranscriptionRequest = Record<string, unknown>
 
@@ -298,12 +310,6 @@ export type PostSessionsSidVoiceTranscriptionRequest = Record<string, unknown>
 export interface PostSessionsSidVoiceTranscriptionResponse {
   /** 聞き取った文 (= 1 行。 声が聞き取れなければ空文字) */
   text: string
-}
-
-/** POST /sessions/{sid}/voice/interruption response */
-export interface PostSessionsSidVoiceInterruptionResponse {
-  /** 止めたか (= turn の実行中でなければ false で、 何もしない) */
-  stopped: boolean
 }
 
 /** POST /sessions/{sid}/voice/conversation request body */

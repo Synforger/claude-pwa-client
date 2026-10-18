@@ -656,6 +656,27 @@ endpoints:
     implementation: backend/routes/voice.py
 
   - method: POST
+    path: /sessions/{sid}/voice/reading
+    description: "1 文の読み (= engine が声にする時の拍のカナ) を返す (= 電話の会話が、 聞き取った文が自分の声かを、 書いた文字でなく声のとおりに見分ける)"
+    request_body:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, description: "読みにする文" }
+    response:
+      type: object
+      properties:
+        reading: { type: string, description: "拍のカナをつなげた物 (= 間の無音は含めない)" }
+      required: [reading]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "engine の /audio_query に、 設定の声の番号で問い合わせる (= 音は作らない)"
+      - "声を持たないタブは 409 voice_not_enabled、 text が無ければ 400 voice_bad_request、 声にする文字が無ければ 400 voice_nothing_to_say、 上限より長ければ 413 voice_text_too_long (= どれも engine を呼ぶ前に返す)"
+      - "engine に繋がらなければ 502 voice_engine_unreachable、 engine が断れば 502 voice_engine_failed"
+    implementation: backend/routes/voice.py
+
+  - method: POST
     path: /sessions/{sid}/voice/transcription
     description: "録った音を、 聞き取りの engine で文にして返す (= 送るのは画面が普段の送信口で行う)"
     request_body:
@@ -675,23 +696,6 @@ endpoints:
       - "声を持たないタブは 409 voice_not_enabled、 聞き取りを持たないタブは 409 voice_listen_not_enabled"
       - "Content-Type が audio/ でない / 本文が空なら 400 voice_bad_request、 上限より大きければ 413 voice_audio_too_large (= どれも engine を呼ぶ前に返す)"
       - "engine に繋がらなければ 502 voice_listen_unreachable、 engine が断る / 文を返さなければ 502 voice_listen_failed (= params に status)"
-    implementation: backend/routes/voice.py
-
-  - method: POST
-    path: /sessions/{sid}/voice/interruption
-    description: "話している途中の人の言葉が取れた: そのタブの turn の実行中なら、 話し終えるのを待たずに止める"
-    response:
-      type: object
-      properties:
-        stopped: { type: boolean, description: "止めたか (= turn の実行中でなければ false で、 何もしない)" }
-      required: [stopped]
-    response_kind: json
-    auth: tailnet
-    invariants:
-      - "header X-Voice-Conversation が在れば、 その名前が会話の持ち主でない時は 409 voice_conversation_elsewhere"
-      - "止め方は声の発話と同じ Escape (= 入力欄は消さず、 停止の印 user_stopped も付けない)。 停止ボタンの後は止めない"
-      - "次の声の発話は Escape を打ち直さず、 止めた時に claude が入力欄へ戻した文の後ろへ打つ。 声でない本文が先に来たら、 止めた形は捨てる"
-      - "声を持たないタブは 409 voice_not_enabled、 聞き取りを持たないタブは 409 voice_listen_not_enabled"
     implementation: backend/routes/voice.py
 
   - method: GET
@@ -770,6 +774,7 @@ endpoints:
       - "声を持たないタブは 409 voice_not_enabled、 聞き取りを持たないタブは 409 voice_listen_not_enabled (= つなぐ前に返す)"
       - "電話の会話の部品 (= backend/requirements-voice-call.txt) が入っていなければ 501 voice_call_unavailable"
       - "query の volume (= 0 〜 2、 省けば 1) は、 その端末の声の大きさの倍率。 範囲の外なら 400 voice_bad_request"
+      - "query の resume=1 は同じタブの通話のつなぎ直し (= app がマイクの入 / 切や端末の操作で掛け直す時)。 前の通話が閉じ終えるのを待ち、 鳴り終えていなかった文から言い直し、 閉じた後に届いた返事も声にする。 resume の無い通話は、 前の鳴り残しを捨てる"
       - "会話は通話ごとに別の process で動く (= backend 本体の他の仕事で音の送り出しを遅らせない)。 その process が answer を返せなければ 502 voice_call_failed (= params に reason)"
       - "つながると、 その電話がタブの会話の持ち主になる (= 画面の会話と同じ決まり。 後から開いた画面が持てば、 電話は次の発話で切れる)"
       - "人の発話は、 声で聞いている印を付けて、 画面で打った時と同じ口でタブへ送る。 タブの返事は、 画面の声と同じ決まりで声にして電話へ返す"

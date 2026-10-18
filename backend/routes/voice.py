@@ -41,7 +41,6 @@
 file を配るだけ。 会話を開いていられる画面は 1 つのタブに 1 つ (= 後から開いた画面が持ち、 前の画面の音は断る)。
 
     3. POST   /sessions/{sid}/voice/transcription  録った音 → 聞き取った文
-       POST   /sessions/{sid}/voice/interruption   話している途中に言葉が取れた → 実行中の turn を止める
     4. GET    /sessions/{sid}/voice/turn-model     Smart Turn の model の file
     5. POST   /sessions/{sid}/voice/conversation   この画面で会話を開く (= 前の画面から持ち主を移す)
        DELETE /sessions/{sid}/voice/conversation   会話を閉じる
@@ -473,6 +472,41 @@ async def synthesize(session_id: str, text: str, mark: str | None = None,
     return kind, sound
 
 
+@router.post("/sessions/{session_id}/voice/reading")
+async def post_reading(request: Request, session_id: str) -> dict:
+    """1 文の読み (= engine が声にする時の拍のカナ) を返す。
+
+    body:
+        text (str): 読みにする文
+    """
+    text, _ = await _text_of(request)
+    return {"reading": await reading(session_id, text)}
+
+
+async def reading(session_id: str, text: str) -> str:
+    """1 文を engine が声にする時の読み (= 拍のカナをつなげた物。 間の無音は含めない)。 書いた文字と声がずれる所
+    (= 記号・英字・数字) も、 声のとおりに比べられる。 文の形が違えば、 声にする時と同じ error を投げる。"""
+    settings = _enabled(session_id)
+    text = text.strip()
+    if not speakable(text):
+        raise_error(400, "voice_nothing_to_say", "声にする文字がありません")
+    if len(text) > MAX_UTTERANCE_CHARS:
+        raise_error(413, "voice_text_too_long", f"文が長すぎます (上限 {MAX_UTTERANCE_CHARS} 文字)",
+                    limit=MAX_UTTERANCE_CHARS)
+    asked = urllib.parse.urlencode({"speaker": settings["speaker"], "text": text}, quote_via=urllib.parse.quote)
+    _, raw = await _engine("audio_query", f"{settings['engine']}/audio_query?{asked}", None)
+    try:
+        query = json.loads(raw)
+    except ValueError:
+        query = None
+    if not isinstance(query, dict):
+        _engine_failed("audio_query", 200)
+    return "".join(
+        mora.get("text") or ""
+        for phrase in query.get("accent_phrases") or [] if isinstance(phrase, dict)
+        for mora in phrase.get("moras") or [] if isinstance(mora, dict))
+
+
 # log に出した、 コンプレッサーを掛けられなかった理由 (= 同じ理由は 1 度だけ出す)
 _compressor_logged: set[str] = set()
 
@@ -527,21 +561,6 @@ async def post_transcription(request: Request, session_id: str) -> dict:
     if not audio:
         raise_error(400, "voice_bad_request", "音が空です")
     return {"text": await transcribe(session_id, audio, audio_type)}
-
-
-@router.post("/sessions/{session_id}/voice/interruption")
-async def post_interruption(request: Request, session_id: str) -> dict:
-    """話している途中の人の言葉が取れた: そのタブの turn の実行中なら、 話し終えるのを待たずに止める。
-
-    止め方は声の発話と同じ (= Escape。 入力欄は消さず、 停止の印も付けない)。 話し終えた発話は普段の送信口で送る。
-    header: X-Voice-Conversation (省略可) = 会話を開いた画面の名前。 持ち主でない画面からは断る
-    """
-    _listening(session_id)
-    client = request.headers.get(CONVERSATION_HEADER, "")
-    if client and _conversations.setdefault(session_id, client) != client:
-        raise_error(409, "voice_conversation_elsewhere", "このタブの会話は、 別の画面で開かれています")
-    from backend.terminal.routes import interrupt_for_voice
-    return {"stopped": await interrupt_for_voice(session_id)}
 
 
 async def transcribe(session_id: str, audio: bytes, audio_type: str) -> str:

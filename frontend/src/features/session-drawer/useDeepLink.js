@@ -2,6 +2,7 @@
 // useAppEffects.js から物理移送 (= W2 Phase C、 session 切替経路の責務)。
 import { useEffect } from 'react'
 
+import { startCall } from '../voice/voice.js'
 import { listenAppLinks } from './appLinks.js'
 
 
@@ -21,6 +22,10 @@ export function useDeepLink(setActiveId) {
     } catch { /* ignore */ }
   }, [setActiveId])
 
-  // app の中: app を開いた URL (= claudepwa://open?ses=xxx) のタブに切替。
-  useEffect(() => listenAppLinks(setActiveId), [setActiveId])
+  // app の中: app を開いた URL (= claudepwa://open?ses=xxx) のタブに切替。 Siri の「通話」 (= &call=1) なら、
+  // そのタブで声とマイクの会話も始める。
+  useEffect(() => listenAppLinks((sid, { call } = {}) => {
+    setActiveId(sid)
+    if (call) startCall(sid)
+  }), [setActiveId])
 }
