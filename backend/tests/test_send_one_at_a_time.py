@@ -160,7 +160,10 @@ def test_a_key_to_stop_is_not_kept_waiting_behind_a_body(pane):
     """Escape (= 停止) は並ばない。 本文を打っている最中でも、 すぐ打たれる。"""
     async def run():
         body = asyncio.create_task(send("ses_a", "a long body"))
-        await asyncio.sleep(ENTER_DELAY / 5)        # 本文が貼られて、 Enter を待っている間
+        # 本文が貼られて、 Enter を待っている間に打つ (= 決まった時間だけ待つと、 機械が混んでいる時は待ちが
+        # Enter までの時間を越え、 本文を送り終えた後に打っていた)
+        while ("ses_a", "paste:a long body") not in pane["keys"]:
+            await asyncio.sleep(0.001)
         await routes.pty_send("ses_a", {"key": "Escape"}, None)
         stopped_at = len(pane["keys"])
         await body

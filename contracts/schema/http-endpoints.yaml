@@ -698,6 +698,23 @@ endpoints:
       - "engine に繋がらなければ 502 voice_listen_unreachable、 engine が断る / 文を返さなければ 502 voice_listen_failed (= params に status)"
     implementation: backend/routes/voice.py
 
+  - method: POST
+    path: /sessions/{sid}/voice/interruption
+    description: "話している途中の人の言葉が取れた: そのタブの turn の実行中なら、 話し終えるのを待たずに止める"
+    response:
+      type: object
+      properties:
+        stopped: { type: boolean, description: "止めたか (= turn の実行中でなければ false で、 何もしない)" }
+      required: [stopped]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "header X-Voice-Conversation が在れば、 その名前が会話の持ち主でない時は 409 voice_conversation_elsewhere"
+      - "止め方は声の発話と同じ Escape (= 入力欄は消さず、 停止の印 user_stopped も付けない)。 停止ボタンの後は止めない"
+      - "次の声の発話は Escape を打ち直さず、 止めた時に claude が入力欄へ戻した文の後ろへ打つ。 声でない本文が先に来たら、 止めた形は捨てる"
+      - "声を持たないタブは 409 voice_not_enabled、 聞き取りを持たないタブは 409 voice_listen_not_enabled"
+    implementation: backend/routes/voice.py
+
   - method: GET
     path: /sessions/{sid}/voice/turn-model
     description: "言い終えを判定する Smart Turn の model の file (= 設定の voice.listen.turn。 画面が受け取って、 画面の中で判定する)"
