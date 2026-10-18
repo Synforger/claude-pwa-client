@@ -392,6 +392,41 @@ def test_after_a_new_turn_is_sent_the_old_reply_is_not_said_until_the_tab_takes_
     assert [f.text for f in down if isinstance(f, TTSSpeakFrame)] == ["[calm]新しい返事。"]
 
 
+def test_a_reply_to_a_newer_turn_drops_what_is_left_of_the_older_one():
+    # 返事の途中に、 別のタブからの連絡で新しい turn が始まり、 その返事が届いた: 古い方の残りを言い続けていた
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.frames.frames import InterruptionFrame, TTSSpeakFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    later = int(time.time() * 1000) + 60_000
+    events = [
+        _reply("r1", "前の返事の 1 文目。\n前の返事の 2 文目。", later),
+        {"type": "user_message", "uuid": "m1", "text": "Message from another session …", "ts": later + 1},
+        _reply("r2", "新しい返事。", later + 2),
+    ]
+    down, _ = asyncio.run(run_test(_bridge([], events), frames_to_send=[SleepFrame(sleep=0.2)]))
+    said = [type(f).__name__ if isinstance(f, InterruptionFrame) else f.text
+            for f in down if isinstance(f, (TTSSpeakFrame, InterruptionFrame))]
+    assert said == ["[calm]前の返事の 1 文目。", "[calm]前の返事の 2 文目。", "InterruptionFrame", "[calm]新しい返事。"]
+
+
+def test_replies_of_the_same_turn_are_all_said():
+    # ツールの合間に書いた文は、 同じ turn の続き (= 前の文の残りを捨てない)
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.frames.frames import InterruptionFrame, TTSSpeakFrame
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    later = int(time.time() * 1000) + 60_000
+    events = [_reply("r1", "調べるね。", later), _reply("r2", "分かった。", later + 1)]
+    down, _ = asyncio.run(run_test(_bridge([], events), frames_to_send=[SleepFrame(sleep=0.2)]))
+    assert not any(isinstance(f, InterruptionFrame) for f in down)
+    assert [f.text for f in down if isinstance(f, TTSSpeakFrame)] == ["[calm]調べるね。", "[calm]分かった。"]
+
+
 def test_the_volume_of_a_call_is_checked_and_reaches_no_call_when_there_is_none(client, tabs):  # noqa: F811
     assert client.post("/sessions/ses_listen/voice/call/volume", json={"volume": 0.5}).json() == {"calls": 0}
     for bad in (-0.1, 2.1, "loud", None):
