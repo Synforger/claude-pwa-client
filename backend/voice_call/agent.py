@@ -73,6 +73,8 @@ logger = logging.getLogger(__name__)
 PICTURE_HISTORY = 40
 # 会話を始める前の会話は、 記録の読み直しがこの間途切れたら、 まとめて送る (= 1 行ずつ送らない)
 HISTORY_SETTLE_SECS = 0.3
+# 返事の流れが切れた / 壊れた後、 つなぎ直すまで待つ時間 (= backend の再起動の間に打ち続けない)
+REPLIES_RETRY_SECS = 1.0
 
 
 class AgentBridge(FrameProcessor):
@@ -256,6 +258,19 @@ class AgentBridge(FrameProcessor):
     # --- 帰り -------------------------------------------------------------------------------------------------
 
     async def _follow_replies(self) -> None:
+        """返事を拾い続ける。 流れが切れても、 例外で止まっても、 log に出してつなぎ直す (= 黙って止まると、 通話の残りは
+        返事が声にも小窓にも出ない。 つなぎ直した時の読み直しは、 拾った物を覚えているので 2 度は出さない)。"""
+        while True:
+            try:
+                await self._follow_replies_once()
+                logger.warning("voice call: the reply stream ended; reconnecting")
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:  # noqa: BLE001
+                logger.warning("voice call: the reply stream broke (%s: %s); reconnecting", type(error).__name__, error)
+            await asyncio.sleep(REPLIES_RETRY_SECS)
+
+    async def _follow_replies_once(self) -> None:
         async for event in self._events():
             if event.get("type") == "busy":
                 self._tab_busy = bool(event.get("busy"))
