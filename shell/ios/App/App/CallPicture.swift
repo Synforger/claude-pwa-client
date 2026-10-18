@@ -13,15 +13,13 @@ import UIKit
 /// 無限)、 小窓を閉じても通話は続く。 ただし再生の範囲は「とても長い録画の途中」 として伝える (= 生の映像だと、 iOS は
 /// 送りのボタンを効かなくする)。 小窓を閉じたら仕組みを作り直す (= 一度閉じた仕組みは、 次に抜けても自動で出ない)。
 ///
-/// iOS が付ける再生の操作は読み替える: 再生 / 停止 = agent が考えている間と返事の声が残っている間は「再生中」 で、 停止で
-/// 声と turn を止める (= backend へ `voice-stop`)。 それ以外の間はマイクの入 / 切 (= 入っている間が「再生中」。
-/// 何もしていない時の再生 / 停止は、 これまでどおり)。 ただし app を抜ける瞬間だけは「再生中」 と伝える
-/// (= 一時停止中だと、 iOS は小窓を自動で出さない)。 押してから 0.3 秒後に効き、 ±10 の時に iOS が自分で送ってくる停止は
-/// 捨てる。 10 秒戻し / 送り =
+/// iOS が付ける再生の操作は読み替える: 再生 / 停止 = マイクの入 / 切 (= 入っている間が「再生中」。 ただし app を抜ける
+/// 瞬間だけは「再生中」 と伝える。 一時停止中だと、 iOS は小窓を自動で出さない。 押してから 0.3 秒後に効き、 ±10 の時に
+/// iOS が自分で送ってくる停止は捨てる)、 10 秒戻し / 送り =
 /// 会話を上 (= 古い方) へ窓の 3 分の 2 ずつ送る / 一番下 (= 新しい方) へ 1 回で戻す。 上へ送って読んでいる間に新しい行が来ても位置は
 /// そのままで、 帯に「▼ 新しい行」 と出す (= 一番下まで戻すと、 また新しい行に付いていく)。
 ///
-/// 文と状態と、 agent が考えている / 話しているか (= `busy`) は backend の会話が送る (= `backend/voice_call/agent.py` の小窓)。 変わる度に吹き出しを絵に描いて流し込む。
+/// 文と状態は backend の会話が送る (= `backend/voice_call/agent.py` の小窓)。 変わる度に吹き出しを絵に描いて流し込む。
 /// 流し込む先の層は、 画面の隅に 1 pt で置く (= PiP は画面に載っている層からしか始められない)。
 @MainActor final class CallPicture: NSObject {
     /// 描く大きさ (pt)。 吹き出しの寸法と色は `PictureBubble` (= ChatMarkdown.swift。 Mac の確かめの道具と共有)
@@ -47,14 +45,10 @@ import UIKit
     nonisolated(unsafe) private var micOn = false
     /// app を抜けようとしている間か (= この間は「再生中」 と伝え、 小窓を自動で出させる)
     nonisolated(unsafe) private var leaving = false
-    /// agent が考えている / 返事の声が残っているか (= この間は「再生中」 で、 停止は turn の停止)
-    nonisolated(unsafe) private var busy = false
     /// 再生の範囲 (= とても長い録画の途中。 送りのボタンを効かせるため。 今の位置は真ん中に置いたまま動かさない)
     nonisolated private static let span = CMTime(seconds: 48 * 3600, preferredTimescale: 600)
     /// 小窓の再生 / 停止で、 マイクを入れる / 切る (= 引数は入れるか)
     var onMic: ((Bool) -> Void)?
-    /// agent が考えている / 話している間の小窓の停止で、 声と turn を止める
-    var onStop: (() -> Void)?
     /// 一番下から上へ送った量 (pt)。 0 なら新しい行に付いていく
     private var scrolledUp: CGFloat = 0
     /// 上へ送っている間に、 下に新しい行が来たか
@@ -133,7 +127,7 @@ import UIKit
 
     /// 今の小窓の様子 (= log に添える)
     private var condition: [String: Any] {
-        ["mic": micOn, "busy": busy, "leaving": leaving, "active": controller?.isPictureInPictureActive ?? false,
+        ["mic": micOn, "leaving": leaving, "active": controller?.isPictureInPictureActive ?? false,
          "layer": layer.status == .failed ? "failed" : layer.status == .rendering ? "rendering" : "unknown",
          "needsFlush": layer.requiresFlushToResumeDecoding]
     }
@@ -182,21 +176,17 @@ import UIKit
         render()
     }
 
-    /// 「再生中」 と伝えるか (= agent が考えている / 話している、 マイクが入っている、 app を抜けようとしている)
-    nonisolated private var playing: Bool { busy || micOn || leaving }
-
     /// 再生 / 停止を iOS と絵の時計の両方にそろえる (= 再生中と伝えながら時計を止めたままだと、 iOS は送りの後に
     /// 再生 / 停止の絵を取り違え、 送るたびに絵が入れ替わった)。 Apple の見本 (= 絵を流し込む PiP) と同じく、
     /// 再生中は時計を進め、 止めている間は止める。
     private func syncPlayback() {
         if let timebase = layer.controlTimebase {
-            CMTimebaseSetRate(timebase, rate: playing ? 1 : 0)
+            CMTimebaseSetRate(timebase, rate: (micOn || leaving) ? 1 : 0)
         }
         controller?.invalidatePlaybackState()
     }
 
-    /// 小窓の再生 / 停止が押された: 待つ間に 2 回目か ±10 が来なければ、 agent が考えている / 話している間の停止は
-    /// 声と turn を止め、 それ以外はマイクを入れる / 切る。
+    /// 小窓の再生 / 停止が押された: 待つ間に 2 回目か ±10 が来なければ、 マイクを入れる / 切る。
     private func pressed(_ playing: Bool) {
         if let lastSkip, CFAbsoluteTimeGetCurrent() - lastSkip < Self.pressWait {
             Self.report("play-pause-dropped", ["reason": "after-skip", "playing": playing])
@@ -211,14 +201,6 @@ import UIKit
             try? await Task.sleep(nanoseconds: UInt64(Self.pressWait * 1_000_000_000))
             guard !Task.isCancelled else { return }
             self.pending = nil
-            if !playing, self.busy {
-                // backend が「考えていない」 を送るのを待たずに、 停止の絵にする (= マイクが入っていれば再生中のまま)
-                self.busy = false
-                self.syncPlayback()
-                Self.report("stop", self.condition)
-                self.onStop?()
-                return
-            }
             self.setMic(playing)
             self.onMic?(playing)
         }
@@ -282,7 +264,7 @@ import UIKit
         host.removeFromSuperview()
     }
 
-    /// backend の会話の知らせ (= `{"pip": "line", "who", "text"}` / `{"pip": "state", "state"}` / `{"pip": "busy", "busy"}`) を受ける。
+    /// backend の会話の知らせ (= `{"pip": "line", "who", "text"}` / `{"pip": "state", "state"}`) を受ける。
     func receive(_ message: Value) {
         guard case let .object(fields) = message, case let .string(kind)?? = fields["pip"] else { return }
         switch kind {
@@ -303,10 +285,6 @@ import UIKit
         case "state":
             guard case let .string(state)?? = fields["state"] else { return }
             self.state = state
-        case "busy":
-            guard case let .boolean(busy)?? = fields["busy"] else { return }
-            self.busy = busy
-            syncPlayback()
         default:
             return
         }
@@ -443,7 +421,7 @@ import UIKit
 // 再生の操作: 生の映像として伝え、 再生 / 停止と送りは通話の操作に読み替える
 extension CallPicture: AVPictureInPictureSampleBufferPlaybackDelegate {
     nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController, setPlaying playing: Bool) {
-        CallPicture.report("play-pause", ["playing": playing, "mic": micOn, "busy": busy, "leaving": leaving])
+        CallPicture.report("play-pause", ["playing": playing, "mic": micOn, "leaving": leaving])
         Task { @MainActor in self.pressed(playing) }
     }
 
@@ -454,7 +432,7 @@ extension CallPicture: AVPictureInPictureSampleBufferPlaybackDelegate {
     }
 
     nonisolated func pictureInPictureControllerIsPlaybackPaused(_ controller: AVPictureInPictureController) -> Bool {
-        !playing
+        !(micOn || leaving)
     }
 
     nonisolated func pictureInPictureController(

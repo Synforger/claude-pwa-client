@@ -60,6 +60,7 @@ from backend.terminal.confirm import (
     _wait_count_added,
 )
 from backend.terminal.first_message import launch_with_first_message
+from backend.core.speech import VOICE_INPUT_MARK
 from backend.terminal.input_ready import wait_ready
 from backend.terminal.send_dedup import send_dedup
 from backend.terminal.session_resolver import (
@@ -73,9 +74,9 @@ from backend.terminal.session_resolver import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# 停止ボタンの Escape の後、 claude が受け終えた印 (= 中断の行 / 入力欄へ戻した文) を待つ上限 (= 秒)。 実測
-# (= Claude Code 2.1.299: ツールの実行中 0.25 秒、 文を書いている途中 0.22 秒) の 12 倍。 過ぎても入力欄は消す。
-ESCAPE_WAIT_SEC = 3.0
+# 声の発話で turn を止めた後、 止まった印 (= 中断の行) が書かれるのを待つ上限 (= 秒)。 実測 (= Claude Code 2.1.299:
+# ツールの実行中 0.25 秒、 文を書いている途中 0.22 秒) の 12 倍。 過ぎても本文は送る (= 発話を落とさない)。
+VOICE_INTERRUPT_WAIT_SEC = 3.0
 # Escape の後、 claude の受け方 (= 中断の行 / 入力欄へ戻す) を見に行く間隔
 ESCAPE_POLL_SEC = 0.05
 # 入力欄へ戻った文を見てから打ち始めるまでの猶予 (= 戻すのは実測 0.17〜0.19 秒で、 見えた後の描き残しを待つ)
@@ -83,6 +84,8 @@ ESCAPE_SETTLE_SEC = 0.1
 
 # 停止ボタンの後の、 入力欄を消す task (= 走っている間は参照を持っておく。 試験はこれを待つ)
 _stop_clears: dict[str, asyncio.Task] = {}
+# 声の会話で、 話している途中に先に打った Escape を claude が受けた形 (= 話し終えた発話を送る時に使い、 捨てる)
+_voice_escapes: dict[str, "_Escaped"] = {}
 
 
 def _note_queue_on_unconfirmed(
@@ -413,12 +416,17 @@ async def _send_body(session_id: str, text: str, key: str | None = None) -> dict
 
     単発の key (= Escape で停止 / quick-reply) はここを通らない ― 停止を本文の後ろに並ばせない。
 
-    声の発話 (= 頭に `[voice]` の印) も打った発話と同じに打つ (= turn の実行中なら止めずに claude の queue へ積み、
-    claude は作業の合間に読む。 作業を止めずに言い足せるように)。
+    声の発話 (= 頭に `[voice]` の印) は、 turn の実行中なら先に止めてから、 入力欄を消さずに後ろへ打つ
+    (= `_escape_for_voice`。 claude が入力欄へ戻した前の発話と 1 つになって届く)。
     """
     _, is_slash = _delivery_counter(text)
     lock = _send_locks.setdefault(session_id, asyncio.Lock())
     async with lock:
+        # 話している途中に先に止めていたら、 その形で打つ (= もう一度 Escape を打たない。 claude が入力欄へ戻した
+        # 文の上で打つと、 その文が消える)。 声でない本文が来たら、 先に止めた形は捨てる
+        early = _voice_escapes.pop(session_id, None)
+        voice = text.startswith(VOICE_INPUT_MARK)
+        escaped = early if voice and early is not None else await _escape_for_voice(session_id, text)
         jsonl_path = jsonl_path_for_session(session_id)
         initial_pos = 0
         if jsonl_path is not None:
@@ -429,10 +437,15 @@ async def _send_body(session_id: str, text: str, key: str | None = None) -> dict
                 initial_pos = 0
         # 送信直前の busy を capture (= turn 実行中送信なら confirmed:False 時に queue 積みとみなす)。
         _st_send = stream_states.get(session_id)
-        was_busy = bool(_st_send and _st_send.busy)
+        was_busy = bool(_st_send and _st_send.busy) and not (escaped and (escaped.stopped or escaped.restored))
         # 2 段送信 protocol (= C-u wipe → paste → Enter、 詳細 = runner.send_text_two_stage docstring)。
-        # queue に既に積まれた過去 message には触れない (= C-u は入力欄のみ)。
-        ok = await send_text_two_stage(session_id, text, key=key)
+        # queue に既に積まれた過去 message には触れない (= C-u は入力欄のみ)。 Escape を打った声の発話は消さずに
+        # 後ろへ打つ (= 戻された前の発話とは空白 1 つで区切り、 声の印は前の発話の頭の 1 つだけにする)。
+        if escaped is None:
+            ok = await send_text_two_stage(session_id, text, key=key)
+        else:
+            tail = " " + text[len(VOICE_INPUT_MARK):].lstrip() if escaped.restored else text
+            ok = await send_text_two_stage(session_id, tail, key=key, wipe=False)
         if ok:
             # prompt_detector の tier C grace period 用に「今 user が送信した」 を記録。
             # 直後 tick で末尾が prompt-like でも 1.5s は待機扱いにしない (= 自分の入力を
@@ -484,11 +497,11 @@ async def _escape_settled(session_id: str, sent: _EscapeSent) -> _Escaped:
     claude (= 2.1.299 で実測) は Escape を 2 通りに受ける。 turn がもう何かを書き出していれば、 止めて中断の行
     (= `[Request interrupted by user]` とその `for tool use`) を書く。 まだ何も書き出していなければ、 turn を
     取り消し、 送った文を入力欄へ戻す (= 0.2 秒ほど。 中断の行は書かない。 待っていた発話も一緒に戻る)。 どちらかを
-    見るまで、 上限 ESCAPE_WAIT_SEC まで待つ。
+    見るまで、 上限 VOICE_INTERRUPT_WAIT_SEC まで待つ。
     """
     pos = sent.pos
     stopped = restored = False
-    while not (stopped or restored) and time.monotonic() - sent.started < ESCAPE_WAIT_SEC:
+    while not (stopped or restored) and time.monotonic() - sent.started < VOICE_INTERRUPT_WAIT_SEC:
         await asyncio.sleep(ESCAPE_POLL_SEC)
         if sent.jsonl_path is not None:
             found, pos = _count_interrupts(sent.jsonl_path, pos)
@@ -500,6 +513,44 @@ async def _escape_settled(session_id: str, sent: _EscapeSent) -> _Escaped:
     logger.info("escape: session=%s stopped=%s restored=%s ms=%d", session_id, stopped, restored,
                 (time.monotonic() - sent.started) * 1000)
     return _Escaped(stopped=stopped, restored=restored)
+
+
+async def _escape_for_voice(session_id: str, text: str) -> _Escaped | None:
+    """声の発話が turn の実行中に届いたら、 Escape で turn を止める (= 止めなければ None)。
+
+    声で話している間に agent が先へ進み続けないように、 声の発話は turn を止めてから届ける (= 「やっぱりやめよう」
+    も会話として読める)。 本文は入力欄を消さずに後ろへ打つ (= `_send_body`): claude が入力欄へ戻した前の発話
+    (= 途中の間で「言い終えた」 と判定されて先に送られた区間) と、 1 つの発話になって届く。 停止ボタン (= 止めて、
+    入力欄も消す) とは別の動きで、 停止の印 (= user_stopped) は付けない。
+    """
+    if not text.startswith(VOICE_INPUT_MARK):
+        return None
+    return await _escape_running(session_id)
+
+
+async def _escape_running(session_id: str) -> _Escaped | None:
+    """turn の実行中なら Escape で止め、 claude が受け終えるのを見届ける (= 止めなければ None)。"""
+    st = stream_states.get(session_id)
+    if st is None or not st.busy or st.user_stopped:
+        return None
+    sent = await _send_escape(session_id)
+    return None if sent is None else await _escape_settled(session_id, sent)
+
+
+async def interrupt_for_voice(session_id: str) -> bool:
+    """声の会話で、 話している途中の人の言葉が取れた: turn の実行中なら、 話し終えるのを待たずに止める (= 止めたか)。
+
+    話している間に agent が先へ進まないように、 言葉が取れた時点で止める (= あくびや物音は言葉にならないので止め
+    ない)。 発話は話し終えた後に送り、 その時は止めた形 (= claude が入力欄へ戻した文が在るか) のまま後ろへ打つ
+    (= `_send_body`)。 送る本文の並びに割り込まないよう、 本文と同じ lock の中で打つ。
+    """
+    lock = _send_locks.setdefault(session_id, asyncio.Lock())
+    async with lock:
+        escaped = await _escape_running(session_id)
+        if escaped is None:
+            return False
+        _voice_escapes[session_id] = escaped
+        return True
 
 
 async def _stop(session_id: str) -> bool:
