@@ -143,3 +143,27 @@ describe('createListener — a new turn sent by voice', () => {
     expect(said).toEqual(['新しい返事。'])
   })
 })
+
+describe('createListener — a reply to a newer turn', () => {
+  const at = (ts, uuid, line) => ({ type: 'assistant', uuid, ts, message: { content: [{ type: 'text', text: line }] } })
+
+  it('cuts what is left of the older reply before saying the newer one', () => {
+    const events = []
+    const l = createListener({ isOn: () => true, say: (_sid, line) => events.push(line), cut: () => events.push('cut') })
+    l.start('s')
+    l.observe('s', at(10, 'r1', '前の返事。'))
+    l.observe('s', { type: 'user_message', uuid: 'm', ts: 11, text: 'a message from another tab' })
+    l.observe('s', at(12, 'r2', '新しい返事。'))
+    expect(events).toEqual(['前の返事。', 'cut', '新しい返事。'])
+  })
+
+  it('does not cut the words written between tool calls of the same turn', () => {
+    const events = []
+    const l = createListener({ isOn: () => true, say: (_sid, line) => events.push(line), cut: () => events.push('cut') })
+    l.start('s')
+    l.observe('s', at(10, 'r1', '調べるね。'))
+    l.observe('s', at(12, 'r2', '分かった。'))
+    expect(events).toEqual(['調べるね。', '分かった。'])
+  })
+})
+
