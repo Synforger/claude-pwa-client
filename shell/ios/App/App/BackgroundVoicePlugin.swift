@@ -202,6 +202,7 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
                 picture.start(over: screen)
                 picture.setMic(mic)
                 picture.onMic = { [weak self] on in self?.switchMicFromPicture(on) }
+                picture.onStop = { [weak self] in self?.stopFromPicture() }
                 self.picture = picture
             }
         } catch {
@@ -267,6 +268,16 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
 
     @MainActor private func sendSpeech(_ on: Bool) throws {
         try client?.sendClientMessage(msgType: "voice-speech", data: .object(["on": .boolean(on)]))
+    }
+
+    /// 小窓の停止 (= agent が考えている / 話している間): 声と turn を止めるよう backend の会話へ知らせる。
+    @MainActor private func stopFromPicture() {
+        CAPLog.print("[BackgroundVoice] \(stamp()) stop from the picture")
+        do {
+            try client?.sendClientMessage(msgType: "voice-stop")
+        } catch {
+            CAPLog.print("[BackgroundVoice] \(stamp()) could not send the stop: \(error)")
+        }
     }
 
     /// 小窓の再生 / 停止: マイクを切り替え、 画面の 🎙 に知らせる。

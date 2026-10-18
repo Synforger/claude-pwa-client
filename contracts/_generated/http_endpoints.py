@@ -294,12 +294,6 @@ class PostSessionsSidVoiceTranscriptionResponse(BaseModel):
     text: str  # 聞き取った文 (= 1 行。 声が聞き取れなければ空文字)
 
 
-class PostSessionsSidVoiceInterruptionResponse(BaseModel):
-    """POST /sessions/{sid}/voice/interruption response"""
-    model_config = ConfigDict(extra="forbid")
-    stopped: bool  # 止めたか (= turn の実行中でなければ false で、 何もしない)
-
-
 class PostSessionsSidVoiceConversationRequest(BaseModel):
     """POST /sessions/{sid}/voice/conversation request body"""
     model_config = ConfigDict(extra="forbid")
