@@ -728,6 +728,8 @@ async def send_text_two_stage(
     session_id: str,
     text: str,
     key: str | None = None,
+    *,
+    wipe: bool = True,
 ) -> bool:
     """本文送信の 2 段送信 (= C-u wipe → 本文 paste → 猶予 → [展開 paste] → Enter 単発)。
 
@@ -746,10 +748,14 @@ async def send_text_two_stage(
     queue 文で汚れていても wipe してから本文を送るため。 C-u 単発は 1 行しか消せず複数行残留に
     新本文が結合するので、 (C-u, BSpace) 往復で全行を畳む (= wipe_input_line、 build_wipe_keys)。
     空入力への往復は no-op。
+
+    wipe=False は入力欄を消さずに、 在る文の後ろへ打つ (= 声の発話を Escape の後に打つ時。 claude が入力欄へ
+    戻した前の発話を残し、 続けて 1 つの発話として送る)。
     """
     from backend.terminal.ansi_text import strip_ansi  # noqa: PLC0415
 
-    wipe_input_line(session_id)
+    if wipe:
+        wipe_input_line(session_id)
     multiline = "\n" in text
     before = ""
     if multiline:

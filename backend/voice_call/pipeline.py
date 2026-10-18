@@ -139,7 +139,7 @@ async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, st
         await runner.cancel()
 
     bridge = AgentBridge(conversation, send=backend.send, events=backend.events, utterances=backend.utterances,
-                         speech=start.get("speech", True), stop=backend.stop, reading=backend.reading,
+                         speech=start.get("speech", True), interrupt=backend.interrupt, reading=backend.reading,
                          resume=start.get("resume"), on_handover=handover)
     def microphone_on() -> bool:
         track = connection.audio_input_track()
@@ -148,7 +148,7 @@ async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, st
     pipeline = Pipeline([
         transport.input(),
         MicGate(microphone_on),
-        ListenSTT(backend, on_lost=lost),
+        ListenSTT(backend, on_lost=lost, on_words=bridge.heard_words, wants_words=bridge.wants_words),
         user_aggregator,
         bridge,
         VoiceTTS(backend, start["marks"]),
@@ -172,7 +172,10 @@ async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, st
     logger.info("voice call: started client=%s", backend.client)
     reporter = asyncio.create_task(report())
     try:
-        await runner.add_workers(PipelineWorker(pipeline, params=PipelineParams()))
+        # 動きの無い間の時間切れは使わない (= 既定は 300 秒。 マイクを切って聞いているだけの間は人が話さないので、
+        # 返事が来ないまま 5 分たつと通話ごと閉じ、 app に戻るとスピーカーもマイクも切れていた。 2026-10-19 までに
+        # 15 回)。 通話の終わりは、 電話が切れた知らせ (= on_client_disconnected) で見る
+        await runner.add_workers(PipelineWorker(pipeline, params=PipelineParams(), idle_timeout_secs=None))
         await runner.run()
     finally:
         reporter.cancel()

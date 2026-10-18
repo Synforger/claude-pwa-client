@@ -13,6 +13,7 @@ import { createSmartTurn, judgedPart } from './turn/smartTurn.js'
 import { SAMPLE_RATE } from './turn/whisperFeatures.js'
 import { createTurnTaker, isUnfinished } from './turnTaker.js'
 import { encodeWav } from './wav.js'
+import { createWordPeek } from './wordPeek.js'
 
 // Pipecat の既定 (= 声が始まったと見なす長さ、 声の前に付けて送る長さ。
 // pipecat の vad_analyzer.py と base_smart_turn.py)
@@ -43,10 +44,11 @@ function smartTurnFor(url, fetchModel) {
 //   send(text)                           文字にした文を送る
 //   isSpeaking() / subscribeSpeaking(listener) -> unsubscribe    返事が鳴っているか
 //   interrupt()                          返事を止める (= 返事が鳴っている間に、 人が話し始めた)
+//   stopTurn() -> Promise                タブの turn の実行中なら止める (= 話している途中に言葉が取れた。 wordPeek.js)
 //   onPhase(phase) / onError(error)
 export async function openConversation({
   audioContext, stream, turnModelUrl, settings, fetchModel, transcribe, send, isSpeaking, subscribeSpeaking,
-  interrupt, onPhase, onError,
+  interrupt, stopTurn, onPhase, onError,
 }) {
   const {
     pause_ms: pauseMs, wait_ms: waitMs, resume_ms: resumeMs = 0, unfinished_endings: endings, interrupt: interrupts,
@@ -58,10 +60,16 @@ export async function openConversation({
   ort.env.wasm.numThreads = 1
 
   const turn = turnModelUrl ? await smartTurnFor(turnModelUrl, fetchModel) : null
+  const peek = stopTurn
+    ? createWordPeek({ transcribe: (audio) => transcribe(encodeWav(audio, SAMPLE_RATE)), stopTurn })
+    : null
   const taker = createTurnTaker({
     judge: turn ? (audio) => turn.complete(judgedPart(audio, pauseMs)) : null,
     transcribe: (audio) => transcribe(encodeWav(audio, SAMPLE_RATE)),
-    send,
+    send: (text) => {
+      peek?.sent()
+      return send(text)
+    },
     unfinished: (text) => isUnfinished(text, endings),
     pauseMs,
     waitMs,
@@ -85,11 +93,21 @@ export async function openConversation({
     minSpeechMs: VAD_START_MS,
     // 話している途中で止めた時も、 そこまでの声を区間として渡す (= 捨てずに、 待っている発話へ足す)
     submitUserSpeechOnPause: true,
-    onSpeechStart: () => taker.speechStart(),
+    onSpeechStart: () => {
+      peek?.start()
+      taker.speechStart()
+    },
+    onFrameProcessed: (_, frame) => peek?.frame(frame),
     // 声が VAD_START_MS 続いた (= 物音ではなく人の声)。 返事が鳴っていれば止める
     onSpeechRealStart: () => { if (interrupts && isSpeaking()) interrupt() },
-    onSpeechEnd: (audio) => taker.speechEnd(audio),
-    onVADMisfire: () => taker.misfire(),
+    onSpeechEnd: (audio) => {
+      peek?.end()
+      taker.speechEnd(audio)
+    },
+    onVADMisfire: () => {
+      peek?.end()
+      taker.misfire()
+    },
   })
 
   let closed = false
@@ -117,6 +135,7 @@ export async function openConversation({
       if (closed) return
       closed = true
       unsubscribe()
+      peek?.end()
       taker.close()
       try { await vad.destroy() } catch { /* 閉じかけの部品を閉じ直しても何も起きない */ }
     },
