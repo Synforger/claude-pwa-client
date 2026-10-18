@@ -14,11 +14,17 @@
 小窓: iPhone の app の PiP に出す会話と状態を、 通話の data の通り道 (= RTVI の server-message) で app へ送る。
 送るのは `{"pip": "line", "who": "user" | "agent", "text"}` (= タブの発話と返事。 声にしない返事も出す。 会話を
 始める前の分は、 タブの記録から直近 PICTURE_HISTORY 行だけを、 記録の読み直しが途切れた所でまとめて送る) と `{"pip": "state", "state": "listening" | "thinking" | "speaking" | "waiting"}` (= 人が話し始めた /
-タブへ送った / 声が鳴り始めた / 鳴り終えた)。 描くのは app (= `shell/ios/App/App/CallPicture.swift`)。
+タブへ送った / 声が鳴り始めた / 鳴り終えた) と `{"pip": "busy", "busy": bool}` (= agent が考えているか、 返事の声が
+まだ残っているか。 変わった時だけ)。 描くのは app (= `shell/ios/App/App/CallPicture.swift`)。
 
-話している途中: 聞き取りの段が、 話している途中の声から言葉を拾えたら (= `heard_words`)、 話し終えるのを待たずに
-タブの turn を止める (= 話している間に agent が先へ進まない。 あくびや物音は言葉にならないので止めない)。 止めるのは
-発話を送るまでに 1 回だけで、 自分の声 (= 下) なら止めない。
+話している途中: 返事の途中で人が話し始めたら、 発話のまとめ役が声だけを止める (= 鳴っている声と、 まだ鳴らしていない
+文)。 タブの turn は止めない。 話し終えた発話は、 turn の実行中なら claude の queue に積まれ、 agent は作業の合間に
+それを読む (= 作業を止めずに言い足せるように)。 その発話がタブの記録に載るまでに
+届いた返事は、 声にせず小窓にだけ出す (= 上の「帰り」)。
+
+停止: app の小窓の停止 (= RTVI の client-message `voice-stop`) で、 声を止め、 タブの agent が作業中なら turn も画面の
+停止ボタンと同じに止める (= 作業を終えて声だけが残っていた時は、 タブに触らない。 停止ボタンは入力欄も消すので、
+画面で打ちかけの文を消さない)。 次の発話まで返事は声にしない。
 
 自分の声: スピーカーから出た返事の声がマイクに入ると、 発話のまとめ役は人が話し始めたと見て返事を止め、 聞き取った
 文を人の発話として渡してくる (= iPhone のエコー消しが、 音が動き始めた直後の返事を消し切れない時がある)。 止められた
@@ -74,8 +80,8 @@ class AgentBridge(FrameProcessor):
 
     conversation                         間の取り方 (= backend の `voice.conversation`)
     send(text) -> 送れたか               そのタブへ 1 通送る
-    interrupt() -> 止めたか              そのタブの turn の実行中なら止める (= 話している途中に言葉が取れた時)
-    events() -> そのタブの event の流れ  返事を拾う元
+    stop()                               そのタブの turn を止める (= 小窓の停止。 画面の停止ボタンと同じ)
+    events() -> そのタブの event の流れ  返事を拾う元 (= 作業中かの変わり目 `{"type": "busy"}` も来る)
     utterances(text) -> [{mark, text, values}]   返事の文を、 声にする文の並びにする
     resume                               つなぎ直した通話なら、 前の通話が閉じた時の {since_ms, sentences}
                                          (= 鳴り終えていなかった文から言い直し、 閉じた後に届いた返事も声にする)
@@ -87,7 +93,7 @@ class AgentBridge(FrameProcessor):
     def __init__(self, conversation: dict, *, send: Callable[[str], Awaitable[bool]],
                  events: Callable[[], AsyncIterator[dict]],
                  utterances: Callable[[str], Awaitable[list[dict]]], speech: bool = True,
-                 interrupt: Callable[[], Awaitable[bool]] | None = None, resume: dict | None = None,
+                 stop: Callable[[], Awaitable[None]] | None = None, resume: dict | None = None,
                  on_handover: Callable[[dict], None] | None = None,
                  reading: Callable[[str], Awaitable[str]] | None = None, **kwargs):
         super().__init__(**kwargs)
@@ -102,13 +108,13 @@ class AgentBridge(FrameProcessor):
         self._send_lock = asyncio.Lock()
         self._said_at = 0.0
         self._send = send
-        self._interrupt = interrupt
+        self._stop_turn_of_tab = stop
+        # 小窓の停止で打った、 タブの turn の停止 (= 打ち終えるまで参照を持つ)
+        self._stop_task: asyncio.Task | None = None
         # 文の読み (= 自分の声を、 書いた文字でなく声のとおりに見分ける。 無ければ書いた文字だけで見分ける)
         self._reading = reading
         # 止められた返事の文の読み (= 文 → 読み。 止められるたびに忘れる)
         self._readings: dict[str, str] = {}
-        # 送るまでの発話で、 もう turn を止めたか (= 止めるのは 1 回だけ)
-        self._interrupted = False
         self._events = events
         self._utterances = utterances
         self._pending: list[str] = []
@@ -120,6 +126,9 @@ class AgentBridge(FrameProcessor):
         self._awaiting_turn = False
         # 返事を声にするか (= 画面の 🗣)
         self._speech = speech
+        # タブの agent が作業中か (= 画面の青丸と同じ値) と、 小窓へ最後に知らせた「考えている / 話している」
+        self._tab_busy = False
+        self._shown_busy: bool | None = None
         # 小窓: 送った行 (= 同じ物を 2 度送らない) と、 会話を始める前の行の溜め
         self._shown: OrderedDict[str, None] = OrderedDict()
         self._history: deque[tuple[str, str]] = deque(maxlen=PICTURE_HISTORY)
@@ -155,6 +164,8 @@ class AgentBridge(FrameProcessor):
             # app からの知らせ (= ここで受け止め、 下流へは流さない)
             if frame.type == "voice-speech" and isinstance(frame.data, dict) and isinstance(frame.data.get("on"), bool):
                 await self._set_speech(frame.data["on"])
+            elif frame.type == "voice-stop":
+                await self._stop_turn()
             return
         if isinstance(frame, LLMContextFrame):
             # 発話のまとめ役が渡す、 人の 1 回分の発話 (= ここで受け止め、 下流の声の段へは流さない)
@@ -164,6 +175,7 @@ class AgentBridge(FrameProcessor):
         if isinstance(frame, InterruptionFrame):
             # 発話のまとめ役が、 人が話し始めたと見て返事を止めた (= この段が自分で流す割り込みは、 ここを通らない)
             self._remember_cut()
+            await self._show_busy()
         if isinstance(frame, UserStartedSpeakingFrame):
             await self._show_state("listening")
         elif isinstance(frame, BotStartedSpeakingFrame):
@@ -177,6 +189,7 @@ class AgentBridge(FrameProcessor):
             if not self._voiced:
                 self._reply_voiced_at = None
             await self._show_state("waiting")
+            await self._show_busy()
         if isinstance(frame, UserStartedSpeakingFrame) and self._hold_task:
             # 待っている間に続きを話し始めた: 待ちを止め、 次の発話と合わせて送る
             await self.cancel_task(self._hold_task)
@@ -186,24 +199,6 @@ class AgentBridge(FrameProcessor):
         await self.push_frame(frame, direction)
 
     # --- 行き -------------------------------------------------------------------------------------------------
-
-    def wants_words(self) -> bool:
-        """話している途中の言葉を待っているか (= 送るまでの発話で、 まだ turn を止めていない)。"""
-        return self._interrupt is not None and not self._interrupted
-
-    async def heard_words(self, text: str) -> None:
-        """話している途中の声から言葉が取れた: 自分の声でなければ、 タブの turn を止める (= 送るまでに 1 回)。"""
-        if not self.wants_words():
-            return
-        if await self._is_own_voice(text):
-            return
-        self._interrupted = True
-        try:
-            stopped = await self._interrupt()
-        except Exception as error:  # noqa: BLE001 (= 止められなくても、 発話は話し終えた後に送る)
-            logger.warning("voice call: could not stop the running turn: %s", error)
-            return
-        logger.info("voice call: the running turn %s", "stopped while the person spoke" if stopped else "was not running")
 
     async def _said(self, context) -> None:
         texts = [_text_of(m) for m in context.get_messages() if m.get("role") == "user"]
@@ -251,7 +246,7 @@ class AgentBridge(FrameProcessor):
         if not closing:
             self._forget_voiced()
             await self.push_frame(InterruptionFrame())
-        self._interrupted = False   # 次の発話で、 また止められる
+            await self._show_busy()
         async with self._send_lock:
             sent = await self._send(text)
         logger.info("voice call: sent chars=%d ok=%s", len(text), sent)
@@ -262,6 +257,10 @@ class AgentBridge(FrameProcessor):
 
     async def _follow_replies(self) -> None:
         async for event in self._events():
+            if event.get("type") == "busy":
+                self._tab_busy = bool(event.get("busy"))
+                await self._show_busy()
+                continue
             if event.get("type") == "user_message":
                 self._awaiting_turn = False   # 新しい turn が始まった
                 said = shown_user_text(event.get("text"))
@@ -290,6 +289,37 @@ class AgentBridge(FrameProcessor):
     async def _voice(self, said: dict) -> None:
         self._voiced.append(said)
         await self.push_frame(TTSSpeakFrame(marked(said.get("mark") or "", said.get("text") or "", said.get("values"))))
+        await self._show_busy()
+
+    # --- 停止 -----------------------------------------------------------------------------------------------
+
+    async def _stop_turn(self) -> None:
+        """小窓の停止: 声を止め、 作業中ならタブの turn を止める。 待っている発話も送らず、 次の発話まで返事は声にしない。
+
+        turn の停止は待ちの task で打つ (= この段の frame の処理の中で待つと、 人が話し始めた時の割り込みで打ち切られる)。
+        """
+        logger.info("voice call: stopped from the picture (busy=%s, sentences=%d, waiting=%d)",
+                    self._tab_busy, len(self._voiced), len(self._pending))
+        if self._hold_task:
+            await self.cancel_task(self._hold_task)
+            self._hold_task = None
+        self._pending = []
+        self._cut = []
+        self._forget_voiced()
+        self._awaiting_turn = True
+        await self.push_frame(InterruptionFrame())
+        await self._show_state("waiting")
+        await self._show_busy()
+        if self._tab_busy and self._stop_turn_of_tab and not self._stop_task:
+            self._stop_task = self.create_task(self._stop_tab(), "voice-call-stop")
+
+    async def _stop_tab(self) -> None:
+        try:
+            await self._stop_turn_of_tab()
+        except Exception as error:  # noqa: BLE001 (= 止められなくても、 声は止めてある)
+            logger.warning("voice call: could not stop the running turn: %s", error)
+        finally:
+            self._stop_task = None
 
     # --- 自分の声 -------------------------------------------------------------------------------------------
 
@@ -411,6 +441,13 @@ class AgentBridge(FrameProcessor):
     async def _show_state(self, state: str) -> None:
         await self.push_frame(RTVIServerMessageFrame(data={"pip": "state", "state": state}))
 
+    async def _show_busy(self) -> None:
+        """agent が考えている / 返事の声が残っているかを、 変わった時だけ小窓へ (= 小窓の再生 / 停止の意味が変わる)。"""
+        busy = self._tab_busy or bool(self._voiced)
+        if busy != self._shown_busy:
+            self._shown_busy = busy
+            await self.push_frame(RTVIServerMessageFrame(data={"pip": "busy", "busy": busy}))
+
     # --- つなぎ直し ------------------------------------------------------------------------------------------
 
     async def _take_over(self, resume: dict) -> None:
@@ -432,10 +469,10 @@ class AgentBridge(FrameProcessor):
 
     async def _stop(self) -> None:
         self._hand_over()
-        for task in (self._hold_task, self._replies_task, self._history_task):
+        for task in (self._hold_task, self._replies_task, self._history_task, self._stop_task):
             if task:
                 await self.cancel_task(task)
-        self._hold_task = self._replies_task = self._history_task = None
+        self._hold_task = self._replies_task = self._history_task = self._stop_task = None
         # 待っている間に通話が終わった発話も送る (= 話し終えてすぐ切った時に、 最後の発話を捨てない)
         await self._flush(closing=True)
 
