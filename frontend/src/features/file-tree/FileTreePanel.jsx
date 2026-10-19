@@ -3,6 +3,7 @@ import { apiFetch } from '../../utils/api.js'
 import { loadFavs, toggleFav as toggleFavStore, removeFav as removeFavStore, subscribeFavs } from './favorites.js'
 import { lsSetDebounced } from '../../utils/storage.js'
 import { useT } from '../../i18n/t.js'
+import { openPath } from '../file-preview/openPath.js'
 import {
   subscribe as subscribeUi,
   getSnapshot as getUiSnapshot,
@@ -37,10 +38,7 @@ function parentPath(p) {
 export default function FileTreePanel() {
   const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
   const initialPath = ui.overlays.treeOpen
-  const onOpenFile = useCallback((path) => {
-    if (path.endsWith('/')) setOverlay('treeOpen', path)
-    else setOverlay('previewPath', path)
-  }, [])
+  const onOpenFile = useCallback((path) => openPath(path), [])
   const onClose = useCallback(() => setOverlay('treeOpen', null), [])
   if (!initialPath) return null
 

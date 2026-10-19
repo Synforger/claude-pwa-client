@@ -10,6 +10,7 @@
 // ChatPanel 配下に置けない)。 詳細は AppShell.jsx 末尾の F-1 注釈参照。
 import { useEffect, useRef, useMemo, useCallback, useState, useSyncExternalStore } from 'react'
 import { registerPerfContext } from '../features/app-effects/perfProbe.js'
+import { openPath } from '../features/file-preview/openPath.js'
 import {
   subscribe as subscribeUi,
   getSnapshot as getUiSnapshot,
@@ -223,13 +224,7 @@ export default function ChatPanel({ sid }) {
     return () => navigator.serviceWorker.removeEventListener('message', onMessage)
   }, [fetchLatest, setActiveId])
 
-  const handleOpenPath = useCallback((path) => {
-    if (path.endsWith('/')) {
-      setOverlay('treeOpen', path)
-    } else {
-      setOverlay('previewPath', path)
-    }
-  }, [])
+  const handleOpenPath = useCallback((path) => openPath(path), [])
 
   const handleStopClick = useCallback(() => setOverlay('confirmStop', true), [])
   const handleSendClick = useCallback((text) => sendMessage(text), [sendMessage])

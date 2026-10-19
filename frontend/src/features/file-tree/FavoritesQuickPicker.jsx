@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { loadFavs, removeFav, subscribeFavs } from './favorites.js'
 import { setOverlay } from '../../state/ui.js'
 import { useT } from '../../i18n/t.js'
+import { openPath } from '../file-preview/openPath.js'
 import './FileTreePanel.css'
 
 function displayShort(path) {
@@ -16,7 +17,7 @@ function displayShort(path) {
 // callback を本 component 内に移送、 onClose 経路は `setOverlay('favs', false)`)。
 export default function FavoritesQuickPicker() {
   const t = useT()
-  const onOpenFile = useCallback((path) => setOverlay('previewPath', path), [])
+  const onOpenFile = useCallback((path) => openPath(path), [])
   const onOpenDir = useCallback((path) => setOverlay('treeOpen', path), [])
   const onClose = useCallback(() => setOverlay('favs', false), [])
   const [favs, setFavs] = useState(() => loadFavs())
