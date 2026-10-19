@@ -3,9 +3,16 @@ import {
   isOversizedMessage,
   isCollapsibleMessage,
   previewUpTo,
+  charsOutsideCodeBlocks,
   COLLAPSE_CHARS,
   PLAIN_FALLBACK_CHARS,
+  PLAIN_FALLBACK_TOTAL_CHARS,
 } from './MessageRenderer.jsx'
+
+const fill = (unit, size) => unit.repeat(Math.ceil(size / unit.length)).slice(0, size)
+const TREE_LINE = '├── 部品/ │   └── 記録を読み直す処理と、 境界の判定をまとめた所 ── 状態: 確認済み ✅\n'
+const PROSE_LINE = '- **語** は `name()` を呼び、 結果を次の段で使う。\n'
+const fenced = (body, mark = '```') => `${mark}\n${body}\n${mark}`
 
 describe('isOversizedMessage (= markdown を通さない plain 退避)', () => {
   it('正常系の最長クラス (= subagent transcript 相当) は markdown のまま', () => {
@@ -30,6 +37,53 @@ describe('isOversizedMessage (= markdown を通さない plain 退避)', () => {
     expect(isOversizedMessage('')).toBe(false)
     expect(isOversizedMessage(null)).toBe(false)
     expect(isOversizedMessage(undefined)).toBe(false)
+  })
+
+  // 2026-10-19 に描けなかった返事の形 (= 508 行・40,313 字のツリーが code block 1 つ)
+  it('code block の中は数えない (= 1 つの塊で軽い)', () => {
+    const tree = fenced(fill(TREE_LINE, 40_313))
+    expect(isOversizedMessage(tree)).toBe(false)
+    expect(isCollapsibleMessage(tree)).toBe(true)
+  })
+
+  it('code block の外が線を超えたら plain へ倒す', () => {
+    const text = fenced(fill(TREE_LINE, 40_000)) + '\n\n' + fill(PROSE_LINE, PLAIN_FALLBACK_CHARS + 100)
+    expect(isOversizedMessage(text)).toBe(true)
+    expect(isOversizedMessage(fill(PROSE_LINE, 40_000))).toBe(true)
+  })
+
+  it('全体の上限は code block だけの文にも効く', () => {
+    expect(isOversizedMessage(fenced(fill(TREE_LINE, PLAIN_FALLBACK_TOTAL_CHARS + 1)))).toBe(true)
+    expect(isOversizedMessage(fenced(fill(TREE_LINE, PLAIN_FALLBACK_TOTAL_CHARS - 100)))).toBe(false)
+  })
+})
+
+describe('charsOutsideCodeBlocks (= CommonMark の囲みに合わせ、 迷う形は外に数える)', () => {
+  it('閉じの無い囲みは最後まで中', () => {
+    expect(charsOutsideCodeBlocks('lead\n```\n' + 'x'.repeat(5_000))).toBe('lead\n'.length)
+  })
+
+  it('字下げ 4 以上の ``` は囲みではない (= 外に数える)', () => {
+    const text = '    ```\n' + fill(PROSE_LINE, 1_000) + '\n    ```'
+    expect(charsOutsideCodeBlocks(text)).toBe(text.length + 1)
+  })
+
+  it('~~~ の中の ``` では閉じない', () => {
+    const text = '~~~\n```\n' + 'x'.repeat(1_000) + '\n~~~\ntail'
+    expect(charsOutsideCodeBlocks(text)).toBe('tail'.length + 1)
+  })
+
+  it('開きより短い閉じでは閉じない', () => {
+    expect(charsOutsideCodeBlocks('````\nbody\n```\nstill code\n````\ntail')).toBe('tail'.length + 1)
+  })
+
+  it('記号の後ろに文字がある行は閉じではない', () => {
+    expect(charsOutsideCodeBlocks('```\nbody\n``` not a close\nstill code')).toBe(0)
+  })
+
+  it('情報の欄に ` がある ``` は囲みではない', () => {
+    const line = '```a`b'
+    expect(charsOutsideCodeBlocks(line)).toBe(line.length + 1)
   })
 })
 
