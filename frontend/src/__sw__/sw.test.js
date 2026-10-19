@@ -72,6 +72,8 @@ describe('sw.js fetch strategy', () => {
     ['/ext/notes/', 'navigate', 'document'],
     ['/ext/notes/icon.svg', 'no-cors', 'image'],
     ['/moonlight/logo.png', 'no-cors', 'image'],
+    ['/file/view/home/me/pages/deck/index.html', 'navigate', 'document'],
+    ['/file/view/home/me/pages/deck/cam/a.png', 'no-cors', 'image'],
   ])('never intercepts embedded app %s (%s / %s)', async (pathname, mode, destination) => {
     const r = await dispatch(sw, { pathname, mode, destination })
     expect(r.responded).toBe(false)

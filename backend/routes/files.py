@@ -138,11 +138,12 @@ _VIEW_MEDIA_TYPES = {
 }
 # 図解の動画や大きな画像は通し、 巨大な素材で backend が詰まらない上限 (= 1 file ごと)。
 VIEW_SIZE_LIMIT = 50 * 1024 * 1024
+# frame-ancestors は同じ host だけ (= iPhone のホーム画面の PWA は、 HTML をプレビューの枠の iframe に嵌めて開く)。
 VIEW_CSP = (
     "sandbox allow-scripts; default-src 'none'; "
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; "
-    "connect-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'"
+    "connect-src 'none'; form-action 'none'; frame-ancestors 'self'; base-uri 'none'"
 )
 _VIEW_HEADERS = {
     "Content-Security-Policy": VIEW_CSP,

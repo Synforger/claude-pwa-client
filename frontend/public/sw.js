@@ -16,9 +16,10 @@
 // activate せず、 開いたままの画面が差し替えで消えた chunk を読みに行く状態を作ったので build に移した。
 const SHELL_CACHE = 'claude-pwa-shell-__BUILD_ID__'
 
-// iframe に嵌める別アプリの置き場 (= 画面共有 / 拡張)。 本体のアプリシェルではないので SW は
-// 一切介入しない (= 保存しない、 cache から返さない)。
-const EMBEDDED_PREFIXES = ['/moonlight/', '/ext/']
+// iframe に嵌める別アプリの置き場 (= 画面共有 / 拡張) と、 backend の file の口 (= HTML の page と隣の画像)。
+// 本体のアプリシェルではないので SW は一切介入しない (= 保存しない、 cache から返さない)。 file の口を
+// 外し忘れると、 PWA の画面ごと開いた HTML が `/` として保存され、 圏外で開くと本体の代わりにそれが出る。
+const EMBEDDED_PREFIXES = ['/moonlight/', '/ext/', '/file/']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting())
