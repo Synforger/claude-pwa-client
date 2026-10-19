@@ -24,6 +24,13 @@
   /* overlay 自体が底空け済なので modal は overlay 全高を占める (= 90dvh 上限を外す)。 */
   height: 100%;
 }
+/* 画面の上の端から始まるので、 見出しは端末の上の帯 (= 時刻・電池) の下まで下げる。 iPhone の app は画面が帯の下まで
+   広がり (= viewport-fit=cover)、 下げないと ✕ が帯に入って押せず、 プレビューから出られない。 横向きは左右も。 */
+.modal-overlay-preview .modal-header {
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  padding-left: calc(16px + env(safe-area-inset-left, 0px));
+  padding-right: calc(16px + env(safe-area-inset-right, 0px));
+}
 
 .modal {
   width: 100%;
