@@ -24,6 +24,7 @@
 		CAFC32558D2E03550D06408E /* CallPicture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27AFB3573664F14C3BA59924 /* CallPicture.swift */; };
 		E059D0E7755B6899E8CFCD32 /* ChatMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F8EC326BCC7FB8659886884 /* ChatMarkdown.swift */; };
 		914D5C3154235413CC296486 /* AppLinkPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 116EB2B7DFFD806EA548F4B5 /* AppLinkPlugin.swift */; };
+		1CB14AADBA7F55AD62315904 /* PageSheetPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4E859A7AE6148243B06BB12 /* PageSheetPlugin.swift */; };
 		A1C0DE0000000000000000C1 /* PipecatClientIOS in Frameworks */ = {isa = PBXBuildFile; productRef = A1C0DE0000000000000000B1 /* PipecatClientIOS */; };
 		A1C0DE0000000000000000C2 /* PipecatClientIOSSmallWebrtc in Frameworks */ = {isa = PBXBuildFile; productRef = A1C0DE0000000000000000B2 /* PipecatClientIOSSmallWebrtc */; };
 		F994F52D7E8343D4C048222B /* Bluetooth.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2CC38896364C4F735E1EF85 /* Bluetooth.swift */; };
@@ -90,6 +91,7 @@
 		27AFB3573664F14C3BA59924 /* CallPicture.swift */ = {isa = PBXFileReference; name = "CallPicture.swift"; path = "CallPicture.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; };
 		3F8EC326BCC7FB8659886884 /* ChatMarkdown.swift */ = {isa = PBXFileReference; name = "ChatMarkdown.swift"; path = "ChatMarkdown.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; };
 		116EB2B7DFFD806EA548F4B5 /* AppLinkPlugin.swift */ = {isa = PBXFileReference; name = "AppLinkPlugin.swift"; path = "AppLinkPlugin.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; };
+		F4E859A7AE6148243B06BB12 /* PageSheetPlugin.swift */ = {isa = PBXFileReference; name = "PageSheetPlugin.swift"; path = "PageSheetPlugin.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; };
 		B2CC38896364C4F735E1EF85 /* Bluetooth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bluetooth.swift; sourceTree = "<group>"; };
 		F8482BB3788F919ACC3862B5 /* Camera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Camera.swift; sourceTree = "<group>"; };
 		871175B2D3DBB1B2AD6362BF /* Catalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Catalog.swift; sourceTree = "<group>"; };
@@ -205,6 +207,7 @@
 				27AFB3573664F14C3BA59924 /* CallPicture.swift */,
 				3F8EC326BCC7FB8659886884 /* ChatMarkdown.swift */,
 				116EB2B7DFFD806EA548F4B5 /* AppLinkPlugin.swift */,
+				F4E859A7AE6148243B06BB12 /* PageSheetPlugin.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -465,6 +468,7 @@
 				CAFC32558D2E03550D06408E /* CallPicture.swift in Sources */,
 				E059D0E7755B6899E8CFCD32 /* ChatMarkdown.swift in Sources */,
 				914D5C3154235413CC296486 /* AppLinkPlugin.swift in Sources */,
+				1CB14AADBA7F55AD62315904 /* PageSheetPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
