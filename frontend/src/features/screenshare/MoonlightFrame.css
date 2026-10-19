@@ -48,6 +48,16 @@
   z-index: 6;
 }
 
+/* 全画面では端末の上の帯 (= 時刻・電池) と横向きの左右の帯を避ける (= 帯に入ると全画面を抜けるボタンが押せない) */
+.moonlight-frame.fullscreen .moonlight-ctrl-left {
+  top: calc(4px + env(safe-area-inset-top, 0px));
+  left: calc(6px + env(safe-area-inset-left, 0px));
+}
+.moonlight-frame.fullscreen .moonlight-ctrl-right {
+  top: calc(4px + env(safe-area-inset-top, 0px));
+  right: calc(6px + env(safe-area-inset-right, 0px));
+}
+
 .moonlight-ctrl-btn {
   width: 32px;
   height: 32px;
