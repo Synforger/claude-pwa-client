@@ -293,6 +293,7 @@ def test_file_view_serves_the_page_and_its_relative_files_all_sandboxed(tmp_path
         assert csp == files_mod.VIEW_CSP
         assert csp.startswith("sandbox allow-scripts;") and "allow-same-origin" not in csp
         assert "connect-src 'none'" in csp
+        assert "frame-ancestors 'self'" in csp
         assert res.headers["x-content-type-options"] == "nosniff"
 
 
