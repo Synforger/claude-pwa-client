@@ -156,6 +156,22 @@
   overflow: hidden;
 }
 
+/* HTML のプレビュー: 描いた page を余白なしで本体の全面に出す (= 送りは page の中で行う) */
+.modal-body-page {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.file-page {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: none;
+  background: #fff;
+}
+
 /* 画像を見せる枠。 拡大した画像はここで切り取られる。 指の動きは全部アプリが受ける
    (= touch-action: none。 ブラウザ自体の送り・拡大に取られない) */
 .file-image-frame {

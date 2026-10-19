@@ -24,6 +24,7 @@ import { useT } from '../../i18n/t.js'
 import { translateHttpErrorDetail } from '../../utils/httpError.js'
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
 import ZoomableImage from './ZoomableImage.jsx'
+import { isHtmlPath } from './openPath.js'
 import {
   subscribe as subscribeUi,
   getSnapshot as getUiSnapshot,
@@ -248,6 +249,10 @@ function FilePreviewModalBody({ path, onClose }) {
   const [imageFailedSrc, setImageFailedSrc] = useState(null)
   const imageLoaded = isImage && imageLoadedSrc === imageSrc
   const imageFailed = isImage && imageFailedSrc === imageSrc
+  // HTML は描いた形を枠の中の iframe で見せる (= iPhone のホーム画面の PWA だけがここへ回す。 openPath)。
+  // backend の sandbox (= スクリプトは動くが、 この画面とは別の origin) を iframe の側でも掛ける。
+  const isHtml = isHtmlPath(path)
+  const pageSrc = isHtml ? apiUrl(`/file/open?path=${encodeURIComponent(path)}`) : null
   const isMarkdown = /\.(md|mdx|markdown)$/i.test(path)
   const lang = detectLang(path)
   const isEditable = TEXT_EXTENSIONS.has(ext) || BASENAME_TO_LANG[base] !== undefined || lang !== null
@@ -285,7 +290,7 @@ function FilePreviewModalBody({ path, onClose }) {
     setError(null)
     setContent(null)
     // 画像は文字として読まず、 <img> が `/file/raw` から直接読む (= 読み込み状態は src ごとの state)。
-    if (isImage) {
+    if (isImage || isHtml) {
       setLoading(false)
       return () => controller.abort()
     }
@@ -373,7 +378,7 @@ function FilePreviewModalBody({ path, onClose }) {
             {!editMode && <button className="modal-close" onClick={onClose}>✕</button>}
           </div>
         </div>
-        <div className={isImage ? 'modal-body modal-body-image' : 'modal-body'} ref={bodyRef}>
+        <div className={isImage ? 'modal-body modal-body-image' : isHtml ? 'modal-body modal-body-page' : 'modal-body'} ref={bodyRef}>
           {(loading || (isImage && !imageLoaded && !imageFailed)) && <span className="dim">{t('file_preview.loading')}</span>}
           {error && <span className="error">{error}</span>}
           {imageFailed && <span className="error">{t('file_preview.image_error')}</span>}
@@ -386,6 +391,16 @@ function FilePreviewModalBody({ path, onClose }) {
               alt={base}
               onLoad={() => setImageLoadedSrc(imageSrc)}
               onError={() => setImageFailedSrc(imageSrc)}
+            />
+          )}
+          {isHtml && (
+            <iframe
+              className="file-page"
+              src={pageSrc}
+              title={base}
+              sandbox="allow-scripts"
+              referrerPolicy="no-referrer"
+              data-testid="file-preview-page"
             />
           )}
           {editMode ? (
