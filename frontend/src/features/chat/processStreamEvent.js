@@ -338,6 +338,11 @@ export function processStreamEvent(deps, sid, event) {
     .filter(b => b.type === 'thinking')
     .map(b => b.thinking)
     .join('\n')
+  // held_text = 設定した言語でない地の文 (= backend が text から分けた物)。 本文には混ぜず畳んで出す
+  const heldContent = event.message.content
+    .filter(b => b.type === 'held_text')
+    .map(b => b.text)
+    .join('')
   const newTools = event.message.content
     .filter(b => b.type === 'tool_use' && b.name !== 'Agent' && b.name !== 'AskUserQuestion' && b.name !== 'TodoWrite')
     .map(b => formatTool(b))
@@ -363,11 +368,13 @@ export function processStreamEvent(deps, sid, event) {
     // tools は id で union。 flush 側マージと同じ `||` 意味論なので replay 二重配信にも冪等。
     buf.text = textContent || buf.text
     buf.thinking = thinkingContent || buf.thinking
+    buf.held = heldContent || buf.held
     const seen = new Set((buf.newTools || []).map(t => t.id))
     buf.newTools = [...(buf.newTools || []), ...newTools.filter(t => !seen.has(t.id))]
   } else {
     buf.text = textContent
     buf.thinking = thinkingContent || null
+    buf.held = heldContent || null
     buf.newTools = newTools
   }
   buf.uuid = eventUuid

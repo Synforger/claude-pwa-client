@@ -14,6 +14,9 @@ JSONL と旧 SDK-SSE event はほぼ同型 (= message.role + content[] + tool_re
     - slash command の内部表現: `/clear` 等を tmux 経由で送ると claude は
       `<command-name>/clear</command-name>` 形式の XML を user 行として JSONL に書く。
       これはユーザ発話ではなく claude 内部表現なので chat には出さない (= skip)。
+    - 設定した言語でない地の文: タブの Claude Code の `language` が日本語で、 返事の text block の
+      地の文が英語なら `held_text` block に変える (= 画面は畳んで出し、 声と小窓は読まない。
+      判定 = backend/core/prose_language.py)
 """
 from __future__ import annotations
 
@@ -23,6 +26,7 @@ import re
 # core/jsonl_predicates.py に集約 (= jsonl / terminal 両 subsystem が使う共有底層)。
 from backend.core.jsonl_predicates import HARNESS_XML_RE, peer_message_text, queued_prompt_text, unwrap_pasted
 from backend.core.jsonl_tail import parse_jsonl_timestamp
+from backend.core.prose_language import foreign_prose
 
 
 def _ts_ms(line: dict) -> int | None:
@@ -67,9 +71,10 @@ def parse_task_notification(text: str) -> dict | None:
     }
 
 
-def jsonl_line_to_events(line: dict) -> list[dict]:
+def jsonl_line_to_events(line: dict, language: str | None = None) -> list[dict]:
     """JSONL 1 行 (parsed dict) を 0 個以上の processStreamEvent event に変換する。
 
+    language はそのタブの Claude Code の設定の `language` (= `state.session_language`)。
     対象外 (= type が assistant / user 以外、 sidechain、 空) は空リストを返す。
     """
     if not isinstance(line, dict):
@@ -87,7 +92,7 @@ def jsonl_line_to_events(line: dict) -> list[dict]:
         return []
     line_type = line.get("type")
     if line_type == "assistant":
-        return _assistant_events(line)
+        return _assistant_events(line, language)
     if line_type == "user":
         return _user_events(line)
     if line_type == "system":
@@ -266,11 +271,12 @@ def _system_events(line: dict) -> list[dict]:
     return []
 
 
-def _assistant_events(line: dict) -> list[dict]:
+def _assistant_events(line: dict, language: str | None = None) -> list[dict]:
     msg = line.get("message") or {}
     content = msg.get("content") or []
     if not isinstance(content, list):
         return []
+    content = [_held(b, language) for b in content]
 
     # claude は 1 Anthropic message を複数 JSONL 行に分けて書く (= 同 message.id で
     # tool_use ブロックを別行で出す等)。 frontend の useStreamBuffer は uuid 単位で
@@ -317,6 +323,17 @@ def _assistant_events(line: dict) -> list[dict]:
         })
 
     return events
+
+
+# assistant event の中の block の種類 (= event の種類ではない。 契約 = sse-events.yaml の assistant.content)
+HELD_TEXT = "held_text"
+
+
+def _held(block, language: str | None):
+    """設定した言語でない地の文の text block を `held_text` に変える (= 他の block はそのまま)。"""
+    if isinstance(block, dict) and block.get("type") == "text" and foreign_prose(block.get("text") or "", language):
+        return {**block, "type": HELD_TEXT}
+    return block
 
 
 def _user_events(line: dict) -> list[dict]:

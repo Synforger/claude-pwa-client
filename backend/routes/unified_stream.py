@@ -62,6 +62,7 @@ from backend.routes.subagents import (
 from backend.state import (
     ALL_SUBSCRIBER_KEY,
     jsonl_event_broadcaster,
+    session_language,
     sessions_meta,
     sessions_overview,
     views_by_conn,
@@ -153,6 +154,7 @@ def _replay_frames(sid: str, start: int | None) -> list[dict]:
     """
     frames: list[dict] = []
     pairs, _end = chain.read(chain.segments(sid, _latest_jsonl(sid)), start, INITIAL_REPLAY_LINES)
+    language = session_language(sid)
     for raw, line_pos in pairs:
         raw = raw.strip()
         if not raw:
@@ -161,7 +163,7 @@ def _replay_frames(sid: str, start: int | None) -> list[dict]:
             obj = json.loads(raw)
         except json.JSONDecodeError:
             continue
-        for event in jsonl_line_to_events(obj):
+        for event in jsonl_line_to_events(obj, language):
             _inject_envelope(event, sid)
             frames.append({"ch": "jsonl", "pos": line_pos, "ev": event})
     from backend.terminal.prompt_detector_loop import current_prompt_event  # noqa: PLC0415

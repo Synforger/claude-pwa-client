@@ -31,7 +31,8 @@ import backend.core.jsonl_watcher as jsonl_watcher  # backend-F-40: 旧版は関
 from backend.jsonl.session_status import (
     apply_immediate_stop as _apply_immediate_stop,
 )
-from backend.state import sessions_meta
+from backend.core.prose_language import foreign_prose
+from backend.state import session_language, sessions_meta
 from backend.terminal import input_ready
 import backend.rollover as rollover
 
@@ -289,6 +290,10 @@ async def _handle_stop(ctx: HookContext) -> dict:
     assert ctx.pwa_session_id is not None  # dispatcher が解決済
     _apply_immediate_stop(ctx.pwa_session_id)
     rollover.turn_ended(ctx.pwa_session_id)
+    # 設定した言語でない地の文は、 画面と同じく通知にも出さない (= 言い直させる hook が在れば、
+    # 言い直した返事の turn 完了で改めて届く)。
+    if foreign_prose(body_raw, session_language(ctx.pwa_session_id)):
+        return {"ok": True, "pushed": None, "held": "foreign_prose"}
     # fire-and-forget: webpush 送信は数百 ms かかる場合があるので hook の curl を待たせない。
     asyncio.create_task(broadcast_push(body, ctx.title, ctx.pwa_session_id))
     return {"ok": True, "pushed": "Stop"}

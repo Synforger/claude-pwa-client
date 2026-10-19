@@ -39,6 +39,11 @@ mkdirSync(USER_DIR, { recursive: true })
 // and the seed channel happily writes JSONL into the real chat tree.
 const E2E_CLAUDE_DIR = resolve(RUNTIME, '.claude')
 mkdirSync(E2E_CLAUDE_DIR, { recursive: true })
+// A second account whose Claude Code settings ask for Japanese, for the scenarios about prose
+// written in another language (= the first account stays without a language, so English fixtures render as is).
+const E2E_JA_CLAUDE_DIR = resolve(RUNTIME, '.claude-ja')
+mkdirSync(E2E_JA_CLAUDE_DIR, { recursive: true })
+writeFileSync(resolve(E2E_JA_CLAUDE_DIR, 'settings.json'), JSON.stringify({ language: '日本語' }))
 
 const config = {
   agents: {
@@ -73,6 +78,10 @@ const config = {
     e2e: {
       display_name: 'E2E',
       env: { CLAUDE_CONFIG_DIR: E2E_CLAUDE_DIR },
+    },
+    e2e_ja: {
+      display_name: 'E2E (Japanese)',
+      env: { CLAUDE_CONFIG_DIR: E2E_JA_CLAUDE_DIR },
     },
   },
   // Served by the test backend itself (= backend/routes/debug_e2e.py fixture_router),
