@@ -250,7 +250,8 @@ function FilePreviewModalBody({ path, onClose }) {
   const imageLoaded = isImage && imageLoadedSrc === imageSrc
   const imageFailed = isImage && imageFailedSrc === imageSrc
   // HTML は描いた形を枠の中の iframe で見せる (= iPhone のホーム画面の PWA だけがここへ回す。 openPath)。
-  // backend の sandbox (= スクリプトは動くが、 この画面とは別の origin) を iframe の側でも掛ける。
+  // 隔てるのは backend の応答の sandbox (= スクリプトは動くが、 この画面とは別の origin)。 iframe に sandbox の属性は
+  // 付けない: 付けると WebKit が CSP の 'self' を page の host と見なさず、 隣の画像を断る。
   const isHtml = isHtmlPath(path)
   const pageSrc = isHtml ? apiUrl(`/file/open?path=${encodeURIComponent(path)}`) : null
   const isMarkdown = /\.(md|mdx|markdown)$/i.test(path)
@@ -398,7 +399,6 @@ function FilePreviewModalBody({ path, onClose }) {
               className="file-page"
               src={pageSrc}
               title={base}
-              sandbox="allow-scripts"
               referrerPolicy="no-referrer"
               data-testid="file-preview-page"
             />

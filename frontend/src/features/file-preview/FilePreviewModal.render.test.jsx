@@ -35,14 +35,15 @@ function load(img, width, height) {
   fireEvent.load(img)
 }
 
-it('shows an HTML file as the drawn page in a sandboxed frame, without reading it as text', () => {
+it('shows an HTML file as the drawn page in a frame, without reading it as text', () => {
   const fetchSpy = vi.spyOn(globalThis, 'fetch')
   act(() => setOverlay('previewPath', '~/pages/deck/index.html'))
   const { getByTestId } = render(<FilePreviewModal />)
   const page = getByTestId('file-preview-page')
   expect(page.tagName).toBe('IFRAME')
   expect(page.getAttribute('src')).toMatch(/\/file\/open\?path=~%2Fpages%2Fdeck%2Findex\.html$/)
-  expect(page.getAttribute('sandbox')).toBe('allow-scripts')
+  // 隔てるのは backend の応答の sandbox。 属性を付けると WebKit が page の隣の画像を断る
+  expect(page.hasAttribute('sandbox')).toBe(false)
   expect(fetchSpy).not.toHaveBeenCalled()
   fetchSpy.mockRestore()
 })
