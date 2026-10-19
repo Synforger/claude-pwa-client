@@ -114,6 +114,19 @@ describe('MessageItem render smoke', () => {
     expect(block.open).toBe(true)
   })
 
+  it('prose held for not being in the configured language is folded, closed, and opens to the full text', () => {
+    const { container, getByTestId } = render(
+      <MessageItem
+        {...baseProps}
+        msg={{ id: 'a7', role: 'agent', held: 'The fix is ready.\n', text: '', tools: [] }}
+      />,
+    )
+    const block = getByTestId('held-prose')
+    expect(block.open).toBe(false)
+    expect(block.querySelector('.thinking-text').textContent).toBe('The fix is ready.')
+    expect(container.querySelector('.bubble.dim')).toBeNull()
+  })
+
   it('thinking drops its trailing newlines so the box has no blank line below', () => {
     const { container } = render(
       <MessageItem

@@ -156,7 +156,7 @@ backend `backend/jsonl/events.py::jsonl_line_to_events` が JSONL 1 行から組
 
 | type | 必須 field | 説明 |
 |---|---|---|
-| `assistant` | `message.content[]` | assistant 1 turn の content blocks (= text / tool_use / thinking)。 frontend で streaming append |
+| `assistant` | `message.content[]` | assistant 1 turn の content blocks (= text / held_text / tool_use / thinking)。 held_text はタブの Claude Code の `language` が日本語で地の文が英語の text (= 画面は畳み、 声・小窓・通知は飛ばす)。 frontend で streaming append |
 | `user` | `message.content` | user 行の content (= text or tool_result list)。 `parent_tool_use_id` 持ちは subagent 内 |
 | `user_message` | `text` | user 発話を text-only に正規化した shorthand (= UI の bubble 描画用)。 claude の作業中に入り、 user 行ではなく `attachment` 行 (= `queued_command`) として記録された発話も同じ event になる |
 | `result` | `subtype`, `is_error?`, `total_cost_usd?` | claude session の最終 result event (= `subtype: success | error_max_turns | ...`) |

@@ -46,6 +46,18 @@ describe('processStreamEvent — same-uuid frame aggregation (intermediate-outpu
     expect(buf.uuid).toBe('X')
   })
 
+  it('held_text goes to held, not into the text of the bubble', () => {
+    const buf = emptyBuf()
+    const deps = makeDeps(buf)
+
+    processStreamEvent(deps, 's1', assistantEvent({ type: 'held_text', text: 'The fix is ready.' }, 'H'))
+    processStreamEvent(deps, 's1', assistantEvent({ type: 'tool_use', name: 'Bash', id: 't1', input: {} }, 'H'))
+
+    expect(buf.text).toBe('')
+    expect(buf.held).toBe('The fix is ready.')
+    expect(buf.newTools).toHaveLength(1)
+  })
+
   it('a different uuid flushes the previous message first', () => {
     const buf = emptyBuf()
     const deps = makeDeps(buf)

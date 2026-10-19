@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 import backend.config as _config
+from backend.core.prose_language import configured_language
 
 
 def _agents() -> dict:
@@ -366,6 +367,12 @@ def get_session(session_id: str) -> SessionState | None:
     """SessionState を引く。 round 2 で副 path から
     `async with state.get_session(sid).lock:` する際の入口。"""
     return session_states.get(session_id)
+
+
+def session_language(session_id: str) -> str:
+    """そのタブの口座の Claude Code の設定の `language` (= 返事の地の文を畳むかの判定に使う。 無ければ空)。"""
+    meta = sessions_meta.get(session_id)
+    return configured_language(_config.projects_dir_for_account(meta.account_id if meta else None).parent)
 
 
 def get_or_create_lock(session_id: str) -> asyncio.Lock:
