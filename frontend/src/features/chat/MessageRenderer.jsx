@@ -14,22 +14,48 @@ const PATH_RE = /(?<![(`])(~\/[^\s`"')\]]+|\/Users\/[^\s`"')\]]+)/g
 // degeneration と畳みたい長文が 2 桁離れているので両立しない)。
 //   ① 折りたたみ (= 読みやすさ): COLLAPSE_CHARS 超は markdown を保ったまま先頭だけ描画し、
 //      残りは展開ボタンで開く。 畳んでいる間も展開後も読み味は普通の返答と同じ。
-//   ② plain 退避 (= 重さ対策): PLAIN_FALLBACK_CHARS 超は markdown を通さない。 出力
-//      degeneration (= 同一語の数万回反復等) が数万個の DOM ノードに展開してメインスレッドを
-//      固める事故を防ぐ (= スクロール / ステータスライン更新も巻き添えで停止、 2026-06 実害)。
-// 値の根拠 (= 2026-09-08 実測、 jsonl 470 本 / assistant 本文 22,003 件): 中央値 90 字 /
-// p99 3,613 字 / 正常系の最大 25,916 字 (= subagent transcript) に対し degeneration は
-// 518,658 字。 4,000 超は 0.78% なので日常の長文は畳まれず、 30,000 超は degeneration だけ。
+//   ② plain 退避 (= 重さ対策): code block の外が PLAIN_FALLBACK_CHARS を超えるか、 全体が
+//      PLAIN_FALLBACK_TOTAL_CHARS を超えたら markdown を通さない。 出力 degeneration (= 同一語の
+//      数万回反復等) が数万個の DOM ノードに展開してメインスレッドを固める事故を防ぐ (= スクロール /
+//      ステータスライン更新も巻き添えで停止、 2026-06 実害)。
+// 値の根拠 (= 2026-09-08 実測、 jsonl 470 本 / assistant 本文 22,003 件): 中央値 90 字 / p99 3,613 字 /
+// 正常系の最大 25,916 字に対し degeneration は 518,658 字。 4,000 超は 0.78% なので日常の長文は畳まれない。
+// 重さは字数ではなく展開される要素の数で決まる (= 2026-10-19 実測、 jsdom で全部を描く時間): code block
+// 1 つは 4 要素で 40,000 字 8 ms / 200,000 字 32 ms、 箇条書きは 40,000 字 93 ms、 表は 40,000 字 338 ms・
+// 200,000 字 5.5 s、 同じ行の反復は 40,000 字 485 ms・200,000 字 5.9 s。 なので code block の中は数えず、
+// 外だけを 30,000 字 (= 表と反復で 200〜300 ms の所) で切る。 全体の上限は code block だけの文も含めた
+// 最後の守り。
 export const COLLAPSE_CHARS = 4_000
 export const PLAIN_FALLBACK_CHARS = 30_000
+export const PLAIN_FALLBACK_TOTAL_CHARS = 200_000
 // 折りたたみ時のプレビュー長 (= ブロック境界まで下げて切るので実際はこれ以下になる)。
 const COLLAPSE_PREVIEW_CHARS = 2_000
 // plain 退避時のプレビュー長 (= markdown を通さない経路なので、 畳まれていると分かる程度)。
 const LARGE_PREVIEW_CHARS = 800
 
+// code block (= ``` か ~~~ の囲み) の外の字数。 CommonMark の囲みに合わせる: 開きは行頭の空白 3 個まで、
+// 閉じは同じ記号で開きと同じ長さ以上、 閉じが無ければ最後まで中。 囲みと言い切れない行 (= 字下げ 4 以上、
+// list の中の囲み) は外に数える (= 多めに数えて、 重い側の plain 退避に倒す)。
+export function charsOutsideCodeBlocks(text) {
+  let outside = 0
+  let fence = null   // 開いている囲みの記号 (= 例 '```')、 外なら null
+  for (const line of text.split('\n')) {
+    const mark = /^ {0,3}(`{3,}|~{3,})/.exec(line)
+    if (fence == null) {
+      if (mark && !(mark[1][0] === '`' && line.slice(mark[0].length).includes('`'))) fence = mark[1]
+      else outside += line.length + 1
+    } else if (mark && mark[1][0] === fence[0] && mark[1].length >= fence.length && line.slice(mark[0].length).trim() === '') {
+      fence = null
+    }
+  }
+  return outside
+}
+
 // markdown を通さず plain text に倒すべき巨大メッセージか。 純関数 (= テスト対象)。
 export function isOversizedMessage(text) {
-  return typeof text === 'string' && text.length > PLAIN_FALLBACK_CHARS
+  if (typeof text !== 'string') return false
+  if (text.length > PLAIN_FALLBACK_TOTAL_CHARS) return true
+  return text.length > PLAIN_FALLBACK_CHARS && charsOutsideCodeBlocks(text) > PLAIN_FALLBACK_CHARS
 }
 
 // markdown を保ったまま畳むべき長文か。 純関数 (= テスト対象)。
