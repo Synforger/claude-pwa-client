@@ -292,6 +292,8 @@ function urlTransform(url, key) {
   // 等の危険スキームをブロック。 過去ここで `(url) => url` にしてた結果、
   // 任意 URL スキームがそのまま <a href> に出ていた (XSS 経路)。
   if (typeof url === 'string' && url.startsWith('cpc-file://')) return url
+  // slack:// は Slack のアプリを開くだけのスキーム (= 押すと OS がアプリへ渡す)。
+  if (typeof url === 'string' && /^slack:\/\//i.test(url)) return url
   return defaultUrlTransform(url)
 }
 
@@ -324,6 +326,8 @@ function buildComponents(onOpenFile) {
           </span>
         )
       }
+      // slack:// は同じタブのまま OS に渡す (= 新しいタブにすると、 アプリが開いた後に空のタブが残る)。
+      if (/^slack:\/\//i.test(href || '')) return <a href={href}>{children}</a>
       return <a href={href} target="_blank" rel="noreferrer">{children}</a>
     },
     pre({ children }) {
