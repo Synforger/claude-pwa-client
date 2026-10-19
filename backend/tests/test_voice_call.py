@@ -99,7 +99,8 @@ def test_a_tab_that_cannot_hold_a_conversation_is_refused_before_connecting(clie
 class _FakeCall:
     """会話の process の偽物: 申し込みに answer を返し、 finish が立つまで走り続ける (= 閉じる時に handover を出す)。"""
 
-    def __init__(self, finish, *, pc_id: str = "pc1", handover: dict | None = None, starts: list | None = None):
+    def __init__(self, finish, *, pc_id: str = "pc1", handover: dict | None = None, starts: list | None = None,
+                 received: list | None = None, answer_after=None):
         import json
 
         self._finish = finish
@@ -111,6 +112,8 @@ class _FakeCall:
                 message = json.loads(data)
                 if starts is not None and message.get("type") == "start":
                     starts.append(message)
+                if received is not None:
+                    received.append((pc_id, message["type"]))
 
             async def drain(self):
                 pass
@@ -121,6 +124,8 @@ class _FakeCall:
 
             async def readline(self):
                 if self._lines:
+                    while answer_after is not None and not answer_after.is_set():
+                        await asyncio.sleep(0.01)
                     return (json.dumps(self._lines.pop(0)) + "\n").encode()
                 while not finish.is_set():
                     await asyncio.sleep(0.01)
@@ -138,6 +143,7 @@ class _FakeCall:
         return 0
 
     def kill(self):
+        self.killed = True
         self._finish.set()
 
 
@@ -200,6 +206,103 @@ def test_a_redial_gets_what_the_closed_call_had_left_to_say_and_a_new_call_does_
     assert starts[0]["resume"] is None
     assert starts[1]["resume"] == left
     assert starts[2]["resume"] is None
+
+
+def _call_app(monkeypatch, spawn) -> TestClient:
+    monkeypatch.setattr(voice_call.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(voice_call.asyncio, "create_subprocess_exec", spawn)
+    app = FastAPI()
+    app.include_router(voice_call.router)
+    voice_call._workers.clear()
+    voice_call._handovers.clear()
+    voice_call._latest.clear()
+    return TestClient(app)
+
+
+def test_a_new_call_tells_the_older_call_of_the_same_tab_to_end(tabs, monkeypatch):  # noqa: F811
+    import threading
+
+    finishes = [threading.Event() for _ in range(2)]
+    received: list[tuple[str, str]] = []
+    spawned: list[str] = []
+
+    async def spawn(*args, **kwargs):
+        spawned.append(f"pc{len(spawned) + 1}")
+        return _FakeCall(finishes[len(spawned) - 1], pc_id=spawned[-1], received=received)
+
+    with _call_app(monkeypatch, spawn) as c:
+        assert c.post("/sessions/ses_listen/voice/call", json=OFFER).status_code == 200
+        assert c.post("/sessions/ses_listen/voice/call", json=OFFER).status_code == 200
+        for finish in finishes:
+            finish.set()
+    # 1 本目は 2 本目の申し込みで「終われ」 を受けた。 2 本目は受けていない
+    assert ("pc1", "end") in received
+    assert ("pc2", "end") not in received
+
+
+def test_a_redial_overtaken_while_it_waits_is_not_started(tabs, monkeypatch):  # noqa: F811
+    import threading
+    import time
+
+    finishes = [threading.Event() for _ in range(3)]
+    spawned: list[str] = []
+
+    async def spawn(*args, **kwargs):
+        spawned.append(f"pc{len(spawned) + 1}")
+        return _FakeCall(finishes[len(spawned) - 1], pc_id=spawned[-1])
+
+    results: dict[str, object] = {}
+    with _call_app(monkeypatch, spawn) as c:
+        # 1 本目は「終われ」 を受けても閉じない (= つながらないまま待っている通話)
+        assert c.post("/sessions/ses_listen/voice/call", json=OFFER).status_code == 200
+        # つなぎ直しは 1 本目が閉じるのを待つ。 その間に、 後から別の申し込みが来る
+        waiting = threading.Thread(
+            target=lambda: results.update(redial=c.post("/sessions/ses_listen/voice/call?resume=1", json=OFFER)))
+        waiting.start()
+        time.sleep(0.2)
+        assert c.post("/sessions/ses_listen/voice/call", json=OFFER).status_code == 200
+        finishes[0].set()
+        waiting.join(5)
+        for finish in finishes:
+            finish.set()
+    redial = results["redial"]
+    assert redial.status_code == 409
+    assert redial.json()["detail"]["code"] == "voice_call_superseded"
+    # 待っていたつなぎ直しは通話を立てなかった (= 立ったのは 1 本目と、 後から来た 1 本だけ)
+    assert spawned == ["pc1", "pc2"]
+
+
+def test_a_call_overtaken_before_its_answer_is_closed_and_refused(tabs, monkeypatch):  # noqa: F811
+    import threading
+    import time
+
+    finishes = [threading.Event() for _ in range(2)]
+    answer_first = threading.Event()
+    calls: list[_FakeCall] = []
+
+    async def spawn(*args, **kwargs):
+        index = len(calls)
+        calls.append(_FakeCall(finishes[index], pc_id=f"pc{index + 1}",
+                               answer_after=answer_first if index == 0 else None))
+        return calls[-1]
+
+    results: dict[str, object] = {}
+    with _call_app(monkeypatch, spawn) as c:
+        slow = threading.Thread(
+            target=lambda: results.update(first=c.post("/sessions/ses_listen/voice/call", json=OFFER)))
+        slow.start()
+        time.sleep(0.2)
+        assert c.post("/sessions/ses_listen/voice/call", json=OFFER).status_code == 200
+        answer_first.set()
+        slow.join(5)
+        # 遅れて answer を返した 1 本目は閉じられ、 タブの通話には残らない (= 後から来た 2 本目だけ)
+        assert getattr(calls[0], "killed", False)
+        assert list(voice_call._workers) == ["pc2"]
+        for finish in finishes:
+            finish.set()
+    first = results["first"]
+    assert first.status_code == 409
+    assert first.json()["detail"]["code"] == "voice_call_superseded"
 
 
 def test_without_the_call_parts_the_backend_says_so(client, tabs, monkeypatch):  # noqa: F811

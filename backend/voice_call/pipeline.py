@@ -107,13 +107,15 @@ def scale_output(volume: Volume) -> None:
 
 
 async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, start: dict, volume: Volume,
-                   handover: Callable[[dict], None] | None = None) -> None:
+                   handover: Callable[[dict], None] | None = None,
+                   superseded: asyncio.Event | None = None) -> None:
     """1 本の電話の会話を、 つながっている間走らせる。
 
     start: backend が渡す、 そのタブの声の設定 (= marks の名前の並び / conversation / turn の model の path)。
            つなぎ直した通話なら resume (= 前の通話の鳴り残し)
     volume: その端末の声の大きさの倍率 (= 通話中に backend から変わる)
     handover: 通話が閉じる時に、 鳴り終えていない文を backend へ渡す (= 次のつなぎ直しが言い直す)
+    superseded: 同じタブに新しい通話が来た知らせ (= 立ったら、 鳴り残しを渡して閉じる)
     """
     conversation = start["conversation"]
     gaps = OutputGaps()
@@ -168,9 +170,27 @@ async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, st
                 reported = gaps.line()
                 logger.info("voice call: output %s", reported)
 
-    await backend.claim()
-    logger.info("voice call: started client=%s", backend.client)
+    # 会話を取るのは、 電話が実際につながってから (= つながらないまま捨てられた申し込みが、 立ち上がっただけで
+    # 会話を取ると、 本物の通話の聞き取りが断られて閉じる。 2026-10-19 に 2 回)
+    @transport.event_handler("on_client_connected")
+    async def on_client_connected(transport, client_):
+        try:
+            await backend.claim()
+        except Exception as error:  # noqa: BLE001 (= 会話を取れない通話は続けない)
+            logger.warning("voice call: could not take the conversation: %s", error)
+            await runner.cancel()
+            return
+        logger.info("voice call: started client=%s", backend.client)
+
+    # 同じタブに新しい通話が来た: 鳴り残しを渡して閉じる (= 1 つのタブに 1 本)
+    async def end_when_superseded() -> None:
+        await superseded.wait()
+        logger.info("voice call: a newer call of this tab came in; ending the call")
+        await runner.cancel()
+
+    logger.info("voice call: waiting for the phone client=%s", backend.client)
     reporter = asyncio.create_task(report())
+    ender = asyncio.create_task(end_when_superseded()) if superseded is not None else None
     try:
         # 動きの無い間の時間切れは使わない (= 既定は 300 秒。 マイクを切って聞いているだけの間は人が話さないので、
         # 返事が来ないまま 5 分たつと通話ごと閉じ、 app に戻るとスピーカーもマイクも切れていた。 2026-10-19 までに
@@ -179,6 +199,8 @@ async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, st
         await runner.run()
     finally:
         reporter.cancel()
+        if ender is not None:
+            ender.cancel()
         logger.info("voice call: ended output %s", gaps.line())
         try:
             await backend.release()

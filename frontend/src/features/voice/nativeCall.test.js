@@ -8,7 +8,7 @@ const { apiFetch } = await import('../../transport/http.ts')
 const { openConversation } = await import('./conversation.js')
 const {
   toggleVoice, toggleMic, closeConversation, observeVoiceEvent, changeVolume, hasAppCall, showCallPicture,
-  _resetForTest: resetVoice,
+  adoptAppCall, _resetForTest: resetVoice,
 } = await import('./voice.js')
 const { getSnapshot: volumeOf, setVoiceVolume } = await import('../../state/voiceVolume.js')
 const { getSnapshot, setVoiceAvailable, setVoiceListen, _resetForTest } = await import('../../state/voice.js')
@@ -221,5 +221,41 @@ describe('inside the iPhone app, the app holds the microphone and the voice', ()
     await settle()
     expect(plugin.showPicture).toHaveBeenCalledTimes(1)
     expect(getSnapshot().error.ses_a).toBe('picture in picture is not possible now')
+  })
+
+  it('takes over the call the app still holds after the screen reloads, so the buttons show what the app does', async () => {
+    plugin.status = vi.fn(async () => ({
+      url: `${API_BASE}/sessions/ses_a/voice/call?volume=1&speech=0&resume=1`, mic: true, speech: false,
+    }))
+    await adoptAppCall()
+    expect(getSnapshot().on.ses_a).toBe(true)
+    expect(getSnapshot().quiet.ses_a).toBe(true)
+    expect(getSnapshot().phase.ses_a).toBe('listening')
+    // 引き取った通話のマイクは 🎙 で切れる (= 画面と app が同じ通話を指している)
+    toggleVoice('ses_a', vi.fn())
+    toggleMic('ses_a', vi.fn())
+    expect(plugin.setMic).toHaveBeenLastCalledWith({ on: false })
+    // 引き取った通話の「切れた」 は、 そのタブの会話を閉じる
+    notify({ state: 'disconnected' })
+    expect(getSnapshot().on.ses_a).toBeUndefined()
+  })
+
+  it('takes over nothing when the app holds no call, and an old app is not asked', async () => {
+    plugin.status = vi.fn(async () => ({}))
+    await adoptAppCall()
+    expect(getSnapshot().on.ses_a).toBeUndefined()
+    delete plugin.status
+    resetVoice()
+    await adoptAppCall()
+    expect(getSnapshot().on.ses_a).toBeUndefined()
+  })
+
+  it('logs the voice switched on and off in a call, so a later look can tell which button it was', async () => {
+    toggleMic('ses_a', vi.fn())
+    await settle()
+    toggleVoice('ses_a', vi.fn())
+    toggleVoice('ses_a', vi.fn())
+    const logged = apiFetch.mock.calls.filter(([path]) => path === '/log/sw').map(([, init]) => init.jsonBody)
+    expect(logged.filter((line) => line.stage === 'voice:speech').map((line) => line.on)).toEqual([true, false])
   })
 })

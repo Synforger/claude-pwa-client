@@ -5,7 +5,9 @@
     POST  /sessions/{sid}/voice/call/volume   通話中の声の大きさの倍率を変える (= 端末の画面のつまみ)
 
 本文の形は Pipecat の SmallWebRTC の口と同じ (= iPhone の app は Pipecat の iOS の部品をそのまま使う)。 会話は
-画面の会話と同じ持ち主の決まりに従う (= 1 つのタブに 1 つ。 後から開いた方が持つ)。
+画面の会話と同じ持ち主の決まりに従う (= 1 つのタブに 1 つ。 後から開いた方が持つ)。 通話も 1 つのタブに 1 本で、
+後から申し込んだ方が残る: 申し込みが来たら同じタブの前の通話は閉じ、 待っている間に後の申し込みが来た申し込みは
+通話を立てずに断る (= 409 `voice_call_superseded`)。
 
 会話は通話ごとに別の process (= `python -m backend.voice_call.worker`) で動く。 音の送り出しは 10 ms ごとの
 受け渡しなので、 backend 本体の他の仕事と同じ流れに載せると途切れる。 この口は process を起こして申し込みを
@@ -17,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import itertools
 import json
 import logging
 import sys
@@ -42,6 +45,9 @@ _workers: dict[str, tuple[str, asyncio.subprocess.Process]] = {}
 _watchers: dict[str, asyncio.Task] = {}
 # タブごとの、 閉じた通話の鳴り残し (= {since_ms, sentences}。 次のつなぎ直しが受け取り、 それ以外の通話は捨てる)
 _handovers: dict[str, dict] = {}
+# タブごとの、 いちばん新しい申し込みの番号 (= 後から来た申し込みが残る)
+_latest: dict[str, int] = {}
+_numbers = itertools.count(1)
 # 声の大きさの倍率の上限 (= 端末の画面のつまみの右端。 1 で engine の音のまま)
 VOLUME_MAX = 2.0
 
@@ -66,6 +72,27 @@ def _with_call_gain(volume: float) -> float:
 async def _write(proc: asyncio.subprocess.Process, message: dict) -> None:
     proc.stdin.write((json.dumps(message) + "\n").encode("utf-8"))
     await proc.stdin.drain()
+
+
+async def _end_calls_of(session_id: str) -> list[asyncio.Task]:
+    """そのタブの走っている通話に「終われ」 を送り、 終わりを待つ task を返す (= 鳴り残しは各 process が渡す)。"""
+    ending = []
+    for pc_id, (sid, proc) in list(_workers.items()):
+        if sid != session_id:
+            continue
+        try:
+            await _write(proc, {"type": "end"})
+        except (BrokenPipeError, ConnectionResetError):
+            # benign: the call process is already ending; its watcher below still waits for the end
+            pass
+        if pc_id in _watchers:
+            ending.append(_watchers[pc_id])
+    return ending
+
+
+def _refuse_superseded(session_id: str) -> None:
+    logger.info("voice call: a newer call request of session=%s came in; this one is not started", session_id)
+    raise_error(409, "voice_call_superseded", "このタブには、 後から別の通話が申し込まれました")
 
 
 async def _forget_when_done(pc_id: str, proc: asyncio.subprocess.Process) -> None:
@@ -106,12 +133,15 @@ async def post_call(request: Request, session_id: str, body: dict = Body(...)) -
     if not isinstance(body.get("sdp"), str) or not isinstance(body.get("type"), str):
         raise_error(400, "voice_bad_request", "本文は SDP の offer (= sdp と type) で渡します")
 
-    # つなぎ直し: 同じタブの前の通話が閉じ終えるのを待ち、 その鳴り残しを受け取る (= つなぎ直しでない通話は、
+    # 同じタブの前の通話は閉じる。 つなぎ直しは、 閉じ終えるのを待って鳴り残しを受け取る (= つなぎ直しでない通話は、
     # 前の鳴り残しを捨てる)
-    if resume:
-        ending = [_watchers[pc] for pc, (sid, _) in list(_workers.items()) if sid == session_id and pc in _watchers]
-        if ending:
-            await asyncio.wait(ending, timeout=ANSWER_TIMEOUT_SECS)
+    number = next(_numbers)
+    _latest[session_id] = number
+    ending = await _end_calls_of(session_id)
+    if resume and ending:
+        await asyncio.wait(ending, timeout=ANSWER_TIMEOUT_SECS)
+    if _latest.get(session_id) != number:
+        _refuse_superseded(session_id)
     handover = _handovers.pop(session_id, None)
     host, port = request.scope.get("server") or ("127.0.0.1", 8765)
     start = {
@@ -138,6 +168,9 @@ async def post_call(request: Request, session_id: str, body: dict = Body(...)) -
         logger.warning("voice call: could not connect session=%s: %s", session_id, reply.get("message"))
         raise_error(502, "voice_call_failed", "電話の会話をつなげませんでした", reason=reply.get("message", ""))
     answer = reply["answer"]
+    if _latest.get(session_id) != number:
+        proc.kill()
+        _refuse_superseded(session_id)
     _workers[answer["pc_id"]] = (session_id, proc)
     calls_by_conn[answer["pc_id"]] = session_id   # 通話の間、 このタブへの通知を送らない (= core/push.py)
     _watchers[answer["pc_id"]] = asyncio.create_task(_forget_when_done(answer["pc_id"], proc))
