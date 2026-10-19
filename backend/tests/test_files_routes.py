@@ -254,3 +254,67 @@ def test_file_raw_missing_and_too_large(tmp_path, monkeypatch):
     monkeypatch.setattr(files_mod, "IMAGE_SIZE_LIMIT", 8)
     (tmp_path / "big.png").write_bytes(_PNG_BYTES)
     assert client.get("/file/raw", params={"path": str(tmp_path / "big.png")}).status_code == 413
+
+
+# --- /file/open と /file/view (= HTML を隣の file ごとブラウザで開く) ---
+
+def _site(tmp_path):
+    """index.html と、 それが相対 path で読む画像とスクリプト (= 渡される図解の形)。"""
+    site = tmp_path / "pages" / "deck"
+    (site / "cam").mkdir(parents=True)
+    (site / "index.html").write_text("<!doctype html><img src='cam/a.png'><script src='draw.js'></script>")
+    (site / "cam" / "a.png").write_bytes(_PNG_BYTES)
+    (site / "draw.js").write_text("var drawn = 1;")
+    return site
+
+
+def test_file_open_sends_a_tilde_path_to_the_view_of_its_absolute_path(tmp_path, monkeypatch):
+    client, _ = _raw_client(tmp_path, monkeypatch)
+    site = _site(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    res = client.get("/file/open", params={"path": "~/pages/deck/index.html"}, follow_redirects=False)
+    assert res.status_code == 307
+    assert res.headers["location"] == "view/" + str(site / "index.html").lstrip("/")
+    page = client.get("/file/open", params={"path": str(site / "index.html")})
+    assert page.status_code == 200
+    assert page.headers["content-type"] == "text/html; charset=utf-8"
+
+
+def test_file_view_serves_the_page_and_its_relative_files_all_sandboxed(tmp_path, monkeypatch):
+    client, files_mod = _raw_client(tmp_path, monkeypatch)
+    site = _site(tmp_path)
+    base = "/file/view" + str(site)
+    for rel, kind in [("index.html", "text/html; charset=utf-8"), ("cam/a.png", "image/png"),
+                      ("draw.js", "text/javascript; charset=utf-8")]:
+        res = client.get(f"{base}/{rel}")
+        assert res.status_code == 200, rel
+        assert res.headers["content-type"] == kind
+        csp = res.headers["content-security-policy"]
+        assert csp == files_mod.VIEW_CSP
+        assert csp.startswith("sandbox allow-scripts;") and "allow-same-origin" not in csp
+        assert "connect-src 'none'" in csp
+        assert res.headers["x-content-type-options"] == "nosniff"
+
+
+def test_file_view_keeps_the_home_and_deny_list_boundaries(tmp_path, monkeypatch):
+    client, _ = _raw_client(tmp_path, monkeypatch)
+    (tmp_path / ".ssh").mkdir()
+    (tmp_path / ".ssh" / "page.html").write_text("<p>x</p>")
+    assert client.get("/file/view" + str(tmp_path / ".ssh" / "page.html")).status_code == 403
+    assert client.get("/file/view/etc/hosts.html").status_code == 403
+    assert client.get("/file/view" + str(tmp_path) + "/../../etc/x.html").status_code in (403, 404)
+    assert client.get("/file/open", params={"path": "/etc/x.html"}).status_code == 403
+
+
+@pytest.mark.parametrize("name", ["notes.md", "run.sh", "noext", "data.bin"])
+def test_file_view_refuses_types_it_does_not_serve(tmp_path, monkeypatch, name):
+    client, _ = _raw_client(tmp_path, monkeypatch)
+    (tmp_path / name).write_text("x")
+    assert client.get("/file/view" + str(tmp_path / name)).status_code == 415
+
+
+def test_file_open_takes_html_only(tmp_path, monkeypatch):
+    client, _ = _raw_client(tmp_path, monkeypatch)
+    (tmp_path / "pic.png").write_bytes(_PNG_BYTES)
+    assert client.get("/file/open", params={"path": str(tmp_path / "pic.png")}).status_code == 415
+    assert client.get("/file/open", params={"path": str(tmp_path / "missing.html")}).status_code == 404

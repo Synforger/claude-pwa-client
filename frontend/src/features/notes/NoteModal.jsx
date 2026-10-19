@@ -12,6 +12,7 @@ import { useTextZoom } from '../../hooks/useTextZoom.js'
 import { useT } from '../../i18n/t.js'
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
 import MessageRenderer from '../chat/MessageRenderer.jsx'
+import { openPath } from '../file-preview/openPath.js'
 import '../../shared/Modal.css'
 import './NoteModal.css'
 
@@ -91,11 +92,8 @@ export default function NoteModal() {
   const handleEdit = () => { setEditText(content ?? ''); setError(null); setEditMode(true) }
   const handleCancel = () => { setEditMode(false); setError(null) }
   const handleReset = async () => { setResetConfirm(false); await write('') }
-  // path をタップしたらプレビューで開く。 メモは畳む (= プレビューと同じ場所に重なるため)
-  const handleOpenFile = useCallback((path) => {
-    setOverlay('notes', false)
-    setOverlay('previewPath', path)
-  }, [])
+  // path をタップしたら開く (= 開き先は openPath)。 木やプレビューへ移る時はメモを畳む (= 同じ場所に重なるため)
+  const handleOpenFile = useCallback((path) => openPath(path, { onLeave: () => setOverlay('notes', false) }), [])
 
   useEscape(() => {
     if (resetConfirm) setResetConfirm(false)

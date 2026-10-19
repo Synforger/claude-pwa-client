@@ -7,9 +7,10 @@ import logging
 import os
 import re
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Body, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 from backend.config import FILE_SIZE_LIMIT, HOME
 from backend.errors import raise_error
@@ -101,6 +102,79 @@ def get_file_raw(path: str = Query(...)):
         media_type=media_type,
         headers={"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"},
     )
+
+
+# HTML を、 隣の file (= 画像・スクリプト・CSS・フォント) ごとブラウザで開く口。 `/file/view/<HOME 配下の
+# 絶対 path>` で配るので、 HTML の中の相対 path (= `cam/a.jpg`) は同じ口でそのまま読める。 スクリプトが動く形で
+# 開くので、 どの応答にも sandbox の CSP を付ける: ページの origin は backend と別 (= null) になり、 fetch /
+# WebSocket は connect-src で止まり、 読める画像・スクリプト・CSS はこの backend の物だけ。 ページは backend の
+# 状態を変える口を叩けず (= 届くのは画像の形の GET だけで、 GET の口は読むだけ)、 外へも何も送れない。
+# HOME 配下 / deny list の制限は `/file` と同じ。
+_VIEW_MEDIA_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".htm": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".mjs": "text/javascript; charset=utf-8",
+    ".json": "application/json",
+    ".csv": "text/csv; charset=utf-8",
+    ".txt": "text/plain; charset=utf-8",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".ttf": "font/ttf",
+    ".otf": "font/otf",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".wav": "audio/wav",
+}
+# 図解の動画や大きな画像は通し、 巨大な素材で backend が詰まらない上限 (= 1 file ごと)。
+VIEW_SIZE_LIMIT = 50 * 1024 * 1024
+VIEW_CSP = (
+    "sandbox allow-scripts; default-src 'none'; "
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; "
+    "connect-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'"
+)
+_VIEW_HEADERS = {
+    "Content-Security-Policy": VIEW_CSP,
+    "Cache-Control": "no-cache",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
+
+
+@router.get("/file/open")
+def open_file_in_browser(path: str = Query(...)):
+    """チャットの path (= `~/…` も可) の HTML を、 `/file/view/<絶対 path>` へ回す。"""
+    resolved = _resolve_safe(path)
+    if resolved.suffix.lower() not in (".html", ".htm"):
+        raise HTTPException(status_code=415, detail="Unsupported media type")
+    if not resolved.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    # 相対の行き先 (= backend が path の前置きの下に置かれても、 同じ前置きの下の view へ回る)。
+    return RedirectResponse(url="view/" + quote(str(resolved).lstrip("/")), status_code=307)
+
+
+@router.get("/file/view/{path:path}")
+def get_file_view(path: str):
+    resolved = _resolve_safe("/" + path)
+    media_type = _VIEW_MEDIA_TYPES.get(resolved.suffix.lower())
+    if media_type is None:
+        raise HTTPException(status_code=415, detail="Unsupported media type")
+    if not resolved.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    if resolved.stat().st_size > VIEW_SIZE_LIMIT:
+        raise_error(413, "file_too_large", "ファイルが大きすぎます（上限 50MB）", limit="50MB")
+    return FileResponse(resolved, media_type=media_type, headers=_VIEW_HEADERS)
 
 
 @router.put("/file")
