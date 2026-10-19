@@ -22,6 +22,12 @@ export function callUrl(sid, volume = 1, speech = true) {
   return url.href
 }
 
+// 電話の口の URL から、 そのタブの id を取り出す (= callUrl の逆。 形が違えば null)
+function callSid(url) {
+  const found = /\/sessions\/([^/]+)\/voice\/call(?:\?|$)/.exec(typeof url === 'string' ? url : '')
+  return found ? decodeURIComponent(found[1]) : null
+}
+
 // app の会話を 1 本だけ持つ (= app の部品も backend の会話も、 1 本ずつ)。
 //   onState(sid, state, message, { fatal })   connecting / connected / disconnected / error (= fatal: 通話が続けられ
 //                                             ない error か。 app が言わなければ undefined)
@@ -44,6 +50,17 @@ export function createNativeCall({ plugin, onState, onMic = () => {} }) {
     // 古い版の app は、 声の入 / 切と小窓で表示の口を持たない (= 呼ぶと「関数ではない」 で落ちる)
     get canSetSpeech() { return typeof plugin.setSpeech === 'function' },
     get canShowPicture() { return typeof plugin.showPicture === 'function' },
+    // app が持っている通話 (= 画面が読み込み直されても、 app は通話を持ち続ける)。 そのタブを今の通話として引き取り、
+    // { sid, mic, speech } を返す (= 通話していない / 古い版の app なら null)
+    async adopt() {
+      if (typeof plugin.status !== 'function') return null
+      const { url, mic, speech } = (await plugin.status()) || {}
+      const sid = callSid(url)
+      if (!sid) return null
+      listen()
+      current = sid
+      return { sid, mic: mic !== false, speech: speech !== false }
+    },
     async start(sid, { mic, volume = 1, speech = true }) {
       listen()
       current = sid

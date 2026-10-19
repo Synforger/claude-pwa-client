@@ -5,7 +5,7 @@
 // 会話を開いている間に送る文は voiceInputText が印を付け、 吹き出しは hideVoiceInputMark で表示から外す。
 // overlay も registry への登録も持たない。
 
-export { observeVoiceEvent, voiceInputText, setVoiceSender, subscribeVoice, voiceOnSids } from './voice.js'
+export { observeVoiceEvent, voiceInputText, setVoiceSender, subscribeVoice, voiceOnSids, adoptAppCall } from './voice.js'
 export { hideMarks } from './marks.js'
 export { hideVoiceInputMark } from './inputMark.js'
 export { useVoiceMarks } from './useVoiceMarks.js'

@@ -188,6 +188,7 @@ function micOpen(sid) {
 function setSpeech(sid, on) {
   setVoiceQuiet(sid, !on)
   if (call()?.has(sid)) {
+    logCall(sid, 'speech', { on })
     call().setSpeech(sid, on).catch((error) => setVoiceError(sid, error?.message || String(error)))
   } else if (!on) {
     player.stop(sid)
@@ -384,6 +385,21 @@ function openCall(sid) {
     closeConversation(sid, 'the app could not start the call')
     setVoiceError(sid, error?.message || String(error))
   })
+}
+
+// 画面が立ち上がった時に呼ぶ: app が通話を持ったままなら (= 通話の途中で画面が読み込み直された)、 その通話を
+// 今の会話として引き取り、 🔊 と 🎙 の表示を app の状態に合わせる (= 画面ではマイクが切れて見えるのに、 app では
+// 聞き取りが続く形を残さない)。
+export async function adoptAppCall() {
+  if (!call()) return
+  const found = await call().adopt().catch(() => null)
+  if (!found || getSnapshot().on[found.sid]) return
+  if (found.mic) micWanted.add(found.sid)
+  else micWanted.delete(found.sid)
+  setVoiceQuiet(found.sid, !found.speech)
+  setVoiceOn(found.sid, true)
+  setVoicePhase(found.sid, found.mic ? 'listening' : null)
+  logCall(found.sid, 'adopt', { mic: found.mic, speech: found.speech })
 }
 
 // 小窓 (= PiP) の再生 / 停止で app がマイクを切り替えた: 🎙 の表示を合わせる (= 入力欄の 🎙 と同じ状態)。

@@ -7,6 +7,7 @@ backend の `routes/voice_call.py` が通話ごとに起こす。 標準入出�
                                                                → 出 {"type": "error", "message": …}
     入   {"type": "patch", "pc_id": …, "candidates": […]}
     入   {"type": "volume", "volume": …}                       (= その端末の声の大きさの倍率。 start にも在る)
+    入   {"type": "end"}                                       (= 同じタブに新しい通話が来た。 鳴り残しを渡して終える)
     出   {"type": "handover", "since_ms": …, "sentences": […]}  (= 通話が閉じる時。 鳴り終えていない文)
 
 会話が終わるか、 backend が標準入力を閉じたら終わる。 log は `logs/voice-call.log` に出す (= backend の log と同じく
@@ -78,13 +79,15 @@ async def main() -> None:
     start = json.loads(await reader.readline())
     handler = SmallWebRTCRequestHandler()
     volume = Volume(float(start.get("volume", 1.0)))
+    superseded = asyncio.Event()
     call: asyncio.Task | None = None
 
     async with BackendClient(start["base_url"], start["session_id"], start["client"]) as backend:
         async def connected(connection) -> None:
             nonlocal call
             call = asyncio.create_task(run_call(connection, backend, start, volume,
-                                                handover=lambda left: _write({"type": "handover", **left})))
+                                                handover=lambda left: _write({"type": "handover", **left}),
+                                                superseded=superseded))
 
         async def read_requests() -> None:
             while line := await reader.readline():
@@ -96,6 +99,10 @@ async def main() -> None:
                         answer = await handler.handle_web_request(
                             request=SmallWebRTCRequest.from_dict(message), webrtc_connection_callback=connected)
                         _write({"type": "answer", "answer": answer})
+                    elif kind == "end":
+                        superseded.set()
+                        if call is None:
+                            return
                     elif kind == "volume":
                         volume.value = float(message["volume"])
                     elif kind == "patch":
