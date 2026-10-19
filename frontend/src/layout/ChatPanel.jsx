@@ -38,7 +38,7 @@ import { setBadge } from '../features/push-notify/badge.js'
 import ActivityBar from '../features/tasks/ActivityBar.jsx'
 import { PromptStateBanner } from '../features/status-bar/PromptStateBanner.jsx'
 import ChatInput from '../features/chat/ChatInput.jsx'
-import { setVoiceSender } from '../features/voice/index.js'
+import { setVoiceSender, adoptAppCall } from '../features/voice/index.js'
 import MessageList from '../features/chat/MessageList.jsx'
 import { sortByTs } from '../features/chat/sortByTs.js'
 import AttachmentsBar from '../features/chat/AttachmentsBar.jsx'
@@ -238,6 +238,8 @@ export default function ChatPanel({ sid }) {
   useEffect(() => { sendRef.current = sendMessage }, [sendMessage])
   useEffect(() => {
     setVoiceSender((voiceSid, text) => sendRef.current(text, voiceSid))
+    // 通話の途中で画面が読み込み直された時は、 app が持っている通話を引き取る
+    adoptAppCall()
     return () => setVoiceSender(null)
   }, [])
   const handleSendFailedConsumed = useCallback(() => storeSetSendFailedText(null), [])
