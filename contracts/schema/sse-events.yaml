@@ -69,7 +69,7 @@ events:
     render_target: "chat"
 
   assistant:
-    description: "claude 応答 (= text / thinking / tool_use ブロック含む)"
+    description: "claude 応答 (= text / held_text / thinking / tool_use ブロック含む)"
     type: object
     required: [sid, uuid, message, corr_id]
     properties:
@@ -82,11 +82,11 @@ events:
         properties:
           content:
             type: array
-            description: "text / thinking / tool_use ブロック list"
+            description: "text / held_text / thinking / tool_use ブロック list"
             items:
               type: object
               properties:
-                type: { enum: [text, thinking, tool_use] }
+                type: { enum: [text, held_text, thinking, tool_use] }
               additionalProperties: true
         additionalProperties: true
       parentUuid: { type: string, nullable: true }
@@ -97,6 +97,7 @@ events:
       - "1 Anthropic message を複数 JSONL 行に分けて書く場合あり、 uuid (= message.id) で bubble 集約"
       - "parent_tool_use_id 付き (= sub-agent 経由) は親 chat に出さず skip"
       - "tool_use の Agent / AskUserQuestion / TodoWrite は assistant tools list から除外"
+      - "held_text = タブの Claude Code の language が日本語で、 地の文が英語の text block (= 中身は text と同じ。 画面は畳んで出し、 声と小窓は読まない)"
     trigger: "JSONL assistant 行 → events.py:_assistant_events"
     consumer: "useChatStream → processStreamEvent (= buffer に積み rAF flush)"
     render_target: "chat"

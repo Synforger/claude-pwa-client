@@ -364,6 +364,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
     live &&
     !msg.text &&
     !msg.thinking &&
+    !msg.held &&
     !msg.askUserQuestion &&
     !(msg.tools && msg.tools.length > 0)
   ) {
@@ -420,7 +421,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
             </span>
           )}
         </div>
-      ) : msg.role === 'agent' && (msg.tools?.length > 0 || msg.thinking || msg.askUserQuestion) ? (
+      ) : msg.role === 'agent' && (msg.tools?.length > 0 || msg.thinking || msg.held || msg.askUserQuestion) ? (
         <div className="agent-block">
           {msg.thinking && (
             <details className="thinking-block" open>
@@ -428,6 +429,13 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
               {/* claude は thinking の末尾に改行 2 つを付けることが多く、 pre-wrap だと
                   枠の下に空行が残るので表示では落とす */}
               <pre className="thinking-text">{msg.thinking.trimEnd()}</pre>
+            </details>
+          )}
+          {/* 設定した言語でない地の文 (= backend の held_text)。 閉じたまま出し、 押した時だけ読める */}
+          {msg.held && (
+            <details className="thinking-block held-block" data-testid="held-prose">
+              <summary>{t('chat.heldProse')}</summary>
+              <pre className="thinking-text">{msg.held.trimEnd()}</pre>
             </details>
           )}
           {/* 2026-06-22: 旧実装は tools → text 順だったが、 claude の実応答は

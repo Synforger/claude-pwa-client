@@ -208,6 +208,7 @@
   "chat.rollover_reason_context": "Context reached {pct}%. This session wraps up at the next stopping point and hands over to a new one.",
   "chat.rollover_reason_idle": "Context is at {pct}% and nothing has happened for {minutes} minutes. This session closes and a new one starts.",
   "chat.thinking": "Thinking…",
+  "chat.heldProse": "🌐 Hidden: prose not in your language (tap to show)",
   "chat.scroll_latest": "Jump to the latest message",
   "tool.chars": "{n} chars",
   "code.copy": "Copy code",

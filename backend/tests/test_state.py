@@ -210,3 +210,17 @@ def test_session_state_lock_serializes_modifications(monkeypatch, tmp_path):
 def test_get_or_create_lock_for_unknown_sid_returns_lock():
     lk = state.get_or_create_lock("nope")
     assert isinstance(lk, asyncio.Lock)
+
+
+def test_session_language_reads_the_settings_of_the_tab_account(monkeypatch, tmp_path):
+    """タブの口座の設定の場所 (= projects の 1 つ上) から `language` を読む。"""
+    from backend.core import prose_language
+    monkeypatch.setattr(prose_language, "_cache", {})
+    (tmp_path / "work" / "projects").mkdir(parents=True)
+    (tmp_path / "work" / "settings.json").write_text('{"language": "日本語"}', encoding="utf-8")
+    dirs = {"work": tmp_path / "work" / "projects", None: tmp_path / "personal" / "projects"}
+    monkeypatch.setattr(state._config, "projects_dir_for_account", lambda account_id: dirs[account_id])
+    monkeypatch.setitem(state.sessions_meta, "s_lang",
+                        state.SessionDef(id="s_lang", agent_id="a", title="t", created_at=0, account_id="work"))
+    assert state.session_language("s_lang") == "日本語"
+    assert state.session_language("s_unknown") == ""

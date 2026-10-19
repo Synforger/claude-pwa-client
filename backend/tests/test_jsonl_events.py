@@ -598,3 +598,26 @@ def test_subagent_line_skips_meta_and_non_dict():
     assert subagent_line_to_events({"isMeta": True, "type": "assistant"}) == []
     assert subagent_line_to_events("not a dict") == []
     assert subagent_line_to_events({"type": "unknown_kind"}) == []
+
+
+HELD_EN = "The fix is ready. The only thing left before I merge and deploy it is the GitHub check, which has not finished yet."
+
+
+def _assistant_line(content):
+    return {"type": "assistant", "uuid": "u-held", "message": {"id": "m-held", "role": "assistant", "content": content}}
+
+
+def test_english_prose_becomes_held_text_when_language_is_japanese():
+    content = [{"type": "thinking", "thinking": HELD_EN}, {"type": "text", "text": HELD_EN},
+               {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": HELD_EN}}]
+    events = jsonl_line_to_events(_assistant_line(content), "日本語")
+    blocks = events[0]["message"]["content"]
+    assert [b["type"] for b in blocks] == ["thinking", "held_text", "tool_use"]
+    assert blocks[1]["text"] == HELD_EN
+
+
+def test_text_stays_text_without_a_japanese_setting_or_for_japanese_prose():
+    assert jsonl_line_to_events(_assistant_line([{"type": "text", "text": HELD_EN}]))[0]["message"]["content"][0]["type"] == "text"
+    assert jsonl_line_to_events(_assistant_line([{"type": "text", "text": HELD_EN}]), "English")[0]["message"]["content"][0]["type"] == "text"
+    ja = "直しを作り終えました。 GitHub の検査が終わるのを待ってから merge して、 本番に入れます。"
+    assert jsonl_line_to_events(_assistant_line([{"type": "text", "text": ja}]), "日本語")[0]["message"]["content"][0]["type"] == "text"

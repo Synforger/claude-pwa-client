@@ -39,7 +39,7 @@ export interface UserMessageEvent {
   send_id?: string | null
 }
 
-/** claude 応答 (= text / thinking / tool_use ブロック含む) */
+/** claude 応答 (= text / held_text / thinking / tool_use ブロック含む) */
 export interface AssistantEvent {
   type: "assistant"
   sid: string
@@ -47,9 +47,9 @@ export interface AssistantEvent {
   uuid: string
   corr_id: string
   message: {
-    /** text / thinking / tool_use ブロック list */
+    /** text / held_text / thinking / tool_use ブロック list */
     content: ({
-        type?: "text" | "thinking" | "tool_use"
+        type?: "text" | "held_text" | "thinking" | "tool_use"
       } & Record<string, unknown>)[]
   } & Record<string, unknown>
   parentUuid?: string | null

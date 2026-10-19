@@ -93,6 +93,29 @@ def test_endpoint_stop_event_pushes_output(fake_agents, fake_bindings, captured_
     assert sid == "primary"
 
 
+def test_endpoint_stop_event_holds_prose_not_in_the_configured_language(fake_agents, fake_bindings, captured_pushes, monkeypatch):
+    """設定が日本語のタブの英語の返事は通知しない (= 画面で畳むのと同じ判定)。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    fake_bindings("primary", "claude-internal-uuid")
+    monkeypatch.setattr(hooks_router, "session_language", lambda sid: "日本語")
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    client = TestClient(app)
+
+    english = "The fix is ready. The only thing left before I merge and deploy it is the GitHub check, which has not finished yet."
+    payload = {"hook_event_name": "Stop", "session_id": "claude-internal-uuid", "cwd": fake_agents["cwd"],
+               "last_assistant_message": english}
+    response = client.post("/hooks/event", json=payload)
+    assert response.json() == {"ok": True, "pushed": None, "held": "foreign_prose"}
+    assert captured_pushes == []
+
+    payload["last_assistant_message"] = "直しを作り終えました。 検査が終わったら merge して本番に入れます。"
+    assert client.post("/hooks/event", json=payload).json() == {"ok": True, "pushed": "Stop"}
+    assert len(captured_pushes) == 1
+
+
 def test_endpoint_notification_event_pushes_message(fake_agents, fake_bindings, captured_pushes):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient

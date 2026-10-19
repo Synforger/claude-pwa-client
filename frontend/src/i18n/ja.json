@@ -208,6 +208,7 @@
   "chat.rollover_reason_context": "context が {pct}% に届きました。 区切りで締めて、 新しい会話へ引き継ぎます。",
   "chat.rollover_reason_idle": "context {pct}% のまま {minutes} 分、 更新がありません。 締めて、 新しい会話を起動します。",
   "chat.thinking": "推論中…",
+  "chat.heldProse": "🌐 英語の文を畳みました (押すと開く)",
   "chat.scroll_latest": "最新メッセージへ",
   "tool.chars": "{n}文字",
   "code.copy": "コードをコピー",

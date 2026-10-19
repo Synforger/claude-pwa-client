@@ -18,7 +18,7 @@ import { isStaleFor } from './replayGuard.js'
 // - resetBuf(sid)              : 新規ターン / reconnect 開始時の初期化
 //
 function emptyBuf() {
-  return { text: null, thinking: null, newTools: [], needsNewBubble: false, uuid: null, dirty: false }
+  return { text: null, thinking: null, held: null, newTools: [], needsNewBubble: false, uuid: null, dirty: false }
 }
 
 // messages 全長から uuid 一致 bubble を探す (= 末尾から逆走査で早期 return)。 見つから
@@ -64,6 +64,7 @@ export function useStreamBuffer({ setMessages }) {
     const snap = {
       text: buf.text,
       thinking: buf.thinking,
+      held: buf.held ?? null,
       newTools: [...buf.newTools],
       needsNewBubble: buf.needsNewBubble,
       uuid: buf.uuid,
@@ -71,6 +72,7 @@ export function useStreamBuffer({ setMessages }) {
     }
     buf.text = null
     buf.thinking = null
+    buf.held = null
     buf.newTools = []
     buf.needsNewBubble = false
     buf.uuid = null
@@ -95,6 +97,7 @@ export function useStreamBuffer({ setMessages }) {
         && last.streaming
         && !last.text
         && !last.thinking
+        && !last.held
         && (!last.tools || last.tools.length === 0)
         && !last.askUserQuestion
         && !isStaleFor(snap.ts, last.createdAt ?? last.ts)
@@ -122,6 +125,7 @@ export function useStreamBuffer({ setMessages }) {
               // text / thinking は frame ごとに完全形で来るので、 非空なら新値、 空なら既存維持
               text: snap.text || existing.text || '',
               thinking: snap.thinking || existing.thinking || null,
+              held: snap.held || existing.held || null,
               tools: addedTools.length > 0 ? [...existingTools, ...addedTools] : existingTools,
               streaming: existing.streaming,
               ts: existing.ts ?? snap.ts ?? null,
@@ -137,6 +141,7 @@ export function useStreamBuffer({ setMessages }) {
             uuid: snap.uuid || last.uuid,
             text: snap.text || '',
             thinking: snap.thinking || null,
+            held: snap.held || null,
             tools: [...(snap.newTools || [])],
             ts: snap.ts ?? last.ts ?? null,
           }
@@ -148,6 +153,7 @@ export function useStreamBuffer({ setMessages }) {
           role: 'agent',
           text: snap.text || '',
           thinking: snap.thinking || null,
+          held: snap.held || null,
           tools: [...(snap.newTools || [])],
           streaming: true,
           ts: snap.ts ?? null,

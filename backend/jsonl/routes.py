@@ -53,6 +53,7 @@ from backend.state import (
     ALL_SUBSCRIBER_KEY,
     agent_status,
     jsonl_event_broadcaster,
+    session_language,
     sessions_overview,
     stream_states,
 )
@@ -118,7 +119,7 @@ def _inject_envelope(event: dict, sid: str) -> dict:
     return event
 
 
-def _lines_to_events(lines: list[str]) -> list[dict]:
+def _lines_to_events(lines: list[str], language: str | None = None) -> list[dict]:
     """JSONL 行 (文字列) を event dict のリストに変換 (= broadcaster publish 用、 pure)。"""
     out: list[dict] = []
     for raw in lines:
@@ -129,7 +130,7 @@ def _lines_to_events(lines: list[str]) -> list[dict]:
             obj = json.loads(raw)
         except json.JSONDecodeError:
             continue
-        out.extend(jsonl_line_to_events(obj))
+        out.extend(jsonl_line_to_events(obj, language))
     return out
 
 
@@ -230,7 +231,7 @@ def get_chat_history(
     """
     segs = chain.segments(session_id, _latest_jsonl(session_id))
     pairs, end_pos = chain.read(segs, from_pos, INITIAL_REPLAY_LINES)
-    events = _lines_to_events([raw for raw, _pos in pairs])
+    events = _lines_to_events([raw for raw, _pos in pairs], session_language(session_id))
     for ev in events:
         _inject_envelope(ev, session_id)
         _shrink_tool_results(ev)
@@ -378,6 +379,7 @@ def _process_new_lines(sid: str, lines_with_pos: list[tuple[str, int]]) -> None:
     SSE 配信側はこれを id 行に使い、 live 中も client の offset が前進する (= 再接続時の
     replay を差分だけに保つ)。
     """
+    language = session_language(sid)
     for raw, line_pos in lines_with_pos:
         raw = raw.strip()
         if not raw:
@@ -403,7 +405,7 @@ def _process_new_lines(sid: str, lines_with_pos: list[tuple[str, int]]) -> None:
                 sessions_overview.notify()  # 全 sid SSE にも伝播
         # F-02 / F-06: monitor 経路で event を生成 + broadcaster publish。 SSE 配信側は
         # この event を Queue で受けるだけ (= 旧 per-SSE 接続 tail を集約)。
-        evts = jsonl_line_to_events(obj)
+        evts = jsonl_line_to_events(obj, language)
         _attach_duration_to_result(sid, obj, evts)
         for event in evts:
             # /all subscriber が sid 別に振り分けられるよう event dict に sid を埋める。

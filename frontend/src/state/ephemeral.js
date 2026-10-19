@@ -63,7 +63,7 @@ export function getStreamBuffer(sid) {
       ...prev,
       streamBuffers: {
         ...prev.streamBuffers,
-        [sid]: { text: '', thinking: null, newTools: [], uuid: null, dirty: false, needsNewBubble: false },
+        [sid]: { text: '', thinking: null, held: null, newTools: [], uuid: null, dirty: false, needsNewBubble: false },
       },
     }))
   }
@@ -81,7 +81,7 @@ export function bumpStreamBuffer(sid) {
 export function resetStreamBuffer(sid) {
   store.setState(prev => {
     const next = { ...prev.streamBuffers }
-    next[sid] = { text: '', thinking: null, newTools: [], uuid: null, dirty: false, needsNewBubble: false }
+    next[sid] = { text: '', thinking: null, held: null, newTools: [], uuid: null, dirty: false, needsNewBubble: false }
     return { ...prev, streamBuffers: next }
   })
 }

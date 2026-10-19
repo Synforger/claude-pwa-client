@@ -36,7 +36,7 @@ class UserMessageEvent(BaseModel):
 
 
 class AssistantEvent(BaseModel):
-    """claude 応答 (= text / thinking / tool_use ブロック含む)"""
+    """claude 応答 (= text / held_text / thinking / tool_use ブロック含む)"""
     model_config = ConfigDict(extra="forbid")
     type: Literal["assistant"]
     sid: str
