@@ -1,6 +1,6 @@
 // path をタップした時の開き先 (= チャット・メモ・ファイルの木・お気に入りの全部の入口で同じ)。
 // folder は木、 HTML はブラウザの新しいタブ (= スクリプトが動く形。 backend の /file/open が、 隣の画像ごと
-// sandbox を掛けて配る)、 それ以外はプレビュー。 iPhone の app では、 新しいタブは app の中の閲覧の画面で開く。
+// sandbox を掛けて配る。 設定の page_origin の folder の物は、 sandbox の無い別の port へ回す)、 それ以外はプレビュー。 iPhone の app では、 新しいタブは app の中の閲覧の画面で開く。
 // iPhone / iPad のホーム画面の PWA は、 HTML もプレビューの枠で開く (= 枠の中の iframe)。 PWA には戻る口が無く、
 // 新しいタブのはずの /file/view が PWA の画面ごと置き換わって、 会話へ戻れなくなる。
 import { setOverlay } from '../../state/ui.js'

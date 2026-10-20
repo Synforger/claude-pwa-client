@@ -123,6 +123,13 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 - `voice_call_gain_db` (任意): iPhone の app の通話の声だけに掛ける大きさ (dB、 既定 0)。 画面の 🔊 のつまみの倍率の
   上に掛かる。 app の通話は画面の声と鳴らし方が違うので、 つまみ 100% で他の app の音と揃わない時に、 画面の声を
   動かさずに通話の声だけを下げる (= 例: `-26` で約 20 分の 1)。 次に掛けた通話から効く
+- `page_origin` (任意): この folder の HTML を、 sandbox を外した普通のページとして別の port から開く。
+  `{"folder": "~/pages", "port": 8775}` の形で書く。 path をタップすると `/file/view` の代わりに
+  `<同じ host>:<port>/<folder の中の path>` が開き、 ページが `localStorage` に残した物は次に開いた時も残る
+  (= `/file/view` は sandbox でページの origin を毎回作り直すので、 何も残らない)。 folder の中のページは 1 つの origin を
+  共有する。 backend の口にもほかの host にも通信できない所は `/file/view` と同じ。 backend は `127.0.0.1:<port>` で待ち受けるので、
+  Tailscale 越しに使う時は同じ番号を tailnet に出す (= `tailscale serve --bg --https=<port> http://127.0.0.1:<port>`)。
+  書き損じた時と port が塞がっている時は起動ログに理由を出し、 その folder も今どおり `/file/view` で開く
 - `cors_allow_origins`: 通常は `[]` (backend が同一オリジンで frontend を配信するため
   CORS は不要)。 Vite dev server からアクセスする場合は `["http://localhost:5173"]` 等を
   設定する
