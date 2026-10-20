@@ -125,3 +125,42 @@ def test_session_env_names_the_note_of_that_tab():
     args = tmux_session_env_args("ses_abc", {"PWA_NOTE": "/spoof"})
     assert f"PWA_NOTE={paths.NOTES_DIR / 'ses_abc.md'}" in args
     assert "PWA_NOTE=/spoof" not in args
+
+
+def test_a_note_that_links_elsewhere_is_read_written_and_emptied_there(client, tabs, tmp_path):
+    """起動した側がメモをタブの作業の folder に置き、 notes/<id>.md をそこへの symlink にした形。
+    画面からの保存は指す先に入り、 symlink は symlink のまま残る。"""
+    a, _ = tabs
+    kept = tmp_path / "tier" / "notes" / f"{a.id}.md"
+    _file(a.id).parent.mkdir(parents=True, exist_ok=True)
+    _file(a.id).symlink_to(kept)
+    # 指す先がまだ無い間は空として読め、 書けば指す先にできる
+    assert client.get(f"/sessions/{a.id}/note").json() == {"path": str(kept), "content": ""}
+    body = client.put(f"/sessions/{a.id}/note", json={"content": "- 続きはここから\n"}).json()
+    assert body == {"path": str(kept), "content": "- 続きはここから\n"}
+    assert kept.read_text(encoding="utf-8") == "- 続きはここから\n"
+    assert _file(a.id).is_symlink()
+    assert client.get(f"/sessions/{a.id}/note").json()["content"] == "- 続きはここから\n"
+    # 空にすると指す先だけを消し、 symlink は残る (= 次に書けば同じ所にできる)
+    client.put(f"/sessions/{a.id}/note", json={"content": ""})
+    assert not kept.exists()
+    assert _file(a.id).is_symlink()
+
+
+def test_deleting_the_tab_removes_the_link_and_keeps_the_note_it_led_to(client, tabs, monkeypatch, tmp_path):
+    """タブの作業の folder に置かれたメモは、 その folder の記録として残る。"""
+    import backend.routes.sessions as sessions_routes  # noqa: PLC0415
+    monkeypatch.setattr(sessions_routes, "kill_tmux_session", lambda _sid: None)
+    a, _ = tabs
+    kept = tmp_path / "tier" / "notes" / f"{a.id}.md"
+    kept.parent.mkdir(parents=True)
+    _file(a.id).parent.mkdir(parents=True, exist_ok=True)
+    _file(a.id).symlink_to(kept)
+    client.put(f"/sessions/{a.id}/note", json={"content": "残す\n"})
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(sessions_routes.delete_session(a.id, _="ok"))
+    finally:
+        loop.close()
+    assert not _file(a.id).is_symlink() and not _file(a.id).exists()
+    assert kept.read_text(encoding="utf-8") == "残す\n"
