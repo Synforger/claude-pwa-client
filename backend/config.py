@@ -218,6 +218,38 @@ def extensions() -> list[dict[str, str]]:
     return _scan_extensions()[0]
 
 
+# --- ページの origin (= 指定の folder の HTML を、 sandbox を外して別の port から配る) ---
+
+def _scan_page_origin() -> tuple[tuple[Path, int] | None, list[str]]:
+    """config.json の `page_origin` を (= (folder, port) か None, 書き損じの指摘) に分ける。
+
+    書いていない時と、 書き損じた時は None (= 別の port を立てず、 その folder の HTML も今どおり /file/view で開く)。
+    folder は `~` を展開し、 symlink を辿った実体にする (= /file/open が resolve() した path と比べるため)。
+    """
+    raw = get_config().get("page_origin")
+    if raw is None:
+        return None, []
+    if not isinstance(raw, dict):
+        return None, [f"config.page_origin must be an object, got {type(raw).__name__}"]
+    folder, port = raw.get("folder"), raw.get("port")
+    problems = []
+    if not isinstance(folder, str) or not folder:
+        problems.append("config.page_origin.folder must be a path")
+    if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
+        problems.append(f"config.page_origin.port must be a port number, got {port!r}")
+    if problems:
+        return None, problems
+    path = Path(folder).expanduser().resolve()
+    if not path.is_dir():
+        return None, [f"config.page_origin.folder is not a directory: {path}"]
+    return (path, port), []
+
+
+def page_origin() -> tuple[Path, int] | None:
+    """sandbox を外して配る folder と、 それを配る port (= 書いていなければ None)。"""
+    return _scan_page_origin()[0]
+
+
 def validate_runtime_paths() -> None:
     """起動時 sanity check (= backend-F-67)。 主要 path / 設定の欠落を warn する。
 
@@ -245,7 +277,7 @@ def validate_runtime_paths() -> None:
         logger.warning(
             "runtime check: tmux_session_map_dir does not exist: %s", map_dir
         )
-    for problem in _scan_extensions()[1]:
+    for problem in _scan_extensions()[1] + _scan_page_origin()[1]:
         logger.warning("runtime check: %s", problem)
 
 

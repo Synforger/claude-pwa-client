@@ -32,7 +32,7 @@
 - **本文が横に動かない Markdown**: ファイルプレビューとメモでは、 文は画面の幅で折り返し、 本文全体が横に動くことはない。 コードブロックは行の形を保ってブロックの中で横に送り、 表はマスの中を単語の切れ目で折り返して、 それでも入らない時は表の中で横に送る (= GitHub と同じ描き方)。 ピンチ / Ctrl・⌘ + ホイールで字の大きさが変わって行が組み直されるので、 縮めると幅の広いブロックも多く入る。 大きさは両方で共通で、 端末ごとに覚え、 会話一覧の ⚙ (= 設定) からも 10% 刻みで変えられる
 - **ファイルツリー + お気に入り**: ⋯ メニューからツリー閲覧、 ☆ でお気に入り登録 + 1 タップ移動。 一覧はホスト側に持つので、 どの端末で開いても同じ一覧になり、 ブラウザが保存領域を消しても残る。 エージェントは環境変数 `PWA_FAVORITES` が指す file に 1 行足すだけで登録できる
 - **タブごとのメモ**: 📋 ボタンで、 そのタブの下書きのメモを開く。 markdown のファイルと同じ描き方で、 長くても畳まない。 段落の改行と空白は書いたとおりに残るので、 1 行ずつ打った箇条や罫線で描いた木も崩れない。 書いてある path はタップで開け、 その場で編集できる。 そのタブのエージェントも同じ file に書ける (= path は環境変数 `PWA_NOTE`) ので、 「メモに抜き出しておいて」 が通る。 メモはタブを消すと消える
-- **HTML はブラウザで開く**: 返事・メモ・ファイルの木・お気に入りで `.html` の path をタップすると、 スクリプトが動く形でブラウザの新しいタブに開く。 `/file/view/…` から配るので、 HTML が相対 path で読む画像・スクリプト・CSS もそのまま読める。 iPhone の app では、 返事の web の link と同じく、 app の中の閲覧の画面で開き、 閉じるボタンで会話に戻る
+- **HTML はブラウザで開く**: 返事・メモ・ファイルの木・お気に入りで `.html` の path をタップすると、 スクリプトが動く形でブラウザの新しいタブに開く。 `/file/view/…` から配るので、 HTML が相対 path で読む画像・スクリプト・CSS もそのまま読める。 `page_origin` に書いた folder のページは、 代わりに専用の port から普通のページとして開き、 `localStorage` に残した物が次に開いた時も残る (= `docs/reference/config.md`)。 iPhone の app では、 返事の web の link と同じく、 app の中の閲覧の画面で開き、 閉じるボタンで会話に戻る
 - **画像 / テキスト添付**: マルチパート送信 + 履歴永続化
 - **打った分だけ伸びる入力欄**: 入力欄は打った分だけ伸びて 3 行で止まり、 そこから先は中でスクロールする (= 上の返事を読みながら打てる高さに留める)。 3 行を超えると上端の縁に小さな開閉の印が出て (= 印のための場所は取らない)、 6 行まで伸ばせる。 送信すると元の大きさに戻る
 - **長い返答の折りたたみ**: 4,000 文字を超える返答はプレビューに畳まれ、 タップでその場に展開する。 畳んだ状態でも展開後も markdown のまま描画されるので書式が崩れない。 プレビューはコードフェンスの外の
@@ -89,6 +89,7 @@
   - シェル init / 履歴: `~/.zshrc` / `~/.zshenv` / `~/.zprofile` / `~/.bashrc` / `~/.bash_profile` / `~/.profile` / `~/.zsh_history` / `~/.bash_history`
   - 拡張子全般: `*.pem` / `*.key` / `*.p12` / `*.pfx`
 - **`/file/view` はページを sandbox で配る**: どの応答にも `Content-Security-Policy: sandbox allow-scripts` と `connect-src 'none'` が付く。 ページは backend と別の origin で動き、 backend にもほかの host にも通信できず、 画像・スクリプト・CSS はこの backend の物だけを読む。 配るのは HOME 配下で同じ deny list に当たらない file を、 拡張子 (= HTML / CSS / JS / JSON / 画像 / フォント / 音声 / 動画) で選び、 1 file 50 MB まで
+- **`page_origin` は 1 つの folder を sandbox なしで配る**: 書いた時だけ動く。 その folder の file を `127.0.0.1` の専用の port から、 `/file/view` と同じ CSP から `sandbox` だけを外して配る。 folder のページは backend と別の 1 つの origin を共有するので `localStorage` が残り、 backend にもほかの host にも通信できず、 画像・スクリプト・CSS はその port の物だけを読む。 中のページを信頼できる folder を指定する
 - **`/hooks/event` は localhost のみ受付**: claude CLI hook は loopback 前提
 - **Markdown レンダラの URL は react-markdown 標準 sanitizer 経由**: `javascript:` / `data:` 等の危険スキームをブロック (内部 `cpc-file://` と、 Slack のアプリへ渡す `slack://` のみ pass-through)
 - **Web Push の subscription / VAPID 鍵は `backend/secrets/` / `backend/data/` の JSON に保存** (= gitignored、 詳細は `docs/reference/data-schemas.md`)

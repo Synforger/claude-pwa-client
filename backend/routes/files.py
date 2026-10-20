@@ -9,10 +9,10 @@ import re
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse
 
-from backend.config import FILE_SIZE_LIMIT, HOME
+from backend.config import FILE_SIZE_LIMIT, HOME, page_origin
 from backend.errors import raise_error
 
 logger = logging.getLogger(__name__)
@@ -138,36 +138,67 @@ _VIEW_MEDIA_TYPES = {
 }
 # 図解の動画や大きな画像は通し、 巨大な素材で backend が詰まらない上限 (= 1 file ごと)。
 VIEW_SIZE_LIMIT = 50 * 1024 * 1024
-# frame-ancestors は同じ host だけ (= iPhone のホーム画面の PWA は、 HTML をプレビューの枠の iframe に嵌めて開く)。
-VIEW_CSP = (
-    "sandbox allow-scripts; default-src 'none'; "
+# ページが読める物と送れる先 (= /file/view とページの origin で共通。 違うのは sandbox と frame-ancestors だけ)。
+_PAGE_POLICY = (
+    "default-src 'none'; "
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; "
-    "connect-src 'none'; form-action 'none'; frame-ancestors 'self'; base-uri 'none'"
+    "connect-src 'none'; form-action 'none'; base-uri 'none'"
 )
+# frame-ancestors は同じ host だけ (= iPhone のホーム画面の PWA は、 HTML をプレビューの枠の iframe に嵌めて開く)。
+VIEW_CSP = f"sandbox allow-scripts; {_PAGE_POLICY}; frame-ancestors 'self'"
 _VIEW_HEADERS = {
-    "Content-Security-Policy": VIEW_CSP,
     "Cache-Control": "no-cache",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
 }
 
 
+# ページの origin の待ち受けが開いているか (= main の _PageServer が書く。 開けなかった間は今どおり /file/view で開く)
+page_listening = False
+
+
+def _same_host(request: Request, port: str | int) -> str:
+    """今の要求と同じ scheme と host の、 別の port (= IPv6 の住所は括弧で包む)。"""
+    host = request.url.hostname or ""
+    return f"{request.url.scheme}://{f'[{host}]' if ':' in host else host}:{port}"
+
+
+def _page_target(resolved: Path, request: Request) -> str | None:
+    """page_origin の folder の中の file なら、 それを配る別の port の URL (= 外か、 待ち受けが開いていなければ None)。
+
+    host と scheme は今の要求の物を使う (= Tailscale の serve 越しなら https、 手元なら http)。 別の port も同じ
+    host の同じ番号で届く前提 (= Tailscale では同じ番号の port を serve で出す)。
+    """
+    origin = page_origin()
+    if origin is None or not page_listening:
+        return None
+    folder, port = origin
+    try:
+        rel = resolved.relative_to(folder)
+    except ValueError:
+        return None
+    return f"{_same_host(request, port)}/{quote(rel.as_posix())}"
+
+
 @router.get("/file/open")
-def open_file_in_browser(path: str = Query(...)):
-    """チャットの path (= `~/…` も可) の HTML を、 `/file/view/<絶対 path>` へ回す。"""
+def open_file_in_browser(request: Request, path: str = Query(...)):
+    """チャットの path (= `~/…` も可) の HTML を、 page_origin の folder の中なら別の port へ、 それ以外は
+    `/file/view/<絶対 path>` へ回す。"""
     resolved = _resolve_safe(path)
     if resolved.suffix.lower() not in (".html", ".htm"):
         raise HTTPException(status_code=415, detail="Unsupported media type")
     if not resolved.is_file():
         raise HTTPException(status_code=404, detail="File not found")
+    target = _page_target(resolved, request)
+    if target is not None:
+        return RedirectResponse(url=target, status_code=307)
     # 相対の行き先 (= backend が path の前置きの下に置かれても、 同じ前置きの下の view へ回る)。
     return RedirectResponse(url="view/" + quote(str(resolved).lstrip("/")), status_code=307)
 
 
-@router.get("/file/view/{path:path}")
-def get_file_view(path: str):
-    resolved = _resolve_safe("/" + path)
+def _view_response(resolved: Path, csp: str) -> FileResponse:
+    """/file/view とページの origin が配る 1 file (= 形・在るか・大きさを確かめ、 CSP を付けて返す)。"""
     media_type = _VIEW_MEDIA_TYPES.get(resolved.suffix.lower())
     if media_type is None:
         raise HTTPException(status_code=415, detail="Unsupported media type")
@@ -175,7 +206,38 @@ def get_file_view(path: str):
         raise HTTPException(status_code=404, detail="File not found")
     if resolved.stat().st_size > VIEW_SIZE_LIMIT:
         raise_error(413, "file_too_large", "ファイルが大きすぎます（上限 50MB）", limit="50MB")
-    return FileResponse(resolved, media_type=media_type, headers=_VIEW_HEADERS)
+    return FileResponse(
+        resolved, media_type=media_type, headers={"Content-Security-Policy": csp, **_VIEW_HEADERS},
+    )
+
+
+@router.get("/file/view/{path:path}")
+def get_file_view(path: str):
+    return _view_response(_resolve_safe("/" + path), VIEW_CSP)
+
+
+# ページの origin: page_origin の folder の file を、 sandbox を外した普通のページとして配る口。 backend とは別の
+# 待ち受け (= 別の port。 立てるのは main の lifespan) なので、 ページの origin は backend と別になり、 その origin の
+# localStorage は開き直しても残る (= /file/view の sandbox の origin は毎回 null で、 何も残らない)。 sandbox の他は
+# /file/view と同じで、 fetch / WebSocket は connect-src で止まり (= backend の口にも外にも届かない)、 読める画像・
+# スクリプト・CSS はこの port の物だけ。 folder の中の全部のページが 1 つの origin を共有する。 frame-ancestors は
+# 同じ host の全部の port (= ホーム画面の PWA は、 backend の origin のプレビューの枠に嵌めて開く)。
+page_app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
+
+
+@page_app.get("/{path:path}")
+def get_page(request: Request, path: str):
+    origin = page_origin()
+    if origin is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    folder = origin[0]
+    resolved = (folder / path).resolve()
+    try:
+        resolved.relative_to(folder)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied")
+    csp = f"{_PAGE_POLICY}; frame-ancestors {_same_host(request, '*')}"
+    return _view_response(_resolve_safe(str(resolved)), csp)
 
 
 @router.put("/file")
