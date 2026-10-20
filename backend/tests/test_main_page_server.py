@@ -3,8 +3,7 @@ import asyncio
 import json
 import logging
 import socket
-
-import httpx
+import urllib.request
 
 import backend.config as config_mod
 
@@ -33,6 +32,12 @@ def _configure(tmp_path, monkeypatch, port):
     monkeypatch.setattr(files_mod, "HOME", tmp_path)
 
 
+def _get(req):
+    """GET を 1 本打ち、 (= 状態, 小文字の見出し, 本文) を返す (= 待ち受けと同じ loop を塞がないよう別の thread で呼ぶ)。"""
+    with urllib.request.urlopen(req, timeout=5) as res:
+        return res.status, {k.lower(): v for k, v in res.headers.items()}, res.read().decode()
+
+
 async def _until_started(server, task):
     for _ in range(200):
         if server.started or task.done():
@@ -51,21 +56,21 @@ def test_page_server_serves_with_the_scheme_the_proxy_names(tmp_path, monkeypatc
         await _until_started(server, task)
         listening = files_mod.page_listening
         try:
-            async with httpx.AsyncClient() as client:
-                res = await client.get(
-                    f"http://127.0.0.1:{port}/deck/index.html",
-                    headers={"x-forwarded-proto": "https", "host": f"box.example.ts.net:{port}"},
-                )
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/deck/index.html",
+                headers={"X-Forwarded-Proto": "https", "Host": f"box.example.ts.net:{port}"},
+            )
+            res = await asyncio.to_thread(_get, req)
         finally:
             server.should_exit = True
             await task
         return res, listening, files_mod.page_listening
 
-    res, listening, after = asyncio.run(scenario())
+    (status, headers, body), listening, after = asyncio.run(scenario())
     assert (listening, after) == (True, False)
-    assert res.status_code == 200
-    assert res.text == "<!doctype html><p>deck</p>"
-    csp = res.headers["content-security-policy"]
+    assert status == 200
+    assert body == "<!doctype html><p>deck</p>"
+    csp = headers["content-security-policy"]
     assert "sandbox" not in csp
     assert csp.endswith("frame-ancestors https://box.example.ts.net:*")
 
