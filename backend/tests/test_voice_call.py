@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
 import pytest
 from fastapi import FastAPI
@@ -1191,3 +1192,179 @@ def test_a_redialed_call_says_the_handed_over_sentences_and_the_replies_from_the
     events = [_reply("before", "閉じる前に鳴った返事。", now - 5000), _reply("gap", "間に届いた返事。", now - 500)]
     down, _ = asyncio.run(run_test(_bridge([], events, resume=resume), frames_to_send=[SleepFrame(sleep=0.2)]))
     assert [f.text for f in down if isinstance(f, TTSSpeakFrame)] == ["[happy]途切れた文。", "[calm]間に届いた返事。"]
+
+
+# --- 無音の間は送らない (= 下りは送り口の符号化、 上りは電話に DTX を頼んで受け口で埋める) -------------------------
+
+def _pcm_frames(pattern: list[tuple[bool, int]], rate: int = 24000):
+    """(= 鳴っているか, 10 ms の枠の数) の並びを、 送り口が渡すのと同じ s16 mono の 10 ms の枠にする。"""
+    import numpy as np
+    from av import AudioFrame
+
+    t = 0
+    for sounding, count in pattern:
+        for _ in range(count):
+            n = rate // 100
+            pcm = (np.sin(np.arange(t, t + n) * 2 * np.pi * 440 / rate) * 8000).astype(np.int16) if sounding \
+                else np.zeros(n, dtype=np.int16)
+            frame = AudioFrame.from_ndarray(pcm.reshape(1, -1), format="s16", layout="mono")
+            frame.sample_rate = rate
+            frame.pts = t
+            t += n
+            yield frame
+
+
+def _encode_all(frames) -> list[tuple[int, int]]:
+    """aiortc の Opus の符号化に枠を順に渡し、 送られる (= 中身のある) 物の (= 枠の番号, 時刻) を返す。"""
+    from aiortc.codecs.opus import OpusEncoder
+
+    encoder = OpusEncoder()
+    sent = []
+    for i, frame in enumerate(frames):
+        payloads, timestamp = encoder.encode(frame)
+        if payloads:
+            sent.append((i, timestamp))
+    return sent
+
+
+def test_a_long_silence_going_out_is_not_sent_and_the_next_sound_keeps_its_time(monkeypatch):
+    # 意図: 無音が 200 ms 続いた先は送らず、 鳴り出した音の時刻は飛ばした長さだけ進む (= 電話は間を無音で鳴らす)
+    pytest.importorskip("pipecat")
+    from aiortc.codecs.opus import OpusEncoder
+
+    from backend.voice_call.pipeline import skip_silent_output
+
+    pattern = [(True, 30), (False, 100), (True, 30)]   # 0.3 秒鳴る → 1 秒黙る → 0.3 秒鳴る
+    before = _encode_all(_pcm_frames(pattern))
+    monkeypatch.setattr(OpusEncoder, "encode", OpusEncoder.encode)   # 試験の後に戻す
+    skip_silent_output()
+    after = _encode_all(_pcm_frames(pattern))
+
+    assert len(before) >= 78   # 包む前は 20 ms ごとに全部送る (= 1.6 秒で 80。 最初の 1 枠は符号化が溜める)
+    silent_sent = [i for i, _ in after if 30 <= i < 130]
+    assert 0 < len(silent_sent) <= 11 and max(silent_sent) < 30 + 22   # 黙った後は 200 ms 分だけ送る
+    assert len(after) < len(before) - 35
+    # 鳴り出した後の時刻は、 包む前と同じ (= 48 kHz の数。 飛ばした長さが足されている)
+    assert [t for i, t in after if i >= 130] == [t for i, t in before if i >= 130]
+
+
+def test_the_answer_asks_the_phone_for_dtx_and_stays_a_valid_answer():
+    # 意図: aiortc の本物の答えの Opus に usedtx=1 が付き、 書き足した答えも相手が読める
+    pytest.importorskip("pipecat")
+    from aiortc import RTCPeerConnection, RTCSessionDescription
+
+    from backend.voice_call.worker import ask_for_dtx
+
+    async def negotiate():
+        phone, mac = RTCPeerConnection(), RTCPeerConnection()
+        phone.addTransceiver("audio", direction="sendrecv")
+        await phone.setLocalDescription(await phone.createOffer())
+        await mac.setRemoteDescription(phone.localDescription)
+        mac.addTransceiver("audio", direction="sendrecv") if not mac.getTransceivers() else None
+        await mac.setLocalDescription(await mac.createAnswer())
+        answer = ask_for_dtx(mac.localDescription.sdp)
+        await phone.setRemoteDescription(RTCSessionDescription(sdp=answer, type="answer"))
+        await phone.close()
+        await mac.close()
+        return answer
+
+    answer = asyncio.run(negotiate())
+    opus = [line.split()[0].split(":")[1] for line in answer.split("\r\n")
+            if line.startswith("a=rtpmap:") and "opus/" in line]
+    assert opus and all(f"a=fmtp:{pt} usedtx=1" in answer.split("\r\n") for pt in opus)
+    assert ask_for_dtx(answer) == answer   # 2 回通しても増えない
+
+
+def test_an_existing_opus_fmtp_line_gets_usedtx_and_other_codecs_do_not():
+    pytest.importorskip("pipecat")
+    from backend.voice_call.worker import ask_for_dtx
+
+    sdp = "\r\n".join([
+        "m=audio 9 UDP/TLS/RTP/SAVPF 111 0", "a=rtpmap:111 opus/48000/2", "a=fmtp:111 minptime=10;useinbandfec=1",
+        "a=rtpmap:0 PCMU/8000", "a=fmtp:0 x=1", ""])
+    lines = ask_for_dtx(sdp).split("\r\n")
+    assert "a=fmtp:111 minptime=10;useinbandfec=1;usedtx=1" in lines
+    assert "a=fmtp:0 x=1" in lines and lines.count("a=fmtp:111 minptime=10;useinbandfec=1;usedtx=1") == 1
+
+
+class _FakeReceiver:
+    """aiortc の受け手の代わり (= Pipecat の SmallWebRTCTrack が触る所だけ)。"""
+
+    def __init__(self):
+        self._enabled = True
+        self.queue: asyncio.Queue = asyncio.Queue()
+        receiver = self
+
+        class Track:
+            kind = "audio"
+
+            async def recv(self):
+                return await receiver.queue.get()
+
+            def stop(self):
+                pass
+
+        self.track = Track()
+
+
+def test_a_quiet_phone_is_heard_as_silence_of_the_same_length(monkeypatch):
+    # 意図: 電話が DTX で送らない間は、 GAP_FILL_SECS ごとにその長さの無音が渡り、 届いた音はそのまま渡る
+    pytest.importorskip("pipecat")
+    import numpy as np
+    from av import AudioFrame
+    from pipecat.transports.smallwebrtc.connection import SmallWebRTCTrack
+
+    from backend.voice_call.pipeline import GAP_FILL_SECS, fill_input_gaps
+
+    monkeypatch.setattr(SmallWebRTCTrack, "recv", SmallWebRTCTrack.recv)   # 試験の後に戻す
+    fill_input_gaps()
+
+    async def scenario():
+        receiver = _FakeReceiver()
+        track = SmallWebRTCTrack(receiver)
+        started = time.monotonic()
+        first = await track.recv()                 # まだ何も届いていない
+        waited = time.monotonic() - started
+        voice = AudioFrame.from_ndarray(np.ones((1, 320), dtype=np.int16), format="s16", layout="mono")
+        voice.sample_rate = 16000
+        await receiver.queue.put(voice)
+        heard = await track.recv()                 # 届いた音
+        after = await track.recv()                 # また黙った
+        track.stop()
+        return first, waited, heard, voice, after
+
+    first, waited, heard, voice, after = asyncio.run(scenario())
+    assert GAP_FILL_SECS * 0.8 < waited < GAP_FILL_SECS * 3
+    assert (first.sample_rate, first.samples, first.layout.name) == (48000, round(48000 * GAP_FILL_SECS), "stereo")
+    assert not first.to_ndarray().any()
+    assert heard is voice
+    assert (after.sample_rate, after.samples, after.layout.name) == (16000, round(16000 * GAP_FILL_SECS), "mono")
+
+
+def test_a_silence_longer_than_the_idle_watch_does_not_lose_the_next_voice(monkeypatch):
+    # 意図: 無音で埋めている間も元の受け取りを呼び直すので、 2 秒の見張りが受け取りを止めず、 次の声が渡る
+    pytest.importorskip("pipecat")
+    import numpy as np
+    from av import AudioFrame
+    from pipecat.transports.smallwebrtc.connection import SmallWebRTCTrack
+
+    from backend.voice_call.pipeline import fill_input_gaps
+
+    monkeypatch.setattr(SmallWebRTCTrack, "recv", SmallWebRTCTrack.recv)
+    fill_input_gaps()
+
+    async def scenario():
+        receiver = _FakeReceiver()
+        track = SmallWebRTCTrack(receiver)
+        until = time.monotonic() + 2.5            # 見張りの 2 秒を越えて黙る
+        while time.monotonic() < until:
+            await track.recv()
+        enabled = receiver._enabled
+        voice = AudioFrame.from_ndarray(np.ones((1, 320), dtype=np.int16), format="s16", layout="mono")
+        voice.sample_rate = 16000
+        await receiver.queue.put(voice)
+        heard = await track.recv()
+        track.stop()
+        return enabled, heard is voice
+
+    assert asyncio.run(scenario()) == (True, True)

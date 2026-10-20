@@ -62,6 +62,25 @@ def setup_logging() -> None:
     pipecat_logger.add(to_logging, level=PIPECAT_LOG_LEVEL, format="{message}")
 
 
+def ask_for_dtx(sdp: str) -> str:
+    """答えの SDP の Opus に usedtx=1 を足す (= 電話に、 無音の間は音を送らないよう頼む。 受ける側が書く印で、
+    こちらの aiortc は読まない)。 Opus の fmtp の行が無ければ rtpmap の行の後に作る。 もう書いてあれば触らない。"""
+    def payload_type(line: str) -> str:
+        return line.split()[0].split(":", 1)[1]
+
+    lines = sdp.split("\r\n")
+    opus = {payload_type(line) for line in lines if line.startswith("a=rtpmap:") and " opus/" in line.lower()}
+    with_fmtp = {payload_type(line) for line in lines if line.startswith("a=fmtp:")}
+    out = []
+    for line in lines:
+        if line.startswith("a=fmtp:") and payload_type(line) in opus and "usedtx=" not in line:
+            line += ";usedtx=1"
+        out.append(line)
+        if line.startswith("a=rtpmap:") and payload_type(line) in opus - with_fmtp:
+            out.append(f"a=fmtp:{payload_type(line)} usedtx=1")
+    return "\r\n".join(out)
+
+
 def _write(message: dict) -> None:
     sys.stdout.write(json.dumps(message) + "\n")
     sys.stdout.flush()
@@ -98,7 +117,7 @@ async def main() -> None:
                         message["type"] = message.pop("type_", "offer")
                         answer = await handler.handle_web_request(
                             request=SmallWebRTCRequest.from_dict(message), webrtc_connection_callback=connected)
-                        _write({"type": "answer", "answer": answer})
+                        _write({"type": "answer", "answer": {**answer, "sdp": ask_for_dtx(answer["sdp"])}})
                     elif kind == "end":
                         superseded.set()
                         if call is None:
