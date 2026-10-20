@@ -72,6 +72,8 @@ FAVORITES_PATH = USER_DIR / "favorites.txt"
 # タブごとのメモ: `<タブの id>.md` (= そのタブの物。 タブを消すと一緒に消える)。 symlink なら、
 # 中身は指す先に置かれる (= 起動した側がタブの作業の folder に置く。 タブを消しても指す先は残る)
 NOTES_DIR = USER_DIR / "notes"
+# ページの origin の保存箱 (= ページごとに JSON を 1 つ。 `backend/routes/files.py` の `/.store/`)
+PAGE_STORE_DIR = USER_DIR / "page-store"
 
 
 def note_path(session_id: str) -> Path:

@@ -383,6 +383,7 @@ def _page_client(tmp_path, monkeypatch, folder):
     from fastapi.testclient import TestClient  # noqa: PLC0415
     import backend.routes.files as files_mod  # noqa: PLC0415
     monkeypatch.setattr(files_mod, "HOME", tmp_path)
+    monkeypatch.setattr(files_mod, "PAGE_STORE_DIR", tmp_path / "store")
     _with_page_origin(monkeypatch, folder)
     return TestClient(files_mod.page_app), files_mod
 
@@ -398,7 +399,8 @@ def test_page_origin_serves_the_page_and_its_relative_files_without_sandbox(tmp_
         csp = res.headers["content-security-policy"]
         assert "sandbox" not in csp
         assert csp.startswith(files_mod._PAGE_POLICY)
-        assert "connect-src 'none'" in csp and "form-action 'none'" in csp
+        assert "form-action 'none'" in csp
+        assert f"connect-src http://testserver:{_PAGE_PORT}/.store/;" in csp
         assert csp.endswith("frame-ancestors http://testserver:*")
         assert res.headers["x-content-type-options"] == "nosniff"
     assert client.get("/deck/cam/a.png").content == (site / "cam" / "a.png").read_bytes()
@@ -450,3 +452,73 @@ def test_page_origin_setting_resolves_the_folder(tmp_path, monkeypatch):
     assert config_mod.page_origin() == ((tmp_path / "real").resolve(), _PAGE_PORT)
     _with_config(monkeypatch, {})
     assert config_mod.page_origin() is None
+
+
+# --- 保存箱 (= ページの origin の `/.store/<ページの path>`) ---
+
+_JSON = {"content-type": "application/json"}
+
+
+def test_page_store_starts_empty_and_keeps_what_a_page_puts(tmp_path, monkeypatch):
+    _site(tmp_path)
+    client, _ = _page_client(tmp_path, monkeypatch, tmp_path / "pages")
+    empty = client.get("/.store/deck/index.html")
+    assert empty.status_code == 200 and empty.json() is None
+    assert empty.headers["cache-control"] == "no-store"
+    put = client.put("/.store/deck/index.html", content=b'{"done": [1, 3]}', headers=_JSON)
+    assert put.status_code == 204
+    got = client.get("/.store/deck/index.html")
+    assert got.json() == {"done": [1, 3]}
+    assert got.headers["etag"] == put.headers["etag"] != empty.headers["etag"]
+
+
+def test_page_store_is_one_per_page(tmp_path, monkeypatch):
+    # 意図: 箱はページの実体ごと (= 別のページは別の箱、 symlink で同じページを指す path は同じ箱)
+    site = _site(tmp_path)
+    (site / "map.html").write_text("<p>map</p>")
+    (site / "alias.html").symlink_to(site / "map.html")
+    client, _ = _page_client(tmp_path, monkeypatch, tmp_path / "pages")
+    client.put("/.store/deck/map.html", content=b'{"page": "map"}', headers=_JSON)
+    assert client.get("/.store/deck/index.html").json() is None
+    assert client.get("/.store/deck/alias.html").json() == {"page": "map"}
+
+
+def test_page_store_refuses_a_write_over_one_it_has_not_read(tmp_path, monkeypatch):
+    # 意図: If-Match が今の ETag と違えば (= 別の画面が先に書いた) 書かずに 412 と今の中身を返す
+    _site(tmp_path)
+    client, _ = _page_client(tmp_path, monkeypatch, tmp_path / "pages")
+    seen = client.get("/.store/deck/index.html").headers["etag"]
+    first = client.put("/.store/deck/index.html", content=b'{"by": "phone"}', headers={**_JSON, "if-match": seen})
+    assert first.status_code == 204
+    stale = client.put("/.store/deck/index.html", content=b'{"by": "mac"}', headers={**_JSON, "if-match": seen})
+    assert stale.status_code == 412
+    assert stale.json() == {"by": "phone"} and stale.headers["etag"] == first.headers["etag"]
+    again = client.put("/.store/deck/index.html", content=b'{"by": "mac"}',
+                       headers={**_JSON, "if-match": stale.headers["etag"]})
+    assert again.status_code == 204
+    assert client.get("/.store/deck/index.html").json() == {"by": "mac"}
+
+
+def test_page_store_takes_json_only_and_up_to_the_limit(tmp_path, monkeypatch):
+    _site(tmp_path)
+    client, files_mod = _page_client(tmp_path, monkeypatch, tmp_path / "pages")
+    url = "/.store/deck/index.html"
+    assert client.put(url, content=b'{"a": 1}', headers={"content-type": "text/plain"}).status_code == 415
+    assert client.put(url, content=b"not json", headers=_JSON).status_code == 400
+    monkeypatch.setattr(files_mod, "FILE_SIZE_LIMIT", 16)
+    assert client.put(url, content=b'{"a": "' + b"x" * 20 + b'"}', headers=_JSON).status_code == 413
+    assert client.put(url, content=b'{"a": 1}', headers=_JSON).status_code == 204
+    assert client.get(url).json() == {"a": 1}
+
+
+def test_page_store_is_only_for_pages_in_the_folder(tmp_path, monkeypatch):
+    _site(tmp_path)
+    (tmp_path / "outside.html").write_text("<p>x</p>")
+    (tmp_path / "pages" / ".ssh").mkdir()
+    (tmp_path / "pages" / ".ssh" / "page.html").write_text("<p>x</p>")
+    client, _ = _page_client(tmp_path, monkeypatch, tmp_path / "pages")
+    for page, status in [("deck/cam/a.png", 404), ("deck/draw.js", 404), ("deck/gone.html", 404),
+                         ("%2E%2E/outside.html", 403), (".ssh/page.html", 403)]:
+        assert client.get("/.store/" + page).status_code == status, page
+        assert client.put("/.store/" + page, content=b"{}", headers=_JSON).status_code == status, page
+    assert not (tmp_path / "store").exists()
