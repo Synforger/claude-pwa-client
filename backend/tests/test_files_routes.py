@@ -1,4 +1,6 @@
 """files_routes.py の _resolve_safe (= path injection 防御) の unit test。"""
+import pathlib
+
 import pytest
 from fastapi import HTTPException
 
@@ -319,3 +321,132 @@ def test_file_open_takes_html_only(tmp_path, monkeypatch):
     (tmp_path / "pic.png").write_bytes(_PNG_BYTES)
     assert client.get("/file/open", params={"path": str(tmp_path / "pic.png")}).status_code == 415
     assert client.get("/file/open", params={"path": str(tmp_path / "missing.html")}).status_code == 404
+
+
+# --- ページの origin (= config の page_origin の folder を、 sandbox を外して別の port から配る) ---
+
+_PAGE_PORT = 8799
+
+
+def _with_config(monkeypatch, cfg):
+    """backend の設定を cfg にする (= 仮の config.json を書いて読ませる)。"""
+    import json  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+    import backend.config as config_mod  # noqa: PLC0415
+    path = pathlib.Path(tempfile.mkdtemp(prefix="cpc-page-origin-")) / "config.json"
+    path.write_text(json.dumps(cfg))
+    monkeypatch.setattr(config_mod, "CONFIG_PATH", path)
+    config_mod.get_config.cache_clear()
+
+
+def _with_page_origin(monkeypatch, folder, port=_PAGE_PORT, listening=True):
+    import backend.routes.files as files_mod  # noqa: PLC0415
+    _with_config(monkeypatch, {"page_origin": {"folder": str(folder), "port": port}})
+    monkeypatch.setattr(files_mod, "page_listening", listening)
+
+
+def test_file_open_sends_a_page_in_the_folder_to_its_own_port(tmp_path, monkeypatch):
+    client, _ = _raw_client(tmp_path, monkeypatch)
+    site = _site(tmp_path)
+    _with_page_origin(monkeypatch, tmp_path / "pages")
+    res = client.get("/file/open", params={"path": str(site / "index.html")}, follow_redirects=False)
+    assert res.status_code == 307
+    assert res.headers["location"] == f"http://testserver:{_PAGE_PORT}/deck/index.html"
+    # host は要求の物 (= Tailscale の名前で開けば、 別の port もその名前で開く。 scheme は test_main_page_server)
+    named = client.get("/file/open", params={"path": str(site / "index.html")}, follow_redirects=False,
+                       headers={"host": "box.example.ts.net"})
+    assert named.headers["location"] == f"http://box.example.ts.net:{_PAGE_PORT}/deck/index.html"
+    v6 = client.get("/file/open", params={"path": str(site / "index.html")}, follow_redirects=False,
+                    headers={"host": "[::1]:8765"})
+    assert v6.headers["location"] == f"http://[::1]:{_PAGE_PORT}/deck/index.html"
+
+
+def test_file_open_keeps_pages_outside_the_folder_on_the_sandboxed_view(tmp_path, monkeypatch):
+    client, _ = _raw_client(tmp_path, monkeypatch)
+    site = _site(tmp_path)
+    (tmp_path / "other").mkdir()
+    _with_page_origin(monkeypatch, tmp_path / "other")
+    res = client.get("/file/open", params={"path": str(site / "index.html")}, follow_redirects=False)
+    assert res.headers["location"] == "view/" + str(site / "index.html").lstrip("/")
+
+
+def test_file_open_keeps_the_sandboxed_view_while_the_port_is_not_listening(tmp_path, monkeypatch):
+    # 意図: 待ち受けを開けなかった時 (= port が塞がっている) は、 folder の中のページも開ける口へ回す
+    client, _ = _raw_client(tmp_path, monkeypatch)
+    site = _site(tmp_path)
+    _with_page_origin(monkeypatch, tmp_path / "pages", listening=False)
+    res = client.get("/file/open", params={"path": str(site / "index.html")}, follow_redirects=False)
+    assert res.headers["location"] == "view/" + str(site / "index.html").lstrip("/")
+
+
+def _page_client(tmp_path, monkeypatch, folder):
+    from fastapi.testclient import TestClient  # noqa: PLC0415
+    import backend.routes.files as files_mod  # noqa: PLC0415
+    monkeypatch.setattr(files_mod, "HOME", tmp_path)
+    _with_page_origin(monkeypatch, folder)
+    return TestClient(files_mod.page_app), files_mod
+
+
+def test_page_origin_serves_the_page_and_its_relative_files_without_sandbox(tmp_path, monkeypatch):
+    site = _site(tmp_path)
+    client, files_mod = _page_client(tmp_path, monkeypatch, tmp_path / "pages")
+    for rel, kind in [("deck/index.html", "text/html; charset=utf-8"), ("deck/cam/a.png", "image/png"),
+                      ("deck/draw.js", "text/javascript; charset=utf-8")]:
+        res = client.get(f"/{rel}")
+        assert res.status_code == 200, rel
+        assert res.headers["content-type"] == kind
+        csp = res.headers["content-security-policy"]
+        assert "sandbox" not in csp
+        assert csp.startswith(files_mod._PAGE_POLICY)
+        assert "connect-src 'none'" in csp and "form-action 'none'" in csp
+        assert csp.endswith("frame-ancestors http://testserver:*")
+        assert res.headers["x-content-type-options"] == "nosniff"
+    assert client.get("/deck/cam/a.png").content == (site / "cam" / "a.png").read_bytes()
+
+
+def test_page_origin_keeps_the_folder_and_deny_list_boundaries(tmp_path, monkeypatch):
+    _site(tmp_path)
+    (tmp_path / "outside.html").write_text("<p>x</p>")
+    (tmp_path / "pages" / ".ssh").mkdir()
+    (tmp_path / "pages" / ".ssh" / "page.html").write_text("<p>x</p>")
+    (tmp_path / "pages" / "link.html").symlink_to(tmp_path / "outside.html")
+    client, _ = _page_client(tmp_path, monkeypatch, tmp_path / "pages")
+    assert client.get("/../outside.html").status_code in (403, 404)
+    assert client.get("/%2E%2E/outside.html").status_code in (403, 404)
+    assert client.get("/link.html").status_code == 403
+    assert client.get("/.ssh/page.html").status_code == 403
+    assert client.get("/deck/notes.md").status_code == 415
+    assert client.get("/deck/gone.html").status_code == 404
+
+
+def test_page_origin_serves_nothing_without_the_setting(tmp_path, monkeypatch):
+    _site(tmp_path)
+    client, _ = _page_client(tmp_path, monkeypatch, tmp_path / "pages")
+    _with_config(monkeypatch, {})
+    assert client.get("/deck/index.html").status_code == 404
+
+
+@pytest.mark.parametrize("raw, problem", [
+    ("~/pages", "must be an object"),
+    ({"port": 8799}, "folder must be a path"),
+    ({"folder": "~", "port": "8799"}, "port must be a port number"),
+    ({"folder": "~", "port": True}, "port must be a port number"),
+    ({"folder": "~", "port": 70000}, "port must be a port number"),
+    ({"folder": "/no/such/folder", "port": 8799}, "is not a directory"),
+])
+def test_page_origin_setting_mistakes_are_reported_and_ignored(monkeypatch, raw, problem):
+    import backend.config as config_mod  # noqa: PLC0415
+    _with_config(monkeypatch, {"page_origin": raw})
+    value, problems = config_mod._scan_page_origin()
+    assert value is None
+    assert len(problems) == 1 and problem in problems[0]
+
+
+def test_page_origin_setting_resolves_the_folder(tmp_path, monkeypatch):
+    (tmp_path / "real").mkdir()
+    (tmp_path / "alias").symlink_to(tmp_path / "real")
+    import backend.config as config_mod  # noqa: PLC0415
+    _with_page_origin(monkeypatch, tmp_path / "alias")
+    assert config_mod.page_origin() == ((tmp_path / "real").resolve(), _PAGE_PORT)
+    _with_config(monkeypatch, {})
+    assert config_mod.page_origin() is None

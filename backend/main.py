@@ -14,12 +14,14 @@
 - agent_messages.py  /agent-messages (= タブの中の claude から別のタブの claude への連絡)
 """
 import asyncio
+import contextlib
 import logging
 import logging.handlers
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -76,6 +78,7 @@ logger = logging.getLogger(__name__)
 from backend.config import (  # noqa: E402
     CORS_ALLOW_ORIGINS,
     UPLOADS_TMP,
+    page_origin,
     validate_runtime_paths,
 )
 from backend.state import sessions_meta  # noqa: E402
@@ -128,6 +131,46 @@ def _prune_uploads_tmp(max_age_sec: float = 24 * 3600) -> None:
                 f.unlink(missing_ok=True)
         except OSError:
             logger.debug("upload tmp unlink failed: %s", f, exc_info=True)
+
+
+class _PageServer(uvicorn.Server):
+    """ページの origin (= `files.page_app`) を配る 2 つ目の待ち受け。 本体と同じ process と event loop で走る。
+
+    終了の合図は本体の uvicorn が受け、 lifespan の終わりで止める (= 既定の serve は合図の受け手を自分に差し替え、
+    本体の終了を横取りする)。
+    """
+
+    @contextlib.contextmanager
+    def capture_signals(self):
+        yield
+
+    async def startup(self, sockets=None):
+        await super().startup(sockets=sockets)
+        # ここへ来たのは待ち受けを開けた時だけ (= 開けなければ uvicorn は中で exit する)。 /file/open が回し始める
+        files_routes.page_listening = True
+
+
+async def _serve_pages(server: _PageServer, port: int) -> None:
+    try:
+        await server.serve()
+    except SystemExit:
+        # uvicorn は待ち受けを開けないと exit する (= port が塞がっている)。 本体の backend は止めない。
+        logger.error("page origin: could not listen on 127.0.0.1:%d; pages open sandboxed", port)
+    finally:
+        files_routes.page_listening = False
+
+
+def _start_page_server() -> tuple[_PageServer, asyncio.Task] | None:
+    """config に page_origin が在る時だけ、 その port で folder の file を配り始める。"""
+    origin = page_origin()
+    if origin is None:
+        return None
+    folder, port = origin
+    server = _PageServer(uvicorn.Config(
+        files_routes.page_app, host="127.0.0.1", port=port, ws="none", lifespan="off", log_config=None,
+    ))
+    logger.info("page origin: serving %s on 127.0.0.1:%d", folder, port)
+    return server, asyncio.create_task(_serve_pages(server, port))
 
 
 async def _uploads_tmp_gc_loop(interval_sec: float = 3600.0) -> None:
@@ -205,6 +248,9 @@ async def lifespan(app: FastAPI):
     # (= `backend/rollover.py`。 条件の無い agent のタブには何もしない)。
     rollover_task = asyncio.create_task(rollover.rollover_loop())
 
+    # ページの origin: 設定した folder の HTML を、 sandbox を外して別の port から配る (= 設定が無ければ立てない)。
+    page_server = _start_page_server()
+
     # tmux pane に「入力待ち」 (= subprocess prompt / TUI 選択肢 / bypass 下の思わぬ待機)
     # が発生したら SSE で chip UI + Web Push で通知する。 全 session 500ms poll。
     from backend.terminal.prompt_detector_loop import prompt_detector_loop
@@ -239,6 +285,9 @@ async def lifespan(app: FastAPI):
             # any other exception during task teardown is swallowed so the rest of the
             # shutdown sequence (pty_runner.shutdown_all + watcher.stop) still runs.
             pass
+    if page_server is not None:
+        page_server[0].should_exit = True
+        await page_server[1]
     await pty_runner.shutdown_all()
     jsonl_watcher.stop_watcher()
 
