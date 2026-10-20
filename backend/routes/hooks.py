@@ -24,15 +24,17 @@ from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import PlainTextResponse
 
 from backend.config import AGENTS
+from backend.core.speech import VOICE_INPUT_MARK, VOICE_OPEN_CONTEXT
 from backend.core.push import broadcast_push, notification_title_for
 import backend.core.jsonl_watcher as jsonl_watcher  # backend-F-40: 旧版は関数内 import で循環回避
 from backend.jsonl.session_status import (
     apply_immediate_stop as _apply_immediate_stop,
 )
 from backend.core.prose_language import foreign_prose
-from backend.state import session_language, sessions_meta
+from backend.state import is_voice_open, session_language, sessions_meta
 from backend.terminal import input_ready
 import backend.rollover as rollover
 
@@ -90,14 +92,28 @@ def _truncate(text: str, limit: int = 140) -> str:
     return text[:limit] + "…"
 
 
-@router.post("/hooks/event")
-async def hooks_event(request: Request) -> dict:
+@router.post("/hooks/event", response_model=None)
+async def hooks_event(request: Request) -> dict | PlainTextResponse:
+    """claude CLI の hook の受け口 (= 中身は `_hooks_event`)。
+
+    query `reply=text` の時は、 agent へ渡す文 (= 結果の `context`。 無ければ空) だけを素の文で返す。 hook の command
+    が curl の出力をそのまま流せば、 claude はそれをその turn の文脈に足す (= UserPromptSubmit の hook の stdout)。
+    """
+    result = await _hooks_event(request)
+    if request.query_params.get("reply") == "text":
+        return PlainTextResponse(result.get("context", ""))
+    return result
+
+
+async def _hooks_event(request: Request) -> dict:
     """claude CLI が hook で叩いてくる JSON を受けて Web Push に変換する。
 
     対応イベント (= 初期実装):
         - Stop: turn 完了。 payload.output を通知本文に
         - Notification: 通知ダイアログ系。 payload.message を通知本文に
-        - UserPromptSubmit: turn 開始。 自動の入れ替えの見張りを起こす (= `backend/rollover.py`)
+        - UserPromptSubmit: turn 開始。 自動の入れ替えの見張りを起こす (= `backend/rollover.py`)。 会話が開いているのに
+          頭に声で聞いている印の無い turn (= 別のタブからの連絡・自動の入れ替え・裏の作業の知らせ) には、 そう伝える
+          1 行を `context` に返す
     その他のイベントは受信ログだけ残して 200 OK を返す (= claude の hook を
     詰まらせない、 後で対応イベントを増やしていく)。
 
@@ -304,7 +320,13 @@ async def _handle_user_prompt_submit(ctx: HookContext) -> dict:
     入れ替えの見張りを待たずに起こす (= 見回りの間に終わる短い推論でも、 割合を超えていれば頼める)。"""
     assert ctx.pwa_session_id is not None
     rollover.turn_started(ctx.pwa_session_id)
-    return {"ok": True, "observed": "UserPromptSubmit"}
+    result = {"ok": True, "observed": "UserPromptSubmit"}
+    # 人の発話は、 会話が開いていれば送信口が印を付けている。 印の無い turn は人の発話ではないので、 返事が声で
+    # 聞かれる事をここで伝える (= agent は 🔊 も 🎙 も見えない)
+    prompt = ctx.payload.get("prompt")
+    if is_voice_open(ctx.pwa_session_id) and not (isinstance(prompt, str) and prompt.startswith(VOICE_INPUT_MARK)):
+        result["context"] = VOICE_OPEN_CONTEXT
+    return result
 
 
 async def _handle_notification(ctx: HookContext) -> dict:

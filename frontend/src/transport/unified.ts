@@ -51,6 +51,8 @@ class UnifiedTransport {
   private jsonlSids = new Set<string>()
   private viewSid: string | null = null
   private subagentsSid: string | null = null
+  // この画面で会話 (= 🔊 か 🎙) を開いている sid (= backend が声で聞いている印を付ける判定に使う)
+  private voiceSids: string[] = []
 
   // --- channel handlers + 遅参 subscriber への直近 payload 再配布 (= #184 と同規約) ---
   private jsonlHandlers = new Set<Handler>()
@@ -225,6 +227,7 @@ class UnifiedTransport {
     this.assertJsonlSubs()
     if (this.viewSid) this.control({ op: 'view', sid: this.viewSid })
     if (this.subagentsSid) this.control({ op: 'subagents', sid: this.subagentsSid })
+    if (this.voiceSids.length > 0) this.control({ op: 'voice', sids: this.voiceSids })
   }
 
   private control(body: Record<string, unknown>, opts?: { keepalive?: boolean }): void {
@@ -386,6 +389,14 @@ class UnifiedTransport {
     if (this.es && this.state === 'open') this.control({ op: 'view', sid })
   }
 
+  /** この画面で会話を開いている sid の差替 (= 接続が切れると backend は忘れ、 hello で再主張する)。 */
+  setVoiceSids(sids: string[]): void {
+    const next = [...new Set(sids.filter(Boolean))].sort()
+    if (next.join(' ') === this.voiceSids.join(' ')) return
+    this.voiceSids = next
+    if (this.es && this.state === 'open') this.control({ op: 'voice', sids: next })
+  }
+
   sendStopIntent(sid: string, attempt = 0): void {
     if (!sid) return
     // Stop は「押したのに止まらない」 が一番信頼を損ねる操作。 旧 /views/ws は TCP 保証で
@@ -429,6 +440,7 @@ export const unifiedJsonl = {
   getOffset: (sid: string) => unifiedTransport.getOffset(sid),
   advanceOffset: (sid: string, pos: number) => unifiedTransport.advanceOffset(sid, pos),
   setSubscribedSids: (sids: string[]) => unifiedTransport.setJsonlSids(sids),
+  setVoiceSids: (sids: string[]) => unifiedTransport.setVoiceSids(sids),
   get state() { return unifiedTransport.state },
 }
 

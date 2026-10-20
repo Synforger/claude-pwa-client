@@ -522,6 +522,7 @@ endpoints:
       - "text と key は択一"
       - "delivered = JSONL line count 増分で判定 (= confirm.py)"
       - "15s timeout で incomplete=true"
+      - "そのタブの会話がどこかで開いている間 (= どれかの画面が op=voice で宣言している / app の通話がつながっている) は、 本文 (= text + enter) の頭に [voice] の印を付けてから打つ。 / ! # で始まる本文と、 印の付いた本文はそのまま。 別のタブからの連絡と自動の入れ替えは backend の中から印の無い経路で打つ"
       - "頭に [voice] の印が付いた本文は、 turn の実行中なら先に Escape で止め、 claude が中断の行を書くか入力欄へ前の発話を戻すのを見届けてから (= 上限 3 秒、 過ぎても打つ)、 入力欄を消さずに後ろへ打つ (= 戻された発話と空白 1 つで区切り、 1 つの発話になる)。 停止の印 (= user_stopped) は付けない"
       - "本文の無い key=Escape は停止ボタン: すぐ打って返り、 claude が受け終えるのを見届けてから、 本文の送信と順番に入力欄を消す"
     implementation: backend/terminal/routes.py
@@ -543,6 +544,7 @@ endpoints:
     invariants:
       - "保存先 = uploads/tmp 配下"
       - "saved_files は backend 保存後の path 配列"
+      - "会話が開いている間は、 本文と [添付ファイル: ...] の行を並べた後の頭に [voice] の印を付ける (= 写真だけの送信にも付く。 決まりは /pty/{sid}/send と同じ)"
     implementation: backend/terminal/routes.py
 
   - method: POST
@@ -960,21 +962,27 @@ endpoints:
   - method: POST
     path: /hooks/event
     description: "claude CLI hook 受け取り (= localhost 限定)"
+    request_query:
+      reply: { type: string, enum: [text], description: "text = 結果の context だけを素の文で返す (= hook の stdout にそのまま流す形)" }
     request_body:
       type: object
       required: [hook_event_name, session_id]
       properties:
         hook_event_name: { type: string }
         session_id:      { type: string }
+        prompt:          { type: string, description: "UserPromptSubmit の発話" }
     response:
       type: object
       properties:
-        ok: { type: boolean }
+        ok:      { type: boolean }
+        context: { type: string, description: "agent へ渡す 1 行 (= 在る時だけ)" }
       required: [ok]
     response_kind: json
     auth: localhost
     invariants:
       - "127.0.0.1 / ::1 以外は 403"
+      - "UserPromptSubmit: そのタブの会話がどこかで開いていて、 発話の頭に [voice] の印が無ければ (= 別のタブからの連絡・自動の入れ替え・裏の作業の知らせ)、 context に [voice-open] で始まる 1 行を返す"
+      - "reply=text: 応答は text/plain で context の文だけ (= 無ければ空)"
       - "Host header allowlist (= ADR-012 DNS rebinding 防御) で localhost 名指定のみ通す"
     implementation: backend/routes/hooks.py
 
@@ -1117,12 +1125,12 @@ endpoints:
 
   - method: POST
     path: /stream/unified/{conn}/control
-    description: "統合 stream の上り制御 (= 購読差替 / view 申告 / stop / subagents 切替)"
+    description: "統合 stream の上り制御 (= 購読差替 / view 申告 / 会話の申告 / stop / subagents 切替)"
     request_body:
       type: object
       required: [op]
       properties:
-        op:   { enum: [jsonl, view, stop, subagents] }
+        op:   { enum: [jsonl, view, voice, stop, subagents] }
         sid:  { type: string, nullable: true }
         sids: { type: array }
     response:
@@ -1130,11 +1138,13 @@ endpoints:
       properties:
         ok: { type: boolean }
         subscribed: { type: array }
+        voice: { type: array }
     response_kind: json
     auth: tailnet
     invariants:
       - "op=jsonl: sids=[{sid,from}] で購読 set 差替、 追加 sid は PTY ensure + from からの差分 replay を同一接続へ流す"
       - "op=view: views_by_conn 更新 (= 通知抑制判定)、 sid=null で解除"
+      - "op=voice: sids=[sid] でこの画面が会話 (= 🔊 か 🎙) を開いているタブを差替 (= voices_by_conn。 [] で解除、 切断で消える)。 声で聞いている印の判定に使う"
       - "op=stop: user_stopped 権威記録 + busy 強制 false (= 旧 /views/ws stop メッセージと同義)"
       - "op=subagents: watch 対象 sid 切替 (= null で停止)、 対象 1 接続 1 sid"
       - "不明 conn は 404 (= 接続が先、 制御が後)"

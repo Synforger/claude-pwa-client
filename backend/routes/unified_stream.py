@@ -66,6 +66,7 @@ from backend.state import (
     sessions_meta,
     sessions_overview,
     views_by_conn,
+    voices_by_conn,
 )
 
 logger = logging.getLogger(__name__)
@@ -352,6 +353,7 @@ async def _unified_gen(conn: UnifiedConn, initial_view: str | None):
         # 逆方向バグになる。 views は conn 登録と同じ identity 判定で守る)
         if _conns.get(conn.conn_id) is conn:
             views_by_conn.pop(conn.conn_id, None)
+            voices_by_conn.pop(conn.conn_id, None)
             _conns.pop(conn.conn_id, None)
 
 
@@ -395,6 +397,7 @@ async def stream_unified_control(conn_id: str, body: dict):
     - {"op":"jsonl","sids":[{"sid":..,"from":<int|null>},..]} : 購読 set 差替。
       新規追加 sid は from からの差分 replay を同一接続へ流す (= PTY ensure は背景で)。
     - {"op":"view","sid":<sid|null>}   : 視認中 sid 申告 (= 通知抑制判定)
+    - {"op":"voice","sids":[<sid>,..]} : この画面で会話 (= 🔊 か 🎙) を開いている sid の差替 (= 声で聞いている印)
     - {"op":"stop","sid":<sid>}        : Stop 意思の権威記録 (= busy 強制 false)
     - {"op":"subagents","sid":<sid|null>} : subagents channel の対象 sid 切替 (null = 停止)
     """
@@ -432,6 +435,14 @@ async def stream_unified_control(conn_id: str, body: dict):
         else:
             views_by_conn.pop(conn_id, None)
         return {"ok": True}
+
+    if op == "voice":
+        sids = {sid for sid in (body.get("sids") or []) if isinstance(sid, str) and sid}
+        if sids:
+            voices_by_conn[conn_id] = sids
+        else:
+            voices_by_conn.pop(conn_id, None)
+        return {"ok": True, "voice": sorted(sids)}
 
     if op == "stop":
         sid = body.get("sid")

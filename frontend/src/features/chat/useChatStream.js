@@ -3,7 +3,7 @@ import { apiFetch } from '../../utils/api.js'
 import { generateId } from '../../utils/id.js'
 import { useStreamBuffer } from './useStreamBuffer.js'
 import { processStreamEvent } from './processStreamEvent.js'
-import { observeVoiceEvent, voiceInputText, subscribeVoice, voiceOnSids } from '../voice/index.js'
+import { observeVoiceEvent, subscribeVoice, voiceOnSids } from '../voice/index.js'
 import { reconcileUserMessage } from './reconcileUserMessage.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
 import { chatTransport } from '../../transport/select.ts'
@@ -204,7 +204,9 @@ export function useChatStream({
   // 購読宣言 (= setSubscribedSids) は unified の電力設計: 宣言した sid だけ wire に乗る
   // (2026-07-14)。 legacy は no-op (= 全 sid 配信)。
   //
-  // 🔊 がオンのタブも購読に入れる (= 見ているタブが変わっても、 そのタブの返事を鳴らし続ける。 features/voice)。
+  // 会話 (= 🔊 か 🎙) がオンのタブも購読に入れる (= 見ているタブが変わっても、 そのタブの返事を鳴らし続ける。
+  // features/voice)。 同じ一覧を backend にも宣言する (= どこかの画面で会話が開いている間、 人が送った文に backend が
+  // 声で聞いている印を付ける。 backend/terminal/routes.py の pty_send_from_person)。
   const subscribedRef = useRef({ shown: null, voice: [] })
   const declareSubscribed = useCallback(() => {
     const { shown, voice } = subscribedRef.current
@@ -214,6 +216,7 @@ export function useChatStream({
   useEffect(() => {
     subscribedRef.current.voice = voiceSids ? voiceSids.split(' ') : []
     declareSubscribed()
+    chatTransport.setVoiceSids(subscribedRef.current.voice)
   }, [voiceSids, declareSubscribed])
   useEffect(() => {
     if (!sid) { subscribedRef.current.shown = null; declareSubscribed(); return undefined }
@@ -283,9 +286,9 @@ export function useChatStream({
     // 2026-07-02: 連続送信 (queue mode) 対応で loading 中 alert block を撤去。 busy 中でも POST
     // を通す。 tmux は keystroke を Claude の入力欄に積んで、 Claude Code v2 の queue mode が
     // 現 turn 完了後に順次処理する。 PWA 側に queue state 管理は持たない。
-    // 🔊 が ON のタブでは、 送る文の頭に声で聞いている印が付く (= features/voice/inputMark.js)。 楽観 bubble
-    // も同じ文を持つ (= 記録に載る文と揃えて、 確定の照合をずらさない)。 失敗で入力欄へ戻すのは印の無い text。
-    const sendText = voiceInputText(to, text)
+    // 声で聞いている印は backend が付ける (= どこかの画面で会話が開いている間。 backend/terminal/routes.py の
+    // pty_send_from_person)。 楽観 bubble は印の無い文で出し、 確定の時に記録の文 (= 印つき) へ置き換わる (= 照合は
+    // send_id。 文だけで照合する時は印を外して比べる。 reconcileUserMessage.js)。
     setInput(prev => ({ ...prev, [to]: '' }))
     setLoading(prev => ({ ...prev, [to]: true }))
     optimisticRef.current[to] = { want: 'busy', startedAt: Date.now() }
@@ -324,7 +327,7 @@ export function useChatStream({
         id: optimisticUserId,
         send_id,
         role: 'user',
-        text: sendText,
+        text,
         optimistic: true,
         // sort 用 ts は**刻印しない** (= 2026-07-27 clock domain 統一)。 端末時計を sort キーに
         // 混ぜると server ts (= jsonl 時刻) との相対順が時計ズレで狂う。 ts 無しは sortByTs の
@@ -386,7 +389,7 @@ export function useChatStream({
       // multipart: backend がファイルを uploads/tmp に保存して path を本文に追記して
       // tmux に送る (= claude が Read tool で読む)。
       const form = new FormData()
-      form.append('text', sendText)
+      form.append('text', text)
       for (const item of files) {
         form.append('files', item.file)
       }
@@ -436,7 +439,7 @@ export function useChatStream({
         const r = await apiFetch(`/pty/${encodeURIComponent(to)}/send`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Idempotency-Key': send_id },
-          body: JSON.stringify({ text: sendText, enter: true }),
+          body: JSON.stringify({ text, enter: true }),
         })
         result = r ? await r.json().catch(() => ({ ok: false })) : { ok: false }
       } catch {

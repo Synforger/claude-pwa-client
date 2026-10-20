@@ -4,8 +4,8 @@
 // sentences and each sentence is fetched as sound and played, in order. What was already
 // there is not said, and closing the conversation stops it. A mark at the head of a sentence
 // says how to say it, and is not shown in the bubble. What the person types while it is open
-// goes with a `[voice]` mark at its head, so the agent knows the reply will be heard; the
-// bubble does not show that mark either.
+// on any screen goes with a `[voice]` mark at its head (the backend puts it on), so the agent
+// knows the reply will be heard; the bubble does not show that mark either.
 // Opening the conversation of an agent that listens loads the listening parts (voice activity
 // detection in the page) and starts listening to the microphone; closing it lets the
 // microphone go. What is said, judged and written down is the live scenario's to check
@@ -156,10 +156,41 @@ test.describe('golden: voice', () => {
     await page.locator('[data-testid=chat-send-button]').click()
     const bubble = confirmed('typed while the voice is on')
     await expect(bubble).toHaveCount(1, { timeout: 15_000 })
-    expect(sent.at(-1)).toBe('[voice] typed while the voice is on')
+    // The backend puts the mark on at its send door; the screen sends what was typed.
+    expect(sent.at(-1)).toBe('typed while the voice is on')
     await expect(bubble).not.toContainText('[voice]')
     expect(readFileSync(tab.jsonl_path, 'utf8')).toContain('[voice] typed while the voice is on')
     await page.screenshot({ path: testInfo.outputPath('voice-typed.png') })
+  })
+
+  test('what is typed on one screen is marked while another screen has the conversation open', async ({ page, request }, testInfo) => {
+    const tab = await seedSession(request, 'e2e-voice')
+    const other = await page.context().newPage()
+    await openClient(page, { sid: tab.sid })
+    await openClient(other, { sid: tab.sid })
+    const input = page.locator('[data-testid=chat-input]')
+    const confirmed = (hasText) => page.locator('[data-testid=message-bubble-user][data-cpc-optimistic="0"]').filter({ hasText })
+
+    // The other screen turns the voice on; this screen's own button stays off.
+    await other.locator(button).click()
+    await expect(other.locator(button)).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator(button)).toHaveAttribute('aria-pressed', 'false')
+    await input.fill('typed here, heard there')
+    await page.locator('[data-testid=chat-send-button]').click()
+    await expect(confirmed('typed here, heard there')).toHaveCount(1, { timeout: 15_000 })
+    expect(readFileSync(tab.jsonl_path, 'utf8')).toContain('[voice] typed here, heard there')
+
+    // Once the other screen turns it off, nothing is open and the text goes as it was typed.
+    await other.locator(button).click()
+    await expect(other.locator(button)).toHaveAttribute('aria-pressed', 'false')
+    await input.fill('typed with everything off')
+    await page.locator('[data-testid=chat-send-button]').click()
+    await expect(confirmed('typed with everything off')).toHaveCount(1, { timeout: 15_000 })
+    const record = readFileSync(tab.jsonl_path, 'utf8')
+    expect(record).toContain('typed with everything off')
+    expect(record).not.toContain('[voice] typed with everything off')
+    await page.screenshot({ path: testInfo.outputPath('voice-typed-elsewhere.png') })
+    await other.close()
   })
 
   test('turning the voice on leaves the microphone alone; the microphone button takes it, and closing or turning the voice off lets it go', async ({ page, request }, testInfo) => {
