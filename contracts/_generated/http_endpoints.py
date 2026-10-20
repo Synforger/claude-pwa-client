@@ -429,12 +429,14 @@ class PostHooksEventRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     hook_event_name: str
     session_id: str
+    prompt: Optional[str] = None  # UserPromptSubmit の発話
 
 
 class PostHooksEventResponse(BaseModel):
     """POST /hooks/event response"""
     model_config = ConfigDict(extra="forbid")
     ok: bool
+    context: Optional[str] = None  # agent へ渡す 1 行 (= 在る時だけ)
 
 
 class GetPushVapidPublicKeyResponse(BaseModel):
@@ -500,7 +502,7 @@ class GetJsonlDebugBindingsResponse(BaseModel):
 class PostStreamUnifiedConnControlRequest(BaseModel):
     """POST /stream/unified/{conn}/control request body"""
     model_config = ConfigDict(extra="forbid")
-    op: Literal["jsonl", "view", "stop", "subagents"]
+    op: Literal["jsonl", "view", "voice", "stop", "subagents"]
     sid: Optional[str] = None
     sids: Optional[list[Any]] = None
 
@@ -510,6 +512,7 @@ class PostStreamUnifiedConnControlResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ok: Optional[bool] = None
     subscribed: Optional[list[Any]] = None
+    voice: Optional[list[Any]] = None
 
 
 class PostDeviceOpsRequest(BaseModel):

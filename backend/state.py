@@ -409,6 +409,19 @@ def is_session_on_call(session_id: str) -> bool:
     return bool(session_id) and session_id in calls_by_conn.values()
 
 
+# 画面ごとに「会話を開いているタブ」 (= 統合 stream の接続の id → 🔊 か 🎙 が入っているタブの id の集合)。 画面が
+# 宣言し (= `routes/unified_stream.py` の op=voice)、 接続が切れると消える (= views_by_conn と同じ寿命)。
+voices_by_conn: dict[str, set[str]] = {}
+
+
+def is_voice_open(session_id: str) -> bool:
+    """session_id のタブの会話が、 どこかで開いているか (= どれかの画面で 🔊 か 🎙 が入っている / app の通話が
+    つながっている)。 開いている間、 人が打った発話にも声で聞いている印が付く (= `terminal/routes.py`)。"""
+    if not session_id:
+        return False
+    return is_session_on_call(session_id) or any(session_id in sids for sids in voices_by_conn.values())
+
+
 class OverviewBroadcaster:
     """全 session の busy 変化を /sessions/overview/stream に push する
     fan-out。 複数接続 (= 複数デバイス / 複数タブ) が購読しても取りこぼさないよう、 1 個の

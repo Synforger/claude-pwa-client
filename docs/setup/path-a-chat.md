@@ -93,7 +93,7 @@ PWA がチャットを表示し通知を出すには、 claude の hook が back
       { "hooks": [ { "type": "command", "command": "curl -s -o /dev/null -m 2 -X POST http://127.0.0.1:8765/hooks/event -H 'Content-Type: application/json' -H \"X-PWA-SID: ${PWA_SID:-}\" -d @-" } ] }
     ],
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "curl -s -o /dev/null -m 2 -X POST http://127.0.0.1:8765/hooks/event -H 'Content-Type: application/json' -H \"X-PWA-SID: ${PWA_SID:-}\" -d @-" } ] }
+      { "hooks": [ { "type": "command", "command": "curl -s -m 2 -X POST 'http://127.0.0.1:8765/hooks/event?reply=text' -H 'Content-Type: application/json' -H \"X-PWA-SID: ${PWA_SID:-}\" -d @-" } ] }
     ],
     "Stop": [
       { "hooks": [ { "type": "command", "command": "curl -s -o /dev/null -m 2 -X POST http://127.0.0.1:8765/hooks/event -H 'Content-Type: application/json' -H \"X-PWA-SID: ${PWA_SID:-}\" -d @-" } ] }
@@ -116,6 +116,9 @@ PWA がチャットを表示し通知を出すには、 claude の hook が back
   注入は、 タブの tmux session が新しく作られる時だけ (= 動いているタブには、 次に起動し直した時から入る)
 - ターミナルから直接起動した claude は `PWA_SID` を持たないので backend 側で無視される (= 無害)。
   同じ settings を全 claude セッションで共有して問題ない
+- `UserPromptSubmit` だけは backend の返事を捨てずに出力する (= `?reply=text`)。 会話がオンの間に、 人が送って
+  いない turn (= 別のタブからの連絡など) が始まると、 返事が声で聞かれる事を伝える 1 行がエージェントに届く
+  ([voice.md](../reference/voice.md) の「声で聞いている印」)。 それ以外の時、 返事は空
 - `SessionStart` だけでも bind は成立する。 `Stop` / `Notification` を足すと turn 完了や
   問い合わせ時に Web Push 通知が飛ぶ。 なお `/hooks/event` は localhost のみ受付
 

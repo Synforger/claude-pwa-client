@@ -51,9 +51,28 @@ _EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿️‍]")
 _SPACES = re.compile(r"[ \t　]+")
 # 文の終わり: 句点・感嘆符・疑問符の並びと、 それに続く閉じ括弧。
 _SENTENCE = re.compile(r".*?[。！？!?]+[」』）)】]*|.+$")
-# 声で聞いている印 (= 🔊 の間に人が送った文の頭に付く。 画面の `features/voice/inputMark.js` と同じ印)。 返事の
-# 印とは逆向きで、 agent へ「この返事は声で聞かれる」 と伝える。 送信口はこの印で声の発話を見分ける。
+# 声で聞いている印 (= そのタブの会話が開いている間に人が送った文の頭に付く。 画面の `features/voice/inputMark.js`
+# と同じ印)。 返事の印とは逆向きで、 agent へ「この返事は声で聞かれる」 と伝える。 送信口はこの印で声の発話を見分ける。
 VOICE_INPUT_MARK = "[voice]"
+# 声で聞いている印を付けない文の頭 (= claude の入力欄が頭の 1 文字で特別に扱う command / shell / memory。 頭に印が
+# 入ると、 普通の発話として読まれる)
+_UNMARKED_HEAD = ("/", "!", "#")
+
+
+# 会話が開いているのに印の無い turn (= 別のタブからの連絡・自動の入れ替え・裏の作業の知らせ) で、 hook が agent へ渡す
+# 1 行 (= `routes/hooks.py`)。 agent からは 🔊 も 🎙 も見えないので、 印と同じ事をこの行で伝える。
+VOICE_OPEN_CONTEXT = (
+    "[voice-open] This turn was not typed or said by the person, but a conversation of this tab is open "
+    "(the speaker or the microphone is on in a screen, or the app call is connected): the reply will be heard, "
+    "so write it as for a turn marked [voice]."
+)
+
+
+def mark_voice_input(text: str) -> str:
+    """そのタブへ送る文に、 声で聞いている印を付ける (= 空の文・特別な頭の文・印の付いた文はそのまま)。"""
+    if not text.strip() or text.startswith(_UNMARKED_HEAD) or text.startswith(VOICE_INPUT_MARK):
+        return text
+    return f"{VOICE_INPUT_MARK} {text}"
 # 印の名前の形 (= 設定に書く名前も、 文頭の `[名前]` も、 この形だけを印として認める)。
 MARK_NAME = r"[A-Za-z]+"
 # 予約の印: この印の行は声にしない (= 設定の marks には書かない。 書いても予約が勝つ)。

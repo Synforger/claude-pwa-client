@@ -13,7 +13,6 @@ import { tRaw } from '../../i18n/t.js'
 import { createListener } from './listener.js'
 import { createPlayer } from './player.js'
 import { unlockAudio, playSound } from './audio.js'
-import { markVoiceInput } from './inputMark.js'
 import { nativeVoice, createNativeCall } from './nativeCall.js'
 import { getSnapshot as volumeOf, setVoiceVolume } from '../../state/voiceVolume.js'
 
@@ -96,11 +95,6 @@ export function setVoice(sid, on) {
     setVoiceOn(sid, false)
     setVoiceError(sid, null)
   }
-}
-
-// そのタブへ送る文 (= 🔊 が ON の間は、 声で聞いている印を頭に付ける。 詳細 = inputMark.js)。
-export function voiceInputText(sid, text) {
-  return getSnapshot().on[sid] ? markVoiceInput(text) : text
 }
 
 // そのタブの agent が声を持つかと、 印の一覧を backend に訊いて、 store に写す。
