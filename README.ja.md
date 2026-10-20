@@ -89,7 +89,7 @@
   - シェル init / 履歴: `~/.zshrc` / `~/.zshenv` / `~/.zprofile` / `~/.bashrc` / `~/.bash_profile` / `~/.profile` / `~/.zsh_history` / `~/.bash_history`
   - 拡張子全般: `*.pem` / `*.key` / `*.p12` / `*.pfx`
 - **`/file/view` はページを sandbox で配る**: どの応答にも `Content-Security-Policy: sandbox allow-scripts` と `connect-src 'none'` が付く。 ページは backend と別の origin で動き、 backend にもほかの host にも通信できず、 画像・スクリプト・CSS はこの backend の物だけを読む。 配るのは HOME 配下で同じ deny list に当たらない file を、 拡張子 (= HTML / CSS / JS / JSON / 画像 / フォント / 音声 / 動画) で選び、 1 file 50 MB まで
-- **`page_origin` は 1 つの folder を sandbox なしで配る**: 書いた時だけ動く。 その folder の file を `127.0.0.1` の専用の port から、 `/file/view` と同じ CSP から `sandbox` だけを外して配る。 folder のページは backend と別の 1 つの origin を共有するので `localStorage` が残り、 backend にもほかの host にも通信できず、 画像・スクリプト・CSS はその port の物だけを読む。 中のページを信頼できる folder を指定する
+- **`page_origin` は 1 つの folder を sandbox なしで配る**: 書いた時だけ動く。 その folder の file を `127.0.0.1` の専用の port から、 `/file/view` と同じ CSP から `sandbox` だけを外して配る。 folder のページは backend と別の 1 つの origin を共有するので `localStorage` が残り、 backend にもほかの host にも通信できず、 画像・スクリプト・CSS はその port の物だけを読む。 送れる先はその port の保存箱 (= `/.store/<ページの path>`) だけで、 ページごとに JSON を 1 つ置ける。 どのブラウザ・どの端末から開いても同じ物を読める。 中のページを信頼できる folder を指定する
 - **`/hooks/event` は localhost のみ受付**: claude CLI hook は loopback 前提
 - **Markdown レンダラの URL は react-markdown 標準 sanitizer 経由**: `javascript:` / `data:` 等の危険スキームをブロック (内部 `cpc-file://` と、 Slack のアプリへ渡す `slack://` のみ pass-through)
 - **Web Push の subscription / VAPID 鍵は `backend/secrets/` / `backend/data/` の JSON に保存** (= gitignored、 詳細は `docs/reference/data-schemas.md`)
