@@ -416,7 +416,8 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
         # delete 経路の kill 失敗 = backend に session が残るゴースト化の原因。 warning で
         # 残す (= 2026-06-22)。
         logger.warning("session cleanup failed for %s", session_id, exc_info=True)
-    # このタブのメモ (= タブの持ち物) を消す
+    # このタブのメモ (= タブの持ち物) を消す。 symlink なら symlink だけを消し、 指す先 (= 起動した側が
+    # タブの作業の folder に置いた記録) は残す
     try:
         note_path(session_id).unlink(missing_ok=True)
     except Exception:

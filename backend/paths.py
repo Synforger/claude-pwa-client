@@ -69,7 +69,8 @@ VAPID_PATH = SECRETS_DIR / "vapid.json"
 USER_DIR = _env_path("CPC_USER_DIR", Path.home() / ".claude-pwa-client")
 # お気に入り: 1 行に 1 path のテキスト (= エージェントは 1 行足すだけで登録できる)
 FAVORITES_PATH = USER_DIR / "favorites.txt"
-# タブごとのメモ: `<タブの id>.md` (= そのタブの物。 タブを消すと一緒に消える)
+# タブごとのメモ: `<タブの id>.md` (= そのタブの物。 タブを消すと一緒に消える)。 symlink なら、
+# 中身は指す先に置かれる (= 起動した側がタブの作業の folder に置く。 タブを消しても指す先は残る)
 NOTES_DIR = USER_DIR / "notes"
 
 
@@ -78,6 +79,12 @@ def note_path(session_id: str) -> Path:
     if not session_id or Path(session_id).name != session_id:
         raise ValueError(f"not a session id: {session_id!r}")
     return NOTES_DIR / f"{session_id}.md"
+
+
+def note_file(session_id: str) -> Path:
+    """メモの中身が置かれる file。 `note_path` が symlink なら指す先 (= 指す先がまだ無くても)。"""
+    path = note_path(session_id)
+    return Path(os.path.realpath(path)) if path.is_symlink() else path
 
 
 def ensure_runtime_dirs() -> None:

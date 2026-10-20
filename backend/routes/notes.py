@@ -6,6 +6,10 @@
 移す (= ここは下書きの置き場で、 保存先ではない)。
 
 空にしたメモは file ごと消す (= 空の file を溜めない)。
+
+`notes/<タブの id>.md` が symlink なら、 読むのも書くのも消すのも指す先に対して行う (= 起動した側が
+メモをタブの作業の folder に置く形。 置き換えで symlink を潰さない)。 消すのは指す先だけで、
+symlink は残る (= 次に書けば同じ所にできる)。
 """
 import logging
 
@@ -13,7 +17,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 
 from backend.config import FILE_SIZE_LIMIT
 from backend.errors import raise_error
-from backend.paths import note_path
+from backend.paths import note_file
 from backend.routes.sessions import require_session
 from backend.state import atomic_write_text
 
@@ -23,7 +27,7 @@ router = APIRouter()
 
 @router.get("/sessions/{session_id}/note")
 def get_note(session_id: str, _: str = Depends(require_session)):
-    path = note_path(session_id)
+    path = note_file(session_id)
     try:
         if path.stat().st_size > FILE_SIZE_LIMIT:
             raise_error(413, "file_too_large", "ファイルが大きすぎます（上限 1MB）", limit="1MB")
@@ -35,7 +39,7 @@ def get_note(session_id: str, _: str = Depends(require_session)):
 
 @router.put("/sessions/{session_id}/note")
 def put_note(session_id: str, content: str = Body(..., embed=True), _: str = Depends(require_session)):
-    path = note_path(session_id)
+    path = note_file(session_id)
     if len(content.encode("utf-8")) > FILE_SIZE_LIMIT:
         raise_error(413, "file_too_large", "ファイルが大きすぎます（上限 1MB）", limit="1MB")
     try:
