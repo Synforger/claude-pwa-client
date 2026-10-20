@@ -26,10 +26,13 @@ import UIKit
     private static let canvas = PictureBubble.canvas
     /// 覚えておく吹き出しの数 (= 窓に入らない古い物は描かれない。 これは覚えすぎないための上限)
     private static let keptLines = 40
-    /// 文が変わらない間も絵を流し込む間隔 (= 流れが止まった層を、 PiP が古い物と見なさないように)
+    /// 文が変わらない間も絵を流し込む間隔 (= 流れが止まった層を、 PiP が古い物と見なさないように。 描き直さず、
+    /// 最後に描いた絵を流し直す)
     private static let refreshSecs = 2.0
 
     private var layer = AVSampleBufferDisplayLayer()
+    /// 最後に描いた絵 (= 中身が変わるまで、 2 秒ごとの流し込みはこれを使い回す)
+    private var drawn: CVPixelBuffer?
     /// 閉じた後に作り直した時の、 前の仕組み (= すぐ捨てると、 閉じる途中の仕組みが落ちる。 通話の終わりで捨てる)
     private var retired: [AVPictureInPictureController] = []
     /// 小窓を閉じてから作り直すまで待つ間 (= 閉じる動きが終わるのを待つ)
@@ -105,7 +108,7 @@ import UIKit
             },
         ]
         timer = Timer.scheduledTimer(withTimeInterval: Self.refreshSecs, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.render() }
+            Task { @MainActor in self?.refresh() }
         }
         Self.report("ready")
     }
@@ -293,6 +296,7 @@ import UIKit
 
     // MARK: - 絵を描いて流し込む
 
+    /// 中身が変わった: 描き直して流し込む
     private func render() {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 2
@@ -300,7 +304,19 @@ import UIKit
         let image = UIGraphicsImageRenderer(size: Self.canvas, format: format).image { context in
             draw(in: context.cgContext)
         }
-        guard let picture = image.cgImage, let sample = Self.sample(of: picture) else { return }
+        guard let picture = image.cgImage, let pixels = Self.pixels(of: picture) else { return }
+        drawn = pixels
+        enqueue(pixels)
+    }
+
+    /// 中身は変わっていない: 最後に描いた絵を、 今の時刻で流し直す (= まだ何も描いていなければ描く)
+    private func refresh() {
+        guard let drawn else { return render() }
+        enqueue(drawn)
+    }
+
+    private func enqueue(_ pixels: CVPixelBuffer) {
+        guard let sample = Self.sample(of: pixels) else { return }
         // 止まった層は、 流し直すまで絵を受けない (= 小窓が黒いまま。 裏に回った時や音の設定が変わった時に起きる)
         if layer.status == .failed || layer.requiresFlushToResumeDecoding {
             Self.report("layer-flushed", condition.merging(["error": "\(layer.error.map { "\($0)" } ?? "none")"]) { $1 })
@@ -379,7 +395,8 @@ import UIKit
     }
 
     /// 絵を、 すぐに出す 1 枚の映像の frame にする。
-    private static func sample(of picture: CGImage) -> CMSampleBuffer? {
+    /// 描いた絵を、 流し込める画素の器に写す (= 写した後は書き換えないので、 何度流し込んでもよい)
+    private static func pixels(of picture: CGImage) -> CVPixelBuffer? {
         let width = picture.width, height = picture.height
         let attributes = [
             kCVPixelBufferCGImageCompatibilityKey: true,
@@ -396,7 +413,11 @@ import UIKit
             bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
         bitmap?.draw(picture, in: CGRect(x: 0, y: 0, width: width, height: height))
         CVPixelBufferUnlockBaseAddress(pixels, [])
+        return pixels
+    }
 
+    /// 画素の器を、 今の時刻に出す 1 枚にする
+    private static func sample(of pixels: CVPixelBuffer) -> CMSampleBuffer? {
         var format: CMVideoFormatDescription?
         guard CMVideoFormatDescriptionCreateForImageBuffer(
             allocator: nil, imageBuffer: pixels, formatDescriptionOut: &format) == noErr, let format else { return nil }

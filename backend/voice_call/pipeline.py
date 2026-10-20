@@ -14,13 +14,27 @@ backend 本体の他の仕事でこの受け渡しを遅らせないため。 �
 
 声の大きさ: 端末のつまみの倍率は、 送り口へ渡す時に掛ける。 送り出しは前に渡した音が送られるまで次を渡さないので、
 先に溜まるのは 1 回分 (= 40 ms) だけで、 話している途中に動かしても、 その場で大きさが変わる。
+
+無音の間は送らない (= WebRTC の DTX と同じ働き): 通話は誰も話していない間も 20 ms ごとに音を送り合い、 その間も
+電話の電波と符号化、 こちらの復号が動き続ける。
+    下り  送り口に渡る音が全部 0 の無音のまま DTX_HANGOVER_SECS 続いたら、 そこから先の無音は符号化せず送らない。
+          送らなかった長さだけ後の音の時刻を進める (= 電話の側は、 時刻の空いた所を無音として鳴らす)
+    上り  電話に DTX を頼む (= worker が答えの SDP の Opus に usedtx=1 を足す)。 電話が無音の間に送らないと、 声の
+          区間の判定 (= Silero) は届いた音の長さで時間を数えるので、 話し終えても終わりが決まらない。 受け口の音が
+          GAP_FILL_SECS 届かなければ、 その長さの無音を代わりに渡す (= 判定には今までと同じ時間の流れが届く)
 """
 from __future__ import annotations
 
 import asyncio
+import fractions
 import logging
 import time
 from collections.abc import Callable
+
+from aiortc.codecs.opus import SAMPLE_RATE as OPUS_SAMPLE_RATE
+from aiortc.codecs.opus import SAMPLES_PER_FRAME as OPUS_SAMPLES_PER_FRAME
+from aiortc.codecs.opus import OpusEncoder
+from av import AudioFrame
 
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
@@ -31,7 +45,7 @@ from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair, LLMUserAggregatorParams
 from pipecat.transports.base_transport import TransportParams
-from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
+from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection, SmallWebRTCTrack
 from pipecat.transports.smallwebrtc.transport import RawAudioTrack, SmallWebRTCTransport
 from pipecat.turns.user_mute.always_user_mute_strategy import AlwaysUserMuteStrategy
 from pipecat.turns.user_stop.turn_analyzer_user_turn_stop_strategy import TurnAnalyzerUserTurnStopStrategy
@@ -48,6 +62,10 @@ logger = logging.getLogger(__name__)
 GAP_FRAMES_MAX = 5
 # 途切れの数を log に出す間隔
 REPORT_SECS = 10
+# 下り: 無音がこれだけ続いたら送るのをやめる (= libopus の DTX が無音の扱いに入るまでと同じ 200 ms)
+DTX_HANGOVER_SECS = 0.2
+# 上り: 受け口の音がこれだけ届かなければ、 その長さの無音を渡す (= 声の区間の判定が時間を数える刻み)
+GAP_FILL_SECS = 0.1
 
 
 class OutputGaps:
@@ -106,6 +124,68 @@ def scale_output(volume: Volume) -> None:
     RawAudioTrack.add_audio_bytes = add_audio_bytes
 
 
+def skip_silent_output() -> None:
+    """この process の Opus の符号化で、 続いた無音を送らない (= 会話 1 本につき 1 process なので、 型ごと包んでよい)。
+
+    aiortc の送り手は、 符号化が何も返さない枠を送らずに飛ばす。 符号化へは、 飛ばした間を詰めた続きの時刻で渡し
+    (= 組み直しの部品は時刻の飛びを自分で埋めにいく)、 出てきた音の時刻に飛ばした長さを足す。 飛ばし始めるのは、
+    符号化が 20 ms へ組み直す途中に何も残していない枠から (= 残っていると、 その分が鳴り出した音の前に付く)。
+    """
+    original = OpusEncoder.encode
+    zeros: dict[int, bytes] = {}
+
+    def encode(self, frame, force_keyframe=False):
+        data = bytes(frame.planes[0])[:frame.samples * len(frame.layout.channels) * frame.format.bytes]
+        silent = data == zeros.setdefault(len(data), bytes(len(data)))
+        self._quiet_secs = getattr(self, "_quiet_secs", 0.0) + frame.samples / frame.sample_rate if silent else 0.0
+        fed, skipped = getattr(self, "_fed", 0), getattr(self, "_skipped", 0)   # 48 kHz の数
+        samples = frame.samples * OPUS_SAMPLE_RATE // frame.sample_rate
+        if self._quiet_secs > DTX_HANGOVER_SECS and fed % OPUS_SAMPLES_PER_FRAME == 0:
+            self._skipped = skipped + samples
+            return [], None
+        frame.pts = fed * frame.sample_rate // OPUS_SAMPLE_RATE
+        frame.time_base = fractions.Fraction(1, frame.sample_rate)
+        self._fed = fed + samples
+        payloads, timestamp = original(self, frame, force_keyframe)
+        return payloads, None if timestamp is None else timestamp + skipped
+
+    OpusEncoder.encode = encode
+
+
+def fill_input_gaps() -> None:
+    """この process の受け口で、 音が届かない間を無音で埋める (= 会話 1 本につき 1 process なので、 型ごと包んでよい)。
+
+    待つたびに元の受け取りを呼び直す (= 元の受け取りは、 2 秒呼ばれないと受け取りを止めて溜まった音を捨てる。 呼んだ
+    まま待ち続けると、 無音が 2 秒続いた所で次の声を取りこぼす)。 取り消した待ちは音を失わない (= aiortc の列の get)。
+    """
+    original = SmallWebRTCTrack.recv
+
+    async def recv(self):
+        if self._track.kind != "audio":
+            return await original(self)
+        try:
+            frame = await asyncio.wait_for(original(self), timeout=GAP_FILL_SECS)
+        except TimeoutError:
+            return _silence(getattr(self, "_last_heard", None), GAP_FILL_SECS)
+        if isinstance(frame, AudioFrame):
+            self._last_heard = frame
+        return frame
+
+    SmallWebRTCTrack.recv = recv
+
+
+def _silence(like: AudioFrame | None, secs: float) -> AudioFrame:
+    """secs 秒の無音 (= 形は前に届いた音に揃える。 まだ何も届いていなければ、 aiortc の Opus の復号と同じ形)。"""
+    rate = like.sample_rate if like is not None else OPUS_SAMPLE_RATE
+    frame = AudioFrame(format=like.format.name if like is not None else "s16",
+                       layout=like.layout.name if like is not None else "stereo", samples=round(rate * secs))
+    for plane in frame.planes:
+        plane.update(bytes(plane.buffer_size))
+    frame.sample_rate = rate
+    frame.time_base = fractions.Fraction(1, rate)
+    return frame
+
+
 async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, start: dict, volume: Volume,
                    handover: Callable[[dict], None] | None = None,
                    superseded: asyncio.Event | None = None) -> None:
@@ -121,6 +201,8 @@ async def run_call(connection: SmallWebRTCConnection, backend: BackendClient, st
     gaps = OutputGaps()
     watch_output(gaps)
     scale_output(volume)
+    skip_silent_output()
+    fill_input_gaps()
     transport = SmallWebRTCTransport(
         webrtc_connection=connection, params=TransportParams(audio_in_enabled=True, audio_out_enabled=True))
     turn = LocalSmartTurnAnalyzerV3(
