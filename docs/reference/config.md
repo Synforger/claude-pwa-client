@@ -130,6 +130,14 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   共有する。 backend の口にもほかの host にも通信できない所は `/file/view` と同じ。 backend は `127.0.0.1:<port>` で待ち受けるので、
   Tailscale 越しに使う時は同じ番号を tailnet に出す (= `tailscale serve --bg --https=<port> http://127.0.0.1:<port>`)。
   書き損じた時と port が塞がっている時は起動ログに理由を出し、 その folder も今どおり `/file/view` で開く
+  - **保存箱**: `localStorage` はブラウザごと (= 同じ端末でもブラウザと app で別々) なので、 どこで開いても同じ物を
+    読ませたいページは、 その port の `/.store/<folder の中のページの path>` へ読み書きする。 ページが fetch できる
+    先はここだけ
+    - `GET` → 置いた JSON (= まだ無ければ `null`) と、 その `ETag`
+    - `PUT` (= `Content-Type: application/json`) → 丸ごと置き換えて `204` と新しい `ETag`。 1 MB まで
+    - `PUT` に `If-Match: <読んだ時の ETag>` を付けると、 その間に別の画面が書いていた時は書かずに `412` と今の中身を返す
+    - 箱はページ 1 つに 1 つ (= folder の中に在る HTML の path の分だけ)。 中身は backend の利用者の置き場の
+      `page-store/` に置く
 - `cors_allow_origins`: 通常は `[]` (backend が同一オリジンで frontend を配信するため
   CORS は不要)。 Vite dev server からアクセスする場合は `["http://localhost:5173"]` 等を
   設定する

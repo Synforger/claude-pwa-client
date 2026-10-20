@@ -140,6 +140,21 @@ backup: 任意 (= 失っても、 もう一度 ⭐ を付け直せば戻る)。
 
 backup: 不要 (= 下書き)。
 
+## `~/.claude-pwa-client/page-store/<hash>.json`
+
+設定の `page_origin` の folder のページが置く保存箱 (= ページ 1 つに 1 つ。 [config.md](config.md) の `page_origin`)。
+ページはその port の `GET` / `PUT /.store/<ページの path>` から読み書きする。 **利用者の物** なので、 置き場は repo の外。
+
+**形式**: ページが置いた JSON をそのまま 1 本。 名前はページの実体の絶対 path (= symlink を辿った後) の sha256。
+ページを動かす・名前を変えると、 前の箱は読まれなくなる (= 消えはしない)。
+
+- 上限は 1MB (= `/file` と同じ)
+- 書き込みは丸ごとの置き換え。 `If-Match` を付けた書き込みは、 読んだ後に別の画面が書いていれば断られる
+
+**writer**: `backend/routes/files.py` の `put_store` (= tmp に書いて `os.replace`)。
+
+backup: ページの持ち主の判断 (= チェックの記録のような、 その場でしか作れない物を置くなら取る)。
+
 ## 関連
 
 - backend 再起動 / kickstart 手順は `../troubleshooting/sunshine.md` / LaunchAgent 関連は `../setup/path-a-chat.md § backend を常駐起動する`

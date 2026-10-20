@@ -3,17 +3,21 @@
 セキュリティ: tailnet 経由で誰でも `/file` を叩けるので、 秘密ファイル (= SSH 鍵 / クラウド
 認証情報 / token を平文で持つ設定 / シェル初期化ファイル) は読み書き両方禁止。 HOME 配下 deny list ベース。
 """
+import hashlib
+import json
 import logging
 import os
 import re
+import threading
 from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Body, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 
 from backend.config import FILE_SIZE_LIMIT, HOME, page_origin
 from backend.errors import raise_error
+from backend.paths import PAGE_STORE_DIR
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -138,15 +142,15 @@ _VIEW_MEDIA_TYPES = {
 }
 # 図解の動画や大きな画像は通し、 巨大な素材で backend が詰まらない上限 (= 1 file ごと)。
 VIEW_SIZE_LIMIT = 50 * 1024 * 1024
-# ページが読める物と送れる先 (= /file/view とページの origin で共通。 違うのは sandbox と frame-ancestors だけ)。
+# ページが読める物と送れる先 (= /file/view とページの origin で共通。 違うのは sandbox・connect-src・frame-ancestors)。
 _PAGE_POLICY = (
     "default-src 'none'; "
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; "
-    "connect-src 'none'; form-action 'none'; base-uri 'none'"
+    "form-action 'none'; base-uri 'none'"
 )
 # frame-ancestors は同じ host だけ (= iPhone のホーム画面の PWA は、 HTML をプレビューの枠の iframe に嵌めて開く)。
-VIEW_CSP = f"sandbox allow-scripts; {_PAGE_POLICY}; frame-ancestors 'self'"
+VIEW_CSP = f"sandbox allow-scripts; {_PAGE_POLICY}; connect-src 'none'; frame-ancestors 'self'"
 _VIEW_HEADERS = {
     "Cache-Control": "no-cache",
     "X-Content-Type-Options": "nosniff",
@@ -219,14 +223,29 @@ def get_file_view(path: str):
 # ページの origin: page_origin の folder の file を、 sandbox を外した普通のページとして配る口。 backend とは別の
 # 待ち受け (= 別の port。 立てるのは main の lifespan) なので、 ページの origin は backend と別になり、 その origin の
 # localStorage は開き直しても残る (= /file/view の sandbox の origin は毎回 null で、 何も残らない)。 sandbox の他は
-# /file/view と同じで、 fetch / WebSocket は connect-src で止まり (= backend の口にも外にも届かない)、 読める画像・
-# スクリプト・CSS はこの port の物だけ。 folder の中の全部のページが 1 つの origin を共有する。 frame-ancestors は
-# 同じ host の全部の port (= ホーム画面の PWA は、 backend の origin のプレビューの枠に嵌めて開く)。
+# /file/view と同じで、 読める画像・スクリプト・CSS はこの port の物だけ。 fetch はこの port の保存箱 (= `/.store/`)
+# にだけ届く (= backend の口にも外にも届かない)。 folder の中の全部のページが 1 つの origin を共有する。
+# frame-ancestors は同じ host の全部の port (= ホーム画面の PWA は、 backend の origin のプレビューの枠に嵌めて開く)。
 page_app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
 
+# 保存箱: ページごとに JSON を 1 つ置く口 (= `/.store/<ページの path>`)。 localStorage はブラウザごと (= Safari・
+# app の閲覧の画面・ホーム画面の PWA で別々) なので、 どこで開いても同じ物を読ませたいページはここへ読み書きする。
+# 置けるのは folder の中に在る HTML の path の分だけで、 中身は JSON、 大きさは /file の書き込みと同じ上限まで。
+# 書く時に `If-Match` (= 読んだ時の ETag) を付けると、 その間に別の画面が書いていたら 412 で断る。
+_STORE_PREFIX = "/.store/"
+_store_lock = threading.Lock()
 
-@page_app.get("/{path:path}")
-def get_page(request: Request, path: str):
+
+def _page_csp(request: Request) -> str:
+    port = page_origin()[1]
+    return (
+        f"{_PAGE_POLICY}; connect-src {_same_host(request, port)}{_STORE_PREFIX}; "
+        f"frame-ancestors {_same_host(request, '*')}"
+    )
+
+
+def _in_folder(path: str) -> Path:
+    """folder の中の path を resolve() した実体にする (= folder の外・設定が無い時は断る)。"""
     origin = page_origin()
     if origin is None:
         raise HTTPException(status_code=404, detail="File not found")
@@ -236,8 +255,66 @@ def get_page(request: Request, path: str):
         resolved.relative_to(folder)
     except ValueError:
         raise HTTPException(status_code=403, detail="Access denied")
-    csp = f"{_PAGE_POLICY}; frame-ancestors {_same_host(request, '*')}"
-    return _view_response(_resolve_safe(str(resolved)), csp)
+    return _resolve_safe(str(resolved))
+
+
+def _store_file(page: str) -> Path:
+    """そのページの保存箱の file (= 名前はページの実体の path の hash。 ページが在る HTML の時だけ)。"""
+    resolved = _in_folder(page)
+    if resolved.suffix.lower() not in (".html", ".htm") or not resolved.is_file():
+        raise HTTPException(status_code=404, detail="Page not found")
+    return PAGE_STORE_DIR / (hashlib.sha256(str(resolved).encode()).hexdigest() + ".json")
+
+
+def _store_too_large():
+    raise_error(413, "file_too_large", "保存する中身が大きすぎます（上限 1MB）", limit="1MB")
+
+
+def _etag(body: bytes) -> str:
+    return '"' + hashlib.sha256(body).hexdigest()[:32] + '"'
+
+
+@page_app.get(_STORE_PREFIX + "{page:path}")
+def get_store(page: str):
+    """保存箱の中身 (= まだ何も置いていなければ null)。"""
+    path = _store_file(page)
+    body = path.read_bytes() if path.is_file() else b"null"
+    return Response(body, media_type="application/json", headers={"ETag": _etag(body), "Cache-Control": "no-store"})
+
+
+@page_app.put(_STORE_PREFIX + "{page:path}")
+async def put_store(request: Request, page: str):
+    """保存箱を丸ごと置き換える (= 中身は JSON。 `If-Match` が今の ETag と違えば 412 で、 書かない)。"""
+    path = _store_file(page)
+    if not request.headers.get("content-type", "").startswith("application/json"):
+        raise HTTPException(status_code=415, detail="Unsupported media type")
+    # 名乗った大きさで先に断り (= 読み込む前)、 名乗らずに送られた物は読んだ後で断る
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > FILE_SIZE_LIMIT:
+        _store_too_large()
+    body = await request.body()
+    if len(body) > FILE_SIZE_LIMIT:
+        _store_too_large()
+    try:
+        json.loads(body)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Body is not JSON")
+    with _store_lock:
+        expected = request.headers.get("if-match")
+        current = path.read_bytes() if path.is_file() else b"null"
+        if expected is not None and expected != _etag(current):
+            return Response(current, status_code=412, media_type="application/json",
+                            headers={"ETag": _etag(current), "Cache-Control": "no-store"})
+        PAGE_STORE_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_bytes(body)
+        os.replace(tmp, path)
+    return Response(status_code=204, headers={"ETag": _etag(body)})
+
+
+@page_app.get("/{path:path}")
+def get_page(request: Request, path: str):
+    return _view_response(_in_folder(path), _page_csp(request))
 
 
 @router.put("/file")

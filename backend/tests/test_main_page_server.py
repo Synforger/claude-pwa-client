@@ -30,6 +30,7 @@ def _configure(tmp_path, monkeypatch, port):
     monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg)
     config_mod.get_config.cache_clear()
     monkeypatch.setattr(files_mod, "HOME", tmp_path)
+    monkeypatch.setattr(files_mod, "PAGE_STORE_DIR", tmp_path / "store")
 
 
 def _get(req):
@@ -72,6 +73,7 @@ def test_page_server_serves_with_the_scheme_the_proxy_names(tmp_path, monkeypatc
     assert body == "<!doctype html><p>deck</p>"
     csp = headers["content-security-policy"]
     assert "sandbox" not in csp
+    assert f"connect-src https://box.example.ts.net:{port}/.store/;" in csp
     assert csp.endswith("frame-ancestors https://box.example.ts.net:*")
 
 
