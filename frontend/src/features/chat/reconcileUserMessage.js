@@ -2,6 +2,7 @@ import { generateId } from '../../utils/id.js'
 import { MAX_MESSAGES } from '../../constants.js'
 import { isStaleFor } from './replayGuard.js'
 import { isClientMessage } from './agentMessage.js'
+import { hideVoiceInputMark } from '../voice/inputMark.js'
 
 // SSE 経由で受信した user_message を messages 配列に統合する純粋関数。
 //
@@ -117,10 +118,13 @@ function _reconcile(cur, eventText, eventUuid, eventSendId, eventTs) {
   // 来ず、 その間に応答の bubble がいくつでも積まれる。 確定待ちのまま画面を開き直すと optimistic の
   // 印も落ちているので (= useChatStorage の pending)、 ここが最後の受け皿になる。 絞るのは時刻だけ:
   // その bubble より過去の event (= 履歴 replay) には確定させない (= 3 と同じ判定)。 同文が複数
-  // 待っている時は、 送った順 (= 古い方) から確定する。
+  // 待っている時は、 送った順 (= 古い方) から確定する。 声で聞いている印は外して比べる (= 印は backend が送信の口で
+  // 付けるので、 楽観 bubble の文には無く、 記録の文には在る)。
   if (text) {
+    const said = hideVoiceInputMark(text)
     const idx = cur.findIndex(
-      m => m && m.role === 'user' && !m.uuid && (m.text || '') === text && !isStaleFor(eventTs, m.createdAt ?? m.ts),
+      m => m && m.role === 'user' && !m.uuid && hideVoiceInputMark(m.text || '') === said
+        && !isStaleFor(eventTs, m.createdAt ?? m.ts),
     )
     if (idx >= 0) return _confirmAt(cur, idx, text, eventUuid, eventSendId || cur[idx].send_id, eventTs)
   }

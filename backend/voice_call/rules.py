@@ -1,7 +1,8 @@
 """電話の会話の決まり (= Pipecat に依らない、 文字と event だけを見る純粋関数)。
 
 画面の会話と同じ決まりを、 backend の中の会話でも使う:
-    声で聞いている印     `frontend/src/features/voice/inputMark.js`
+    声で聞いている印を外す `frontend/src/features/voice/inputMark.js` の hideVoiceInputMark (= 付けるのは
+                           `core/speech.py` の mark_voice_input)
     言いさし             `frontend/src/features/voice/turnTaker.js` の isUnfinished
     声にする返事         `frontend/src/features/voice/listener.js` の speechParts
 """
@@ -13,18 +14,8 @@ import unicodedata
 from backend.core.jsonl_predicates import is_harness_xml_text
 from backend.core.speech import VOICE_INPUT_MARK, parse_mark
 
-# 声で聞いている印を付けない文の頭 (= 印そのものは core/speech.py の VOICE_INPUT_MARK)
-_SPECIAL_HEAD = ("/", "!", "#")
-
 # 覚えておく「言った物」 の数 (= 超えた分は古い順に忘れる。 会話を始める前の物は時刻で弾かれる)
 MAX_HEARD = 2000
-
-
-def mark_voice_input(text: str) -> str:
-    """そのタブへ送る文に、 声で聞いている印を付ける。"""
-    if not text.strip() or text.startswith(_SPECIAL_HEAD) or text.startswith(VOICE_INPUT_MARK):
-        return text
-    return f"{VOICE_INPUT_MARK} {text}"
 
 
 # iPhone の app の小窓 (= PiP) に出す文。 別のタブからの連絡と自動の入れ替えは、 封筒の頭で見分けて出さない

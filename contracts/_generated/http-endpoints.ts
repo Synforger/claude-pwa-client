@@ -451,11 +451,15 @@ export interface PostPtySidSendRawKeyResponse {
 export interface PostHooksEventRequest {
   hook_event_name: string
   session_id: string
+  /** UserPromptSubmit の発話 */
+  prompt?: string
 }
 
 /** POST /hooks/event response */
 export interface PostHooksEventResponse {
   ok: boolean
+  /** agent へ渡す 1 行 (= 在る時だけ) */
+  context?: string
 }
 
 /** GET /push/vapid-public-key response */
@@ -512,7 +516,7 @@ export type GetJsonlDebugBindingsResponse = Record<string, {
 
 /** POST /stream/unified/{conn}/control request body */
 export interface PostStreamUnifiedConnControlRequest {
-  op: "jsonl" | "view" | "stop" | "subagents"
+  op: "jsonl" | "view" | "voice" | "stop" | "subagents"
   sid?: string | null
   sids?: unknown[]
 }
@@ -521,6 +525,7 @@ export interface PostStreamUnifiedConnControlRequest {
 export interface PostStreamUnifiedConnControlResponse {
   ok?: boolean
   subscribed?: unknown[]
+  voice?: unknown[]
 }
 
 /** POST /device/ops request body */

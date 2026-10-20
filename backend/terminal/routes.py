@@ -44,7 +44,7 @@ from backend.terminal.runner import (
     wipe_input_line,
     write_pty,
 )
-from backend.state import sessions_meta, stream_states
+from backend.state import is_voice_open, sessions_meta, stream_states
 
 # 送信確認 (= JSONL カウント + wait + 救済再送) は pty_confirm に分離。
 # session 解決 + spawn は pty_session_resolver に分離。 ここは endpoint と pump のみ持つ。
@@ -60,7 +60,7 @@ from backend.terminal.confirm import (
     _wait_count_added,
 )
 from backend.terminal.first_message import launch_with_first_message
-from backend.core.speech import VOICE_INPUT_MARK
+from backend.core.speech import VOICE_INPUT_MARK, mark_voice_input
 from backend.terminal.input_ready import wait_ready
 from backend.terminal.send_dedup import send_dedup
 from backend.terminal.session_resolver import (
@@ -578,12 +578,27 @@ async def _clear_after_stop(session_id: str, sent: _EscapeSent) -> None:
 
 
 @router.post("/pty/{session_id}/send")
-async def pty_send(
+async def pty_send_from_person(
     session_id: str,
     payload: dict = Body(...),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> dict:
-    """chat UI からの入力を tmux session に送る (= send-keys 経路、 PTY attach 不要)。
+    """人が打った / 話した入力の口 (= 画面と app の通話)。 本文の中身と送り方は `pty_send`。
+
+    そのタブの会話がどこかで開いている間 (= どれかの画面で 🔊 か 🎙 が入っている / app の通話がつながっている、
+    `state.is_voice_open`)、 本文の頭に声で聞いている印を付けてから渡す。 打った画面の 🔊 が切れていても、 別の
+    画面や app の通話で開いていれば付く。 別のタブからの連絡と自動の入れ替えは `pty_send` を直に呼ぶので、 印は
+    付かない (= 印は turn を止めて打つ合図も兼ねる)。
+    """
+    text = payload.get("text")
+    if isinstance(text, str) and payload.get("enter") and is_voice_open(session_id):
+        payload = {**payload, "text": mark_voice_input(text)}
+    return await pty_send(session_id, payload, idempotency_key)
+
+
+async def pty_send(session_id: str, payload: dict, idempotency_key: str | None = None) -> dict:
+    """入力を tmux session に送る (= send-keys 経路、 PTY attach 不要)。 人の入力は `pty_send_from_person` から、
+    別のタブからの連絡と自動の入れ替えは直に来る。
 
     送信本文 (= text + enter) の場合は、 JSONL に user 行が +1 されるかを最大 2s
     監視して機械的に送信成功を確認する。 +1 されなければ 1 回だけ再送して +1.5s 待つ。
@@ -723,6 +738,9 @@ async def pty_send_with_files(
         paths = ", ".join(s["path"] for s in saved)
         parts.append(f"[添付ファイル: {paths}]")
     full_text = " ".join(parts)
+    # 声で聞いている印は、 本文と添付の行を並べた後に付ける (= 写真だけの発話にも付く。 決まりは pty_send_from_person)
+    if is_voice_open(session_id):
+        full_text = mark_voice_input(full_text)
     if not full_text:
         return {"ok": False, "reason": "empty"}
     saved_files = [{"name": s["name"], "path": s["path"]} for s in saved]
