@@ -127,3 +127,67 @@ def test_run_all_maintenance_no_sunshine_key(monkeypatch):
         "killed_tmux", "killed_idle_pwa", "removed_statusline_map",
         "removed_jsonl", "orphan_turn_starts",
     }
+
+
+# --- A second backend on the same machine (a test build, a worktree) must not touch the first one's tabs ---
+
+def test_stale_kill_leaves_everything_alone_without_tabs(monkeypatch):
+    import backend.state as state
+    kill_calls: list = []
+    _patch_tmux(monkeypatch, list_stdout="pwa-ses_live\npwa-ses_other\n", kill_calls=kill_calls)
+    monkeypatch.setattr(state, "sessions_meta", {})
+    assert m.cleanup_stale_tmux_sessions() == 0
+    assert kill_calls == []
+
+
+def test_stale_kill_still_kills_sessions_missing_from_its_tabs(monkeypatch):
+    import backend.state as state
+    kill_calls: list = []
+    _patch_tmux(monkeypatch, list_stdout="pwa-ses_kept\npwa-ses_gone\nclaudepwa-sentinel\n", kill_calls=kill_calls)
+    monkeypatch.setattr(state, "sessions_meta", {"ses_kept": object()})
+    assert m.cleanup_stale_tmux_sessions() == 1
+    assert kill_calls == ["pwa-ses_gone"]
+
+
+def _old_transcripts(tmp_path, names):
+    """A projects folder holding transcripts last written 30 days ago."""
+    project = tmp_path / "projects" / "-x"
+    project.mkdir(parents=True)
+    old = time.time() - 30 * 86400
+    for name in names:
+        path = project / name
+        path.write_text("{}\n")
+        import os
+        os.utime(path, (old, old))
+    return project
+
+
+def test_jsonl_gc_deletes_nothing_without_a_bound_tab(monkeypatch, tmp_path):
+    import backend.core.jsonl_watcher as watcher
+    project = _old_transcripts(tmp_path, ["a.jsonl", "b.jsonl"])
+    monkeypatch.setattr(m._config, "CLAUDE_PROJECTS_DIRS", [tmp_path / "projects"])
+    monkeypatch.setattr(watcher, "list_bindings", lambda: {})
+    assert m.cleanup_old_jsonl(keep_days=14, max_bytes=10**12) == 0
+    assert sorted(p.name for p in project.iterdir()) == ["a.jsonl", "b.jsonl"]
+
+
+def test_jsonl_gc_deletes_old_unbound_transcripts_when_it_sees_a_bound_tab(monkeypatch, tmp_path):
+    import backend.core.jsonl_watcher as watcher
+    project = _old_transcripts(tmp_path, ["bound.jsonl", "old.jsonl"])
+    monkeypatch.setattr(m._config, "CLAUDE_PROJECTS_DIRS", [tmp_path / "projects"])
+    monkeypatch.setattr(watcher, "list_bindings",
+                        lambda: {"ses_a": {"confirmed": True, "jsonl_path": str(project / "bound.jsonl")}})
+    assert m.cleanup_old_jsonl(keep_days=14, max_bytes=10**12) == 1
+    assert sorted(p.name for p in project.iterdir()) == ["bound.jsonl"]
+
+
+def test_tmux_socket_is_one_per_platform_root(tmp_path):
+    from backend.terminal import runner
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    assert runner.platform_socket_name(None) is None
+    assert runner.platform_socket_name("  ") is None
+    assert runner.platform_socket_name(str(first)) == runner.platform_socket_name(str(first) + "/")
+    assert runner.platform_socket_name(str(first)) != runner.platform_socket_name(str(second))
+    assert runner.platform_socket_name(str(first)).startswith("agent-platform-")
