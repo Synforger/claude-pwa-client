@@ -37,6 +37,7 @@ from __future__ import annotations
 import asyncio
 import errno
 import fcntl
+import hashlib
 import logging
 import os
 import pty
@@ -72,7 +73,17 @@ TMUX_BIN: str = "tmux"
 # 名前空間はユーザーグローバルなので、 隔離しないと test backend の maintenance が
 # 本番の pwa-* session を「自分の管理外の残骸」 と誤認して kill する (= 2026-07-15
 # resume storm 事故の根本原因。 port / data dir の隔離だけでは不十分)。
-TMUX_SOCKET_NAME: str | None = os.environ.get("CPC_TMUX_SOCKET") or None
+# With an agent platform root, the default socket is one per root, so a second backend started on another
+# root (a test build, a worktree) never sees this root's sessions, even when CPC_TMUX_SOCKET is forgotten.
+def platform_socket_name(root: str | None) -> str | None:
+    """The tmux socket name of an agent platform root (None without a root)."""
+    if not root or not root.strip():
+        return None
+    return "agent-platform-" + hashlib.sha1(os.path.realpath(root.strip()).encode()).hexdigest()[:8]
+
+
+TMUX_SOCKET_NAME: str | None = (os.environ.get("CPC_TMUX_SOCKET")
+                                or platform_socket_name(os.environ.get("AGENT_PLATFORM_ROOT")))
 
 
 def tmux_base_argv() -> list[str]:

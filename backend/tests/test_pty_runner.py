@@ -479,8 +479,11 @@ def test_maintenance_tmux_calls_use_base_argv(monkeypatch):
             stdout = ""
             stderr = ""
         return R()
+    import backend.state as state
     monkeypatch.setattr(runner, "TMUX_SOCKET_NAME", "sock-y")
     monkeypatch.setattr(maintenance.subprocess, "run", fake_run)
+    # With no tab the cleanup leaves tmux alone; one tab makes it list the sessions.
+    monkeypatch.setattr(state, "sessions_meta", {"ses_a": object()})
     maintenance.cleanup_stale_tmux_sessions()
     assert seen, "tmux list-sessions が呼ばれる"
     assert all(a[:3] == [runner.TMUX_BIN, "-L", "sock-y"] for a in seen)
