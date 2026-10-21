@@ -110,8 +110,9 @@ Automatic session rollover, sent by the client (the operator did not type this):
 ## 引き継ぐ本文を検査する (任意)
 
 [タブどうしの連絡](agent-messages.md) に検査 (= `agent_message_check`) を設定している場合は、
-起動し直す口に渡された本文にも同じ検査が掛かります。 新しい会話はまだ何も読んでいないので、
-宛先 (= `{session}`) には、 どの会話の id でもない `rollover:<タブの id>` が渡ります。
+起動し直す口に渡された本文にも同じ検査が掛かります。 新しい会話は同じタブで同じように起動する今の会話の
+続きなので、 宛先 (= `{session}`) には今の会話の id が渡ります。 今の会話の記録が見つからない時だけ、
+どの会話の id でもない `rollover:<タブの id>` (= 何も読んでいない相手) が渡ります。
 
 ## 起きない時
 

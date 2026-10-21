@@ -11,8 +11,10 @@
 (= `OPENING`) で始まり、 人の送信には付かない。 宛先の claude も、 端末の入力を読む外の道具も、 その行で
 「人が打った文ではない」 と見分ける。
 
-3 の本文は、 前の会話から次の会話への連絡に当たる。 次の会話はまだ何も読んでいないので、 届ける前の
-検査 (= `agent_message_check`) を「どの会話でもない宛先」 の名前で通す (= 別の機械への連絡と同じ扱い)。
+3 の本文は、 前の会話から次の会話への連絡に当たる。 次の会話は同じタブで、 同じ起動の仕方で立つ今の会話の
+続きなので、 届ける前の検査 (= `agent_message_check`) は宛先を今の会話として通す (= 今の会話が読んだ境界の
+名前と中身は通り、 読んでいない境界の物は止まる)。 今の会話の記録が見つからない時だけ、 「どの会話でもない
+宛先」 の名前で通す (= 何も読んでいない相手。 別の機械への連絡と同じ扱い)。
 
 口は 202 を返してから終了に入る。 叩いた道具は終了されるタブの中で動いていて、 終了と一緒に落ちる。
 """
@@ -29,6 +31,7 @@ from backend.errors import raise_error
 from backend.routes.agent_messages import LOCAL_CLIENTS, judge
 from backend.state import sessions_meta
 from backend.terminal.routes import pty_send
+from backend.terminal.runner import jsonl_path_for_session
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -101,9 +104,12 @@ async def post_rollover(request: Request, session_id: str, text: str = Form(...)
         raise_error(400, "rollover_empty", "本文が空です")
     from backend.config import AGENT_MESSAGE_CHECK  # noqa: PLC0415
     if AGENT_MESSAGE_CHECK:
-        # 次の会話はまだ無い。 この機械のどの会話でもない名前を宛先として渡す (= 何も読んでいない相手)。
-        name = f"rollover:{session_id}"
-        await judge(name, text, name)
+        # 次の会話は今の会話の続き (= 同じタブ・同じ階層で立ち、 同じ境界を読む)。 宛先は今の会話にする。
+        # 階層の path は境界の folder の名前を含むので、 何も読んでいない相手として通すと、 境界の中の階層は
+        # 起動し直せない。 記録が無い時だけ、 この機械のどの会話でもない名前 (= 何も読んでいない相手) で通す。
+        record = jsonl_path_for_session(session_id)
+        name = record.stem if record is not None else f"rollover:{session_id}"
+        await judge(name, text, session_id)
     task = asyncio.create_task(_roll(session_id, start_envelope(text)))
     _rolling.add(task)
     task.add_done_callback(_rolling.discard)
