@@ -64,6 +64,10 @@ def cleanup_stale_tmux_sessions() -> int:
         from backend.state import sessions_meta
     except ImportError:
         return 0
+    if not sessions_meta:
+        # A backend with no tabs owns no tmux session: everything it would kill belongs to another backend.
+        logger.info("maintenance: no tabs registered; leaving tmux sessions alone")
+        return 0
     try:
         r = subprocess.run(
             [*tmux_base_argv(), "list-sessions", "-F", "#{session_name}"],
@@ -228,6 +232,11 @@ def cleanup_old_jsonl(
                 bound_paths.add(str(Path(jp).resolve()))
     except Exception:
         logger.exception("jsonl gc: failed to collect bound paths")
+    if not bound_paths:
+        # The transcripts are shared by every backend and account on the machine; one that sees no bound tab
+        # cannot tell a live conversation from an old one, so it deletes nothing.
+        logger.info("jsonl gc: no bound tab; deleting nothing")
+        return 0
     cutoff = time.time() - keep_days * 86400
     deleted = 0
     # 全 project を 1 リストに集約 (= quota は全体合計で見る)
