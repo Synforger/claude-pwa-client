@@ -27,6 +27,7 @@ import {
   setNotifyMode,
 } from './useSessions.js'
 import { deriveSessionBadges } from '../push-notify/useSessionBadges.js'
+import { loadFolded, sessionTree, toggleFolded } from './sessionTree.js'
 import { usePushSubscription } from '../push-notify/usePushSubscription.js'
 import {
   TEXT_ZOOM_MAX,
@@ -342,33 +343,18 @@ export default function SessionDrawer() {
     setRenameFor(null)
   }
 
-  // フォークタブ (= parent_id を持つ) を親の直下にインデント表示する (= C 案)。 兄弟内の
   // account_id を持たない session が実際に動いている account (= backend が is_default で示す)。
   const defaultAccountId = useMemo(
     () => accounts.find(a => a.is_default)?.id || null,
     [accounts],
   )
 
-  // 並びは渡された順 (= created_at 降順) を保つ。 親が消えてる孤児はトップレベル扱い。
-  // F-38: sessions が変わった時だけ tree を組み直す (= 再 render 毎の object 構築を回避)。
-  const orderedSessions = useMemo(() => {
-    const idSet = new Set(sortedSessions.map(s => s.id))
-    const childrenByParent = {}
-    for (const s of sortedSessions) {
-      const key = (s.parent_id && idSet.has(s.parent_id)) ? s.parent_id : '__root__'
-      if (!childrenByParent[key]) childrenByParent[key] = []
-      childrenByParent[key].push(s)
-    }
-    const result = []
-    const walkTree = (list, depth) => {
-      for (const s of list) {
-        result.push({ session: s, depth })
-        if (childrenByParent[s.id]) walkTree(childrenByParent[s.id], depth + 1)
-      }
-    }
-    walkTree(childrenByParent['__root__'] || [], 0)
-    return result
-  }, [sortedSessions])
+  // フォークのタブと子のタブ (= parent_id を持つ) を親の直下に字下げし、 畳んだ親の下は出さない
+  // (= `sessionTree.js`)。 F-38: sessions か畳み方が変わった時だけ tree を組み直す。
+  const [folded, setFolded] = useState(loadFolded)
+  const orderedSessions = useMemo(() => sessionTree(sortedSessions, folded), [sortedSessions, folded])
+  // 畳む印の列は、 子を持つタブが 1 つでも在る時だけ空ける (= 無ければ題の位置を今までと変えない)
+  const hasTree = orderedSessions.some(row => row.children > 0)
 
   return (
     <>
@@ -559,7 +545,7 @@ export default function SessionDrawer() {
           {sessions.length === 0 && (
             <div className="drawer-empty">{t('drawer.empty')}</div>
           )}
-          {orderedSessions.map(({ session: s, depth }) => {
+          {orderedSessions.map(({ session: s, depth, children, folded: isFolded, hidden }) => {
             const badge = sessionBadges[s.id]
             const isActive = s.id === activeId
             const isMenuOpen = menuFor === s.id
@@ -583,6 +569,18 @@ export default function SessionDrawer() {
                 data-cpc-sid={s.id}
                 data-cpc-active={isActive ? '1' : '0'}
               >
+                {hasTree && (children > 0 ? (
+                  <button
+                    className="drawer-item-fold"
+                    onClick={() => setFolded(prev => toggleFolded(prev, s.id, sessions))}
+                    aria-expanded={!isFolded}
+                    aria-label={isFolded ? t('drawer.unfold') : t('drawer.fold')}
+                    title={isFolded ? t('drawer.unfold') : t('drawer.fold')}
+                    data-testid="session-fold"
+                  >
+                    {isFolded ? '▸' : '▾'}
+                  </button>
+                ) : <span className="drawer-item-fold" aria-hidden="true" />)}
                 {isRenaming ? (
                   <input
                     ref={renameInputRef}
@@ -602,8 +600,11 @@ export default function SessionDrawer() {
                     onClick={() => handleSelect(s.id)}
                     data-testid="session-list-item-select"
                   >
-                    {isFork && <span className="drawer-item-fork-mark" title={t('drawer.fork')}>⑂</span>}
+                    {isFork && (s.child
+                      ? <span className="drawer-item-fork-mark" title={t('drawer.child')}>↳</span>
+                      : <span className="drawer-item-fork-mark" title={t('drawer.fork')}>⑂</span>)}
                     <span className="drawer-item-title">{s.title}</span>
+                    {isFolded && <span className="drawer-item-hidden" title={t('drawer.hidden', { count: hidden })}>+{hidden}</span>}
                     {accountLabel && <span className="drawer-item-account">{accountLabel}</span>}
                     {badge && <span className={`tab-badge ${badge.kind}`}>{badge.label}</span>}
                   </button>

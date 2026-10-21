@@ -43,6 +43,8 @@ class E2eSeedRequest(BaseModel):
     account_id: str | None = Field(None, description="resolves the claude projects dir")
     title: str | None = None
     notify_mode: str = Field("both", description="off | banner | both")
+    parent_id: str | None = Field(None, description="the tab this one hangs under in the drawer (= a fork or a child)")
+    child: bool = Field(False, description="a child tab (= opened by another tab's agent)")
     claude_sid: str | None = Field(
         None,
         description="filename stem under <projects>/<cwd-hash>/; UUID4 if omitted",
@@ -118,6 +120,8 @@ async def post_e2e_seed(request: Request, body: E2eSeedRequest) -> E2eSeedRespon
         title=body.title or body.sid,
         account_id=body.account_id,
         sid=body.sid,
+        parent_id=body.parent_id,
+        child=body.child,
     )
     # notify_mode override (register_session leaves it at "both" by default).
     if body.notify_mode in {"off", "banner", "both"}:

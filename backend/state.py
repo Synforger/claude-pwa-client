@@ -98,6 +98,9 @@ class SessionDef:
     # spawn 時に accounts[account_id].env を CLAUDE_CONFIG_DIR 含む tmux env として注入する。
     # 既存タブとの互換性のため None = personal 相当 (= 通常 ~/.claude/) として扱う。
     account_id: str | None = None
+    # 子のタブ (= 別のタブの claude が仕事を渡すために立てたタブ、 `routes/child_sessions.py`)。 親は
+    # parent_id が持つ。 フォークのタブと通常のタブは False。
+    child: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -109,6 +112,7 @@ class SessionDef:
             "parent_id": self.parent_id,
             "resume_session_id": self.resume_session_id,
             "account_id": self.account_id,
+            "child": self.child,
         }
 
 
@@ -157,6 +161,7 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
                 parent_id=entry.get("parent_id"),
                 resume_session_id=entry.get("resume_session_id"),
                 account_id=entry.get("account_id"),
+                child=entry.get("child") is True,
             )
     else:
         # 初期化: agent ごと 1 セッションを生成する
@@ -594,11 +599,12 @@ def register_session(
     resume_session_id: str | None = None,
     account_id: str | None = None,
     sid: str | None = None,
+    child: bool = False,
 ) -> SessionDef:
     """新規セッションを登録して全状態 dict を初期化する。 永続化まで行う。
 
     parent_id / resume_session_id はフォーク (= 会話分岐) で生まれたタブにのみ渡す
-    (= 出自と、 初回 spawn で resume する claude session id)。
+    (= 出自と、 初回 spawn で resume する claude session id)。 子のタブ (= child) は parent_id だけを持つ。
     account_id は config.json accounts の key (= 個人 / 会社 OAuth の選択)。 None は
     personal 相当 (= 通常 ~/.claude/) として扱う。
     sid が指定された場合は新規生成せずその値で登録する (= ADR-020 e2e seed が
@@ -614,7 +620,7 @@ def register_session(
     meta = SessionDef(
         id=sid, agent_id=agent_id, title=title, created_at=int(time.time()),
         parent_id=parent_id, resume_session_id=resume_session_id,
-        account_id=account_id,
+        account_id=account_id, child=child,
     )
     sessions_meta[sid] = meta
     stream_states[sid] = StreamState(agent_id=agent_id)

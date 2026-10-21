@@ -68,6 +68,8 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
     (= `claude "<本文>"`。 打鍵ではなく引数なので複数行も崩れない)
   - 会話の再開 (= backend 再起動跨ぎの自動再開 / フォーク / 別アカウントでの継続) は
     `claude --resume <id>` ではなく `<launch_alias> --resume <id>` を入力する
+- `child_agent` (任意): このエージェントのタブが子のタブを立てる時に使うエージェントの key。
+  書いていなければ、 子も同じエージェントで立つ。 詳細: [child-sessions.md](child-sessions.md)
 - `rollover` (任意): context が決めた割合に届いた会話を締めさせて、 同じタブで新しい会話を起動し直す
   条件。 書いていないエージェントでは何も起きない。 項目と流れは [rollover.md](rollover.md)
 - `voice` (任意): エージェントの返事を音声合成の engine で音にするための設定 (= engine の URL と声の番号、
@@ -110,6 +112,8 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   同じ節を参照
 - `agent_message_sender_check` (任意): 連絡の封筒に送り主のタブ名を出してよいかを決めるコマンド
   (= 語のリスト)。 同じ節を参照
+- `child_sessions_max` (任意): 1 つのタブが同時に持てる子のタブの数 (= 0 以上の整数、 既定 5)。
+  詳細: [child-sessions.md](child-sessions.md)
 - `rate_limits_log`: 使用率 (5h / 7d / context) を記録する JSONL の path。 **このファイルを
   書くのは claude の statusline スクリプト** (= claude が statusline subprocess に渡す
   `rate_limits` を 1 行ずつ追記する)。 backend はこれを読んでステータスバーに表示する。

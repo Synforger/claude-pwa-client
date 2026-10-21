@@ -16,11 +16,11 @@ test.describe('golden: session-drawer', () => {
     const before = await page.locator('[data-testid=session-list-item]').count()
 
     await page.locator('[data-testid=new-session-button]').click()
-    // Agent picker shows; the e2e config has a single agent + single
-    // account, so the picker auto-completes after the agent click (no
-    // account step).
-    const picker = page.locator('.agent-picker .agent-picker-item').first()
-    await picker.click()
+    // Agent picker shows, then the account step (= the e2e config has two
+    // accounts: E2E and E2E (Japanese)). Pick the first of each.
+    await page.locator('.agent-picker .agent-picker-item').first().click()
+    await expect(page.locator('.agent-picker-label')).toHaveText('Pick an account:')
+    await page.locator('.agent-picker .agent-picker-item').first().click()
 
     // /sessions should now report one more session than before.
     await expect.poll(

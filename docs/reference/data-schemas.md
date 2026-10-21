@@ -32,9 +32,10 @@ backup 先 = 同 PC の別 path (= `~/backups/<service>/<date>/` 等)、 backend
 | `title` | str | YES | UI ドロワー / topbar 表示名 |
 | `created_at` | int | YES | unix 秒 (= 作成時刻) |
 | `notify_mode` | str | NO (default `"both"`) | `both` / `banner` / `off` (= Web Push の音 / バナー / 無効) |
-| `parent_id` | str? | NO | fork 元 PWA session ID (= ドロワーで親の下にインデント表示)、 通常タブは null |
+| `parent_id` | str? | NO | fork 元か、 子のタブを立てた親の PWA session ID (= ドロワーで親の下にインデント表示)、 通常タブは null |
 | `resume_session_id` | str? | NO | fork タブが初回 spawn で `claude --resume <id>` に使う claude session ID、 通常タブ + restart 後は null |
 | `account_id` | str? | NO | `config.json::accounts` の key (= 起動 env を差し替え)、 null = personal 相当 |
+| `child` | bool | NO (default `false`) | 子のタブ (= 別のタブの Claude が `POST /sessions/<親>/children` で立てたタブ) か。 親は `parent_id` |
 
 ## `backend/data/jsonl_bindings.json`
 
