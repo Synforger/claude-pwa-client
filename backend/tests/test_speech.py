@@ -188,3 +188,24 @@ def test_mute_is_reserved_even_when_the_marks_name_it():
 
 def test_mute_in_the_middle_of_a_sentence_is_text():
     assert said("印は [mute] と書く。") == [("calm", "印は [mute] と書く。")]
+
+
+# --- 出典の塊 -------------------------------------------------------------------
+
+def test_the_sources_block_at_the_end_of_a_reply_is_not_spoken():
+    text = ("明日は晴れるよ。\n\nSources:\n- [天気予報](https://example.com/a)\n"
+            "- [週間予報](https://example.com/b)")
+    assert said(text) == [("calm", "明日は晴れるよ。")]
+
+
+@pytest.mark.parametrize("head", ["出典:", "出典：", "**Sources:**", "## Sources:", "[happy] Sources:"])
+def test_a_sources_head_ends_what_is_spoken_whatever_its_decoration(head):
+    assert said(f"調べた。\n{head}\n- [題](https://example.com)\nあとがき。") == [("calm", "調べた。")]
+
+
+def test_a_sources_line_inside_a_code_block_does_not_end_what_is_spoken():
+    assert said("こう書く。\n```\nSources:\n```\n終わり。") == [("calm", "こう書く。"), ("calm", "終わり。")]
+
+
+def test_sources_in_the_middle_of_a_line_is_text():
+    assert said("この話の出典: 気象庁。") == [("calm", "この話の出典: 気象庁。")]
