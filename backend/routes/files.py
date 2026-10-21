@@ -13,9 +13,11 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Body, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
 from backend.config import FILE_SIZE_LIMIT, HOME, page_origin
+from backend.documents import convert, markdown, pages, strings
+from backend.documents.store import get_store as get_document_store
 from backend.errors import raise_error
 from backend.paths import PAGE_STORE_DIR
 
@@ -187,10 +189,10 @@ def _page_target(resolved: Path, request: Request) -> str | None:
 
 @router.get("/file/open")
 def open_file_in_browser(request: Request, path: str = Query(...)):
-    """チャットの path (= `~/…` も可) の HTML を、 page_origin の folder の中なら別の port へ、 それ以外は
+    """チャットの path (= `~/…` も可) の HTML と資料 (= pdf・Office・tif・Markdown) を、 page_origin の folder の中なら別の port へ、 それ以外は
     `/file/view/<絶対 path>` へ回す。"""
     resolved = _resolve_safe(path)
-    if resolved.suffix.lower() not in (".html", ".htm"):
+    if resolved.suffix.lower() not in (".html", ".htm") and convert.kind_of(resolved) is None:
         raise HTTPException(status_code=415, detail="Unsupported media type")
     if not resolved.is_file():
         raise HTTPException(status_code=404, detail="File not found")
@@ -201,23 +203,101 @@ def open_file_in_browser(request: Request, path: str = Query(...)):
     return RedirectResponse(url="view/" + quote(str(resolved).lstrip("/")), status_code=307)
 
 
-def _view_response(resolved: Path, csp: str) -> FileResponse:
+# 資料 (= pdf・Office・tif は頁の画像の頁に、 Markdown は HTML に変えて返す)。 元の file と同じ path の URL で配る
+# ので、 資料の中の相対のリンクと図は、 HTML のページの時と同じく書いたとおりに届く。 開ける範囲と検査は他の file と
+# 同じ (= 呼び元の `check` が HOME 配下 / deny list / ページの folder を見る。 大きさの上限も VIEW_SIZE_LIMIT)。
+# 頁の画像は `<資料の URL>?page=N&v=<key>` で返す。 変換は時間が掛かるので、 初めて開く時は待ちの頁を返す。
+_DOCUMENT_IMAGE_HEADERS = {**_VIEW_HEADERS, "Cache-Control": "private, max-age=31536000, immutable"}
+
+
+def _shown_path(resolved: Path) -> str:
+    try:
+        return "~/" + resolved.relative_to(HOME).as_posix()
+    except ValueError:
+        return str(resolved)
+
+
+def _document_response(resolved: Path, kind: str, request: Request, csp: str, check) -> Response:
+    """資料 1 つの頁 (= `check` は path の文字列を受けて、 配れる実体の Path か HTTPException を返す口)。"""
+    lang = strings.pick_language(request.headers.get("accept-language"))
+    shown = _shown_path(resolved)
+    headers = {"Content-Security-Policy": csp, **_VIEW_HEADERS}
+    if kind == "markdown":
+        return HTMLResponse(_markdown_page(resolved, shown, lang, check), headers=headers)
+    store_status = get_document_store().status(resolved, retry=request.query_params.get("retry") is not None)
+    url_name = quote(request.scope["path"].rsplit("/", 1)[-1])
+    number = request.query_params.get("page")
+    if number is not None:
+        # 頁の画像: 頁を開いた時の版 (= v) と今の版が違えば、 立ち替わった別の画像を返さず断る
+        entry = store_status.entry
+        if not number.isdigit() or entry is None or not 1 <= int(number) <= len(entry.pages):
+            raise HTTPException(status_code=404, detail="Page not found")
+        if request.query_params.get("v") != entry.key:
+            raise HTTPException(status_code=404, detail="Page not found")
+        return FileResponse(
+            entry.image(int(number)), media_type="image/jpeg",
+            headers={"Content-Security-Policy": csp, **_DOCUMENT_IMAGE_HEADERS},
+        )
+    no_store = {**headers, "Cache-Control": "no-store"}
+    if store_status.state == "ready":
+        sizes = [(page.width, page.height) for page in store_status.entry.pages]
+        return HTMLResponse(
+            pages.ready(resolved.name, url_name, shown, store_status.entry.key, sizes, lang), headers=no_store,
+        )
+    if store_status.state == "running":
+        return HTMLResponse(
+            pages.waiting(resolved.name, url_name, shown, store_status.phase, store_status.elapsed, lang),
+            headers=no_store,
+        )
+    return HTMLResponse(pages.failed(resolved.name, shown, store_status.error, lang), status_code=422, headers=no_store)
+
+
+def _markdown_page(resolved: Path, shown: str, lang: str, check) -> str:
+    def served(path: Path) -> bool:
+        try:
+            target = check(str(path))
+        except HTTPException:
+            return False
+        return target.is_file() and (target.suffix.lower() in _VIEW_MEDIA_TYPES or convert.kind_of(target) is not None)
+
+    def read_markdown(path: Path) -> str | None:
+        try:
+            target = check(str(path))
+            if convert.kind_of(target) != "markdown" or target.stat().st_size > VIEW_SIZE_LIMIT:
+                return None
+            return target.read_text(encoding="utf-8", errors="replace")
+        except (HTTPException, OSError):
+            return None
+
+    try:
+        text = resolved.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        logger.exception("failed to read markdown: %s", resolved)
+        raise HTTPException(status_code=500, detail="Internal error")
+    rendered, title = markdown.render(text, markdown.Neighbors(resolved.parent, served, read_markdown), resolved.name, lang)
+    return pages.markdown(resolved.name, shown, rendered, title, lang)
+
+
+def _view_response(resolved: Path, csp: str, request: Request, check=None) -> Response:
     """/file/view とページの origin が配る 1 file (= 形・在るか・大きさを確かめ、 CSP を付けて返す)。"""
+    kind = convert.kind_of(resolved)
     media_type = _VIEW_MEDIA_TYPES.get(resolved.suffix.lower())
-    if media_type is None:
+    if media_type is None and kind is None:
         raise HTTPException(status_code=415, detail="Unsupported media type")
     if not resolved.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     if resolved.stat().st_size > VIEW_SIZE_LIMIT:
         raise_error(413, "file_too_large", "ファイルが大きすぎます（上限 50MB）", limit="50MB")
+    if kind is not None:
+        return _document_response(resolved, kind, request, csp, check or _resolve_safe)
     return FileResponse(
         resolved, media_type=media_type, headers={"Content-Security-Policy": csp, **_VIEW_HEADERS},
     )
 
 
 @router.get("/file/view/{path:path}")
-def get_file_view(path: str):
-    return _view_response(_resolve_safe("/" + path), VIEW_CSP)
+def get_file_view(request: Request, path: str):
+    return _view_response(_resolve_safe("/" + path), VIEW_CSP, request)
 
 
 # ページの origin: page_origin の folder の file を、 sandbox を外した普通のページとして配る口。 backend とは別の
@@ -236,10 +316,20 @@ _STORE_PREFIX = "/.store/"
 _store_lock = threading.Lock()
 
 
+# ページの origin のページが持つ権限。 origin は backend と別の実体のまま (= `allow-same-origin`。 localStorage が残る)
+# で、 ページが自分で上の画面 (= 枠の外の画面) を別の頁へ移すことだけ封じる (= `allow-top-navigation` を渡さない)。
+# 封じないと、 枠に嵌めて開いたページの `target="_top"` や `top.location` が会話の画面ごと置き換え、 ✕ で戻れなくなる
+# (= ホーム画面の PWA には戻る口が無い)。 ほかの権限 (= スクリプト・フォーム・ポップアップ・ダイアログ等) は渡す。
+_PAGE_SANDBOX = (
+    "sandbox allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox "
+    "allow-modals allow-downloads allow-pointer-lock allow-orientation-lock allow-presentation"
+)
+
+
 def _page_csp(request: Request) -> str:
     port = page_origin()[1]
     return (
-        f"{_PAGE_POLICY}; connect-src {_same_host(request, port)}{_STORE_PREFIX}; "
+        f"{_PAGE_POLICY}; {_PAGE_SANDBOX}; connect-src {_same_host(request, port)}{_STORE_PREFIX}; "
         f"frame-ancestors {_same_host(request, '*')}"
     )
 
@@ -314,7 +404,7 @@ async def put_store(request: Request, page: str):
 
 @page_app.get("/{path:path}")
 def get_page(request: Request, path: str):
-    return _view_response(_in_folder(path), _page_csp(request))
+    return _view_response(_in_folder(path), _page_csp(request), request, check=_in_folder)
 
 
 @router.put("/file")

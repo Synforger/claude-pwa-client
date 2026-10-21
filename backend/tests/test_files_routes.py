@@ -309,7 +309,7 @@ def test_file_view_keeps_the_home_and_deny_list_boundaries(tmp_path, monkeypatch
     assert client.get("/file/open", params={"path": "/etc/x.html"}).status_code == 403
 
 
-@pytest.mark.parametrize("name", ["notes.md", "run.sh", "noext", "data.bin"])
+@pytest.mark.parametrize("name", ["notes.rst", "run.sh", "noext", "data.bin"])
 def test_file_view_refuses_types_it_does_not_serve(tmp_path, monkeypatch, name):
     client, _ = _raw_client(tmp_path, monkeypatch)
     (tmp_path / name).write_text("x")
@@ -388,7 +388,7 @@ def _page_client(tmp_path, monkeypatch, folder):
     return TestClient(files_mod.page_app), files_mod
 
 
-def test_page_origin_serves_the_page_and_its_relative_files_without_sandbox(tmp_path, monkeypatch):
+def test_page_origin_serves_the_page_and_its_relative_files_on_an_origin_of_its_own_that_cannot_move_the_top_screen(tmp_path, monkeypatch):
     site = _site(tmp_path)
     client, files_mod = _page_client(tmp_path, monkeypatch, tmp_path / "pages")
     for rel, kind in [("deck/index.html", "text/html; charset=utf-8"), ("deck/cam/a.png", "image/png"),
@@ -397,7 +397,9 @@ def test_page_origin_serves_the_page_and_its_relative_files_without_sandbox(tmp_
         assert res.status_code == 200, rel
         assert res.headers["content-type"] == kind
         csp = res.headers["content-security-policy"]
-        assert "sandbox" not in csp
+        # backend と別の origin のまま (= allow-same-origin。 localStorage が残る) で、 上の画面を別の頁へ移す権限だけ渡さない
+        assert files_mod._PAGE_SANDBOX in csp and "allow-same-origin" in csp
+        assert "allow-top-navigation" not in csp
         assert csp.startswith(files_mod._PAGE_POLICY)
         assert "form-action 'none'" in csp
         assert f"connect-src http://testserver:{_PAGE_PORT}/.store/;" in csp
@@ -417,7 +419,7 @@ def test_page_origin_keeps_the_folder_and_deny_list_boundaries(tmp_path, monkeyp
     assert client.get("/%2E%2E/outside.html").status_code in (403, 404)
     assert client.get("/link.html").status_code == 403
     assert client.get("/.ssh/page.html").status_code == 403
-    assert client.get("/deck/notes.md").status_code == 415
+    assert client.get("/deck/run.sh").status_code == 415
     assert client.get("/deck/gone.html").status_code == 404
 
 

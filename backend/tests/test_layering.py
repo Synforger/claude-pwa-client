@@ -2,7 +2,7 @@
 
 依存方向の真値 (= この test が法律):
 
-    L0: config / paths / errors / state / observability / _generated / core
+    L0: config / paths / errors / state / observability / _generated / core / documents
     L1: terminal   (= tmux / PTY の入力口。 L0 のみ import 可)
     L2: jsonl      (= JSONL tail → SSE の出力口。 L0 / L1 を import 可)
     L3: routes / maintenance / rollover / main / cli / voice_call / device   (= orchestrator。 全層 import 可)
@@ -33,6 +33,7 @@ LEVELS: dict[str, int] = {
     "observability": 0,
     "_generated": 0,
     "core": 0,
+    "documents": 0,
     "terminal": 1,
     "jsonl": 2,
     "routes": 3,
