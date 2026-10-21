@@ -5,7 +5,6 @@
 // history is never touched. SIGINT / SIGTERM tear the child down cleanly.
 import { spawn } from 'node:child_process'
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -129,24 +128,16 @@ const env = {
 }
 
 // Single-stage spawn: resolve the python binary up front so SIGTERM reaches
-// uvicorn directly. `conda run` adds an opaque shim layer that swallows
+// uvicorn directly. A launcher such as `uv run` adds a process layer that swallows
 // signals (= orphans uvicorn on teardown), so we bypass it.
 //
 // Resolution order:
 //   1. $CPC_E2E_PYTHON                       (= explicit override)
-//   2. $CONDA_PREFIX_PWA_CLIENT/bin/python3  (= conda env path env override)
-//   3. <conda base>/envs/pwa-client/bin/python3, the base taken from $CONDA_EXE (= set by
-//      `conda init`, wherever conda is installed: ~/miniforge3, Homebrew's Caskroom, ...)
-//   4. miniforge3/envs/pwa-client/bin/python3.11 / python3 (= conventional)
-//   5. `python3` on PATH                     (= last resort)
+//   2. <repo>/.venv/bin/python3              (= what `uv sync` / `task setup` builds)
+//   3. `python3` on PATH                     (= last resort)
 const candidates = [
   process.env.CPC_E2E_PYTHON,
-  process.env.CONDA_PREFIX_PWA_CLIENT && `${process.env.CONDA_PREFIX_PWA_CLIENT}/bin/python3`,
-  process.env.CONDA_EXE && `${dirname(dirname(process.env.CONDA_EXE))}/envs/pwa-client/bin/python3`,
-  `${homedir()}/miniforge3/envs/pwa-client/bin/python3.11`,
-  `${homedir()}/miniforge3/envs/pwa-client/bin/python3`,
-  `${homedir()}/miniconda3/envs/pwa-client/bin/python3`,
-  `${homedir()}/anaconda3/envs/pwa-client/bin/python3`,
+  resolve(REPO_ROOT, '.venv', 'bin', 'python3'),
 ].filter(Boolean)
 const pythonBin = candidates.find((p) => existsSync(p)) || 'python3'
 

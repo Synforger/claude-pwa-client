@@ -271,7 +271,7 @@ claude-pwa-client は以下の OSS に依存している。 全 deps のライ�
 
 ## Voice call (optional backend) dependencies
 
-`pip install -r backend/requirements-voice-call.txt` で入れた時だけ加わる部品 (= iPhone の app との声の会話、 `backend/voice_call/`)。 上の Backend の表に在る物は除く。
+`uv sync --extra voice-call` で入れた時だけ加わる部品 (= iPhone の app との声の会話、 `backend/voice_call/`)。 上の Backend の表に在る物は除く。
 
 | Package | License | URL |
 |---|---|---|

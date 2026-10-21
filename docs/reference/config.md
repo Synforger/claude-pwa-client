@@ -98,10 +98,27 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 > [Claude Code — Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance))。
 > 各アカウントの利用が、 そのアカウントの契約者本人の作業であることを前提とする。
 
+### 置き場 (器の根)
+
+環境変数 `AGENT_PLATFORM_ROOT` を渡すと、 backend は置き場を `<根>/<役割>/claude-pwa-client/` の下に決めます
+(渡さない時は従来の置き場のままです)。
+
+| 役割 | 置き場 | 中身 |
+|---|---|---|
+| `config` | `<根>/config/claude-pwa-client/` | `config.json`、 `favorites.txt` (⭐) |
+| `secrets` | `<根>/secrets/claude-pwa-client/` | `vapid.json` |
+| `state` | `<根>/state/claude-pwa-client/` | `data/`、 `logs/`、 `notes/`、 `page-store/`、 `uploads/`、 `backups/` |
+| `cache` | `<根>/cache/claude-pwa-client/` | `document-cache/` |
+
+`config.json` の `rate_limits_log` を書いていない時の既定は `<根>/state/statusline/rate-limits.jsonl` です。
+個別の環境変数 (`CPC_DATA_DIR` / `CPC_LOGS_DIR` / `CPC_CONFIG_PATH` / `CPC_SECRETS_DIR` / `CPC_USER_DIR`) は根より強く、
+`config.json` の `uploads_tmp` と `documents.cache_dir` はそれぞれの既定より強くなります。
+根を渡した時は、 backend が立てるタブにも同じ値を `AGENT_PLATFORM_ROOT` として渡します。
+
 ### 全体オプション
 
 - `claude_path`: `claude` コマンドの絶対パス (`which claude` で確認)。 PTY 起動時の存在
-  検証に利用する。 未設定または不正パスの場合は起動を拒否する。 conda 等で PATH が
+  検証に利用する。 未設定または不正パスの場合は起動を拒否する。 常駐の起動のように PATH が
   通らない環境では明示する
 - `uploads_tmp`: 添付ファイルの一時保存先ディレクトリ
 - `agent_message_check` (任意): タブどうしの連絡を届ける前に走らせる検査コマンド (= 語のリスト)。

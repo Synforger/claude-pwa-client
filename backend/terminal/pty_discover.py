@@ -7,7 +7,7 @@ backend-F-24: 旧版は per-descendant で `pgrep -P` + `ps -p comm=` を呼び�
 claude に対し `ps -p lstart=` + `lsof -d cwd` を別 subprocess で呼んでいた (= BFS depth 分
 の `pgrep` + n 個の `ps` を毎 polling で fork)。 psutil は 1 系統に集約されるので、 全 BFS
 + start_time + cwd を Python 内で 1 ループにできる (= subprocess fork 数 大幅削減 + tight loop
-の overhead 解消)。 psutil は package として既に backend env に入っている (= requirements.txt
+の overhead 解消)。 psutil は package として既に backend env に入っている (= pyproject.toml
 で固定)。
 """
 from __future__ import annotations

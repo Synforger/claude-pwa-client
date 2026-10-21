@@ -129,7 +129,7 @@ async def post_call(request: Request, session_id: str, body: dict = Body(...)) -
     settings = conversation_settings(session_id)
     if importlib.util.find_spec("pipecat") is None:
         raise_error(501, "voice_call_unavailable",
-                    "この backend には電話の会話の部品が入っていません (= backend/requirements-voice-call.txt)")
+                    "この backend には電話の会話の部品が入っていません (= uv sync --extra voice-call)")
     if not isinstance(body.get("sdp"), str) or not isinstance(body.get("type"), str):
         raise_error(400, "voice_bad_request", "本文は SDP の offer (= sdp と type) で渡します")
 

@@ -8,8 +8,8 @@
 ## 必要なもの
 
 - ホスト機 (macOS / Linux。 Windows の場合は WSL2 経由)
-- Python 3.11+ (conda 推奨)
-- Node.js (フロントエンドビルド用)
+- [uv](https://docs.astral.sh/uv/) (Python 3.11 の用意と backend の依存の導入を担う。 `brew install uv`)
+- Node.js と [pnpm](https://pnpm.io/) (フロントエンドビルド用。 `brew install node pnpm`)
 - Tailscale (ホスト機とスマートフォン両方にインストールし、 同一 tailnet に参加させる)
 - Claude Code CLI (`claude` コマンド、 認証済み。 **PATH を通しておく** — [§ claude の PATH と起動 alias](#claude-の-path-と起動-alias) 参照)
 - `tmux` (backend は claude を実 PTY + tmux で起動するため必須)
@@ -25,9 +25,9 @@ cd claude-pwa-client
 #   brew install go-task/tap/go-task    (macOS)
 #   Linux / Windows: https://taskfile.dev/installation/
 
-# 全 setup (= conda env / pip / npm / config / VAPID / git hooks)
+# 全 setup (= uv sync / pnpm install / config / VAPID / git hooks)
 task setup
-# → backend/config.json を編集 (= agents の cwd / claude コマンドパス等、 詳細は ../reference/config.md)
+# → backend/config.json を編集 (= 器の根 AGENT_PLATFORM_ROOT を渡した時は <根>/config/claude-pwa-client/config.json) (= agents の cwd / claude コマンドパス等、 詳細は ../reference/config.md)
 
 # 起動
 task run    # foreground、 Ctrl-C で停止 (= dev)
@@ -37,11 +37,10 @@ task run    # foreground、 Ctrl-C で停止 (= dev)
 > `task setup` の中身を手動で踏むなら:
 >
 > ```bash
-> conda create -n pwa-client python=3.11 && conda activate pwa-client
-> pip install -r backend/requirements.txt
-> cp backend/config.example.json backend/config.json
-> python -m backend.cli.gen_vapid       # backend/secrets/vapid.json 生成
-> uvicorn backend.main:app --host 127.0.0.1 --port 8765
+> uv sync
+> uv run python -m backend.cli.init_config   # backend/config.json を config.example.json から作る
+> uv run python -m backend.cli.gen_vapid     # backend/secrets/vapid.json 生成
+> uv run uvicorn backend.main:app --host 127.0.0.1 --port 8765
 > ```
 
 > **開発時の注意**: backend のサブパッケージ構成や import 構造を変更した時は、 古い `__pycache__/*.pyc` が import 事故の温床になる。 `task clean` で purge。 その他のトラブルは [../troubleshooting/troubleshoot.md](../troubleshooting/troubleshoot.md) 参照。
@@ -73,7 +72,7 @@ backend は PWA でタブを作る時、 config.json の `launch_alias` に書�
 ## フロントエンド
 
 ```bash
-task build    # = (cd frontend && npm install && npm run build)、 dist/ をbackend が配信
+task build    # = (cd frontend && pnpm install && pnpm run build)、 dist/ をbackend が配信
 ```
 
 ## PWA 連携の hook を設定する (チャット表示に必須)

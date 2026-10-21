@@ -373,6 +373,6 @@ else:
     # PWA を開けない (= API だけ生きる)。 起動ログに残して原因特定を早める。
     logging.getLogger(__name__).warning(
         "frontend dist not found at %s; PWA assets will not be served. "
-        "Run `cd frontend && npm run build`.",
+        "Run `cd frontend && pnpm run build`.",
         FRONTEND_DIST,
     )

@@ -121,7 +121,7 @@ WebSocket (`/ws/pty/{sid}`, `/views/ws`, `/jsonl/stream/{sid}`) や `/sessions/*
 git clone https://github.com/Synforger/claude-pwa-client.git
 cd claude-pwa-client
 
-# 1. 全 setup 1 発 (= conda env / pip / npm / config / VAPID / git hooks)
+# 1. 全 setup 1 発 (= uv sync / pnpm install / config / VAPID / git hooks)
 task setup
 # → backend/config.json を編集 (= agents / claude_path / accounts)
 

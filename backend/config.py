@@ -25,7 +25,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from backend.paths import CONFIG_PATH, USER_DIR
+from backend.paths import CONFIG_PATH, DOCUMENT_CACHE_DIR, RATE_LIMITS_LOG_DEFAULT, UPLOADS_TMP_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -258,9 +258,9 @@ DOCUMENTS_CACHE_MAX_MB_DEFAULT = 1024
 def _scan_documents() -> tuple[tuple[Path, int], list[str]]:
     """config.json の `documents` を ((控えの置き場, 控えの上限の byte), 書き損じの指摘) に分ける。
 
-    書き損じた欄は既定に戻す (= 資料は開けなくならない)。 置き場の既定は USER_DIR の下 (= repo の外)。
+    書き損じた欄は既定に戻す (= 資料は開けなくならない)。 置き場の既定は `paths.DOCUMENT_CACHE_DIR` (= repo の外)。
     """
-    cache_dir, max_mb = USER_DIR / "document-cache", DOCUMENTS_CACHE_MAX_MB_DEFAULT
+    cache_dir, max_mb = DOCUMENT_CACHE_DIR, DOCUMENTS_CACHE_MAX_MB_DEFAULT
     raw = get_config().get("documents")
     problems: list[str] = []
     if raw is not None and not isinstance(raw, dict):
@@ -334,9 +334,7 @@ def __getattr__(name: str) -> Any:  # noqa: PLR0911
     if name == "CLAUDE_PROJECTS_DIRS":
         return _projects_dirs_from_accounts(_accounts())
     if name == "UPLOADS_TMP":
-        return Path(
-            cfg.get("uploads_tmp", str(HOME / ".claude-pwa-client" / "uploads" / "tmp"))
-        ).expanduser()
+        return Path(cfg.get("uploads_tmp", str(UPLOADS_TMP_DIR))).expanduser()
     if name == "CLAUDE_PATH":
         return cfg.get("claude_path")
     if name in ("AGENT_MESSAGE_CHECK", "AGENT_MESSAGE_OPERATOR_CHECK", "AGENT_MESSAGE_SENDER_CHECK"):
@@ -350,7 +348,7 @@ def __getattr__(name: str) -> Any:  # noqa: PLR0911
     if name == "CORS_ALLOW_ORIGINS":
         return cfg.get("cors_allow_origins", [])
     if name == "RATE_LIMITS_LOG_PATH":
-        return cfg.get("rate_limits_log", "")
+        return cfg.get("rate_limits_log") or (str(RATE_LIMITS_LOG_DEFAULT) if RATE_LIMITS_LOG_DEFAULT else "")
     if name == "TMUX_SESSION_MAP_DIR":
         return cfg.get("tmux_session_map_dir", "")
     if name == "VAPID_SUB":

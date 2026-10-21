@@ -271,11 +271,11 @@ def test_file_open_sends_a_document_in_the_folder_to_the_pages_port(pages_app, t
 
 # --- 設定 ---
 
-def test_documents_settings_default_to_the_user_dir_and_report_mistakes(monkeypatch):
+def test_documents_settings_default_to_the_document_cache_dir_and_report_mistakes(monkeypatch):
     import backend.config as config_mod  # noqa: PLC0415
-    from backend.paths import USER_DIR  # noqa: PLC0415
+    from backend.paths import DOCUMENT_CACHE_DIR  # noqa: PLC0415
     with_config(monkeypatch, {})
-    assert config_mod.documents_settings() == (USER_DIR / "document-cache", config_mod.DOCUMENTS_CACHE_MAX_MB_DEFAULT * 1024 * 1024)
+    assert config_mod.documents_settings() == (DOCUMENT_CACHE_DIR, config_mod.DOCUMENTS_CACHE_MAX_MB_DEFAULT * 1024 * 1024)
     with_config(monkeypatch, {"documents": {"cache_dir": "~/kept", "cache_max_mb": 0.5}})
     folder, limit = config_mod.documents_settings()
     assert folder == Path("~/kept").expanduser().resolve() and limit == 512 * 1024
@@ -288,4 +288,4 @@ def test_documents_settings_default_to_the_user_dir_and_report_mistakes(monkeypa
         with_config(monkeypatch, {"documents": raw})
         value, problems = config_mod._scan_documents()
         assert len(problems) == 1 and problem in problems[0]
-        assert value == (USER_DIR / "document-cache", config_mod.DOCUMENTS_CACHE_MAX_MB_DEFAULT * 1024 * 1024)
+        assert value == (DOCUMENT_CACHE_DIR, config_mod.DOCUMENTS_CACHE_MAX_MB_DEFAULT * 1024 * 1024)

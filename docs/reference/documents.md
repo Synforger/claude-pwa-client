@@ -75,7 +75,7 @@ backend を動かす機械に、 次の command が要ります (= 使う種類�
 
 tif は `tiff2pdf` が無い時、 macOS の `sips` で 1 頁目だけを画像にします。 command は `PATH` に加えて
 `/opt/homebrew/bin`・`/usr/local/bin`・`/Applications/LibreOffice.app/Contents/MacOS` も探します (= 常駐の
-`PATH` が短くても動きます)。 Markdown の変換には Python の `markdown-it-py` を使います (`backend/requirements.txt`)。
+`PATH` が短くても動きます)。 Markdown の変換には Python の `markdown-it-py` を使います (`pyproject.toml`)。
 
 ## 設定: 控えの置き場と大きさ
 
