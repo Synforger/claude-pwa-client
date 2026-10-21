@@ -237,7 +237,7 @@ def test_a_page_in_the_folder_can_link_to_a_document_and_it_opens_on_the_pages_p
     res = open_when_ready(pages_app, "/materials/spec.pdf")
     assert res.status_code == 200 and 'src="spec.pdf?page=1&amp;v=' in res.text
     csp = res.headers["content-security-policy"]
-    assert not csp.startswith("sandbox") and "frame-ancestors" in csp and f"connect-src http://testserver:{PAGE_PORT}/.store/" in csp
+    assert "allow-same-origin" in csp and "allow-top-navigation" not in csp and "frame-ancestors" in csp and f"connect-src http://testserver:{PAGE_PORT}/.store/" in csp
     key = res.text.split("v=")[1].split('"')[0]
     assert pages_app.get(f"/materials/spec.pdf?page=1&v={key}").headers["content-type"] == "image/jpeg"
     plan = pages_app.get("/proj/notes/plan.md")

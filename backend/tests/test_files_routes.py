@@ -388,7 +388,7 @@ def _page_client(tmp_path, monkeypatch, folder):
     return TestClient(files_mod.page_app), files_mod
 
 
-def test_page_origin_serves_the_page_and_its_relative_files_without_sandbox(tmp_path, monkeypatch):
+def test_page_origin_serves_the_page_and_its_relative_files_on_an_origin_of_its_own_that_cannot_move_the_top_screen(tmp_path, monkeypatch):
     site = _site(tmp_path)
     client, files_mod = _page_client(tmp_path, monkeypatch, tmp_path / "pages")
     for rel, kind in [("deck/index.html", "text/html; charset=utf-8"), ("deck/cam/a.png", "image/png"),
@@ -397,7 +397,9 @@ def test_page_origin_serves_the_page_and_its_relative_files_without_sandbox(tmp_
         assert res.status_code == 200, rel
         assert res.headers["content-type"] == kind
         csp = res.headers["content-security-policy"]
-        assert "sandbox" not in csp
+        # backend と別の origin のまま (= allow-same-origin。 localStorage が残る) で、 上の画面を別の頁へ移す権限だけ渡さない
+        assert files_mod._PAGE_SANDBOX in csp and "allow-same-origin" in csp
+        assert "allow-top-navigation" not in csp
         assert csp.startswith(files_mod._PAGE_POLICY)
         assert "form-action 'none'" in csp
         assert f"connect-src http://testserver:{_PAGE_PORT}/.store/;" in csp

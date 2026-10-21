@@ -105,6 +105,24 @@ describe('openPath', () => {
     expect(getSnapshot().overlays.previewPath ?? null).toBe(null)
   })
 
+  it.each([
+    '~/pages/deck/index.html',
+    '~/materials/spec.pdf',
+    '/srv/deck.pptx',
+    '/srv/scan.tif',
+  ])('hands %s to the app\'s page sheet (a new window), never to the app screen itself', path => {
+    // iPhone の app は新しい窓を、 「完了」 で閉じる閲覧の画面で開く (= PageSheetPlugin)。 app の画面を置き換える
+    // 経路 (= location の書き換え) は使わない
+    window.Capacitor = { isNativePlatform: () => true }
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const assign = vi.fn()
+    vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, assign })
+    openPath(path)
+    expect(open).toHaveBeenCalledTimes(1)
+    expect(open.mock.calls[0][1]).toBe('_blank')
+    expect(assign).not.toHaveBeenCalled()
+  })
+
   it('opens a folder in the tree', () => {
     openPath('~/pages/deck/')
     expect(getSnapshot().overlays.treeOpen).toBe('~/pages/deck/')
