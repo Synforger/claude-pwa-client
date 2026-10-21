@@ -25,6 +25,7 @@ claude-pwa-client を **インストールして使うため**の文書です。
 |---|---|
 | `backend/config.json` の各フィールド / `frontend/.env.local` | [reference/config.md](reference/config.md) |
 | backend が永続化する JSON ファイルの中身 / バックアップ範囲 | [reference/data-schemas.md](reference/data-schemas.md) |
+| pdf・Office・tif・md を、 path のタップで頁として開きたい | [reference/documents.md](reference/documents.md) |
 | タブの中の Claude どうしで連絡させたい | [reference/agent-messages.md](reference/agent-messages.md) |
 | 長くなった会話を自動で締めて、 新しい会話に入れ替えたい | [reference/rollover.md](reference/rollover.md) |
 | タブの中の Claude に、 仕事を渡す別のタブを立てさせたい | [reference/child-sessions.md](reference/child-sessions.md) |
