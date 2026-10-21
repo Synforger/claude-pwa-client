@@ -1,0 +1,3 @@
+# protobufjs (= onnxruntime-web の依存) の postinstall は CLI の依存を入れるだけで、 画面の build と試験は使わない。
+allowBuilds:
+  protobufjs: false

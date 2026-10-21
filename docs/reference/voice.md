@@ -119,7 +119,7 @@ iPhone では、 ブラウザで開いた画面は、 ホーム画面へ出た�
 backend には、 会話の部品を足して入れます (= 使う時だけ。 約 670 MB)。
 
 ```sh
-pip install -r backend/requirements-voice-call.txt
+uv sync --extra voice-call
 ```
 
 入れた後に backend を再起動します。 部品が入っていない backend では、 app で 🔊 にすると
@@ -590,7 +590,7 @@ curl -s http://127.0.0.1:8765/sessions/<タブの id>/voice/transcription \
 | `voice_listen_failed` | 502 | 聞き取りの engine が断った / 文を返さなかった。 `detail.params.status` が engine の返した状態 (= 形式の変換に失敗すると 500。 `--convert` と ffmpeg を見る) |
 | `voice_turn_model_missing` | 404 | 言い終えを判定する model が無い。 `listen.turn` の path に file が在るかを見る (= 在る場所を書いていて file が無い時は、 backend の log に 1 行出る) |
 | `voice_conversation_elsewhere` | 409 | そのタブの会話は、 別の画面が開いている |
-| `voice_call_unavailable` | 501 | backend に会話の部品が入っていない (= `pip install -r backend/requirements-voice-call.txt` の後に再起動) |
+| `voice_call_unavailable` | 501 | backend に会話の部品が入っていない (= `uv sync --extra voice-call` の後に再起動) |
 | `voice_call_unknown` | 404 | 経路の候補を、 まだつないでいない接続へ送った |
 | `voice_call_failed` | 502 | 会話をつなげなかった。 理由が `detail.params.reason` に入っている (= backend の log にも 1 行出る) |
 | `voice_call_superseded` | 409 | 待っている間に、 同じタブへ後から別の通話が申し込まれた (= 後から申し込んだ方が残る) |

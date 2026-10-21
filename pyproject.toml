@@ -1,7 +1,3 @@
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "claude-pwa-client-backend"
 version = "1.11.1"
@@ -10,11 +6,35 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
 dependencies = [
-    # 詳細版は backend/requirements.txt で管理。
-    # pyproject では backend を編集可能 install するための骨組みのみ。
+    "fastapi>=0.138",
+    "uvicorn[standard]>=0.49",
+    "python-multipart>=0.0.32",  # CVE-2026-42561 / 53538 / 53539 / 53540
+    "pywebpush>=2.0.0",
+    "cryptography>=50",  # GHSA-537c-gmf6-5ccf / PYSEC-2026-3552 (= 49.0.0 が対象、 50.0.0 で修正)
+    "watchdog>=4",
+    "watchfiles>=1.2",
+    "psutil>=5.9",  # pty_discover の pgrep/ps/lsof fork 連打を 1 ループ化
+    "markdown-it-py>=3",  # 資料の口 (= backend/documents/markdown.py) が Markdown を HTML にする
 ]
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["backend*"]
-exclude = ["backend.tests*", "backend.__pycache__*"]
+[project.optional-dependencies]
+# 電話の会話 (= iPhone の app と WebRTC でつなぐ声の会話、 backend/voice_call/) の部品。 使う時だけ入れる:
+#   uv sync --extra voice-call
+# Pipecat の版は、 試験を通した版に固定する (= 部品の中の判定の model と口の形が版で変わる)。
+voice-call = [
+    "pipecat-ai[webrtc]==1.12.0",
+]
+
+[dependency-groups]
+# task lint / task test が使う。 `uv run` が既定で入れる。
+dev = [
+    "flake8>=7",
+    "black>=24",
+    "pytest>=9",
+    "httpx2",  # starlette TestClient (= backend/tests/) が実行時に要求する (= starlette 1.3 から httpx は非推奨)
+]
+
+[tool.uv]
+# backend は install せず、 実行した場所の code をそのまま読む (= 環境を複数の worktree で分け合っても、 どの worktree の
+# code を読むかが環境に固定されない)。
+package = false

@@ -1,6 +1,6 @@
 """お気に入り (= ⭐) の一覧。
 
-真値は `USER_DIR/favorites.txt` の 1 本で、 1 行に 1 path (= `~/...` か絶対 path)。 画面はこの口から
+真値は `paths.FAVORITES_PATH` (= 既定は `~/.claude-pwa-client/favorites.txt`) の 1 本で、 1 行に 1 path (= `~/...` か絶対 path)。 画面はこの口から
 読み書きし、 エージェントは file に 1 行足すだけで登録できる。 どの端末で開いても同じ一覧になり、
 ブラウザが保存領域を消しても残る。
 

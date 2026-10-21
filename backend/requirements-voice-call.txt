@@ -1,6 +1,0 @@
-# 電話の会話 (= iPhone の app と WebRTC でつなぐ声の会話、 backend/voice_call/) の部品。 使う時だけ入れる:
-#   pip install -r backend/requirements-voice-call.txt
-# backend の一覧も一緒に読む (= 別々に入れると、 Pipecat の依存の解決が backend の下限 (= cryptography など) を
-# 下回る版を選ぶことがある)。 Pipecat の版は、 試験を通した版に固定する (= 部品の中の判定の model と口の形が版で変わる)。
--r requirements.txt
-pipecat-ai[webrtc]==1.12.0
