@@ -12,6 +12,9 @@
 中で分ける)。 効く範囲は他の印と同じく行の終わりまでで、 行の中で別の印が出れば、 そこから声に戻る。 設定の marks
 に同じ名前が在っても、 予約の印として扱う。
 
+行の頭 (= 記号と印を剥がした後) が `Sources:` か `出典:` の行から返事の終わりまでは、 出典の塊として声にしない
+(= 調べた後に付く題と URL の並び。 吹き出しには出る)。 コードブロックの中の同じ行は、 ここに当たらない。
+
 印には、 その文だけの値を添えられる (= `[happy i=1.2 s=1.1]`)。 添えた値は印の値の上に重なり、 印と同じく
 行の終わりまで効く。 添えられるのは VALUES の名前 (= 短い別名でも、 engine の名前でも) で、 範囲は
 VALUE_RANGES。 名前の違う値と範囲の外の値は、 その文では使わない (= 印の値で言う)。
@@ -96,6 +99,8 @@ VALUE_RANGES = {
 _NUMBER = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)"
 _PAIR = re.compile(rf"([A-Za-z]+)=({_NUMBER})")
 _MARK = re.compile(rf"^\s*\[({MARK_NAME})((?:\s+[A-Za-z]+={_NUMBER})*)\s*\]\s*")
+# 出典の塊の頭の行 (= 記号を剥がした行の頭。 印が付いていても当たる)
+_SOURCES = re.compile(rf"^(?:\[{MARK_NAME}[^\]]*\]\s*)?(?:Sources|出典)\s*[:：]")
 
 
 def _drop_path(match: re.Match[str]) -> str:
@@ -173,6 +178,8 @@ def utterances(text: str, marks: Iterable[str], default: str, dropped: list[str]
         if fenced or _TABLE.match(raw) or _RULE.match(raw):
             continue
         line = _plain(raw)
+        if _SOURCES.match(line):
+            break
         mark, values = default, {}
         for found in _SENTENCE.finditer(line):
             sentence = found.group(0)
