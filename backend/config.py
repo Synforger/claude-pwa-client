@@ -281,6 +281,11 @@ def validate_runtime_paths() -> None:
         logger.warning("runtime check: %s", problem)
 
 
+# 1 つのタブが同時に持てる子のタブの数の既定 (= `child_sessions_max`)。 子は同じ口座の使用量を分け合うので、
+# 上限が無いと一斉に立てた子が親のタブまで利用の制限に掛ける。
+CHILD_SESSIONS_MAX_DEFAULT = 5
+
+
 # --- 旧 module-level 定数の遅延配信 (PEP 562) ---
 # 既存 consumer (= `from backend.config import AGENTS` 等) を変えないために
 # `__getattr__` で必要時に config を引いて返す。 lookup ごとに get_config() を
@@ -304,6 +309,9 @@ def __getattr__(name: str) -> Any:  # noqa: PLR0911
         return check if isinstance(check, list) and all(isinstance(w, str) for w in check) else []
     if name == "AGENT_MESSAGE_PEERS":
         return _agent_message_peers(cfg.get("agent_message_peers"))
+    if name == "CHILD_SESSIONS_MAX":
+        limit = cfg.get("child_sessions_max", CHILD_SESSIONS_MAX_DEFAULT)
+        return limit if isinstance(limit, int) and not isinstance(limit, bool) and limit >= 0 else CHILD_SESSIONS_MAX_DEFAULT
     if name == "CORS_ALLOW_ORIGINS":
         return cfg.get("cors_allow_origins", [])
     if name == "RATE_LIMITS_LOG_PATH":

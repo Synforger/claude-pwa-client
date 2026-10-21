@@ -312,6 +312,26 @@
   font-size: 12px;
   opacity: 0.8;
 }
+/* 子を持つタブの畳む / 開く印 (= ▸ / ▾)。 子を持たない行は同じ幅を空けて題の位置を揃える。 */
+.drawer-item-fold {
+  flex: 0 0 20px;
+  align-self: stretch;
+  background: none;
+  border: none;
+  padding: 0 0 0 6px;
+  color: var(--text-dim, #8a8f98);
+  font-size: 12px;
+  cursor: pointer;
+}
+span.drawer-item-fold {
+  cursor: default;
+}
+/* 畳んだ親の下に隠れているタブの数。 */
+.drawer-item-hidden {
+  flex: 0 0 auto;
+  color: var(--text-dim, #8a8f98);
+  font-size: 11px;
+}
 /* どのアカウントで動いている会話かの札。 アカウントを 2 つ以上設定している時だけ出す。 */
 .drawer-item-account {
   flex: 0 0 auto;
