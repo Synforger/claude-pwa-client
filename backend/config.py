@@ -25,7 +25,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from backend.paths import CONFIG_PATH
+from backend.paths import CONFIG_PATH, USER_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -250,6 +250,41 @@ def page_origin() -> tuple[Path, int] | None:
     return _scan_page_origin()[0]
 
 
+# --- 資料 (= pdf・Office・tif を頁の画像に変えた物の控え) ---
+
+DOCUMENTS_CACHE_MAX_MB_DEFAULT = 1024
+
+
+def _scan_documents() -> tuple[tuple[Path, int], list[str]]:
+    """config.json の `documents` を ((控えの置き場, 控えの上限の byte), 書き損じの指摘) に分ける。
+
+    書き損じた欄は既定に戻す (= 資料は開けなくならない)。 置き場の既定は USER_DIR の下 (= repo の外)。
+    """
+    cache_dir, max_mb = USER_DIR / "document-cache", DOCUMENTS_CACHE_MAX_MB_DEFAULT
+    raw = get_config().get("documents")
+    problems: list[str] = []
+    if raw is not None and not isinstance(raw, dict):
+        problems.append(f"config.documents must be an object, got {type(raw).__name__}")
+    elif raw:
+        folder, limit = raw.get("cache_dir"), raw.get("cache_max_mb")
+        if folder is not None:
+            if isinstance(folder, str) and folder:
+                cache_dir = Path(folder).expanduser().resolve()
+            else:
+                problems.append("config.documents.cache_dir must be a path")
+        if limit is not None:
+            if isinstance(limit, (int, float)) and not isinstance(limit, bool) and limit > 0:
+                max_mb = limit
+            else:
+                problems.append(f"config.documents.cache_max_mb must be a positive number, got {limit!r}")
+    return (cache_dir, int(max_mb * 1024 * 1024)), problems
+
+
+def documents_settings() -> tuple[Path, int]:
+    """資料の変換結果の控えの置き場と、 その大きさの上限 (byte)。"""
+    return _scan_documents()[0]
+
+
 def validate_runtime_paths() -> None:
     """起動時 sanity check (= backend-F-67)。 主要 path / 設定の欠落を warn する。
 
@@ -277,7 +312,7 @@ def validate_runtime_paths() -> None:
         logger.warning(
             "runtime check: tmux_session_map_dir does not exist: %s", map_dir
         )
-    for problem in _scan_extensions()[1] + _scan_page_origin()[1]:
+    for problem in _scan_extensions()[1] + _scan_page_origin()[1] + _scan_documents()[1]:
         logger.warning("runtime check: %s", problem)
 
 

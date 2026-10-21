@@ -22,7 +22,7 @@ claude-pwa-client は以下の OSS に依存している。 全 deps のライ�
 | Python | BSD-2-Clause | 1 |
 | Python | BSD-3-Clause | 17 |
 | Python | ISC | 1 |
-| Python | MIT | 46 |
+| Python | MIT | 48 |
 | Python | MIT OR Apache-2.0 | 1 |
 | Python | MPL-2.0 | 4 |
 | Python | PSF-2.0 | 2 |
@@ -67,8 +67,10 @@ claude-pwa-client は以下の OSS に依存している。 全 deps のライ�
 | iniconfig | MIT | https://github.com/pytest-dev/iniconfig |
 | jsonschema | MIT | https://github.com/python-jsonschema/jsonschema |
 | jsonschema-specifications | MIT | https://github.com/python-jsonschema/jsonschema-specifications |
+| markdown-it-py | MIT | https://github.com/executablebooks/markdown-it-py |
 | mccabe | MIT | https://github.com/pycqa/mccabe |
 | mcp | MIT | https://modelcontextprotocol.io |
+| mdurl | MIT | https://github.com/executablebooks/mdurl |
 | multidict | Apache License 2.0 | https://github.com/aio-libs/multidict |
 | mypy_extensions | MIT | https://github.com/python/mypy_extensions |
 | packaging | Apache-2.0 OR BSD-2-Clause | https://github.com/pypa/packaging |

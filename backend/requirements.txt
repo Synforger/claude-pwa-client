@@ -10,6 +10,7 @@ cryptography>=50           # GHSA-537c-gmf6-5ccf / PYSEC-2026-3552 (= 49.0.0 が
 watchdog>=4
 watchfiles>=1.2
 psutil>=5.9  # backend-F-24: pty_discover の pgrep/ps/lsof fork 連打を 1 ループ化
+markdown-it-py>=3  # 資料の口 (= backend/documents/markdown.py) が Markdown を HTML にする
 
 # dev / lint / test (= task lint, task test)
 flake8>=7
