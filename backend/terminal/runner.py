@@ -49,7 +49,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from backend.config import CLAUDE_PATH
-from backend.paths import FAVORITES_PATH, note_path
+from backend.paths import FAVORITES_PATH, PLATFORM_ROOT, note_path
 from backend.terminal import input_ready
 from backend.terminal.control_mode import (
     ControlModeLineBuffer,
@@ -97,7 +97,7 @@ _TMUX_NAME_SAFE = re.compile(r"[^A-Za-z0-9_-]")
 
 
 # backend がタブごとに決めて渡す環境変数 (= agent cfg の `env` では上書きさせない)
-_SESSION_ENV_RESERVED = frozenset({"PWA_SID", "PWA_FAVORITES", "PWA_NOTE"})
+_SESSION_ENV_RESERVED = frozenset({"PWA_SID", "PWA_FAVORITES", "PWA_NOTE", "AGENT_PLATFORM_ROOT"})
 
 
 def tmux_session_env_args(session_id: str, extra_env: dict | None) -> list[str]:
@@ -106,6 +106,8 @@ def tmux_session_env_args(session_id: str, extra_env: dict | None) -> list[str]:
     - `PWA_SID`       = このタブの識別子
     - `PWA_FAVORITES` = お気に入りの file (= エージェントは 1 行足すだけで登録できる。 routes/favorites.py)
     - `PWA_NOTE`      = このタブのメモの file (= エージェントが書くと 📋 に出る。 routes/notes.py)
+    - `AGENT_PLATFORM_ROOT` = 器の根 (= backend が渡された時だけ。 タブの中の claude と hook が根を知る。
+      tmux の session は backend の環境をそのまま受け継ぐとは限らない)
     - agent cfg の `env`
     """
     args = [
@@ -113,6 +115,8 @@ def tmux_session_env_args(session_id: str, extra_env: dict | None) -> list[str]:
         "-e", f"PWA_FAVORITES={FAVORITES_PATH}",
         "-e", f"PWA_NOTE={note_path(session_id)}",
     ]
+    if PLATFORM_ROOT is not None:
+        args.extend(["-e", f"AGENT_PLATFORM_ROOT={PLATFORM_ROOT}"])
     for k, v in (extra_env or {}).items():
         if v is None or k in _SESSION_ENV_RESERVED:
             continue

@@ -4,13 +4,15 @@
 
   使い方:
     1. task install-service  (= 本 file を ~/Library/LaunchAgents/ にコピーする)
-    2. 下記 5 箇所を **自環境の絶対 path に書き換える**:
+    2. 下記 3 箇所を **自環境の絶対 path に書き換える**:
          - ProgramArguments の `/path/to/claude-pwa-client`
-         - ProgramArguments の `/path/to/miniforge` (= conda の base prefix、
-           例: `<path-to-miniforge>` or `/opt/homebrew/Caskroom/miniforge/base`)
-         - ProgramArguments の `pwa-client` (= `CONDA_ENV` を変えてれば合わせる)
          - ProgramArguments の `--port 8765` (= 自分の PORT)
          - StandardOutPath / StandardErrorPath の `/path/to/claude-pwa-client/logs/...`
+       uv は PATH (= 下の EnvironmentVariables) から探す。 Python の版と依存は repo の
+       .python-version / uv.lock で決まり、 初回の起動で uv が用意する。
+       器の根 (AGENT_PLATFORM_ROOT) の下に置く時は、 EnvironmentVariables に
+       AGENT_PLATFORM_ROOT を足す (= 設定・鍵・記録・ログの置き場が根の下に決まる。
+       タブ (= tmux の session) にも backend が同じ値を渡す)。
     3. launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.claudepwa.client.plist
     4. task status
 
@@ -27,7 +29,7 @@
   <array>
     <string>/bin/bash</string>
     <string>-lc</string>
-    <string>cd /path/to/claude-pwa-client && source /path/to/miniforge/etc/profile.d/conda.sh && conda activate pwa-client && exec uvicorn backend.main:app --host 127.0.0.1 --port 8765</string>
+    <string>cd /path/to/claude-pwa-client && exec uv run uvicorn backend.main:app --host 127.0.0.1 --port 8765</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

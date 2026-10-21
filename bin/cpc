@@ -8,7 +8,7 @@ here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
 case "$1" in
   device)
     shift
-    exec python3 "$here/../backend/cli/device.py" "$@" ;;
+    PYTHONPATH="$here/.." exec python3 "$here/../backend/cli/device.py" "$@" ;;
   -h|--help)
     echo "usage: cpc device [<kind> [<operation> --<arg> <value> ...]]   (docs/reference/device-ops.md)" ;;
   *)

@@ -23,7 +23,10 @@ macOS 手順と同等、 `brew` の代わりに `apt`:
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv python3-pip nodejs npm tmux git curl
+sudo apt install -y nodejs npm tmux git curl
+sudo npm install -g pnpm
+# uv (Python 3.11 と backend の依存を用意する) のインストールは公式手順に従う:
+# https://docs.astral.sh/uv/getting-started/installation/
 # claude CLI のインストールは公式手順に従う:
 # https://docs.claude.com/en/docs/claude-code
 ```
@@ -35,13 +38,12 @@ sudo apt install -y python3 python3-venv python3-pip nodejs npm tmux git curl
 ```bash
 git clone https://github.com/<your-handle>/claude-pwa-client.git
 cd claude-pwa-client
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r backend/requirements.txt
-cp backend/config.example.json backend/config.json
+uv sync
+uv run python -m backend.cli.init_config
 # config.json の claude_path は `which claude` の結果と揃える
 # 詳細は ../reference/config.md を参照
-python -m backend.cli.gen_vapid
-(cd frontend && npm install && npm run build)
+uv run python -m backend.cli.gen_vapid
+(cd frontend && pnpm install && pnpm run build)
 ```
 
 ## 4. systemd user service で常駐起動
@@ -54,7 +56,7 @@ Description=Claude PWA backend
 
 [Service]
 WorkingDirectory=%h/claude-pwa-client
-ExecStart=/bin/bash -lc 'source .venv/bin/activate && exec uvicorn backend.main:app --host 127.0.0.1 --port 8765'
+ExecStart=/bin/bash -lc 'exec uv run uvicorn backend.main:app --host 127.0.0.1 --port 8765'
 Restart=always
 
 [Install]

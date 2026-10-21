@@ -791,7 +791,7 @@ endpoints:
     auth: tailnet
     invariants:
       - "声を持たないタブは 409 voice_not_enabled、 聞き取りを持たないタブは 409 voice_listen_not_enabled (= つなぐ前に返す)"
-      - "電話の会話の部品 (= backend/requirements-voice-call.txt) が入っていなければ 501 voice_call_unavailable"
+      - "電話の会話の部品 (= `voice-call` の追加の依存) が入っていなければ 501 voice_call_unavailable"
       - "query の volume (= 0 〜 2、 省けば 1) は、 その端末の声の大きさの倍率。 範囲の外なら 400 voice_bad_request"
       - "query の resume=1 は同じタブの通話のつなぎ直し (= app がマイクの入 / 切や端末の操作で掛け直す時)。 前の通話が閉じ終えるのを待ち、 鳴り終えていなかった文から言い直し、 閉じた後に届いた返事も声にする。 resume の無い通話は、 前の鳴り残しを捨てる"
       - "通話は 1 つのタブに 1 本で、 後から申し込んだ方が残る。 申し込みが来たら同じタブの前の通話は閉じ、 待っている間に同じタブへ後の申し込みが来た申し込みは、 通話を立てずに 409 voice_call_superseded"

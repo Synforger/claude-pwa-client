@@ -1,7 +1,7 @@
 """電話の会話 (= routes/voice_call.py と voice_call/) の試験。
 
 決まり (= voice_call/rules.py) と口の断り方は、 どの環境でも走る。 Pipecat を通す試験は、 電話の会話の部品
-(= backend/requirements-voice-call.txt) が入っていなければ飛ばす。
+(= `uv sync --extra voice-call`) が入っていなければ飛ばす。
 """
 from __future__ import annotations
 

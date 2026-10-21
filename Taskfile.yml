@@ -4,10 +4,11 @@
 # Prerequisites:
 #   - go-task CLI:   `brew install go-task/tap/go-task` (macOS)
 #                    Linux / Windows: https://taskfile.dev/installation/
-#   - conda (recommended) or python3 venv
+#   - uv (Python の環境と実行。 Python の版は .python-version、 依存は pyproject.toml と uv.lock)
+#   - pnpm (frontend/ と contracts/ の node の依存)
 #
 # Quickstart (= 初回 setup → 起動 → 接続確認):
-#   task setup                        # conda env / pip / npm / config / VAPID / hooks まで 1 発
+#   task setup                        # uv sync / pnpm install / config / VAPID / hooks まで 1 発
 #   task build                        # frontend production build
 #   task run                          # backend foreground 起動 (= dev、 Ctrl-C で停止)
 #   #   or:
@@ -23,19 +24,17 @@
 # その場で `task status PORT=8766` と引数で渡す。 引数が `.env` に勝つ):
 #   PORT (default 8765)
 #   LAUNCH_AGENT_LABEL (default com.claudepwa.client)
-#   CONDA_ENV (default pwa-client)
 # =============================================================================
 
 version: '3'
 
-# 機械ごとの値 (= PORT / LAUNCH_AGENT_LABEL / CONDA_ENV) は、 repo の根の `.env` に書いておける
+# 機械ごとの値 (= PORT / LAUNCH_AGENT_LABEL) は、 repo の根の `.env` に書いておける
 # (= git には入らない)。 `task <名前> PORT=8766` と引数で渡した値は `.env` に勝つ。
 dotenv: ['.env']
 
 vars:
   PORT: '{{.PORT | default "8765"}}'
   LAUNCH_AGENT_LABEL: '{{.LAUNCH_AGENT_LABEL | default "com.claudepwa.client"}}'
-  CONDA_ENV: '{{.CONDA_ENV | default "pwa-client"}}'
 
 tasks:
   default:
@@ -48,36 +47,17 @@ tasks:
   # ===========================================================================
 
   setup:
-    desc: One-shot setup (conda env + pip + npm + config + VAPID + git hooks)
+    desc: One-shot setup (uv sync + pnpm install + config + VAPID + git hooks)
     cmds:
       - task: verify-deps
-      - |
-        # conda は shell function なので bash subshell で `command -v conda` が false に倒れる。
-        # CONDA_EXE (= conda install で必ず export される) を直接叩いて env を作る / 入る。
-        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
-          "$CONDA_EXE" env list | awk '{print $1}' | grep -qx "{{.CONDA_ENV}}" || "$CONDA_EXE" create -y -n {{.CONDA_ENV}} python=3.11
-          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream pip install --upgrade -r backend/requirements.txt
-        else
-          echo "CONDA_EXE not set; falling back to python3 -m venv .venv"
-          test -d .venv || python3 -m venv .venv
-          .venv/bin/pip install --upgrade -r backend/requirements.txt
-        fi
-      - cd frontend && npm install
+      - uv sync
+      - cd frontend && pnpm install
       - task: cli:install
-      # contracts は独立した npm の置き場で、 `task ci` の最後の段 (= contracts:check) がその依存を使う。
+      # contracts は独立した node の置き場で、 `task ci` の最後の段 (= contracts:check) がその依存を使う。
       # ここで入れておかないと、 setup の直後の `task ci` がその段で落ちる。
-      - cd contracts && npm install
-      - |
-        if [ ! -f backend/config.json ]; then
-          cp backend/config.example.json backend/config.json
-          echo "→ created backend/config.json from example. EDIT IT before next steps."
-        fi
-      - |
-        if [ ! -f backend/secrets/vapid.json ]; then
-          task gen-vapid
-        else
-          echo "→ vapid.json already present (skip)"
-        fi
+      - cd contracts && pnpm install
+      - uv run python -m backend.cli.init_config
+      - uv run python -m backend.cli.gen_vapid
       - |
         # フックの入口はマシン全体の guard-dispatcher (= global core.hooksPath)。
         # git が使う hooksPath は 1 つだけなので、repo ローカルに立てると global を
@@ -107,14 +87,12 @@ tasks:
     cmds:
       - |
         miss=0
-        for bin in python3 node npm tmux claude; do
+        for bin in uv node pnpm tmux claude; do
           if ! command -v "$bin" >/dev/null 2>&1; then
             echo "MISSING: $bin"; miss=1
           fi
         done
-        for bin in jq conda; do
-          command -v "$bin" >/dev/null 2>&1 || echo "WARN (optional): $bin not found"
-        done
+        command -v jq >/dev/null 2>&1 || echo "WARN (optional): jq not found"
         if [ "$miss" -ne 0 ]; then
           echo "fix the MISSING binaries above before running 'task setup'"
           exit 1
@@ -128,22 +106,31 @@ tasks:
   run:
     desc: Backend uvicorn foreground (= dev; Ctrl-C で停止)
     cmds:
-      - |
-        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
-          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream uvicorn backend.main:app --host 127.0.0.1 --port {{.PORT}}
-        else
-          .venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port {{.PORT}}
-        fi
+      - uv run uvicorn backend.main:app --host 127.0.0.1 --port {{.PORT}}
+
+  install:frontend:
+    desc: Install frontend dependencies from the lockfile (= no-op when already up to date)
+    run: once
+    cmds:
+      - cd frontend && pnpm install --frozen-lockfile
+
+  install:contracts:
+    desc: Install contracts dependencies from the lockfile (= no-op when already up to date)
+    run: once
+    cmds:
+      - cd contracts && pnpm install --frozen-lockfile
 
   build:
     desc: Frontend production build (= dist/、 backend が配信)
+    deps: [install:frontend]
     cmds:
-      - cd frontend && npm run build
+      - cd frontend && pnpm run build
 
   dev:frontend:
     desc: Frontend Vite dev server (= backend は LaunchAgent or task run 前提)
+    deps: [install:frontend]
     cmds:
-      - cd frontend && npm run dev
+      - cd frontend && pnpm run dev
 
   tailscale-serve:
     desc: Publish backend on tailnet (= https 配信)
@@ -167,7 +154,7 @@ tasks:
         fi
         echo ""
         echo "next:"
-        echo "  1. edit absolute paths inside $TARGET (cwd / conda env / log dest)"
+        echo "  1. edit absolute paths inside $TARGET (cwd / uv / log dest)"
         echo "  2. launchctl bootstrap gui/$(id -u) $TARGET"
         echo "  3. task status"
 
@@ -229,19 +216,13 @@ tasks:
   test:backend:
     desc: pytest over backend/tests/
     cmds:
-      - |
-        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
-          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream python -m pytest backend/tests -q
-        elif [ -x .venv/bin/python ]; then
-          .venv/bin/python -m pytest backend/tests -q
-        else
-          python3 -m pytest backend/tests -q
-        fi
+      - uv run python -m pytest backend/tests -q
 
   test:frontend:
     desc: vitest over frontend/src/
+    deps: [install:frontend]
     cmds:
-      - cd frontend && npm test -- --run
+      - cd frontend && pnpm test
 
   test:unit:
     desc: 'Deprecated alias for test:backend (kept for back-compat)'
@@ -258,7 +239,7 @@ tasks:
   ios:crashes:
     desc: Show why the iPhone app crashed, from the crash reports on a connected iPhone (DEVICE=<UDID>, SINCE=YYYY-MM-DD)
     cmds:
-      - python3 shell/ios/tools/crash-reports/crash-reports.py --device "{{.DEVICE}}" {{if .SINCE}}--since "{{.SINCE}}"{{end}}
+      - uv run python shell/ios/tools/crash-reports/crash-reports.py --device "{{.DEVICE}}" {{if .SINCE}}--since "{{.SINCE}}"{{end}}
     requires:
       vars: [DEVICE]
 
@@ -276,35 +257,24 @@ tasks:
   lint:ios-privacy:
     desc: Every feature the iPhone app uses (camera, microphone, …) has its usage description in Info.plist
     cmds:
-      - python3 .tooling/local-ci/ios-privacy-check.py
+      - uv run python .tooling/local-ci/ios-privacy-check.py
 
   lint:backend:
     desc: flake8 critical-only checks over backend/
     cmds:
-      - |
-        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
-          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream python -m flake8 backend --jobs 1 --count --show-source --statistics
-        elif [ -x .venv/bin/python ]; then
-          .venv/bin/python -m flake8 backend --jobs 1 --count --show-source --statistics
-        else
-          python3 -m flake8 backend --jobs 1 --count --show-source --statistics
-        fi
+      - uv run python -m flake8 backend --jobs 1 --count --show-source --statistics
 
   lint:frontend:
     desc: ESLint over frontend/src/
+    deps: [install:frontend]
     cmds:
-      - cd frontend && npm run lint
+      - cd frontend && pnpm run lint
 
   lint:fix:
     desc: Lint and autoformat with black (backend) + ESLint (frontend)
     cmds:
-      - |
-        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
-          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream python -m black backend
-        else
-          .venv/bin/python -m black backend
-        fi
-      - cd frontend && npm run lint
+      - uv run python -m black backend
+      - cd frontend && pnpm run lint
 
   anon:scan:
     desc: Full-tree anonymity scan (= pre-commit hook と同じ scanner、 全 file)
@@ -318,21 +288,15 @@ tasks:
 
 
   audit:
-    desc: Full security audit (= pip-audit + npm audit + gitleaks full history + anon-scan)
+    desc: Full security audit (= pip-audit + pnpm audit + gitleaks full history + anon-scan)
     cmds:
       - |
         echo "=== pip-audit (backend Python transitive) ==="
-        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
-          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream pip install --quiet pip-audit
-          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream pip-audit
-        else
-          .venv/bin/pip install --quiet pip-audit
-          .venv/bin/pip-audit
-        fi
+        uv run --with pip-audit pip-audit
       - |
         echo ""
-        echo "=== npm audit (frontend prod + dev) ==="
-        cd frontend && npm audit
+        echo "=== pnpm audit (frontend prod + dev) ==="
+        cd frontend && pnpm audit
       - |
         echo ""
         echo "=== gitleaks (full history secret scan) ==="
@@ -361,24 +325,12 @@ tasks:
   gen-vapid:
     desc: Generate VAPID keypair (= 初回のみ; 既存があれば error)
     cmds:
-      - |
-        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
-          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream python -m backend.cli.gen_vapid
-        else
-          .venv/bin/python -m backend.cli.gen_vapid
-        fi
+      - uv run python -m backend.cli.gen_vapid
 
   gen-notices:
     desc: Regenerate THIRD_PARTY_NOTICES.md (= dependency 追加 / 削除 / version bump 時)
     cmds:
-      - |
-        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
-          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream pip install --quiet pip-licenses
-          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream python3 scripts/gen-third-party-notices.py
-        else
-          .venv/bin/pip install --quiet pip-licenses
-          .venv/bin/python3 scripts/gen-third-party-notices.py
-        fi
+      - uv run --with pip-licenses python scripts/gen-third-party-notices.py
 
   gen-vapid:force:
     desc: '!! DANGER !! Re-generate VAPID (= 既存 push subscription 全 invalidate)'
@@ -387,12 +339,7 @@ tasks:
         echo "WARNING: all existing Web Push subscriptions will be invalidated."
         echo "5 seconds to abort with Ctrl-C..."
         sleep 5
-      - |
-        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
-          "$CONDA_EXE" run -n {{.CONDA_ENV}} --live-stream python -m backend.cli.gen_vapid --force
-        else
-          .venv/bin/python -m backend.cli.gen_vapid --force
-        fi
+      - uv run python -m backend.cli.gen_vapid --force
 
   # ---------------------------------------------------------------------------
   # personal-template 品質機構 (= .tooling/local-ci/、 言語非依存)
@@ -408,19 +355,12 @@ tasks:
 
   contracts:check:
     desc: Validate contract yaml + fail if checked-in codegen output drifted from schema truth
+    deps: [install:contracts]
     cmds:
-      - cd contracts && npm run validate:all
+      - cd contracts && pnpm run validate:all
       - |
-        if [ -n "${CONDA_EXE:-}" ] && [ -x "$CONDA_EXE" ]; then
-          PY="$CONDA_EXE run -n {{.CONDA_ENV}} --live-stream python"
-        elif [ -x .venv/bin/python ]; then
-          # conda の無い環境では `task setup` が依存を .venv に入れる (= lint:backend / test:backend と同じ選び方)
-          PY=.venv/bin/python
-        else
-          PY=python3
-        fi
-        $PY contracts/codegen/gen-python.py --out backend/_generated >/dev/null
-        $PY contracts/codegen/gen-python.py >/dev/null
+        uv run python contracts/codegen/gen-python.py --out backend/_generated >/dev/null
+        uv run python contracts/codegen/gen-python.py >/dev/null
         cd contracts && node codegen/gen-types.mjs >/dev/null && cd ..
         cp contracts/_generated/sse-events.ts frontend/src/contracts/sse-events.ts
         if ! git diff --exit-code --quiet -- backend/_generated contracts/_generated frontend/src/contracts; then
@@ -452,14 +392,15 @@ tasks:
       - bash .tooling/local-ci/lint-versions.sh
 
   cli:install:
-    desc: Put the cpc command on PATH (= a link to bin/cpc in ~/.local/bin)
+    desc: Put the cpc and tabs commands on PATH (= links to bin/cpc and bin/tabs in ~/.local/bin)
     cmds:
       - mkdir -p "$HOME/.local/bin"
       - ln -sf "{{.ROOT_DIR}}/bin/cpc" "$HOME/.local/bin/cpc"
+      - ln -sf "{{.ROOT_DIR}}/bin/tabs" "$HOME/.local/bin/tabs"
       - |
         case ":$PATH:" in
-          *":$HOME/.local/bin:"*) echo "→ cpc is on PATH ($HOME/.local/bin/cpc)" ;;
-          *) echo "→ linked $HOME/.local/bin/cpc; add $HOME/.local/bin to PATH to run cpc" ;;
+          *":$HOME/.local/bin:"*) echo "→ cpc and tabs are on PATH ($HOME/.local/bin)" ;;
+          *) echo "→ linked cpc and tabs in $HOME/.local/bin; add it to PATH to run them" ;;
         esac
 
   version:bump:
