@@ -97,6 +97,21 @@ function gesture(target, type, scale, clientX, clientY) {
   return event
 }
 
+it.each(['~/materials/spec.pdf', '/srv/deck.pptx', '/srv/scan.TIF'])(
+  'shows the document %s as the page the backend makes of it, without reading it as text',
+  path => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    act(() => setOverlay('previewPath', path))
+    const { getByTestId, queryByTestId } = render(<FilePreviewModal />)
+    const page = getByTestId('file-preview-page')
+    expect(page.tagName).toBe('IFRAME')
+    expect(page.getAttribute('src').endsWith(`/file/open?path=${encodeURIComponent(path)}`)).toBe(true)
+    expect(queryByTestId('file-preview-image')).toBeNull()
+    expect(fetchSpy).not.toHaveBeenCalled()
+    fetchSpy.mockRestore()
+  },
+)
+
 it('zooms with the gesture events Safari sends for a trackpad pinch', () => {
   act(() => setOverlay('previewPath', '/home/me/a.png'))
   const { getByTestId } = render(<FilePreviewModal />)

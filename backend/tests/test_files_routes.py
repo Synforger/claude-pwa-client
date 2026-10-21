@@ -309,7 +309,7 @@ def test_file_view_keeps_the_home_and_deny_list_boundaries(tmp_path, monkeypatch
     assert client.get("/file/open", params={"path": "/etc/x.html"}).status_code == 403
 
 
-@pytest.mark.parametrize("name", ["notes.md", "run.sh", "noext", "data.bin"])
+@pytest.mark.parametrize("name", ["notes.rst", "run.sh", "noext", "data.bin"])
 def test_file_view_refuses_types_it_does_not_serve(tmp_path, monkeypatch, name):
     client, _ = _raw_client(tmp_path, monkeypatch)
     (tmp_path / name).write_text("x")
@@ -417,7 +417,7 @@ def test_page_origin_keeps_the_folder_and_deny_list_boundaries(tmp_path, monkeyp
     assert client.get("/%2E%2E/outside.html").status_code in (403, 404)
     assert client.get("/link.html").status_code == 403
     assert client.get("/.ssh/page.html").status_code == 403
-    assert client.get("/deck/notes.md").status_code == 415
+    assert client.get("/deck/run.sh").status_code == 415
     assert client.get("/deck/gone.html").status_code == 404
 
 
