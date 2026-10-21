@@ -384,8 +384,8 @@ def test_only_a_caller_on_this_machine_may_ask(rolled):
     assert rolled == []
 
 
-def test_what_the_next_session_opens_with_is_checked_as_a_message_to_a_session_that_read_nothing(rolled, monkeypatch, tmp_path):
-    """次の会話はまだ無い。 検査には、 この機械のどの会話でもない名前が宛先として渡る。"""
+def _seeing_check(monkeypatch, tmp_path) -> Path:
+    """宛先と本文を `seen.txt` に書き、 本文に `secret` が在れば止める検査を設定する。"""
     seen = tmp_path / "seen.txt"
     script = tmp_path / "check.py"
     script.write_text(
@@ -398,6 +398,30 @@ def test_what_the_next_session_opens_with_is_checked_as_a_message_to_a_session_t
         "    sys.exit(1)\n"
     )
     _config(monkeypatch, tmp_path, agent_message_check=[sys.executable, str(script), "{file}", "{session}"])
+    return seen
+
+
+def test_what_the_next_session_opens_with_is_checked_as_a_message_to_this_session(rolled, monkeypatch, tmp_path):
+    """次の会話は今の会話の続き (= 同じタブ・同じ階層)。 検査には、 今の会話の記録の名前が宛先として渡る。
+
+    ⚠ **何も読んでいない相手として通していた。**境界の中の階層の path (= `tier=`) は境界の folder の名前を
+    含むので、 受け手の読んでいない境界の名前を止める検査が入った後、 境界の中のタブは起動し直せなくなった。
+    """
+    seen = _seeing_check(monkeypatch, tmp_path)
+    monkeypatch.setattr(ro, "jsonl_path_for_session", {"ses_a": tmp_path / "3f0c.jsonl"}.get)
+    with _client() as client:
+        ok = client.post("/sessions/ses_a/rollover", data={"text": "tier=projects/client\nmode=wait"})
+        assert ok.status_code == 202
+        assert seen.read_text() == "3f0c|tier=projects/client\nmode=wait"
+        refused = client.post("/sessions/ses_a/rollover", data={"text": "the secret plan"})
+    assert refused.status_code == 403
+    assert len(rolled) == 1
+
+
+def test_with_no_record_of_this_session_the_next_one_is_taken_to_have_read_nothing(rolled, monkeypatch, tmp_path):
+    """今の会話の記録が見つからない時は、 この機械のどの会話でもない名前が宛先として渡る (= 何も読んでいない相手)。"""
+    seen = _seeing_check(monkeypatch, tmp_path)
+    monkeypatch.setattr(ro, "jsonl_path_for_session", lambda sid: None)
     with _client() as client:
         ok = client.post("/sessions/ses_a/rollover", data={"text": "mode=wait"})
         assert ok.status_code == 202
