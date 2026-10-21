@@ -17,7 +17,9 @@ from backend.core.jsonl_predicates import AGENT_MESSAGE_OPENING, is_agent_messag
 from backend.routes import child_sessions as cs
 from backend.state import SessionDef
 
-AGENTS = {"agent_a": {"cwd": "/tmp", "display_name": "A"}, "agent_sub": {"cwd": "/tmp", "display_name": "SUB"}}
+AGENTS = {"agent_a": {"cwd": "/tmp", "display_name": "A", "child_agent": "agent_sub"},
+          "agent_b": {"cwd": "/tmp", "display_name": "B", "child_agent": "agent_gone"},
+          "agent_sub": {"cwd": "/tmp", "display_name": "SUB"}}
 
 
 def _config(monkeypatch, tmp_path, **values) -> None:
@@ -74,6 +76,25 @@ def test_a_child_is_opened_under_its_parent_and_starts_with_the_parent_s_message
     assert opened == [(body["id"], {"text": f'{AGENT_MESSAGE_OPENING}\n<agent-message from="lead" session="ses_p">\n'
                                             f"tier=normal\n\nbuild it\n</agent-message>", "enter": True})]
     assert is_agent_message(opened[0][1]["text"])
+
+
+@pytest.mark.parametrize("parent_agent, expected", [
+    ("agent_a", "agent_sub"),       # 親の agent の child_agent
+    ("agent_sub", "agent_sub"),     # child_agent が無ければ親と同じ agent
+])
+def test_without_an_agent_the_child_runs_as_the_parent_s_agent_says(opened, isolated_state, parent_agent, expected):
+    isolated_state.sessions_meta["ses_p"].agent_id = parent_agent
+    with _client() as client:
+        r = client.post("/sessions/ses_p/children", data={"text": "x"})
+    assert r.status_code == 200 and r.json()["agent_id"] == expected
+
+
+def test_a_child_agent_that_is_not_set_up_is_refused(opened, isolated_state):
+    isolated_state.sessions_meta["ses_p"].agent_id = "agent_b"
+    with _client() as client:
+        r = client.post("/sessions/ses_p/children", data={"text": "x"})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "invalid_agent_id"
+    assert _children(isolated_state) == []
 
 
 def test_a_child_without_a_title_takes_the_agent_s_name(opened):

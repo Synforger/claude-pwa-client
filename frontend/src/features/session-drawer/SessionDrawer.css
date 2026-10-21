@@ -307,20 +307,22 @@
 }
 /* フォークタブの系譜マーカー (= 親の下にインデント表示される子の目印)。 */
 .drawer-item-fork-mark {
-  flex: 0 0 auto;
+  /* 幅を揃えて、 フォーク (= ⑂) と子のタブ (= ↳) の題の始まりを同じ位置にする */
+  flex: 0 0 14px;
+  text-align: center;
   color: var(--text-dim, #8a8f98);
   font-size: 12px;
   opacity: 0.8;
 }
 /* 子を持つタブの畳む / 開く印 (= ▸ / ▾)。 子を持たない行は同じ幅を空けて題の位置を揃える。 */
 .drawer-item-fold {
-  flex: 0 0 20px;
+  flex: 0 0 32px;
   align-self: stretch;
   background: none;
   border: none;
-  padding: 0 0 0 6px;
+  padding: 0;
   color: var(--text-dim, #8a8f98);
-  font-size: 12px;
+  font-size: 15px;
   cursor: pointer;
 }
 span.drawer-item-fold {

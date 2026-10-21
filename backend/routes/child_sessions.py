@@ -13,7 +13,9 @@ claude も、 端末の入力を読む外の道具も、 「人が打った文�
 だけ、 「どの会話でもない宛先」 の名前で通す (= 何も読んでいない相手)。 検査が通るまでタブは立てない
 (= 断られた本文で空のタブを残さない)。
 
-1 つのタブが同時に持てる子の数は `child_sessions_max` が決める (= 既定 5)。 閉じるのは今までのタブと同じ
+子のタブの agent は、 呼び手が `agent_id` で選ぶか、 親の agent の設定の `child_agent` (= 子のタブはこの agent で
+立てる) が決める。 どちらも無ければ親と同じ agent で立てる。 1 つのタブが同時に持てる子の数は
+`child_sessions_max` が決める (= 既定 5)。 閉じるのは今までのタブと同じ
 `DELETE /sessions/{sid}` で、 閉じた子は数から外れる。
 """
 from __future__ import annotations
@@ -42,14 +44,15 @@ def children_of(parent_id: str) -> list[str]:
 async def post_child_session(
     request: Request,
     session_id: str,
-    agent_id: str = Form(...),
+    agent_id: str | None = Form(None),
     text: str = Form(...),
     title: str | None = Form(None),
 ) -> dict:
     """タブの中の claude が、 子のタブを立てて最初の発話を渡す。 → 立てたタブの記録 (= `GET /sessions` の 1 件)。
 
     form:
-        agent_id (str): 子のタブの agent (= `config.json` の `agents` の key)
+        agent_id (str): 子のタブの agent (= `config.json` の `agents` の key)。 省くと親の agent の `child_agent`、
+                        それも無ければ親と同じ agent
         text     (str): 子のタブの最初の発話に入れる本文 (= 渡す仕事)
         title    (str): 子のタブの名前 (= 省くと agent の既定の名前)
 
@@ -63,6 +66,7 @@ async def post_child_session(
     parent = sessions_meta.get(session_id)
     if parent is None:
         raise_error(404, "child_session_unknown_parent", f"親のタブが見つかりません: {session_id}", session=session_id)
+    agent_id = agent_id or (AGENTS.get(parent.agent_id) or {}).get("child_agent") or parent.agent_id
     if agent_id not in AGENTS:
         raise_error(400, "invalid_agent_id", "agent_id が無効です")
     if not text.strip():
