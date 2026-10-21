@@ -108,6 +108,8 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   書いた時だけ、 宛先 `相手の名前:タブ` で別の機械のタブへ送れる。 詳細: [`agent-messages.md`](agent-messages.md)
 - `agent_message_operator_check` (任意): 連絡に人の発話を付けてよいかを決めるコマンド (= 語のリスト)。
   同じ節を参照
+- `agent_message_sender_check` (任意): 連絡の封筒に送り主のタブ名を出してよいかを決めるコマンド
+  (= 語のリスト)。 同じ節を参照
 - `rate_limits_log`: 使用率 (5h / 7d / context) を記録する JSONL の path。 **このファイルを
   書くのは claude の statusline スクリプト** (= claude が statusline subprocess に渡す
   `rate_limits` を 1 行ずつ追記する)。 backend はこれを読んでステータスバーに表示する。

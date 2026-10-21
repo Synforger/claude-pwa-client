@@ -198,4 +198,16 @@ Message from a session on another machine, relayed by the client (the operator d
   Claude の session id に置き換わります
 - 終了コードが 0 なら発話を付けます。 0 以外なら**発話を付けずに本文だけ届けます** (= 連絡は止めません)
 - 書いていなければ、 送り主が付けると書いた発話はそのまま付きます
+
+封筒に送り主のタブ名を出してよいかも、 別のコマンドで決められます。 タブ名は送り主がどこで働いているかを
+言うので、 その場所の資料を読んでいない宛先には伏せたい時に使います。
+
+```json
+"agent_message_sender_check": ["python3", "~/bin/check-sender.py", "--to", "{session}", "--covers", "{sender_session}"]
+```
+
+- `{session}` は宛先の、 `{sender_session}` は送り主の Claude の session id に置き換わります
+- 終了コードが 0 ならタブ名を出します。 0 以外と、 実行できない・時間内に終わらない時は、 タブ名の代わりに
+  `別の境界のタブ` を出します (= 連絡は止めません。 返事の宛先の `session` はそのまま付きます)
+- 書いていなければ、 タブ名をそのまま出します
 - 送り主が付けると書いていない連絡では、 このコマンドは走りません

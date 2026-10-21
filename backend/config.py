@@ -299,7 +299,7 @@ def __getattr__(name: str) -> Any:  # noqa: PLR0911
         ).expanduser()
     if name == "CLAUDE_PATH":
         return cfg.get("claude_path")
-    if name in ("AGENT_MESSAGE_CHECK", "AGENT_MESSAGE_OPERATOR_CHECK"):
+    if name in ("AGENT_MESSAGE_CHECK", "AGENT_MESSAGE_OPERATOR_CHECK", "AGENT_MESSAGE_SENDER_CHECK"):
         check = cfg.get(name.lower())
         return check if isinstance(check, list) and all(isinstance(w, str) for w in check) else []
     if name == "AGENT_MESSAGE_PEERS":
