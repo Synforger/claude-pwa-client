@@ -1,4 +1,4 @@
-"""VAPID 鍵ペアを生成して backend/secrets/vapid.json に書き出す。
+"""VAPID 鍵ペアを生成して `backend.paths.VAPID_PATH` (= 既定は backend/secrets/vapid.json) に書き出す。
 
 Web Push 機能を使うには 1 度だけこのスクリプトを実行する。
 出力ファイルは gitignore 済み (公開リポでの鍵漏洩を防ぐため)。

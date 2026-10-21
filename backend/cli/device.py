@@ -25,8 +25,8 @@ http://127.0.0.1:8765)。
 4 = 一覧に無い操作 / 5 = 時間切れ / 6 = app ができなかった / 7 = backend に届かない
 
 screenshot の iPhone は、 この Mac と対になっている実機が 1 台ならそれ (= 複数なら --device か CPC_DEVICE で
-UDID を渡す)。 撮った file は backend の写真の取り出しと同じ所 (= CPC_DATA_DIR、 既定 backend/data の
-device-files/) に置き、 path を JSON で出す。
+UDID を渡す)。 撮った file は backend の写真の取り出しと同じ所 (= `backend.paths.DATA_DIR` の
+device-files/。 既定は backend/data) に置き、 path を JSON で出す。
 """
 from __future__ import annotations
 
@@ -41,10 +41,12 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from backend.paths import DATA_DIR
+
 URL = os.environ.get("CPC_URL", "http://127.0.0.1:8765").rstrip("/")
 EXIT = {"usage": 2, "offline": 3, "unknown": 4, "timeout": 5, "failed": 6, "unreachable": 7}
 _HTTP_EXIT = {503: "offline", 404: "unknown", 504: "timeout", 502: "failed", 400: "usage"}
-FILES_DIR = Path(os.environ.get("CPC_DATA_DIR") or Path(__file__).resolve().parents[1] / "data") / "device-files"
+FILES_DIR = DATA_DIR / "device-files"
 # 撮るのを待つ上限 (秒)。 届く iPhone なら 2〜3 秒で返る
 SCREENSHOT_TIMEOUT_S = 60
 

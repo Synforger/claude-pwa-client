@@ -26,6 +26,6 @@ PWA を**使うだけ**なら読む必要はありません。 [../README.md](..
 5. **audit-w2-residue** (= `frontend/src/state/` `features/` `layout/` `*.css` のいずれかが staged の時のみ、 状態二重管理 / orphan setter / CSS absolute anchor を検出)
 6. **ios-privacy-check** (= `frontend/src/` か `shell/ios/App/App/` が staged の時のみ、 iPhone の app が使う機能 (= カメラ・マイクなど) の許可の文が `Info.plist` に在るかを確かめる。 iOS は文の無い機能に触った瞬間に app を終わらせる。 種類と書き方は script の `USES`。 `task lint` でも走る)
 
-`task ci` が使う依存 (= backend の Python と、 `frontend/` ・ `contracts/` の npm) は `task setup` が全部入れる。 macOS では `task test` が `engines/apple-speech/` も build して部品のテストを回す (= Swift の compiler が要る。 他の OS では飛ばす)。 e2e (= `e2e/` で `npm ci` → `npm test`) は `task ci` に入っていないので、 画面や送受信の経路を変えた時は別に回す。
+`task ci` が使う依存 (= backend の Python と、 `frontend/` ・ `contracts/` の pnpm) は `task setup` が全部入れる。 macOS では `task test` が `engines/apple-speech/` も build して部品のテストを回す (= Swift の compiler が要る。 他の OS では飛ばす)。 e2e (= `e2e/` で `npm ci` → `npm test`) は `task ci` に入っていないので、 画面や送受信の経路を変えた時は別に回す。
 
 意図的に gate を回避したい時は `--no-verify`。 偽陽性は `.tooling/local-ci/audit-w2-residue-allowlist.txt` に追記。

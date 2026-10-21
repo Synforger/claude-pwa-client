@@ -27,4 +27,6 @@
 bash:   ">=5.0"      # host
 git:    ">=2.40"     # host
 node:   ">=20.0"     # frontend (Vite build)
+pnpm:   ">=10.0"     # frontend/ and contracts/ dependencies
 python: ">=3.10"     # backend (FastAPI) + docs-check.sh
+uv:     ">=0.5"      # backend environment and every `uv run` entry point

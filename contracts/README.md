@@ -45,7 +45,7 @@ schema_version: "1.0"   # protocol 互換性 version (= deprecation policy、 AD
 
 ```bash
 cd <path-to-this-repo>/contracts
-npm install   # ajv + ajv-cli + ajv-formats + js-yaml
+pnpm install   # ajv + ajv-cli + ajv-formats + js-yaml
 ```
 
 ## codegen / validate 起動 (= W1 完了判定)
@@ -54,12 +54,12 @@ npm install   # ajv + ajv-cli + ajv-formats + js-yaml
 cd <path-to-this-repo>/contracts
 
 # 1. meta-schema validate (= yaml typo 即検知、 ADR-011)
-npm run validate
+pnpm run validate
 # 内部展開: node codegen/validate.mjs (= ajv API 直叩き、 ajv-cli は脆弱性多 chain で不採用、 0 vulnerabilities)
 
 # 2. codegen (= 両側生成)
 python codegen/gen-python.py --out ../backend/_generated   # → backend/_generated/{events,ws_channels,http_endpoints}.py (= ADR-016 統一配置)
-npm run codegen:types          # → ../frontend/src/types.d.ts
+pnpm run codegen:types          # → ../frontend/src/types.d.ts
 
 # 3. contract test (= backend tests/contracts/)
 cd ../backend && pytest tests/contracts/
