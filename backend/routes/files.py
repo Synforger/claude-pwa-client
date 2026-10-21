@@ -316,10 +316,20 @@ _STORE_PREFIX = "/.store/"
 _store_lock = threading.Lock()
 
 
+# ページの origin のページが持つ権限。 origin は backend と別の実体のまま (= `allow-same-origin`。 localStorage が残る)
+# で、 ページが自分で上の画面 (= 枠の外の画面) を別の頁へ移すことだけ封じる (= `allow-top-navigation` を渡さない)。
+# 封じないと、 枠に嵌めて開いたページの `target="_top"` や `top.location` が会話の画面ごと置き換え、 ✕ で戻れなくなる
+# (= ホーム画面の PWA には戻る口が無い)。 ほかの権限 (= スクリプト・フォーム・ポップアップ・ダイアログ等) は渡す。
+_PAGE_SANDBOX = (
+    "sandbox allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox "
+    "allow-modals allow-downloads allow-pointer-lock allow-orientation-lock allow-presentation"
+)
+
+
 def _page_csp(request: Request) -> str:
     port = page_origin()[1]
     return (
-        f"{_PAGE_POLICY}; connect-src {_same_host(request, port)}{_STORE_PREFIX}; "
+        f"{_PAGE_POLICY}; {_PAGE_SANDBOX}; connect-src {_same_host(request, port)}{_STORE_PREFIX}; "
         f"frame-ancestors {_same_host(request, '*')}"
     )
 

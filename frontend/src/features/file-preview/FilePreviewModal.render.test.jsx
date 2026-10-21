@@ -5,7 +5,7 @@
 import { it, expect, afterEach, beforeAll, beforeEach, vi } from 'vitest'
 import { render, cleanup, fireEvent, act } from '@testing-library/react'
 import FilePreviewModal from './FilePreviewModal.jsx'
-import { setOverlay } from '../../state/ui.js'
+import { setOverlay, getSnapshot } from '../../state/ui.js'
 
 const FRAME = { width: 200, height: 100 }
 
@@ -111,6 +111,56 @@ it.each(['~/materials/spec.pdf', '/srv/deck.pptx', '/srv/scan.TIF'])(
     fetchSpy.mockRestore()
   },
 )
+
+// 開いた物から ✕ で会話へ戻れること (= 見出しの ✕ が在り、 押すとプレビューが閉じる)。 ホーム画面の PWA には戻る口が
+// 無いので、 枠の中のページが別の頁へ移った後でも、 同じ ✕ で閉じられなければならない。
+it.each([
+  '~/pages/deck/index.html',
+  '~/materials/spec.pdf',
+  '/srv/deck.pptx',
+  '/srv/memo.docx',
+  '/srv/sheet.xlsx',
+  '/srv/scan.tif',
+  '/home/me/a.png',
+])('closes the preview of %s with its ✕, back to the chat', path => {
+  act(() => setOverlay('previewPath', path))
+  const { getByTestId, queryByTestId } = render(<FilePreviewModal />)
+  const modal = getByTestId('file-preview-modal')
+  const close = modal.querySelector('.modal-close')
+  expect(close).not.toBeNull()
+  fireEvent.click(close)
+  expect(queryByTestId('file-preview-modal')).toBeNull()
+  expect(getSnapshot().overlays.previewPath).toBe(null)
+})
+
+it('keeps the ✕ of a framed page after the page inside has moved to another page', () => {
+  act(() => setOverlay('previewPath', '~/pages/deck/index.html'))
+  const { getByTestId, queryByTestId } = render(<FilePreviewModal />)
+  const frame = getByTestId('file-preview-page')
+  // 枠の中の読み込みは、 最初の頁でも、 リンクを辿った先でも (= 何度でも) 起こる
+  fireEvent.load(frame)
+  fireEvent.load(frame)
+  const close = getByTestId('file-preview-modal').querySelector('.modal-close')
+  expect(close).not.toBeNull()
+  fireEvent.click(close)
+  expect(queryByTestId('file-preview-modal')).toBeNull()
+  expect(getSnapshot().overlays.previewPath).toBe(null)
+})
+
+it('closes the framed page with Escape', () => {
+  act(() => setOverlay('previewPath', '~/materials/spec.pdf'))
+  const { queryByTestId } = render(<FilePreviewModal />)
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(queryByTestId('file-preview-modal')).toBeNull()
+  expect(getSnapshot().overlays.previewPath).toBe(null)
+})
+
+it('closes the framed page with a tap outside the sheet', () => {
+  act(() => setOverlay('previewPath', '~/materials/spec.pdf'))
+  const { getByTestId } = render(<FilePreviewModal />)
+  fireEvent.click(getByTestId('file-preview-modal'))
+  expect(getSnapshot().overlays.previewPath).toBe(null)
+})
 
 it('zooms with the gesture events Safari sends for a trackpad pinch', () => {
   act(() => setOverlay('previewPath', '/home/me/a.png'))
