@@ -1,0 +1,6 @@
+#!/bin/sh
+# tabs: 別のタブのエージェントとの連絡 (= 宛先の一覧・送信・子のタブ・起動し直し。 使い方は `tabs` だけを打つと出る)。
+#
+# `task cli:install` が ~/.local/bin/tabs にこの file への link を置く。 link から呼ばれても repo の中を指す。
+here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+exec python3 "$here/../backend/cli/tabs.py" "$@"

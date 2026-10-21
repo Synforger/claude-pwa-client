@@ -33,6 +33,8 @@ install_hint() {
         python) echo "brew install python@3.12 | apt install python3" ;;
         node)   echo "brew install node | nvm install --lts" ;;
         jq)     echo "brew install jq | apt install jq" ;;
+        pnpm)   echo "brew install pnpm | npm install -g pnpm" ;;
+        uv)     echo "brew install uv | https://docs.astral.sh/uv/getting-started/installation/" ;;
         *)      echo "(no install hint for $1)" ;;
     esac
 }

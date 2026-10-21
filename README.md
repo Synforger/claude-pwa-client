@@ -114,7 +114,7 @@ Two-stage structure:
 git clone https://github.com/Synforger/claude-pwa-client.git
 cd claude-pwa-client
 
-# 1. One-shot setup (conda env / pip / npm / config / VAPID / git hooks)
+# 1. One-shot setup (uv sync / pnpm install / config / VAPID / git hooks)
 task setup
 # → edit backend/config.json (agents / claude_path / accounts)
 

@@ -29,7 +29,7 @@ cpc device screenshot               # 今の画面を、 この Mac が撮る (=
 
 - `cpc` は `task setup` が `~/.local/bin` に置きます (= 後から置くなら `task cli:install`。 `~/.local/bin` が
   PATH に無ければ足します)
-- 答えは JSON で出ます。 写真のような file は Mac の `backend/data/device-files/` に書かれ、 答えにはその path が入ります
+- 答えは JSON で出ます。 写真のような file は Mac の backend の data の folder (= 既定は `backend/data/`) の `device-files/` に書かれ、 答えにはその path が入ります
 - 引数は `--<名前> <値>` で渡します。 まとめて渡す時は `--json '{"type": "steps"}'`、 待つ長さは `--timeout <秒>`
 - 終わりの番号: `0` 答えた / `2` 書き方が違う / `3` app がつながっていない / `4` 一覧に無い操作 / `5` 時間切れ /
   `6` app ができなかった / `7` backend に届かない
@@ -175,7 +175,7 @@ iPhone がこの Mac と同じ網 (= 家の Wi-Fi) に居る間は、 配信を�
 1 枚撮れます。 前に出ている app が何でも撮れ、 通話も切れません (= 1 枚 2〜3 秒)。 撮るのは Mac の Xcode の
 `devicectl` で、 app も backend も通しません。 ロック中はロック画面が撮れます。
 
-- 撮った file は `backend/data/device-files/` に置かれ、 path が JSON で返ります (= `--out <png>` で置き場を変える)
+- 撮った file は backend の data の folder (= 既定は `backend/data/`) の `device-files/` に置かれ、 path が JSON で返ります (= `--out <png>` で置き場を変える)
 - iPhone は、 この Mac と対になっている実機 (= Xcode で 1 度つないだ物) が 1 台ならそれを使います。 複数なら
   `--device <UDID>` か環境変数 `CPC_DEVICE` で選びます (= UDID は `xcrun devicectl list devices`)
 - iPhone が別の網に居ると、 `the Mac could not reach the iPhone` で終わります (= 終わりの番号 3)。 その時は配信を使います
