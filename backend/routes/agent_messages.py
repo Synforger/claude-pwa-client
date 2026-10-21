@@ -102,10 +102,16 @@ def resolve_receiver(to: str) -> str:
     raise AssertionError("unreachable")
 
 
-def envelope(sender_id: str, text: str, operator_said: str | None = None) -> str:
+#: 受け手が、 送り主の読んだ境界を知らない時に封筒へ出す名前 (= タブ名は送り主の働く場所を言う)。
+HIDDEN_SENDER = "別の境界のタブ"
+
+
+def envelope(sender_id: str, text: str, operator_said: str | None = None, title: str | None = None) -> str:
     """本文に「誰から」 を付ける。 中身の側の、 封筒のタグと同じ形の文字列は潰す (= 本文から封筒を
-    閉じて外へ文を足すことも、 人の発話を装うことも出来ない)。"""
-    return _envelope(OPENING, sessions_meta[sender_id].title, sender_id, text, operator_said)
+    閉じて外へ文を足すことも、 人の発話を装うことも出来ない)。 `title` は封筒に出す送り主の名前
+    (= 省くとタブ名)。"""
+    return _envelope(OPENING, sessions_meta[sender_id].title if title is None else title, sender_id, text,
+                     operator_said)
 
 
 def relayed_envelope(peer: str, title: str, session: str, text: str) -> str:
@@ -228,6 +234,26 @@ async def judge(session: str, text: str, receiver: str) -> None:
         where = "".join(f"\n  {hit}" for hit in hits)
         raise_error(403, "agent_message_refused", f"連絡は届けられませんでした: {reason}{where}",
                     reason=reason, **({"hits": hits} if hits else {}))
+
+
+async def sender_title(sender_id: str, receiver_id: str) -> str:
+    """封筒に出す送り主の名前。 `agent_message_sender_check` が通した時だけタブ名、 通さない時と実行
+    できない時は HIDDEN_SENDER。 設定が無ければタブ名。 語の `{session}` は宛先、 `{sender_session}`
+    は送り主の claude の session id。"""
+    from backend.config import AGENT_MESSAGE_SENDER_CHECK  # noqa: PLC0415
+    title = sessions_meta[sender_id].title
+    if not AGENT_MESSAGE_SENDER_CHECK:
+        return title
+    sender_record, receiver_record = jsonl_path_for_session(sender_id), jsonl_path_for_session(receiver_id)
+    if sender_record is None or receiver_record is None:
+        return HIDDEN_SENDER
+    status, reason, _hits = await _run_check(AGENT_MESSAGE_SENDER_CHECK, "",
+                                             {"session": receiver_record.stem, "sender_session": sender_record.stem})
+    if status != 0:
+        logger.info("agent message: sender's name left out sender=%s receiver=%s (%s)", sender_id, receiver_id,
+                    reason if status is None else f"exit {status}")
+        return HIDDEN_SENDER
+    return title
 
 
 async def operator_said_for(sender_id: str, receiver_id: str) -> str | None:
@@ -374,7 +400,8 @@ async def post_agent_message(
         raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いていません")
     await check(receiver_id, text)
     said = await operator_said_for(sender, receiver_id) if operator_said else None
-    result = await pty_send(receiver_id, {"text": envelope(sender, text, said), "enter": True}, None)
+    title = await sender_title(sender, receiver_id)
+    result = await pty_send(receiver_id, {"text": envelope(sender, text, said, title), "enter": True}, None)
     logger.info("agent message sender=%s receiver=%s chars=%d operator_said=%s ok=%s",
                 sender, receiver_id, len(text), said is not None, result.get("ok"))
     return {**result, "to": receiver_id, "operator_said": said is not None}

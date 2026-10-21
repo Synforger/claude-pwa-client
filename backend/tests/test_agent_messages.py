@@ -410,6 +410,43 @@ def test_words_the_operator_check_does_not_let_through_are_left_out_and_the_mess
     assert list((tmp_path / "uploads").iterdir()) == []
 
 
+def _sender_checker(monkeypatch, tmp_path, body: str) -> None:
+    """送り主の名前を見せてよいかの検査を config に入れる (= argv[1] が宛先、 argv[2] が送り主の session)。"""
+    script = tmp_path / "sender-check.py"
+    script.write_text("import sys\n" + body)
+    _config(monkeypatch, tmp_path, agent_message_sender_check=[sys.executable, str(script), "{session}", "{sender_session}"])
+
+
+def test_the_sender_s_name_is_shown_when_the_sender_check_lets_it_and_the_check_sees_both_sessions(
+        client, tabs, typed, monkeypatch, tmp_path):
+    seen = tmp_path / "seen.txt"
+    _sender_checker(monkeypatch, tmp_path, f"open({str(seen)!r}, 'w').write('|'.join(sys.argv[1:]))\n")
+    _two_records(monkeypatch, tmp_path, [])
+    assert _send(client).status_code == 200
+    assert '<agent-message from="tools" session="ses_sender">' in typed[0][1]["text"]
+    assert seen.read_text() == "0f0f0f0f-0000-4000-8000-000000000001|5e5e5e5e-0000-4000-8000-00000000000a"
+
+
+@pytest.mark.parametrize("body", ["sys.exit(1)\n", "import time\ntime.sleep(30)\n"])
+def test_the_sender_s_name_is_left_out_when_the_sender_check_does_not_let_it_and_the_message_still_goes(
+        client, tabs, typed, monkeypatch, tmp_path, body):
+    _sender_checker(monkeypatch, tmp_path, body)
+    monkeypatch.setattr(am, "CHECK_TIMEOUT_SEC", 0.3)
+    _two_records(monkeypatch, tmp_path, [])
+    r = _send(client, text="the build drops the last row")
+    assert r.status_code == 200
+    assert f'<agent-message from="{am.HIDDEN_SENDER}" session="ses_sender">' in typed[0][1]["text"]
+    assert "tools" not in typed[0][1]["text"]
+    assert "the build drops the last row" in typed[0][1]["text"]
+
+
+def test_the_sender_s_name_is_left_out_when_a_conversation_has_no_record_to_check(client, tabs, typed, monkeypatch, tmp_path):
+    _sender_checker(monkeypatch, tmp_path, "sys.exit(0)\n")
+    monkeypatch.setattr(am, "jsonl_path_for_session", {"ses_receiver": tmp_path / "r.jsonl"}.get)
+    assert _send(client).status_code == 200
+    assert f'from="{am.HIDDEN_SENDER}"' in typed[0][1]["text"]
+
+
 # --- 別の機械のタブ ----------------------------------------------------------------
 
 PEER_ADDRESS = "100.64.0.2"
