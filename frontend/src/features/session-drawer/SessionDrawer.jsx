@@ -569,6 +569,18 @@ export default function SessionDrawer() {
                 data-cpc-sid={s.id}
                 data-cpc-active={isActive ? '1' : '0'}
               >
+                {hasTree && (children > 0 ? (
+                  <button
+                    className="drawer-item-fold"
+                    onClick={() => setFolded(prev => toggleFolded(prev, s.id, sessions))}
+                    aria-expanded={!isFolded}
+                    aria-label={isFolded ? t('drawer.unfold') : t('drawer.fold')}
+                    title={isFolded ? t('drawer.unfold') : t('drawer.fold')}
+                    data-testid="session-fold"
+                  >
+                    {isFolded ? '▸' : '▾'}
+                  </button>
+                ) : <span className="drawer-item-fold" aria-hidden="true" />)}
                 {isRenaming ? (
                   <input
                     ref={renameInputRef}
@@ -583,19 +595,6 @@ export default function SessionDrawer() {
                     data-testid="session-rename-input"
                   />
                 ) : (
-                  <>
-                  {hasTree && (children > 0 ? (
-                    <button
-                      className="drawer-item-fold"
-                      onClick={() => setFolded(prev => toggleFolded(prev, s.id, sessions))}
-                      aria-expanded={!isFolded}
-                      aria-label={isFolded ? t('drawer.unfold') : t('drawer.fold')}
-                      title={isFolded ? t('drawer.unfold') : t('drawer.fold')}
-                      data-testid="session-fold"
-                    >
-                      {isFolded ? '▸' : '▾'}
-                    </button>
-                  ) : <span className="drawer-item-fold" aria-hidden="true" />)}
                   <button
                     className="drawer-item-main"
                     onClick={() => handleSelect(s.id)}
@@ -609,7 +608,6 @@ export default function SessionDrawer() {
                     {accountLabel && <span className="drawer-item-account">{accountLabel}</span>}
                     {badge && <span className={`tab-badge ${badge.kind}`}>{badge.label}</span>}
                   </button>
-                  </>
                 )}
 
                 {!isRenaming && (
