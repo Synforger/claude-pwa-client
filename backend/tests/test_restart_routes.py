@@ -71,7 +71,7 @@ def test_restartable_answers_what_the_menu_shows(monkeypatch, kicked, client):
 
 def test_restartable_names_when_this_backend_started(monkeypatch, kicked, client):
     # 画面はこの値が変わったのを見て「新しい backend が応答した」 と判断する。
-    from backend import state
+    from backend._common import state
     monkeypatch.setattr(state, "backend_start_time", 1234.5)
     assert client.get("/backend/restartable").json()["started_at"] == 1234.5
 

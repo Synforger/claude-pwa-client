@@ -25,7 +25,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-from backend.config import (
+from backend._common.config import (
     CLAUDE_PROJECTS_DIRS as _CLAUDE_PROJECTS_DIRS,
     cwd_to_project_dir,
     cwd_to_project_dirname,
@@ -36,7 +36,7 @@ from backend.config import (
 _CLAUDE_PROJECTS = _CLAUDE_PROJECTS_DIRS[0]
 # binding を JSON で persist する file。 backend 再起動跨ぎで confirmed binding を
 # 保持する。 file が破損 / 読めなければ空起動。
-from backend.paths import JSONL_BINDINGS_PATH as _PERSIST_PATH  # noqa: E402
+from backend._common.paths import JSONL_BINDINGS_PATH as _PERSIST_PATH  # noqa: E402
 
 
 @dataclass

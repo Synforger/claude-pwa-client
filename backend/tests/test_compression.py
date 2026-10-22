@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from starlette.testclient import TestClient
 
-from backend.core.compression import MIN_SIZE, install
+from backend._internal.compression import MIN_SIZE, install
 
 BIG = {"events": [{"i": i, "text": "あ" * 50} for i in range(200)]}
 

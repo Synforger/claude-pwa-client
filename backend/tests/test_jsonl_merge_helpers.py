@@ -5,7 +5,7 @@ hook と JSONL tail が同じ helper を呼んで merge 収束することを保
 """
 import pytest
 
-import backend.state as state_mod
+import backend._common.state as state_mod
 from backend.jsonl.session_status import apply_immediate_stop
 
 

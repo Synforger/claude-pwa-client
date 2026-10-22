@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 
-import backend.config as config_mod
+import backend._common.config as config_mod
 from backend._generated import http_endpoints as http
 from backend.routes.extensions import list_extensions
 
@@ -89,7 +89,7 @@ def test_runtime_check_warns_each_dropped_entry(tmp_path, monkeypatch, caplog):
         "agents": {"a": {}},
         "extensions": [{"id": "Bad"}, {"id": "good"}, {"id": "good"}],
     })
-    with caplog.at_level(logging.WARNING, logger="backend.config"):
+    with caplog.at_level(logging.WARNING, logger="backend._common.config"):
         config_mod.validate_runtime_paths()
     messages = [r.getMessage() for r in caplog.records]
     assert any("config.extensions[0] dropped: id must match" in m for m in messages)

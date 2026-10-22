@@ -51,11 +51,11 @@ def exercise() -> dict[str, str]:
     from fastapi.testclient import TestClient
 
     import backend.main
-    import backend.paths as paths
-    from backend import state
+    import backend._common.paths as paths
+    from backend._common import state
     from backend.cli import device, gen_vapid
-    from backend.config import RATE_LIMITS_LOG_PATH, UPLOADS_TMP, documents_settings, get_config
-    from backend.core import push
+    from backend._common.config import RATE_LIMITS_LOG_PATH, UPLOADS_TMP, documents_settings, get_config
+    from backend.push import push
     from backend.documents.store import get_store
     from backend.jsonl import history
     from backend.routes import files

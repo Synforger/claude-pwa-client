@@ -34,7 +34,7 @@ LAUNCH_DISCOVER_SEC = 60.0
 
 
 def _uploads_dir() -> Path:
-    from backend.config import UPLOADS_TMP  # noqa: PLC0415
+    from backend._common.config import UPLOADS_TMP  # noqa: PLC0415
     return UPLOADS_TMP
 
 

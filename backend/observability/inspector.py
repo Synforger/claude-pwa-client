@@ -55,9 +55,9 @@ def snapshot() -> dict[str, Any]:
     """
     out: dict[str, Any] = {}
 
-    # backend.state — sessions / streams / status / overview など in-memory state の集合点
+    # backend._common.state — sessions / streams / status / overview など in-memory state の集合点
     try:
-        import backend.state as bs
+        import backend._common.state as bs
 
         out["sessions_meta"] = _summarize_collection(_safe_attr(bs, "sessions_meta", {}))
         out["stream_states"] = _summarize_collection(_safe_attr(bs, "stream_states", {}))

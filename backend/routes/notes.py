@@ -11,10 +11,10 @@ import logging
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 
-from backend.config import FILE_SIZE_LIMIT
-from backend.errors import raise_error
+from backend._common.config import FILE_SIZE_LIMIT
+from backend._common.errors import raise_error
 from backend.routes.sessions import require_session
-from backend.state import atomic_write_text
+from backend._common.state import atomic_write_text
 from backend.terminal.tab_memo import memo_path
 
 logger = logging.getLogger(__name__)

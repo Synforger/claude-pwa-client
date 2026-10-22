@@ -13,7 +13,7 @@ from fastapi import FastAPI, WebSocket
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from backend.core.static_files import CacheControlledStaticFiles
+from backend._internal.static_files import CacheControlledStaticFiles
 
 
 @pytest.fixture

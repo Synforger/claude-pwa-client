@@ -26,7 +26,7 @@
              (= `POST /inference`) を持つ engine の URL と、 聞き取りの手がかりにする語 (= 省略可) と、 言い終えたかを
              判定する Smart Turn の model の file (= 省略可。 画面がこの口から受け取って、 画面の中で判定する)
     conversation: 話して送る会話の間の取り方 (= 省略可。 項目は CONVERSATION_DEFAULTS)
-    compressor: 文ごとの音に掛けるコンプレッサー (= 省略可。 書かなければ掛けない。 項目は backend/core/compressor.py)
+    compressor: 文ごとの音に掛けるコンプレッサー (= 省略可。 書かなければ掛けない。 項目は backend/speech/compressor.py)
     tuning:  声の調整の file (= 省略可)。 TUNABLE の項目を JSON で書き、 ここの値の上に重ねる。 毎回読むので、
              書き換えれば次の文から効く (= agent が自分の声を調整する置き場。 engine の URL はここに置かない)
 
@@ -46,7 +46,7 @@ file を配るだけ。 会話を開いていられる画面は 1 つのタブ�
     5. POST   /sessions/{sid}/voice/conversation   この画面で会話を開く (= 前の画面から持ち主を移す)
        DELETE /sessions/{sid}/voice/conversation   会話を閉じる
 
-何を声にするか (= コードや path を飛ばし、 文に切り、 印を剥がす) は `backend/core/speech.py` が持つ。
+何を声にするか (= コードや path を飛ばし、 文に切り、 印を剥がす) は `backend/speech/speech.py` が持つ。
 ここが持つのは、 どのタブが声を持つか・engine へ渡す値・失敗の返し方。
 """
 from __future__ import annotations
@@ -66,11 +66,11 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, Response
 
-import backend.config as _config
-from backend.core.compressor import CompressorError, compress, compressor_settings
-from backend.core.speech import MARK_NAME, MUTE_MARK, mark_values, speakable, utterances
-from backend.errors import raise_error
-from backend.state import sessions_meta
+import backend._common.config as _config
+from backend.speech.compressor import CompressorError, compress, compressor_settings
+from backend.speech.speech import MARK_NAME, MUTE_MARK, mark_values, speakable, utterances
+from backend._common.errors import raise_error
+from backend._common.state import sessions_meta
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

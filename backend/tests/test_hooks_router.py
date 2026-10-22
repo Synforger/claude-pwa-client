@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 import backend.routes.hooks as hooks_router
-import backend.core.jsonl_watcher as jsonl_watcher
+import backend.jsonl.jsonl_watcher as jsonl_watcher
 
 
 @pytest.fixture
@@ -366,7 +366,7 @@ def test_handler_can_be_registered_at_runtime(monkeypatch):
 
 def test_jsonl_watcher_is_module_level_attribute():
     """hooks_router.jsonl_watcher は module-level import で常に attribute として在る。"""
-    import backend.core.jsonl_watcher as wm
+    import backend.jsonl.jsonl_watcher as wm
     assert hooks_router.jsonl_watcher is wm
 
 

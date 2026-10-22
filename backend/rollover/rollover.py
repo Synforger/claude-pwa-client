@@ -32,12 +32,12 @@ import logging
 import time
 from pathlib import Path
 
-import backend.core.jsonl_watcher as jsonl_watcher
-from backend.core.jsonl_predicates import AGENT_MESSAGE_OPENINGS, ROLLOVER_OPENING, unwrap_pasted
+import backend.jsonl.jsonl_watcher as jsonl_watcher
+from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENINGS, ROLLOVER_OPENING, unwrap_pasted
 from backend.routes.agent_messages import entered_text, lines_from_the_end
 from backend.routes.overview import context_pct_of, is_busy
 from backend.routes.rollover import TAG, close_envelope
-from backend.state import sessions_meta
+from backend._common.state import sessions_meta
 from backend.terminal.pty_discover import claude_in_pane
 from backend.terminal.routes import pty_send
 from backend.terminal.session_resolver import resolve_agent_cfg

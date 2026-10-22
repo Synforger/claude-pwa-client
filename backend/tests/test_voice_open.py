@@ -14,11 +14,11 @@ from fastapi.testclient import TestClient
 
 import backend.routes.agent_messages as agent_messages
 import backend.routes.rollover as rollover_routes
-import backend.rollover as rollover
+import backend.rollover.rollover as rollover
 import backend.routes.unified_stream as us
 import backend.terminal.routes as routes
-from backend import state
-from backend.core.speech import VOICE_OPEN_CONTEXT
+from backend._common import state
+from backend.speech.speech import VOICE_OPEN_CONTEXT
 from backend.routes import hooks as hooks_router
 from backend.tests.test_hooks_router import fake_agents, fake_bindings  # noqa: F401 (= hook の用意を使い回す)
 

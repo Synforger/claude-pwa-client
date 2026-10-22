@@ -3,7 +3,7 @@
 // A hook can make Claude say an English reply again in Japanese, but only after the reply was written
 // to the record, and the screen showed every text block as soon as it was written. So the English reply
 // was read in full before the Japanese one arrived, and stayed on screen after it.
-// The backend now turns such prose into a held_text block (= backend/core/prose_language.py), and the
+// The backend now turns such prose into a held_text block (= backend/_common/prose_language.py), and the
 // screen folds it closed, both for the history and for lines that arrive while the tab is open.
 
 import { test, expect } from '@playwright/test'

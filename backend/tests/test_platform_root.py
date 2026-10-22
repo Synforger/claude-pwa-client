@@ -19,8 +19,8 @@ TOOL = "claude-pwa-client"
 # paths と config が決めた置き場を JSON で出す
 SHOW = """
 import json
-import backend.paths as paths
-from backend.config import RATE_LIMITS_LOG_PATH, UPLOADS_TMP, documents_settings
+import backend._common.paths as paths
+from backend._common.config import RATE_LIMITS_LOG_PATH, UPLOADS_TMP, documents_settings
 print(json.dumps({
     "data": str(paths.DATA_DIR), "logs": str(paths.LOGS_DIR), "secrets": str(paths.SECRETS_DIR),
     "config": str(paths.CONFIG_PATH), "favorites": str(paths.FAVORITES_PATH), "legacy_notes": str(paths.LEGACY_NOTES_DIR),
@@ -34,9 +34,9 @@ print(json.dumps({
 def sandbox(tmp_path):
     """paths.py と config.py だけを写した作り物の repo と、 作り物の HOME。"""
     repo, home = tmp_path / "repo", tmp_path / "home"
-    (repo / "backend").mkdir(parents=True)
+    (repo / "backend" / "_common").mkdir(parents=True)
     home.mkdir()
-    for name in ("__init__.py", "paths.py", "config.py"):
+    for name in ("__init__.py", "_common/__init__.py", "_common/paths.py", "_common/config.py"):
         shutil.copy(REPO_ROOT / "backend" / name, repo / "backend" / name)
     return repo.resolve(), home.resolve()
 
@@ -205,7 +205,7 @@ def test_setup_puts_the_config_example_where_the_root_says(tmp_path):
     first = subprocess.run(run, cwd=REPO_ROOT, capture_output=True, text=True, timeout=60, env=env)
     config = root / "config" / TOOL / "config.json"
     assert first.returncode == 0 and "created" in first.stdout, first.stderr
-    assert config.read_text() == (REPO_ROOT / "backend" / "config.example.json").read_text()
+    assert config.read_text() == (REPO_ROOT / "configs" / "config.example.json").read_text()
     config.write_text("{}")
     second = subprocess.run(run, cwd=REPO_ROOT, capture_output=True, text=True, timeout=60, env=env)
     assert "skip" in second.stdout and config.read_text() == "{}"

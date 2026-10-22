@@ -49,8 +49,8 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from backend.config import CLAUDE_PATH
-from backend.paths import FAVORITES_PATH, PLATFORM_ROOT
+from backend._common.config import CLAUDE_PATH
+from backend._common.paths import FAVORITES_PATH, PLATFORM_ROOT
 from backend.terminal import input_ready
 from backend.terminal.tab_memo import memo_path
 from backend.terminal.tab_environment import read_environment, tab_environment
@@ -486,7 +486,7 @@ async def _autoresume_watchdog(
     """
     try:
         from backend.terminal.pty_discover import tmux_pane_pids, find_claude_descendant
-        import backend.core.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
+        import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
         await asyncio.sleep(initial_delay)
         loop = asyncio.get_running_loop()
         deadline = loop.time() + max_wait
@@ -1035,7 +1035,7 @@ def jsonl_path_for_session(session_id: str) -> Path | None:
     `_register_claude_when_ready` 経由で binding を登録、 watchdog が新規 JSONL の
     birth event を見て紐付ける。 紐付け未完なら None。
     """
-    import backend.core.jsonl_watcher as jsonl_watcher
+    import backend.jsonl.jsonl_watcher as jsonl_watcher
     return jsonl_watcher.get_jsonl_for(session_id)
 
 

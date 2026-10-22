@@ -16,9 +16,9 @@ from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException, Query
 
-import backend.paths as paths
-from backend.config import HOME
-from backend.state import atomic_write_text
+import backend._common.paths as paths
+from backend._common.config import HOME
+from backend._common.state import atomic_write_text
 
 router = APIRouter()
 

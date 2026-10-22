@@ -8,8 +8,8 @@ import asyncio
 import json
 
 import backend.jsonl.routes as jr
-from backend.core.jsonl_predicates import AGENT_MESSAGE_OPENINGS
-import backend.state as state_mod
+from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENINGS
+import backend._common.state as state_mod
 
 
 def _run(coro):

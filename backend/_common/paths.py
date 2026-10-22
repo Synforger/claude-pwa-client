@@ -65,7 +65,7 @@ import os
 import stat
 from pathlib import Path
 
-BACKEND_DIR = Path(__file__).resolve().parent
+BACKEND_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_DIR.parent
 
 TOOL_NAME = "claude-pwa-client"

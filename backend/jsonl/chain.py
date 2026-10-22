@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from backend.core.jsonl_tail import initial_offset, read_complete_lines_with_pos
+from backend.jsonl.jsonl_tail import initial_offset, read_complete_lines_with_pos
 from backend.jsonl import history
 
 

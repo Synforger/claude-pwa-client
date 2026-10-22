@@ -12,10 +12,10 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-import backend.config as config_mod
-from backend.core.jsonl_predicates import AGENT_MESSAGE_OPENING, is_agent_message
+import backend._common.config as config_mod
+from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENING, is_agent_message
 from backend.routes import child_sessions as cs
-from backend.state import SessionDef
+from backend._common.state import SessionDef
 
 AGENTS = {"agent_a": {"cwd": "/tmp", "display_name": "A", "child_agent": "agent_sub"},
           "agent_b": {"cwd": "/tmp", "display_name": "B", "child_agent": "agent_gone"},

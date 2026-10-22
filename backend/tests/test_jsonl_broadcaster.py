@@ -12,7 +12,7 @@ default loop を閉じて後続 test (= test_fork.py の `asyncio.get_event_loop
 """
 import asyncio
 
-from backend.state import (
+from backend._common.state import (
     ALL_SUBSCRIBER_KEY,
     JsonlEventBroadcaster,
     jsonl_event_broadcaster,

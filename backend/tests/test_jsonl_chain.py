@@ -10,7 +10,7 @@ import json
 
 import backend.jsonl.routes as jr
 import backend.routes.unified_stream as us
-import backend.state as state_mod
+import backend._common.state as state_mod
 from backend.jsonl import chain, history
 
 SID = "ses_chain"

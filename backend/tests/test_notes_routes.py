@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from backend._generated import http_endpoints as http
-from backend.config import FILE_SIZE_LIMIT
+from backend._common.config import FILE_SIZE_LIMIT
 from backend.terminal import tab_tier
 from backend.terminal.runner import tmux_session_env_args
 from backend.terminal.tab_memo import memo_file, memo_path

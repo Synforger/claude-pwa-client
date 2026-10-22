@@ -15,11 +15,11 @@ from urllib.parse import quote
 from fastapi import APIRouter, Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
-from backend.config import FILE_SIZE_LIMIT, HOME, page_origin
+from backend._common.config import FILE_SIZE_LIMIT, HOME, page_origin
 from backend.documents import convert, markdown, pages, strings
 from backend.documents.store import get_store as get_document_store
-from backend.errors import raise_error
-from backend.paths import PAGE_STORE_DIR
+from backend._common.errors import raise_error
+from backend._common.paths import PAGE_STORE_DIR
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

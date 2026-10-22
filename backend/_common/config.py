@@ -2,15 +2,15 @@
 
 config.json の I/O は **module import 時に走らせない** 設計に統一した
 (2026-06-21、 finding backend-F-36)。 旧版は top-level で `open(CONFIG_PATH)`
-を呼んでいたため、 pytest 経由で `backend.config` が import されるだけで
+を呼んでいたため、 pytest 経由で `backend._common.config` が import されるだけで
 本物の `backend/config.json` が必要になり、 CI / 個人 worktree / sub-agent
 環境では collection error で全 test が落ちていた。
 
 - `get_config()` が唯一の読み手。 `@lru_cache` で 1 process 1 回だけ I/O。
 - 旧来の module-level 定数 (`AGENTS` / `CORS_ALLOW_ORIGINS` / ...) は
   PEP 562 の `__getattr__` で **遅延で配信**する。 既存 consumer は
-  `from backend.config import AGENTS` の書き方を変えなくて良い。
-  test 側は `monkeypatch.setattr(backend.config, "CONFIG_PATH", ...)` +
+  `from backend._common.config import AGENTS` の書き方を変えなくて良い。
+  test 側は `monkeypatch.setattr(backend._common.config, "CONFIG_PATH", ...)` +
   `get_config.cache_clear()` で挙動を差し替えられる (= 旧設計では import
   時点で値が固まっていて差し替え不能だった)。
 - 起動時 sanity check は `validate_runtime_paths()` に集約し
@@ -25,7 +25,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from backend.paths import CONFIG_PATH, DOCUMENT_CACHE_DIR, RATE_LIMITS_LOG_DEFAULT, UPLOADS_TMP_DIR
+from backend._common.paths import CONFIG_PATH, DOCUMENT_CACHE_DIR, RATE_LIMITS_LOG_DEFAULT, UPLOADS_TMP_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -322,7 +322,7 @@ CHILD_SESSIONS_MAX_DEFAULT = 5
 
 
 # --- 旧 module-level 定数の遅延配信 (PEP 562) ---
-# 既存 consumer (= `from backend.config import AGENTS` 等) を変えないために
+# 既存 consumer (= `from backend._common.config import AGENTS` 等) を変えないために
 # `__getattr__` で必要時に config を引いて返す。 lookup ごとに get_config() を
 # 呼ぶが、 内側で lru_cache されているので I/O は 1 回。
 def __getattr__(name: str) -> Any:  # noqa: PLR0911
@@ -360,4 +360,4 @@ def __getattr__(name: str) -> Any:  # noqa: PLR0911
     if name == "VOICE_CALL_GAIN_DB":
         gain = cfg.get("voice_call_gain_db", 0)
         return float(gain) if isinstance(gain, (int, float)) and not isinstance(gain, bool) else 0.0
-    raise AttributeError(f"module 'backend.config' has no attribute {name!r}")
+    raise AttributeError(f"module 'backend._common.config' has no attribute {name!r}")

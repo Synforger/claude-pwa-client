@@ -1,7 +1,7 @@
 """state.py の pure 関数 + SessionState 集約 + NotifyMode Enum の unit test。"""
 import asyncio
 
-from backend import state
+from backend._common import state
 
 
 def test_default_title_uses_display_name(monkeypatch):
@@ -214,7 +214,7 @@ def test_get_or_create_lock_for_unknown_sid_returns_lock():
 
 def test_session_language_reads_the_settings_of_the_tab_account(monkeypatch, tmp_path):
     """タブの口座の設定の場所 (= projects の 1 つ上) から `language` を読む。"""
-    from backend.core import prose_language
+    from backend._common import prose_language
     monkeypatch.setattr(prose_language, "_cache", {})
     (tmp_path / "work" / "projects").mkdir(parents=True)
     (tmp_path / "work" / "settings.json").write_text('{"language": "日本語"}', encoding="utf-8")

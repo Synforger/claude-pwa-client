@@ -5,7 +5,7 @@ import logging
 import socket
 import urllib.request
 
-import backend.config as config_mod
+import backend._common.config as config_mod
 
 
 def _free_port() -> int:

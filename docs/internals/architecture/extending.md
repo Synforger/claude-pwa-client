@@ -143,7 +143,7 @@ contract test (= `frontend/src/features/__contracts__/no-lazy-component-static-i
      }
    }
    ```
-2. backend 再起動 (= `config.py` は遅延 lookup なので再起動後の次タブから反映)
+2. backend 再起動 (= `backend/_common/config.py` は遅延 lookup なので再起動後の次タブから反映)
 3. frontend では新タブ作成 UI (= `frontend/src/features/session-drawer/useSessions.js` 経由) が
    `/accounts` endpoint (`backend/routes/accounts.py`) から自動で選択肢を引く。 会話一覧の
    ⋯ メニューに出る「別アカウントで続ける」 も同じ一覧を使う
@@ -178,13 +178,13 @@ claude を止めて同じタブを立て直す。 この 2 つは必ず揃える
 ## (e) 新 Web Push チャネル / 通知種別を足す
 
 `AskUserQuestion` / `Stop` 以外の新しい起点で通知を出したい場合の経路。 既存 push
-基盤 (`backend/core/push.py` + `frontend/public/sw.js`) を拡張する。
+基盤 (`backend/push/push.py` + `frontend/public/sw.js`) を拡張する。
 
 ### 手順
 
 1. **`backend/jsonl/notifications.py`** (= 停止要因の検出 / Web Push 発火を担当) に
    新しい trigger 判定を追加。 既存の `maybe_push_blockers` パターンに揃える
-2. **`backend/core/push.py::broadcast_push`** を呼ぶ (= subscriber 一括配信 + 未読
+2. **`backend/push/push.py::broadcast_push`** を呼ぶ (= subscriber 一括配信 + 未読
    カウンタ更新 + SSE listener 通知)。 必要なら新しい `kind` field を payload に追加
 3. **`frontend/public/sw.js`** の `push` event handler に新 `kind` の分岐を追加。
    visible タブ抑制は `clients.matchAll()` で判定する W3C 標準パターンを踏襲
@@ -206,9 +206,9 @@ claude を止めて同じタブを立て直す。 この 2 つは必ず揃える
 - **shape 真値 → 実装** の順を崩さない (= b の手順を参照)
 - backend / frontend / docs の 3 点更新を 1 PR で完結させる (= 中間 commit で
   片側だけ着地すると runtime drift が出る)
-- 新規 helper を生やす前に **`backend/state.py` / `frontend/src/utils/` / `hooks/`
+- 新規 helper を生やす前に **`backend/_common/state.py` / `frontend/src/utils/` / `hooks/`
   に既存物がないか確認** (= `_registry` / `messageRegistry` / `applyOverviewSnapshot`
   等、 拡張点は既に分離済の場合が多い)
-- 中立基盤 (= `backend/paths.py` / `backend/config.py`) に新 path / 新 config を
+- 中立基盤 (= `backend/_common/paths.py` / `backend/_common/config.py`) に新 path / 新 config を
   追加する時は 1 箇所宣言を貫く (= 各 module で `Path(__file__).parent[.parent]` を
   書かない)

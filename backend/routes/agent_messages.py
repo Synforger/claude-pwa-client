@@ -46,7 +46,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Body, Form, Request
 
-from backend.core.jsonl_predicates import (
+from backend.jsonl.jsonl_predicates import (
     AGENT_MESSAGE_OPENING as OPENING,
     agent_envelope as _envelope,
     AGENT_MESSAGE_REMOTE_OPENING as REMOTE_OPENING,
@@ -57,8 +57,8 @@ from backend.core.jsonl_predicates import (
     queued_prompt_text,
     unwrap_pasted,
 )
-from backend.errors import raise_error
-from backend.state import sessions_meta
+from backend._common.errors import raise_error
+from backend._common.state import sessions_meta
 from backend.terminal.pty_discover import claude_in_pane
 from backend.terminal.routes import pty_send
 from backend.terminal.runner import jsonl_path_for_session
@@ -170,7 +170,7 @@ def last_operator_text(record: Path | None) -> str | None:
 
 
 def _write_private(text: str) -> Path:
-    from backend.config import UPLOADS_TMP  # noqa: PLC0415
+    from backend._common.config import UPLOADS_TMP  # noqa: PLC0415
     UPLOADS_TMP.mkdir(parents=True, exist_ok=True)
     path = UPLOADS_TMP / f"agent-message-{uuid.uuid4().hex}.txt"
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -213,7 +213,7 @@ async def check(receiver_id: str, text: str) -> None:
     コマンドの語の中の `{file}` は本文を書いた file、 `{session}` は宛先の claude の session id
     (= その会話の記録 file の名前) に置き換わる。
     """
-    from backend.config import AGENT_MESSAGE_CHECK  # noqa: PLC0415
+    from backend._common.config import AGENT_MESSAGE_CHECK  # noqa: PLC0415
     if not AGENT_MESSAGE_CHECK:
         return
     record = jsonl_path_for_session(receiver_id)
@@ -225,7 +225,7 @@ async def check(receiver_id: str, text: str) -> None:
 
 async def judge(session: str, text: str, receiver: str) -> None:
     """検査コマンドを、 宛先を `session` として走らせる (= 設定が在る前提)。 通れば戻る。"""
-    from backend.config import AGENT_MESSAGE_CHECK  # noqa: PLC0415
+    from backend._common.config import AGENT_MESSAGE_CHECK  # noqa: PLC0415
     status, reason, hits = await _run_check(AGENT_MESSAGE_CHECK, text, {"session": session})
     if status is None:
         raise_error(503, "agent_message_check_failed", f"連絡の検査を実行できませんでした: {reason}")
@@ -240,7 +240,7 @@ async def sender_title(sender_id: str, receiver_id: str) -> str:
     """封筒に出す送り主の名前。 `agent_message_sender_check` が通した時だけタブ名、 通さない時と実行
     できない時は HIDDEN_SENDER。 設定が無ければタブ名。 語の `{session}` は宛先、 `{sender_session}`
     は送り主の claude の session id。"""
-    from backend.config import AGENT_MESSAGE_SENDER_CHECK  # noqa: PLC0415
+    from backend._common.config import AGENT_MESSAGE_SENDER_CHECK  # noqa: PLC0415
     title = sessions_meta[sender_id].title
     if not AGENT_MESSAGE_SENDER_CHECK:
         return title
@@ -259,7 +259,7 @@ async def sender_title(sender_id: str, receiver_id: str) -> str:
 async def operator_said_for(sender_id: str, receiver_id: str) -> str | None:
     """封筒に入れる人の発話。 無い時と、 `agent_message_operator_check` が通さなかった時は None
     (= 連絡は本文だけで届ける)。 語の `{sender_session}` は送り主の claude の session id。"""
-    from backend.config import AGENT_MESSAGE_OPERATOR_CHECK  # noqa: PLC0415
+    from backend._common.config import AGENT_MESSAGE_OPERATOR_CHECK  # noqa: PLC0415
     sender_record = jsonl_path_for_session(sender_id)
     said = last_operator_text(sender_record)
     if said is None or not AGENT_MESSAGE_OPERATOR_CHECK:
@@ -280,7 +280,7 @@ async def operator_said_for(sender_id: str, receiver_id: str) -> str | None:
 
 def split_peer(to: str) -> tuple[str | None, str]:
     """宛先が `<相手の名前>:<タブ>` で、 その名前の相手が設定に在れば (名前, タブ)。 でなければ (None, to)。"""
-    from backend.config import AGENT_MESSAGE_PEERS  # noqa: PLC0415
+    from backend._common.config import AGENT_MESSAGE_PEERS  # noqa: PLC0415
     name, colon, tab = to.strip().partition(":")
     if colon and tab.strip() and name in AGENT_MESSAGE_PEERS:
         return name, tab.strip()
@@ -289,14 +289,14 @@ def split_peer(to: str) -> tuple[str | None, str]:
 
 def allowed_for_peer(peer: dict, tab_id: str) -> bool:
     """そのタブが、 この相手と連絡してよいか (= 相手の設定の accounts。 書いていなければ全部のタブ)。"""
-    from backend.config import default_account_id  # noqa: PLC0415
+    from backend._common.config import default_account_id  # noqa: PLC0415
     accounts = peer.get("accounts")
     return accounts is None or (sessions_meta[tab_id].account_id or default_account_id()) in accounts
 
 
 def peer_of_caller(request: Request) -> tuple[str, dict] | None:
     """呼び出しの接続元が、 設定された相手の物ならその (名前, 設定)。"""
-    from backend.config import AGENT_MESSAGE_PEERS  # noqa: PLC0415
+    from backend._common.config import AGENT_MESSAGE_PEERS  # noqa: PLC0415
     host = request.client.host if request.client else None
     for name, peer in AGENT_MESSAGE_PEERS.items():
         if host is not None and host == peer["address"]:
@@ -341,7 +341,7 @@ async def send_to_peer(peer_name: str, tab: str, sender: str, text: str) -> dict
     検査には、 宛先の session id の代わりに `<相手の名前>:<タブ>` を渡す (= この機械のどの会話でもない
     名前)。 人の発話は付けない (= 頼まれても。 機械を跨ぐと、 受け取る側で本物か確かめられない)。
     """
-    from backend.config import AGENT_MESSAGE_CHECK, AGENT_MESSAGE_PEERS  # noqa: PLC0415
+    from backend._common.config import AGENT_MESSAGE_CHECK, AGENT_MESSAGE_PEERS  # noqa: PLC0415
     peer = AGENT_MESSAGE_PEERS[peer_name]
     name = f"{peer_name}:{tab}"
     if not allowed_for_peer(peer, sender):
@@ -462,7 +462,7 @@ async def get_peers(request: Request) -> dict:
 
     繋がらない相手は `tabs` が null で、 `error` に理由が入る。
     """
-    from backend.config import AGENT_MESSAGE_PEERS  # noqa: PLC0415
+    from backend._common.config import AGENT_MESSAGE_PEERS  # noqa: PLC0415
     client_host = request.client.host if request.client else None
     if client_host not in LOCAL_CLIENTS:
         raise_error(403, "agent_message_local_only", "この口は同じ機械の中からだけ使えます")

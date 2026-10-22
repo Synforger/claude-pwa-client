@@ -108,7 +108,7 @@ def test_update_busy_interrupt_marker_clears_busy(isolated_state):
     """[Request interrupted by user] marker で busy=False に落ちる。 旧 update_busy は
     is_user_prompt 経由で INTERRUPT を弾いていたため busy 据置 (= 結果 OK だが意図が
     曖昧)。 classify_jsonl_line 経由で明示的に INTERRUPT 分岐に流すことを担保する。"""
-    import backend.state as state_mod
+    import backend._common.state as state_mod
     from backend.jsonl.session_status import update_busy
     state = isolated_state
     sid = "ses_int"
@@ -122,7 +122,7 @@ def test_update_busy_interrupt_marker_clears_busy(isolated_state):
 def test_update_busy_queued_send_keeps_busy_on_end(isolated_state):
     """queue に未処理送信が残る間は turn 完了 (END) を見ても busy=True を維持する
     (= 「1 個目の turn は終わったが queue の 2 個目をこれから処理する」 無言時間を推論中で繋ぐ)。"""
-    import backend.state as state_mod
+    import backend._common.state as state_mod
     from backend.jsonl.session_status import update_busy
     state = isolated_state
     sid = "ses_q1"
@@ -135,7 +135,7 @@ def test_update_busy_queued_send_keeps_busy_on_end(isolated_state):
 def test_update_busy_start_consumes_queued_send(isolated_state):
     """queue message が JSONL に素ユーザ発話 (START) として現れたら queued_sends を 1 減らす。
     最後の 1 個を消化した後の END では busy=False に戻る。"""
-    import backend.state as state_mod
+    import backend._common.state as state_mod
     from backend.jsonl.session_status import update_busy
     state = isolated_state
     sid = "ses_q2"
@@ -149,7 +149,7 @@ def test_update_busy_start_consumes_queued_send(isolated_state):
 
 def test_update_busy_interrupt_clears_queue(isolated_state):
     """中断で queue の後続送信も破棄され busy=False に落ちる (= 張り付き防止)。"""
-    import backend.state as state_mod
+    import backend._common.state as state_mod
     from backend.jsonl.session_status import update_busy
     state = isolated_state
     sid = "ses_q3"
@@ -161,7 +161,7 @@ def test_update_busy_interrupt_clears_queue(isolated_state):
 
 def test_update_busy_user_stopped_clears_queue(isolated_state):
     """Stop 押下 (user_stopped) は queue が残っていても busy=False を強制 + queue クリア。"""
-    import backend.state as state_mod
+    import backend._common.state as state_mod
     from backend.jsonl.session_status import update_busy
     state = isolated_state
     sid = "ses_q4"
@@ -178,7 +178,7 @@ def test_update_busy_user_stopped_clears_queue(isolated_state):
 def test_note_queue_skips_slash_command(isolated_state):
     """slash command (= is_slash) は turn 中送信でも queue に数えない (= START で減らず
     busy 永久張り付きになる主因を断つ)。 素プロンプトは従来通り queue に積む。"""
-    import backend.state as state_mod
+    import backend._common.state as state_mod
     from backend.terminal.routes import _note_queue_on_unconfirmed
     state = isolated_state
     sid = "ses_slash"
@@ -193,7 +193,7 @@ def test_note_queue_skips_slash_command(isolated_state):
 
 def test_note_queue_skips_when_not_busy_or_confirmed(isolated_state):
     """was_busy=False (= picker 等) / confirmed:True は queue でないので数えない。"""
-    import backend.state as state_mod
+    import backend._common.state as state_mod
     from backend.terminal.routes import _note_queue_on_unconfirmed
     state = isolated_state
     sid = "ses_nq"
@@ -208,7 +208,7 @@ def test_note_queue_skips_when_not_busy_or_confirmed(isolated_state):
 def test_task_id_backfill_and_update_flow(isolated_state):
     """TaskCreate (仮id) → tool_result ("Task #10 created") で実 id へ backfill →
     TaskUpdate(taskId=10) が一致して status 変化が反映される (= 実地試験の再現)。"""
-    import backend.state as state_mod
+    import backend._common.state as state_mod
     from backend.jsonl.session_status import mutate_agent_status
     state = isolated_state
     sid = "ses_task_id"
@@ -238,7 +238,7 @@ def test_task_id_backfill_and_update_flow(isolated_state):
 
 def test_task_id_backfill_ignores_unknown_tool_result(isolated_state):
     """TaskCreate と無関係な tool_result では何も起きない (= 誤 backfill しない)。"""
-    import backend.state as state_mod
+    import backend._common.state as state_mod
     from backend.jsonl.session_status import mutate_agent_status
     state = isolated_state
     sid = "ses_task_nf"

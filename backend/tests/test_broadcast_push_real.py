@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import asyncio
 
-import backend.core.push as push_mod
-import backend.state as state_mod
+import backend.push.push as push_mod
+import backend._common.state as state_mod
 
 
 def _run(coro):

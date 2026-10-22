@@ -203,7 +203,7 @@ def test_is_user_prompt_false_for_tool_result_and_meta():
 
 def test_update_busy_transitions(isolated_state):
     state = isolated_state
-    import backend.state as state_mod
+    import backend._common.state as state_mod
     sid = "ses_busy"
     state.stream_states[sid] = state_mod.StreamState(agent_id="a")
     # broadcaster に 1 接続ぶん購読して notify を検出する (= 旧 単一 Event の代替)
@@ -230,7 +230,7 @@ def test_update_busy_transitions(isolated_state):
 def test_overview_broadcaster_notifies_all_subscribers():
     # 複数接続 (= 複数デバイス) を模した複数 Event が 1 回の notify で全部 set される。
     # 旧 単一 Event 共有では 1 接続の clear() が他を奪う競合があった (= その回帰防止)。
-    import backend.state as state_mod
+    import backend._common.state as state_mod
     b = state_mod.OverviewBroadcaster()
     a = b.subscribe()
     c = b.subscribe()
@@ -291,7 +291,7 @@ def test_busy_after_idle_terminal_is_false(tmp_path):
 
 def test_update_busy_refusal_completes(isolated_state):
     state = isolated_state
-    import backend.state as state_mod
+    import backend._common.state as state_mod
     sid = "ses_ref"
     state.stream_states[sid] = state_mod.StreamState(agent_id="a", busy=True)
     jr._update_busy(sid, _asst("refusal"))

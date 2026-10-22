@@ -22,7 +22,7 @@ PAGE_PORT = 8798
 
 
 def with_config(monkeypatch, cfg):
-    import backend.config as config_mod  # noqa: PLC0415
+    import backend._common.config as config_mod  # noqa: PLC0415
     path = Path(tempfile.mkdtemp(prefix="cpc-documents-")) / "config.json"
     path.write_text(json.dumps(cfg))
     monkeypatch.setattr(config_mod, "CONFIG_PATH", path)
@@ -272,8 +272,8 @@ def test_file_open_sends_a_document_in_the_folder_to_the_pages_port(pages_app, t
 # --- 設定 ---
 
 def test_documents_settings_default_to_the_document_cache_dir_and_report_mistakes(monkeypatch):
-    import backend.config as config_mod  # noqa: PLC0415
-    from backend.paths import DOCUMENT_CACHE_DIR  # noqa: PLC0415
+    import backend._common.config as config_mod  # noqa: PLC0415
+    from backend._common.paths import DOCUMENT_CACHE_DIR  # noqa: PLC0415
     with_config(monkeypatch, {})
     assert config_mod.documents_settings() == (DOCUMENT_CACHE_DIR, config_mod.DOCUMENTS_CACHE_MAX_MB_DEFAULT * 1024 * 1024)
     with_config(monkeypatch, {"documents": {"cache_dir": "~/kept", "cache_max_mb": 0.5}})

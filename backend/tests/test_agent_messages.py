@@ -13,9 +13,9 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-import backend.config as config_mod
+import backend._common.config as config_mod
 from backend.routes import agent_messages as am
-from backend.state import SessionDef
+from backend._common.state import SessionDef
 
 
 @pytest.fixture
@@ -152,7 +152,7 @@ def test_only_a_caller_on_this_machine_may_send(tabs, typed):
 
 def test_the_opening_line_is_the_same_everywhere_it_is_written():
     """1 行目は、 backend が付け、 画面が読み、 docs が外の道具に教える。 3 つが同じ文字列であること。"""
-    from backend.core.jsonl_predicates import AGENT_MESSAGE_OPENINGS
+    from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENINGS
 
     root = Path(__file__).resolve().parents[2]
     for opening in AGENT_MESSAGE_OPENINGS:

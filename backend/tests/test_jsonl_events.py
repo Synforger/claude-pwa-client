@@ -3,7 +3,7 @@
 claude の JSONL 1 行が processStreamEvent.js の期待する event 形式に正しく
 変換されることを、 行種別ごとに確認する。
 """
-from backend.core.jsonl_predicates import AGENT_MESSAGE_OPENINGS
+from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENINGS
 from backend.jsonl.events import jsonl_line_to_events, parse_task_notification
 
 
@@ -439,7 +439,7 @@ def _peer(body, *, queued=False, name="worker-2"):
 
 def test_a_message_from_another_claude_session_is_shown_like_a_relayed_one():
     # 手が空いている時 (= 印の付いた user 行) も、 作業中 (= attachment 行) も、 連絡の口と同じ封筒で出す
-    from backend.core.jsonl_predicates import AGENT_MESSAGE_OPENING
+    from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENING
 
     for queued in (False, True):
         (event,) = jsonl_line_to_events(_peer("the new build is in", queued=queued))

@@ -18,8 +18,8 @@ import asyncio
 import re
 import time
 
-from backend.core.jsonl_tail import parse_jsonl_timestamp
-from backend.core.push import broadcast_push, notification_title_for
+from backend.jsonl.jsonl_tail import parse_jsonl_timestamp
+from backend.push.push import broadcast_push, notification_title_for
 from backend.jsonl.events import parse_task_notification
 
 

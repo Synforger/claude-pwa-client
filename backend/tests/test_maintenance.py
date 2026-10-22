@@ -9,7 +9,7 @@ import logging
 import subprocess
 import time
 
-import backend.maintenance as m
+import backend.maintenance.maintenance as m
 
 
 def _patch_tmux(monkeypatch, *, list_stdout, kill_calls):
@@ -132,7 +132,7 @@ def test_run_all_maintenance_no_sunshine_key(monkeypatch):
 # --- A second backend on the same machine (a test build, a worktree) must not touch the first one's tabs ---
 
 def test_stale_kill_leaves_everything_alone_without_tabs(monkeypatch):
-    import backend.state as state
+    import backend._common.state as state
     kill_calls: list = []
     _patch_tmux(monkeypatch, list_stdout="pwa-ses_live\npwa-ses_other\n", kill_calls=kill_calls)
     monkeypatch.setattr(state, "sessions_meta", {})
@@ -141,7 +141,7 @@ def test_stale_kill_leaves_everything_alone_without_tabs(monkeypatch):
 
 
 def test_stale_kill_still_kills_sessions_missing_from_its_tabs(monkeypatch):
-    import backend.state as state
+    import backend._common.state as state
     kill_calls: list = []
     _patch_tmux(monkeypatch, list_stdout="pwa-ses_kept\npwa-ses_gone\nclaudepwa-sentinel\n", kill_calls=kill_calls)
     monkeypatch.setattr(state, "sessions_meta", {"ses_kept": object()})
@@ -163,7 +163,7 @@ def _old_transcripts(tmp_path, names):
 
 
 def test_jsonl_gc_deletes_nothing_without_a_bound_tab(monkeypatch, tmp_path):
-    import backend.core.jsonl_watcher as watcher
+    import backend.jsonl.jsonl_watcher as watcher
     project = _old_transcripts(tmp_path, ["a.jsonl", "b.jsonl"])
     monkeypatch.setattr(m._config, "CLAUDE_PROJECTS_DIRS", [tmp_path / "projects"])
     monkeypatch.setattr(watcher, "list_bindings", lambda: {})
@@ -172,7 +172,7 @@ def test_jsonl_gc_deletes_nothing_without_a_bound_tab(monkeypatch, tmp_path):
 
 
 def test_jsonl_gc_deletes_old_unbound_transcripts_when_it_sees_a_bound_tab(monkeypatch, tmp_path):
-    import backend.core.jsonl_watcher as watcher
+    import backend.jsonl.jsonl_watcher as watcher
     project = _old_transcripts(tmp_path, ["bound.jsonl", "old.jsonl"])
     monkeypatch.setattr(m._config, "CLAUDE_PROJECTS_DIRS", [tmp_path / "projects"])
     monkeypatch.setattr(watcher, "list_bindings",

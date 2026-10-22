@@ -2,7 +2,7 @@
 
 backend が runtime に持つ JSON ファイルの schema を一括宣言する。 backend 再起動 / kickstart / 移送の際に **物理 backup すべき範囲** の真値でもある。
 
-> 真値は dataclass / 実装 = `backend/state.py::SessionDef` / `backend/jsonl/history.py` / `backend/core/jsonl_watcher.py` / `backend/core/push.py`。 本 doc は **「backup 範囲を機械的に判断するための形式宣言」**。 実装が変わったら本 doc も同 PR で同期する。
+> 真値は dataclass / 実装 = `backend/_common/state.py::SessionDef` / `backend/jsonl/history.py` / `backend/jsonl/jsonl_watcher.py` / `backend/push/push.py`。 本 doc は **「backup 範囲を機械的に判断するための形式宣言」**。 実装が変わったら本 doc も同 PR で同期する。
 
 ## backup 必須範囲 (= 一覧)
 
@@ -21,9 +21,9 @@ backup 先 = 同 PC の別 path (= `$AGENT_PLATFORM_ROOT/state/claude-pwa-client
 
 **形式**: `list[SessionDef dict]` (= `SessionDef.to_dict()` の出力)。 順序が UI ドロワーの並び順を直接決める。
 
-**writer**: `backend/state.py::save_sessions_meta()` (= `atomic_write_text` 経由)。 register_session / unregister_session / rename_session / set_notify_mode / demote_fork_to_normal / parent_id 操作の全 mutation で呼ばれる。
+**writer**: `backend/_common/state.py::save_sessions_meta()` (= `atomic_write_text` 経由)。 register_session / unregister_session / rename_session / set_notify_mode / demote_fork_to_normal / parent_id 操作の全 mutation で呼ばれる。
 
-**真値 dataclass**: `backend/state.py::SessionDef` (line 82-)
+**真値 dataclass**: `backend/_common/state.py::SessionDef` (line 82-)
 
 | field | 型 | 必須? | 説明 |
 |---|---|---|---|
@@ -45,7 +45,7 @@ backend が claude のプロセスを見つけた時に読み直します (= 画
 
 **形式**: `dict[pwa_sid, BindingInfo]`。 PWA session ID → 現在 active な claude jsonl ファイルへの bind。
 
-**writer**: `backend/core/jsonl_watcher.py::confirm_bind` / `unregister` / `prune_dead_bindings` (= 実際の書き出しは `_save_bindings`)。 hook 経由で `SessionStart` event が来ると bind が確定する。
+**writer**: `backend/jsonl/jsonl_watcher.py::confirm_bind` / `unregister` / `prune_dead_bindings` (= 実際の書き出しは `_save_bindings`)。 hook 経由で `SessionStart` event が来ると bind が確定する。
 
 **寿命**: 実体の JSONL が消えた entry は保持しない。 起動時は `_load_bindings` が復元せず、 稼働中は `prune_dead_bindings` が落とす (= `list_bindings` が返す前に呼ぶので、 読み手が受け取る binding は必ず実体を持つ)。 backup から戻す時も、 JSONL 本体が無い entry は復元されず消える。
 
@@ -78,7 +78,7 @@ backend が claude のプロセスを見つけた時に読み直します (= 画
 
 **形式**: `list[Subscription dict]`。 W3C Push API の `PushSubscription.toJSON()` 互換。
 
-**writer**: `backend/core/push.py::_save_subscriptions` (= POST /subscribe / DELETE /subscribe / `_atomic_remove_dead_subscriptions` 経由)。
+**writer**: `backend/push/push.py::_save_subscriptions` (= POST /subscribe / DELETE /subscribe / `_atomic_remove_dead_subscriptions` 経由)。
 
 | field | 型 | 説明 |
 |---|---|---|

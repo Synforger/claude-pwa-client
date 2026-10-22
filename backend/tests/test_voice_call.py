@@ -13,7 +13,7 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-from backend.core.speech import mark_voice_input
+from backend.speech.speech import mark_voice_input
 from backend.routes import voice_call
 from backend.tests.test_voice import tabs  # noqa: F401 (= 声のタブの用意を使い回す)
 from backend.voice_call.rules import (
@@ -152,7 +152,7 @@ def test_a_tab_is_on_a_call_from_the_answer_until_the_call_process_ends(tabs, mo
     import threading
     import time
 
-    from backend.state import is_session_on_call
+    from backend._common.state import is_session_on_call
 
     finish = threading.Event()
 
@@ -578,7 +578,7 @@ def test_the_volume_of_a_call_is_checked_and_reaches_no_call_when_there_is_none(
 
 
 def test_the_call_gain_from_the_config_scales_the_screen_volume_and_defaults_to_none():
-    from backend import config
+    from backend._common import config
     from backend.routes.voice_call import _with_call_gain
 
     def written(extra: dict) -> None:

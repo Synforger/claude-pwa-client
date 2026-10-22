@@ -14,8 +14,8 @@ import os
 import re
 from pathlib import Path
 
-import backend.config as _config
-from backend.state import DEFAULT_CTX_WINDOW
+import backend._common.config as _config
+from backend._common.state import DEFAULT_CTX_WINDOW
 
 logger = logging.getLogger(__name__)
 

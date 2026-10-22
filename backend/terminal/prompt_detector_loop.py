@@ -24,9 +24,9 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from backend.core.push import broadcast_push
+from backend.push.push import broadcast_push
 from backend.observability.metrics import metrics
-from backend.state import (
+from backend._common.state import (
     jsonl_event_broadcaster,
     sessions_meta,
     sessions_overview,

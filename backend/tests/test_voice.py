@@ -13,10 +13,10 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-import backend.config as config_mod
+import backend._common.config as config_mod
 from backend._generated import http_endpoints as declared
 from backend.routes import voice
-from backend.state import SessionDef
+from backend._common.state import SessionDef
 
 WAV = b"RIFF\x24\x00\x00\x00WAVEfmt "
 VOICE = {

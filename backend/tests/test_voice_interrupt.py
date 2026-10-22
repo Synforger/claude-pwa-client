@@ -17,7 +17,7 @@ import pytest
 
 import backend.terminal.routes as routes
 import backend.terminal.runner as runner
-from backend.state import StreamState
+from backend._common.state import StreamState
 from backend.tests.test_send_one_at_a_time import pane, send, together  # noqa: F401  (pane は fixture)
 
 INTERRUPT = "[Request interrupted by user for tool use]"

@@ -1,10 +1,10 @@
-"""backend/errors.py の raise_error 動作を担保する unit test。 detail が
+"""backend/_common/errors.py の raise_error 動作を担保する unit test。 detail が
 {code, message, params?} 形の dict になっていることが frontend の translateHttpErrorDetail
 が code lookup できる前提。"""
 import pytest
 from fastapi import HTTPException
 
-from backend.errors import raise_error
+from backend._common.errors import raise_error
 
 
 def test_raise_error_basic_shape():

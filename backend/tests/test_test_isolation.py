@@ -7,7 +7,7 @@ test がわざと起こす例外が本番の backend.error.log に混ざる (= c
 import logging
 import pathlib
 
-from backend import paths
+from backend._common import paths
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 
@@ -27,7 +27,7 @@ def test_no_log_handler_writes_into_the_repository():
 
 def test_a_config_name_left_behind_as_a_real_attribute_is_dropped():
     """monkeypatch の後始末が残す形 (= 設定から配られる名前に、 実体の属性が被さる) を作って、 取り除かれるのを見る。"""
-    import backend.config as config
+    import backend._common.config as config
     from backend.tests.conftest import drop_shadowed_config_names
     config.AGENTS = {"left_behind": {}}
     assert drop_shadowed_config_names() == ["AGENTS"]
@@ -36,12 +36,12 @@ def test_a_config_name_left_behind_as_a_real_attribute_is_dropped():
 
 
 def test_a_patched_config_name_does_not_reach_the_next_test_1_of_2(monkeypatch):
-    import backend.config as config
+    import backend._common.config as config
     monkeypatch.setattr(config, "AGENTS", {"patched": {}})
     assert "patched" in config.AGENTS
 
 
 def test_a_patched_config_name_does_not_reach_the_next_test_2_of_2():
-    import backend.config as config
+    import backend._common.config as config
     assert "patched" not in config.AGENTS
     assert "AGENTS" not in vars(config)

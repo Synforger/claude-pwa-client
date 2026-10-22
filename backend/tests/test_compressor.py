@@ -1,4 +1,4 @@
-"""声の音に掛けるコンプレッサー (= `backend/core/compressor.py`)。 ffmpeg が在る機械では、 本物の ffmpeg に通す。"""
+"""声の音に掛けるコンプレッサー (= `backend/speech/compressor.py`)。 ffmpeg が在る機械では、 本物の ffmpeg に通す。"""
 from __future__ import annotations
 
 import asyncio
@@ -10,7 +10,7 @@ import wave
 
 import pytest
 
-from backend.core import compressor
+from backend.speech import compressor
 
 
 def _wav(samples: list[float], rate: int = 16_000) -> bytes:

@@ -20,12 +20,12 @@ from collections import OrderedDict
 from enum import Enum
 from pathlib import Path
 
-from backend.core.jsonl_predicates import INTERRUPT_USER_RE
+from backend.jsonl.jsonl_predicates import INTERRUPT_USER_RE
 from backend.jsonl.plan_choices import capture_plan_choices
-from backend.core.jsonl_predicates import is_user_prompt as _is_user_prompt_pred
-from backend.core.jsonl_tail import parse_jsonl_timestamp
-from backend.state import agent_status, sessions_overview, stream_states
-from backend.core.usage import compute_ctx_pct, format_model_name
+from backend.jsonl.jsonl_predicates import is_user_prompt as _is_user_prompt_pred
+from backend.jsonl.jsonl_tail import parse_jsonl_timestamp
+from backend._common.state import agent_status, sessions_overview, stream_states
+from backend.usage.usage import compute_ctx_pct, format_model_name
 
 logger = logging.getLogger(__name__)
 
@@ -127,11 +127,11 @@ def _remember_exit_plan(session_id: str, tool_use_id: str) -> bool:
 def cleanup_orphan_exit_plan_ids() -> int:
     """`sessions_meta` に存在しない sid の `_processed_exit_plan_ids` entry を掃除する。
 
-    呼び出し元 (= backend/maintenance.run_all_maintenance の summary に登録) は
-    W1-C scope 外 path (= backend/core/*) のため別 round で結線する。 maxlen 64 で
+    呼び出し元 (= backend.maintenance.maintenance.run_all_maintenance の summary に登録) は
+    W1-C scope 外 path のため別 round で結線する。 maxlen 64 で
     per-sid 上限があり、 そもそも unbounded ではないので未呼出でも実害は無い。
     """
-    from backend.state import sessions_meta  # noqa: PLC0415
+    from backend._common.state import sessions_meta  # noqa: PLC0415
     stale = [sid for sid in _processed_exit_plan_ids if sid not in sessions_meta]
     for sid in stale:
         _processed_exit_plan_ids.pop(sid, None)
@@ -142,7 +142,7 @@ def cleanup_orphan_turn_starts() -> int:
     """`sessions_meta` に存在しない sid の `_turn_started_at` entry を掃除する。
     Stop / 削除等で pop されずに残った turn 開始時刻が、 プロセス無停止運用で累積する
     のを 1 日 1 回 (maintenance loop) で刈る。 削除件数を返す。"""
-    from backend.state import sessions_meta  # noqa: PLC0415
+    from backend._common.state import sessions_meta  # noqa: PLC0415
     stale = [sid for sid in _turn_started_at if sid not in sessions_meta]
     for sid in stale:
         _turn_started_at.pop(sid, None)
@@ -151,7 +151,7 @@ def cleanup_orphan_turn_starts() -> int:
 
 # 旧版は本 module で `is_user_prompt` を独自実装していたが、 terminal/confirm.py の
 # `_is_plain_user_prompt` と判定がズレる潜在 race があった (= backend-F-05)。 真値は
-# `backend.core.jsonl_predicates.is_user_prompt` に集約済み、 ここは委譲する re-export。
+# `backend.jsonl.jsonl_predicates.is_user_prompt` に集約済み、 ここは委譲する re-export。
 # 旧来の `from backend.jsonl.session_status import is_user_prompt` 経路 (= routes.py /
 # test) の後方互換も担保する。
 is_user_prompt = _is_user_prompt_pred

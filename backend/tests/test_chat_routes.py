@@ -10,7 +10,7 @@ from fastapi import HTTPException
 
 
 def _setup_session(state, sid="ses_cfg"):
-    from backend.state import StreamState
+    from backend._common.state import StreamState
     state.sessions_meta[sid] = object()
     state.stream_states[sid] = StreamState()
     return sid
@@ -19,7 +19,7 @@ def _setup_session(state, sid="ses_cfg"):
 def test_build_sessions_overview_reflects_busy(isolated_state):
     """全session overview payload が各 session の busy を反映する (= 案B)。"""
     import backend.routes.chat as chat_routes
-    from backend.state import StreamState
+    from backend._common.state import StreamState
     state = isolated_state
     state.sessions_meta.clear()
     state.stream_states.clear()
@@ -39,7 +39,7 @@ def test_build_sessions_overview_reflects_busy(isolated_state):
 
 def test_require_session_passes_for_known_id(isolated_state):
     import backend.routes.chat as chat_routes
-    from backend import state
+    from backend._common import state
 
     sid = "ses_known"
     # require_session は membership だけ見る (= 値は何でもよい)
@@ -79,7 +79,7 @@ def test_mark_user_stopped_returns_false_for_unknown_sid(isolated_state):
 
 def test_is_session_viewed_via_views_by_conn(isolated_state):
     """views_by_conn に sid を持つ接続があれば is_session_viewed が True を返す。"""
-    from backend.state import is_session_viewed, views_by_conn
+    from backend._common.state import is_session_viewed, views_by_conn
     views_by_conn.clear()
     assert is_session_viewed("ses_x") is False
     views_by_conn["conn-uuid-1"] = "ses_x"
@@ -130,7 +130,7 @@ def _write_accounts_config(tmp_path, monkeypatch, accounts):
     cache_clear)。 get_config 自体を lambda に置くと fixture の teardown が呼ぶ
     cache_clear で落ちる。"""
     import json  # noqa: PLC0415
-    import backend.config as config_mod  # noqa: PLC0415
+    import backend._common.config as config_mod  # noqa: PLC0415
     cfg = tmp_path / "accounts-config.json"
     cfg.write_text(json.dumps({"accounts": accounts}), encoding="utf-8")
     monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg)
@@ -178,12 +178,12 @@ def test_accounts_endpoint_marks_the_default(tmp_path, monkeypatch):
 # --- backend-F-44: demote_fork_to_normal helper ---
 def test_demote_fork_to_normal_clears_resume_id_and_gcs_jsonl(tmp_path, monkeypatch, isolated_state):
     """fork タブの resume_session_id を落として fork jsonl も unlink (= F-44 helper)。"""
-    import backend.config as config_mod
+    import backend._common.config as config_mod
     state = isolated_state
     monkeypatch.setattr(state, "save_sessions_meta", lambda: None)
     # demote_fork_to_normal の path 解決は config が真値 (= audit A-2 で jsonl 依存を撤去)
     monkeypatch.setattr(config_mod, "cwd_to_project_dir", lambda cwd, account_id=None: tmp_path)
-    from backend.config import AGENTS
+    from backend._common.config import AGENTS
     aid = next(iter(AGENTS))
     parent = state.register_session(aid, title="P")
     fork = state.register_session(
@@ -201,7 +201,7 @@ def test_demote_fork_to_normal_noop_for_regular_tab(monkeypatch, isolated_state)
     """通常タブ (= resume_session_id 無し) には何もしない (= None を返す)。"""
     state = isolated_state
     monkeypatch.setattr(state, "save_sessions_meta", lambda: None)
-    from backend.config import AGENTS
+    from backend._common.config import AGENTS
     aid = next(iter(AGENTS))
     normal = state.register_session(aid, title="N")
     assert state.demote_fork_to_normal(normal.id) is None
@@ -227,9 +227,9 @@ def test_resolve_jsonl_live_delegates_to_runner(monkeypatch, isolated_state):
 
 def test_resolve_jsonl_project_dir_uses_account_aware_lookup(tmp_path, monkeypatch, isolated_state):
     """prefer="project_dir" は SessionDef.account_id を _cwd_to_project_dir に渡す。"""
-    import backend.core.jsonl_watcher as jsonl_watcher
+    import backend.jsonl.jsonl_watcher as jsonl_watcher
     from backend.jsonl import resolver
-    from backend.config import AGENTS
+    from backend._common.config import AGENTS
     state = isolated_state
     monkeypatch.setattr(state, "save_sessions_meta", lambda: None)
     aid = next(iter(AGENTS))
@@ -247,9 +247,9 @@ def test_resolve_jsonl_project_dir_uses_account_aware_lookup(tmp_path, monkeypat
 
 def test_resolve_jsonl_scan_returns_mtime_desc(tmp_path, monkeypatch, isolated_state):
     """prefer="scan" は project_dir 配下の jsonl を mtime desc で返す。"""
-    import backend.core.jsonl_watcher as jsonl_watcher
+    import backend.jsonl.jsonl_watcher as jsonl_watcher
     from backend.jsonl import resolver
-    from backend.config import AGENTS
+    from backend._common.config import AGENTS
     state = isolated_state
     monkeypatch.setattr(state, "save_sessions_meta", lambda: None)
     aid = next(iter(AGENTS))
@@ -267,7 +267,7 @@ def test_resolve_jsonl_scan_empty_when_project_dir_missing(monkeypatch, isolated
     """project_dir 解決不能 (= cwd 無設定 + live binding 無し) なら空 list。"""
     import backend.terminal.runner as pty_runner
     from backend.jsonl import resolver
-    from backend.config import AGENTS
+    from backend._common.config import AGENTS
     state = isolated_state
     monkeypatch.setattr(state, "save_sessions_meta", lambda: None)
     aid = next(iter(AGENTS))
@@ -275,7 +275,7 @@ def test_resolve_jsonl_scan_empty_when_project_dir_missing(monkeypatch, isolated
     monkeypatch.setattr(pty_runner, "jsonl_path_for_session", lambda sid: None)
     # AGENTS[aid].cwd は test conftest で home dir (= 実在) が入ってるので
     # 実在 dir に何も jsonl が無いケース = []
-    import backend.core.jsonl_watcher as jsonl_watcher
+    import backend.jsonl.jsonl_watcher as jsonl_watcher
     monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir",
                         lambda cwd, account_id=None: __import__("pathlib").Path("/no/such/dir/ever"))
     out = resolver.resolve_jsonl(sess.id, prefer="scan")
@@ -294,7 +294,7 @@ def test_resolve_jsonl_unknown_prefer_raises(isolated_state):
 def test_build_sessions_overview_includes_last_seen_at(isolated_state):
     """last_seen_at が overview snapshot に乗る (= 既存仕様の構造的回帰防止)。"""
     import backend.routes.chat as chat_routes
-    from backend.state import StreamState
+    from backend._common.state import StreamState
     state = isolated_state
     state.sessions_meta.clear(); state.stream_states.clear(); state.agent_status.clear()
     state.session_last_seen_at.clear()
@@ -325,7 +325,7 @@ def test_rate_limits_tail_memoize_caches_within_ttl(monkeypatch, isolated_state)
 def test_build_sessions_overview_ors_pane_working(isolated_state):
     """busy は JSONL 由来と画面スピナー (pane_working) の OR。 user_stopped は両者に優先。"""
     import backend.routes.chat as chat_routes
-    from backend.state import StreamState
+    from backend._common.state import StreamState
     state = isolated_state
     state.sessions_meta.clear()
     state.stream_states.clear()

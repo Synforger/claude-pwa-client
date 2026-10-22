@@ -70,7 +70,7 @@ def test_finding_the_claude_of_a_tab_records_its_tier_and_wakes_the_overview(tab
         monkeypatch.setattr(pty_discover, "tmux_pane_pids", lambda sid: [111])
         monkeypatch.setattr(pty_discover, "_find_claude_descendant_info", lambda pid: (claude.pid, 1.0, "/work"))
         monkeypatch.setattr(pty_discover.sessions_overview, "notify", lambda: woken.append(True))
-        import backend.core.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
+        import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
         monkeypatch.setattr(jsonl_watcher, "register_pending", lambda *args: None)
 
         asyncio.run(pty_discover.register_claude_when_ready(a.id, max_wait=2.0, interval=0.01))

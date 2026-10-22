@@ -4,7 +4,7 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 
 ## `backend/config.json`
 
-雛形は `backend/config.example.json`。 `cp backend/config.example.json backend/config.json`
+雛形は `configs/config.example.json`。 `cp configs/config.example.json backend/config.json`
 してから自環境に合わせて編集する。
 
 ```json

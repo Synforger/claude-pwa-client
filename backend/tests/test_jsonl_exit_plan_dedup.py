@@ -78,7 +78,7 @@ def test_exit_plan_dedup_survives_pending_plan_clear(isolated_state):
         "model": "", "ctx_pct": 0, "ctx_window": 1_000_000,
         "tasks": [],
     }
-    import backend.state as state_mod
+    import backend._common.state as state_mod
     state.stream_states[sid] = state_mod.StreamState(agent_id="a")
 
     # capture_plan_choices が tmux を叩かないよう coroutine をスタブ化

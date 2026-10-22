@@ -31,7 +31,7 @@ def test_resolve_launch_alias_prefer_fresh_keeps_fork_resume(monkeypatch, isolat
 
     fork のセマンティクスは「意図的に親文脈を引き継ぐ」 なので prefer_fresh で剥がれてはいけない。
     """
-    from backend.state import register_session, sessions_meta  # noqa: PLC0415
+    from backend._common.state import register_session, sessions_meta  # noqa: PLC0415
     monkeypatch.setattr(session_resolver, "CLAUDE_PATH", "/usr/local/bin/claude")
     monkeypatch.setattr(session_resolver, "resolve_agent_cfg",
                         lambda _sid: {"launch_alias": "agent_a", "cwd": "/tmp"})

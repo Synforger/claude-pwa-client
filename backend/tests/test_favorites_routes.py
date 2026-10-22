@@ -8,7 +8,7 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-import backend.paths as paths
+import backend._common.paths as paths
 import backend.routes.favorites as favorites
 from backend._generated import http_endpoints as http
 from backend.terminal.runner import tmux_session_env_args

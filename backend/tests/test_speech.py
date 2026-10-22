@@ -1,4 +1,4 @@
-"""`backend/core/speech.py` (= agent の返事の文から、 声にする文を取り出す)。
+"""`backend/speech/speech.py` (= agent の返事の文から、 声にする文を取り出す)。
 
 声にするのは人が話す文だけ。 コード・表・path・URL は読まずに飛ばし、 文ごとに切り、 文頭の印
 (= `[happy]` 等) を剥がして印の名前として返す。 ここは文字列だけを見る (= 音は作らない)。
@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.core.speech import utterances
+from backend.speech.speech import utterances
 
 MARKS = ("calm", "happy", "soft", "firm")
 

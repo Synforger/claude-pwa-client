@@ -1,4 +1,4 @@
-"""backend/core/jsonl_tail.py の unit test (= initial_offset の移送 + 厚いカバレッジ、 F-41)。
+"""backend/jsonl/jsonl_tail.py の unit test (= initial_offset の移送 + 厚いカバレッジ、 F-41)。
 
 旧 jsonl/routes._initial_offset を tail.initial_offset に移送した。 routes 内に閉じて
 いた頃は INITIAL_REPLAY_LINES (= 500) 固定値ベースの test しか無かったが、 移送後は
@@ -6,7 +6,7 @@ max_lines を引数で受けるので boundary を細かく検査する。
 """
 import json
 
-from backend.core import jsonl_tail as jt
+from backend.jsonl import jsonl_tail as jt
 
 
 def _write_lines(p, n, prefix="L"):
@@ -153,7 +153,7 @@ def test_split_jsonl_text_only_breaks_on_newline():
     両断されて両方 JSON として壊れ、 行ごと捨てられる (= 2026-09-08 の fork 引き継ぎ
     欠落の真因)。
     """
-    from backend.core.jsonl_tail import split_jsonl_text
+    from backend.jsonl.jsonl_tail import split_jsonl_text
     # 本文に生で載る 3 種: splitlines は割る、 split_jsonl_text は割らない
     for cp in (0x2028, 0x2029, 0x0085):
         body = json.dumps({"text": "before" + chr(cp) + "after"}, ensure_ascii=False)
@@ -167,5 +167,5 @@ def test_split_jsonl_text_only_breaks_on_newline():
 
 
 def test_split_jsonl_text_splits_plain_newlines():
-    from backend.core.jsonl_tail import split_jsonl_text
+    from backend.jsonl.jsonl_tail import split_jsonl_text
     assert split_jsonl_text("a\nb\n") == ["a", "b", ""]

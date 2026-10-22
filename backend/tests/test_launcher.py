@@ -45,7 +45,7 @@ def test_autoresume_goes_through_the_launcher_without_a_fallback(launcher_agent,
 
 
 def test_a_fork_resumes_through_the_launcher(launcher_agent, isolated_state):
-    from backend.state import register_session  # noqa: PLC0415
+    from backend._common.state import register_session  # noqa: PLC0415
     parent = register_session("agent_a", "parent")
     fork = register_session("agent_a", "fork", parent_id=parent.id, resume_session_id="fork-sid")
     assert sr.resolve_launch_alias(fork.id, prefer_fresh=True) == "agent_a --resume fork-sid"
@@ -211,9 +211,9 @@ def test_the_attachment_route_hands_text_and_paths_to_the_launch(monkeypatch):
 # --- 記録の置き場を追う -------------------------------------------------------------
 
 def test_the_project_dir_falls_back_to_the_live_record_when_cwd_is_unknown(monkeypatch, isolated_state, tmp_path):
-    import backend.config as config  # noqa: PLC0415
+    import backend._common.config as config  # noqa: PLC0415
     import backend.jsonl.resolver as resolver  # noqa: PLC0415
-    from backend.state import register_session  # noqa: PLC0415
+    from backend._common.state import register_session  # noqa: PLC0415
     monkeypatch.setattr(config, "AGENTS", {"agent_a": {}})
     meta = register_session("agent_a", "t")
     live = tmp_path / ".claude/projects/-work/abc.jsonl"

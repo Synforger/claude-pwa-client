@@ -16,7 +16,7 @@ JSONL と旧 SDK-SSE event はほぼ同型 (= message.role + content[] + tool_re
       これはユーザ発話ではなく claude 内部表現なので chat には出さない (= skip)。
     - 設定した言語でない地の文: タブの Claude Code の `language` が日本語で、 返事の text block の
       地の文が英語なら `held_text` block に変える (= 画面は畳んで出し、 声と小窓は読まない。
-      判定 = backend/core/prose_language.py)
+      判定 = backend/_common/prose_language.py)
 """
 from __future__ import annotations
 
@@ -24,9 +24,9 @@ import re
 
 # harness 内部表現 / interrupt marker の判定 regex は行レベル純粋プリミティブとして
 # core/jsonl_predicates.py に集約 (= jsonl / terminal 両 subsystem が使う共有底層)。
-from backend.core.jsonl_predicates import HARNESS_XML_RE, peer_message_text, queued_prompt_text, unwrap_pasted
-from backend.core.jsonl_tail import parse_jsonl_timestamp
-from backend.core.prose_language import foreign_prose
+from backend.jsonl.jsonl_predicates import HARNESS_XML_RE, peer_message_text, queued_prompt_text, unwrap_pasted
+from backend.jsonl.jsonl_tail import parse_jsonl_timestamp
+from backend._common.prose_language import foreign_prose
 
 
 def _ts_ms(line: dict) -> int | None:

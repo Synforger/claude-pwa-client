@@ -516,7 +516,7 @@ def test_run_tmux_uses_base_argv(monkeypatch):
 def test_maintenance_tmux_calls_use_base_argv(monkeypatch):
     """maintenance の tmux 呼び出しも socket prefix を通る (= test backend の掃除が
     本番 socket の session を kill しない構造保証)。"""
-    import backend.maintenance as maintenance
+    import backend.maintenance.maintenance as maintenance
     import backend.terminal.runner as runner
     seen = []
 
@@ -527,7 +527,7 @@ def test_maintenance_tmux_calls_use_base_argv(monkeypatch):
             stdout = ""
             stderr = ""
         return R()
-    import backend.state as state
+    import backend._common.state as state
     monkeypatch.setattr(runner, "TMUX_SOCKET_NAME", "sock-y")
     monkeypatch.setattr(maintenance.subprocess, "run", fake_run)
     # With no tab the cleanup leaves tmux alone; one tab makes it list the sessions.

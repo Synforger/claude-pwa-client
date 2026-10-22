@@ -1,6 +1,6 @@
 # Architecture
 
-> backend / frontend のサブパッケージ構成、 依存方向、 中立基盤 (= `paths.py` /
+> backend / frontend のサブパッケージ構成、 依存方向、 中立基盤 (= `backend/_common/paths.py` /
 > `protocol.py` 等)、 1 sid を束ねる `SessionState` + `asyncio.Lock` の意義をまとめる。
 > README の「ディレクトリ構成」 は対外向け俯瞰、 本書はその上で **なぜその切り方か** /
 > **何を import してよく何を禁忌か** を真値として宣言する。
@@ -14,8 +14,8 @@
        │                    │     │   ├ terminal/  (= PTY + tmux 駆動)      │
        │                    ├──▶  │   ├ jsonl/     (= ~/.claude tail)       │
        │                    │     │   ├ routes/    (= HTTP / SSE / WS)      │
-   ホーム画面追加 → PWA       │     │   ├ core/     (= push / usage / 共有底層) │
-                            │     │   └ state.py  (= プロセス共有状態 + 集約)│
+   ホーム画面追加 → PWA       │     │   ├ push/ usage/ fork/ (= 機能ごと)    │
+                            │     │   └ _common/  (= 共有状態 + path + 設定) │
                             │     │                                          │
                             │     │ moonlight-web-stream                    │ ← 任意 (Path B)
                             │     │   └ Sunshine                            │
@@ -31,24 +31,30 @@ backend は **シングルプロセス FastAPI** を前提に組まれる。 sta
 
 ## backend サブパッケージ責務
 
-backend は **4 つのサブパッケージ** + **2 つの中立基盤 module** で構成する。 各
+backend は機能ごとのサブパッケージ + 中立基盤 `_common/` で構成する。 各
 サブパッケージは他サブパッケージを**横方向に import しない**ことを原則とし、
 共通利用したい helper は中立基盤に降ろす (= 循環 import / 段数狂い path bug の防止)。
 
 | package | 責務 | 主な file |
 |---|---|---|
 | `terminal/` | claude TUI を実 PTY + tmux で起動・駆動する入力経路。 control mode (`-CC`) パーサ、 送信到達の観測 (= 救済 Enter は 2026-07-05 退役、 介入しない)、 打鍵前の起動待ちを持つ | `runner.py` / `routes.py` (`/ws/pty` + `/pty/{sid}/send`) / `confirm.py` / `input_ready.py` / `control_mode.py` / `session_resolver.py` |
-| `jsonl/` | `~/.claude/projects/<cwd-hash>/<claude_session_id>.jsonl` を tail し、 chat UI 用 event 形式 (= `processStreamEvent` 入力) に変換する出力経路 | `events.py` (`jsonl_line_to_events`) / `routes.py` (`/jsonl/stream/{sid}`) / `session_status.py` / `notifications.py` / `plan_choices.py` / `resolver.py` |
+| `jsonl/` | `~/.claude/projects/<cwd-hash>/<claude_session_id>.jsonl` を tail し、 chat UI 用 event 形式 (= `processStreamEvent` 入力) に変換する出力経路。 `terminal/` も使う JSONL 行プリミティブ (tail / predicates) と sid↔JSONL binding registry もここに置く | `events.py` (`jsonl_line_to_events`) / `routes.py` (`/jsonl/stream/{sid}`) / `session_status.py` / `notifications.py` / `plan_choices.py` / `resolver.py` / `jsonl_tail.py` / `jsonl_predicates.py` / `jsonl_watcher.py` |
 | `routes/` | HTTP / SSE / WS の各 endpoint を session / chat / overview / files / hooks / subagents / accounts 単位で分割保持 | `sessions.py` / `chat.py` / `overview.py` (`POST /sessions/{sid}/seen` + 旧 status / overview SSE の実装は unified へ吸収済) / `files.py` / `hooks.py` / `subagents.py` / `accounts.py` / `unified_stream.py` (`/stream/unified` = 多重化 1 本接続、 protocol 詳細 = `../protocol/streams.md`) |
-| `core/` | 共有底層。 Web Push、 使用率 (5h / 7d / ctx) 組み立て、 会話フォーク、 JSONL 行プリミティブ (tail / predicates)、 sid↔JSONL binding registry、 SPA 配信 (= cache 制御 + WS を http 前提の静的配信に落とさない) | `push.py` / `usage.py` / `fork.py` / `jsonl_tail.py` / `jsonl_predicates.py` / `jsonl_watcher.py` / `compression.py` / `static_files.py` |
+| `push/` | Web Push の配信と subscription 管理 | `push.py` |
+| `usage/` | 使用率 (5h / 7d / ctx) の組み立て | `usage.py` |
+| `fork/` | 会話フォーク | `fork.py` |
+| `speech/` | 声に渡す文の整形と、 声の音のコンプレッサー | `speech.py` / `compressor.py` |
+| `maintenance/` | 定期 GC / 掃除 loop | `maintenance.py` |
+| `rollover/` | 自動の入れ替え | `rollover.py` |
+| `_internal/` | app の組み立て (`main.py`) だけが使う部品。 JSON の gzip と、 SPA 配信 (= cache 制御 + WS を http 前提の静的配信に落とさない) | `compression.py` / `static_files.py` |
 
-### 中立基盤 (= 全 package から import 可)
+### 中立基盤 `_common/` (= 全 package から import 可)
 
 | module | 役割 |
 |---|---|
 | `paths.py` | backend 配下の全 file path (= `DATA_DIR` / `SECRETS_DIR` / `LOGS_DIR` / `SESSION_META_PATH` / `VAPID_PATH` / `SUBSCRIPTIONS_PATH` 等) の single source of truth。 各 module で `Path(__file__).parent[.parent]` を書くとサブパッケージ化や file 移動で段数が狂って "vapid.json が見つからない" 系の事故が再発するため、 path 追加 / 移動は必ずここを起点にする |
 | `state.py` | プロセス共有状態 (`sessions_meta` / `stream_states` / `agent_status` / `session_states` / `views_by_conn` / `sessions_overview` broadcaster 等)。 session 操作 helper (`register_session` / `unregister_session` / `rename_session` / `set_notify_mode` / `demote_fork_to_normal`) も同梱 |
-| `config.py` | `config.json` の遅延 lookup (= PEP 562 `__getattr__`)。 test 中の `monkeypatch.setattr` で config 切替できるよう **module 上端で AGENTS を bind しない**。 各 module は `import backend.config as _config` → `_config.AGENTS` の都度引きを徹底する |
+| `config.py` | `config.json` の遅延 lookup (= PEP 562 `__getattr__`)。 test 中の `monkeypatch.setattr` で config 切替できるよう **module 上端で AGENTS を bind しない**。 各 module は `import backend._common.config as _config` → `_config.AGENTS` の都度引きを徹底する |
 | `pty_discover.py` | tmux pane 配下の claude プロセス探索 (= terminal が直接使うが、 lsof / ps 経由の OS 依存層を単独 file に隔離) |
 | `chat_content.py` | 添付ファイル保存 (uploads/tmp)。 terminal の `/pty/{sid}/send-with-files` が呼ぶ |
 
@@ -62,34 +68,35 @@ backend は **4 つのサブパッケージ** + **2 つの中立基盤 module** 
                                      │ include_router(...)
         ┌────────────────┬───────────┼─────────────┬──────────────┐
         ▼                ▼           ▼             ▼              ▼
-   terminal/        jsonl/        routes/      core/push      maintenance.py
+   terminal/        jsonl/        routes/      push/          maintenance/
    (PTY 駆動)       (tail/SSE)    (HTTP/SSE/WS) (Web Push)    (GC loop)
         │                │           │             │
         │                │           │             │
         └────────┬───────┴──────┬────┴──────┬──────┘
                  ▼              ▼           ▼
-              state.py     chat_content   pty_discover
+          _common/state   chat_content   pty_discover
               (共有状態)    (添付保存)     (プロセス探索)
                  │              │           │
                  └──────────────▼───────────┘
-                          paths.py + config.py
+                   _common/paths + _common/config
                           (中立基盤)
 ```
 
 **依存方向の法律** (= 機械 gate: `backend/tests/test_layering.py`、 全 import 形態を AST 検査):
 
 ```
-L0: config / paths / errors / state / observability / _generated / core
+L0: _common / _internal / observability / _generated / documents / push / speech / usage / fork
+    + jsonl の共有部品 (jsonl_tail / jsonl_predicates / jsonl_watcher)
 L1: terminal   (= 入力口。 L0 のみ import 可)
 L2: jsonl      (= 出力口。 L0 / L1 を import 可)
-L3: routes / maintenance / main / cli   (= orchestrator。 全層 import 可)
+L3: routes / maintenance / rollover / main / cli / voice_call / device   (= orchestrator。 全層 import 可)
 ```
 
 - **`terminal/` → `jsonl/` は禁止** (= 一方向化。 両 subsystem が使う純粋プリミティブ
-  = `backend/core/jsonl_tail.py` / `backend/core/jsonl_predicates.py`、 共有 registry =
-  `backend/core/jsonl_watcher.py` は core に降ろしてある。 新しい共有が要る時も core へ)
+  = `backend/jsonl/jsonl_tail.py` / `backend/jsonl/jsonl_predicates.py`、 共有 registry =
+  `backend/jsonl/jsonl_watcher.py` は L0 として置いてある。 新しい共有が要る時も L0 の folder へ)
 - `state.py` は `usage.py` を import しない (= 逆方向、 `usage → state` のみ。 module init 時の循環 import 回避)
-- `routes/*` は他 `routes/*` を import しない (= 横断 helper は state / core に降ろす)
+- `routes/*` は他 `routes/*` を import しない (= 横断 helper は `_common/` に降ろす)
 - `paths.py` は何も import しない (= 末端の宣言だけ)
 
 ## SessionState + asyncio.Lock の意義

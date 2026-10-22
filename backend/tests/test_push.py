@@ -1,5 +1,5 @@
 """push.py の Markdown sanitization / 通知整形系 pure 関数の unit test。"""
-from backend.core.push import (
+from backend.push.push import (
     _MD_TABLE_ROW_RE,
     _table_row_to_inline,
     sanitize_notif_body,
@@ -91,7 +91,7 @@ def test_table_row_drops_empty_cells():
 # ============================================================================
 
 def test_atomic_remove_dead_rollback_on_save_failure(monkeypatch):
-    import backend.core.push as push_mod
+    import backend.push.push as push_mod
     monkeypatch.setattr(push_mod, "subscriptions",
                         [{"endpoint": "https://a"}, {"endpoint": "https://b"}])
 
@@ -105,7 +105,7 @@ def test_atomic_remove_dead_rollback_on_save_failure(monkeypatch):
 
 
 def test_atomic_remove_dead_commits_on_success(monkeypatch):
-    import backend.core.push as push_mod
+    import backend.push.push as push_mod
     monkeypatch.setattr(push_mod, "subscriptions",
                         [{"endpoint": "https://a"}, {"endpoint": "https://b"}])
 

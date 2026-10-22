@@ -4,7 +4,7 @@ import pathlib
 import pytest
 from fastapi import HTTPException
 
-from backend.config import HOME
+from backend._common.config import HOME
 from backend.routes.files import _resolve_safe
 
 
@@ -332,7 +332,7 @@ def _with_config(monkeypatch, cfg):
     """backend の設定を cfg にする (= 仮の config.json を書いて読ませる)。"""
     import json  # noqa: PLC0415
     import tempfile  # noqa: PLC0415
-    import backend.config as config_mod  # noqa: PLC0415
+    import backend._common.config as config_mod  # noqa: PLC0415
     path = pathlib.Path(tempfile.mkdtemp(prefix="cpc-page-origin-")) / "config.json"
     path.write_text(json.dumps(cfg))
     monkeypatch.setattr(config_mod, "CONFIG_PATH", path)
@@ -439,7 +439,7 @@ def test_page_origin_serves_nothing_without_the_setting(tmp_path, monkeypatch):
     ({"folder": "/no/such/folder", "port": 8799}, "is not a directory"),
 ])
 def test_page_origin_setting_mistakes_are_reported_and_ignored(monkeypatch, raw, problem):
-    import backend.config as config_mod  # noqa: PLC0415
+    import backend._common.config as config_mod  # noqa: PLC0415
     _with_config(monkeypatch, {"page_origin": raw})
     value, problems = config_mod._scan_page_origin()
     assert value is None
@@ -449,7 +449,7 @@ def test_page_origin_setting_mistakes_are_reported_and_ignored(monkeypatch, raw,
 def test_page_origin_setting_resolves_the_folder(tmp_path, monkeypatch):
     (tmp_path / "real").mkdir()
     (tmp_path / "alias").symlink_to(tmp_path / "real")
-    import backend.config as config_mod  # noqa: PLC0415
+    import backend._common.config as config_mod  # noqa: PLC0415
     _with_page_origin(monkeypatch, tmp_path / "alias")
     assert config_mod.page_origin() == ((tmp_path / "real").resolve(), _PAGE_PORT)
     _with_config(monkeypatch, {})

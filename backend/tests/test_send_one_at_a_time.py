@@ -125,7 +125,7 @@ def test_while_a_turn_runs_the_next_body_does_not_wait_for_the_line(pane, monkey
         order.append(f"gave up:{text}")
         return {"ok": True, "confirmed": False}
 
-    from backend.state import StreamState
+    from backend._common.state import StreamState
 
     busy = StreamState()
     busy.busy = True

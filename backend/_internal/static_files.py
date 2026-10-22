@@ -1,6 +1,6 @@
 """SPA (= frontend/dist) を配信する StaticFiles の派生。
 
-置き場が `backend/core/` なのは compression.py と同じ理由で、 app 組み立て (= main.py) から
+置き場が `backend/_internal/` なのは compression.py と同じ理由で、 app 組み立て (= main.py) から
 独立して単体で試験できる形にしておくため。 main.py を import すると logging 初期化と全 router
 の登録が走るので、 配信の振る舞いだけを見たい test がそれに引きずられない。
 """

@@ -257,7 +257,7 @@ def test_screen_settings_take_the_config_over_the_defaults_and_drop_bad_values(d
     from backend.device import screen as screen_module
 
     app, _ = device_app
-    monkeypatch.setattr("backend.config.DEVICE_SCREEN", {
+    monkeypatch.setattr("backend._common.config.DEVICE_SCREEN", {
         "interval_s": 2, "quality": 1.5, "max_side": "big", "unknown": 3}, raising=False)
     with TestClient(app) as phone:
         got = phone.get("/device/screen/settings").json()

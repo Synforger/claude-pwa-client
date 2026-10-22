@@ -1,4 +1,4 @@
-"""backend.core.prose_language の単体テスト。
+"""backend._common.prose_language の単体テスト。
 
 設定が日本語の時に英語の地の文だけを拾い、 日本語の文・頼まれた英文・英語の名前の並びは通すことを、
 1 文ずつ確かめる。
@@ -8,8 +8,8 @@ import os
 
 import pytest
 
-from backend.core import prose_language
-from backend.core.prose_language import configured_language, foreign_prose
+from backend._common import prose_language
+from backend._common.prose_language import configured_language, foreign_prose
 
 EN = "The fix is ready. The only thing left before I merge and deploy it is the GitHub check, which has not finished yet."
 JA = "直しを作り終えました。 GitHub の検査が終わるのを待ってから merge して、 本番に入れます。 試験は全部緑です。"

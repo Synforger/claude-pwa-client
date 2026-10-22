@@ -1,5 +1,5 @@
 // backend HTTPException(detail=dict{code, message, params}) → localized string に変換する helper。
-// backend/errors.py の `raise_error` と対。 旧 detail (= plain string) が来ても壊れないよう
+// backend/_common/errors.py の `raise_error` と対。 旧 detail (= plain string) が来ても壊れないよう
 // polymorphic に扱う (= 移行過程 / third-party endpoint への防御)。
 //
 // 使用: import して apiFetch エラー時の detail に通す。

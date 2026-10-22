@@ -12,7 +12,7 @@ import asyncio
 
 import pytest
 
-from backend.state import jsonl_event_broadcaster
+from backend._common.state import jsonl_event_broadcaster
 from backend.terminal import prompt_detector_loop as loop_mod
 from backend.terminal.prompt_detector import PromptState
 

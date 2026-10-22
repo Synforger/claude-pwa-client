@@ -6,7 +6,7 @@
 // (= 条件 `onnxruntime-web-use-extern-wasm`、 vite.config.js) を使う (= 本体を bundle の側でも出力しない)。
 //
 // 置き場は `assets/voice-<中身の hash>/`。 `/assets/` は「中身が変わらない」 前提で長く cache される
-// (= backend/core/static_files.py と sw.js) ので、 部品の版が変われば置き場の名前も変わる形にする。
+// (= backend/_internal/static_files.py と sw.js) ので、 部品の版が変われば置き場の名前も変わる形にする。
 // 画面は置き場を `__VOICE_ASSET_BASE__` で知る。
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'

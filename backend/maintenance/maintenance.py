@@ -26,7 +26,7 @@ import subprocess
 import time
 from pathlib import Path
 
-import backend.config as _config
+import backend._common.config as _config
 from backend.terminal.runner import tmux_base_argv
 
 logger = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ def cleanup_stale_tmux_sessions() -> int:
     PWA タブを UI から削除した時点で sessions_meta から消えるが、 backend 経路を経ずに
     削除されたケース (= 旧バックエンドの残骸 / 手動削除) で tmux session だけ残るのを掃除。"""
     try:
-        from backend.state import sessions_meta
+        from backend._common.state import sessions_meta
     except ImportError:
         return 0
     if not sessions_meta:
@@ -225,7 +225,7 @@ def cleanup_old_jsonl(
     # 現在 PWA タブが bind 中の jsonl は idle でも保護する。
     bound_paths: set[str] = set()
     try:
-        import backend.core.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
+        import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
         for info in jsonl_watcher.list_bindings().values():
             jp = info.get("jsonl_path")
             if info.get("confirmed") and jp:

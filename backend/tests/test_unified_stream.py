@@ -14,7 +14,7 @@ import pytest
 from fastapi import HTTPException
 
 import backend.routes.unified_stream as us
-import backend.state as state_mod
+import backend._common.state as state_mod
 
 
 def _run(coro):

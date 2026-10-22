@@ -14,7 +14,7 @@ from urllib.parse import quote
 
 import aiohttp
 
-from backend.core.speech import mark_voice_input
+from backend.speech.speech import mark_voice_input
 
 logger = logging.getLogger(__name__)
 

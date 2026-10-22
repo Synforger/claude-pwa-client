@@ -22,9 +22,9 @@ import shlex
 import time
 from pathlib import Path
 
-from backend.config import AGENTS, CLAUDE_PATH
+from backend._common.config import AGENTS, CLAUDE_PATH
 from backend.terminal.runner import has_tmux_session, pty_sessions, spawn_pty_session
-from backend.state import sessions_meta
+from backend._common.state import sessions_meta
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ def last_resumable_claude_sid(session_id: str) -> str | None:
       - jsonl の最終更新が AUTORESUME_MAX_AGE_DAYS より古い (= 死んだ会話)
     """
     try:
-        import backend.core.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
+        import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
         info = jsonl_watcher.list_bindings().get(session_id)
     except Exception:
         logger.exception("autoresume lookup failed session=%s", session_id)
@@ -176,8 +176,8 @@ def resolve_extra_env(session_id: str, cfg: dict) -> dict | None:
     spawn 経路 (ensure_pty_session_for) と PTY 再接続 fallback (terminal/routes.py) の
     2 箇所が同文のマージを別実装していた drift 温床の集約 (= 2026-07-27 退役 audit)。
     """
-    from backend.config import ACCOUNTS  # noqa: PLC0415
-    from backend.state import sessions_meta  # noqa: PLC0415
+    from backend._common.config import ACCOUNTS  # noqa: PLC0415
+    from backend._common.state import sessions_meta  # noqa: PLC0415
     meta = sessions_meta.get(session_id)
     acct_env = (ACCOUNTS.get(meta.account_id) or {}).get("env") if meta and meta.account_id else None
     agent_env = cfg.get("env") if isinstance(cfg.get("env"), dict) else {}

@@ -8,7 +8,7 @@
 import asyncio
 import json
 
-from backend.core.fork import build_forked_lineage_lazy, is_clean_fork_point
+from backend.fork.fork import build_forked_lineage_lazy, is_clean_fork_point
 
 
 def _run(coro):
@@ -142,12 +142,12 @@ GROUPED = [
 
 def test_status_resolves_message_id_to_clean_group():
     # frontend が送る from_uuid = message.id。 group に tool_use が無いので ok
-    from backend.core.fork import fork_point_status  # noqa: PLC0415
+    from backend.fork.fork import fork_point_status  # noqa: PLC0415
     assert fork_point_status(GROUPED, "msg_X") == "ok"
 
 
 def test_status_message_id_group_with_tool_use_is_dirty():
-    from backend.core.fork import fork_point_status  # noqa: PLC0415
+    from backend.fork.fork import fork_point_status  # noqa: PLC0415
     lines = GROUPED + [_asst_mid("a3", "a2", "msg_X", [{"type": "tool_use", "name": "Read", "id": "t"}])]
     # 同 message.id に tool_use 行が混ざれば dirty
     assert fork_point_status(lines, "msg_X") == "dirty"
@@ -163,7 +163,7 @@ def test_build_lineage_from_message_id_uses_group_leaf():
 # --- 末尾の切れ目の自動採用 (= アカウント移行は分岐位置を選ばない) ---
 
 def test_latest_clean_fork_point_picks_the_tail():
-    from backend.core.fork import latest_clean_fork_point  # noqa: PLC0415
+    from backend.fork.fork import latest_clean_fork_point  # noqa: PLC0415
     assert latest_clean_fork_point(SAMPLE) == "a2"
 
 
@@ -172,7 +172,7 @@ def test_latest_clean_fork_point_backs_off_from_a_pending_tool():
 
     アカウント上限は道具の実行中に来ることが多く、 末尾では切れないケースが普通に起きる。
     """
-    from backend.core.fork import latest_clean_fork_point  # noqa: PLC0415
+    from backend.fork.fork import latest_clean_fork_point  # noqa: PLC0415
     lines = SAMPLE + [
         _line("u3", "a2", "user"),
         _assistant("a3", "u3", content=[{"type": "tool_use", "name": "Read", "id": "t1"}]),
@@ -181,7 +181,7 @@ def test_latest_clean_fork_point_backs_off_from_a_pending_tool():
 
 
 def test_latest_clean_fork_point_skips_tool_results_and_sidechains():
-    from backend.core.fork import latest_clean_fork_point  # noqa: PLC0415
+    from backend.fork.fork import latest_clean_fork_point  # noqa: PLC0415
     lines = SAMPLE + [
         _line("u3", "a2", "user", message={"content": [{"type": "tool_result", "tool_use_id": "t1"}]}),
         _line("s1", "u3", "user", isSidechain=True),
@@ -190,7 +190,7 @@ def test_latest_clean_fork_point_skips_tool_results_and_sidechains():
 
 
 def test_latest_clean_fork_point_returns_none_without_any_break():
-    from backend.core.fork import latest_clean_fork_point  # noqa: PLC0415
+    from backend.fork.fork import latest_clean_fork_point  # noqa: PLC0415
     lines = [_assistant("a1", None, content=[{"type": "tool_use", "name": "Read", "id": "t1"}])]
     assert latest_clean_fork_point(lines) is None
 
@@ -202,7 +202,7 @@ def _setup_fork_env(tmp_path, monkeypatch, isolated_state, source_lines=SAMPLE):
     import backend.routes.chat as chat_routes  # noqa: PLC0415
     import backend.terminal.routes as pty_routes  # noqa: PLC0415
     import backend.terminal.runner as pty_runner  # noqa: PLC0415
-    from backend.config import AGENTS  # noqa: PLC0415
+    from backend._common.config import AGENTS  # noqa: PLC0415
     state = isolated_state
     monkeypatch.setattr(state, "save_sessions_meta", lambda: None)
     aid = next(iter(AGENTS))
@@ -329,7 +329,7 @@ def _setup_account_move(tmp_path, monkeypatch, isolated_state, source_lines=SAMP
 def test_moving_a_tab_continues_the_same_tab_under_the_other_account(tmp_path, monkeypatch, isolated_state):
     """The same tab keeps its name and continues under the other account: the conversation is written into that
     account's projects folder and the tab starts again resuming it. No new tab appears."""
-    from backend.state import sessions_meta  # noqa: PLC0415
+    from backend._common.state import sessions_meta  # noqa: PLC0415
     sessions_mod, tab, src, work_dir, events = _setup_account_move(tmp_path, monkeypatch, isolated_state)
     tabs_before = set(sessions_meta)
     out = _run(sessions_mod.move_session_account(tab.id, {"account_id": "work"}))
@@ -438,7 +438,7 @@ def test_fork_endpoint_requires_from_uuid(tmp_path, monkeypatch, isolated_state)
 def test_fork_endpoint_finds_uuid_in_rolled_file(tmp_path, monkeypatch, isolated_state):
     """claude が session id をロールして、 from_uuid が live でなく project dir 内の別
     (= 古い) jsonl に居るケース。 cwd 内全 jsonl を走査して見つける。"""
-    import backend.core.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
+    import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
     chat_routes, parent, live = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
     # live (OLD.jsonl) には無い uuid を、 古いファイルに置く
     rolled = tmp_path / "rolled.jsonl"
@@ -453,7 +453,7 @@ def test_fork_endpoint_finds_uuid_in_rolled_file(tmp_path, monkeypatch, isolated
 
 def test_lineage_root_resolved_returns_true_when_chain_completes():
     """parentUuid 鎖が根 (= null) まで到達してれば True。 build_forked_lineage の完走判定に使う。"""
-    from backend.core.fork import lineage_root_resolved  # noqa: PLC0415
+    from backend.fork.fork import lineage_root_resolved  # noqa: PLC0415
     lines = [
         _line("u1", None, "user"),
         _assistant("a1", "u1"),
@@ -464,7 +464,7 @@ def test_lineage_root_resolved_returns_true_when_chain_completes():
 
 def test_lineage_root_resolved_returns_false_when_parent_missing():
     """親 uuid がファイル内に無ければ False = 別 jsonl にまたがってる、 lazy stitching が要る印。"""
-    from backend.core.fork import lineage_root_resolved  # noqa: PLC0415
+    from backend.fork.fork import lineage_root_resolved  # noqa: PLC0415
     lines = [
         _line("u2", "a1", "user"),       # 親 a1 は別 jsonl にある想定
         _assistant("a2", "u2"),
@@ -473,7 +473,7 @@ def test_lineage_root_resolved_returns_false_when_parent_missing():
 
 
 def test_lineage_root_resolved_returns_false_when_from_uuid_absent():
-    from backend.core.fork import lineage_root_resolved  # noqa: PLC0415
+    from backend.fork.fork import lineage_root_resolved  # noqa: PLC0415
     assert lineage_root_resolved([_line("u1", None, "user")], "ghost") is False
 
 
@@ -483,7 +483,7 @@ def test_fork_endpoint_stitches_lineage_across_rolled_files(tmp_path, monkeypatc
     旧版は途中で打ち切って古い context を全部失った (2026-06-05 真因)。 同 project dir の
     関連 jsonl 群も結合して source_lines にすることで、 鎖を最後まで辿って full lineage を
     新 jsonl に書き出す。"""
-    import backend.core.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
+    import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
     # 古い jsonl (= rolled) に root u1,a1、 新しい jsonl (= live) に u2,a2,u3。 u2 の親 a1 は
     # 別ファイル。 旧実装は live だけ source にして u2 から始まる短い lineage しか書けなかった。
     rolled_lines = [
@@ -508,7 +508,7 @@ def test_fork_endpoint_stitches_lineage_across_rolled_files(tmp_path, monkeypatc
 def test_build_forked_lineage_lazy_self_contained_does_not_call_fetch_more():
     """src_lines 内で鎖が完走するケース、 fetch_more は 1 回も呼ばれない。 large project dir で
     無関係な jsonl を読まない (= fork が重くならない) ことの最小単位の担保。"""
-    from backend.core.fork import build_forked_lineage_lazy  # noqa: PLC0415
+    from backend.fork.fork import build_forked_lineage_lazy  # noqa: PLC0415
     src = [
         _line("u1", None, "user"),
         _assistant("a1", "u1"),
@@ -526,7 +526,7 @@ def test_build_forked_lineage_lazy_self_contained_does_not_call_fetch_more():
 def test_build_forked_lineage_lazy_pulls_only_needed_files():
     """親 uuid が src_lines に無い時だけ fetch_more が呼ばれ、 親が見つかった時点で停止。
     候補 jsonl が複数あっても鎖完走後は呼ばれない。"""
-    from backend.core.fork import build_forked_lineage_lazy  # noqa: PLC0415
+    from backend.fork.fork import build_forked_lineage_lazy  # noqa: PLC0415
     src = [
         _line("u2", "a1", "user"),       # 親 a1 は src に無い
         _assistant("a2", "u2"),
@@ -546,7 +546,7 @@ def test_build_forked_lineage_lazy_walks_through_system_rows():
     """parentUuid 鎖の中間に type='system' 行があっても完走する。 実機 jsonl で claude が
     note / caveat を system 行として鎖に挟むケースを実装が見逃してた (2026-06-05 真因、
     1475 行あるべき lineage が leaf 1 行だけになってた)。"""
-    from backend.core.fork import build_forked_lineage_lazy  # noqa: PLC0415
+    from backend.fork.fork import build_forked_lineage_lazy  # noqa: PLC0415
     src = [
         _line("u1", None, "user"),
         _line("s1", "u1", "system"),       # 鎖の中間に system 行
@@ -559,7 +559,7 @@ def test_build_forked_lineage_lazy_walks_through_system_rows():
 
 def test_build_forked_lineage_lazy_walks_through_attachment_rows():
     """type='attachment' (= ファイル添付情報) も鎖の中間に入るケースを抜け落とさない。"""
-    from backend.core.fork import build_forked_lineage_lazy  # noqa: PLC0415
+    from backend.fork.fork import build_forked_lineage_lazy  # noqa: PLC0415
     src = [
         _line("u1", None, "user"),
         _line("at1", "u1", "attachment"),
@@ -571,7 +571,7 @@ def test_build_forked_lineage_lazy_walks_through_attachment_rows():
 
 def test_build_forked_lineage_lazy_stops_when_fetch_returns_none():
     """fetch_more が None を返したら、 そこまでの鎖で確定する (= 無限ループしない)。"""
-    from backend.core.fork import build_forked_lineage_lazy  # noqa: PLC0415
+    from backend.fork.fork import build_forked_lineage_lazy  # noqa: PLC0415
     src = [_line("u2", "a1", "user")]  # 親 a1 はどこにも無い
     out = build_forked_lineage_lazy(src, "u2", "NEW", lambda: None)
     assert _uuids(out) == ["u2"]  # 鎖は u2 だけで打ち切り
@@ -580,7 +580,7 @@ def test_build_forked_lineage_lazy_stops_when_fetch_returns_none():
 def test_fork_endpoint_lazy_stops_reading_when_root_resolved(tmp_path, monkeypatch, isolated_state):
     """src_path 単体で鎖が完走するケースでは他 jsonl を 1 個も読まない (= lazy 振る舞い検証)。
     無関係な大きい jsonl が project dir にあっても fork POST は src_path だけ触る。"""
-    import backend.core.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
+    import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
     # src_path に full lineage (= root から leaf まで揃ってる)
     full = [
         _line("u1", None, "user"),
@@ -602,7 +602,7 @@ def test_fork_endpoint_lazy_stops_reading_when_root_resolved(tmp_path, monkeypat
 
 def test_fork_endpoint_not_found_across_all_files(tmp_path, monkeypatch, isolated_state):
     from fastapi import HTTPException  # noqa: PLC0415
-    import backend.core.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
+    import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
     chat_routes, parent, _ = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
     monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd, account_id=None: tmp_path)
     try:
@@ -620,7 +620,7 @@ def test_fork_endpoint_not_found_across_all_files(tmp_path, monkeypatch, isolate
 
 def test_delete_fork_session_removes_its_jsonl(tmp_path, monkeypatch, isolated_state):
     import backend.routes.chat as chat_routes  # noqa: PLC0415
-    import backend.core.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
+    import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
     chat_routes, parent, src = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
     monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd, account_id=None: tmp_path)
     # フォーク作成 → 新 jsonl がある状態を確認
@@ -657,8 +657,8 @@ def test_delete_normal_session_does_not_touch_jsonl(tmp_path, monkeypatch, isola
 
 def test_restart_fork_session_promotes_to_normal_tab(tmp_path, monkeypatch, isolated_state):
     import backend.routes.chat as chat_routes  # noqa: PLC0415
-    import backend.core.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
-    import backend.config as config_mod  # noqa: PLC0415
+    import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
+    import backend._common.config as config_mod  # noqa: PLC0415
     chat_routes, parent, _src = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
     monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd, account_id=None: tmp_path)
     # demote (= restart 内の fork GC) の path 解決は config が真値 (= audit A-2)
@@ -679,7 +679,7 @@ def test_restart_fork_session_promotes_to_normal_tab(tmp_path, monkeypatch, isol
         chat_routes.restart_session(forked["id"], _="ok")
     )
     # resume_session_id は剥がれて通常タブ化、 parent_id は派生履歴として残す
-    from backend.state import sessions_meta  # noqa: PLC0415
+    from backend._common.state import sessions_meta  # noqa: PLC0415
     promoted = sessions_meta[forked["id"]]
     assert promoted.resume_session_id is None
     assert promoted.parent_id == parent.id
@@ -700,7 +700,7 @@ def test_restart_normal_session_keeps_meta_unchanged(tmp_path, monkeypatch, isol
     asyncio.get_event_loop().run_until_complete(
         chat_routes.restart_session(parent.id, _="ok")
     )
-    from backend.state import sessions_meta  # noqa: PLC0415
+    from backend._common.state import sessions_meta  # noqa: PLC0415
     assert sessions_meta[parent.id].resume_session_id is None  # 元から None
     assert sessions_meta[parent.id].parent_id is None  # 通常タブのまま
 

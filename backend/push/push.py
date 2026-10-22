@@ -25,10 +25,10 @@ try:
 except ImportError:
     _HAS_WEBPUSH = False
 
-import backend.config as _config
-from backend.paths import SUBSCRIPTIONS_PATH, VAPID_PATH
+import backend._common.config as _config
+from backend._common.paths import SUBSCRIPTIONS_PATH, VAPID_PATH
 from backend.observability.metrics import metrics
-from backend.state import (
+from backend._common.state import (
     NOTIFY_MODES,
     NotifyMode,
     atomic_write_text,

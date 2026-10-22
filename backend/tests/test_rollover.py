@@ -17,11 +17,11 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-import backend.config as config_mod
-import backend.rollover as watch
-from backend.core.jsonl_predicates import AGENT_MESSAGE_OPENING, ROLLOVER_OPENING, is_client_message
+import backend._common.config as config_mod
+import backend.rollover.rollover as watch
+from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENING, ROLLOVER_OPENING, is_client_message
 from backend.routes import rollover as ro
-from backend.state import SessionDef
+from backend._common.state import SessionDef
 
 ROOT = Path(__file__).resolve().parents[2]
 SETTINGS = {"working": {"context_pct": 60}, "idle": {"context_pct": 40, "minutes": 50}}

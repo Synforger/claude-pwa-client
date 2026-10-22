@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import backend.routes.overview as overview
-import backend.state as state_mod
+import backend._common.state as state_mod
 
 
 def test_overview_get_matches_the_stream_payload(isolated_state):

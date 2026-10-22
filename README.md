@@ -145,7 +145,7 @@ LaunchAgent KeepAlive should bring everything back up; check with `task status` 
 
 ## Configuration
 
-Skeleton of `backend/config.json` (copy from `backend/config.example.json`):
+Skeleton of `backend/config.json` (copy from `configs/config.example.json`):
 
 ```json
 {
