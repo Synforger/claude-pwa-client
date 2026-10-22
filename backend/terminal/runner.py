@@ -52,6 +52,7 @@ from pathlib import Path
 from backend.config import CLAUDE_PATH
 from backend.paths import FAVORITES_PATH, PLATFORM_ROOT, note_path
 from backend.terminal import input_ready
+from backend.terminal.tab_environment import read_environment, tab_environment
 from backend.terminal.control_mode import (
     ControlModeLineBuffer,
     build_refresh_client_line,
@@ -201,6 +202,26 @@ def ensure_tmux_resilience() -> None:
         )
 
 
+def clean_server_environment() -> None:
+    """Take the backend's Python environment out of the tmux server's global environment (= idempotent).
+
+    A new session starts from the server's global environment, which is the environment of whatever first
+    started the server (= any tmux call of this backend), so cleaning only the spawned process is not enough.
+    """
+    shown = _run_tmux("show-environment", "-g", text=True)
+    if shown is None or shown.returncode != 0:
+        logger.warning("tmux environment: could not read the server's global environment (rc=%s)",
+                       None if shown is None else shown.returncode)
+        return
+    server = read_environment(shown.stdout)
+    wanted = tab_environment(server)
+    for name in sorted(server.keys() - wanted.keys()):
+        _run_tmux("set-environment", "-g", "-u", name)
+    for name, value in wanted.items():
+        if server.get(name) != value:
+            _run_tmux("set-environment", "-g", name, value)
+
+
 @dataclass
 class PtySession:
     """1 セッション = 1 claude プロセス + master fd + 出力 queue。
@@ -270,12 +291,13 @@ async def spawn_pty_session(
     if USE_TMUX_WRAP:
         # server がいつ生まれ直しても「session 全滅 = server 死」 にならない状態を先に固定
         ensure_tmux_resilience()
+        clean_server_environment()
 
     master_fd, slave_fd = pty.openpty()
     _set_winsize(master_fd, initial_rows, initial_cols)
 
-    # 子 env: 親をそのまま継承、 ただし proxy 経由に切り替わる変数は明示的に剥がす
-    child_env = dict(os.environ)
+    # 子 env: 親を継承し、 backend 自身の Python の環境と、 proxy 経由に切り替わる変数は剥がす
+    child_env = tab_environment(os.environ)
     for var in ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_URL"):
         child_env.pop(var, None)
     # TTY 想定の TERM を確保 (= 親 server が daemon 起動だと TERM 無いことがある)
