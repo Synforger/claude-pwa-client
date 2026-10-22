@@ -18,6 +18,7 @@ import {
   setActiveId as storeSetActiveId,
   setAgents,
 } from '../../state/sessions.js'
+import { sameSessionIds } from './sessionIds.js'
 
 // セッション (= UI 上の 1 タブ = 1 議題) のリストと、 現在 active な session_id を管理する。
 // backend `/sessions` を真値とし、 起動時に GET でローカルの localStorage と同期する。
@@ -61,23 +62,43 @@ async function fetchBackendInitial() {
       apiFetch(`/agents`).then(r => r.json()).catch(() => null),
     ])
     if (Array.isArray(serverAgents)) setAgents(serverAgents)
-    if (Array.isArray(serverSessions)) {
-      // 並び順: created_at 降順 (新しい順) で固定。 ChatGPT と同じく新規作成が一番上
-      const sorted = [...serverSessions].sort((a, b) => (b.created_at || 0) - (a.created_at || 0))
-      setSessions(sorted)
-      // active が backend に居ない or 未設定なら先頭 (= 一番新しい) に寄せる
-      const cur = getSnapshot().activeId
-      if (cur && sorted.some(s => s.id === cur)) {
-        // keep
-      } else {
-        storeSetActiveId(sorted.length > 0 ? sorted[0].id : null)
-      }
-    }
+    if (Array.isArray(serverSessions)) applyServerSessions(serverSessions)
   } catch {
     // 起動時 fetch 失敗 = localStorage 先読み結果で継続。 次回 retry は visibility 復帰系の
     // 別経路 (= status SSE / overview SSE) が拾うので、 本 hook では再試行しない。
     backendInitRequested = false  // retry 余地は残す (= 次 mount で再試行)
   }
+}
+
+// backend の一覧を手元の真値にする。
+function applyServerSessions(serverSessions) {
+  // 並び順: created_at 降順 (新しい順) で固定。 ChatGPT と同じく新規作成が一番上
+  const sorted = [...serverSessions].sort((a, b) => (b.created_at || 0) - (a.created_at || 0))
+  setSessions(sorted)
+  // active が backend に居ない or 未設定なら先頭 (= 一番新しい) に寄せる
+  const cur = getSnapshot().activeId
+  if (!(cur && sorted.some(s => s.id === cur))) {
+    storeSetActiveId(sorted.length > 0 ? sorted[0].id : null)
+  }
+}
+
+// 一覧の概要の snapshot (= 全部のタブの状態) のタブの集まりが手元の一覧と食い違ったら、 backend の一覧を
+// 取り直す (= 別の端末・子のタブ・エージェントが立てたタブと、 backend が消したタブ)。 取り直しは 1 本ずつ
+// にし、 その間に届いた snapshot は、 終わった後に最後の 1 つで突き合わせ直す。
+let refetching = false
+let latestSnapshotIds = null
+
+export async function reconcileSessionIds(snapshotIds) {
+  latestSnapshotIds = snapshotIds
+  if (refetching || sameSessionIds(snapshotIds, getSnapshot().sessions)) return
+  refetching = true
+  try {
+    const serverSessions = await apiFetch(`/sessions`).then(r => r.json()).catch(() => null)
+    if (Array.isArray(serverSessions)) applyServerSessions(serverSessions)
+  } finally {
+    refetching = false
+  }
+  if (latestSnapshotIds !== snapshotIds) reconcileSessionIds(latestSnapshotIds)
 }
 
 // 以下、 mutation API は module-level の純関数 (= component instance に依存しない)。
