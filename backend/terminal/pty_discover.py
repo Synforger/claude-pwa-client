@@ -46,6 +46,25 @@ async def register_claude_when_ready(
             return
 
 
+def claude_pid_in_pane(session_id: str) -> int | None:
+    """The pid of the claude now running in a tab's pane, or `None` when none runs there. Blocks on tmux and
+    the process table, so callers on the event loop run it in a thread."""
+    for pane_pid in tmux_pane_pids(session_id):
+        info = _find_claude_descendant_info(pane_pid)
+        if info is not None:
+            return info[0]
+    return None
+
+
+async def refresh_tier(session_id: str) -> None:
+    """Read a tab's tier again from the claude now in its pane: one that started after
+    `register_claude_when_ready` stopped waiting, or that replaced the claude seen before. Called when a
+    claude announces its start (the SessionStart hook)."""
+    pid = await asyncio.to_thread(claude_pid_in_pane, session_id)
+    if pid is not None and record_tier(session_id, pid):
+        sessions_overview.notify()
+
+
 def tmux_pane_pids(session_id: str) -> list[int]:
     """指定 PWA session の tmux session に属する pane の PID 一覧。"""
     # pty_runner との循環 import を避けるため遅延 import (= 関数の最初の呼出時のみ評価)
