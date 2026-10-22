@@ -431,10 +431,9 @@ def test_the_listing_hides_a_tab_working_in_a_boundary_this_tab_does_not_know(tm
     guard, marks = tmp_path / "guard", tmp_path / "marks"
     for folder in (guard, marks, tmp_path / "company/client-a/work", tmp_path / "company/hub", tmp_path / "agent"):
         folder.mkdir(parents=True, exist_ok=True)
-    # 照合は同じ folder の部品 (= 置き場の表) を読むので、 在れば一緒に写す。
-    for part in (GUARD_SCAN, GUARD_SCAN.with_name("guard_places.py")):
-        if part.is_file():
-            (home / ".git-hooks/scanners" / part.name).write_text(part.read_text(encoding="utf-8"), encoding="utf-8")
+    # 照合は自分の実体の在処から部品 (= 置き場の表) を辿るので、 写さずに本物への link を張る (= この機械の
+    # `~/.git-hooks/scanners/` と同じ形)。
+    (home / ".git-hooks/scanners" / GUARD_SCAN.name).symlink_to(GUARD_SCAN.resolve())
     (guard / "areas.txt").write_text(f"company {tmp_path}/company\nclient-a {tmp_path}/company/client-a\n", encoding="utf-8")
     (marks / "s-client.json").write_text('{"areas": ["client-a"]}', encoding="utf-8")
     (marks / "s-normal.json").write_text('{"areas": []}', encoding="utf-8")
