@@ -397,3 +397,26 @@ def test_endpoint_rejects_non_local_client():
         json={"hook_event_name": "Stop", "session_id": "x"},
     )
     assert response.status_code == 403
+
+
+def test_session_start_reads_the_tier_again_from_the_claude_that_started(fake_bindings, captured_pushes, monkeypatch, tmp_path):
+    """SessionStart asks for the tab's tier to be read again (= a claude that started late or was replaced)."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(jsonl_watcher, "_PERSIST_PATH", tmp_path / "bindings.json")
+    monkeypatch.setattr(hooks_router, "sessions_meta", {"ses_tab": object()})
+    refreshed = []
+
+    async def refresh(sid):
+        refreshed.append(sid)
+
+    monkeypatch.setattr(hooks_router.pty_discover, "refresh_tier", refresh)
+    transcript = tmp_path / "claude-new.jsonl"
+    transcript.write_text("{}\n")
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    payload = {"hook_event_name": "SessionStart", "session_id": "claude-new", "transcript_path": str(transcript), "source": "resume"}
+    response = TestClient(app).post("/hooks/event", json=payload, headers={"X-PWA-SID": "ses_tab"})
+    assert response.status_code == 200
+    assert refreshed == ["ses_tab"]

@@ -35,7 +35,7 @@ from backend.jsonl.session_status import (
 )
 from backend.core.prose_language import foreign_prose
 from backend.state import is_voice_open, session_language, sessions_meta
-from backend.terminal import input_ready
+from backend.terminal import input_ready, pty_discover
 import backend.rollover as rollover
 
 # backend-F-40 注記: jsonl_watcher は hooks を import しない (= confirm_bind → _save_bindings
@@ -285,6 +285,9 @@ async def _handle_session_start(ctx: HookContext) -> dict:
     # claude 本体が起動を通知した = このタブへの打鍵を解禁する。 restart 直後の窓で
     # 送信を待たせている側がここで起きる (= `backend/terminal/input_ready.py`)。
     input_ready.mark_ready(ctx.pwa_sid_hdr)
+    # A claude may start after the backend stopped looking for it, or replace the one it saw, so the tier
+    # (= what the list and the memo follow) is read again from the claude that just started.
+    asyncio.create_task(pty_discover.refresh_tier(ctx.pwa_sid_hdr))
     logger.info(
         "SessionStart bound: pwa_sid=%s source=%s claude_sid=%s -> %s",
         ctx.pwa_sid_hdr, source, ctx.claude_sid,
