@@ -23,6 +23,8 @@ import './NoteModal.css'
 // 見る時は markdown のファイルと同じ描き方 (= 見出し / 表 / コード。 書いてある path はタップで開く) で、
 // 長くても畳まず、 段落の改行と空白は書いたとおりに残す。 書く時はただのテキスト欄。
 // メモはそのタブの下書きで、 タブを消すと消える。
+// 頭に、 そのタブのトップページへのリンクを固定で置く (= メモの本文とは別の行。 ページは backend が
+// タブの階層を記録した時に作るので、 メモを空にしても消えない)。 ページが無いタブでは出さない。
 export default function NoteModal() {
   const t = useT()
   const sessionsSnap = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
@@ -34,6 +36,7 @@ export default function NoteModal() {
   const conversation = activeId ? messagesSnap[activeId] : undefined
 
   const [content, setContent] = useState(null)   // null = まだ読んでいない
+  const [page, setPage] = useState(null)         // そのタブのトップページの path。 null = 無い
   const [error, setError] = useState(null)
   const [editMode, setEditMode] = useState(false)
   const [editText, setEditText] = useState('')
@@ -53,7 +56,11 @@ export default function NoteModal() {
     const controller = new AbortController()
     apiFetch(`/sessions/${encodeURIComponent(activeId)}/note`, { signal: controller.signal })
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(data => { setContent(typeof data.content === 'string' ? data.content : ''); setError(null) })
+      .then(data => {
+        setContent(typeof data.content === 'string' ? data.content : '')
+        setPage(typeof data.page === 'string' ? data.page : null)
+        setError(null)
+      })
       .catch(e => { if (e.name !== 'AbortError') setError(t('notes.load_error')) })
     return () => controller.abort()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -62,6 +69,7 @@ export default function NoteModal() {
   // 別のタブへ移ったら、 前のタブの文を持ち越さない
   useEffect(() => {
     setContent(null)
+    setPage(null)
     setEditMode(false)
     setResetConfirm(false)
     setError(null)
@@ -130,6 +138,11 @@ export default function NoteModal() {
         </div>
         <div className="modal-body" ref={bodyRef} data-testid="notes-body">
           {error && <span className="error">{error}</span>}
+          {!editMode && page && (
+            <button className="note-page-link" onClick={() => handleOpenFile(page)} data-testid="notes-page-link">
+              🏠 {t('notes.page')}
+            </button>
+          )}
           {editMode ? (
             <textarea
               className="file-editor note-editor"

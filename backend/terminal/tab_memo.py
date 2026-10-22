@@ -2,8 +2,9 @@
 
 The tier folder is the agent's folder with the tab's tier added (see `tier`; a tab whose tier is not known
 is placed like `normal`). The same folder holds the tab's other pages, so a tab's memo and its top page sit
-side by side. Called by `runner` (to tell the tab's agent where the memo is), by the memo routes, and by
-the move of the memos an earlier version kept elsewhere (`memo_migration`).
+side by side (`page_path`). Called by `runner` (to tell the tab's agent where the memo is), by the memo
+routes, by `tab_page` (to place the top page), and by the move of the memos an earlier version kept elsewhere
+(`memo_migration`).
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from backend.terminal.tier import tier_path
 
 PAGES_FOLDER = "pages"
 MEMO_NAME = "memo.md"
+PAGE_NAME = "index.html"
 
 
 def memo_file(tier_folder: Path, session_id: str) -> Path:
@@ -47,3 +49,13 @@ def memo_path(session_id: str) -> Path:
     """The memo file of a tab."""
     return memo_file(tier_folder(session_id), session_id)
 
+
+
+def page_file(tier_folder: Path, session_id: str) -> Path:
+    """The top page of tab `session_id` inside `tier_folder` (= next to its memo)."""
+    return memo_file(tier_folder, session_id).with_name(PAGE_NAME)
+
+
+def page_path(session_id: str) -> Path:
+    """The top page file of a tab (= where it lives, whether or not it exists yet)."""
+    return page_file(tier_folder(session_id), session_id)

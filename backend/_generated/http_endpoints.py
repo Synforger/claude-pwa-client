@@ -176,6 +176,7 @@ class GetSessionsSidNoteResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     path: str  # メモの file の絶対 path (= エージェントには PWA_NOTE で渡る物)
     content: str
+    page: Optional[str] = None  # そのタブのトップページ (= メモの隣の index.html) の絶対 path。 まだ無ければ null
 
 
 class PutSessionsSidNoteRequest(BaseModel):

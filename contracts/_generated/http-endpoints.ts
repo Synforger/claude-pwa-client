@@ -186,6 +186,8 @@ export interface GetSessionsSidNoteResponse {
   /** メモの file の絶対 path (= エージェントには PWA_NOTE で渡る物) */
   path: string
   content: string
+  /** そのタブのトップページ (= メモの隣の index.html) の絶対 path。 まだ無ければ null */
+  page?: string | null
 }
 
 /** PUT /sessions/{sid}/note request body */

@@ -432,17 +432,19 @@ endpoints:
 
   - method: GET
     path: /sessions/{sid}/note
-    description: "そのタブのメモを読む (= 真値は利用者の置き場の notes/<sid>.md)"
+    description: "そのタブのメモと、 そのタブのトップページの場所を読む (= メモの真値は <階層の folder>/pages/<sid>/memo.md)"
     response:
       type: object
       properties:
         path:    { type: string, description: "メモの file の絶対 path (= エージェントには PWA_NOTE で渡る物)" }
         content: { type: string }
-      required: [path, content]
+        page:    { type: string, nullable: true, description: "そのタブのトップページ (= メモの隣の index.html) の絶対 path。 まだ無ければ null" }
+      required: [path, content, page]
     response_kind: json
     auth: tailnet
     invariants:
       - "file が無いタブは content が空文字 (= 404 にしない)"
+      - "トップページは backend が、 タブの階層を記録した時にエージェントの雛形から作る (= 在る物は上書きしない)"
       - "存在しないタブは 404"
       - "1MB 超は 413"
     implementation: backend/routes/notes.py

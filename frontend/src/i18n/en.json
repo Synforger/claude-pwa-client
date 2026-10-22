@@ -122,6 +122,7 @@
   "statusbar.offline": "⚠ Offline",
   "statusbar.offline_title": "Connection to the server was lost",
   "notes.title": "Notes",
+  "notes.page": "Page",
   "notes.edit": "Edit",
   "notes.reset": "Reset",
   "notes.save": "Save",
