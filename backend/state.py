@@ -627,6 +627,8 @@ def register_session(
     agent_status[sid] = _make_agent_status(agent_id)
     session_states[sid] = _build_session_state(sid)
     save_sessions_meta()
+    # 全部の画面のタブの一覧に、 増えたタブを今すぐ知らせる (= 画面は snapshot の sid の集まりで一覧を合わせる)
+    sessions_overview.notify()
     return meta
 
 
@@ -641,6 +643,7 @@ def unregister_session(session_id: str) -> bool:
     session_last_seen_at.pop(session_id, None)
     session_states.pop(session_id, None)
     save_sessions_meta()
+    sessions_overview.notify()
     return True
 
 
