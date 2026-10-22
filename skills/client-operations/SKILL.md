@@ -62,10 +62,19 @@ reaches the running backend only after that checkout has pulled and built.
 1. Note the current commit: `git rev-parse HEAD`.
 2. `git pull --ff-only origin develop` (it works only on `develop` with no local change; read the reason when it stops).
 3. `task build`. A screen that is open switches to the new build the next time it is in front.
-4. See whether backend files changed: `git diff --stat <noted commit>..HEAD -- backend/ pyproject.toml`. No change:
-   done. If `pyproject.toml` gained dependencies, install them into the environment the resident service uses
-   before restarting, then check `python -c "import backend.main"` in that environment.
-5. If backend files changed, restart through the resident service (below) and report it in one line.
+4. See whether backend files changed: `git diff --stat <noted commit>..HEAD -- backend/ pyproject.toml uv.lock`.
+   No change: done.
+   - The resident service runs its environment's own `uvicorn` directly and does not sync dependencies when it
+     starts. If `pyproject.toml` or `uv.lock` changed, bring the environment in line before restarting: on an agent
+     platform, `$AGENT_PLATFORM_ROOT/manifest/bin/platform build` (it also writes the service's plist, so do not edit
+     the plist by hand); elsewhere, install them into the environment the service runs.
+   - Then, from the repo folder, check `<environment>/bin/python -c "import backend.main"`.
+5. If backend files changed, restart through the resident service (below) and report it in one line. After the plist
+   was rewritten, restart with `launchctl bootout` then `launchctl bootstrap`: `kickstart -k` starts from the plist it
+   read before.
+   - The resident process must not carry `UV_PROJECT_ENVIRONMENT`. Tabs the backend starts inherit its environment,
+     and a `uv run` in any of them rebuilds the backend's environment with another project's dependencies (the
+     backend then fails to send files, images and pages). After a restart, `ps -E -p <pid>` must not show it.
 
 ## Resident services: back up, restart, observe
 
