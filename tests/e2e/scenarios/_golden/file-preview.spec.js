@@ -12,7 +12,7 @@ import { openClient } from '../../helpers/pwa.js'
 import { testCard } from '../../helpers/png.js'
 // The zoom limit is one constant in the frontend; the scenarios read it from there
 // so that changing the limit does not mean editing a number here.
-import { MAX_PIXEL_SCALE, DOUBLE_TAP_ZOOM, PAN_END_FRICTION } from '../../../frontend/src/features/file-preview/imageZoom.js'
+import { MAX_PIXEL_SCALE, DOUBLE_TAP_ZOOM, PAN_END_FRICTION } from '../../../../frontend/src/features/file-preview/imageZoom.js'
 
 const SID = 'ses_e2echatgld'
 

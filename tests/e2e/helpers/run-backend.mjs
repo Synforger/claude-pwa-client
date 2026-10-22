@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const E2E_ROOT = resolve(__dirname, '..')
-const REPO_ROOT = resolve(E2E_ROOT, '..')
+const REPO_ROOT = resolve(E2E_ROOT, '..', '..')
 
 const RUNTIME = resolve(E2E_ROOT, 'fixtures', '_runtime')
 const DATA_DIR = resolve(RUNTIME, 'data')

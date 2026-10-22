@@ -16,7 +16,7 @@ task install:core   # back-port task lives in root Taskfile.yml at template stat
 frontend/.env.local
 server/config.json
 # e2e runtime artefacts (gitignored, referenced from e2e docs)
-e2e/fixtures/_runtime
+tests/e2e/fixtures/_runtime
 _runtime/jsonl/
 fixtures/_runtime/data/
 # runtime / user-created files (gitignored; exist only on an operating host)

@@ -5,7 +5,7 @@ W4 deliverable. Pins the contract between the v2 backend (= contracts/ + observa
 ## Layout
 
 ```
-e2e/
+tests/e2e/
 ├── README.md                ← this file
 ├── package.json             ← playwright + @playwright/test devDep only
 ├── playwright.config.js     ← projects (chromium-desktop + webkit-mobile), webServer hook
@@ -37,7 +37,7 @@ e2e/
 Safe to run next to a live production backend: the test backend is isolated on its own tmux socket (`CPC_TMUX_SOCKET`, default `cpc-e2e`) in addition to its own port (18765) and tmp data dir. Never bypass the socket isolation — the tmux namespace is user-global and the backend's maintenance kills `pwa-*` sessions it does not manage.
 
 ```bash
-cd <path-to-this-repo>/e2e
+cd <path-to-this-repo>/tests/e2e
 npm ci
 npx playwright install --with-deps chromium webkit
 npm test

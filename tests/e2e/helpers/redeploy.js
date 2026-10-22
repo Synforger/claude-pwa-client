@@ -12,7 +12,7 @@ import { dirname, extname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-export const DIST = resolve(__dirname, '..', '..', 'frontend', 'dist')
+export const DIST = resolve(__dirname, '..', '..', '..', 'frontend', 'dist')
 const BACKUP = `${DIST}.e2e-original`
 const TEXT = new Set(['.js', '.css', '.html', '.json'])
 

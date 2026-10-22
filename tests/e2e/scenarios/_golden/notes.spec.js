@@ -11,7 +11,7 @@ import { test, expect } from '@playwright/test'
 import { seedSession, appendEvent } from '../../helpers/fixture.js'
 import { openClient } from '../../helpers/pwa.js'
 // The size limits are constants in the frontend; read from there so changing them means no edit here.
-import { TEXT_ZOOM_MAX, TEXT_ZOOM_MIN } from '../../../frontend/src/state/textZoom.js'
+import { TEXT_ZOOM_MAX, TEXT_ZOOM_MIN } from '../../../../frontend/src/state/textZoom.js'
 
 const SID = 'ses_e2echatgld'
 // Where the test backend keeps this tab's notes (= what the agent gets as PWA_NOTE): under the folder the
