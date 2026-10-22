@@ -15,7 +15,7 @@ from urllib.parse import parse_qsl
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 TABS = REPO_ROOT / "backend" / "cli" / "tabs.py"
 SHIM = REPO_ROOT / "bin" / "tabs"
 SESSION = "11111111-2222-3333-4444-555555555555"
@@ -27,7 +27,7 @@ import os
 import re
 from pathlib import Path
 
-AGENT = Path(os.environ.get("AGENT_ROOT", Path(__file__).resolve().parents[2]))
+AGENT = Path(os.environ.get("AGENT_ROOT", Path(__file__).resolve().parents[3]))
 CHILD_START = re.compile(r"<child-start>\\ntier=(.*?)\\n</child-start>", re.S)
 
 

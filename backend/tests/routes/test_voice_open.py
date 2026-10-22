@@ -20,7 +20,7 @@ import backend.terminal.routes as routes
 from backend._common import state
 from backend.speech.speech import VOICE_OPEN_CONTEXT
 from backend.routes import hooks as hooks_router
-from backend.tests.test_hooks_router import fake_agents, fake_bindings  # noqa: F401 (= hook の用意を使い回す)
+from backend.tests.routes.test_hooks_router import fake_agents, fake_bindings  # noqa: F401 (= hook の用意を使い回す)
 
 
 @pytest.fixture(autouse=True)

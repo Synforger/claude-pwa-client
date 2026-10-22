@@ -9,7 +9,7 @@ import pathlib
 
 from backend._common import paths
 
-REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent.parent
 
 
 def test_logs_go_to_a_throwaway_folder_not_the_repository():

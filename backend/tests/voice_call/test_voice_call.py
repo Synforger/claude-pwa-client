@@ -15,7 +15,7 @@ from starlette.testclient import TestClient
 
 from backend.speech.speech import mark_voice_input
 from backend.routes import voice_call
-from backend.tests.test_voice import tabs  # noqa: F401 (= 声のタブの用意を使い回す)
+from backend.tests.routes.test_voice import tabs  # noqa: F401 (= 声のタブの用意を使い回す)
 from backend.voice_call.rules import (
     is_own_voice,
     is_unfinished,

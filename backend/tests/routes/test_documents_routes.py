@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from backend.documents import convert
 from backend.documents.convert import ConversionError
 
-from .test_documents import jpeg_bytes
+from backend.tests.documents.test_documents import jpeg_bytes
 
 PAGE_PORT = 8798
 

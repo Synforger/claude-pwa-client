@@ -23,7 +23,7 @@ from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENING, ROLLOVER_OPENI
 from backend.routes import rollover as ro
 from backend._common.state import SessionDef
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 SETTINGS = {"working": {"context_pct": 60}, "idle": {"context_pct": 40, "minutes": 50}}
 
 

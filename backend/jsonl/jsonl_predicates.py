@@ -9,7 +9,7 @@ bool を返すだけなので test も fixture 不要。
 
 core/ 配置の理由 (= 層一方向化): jsonl / terminal 両 subsystem が使う行レベル純粋
 プリミティブは共有底層に置く。 依存方向は jsonl → terminal → core の一方向のみ
-(= 機械 gate = tests/test_layering.py)。
+(= 機械 gate = tests/architecture/test_layering.py)。
 """
 from __future__ import annotations
 

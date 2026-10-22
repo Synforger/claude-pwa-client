@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[2] / ".tooling" / "local-ci" / "ios-privacy-check.py"
+SCRIPT = Path(__file__).resolve().parents[3] / ".tooling" / "local-ci" / "ios-privacy-check.py"
 spec = importlib.util.spec_from_file_location("ios_privacy_check", SCRIPT)
 check_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(check_module)

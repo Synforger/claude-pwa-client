@@ -337,7 +337,7 @@ def test_writing_a_board_has_a_connected_app_redraw_its_widgets(device_app, monk
 # --- 命令 ---------------------------------------------------------------------------------------------------
 
 def _cli():
-    path = Path(__file__).resolve().parents[1] / "cli" / "device.py"
+    path = Path(__file__).resolve().parents[2] / "cli" / "device.py"
     spec = importlib.util.spec_from_file_location("device_cli", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -473,7 +473,7 @@ def test_the_cpc_command_hands_device_to_the_device_command_even_through_a_link(
     import subprocess
     from pathlib import Path
 
-    cpc = Path(__file__).resolve().parents[2] / "bin" / "cpc"
+    cpc = Path(__file__).resolve().parents[3] / "bin" / "cpc"
     link = tmp_path / "cpc"
     link.symlink_to(cpc)
     # backend の住所を必ず届かない所へ向ける (= 動いている backend に頼らない)。 device が実体へ渡れば、 実体が

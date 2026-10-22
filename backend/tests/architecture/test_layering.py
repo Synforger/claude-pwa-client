@@ -22,7 +22,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-BACKEND_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 # backend 配下の module (= `backend/` からの dotted 名) → 層番号。 最も長く一致した名前の層が効く
 # (= `jsonl` は L2 だが、 `jsonl.jsonl_tail` は L0)。

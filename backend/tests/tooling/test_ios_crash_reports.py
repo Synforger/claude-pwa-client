@@ -5,7 +5,7 @@ import importlib.util
 import json
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parents[2] / "shell" / "ios" / "tools" / "crash-reports" / "crash-reports.py"
+SCRIPT = Path(__file__).resolve().parents[3] / "shell" / "ios" / "tools" / "crash-reports" / "crash-reports.py"
 spec = importlib.util.spec_from_file_location("crash_reports", SCRIPT)
 crash_reports = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(crash_reports)

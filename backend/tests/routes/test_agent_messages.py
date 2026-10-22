@@ -154,7 +154,7 @@ def test_the_opening_line_is_the_same_everywhere_it_is_written():
     """1 行目は、 backend が付け、 画面が読み、 docs が外の道具に教える。 3 つが同じ文字列であること。"""
     from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENINGS
 
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[3]
     for opening in AGENT_MESSAGE_OPENINGS:
         assert f"'{opening}'" in (root / "frontend/src/features/chat/agentMessage.js").read_text()
         assert opening in (root / "docs/reference/agent-messages.md").read_text()
@@ -169,7 +169,7 @@ def test_every_way_of_typing_into_a_tab_is_listed_where_the_docs_say_what_to_clo
         methods = getattr(route, "methods", None)      # WebSocket の route は methods を持たない
         return "/pty/" in route.path and (methods is None or "POST" in methods)
 
-    doc = (Path(__file__).resolve().parents[2] / "docs/reference/agent-messages.md").read_text()
+    doc = (Path(__file__).resolve().parents[3] / "docs/reference/agent-messages.md").read_text()
     paths = [route.path for route in terminal.router.routes if types_into_a_tab(route)]
     assert len(paths) >= 4, paths
     for path in paths:
@@ -620,7 +620,7 @@ def test_a_message_another_machine_hands_over_reaches_the_tab_naming_that_machin
 def test_the_envelope_of_a_message_from_another_machine_is_one_the_screen_reads():
     """画面は封筒を決まった形で読む (= frontend の ENVELOPE)。 別の機械からの封筒も同じ形であること。"""
     import re
-    source = (Path(__file__).resolve().parents[2] / "frontend/src/features/chat/agentMessage.js").read_text()
+    source = (Path(__file__).resolve().parents[3] / "frontend/src/features/chat/agentMessage.js").read_text()
     pattern = re.search(r"^const ENVELOPE = /(.*)/$", source, re.MULTILINE).group(1).replace(r"\/", "/")
     body = am.relayed_envelope("home", "tools", "ses_far", "hello").split("\n", 1)[1]
     found = re.match(pattern, body)

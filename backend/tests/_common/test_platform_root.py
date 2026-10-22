@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-PROBE = REPO_ROOT / "backend" / "tests" / "platform_root_probe.py"
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+PROBE = REPO_ROOT / "backend" / "tests" / "_common" / "platform_root_probe.py"
 TOOL = "claude-pwa-client"
 
 # paths と config が決めた置き場を JSON で出す

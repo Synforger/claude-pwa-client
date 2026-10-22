@@ -82,7 +82,7 @@ backend は機能ごとのサブパッケージ + 中立基盤 `_common/` で構
                           (中立基盤)
 ```
 
-**依存方向の法律** (= 機械 gate: `backend/tests/test_layering.py`、 全 import 形態を AST 検査):
+**依存方向の法律** (= 機械 gate: `backend/tests/architecture/test_layering.py`、 全 import 形態を AST 検査):
 
 ```
 L0: _common / _internal / observability / _generated / documents / push / speech / usage / fork
