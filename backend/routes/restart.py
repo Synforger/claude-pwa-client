@@ -19,7 +19,7 @@ import subprocess
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend import state
+from backend._common import state
 
 router = APIRouter(prefix="/backend")
 

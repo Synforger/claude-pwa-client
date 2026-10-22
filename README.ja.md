@@ -152,7 +152,7 @@ LaunchAgent KeepAlive で自動起動するはずなので、 まず `task statu
 
 ## 設定ファイル
 
-`backend/config.json` の骨格 (`backend/config.example.json` から複製):
+`backend/config.json` の骨格 (`configs/config.example.json` から複製):
 
 ```json
 {

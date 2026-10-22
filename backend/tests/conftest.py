@@ -1,7 +1,7 @@
 """pytest 共通 setup。
 
 - repo root を sys.path に注入することで、 test ファイル側で
-  `from backend.core.usage import _parse_reset` のように backend package
+  `from backend.usage.usage import _parse_reset` のように backend package
   経由で import できるようにする。
 - `isolated_state` fixture: state.py の module-level dict を test 内で安全に
   mutate するための snapshot / restore 仕組み。 第一弾の pure 関数 test では
@@ -30,16 +30,16 @@ os.environ.setdefault("CPC_USER_DIR", tempfile.mkdtemp(prefix="cpc-test-user-"))
 # 根の振る舞いを確かめる test は、 自分で根を渡す。
 os.environ.pop("AGENT_PLATFORM_ROOT", None)
 
-import backend.config as _config_mod  # noqa: E402  (= 上の 3 つを決めた後で読む)
+import backend._common.config as _config_mod  # noqa: E402  (= 上の 3 つを決めた後で読む)
 
-# `backend.config` が自分で定義している名前。 これ以外 (= AGENTS 等) は、 読むたびに設定から作って配られる。
+# `backend._common.config` が自分で定義している名前。 これ以外 (= AGENTS 等) は、 読むたびに設定から作って配られる。
 _CONFIG_OWN_NAMES = frozenset(vars(_config_mod))
 
 
 def drop_shadowed_config_names() -> list[str]:
     """設定から配られる名前に被さった実体の属性を取り除き、 取り除いた名前を返す。
 
-    `monkeypatch.setattr(backend.config, "AGENTS", ...)` は、 後始末で「元の値」 を実体の属性として書き戻す
+    `monkeypatch.setattr(backend._common.config, "AGENTS", ...)` は、 後始末で「元の値」 を実体の属性として書き戻す
     (= 元は属性ではなく、 読んだ時に設定から作られた値)。 残ると、 以後の test は設定を差し替えても
     その古い値を読む (= 1 本で回すと通り、 全体で回すと落ちる)。"""
     shadowed = sorted(set(vars(_config_mod)) - _CONFIG_OWN_NAMES)
@@ -71,12 +71,12 @@ _TEST_CONFIG = {
 @pytest.fixture(autouse=True)
 def _stub_config(monkeypatch, tmp_path_factory):
     """全 test に minimum config を注入する。 個別 test が独自値を必要とする
-    場合は `monkeypatch.setattr(backend.config, "get_config", lambda: {...})` で
+    場合は `monkeypatch.setattr(backend._common.config, "get_config", lambda: {...})` で
     上書きする (= autouse 後に local fixture が走るので問題なし)。"""
     cfg_dir = tmp_path_factory.mktemp("backend_config")
     cfg_path = cfg_dir / "config.json"
     cfg_path.write_text(json.dumps(_TEST_CONFIG))
-    import backend.config as config_mod
+    import backend._common.config as config_mod
 
     # 前の test が残した物を、 この test が読む前に取り除く (= monkeypatch の後始末はこの fixture の後に走る)。
     drop_shadowed_config_names()
@@ -89,7 +89,7 @@ def _stub_config(monkeypatch, tmp_path_factory):
 @pytest.fixture
 def agent_folder(monkeypatch, tmp_path):
     """The folder of `agent_a` (= the agent every test tab runs), under the test's own tmp folder."""
-    import backend.config as config_mod
+    import backend._common.config as config_mod
 
     folder = tmp_path / "agent"
     folder.mkdir()
@@ -135,12 +135,12 @@ def isolated_state(monkeypatch, tmp_path):
     test 間で global state が漏れて偽の pass/fail を起こさないための保険。
 
     あわせて永続化先 SESSION_META_PATH を tmp_path に飛ばす。 個別 test の
-    monkeypatch では救えないケース (= chat_routes 側が `from backend.state import
+    monkeypatch では救えないケース (= chat_routes 側が `from backend._common.state import
     save_sessions_meta` で bind した参照を呼ぶと state 属性差し替えを素通りする)
     があり、 実機 backend/session_meta.json に test 用の "Chat" / "Chat fork" が
     書き込まれて UI ドロワーにゴーストタブが残る事故が起きた (2026-06-04 観測)。
     永続化先そのものを tmp に向けることで bind 経路に関係なく実機を汚さない。"""
-    from backend import state
+    from backend._common import state
 
     monkeypatch.setattr(state, "SESSION_META_PATH", tmp_path / "session_meta.json")
     snapshots = {name: copy.deepcopy(getattr(state, name)) for name in _STATE_GLOBALS}

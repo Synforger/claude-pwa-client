@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from backend.paths import SESSION_HISTORY_PATH
+from backend._common.paths import SESSION_HISTORY_PATH
 
 logger = logging.getLogger(__name__)
 

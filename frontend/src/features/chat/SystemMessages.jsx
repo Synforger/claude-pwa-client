@@ -7,8 +7,8 @@
 //   AttachmentCard / HookErrorCard / SystemNoteCard をそのままこの 1 ファイルに集約する
 //   (= 1 ファイル 7 サブコンポーネント、 後で機能ごとに分けたい時に細分化しやすい単位)。
 // - TaskNotification は元から専用ファイルなので registry 側で直接 import する。
-// - format helper (= formatDuration) は utils/format.js から引く。
-import { formatDuration } from '../../utils/format.js'
+// - format helper (= formatDuration) は _common/format.js から引く。
+import { formatDuration } from '../../_common/format.js'
 import { useT } from '../../i18n/t.js'
 
 // 会話圧縮 (compact_boundary) 用バナー。SDK からは事後通知しか来ないので

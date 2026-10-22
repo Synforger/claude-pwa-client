@@ -1,6 +1,6 @@
 # Architecture
 
-> backend / frontend のサブパッケージ構成、 依存方向、 中立基盤 (= `paths.py` /
+> backend / frontend のサブパッケージ構成、 依存方向、 中立基盤 (= `backend/_common/paths.py` /
 > `protocol.py` 等)、 1 sid を束ねる `SessionState` + `asyncio.Lock` の意義をまとめる。
 > README の「ディレクトリ構成」 は対外向け俯瞰、 本書はその上で **なぜその切り方か** /
 > **何を import してよく何を禁忌か** を真値として宣言する。
@@ -14,8 +14,8 @@
        │                    │     │   ├ terminal/  (= PTY + tmux 駆動)      │
        │                    ├──▶  │   ├ jsonl/     (= ~/.claude tail)       │
        │                    │     │   ├ routes/    (= HTTP / SSE / WS)      │
-   ホーム画面追加 → PWA       │     │   ├ core/     (= push / usage / 共有底層) │
-                            │     │   └ state.py  (= プロセス共有状態 + 集約)│
+   ホーム画面追加 → PWA       │     │   ├ push/ usage/ fork/ (= 機能ごと)    │
+                            │     │   └ _common/  (= 共有状態 + path + 設定) │
                             │     │                                          │
                             │     │ moonlight-web-stream                    │ ← 任意 (Path B)
                             │     │   └ Sunshine                            │
@@ -31,24 +31,30 @@ backend は **シングルプロセス FastAPI** を前提に組まれる。 sta
 
 ## backend サブパッケージ責務
 
-backend は **4 つのサブパッケージ** + **2 つの中立基盤 module** で構成する。 各
+backend は機能ごとのサブパッケージ + 中立基盤 `_common/` で構成する。 各
 サブパッケージは他サブパッケージを**横方向に import しない**ことを原則とし、
 共通利用したい helper は中立基盤に降ろす (= 循環 import / 段数狂い path bug の防止)。
 
 | package | 責務 | 主な file |
 |---|---|---|
 | `terminal/` | claude TUI を実 PTY + tmux で起動・駆動する入力経路。 control mode (`-CC`) パーサ、 送信到達の観測 (= 救済 Enter は 2026-07-05 退役、 介入しない)、 打鍵前の起動待ちを持つ | `runner.py` / `routes.py` (`/ws/pty` + `/pty/{sid}/send`) / `confirm.py` / `input_ready.py` / `control_mode.py` / `session_resolver.py` |
-| `jsonl/` | `~/.claude/projects/<cwd-hash>/<claude_session_id>.jsonl` を tail し、 chat UI 用 event 形式 (= `processStreamEvent` 入力) に変換する出力経路 | `events.py` (`jsonl_line_to_events`) / `routes.py` (`/jsonl/stream/{sid}`) / `session_status.py` / `notifications.py` / `plan_choices.py` / `resolver.py` |
+| `jsonl/` | `~/.claude/projects/<cwd-hash>/<claude_session_id>.jsonl` を tail し、 chat UI 用 event 形式 (= `processStreamEvent` 入力) に変換する出力経路。 `terminal/` も使う JSONL 行プリミティブ (tail / predicates) と sid↔JSONL binding registry もここに置く | `events.py` (`jsonl_line_to_events`) / `routes.py` (`/jsonl/stream/{sid}`) / `session_status.py` / `notifications.py` / `plan_choices.py` / `resolver.py` / `jsonl_tail.py` / `jsonl_predicates.py` / `jsonl_watcher.py` |
 | `routes/` | HTTP / SSE / WS の各 endpoint を session / chat / overview / files / hooks / subagents / accounts 単位で分割保持 | `sessions.py` / `chat.py` / `overview.py` (`POST /sessions/{sid}/seen` + 旧 status / overview SSE の実装は unified へ吸収済) / `files.py` / `hooks.py` / `subagents.py` / `accounts.py` / `unified_stream.py` (`/stream/unified` = 多重化 1 本接続、 protocol 詳細 = `../protocol/streams.md`) |
-| `core/` | 共有底層。 Web Push、 使用率 (5h / 7d / ctx) 組み立て、 会話フォーク、 JSONL 行プリミティブ (tail / predicates)、 sid↔JSONL binding registry、 SPA 配信 (= cache 制御 + WS を http 前提の静的配信に落とさない) | `push.py` / `usage.py` / `fork.py` / `jsonl_tail.py` / `jsonl_predicates.py` / `jsonl_watcher.py` / `compression.py` / `static_files.py` |
+| `push/` | Web Push の配信と subscription 管理 | `push.py` |
+| `usage/` | 使用率 (5h / 7d / ctx) の組み立て | `usage.py` |
+| `fork/` | 会話フォーク | `fork.py` |
+| `speech/` | 声に渡す文の整形と、 声の音のコンプレッサー | `speech.py` / `compressor.py` |
+| `maintenance/` | 定期 GC / 掃除 loop | `maintenance.py` |
+| `rollover/` | 自動の入れ替え | `rollover.py` |
+| `_internal/` | app の組み立て (`main.py`) だけが使う部品。 JSON の gzip と、 SPA 配信 (= cache 制御 + WS を http 前提の静的配信に落とさない) | `compression.py` / `static_files.py` |
 
-### 中立基盤 (= 全 package から import 可)
+### 中立基盤 `_common/` (= 全 package から import 可)
 
 | module | 役割 |
 |---|---|
 | `paths.py` | backend 配下の全 file path (= `DATA_DIR` / `SECRETS_DIR` / `LOGS_DIR` / `SESSION_META_PATH` / `VAPID_PATH` / `SUBSCRIPTIONS_PATH` 等) の single source of truth。 各 module で `Path(__file__).parent[.parent]` を書くとサブパッケージ化や file 移動で段数が狂って "vapid.json が見つからない" 系の事故が再発するため、 path 追加 / 移動は必ずここを起点にする |
 | `state.py` | プロセス共有状態 (`sessions_meta` / `stream_states` / `agent_status` / `session_states` / `views_by_conn` / `sessions_overview` broadcaster 等)。 session 操作 helper (`register_session` / `unregister_session` / `rename_session` / `set_notify_mode` / `demote_fork_to_normal`) も同梱 |
-| `config.py` | `config.json` の遅延 lookup (= PEP 562 `__getattr__`)。 test 中の `monkeypatch.setattr` で config 切替できるよう **module 上端で AGENTS を bind しない**。 各 module は `import backend.config as _config` → `_config.AGENTS` の都度引きを徹底する |
+| `config.py` | `config.json` の遅延 lookup (= PEP 562 `__getattr__`)。 test 中の `monkeypatch.setattr` で config 切替できるよう **module 上端で AGENTS を bind しない**。 各 module は `import backend._common.config as _config` → `_config.AGENTS` の都度引きを徹底する |
 | `pty_discover.py` | tmux pane 配下の claude プロセス探索 (= terminal が直接使うが、 lsof / ps 経由の OS 依存層を単独 file に隔離) |
 | `chat_content.py` | 添付ファイル保存 (uploads/tmp)。 terminal の `/pty/{sid}/send-with-files` が呼ぶ |
 
@@ -62,34 +68,35 @@ backend は **4 つのサブパッケージ** + **2 つの中立基盤 module** 
                                      │ include_router(...)
         ┌────────────────┬───────────┼─────────────┬──────────────┐
         ▼                ▼           ▼             ▼              ▼
-   terminal/        jsonl/        routes/      core/push      maintenance.py
+   terminal/        jsonl/        routes/      push/          maintenance/
    (PTY 駆動)       (tail/SSE)    (HTTP/SSE/WS) (Web Push)    (GC loop)
         │                │           │             │
         │                │           │             │
         └────────┬───────┴──────┬────┴──────┬──────┘
                  ▼              ▼           ▼
-              state.py     chat_content   pty_discover
+          _common/state   chat_content   pty_discover
               (共有状態)    (添付保存)     (プロセス探索)
                  │              │           │
                  └──────────────▼───────────┘
-                          paths.py + config.py
+                   _common/paths + _common/config
                           (中立基盤)
 ```
 
-**依存方向の法律** (= 機械 gate: `backend/tests/test_layering.py`、 全 import 形態を AST 検査):
+**依存方向の法律** (= 機械 gate: `backend/tests/architecture/test_layering.py`、 全 import 形態を AST 検査):
 
 ```
-L0: config / paths / errors / state / observability / _generated / core
+L0: _common / _internal / observability / _generated / documents / push / speech / usage / fork
+    + jsonl の共有部品 (jsonl_tail / jsonl_predicates / jsonl_watcher)
 L1: terminal   (= 入力口。 L0 のみ import 可)
 L2: jsonl      (= 出力口。 L0 / L1 を import 可)
-L3: routes / maintenance / main / cli   (= orchestrator。 全層 import 可)
+L3: routes / maintenance / rollover / main / cli / voice_call / device   (= orchestrator。 全層 import 可)
 ```
 
 - **`terminal/` → `jsonl/` は禁止** (= 一方向化。 両 subsystem が使う純粋プリミティブ
-  = `backend/core/jsonl_tail.py` / `backend/core/jsonl_predicates.py`、 共有 registry =
-  `backend/core/jsonl_watcher.py` は core に降ろしてある。 新しい共有が要る時も core へ)
+  = `backend/jsonl/jsonl_tail.py` / `backend/jsonl/jsonl_predicates.py`、 共有 registry =
+  `backend/jsonl/jsonl_watcher.py` は L0 として置いてある。 新しい共有が要る時も L0 の folder へ)
 - `state.py` は `usage.py` を import しない (= 逆方向、 `usage → state` のみ。 module init 時の循環 import 回避)
-- `routes/*` は他 `routes/*` を import しない (= 横断 helper は state / core に降ろす)
+- `routes/*` は他 `routes/*` を import しない (= 横断 helper は `_common/` に降ろす)
 - `paths.py` は何も import しない (= 末端の宣言だけ)
 
 ## SessionState + asyncio.Lock の意義
@@ -154,21 +161,20 @@ React + Vite。 `main.jsx` → `App.jsx` (= 10 行 shell、 ErrorBoundary + Layo
 | `layout/` | 配置層 (= Layout / ChatPanel / TerminalPane / OverlayHost / ErrorBoundary)。 ロジックを持たず、 features 側 component を slot として置くだけ | `Layout.jsx` が features/* の `index.js` を side-effect import で self-register + Topbar / StatusBar / ChatPanel / TerminalPane / OverlayHost / AppEffects を配置。 ChatPanel / TerminalPane は **always-mount + 内部 display:none gate** で viewMode 切替時の state ロスト防止 |
 | `features/<name>/` | 機能の真の owner (= 19 機能 = app-effects / ask-user-question / attachments / chat / dialogs / file-preview / file-tree / fork / ios-native / plan-approval / push-notify / screenshare / session-drawer / status-bar / subagents / tasks / terminal / topbar + `__contracts__` test)。 各機能の component / hook / state / handler / 配線 entry が**1 フォルダで自己完結** | `index.js` = 配線 entry、 registry signal + Component lazy spec (= overlay 系のみ、 `Component: () => import('./<X>.jsx')`) を declare。 **lazy 対象 component の static import は禁止** (= chunk 分離を壊す、 contract test で gate 化、 詳細は `extending.md (c)`) |
 | `state/` | 7 領域 singleton store (= `ephemeral` / `messages` / `push` / `sessions` / `ui` / `promptState` / `locale`) + createStore factory (`_store.js`、 ADR-017)。 詳細責務は `state-stores.md` 参照 | 各 feature が `useSyncExternalStore(subscribe, getSnapshot)` で読み + setter 関数直呼出で書き。 hook 二重 instantiate しても state 分裂しない (= J-2 / J-9 / J-11 / J-12 で全 useState 一掃済) |
-| `registry/` | 5 registry (= `featureRegistry` / `messageRegistry` / `overlayRegistry` / `pushRegistry` / `streamRegistry`) + 共通 lifecycle 契約 | `register(name, { Component?, dispatch, init?, mount?, unmount? })`、 OverlayHost が `overlayRegistry.list()` を走査して open 中 overlay を lazy + Suspense + LazyBoundary で 1 経路 render |
+| `core/` | 5 registry (= `featureRegistry` / `messageRegistry` / `overlayRegistry` / `pushRegistry` / `streamRegistry`) + 共通 lifecycle 契約 | `register(name, { Component?, dispatch, init?, mount?, unmount? })`、 OverlayHost が `overlayRegistry.list()` を走査して open 中 overlay を lazy + Suspense + LazyBoundary で 1 経路 render |
 | `transport/` | backend 接続層 (= `unified.ts` / `select.ts` / `statusCache.ts` / `lifecycle.ts` / `connectionStatus.js`)。 接続は `unified.ts` の 1 本多重化のみ (= 旧 legacy SSE/WS 群と cpc_transport flag は 2026-07-27 退役)、 consumer は `select.ts` 経由で実装を受け取る | features → transport は直接 import OK (= ADR-018)、 ports/ interface を transport が implements |
 | `domain/` | 純粋 TS layer (= `Message.ts` / `Tool.ts` / `Event.ts`) | React 非依存、 worker / test / 別 entry 再利用可能。 型 only file は `types.d.ts` を持たず domain/ 配下に集約 |
 | `ports/` | 型 only interface (= `PtyTransport` / `SseTransport` / `HttpClient` / `ViewsTransport`) | hexagonal 境界の契約、 mock 可能性確保 |
-| `shared/` | feature 跨ぎの共有 component (= `ConfirmDialog` / `Modal.css` 等) | features 内では完結できない 汎用 UI のみ |
-| `hooks/` | generic DOM utility (= `useEscape` / `useOutsideClick` の 2 件のみ) | 機能固有 hook は features 内、 ここには汎用しか入れない |
+| `_common/` | feature 跨ぎの共有 (= 共有 component `ConfirmDialog` / `Modal.css`、 generic DOM hook `useEscape` / `useOutsideClick` / `useTextZoom`、 `api.js` / `format.js` / `storage.js` 等の helper、 `constants.js`) | features 内では完結できない 汎用の物のみ。 機能固有の hook / helper は features 内 |
 | `contracts/` | codegen 出力先 (= events / ws_channels / http_endpoints の `.ts` / `.py`、 ADR-015 / 016) | 真値 = `contracts/schema/*.yaml`、 frontend / backend に自動配置 |
-| `tools/` | tool block 整形 handler の registry (= `_registry.js` + family file `fileOps.js` / `web.js` / `cron.js` / `task.js` / `todoPlan.js` / `worktree.js` / `agent.js` / `misc.js`) | tool 1 個 = `export const <Name> = { format(input) { ... } }` を family file に書く → `_registry.js` に import + lookup 行 1 つ。 registry 未登録は `utils/format.js::formatTool()` の default fallback で `[displayName] <JSON>` 表示 |
+| `tools/` | tool block 整形 handler の registry (= `_registry.js` + family file `fileOps.js` / `web.js` / `cron.js` / `task.js` / `todoPlan.js` / `worktree.js` / `agent.js` / `misc.js`) | tool 1 個 = `export const <Name> = { format(input) { ... } }` を family file に書く → `_registry.js` に import + lookup 行 1 つ。 registry 未登録は `_common/format.js::formatTool()` の default fallback で `[displayName] <JSON>` 表示 |
 
 ### registry 系の単一情報源
 
 | registry | 役割 |
 |---|---|
-| `frontend/src/tools/_registry.js` | tool 名 → handler の lookup table。 `utils/format.js::formatTool()` がここを引いて `handler.format(input)` に丸投げ |
-| `frontend/src/registry/messageRegistry.js` | `system_*` / `attachment` / `task_notification` 等の system kind ごとの `fromEvent(event)` + `Render` を 1 箇所集約。 旧来は MessageItem.jsx 側の巨大 switch + processStreamEvent 側の重複 append パターンに分散していた (W2 Phase F-1 で registry/ 配下に集約) |
+| `frontend/src/tools/_registry.js` | tool 名 → handler の lookup table。 `_common/format.js::formatTool()` がここを引いて `handler.format(input)` に丸投げ |
+| `frontend/src/core/messageRegistry.js` | `system_*` / `attachment` / `task_notification` 等の system kind ごとの `fromEvent(event)` + `Render` を 1 箇所集約。 旧来は MessageItem.jsx 側の巨大 switch + processStreamEvent 側の重複 append パターンに分散していた (W2 Phase F-1 で core/ 配下に集約) |
 | `frontend/src/features/chat/processStreamEvent.js` | SSE event の `type` 分岐の単一窓口。 messageRegistry / appendSystemMessage / useStreamBuffer に dispatch する (W2 Phase F-1 で 旧 hooks/internal から `frontend/src/features/chat/` 配下に移送) |
 
 新 system kind / 新 SSE event type / 新 tool 表示の追加手順は `extending.md` 参照。

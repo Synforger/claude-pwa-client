@@ -6,7 +6,7 @@
 // target session)。 OverlayHost が truthy check で本 component を render し、 内部で
 // useSyncExternalStore + setOverlay 直呼出で props 自己解決する (= ADR-010)。
 //
-// shared/ConfirmDialog.jsx 自体は touch せず、 wrapper として呼び出す。
+// _common/ConfirmDialog.jsx 自体は touch せず、 wrapper として呼び出す。
 
 import { useSyncExternalStore, useCallback } from 'react'
 import { useT } from '../../i18n/t.js'
@@ -16,7 +16,7 @@ import {
   setOverlay,
 } from '../../state/ui.js'
 import { removeSession } from '../session-drawer/useSessions.js'
-import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
+import ConfirmDialog from '../../_common/ConfirmDialog.jsx'
 
 export default function ConfirmDeleteDialog() {
   const t = useT()

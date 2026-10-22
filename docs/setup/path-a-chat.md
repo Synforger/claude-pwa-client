@@ -38,7 +38,7 @@ task run    # foreground、 Ctrl-C で停止 (= dev)
 >
 > ```bash
 > uv sync
-> uv run python -m backend.cli.init_config   # backend/config.json を config.example.json から作る
+> uv run python -m backend.cli.init_config   # backend/config.json を configs/config.example.json から作る
 > uv run python -m backend.cli.gen_vapid     # backend/secrets/vapid.json 生成
 > uv run uvicorn backend.main:app --host 127.0.0.1 --port 8765
 > ```

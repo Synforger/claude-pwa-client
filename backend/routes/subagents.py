@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse, Response
 
 from backend.jsonl.events import subagent_line_to_events
 from backend.jsonl.session_status import scan_single_agent_file
-from backend.state import stream_states
+from backend._common.state import stream_states
 from backend.terminal.runner import jsonl_path_for_session
 
 logger = logging.getLogger(__name__)

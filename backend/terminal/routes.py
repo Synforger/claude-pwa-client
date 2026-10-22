@@ -29,7 +29,7 @@ from fastapi import APIRouter, Body, File, Form, Header, HTTPException, UploadFi
 from starlette.websockets import WebSocketState
 
 from backend.terminal.chat_content import save_to_tmp
-from backend.config import AGENTS, CLAUDE_PATH  # noqa: F401  (CLAUDE_PATH は tests monkeypatch 用 re-export)
+from backend._common.config import AGENTS, CLAUDE_PATH  # noqa: F401  (CLAUDE_PATH は tests monkeypatch 用 re-export)
 
 from backend.terminal.runner import (
     PtySession,
@@ -44,7 +44,7 @@ from backend.terminal.runner import (
     wipe_input_line,
     write_pty,
 )
-from backend.state import is_voice_open, sessions_meta, stream_states
+from backend._common.state import is_voice_open, sessions_meta, stream_states
 
 # 送信確認 (= JSONL カウント + wait + 救済再送) は pty_confirm に分離。
 # session 解決 + spawn は pty_session_resolver に分離。 ここは endpoint と pump のみ持つ。
@@ -60,7 +60,7 @@ from backend.terminal.confirm import (
     _wait_count_added,
 )
 from backend.terminal.first_message import launch_with_first_message
-from backend.core.speech import VOICE_INPUT_MARK, mark_voice_input
+from backend.speech.speech import VOICE_INPUT_MARK, mark_voice_input
 from backend.terminal.input_ready import wait_ready
 from backend.terminal.send_dedup import send_dedup
 from backend.terminal.session_resolver import (

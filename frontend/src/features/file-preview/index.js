@@ -10,7 +10,7 @@
 // INEFFECTIVE_DYNAMIC_IMPORT 警告 → chunk 分離崩壊するため、 Component spec の `() => import(...)`
 // 形式のみで参照する。 contract test (= no-lazy-component-static-import.test.js) が grep gate。
 
-import { register as registerOverlay } from '../../registry/overlayRegistry.js'
+import { register as registerOverlay } from '../../core/overlayRegistry.js'
 
 registerOverlay('previewPath', {
   Component: () => import('./FilePreviewModal.jsx'),

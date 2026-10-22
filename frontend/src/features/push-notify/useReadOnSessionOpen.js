@@ -1,7 +1,7 @@
 // session を開いた時に既読化 (= backend 側の通知履歴を消す)。 useAppEffects.js から
 // 物理移送 (= W2 Phase C、 push 通知系の責務をここに寄せる)。
 import { useEffect } from 'react'
-import { apiFetch } from '../../utils/api.js'
+import { apiFetch } from '../../_common/api.js'
 
 
 // --- session を開いた時に既読化 (= backend 側の通知履歴を消す) ---

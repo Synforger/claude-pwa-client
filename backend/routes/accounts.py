@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from backend.config import AGENTS
+from backend._common.config import AGENTS
 
 router = APIRouter()
 
@@ -27,7 +27,7 @@ def list_accounts():
     """セッション作成時の「アカウント」 (= 個人 / 会社 OAuth 切替) 選択肢を返す。
     候補が 1 つ (= 通常 personal だけ) のとき、 frontend は選択肢自体を出さなくて良い。
     """
-    from backend.config import ACCOUNTS, default_account_id  # noqa: PLC0415
+    from backend._common.config import ACCOUNTS, default_account_id  # noqa: PLC0415
     # account_id を持たない session (= 古い時期に作られたタブ) がどの account と等価かを
     # frontend が判定できるよう、 既定 account に印を付ける。 これが無いと「所属なし」 扱いに
     # なり、 自分自身が「別アカウントで続ける」 の候補に並ぶ。

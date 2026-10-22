@@ -4,8 +4,8 @@ import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { visit } from 'unist-util-visit'
 import { useThrottledStreamingText } from './useThrottledStreamingText.js'
-import { recordPerfSample } from '../../features/app-effects/perfProbe.js'
-import { apiUrl } from '../../utils/api.js'
+import { recordPerfSample } from '../app-effects/perfProbe.js'
+import { apiUrl } from '../../_common/api.js'
 import './MessageRenderer.css'
 
 const PATH_RE = /(?<![(`])(~\/[^\s`"')\]]+|\/Users\/[^\s`"')\]]+)/g

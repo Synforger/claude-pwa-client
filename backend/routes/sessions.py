@@ -19,17 +19,17 @@ import uuid
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 
-from backend import state
-from backend.config import AGENTS, cwd_to_project_dir, default_account_id, get_config
-from backend.core.fork import (
+from backend._common import state
+from backend._common.config import AGENTS, cwd_to_project_dir, default_account_id, get_config
+from backend.fork.fork import (
     build_forked_lineage_lazy,
     fork_point_status,
     latest_clean_fork_point,
 )
-from backend.core.jsonl_tail import split_jsonl_text
-from backend.errors import raise_error
+from backend.jsonl.jsonl_tail import split_jsonl_text
+from backend._common.errors import raise_error
 from backend.jsonl import resolver as jsonl_resolver
-from backend.state import (
+from backend._common.state import (
     SessionDef,
     atomic_write_text,
     register_session,
@@ -46,7 +46,7 @@ from backend.terminal import input_ready
 from backend.terminal.runner import pty_sessions
 from backend.terminal.tab_stop import stop_tab
 from backend.terminal.tab_tier import forget_tier, tab_tier
-import backend.core.jsonl_watcher as jsonl_watcher
+import backend.jsonl.jsonl_watcher as jsonl_watcher
 from backend.jsonl import history as session_history
 
 logger = logging.getLogger(__name__)
@@ -76,7 +76,7 @@ def list_sessions():
 
 @router.post("/sessions")
 async def create_session(payload: dict = Body(...)):
-    from backend.config import ACCOUNTS  # noqa: PLC0415
+    from backend._common.config import ACCOUNTS  # noqa: PLC0415
     agent_id = payload.get("agent_id")
     title = payload.get("title")
     account_id = payload.get("account_id")

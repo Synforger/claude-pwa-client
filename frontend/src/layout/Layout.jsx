@@ -33,7 +33,7 @@ import ExtensionHost from '../features/extensions/ExtensionHost.jsx'
 import StatusBar from '../features/status-bar/StatusBar.jsx'
 import StorageWarningHost from '../features/status-bar/StorageWarningHost.jsx'
 import AppEffects from '../features/app-effects/AppEffects.jsx'
-import '../App.css'
+import './App.css'
 
 export default function Layout() {
   // ChatPanel / TerminalPane は always-mount + 内部 display:none gate (= Phase F-1, F-2 確定方針、

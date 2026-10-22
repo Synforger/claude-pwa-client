@@ -6,7 +6,7 @@
 // truthy で開く経路に組み込む。 旧 AppShell.jsx 内 `desktopOpen && moonlightAvailable && <MoonlightFrame />`
 // は削除済、 moonlightAvailable 判定は MoonlightFrame.jsx 内部に移送 (= 利用不可なら early return null)。
 
-import { register as registerOverlay } from '../../registry/overlayRegistry.js'
+import { register as registerOverlay } from '../../core/overlayRegistry.js'
 
 const noopDispatch = () => null
 registerOverlay('desktopOpen', {

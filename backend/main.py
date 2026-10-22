@@ -31,7 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # 加えて uvicorn の access log (= 通常 stdout に流れて LaunchAgent の StandardOutPath で
 # backend.log に永続 append されてた、 過去 18MB まで膨らんだ実績) も同じ機構に流す
 # (= setup_uvicorn_access_log() で別 file に rotation 付きで投入)。
-from backend.paths import LOGS_DIR as LOG_DIR  # noqa: E402
+from backend._common.paths import LOGS_DIR as LOG_DIR  # noqa: E402
 ERROR_LOG_PATH = LOG_DIR / "backend.error.log"
 ACCESS_LOG_PATH = LOG_DIR / "backend.access.log"
 LOG_MAX_BYTES = 5 * 1024 * 1024   # 5MB / file
@@ -72,23 +72,23 @@ logger = logging.getLogger(__name__)
 # --- アプリ内モジュール ---
 # 2026-06-21 (backend-F-35): lifespan 内に散らばっていた関数内 import を全部
 # ここに集約。 旧版は循環 import 回避を理由に function-local import を多用して
-# いたが、 backend.paths / backend.state / backend.core.* の依存方向が確定した
+# いたが、 backend._common.paths / backend._common.state / backend._common.* の依存方向が確定した
 # 現在は不要。 起動 path で動的解決する import が残ると静的解析 (= unused/
 # unresolved warn) のノイズになる。
-from backend.config import (  # noqa: E402
+from backend._common.config import (  # noqa: E402
     CORS_ALLOW_ORIGINS,
     UPLOADS_TMP,
     page_origin,
     validate_runtime_paths,
 )
-from backend.paths import LEGACY_NOTES_DIR  # noqa: E402
-from backend.state import sessions_meta  # noqa: E402
+from backend._common.paths import LEGACY_NOTES_DIR  # noqa: E402
+from backend._common.state import sessions_meta  # noqa: E402
 
-import backend.maintenance as maintenance  # noqa: E402
-import backend.core.push as push  # noqa: E402
-from backend.core.usage import rate_limits_log_health  # noqa: E402
+import backend.maintenance.maintenance as maintenance  # noqa: E402
+import backend.push.push as push  # noqa: E402
+from backend.usage.usage import rate_limits_log_health  # noqa: E402
 import backend.jsonl.routes as jsonl_routes  # noqa: E402
-import backend.core.jsonl_watcher as jsonl_watcher  # noqa: E402
+import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: E402
 import backend.terminal.memo_migration as memo_migration  # noqa: E402
 import backend.terminal.pty_discover as pty_discover  # noqa: E402
 import backend.routes.agent_messages as agent_messages_routes  # noqa: E402
@@ -101,7 +101,7 @@ import backend.routes.files as files_routes  # noqa: E402
 import backend.routes.hooks as hooks_routes  # noqa: E402
 import backend.routes.notes as notes_routes  # noqa: E402
 import backend.routes.restart as restart_routes  # noqa: E402
-import backend.rollover as rollover  # noqa: E402
+import backend.rollover.rollover as rollover  # noqa: E402
 import backend.routes.rollover as rollover_routes  # noqa: E402
 import backend.routes.subagents as subagents_routes  # noqa: E402
 import backend.routes.unified_stream as unified_stream_routes  # noqa: E402
@@ -254,7 +254,7 @@ async def lifespan(app: FastAPI):
     maintenance_task = asyncio.create_task(maintenance.maintenance_loop())
 
     # 自動の入れ替え: 設定に条件を書いた agent のタブを見回り、 条件が立ったら締めを頼む
-    # (= `backend/rollover.py`。 条件の無い agent のタブには何もしない)。
+    # (= `backend/rollover/rollover.py`。 条件の無い agent のタブには何もしない)。
     rollover_task = asyncio.create_task(rollover.rollover_loop())
 
     # ページの origin: 設定した folder の HTML を、 sandbox を外して別の port から配る (= 設定が無ければ立てない)。
@@ -314,7 +314,7 @@ _install_server_timing(app)
 
 # JSON response の gzip (= 2026-07-27 体感速度)。 携帯 + Tailscale 経由で効く。
 # SSE (= text/event-stream) は対象外なのでライブ更新の滞留は起きない (= 詳細は module docstring)。
-from backend.core.compression import install as _install_compression  # noqa: E402
+from backend._internal.compression import install as _install_compression  # noqa: E402
 _install_compression(app)
 
 # frontend は backend で配信される設計なので、 通常運用では同一オリジン = CORS 不要。
@@ -366,8 +366,8 @@ app.include_router(debug_healthcheck_routes.router)
 
 
 # --- 静的ファイル配信 (Vite ビルド成果物) ---
-from backend.core.static_files import CacheControlledStaticFiles  # noqa: E402
-from backend.paths import FRONTEND_DIST  # noqa: E402
+from backend._internal.static_files import CacheControlledStaticFiles  # noqa: E402
+from backend._common.paths import FRONTEND_DIST  # noqa: E402
 
 
 if FRONTEND_DIST.exists():

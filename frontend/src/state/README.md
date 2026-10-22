@@ -21,7 +21,7 @@ state/
 > 旧 `transport.js` は W2 Phase J-12 で dead 削除 (= 全 setter が orphan、 isOnline は `transport/lifecycle.js::registerConnection` 経由に集約済)。
 >
 > 旧 `persistence.js` は 2026-07-27 に dead 削除 (= 一度も配線されず、 実際の localStorage 書き込みは
-> `../utils/storage.js` + `../features/chat/useChatStorage.js` + `../features/session-drawer/useSessions.js` が担当していた)。
+> `../_common/storage.js` + `../features/chat/useChatStorage.js` + `../features/session-drawer/useSessions.js` が担当していた)。
 
 ## ownership 表
 
@@ -89,7 +89,7 @@ dead 削除した (= 一度も配線されないまま残っていた) ので、
 ## 採用 ADR
 
 - **ADR-010** (= Frontend Architecture): state は features / layout から read 、 transport / SSE handler から write。 import direction は boundaries lint で強制。
-- **ADR-013** (= PWA Lifecycle): localStorage 書き込みは `../utils/storage.js` の debounce + quota retry を通し、 lifecycle event で flush する (= 旧 persistence.js の役割、 実装は各 feature の hook 側)。
+- **ADR-013** (= PWA Lifecycle): localStorage 書き込みは `../_common/storage.js` の debounce + quota retry を通し、 lifecycle event で flush する (= 旧 persistence.js の役割、 実装は各 feature の hook 側)。
 - **ADR-017** (= createStore 共通化): subscribe / snapshot pattern の重複を撤廃、 observability inspector の入口を 1 経路に。
 
 ## 関連

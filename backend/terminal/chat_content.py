@@ -10,8 +10,8 @@ from pathlib import Path
 
 from fastapi import HTTPException, UploadFile
 
-from backend.config import UPLOADS_TMP
-from backend.state import session_tmp_files
+from backend._common.config import UPLOADS_TMP
+from backend._common.state import session_tmp_files
 
 logger = logging.getLogger(__name__)
 

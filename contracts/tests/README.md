@@ -5,7 +5,7 @@
 ## ディレクトリ
 
 ```
-tests/
+contracts/tests/
 ├── README.md           (本 file)
 ├── sse-replay/         入力 JSONL (= backend が処理する 1 行ずつの fixture)
 ├── expected/           対応する期待 SSE event 列 (= JSON array)

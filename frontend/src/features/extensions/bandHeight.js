@@ -1,5 +1,5 @@
 // 拡張の帯の高さ (= 画面の高さに対する %)。 帯の下端の取っ手をドラッグして変え、 端末ごとに保存する。
-import { lsGet, lsSet } from '../../utils/storage.js'
+import { lsGet, lsSet } from '../../_common/storage.js'
 
 // 15% より低いと拡張の中身がほぼ見えず、 70% より高いとチャットの入力欄が押し出される。
 export const BAND_MIN_PCT = 15

@@ -4,7 +4,7 @@
 // 通信は backend の声の口 (= docs/reference/voice.md)、 音は audio.js。
 
 import { apiFetch } from '../../transport/http.ts'
-import { translateHttpErrorDetail } from '../../utils/httpError.js'
+import { translateHttpErrorDetail } from '../../_common/httpError.js'
 import {
   getSnapshot, subscribe, setVoiceAvailable, setVoiceMarks, setVoiceOn, setVoiceError, setVoiceListen, setVoiceTurn,
   setVoicePhase, setVoiceSpeaking, setVoiceConversation, setVoiceQuiet,

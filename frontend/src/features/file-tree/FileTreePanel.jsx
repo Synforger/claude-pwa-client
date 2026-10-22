@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useSyncExternalStore } from 'react'
-import { apiFetch } from '../../utils/api.js'
+import { apiFetch } from '../../_common/api.js'
 import { loadFavs, toggleFav as toggleFavStore, removeFav as removeFavStore, subscribeFavs } from './favorites.js'
-import { lsSetDebounced } from '../../utils/storage.js'
+import { lsSetDebounced } from '../../_common/storage.js'
 import { useT } from '../../i18n/t.js'
 import { openPath } from '../file-preview/openPath.js'
 import {

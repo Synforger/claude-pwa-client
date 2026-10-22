@@ -7,7 +7,7 @@
 //                 通常タブで subscribe 可能、 OS 通知センターに通知される。 standalone 不要。
 //   - Android Chrome: 通常タブ + PWA どちらでも動作。
 
-import { apiFetch } from '../../utils/api.js'
+import { apiFetch } from '../../_common/api.js'
 import { tRaw } from '../../i18n/t.js'
 
 const ENABLED_KEY = 'cpc_push_enabled'

@@ -54,11 +54,11 @@ def test_snapshot_includes_metrics_categories():
 
 
 def test_snapshot_does_not_raise_on_missing_backend_state(monkeypatch: pytest.MonkeyPatch):
-    """import backend.state が失敗するように細工した場合でも snapshot は 200 path を返す。"""
+    """import backend._common.state が失敗するように細工した場合でも snapshot は 200 path を返す。"""
     import sys
 
-    original = sys.modules.get("backend.state")
-    monkeypatch.setitem(sys.modules, "backend.state", None)  # import エラー誘発
+    original = sys.modules.get("backend._common.state")
+    monkeypatch.setitem(sys.modules, "backend._common.state", None)  # import エラー誘発
     try:
         snap = snapshot()
         # backend state は取れないが、 他 field は埋まる
@@ -66,4 +66,4 @@ def test_snapshot_does_not_raise_on_missing_backend_state(monkeypatch: pytest.Mo
         assert "backend_state_error" in snap or "metrics" in snap
     finally:
         if original is not None:
-            sys.modules["backend.state"] = original
+            sys.modules["backend._common.state"] = original

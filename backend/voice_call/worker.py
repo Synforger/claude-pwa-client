@@ -31,7 +31,7 @@ from pipecat.transports.smallwebrtc.request_handler import (
     SmallWebRTCRequestHandler,
 )
 
-from backend.paths import LOGS_DIR
+from backend._common.paths import LOGS_DIR
 from backend.voice_call.client import BackendClient
 from backend.voice_call.pipeline import run_call
 from backend.voice_call.services import Volume

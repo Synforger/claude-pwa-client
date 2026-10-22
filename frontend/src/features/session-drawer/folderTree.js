@@ -5,7 +5,7 @@
 // `sessionTree`), then its subfolders by name. A folded folder hides everything below it and carries the
 // most urgent badge of what it hides. Called by the drawer; which folders are folded is kept per device.
 
-import { lsGet, lsSet } from '../../utils/storage.js'
+import { lsGet, lsSet } from '../../_common/storage.js'
 import { sessionTree } from './sessionTree.js'
 
 export const FOLDED_FOLDERS_KEY = 'cpc.drawer.folded-folders'

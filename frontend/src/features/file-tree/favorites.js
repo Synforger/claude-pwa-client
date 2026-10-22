@@ -6,7 +6,7 @@
 //
 // Here we only keep the last list the host sent. A change is shown at once and settled by the
 // host's answer; a view that opens takes the list again, so lines added from elsewhere show up.
-import { apiFetch } from '../../utils/api.js'
+import { apiFetch } from '../../_common/api.js'
 
 // Where the list used to live (= this browser only). Read once to carry it over, then removed.
 const LEGACY_KEY = 'cpc.fileTree.favorites'

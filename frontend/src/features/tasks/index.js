@@ -5,8 +5,8 @@
 // ChatPanel が直に置く。 📋 のボタンが開くのはタブのメモ (= features/notes) で、 task の一覧の
 // 画面は持たない。
 
-import { register as registerStream } from '../../registry/streamRegistry.js'
-import { register as registerMessage } from '../../registry/messageRegistry.js'
+import { register as registerStream } from '../../core/streamRegistry.js'
+import { register as registerMessage } from '../../core/messageRegistry.js'
 
 import TaskNotification from './TaskNotification.jsx'
 

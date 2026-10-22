@@ -1,6 +1,6 @@
 // features/ask-user-question 配線 entry。
 
-import { register as registerStream } from '../../registry/streamRegistry.js'
+import { register as registerStream } from '../../core/streamRegistry.js'
 
 import './AskUserQuestionBubble.jsx'
 

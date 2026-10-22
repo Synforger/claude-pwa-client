@@ -79,9 +79,9 @@ async def post_e2e_seed(request: Request, body: E2eSeedRequest) -> E2eSeedRespon
     # Imports are local so prod builds never load these modules unless e2e is
     # actually exercised (= keeps startup graph clean + dodges a state.py side
     # effect for non-e2e processes).
-    from backend.config import projects_dir_for_account
-    from backend.core import jsonl_watcher as watcher
-    from backend.state import register_session, sessions_meta
+    from backend._common.config import projects_dir_for_account
+    from backend.jsonl import jsonl_watcher as watcher
+    from backend._common.state import register_session, sessions_meta
 
     agents = (await _agents_snapshot())
     if body.agent_id not in agents:
@@ -183,7 +183,7 @@ async def post_e2e_inject_pending_plan(
     """
     _ensure_localhost(request)
     _ensure_e2e_enabled()
-    from backend.state import agent_status, sessions_overview
+    from backend._common.state import agent_status, sessions_overview
     if session_id not in agent_status:
         raise HTTPException(status_code=409, detail="no session")
     agent_status[session_id]["pending_plan"] = {
@@ -231,8 +231,8 @@ async def post_e2e_pty_write(request: Request, session_id: str, body: PtyWriteRe
 
 async def _agents_snapshot() -> dict[str, dict[str, Any]]:
     # Tiny indirection so the test suite can monkeypatch agent config without
-    # reaching into backend.config internals.
-    from backend.config import AGENTS  # noqa: PLC0415
+    # reaching into backend._common.config internals.
+    from backend._common.config import AGENTS  # noqa: PLC0415
     return AGENTS
 
 

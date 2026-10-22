@@ -18,7 +18,7 @@ from pathlib import Path
 
 import psutil
 
-from backend.state import sessions_overview
+from backend._common.state import sessions_overview
 from backend.terminal.tab_tier import record_tier
 
 
@@ -31,7 +31,7 @@ async def register_claude_when_ready(
     `max_wait` 秒以内に claude プロセスが見つからなければ諦める (= 既存 zsh のみで claude
     起動しないケース等)。
     """
-    import backend.core.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
+    import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
     deadline = time.time() + max_wait
     while time.time() < deadline:
         await asyncio.sleep(interval)
