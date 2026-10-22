@@ -314,7 +314,11 @@ def _setup_account_move(tmp_path, monkeypatch, isolated_state, source_lines=SAMP
         lambda cwd, account_id=None: work_dir if account_id == "work" else src.parent,
     )
     events: list[str] = []
-    monkeypatch.setattr(sessions_mod, "kill_tmux_session", lambda sid: events.append(f"kill {sid}") or True)
+
+    async def _stop(sid):
+        events.append(f"kill {sid}")
+        return True
+    monkeypatch.setattr(sessions_mod, "stop_tab", _stop)
 
     async def _spawn(sid, **_kwargs):
         events.append(f"spawn {sid}")
