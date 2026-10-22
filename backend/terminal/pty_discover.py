@@ -18,6 +18,9 @@ from pathlib import Path
 
 import psutil
 
+from backend.state import sessions_overview
+from backend.terminal.tab_tier import record_tier
+
 
 async def register_claude_when_ready(
     session_id: str, max_wait: float = 8.0, interval: float = 0.5,
@@ -38,6 +41,8 @@ async def register_claude_when_ready(
                 continue
             claude_pid, start_time, cwd = info
             jsonl_watcher.register_pending(session_id, claude_pid, cwd, start_time)
+            if record_tier(session_id, claude_pid):
+                sessions_overview.notify()
             return
 
 

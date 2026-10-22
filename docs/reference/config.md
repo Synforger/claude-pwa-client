@@ -107,7 +107,7 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 |---|---|---|
 | `config` | `<根>/config/claude-pwa-client/` | `config.json`、 `favorites.txt` (⭐) |
 | `secrets` | `<根>/secrets/claude-pwa-client/` | `vapid.json` |
-| `state` | `<根>/state/claude-pwa-client/` | `data/`、 `logs/`、 `notes/`、 `page-store/`、 `uploads/`、 `backups/` |
+| `state` | `<根>/state/claude-pwa-client/` | `data/`、 `logs/`、 `page-store/`、 `uploads/`、 `backups/` (= タブのメモはエージェントの folder の中。 [data-schemas.md](data-schemas.md)) |
 | `cache` | `<根>/cache/claude-pwa-client/` | `document-cache/` |
 
 `config.json` の `rate_limits_log` を書いていない時の既定は `<根>/state/statusline/rate-limits.jsonl` です。

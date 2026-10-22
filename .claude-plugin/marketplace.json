@@ -1,0 +1,14 @@
+{
+  "name": "claude-pwa-client",
+  "owner": {
+    "name": "Synforger"
+  },
+  "plugins": [
+    {
+      "name": "pwa-client",
+      "source": "./",
+      "description": "Skills for working with a claude-pwa-client install: talking to other tabs, child tabs, finding a tab's conversation record, and running the client."
+    }
+  ],
+  "description": "Agent skills that ship with the claude-pwa-client tool."
+}

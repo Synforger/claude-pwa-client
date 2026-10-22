@@ -28,6 +28,7 @@ import {
 } from './useSessions.js'
 import { deriveSessionBadges } from '../push-notify/useSessionBadges.js'
 import { loadFolded, sessionTree, toggleFolded } from './sessionTree.js'
+import { tierLabel } from './tierLabel.js'
 import { usePushSubscription } from '../push-notify/usePushSubscription.js'
 import {
   TEXT_ZOOM_MAX,
@@ -558,6 +559,8 @@ export default function SessionDrawer() {
             const accountLabel = accounts.length > 1
               ? (accounts.find(a => a.id === effectiveAccount)?.display_name || effectiveAccount || null)
               : null
+            // 階層 (= そのタブのエージェントが起動した所)。 分からないタブは出さない。
+            const tierName = tierLabel(s.tier)
             // 移し先候補 = 今と違うアカウント。 1 つなら選択させず直接その名前のボタンを出す。
             const moveTargets = accounts.filter(a => a.id !== effectiveAccount)
             return (
@@ -606,6 +609,7 @@ export default function SessionDrawer() {
                     <span className="drawer-item-title">{s.title}</span>
                     {isFolded && <span className="drawer-item-hidden" title={t('drawer.hidden', { count: hidden })}>+{hidden}</span>}
                     {accountLabel && <span className="drawer-item-account">{accountLabel}</span>}
+                    {tierName && <span className="drawer-item-tier" title={s.tier} data-testid="session-tier">{tierName}</span>}
                     {badge && <span className={`tab-badge ${badge.kind}`}>{badge.label}</span>}
                   </button>
                 )}

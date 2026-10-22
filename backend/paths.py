@@ -26,7 +26,7 @@
 │   ├── data/              (運用 state。 session_meta.json / subscriptions.json / jsonl_bindings.json)
 │   ├── logs/              (rotating log)
 │   ├── backups/           (更新前の控え。 backend は書かず、 更新の手順が置く)
-│   ├── notes/<タブの id>.md   (タブごとのメモ)
+│   ├── notes/<tab id>.md  (where earlier versions kept memos; moved to `<tier folder>/pages/<tab id>/memo.md` at startup)
 │   ├── page-store/        (ページの保存箱)
 │   └── uploads/           (添付の一時置き場。 `config.json` の `uploads_tmp` が決めた時はそちら)
 ├── cache/claude-pwa-client/
@@ -48,7 +48,7 @@
 
 ~/.claude-pwa-client/      (利用者とエージェントが書く物。 repo の外。 `CPC_USER_DIR` で動かせる)
 ├── favorites.txt
-├── notes/<タブの id>.md
+├── notes/<tab id>.md      (where earlier versions kept memos; moved at startup)
 ├── page-store/
 ├── document-cache/
 ├── backups/
@@ -116,9 +116,9 @@ VAPID_PATH = SECRETS_DIR / "vapid.json"
 
 # お気に入り: 1 行に 1 path のテキスト (= エージェントは 1 行足すだけで登録できる)
 FAVORITES_PATH = _user_path("config", "favorites.txt", "favorites.txt")
-# タブごとのメモ: `<タブの id>.md` (= そのタブの物。 タブを消すと一緒に消える)。 symlink なら、
-# 中身は指す先に置かれる (= 起動した側がタブの作業の folder に置く。 タブを消しても指す先は残る)
-NOTES_DIR = _user_path("state", "notes", "notes")
+# Where earlier versions kept each tab's memo (`<tab id>.md`). A memo now lives at
+# `<tier folder>/pages/<tab id>/memo.md` (`backend/terminal/tab_memo.py`); what is left here moves there at startup.
+LEGACY_NOTES_DIR = _user_path("state", "notes", "notes")
 # ページの origin の保存箱 (= ページごとに JSON を 1 つ。 `backend/routes/files.py` の `/.store/`)
 PAGE_STORE_DIR = _user_path("state", "page-store", "page-store")
 # 添付の一時置き場の既定 (= `config.json` の `uploads_tmp` が在ればそちら)
@@ -133,21 +133,8 @@ RATE_LIMITS_LOG_DEFAULT = (
 )
 
 
-def note_path(session_id: str) -> Path:
-    """そのタブのメモの file。 id は backend が発行した物だけを渡す (= 区切りを含む id は置き場の外を指す)。"""
-    if not session_id or Path(session_id).name != session_id:
-        raise ValueError(f"not a session id: {session_id!r}")
-    return NOTES_DIR / f"{session_id}.md"
-
-
-def note_file(session_id: str) -> Path:
-    """メモの中身が置かれる file。 `note_path` が symlink なら指す先 (= 指す先がまだ無くても)。"""
-    path = note_path(session_id)
-    return Path(os.path.realpath(path)) if path.is_symlink() else path
-
-
 def ensure_runtime_dirs() -> None:
-    """起動時に呼ぶ。 data/ secrets/ logs/ と ⭐ の置き場・メモの置き場を 必要なら作る。 SECRETS_DIR は
+    """起動時に呼ぶ。 data/ secrets/ logs/ と ⭐ の置き場を 必要なら作る。 SECRETS_DIR は
     perm 700 で作り、 既存なら chmod で 700 に揃える (個人 Mac 1 ユーザ運用
     前提だが、 同マシンに別ユーザがいる場合の保険)。"""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -155,8 +142,6 @@ def ensure_runtime_dirs() -> None:
     SECRETS_DIR.mkdir(parents=True, exist_ok=True)
     SECRETS_DIR.chmod(stat.S_IRWXU)
     FAVORITES_PATH.parent.mkdir(parents=True, exist_ok=True)
-    # エージェントが最初の 1 回から書けるよう、 メモの置き場も先に作る
-    NOTES_DIR.mkdir(parents=True, exist_ok=True)
 
 
 ensure_runtime_dirs()

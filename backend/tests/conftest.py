@@ -86,6 +86,28 @@ def _stub_config(monkeypatch, tmp_path_factory):
     config_mod.get_config.cache_clear()
 
 
+@pytest.fixture
+def agent_folder(monkeypatch, tmp_path):
+    """The folder of `agent_a` (= the agent every test tab runs), under the test's own tmp folder."""
+    import backend.config as config_mod
+
+    folder = tmp_path / "agent"
+    folder.mkdir()
+    cfg_path = tmp_path / "agent-config.json"
+    cfg_path.write_text(json.dumps({**_TEST_CONFIG, "agents": {"agent_a": {**_TEST_CONFIG["agents"]["agent_a"], "cwd": str(folder)}}}))
+    monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+    config_mod.get_config.cache_clear()
+    yield folder
+    config_mod.get_config.cache_clear()
+
+
+@pytest.fixture
+def a_tab(isolated_state, agent_folder, monkeypatch):
+    """One tab of the test agent (= the tab a backend-issued id belongs to)."""
+    monkeypatch.setattr(isolated_state, "save_sessions_meta", lambda: None)
+    return isolated_state.register_session("agent_a", title="A")
+
+
 # state.py の module-level に存在する dict 群。
 _STATE_GLOBALS = (
     "agent_status",

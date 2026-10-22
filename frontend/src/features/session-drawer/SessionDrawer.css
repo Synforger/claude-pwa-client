@@ -344,6 +344,20 @@ span.drawer-item-fold {
   border-radius: 10px;
   white-space: nowrap;
 }
+/* 階層 (= 口座の札の隣)。 口座の札は枠、 階層は塗りで、 並んでも見分けられる */
+.drawer-item-tier {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-dim, #8a8f98);
+  font-size: 11px;
+  padding: 1px 6px;
+  background: var(--border, #2a2f3a);
+  border-radius: 10px;
+  white-space: nowrap;
+}
 .drawer-item-menu {
   background: none;
   border: none;

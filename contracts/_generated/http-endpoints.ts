@@ -12,6 +12,8 @@ export interface GetSessionsResponseItem {
   account_id?: string | null
   notify_mode?: string
   created_at?: string
+  /** the tier the tab's agent started in (= its AGENT_TIER); null when not known */
+  tier?: string | null
 }
 
 export type GetSessionsResponse = GetSessionsResponseItem[]
