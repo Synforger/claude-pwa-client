@@ -86,7 +86,7 @@ export default defineConfig([
 
   // v2 配下 (.ts / .tsx) — TypeScript parser + react-hooks
   {
-    files: ['src/{domain,ports,contracts,transport,state,core,features,layout,debug}/**/*.{ts,tsx}'],
+    files: ['src/{domain,ports,contracts,transport,state,core,features,layout,debug}/**/*.{ts,tsx}', 'tests/**/*.{ts,tsx}'],
     extends: [
       js.configs.recommended,
       reactHooks.configs.flat.recommended,
