@@ -1,6 +1,7 @@
-// The conversation list as a folder tree: each tab sits in the folder of the tier its agent started in
-// (`projects/Platform/subprojects/Client` -> Platform ▸ Client), under a folder per agent when the list holds more
-// than one agent. Inside a folder, its tabs come first (forks and child tabs under their parent, see
+// The conversation list as a folder tree: each tab sits in the folder of the project its agent started in
+// (`projects/Platform` and `projects/Platform/subprojects/Client` both -> Platform), under a folder per agent when
+// the list holds more than one agent. A subproject gets no folder of its own: it usually holds one tab, so there
+// would be nothing to open. Inside a folder, its tabs come first (forks and child tabs under their parent, see
 // `sessionTree`), then its subfolders by name. A folded folder hides everything below it and carries the
 // most urgent badge of what it hides. Called by the drawer; which folders are folded is kept per device.
 
@@ -12,13 +13,25 @@ export const FOLDED_FOLDERS_KEY = 'cpc.drawer.folded-folders'
 // A folded folder shows the first of these that any tab inside it has
 const BADGE_ORDER = ['pending', 'processing', 'new']
 
-// The folder names a tier walks through. A tier is pairs of a container and a name
-// (`projects/<name>/subprojects/<name>`), so only the names become folders. `normal` and an unknown
-// tier stay in the agent's own folder.
+// The folder a tier puts a tab in. A tier is pairs of a container and a name
+// (`projects/<name>/subprojects/<name>`); only the first name (= the project) becomes a folder. `normal` and an
+// unknown tier stay in the agent's own folder.
 export function tierFolders(tier) {
   if (typeof tier !== 'string' || tier === '' || tier === 'normal') return []
   const parts = tier.split('/').filter(Boolean)
-  return parts.length % 2 === 0 ? parts.filter((_, i) => i % 2 === 1) : parts
+  const project = parts.length >= 2 ? parts[1] : parts[0]
+  return [project]
+}
+
+// The tab at the top of `s`'s line of parents among the listed tabs (= `s` itself when its parent is not listed)
+function topParent(s, byId) {
+  const seen = new Set()
+  let top = s
+  while (top.parent_id && byId.has(top.parent_id) && !seen.has(top.id)) {
+    seen.add(top.id)
+    top = byId.get(top.parent_id)
+  }
+  return top
 }
 
 function newFolder(key, name) {
@@ -40,17 +53,21 @@ function mostUrgent(badges) {
 export function folderTree(sorted, { agents = [], foldedFolders = new Set(), foldedSessions = new Set(), badges = {} } = {}) {
   const agentIds = new Set(sorted.map(s => s.agent_id))
   const showAgents = agentIds.size > 1
+  const byId = new Map(sorted.map(s => [s.id, s]))
   const root = newFolder('', '')
   for (const s of sorted) {
     let folder = root
-    const agentKey = s.agent_id || ''
+    // A fork or child tab goes where its parent is, so it always stays under the parent (its own tier may not be
+    // read yet, or may differ).
+    const placed = topParent(s, byId)
+    const agentKey = placed.agent_id || ''
     if (showAgents) {
-      const name = agents.find(a => a.id === s.agent_id)?.display_name || s.agent_id || '?'
+      const name = agents.find(a => a.id === placed.agent_id)?.display_name || placed.agent_id || '?'
       if (!folder.folders.has(agentKey)) folder.folders.set(agentKey, newFolder(agentKey, name))
       folder = folder.folders.get(agentKey)
     }
     let key = agentKey
-    for (const name of tierFolders(s.tier)) {
+    for (const name of tierFolders(placed.tier)) {
       key = `${key}/${name}`
       if (!folder.folders.has(name)) folder.folders.set(name, newFolder(key, name))
       folder = folder.folders.get(name)
@@ -99,11 +116,13 @@ export function loadFoldedFolders() {
 
 // Every folder the tabs make, folded or hidden under a folded one (= the same keys `folderTree` gives)
 function folderKeys(sessions) {
+  const byId = new Map(sessions.map(s => [s.id, s]))
   const keys = new Set()
   for (const s of sessions) {
-    let key = s.agent_id || ''
+    const placed = topParent(s, byId)
+    let key = placed.agent_id || ''
     keys.add(key)
-    for (const name of tierFolders(s.tier)) {
+    for (const name of tierFolders(placed.tier)) {
       key = `${key}/${name}`
       keys.add(key)
     }

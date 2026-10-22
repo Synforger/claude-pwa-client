@@ -1,6 +1,7 @@
-// Golden path: the drawer lists each tab in the folder of the tier its agent started in.
-// Seed tabs started in different tiers (and one whose tier is not known), open the drawer, and
-// assert the folders and what sits in them; folding a folder hides its tabs and says how many it holds.
+// Golden path: the drawer lists each tab in the folder of the project its agent started in; a subproject's
+// tab sits in its project's folder, with no folder of its own. Seed tabs started in different tiers (and one
+// whose tier is not known), open the drawer, and assert the folders and what sits in them; folding a folder
+// hides its tabs and says how many it holds.
 // A tab keeps the name the user gave it, and its account label.
 
 import { test, expect } from '@playwright/test'
@@ -13,13 +14,12 @@ const TABS = [
   { sid: 'ses_e2etierunk', title: 'Tier not known' },
 ]
 const PROJECT = 'agent_e2e/Agent Platform'
-const SUBPROJECT = 'agent_e2e/Agent Platform/Client'
 
 const row = (page, sid) => page.locator(`[data-testid=session-list-item][data-cpc-sid="${sid}"]`)
 const folder = (page, key) => page.locator(`[data-testid=session-folder][data-cpc-folder="${key}"]`)
 
 test.describe('golden: session-tier', () => {
-  test('each tab sits in the folder of the tier its agent started in, and a folder folds', async ({ page, request }) => {
+  test('each tab sits in the folder of its project, and a folder folds', async ({ page, request }) => {
     for (const tab of TABS) {
       const res = await request.post('/debug/e2e/seed', { data: { agent_id: 'agent_e2e', account_id: 'e2e', jsonl_events: [], ...tab } })
       expect(res.ok()).toBeTruthy()
@@ -37,15 +37,14 @@ test.describe('golden: session-tier', () => {
     await expect(page.locator('[data-testid=session-drawer]')).toBeVisible()
 
     await expect(folder(page, PROJECT)).toContainText('Agent Platform')
-    await expect(folder(page, SUBPROJECT)).toContainText('Client')
-    // Each folder comes right before what it holds: the project's tab, then the subproject's folder and tab.
+    // A subproject has no folder of its own: only the project's folder is there.
+    await expect(folder(page, 'agent_e2e/Agent Platform/Client')).toHaveCount(0)
     const order = await page.locator('[data-testid=session-folder], [data-testid=session-list-item]').evaluateAll(
       nodes => nodes.map(n => n.dataset.cpcFolder || n.dataset.cpcSid),
     )
     const at = id => order.indexOf(id)
     expect(at(PROJECT)).toBeLessThan(at('ses_e2etierprj'))
-    expect(at('ses_e2etierprj')).toBeLessThan(at(SUBPROJECT))
-    expect(at(SUBPROJECT)).toBeLessThan(at('ses_e2etiersub'))
+    expect(at(PROJECT)).toBeLessThan(at('ses_e2etiersub'))
     // A tab in the agent's own folder (or whose tier is not known) stays before every folder.
     expect(at('ses_e2etiernrm')).toBeLessThan(at(PROJECT))
     expect(at('ses_e2etierunk')).toBeLessThan(at(PROJECT))
@@ -61,7 +60,6 @@ test.describe('golden: session-tier', () => {
     await expect(folder(page, PROJECT)).toContainText('2')
     await expect(row(page, 'ses_e2etierprj')).toHaveCount(0)
     await expect(row(page, 'ses_e2etiersub')).toHaveCount(0)
-    await expect(folder(page, SUBPROJECT)).toHaveCount(0)
     await expect(row(page, 'ses_e2etiernrm')).toBeVisible()
     if (process.env.CPC_E2E_SHOT_FOLDED) {
       await page.screenshot({ path: process.env.CPC_E2E_SHOT_FOLDED })
