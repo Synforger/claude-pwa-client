@@ -25,6 +25,8 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from backend.routes.debug import _ensure_localhost
+from backend.terminal.tab_tier import set_tier
+from backend.terminal.tier import parse_tier
 
 router = APIRouter(prefix="/debug")
 # 拡張の口の e2e 用 fixture (= 本番では Tailscale Serve が載せる `/ext/<id>/` を test backend が代わりに
@@ -45,6 +47,7 @@ class E2eSeedRequest(BaseModel):
     notify_mode: str = Field("both", description="off | banner | both")
     parent_id: str | None = Field(None, description="the tab this one hangs under in the drawer (= a fork or a child)")
     child: bool = Field(False, description="a child tab (= opened by another tab's agent)")
+    tier: str | None = Field(None, description="the tier the tab's agent started in (= what its AGENT_TIER would say)")
     claude_sid: str | None = Field(
         None,
         description="filename stem under <projects>/<cwd-hash>/; UUID4 if omitted",
@@ -123,6 +126,7 @@ async def post_e2e_seed(request: Request, body: E2eSeedRequest) -> E2eSeedRespon
         parent_id=body.parent_id,
         child=body.child,
     )
+    set_tier(body.sid, parse_tier(body.tier))
     # notify_mode override (register_session leaves it at "both" by default).
     if body.notify_mode in {"off", "banner", "both"}:
         sessions_meta[body.sid].notify_mode = body.notify_mode

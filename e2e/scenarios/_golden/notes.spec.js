@@ -14,9 +14,10 @@ import { openClient } from '../../helpers/pwa.js'
 import { TEXT_ZOOM_MAX, TEXT_ZOOM_MIN } from '../../../frontend/src/state/textZoom.js'
 
 const SID = 'ses_e2echatgld'
-// Where the test backend keeps this tab's notes (= what the agent gets as PWA_NOTE).
+// Where the test backend keeps this tab's notes (= what the agent gets as PWA_NOTE): under the folder the
+// test agent runs in.
 const NOTE_FILE = resolve(
-  dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures', '_runtime', 'user', 'notes', `${SID}.md`,
+  dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures', '_runtime', 'agent', 'pages', SID, 'memo.md',
 )
 const modal = '[data-testid=notes-modal]'
 const body = '[data-testid=notes-body]'

@@ -56,6 +56,22 @@ export function patchSession(id, patch) {
   })
 }
 
+/** overview payload の tier (= そのタブのエージェントが起動した階層) を一覧の行へ反映する (= 変化なしなら no-op)。 */
+export function setSessionTiers(payload) {
+  store.setState(prev => {
+    let changed = false
+    const sessions = prev.sessions.map(s => {
+      const info = payload[s.id]
+      if (!info || !('tier' in info)) return s
+      const tier = info.tier ?? null
+      if ((s.tier ?? null) === tier) return s
+      changed = true
+      return { ...s, tier }
+    })
+    return changed ? { ...prev, sessions } : prev
+  })
+}
+
 export function setActiveId(id) {
   store.setState(prev => prev.activeId === id ? prev : { ...prev, activeId: id })
 }

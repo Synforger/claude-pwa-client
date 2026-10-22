@@ -23,7 +23,7 @@ import backend.paths as paths
 from backend.config import RATE_LIMITS_LOG_PATH, UPLOADS_TMP, documents_settings
 print(json.dumps({
     "data": str(paths.DATA_DIR), "logs": str(paths.LOGS_DIR), "secrets": str(paths.SECRETS_DIR),
-    "config": str(paths.CONFIG_PATH), "favorites": str(paths.FAVORITES_PATH), "notes": str(paths.NOTES_DIR),
+    "config": str(paths.CONFIG_PATH), "favorites": str(paths.FAVORITES_PATH), "legacy_notes": str(paths.LEGACY_NOTES_DIR),
     "page_store": str(paths.PAGE_STORE_DIR), "backups": str(paths.BACKUPS_DIR), "uploads": str(UPLOADS_TMP),
     "document_cache": str(documents_settings()[0]), "rate_limits_log": RATE_LIMITS_LOG_PATH,
 }))
@@ -60,7 +60,7 @@ def test_without_a_root_every_place_is_where_it_was(sandbox):
         "secrets": str(repo / "backend" / "secrets"),
         "config": str(repo / "backend" / "config.json"),
         "favorites": str(user / "favorites.txt"),
-        "notes": str(user / "notes"),
+        "legacy_notes": str(user / "notes"),
         "page_store": str(user / "page-store"),
         "backups": str(user / "backups"),
         "uploads": str(user / "uploads" / "tmp"),
@@ -79,7 +79,7 @@ def test_a_root_places_each_thing_under_its_role(sandbox, tmp_path):
         "secrets": str(root / "secrets" / TOOL),
         "config": str(config / "config.json"),
         "favorites": str(config / "favorites.txt"),
-        "notes": str(state / "notes"),
+        "legacy_notes": str(state / "notes"),
         "page_store": str(state / "page-store"),
         "backups": str(state / "backups"),
         "uploads": str(state / "uploads"),
@@ -101,7 +101,7 @@ def test_a_specific_variable_beats_the_root(sandbox, tmp_path):
     assert placed["logs"] == str(elsewhere / "logs")
     assert placed["secrets"] == str(elsewhere / "secrets")
     assert placed["config"] == str(elsewhere / "config.json")
-    for key, name in [("favorites", "favorites.txt"), ("notes", "notes"), ("page_store", "page-store"),
+    for key, name in [("favorites", "favorites.txt"), ("legacy_notes", "notes"), ("page_store", "page-store"),
                       ("backups", "backups"), ("document_cache", "document-cache"), ("uploads", "uploads/tmp")]:
         assert placed[key] == str(elsewhere / "user" / name), key
 
@@ -121,13 +121,13 @@ def test_the_config_file_beats_the_root_for_the_places_it_names(sandbox, tmp_pat
     assert placed["document_cache"] == str((tmp_path / "docs").resolve())
 
 
-def test_the_tab_gets_the_root_only_when_the_backend_has_one(monkeypatch, tmp_path):
+def test_the_tab_gets_the_root_only_when_the_backend_has_one(monkeypatch, tmp_path, a_tab):
     from backend.terminal import runner  # noqa: PLC0415
     monkeypatch.setattr(runner, "PLATFORM_ROOT", None)
-    assert not any(a.startswith("AGENT_PLATFORM_ROOT=") for a in runner.tmux_session_env_args("ses_abc", None))
+    assert not any(a.startswith("AGENT_PLATFORM_ROOT=") for a in runner.tmux_session_env_args(a_tab.id, None))
 
     monkeypatch.setattr(runner, "PLATFORM_ROOT", tmp_path)
-    args = runner.tmux_session_env_args("ses_abc", {"AGENT_PLATFORM_ROOT": "/spoof", "OTHER": "1"})
+    args = runner.tmux_session_env_args(a_tab.id, {"AGENT_PLATFORM_ROOT": "/spoof", "OTHER": "1"})
     assert ["-e", f"AGENT_PLATFORM_ROOT={tmp_path}"] == args[6:8]
     assert "AGENT_PLATFORM_ROOT=/spoof" not in args and args[-2:] == ["-e", "OTHER=1"]
 
@@ -183,7 +183,8 @@ def test_nothing_is_written_outside_the_root(houses):
                     tool_state / "data" / "session_history.json", tool_state / "logs" / "backend.error.log"):
         assert written.is_file(), written
     assert any((tool_state / "page-store").glob("*.json"))
-    assert any((tool_state / "notes").glob("*.md"))
+    assert Path(result["placed"]["memo"]).read_text(encoding="utf-8") == "probe"
+    assert not (tool_state / "notes").exists()
     assert any((tool_state / "uploads").glob("*.txt"))
 
 

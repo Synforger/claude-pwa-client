@@ -35,6 +35,7 @@ endpoints:
           account_id:  { type: string, nullable: true }
           notify_mode: { type: string }
           created_at:  { type: string }
+          tier:        { type: string, nullable: true, description: "the tier the tab's agent started in (= its AGENT_TIER); null when not known" }
         required: [sid, title, agent_id]
     response_kind: json
     auth: tailnet
@@ -45,10 +46,10 @@ endpoints:
 
   - method: GET
     path: /sessions/overview
-    description: "全セッションの作業中 / 最後に見た時刻 / 入力待ちを 1 回で返す (= stream の overview と同じ中身)"
+    description: "全セッションの作業中 / 最後に見た時刻 / 入力待ち / 階層を 1 回で返す (= stream の overview と同じ中身)"
     response:
       type: object
-      description: "sid → { busy, last_seen_at, waiting_input }"
+      description: "sid → { busy, last_seen_at, waiting_input, tier }"
     response_kind: json
     auth: tailnet
     invariants:

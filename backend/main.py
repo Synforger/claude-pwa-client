@@ -81,6 +81,7 @@ from backend.config import (  # noqa: E402
     page_origin,
     validate_runtime_paths,
 )
+from backend.paths import LEGACY_NOTES_DIR  # noqa: E402
 from backend.state import sessions_meta  # noqa: E402
 
 import backend.maintenance as maintenance  # noqa: E402
@@ -88,6 +89,7 @@ import backend.core.push as push  # noqa: E402
 from backend.core.usage import rate_limits_log_health  # noqa: E402
 import backend.jsonl.routes as jsonl_routes  # noqa: E402
 import backend.core.jsonl_watcher as jsonl_watcher  # noqa: E402
+import backend.terminal.memo_migration as memo_migration  # noqa: E402
 import backend.terminal.pty_discover as pty_discover  # noqa: E402
 import backend.routes.agent_messages as agent_messages_routes  # noqa: E402
 import backend.routes.chat as chat_routes  # noqa: E402
@@ -199,6 +201,12 @@ async def lifespan(app: FastAPI):
             logger.warning("rate-limits log check: %s", reason)
     except Exception:
         logger.exception("startup sanity check failed")
+
+    # Memos an earlier version kept in one folder move to each tab's own place (once; later starts find none).
+    try:
+        memo_migration.migrate_memos(LEGACY_NOTES_DIR)
+    except Exception:
+        logger.exception("memo migration failed")
 
     # tmux server の status bar を全 session で OFF にする (= 端末画面下の緑バー除去)。
     # `-g` でサーバ全体に効くので、 既存 session も新規 session も等しく status off。

@@ -60,6 +60,7 @@ def exercise() -> dict[str, str]:
     from backend.jsonl import history
     from backend.routes import files
     from backend.terminal.chat_content import save_to_tmp
+    from backend.terminal.tab_memo import memo_path
 
     pages = ROOT / "pages"
     pages.mkdir(exist_ok=True)
@@ -99,7 +100,8 @@ def exercise() -> dict[str, str]:
         "secrets": str(paths.SECRETS_DIR),
         "config": str(paths.CONFIG_PATH),
         "favorites": str(paths.FAVORITES_PATH),
-        "notes": str(paths.NOTES_DIR),
+        "legacy_notes": str(paths.LEGACY_NOTES_DIR),
+        "memo": str(memo_path(tab.id)),
         "page_store": str(paths.PAGE_STORE_DIR),
         "uploads": str(UPLOADS_TMP),
         "document_cache": str(documents_settings()[0]),

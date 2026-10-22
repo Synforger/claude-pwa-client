@@ -15,7 +15,7 @@ backend が runtime に持つ JSON ファイルの schema を一括宣言する�
 | `backend/secrets/vapid.json` | **YES** (= 鍵ペア、 損失で全 push subscription が無効化) | 復元不可 (= 新鍵生成すると全 client の subscription が `applicationServerKey` 不一致で reject される) |
 | `backend/config.json` | YES (= 個人 cwd / launch_alias / accounts) | 復元可能だが手作業 |
 
-backup 先 = 同 PC の別 path (= `~/backups/<service>/<date>/` 等)、 backend dir 直下に置くと service 自身が誤読する事故源 (= 同 dir 内に `session_meta.json.<suffix>` 等の別名 backup を置くと service 起動時に snapshot として誤読されるパターンが存在する)。
+backup 先 = 同 PC の別 path (= `$AGENT_PLATFORM_ROOT/state/claude-pwa-client/backups/` 等)、 backend dir 直下に置くと service 自身が誤読する事故源 (= 同 dir 内に `session_meta.json.<suffix>` 等の別名 backup を置くと service 起動時に snapshot として誤読されるパターンが存在する)。
 
 ## `backend/data/session_meta.json`
 
@@ -36,6 +36,10 @@ backup 先 = 同 PC の別 path (= `~/backups/<service>/<date>/` 等)、 backend
 | `resume_session_id` | str? | NO | fork タブが初回 spawn で `claude --resume <id>` に使う claude session ID、 通常タブ + restart 後は null |
 | `account_id` | str? | NO | `config.json::accounts` の key (= 起動 env を差し替え)、 null = personal 相当 |
 | `child` | bool | NO (default `false`) | 子のタブ (= 別のタブの Claude が `POST /sessions/<親>/children` で立てたタブ) か。 親は `parent_id` |
+
+`GET /sessions` の各行はこの物に **`tier`** を足して返します (= そのタブのエージェントが起動した階層。 エージェントの
+プロセスが持つ環境変数 `AGENT_TIER` と同じ値で、 分からないタブは `null`)。 `tier` は `session_meta.json` には保存せず、
+backend が claude のプロセスを見つけた時に読み直します (= 画面の一覧は、 口座の隣に階層の最後の名前を出します)。
 
 ## `backend/data/jsonl_bindings.json`
 
@@ -121,25 +125,28 @@ backup: 任意 (= 失っても、 もう一度 ⭐ を付け直せば戻る)。
 以前の版はこの一覧を各ブラウザの localStorage (= `cpc.fileTree.favorites`) に持っていた。 残っている分は、 その
 ブラウザで画面を開いた最初の 1 回で host の一覧へ足され、 localStorage の側は消える。
 
-## `~/.claude-pwa-client/notes/<タブの id>.md`
+## `<階層の folder>/pages/<タブの id>/memo.md`
 
-タブごとのメモ (= 📋)。 お気に入りと同じく **利用者の物** で、 置き場は repo の外。 画面は
-`GET` / `PUT /sessions/{sid}/note` から読み書きし、 そのタブのエージェントは file を直に書く。 各タブの
-エージェントには、 自分のタブの file の path が環境変数 `PWA_NOTE` で渡る。
+タブごとのメモ (= 📋)。 置き場は **そのタブのエージェントの folder の中** です。 階層の folder は、
+エージェントの folder (= `config.json` の `agents.<id>.cwd`) にそのタブの階層を足した所です
+(= 階層は、 エージェントを起動する側が環境変数 `AGENT_TIER` でエージェントに渡す値で、 `normal` なら足さず、
+`projects/<名前>` ならその下)。 階層が分からないタブは `normal` と同じ扱いです。 画面は
+`GET` / `PUT /sessions/{sid}/note` から読み書きし、 そのタブのエージェントは file を直に書きます。 各タブの
+エージェントには、 自分のタブの file の path が環境変数 `PWA_NOTE` で渡ります。
 
 **形式**: markdown のテキスト 1 本。 画面は markdown のファイルと同じ描き方で出し (= 書いてある path はタップで開く)、 長くても畳まない。 段落の改行と空白は書いたとおりに残す (= 改行は改行のまま、 行頭の空白と続く空白は詰めない。 字は等幅ではないので、 桁を正確に揃えたい木や表はコードの囲み ``` に入れる)。
 
-- メモはそのタブの下書き。 他のタブからは見えず、 タブを消すと file も消える
-- 残したい物は、 エージェントに頼んで作業中の repo の側へ移す (= ここは保存先ではない)
+- 同じ `pages/<タブの id>/` には、 そのタブの他のページ (= 例えば `index.html`) を置けます。 backend が触るのは `memo.md` だけです
+- メモが無いタブを開くと空で出ます。 雛形を書くのも、 トップページを作るのも、 エージェントの側です (= backend は作りません)
 - 空にしたメモ (= 画面の「リセット」、 か空文字の `PUT`) は file ごと消える
 - エージェントが書いた分は、 メモを開いたままでも、 そのタブの会話が進んだ時に読み直される
 - 上限は 1MB (= `/file` と同じ)
-- **`<タブの id>.md` が symlink なら、 中身は指す先に置かれる**。 画面の読み書きと「リセット」は指す先に対して行い (= 置き換えで symlink を潰さない)、 応答の `path` も指す先を返す。 タブを消すと symlink だけが消え、 指す先は残る。 エージェントを起動する側 (= 起動の script) が、 メモをタブの作業の folder に置きたい時に使う
+- タブを消しても、 メモは消えません (= エージェントの folder の記録として残ります)
+- 前の版は `<根>/state/claude-pwa-client/notes/<タブの id>.md` (根を渡さない時は `~/.claude-pwa-client/notes/`) に置いていました。 backend は起動のたびに、 そこに残っているメモを今の置き場へ移します (= 移した先に既にメモが在る時は移さず残し、 backend の記録に 1 行出します)。 前の置き場の file が symlink の時は、 指す先の `<folder>/notes/<タブの id>.md` を同じ folder の `pages/<タブの id>/memo.md` へ移します
 
-**writer**: `backend/routes/notes.py` (= `atomic_write_text` 経由) と、 そのタブのエージェント。 タブの削除
-(= `DELETE /sessions/{sid}`) が file を消す。
+**writer**: `backend/routes/notes.py` (= `atomic_write_text` 経由) と、 そのタブのエージェント。
 
-backup: 不要 (= 下書き)。
+backup: 任意 (= エージェントの folder の記録なので、 その folder の持ち主の方針に従う)。
 
 ## `~/.claude-pwa-client/page-store/<hash>.json`
 
