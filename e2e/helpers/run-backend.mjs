@@ -3,7 +3,7 @@
 // Boots the v2 backend on port 18765 (≠ prod 8765 LaunchAgent) with a tmp
 // data dir + minimal config + stub claude binary so the operator's real chat
 // history is never touched. SIGINT / SIGTERM tear the child down cleanly.
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -157,9 +157,10 @@ const child = spawn(pythonBin, [
 // Tear down the isolated tmux server (kills any fixture sessions + their
 // stub processes). Safe by construction: it only ever addresses the e2e
 // socket, never the default one.
+// Synchronous, so it has finished before this process exits (an asynchronous spawn from an exit handler may never run).
 const killE2eTmuxServer = () => {
   try {
-    spawn('tmux', ['-L', TMUX_SOCKET, 'kill-server'], { stdio: 'ignore' })
+    spawnSync('tmux', ['-L', TMUX_SOCKET, 'kill-server'], { stdio: 'ignore', timeout: 5_000 })
   } catch (_) { /* tmux absent / server already gone */ }
 }
 

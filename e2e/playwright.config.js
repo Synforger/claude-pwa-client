@@ -47,6 +47,10 @@ export default defineConfig({
     command: 'node ./helpers/run-backend.mjs',
     url: `${BASE_URL}/healthz`,
     reuseExistingServer: false,
+    // Playwright SIGKILLs the launcher unless told otherwise, and then none of its teardown runs: the isolated tmux
+    // server and the tabs a scenario made in it stay behind. SIGTERM lets `run-backend.mjs` stop uvicorn and that
+    // server first (its own fallback kills uvicorn after 5 s).
+    gracefulShutdown: { signal: 'SIGTERM', timeout: 10_000 },
     stdout: 'pipe',
     stderr: 'pipe',
     timeout: 90_000,
