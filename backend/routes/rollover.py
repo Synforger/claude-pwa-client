@@ -13,8 +13,10 @@
 
 3 の本文は、 前の会話から次の会話への連絡に当たる。 次の会話は同じタブで、 同じ起動の仕方で立つ今の会話の
 続きなので、 届ける前の検査 (= `agent_message_check`) は宛先を今の会話として通す (= 今の会話が読んだ境界の
-名前と中身は通り、 読んでいない境界の物は止まる)。 今の会話の記録が見つからない時だけ、 「どの会話でもない
-宛先」 の名前で通す (= 何も読んでいない相手。 別の機械への連絡と同じ扱い)。
+名前と中身は通り、 読んでいない境界の物は止まる)。 今の会話が止められた時は、 同じタブの前の会話を新しい順に
+宛先にして通し直す (= 起動に失敗した会話は境界をまだ読んでいないので、 タブの階層の path を名乗れない。
+タブが居る境界は、 そのタブの前の会話が読んだ所)。 どれも止めたら、 今の会話の理由で断る。 記録が 1 つも
+見つからない時だけ、 「どの会話でもない宛先」 の名前で通す (= 何も読んでいない相手。 別の機械への連絡と同じ扱い)。
 
 口は 202 を返してから終了に入る。 叩いた道具は終了されるタブの中で動いていて、 終了と一緒に落ちる。
 """
@@ -24,10 +26,11 @@ import asyncio
 import logging
 import re
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 
 from backend.core.jsonl_predicates import ROLLOVER_OPENING as OPENING
 from backend.errors import raise_error
+from backend.jsonl import history as session_history
 from backend.routes.agent_messages import LOCAL_CLIENTS, judge
 from backend.state import sessions_meta
 from backend.terminal.routes import pty_send
@@ -87,6 +90,34 @@ async def _roll(session_id: str, first: str) -> None:
         logger.exception("rollover failed session=%s", session_id)
 
 
+def _tab_records(session_id: str) -> list[str]:
+    """そのタブの会話の記録の名前を、 今の会話から古い方へ (= 在処を控えていない会話は除く)。"""
+    record = jsonl_path_for_session(session_id)
+    names = [record.stem] if record is not None else []
+    for path, _ in reversed(session_history.ended(session_id)):
+        if path is not None and path.stem not in names:
+            names.append(path.stem)
+    return names
+
+
+async def _judge_as_the_tab(session_id: str, text: str) -> None:
+    """次の会話へ渡す本文を、 そのタブの会話を宛先として検査する。 1 つが通せば通り、 全部が止めたら最初
+    (= 今の会話) の理由で断る。 検査が走らなかった時は、 その場で断る。
+
+    次の会話は今の会話の続き (= 同じタブ・同じ階層で立ち、 同じ境界を読む)。 階層の path は境界の folder の
+    名前を含むので、 何も読んでいない相手として通すと、 境界の中の階層は起動し直せない。"""
+    first_refusal: HTTPException | None = None
+    for name in _tab_records(session_id) or [f"rollover:{session_id}"]:
+        try:
+            await judge(name, text, session_id)
+            return
+        except HTTPException as refused:
+            if refused.status_code != 403:
+                raise
+            first_refusal = first_refusal or refused
+    raise first_refusal
+
+
 @router.post("/sessions/{session_id}/rollover", status_code=202)
 async def post_rollover(request: Request, session_id: str, text: str = Form(...)) -> dict:
     """タブの中の claude が、 自分の会話を終了して新しい会話を起動し直すよう頼む。
@@ -104,12 +135,7 @@ async def post_rollover(request: Request, session_id: str, text: str = Form(...)
         raise_error(400, "rollover_empty", "本文が空です")
     from backend.config import AGENT_MESSAGE_CHECK  # noqa: PLC0415
     if AGENT_MESSAGE_CHECK:
-        # 次の会話は今の会話の続き (= 同じタブ・同じ階層で立ち、 同じ境界を読む)。 宛先は今の会話にする。
-        # 階層の path は境界の folder の名前を含むので、 何も読んでいない相手として通すと、 境界の中の階層は
-        # 起動し直せない。 記録が無い時だけ、 この機械のどの会話でもない名前 (= 何も読んでいない相手) で通す。
-        record = jsonl_path_for_session(session_id)
-        name = record.stem if record is not None else f"rollover:{session_id}"
-        await judge(name, text, session_id)
+        await _judge_as_the_tab(session_id, text)
     task = asyncio.create_task(_roll(session_id, start_envelope(text)))
     _rolling.add(task)
     task.add_done_callback(_rolling.discard)
