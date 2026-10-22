@@ -73,7 +73,7 @@ def test_the_first_message_file_is_quoted(launcher_agent, tmp_path):
 def pane(monkeypatch, tmp_path):
     """launcher の agent・claude の居ない pane・記録する tmux を用意する。"""
     keys: list[dict] = []
-    state = {"claude": False, "send_ok": True}
+    state = {"claude": False, "send_ok": True, "typeable": True}
     monkeypatch.setattr(fm, "uses_launcher", lambda _sid: True)
     monkeypatch.setattr(fm, "first_message_command", lambda _sid, path: f"agent_a --first-message-file {path}")
     monkeypatch.setattr(fm, "claude_in_pane", lambda _sid: state["claude"])
@@ -87,6 +87,10 @@ def pane(monkeypatch, tmp_path):
         keys.append({"text": text, "key": key, "enter": enter})
         return state["send_ok"]
     monkeypatch.setattr(fm, "tmux_send_keys", _keys)
+
+    async def _typeable(_sid, _timeout):
+        return state["typeable"]
+    monkeypatch.setattr(fm, "wait_until_typeable", _typeable)
     monkeypatch.setattr(fm, "_uploads_dir", lambda: tmp_path / "uploads")
     input_ready.forget("ses_x")
     yield keys, state
@@ -138,6 +142,28 @@ def test_a_launch_that_cannot_be_typed_fails_and_stays_ready(pane, monkeypatch, 
     out = _run(fm.launch_with_first_message("ses_x", "hello"))
     assert out == {"ok": False, "reason": "launch_failed"}
     assert input_ready.is_ready("ses_x")
+
+
+def test_a_pane_that_never_takes_keys_types_nothing_and_stays_ready(pane):
+    keys, state = pane
+    state["typeable"] = False
+    out = _run(fm.launch_with_first_message("ses_x", "hello"))
+    assert out == {"ok": False, "reason": "launch_failed"}
+    assert keys == []
+    assert input_ready.is_ready("ses_x")
+
+
+def test_the_launch_waits_for_the_pane_up_to_the_input_ready_limit(pane, monkeypatch):
+    keys, _ = pane
+    asked: list[float] = []
+
+    async def _typeable(_sid, timeout):
+        asked.append(timeout)
+        return True
+    monkeypatch.setattr(fm, "wait_until_typeable", _typeable)
+    assert _run(fm.launch_with_first_message("ses_x", "hello")) == {"ok": True, "launched": True}
+    assert asked == [input_ready.INPUT_READY_TIMEOUT_SEC]
+    assert len(keys) == 2
 
 
 # --- 送信の入口: 最初の送信は起動に回る -----------------------------------------------------

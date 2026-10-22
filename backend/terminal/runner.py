@@ -372,33 +372,69 @@ async def spawn_pty_session(
     return session
 
 
+# 新しい pane で zsh の prompt を待つ上限と、 prompt を見る経路が無い時に置く間。
+PROMPT_WAIT_SEC: float = 3.0
+PROMPT_FALLBACK_DELAY_SEC: float = 1.0
+# 立てたばかりの pane で、 tmux が session を作り終えたかを見に行く間隔。
+TMUX_SESSION_POLL_SEC: float = 0.05
+
+
+async def wait_for_prompt(
+    session_id: str,
+    session: "PtySession | None",
+    *,
+    max_wait: float = PROMPT_WAIT_SEC,
+    fallback_delay: float = PROMPT_FALLBACK_DELAY_SEC,
+) -> None:
+    """zsh -il の起動完了 (= prompt 表示) を待つ。
+
+    backend-F-49: 旧版は固定 1s sleep の決め打ちで、 遅い端末では prompt 前に打鍵が
+    流れて欠落、 速い端末では無駄に待つ二重損だった。 control mode buffer から zsh の
+    bracketed-paste enable (= prompt 末尾の `\\x1b[?2004h`) を検出して
+    `session.prompt_ready` が set されたら即時返る。 検出経路が無い場合 (= session 引数
+    無し or control_mode 無し) は fallback_delay 秒 sleep する。 検出経路はあるが
+    max_wait 内に signal が来なければ「prompt 検出失敗」 として返る (= 呼び手は打診的に
+    打つ。 端末が zsh 以外の case)。
+    """
+    if session is not None and session.control_mode:
+        try:
+            await asyncio.wait_for(session.prompt_ready.wait(), timeout=max_wait)
+        except asyncio.TimeoutError:
+            logger.info(
+                "prompt_ready not set within %.1fs session=%s (typing anyway)", max_wait, session_id,
+            )
+    else:
+        await asyncio.sleep(fallback_delay)
+
+
+async def wait_until_typeable(session_id: str, timeout: float) -> bool:
+    """pane が打鍵を受けられるまで待つ。 既に在る tmux session は待たずに True。
+
+    立てた直後の pane は、 tmux の client の process が立っただけで、 server がまだ session を
+    作っていない (= その間の `tmux_send_keys` は何も打たずに False を返す)。 session ができる
+    まで見に行き、 できたら zsh の prompt を待つ。 timeout までにできなければ False。
+    """
+    if has_tmux_session(session_id):
+        return True
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not has_tmux_session(session_id):
+        if loop.time() >= deadline:
+            return False
+        await asyncio.sleep(TMUX_SESSION_POLL_SEC)
+    await wait_for_prompt(session_id, pty_sessions.get(session_id))
+    return True
+
+
 async def _send_launch_alias(
     session_id: str, alias: str,
     session: "PtySession | None" = None,
-    max_wait: float = 3.0,
-    fallback_delay: float = 1.0,
+    max_wait: float = PROMPT_WAIT_SEC,
+    fallback_delay: float = PROMPT_FALLBACK_DELAY_SEC,
 ) -> None:
-    """zsh -il の起動完了 (= prompt 表示) を待ってから tmux に alias+Enter を送る。
-
-    backend-F-49: 旧版は固定 1s sleep の決め打ちで、 遅い端末では prompt 前に alias が
-    流れて欠落、 速い端末では無駄に待つ二重損だった。 control mode buffer から zsh の
-    bracketed-paste enable (= prompt 末尾の `\\x1b[?2004h`) を検出して
-    `session.prompt_ready` が set されたら即時送る。 検出経路が無い場合 (= session 引数
-    無し or control_mode 無し) は従来通り fallback_delay 秒 sleep する。 検出経路はあるが
-    max_wait 内に signal が来なければ「prompt 検出失敗」 として打診的に送る (= 端末が
-    zsh 以外の case)。
-    """
+    """zsh の prompt を待ってから tmux に alias+Enter を送る (= 待ち方は wait_for_prompt)。"""
     try:
-        if session is not None and session.control_mode:
-            try:
-                await asyncio.wait_for(session.prompt_ready.wait(), timeout=max_wait)
-            except asyncio.TimeoutError:
-                logger.info(
-                    "launch alias: prompt_ready not set within %.1fs session=%s (sending anyway)",
-                    max_wait, session_id,
-                )
-        else:
-            await asyncio.sleep(fallback_delay)
+        await wait_for_prompt(session_id, session, max_wait=max_wait, fallback_delay=fallback_delay)
         ok = tmux_send_keys(session_id, text=alias, enter=True)
         if not ok:
             logger.warning("launch alias send failed session=%s alias=%s", session_id, alias)

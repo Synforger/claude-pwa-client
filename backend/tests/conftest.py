@@ -26,8 +26,11 @@ os.environ.setdefault("CPC_LOGS_DIR", tempfile.mkdtemp(prefix="cpc-test-logs-"))
 # 利用者の置き場 (= 既定は HOME の下) も使い捨てにする。 これが無いと、 test を回した人の HOME に
 # folder が出来て、 お気に入りの test が本物の一覧を書き換える。 これも backend を import する前に決める。
 os.environ.setdefault("CPC_USER_DIR", tempfile.mkdtemp(prefix="cpc-test-user-"))
+# 器の根も外す。 根の下の置き場は上の 2 つより強いので、 器の中の機械で回すと test が本物の置き場を読む。
+# 根の振る舞いを確かめる test は、 自分で根を渡す。
+os.environ.pop("AGENT_PLATFORM_ROOT", None)
 
-import backend.config as _config_mod  # noqa: E402  (= 上の 2 つを決めた後で読む)
+import backend.config as _config_mod  # noqa: E402  (= 上の 3 つを決めた後で読む)
 
 # `backend.config` が自分で定義している名前。 これ以外 (= AGENTS 等) は、 読むたびに設定から作って配られる。
 _CONFIG_OWN_NAMES = frozenset(vars(_config_mod))
