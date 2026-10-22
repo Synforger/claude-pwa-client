@@ -52,6 +52,7 @@ describe('メモの描き方', () => {
     expect(link.textContent).toBe('~/a/b.md')
   })
 
+  // 3 万字超を markdown のまま描くので、 機械が混んでいると既定の 5 秒を超える (= 負荷 39 で 5.4〜5.9 秒)
   it('長くても畳まず、 素の文へも退かない', () => {
     for (const size of [COLLAPSE_CHARS + 2_000, PLAIN_FALLBACK_CHARS + 2_000]) {
       const text = `# head\n\n${'本文の段落です。\n'.repeat(Math.ceil(size / 9))}\n## tail\n`
@@ -60,5 +61,5 @@ describe('メモの描き方', () => {
       expect(c.querySelector('.md-oversized')).toBeNull()
       expect(c.querySelector('h2').textContent).toBe('tail')
     }
-  })
+  }, 20_000)
 })
