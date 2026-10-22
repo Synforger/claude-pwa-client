@@ -344,18 +344,35 @@ span.drawer-item-fold {
   border-radius: 10px;
   white-space: nowrap;
 }
-/* 階層 (= 口座の札の隣)。 口座の札は枠、 階層は塗りで、 並んでも見分けられる */
-.drawer-item-tier {
+/* The folder of a tier (or of an agent): the whole row folds and unfolds what is below it. Its marker
+   sits in the same column as the fold marker of a tab, so names line up. */
+.drawer-folder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: calc(100% - 12px);
+  margin: 6px 6px 0;
+  padding: 6px 12px 6px 0;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-dim, #8a8f98);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.drawer-folder .drawer-item-fold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.drawer-folder-name {
   flex: 0 1 auto;
   min-width: 0;
-  max-width: 40%;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--text-dim, #8a8f98);
-  font-size: 11px;
-  padding: 1px 6px;
-  background: var(--border, #2a2f3a);
-  border-radius: 10px;
   white-space: nowrap;
 }
 .drawer-item-menu {

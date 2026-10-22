@@ -27,8 +27,8 @@ import {
   setNotifyMode,
 } from './useSessions.js'
 import { deriveSessionBadges } from '../push-notify/useSessionBadges.js'
-import { loadFolded, sessionTree, toggleFolded } from './sessionTree.js'
-import { tierLabel } from './tierLabel.js'
+import { loadFolded, toggleFolded } from './sessionTree.js'
+import { folderTree, loadFoldedFolders, toggleFoldedFolder } from './folderTree.js'
 import { usePushSubscription } from '../push-notify/usePushSubscription.js'
 import {
   TEXT_ZOOM_MAX,
@@ -350,12 +350,16 @@ export default function SessionDrawer() {
     [accounts],
   )
 
-  // フォークのタブと子のタブ (= parent_id を持つ) を親の直下に字下げし、 畳んだ親の下は出さない
-  // (= `sessionTree.js`)。 F-38: sessions か畳み方が変わった時だけ tree を組み直す。
+  // Tabs sit in the folder of their tier, forks and child tabs under their parent; nothing below a folded
+  // folder or parent is shown (= `folderTree.js`). F-38: rebuilt only when the tabs, badges or folds change.
   const [folded, setFolded] = useState(loadFolded)
-  const orderedSessions = useMemo(() => sessionTree(sortedSessions, folded), [sortedSessions, folded])
-  // 畳む印の列は、 子を持つタブが 1 つでも在る時だけ空ける (= 無ければ題の位置を今までと変えない)
-  const hasTree = orderedSessions.some(row => row.children > 0)
+  const [foldedFolders, setFoldedFolders] = useState(loadFoldedFolders)
+  const orderedSessions = useMemo(
+    () => folderTree(sortedSessions, { agents, foldedFolders, foldedSessions: folded, badges: sessionBadges }),
+    [sortedSessions, agents, foldedFolders, folded, sessionBadges],
+  )
+  // 畳む印の列は、 畳める行が 1 つでも在る時だけ空ける (= 無ければ題の位置を今までと変えない)
+  const hasTree = orderedSessions.some(row => row.kind === 'folder' || row.children > 0)
 
   return (
     <>
@@ -546,12 +550,31 @@ export default function SessionDrawer() {
           {sessions.length === 0 && (
             <div className="drawer-empty">{t('drawer.empty')}</div>
           )}
-          {orderedSessions.map(({ session: s, depth, children, folded: isFolded, hidden }) => {
+          {orderedSessions.map(row => {
+            if (row.kind === 'folder') {
+              return (
+                <button
+                  key={`folder:${row.key}`}
+                  className="drawer-folder"
+                  style={row.depth > 0 ? { paddingLeft: `${row.depth * 16}px` } : undefined}
+                  onClick={() => setFoldedFolders(prev => toggleFoldedFolder(prev, row.key, sessions))}
+                  aria-expanded={!row.folded}
+                  title={row.folded ? t('drawer.unfold') : t('drawer.fold')}
+                  data-testid="session-folder"
+                  data-cpc-folder={row.key}
+                >
+                  <span className="drawer-item-fold" aria-hidden="true">{row.folded ? '▸' : '▾'}</span>
+                  <span className="drawer-folder-name">{row.name}</span>
+                  {row.folded && <span className="drawer-item-hidden">{row.count}</span>}
+                  {row.badge && <span className={`tab-badge ${row.badge.kind}`}>{row.badge.label}</span>}
+                </button>
+              )
+            }
+            const { session: s, depth, children, folded: isFolded, hidden, nested: isFork } = row
             const badge = sessionBadges[s.id]
             const isActive = s.id === activeId
             const isMenuOpen = menuFor === s.id
             const isRenaming = renameFor === s.id
-            const isFork = depth > 0
             // account_id が空のタブ (= 古い時期に作られた) は既定アカウントで動いている。
             // backend が /accounts の is_default で「未設定と等価な account」 を教えてくれる。
             const effectiveAccount = s.account_id || defaultAccountId
@@ -559,8 +582,6 @@ export default function SessionDrawer() {
             const accountLabel = accounts.length > 1
               ? (accounts.find(a => a.id === effectiveAccount)?.display_name || effectiveAccount || null)
               : null
-            // 階層 (= そのタブのエージェントが起動した所)。 分からないタブは出さない。
-            const tierName = tierLabel(s.tier)
             // 移し先候補 = 今と違うアカウント。 1 つなら選択させず直接その名前のボタンを出す。
             const moveTargets = accounts.filter(a => a.id !== effectiveAccount)
             return (
@@ -609,7 +630,6 @@ export default function SessionDrawer() {
                     <span className="drawer-item-title">{s.title}</span>
                     {isFolded && <span className="drawer-item-hidden" title={t('drawer.hidden', { count: hidden })}>+{hidden}</span>}
                     {accountLabel && <span className="drawer-item-account">{accountLabel}</span>}
-                    {tierName && <span className="drawer-item-tier" title={s.tier} data-testid="session-tier">{tierName}</span>}
                     {badge && <span className={`tab-badge ${badge.kind}`}>{badge.label}</span>}
                   </button>
                 )}
