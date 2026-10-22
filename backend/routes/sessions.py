@@ -43,7 +43,8 @@ from backend.state import (
     unregister_session,
 )
 from backend.terminal import input_ready
-from backend.terminal.runner import kill_tmux_session, pty_sessions
+from backend.terminal.runner import pty_sessions
+from backend.terminal.tab_stop import stop_tab
 from backend.terminal.tab_tier import forget_tier, tab_tier
 import backend.core.jsonl_watcher as jsonl_watcher
 from backend.jsonl import history as session_history
@@ -295,8 +296,9 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
     return session_row(new_meta)
 
 
-def _stop_tab(session_id: str) -> None:
-    """Stop the claude of a tab and its pane, keeping the tab itself (= the first half of a restart)."""
+async def _stop_tab(session_id: str) -> None:
+    """Stop the claude of a tab and its pane, keeping the tab itself (= the first half of a restart). Returns once
+    that claude has ended, so the next one never runs beside it."""
     # kill する前に現 claude_sid を履歴に積む (= 事故時の復旧源、 pwa_sid あたり最新 3 件保持)。
     # binding が落ちてる場合は no-op になる (= record_end が None を弾く)。
     try:
@@ -310,7 +312,7 @@ def _stop_tab(session_id: str) -> None:
         logger.warning("session_history record failed for %s", session_id, exc_info=True)
     # kill 経路は delete_session と同じだが、 sessions_meta は維持して即 spawn し直す
     try:
-        kill_tmux_session(session_id)
+        await stop_tab(session_id)
         pty_sessions.pop(session_id, None)
         jsonl_watcher.unregister(session_id)
     except Exception:
@@ -368,7 +370,7 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
     """claude プロセスを kill + 新規 spawn する (= /clear と違ってプロセスメモリも完全解放)。
     新 claude_sid に切り替わるが SessionStart hook で bindings 更新されるので、 PWA タブは
     シームレスに続けて使える。 長期稼働で claude プロセスメモリが累積する問題への対策。"""
-    _stop_tab(session_id)
+    await _stop_tab(session_id)
     # フォーク産タブを通常タブ化する (= state.demote_fork_to_normal、 backend-F-44)。
     # restart のセマンティクスは「文脈リセット + プロセスリセット」 で、 fork タブの
     # resume_session_id を残したままだと再 spawn で `claude --resume <同一 id>` が走り、
@@ -422,7 +424,7 @@ async def move_session_account(session_id: str, payload: dict = Body(...), _: st
     if account_id == (meta.account_id or default_account_id()):
         return session_row(meta)
     new_claude_id, _moved = _write_lineage(session_id, None, account_id)
-    _stop_tab(session_id)
+    await _stop_tab(session_id)
     meta.account_id = account_id
     meta.resume_session_id = new_claude_id
     save_sessions_meta()
@@ -450,7 +452,7 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
     # PTY + tmux + JSONL binding を一括 cleanup
     input_ready.forget(session_id)
     try:
-        kill_tmux_session(session_id)
+        await stop_tab(session_id)
         pty_sessions.pop(session_id, None)
         jsonl_watcher.unregister(session_id)
     except Exception:

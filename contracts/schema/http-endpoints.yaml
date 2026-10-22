@@ -150,7 +150,7 @@ endpoints:
     auth: tailnet
     invariants:
       - "再 spawn 後の new claude_sid は SessionStart hook で confirm_bind 自動更新"
-      - "kill -TERM → 5s 待ち → kill -KILL の順"
+      - "tmux の窓を消す (= claude に HUP) → claude が終わるまで最大 5s 待つ → 残っていれば KILL。 次の claude は前の claude が終わってから立てる"
     implementation: backend/routes/sessions.py
 
   - method: GET
