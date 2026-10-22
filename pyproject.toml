@@ -14,7 +14,6 @@ dependencies = [
     "watchdog>=4",
     "watchfiles>=1.2",
     "psutil>=5.9",  # pty_discover の pgrep/ps/lsof fork 連打を 1 ループ化
-    "markdown-it-py>=3",  # 資料の口 (= backend/documents/markdown.py) が Markdown を HTML にする
 ]
 
 [project.optional-dependencies]

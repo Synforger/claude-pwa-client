@@ -16,7 +16,7 @@ from fastapi import APIRouter, Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
 from backend._common.config import FILE_SIZE_LIMIT, HOME, page_origin
-from backend.documents import convert, markdown, pages, strings
+from backend.documents import convert, pages, strings
 from backend.documents.store import get_store as get_document_store
 from backend._common.errors import raise_error
 from backend._common.paths import PAGE_STORE_DIR
@@ -189,9 +189,12 @@ def _page_target(resolved: Path, request: Request) -> str | None:
 
 @router.get("/file/open")
 def open_file_in_browser(request: Request, path: str = Query(...)):
-    """チャットの path (= `~/…` も可) の HTML と資料 (= pdf・Office・tif・Markdown) を、 page_origin の folder の中なら別の port へ、 それ以外は
+    """チャットの path (= `~/…` も可) の HTML と資料 (= pdf・Office・tif) を、 page_origin の folder の中なら別の port へ、 それ以外は
     `/file/view/<絶対 path>` へ回す。"""
     resolved = _resolve_safe(path)
+    preview = _client_preview(request, resolved, levels_up=1)
+    if preview is not None:
+        return preview
     if resolved.suffix.lower() not in (".html", ".htm") and convert.kind_of(resolved) is None:
         raise HTTPException(status_code=415, detail="Unsupported media type")
     if not resolved.is_file():
@@ -203,9 +206,9 @@ def open_file_in_browser(request: Request, path: str = Query(...)):
     return RedirectResponse(url="view/" + quote(str(resolved).lstrip("/")), status_code=307)
 
 
-# 資料 (= pdf・Office・tif は頁の画像の頁に、 Markdown は HTML に変えて返す)。 元の file と同じ path の URL で配る
-# ので、 資料の中の相対のリンクと図は、 HTML のページの時と同じく書いたとおりに届く。 開ける範囲と検査は他の file と
-# 同じ (= 呼び元の `check` が HOME 配下 / deny list / ページの folder を見る。 大きさの上限も VIEW_SIZE_LIMIT)。
+# 資料 (= pdf・Office・tif) は頁の画像の頁にして返す。 元の file と同じ path の URL で配るので、 HTML のページから
+# 資料への相対のリンクは書いたとおりに届く。 開ける範囲と検査は他の file と同じ (= 呼び元が HOME 配下 / deny list /
+# ページの folder を見る。 大きさの上限も VIEW_SIZE_LIMIT)。
 # 頁の画像は `<資料の URL>?page=N&v=<key>` で返す。 変換は時間が掛かるので、 初めて開く時は待ちの頁を返す。
 _DOCUMENT_IMAGE_HEADERS = {**_VIEW_HEADERS, "Cache-Control": "private, max-age=31536000, immutable"}
 
@@ -217,13 +220,11 @@ def _shown_path(resolved: Path) -> str:
         return str(resolved)
 
 
-def _document_response(resolved: Path, kind: str, request: Request, csp: str, check) -> Response:
-    """資料 1 つの頁 (= `check` は path の文字列を受けて、 配れる実体の Path か HTTPException を返す口)。"""
+def _document_response(resolved: Path, kind: str, request: Request, csp: str) -> Response:
+    """資料 1 つの頁。"""
     lang = strings.pick_language(request.headers.get("accept-language"))
     shown = _shown_path(resolved)
     headers = {"Content-Security-Policy": csp, **_VIEW_HEADERS}
-    if kind == "markdown":
-        return HTMLResponse(_markdown_page(resolved, shown, lang, check), headers=headers)
     store_status = get_document_store().status(resolved, retry=request.query_params.get("retry") is not None)
     url_name = quote(request.scope["path"].rsplit("/", 1)[-1])
     number = request.query_params.get("page")
@@ -252,33 +253,7 @@ def _document_response(resolved: Path, kind: str, request: Request, csp: str, ch
     return HTMLResponse(pages.failed(resolved.name, shown, store_status.error, lang), status_code=422, headers=no_store)
 
 
-def _markdown_page(resolved: Path, shown: str, lang: str, check) -> str:
-    def served(path: Path) -> bool:
-        try:
-            target = check(str(path))
-        except HTTPException:
-            return False
-        return target.is_file() and (target.suffix.lower() in _VIEW_MEDIA_TYPES or convert.kind_of(target) is not None)
-
-    def read_markdown(path: Path) -> str | None:
-        try:
-            target = check(str(path))
-            if convert.kind_of(target) != "markdown" or target.stat().st_size > VIEW_SIZE_LIMIT:
-                return None
-            return target.read_text(encoding="utf-8", errors="replace")
-        except (HTTPException, OSError):
-            return None
-
-    try:
-        text = resolved.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        logger.exception("failed to read markdown: %s", resolved)
-        raise HTTPException(status_code=500, detail="Internal error")
-    rendered, title = markdown.render(text, markdown.Neighbors(resolved.parent, served, read_markdown), resolved.name, lang)
-    return pages.markdown(resolved.name, shown, rendered, title, lang)
-
-
-def _view_response(resolved: Path, csp: str, request: Request, check=None) -> Response:
+def _view_response(resolved: Path, csp: str, request: Request) -> Response:
     """/file/view とページの origin が配る 1 file (= 形・在るか・大きさを確かめ、 CSP を付けて返す)。"""
     kind = convert.kind_of(resolved)
     media_type = _VIEW_MEDIA_TYPES.get(resolved.suffix.lower())
@@ -289,7 +264,7 @@ def _view_response(resolved: Path, csp: str, request: Request, check=None) -> Re
     if resolved.stat().st_size > VIEW_SIZE_LIMIT:
         raise_error(413, "file_too_large", "ファイルが大きすぎます（上限 50MB）", limit="50MB")
     if kind is not None:
-        return _document_response(resolved, kind, request, csp, check or _resolve_safe)
+        return _document_response(resolved, kind, request, csp)
     return FileResponse(
         resolved, media_type=media_type, headers={"Content-Security-Policy": csp, **_VIEW_HEADERS},
     )
@@ -297,7 +272,28 @@ def _view_response(resolved: Path, csp: str, request: Request, check=None) -> Re
 
 @router.get("/file/view/{path:path}")
 def get_file_view(request: Request, path: str):
-    return _view_response(_resolve_safe("/" + path), VIEW_CSP, request)
+    resolved = _resolve_safe("/" + path)
+    # 行き先は相対で書く (= `/file/view/` と path の folder の段を上がった所が client の画面)
+    preview = _client_preview(request, resolved, levels_up=path.count("/") + 2)
+    if preview is not None:
+        return preview
+    return _view_response(resolved, VIEW_CSP, request)
+
+
+def _client_preview(request: Request, resolved: Path, levels_up: int) -> RedirectResponse | None:
+    """ブラウザのタブそのものとして開かれた HTML 以外の file を、 client の画面のプレビューへ回す (= それ以外は None)。
+
+    Markdown・画像・PDF・コードは、 client の中のプレビュー (= 上の × で会話へ戻る) で見せる。 外の道具や HTML の
+    ページのリンクが file の口を新しいタブで開くと、 ページにして描いても会話へ戻る口が無い。 client の中の
+    プレビューの枠 (= iframe) と、 ページが読む画像・スクリプトは、 ブラウザの印 (= `Sec-Fetch-Dest`) が
+    `document` でないので今まで通り配る。 印の無い要求 (= 古いブラウザ・curl) も今まで通り。
+    levels_up は、 要求の URL の folder から client の画面 (= backend の根) まで上がる段の数。
+    """
+    if request.headers.get("sec-fetch-dest") != "document":
+        return None
+    if resolved.suffix.lower() in (".html", ".htm") or not resolved.is_file():
+        return None
+    return RedirectResponse(url="../" * levels_up + "?preview=" + quote(str(resolved), safe=""), status_code=307)
 
 
 # ページの origin: page_origin の folder の file を、 sandbox を外した普通のページとして配る口。 backend とは別の
@@ -404,7 +400,7 @@ async def put_store(request: Request, page: str):
 
 @page_app.get("/{path:path}")
 def get_page(request: Request, path: str):
-    return _view_response(_in_folder(path), _page_csp(request), request, check=_in_folder)
+    return _view_response(_in_folder(path), _page_csp(request), request)
 
 
 @router.put("/file")

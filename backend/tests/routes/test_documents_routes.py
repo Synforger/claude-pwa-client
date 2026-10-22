@@ -1,7 +1,7 @@
-"""資料の口 (= /file/open・/file/view・ページの origin が pdf・Office・tif・Markdown を開く所) の test。
+"""資料の口 (= /file/open・/file/view・ページの origin が pdf・Office・tif を開く所) の test。
 
 開ける範囲と検査は他の file と同じであること (= 新しく読める場所を広げない) と、 初めて開く時の待ち・失敗の画面、
-ページの origin の HTML から資料へのリンクが開くこと、 Markdown の中の図とリンクを確かめる。 変換そのものは偽
+ページの origin の HTML から資料へのリンクが開くことを確かめる。 変換そのものは偽
 (= 変換の command を呼ぶ所は test_documents.py)。
 """
 import json
@@ -92,7 +92,7 @@ def open_when_ready(client, url, **kwargs):
 
 # --- /file/open ---
 
-@pytest.mark.parametrize("name", ["a.pdf", "a.pptx", "a.xlsx", "a.docx", "a.tif", "a.tiff", "a.md", "A.PDF"])
+@pytest.mark.parametrize("name", ["a.pdf", "a.pptx", "a.xlsx", "a.docx", "a.tif", "a.tiff", "A.PDF"])
 def test_file_open_sends_a_document_to_the_view_of_its_path(view, tmp_path, name):
     source = put(tmp_path, f"docs/{name}")
     res = view.get("/file/open", params={"path": str(source)}, follow_redirects=False)
@@ -193,45 +193,11 @@ def test_a_link_out_of_home_cannot_be_opened_as_a_document(view, tmp_path):
     assert view.get("/file/view" + str(inside / "link.pdf")).status_code == 403
 
 
-# --- Markdown ---
-
-def test_markdown_opens_as_html_with_ids_missing_figures_and_fixed_links(view, tmp_path):
-    put(tmp_path, "docs/fig/a.png", b"\x89PNG")
-    put(tmp_path, "docs/other.md", "# Other\n\n## 1. 背景と目的\n")
-    source = put(tmp_path, "docs/doc.md",
-                 "# Title\n\n[背景](other.md#背景) [自分](#背)\n\n![ok](fig/a.png) ![ng](fig/gone.png)\n\n## 1. 背\n")
-    res = view.get("/file/view" + str(source))
-    assert res.status_code == 200 and res.headers["content-type"] == "text/html; charset=utf-8"
-    assert res.headers["content-security-policy"].startswith("sandbox allow-scripts;")
-    text = res.text
-    assert "<title>Title</title>" in text and '<h1 id="title">' in text
-    assert 'href="other.md#1-%E8%83%8C%E6%99%AF%E3%81%A8%E7%9B%AE%E7%9A%84"' in text
-    assert 'href="#1-%E8%83%8C"' in text
-    assert '<img src="fig/a.png"' in text and "Image not found: <code>fig/gone.png</code>" in text
-    # 図も別の md も、 資料の URL を基にした相対の URL でそのまま届く
-    assert view.get("/file/view" + str(tmp_path / "docs/fig/a.png")).status_code == 200
-    assert view.get("/file/view" + str(tmp_path / "docs/other.md")).status_code == 200
-
-
-def test_a_figure_that_home_would_not_serve_counts_as_missing(view, tmp_path):
-    put(tmp_path, ".ssh/key.png", b"\x89PNG")
-    source = put(tmp_path, "docs/doc.md", "![k](../.ssh/key.png)\n")
-    assert "Image not found" in view.get("/file/view" + str(source)).text
-
-
-def test_markdown_that_is_too_big_is_refused_like_any_file(view, tmp_path, monkeypatch):
-    import backend.routes.files as files_mod  # noqa: PLC0415
-    source = put(tmp_path, "docs/big.md", "# x\n" * 10)
-    monkeypatch.setattr(files_mod, "VIEW_SIZE_LIMIT", 8)
-    assert view.get("/file/view" + str(source)).status_code == 413
-
-
 # --- ページの origin: HTML のページから資料へのリンク ---
 
 def test_a_page_in_the_folder_can_link_to_a_document_and_it_opens_on_the_pages_port(pages_app, tmp_path):
-    put(tmp_path, "pages/proj/index.html", '<a href="../materials/spec.pdf">spec</a> <a href="notes/plan.md#scope">plan</a>')
+    put(tmp_path, "pages/proj/index.html", '<a href="../materials/spec.pdf">spec</a>')
     put(tmp_path, "pages/materials/spec.pdf", b"%PDF-1")
-    put(tmp_path, "pages/proj/notes/plan.md", "# Plan\n\n## 1. Scope (v2)\n\n[scope](#scope)\n")
     assert pages_app.get("/proj/index.html").status_code == 200
     # リンクを辿った先 (= 相対 URL を解いた path)
     res = open_when_ready(pages_app, "/materials/spec.pdf")
@@ -240,25 +206,17 @@ def test_a_page_in_the_folder_can_link_to_a_document_and_it_opens_on_the_pages_p
     assert "allow-same-origin" in csp and "allow-top-navigation" not in csp and "frame-ancestors" in csp and f"connect-src http://testserver:{PAGE_PORT}/.store/" in csp
     key = res.text.split("v=")[1].split('"')[0]
     assert pages_app.get(f"/materials/spec.pdf?page=1&v={key}").headers["content-type"] == "image/jpeg"
-    plan = pages_app.get("/proj/notes/plan.md")
-    assert plan.status_code == 200 and 'href="#1-scope-v2"' in plan.text
 
 
 def test_documents_on_the_pages_port_stay_inside_the_folder_and_the_deny_list(pages_app, tmp_path):
     put(tmp_path, "outside.pdf")
     put(tmp_path, "pages/.ssh/a.pdf")
-    put(tmp_path, "pages/proj/ok.md", "![o](../../outside.png) ![i](in.png)\n")
-    put(tmp_path, "outside.png", b"\x89PNG")
-    put(tmp_path, "pages/proj/in.png", b"\x89PNG")
     (tmp_path / "pages" / "link.pdf").symlink_to(tmp_path / "outside.pdf")
     assert pages_app.get("/../outside.pdf").status_code in (403, 404)
     assert pages_app.get("/%2E%2E/outside.pdf").status_code in (403, 404)
     assert pages_app.get("/link.pdf").status_code == 403
     assert pages_app.get("/.ssh/a.pdf").status_code == 403
     assert pages_app.get("/proj/gone.pdf").status_code == 404
-    # folder の外に在る図は、 在っても配れないので「見つからない」
-    body = pages_app.get("/proj/ok.md").text
-    assert "Image not found: <code>../../outside.png</code>" in body and '<img src="in.png"' in body
 
 
 def test_file_open_sends_a_document_in_the_folder_to_the_pages_port(pages_app, tmp_path):

@@ -323,6 +323,51 @@ def test_file_open_takes_html_only(tmp_path, monkeypatch):
     assert client.get("/file/open", params={"path": str(tmp_path / "missing.html")}).status_code == 404
 
 
+
+# --- タブとして開かれた HTML 以外の file は、 client の中のプレビューへ回る ---
+
+_AS_TAB = {"Sec-Fetch-Dest": "document"}
+
+
+@pytest.mark.parametrize("name", ["memo.md", "run.py", "slides.pdf", "pic.png"])
+def test_file_open_in_a_tab_sends_a_file_that_is_not_html_to_the_client_preview(tmp_path, monkeypatch, name):
+    from urllib.parse import quote, urljoin  # noqa: PLC0415
+    client, _ = _raw_client(tmp_path, monkeypatch)
+    (tmp_path / "notes").mkdir()
+    target = tmp_path / "notes" / name
+    target.write_bytes(b"x")
+    res = client.get("/file/open", params={"path": str(target)}, headers=_AS_TAB, follow_redirects=False)
+    assert res.status_code == 307
+    assert urljoin("http://host/file/open", res.headers["location"]) == "http://host/?preview=" + quote(str(target), safe="")
+
+
+def test_file_view_in_a_tab_sends_a_linked_markdown_to_the_client_preview(tmp_path, monkeypatch):
+    from urllib.parse import quote, urljoin  # noqa: PLC0415
+    client, _ = _raw_client(tmp_path, monkeypatch)
+    site = _site(tmp_path)
+    (site / "notes.md").write_text("# Notes\n")
+    url = "/file/view" + str(site / "notes.md")
+    res = client.get(url, headers=_AS_TAB, follow_redirects=False)
+    assert res.status_code == 307
+    assert urljoin("http://host" + url, res.headers["location"]) == "http://host/?preview=" + quote(str(site / "notes.md"), safe="")
+
+
+def test_file_open_keeps_pages_frames_and_page_files_as_they_were(tmp_path, monkeypatch):
+    client, _ = _raw_client(tmp_path, monkeypatch)
+    site = _site(tmp_path)
+    (site / "slides.pdf").write_bytes(b"%PDF-1")
+    # HTML はタブとして開かれてもページ
+    html = client.get("/file/open", params={"path": str(site / "index.html")}, headers=_AS_TAB, follow_redirects=False)
+    assert html.headers["location"] == "view/" + str(site / "index.html").lstrip("/")
+    # client の中のプレビューの枠は、 資料をページとして受け取る
+    frame = client.get("/file/open", params={"path": str(site / "slides.pdf")},
+                       headers={"Sec-Fetch-Dest": "iframe"}, follow_redirects=False)
+    assert frame.headers["location"] == "view/" + str(site / "slides.pdf").lstrip("/")
+    # ページが読む画像は画像のまま
+    image = client.get("/file/view" + str(site / "cam" / "a.png"), headers={"Sec-Fetch-Dest": "image"})
+    assert image.status_code == 200
+    assert image.headers["content-type"] == "image/png"
+
 # --- ページの origin (= config の page_origin の folder を、 sandbox を外して別の port から配る) ---
 
 _PAGE_PORT = 8799
