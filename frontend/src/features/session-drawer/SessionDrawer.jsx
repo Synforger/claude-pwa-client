@@ -21,7 +21,7 @@ import {
   setOverlay,
 } from '../../state/ui.js'
 import {
-  continueOnAccount,
+  moveToAccount,
   createSession,
   renameSession,
   setNotifyMode,
@@ -118,7 +118,7 @@ export default function SessionDrawer() {
   }, [])
   const onCreate = useCallback((agentId, accountId) => createSession(agentId, accountId), [])
   const onRename = useCallback((id, title) => renameSession(id, title), [])
-  const onContinueOnAccount = useCallback((id, accountId) => continueOnAccount(id, accountId), [])
+  const onMoveToAccount = useCallback((id, accountId) => moveToAccount(id, accountId), [])
   const onSetNotifyMode = useCallback((id, mode) => setNotifyMode(id, mode), [])
   const onDelete = useCallback((sid) => setOverlay('confirmDelete', sid), [])
 
@@ -664,13 +664,13 @@ export default function SessionDrawer() {
                     {moveTargets.length > 0 && (
                       <>
                         <div className="drawer-popup-sep" />
-                        <div className="drawer-popup-label">{t('drawer.continue_on.label')}</div>
+                        <div className="drawer-popup-label">{t('drawer.move_account.label')}</div>
                         {moveTargets.map(acc => (
                           <button
                             key={acc.id}
-                            onClick={() => { setMenuFor(null); onContinueOnAccount(s.id, acc.id) }}
+                            onClick={() => { setMenuFor(null); onMoveToAccount(s.id, acc.id) }}
                           >
-                            {t('drawer.continue_on.action', { account: acc.display_name })}
+                            {t('drawer.move_account.action', { account: acc.display_name })}
                           </button>
                         ))}
                       </>

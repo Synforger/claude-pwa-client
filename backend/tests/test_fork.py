@@ -294,112 +294,117 @@ def test_fork_inherits_parent_account_id(tmp_path, monkeypatch, isolated_state):
     assert out["account_id"] == "work"
 
 
-# --- アカウントを移して継続する経路 ---
+# --- 同じタブのまま口座を移す経路 ---
 
 def _setup_account_move(tmp_path, monkeypatch, isolated_state, source_lines=SAMPLE):
-    """親を personal に置き、 work の projects dir を tmp に生やした状態を作る。"""
+    """A tab on personal, the work account's projects folder under tmp, and the stop / spawn of the tab recorded."""
     import backend.routes.sessions as sessions_mod  # noqa: PLC0415
-    chat_routes, parent, src = _setup_fork_env(tmp_path, monkeypatch, isolated_state, source_lines)
-    parent.account_id = "personal"
+    import backend.terminal.routes as pty_routes  # noqa: PLC0415
+    _chat, tab, src = _setup_fork_env(tmp_path, monkeypatch, isolated_state, source_lines)
+    tab.account_id = "personal"
     work_dir = tmp_path / "work-projects" / "-work-cwd"
     accounts = {
         "personal": {"display_name": "Personal", "env": {}},
         "work": {"display_name": "Work", "env": {"CLAUDE_CONFIG_DIR": str(tmp_path / "work")}},
     }
     monkeypatch.setattr(sessions_mod, "get_config", lambda: {"accounts": accounts})
-    monkeypatch.setattr(sessions_mod, "AGENTS", {parent.agent_id: {"cwd": "/work/cwd"}})
+    monkeypatch.setattr(sessions_mod, "AGENTS", {tab.agent_id: {"cwd": "/work/cwd"}})
     monkeypatch.setattr(
         sessions_mod, "cwd_to_project_dir",
         lambda cwd, account_id=None: work_dir if account_id == "work" else src.parent,
     )
-    return chat_routes, parent, src, work_dir
+    events: list[str] = []
+    monkeypatch.setattr(sessions_mod, "kill_tmux_session", lambda sid: events.append(f"kill {sid}") or True)
+
+    async def _spawn(sid, **_kwargs):
+        events.append(f"spawn {sid}")
+    monkeypatch.setattr(pty_routes, "ensure_pty_session_for", _spawn)
+    return sessions_mod, tab, src, work_dir, events
 
 
-def test_fork_moves_lineage_into_the_target_account_dir(tmp_path, monkeypatch, isolated_state):
-    """移し先の projects dir に lineage を書き、 新 session の account_id も移し先にする。
-
-    置き場所と spawn 時の CLAUDE_CONFIG_DIR がずれると `claude --resume` が lineage を
-    見つけられず空タブになる (= 2026-07-22 の事故と同じ構造)。 両者は必ず揃える。
-    """
-    chat_routes, parent, src, work_dir = _setup_account_move(tmp_path, monkeypatch, isolated_state)
-    out = _run(chat_routes.fork_session(parent.id, {"target_account_id": "work"}))
+def test_moving_a_tab_continues_the_same_tab_under_the_other_account(tmp_path, monkeypatch, isolated_state):
+    """The same tab keeps its name and continues under the other account: the conversation is written into that
+    account's projects folder and the tab starts again resuming it. No new tab appears."""
+    from backend.state import sessions_meta  # noqa: PLC0415
+    sessions_mod, tab, src, work_dir, events = _setup_account_move(tmp_path, monkeypatch, isolated_state)
+    tabs_before = set(sessions_meta)
+    out = _run(sessions_mod.move_session_account(tab.id, {"account_id": "work"}))
+    assert out["id"] == tab.id
+    assert out["title"] == "Chat"
     assert out["account_id"] == "work"
-    assert out["parent_id"] == parent.id
-    assert out["title"] == "Chat · Work"
+    assert out["parent_id"] is None
+    assert set(sessions_meta) == tabs_before
     written = list(work_dir.glob("*.jsonl"))
     assert len(written) == 1
     assert written[0].stem == out["resume_session_id"]
-    # 元のタブ / 元の jsonl は無傷
+    # the latest clean point (= a2) is carried whole
+    assert _uuids(written[0].read_text().splitlines()) == ["u1", "a1", "u2", "a2"]
+    assert events == [f"kill {tab.id}", f"spawn {tab.id}"]
+    # the source conversation is untouched
     assert src.read_text().splitlines() == SAMPLE
-    assert parent.account_id == "personal"
 
 
-def test_fork_without_uuid_takes_the_latest_clean_point(tmp_path, monkeypatch, isolated_state):
-    chat_routes, parent, _src, work_dir = _setup_account_move(tmp_path, monkeypatch, isolated_state)
-    out = _run(chat_routes.fork_session(parent.id, {"target_account_id": "work"}))
-    written = list(work_dir.glob("*.jsonl"))[0]
-    # 末尾の切れ目 = a2 まで丸ごと引き継ぐ
-    assert _uuids(written.read_text().splitlines()) == ["u1", "a1", "u2", "a2"]
-    assert out["resume_session_id"] == written.stem
-
-
-def test_fork_to_the_same_account_stays_next_to_the_source(tmp_path, monkeypatch, isolated_state):
-    chat_routes, parent, src, work_dir = _setup_account_move(tmp_path, monkeypatch, isolated_state)
-    out = _run(chat_routes.fork_session(parent.id, {"target_account_id": "personal"}))
+def test_moving_to_the_account_the_tab_is_on_changes_nothing(tmp_path, monkeypatch, isolated_state):
+    sessions_mod, tab, src, work_dir, events = _setup_account_move(tmp_path, monkeypatch, isolated_state)
+    out = _run(sessions_mod.move_session_account(tab.id, {"account_id": "personal"}))
     assert out["account_id"] == "personal"
-    assert out["title"] == "Chat fork"
+    assert out["resume_session_id"] is None
+    assert events == []
     assert list(work_dir.glob("*.jsonl")) == []
-    assert len([p for p in src.parent.glob("*.jsonl") if p.name != "OLD.jsonl"]) == 1
+    assert [p.name for p in src.parent.glob("*.jsonl")] == ["OLD.jsonl"]
 
 
-def test_fork_treats_a_missing_account_id_as_the_default(tmp_path, monkeypatch, isolated_state):
-    """account_id を持たない古いタブから既定 account へ移そうとしても移行にはしない。
-
-    素の比較 (= None != "personal") だと、 同じ config dir へ置き直したうえで title に札が
-    付いてしまう。 実機に account_id が None のタブが実在する (= 古い時期に作られた)。
-    """
-    import backend.routes.sessions as sessions_mod  # noqa: PLC0415
-    chat_routes, parent, src, work_dir = _setup_account_move(tmp_path, monkeypatch, isolated_state)
+def test_a_tab_without_an_account_id_is_on_the_default_account(tmp_path, monkeypatch, isolated_state):
+    """A tab made before accounts existed has no `account_id` and runs on the default one: moving it there is
+    nothing, and moving it elsewhere moves it."""
+    sessions_mod, tab, _src, work_dir, events = _setup_account_move(tmp_path, monkeypatch, isolated_state)
     monkeypatch.setattr(sessions_mod, "default_account_id", lambda: "personal")
-    parent.account_id = None
-    out = _run(chat_routes.fork_session(parent.id, {"target_account_id": "personal"}))
-    assert out["title"] == "Chat fork"          # 移行の札は付かない
-    assert list(work_dir.glob("*.jsonl")) == []  # 移し先 dir には書かない
-    assert len([p for p in src.parent.glob("*.jsonl") if p.name != "OLD.jsonl"]) == 1
-
-
-def test_fork_from_a_missing_account_id_can_still_move_elsewhere(tmp_path, monkeypatch, isolated_state):
-    import backend.routes.sessions as sessions_mod  # noqa: PLC0415
-    chat_routes, parent, _src, work_dir = _setup_account_move(tmp_path, monkeypatch, isolated_state)
-    monkeypatch.setattr(sessions_mod, "default_account_id", lambda: "personal")
-    parent.account_id = None
-    out = _run(chat_routes.fork_session(parent.id, {"target_account_id": "work"}))
+    tab.account_id = None
+    _run(sessions_mod.move_session_account(tab.id, {"account_id": "personal"}))
+    assert events == []
+    out = _run(sessions_mod.move_session_account(tab.id, {"account_id": "work"}))
     assert out["account_id"] == "work"
-    assert out["title"] == "Chat · Work"
     assert len(list(work_dir.glob("*.jsonl"))) == 1
 
 
-def test_fork_rejects_an_unknown_target_account(tmp_path, monkeypatch, isolated_state):
+def test_moving_to_an_unknown_account_is_rejected(tmp_path, monkeypatch, isolated_state):
     from fastapi import HTTPException  # noqa: PLC0415
-    chat_routes, parent, _src, _work = _setup_account_move(tmp_path, monkeypatch, isolated_state)
-    try:
-        _run(chat_routes.fork_session(parent.id, {"target_account_id": "nope"}))
-    except HTTPException as e:
-        assert e.status_code == 400
-        return
-    raise AssertionError("expected 400 for an unknown target account")
+    sessions_mod, tab, _src, _work, events = _setup_account_move(tmp_path, monkeypatch, isolated_state)
+    for body in ({"account_id": "nope"}, {}):
+        try:
+            _run(sessions_mod.move_session_account(tab.id, body))
+        except HTTPException as e:
+            assert e.status_code == 400
+            continue
+        raise AssertionError(f"expected 400 for {body}")
+    assert events == []
 
 
-def test_fork_without_any_clean_point_is_rejected(tmp_path, monkeypatch, isolated_state):
+def test_a_tab_with_no_clean_point_yet_is_left_running_where_it_is(tmp_path, monkeypatch, isolated_state):
+    """Before the first turn has finished there is nothing to carry: the move is refused before the tab is touched."""
     from fastapi import HTTPException  # noqa: PLC0415
     lines = [_assistant("a1", None, content=[{"type": "tool_use", "name": "Read", "id": "t1"}])]
-    chat_routes, parent, _src, _work = _setup_account_move(tmp_path, monkeypatch, isolated_state, lines)
+    sessions_mod, tab, _src, _work, events = _setup_account_move(tmp_path, monkeypatch, isolated_state, lines)
+    try:
+        _run(sessions_mod.move_session_account(tab.id, {"account_id": "work"}))
+    except HTTPException as e:
+        assert e.status_code == 400
+        assert events == []
+        assert tab.account_id == "personal"
+        return
+    raise AssertionError("expected 400 when no clean break exists yet")
+
+
+def test_a_fork_needs_the_message_it_branches_from(tmp_path, monkeypatch, isolated_state):
+    """Moving to another account is no longer a fork: a fork without `from_uuid` is refused."""
+    from fastapi import HTTPException  # noqa: PLC0415
+    chat_routes, parent, _src = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
     try:
         _run(chat_routes.fork_session(parent.id, {"target_account_id": "work"}))
     except HTTPException as e:
         assert e.status_code == 400
         return
-    raise AssertionError("expected 400 when no clean break exists yet")
+    raise AssertionError("expected 400 for a fork without from_uuid")
 
 
 def test_fork_endpoint_rejects_dirty_point(tmp_path, monkeypatch, isolated_state):

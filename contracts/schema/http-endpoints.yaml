@@ -95,12 +95,12 @@ endpoints:
 
   - method: POST
     path: /sessions/{sid}/fork
-    description: "メッセージから分岐 (= 過去 uuid から新 session を派生)。 target_account_id 指定でアカウントを移して継続"
+    description: "メッセージから分岐 (= 過去 uuid から新 session を派生)"
     request_body:
       type: object
       properties:
-        from_uuid: { type: string, description: "分岐起点。 target_account_id 指定時は省略可 (= 末尾の切れ目を自動採用)" }
-        target_account_id: { type: string, description: "移し先 account (= 省略時は親を継承)" }
+        from_uuid: { type: string, description: "分岐起点" }
+      required: [from_uuid]
     response:
       type: object
       properties:
@@ -109,11 +109,32 @@ endpoints:
     response_kind: json
     auth: tailnet
     invariants:
-      - "from_uuid 不在は 404"
-      - "from_uuid / target_account_id が両方無いと 400"
-      - "未知の target_account_id は 400"
+      - "from_uuid 不在は 404、 無ければ 400"
       - "fork lineage は parent_id 保持、 resume_session_id は落とす (= fork 初回役目終了)"
-      - "アカウント移行時は lineage を移し先の projects dir に書き、 新 session の account_id も移し先にする (= 置き場所と spawn 先を必ず揃える)"
+      - "新 session の account_id は親と同じ (= lineage の置き場所と spawn 先を必ず揃える)"
+    implementation: backend/routes/sessions.py
+
+  - method: POST
+    path: /sessions/{sid}/account
+    description: "同じタブのまま口座を移して会話を続ける (= 題も id も変わらない)"
+    request_body:
+      type: object
+      properties:
+        account_id: { type: string, description: "移し先 account" }
+      required: [account_id]
+    response:
+      type: object
+      properties:
+        id: { type: string }
+        account_id: { type: string }
+      required: [id, account_id]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "未知の account_id は 400"
+      - "今の口座 (= account_id 無しは既定の口座) と同じなら何もしない"
+      - "会話は末尾の切れ目まで移し先の projects dir に書き、 タブの account_id と resume_session_id をそれに揃えてから同じタブを立て直す"
+      - "切れ目がまだ無ければ 400 で、 タブには触らない"
     implementation: backend/routes/sessions.py
 
   - method: POST
