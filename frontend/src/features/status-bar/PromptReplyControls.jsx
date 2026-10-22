@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useT } from '../../i18n/t.js'
-import { apiFetch } from '../../utils/api.js'
+import { apiFetch } from '../../_common/api.js'
 
 // prompt_state.input_mode に応じた quick-reply UI (= Phase 4a)。
 //

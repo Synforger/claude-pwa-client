@@ -21,7 +21,7 @@ describe('features/dialogs — smoke contract', () => {
 
   it('importing index.js registers all three confirm dialogs in overlayRegistry with Component specs', async () => {
     await import('./index.js')
-    const reg = await import('../../registry/overlayRegistry.js')
+    const reg = await import('../../core/overlayRegistry.js')
     const keys = reg.list()
     expect(keys).toContain('confirmEnd')
     expect(keys).toContain('confirmStop')

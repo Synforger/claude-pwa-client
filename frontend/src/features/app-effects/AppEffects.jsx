@@ -30,7 +30,7 @@ import {
   setOverlay,
   hydrate as hydrateUi,
 } from '../../state/ui.js'
-import { lsGet, lsSet } from '../../utils/storage.js'
+import { lsGet, lsSet } from '../../_common/storage.js'
 import { useSyncExternalStore } from 'react'
 
 // viewModes (= タブごとの chat/terminal 表示モード) の localStorage 永続化キー (= 旧 useViewMode 継承)。

@@ -10,7 +10,7 @@ import { bumpAttachmentPicker } from '../../state/ephemeral.js'
 import { refetchChat } from '../chat/useChatStream.js'
 import { subscribe as subscribeVoice, getSnapshot as getVoiceSnapshot } from '../../state/voice.js'
 import { hasAppCall, showCallPicture } from '../voice/voice.js'
-import { useOutsideClick } from '../../hooks/useOutsideClick.js'
+import { useOutsideClick } from '../../_common/useOutsideClick.js'
 import { useT } from '../../i18n/t.js'
 
 // ⋯ メニュー: ファイル添付 / ファイルツリー / ⌨↔💬 表示切替 / チャット再取得 / 通話の小窓 / セッション終了 の集約。

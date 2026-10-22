@@ -6,7 +6,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, cleanup, fireEvent } from '@testing-library/react'
 
-vi.mock('../../utils/api.js', () => ({
+vi.mock('../../_common/api.js', () => ({
   apiFetch: vi.fn(() => Promise.resolve({
     ok: true,
     json: () => Promise.resolve({ content: 'raw task output' }),

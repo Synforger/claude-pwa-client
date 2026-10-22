@@ -5,7 +5,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, cleanup, fireEvent } from '@testing-library/react'
 import MessageRenderer, { imageSource } from './MessageRenderer.jsx'
-import { apiUrl } from '../../utils/api.js'
+import { apiUrl } from '../../_common/api.js'
 
 afterEach(cleanup)
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatTool } from '../utils/format.js'
+import { formatTool } from '../_common/format.js'
 import { SHORT_LABEL_MAX } from './_shared.js'
 
 // Bash の行は、 畳んだ見出し (= shortLabel) と、 開いた時に出る全文 (= label) を別に持つ。

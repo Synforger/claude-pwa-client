@@ -1,8 +1,8 @@
-import { generateId } from '../../utils/id.js'
-import { formatTool } from '../../utils/format.js'
-import { stripToolResultImages } from '../../utils/toolResult.js'
-import { MAX_MESSAGES } from '../../constants.js'
-import { getEntry as getMessageEntry } from '../../registry/messageRegistry.js'
+import { generateId } from '../../_common/id.js'
+import { formatTool } from '../../_common/format.js'
+import { stripToolResultImages } from '../../_common/toolResult.js'
+import { MAX_MESSAGES } from '../../_common/constants.js'
+import { getEntry as getMessageEntry } from '../../core/messageRegistry.js'
 import { ingestPromptStateEvent } from '../../state/promptState.js'
 
 // SSE イベント (1 行 JSON) を受け取って、buffer / messages state に反映する純粋関数。
@@ -311,7 +311,7 @@ export function processStreamEvent(deps, sid, event) {
             ...t,
             result: {
               // ライブ SSE は無改変で届く契約なので、 画像本体を落とすのは受け取った側の責務。
-              // 履歴 GET は backend が同じ縮小を掛け済み (= utils/toolResult.js の説明参照)。
+              // 履歴 GET は backend が同じ縮小を掛け済み (= _common/toolResult.js の説明参照)。
               content: stripToolResultImages(r.content),
               is_error: !!r.is_error,
               ...(typeof r.full_chars === 'number' ? { full_chars: r.full_chars } : {}),

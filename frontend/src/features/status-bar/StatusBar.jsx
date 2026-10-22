@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { pctClass, timeUntil, formatResetWeekdayTime } from '../../utils/format.js'
+import { pctClass, timeUntil, formatResetWeekdayTime } from '../../_common/format.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
 import { subscribe as subscribeSessions, getSnapshot as getSessionsSnapshot } from '../../state/sessions.js'
 import MoreMenu from './MoreMenu.jsx'

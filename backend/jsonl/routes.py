@@ -186,7 +186,7 @@ def _shrink_tool_results(ev: dict) -> None:
                 if not isinstance(text, str):
                     # image ブロックは **本体 (= base64) を落とす**。 UI は tool_result 内の画像を
                     # 実データとして描画せず「画像」 プレースホルダ 1 語に畳む
-                    # (= utils/format.js formatToolResultContent の `type === 'image'` 経路) ので、
+                    # (= _common/format.js formatToolResultContent の `type === 'image'` 経路) ので、
                     # base64 は 1 byte も表示に使われない。 実測では 1 件 384KB のスクショが
                     # 履歴に丸ごと乗っていた。 type は残すのでプレースホルダ表示は不変。
                     if isinstance(part, dict) and part.get("type") == "image":

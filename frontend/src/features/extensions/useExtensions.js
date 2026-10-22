@@ -5,7 +5,7 @@
 // いない拡張はボタンを出さない。 🧩 の一覧 (= ExtensionMenu) と枠 (= ExtensionHost) が同じ結果を読むので、 取得は
 // module 内で 1 回だけ行う (= PWA の再読込で取り直す)。
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { apiFetch } from '../../utils/api.js'
+import { apiFetch } from '../../_common/api.js'
 import { subscribe as subscribeUi, getSnapshot as getUiSnapshot } from '../../state/ui.js'
 
 // 宣言の一覧から、 head(path) が true を返した物だけを宣言順で残す。 1 件の失敗は他を巻き込まない。

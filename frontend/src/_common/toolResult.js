@@ -7,7 +7,7 @@
 // ここはその対称化で、 端末が受け取った後の state / localStorage に載る形を揃える。
 //
 // 落とすのは tool_result 内の image ブロックの本体だけ。 UI は tool_result 内の画像を実データ
-// として描画せず「画像」 プレースホルダ 1 語に畳む (= utils/format.js formatToolResultContent
+// として描画せず「画像」 プレースホルダ 1 語に畳む (= _common/format.js formatToolResultContent
 // の `type === 'image'` 経路) ので、 本体は 1 byte も表示に使われない。 `type` は残すので
 // プレースホルダ表示は不変。
 

@@ -1,4 +1,4 @@
-// 全 registry/ の共通基盤 (= ADR-010 lifecycle 契約型 + ADR-017 と対称な共通化 pattern)。
+// 全 core/ の共通基盤 (= ADR-010 lifecycle 契約型 + ADR-017 と対称な共通化 pattern)。
 // 5 registry (= stream / message / overlay / push / feature) が同じ subscribe / register /
 // dispatch を持つので、 factory に集約する。 W3 observability で「全 registry の登録状況を 1 経路で
 // snapshot」 する入口にもなる。

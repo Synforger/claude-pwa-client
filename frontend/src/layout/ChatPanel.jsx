@@ -22,7 +22,7 @@ import {
   setSendFailedText as storeSetSendFailedText,
   setStopUnavailableSid as storeSetStopUnavailableSid,
 } from '../state/ephemeral.js'
-import { apiFetch } from '../utils/api.js'
+import { apiFetch } from '../_common/api.js'
 import { useSessions } from '../features/session-drawer/useSessions.js'
 import { useSessionsOverview } from '../features/session-drawer/useSessionsOverview.js'
 import { useSessionActivity } from '../features/session-drawer/useSessionActivity.js'

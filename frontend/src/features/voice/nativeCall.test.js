@@ -13,7 +13,7 @@ const {
 const { getSnapshot: volumeOf, setVoiceVolume } = await import('../../state/voiceVolume.js')
 const { getSnapshot, setVoiceAvailable, setVoiceListen, _resetForTest } = await import('../../state/voice.js')
 
-const { API_BASE } = await import('../../constants.js')
+const { API_BASE } = await import('../../_common/constants.js')
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 

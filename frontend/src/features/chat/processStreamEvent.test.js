@@ -207,7 +207,7 @@ describe('extractAskAnswer (= AskUserQuestion tool_result の包装剥がし)', 
 // ---------------------------------------------------------------------------
 
 import { getSnapshot as getPromptSnapshot, clearPromptState } from '../../state/promptState.js'
-import { MAX_MESSAGES } from '../../constants.js'
+import { MAX_MESSAGES } from '../../_common/constants.js'
 
 describe('processStreamEvent — system カード族', () => {
   it.each([

@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { generateId } from '../../utils/id.js'
+import { generateId } from '../../_common/id.js'
 import { isStaleFor } from './replayGuard.js'
 
 // SSE で飛んでくる細切れの assistant 更新 (text / thinking / tool_use) を、

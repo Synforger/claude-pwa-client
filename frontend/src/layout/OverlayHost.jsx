@@ -10,7 +10,7 @@
 
 import { lazy, Suspense, Component, useMemo, useSyncExternalStore } from 'react'
 import { tRaw } from '../i18n/t.js'
-import { list, describe } from '../registry/overlayRegistry.js'
+import { list, describe } from '../core/overlayRegistry.js'
 import { subscribe as subscribeUi, getSnapshot as getUiSnapshot } from '../state/ui.js'
 
 // F-60 (= 2026-06-21): lazy modal の chunk fetch が失敗した時の最小 ErrorBoundary。

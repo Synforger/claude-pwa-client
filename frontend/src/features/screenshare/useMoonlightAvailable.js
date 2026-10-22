@@ -1,7 +1,7 @@
 // 画面共有 (moonlight-web-stream) が利用可能かをマウント時に検出。
 // useAppEffects.js から物理移送 (= W2 Phase C、 screenshare 専属)。
 import { useEffect, useState } from 'react'
-import { apiFetch } from '../../utils/api.js'
+import { apiFetch } from '../../_common/api.js'
 
 
 // --- 画面共有 (= moonlight-web-stream) が利用可能かをマウント時に検出 ---

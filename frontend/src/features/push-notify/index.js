@@ -1,6 +1,6 @@
 // features/push-notify 配線 entry。
 
-import { register as registerPush } from '../../registry/pushRegistry.js'
+import { register as registerPush } from '../../core/pushRegistry.js'
 
 import './usePushSubscription.js'
 import './push.js'

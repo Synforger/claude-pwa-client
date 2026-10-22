@@ -12,7 +12,7 @@ const FILE_BODY = 'line1\nline2\nTARGET\nline4\n'
 
 function mockApi() {
   const calls = []
-  vi.doMock('../../utils/api.js', () => ({
+  vi.doMock('../../_common/api.js', () => ({
     apiFetch: vi.fn((url) => {
       calls.push(url)
       return Promise.resolve({
@@ -32,7 +32,7 @@ async function loadSubject() {
 describe('fetchEditBaseLine — ファイル取得の重複排除', () => {
   beforeEach(() => {
     vi.resetModules()
-    vi.doUnmock('../../utils/api.js')
+    vi.doUnmock('../../_common/api.js')
   })
 
   it('同じファイルへの同時要求はまとめて 1 回しか取りに行かない', async () => {

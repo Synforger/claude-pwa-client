@@ -3,11 +3,11 @@ import {
   LS_ACTIVE_SESSION,
   LS_LEGACY_ACTIVE_AGENT,
   LS_SESSIONS_META,
-} from '../../constants.js'
-import { apiFetch } from '../../utils/api.js'
-import { lsGet, lsSet } from '../../utils/storage.js'
+} from '../../_common/constants.js'
+import { apiFetch } from '../../_common/api.js'
+import { lsGet, lsSet } from '../../_common/storage.js'
 import { tRaw } from '../../i18n/t.js'
-import { translateHttpErrorDetail } from '../../utils/httpError.js'
+import { translateHttpErrorDetail } from '../../_common/httpError.js'
 import {
   subscribe,
   getSnapshot,

@@ -1,6 +1,6 @@
 import { useRef, useEffect, useLayoutEffect, useCallback, useSyncExternalStore } from 'react'
-import { apiFetch } from '../../utils/api.js'
-import { generateId } from '../../utils/id.js'
+import { apiFetch } from '../../_common/api.js'
+import { generateId } from '../../_common/id.js'
 import { useStreamBuffer } from './useStreamBuffer.js'
 import { processStreamEvent } from './processStreamEvent.js'
 import { observeVoiceEvent, subscribeVoice, voiceOnSids } from '../voice/index.js'
@@ -14,7 +14,7 @@ import {
   clearLoading as storeClearLoading,
 } from '../../state/ephemeral.js'
 import { tRaw } from '../../i18n/t.js'
-import { translateHttpErrorDetail } from '../../utils/httpError.js'
+import { translateHttpErrorDetail } from '../../_common/httpError.js'
 
 // session_id → JSONL byte offset は transport (= transport/unified.ts, sse.ts) が持ち、 タブ切替 /
 // リロードを跨いで「ここまで読んだ」 を保持して接続時に `?from=<sid>:<offset>,...` で渡す

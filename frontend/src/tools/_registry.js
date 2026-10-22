@@ -1,4 +1,4 @@
-// tool name → handler の lookup table。 utils/format.js は formatTool() からこの
+// tool name → handler の lookup table。 _common/format.js は formatTool() からこの
 // registry を引いて handler.format(input) に丸投げするだけ。
 //
 // 新 tool 追加手順:

@@ -1,11 +1,11 @@
-# registry/ — 5 ディスパッチ層 + 共通 helper (= ADR-010, ADR-017 対称)
+# core/ — 5 ディスパッチ層 + 共通 helper (= ADR-010, ADR-017 対称)
 
 > **目的**: features/<name>/ が「自分の存在を register する」 1 行で配線が完了する構造を作る。 App.jsx に個別の if / wiring を書かない (= 設計書 § 2-5 アドオン拡張点暗黙の構造的根本対策)。 5 種類の registry が同じ lifecycle 契約 (= init / mount / unmount / dispatch) を共有し、 すべて `_registry.js` の createRegistry で生成。
 
 ## 構成
 
 ```
-registry/
+core/
 ├── README.md           (本 file)
 ├── _registry.js        createRegistry factory + observability snapshot 入口 (= ADR-017 と対称な共通化、 5 重複撤廃)
 ├── streamRegistry.js   SSE event type → handler (= ADR-011 unknown は graceful handle)
@@ -41,7 +41,7 @@ interface RegistryHandler {
 
 ```js
 // features/chat/index.js (= self-register、 これで配線完了)
-import { register as registerStream } from '../../registry/streamRegistry.js'
+import { register as registerStream } from '../../core/streamRegistry.js'
 import { handleUserMessage, handleAssistant, handleResult } from './handlers.js'
 
 registerStream('user_message', { dispatch: handleUserMessage })
@@ -54,16 +54,16 @@ import './features/session-drawer/index.js'
 // ... 14 feature 全部 import するだけ
 
 // transport/sse.ts (= subscriber が dispatch を呼ぶ)
-import { dispatch } from '../registry/streamRegistry.js'
+import { dispatch } from '../core/streamRegistry.js'
 sseTransport.subscribe(event => dispatch(event))
 
 // overlay 開閉 (= layout / features から呼ぶ)
-import { open, close } from '../registry/overlayRegistry.js'
+import { open, close } from '../core/overlayRegistry.js'
 open('drawer')
 close('drawer')
 
 // feature 有効判定
-import { isEnabled } from '../registry/featureRegistry.js'
+import { isEnabled } from '../core/featureRegistry.js'
 if (isEnabled('push-notify')) { /* ... */ }
 ```
 

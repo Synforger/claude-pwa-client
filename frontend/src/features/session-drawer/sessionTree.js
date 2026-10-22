@@ -2,7 +2,7 @@
 // 畳んだ親の下は出さない。 畳んだかどうかは端末ごとに覚える (= その端末の一覧の見え方で、 他の端末に
 // 合わせる物ではない)。
 
-import { lsGet, lsSet } from '../../utils/storage.js'
+import { lsGet, lsSet } from '../../_common/storage.js'
 
 export const FOLDED_KEY = 'cpc.drawer.folded'
 

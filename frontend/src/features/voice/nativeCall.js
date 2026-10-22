@@ -5,7 +5,7 @@
 // 全部 backend の中の会話 (= backend/voice_call/) に任せる。 ブラウザで開いた画面には BackgroundVoice が無く、
 // ここは使わない (= 画面の中で判定する会話のまま)。
 
-import { API_BASE } from '../../constants.js'
+import { API_BASE } from '../../_common/constants.js'
 
 // app の中なら BackgroundVoice の口、 ブラウザなら null。
 export function nativeVoice() {

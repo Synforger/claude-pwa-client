@@ -3,8 +3,8 @@
 // W2 Phase E-2 (= 2026-06-29): 内部 useState → state/sessions.js sessionActivity field に集約。
 // 永続化 useEffect は本 hook 内に残置 (= localStorage 書込責務は変えない)。
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
-import { LS_SESSION_ACTIVITY } from '../../constants.js'
-import { lsGet, lsSet } from '../../utils/storage.js'
+import { LS_SESSION_ACTIVITY } from '../../_common/constants.js'
+import { lsGet, lsSet } from '../../_common/storage.js'
 import {
   subscribe as subscribeSessions,
   getSnapshot as getSessionsSnapshot,

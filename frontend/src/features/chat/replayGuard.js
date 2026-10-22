@@ -1,4 +1,4 @@
-import { REPLAY_SKEW_TOLERANCE_MS } from '../../constants.js'
+import { REPLAY_SKEW_TOLERANCE_MS } from '../../_common/constants.js'
 
 // event が bubble より過去か (= 履歴 replay 由来で、 この未確定 bubble の確定 / 中身たり得ないか)。
 //

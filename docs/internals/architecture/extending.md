@@ -52,7 +52,7 @@ claude が `tool_use` で呼ぶ任意の tool block を chat UI で見栄え良�
    system 系 (= `system_*` / `attachment` / `task_notification`) なら 次の手順 5、
    chat / assistant 系 (= 専用 bubble) なら component を `features/<name>/` 配下に置いて
    processStreamEvent から直接 dispatch
-5. **`frontend/src/registry/messageRegistry.js`** に `kind → { fromEvent, Render }` ペアを 1 つ
+5. **`frontend/src/core/messageRegistry.js`** に `kind → { fromEvent, Render }` ペアを 1 つ
    追加する。 `appendSystemMessage(setMessages, sid, kind, fromEvent(event))` の 1 行で配線完結
 6. shape 宣言は `frontend/src/domain/Event.ts` を必要に応じて拡張 (= 旧 `types.d.ts` は廃止、
    domain/ 配下に型集約済)
@@ -77,13 +77,13 @@ self-register、 旧 overlays ディレクトリ方式は廃止)。
 ### 手順 (= W2 真の完成済、 ADR-026)
 
 1. **`frontend/src/features/<name>/<Name>.jsx`** を新規作成 (= 命名 `<Name>.jsx` +
-   `<Name>.css` 同居)。 共通枠の CSS は `frontend/src/shared/Modal.css` を import する。
+   `<Name>.css` 同居)。 共通枠の CSS は `frontend/src/_common/Modal.css` を import する。
    component 内で必要 state は `useSyncExternalStore(subscribe, getSnapshot)` で
    `frontend/src/state/ui.js` / `frontend/src/state/sessions.js` 等から自前 pull、 onClose 等は `setOverlay('<key>', false)`
    等の state setter を直呼出 (= props 受け取り禁止、 props drilling 廃止済)
 2. **`frontend/src/features/<name>/index.js`** で配線 entry を declare:
    ```js
-   import { register as registerOverlay } from '../../registry/overlayRegistry.js'
+   import { register as registerOverlay } from '../../core/overlayRegistry.js'
    registerOverlay('<key>', {
      Component: () => import('./<Name>.jsx'),  // ← lazy chunk 分割の真値
      dispatch: () => null,
@@ -95,7 +95,7 @@ self-register、 旧 overlays ディレクトリ方式は廃止)。
    open 中 overlay を lazy + Suspense + LazyBoundary で 1 経路 render するので、 個別 component を
    Layout.jsx に書く必要はない (= 「`AppShell.jsx` に lazy + Suspense を書く」 旧設計は ADR-026 で廃止)
 4. **`frontend/src/state/ui.js`** の `INITIAL.overlays` に `<key>: false` (= boolean) or `<key>: null` (= payload あり) を追加。
-   ESC 閉じは `frontend/src/hooks/useEscape.js`、 outside-click は `frontend/src/hooks/useOutsideClick.js` を component 内で直呼出
+   ESC 閉じは `frontend/src/_common/useEscape.js`、 outside-click は `frontend/src/_common/useOutsideClick.js` を component 内で直呼出
 
 ### (c) 注意点 = 配線 entry の static import 禁止 (= ADR-025、 contract test 強制)
 
@@ -122,7 +122,7 @@ contract test (= `frontend/src/features/__contracts__/no-lazy-component-static-i
   → `features/<name>/` 配下に置くが、 OverlayHost 経由でなく Layout.jsx / ChatPanel.jsx / TerminalPane.jsx
   から直接 import + 常時 render (= lazy 対象外、 main bundle 同梱)
 - 表示位置固定だが「覆いかぶさらない」 UI → 同上
-- 純データ helper / hook → `utils/` / `hooks/` / `state/`
+- 純データ helper / hook → `_common/` / `state/`
 
 ---
 
@@ -206,7 +206,7 @@ claude を止めて同じタブを立て直す。 この 2 つは必ず揃える
 - **shape 真値 → 実装** の順を崩さない (= b の手順を参照)
 - backend / frontend / docs の 3 点更新を 1 PR で完結させる (= 中間 commit で
   片側だけ着地すると runtime drift が出る)
-- 新規 helper を生やす前に **`backend/_common/state.py` / `frontend/src/utils/` / `hooks/`
+- 新規 helper を生やす前に **`backend/_common/state.py` / `frontend/src/_common/`
   に既存物がないか確認** (= `_registry` / `messageRegistry` / `applyOverviewSnapshot`
   等、 拡張点は既に分離済の場合が多い)
 - 中立基盤 (= `backend/_common/paths.py` / `backend/_common/config.py`) に新 path / 新 config を

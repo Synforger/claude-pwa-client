@@ -5,8 +5,8 @@
 // useEffect は本 hook 内に残置。 SessionDrawer の sessionBadges 自己解決のため、 純粋な
 // 派生関数 `deriveSessionBadges` を export する (= 同 hook 重複呼出による副作用二重発火を避ける)。
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
-import { apiFetch } from '../../utils/api.js'
-import { lsGet, lsSetDebounced } from '../../utils/storage.js'
+import { apiFetch } from '../../_common/api.js'
+import { lsGet, lsSetDebounced } from '../../_common/storage.js'
 import {
   subscribe as subscribeSessions,
   getSnapshot as getSessionsSnapshot,

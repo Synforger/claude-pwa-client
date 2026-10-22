@@ -8,7 +8,7 @@ const appendSession = vi.fn()
 const patchSession = vi.fn()
 const setActiveId = vi.fn()
 
-vi.mock('../../utils/api.js', () => ({ apiFetch: (...a) => apiFetch(...a) }))
+vi.mock('../../_common/api.js', () => ({ apiFetch: (...a) => apiFetch(...a) }))
 vi.mock('../../state/sessions.js', () => ({
   appendSession: (...a) => appendSession(...a),
   patchSession: (...a) => patchSession(...a),

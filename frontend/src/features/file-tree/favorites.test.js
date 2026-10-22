@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 const host = { list: [], fail: false, calls: [] }
 const entry = (path) => ({ path, name: path.split('/').pop(), is_dir: false })
 
-vi.mock('../../utils/api.js', () => ({
+vi.mock('../../_common/api.js', () => ({
   apiFetch: vi.fn(async (path, options = {}) => {
     const method = options.method || 'GET'
     host.calls.push(`${method} ${path}`)

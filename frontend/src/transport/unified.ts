@@ -15,7 +15,7 @@
 // consumer は transport/select.ts 経由で旧 singleton と同じ interface を受け取る
 // (= 切替は select.ts の 1 点、 rollback は localStorage cpc_transport=legacy)。
 
-import { API_BASE } from '../constants.js'
+import { API_BASE } from '../_common/constants.js'
 import { httpClient } from './http.ts'
 import { registerConnection, notifyConnectionChange } from './connectionStatus.js'
 import { LS_STATUS_KEY } from './statusCache.ts'
