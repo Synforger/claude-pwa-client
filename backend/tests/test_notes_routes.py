@@ -18,6 +18,11 @@ from backend.terminal.runner import tmux_session_env_args
 from backend.terminal.tab_memo import memo_file, memo_path
 
 
+async def _stopped(_sid):
+    """The tab's claude is gone (= what `stop_tab` reports when it ended)."""
+    return True
+
+
 @pytest.fixture
 def tabs(agent_folder, monkeypatch, isolated_state):
     """Two tabs of the test agent, whose folder is `agent_folder`."""
@@ -128,7 +133,7 @@ def test_an_unknown_tab_has_no_memo_path(agent_folder):
 
 def test_deleting_the_tab_keeps_its_memo(client, tabs, monkeypatch):
     import backend.routes.sessions as sessions_routes  # noqa: PLC0415
-    monkeypatch.setattr(sessions_routes, "kill_tmux_session", lambda _sid: None)
+    monkeypatch.setattr(sessions_routes, "stop_tab", _stopped)
     a, b = tabs
     client.put(f"/sessions/{a.id}/note", json={"content": "a"})
     client.put(f"/sessions/{b.id}/note", json={"content": "b"})

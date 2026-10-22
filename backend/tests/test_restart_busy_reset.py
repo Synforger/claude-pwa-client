@@ -10,6 +10,11 @@ from __future__ import annotations
 import asyncio
 
 
+async def _stopped(_sid):
+    """The tab's claude is gone (= what `stop_tab` reports when it ended)."""
+    return True
+
+
 def _run(coro):
     # asyncio.run で毎回新規ループを立てる (= 先行 test がループを閉じた後でも安定、
     # get_event_loop() の「現在のループ無し」 RuntimeError を踏まない)。
@@ -22,7 +27,7 @@ def _stub_restart_io(monkeypatch):
     import backend.jsonl.routes as jsonl_routes
     import backend.terminal.routes as pty_routes
 
-    monkeypatch.setattr(sessions_routes, "kill_tmux_session", lambda sid: None)
+    monkeypatch.setattr(sessions_routes, "stop_tab", _stopped)
     monkeypatch.setattr(sessions_routes.jsonl_watcher, "get_jsonl_for", lambda sid: None)
     monkeypatch.setattr(sessions_routes.jsonl_watcher, "unregister", lambda sid: None)
     monkeypatch.setattr(jsonl_routes, "request_sid_tail_reset", lambda sid: None)
