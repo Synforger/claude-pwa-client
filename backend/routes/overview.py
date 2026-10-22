@@ -25,6 +25,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from backend.core.usage import latest_from_tail, read_all_rate_limits_tail
+from backend.terminal.tab_tier import tab_tier
 import backend.core.jsonl_watcher as jsonl_watcher
 from backend import state
 from backend.state import (
@@ -172,6 +173,9 @@ def _build_sessions_overview() -> dict:
             # 未購読 sid の chat event を配らないため、 ドロワーの質問待ちバッジの
             # 裏セッション分はこのフラグが真値 (= detector は全 sid 常時監視)。
             "waiting_input": is_waiting_input(sid),
+            # The tier the tab's agent started in (= null when not known), so a list that was already on
+            # screen when the agent launched shows it without being reloaded.
+            "tier": tab_tier(sid),
         }
     return out
 
@@ -197,7 +201,7 @@ def _mark_user_stopped(session_id: str) -> bool:
 
 @router.get("/sessions/overview")
 def get_sessions_overview() -> dict:
-    """全 session の busy + last_seen_at + waiting_input を 1 回で返す (= stream の overview と同じ中身)。
+    """全 session の busy + last_seen_at + waiting_input + tier を 1 回で返す (= stream の overview と同じ中身)。
 
     stream を張らずに今の状態だけ見たい側 (= iPhone のウィジェット) が引く。"""
     return _build_sessions_overview()

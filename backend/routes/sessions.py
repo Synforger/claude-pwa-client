@@ -28,8 +28,8 @@ from backend.core.fork import (
 from backend.core.jsonl_tail import split_jsonl_text
 from backend.errors import raise_error
 from backend.jsonl import resolver as jsonl_resolver
-from backend.paths import note_path
 from backend.state import (
+    SessionDef,
     atomic_write_text,
     register_session,
     rename_session,
@@ -43,6 +43,7 @@ from backend.state import (
 )
 from backend.terminal import input_ready
 from backend.terminal.runner import kill_tmux_session, pty_sessions
+from backend.terminal.tab_tier import forget_tier, tab_tier
 import backend.core.jsonl_watcher as jsonl_watcher
 from backend.jsonl import history as session_history
 
@@ -59,10 +60,16 @@ def require_session(session_id: str) -> str:
     return session_id
 
 
+def session_row(meta: SessionDef) -> dict:
+    """A tab as the screen lists it: the stored definition plus the tier its agent started in
+    (= `null` when that is not known; never a guessed value)."""
+    return {**meta.to_dict(), "tier": tab_tier(meta.id)}
+
+
 # --- セッション CRUD ---
 @router.get("/sessions")
 def list_sessions():
-    return [m.to_dict() for m in sessions_meta.values()]
+    return [session_row(m) for m in sessions_meta.values()]
 
 
 @router.post("/sessions")
@@ -87,7 +94,7 @@ async def create_session(payload: dict = Body(...)):
         await ensure_pty_session_for(meta.id)
     except Exception:
         logger.exception("create_session spawn phase failed for %s", meta.id)
-    return meta.to_dict()
+    return session_row(meta)
 
 
 @router.patch("/sessions/{session_id}")
@@ -104,7 +111,7 @@ def patch_session(session_id: str, payload: dict = Body(...), _: str = Depends(r
         touched = True
     if not touched:
         raise_error(400, "title_or_notify_required", "title または notify_mode が必要")
-    return sessions_meta[session_id].to_dict()
+    return session_row(sessions_meta[session_id])
 
 
 @router.post("/sessions/{session_id}/fork")
@@ -290,7 +297,7 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
         await ensure_pty_session_for(new_meta.id)
     except Exception:
         logger.exception("fork_session spawn phase failed for %s", new_meta.id)
-    return new_meta.to_dict()
+    return session_row(new_meta)
 
 
 @router.post("/sessions/{session_id}/restart")
@@ -416,12 +423,8 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
         # delete 経路の kill 失敗 = backend に session が残るゴースト化の原因。 warning で
         # 残す (= 2026-06-22)。
         logger.warning("session cleanup failed for %s", session_id, exc_info=True)
-    # このタブのメモ (= タブの持ち物) を消す。 symlink なら symlink だけを消し、 指す先 (= 起動した側が
-    # タブの作業の folder に置いた記録) は残す
-    try:
-        note_path(session_id).unlink(missing_ok=True)
-    except Exception:
-        logger.warning("note unlink failed for %s", session_id, exc_info=True)
+    # The tab's memo stays: it lives in the agent's own folder, beside the tab's other pages.
+    forget_tier(session_id)
     # 一時ファイルをクリーンアップ
     for p in session_tmp_files.pop(session_id, []):
         try:

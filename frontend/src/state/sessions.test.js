@@ -10,6 +10,7 @@ import {
   setUnreadDone,
   clearUnreadDone,
   hydrate,
+  setSessionTiers,
 } from './sessions.js'
 
 // Phase J-1 (= 2026-06-29、 ADR-026 末尾「将来 task」 1 件目) の contract test。
@@ -109,6 +110,26 @@ describe('state/sessions.js setter contract (unified on the .id key)', () => {
 
     const before = getSnapshot()
     clearUnreadDone('does-not-exist')
+    expect(getSnapshot()).toBe(before)
+  })
+})
+
+describe('setSessionTiers (the tier each overview snapshot carries)', () => {
+  beforeEach(() => { reset() })
+
+  it('sets the tier of the listed tabs and leaves the title alone', () => {
+    setSessions([{ id: 'a', title: 'my own name' }, { id: 'b', title: 'B' }])
+    setSessionTiers({ a: { tier: 'projects/alpha' }, b: { tier: null } })
+    expect(getSnapshot().sessions).toEqual([
+      { id: 'a', title: 'my own name', tier: 'projects/alpha' },
+      { id: 'b', title: 'B' },
+    ])
+  })
+
+  it('is a no-op when nothing changed or the snapshot carries no tier', () => {
+    setSessions([{ id: 'a', title: 'A', tier: 'normal' }, { id: 'b', title: 'B' }])
+    const before = getSnapshot()
+    setSessionTiers({ a: { tier: 'normal' }, b: { busy: true }, c: { tier: 'x' } })
     expect(getSnapshot()).toBe(before)
   })
 })
