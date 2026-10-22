@@ -329,6 +329,19 @@ def test_report_is_only_for_children_and_changes_the_note_only_when_it_arrives(f
     assert "- 状態: 完了" in note.read_text(encoding="utf-8")
 
 
+def test_a_child_started_before_memos_moved_reports_into_the_memo_children_reads(family, tmp_path):
+    """A child started with the old `PWA_NOTE` (whose memo has since moved to `pages/`) still marks the memo that
+    `children` and `close` read."""
+    result = tmp_path / "result.txt"
+    result.write_text("done\n", encoding="utf-8")
+    stale = family.agent / "notes/ses_a.md"
+    assert family.run("report", "done", str(result), PWA_SID="ses_a", AGENT_CHILD="1", PWA_NOTE=str(stale)) == 0
+    assert "- 状態: 完了" in (family.agent / "pages/ses_a/memo.md").read_text(encoding="utf-8")
+    assert not stale.exists()
+    family.run("children")
+    assert "完了" in family.out
+
+
 def test_close_closes_only_my_finished_children_unless_forced(family):
     assert family.run("close", "ses_other") == 1 and "このタブが立てた子ではありません" in family.err
     assert family.backend.called("DELETE", "/sessions/ses_other") == []
@@ -355,6 +368,15 @@ def test_a_child_rolls_over_only_after_writing_what_the_next_conversation_contin
     roll()
     [call] = family.backend.called("POST", "/sessions/ses_c/rollover")
     assert "tier=normal" in call["form"]["text"]
+
+
+def test_a_child_started_before_memos_moved_rolls_over_from_the_moved_memo(family):
+    note = family.note("ses_c", "# C\n\n- 状態: 作業中\n\n## 渡された仕事\n\nx\n\n## 引き継ぎ\n\n- ここまで\n")
+    stale = family.agent / "notes/ses_c.md"
+    family.record.write_text("", encoding="utf-8")
+    family.used("Edit", note)
+    family.run("rollover", "continue", PWA_SID="ses_c", AGENT_CHILD="1", PWA_NOTE=str(stale))
+    assert family.backend.called("POST", "/sessions/ses_c/rollover"), family.err
 
 
 def git(folder: Path, *args: str) -> None:
