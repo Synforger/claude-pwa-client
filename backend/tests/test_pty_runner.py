@@ -281,6 +281,54 @@ def test_enqueue_output_does_not_set_prompt_ready_for_plain_text():
     assert not session.prompt_ready.is_set()
 
 
+# --- a pane just spawned takes keys once tmux has made its session -------------------------
+
+
+def _session(sid: str, *, prompt: bool) -> "pty_runner.PtySession":
+    session = pty_runner.PtySession(
+        session_id=sid,
+        process=None,  # type: ignore[arg-type]
+        master_fd=-1,
+        output_queue=asyncio.Queue(),
+        exit_event=asyncio.Event(),
+        control_mode=True,
+    )
+    if prompt:
+        session.prompt_ready.set()
+    return session
+
+
+def test_a_pane_whose_tmux_session_comes_late_is_waited_for(monkeypatch, restore_pty_sessions):
+    looks = {"n": 0}
+
+    def _has(_sid):
+        looks["n"] += 1
+        return looks["n"] > 3
+    monkeypatch.setattr(pty_runner, "has_tmux_session", _has)
+    monkeypatch.setattr(pty_runner, "TMUX_SESSION_POLL_SEC", 0.001)
+
+    async def _go():
+        pty_runner.pty_sessions["late"] = _session("late", prompt=True)
+        return await pty_runner.wait_until_typeable("late", 1.0)
+    assert asyncio.run(_go()) is True
+    assert looks["n"] == 4
+
+
+def test_a_pane_whose_tmux_session_never_comes_is_given_up_at_the_limit(monkeypatch):
+    monkeypatch.setattr(pty_runner, "has_tmux_session", lambda _sid: False)
+    monkeypatch.setattr(pty_runner, "TMUX_SESSION_POLL_SEC", 0.001)
+    assert asyncio.run(pty_runner.wait_until_typeable("never", 0.02)) is False
+
+
+def test_a_tmux_session_already_there_is_not_waited_for(monkeypatch):
+    monkeypatch.setattr(pty_runner, "has_tmux_session", lambda _sid: True)
+
+    async def _no_prompt_wait(*_a, **_kw):
+        raise AssertionError("a pane already there needs no prompt wait")
+    monkeypatch.setattr(pty_runner, "wait_for_prompt", _no_prompt_wait)
+    assert asyncio.run(pty_runner.wait_until_typeable("there", 0.02)) is True
+
+
 def test_spawn_cat_roundtrip(restore_env, restore_pty_sessions, monkeypatch):
     """`/bin/cat` を代用 spawn して PTY ポンプ全体を検証。
 
