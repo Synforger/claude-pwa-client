@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.documents import convert, markdown, pages, store as store_mod, strings
+from backend.documents import convert, pages, store as store_mod, strings
 from backend.documents.convert import ConversionError
 from backend.documents.store import DocumentStore
 
@@ -74,8 +74,8 @@ have_soffice = shutil.which("soffice") is not None or Path("/opt/homebrew/bin/so
 
 @pytest.mark.parametrize("name,kind", [
     ("a.pdf", "pdf"), ("A.PDF", "pdf"), ("a.pptx", "office"), ("a.xlsx", "office"), ("a.docx", "office"),
-    ("a.tif", "tiff"), ("a.TIFF", "tiff"), ("a.md", "markdown"), ("a.markdown", "markdown"),
-    ("a.html", None), ("a.doc", None), ("a.txt", None), ("pdf", None),
+    ("a.tif", "tiff"), ("a.TIFF", "tiff"),
+    ("a.md", None), ("a.html", None), ("a.doc", None), ("a.txt", None), ("pdf", None),
 ])
 def test_kind_of_names_what_the_viewer_can_open(name, kind):
     assert convert.kind_of(Path(name)) == kind
@@ -442,94 +442,3 @@ def test_language_follows_the_first_accept_language():
     assert strings.pick_language("en-US,ja;q=0.5") == "en"
     assert strings.pick_language(None) == "en"
     assert set(strings._STRINGS["ja"]) == set(strings._STRINGS["en"])
-
-
-# --- Markdown ---
-
-def render_md(tmp_path, text, own="doc.md", files=()):
-    for name, body in files:
-        target = tmp_path / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(body) if isinstance(body, str) else target.write_bytes(body)
-    neighbors = markdown.Neighbors(
-        tmp_path, lambda p: p.is_file(), lambda p: p.read_text() if p.is_file() else None,
-    )
-    return markdown.render(text, neighbors, own, "en")
-
-
-def test_headings_get_github_style_ids_and_duplicates_are_numbered(tmp_path):
-    html, title = render_md(tmp_path, "# Top Title\n\n## 1. 背景 (v2)\n\n## Notes\n\n## Notes\n")
-    assert title == "Top Title"
-    assert '<h1 id="top-title">' in html and '<h2 id="1-背景-v2">' in html
-    assert '<h2 id="notes">' in html and '<h2 id="notes-1">' in html
-
-
-def test_a_contents_link_whose_words_do_not_match_goes_to_the_heading_that_holds_them_in_order(tmp_path):
-    html, _ = render_md(tmp_path, "[背景](#背景) [範囲](#scope)\n\n## 1. 背景と目的\n\n## 2. 範囲 (v2)\n")
-    assert 'href="#1-%E8%83%8C%E6%99%AF%E3%81%A8%E7%9B%AE%E7%9A%84"' in html
-    # 語が見出しに入っていない目次は、 張り直さずそのまま
-    assert 'href="#scope"' in html
-
-
-def test_an_exact_link_is_left_alone(tmp_path):
-    html, _ = render_md(tmp_path, "[x](#notes)\n\n## Notes\n\n## Notes extended\n")
-    assert 'href="#notes"' in html
-
-
-def test_a_link_into_another_markdown_is_fixed_against_that_files_headings(tmp_path):
-    other = "# 概要\n\n## 1. 背景と目的\n\n## 2. 範囲 (v2)\n"
-    html, _ = render_md(
-        tmp_path, "[背景](other.md#背景) [範囲](sub/other.md#範囲)\n",
-        files=[("other.md", other), ("sub/other.md", "## 0. はじめに\n\n## 範囲の定義\n")],
-    )
-    assert 'href="other.md#1-%E8%83%8C%E6%99%AF%E3%81%A8%E7%9B%AE%E7%9A%84"' in html
-    assert 'href="sub/other.md#%E7%AF%84%E5%9B%B2%E3%81%AE%E5%AE%9A%E7%BE%A9"' in html
-
-
-def test_a_link_to_the_same_file_by_name_uses_its_own_headings(tmp_path):
-    html, _ = render_md(tmp_path, "[b](./doc.md#背景)\n\n## 1. 背景\n")
-    assert 'href="./doc.md#1-%E8%83%8C%E6%99%AF"' in html
-
-
-def test_a_link_into_a_file_that_is_not_there_or_not_markdown_keeps_its_fragment(tmp_path):
-    html, _ = render_md(tmp_path, "[a](gone.md#x) [b](data.pdf#page=2) [c](https://example.com/x#y)\n", files=[("data.pdf", b"x")])
-    assert 'href="gone.md#x"' in html and 'href="data.pdf#page=2"' in html
-    assert 'href="https://example.com/x#y" rel="noreferrer"' in html
-
-
-def test_a_figure_that_is_not_there_says_so_instead_of_breaking(tmp_path):
-    html, _ = render_md(tmp_path, "![ok](fig/a.png) ![ng](fig/gone.png)\n", files=[("fig/a.png", b"x")])
-    assert '<img src="fig/a.png" alt="ok" loading="lazy"' in html
-    assert 'class="missing">Image not found: <code>fig/gone.png</code>' in html
-    assert 'src="fig/gone.png"' not in html
-
-
-def test_an_external_image_is_shown_as_not_loaded(tmp_path):
-    html, _ = render_md(tmp_path, "![x](https://example.com/a.png) ![d](data:image/png;base64,AAAA)\n")
-    assert "External image, not loaded:" in html and '<a href="https://example.com/a.png">' in html
-    assert '<img src="data:image/png;base64,AAAA"' in html
-
-
-def test_written_html_is_shown_as_text_and_unsafe_links_stay_text(tmp_path):
-    html, _ = render_md(tmp_path, "<script>alert(1)</script>\n\n[x](javascript:alert(1))\n\n<br>\n")
-    assert "<script>" not in html and "&lt;script&gt;" in html
-    assert "<a " not in html  # javascript: の行き先は、 リンクにならず文字のまま
-
-
-def test_br_in_a_table_cell_breaks_the_line_and_tables_scroll(tmp_path):
-    html, _ = render_md(tmp_path, "| a | b |\n|---|---|\n| x<br>y | 1 |\n")
-    assert '<div class="tablewrap"><table>' in html and "x<br>y" in html
-
-
-def test_front_matter_is_shown_as_a_block(tmp_path):
-    html, _ = render_md(tmp_path, "---\ntitle: T\nupdated: 2026-01-01\n---\n\n# Body\n")
-    assert '<pre class="front-matter"><code>title: T\nupdated: 2026-01-01</code></pre>' in html
-    assert '<h1 id="body">' in html
-
-
-def test_fix_anchor_picks_the_first_heading_that_holds_the_words_in_order():
-    slugs = ["intro", "1-背景と目的", "5-背景知識"]
-    assert markdown.fix_anchor("背景", slugs) == "1-背景と目的"
-    assert markdown.fix_anchor("intro", slugs) == "intro"
-    assert markdown.fix_anchor("zzz", slugs) == "zzz"
-    assert markdown.fix_anchor("", slugs) == ""

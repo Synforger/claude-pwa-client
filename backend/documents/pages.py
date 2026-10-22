@@ -1,4 +1,4 @@
-"""資料の HTML の頁 (= 変換結果・変換の待ち・失敗・Markdown)。
+"""資料の HTML の頁 (= 変換結果・変換の待ち・失敗)。
 
 どれもスクリプトを持たない (= 待ちの画面は `<meta refresh>` で自分を読み直す)。 `/file/view` の sandbox
 (= `connect-src 'none'`) の下でも、 ページの origin の下でも、 同じ頁が出る。
@@ -30,27 +30,6 @@ figure.page figcaption { color: var(--muted); font: 12px ui-monospace, Menlo, mo
 @keyframes spin { to { transform: rotate(360deg); } }
 .status p { margin: 0; }
 .hint { color: var(--muted); font-size: 13px; }
-.doc { overflow-wrap: anywhere; }
-.doc h1, .doc h2, .doc h3, .doc h4 { line-height: 1.4; margin: 1.4em 0 0.4em; }
-.doc h1 { font-size: 1.55rem; }
-.doc h2 { font-size: 1.3rem; }
-.doc h3 { font-size: 1.1rem; }
-.doc h4 { font-size: 1rem; }
-.doc h1:first-child { margin-top: 0; }
-.doc p, .doc ul, .doc ol, .doc pre, .doc blockquote, .doc .tablewrap { margin: 0.6em 0; }
-.doc ul, .doc ol { padding-left: 1.4em; }
-.doc pre { background: var(--code); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; overflow-x: auto; }
-.doc pre code { white-space: pre; overflow-wrap: normal; }
-code { font: 12.5px ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
-.doc :not(pre) > code { background: var(--code); border-radius: 4px; padding: 0 4px; }
-.doc blockquote { border-left: 3px solid var(--line); padding-left: 12px; color: var(--muted); margin-left: 0; }
-.doc img { max-width: 100%; height: auto; }
-.doc hr { border: 0; border-top: 1px solid var(--line); }
-.tablewrap { overflow-x: auto; }
-table { border-collapse: collapse; font-size: 13.5px; }
-th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-th { color: var(--muted); font-weight: 600; }
-.missing { display: inline-block; color: var(--muted); border: 1px dashed var(--line); border-radius: 6px; padding: 2px 10px; font-size: 13px; }
 """
 
 
@@ -104,7 +83,3 @@ def failed(name: str, shown_path: str, error: ConversionError, lang: str) -> str
     )
     return _shell(name, body, lang)
 
-
-def markdown(name: str, shown_path: str, rendered: str, title: str | None, lang: str) -> str:
-    body = _header(name, shown_path) + f'\n<article class="card doc">{rendered}</article>'
-    return _shell(title or name, body, lang)

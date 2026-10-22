@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 PDF_SUFFIXES = frozenset({".pdf"})
 OFFICE_SUFFIXES = frozenset({".pptx", ".xlsx", ".docx"})
 TIFF_SUFFIXES = frozenset({".tif", ".tiff"})
-MARKDOWN_SUFFIXES = frozenset({".md", ".markdown"})
 
 # 頁の画像: A4 で幅 1075 px (= スマホで拡大しても表の数字が読める所)
 DPI = 130
@@ -47,7 +46,7 @@ class ConversionError(Exception):
 
 
 def kind_of(path: Path) -> str | None:
-    """`pdf` / `office` / `tiff` / `markdown`。 資料として開けない拡張子は None。"""
+    """`pdf` / `office` / `tiff`。 資料として開けない拡張子は None。"""
     suffix = path.suffix.lower()
     if suffix in PDF_SUFFIXES:
         return "pdf"
@@ -55,8 +54,6 @@ def kind_of(path: Path) -> str | None:
         return "office"
     if suffix in TIFF_SUFFIXES:
         return "tiff"
-    if suffix in MARKDOWN_SUFFIXES:
-        return "markdown"
     return None
 
 
@@ -158,7 +155,7 @@ def render_pages(source: Path, out_dir: Path, on_phase: Callable[[str], None] = 
     `on_phase` に今の段 (= `office` = pdf にしている / `render` = 頁の画像にしている) を知らせる。
     """
     kind = kind_of(source)
-    if kind is None or kind == "markdown":
+    if kind is None:
         raise ConversionError("unreadable")
     out_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="cpc-pages-") as tmp:
