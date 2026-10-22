@@ -127,3 +127,40 @@ def test_process_start_time_and_cwd_compat(monkeypatch):
     with patch.object(pty_discover.psutil, "Process", return_value=proc):
         assert pty_discover.process_start_time(77) == 42.0
         assert pty_discover.process_cwd(77) == "/some/where"
+
+
+def test_refresh_tier_reads_the_tier_of_the_claude_now_in_the_pane_and_reports_a_change_once(monkeypatch):
+    """A claude that starts after the wait ran out (or replaces the one seen) gets its tier read again."""
+    import asyncio
+    from backend.terminal import tab_tier
+
+    monkeypatch.setattr(tab_tier, "_tiers", {"ses_a": "normal"})
+    monkeypatch.setattr(pty_discover, "claude_pid_in_pane", lambda sid: 42 if sid == "ses_a" else None)
+    monkeypatch.setattr(tab_tier, "read_tier", lambda pid: "projects/alpha" if pid == 42 else None)
+    notified = []
+    monkeypatch.setattr(pty_discover.sessions_overview, "notify", lambda: notified.append(1))
+
+    asyncio.run(pty_discover.refresh_tier("ses_a"))
+    asyncio.run(pty_discover.refresh_tier("ses_a"))
+    assert tab_tier.tab_tier("ses_a") == "projects/alpha"
+    assert notified == [1]
+
+
+def test_refresh_tier_keeps_what_is_known_when_no_claude_runs_in_the_pane(monkeypatch):
+    import asyncio
+    from backend.terminal import tab_tier
+
+    monkeypatch.setattr(tab_tier, "_tiers", {"ses_a": "projects/alpha"})
+    monkeypatch.setattr(pty_discover, "claude_pid_in_pane", lambda sid: None)
+    asyncio.run(pty_discover.refresh_tier("ses_a"))
+    assert tab_tier.tab_tier("ses_a") == "projects/alpha"
+
+
+def test_claude_pid_in_pane_finds_the_claude_under_any_pane(monkeypatch):
+    claude = _FakeProc(pid=9, name="claude", create_time=1.0, cwd="/x")
+    trees = {1: _FakeProc(pid=1), 2: _FakeProc(pid=2, children=[claude])}
+    monkeypatch.setattr(pty_discover, "tmux_pane_pids", lambda sid: [1, 2])
+    with patch.object(pty_discover.psutil, "Process", side_effect=lambda pid: trees[pid]):
+        assert pty_discover.claude_pid_in_pane("ses_a") == 9
+    monkeypatch.setattr(pty_discover, "tmux_pane_pids", lambda sid: [])
+    assert pty_discover.claude_pid_in_pane("ses_a") is None
