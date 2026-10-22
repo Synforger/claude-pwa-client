@@ -125,7 +125,7 @@ def test_finding_the_claude_of_a_tab_makes_its_page(tab, template, monkeypatch):
     monkeypatch.setattr(pty_discover, "_find_claude_descendant_info", lambda pid: (222, 1.0, "/work"))
     monkeypatch.setattr(tab_tier, "read_tier", lambda pid: "normal")
     monkeypatch.setattr(pty_discover.sessions_overview, "notify", lambda: None)
-    import backend.core.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
+    import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
     monkeypatch.setattr(jsonl_watcher, "register_pending", lambda *args: None)
     asyncio.run(pty_discover.register_claude_when_ready(tab.id, max_wait=2.0, interval=0.01))
     assert existing_page(tab.id) is not None
