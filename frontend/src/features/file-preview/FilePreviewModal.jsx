@@ -250,7 +250,7 @@ function FilePreviewModalBody({ path, onClose }) {
   const imageLoaded = isImage && imageLoadedSrc === imageSrc
   const imageFailed = isImage && imageFailedSrc === imageSrc
   // HTML と資料 (= pdf・Office・tif。 backend が頁の画像の頁にして返す) は、 返された頁を枠の中の iframe で見せる
-  // (= iPhone のホーム画面の PWA だけがここへ回す。 openPath)。
+  // (= 資料は全部の端末でここへ回り、 HTML は iPhone のホーム画面の PWA だけがここへ回す。 openPath)。
   // 隔てるのは backend の応答の sandbox (= スクリプトは動くが、 この画面とは別の origin)。 iframe に sandbox の属性は
   // 付けない: 付けると WebKit が CSP の 'self' を page の host と見なさず、 隣の画像を断る。
   const isPage = isPagePath(path)

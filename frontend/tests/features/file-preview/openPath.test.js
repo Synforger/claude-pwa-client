@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 //
-// path のタップの開き先は 1 か所で決まる: HTML と資料 (= pdf・Office・tif) はブラウザの新しいタブ (= スクリプトが動く形)、
-// folder は木、 それ以外 (= Markdown を含む) はプレビュー。 ブラウザで開く時は、 メモを畳む等の後始末を呼ばない。 iPhone のホーム画面の PWA は、
-// 新しいタブを開くと戻れないので、 HTML もプレビューの枠で開く。
+// path のタップの開き先は 1 か所で決まる: HTML だけがブラウザの新しい窓 (= OS の既定のブラウザ。 スクリプトが動く形)、
+// folder は木、 それ以外 (= 資料の pdf・Office・tif、 画像、 Markdown) は client の中のプレビュー。 既定のブラウザで開く時は、
+// メモを畳む等の後始末を呼ばない。 iPhone のホーム画面の PWA は、 新しい窓を開くと戻れないので、 HTML もプレビューの枠で開く。
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { openPath } from '../../../src/features/file-preview/openPath.js'
 import { getSnapshot, setOverlay } from '../../../src/state/ui.js'
@@ -24,7 +24,7 @@ afterEach(() => {
 })
 
 describe('openPath', () => {
-  it('opens an HTML file in a new browser tab through /file/open, and leaves the overlays alone', () => {
+  it('opens an HTML file in a new browser window through /file/open, and leaves the overlays alone', () => {
     const open = vi.spyOn(window, 'open').mockImplementation(() => null)
     const onLeave = vi.fn()
     openPath('~/pages/deck/index.html', { onLeave })
@@ -50,15 +50,20 @@ describe('openPath', () => {
     '/srv/memo.docx',
     '/srv/scan.tif',
     '/srv/scan.TIFF',
-  ])('opens the document %s in a new browser tab through /file/open', path => {
+  ])('previews the document %s inside the client, never in a browser window', path => {
     const open = vi.spyOn(window, 'open').mockImplementation(() => null)
     const onLeave = vi.fn()
     openPath(path, { onLeave })
-    expect(open).toHaveBeenCalledTimes(1)
-    expect(open.mock.calls[0][0].endsWith(`/file/open?path=${encodeURIComponent(path)}`)).toBe(true)
-    expect(open.mock.calls[0][1]).toBe('_blank')
-    expect(onLeave).not.toHaveBeenCalled()
-    expect(getSnapshot().overlays.previewPath ?? null).toBe(null)
+    expect(open).not.toHaveBeenCalled()
+    expect(onLeave).toHaveBeenCalledTimes(1)
+    expect(getSnapshot().overlays.previewPath).toBe(path)
+  })
+
+  it.each(['~/pictures/photo.png', '/srv/shot.JPG', '/srv/anim.gif'])('previews the image %s inside the client', path => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    openPath(path)
+    expect(open).not.toHaveBeenCalled()
+    expect(getSnapshot().overlays.previewPath).toBe(path)
   })
 
   it('does not take a name that only contains a document extension', () => {
@@ -69,7 +74,7 @@ describe('openPath', () => {
     expect(getSnapshot().overlays.previewPath).toBe('~/notes/pdf')
   })
 
-  it('previews any other file, and runs onLeave first', () => {
+  it('previews Markdown, and runs onLeave first', () => {
     const open = vi.spyOn(window, 'open').mockImplementation(() => null)
     const onLeave = vi.fn()
     openPath('~/notes/plan.md', { onLeave })
@@ -78,7 +83,7 @@ describe('openPath', () => {
     expect(getSnapshot().overlays.previewPath).toBe('~/notes/plan.md')
   })
 
-  it('opens an HTML file in the preview on the iPhone home screen, where a new tab leaves no way back', () => {
+  it('opens an HTML file in the preview on the iPhone home screen, where a new window leaves no way back', () => {
     asIphoneHomeScreen()
     const open = vi.spyOn(window, 'open').mockImplementation(() => null)
     const onLeave = vi.fn()
@@ -88,7 +93,7 @@ describe('openPath', () => {
     expect(getSnapshot().overlays.previewPath).toBe('~/pages/deck/index.html')
   })
 
-  it('opens a document in the preview frame on the iPhone home screen too', () => {
+  it('previews a document on the iPhone home screen like anywhere else', () => {
     asIphoneHomeScreen()
     const open = vi.spyOn(window, 'open').mockImplementation(() => null)
     openPath('~/materials/spec.pdf')
@@ -96,31 +101,28 @@ describe('openPath', () => {
     expect(getSnapshot().overlays.previewPath).toBe('~/materials/spec.pdf')
   })
 
-  it('keeps the new tab in the iPhone app, whose page sheet has a close button', () => {
+  it('hands an HTML file to the iPhone app as a new window, which the app passes to the default browser', () => {
+    // PageSheetPlugin が /file/open の HTML の窓を既定のブラウザへ渡す。 app の画面を置き換える経路
+    // (= location の書き換え) は使わない
     asIphoneHomeScreen()
-    window.Capacitor = { isNativePlatform: () => true }
-    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
-    openPath('~/pages/deck/index.html')
-    expect(open).toHaveBeenCalledTimes(1)
-    expect(getSnapshot().overlays.previewPath ?? null).toBe(null)
-  })
-
-  it.each([
-    '~/pages/deck/index.html',
-    '~/materials/spec.pdf',
-    '/srv/deck.pptx',
-    '/srv/scan.tif',
-  ])('hands %s to the app\'s page sheet (a new window), never to the app screen itself', path => {
-    // iPhone の app は新しい窓を、 「完了」 で閉じる閲覧の画面で開く (= PageSheetPlugin)。 app の画面を置き換える
-    // 経路 (= location の書き換え) は使わない
     window.Capacitor = { isNativePlatform: () => true }
     const open = vi.spyOn(window, 'open').mockImplementation(() => null)
     const assign = vi.fn()
     vi.spyOn(window, 'location', 'get').mockReturnValue({ ...window.location, assign })
-    openPath(path)
+    openPath('~/pages/deck/index.html')
     expect(open).toHaveBeenCalledTimes(1)
+    expect(open.mock.calls[0][0]).toMatch(/\/file\/open\?path=~%2Fpages%2Fdeck%2Findex\.html$/)
     expect(open.mock.calls[0][1]).toBe('_blank')
     expect(assign).not.toHaveBeenCalled()
+    expect(getSnapshot().overlays.previewPath ?? null).toBe(null)
+  })
+
+  it('previews a document in the iPhone app too, without a new window', () => {
+    window.Capacitor = { isNativePlatform: () => true }
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    openPath('~/materials/spec.pdf')
+    expect(open).not.toHaveBeenCalled()
+    expect(getSnapshot().overlays.previewPath).toBe('~/materials/spec.pdf')
   })
 
   it('opens a folder in the tree', () => {
