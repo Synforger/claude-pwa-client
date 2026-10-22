@@ -36,9 +36,12 @@ def test_a_tier_points_at_a_folder_below_the_agent_and_normal_at_the_agent_itsel
 
 
 def spawn_with(environment: dict[str, str]) -> subprocess.Popen:
-    """A process that waits, started with `environment` added to a minimal one."""
-    return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
-                            env={"PATH": os.environ["PATH"], **environment})
+    """A process that waits, started with `environment` added to a minimal one. Returns once the process
+    runs Python: until then Linux shows the environment of the parent it was forked from."""
+    process = subprocess.Popen([sys.executable, "-c", "import time; print(flush=True); time.sleep(60)"],
+                               env={"PATH": os.environ["PATH"], **environment}, stdout=subprocess.PIPE)
+    process.stdout.readline()
+    return process
 
 
 @pytest.fixture
@@ -54,6 +57,7 @@ def waiting():
     for process in started:
         process.kill()
         process.wait()
+        process.stdout.close()
 
 
 @pytest.fixture(autouse=True)
@@ -72,6 +76,7 @@ def test_a_process_that_is_gone_has_no_tier():
     pid = process.pid
     process.kill()
     process.wait()
+    process.stdout.close()
     assert tab_tier.read_tier(pid) is None
 
 
