@@ -42,16 +42,26 @@ export interface PatchSessionsSidRequest {
 
 /** POST /sessions/{sid}/fork request body */
 export interface PostSessionsSidForkRequest {
-  /** 分岐起点。 target_account_id 指定時は省略可 (= 末尾の切れ目を自動採用) */
-  from_uuid?: string
-  /** 移し先 account (= 省略時は親を継承) */
-  target_account_id?: string
+  /** 分岐起点 */
+  from_uuid: string
 }
 
 /** POST /sessions/{sid}/fork response */
 export interface PostSessionsSidForkResponse {
   /** 新 session id */
   sid: string
+}
+
+/** POST /sessions/{sid}/account request body */
+export interface PostSessionsSidAccountRequest {
+  /** 移し先 account */
+  account_id: string
+}
+
+/** POST /sessions/{sid}/account response */
+export interface PostSessionsSidAccountResponse {
+  id: string
+  account_id: string
 }
 
 /** POST /sessions/{sid}/restart response */

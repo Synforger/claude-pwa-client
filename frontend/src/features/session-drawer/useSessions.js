@@ -134,21 +134,13 @@ export async function createSession(agentId, accountId, title) {
 
 // 会話を任意メッセージから分岐する (= フォーク)。 backend が lineage を新 jsonl に
 // 書き出して子 SessionDef を返す → 先頭に挿して active を新タブへ。 元タブは無傷。
-//
-// targetAccountId を渡すと**アカウントを移して続ける**経路になる (= lineage は移し先の
-// projects dir に書かれ、 新タブも移し先の account で spawn する)。 この時 fromUuid は
-// 省略できる: 引き継ぎたいのは常に「今の続き」 なので、 backend が末尾から最初の安全な
-// 切れ目を採る。
-export async function forkSession(sourceId, fromUuid, targetAccountId) {
+export async function forkSession(sourceId, fromUuid) {
   let meta
-  const body = {}
-  if (fromUuid) body.from_uuid = fromUuid
-  if (targetAccountId) body.target_account_id = targetAccountId
   try {
     const res = await apiFetch(`/sessions/${sourceId}/fork`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ from_uuid: fromUuid }),
     })
     if (!res.ok) {
       let detail = `HTTP ${res.status}`
@@ -165,9 +157,29 @@ export async function forkSession(sourceId, fromUuid, targetAccountId) {
   return meta
 }
 
-// アカウントを移して会話を続ける。 分岐位置は backend 任せ (= 末尾の切れ目)。
-export function continueOnAccount(sourceId, accountId) {
-  return forkSession(sourceId, null, accountId)
+// Moves a tab to another account in place: the same tab, with its name, continues its conversation there
+// (the backend carries the conversation up to its latest clean point and starts the tab again). Only the
+// row's account changes; no tab is added.
+export async function moveToAccount(sessionId, accountId) {
+  let meta
+  try {
+    const res = await apiFetch(`/sessions/${sessionId}/account`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account_id: accountId }),
+    })
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`
+      try { detail = translateHttpErrorDetail((await res.json())?.detail, detail) } catch { /* ignore */ }
+      throw new Error(detail)
+    }
+    meta = await res.json()
+  } catch (e) {
+    alert(tRaw('alert.account_move_failed', { detail: e?.message || e }))
+    return null
+  }
+  storePatchSession(sessionId, meta)
+  return meta
 }
 
 export async function removeSession(id) {
