@@ -111,10 +111,10 @@ self-register、 旧 overlays ディレクトリ方式は廃止)。
 書いてはいけないもの:
 - `import './<Name>.jsx'` のように Component を static import する行 (= chunk 分離が壊れる)
 
-contract test (= `frontend/src/features/__contracts__/no-lazy-component-static-import.test.js`)
+contract test (= `frontend/tests/features/__contracts__/no-lazy-component-static-import.test.js`)
 が各 features/<x>/index.js の Component lazy spec と static import の交差を vitest で gate 化、
 さらに削除済 AppShell.jsx が再導入されていないこと と Layout.jsx の Component spec 数を assert する。
-配線 entry を編集したら必ず `npx vitest run src/features/__contracts__/` 緑を確認。
+配線 entry を編集したら必ず `npx vitest run tests/features/__contracts__/` 緑を確認。
 
 ### overlay として `features/` に置かないもの
 
