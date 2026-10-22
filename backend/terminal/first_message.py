@@ -20,7 +20,7 @@ from pathlib import Path
 
 from backend.terminal import input_ready
 from backend.terminal.pty_discover import claude_in_pane, register_claude_when_ready
-from backend.terminal.runner import tmux_send_keys
+from backend.terminal.runner import tmux_send_keys, wait_until_typeable
 from backend.terminal.session_resolver import (
     ensure_pty_session_for,
     first_message_command,
@@ -59,8 +59,10 @@ async def launch_with_first_message(session_id: str, text: str) -> dict | None:
         return None
     command = first_message_command(session_id, _message_file(session_id, text))
     input_ready.mark_starting(session_id)
+    # 立て直した直後の pane (= 自動の入れ替え) は、 tmux が session を作り終えるまで打鍵を受けない。
     # 入力行に残った打ちかけ (= 前の失敗の残り) を消してから打つ。
-    ok = tmux_send_keys(session_id, key="C-u") and tmux_send_keys(session_id, text=command, enter=True)
+    ok = (await wait_until_typeable(session_id, input_ready.INPUT_READY_TIMEOUT_SEC)
+          and tmux_send_keys(session_id, key="C-u") and tmux_send_keys(session_id, text=command, enter=True))
     if not ok:
         input_ready.mark_ready(session_id)
         logger.warning("first message launch failed session=%s", session_id)
