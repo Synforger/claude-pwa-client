@@ -26,17 +26,17 @@ from typing import Awaitable, Callable, Optional
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
-from backend.config import AGENTS
-from backend.core.speech import VOICE_INPUT_MARK, VOICE_OPEN_CONTEXT
-from backend.core.push import broadcast_push, notification_title_for
-import backend.core.jsonl_watcher as jsonl_watcher  # backend-F-40: 旧版は関数内 import で循環回避
+from backend._common.config import AGENTS
+from backend.speech.speech import VOICE_INPUT_MARK, VOICE_OPEN_CONTEXT
+from backend.push.push import broadcast_push, notification_title_for
+import backend.jsonl.jsonl_watcher as jsonl_watcher  # backend-F-40: 旧版は関数内 import で循環回避
 from backend.jsonl.session_status import (
     apply_immediate_stop as _apply_immediate_stop,
 )
-from backend.core.prose_language import foreign_prose
-from backend.state import is_voice_open, session_language, sessions_meta
+from backend._common.prose_language import foreign_prose
+from backend._common.state import is_voice_open, session_language, sessions_meta
 from backend.terminal import input_ready, pty_discover
-import backend.rollover as rollover
+import backend.rollover.rollover as rollover
 
 # backend-F-40 注記: jsonl_watcher は hooks を import しない (= confirm_bind → _save_bindings
 # のみ、 hook 経路と無関係) ので module-level import で循環しない。 旧版は防御的に関数内
@@ -111,7 +111,7 @@ async def _hooks_event(request: Request) -> dict:
     対応イベント (= 初期実装):
         - Stop: turn 完了。 payload.output を通知本文に
         - Notification: 通知ダイアログ系。 payload.message を通知本文に
-        - UserPromptSubmit: turn 開始。 自動の入れ替えの見張りを起こす (= `backend/rollover.py`)。 会話が開いているのに
+        - UserPromptSubmit: turn 開始。 自動の入れ替えの見張りを起こす (= `backend/rollover/rollover.py`)。 会話が開いているのに
           頭に声で聞いている印の無い turn (= 別のタブからの連絡・自動の入れ替え・裏の作業の知らせ) には、 そう伝える
           1 行を `context` に返す
     その他のイベントは受信ログだけ残して 200 OK を返す (= claude の hook を

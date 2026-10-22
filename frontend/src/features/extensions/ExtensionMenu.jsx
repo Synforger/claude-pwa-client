@@ -1,6 +1,6 @@
 import { useRef, useState, useSyncExternalStore } from 'react'
 import { subscribe as subscribeUi, getSnapshot as getUiSnapshot, setOverlay } from '../../state/ui.js'
-import { useOutsideClick } from '../../hooks/useOutsideClick.js'
+import { useOutsideClick } from '../../_common/useOutsideClick.js'
 import { useT } from '../../i18n/t.js'
 import { useExtensions } from './useExtensions.js'
 import { SLOT_LONG_PRESS_MS, loadLastId, nextOpenOnTap, saveLastId } from './slotTap.js'

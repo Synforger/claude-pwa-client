@@ -11,8 +11,8 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from backend.core.jsonl_predicates import is_harness_xml_text
-from backend.core.speech import VOICE_INPUT_MARK, parse_mark
+from backend.jsonl.jsonl_predicates import is_harness_xml_text
+from backend.speech.speech import VOICE_INPUT_MARK, parse_mark
 
 # 覚えておく「言った物」 の数 (= 超えた分は古い順に忘れる。 会話を始める前の物は時刻で弾かれる)
 MAX_HEARD = 2000

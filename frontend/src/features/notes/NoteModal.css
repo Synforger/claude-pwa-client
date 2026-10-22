@@ -1,4 +1,4 @@
-/* 📋 のメモ。 枠はファイルプレビューと同じ物 (= shared/Modal.css と .md-preview) を使い、 ここは差分だけ。 */
+/* 📋 のメモ。 枠はファイルプレビューと同じ物 (= _common/Modal.css と .md-preview) を使い、 ここは差分だけ。 */
 .note-title {
   font-size: 13px;
   color: var(--text);

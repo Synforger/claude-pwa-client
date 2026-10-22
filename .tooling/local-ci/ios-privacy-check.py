@@ -6,7 +6,7 @@ iOS は、 許可の文の無い機能に触った瞬間に app を終わらせ�
 と app の native (= `shell/ios/App/App/*.swift`) から、 iOS が許可の文を求める機能の使い方を種類ごとに探し、 文が
 無ければ赤にする。
 
-種類と、 使っていると見る書き方は下の USES が真値 (= 1 か所)。 試験は `backend/tests/test_ios_privacy_check.py`
+種類と、 使っていると見る書き方は下の USES が真値 (= 1 か所)。 試験は `backend/tests/tooling/test_ios_privacy_check.py`
 (= わざと文を抜いた見本で赤になる)。
 
 Usage:

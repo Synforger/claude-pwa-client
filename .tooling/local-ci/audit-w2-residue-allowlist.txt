@@ -23,9 +23,9 @@ A:frontend/src/features/screenshare/useMoonlightAvailable.js:12:available
 
 # 個別検証時点 (= 2026-06-29) で audit C 11 件全件 safe を確認、 ただし detector の同 css 内
 # heuristic で LOW として fire し続ける。 個別 case の理由は audit-w2-residue.md 参照。
-C:frontend/src/App.css:225:.action-menu
-C:frontend/src/App.css:547:.topbar-plan-dot
-C:frontend/src/App.css:649:.attach-remove
+C:frontend/src/layout/App.css:225:.action-menu
+C:frontend/src/layout/App.css:547:.topbar-plan-dot
+C:frontend/src/layout/App.css:649:.attach-remove
 C:frontend/src/features/chat/MessageItem.css:23:.scroll-btn
 C:frontend/src/features/chat/MessageItem.css:41:.scroll-dot
 C:frontend/src/features/chat/MessageRenderer.css:64:.md-code-copy
@@ -49,4 +49,4 @@ C:frontend/src/features/voice/VoiceButtons.css:81:.voice-error
 C:frontend/src/features/voice/VoiceButtons.css:99:.voice-volume
 # 入力欄の上端の開閉の印: 直接の親 .inputarea が position:relative の anchor、 縁に重ねて行を取らないための
 # 意図した absolute positioning。
-C:frontend/src/App.css:111:.inputarea-edge
+C:frontend/src/layout/App.css:111:.inputarea-edge

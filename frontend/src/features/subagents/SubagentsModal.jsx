@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useSyncExternalStore } from 'react'
 import TranscriptEvent from './TranscriptEvent.jsx'
-import { apiFetch } from '../../utils/api.js'
-import { useEscape } from '../../hooks/useEscape.js'
+import { apiFetch } from '../../_common/api.js'
+import { useEscape } from '../../_common/useEscape.js'
 import { useT } from '../../i18n/t.js'
 import { subagentsStreamSse } from '../../transport/select.ts'
 import {
@@ -13,7 +13,7 @@ import {
   getSnapshot as getUiSnapshot,
   setOverlay,
 } from '../../state/ui.js'
-import '../../shared/Modal.css'
+import '../../_common/Modal.css'
 import './SubagentsModal.css'
 
 // サブエージェント (= Task で起動した子 agent) + Workflow run の一覧と transcript を見るモーダル。

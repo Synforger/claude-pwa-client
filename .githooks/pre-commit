@@ -32,11 +32,11 @@ if [ -n "${staged_py}" ]; then
 fi
 
 # -----------------------------------------------------------------------------
-# 2. Frontend ESLint over staged JS/JSX/TS/TSX files under frontend/src/.
+# 2. Frontend ESLint over staged JS/JSX/TS/TSX files under frontend/src/ and frontend/tests/.
 #    pnpm exec defers to frontend/node_modules; if ESLint isn't installed yet
 #    (= fresh clone), the check is skipped with a hint.
 # -----------------------------------------------------------------------------
-staged_js="$(git diff --cached --name-only --diff-filter=ACMRT | grep -E '^frontend/src/.*\.(js|jsx|ts|tsx)$' || true)"
+staged_js="$(git diff --cached --name-only --diff-filter=ACMRT | grep -E '^frontend/(src|tests)/.*\.(js|jsx|ts|tsx)$' || true)"
 if [ -n "${staged_js}" ]; then
     if [ -d "${REPO_ROOT}/frontend/node_modules/eslint" ]; then
         # Strip frontend/ prefix so paths are relative to the eslint config dir.

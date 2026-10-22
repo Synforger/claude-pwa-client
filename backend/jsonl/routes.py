@@ -42,14 +42,14 @@ from backend.jsonl.session_status import (
     track_turn_start as _track_turn_start,
     update_busy as _update_busy,
 )
-from backend.core.jsonl_predicates import is_client_message
-from backend.core.jsonl_tail import (
+from backend.jsonl.jsonl_predicates import is_client_message
+from backend.jsonl.jsonl_tail import (
     initial_offset as _initial_offset_impl,
     read_complete_lines as _read_complete_lines,
     read_tail_with_pos as _read_tail_with_pos,
 )
 from backend.terminal.runner import jsonl_path_for_session
-from backend.state import (
+from backend._common.state import (
     ALL_SUBSCRIBER_KEY,
     agent_status,
     jsonl_event_broadcaster,
@@ -137,7 +137,7 @@ def _lines_to_events(lines: list[str], language: str | None = None) -> list[dict
 def _initial_offset(path: Path) -> int:
     """thin wrapper: tail.initial_offset(path, INITIAL_REPLAY_LINES) (= backend-F-41 で移送済)。
     既存 test (test_jsonl_routes.py) との後方互換のために残す。 新規 consumer は
-    `backend.core.jsonl_tail.initial_offset` を直接 import すること。"""
+    `backend.jsonl.jsonl_tail.initial_offset` を直接 import すること。"""
     return _initial_offset_impl(path, INITIAL_REPLAY_LINES)
 
 
@@ -186,7 +186,7 @@ def _shrink_tool_results(ev: dict) -> None:
                 if not isinstance(text, str):
                     # image ブロックは **本体 (= base64) を落とす**。 UI は tool_result 内の画像を
                     # 実データとして描画せず「画像」 プレースホルダ 1 語に畳む
-                    # (= utils/format.js formatToolResultContent の `type === 'image'` 経路) ので、
+                    # (= _common/format.js formatToolResultContent の `type === 'image'` 経路) ので、
                     # base64 は 1 byte も表示に使われない。 実測では 1 件 384KB のスクショが
                     # 履歴に丸ごと乗っていた。 type は残すのでプレースホルダ表示は不変。
                     if isinstance(part, dict) and part.get("type") == "image":
@@ -517,7 +517,7 @@ async def _watch_jsonl_paths_loop():
             # 監視対象 dir 群 (= 全 sid の jsonl 親 dir)。 sid 追加 / path 切替で随時
             # 変わるので、 awatch を「現存 path 群」 で起動し、 path 変動時は loop を
             # 短く回して再起動する。
-            from backend.state import sessions_meta as _sm  # noqa: PLC0415
+            from backend._common.state import sessions_meta as _sm  # noqa: PLC0415
             dirs: set[Path] = set()
             for sid in list(_sm.keys()):
                 p = _latest_jsonl(sid)
@@ -585,7 +585,7 @@ async def monitor_all_sessions_loop():
         while True:
             try:
                 await asyncio.sleep(POLL_INTERVAL)
-                from backend.state import sessions_meta as _sessions_meta  # 動的参照
+                from backend._common.state import sessions_meta as _sessions_meta  # 動的参照
                 # 削除済み session の追跡 entry を刈り取る (= 無停止運用での単調増加防止)
                 for stale in [s for s in states if s not in _sessions_meta]:
                     states.pop(stale, None)

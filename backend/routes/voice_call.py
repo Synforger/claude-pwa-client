@@ -28,9 +28,9 @@ from pathlib import Path
 
 from fastapi import APIRouter, Body, Request
 
-from backend.errors import raise_error
+from backend._common.errors import raise_error
 from backend.routes.voice import conversation_settings
-from backend.state import calls_by_conn
+from backend._common.state import calls_by_conn
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ def _volume_of(raw) -> float:
 def _with_call_gain(volume: float) -> float:
     """端末のつまみの倍率に、 通話だけの基準 (= `backend/config.json` の `voice_call_gain_db`) を掛ける。 通話は iPhone の
     app の声で、 画面の声とは鳴らし方が違うので、 画面の声を動かさずに通話の大きさだけを揃える口。 読むたびに今の設定。"""
-    from backend.config import VOICE_CALL_GAIN_DB  # noqa: PLC0415
+    from backend._common.config import VOICE_CALL_GAIN_DB  # noqa: PLC0415
     return volume * 10 ** (VOICE_CALL_GAIN_DB / 20)
 
 

@@ -1,0 +1,243 @@
+// @vitest-environment jsdom
+//
+// MessageItem の render smoke test (= 2026-07-05 導入)。
+//
+// 背景: #77 が tool loop 内で shadow された `t` を翻訳関数として呼び、 tool 結果付き
+// message の描画が全て TypeError → ErrorBoundary 全画面になった。 当時の 115 test は
+// 全て pure logic 単体で、 「component を実際に render する」 検査がゼロだったため
+// すり抜けた。 本 file は主要 message 形状を実 render して「描画即死」 級を CI で塞ぐ。
+//
+// 方針: 表示内容の細かい assert はしない (= 文言変更で壊れる脆い test にしない)。
+// 「throw せず render できる + 代表要素が存在する」 の 2 点だけ見る。
+import { describe, it, expect, afterEach } from 'vitest'
+import { render, cleanup } from '@testing-library/react'
+import MessageItem from '../../../src/features/chat/MessageItem.jsx'
+import { AGENT_MESSAGE_OPENING, ROLLOVER_OPENING } from '../../../src/features/chat/agentMessage.js'
+
+afterEach(cleanup)
+
+const noop = () => {}
+const baseProps = {
+  onOpenFile: noop,
+  onAnswer: noop,
+  apiKeySource: null,
+  activeSubagentTool: null,
+  onOpenSubagents: noop,
+  onFork: null,
+}
+
+describe('MessageItem render smoke', () => {
+  it('user message renders', () => {
+    const { container } = render(
+      <MessageItem {...baseProps} msg={{ id: 'u1', role: 'user', text: 'こんにちは' }} />,
+    )
+    expect(container.textContent).toContain('こんにちは')
+  })
+
+  it('a message relayed from another session shows who sent it, not the envelope', () => {
+    const text = `${AGENT_MESSAGE_OPENING}\n<agent-message from="tools" session="ses_sender">\nthe build drops the last row\n</agent-message>`
+    const { container, getByTestId } = render(
+      <MessageItem {...baseProps} msg={{ id: 'u2', role: 'user', text }} />,
+    )
+    expect(getByTestId('relayed-from').textContent).toContain('tools')
+    expect(container.textContent).toContain('the build drops the last row')
+    expect(container.textContent).not.toContain('agent-message')
+    expect(container.querySelector('.message.user.relayed')).not.toBeNull()
+  })
+
+  it('a relayed message shows what the operator said above its body', () => {
+    const text = `${AGENT_MESSAGE_OPENING}\n<agent-message from="tools" session="ses_sender">\n<operator-said>\nhave the owner fix it\n</operator-said>\na title that wraps overlaps\n</agent-message>`
+    const { container, getByTestId } = render(
+      <MessageItem {...baseProps} msg={{ id: 'u4', role: 'user', text }} />,
+    )
+    expect(getByTestId('relayed-operator').textContent).toContain('have the owner fix it')
+    expect(container.textContent).toContain('a title that wraps overlaps')
+    expect(container.textContent).not.toContain('operator-said')
+  })
+
+  it('a request to close for a rollover says why, not the envelope', () => {
+    const text = `${ROLLOVER_OPENING}\n<session-rollover phase="close" reason="context" context_pct="62" idle_minutes="0">\nContext is at 62%.\n</session-rollover>`
+    const { container, getByTestId } = render(
+      <MessageItem {...baseProps} msg={{ id: 'u5', role: 'user', text }} />,
+    )
+    expect(getByTestId('rollover-label').textContent).toBeTruthy()
+    expect(getByTestId('rollover-body').textContent).toContain('62')
+    expect(container.textContent).not.toContain('session-rollover')
+    expect(container.querySelector('.message.user.relayed')).not.toBeNull()
+  })
+
+  it('the first message of a session started by a rollover shows what it was handed', () => {
+    const text = `${ROLLOVER_OPENING}\n<session-rollover phase="start">\ncarry on with the build\n</session-rollover>`
+    const { container, getByTestId } = render(
+      <MessageItem {...baseProps} msg={{ id: 'u6', role: 'user', text }} />,
+    )
+    expect(getByTestId('rollover-body').textContent).toContain('carry on with the build')
+    expect(container.textContent).not.toContain('session-rollover')
+    expect(container.querySelector('.message.user.relayed')).not.toBeNull()
+  })
+
+  it('a message the operator typed is not marked as relayed', () => {
+    const { container, queryByTestId } = render(
+      <MessageItem {...baseProps} msg={{ id: 'u3', role: 'user', text: 'hello' }} />,
+    )
+    expect(queryByTestId('relayed-from')).toBeNull()
+    expect(container.querySelector('.message.user.relayed')).toBeNull()
+  })
+
+  it('agent message with text renders', () => {
+    const { container } = render(
+      <MessageItem {...baseProps} msg={{ id: 'a1', role: 'agent', text: '応答です' }} />,
+    )
+    expect(container.textContent).toContain('応答です')
+  })
+
+  it('empty streaming agent renders the thinking placeholder (= 末尾の時だけ)', () => {
+    const { container } = render(
+      <MessageItem
+        {...baseProps}
+        isLast
+        msg={{ id: 'a2', role: 'agent', streaming: true, text: '', tools: [] }}
+      />,
+    )
+    expect(container.querySelector('.bubble.dim')).toBeTruthy()
+  })
+
+  it('thinking is open by default so it reads without a tap', () => {
+    const { container } = render(
+      <MessageItem
+        {...baseProps}
+        msg={{ id: 'a5', role: 'agent', thinking: '手順を確認する', text: '', tools: [] }}
+      />,
+    )
+    const block = container.querySelector('details.thinking-block')
+    expect(block).toBeTruthy()
+    expect(block.open).toBe(true)
+  })
+
+  it('prose held for not being in the configured language is folded, closed, and opens to the full text', () => {
+    const { container, getByTestId } = render(
+      <MessageItem
+        {...baseProps}
+        msg={{ id: 'a7', role: 'agent', held: 'The fix is ready.\n', text: '', tools: [] }}
+      />,
+    )
+    const block = getByTestId('held-prose')
+    expect(block.open).toBe(false)
+    expect(block.querySelector('.thinking-text').textContent).toBe('The fix is ready.')
+    expect(container.querySelector('.bubble.dim')).toBeNull()
+  })
+
+  it('thinking drops its trailing newlines so the box has no blank line below', () => {
+    const { container } = render(
+      <MessageItem
+        {...baseProps}
+        msg={{ id: 'a6', role: 'agent', thinking: '手順を確認する\n\n', text: '', tools: [] }}
+      />,
+    )
+    expect(container.querySelector('.thinking-text').textContent).toBe('手順を確認する')
+  })
+
+  it('tool with a text result renders (= #79 の crash 再現形状)', () => {
+    // tool loop 内の翻訳呼び出し (tool.chars) を必ず踏む形状: result.content が
+    // 非空 text + diff なし → showResult=true → 文字数 meta が描画される。
+    const { container } = render(
+      <MessageItem
+        {...baseProps}
+        msg={{
+          id: 'a3',
+          role: 'agent',
+          text: '完了しました',
+          tools: [{
+            id: 't1',
+            name: 'Bash',
+            label: 'ls -la',
+            shortLabel: 'ls',
+            result: { content: 'total 42\ndrwxr-xr-x  7 user staff', is_error: false },
+          }],
+        }}
+      />,
+    )
+    expect(container.querySelector('.tool-block')).toBeTruthy()
+    expect(container.querySelector('.tool-meta')).toBeTruthy()
+  })
+
+  it('tool with an error result renders', () => {
+    const { container } = render(
+      <MessageItem
+        {...baseProps}
+        msg={{
+          id: 'a4',
+          role: 'agent',
+          text: '',
+          tools: [{
+            id: 't2',
+            name: 'Bash',
+            label: 'false',
+            result: { content: 'exit 1', is_error: true },
+          }],
+        }}
+      />,
+    )
+    expect(container.querySelector('.tool-block.is-error')).toBeTruthy()
+  })
+
+  it('optimistic user with attachments renders', () => {
+    const { container } = render(
+      <MessageItem
+        {...baseProps}
+        msg={{
+          id: 'u2',
+          role: 'user',
+          text: '画像を送ります',
+          optimistic: true,
+          fileNames: ['a.png'],
+        }}
+      />,
+    )
+    expect(container.textContent).toContain('画像を送ります')
+  })
+})
+
+// 「進行中か」 を bubble の flag 単体で決めていた回帰の防波堤。
+//
+// claude は 1 ターンを複数の assistant message に分けて書き、 tool を呼んだ message の
+// stop_reason は tool_use になる。 backend はその行に result event を出さないので、 中間の
+// bubble は streaming flag が立ったまま確定する。 flag をそのまま描画に使うと、 過去の
+// ツール行が永久に「…」 を出し、 path のリンク化も skip され続ける。
+describe('進行中かは表示位置から導出する', () => {
+  const withTool = (id) => ({
+    id,
+    role: 'agent',
+    streaming: true,
+    text: '~/tmp/a.txt を読みます',
+    tools: [{ id: 't1', name: 'Read', label: 'Read', input: {} }],
+  })
+
+  it('末尾でない streaming bubble は tool-pending の「…」 を出さない', () => {
+    const { container } = render(
+      <MessageItem {...baseProps} isLast={false} msg={withTool('a1')} />,
+    )
+    expect(container.querySelector('.tool-pending')).toBeNull()
+  })
+
+  it('末尾の streaming bubble は従来どおり「…」 を出す', () => {
+    const { container } = render(
+      <MessageItem {...baseProps} isLast msg={withTool('a2')} />,
+    )
+    expect(container.querySelector('.tool-pending')).toBeTruthy()
+  })
+
+  it('末尾でなければ path がリンクになる (= streaming 中は linkify を skip するため)', () => {
+    const { container } = render(
+      <MessageItem {...baseProps} isLast={false} msg={withTool('a3')} />,
+    )
+    expect(container.querySelector('.file-link')).toBeTruthy()
+  })
+
+  it('末尾の streaming 中は path をリンク化しない (= 不完全な path を毎フレーム走査しない)', () => {
+    const { container } = render(
+      <MessageItem {...baseProps} isLast msg={withTool('a4')} />,
+    )
+    expect(container.querySelector('.file-link')).toBeNull()
+  })
+})

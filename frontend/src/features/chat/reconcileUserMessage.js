@@ -1,5 +1,5 @@
-import { generateId } from '../../utils/id.js'
-import { MAX_MESSAGES } from '../../constants.js'
+import { generateId } from '../../_common/id.js'
+import { MAX_MESSAGES } from '../../_common/constants.js'
 import { isStaleFor } from './replayGuard.js'
 import { isClientMessage } from './agentMessage.js'
 import { hideVoiceInputMark } from '../voice/inputMark.js'

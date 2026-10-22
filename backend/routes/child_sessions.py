@@ -24,9 +24,9 @@ import logging
 
 from fastapi import APIRouter, Form, Request
 
-from backend.errors import raise_error
+from backend._common.errors import raise_error
 from backend.routes.agent_messages import LOCAL_CLIENTS, envelope, judge
-from backend.state import register_session, sessions_meta
+from backend._common.state import register_session, sessions_meta
 from backend.terminal.routes import pty_send
 from backend.terminal.runner import jsonl_path_for_session
 from backend.terminal.session_resolver import ensure_pty_session_for
@@ -58,7 +58,7 @@ async def post_child_session(
 
     子のタブは親と同じ口座で動く。
     """
-    from backend.config import AGENT_MESSAGE_CHECK, AGENTS, CHILD_SESSIONS_MAX  # noqa: PLC0415
+    from backend._common.config import AGENT_MESSAGE_CHECK, AGENTS, CHILD_SESSIONS_MAX  # noqa: PLC0415
     client_host = request.client.host if request.client else None
     if client_host not in LOCAL_CLIENTS:
         logger.warning("child session rejected: non-local client=%s", client_host)

@@ -353,7 +353,7 @@ pipecat-client-ios-small-webrtc だけは、 手を入れた写しを `shell/ios
   - `frontend/src/features/terminal/useTerminal.js` (xterm.js lifecycle)
   - `frontend/src/features/ios-native/useKeyboardState.js`
   - `frontend/src/features/ios-native/OnScreenKeyboard.jsx`
-  - `frontend/src/utils/keyboard.js` (key → escape sequence 変換)
+  - `frontend/src/_common/keyboard.js` (key → escape sequence 変換)
 
 MIT License 全文:
 

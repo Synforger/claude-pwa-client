@@ -219,7 +219,7 @@ tasks:
       - uv run python -m pytest backend/tests -q
 
   test:frontend:
-    desc: vitest over frontend/src/
+    desc: vitest over frontend/tests/
     deps: [install:frontend]
     cmds:
       - cd frontend && pnpm test

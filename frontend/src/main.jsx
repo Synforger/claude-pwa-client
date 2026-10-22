@@ -1,12 +1,12 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import './index.css'
+import './layout/index.css'
 import App from './App.jsx'
 import Terminal from './features/terminal/Terminal.jsx'
 import ErrorBoundary from './layout/ErrorBoundary.jsx'
-import { hardRefreshAppShell } from './utils/appRefresh.js'
+import { hardRefreshAppShell } from './_common/appRefresh.js'
 import { installListeners } from './transport/lifecycle.ts'
-import { installUpdateChecks } from './utils/appUpdate.js'
+import { installUpdateChecks } from './_common/appUpdate.js'
 import { subscribe as subscribeEphemeral, getSnapshot as getEphemeralSnapshot } from './state/ephemeral.js'
 
 // transport lifecycle (= visibility / pagehide / pageshow / freeze) の配線。
@@ -42,7 +42,7 @@ if ('serviceWorker' in navigator) {
       .catch(() => { /* noop */ })
   })
   // 開いたままの画面を新しい build へ移す配線 (= 前面へ戻った時と一定の間隔で更新を確かめ、
-  // 新しい service worker が有効になったら 1 回だけ読み込み直す)。 中身は utils/appUpdate.js。
+  // 新しい service worker が有効になったら 1 回だけ読み込み直す)。 中身は _common/appUpdate.js。
   // 選んだだけで送っていない添付 (= どのタブの物でも) が在る間は、 読み込み直しを見送る。
   installUpdateChecks({
     unsent: {

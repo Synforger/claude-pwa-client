@@ -21,7 +21,7 @@ from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from backend.config import documents_settings
+from backend._common.config import documents_settings
 from backend.documents import convert
 
 logger = logging.getLogger(__name__)

@@ -90,7 +90,7 @@ async def _build_healthcheck() -> dict[str, Any]:
 
 async def _check_liveness() -> dict[str, Any]:
     import os as _os
-    from backend.paths import LOGS_DIR
+    from backend._common.paths import LOGS_DIR
     boot_marker = LOGS_DIR / "backend.log"
     uptime_sec: float | None = None
     if boot_marker.exists():
@@ -102,8 +102,8 @@ async def _check_liveness() -> dict[str, Any]:
 
 
 async def _check_config() -> dict[str, Any]:
-    from backend.config import get_config
-    from backend.paths import CONFIG_PATH
+    from backend._common.config import get_config
+    from backend._common.paths import CONFIG_PATH
     cfg = get_config()
     agents = cfg.get("agents") or {}
     accounts = cfg.get("accounts") or {}
@@ -137,7 +137,7 @@ async def _check_agent_launch_alias() -> dict[str, Any]:
     """
     import shutil
     import subprocess as _sp
-    from backend.config import get_config
+    from backend._common.config import get_config
     agents = (get_config().get("agents") or {})
     per_agent: list[dict[str, Any]] = []
     any_fail = False
@@ -183,8 +183,8 @@ async def _check_agent_launch_alias() -> dict[str, Any]:
 
 
 async def _check_session_meta() -> dict[str, Any]:
-    from backend.paths import SESSION_META_PATH
-    from backend.state import sessions_meta
+    from backend._common.paths import SESSION_META_PATH
+    from backend._common.state import sessions_meta
     in_memory = list(sessions_meta.keys())
     on_disk: list[str] = []
     parse_error: str | None = None
@@ -210,8 +210,8 @@ async def _check_session_meta() -> dict[str, Any]:
 
 
 async def _check_jsonl_bindings() -> dict[str, Any]:
-    from backend.core.jsonl_watcher import list_bindings
-    from backend.paths import JSONL_BINDINGS_PATH
+    from backend.jsonl.jsonl_watcher import list_bindings
+    from backend._common.paths import JSONL_BINDINGS_PATH
     bindings = list_bindings()
     per_sid: list[dict[str, Any]] = []
     any_missing = False
@@ -250,8 +250,8 @@ async def _check_claude_jsonl_files() -> dict[str, Any]:
     never opened a claude on them yet) — those are expected to be missing,
     not a fault. Only previously-confirmed bindings whose jsonl has vanished
     count as broken."""
-    from backend.core.jsonl_watcher import list_bindings
-    from backend.state import sessions_meta
+    from backend.jsonl.jsonl_watcher import list_bindings
+    from backend._common.state import sessions_meta
     bindings = list_bindings()
     broken: list[str] = []
     not_started: list[str] = []
@@ -281,7 +281,7 @@ async def _check_files_tree() -> dict[str, Any]:
     """Dry-run the same path resolution `/files/tree` would do for HOME root.
     Catches "file tree button does nothing" symptoms without enumerating the
     full tree."""
-    from backend.config import HOME
+    from backend._common.config import HOME
     from backend.routes.files import _DENY_RE
     try:
         resolved = Path("~").expanduser().resolve()
@@ -309,7 +309,7 @@ async def _check_tmux_pty_sessions() -> dict[str, Any]:
     256 / launchd default fd limit と照合可能)。 fd 超過による PTY spawn 連鎖
     失敗を早期検知する。"""
     import resource as _resource
-    from backend.state import sessions_meta
+    from backend._common.state import sessions_meta
     from backend.terminal.runner import has_tmux_session, pty_sessions
     pty_count = len(pty_sessions)
     per_sid: list[dict[str, Any]] = []
@@ -342,7 +342,7 @@ async def _check_tmux_pty_sessions() -> dict[str, Any]:
 
 async def _check_vapid() -> dict[str, Any]:
     import hashlib
-    from backend.paths import VAPID_PATH
+    from backend._common.paths import VAPID_PATH
     if not VAPID_PATH.exists():
         return {"ok": False, "reason": "vapid.json not found", "path": str(VAPID_PATH)}
     try:
@@ -361,8 +361,8 @@ async def _check_vapid() -> dict[str, Any]:
 
 
 async def _check_subscriptions() -> dict[str, Any]:
-    from backend.core.push import subscriptions
-    from backend.paths import SUBSCRIPTIONS_PATH
+    from backend.push.push import subscriptions
+    from backend._common.paths import SUBSCRIPTIONS_PATH
     subs = list(subscriptions)
     endpoints: list[str] = []
     for s in subs:
@@ -392,7 +392,7 @@ async def _check_push_dry_run() -> dict[str, Any]:
         has_lib = True
     except ImportError:
         has_lib = False
-    from backend.core.push import subscriptions, vapid_config
+    from backend.push.push import subscriptions, vapid_config
     well_formed = 0
     malformed: list[str] = []
     for s in subscriptions:
@@ -415,7 +415,7 @@ async def _check_push_dry_run() -> dict[str, Any]:
 
 
 async def _check_backend_error_log() -> dict[str, Any]:
-    from backend.paths import LOGS_DIR
+    from backend._common.paths import LOGS_DIR
     log_path = LOGS_DIR / "backend.error.log"
     if not log_path.exists():
         return {"ok": True, "path": str(log_path), "exists": False}

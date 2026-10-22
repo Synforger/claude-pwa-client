@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useSyncExternalStore } from 'react'
-import { SUPPORTED_IMAGE_TYPES } from '../../constants.js'
+import { SUPPORTED_IMAGE_TYPES } from '../../_common/constants.js'
 import { putImage } from './imageStore.js'
 import {
   subscribe as subscribeEphemeral,

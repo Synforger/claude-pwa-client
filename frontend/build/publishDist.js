@@ -12,7 +12,7 @@
 //   4. 今の build と 1 つ前の build のどちらも使っていない assets を消す
 // 1 が済んでから 3 を行うので、 どの瞬間に読んでも、 入口の頁が指す file は必ず在る。
 // 1 つ前の build の assets は残るので、 古い画面はその部品を読み続けられる
-// (= 新しい build へは utils/appUpdate.js の更新の確かめで移る)。
+// (= 新しい build へは _common/appUpdate.js の更新の確かめで移る)。
 import {
   copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync,
 } from 'node:fs'

@@ -1,0 +1,422 @@
+"""hooks_router の単体テスト。
+
+POST /hooks/event の payload 種別ごとの分岐 (= Stop / Notification / 未対応) と、
+session_id 逆引き (= cwd → PWA session) の挙動を確認する。 実際の push 配信は
+broadcast_push をモックして引数だけ検証する。
+"""
+from pathlib import Path
+
+import pytest
+
+import backend.routes.hooks as hooks_router
+import backend.jsonl.jsonl_watcher as jsonl_watcher
+
+
+@pytest.fixture
+def captured_pushes(monkeypatch):
+    """broadcast_push 呼出を捕捉して配信を抑止する。"""
+    calls: list[tuple[str, str, str]] = []
+
+    async def fake_push(body, title, session_id):
+        calls.append((body, title, session_id))
+
+    monkeypatch.setattr(hooks_router, "broadcast_push", fake_push)
+    return calls
+
+
+@pytest.fixture
+def fake_agents(monkeypatch, tmp_path):
+    """テスト用 AGENTS dict + cwd を tmp_path 下に張る。"""
+    cwd_path = tmp_path / "project"
+    cwd_path.mkdir()
+    fake = {"primary": {"cwd": str(cwd_path)}, "default": {"cwd": str(tmp_path / "other")}}
+    monkeypatch.setattr(hooks_router, "AGENTS", fake)
+    return {"cwd": str(cwd_path), "id": "primary"}
+
+
+@pytest.fixture
+def fake_bindings(monkeypatch, tmp_path):
+    """jsonl_watcher._bindings に confirmed binding を直接張る fixture。
+    f5d0ca6 以降の `_pwa_session_for_claude_sid` は statusline map ではなく
+    `jsonl_watcher.list_bindings()` の confirmed entry を逆引き元にする。"""
+    monkeypatch.setattr(jsonl_watcher, "_bindings", {})
+    monkeypatch.setattr(jsonl_watcher, "_confirmed_paths", {})
+
+    def register(pwa_sid: str, claude_sid: str, *, confirmed: bool = True) -> Path:
+        jsonl_path = tmp_path / f"{claude_sid}.jsonl"
+        jsonl_path.write_text("", encoding="utf-8")
+        jsonl_watcher._bindings[pwa_sid] = jsonl_watcher._ClaudeBinding(
+            tmux_sid=pwa_sid,
+            claude_pid=0,
+            claude_cwd=str(tmp_path),
+            start_time=0.0,
+            jsonl_path=jsonl_path,
+            confirmed=confirmed,
+        )
+        return jsonl_path
+
+    return register
+
+
+def test_truncate_short_passes_through():
+    assert hooks_router._truncate("hello") == "hello"
+
+
+def test_truncate_long_appends_ellipsis():
+    long = "x" * 200
+    result = hooks_router._truncate(long, limit=10)
+    assert result == "xxxxxxxxxx…"
+
+
+def test_endpoint_stop_event_pushes_output(fake_agents, fake_bindings, captured_pushes):
+    """Stop イベントは last_assistant_message を本文に push する。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    fake_bindings("primary", "claude-internal-uuid")
+    monkeypatch_app = FastAPI()
+    monkeypatch_app.include_router(hooks_router.router)
+    client = TestClient(monkeypatch_app)
+
+    payload = {
+        "hook_event_name": "Stop",
+        "session_id": "claude-internal-uuid",
+        "cwd": fake_agents["cwd"],
+        "last_assistant_message": "task completed successfully",
+    }
+    response = client.post("/hooks/event", json=payload)
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "pushed": "Stop"}
+    assert len(captured_pushes) == 1
+    body, title, sid = captured_pushes[0]
+    assert "task completed successfully" in body
+    assert sid == "primary"
+
+
+def test_endpoint_stop_event_holds_prose_not_in_the_configured_language(fake_agents, fake_bindings, captured_pushes, monkeypatch):
+    """設定が日本語のタブの英語の返事は通知しない (= 画面で畳むのと同じ判定)。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    fake_bindings("primary", "claude-internal-uuid")
+    monkeypatch.setattr(hooks_router, "session_language", lambda sid: "日本語")
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    client = TestClient(app)
+
+    english = "The fix is ready. The only thing left before I merge and deploy it is the GitHub check, which has not finished yet."
+    payload = {"hook_event_name": "Stop", "session_id": "claude-internal-uuid", "cwd": fake_agents["cwd"],
+               "last_assistant_message": english}
+    response = client.post("/hooks/event", json=payload)
+    assert response.json() == {"ok": True, "pushed": None, "held": "foreign_prose"}
+    assert captured_pushes == []
+
+    payload["last_assistant_message"] = "直しを作り終えました。 検査が終わったら merge して本番に入れます。"
+    assert client.post("/hooks/event", json=payload).json() == {"ok": True, "pushed": "Stop"}
+    assert len(captured_pushes) == 1
+
+
+def test_endpoint_notification_event_pushes_message(fake_agents, fake_bindings, captured_pushes):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    fake_bindings("primary", "claude-internal-uuid")
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    client = TestClient(app)
+
+    payload = {
+        "hook_event_name": "Notification",
+        "session_id": "claude-internal-uuid",
+        "cwd": fake_agents["cwd"],
+        "message": "permission needed",
+        "type": "permission_prompt",
+    }
+    response = client.post("/hooks/event", json=payload)
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "pushed": "Notification"}
+    assert captured_pushes[0][0] == "permission needed"
+
+
+def test_endpoint_unknown_event_acks_without_push(fake_agents, fake_bindings, captured_pushes):
+    """未対応イベントは受信 ack のみ、 push しない。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    fake_bindings("primary", "claude-internal-uuid")
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    client = TestClient(app)
+
+    payload = {
+        "hook_event_name": "FileChanged",
+        "session_id": "claude-internal-uuid",
+        "cwd": fake_agents["cwd"],
+        "file_path": "/foo",
+    }
+    response = client.post("/hooks/event", json=payload)
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "ignored": "FileChanged"}
+    assert captured_pushes == []
+
+
+def test_endpoint_non_pwa_session_is_ignored(fake_agents, fake_bindings, captured_pushes):
+    """confirmed binding に存在しない claude_sid (= デスクトップ公式 / ターミナル直叩き)
+    は ignored で push されないこと。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    # fake_bindings で primary を登録しないので claude_sid は孤立
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    client = TestClient(app)
+
+    payload = {
+        "hook_event_name": "Stop",
+        "session_id": "desktop-claude-uuid",
+        "cwd": fake_agents["cwd"],
+        "last_assistant_message": "this should not reach Web Push",
+    }
+    response = client.post("/hooks/event", json=payload)
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "ignored": "non_pwa_session"}
+    assert captured_pushes == []
+
+
+def test_endpoint_invalid_json_returns_400_payload(captured_pushes):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    client = TestClient(app)
+
+    response = client.post(
+        "/hooks/event",
+        content=b"this is not json",
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"ok": False, "reason": "invalid_json"}
+    assert captured_pushes == []
+
+
+def test_endpoint_unconfirmed_binding_is_ignored(fake_agents, fake_bindings, captured_pushes):
+    """confirmed=False の binding (= 確率窓マッチ由来) は逆引き対象に含めず push しない。
+    regression: f5d0ca6 で list_bindings() に切替えた時、 list_bindings の serialize が
+    confirmed を露出しておらず、 hooks_router の `info.get("confirmed")` が常に falsy で
+    全 hook が non_pwa_session 扱いになる回帰を実機で起こした。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    fake_bindings("primary", "claude-internal-uuid", confirmed=False)
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    client = TestClient(app)
+
+    payload = {
+        "hook_event_name": "Stop",
+        "session_id": "claude-internal-uuid",
+        "cwd": fake_agents["cwd"],
+        "last_assistant_message": "should not push",
+    }
+    response = client.post("/hooks/event", json=payload)
+    assert response.json() == {"ok": True, "ignored": "non_pwa_session"}
+    assert captured_pushes == []
+
+
+def test_any_event_with_pwa_sid_header_confirms_binding(
+    fake_bindings, captured_pushes, monkeypatch, tmp_path
+):
+    """確定経路の回帰: SessionStart に限らず、 X-PWA-SID header + transcript_path を持つ
+    任意イベント (= Stop 等) で binding が確定する。 これにより backend 再起動後も最初の
+    hook 1 発で正しい jsonl に self-heal し、 確率窓マッチに頼らない (= 2026-05-29
+    cross-contamination 対策の核)。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    # confirm_bind は _save_bindings で persist する副作用があるため tmp に逃がす。
+    monkeypatch.setattr(jsonl_watcher, "_PERSIST_PATH", tmp_path / "bindings.json")
+    # 二重ロック: 実在する PWA セッション id のみ bind されるので、 ses_tab を登録する。
+    monkeypatch.setattr(hooks_router, "sessions_meta", {"ses_tab": object()})
+    transcript = tmp_path / "claude-xyz.jsonl"
+    transcript.write_text("{}\n")
+
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    client = TestClient(app)
+
+    payload = {
+        "hook_event_name": "Stop",
+        "session_id": "claude-xyz",
+        "transcript_path": str(transcript),
+        "last_assistant_message": "done",
+    }
+    response = client.post("/hooks/event", json=payload, headers={"X-PWA-SID": "ses_tab"})
+    assert response.status_code == 200
+    # SessionStart でなく Stop でも、 header 経由で確定 binding が張られている。
+    assert jsonl_watcher.get_jsonl_for("ses_tab") == transcript
+
+
+def test_unknown_pwa_sid_header_does_not_bind(fake_bindings, captured_pushes, monkeypatch, tmp_path):
+    """二重ロックの回帰: X-PWA-SID が来ても、 実在しない session id なら bind しない
+    (= Desktop App 公式が万一 header を送っても PWA セッションと取り違えない)。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(jsonl_watcher, "_PERSIST_PATH", tmp_path / "bindings.json")
+    monkeypatch.setattr(hooks_router, "sessions_meta", {"ses_real": object()})
+    transcript = tmp_path / "desktop.jsonl"
+    transcript.write_text("{}\n")
+
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    client = TestClient(app)
+
+    payload = {
+        "hook_event_name": "Stop",
+        "session_id": "claude-desktop",
+        "transcript_path": str(transcript),
+        "last_assistant_message": "done",
+    }
+    # 登録外の id を送る
+    client.post("/hooks/event", json=payload, headers={"X-PWA-SID": "ses_intruder"})
+    assert jsonl_watcher.get_jsonl_for("ses_intruder") is None
+
+
+def test_a_turn_starting_and_ending_in_a_pwa_tab_reaches_the_rollover_watch(fake_bindings, captured_pushes, monkeypatch):
+    """推論の始まり (= 人の発話でも、 別のタブからの連絡でも同じ hook) と終わりを、 入れ替えの見張りへ渡す。
+    PWA のタブでない claude の hook は渡さない。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    seen: list[tuple[str, str]] = []
+    monkeypatch.setattr(hooks_router.rollover, "turn_started", lambda sid: seen.append(("started", sid)))
+    monkeypatch.setattr(hooks_router.rollover, "turn_ended", lambda sid: seen.append(("ended", sid)))
+    fake_bindings("ses_tab", "claude-in-tab")
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    client = TestClient(app)
+    client.post("/hooks/event", json={"hook_event_name": "UserPromptSubmit", "session_id": "claude-in-tab"})
+    client.post("/hooks/event", json={"hook_event_name": "Stop", "session_id": "claude-in-tab",
+                                      "last_assistant_message": "done"})
+    res = client.post("/hooks/event", json={"hook_event_name": "UserPromptSubmit", "session_id": "claude-desktop"})
+    assert res.json()["ignored"] == "non_pwa_session"
+    assert seen == [("started", "ses_tab"), ("ended", "ses_tab")]
+
+
+# --- backend-F-30 / crosscut-F-15: HOOK_HANDLERS registry ------------------
+
+
+def test_registry_has_all_known_events():
+    """既知 event (= Stop / Notification / UserPromptSubmit / SessionStart / PreToolUse) が registry に登録済。"""
+    assert set(hooks_router.HOOK_HANDLERS.keys()) == {
+        "Stop", "Notification", "UserPromptSubmit", "SessionStart", "PreToolUse",
+    }
+    # PWA のタブに結び付く系 (= Stop / Notification / UserPromptSubmit) は needs_pwa_session=True
+    assert hooks_router.HOOK_HANDLERS["Stop"].needs_pwa_session is True
+    assert hooks_router.HOOK_HANDLERS["Notification"].needs_pwa_session is True
+    assert hooks_router.HOOK_HANDLERS["UserPromptSubmit"].needs_pwa_session is True
+    # early 系 (= 自己解決経路) は needs_pwa_session=False
+    assert hooks_router.HOOK_HANDLERS["SessionStart"].needs_pwa_session is False
+    assert hooks_router.HOOK_HANDLERS["PreToolUse"].needs_pwa_session is False
+
+
+def test_registry_dispatcher_routes_unknown_event_to_ack():
+    """registry に無い event は ignored ack で 200 OK (= claude hook 詰まらせない)。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    client = TestClient(app)
+    res = client.post("/hooks/event", json={"hook_event_name": "FutureEvent"})
+    assert res.status_code == 200
+    body = res.json()
+    # 未対応 event は (a) non_pwa_session で前段ガード or (b) ignored: <event> で抜ける
+    assert body["ok"] is True
+    assert "ignored" in body
+
+
+def test_handler_can_be_registered_at_runtime(monkeypatch):
+    """新 hook を 1 行 register で増やせる (= 設計目的の回帰防止)。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    seen: list[dict] = []
+
+    async def _h(ctx):
+        seen.append({"event": ctx.event, "payload": ctx.payload})
+        return {"ok": True, "custom": "yes"}
+
+    monkeypatch.setitem(
+        hooks_router.HOOK_HANDLERS, "CustomEvent",
+        hooks_router._HookSpec(handler=_h, needs_pwa_session=False),
+    )
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    client = TestClient(app)
+    res = client.post("/hooks/event", json={"hook_event_name": "CustomEvent", "x": 1})
+    assert res.json() == {"ok": True, "custom": "yes"}
+    assert seen and seen[0]["event"] == "CustomEvent"
+
+
+# --- backend-F-40: jsonl_watcher module-level import (= 関数内 import 廃止) ---
+
+
+def test_jsonl_watcher_is_module_level_attribute():
+    """hooks_router.jsonl_watcher は module-level import で常に attribute として在る。"""
+    import backend.jsonl.jsonl_watcher as wm
+    assert hooks_router.jsonl_watcher is wm
+
+
+def test_endpoint_rejects_non_local_client():
+    """tailnet 等の非 localhost からの hook 偽造を 403 で拒否する。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from starlette.types import ASGIApp, Receive, Scope, Send
+
+    class SpoofClientMiddleware:
+        """request.client.host を attacker IP に偽装する ASGI middleware (test 用)。"""
+        def __init__(self, app: ASGIApp, host: str):
+            self.app = app
+            self.host = host
+
+        async def __call__(self, scope: Scope, receive: Receive, send: Send):
+            if scope.get("type") == "http":
+                scope = {**scope, "client": (self.host, 12345)}
+            await self.app(scope, receive, send)
+
+    inner = FastAPI()
+    inner.include_router(hooks_router.router)
+    app = SpoofClientMiddleware(inner, host="100.64.0.42")
+    client = TestClient(app)
+
+    response = client.post(
+        "/hooks/event",
+        json={"hook_event_name": "Stop", "session_id": "x"},
+    )
+    assert response.status_code == 403
+
+
+def test_session_start_reads_the_tier_again_from_the_claude_that_started(fake_bindings, captured_pushes, monkeypatch, tmp_path):
+    """SessionStart asks for the tab's tier to be read again (= a claude that started late or was replaced)."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(jsonl_watcher, "_PERSIST_PATH", tmp_path / "bindings.json")
+    monkeypatch.setattr(hooks_router, "sessions_meta", {"ses_tab": object()})
+    refreshed = []
+
+    async def refresh(sid):
+        refreshed.append(sid)
+
+    monkeypatch.setattr(hooks_router.pty_discover, "refresh_tier", refresh)
+    transcript = tmp_path / "claude-new.jsonl"
+    transcript.write_text("{}\n")
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    payload = {"hook_event_name": "SessionStart", "session_id": "claude-new", "transcript_path": str(transcript), "source": "resume"}
+    response = TestClient(app).post("/hooks/event", json=payload, headers={"X-PWA-SID": "ses_tab"})
+    assert response.status_code == 200
+    assert refreshed == ["ses_tab"]

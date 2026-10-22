@@ -1,13 +1,13 @@
 // features/chat 配線 entry (= 設計書 § 9-6 step 5 + W2 真の完成、 ADR-026 + 残骸 sweep)。
 //
 // 旧 src/messageRegistry.js (= v1 真値 121 行、 7 kind hardcoded) は本 file に集約。
-// registry/messageRegistry.js が createRegistry pattern + getEntry(kind) を提供、
+// core/messageRegistry.js が createRegistry pattern + getEntry(kind) を提供、
 // 各 feature の配線 entry が真の { fromEvent, Render } を register する形に統一。
 // ADR-010 lifecycle 契約で handler.dispatch 必須なので、 message entry は no-op dispatch
 // + fromEvent / Render を併載する (= dispatch は呼ばれない、 entry は getEntry(kind) で引かれる)。
 
-import { register as registerStream } from '../../registry/streamRegistry.js'
-import { register as registerMessage } from '../../registry/messageRegistry.js'
+import { register as registerStream } from '../../core/streamRegistry.js'
+import { register as registerMessage } from '../../core/messageRegistry.js'
 
 // 移送した chat file への副作用 import (= bundler が tree-shake せず features/chat/ 配下を保持)
 import './useChatStream.js'

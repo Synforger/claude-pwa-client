@@ -7,14 +7,14 @@ import boundaries from 'eslint-plugin-boundaries'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 // v2 配下の hexagonal 層構成 (= ADR-010)。 ports/transport/domain/contracts は W1 で配置済、
-// state/registry/features/layout/debug は W2-W3 で増える、 boundaries 定義は今のうちに完備。
+// state/core/features/layout/debug は W2-W3 で増える、 boundaries 定義は今のうちに完備。
 const V2_LAYERS = [
   { type: 'domain',     pattern: 'src/domain/**'     },
   { type: 'ports',      pattern: 'src/ports/**'      },
   { type: 'contracts',  pattern: 'src/contracts/**'  },
   { type: 'transport',  pattern: 'src/transport/**'  },
   { type: 'state',      pattern: 'src/state/**'      },
-  { type: 'registry',   pattern: 'src/registry/**'   },
+  { type: 'core',       pattern: 'src/core/**'       },
   { type: 'features',   pattern: 'src/features/**'   },
   { type: 'layout',     pattern: 'src/layout/**'     },
   { type: 'debug',      pattern: 'src/debug/**'      },
@@ -23,20 +23,20 @@ const V2_LAYERS = [
 // import direction (= 矢印は from → allow)。 ADR-010 hexagonal 整合。
 // domain (= 純粋 TS) は何にも依存しない、 ports は domain/contracts のみ、 transport が ports
 // 経由で実装、 features は ports/state/contracts に依存、 layout は features/state に依存、
-// registry は features 配線、 debug は state/transport/ports/contracts を覗く。
+// core (= 登録の表) は features 配線、 debug は state/transport/ports/contracts を覗く。
 const V2_IMPORT_RULES = [
   { from: 'domain',    allow: ['contracts'] },
   { from: 'ports',     allow: ['domain', 'contracts'] },
   { from: 'contracts', allow: [] },
   { from: 'transport', allow: ['ports', 'domain', 'contracts'] },
   { from: 'state',     allow: ['domain', 'contracts'] },
-  { from: 'registry',  allow: ['ports', 'domain', 'contracts', 'state'] },
-  { from: 'features',  allow: ['ports', 'domain', 'state', 'contracts', 'registry', 'transport'] },
+  { from: 'core',      allow: ['ports', 'domain', 'contracts', 'state'] },
+  { from: 'features',  allow: ['ports', 'domain', 'state', 'contracts', 'core', 'transport'] },
   // W2 Phase E1 (= 2026-06-29): layout/OverlayHost.jsx が overlayRegistry を走査して open 中
-  // overlay を 1 経路 lazy render するため、 layout → registry を allow に追加。 layout (= AppShell /
-  // OverlayHost) は registry の describe/list を read 経由で使うのみ (= dispatch は features 側責務)、
-  // 双方向依存にはならない (= registry → layout は依然 NG)。
-  { from: 'layout',    allow: ['features', 'state', 'registry'] },
+  // overlay を 1 経路 lazy render するため、 layout → core を allow に追加。 layout (= AppShell /
+  // OverlayHost) は core の登録の表の describe/list を read 経由で使うのみ (= dispatch は features 側責務)、
+  // 双方向依存にはならない (= core → layout は依然 NG)。
+  { from: 'layout',    allow: ['features', 'state', 'core'] },
   { from: 'debug',     allow: ['state', 'transport', 'contracts', 'ports'] },
 ]
 
@@ -86,7 +86,7 @@ export default defineConfig([
 
   // v2 配下 (.ts / .tsx) — TypeScript parser + react-hooks
   {
-    files: ['src/{domain,ports,contracts,transport,state,registry,features,layout,debug}/**/*.{ts,tsx}'],
+    files: ['src/{domain,ports,contracts,transport,state,core,features,layout,debug}/**/*.{ts,tsx}', 'tests/**/*.{ts,tsx}'],
     extends: [
       js.configs.recommended,
       reactHooks.configs.flat.recommended,
@@ -112,7 +112,7 @@ export default defineConfig([
 
   // v2 配下 直書き禁止 (= transport/ 以外で fetch / WebSocket / EventSource 直書きを error、 ADR-010)
   {
-    files: ['src/{domain,ports,contracts,state,registry,features,layout,debug}/**/*.{js,jsx,ts,tsx}'],
+    files: ['src/{domain,ports,contracts,state,core,features,layout,debug}/**/*.{js,jsx,ts,tsx}'],
     rules: {
       'no-restricted-syntax': ['error', ...NO_DIRECT_BACKEND_SYNTAX],
     },
@@ -122,7 +122,7 @@ export default defineConfig([
   // `catch {}` や `catch (_) {}` は無自覚な error 握り潰しの温床。 意図的に握る場合は body に
   // ESLint disable コメント or 何らかの説明的 statement を入れる運用にする。
   {
-    files: ['src/{domain,ports,contracts,transport,state,registry,features,layout,debug}/**/*.{js,jsx,ts,tsx}'],
+    files: ['src/{domain,ports,contracts,transport,state,core,features,layout,debug}/**/*.{js,jsx,ts,tsx}'],
     rules: {
       'no-empty': ['error', { allowEmptyCatch: false }],
     },
@@ -130,7 +130,7 @@ export default defineConfig([
 
   // v2 配下 import direction 強制 (= eslint-plugin-boundaries、 ADR-010)
   {
-    files: ['src/{domain,ports,contracts,transport,state,registry,features,layout,debug}/**/*.{js,jsx,ts,tsx}'],
+    files: ['src/{domain,ports,contracts,transport,state,core,features,layout,debug}/**/*.{js,jsx,ts,tsx}'],
     plugins: { boundaries },
     settings: {
       'boundaries/elements': V2_LAYERS,

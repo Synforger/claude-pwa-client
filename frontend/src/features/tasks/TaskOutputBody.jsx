@@ -2,9 +2,9 @@
 // TaskNotification の inline 展開が使う (= 旧 TaskOutputModal の中身を抽出して modal 退役)。
 // UI は最小: ローディング / エラー / <pre> raw text。
 import { useState, useEffect } from 'react'
-import { apiFetch } from '../../utils/api.js'
+import { apiFetch } from '../../_common/api.js'
 import { useT } from '../../i18n/t.js'
-import { translateHttpErrorDetail } from '../../utils/httpError.js'
+import { translateHttpErrorDetail } from '../../_common/httpError.js'
 
 export default function TaskOutputBody({ path }) {
   const t = useT()

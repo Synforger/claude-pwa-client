@@ -12,7 +12,7 @@ import os
 import shutil
 from pathlib import Path
 
-from backend import state
+from backend._common import state
 from backend.terminal.tab_memo import memo_file, memo_path
 
 logger = logging.getLogger(__name__)

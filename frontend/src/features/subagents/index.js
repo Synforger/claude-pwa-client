@@ -4,7 +4,7 @@
 // static import は chunk 分離を壊し INEFFECTIVE_DYNAMIC_IMPORT 警告の原因になるため、
 // entry は registry signal のみ。
 
-import { register as registerOverlay } from '../../registry/overlayRegistry.js'
+import { register as registerOverlay } from '../../core/overlayRegistry.js'
 
 // Component spec で OverlayHost 経由 lazy 化、 SubagentsModal が引数なしで state を自己解決する。
 registerOverlay('subagents', {

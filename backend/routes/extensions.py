@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from backend.config import extensions
+from backend._common.config import extensions
 
 router = APIRouter()
 

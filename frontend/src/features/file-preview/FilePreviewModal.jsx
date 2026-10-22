@@ -16,13 +16,13 @@ import css from 'react-syntax-highlighter/dist/esm/languages/prism/css'
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
 import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
 import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown'
-import { apiFetch, apiUrl } from '../../utils/api.js'
+import { apiFetch, apiUrl } from '../../_common/api.js'
 import { isFav, toggleFav, subscribeFavs } from '../file-tree/favorites.js'
-import { useEscape } from '../../hooks/useEscape.js'
-import { useTextZoom } from '../../hooks/useTextZoom.js'
+import { useEscape } from '../../_common/useEscape.js'
+import { useTextZoom } from '../../_common/useTextZoom.js'
 import { useT } from '../../i18n/t.js'
-import { translateHttpErrorDetail } from '../../utils/httpError.js'
-import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
+import { translateHttpErrorDetail } from '../../_common/httpError.js'
+import ConfirmDialog from '../../_common/ConfirmDialog.jsx'
 import ZoomableImage from './ZoomableImage.jsx'
 import { isPagePath } from './openPath.js'
 import {
@@ -30,7 +30,7 @@ import {
   getSnapshot as getUiSnapshot,
   setOverlay,
 } from '../../state/ui.js'
-import '../../shared/Modal.css'
+import '../../_common/Modal.css'
 
 // eager 言語 (= 頻出 10 個)。 初期 bundle に乗る。
 const EAGER_LANGS = {

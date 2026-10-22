@@ -29,9 +29,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal, Optional, Union, overload
 
-import backend.core.jsonl_watcher as _jsonl_watcher
+import backend.jsonl.jsonl_watcher as _jsonl_watcher
 import backend.terminal.runner as _pty_runner
-from backend.state import sessions_meta
+from backend._common.state import sessions_meta
 
 Prefer = Literal["live", "project_dir", "scan"]
 
@@ -39,7 +39,7 @@ Prefer = Literal["live", "project_dir", "scan"]
 def _project_dir(session_id: str) -> Optional[Path]:
     """sid → 該当 account の projects dir 配下の cwd ハッシュ dir を返す。
     cwd / account の bind は AGENTS config + SessionDef.account_id 経由。"""
-    from backend.config import AGENTS  # noqa: PLC0415
+    from backend._common.config import AGENTS  # noqa: PLC0415
 
     meta = sessions_meta.get(session_id)
     if meta is None:

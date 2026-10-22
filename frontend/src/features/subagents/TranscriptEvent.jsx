@@ -4,7 +4,7 @@
 // 仕様変化) された事を受けて TaskNotification からも同じ transcript 表示を出したくなった
 // ため、 dedup ではなく単一 source として本 file に集約した (= PRs #48/#49)。
 import MessageRenderer from '../chat/MessageRenderer.jsx'
-import { formatTool } from '../../utils/format.js'
+import { formatTool } from '../../_common/format.js'
 
 export default function TranscriptEvent({ event }) {
   if (event.type === 'user_message') {

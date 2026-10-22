@@ -9,7 +9,7 @@
  * addFlashingKey / removeFlashingKey 直呼出に置換、 ui.js export を audit-clean 化。
  */
 import { useCallback, useRef, useEffect, useSyncExternalStore } from 'react'
-import { keyToEscapeSequence } from '../../utils/keyboard.js'
+import { keyToEscapeSequence } from '../../_common/keyboard.js'
 import {
   subscribe as subscribeUi,
   getSnapshot as getUiSnapshot,

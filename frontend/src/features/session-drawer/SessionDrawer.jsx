@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { apiFetch } from '../../utils/api.js'
-import { useOutsideClick } from '../../hooks/useOutsideClick.js'
+import { apiFetch } from '../../_common/api.js'
+import { useOutsideClick } from '../../_common/useOutsideClick.js'
 import {
   subscribe as subscribeSessions,
   getSnapshot as getSessionsSnapshot,
@@ -44,9 +44,9 @@ import {
   setLang,
 } from '../../state/locale.js'
 import { useT } from '../../i18n/t.js'
-import { hardRefreshAppShell } from '../../utils/appRefresh.js'
-import { runningBuildId } from '../../utils/appUpdate.js'
-import ConfirmDialog from '../../shared/ConfirmDialog.jsx'
+import { hardRefreshAppShell } from '../../_common/appRefresh.js'
+import { runningBuildId } from '../../_common/appUpdate.js'
+import ConfirmDialog from '../../_common/ConfirmDialog.jsx'
 import './SessionDrawer.css'
 
 // backend の再起動後、 新しい backend が応答したかを問い合わせる間隔。
@@ -155,7 +155,7 @@ export default function SessionDrawer() {
   const runningBuild = useMemo(() => runningBuildId(), [])
   const handleReset = async () => {
     setResetBusy(true)
-    // 刷新本体は utils/appRefresh.js (= vite:preloadError 自動復旧と共有の真値 1 箇所)。
+    // 刷新本体は _common/appRefresh.js (= vite:preloadError 自動復旧と共有の真値 1 箇所)。
     await hardRefreshAppShell()
   }
   // global popup に出す項目があるか (= ⋯ ボタン自体の表示条件)。

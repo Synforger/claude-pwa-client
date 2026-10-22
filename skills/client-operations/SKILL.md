@@ -15,7 +15,7 @@ In an agent platform, the client's checkout is `$AGENT_PLATFORM_ROOT/tools/claud
 is `$AGENT_PLATFORM_ROOT/config/claude-pwa-client/config.json`; its records and state are under
 `$AGENT_PLATFORM_ROOT/state/claude-pwa-client/` (`data/`, `logs/`, `backups/`, `page-store/`, `uploads/`) and its
 keys under `$AGENT_PLATFORM_ROOT/secrets/claude-pwa-client/`. The authority for all of these paths is
-`backend/paths.py`. A tab's memo is not among them: it lives in the agent's own folder
+`backend/_common/paths.py`. A tab's memo is not among them: it lives in the agent's own folder
 (`<tier folder>/pages/<tab id>/memo.md`). Without a platform root the older locations apply (see
 `docs/reference/config.md`).
 
@@ -32,7 +32,7 @@ question; for the screen, `frontend/src/App.jsx` and the hook or component. Docu
 The checks live in the checkout (`Taskfile.yml` and `.tooling/`), and CI only calls `task ci`. The commit-time gates
 are in `.githooks/pre-commit`: flake8 for staged backend Python, ESLint for staged frontend files, gitleaks, and the
 audit for state duplication in the frontend. `task ci` runs lint, tests, docs freshness, version drift and contract
-drift. The end-to-end scenarios (`e2e/`) are not part of `task ci`; run them when a change touches the screen or the
+drift. The end-to-end scenarios (`tests/e2e/`) are not part of `task ci`; run them when a change touches the screen or the
 send/receive path.
 
 - **Do not enable the hooks in the repo.** Git reads one `core.hooksPath`; setting it locally switches off the

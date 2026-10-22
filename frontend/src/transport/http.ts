@@ -1,11 +1,11 @@
 // HttpClient の実装。 frontend で唯一 `fetch(...)` を直接呼ぶ場所 (= Phase 6 lint で強制)。
 //
-// 既存 utils/api.js の挙動 (= 10s timeout + idempotent auto-retry + signal 合成) を踏襲しつつ、
+// 既存 _common/api.js の挙動 (= 10s timeout + idempotent auto-retry + signal 合成) を踏襲しつつ、
 // ADR-012 traceparent / X-Correlation-Id 付与を実装。 全 response の status を corr_id でひもづけて
 // listRecentCorrIds() に流す (= debug inspector が叩く)。
 
 import type { HttpClient, ApiFetchOptions } from '../ports/HttpClient.ts'
-import { API_BASE } from '../constants.js'
+import { API_BASE } from '../_common/constants.js'
 import { newCorrId, newTraceparent, traceparentFromCorrId, registerCorr, listRecent } from './correlation.ts'
 
 const DEFAULT_TIMEOUT_MS = 10_000
@@ -82,7 +82,7 @@ class HttpClientImpl implements HttpClient {
 
 export const httpClient: HttpClient = new HttpClientImpl()
 
-/** 既存 JS コードから呼びやすいよう関数 export も用意 (= W2 で utils/api.js を本関数経由に書き換える)。 */
+/** 既存 JS コードから呼びやすいよう関数 export も用意 (= W2 で _common/api.js を本関数経由に書き換える)。 */
 export function apiFetch(path: string, opts?: ApiFetchOptions): Promise<Response> {
   return httpClient.apiFetch(path, opts)
 }

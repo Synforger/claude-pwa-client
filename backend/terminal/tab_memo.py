@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import backend.config as _config
-from backend import state
+import backend._common.config as _config
+from backend._common import state
 from backend.terminal.tab_tier import tab_tier
 from backend.terminal.tier import tier_path
 

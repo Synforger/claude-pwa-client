@@ -26,7 +26,7 @@ from fastapi import APIRouter, Body, HTTPException, Request, WebSocket, WebSocke
 from backend.device.boards import DEFAULT_BOARD, BadBoard, BoardStore
 from backend.device.hub import DeviceFailed, DeviceHub, DeviceOffline, DeviceTimeout, UnknownOp
 from backend.device.screen import NotJpeg, ScreenStore, settings
-from backend.paths import DATA_DIR
+from backend._common.paths import DATA_DIR
 from backend.routes.debug import _ensure_localhost
 
 logger = logging.getLogger(__name__)
@@ -124,7 +124,7 @@ async def post_device_screen_state(body: dict = Body(...)) -> dict:
 
 @router.get("/device/screen/settings")
 async def get_device_screen_settings() -> dict:
-    from backend.config import DEVICE_SCREEN  # noqa: PLC0415  (= 読むたびに今の設定)
+    from backend._common.config import DEVICE_SCREEN  # noqa: PLC0415  (= 読むたびに今の設定)
     return settings(DEVICE_SCREEN)
 
 

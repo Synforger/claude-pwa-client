@@ -3,7 +3,7 @@
 会話が長くなると context が埋まる。 入れ替えは、 今の会話に「区切りで締めて、 次の会話へ引き継いで」 と
 頼み、 締め終えた会話が頼んできたら、 そのタブの claude を終了して新しい会話を起動する。 流れ:
 
-    1. backend の見張り (= `backend/rollover.py`) が、 条件の立ったタブへ締めを頼む発話を打つ
+    1. backend の見張り (= `backend/rollover/rollover.py`) が、 条件の立ったタブへ締めを頼む発話を打つ
     2. そのタブの claude が、 次の会話に要る物を書き残して `POST /sessions/{sid}/rollover` を叩く
     3. backend がそのタブを終了して作り直し、 渡された本文を最初の発話として新しい会話を起動する
 
@@ -28,11 +28,11 @@ import re
 
 from fastapi import APIRouter, Form, HTTPException, Request
 
-from backend.core.jsonl_predicates import ROLLOVER_OPENING as OPENING
-from backend.errors import raise_error
+from backend.jsonl.jsonl_predicates import ROLLOVER_OPENING as OPENING
+from backend._common.errors import raise_error
 from backend.jsonl import history as session_history
 from backend.routes.agent_messages import LOCAL_CLIENTS, judge
-from backend.state import sessions_meta
+from backend._common.state import sessions_meta
 from backend.terminal.routes import pty_send
 from backend.terminal.runner import jsonl_path_for_session
 
@@ -133,7 +133,7 @@ async def post_rollover(request: Request, session_id: str, text: str = Form(...)
         raise_error(404, "rollover_unknown_session", f"タブが見つかりません: {session_id}", session=session_id)
     if not text.strip():
         raise_error(400, "rollover_empty", "本文が空です")
-    from backend.config import AGENT_MESSAGE_CHECK  # noqa: PLC0415
+    from backend._common.config import AGENT_MESSAGE_CHECK  # noqa: PLC0415
     if AGENT_MESSAGE_CHECK:
         await _judge_as_the_tab(session_id, text)
     task = asyncio.create_task(_roll(session_id, start_envelope(text)))

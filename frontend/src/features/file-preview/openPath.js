@@ -6,7 +6,7 @@
 // iPhone / iPad のホーム画面の PWA は、 HTML も資料もプレビューの枠で開く (= 枠の中の iframe)。 PWA には戻る口が無く、
 // 新しいタブのはずの /file/view が PWA の画面ごと置き換わって、 会話へ戻れなくなる。
 import { setOverlay } from '../../state/ui.js'
-import { apiUrl } from '../../utils/api.js'
+import { apiUrl } from '../../_common/api.js'
 import { isStandalone, isMobileSafari } from '../push-notify/push.js'
 
 const HTML_RE = /\.html?$/i
