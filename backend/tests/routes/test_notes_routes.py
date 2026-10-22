@@ -1,7 +1,8 @@
 """The memo routes (= GET / PUT /sessions/{sid}/note) and where a tab's memo lives.
 
 A memo is `<tier folder>/pages/<tab id>/memo.md`: the tab's agent writes it at the path in `PWA_NOTE`, the
-screen reads and writes the same file through the routes.
+screen reads and writes the same file through the routes. The read also names the tab's top page (= `index.html`
+next to the memo; how it is made is in `test_tab_page.py`).
 """
 from __future__ import annotations
 
@@ -48,7 +49,7 @@ def started_in(monkeypatch, tab, tier):
 def test_a_tab_without_a_memo_reads_empty_and_nothing_is_created(client, tabs, agent_folder):
     a, _ = tabs
     path = agent_folder / "pages" / a.id / "memo.md"
-    assert client.get(f"/sessions/{a.id}/note").json() == {"path": str(path), "content": ""}
+    assert client.get(f"/sessions/{a.id}/note").json() == {"path": str(path), "content": "", "page": None}
     assert not (agent_folder / "pages").exists()
 
 

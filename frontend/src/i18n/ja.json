@@ -122,6 +122,7 @@
   "statusbar.offline": "⚠ オフライン",
   "statusbar.offline_title": "サーバへの接続が切れています",
   "notes.title": "メモ",
+  "notes.page": "ページ",
   "notes.edit": "編集",
   "notes.reset": "リセット",
   "notes.save": "保存",

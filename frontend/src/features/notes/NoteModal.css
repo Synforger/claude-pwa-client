@@ -14,3 +14,15 @@
   overflow-wrap: anywhere;
   font-size: 14px;
 }
+
+/* そのタブのトップページへのリンク。 メモの本文の上に固定で出る 1 行 */
+.note-page-link {
+  display: block;
+  margin-bottom: 12px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 14px;
+  cursor: pointer;
+}

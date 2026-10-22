@@ -19,6 +19,7 @@ from pathlib import Path
 import psutil
 
 from backend._common.state import sessions_overview
+from backend.terminal.tab_page import make_page
 from backend.terminal.tab_tier import record_tier
 
 
@@ -41,7 +42,7 @@ async def register_claude_when_ready(
                 continue
             claude_pid, start_time, cwd = info
             jsonl_watcher.register_pending(session_id, claude_pid, cwd, start_time)
-            if record_tier(session_id, claude_pid):
+            if _record_tier_and_make_page(session_id, claude_pid):
                 sessions_overview.notify()
             return
 
@@ -61,8 +62,16 @@ async def refresh_tier(session_id: str) -> None:
     `register_claude_when_ready` stopped waiting, or that replaced the claude seen before. Called when a
     claude announces its start (the SessionStart hook)."""
     pid = await asyncio.to_thread(claude_pid_in_pane, session_id)
-    if pid is not None and record_tier(session_id, pid):
+    if pid is not None and _record_tier_and_make_page(session_id, pid):
         sessions_overview.notify()
+
+
+def _record_tier_and_make_page(session_id: str, claude_pid: int) -> bool:
+    """Remember the tier of the claude now running in a tab, and give the tab its top page. True when the tier
+    differs from what was known."""
+    changed = record_tier(session_id, claude_pid)
+    make_page(session_id)
+    return changed
 
 
 def tmux_pane_pids(session_id: str) -> list[int]:
