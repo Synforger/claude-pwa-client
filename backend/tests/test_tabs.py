@@ -27,7 +27,7 @@ import os
 import re
 from pathlib import Path
 
-AGENT = Path(os.environ.get("ARK_ROOT", Path(__file__).resolve().parents[2]))
+AGENT = Path(os.environ.get("AGENT_ROOT", Path(__file__).resolve().parents[2]))
 CHILD_START = re.compile(r"<child-start>\\ntier=(.*?)\\n</child-start>", re.S)
 
 
@@ -128,8 +128,8 @@ class Tabs:
         self.out = self.err = ""
 
     def env(self, **extra: str) -> dict[str, str]:
-        base = {"PATH": os.environ["PATH"], "HOME": str(self.home), "ARK_ROOT": str(self.agent), "PWA_SID": "ses_parent",
-                "PWA_PORT": str(self.backend.port), "ARK_TIER": "normal", "CLAUDE_CODE_SESSION_ID": SESSION,
+        base = {"PATH": os.environ["PATH"], "HOME": str(self.home), "AGENT_ROOT": str(self.agent), "PWA_SID": "ses_parent",
+                "PWA_PORT": str(self.backend.port), "AGENT_TIER": "normal", "CLAUDE_CODE_SESSION_ID": SESSION,
                 "PYTHONDONTWRITEBYTECODE": "1"}
         return {**base, **extra}
 
@@ -214,14 +214,14 @@ def test_the_agent_comes_from_the_strongest_of_the_option_the_variable_and_the_r
     root = tmp_path / "platform"
     add_launcher(root, "main")
     env = {"HOME": str(tmp_path), "AGENT_PLATFORM_ROOT": str(root),
-           "ARK_ROOT": str(tmp_path / "from-variable"), "AREA_GUARD_STATE": str(tmp_path / "marks")}
+           "AGENT_ROOT": str(tmp_path / "from-variable"), "AREA_GUARD_STATE": str(tmp_path / "marks")}
     assert placed(where(env))["agent"] == str(tmp_path / "from-variable")
     assert placed(where(env, "--agent-dir", str(tmp_path / "from-option"), "nothing"))["agent"] == str(tmp_path / "from-option")
     assert placed(where(env))["marks"] == str(tmp_path / "marks")
 
 
 def test_a_missing_launcher_is_named_with_the_places_to_pass_it(tabs):
-    assert tabs.run("new", "x", str(tabs.work / "none"), ARK_ROOT=str(tabs.work / "nowhere")) != 0
+    assert tabs.run("new", "x", str(tabs.work / "none"), AGENT_ROOT=str(tabs.work / "nowhere")) != 0
     assert "エージェントの起動 script が見つかりません" in tabs.err and "--agent-dir" in tabs.err
 
 
@@ -255,7 +255,7 @@ def test_new_opens_a_child_and_keeps_the_task_in_its_note(tabs, tmp_path):
 def test_a_child_does_not_open_a_child(tabs, tmp_path):
     task = tmp_path / "task.txt"
     task.write_text("x", encoding="utf-8")
-    assert tabs.run("new", "x", str(task), ARK_CHILD="1") == 1
+    assert tabs.run("new", "x", str(task), AGENT_CHILD="1") == 1
     assert "子のタブからは" in tabs.err and tabs.backend.calls == []
 
 
@@ -317,11 +317,11 @@ def test_report_is_only_for_children_and_changes_the_note_only_when_it_arrives(f
     assert family.run("report", "done", str(result)) == 1 and "子のタブ" in family.err
 
     family.backend.answers["send"] = 403
-    assert family.run("report", "done", str(result), PWA_SID="ses_a", ARK_CHILD="1", PWA_NOTE=str(note)) == 1
+    assert family.run("report", "done", str(result), PWA_SID="ses_a", AGENT_CHILD="1", PWA_NOTE=str(note)) == 1
     assert "- 状態: 作業中" in note.read_text(encoding="utf-8")
 
     family.backend.answers.clear()
-    assert family.run("report", "done", str(result), PWA_SID="ses_a", ARK_CHILD="1", PWA_NOTE=str(note)) == 0
+    assert family.run("report", "done", str(result), PWA_SID="ses_a", AGENT_CHILD="1", PWA_NOTE=str(note)) == 0
     [call] = family.backend.called("POST", "/agent-messages")
     assert call["form"]["to"] == "ses_parent" and call["form"]["from"] == "ses_a"
     assert "(完了)" in call["form"]["text"] and "feature/parser" in call["form"]["text"]
@@ -342,7 +342,7 @@ def test_close_closes_only_my_finished_children_unless_forced(family):
 
 def test_a_child_rolls_over_only_after_writing_what_the_next_conversation_continues_from(family):
     note = family.note("ses_c", "# C\n\n- 状態: 作業中\n\n## 渡された仕事\n\nx\n\n## 引き継ぎ\n\n(まだ無し)\n")
-    roll = lambda: family.run("rollover", "continue", PWA_SID="ses_c", ARK_CHILD="1", PWA_NOTE=str(note))  # noqa: E731
+    roll = lambda: family.run("rollover", "continue", PWA_SID="ses_c", AGENT_CHILD="1", PWA_NOTE=str(note))  # noqa: E731
     family.record.write_text("", encoding="utf-8")
 
     assert roll() == 1 and "タブのメモ" in family.err

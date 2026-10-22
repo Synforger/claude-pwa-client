@@ -14,9 +14,9 @@
                                  この会話が Write / Edit で書いた journal に `## 入れ替えの時点` が在り、 commit が
                                  済んでいる時だけ頼む (= 欠けていれば、 欠けた段を名指して止まる。 push は見ない)。
                                  continue は起動の後に引き継いだ作業を続け、 wait はブリーフィングで待つ。
-                                 階層は --tier、 無ければ `ARK_TIER`、 それも無い会話 (= 再開や fork で始まった
+                                 階層は --tier、 無ければ `AGENT_TIER`、 それも無い会話 (= 再開や fork で始まった
                                  会話) は、 一覧と同じにその会話の最初の発話から導く。
-                                 子のタブ (= `ARK_CHILD=1`) は journal の代わりに、 この会話がタブのメモに
+                                 子のタブ (= `AGENT_CHILD=1`) は journal の代わりに、 この会話がタブのメモに
                                  `## 引き継ぎ` を書いた時だけ頼む
 
     子のタブ (= このタブが仕事を渡すために立てるタブ。 手順は skill `child-tab`):
@@ -34,7 +34,7 @@
 呼び出しを 1 つにまとめるだけで、 判定は持たない。 port は `pwa-hook.sh` と同じ決め方
 (= 既定 8765、 別 port の PC は `PWA_PORT`)、 送り主は自分のタブの `PWA_SID`。
 
-エージェントの folder は、 `--agent-dir` > 環境変数 `ARK_ROOT` > 器の根 (= `AGENT_PLATFORM_ROOT`) の `agents/` の下で
+エージェントの folder は、 `--agent-dir` > 環境変数 `AGENT_ROOT` > 器の根 (= `AGENT_PLATFORM_ROOT`) の `agents/` の下で
 起動 script (= `.tooling/lib/claude-launch.py`) を持つ 1 つ、 の順に決める (= どれも無ければ止まる)。 番人の印の置き場は、 `AREA_GUARD_STATE` > 器の根の `state/guard/marks` > `~/.cache/area-guard`。
 
 別の機械 (= backend の設定の `agent_message_peers` に書いた相手) のタブへは、 こちらの backend が番人の検査を
@@ -78,11 +78,11 @@ TIMEOUT_SEC = 240
 
 
 def agent_dir() -> Path:
-    """エージェントの folder (= `--agent-dir` > `ARK_ROOT` > 器の根の `agents/` の下で起動 script を持つ 1 つ)。"""
+    """エージェントの folder (= `--agent-dir` > `AGENT_ROOT` > 器の根の `agents/` の下で起動 script を持つ 1 つ)。"""
     if agent_dir_option is not None:
         return agent_dir_option
-    if os.environ.get("ARK_ROOT"):
-        return Path(os.environ["ARK_ROOT"]).expanduser()
+    if os.environ.get("AGENT_ROOT"):
+        return Path(os.environ["AGENT_ROOT"]).expanduser()
     if PLATFORM_ROOT is None:
         raise SystemExit("tabs: エージェントの folder が分かりません。 --agent-dir か AGENT_PLATFORM_ROOT で渡してください")
     found = sorted(PLATFORM_ROOT.glob("agents/*/.tooling/lib/claude-launch.py"))
@@ -96,7 +96,7 @@ def launcher():
     script = agent / ".tooling/lib/claude-launch.py"
     if not script.is_file():
         raise SystemExit(f"tabs: エージェントの起動 script が見つかりません ({script})。 --agent-dir か AGENT_PLATFORM_ROOT で場所を渡してください")
-    os.environ["ARK_ROOT"] = str(agent)     # 起動 script は import の時に環境変数からエージェントの場所を読む
+    os.environ["AGENT_ROOT"] = str(agent)     # 起動 script は import の時に環境変数からエージェントの場所を読む
     spec = importlib.util.spec_from_file_location("claude_launch", script)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -299,7 +299,7 @@ CARRY_EMPTY = "(まだ無し)"
 
 
 def my_tier() -> str | None:
-    return os.environ.get("ARK_TIER") or own_tier()
+    return os.environ.get("AGENT_TIER") or own_tier()
 
 
 def child_note(tier: str, child: str) -> Path | None:
@@ -333,11 +333,11 @@ def new_child(title: str, file: Path) -> int:
     me = os.environ.get("PWA_SID")
     if not me:
         return fail("このタブの id (= PWA_SID) がありません。 PWA のタブの中から打ってください")
-    if os.environ.get("ARK_CHILD"):
+    if os.environ.get("AGENT_CHILD"):
         return fail("子のタブからは子のタブを立てません。 分けたい仕事は親へ report で返してください")
     tier = my_tier()
     if not tier or launcher().tier_folder(tier) is None:
-        return fail(f"このタブの階層が分かりません ({tier or 'ARK_TIER も会話の記録も無い'})")
+        return fail(f"このタブの階層が分かりません ({tier or 'AGENT_TIER も会話の記録も無い'})")
     try:
         task = file.read_text(encoding="utf-8").strip()
     except OSError as error:
@@ -394,8 +394,8 @@ def children(summary: bool) -> int:
 def report(kind: str, file: Path) -> int:
     """子のタブから親へ結果を返し、 メモの状態を書き換える (= 届かなければ書き換えない)。"""
     me = os.environ.get("PWA_SID")
-    if not me or not os.environ.get("ARK_CHILD"):
-        return fail("report は子のタブ (= ARK_CHILD=1) の中から打ちます")
+    if not me or not os.environ.get("AGENT_CHILD"):
+        return fail("report は子のタブ (= AGENT_CHILD=1) の中から打ちます")
     status, tabs = call("/sessions")
     mine = next((t for t in tabs if t.get("id") == me), None) if status == 200 and isinstance(tabs, list) else None
     if mine is None or not mine.get("parent_id"):
@@ -495,7 +495,7 @@ def not_handed_over() -> str | None:
     record = next(iter(HOME.glob(f".claude*/projects/*/{session}.jsonl")), None) if session else None
     if record is None:
         return "この会話の記録が見つかりません (= CLAUDE_CODE_SESSION_ID)。 締めが済んだかを確かめられません"
-    if os.environ.get("ARK_CHILD"):
+    if os.environ.get("AGENT_CHILD"):
         return child_not_handed_over(record)
     journals = [path for path in written_journals(record) if path.is_file()]
     handed = [path for path in journals if HANDOVER in path.read_text(encoding="utf-8", errors="replace")]
@@ -536,9 +536,9 @@ def rollover(mode: str, tier: str | None) -> int:
     if not me:
         print("tabs: このタブの id (= PWA_SID) がありません。 PWA のタブの中から打ってください", file=sys.stderr)
         return 1
-    tier = tier or os.environ.get("ARK_TIER") or own_tier()
+    tier = tier or os.environ.get("AGENT_TIER") or own_tier()
     if not tier:
-        print("tabs: 階層が分かりません (= ARK_TIER も会話の記録も無い)。 --tier normal のように渡してください", file=sys.stderr)
+        print("tabs: 階層が分かりません (= AGENT_TIER も会話の記録も無い)。 --tier normal のように渡してください", file=sys.stderr)
         return 1
     # 終了された後では直せないので、 起動器が受け取れる階層かを先に見る
     if launcher().tier_folder(tier) is None:
