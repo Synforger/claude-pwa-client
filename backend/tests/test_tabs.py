@@ -122,7 +122,7 @@ class Tabs:
         self.home, self.agent = work / "home", work / "agent"
         (self.home / ".claude/projects/-agent").mkdir(parents=True)
         (self.agent / ".tooling/lib").mkdir(parents=True)
-        (self.agent / "notes").mkdir()
+        (self.agent / "pages").mkdir()
         (self.agent / ".tooling/lib/claude-launch.py").write_text(LAUNCHER, encoding="utf-8")
         self.record = self.home / f".claude/projects/-agent/{SESSION}.jsonl"
         self.out = self.err = ""
@@ -142,7 +142,8 @@ class Tabs:
         return done.returncode
 
     def note(self, name: str, text: str) -> Path:
-        path = self.agent / "notes" / f"{name}.md"
+        path = self.agent / "pages" / name / "memo.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
         return path
 
@@ -248,7 +249,7 @@ def test_new_opens_a_child_and_keeps_the_task_in_its_note(tabs, tmp_path):
     [call] = tabs.backend.called("POST", "/sessions/ses_parent/children")
     assert call["form"]["text"].startswith("<child-start>\ntier=normal\n</child-start>\n\nparser を直して")
     assert call["form"]["title"] == "SUB: parser"
-    note = (tabs.agent / "notes/ses_new.md").read_text(encoding="utf-8")
+    note = (tabs.agent / "pages/ses_new/memo.md").read_text(encoding="utf-8")
     assert "- 状態: 作業中" in note and "- 親のタブ: ses_parent" in note and "parser を直して" in note and "\n## 引き継ぎ" in note
 
 
@@ -264,7 +265,7 @@ def test_a_refused_new_says_why_and_leaves_no_note(tabs, tmp_path):
     task.write_text("x", encoding="utf-8")
     tabs.backend.answers["children"] = 409
     assert tabs.run("new", "x", str(task)) == 1
-    assert "child_session_limit" in tabs.err and not (tabs.agent / "notes/ses_new.md").exists()
+    assert "child_session_limit" in tabs.err and not (tabs.agent / "pages/ses_new/memo.md").exists()
 
 
 # --- 子の一覧・報告・閉じる -------------------------------------------------------------
@@ -313,7 +314,7 @@ def test_outside_a_pwa_tab_children_says_unknown(family):
 def test_report_is_only_for_children_and_changes_the_note_only_when_it_arrives(family, tmp_path):
     result = tmp_path / "result.txt"
     result.write_text("直しました。 branch は feature/parser\n", encoding="utf-8")
-    note = family.agent / "notes/ses_a.md"
+    note = family.agent / "pages/ses_a/memo.md"
     assert family.run("report", "done", str(result)) == 1 and "子のタブ" in family.err
 
     family.backend.answers["send"] = 403
@@ -334,7 +335,7 @@ def test_close_closes_only_my_finished_children_unless_forced(family):
     assert family.run("close", "ses_a") == 1 and "まだ作業中" in family.err
     assert family.backend.called("DELETE", "/sessions/ses_a") == []
     assert family.run("close", "ses_b") == 0
-    assert family.backend.called("DELETE", "/sessions/ses_b") and not (family.agent / "notes/ses_b.md").exists()
+    assert family.backend.called("DELETE", "/sessions/ses_b") and not (family.agent / "pages/ses_b/memo.md").exists()
     assert family.run("close", "ses_a", "--force") == 0 and family.backend.called("DELETE", "/sessions/ses_a")
 
 

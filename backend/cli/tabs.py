@@ -23,7 +23,7 @@
     tabs    new <題> <本文の file>
                                  子のタブを立て、 本文を最初の発話として渡す。 子はこのタブと同じ階層で起動し、
                                  このタブの id を親として覚える。 渡した本文は子のタブのメモ (= 階層の
-                                 `notes/<子の id>.md`) にも残る (= 子が入れ替わった後に読み直す)。 子のタブからは立てられない
+                                 `pages/<子の id>/memo.md`) にも残る (= 子が入れ替わった後に読み直す)。 子のタブからは立てられない
     tabs    children [--summary] このタブが立てた子の一覧 (= id / 状態 / claude の状態 / 題)。 --summary は 1 行
     tabs    report <done|stuck> <本文の file>
                                  子のタブから親のタブへ結果を返し、 メモの状態を「完了」 か「詰まり」 にする
@@ -303,9 +303,9 @@ def my_tier() -> str | None:
 
 
 def child_note(tier: str, child: str) -> Path | None:
-    """子のタブのメモ (= 起動の script がタブのメモを置く所と同じ、 階層の `notes/<タブの id>.md`)。"""
+    """子のタブのメモ (= 📋 が開く所と同じ、 階層の `pages/<タブの id>/memo.md`)。"""
     folder = launcher().tier_folder(tier)
-    return folder / "notes" / f"{child}.md" if folder is not None else None
+    return folder / "pages" / child / "memo.md" if folder is not None else None
 
 
 def note_state(path: Path | None) -> str:

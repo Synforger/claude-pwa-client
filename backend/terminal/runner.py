@@ -50,8 +50,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from backend.config import CLAUDE_PATH
-from backend.paths import FAVORITES_PATH, PLATFORM_ROOT, note_path
+from backend.paths import FAVORITES_PATH, PLATFORM_ROOT
 from backend.terminal import input_ready
+from backend.terminal.tab_memo import memo_path
 from backend.terminal.tab_environment import read_environment, tab_environment
 from backend.terminal.control_mode import (
     ControlModeLineBuffer,
@@ -118,6 +119,8 @@ def tmux_session_env_args(session_id: str, extra_env: dict | None) -> list[str]:
     - `PWA_SID`       = このタブの識別子
     - `PWA_FAVORITES` = お気に入りの file (= エージェントは 1 行足すだけで登録できる。 routes/favorites.py)
     - `PWA_NOTE`      = このタブのメモの file (= エージェントが書くと 📋 に出る。 routes/notes.py)
+      The tier is chosen by the script that starts claude, so until one is known this is the agent
+      folder's `pages/<tab id>/memo.md`.
     - `AGENT_PLATFORM_ROOT` = 器の根 (= backend が渡された時だけ。 タブの中の claude と hook が根を知る。
       tmux の session は backend の環境をそのまま受け継ぐとは限らない)
     - agent cfg の `env`
@@ -125,7 +128,7 @@ def tmux_session_env_args(session_id: str, extra_env: dict | None) -> list[str]:
     args = [
         "-e", f"PWA_SID={session_id}",
         "-e", f"PWA_FAVORITES={FAVORITES_PATH}",
-        "-e", f"PWA_NOTE={note_path(session_id)}",
+        "-e", f"PWA_NOTE={memo_path(session_id)}",
     ]
     if PLATFORM_ROOT is not None:
         args.extend(["-e", f"AGENT_PLATFORM_ROOT={PLATFORM_ROOT}"])

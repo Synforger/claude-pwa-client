@@ -19,6 +19,9 @@ const SECRETS_DIR = resolve(RUNTIME, 'secrets')
 // What the user and their agents write (favorites.txt). The default is under the real HOME,
 // so the test backend gets its own, or a run would rewrite the operator's list.
 const USER_DIR = resolve(RUNTIME, 'user')
+// The folder the test agents run in. A tab's memo is written under it (`pages/<tab id>/memo.md`), so it is not
+// the real HOME.
+const AGENT_DIR = resolve(RUNTIME, 'agent')
 const CONFIG_PATH = resolve(RUNTIME, 'config.json')
 
 const PORT = process.env.CPC_E2E_PORT || '18765'
@@ -30,6 +33,7 @@ mkdirSync(DATA_DIR, { recursive: true })
 mkdirSync(LOGS_DIR, { recursive: true })
 mkdirSync(SECRETS_DIR, { recursive: true, mode: 0o700 })
 mkdirSync(USER_DIR, { recursive: true })
+mkdirSync(AGENT_DIR, { recursive: true })
 
 // Isolate the e2e account's claude config dir to fixtures/_runtime/.claude
 // so the resolved projects dir is fixtures/_runtime/.claude/projects, NOT
@@ -47,7 +51,7 @@ writeFileSync(resolve(E2E_JA_CLAUDE_DIR, 'settings.json'), JSON.stringify({ lang
 const config = {
   agents: {
     agent_e2e: {
-      cwd: process.env.HOME || '/tmp',
+      cwd: AGENT_DIR,
       model: 'Opus',
       display_name: 'E2E Agent',
       launch_alias: 'agent_e2e',
@@ -55,7 +59,7 @@ const config = {
     // An agent with a voice that also listens. The speech and listening engines are the
     // test backend's own fixtures (= backend/routes/debug_e2e.py), standing in for engine processes.
     agent_e2e_voice: {
-      cwd: process.env.HOME || '/tmp',
+      cwd: AGENT_DIR,
       model: 'Opus',
       display_name: 'E2E Voice Agent',
       launch_alias: 'agent_e2e_voice',
