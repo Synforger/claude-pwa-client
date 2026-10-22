@@ -39,7 +39,7 @@ A PWA client for operating [Claude Code](https://docs.claude.com/en/docs/claude-
 - **Status bar**: model, 5h / 7d rate-limit usage with reset times, and context usage, always on; plan mode and remaining budget appear when the session provides them
 - **Conversation forking**: branch any message into a new tab; parents and children are shown hierarchically in the drawer
 - **Persistent message history**: compressed with lz-string into localStorage
-- **Multi-account**: switch between personal / work etc. via the `accounts` config, and continue an existing conversation on another account from the ⋯ menu. Intended for accounts that already belong to different parties — an employer-issued one alongside your own — not for one person spreading usage across several personal subscriptions to get around limits (see [docs/reference/config.md](docs/reference/config.md))
+- **Multi-account**: switch between personal / work etc. via the `accounts` config, and move a tab to another account from the ⋯ menu: the same tab continues its conversation there. Intended for accounts that already belong to different parties — an employer-issued one alongside your own — not for one person spreading usage across several personal subscriptions to get around limits (see [docs/reference/config.md](docs/reference/config.md))
 
 ### Optional extras
 

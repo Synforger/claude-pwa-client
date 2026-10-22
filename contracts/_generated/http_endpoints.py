@@ -53,14 +53,26 @@ class PatchSessionsSidRequest(BaseModel):
 class PostSessionsSidForkRequest(BaseModel):
     """POST /sessions/{sid}/fork request body"""
     model_config = ConfigDict(extra="forbid")
-    from_uuid: Optional[str] = None  # 分岐起点。 target_account_id 指定時は省略可 (= 末尾の切れ目を自動採用)
-    target_account_id: Optional[str] = None  # 移し先 account (= 省略時は親を継承)
+    from_uuid: str  # 分岐起点
 
 
 class PostSessionsSidForkResponse(BaseModel):
     """POST /sessions/{sid}/fork response"""
     model_config = ConfigDict(extra="forbid")
     sid: str  # 新 session id
+
+
+class PostSessionsSidAccountRequest(BaseModel):
+    """POST /sessions/{sid}/account request body"""
+    model_config = ConfigDict(extra="forbid")
+    account_id: str  # 移し先 account
+
+
+class PostSessionsSidAccountResponse(BaseModel):
+    """POST /sessions/{sid}/account response"""
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    account_id: str
 
 
 class PostSessionsSidRestartResponse(BaseModel):

@@ -155,17 +155,16 @@ account** で、 `account_id` を持たない session (= この項目ができ�
 読んでいる config dir と同じ場所を指す。 frontend はこれで「所属なし」 を解決する (= 解決しないと
 そのタブに account 表示が出ず、 自分自身が移行先候補に並ぶ)。
 
-### 会話を別アカウントへ移す
+### タブを別アカウントへ移す
 
-`POST /sessions/{sid}/fork` に `target_account_id` を渡すと、 lineage を **移し先の**
-projects dir に書き、 新 session の `account_id` も移し先にする。 この 2 つは必ず揃える
-(= ずれると `claude --resume` が lineage を見つけられず空タブになる)。 会話ログの行は
-account 固有の識別子を持たない (= `cwd` / `gitBranch` / `version` / `userType` のみ) ので、
-置き場所を変えるだけで移し先から読める。
-
-この経路では `from_uuid` を省略できる。 欲しいのは常に「今の続き」 で、 末尾はしばしば
-tool 実行中 (= 分岐できない位置) なので、 backend が `latest_clean_fork_point` で手前の
-切れ目まで下がる。
+`POST /sessions/{sid}/account` (= body `{account_id}`) は、 同じタブのまま口座を移して会話を続ける。
+タブの id も題も変わらず、 新しいタブは増えない。 backend は会話を末尾の切れ目
+(= `latest_clean_fork_point`。 末尾はしばしば tool 実行中で分岐できない位置なので、 手前まで下がる) まで
+**移し先の** projects dir に書き出し、 タブの `account_id` と `resume_session_id` をそれに揃えてから、
+claude を止めて同じタブを立て直す。 この 2 つは必ず揃える (= ずれると `claude --resume` が会話を
+見つけられず空のタブになる)。 会話ログの行は account 固有の識別子を持たない (= `cwd` / `gitBranch` /
+`version` / `userType` のみ) ので、 置き場所を変えるだけで移し先から読める。 切れ目がまだ無い時は 400 で、
+タブには触らない。 書き出しはフォーク (= `POST /sessions/{sid}/fork`) と同じ関数 (= `_write_lineage`) が行う。
 
 ### 注意
 

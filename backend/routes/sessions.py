@@ -7,6 +7,7 @@ crosscut-F-04)。
 - PATCH  /sessions/{sid}                  : title / notify_mode 変更
 - POST   /sessions/{sid}/fork             : フォーク (= jsonl 鎖を新 claude_sid で書き出し)
 - POST   /sessions/{sid}/restart          : claude プロセス kill + spawn (= 文脈リセット)
+- POST   /sessions/{sid}/account          : 同じタブのまま口座を移して会話を続ける
 - DELETE /sessions/{sid}                  : 完全削除 + フォーク産 jsonl GC
 
 session メタ / status SSE / accounts は別 module (= overview.py / accounts.py)。
@@ -114,27 +115,10 @@ def patch_session(session_id: str, payload: dict = Body(...), _: str = Depends(r
     return session_row(sessions_meta[session_id])
 
 
-@router.post("/sessions/{session_id}/fork")
-async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(require_session)):
-    """会話を任意メッセージから分岐する (= フォーク)。
-
-    body: {from_uuid}。 from_uuid を leaf に parentUuid 鎖を根まで遡った lineage を、 新しい
-    claude session の jsonl として元と同じ project dir に書き出す。 その session を
-    `claude --resume` で開く新タブ (= SessionDef、 parent_id + resume_session_id 付き) を
-    登録して返す。 元タブ・元 jsonl には一切触れない。
-    """
-    from_uuid = payload.get("from_uuid")
-    target_account_id = payload.get("target_account_id")
-    if from_uuid is not None and not isinstance(from_uuid, str):
-        raise_error(400, "from_uuid_required", "from_uuid が必要です")
-    if target_account_id is not None:
-        if not isinstance(target_account_id, str) or target_account_id not in (get_config().get("accounts") or {}):
-            raise_error(400, "unknown_account", "そのアカウントは設定にありません")
-    # from_uuid 省略 = 位置を選ばない呼び出し (= アカウントを移して「今の続き」 を開く)。
-    # 分岐位置はユーザに選ばせず、 live jsonl の末尾から最初の安全な切れ目まで下がる。
-    if not from_uuid and not target_account_id:
-        raise_error(400, "from_uuid_required", "from_uuid が必要です")
-
+def _write_lineage(session_id: str, from_uuid: str | None, target_account_id: str | None) -> tuple[str, bool]:
+    """Write the conversation of a tab up to `from_uuid` (or, when it is `None`, up to the latest clean point) as a
+    new claude session, in the projects folder of `target_account_id` when that is another account. Returns the
+    new session's id and whether it moved to another account. Used by the fork and by moving a tab's account."""
     parent = sessions_meta[session_id]
 
     # from_uuid を含む jsonl を探す。 claude は途中で session id をロール (= compact / 継続)
@@ -256,16 +240,28 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
         dest_dir = src_path.parent
     dest = dest_dir / f"{new_claude_id}.jsonl"
     atomic_write_text(dest, "\n".join(forked) + "\n")
+    return new_claude_id, moving
 
-    if moving:
-        acc = (get_config().get("accounts") or {}).get(target_account_id) or {}
-        new_title = f"{parent.title} · {acc.get('display_name') or target_account_id}"
-    else:
-        new_title = f"{parent.title} fork"
+
+@router.post("/sessions/{session_id}/fork")
+async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depends(require_session)):
+    """会話を任意メッセージから分岐する (= フォーク)。
+
+    body: {from_uuid}。 from_uuid を leaf に parentUuid 鎖を根まで遡った lineage を、 新しい
+    claude session の jsonl として元と同じ project dir に書き出す。 その session を
+    `claude --resume` で開く新タブ (= SessionDef、 parent_id + resume_session_id 付き) を
+    登録して返す。 元タブ・元 jsonl には一切触れない。
+    """
+    from_uuid = payload.get("from_uuid")
+    if not isinstance(from_uuid, str) or not from_uuid:
+        raise_error(400, "from_uuid_required", "from_uuid が必要です")
+
+    parent = sessions_meta[session_id]
+    new_claude_id, _moved = _write_lineage(session_id, from_uuid, None)
 
     new_meta = register_session(
         parent.agent_id,
-        title=new_title,
+        title=f"{parent.title} fork",
         parent_id=session_id,
         resume_session_id=new_claude_id,
         # 親の account_id を必ず継ぐ (= 2026-07-22 fork 空タブ根治)。 lineage jsonl は
@@ -275,8 +271,7 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
         # account_id を渡さないと fork は personal (~/.claude) 扱いになり、 `claude --resume
         # <new_claude_id>` が work 配下の lineage を見つけられず rc=0 即 exit → pane は zsh
         # プロンプトに残る (= fork は fallback watchdog も無いので永久に空タブ)。
-        # 移し先が指定された時だけそれを採り、 lineage の置き場所と必ず揃える (= 上の dest_dir)。
-        account_id=target_account_id if moving else parent.account_id,
+        account_id=parent.account_id,
     )
     # 新タブの monitor tail を初回 bind 扱いに固定 (= 2026-06-30 stream-from-zero)。
     # fork は backend が事前に lineage 全行を書いた新 jsonl を register してから claude
@@ -300,11 +295,8 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
     return session_row(new_meta)
 
 
-@router.post("/sessions/{session_id}/restart")
-async def restart_session(session_id: str, _: str = Depends(require_session)):
-    """claude プロセスを kill + 新規 spawn する (= /clear と違ってプロセスメモリも完全解放)。
-    新 claude_sid に切り替わるが SessionStart hook で bindings 更新されるので、 PWA タブは
-    シームレスに続けて使える。 長期稼働で claude プロセスメモリが累積する問題への対策。"""
+def _stop_tab(session_id: str) -> None:
+    """Stop the claude of a tab and its pane, keeping the tab itself (= the first half of a restart)."""
     # kill する前に現 claude_sid を履歴に積む (= 事故時の復旧源、 pwa_sid あたり最新 3 件保持)。
     # binding が落ちてる場合は no-op になる (= record_end が None を弾く)。
     try:
@@ -325,41 +317,10 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
         # kill 失敗 = claude プロセスが残ったまま spawn する経路に進み二重起動の race を起こす
         # 可能性がある。 warning で残す (= 2026-06-22)。
         logger.warning("restart kill phase failed for %s", session_id, exc_info=True)
-    # フォーク産タブを通常タブ化する (= state.demote_fork_to_normal、 backend-F-44)。
-    # restart のセマンティクスは「文脈リセット + プロセスリセット」 で、 fork タブの
-    # resume_session_id を残したままだと再 spawn で `claude --resume <同一 id>` が走り、
-    # claude CLI が重複起動を検知して即 exit (rc=0) する = ターミナルが何も変わらず終了
-    # しない (2026-06-04 確認)。 fork の親文脈引き継ぎは初回 spawn で完了した役目なので、
-    # restart のタイミングで resume_session_id を落として通常タブと完全に同じ launch_alias
-    # 起動経路に合流させる。 役目を終えた fork jsonl は state helper 内で同時に掃除する
-    # (= delete_session の GC と同型、 蓄積させない)。 parent_id は派生履歴として残し、
-    # ドロワー上の親子インデント表示は維持する。
-    state.demote_fork_to_normal(session_id)
-    # monitor tail を初回 bind 扱いに戻す (= 2026-06-30 stream-from-zero、 詳細は
-    # `backend/jsonl/routes.py` `_initialize_sid_tail` docstring)。 旧版は path 切替
-    # 検知時に offset=st_size で「既に書かれた行を skip」 する設計で、 restart 後の
-    # 新 claude が boot banner / user 初発 / tool_use/tool_result / assistant final を
-    # 一気に書き終えるケースで全部巻き添え skip され「結果が来るまで何も表示されない、
-    # 来た瞬間に batch 表示」 という UX 退行になっていた。 reset 後は次 monitor tick で
-    # offset=0 から path 内全行を publish、 chat 非表示対象は events.py の filter で除外。
-    from backend.jsonl.routes import request_sid_tail_reset  # noqa: PLC0415
-    request_sid_tail_reset(session_id)
-    # 新規 spawn (= 同 PWA_SID で tmux 再生成 + claude 再起動 + SessionStart hook で
-    # 新 claude_sid を confirm_bind)。 ensure_pty_session_for は terminal.routes に居て
-    # main.py 経由で chat router 登録より後で import される ↔ chat 早期 import の循環
-    # 防止のため、 ここだけ関数内 import に残す。
-    from backend.terminal.routes import ensure_pty_session_for  # noqa: PLC0415
-    try:
-        # restart は autoresume を skip (= prefer_fresh)。 直前 claude プロセスの
-        # 完全 shutdown 前に `claude --resume <直前 sid>` が走ると重複起動検知で
-        # rc=0 即 exit する race (= log 観測で spawn → 2ms exited → watchdog の
-        # 2s 待ちに間に合わず、 launch_alias 投入届かない、 2026-06-29 確認)。
-        # restart のセマンティクス = 文脈リセット + プロセスリセットなので、
-        # 直前 sid を resume するのが意味的にも矛盾。
-        await ensure_pty_session_for(session_id, prefer_fresh=True)
-    except Exception:
-        logger.exception("restart spawn phase failed for %s", session_id)
-        return {"ok": False, "reason": "spawn_failed"}
+
+
+async def _reset_tab_status(session_id: str) -> None:
+    """Forget what the stopped claude left in a tab's status, so the next one starts clean."""
     # agent_status の進行中フラグと蓄積 state をリセット (= 新プロセス = 新 claude_sid で
     # 過去 JSONL の集約結果 (= tasks / todos / current_tool 等) を持ち越さない)。
     # SessionState.lock 経由で複数 mutate を 1 critical section に束ねる (= backend-F-07)。
@@ -400,9 +361,82 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
             sess.stream.pane_working = False
             sess.stream.queued_sends = 0
             sess.stream.status_event.set()
+
+
+@router.post("/sessions/{session_id}/restart")
+async def restart_session(session_id: str, _: str = Depends(require_session)):
+    """claude プロセスを kill + 新規 spawn する (= /clear と違ってプロセスメモリも完全解放)。
+    新 claude_sid に切り替わるが SessionStart hook で bindings 更新されるので、 PWA タブは
+    シームレスに続けて使える。 長期稼働で claude プロセスメモリが累積する問題への対策。"""
+    _stop_tab(session_id)
+    # フォーク産タブを通常タブ化する (= state.demote_fork_to_normal、 backend-F-44)。
+    # restart のセマンティクスは「文脈リセット + プロセスリセット」 で、 fork タブの
+    # resume_session_id を残したままだと再 spawn で `claude --resume <同一 id>` が走り、
+    # claude CLI が重複起動を検知して即 exit (rc=0) する = ターミナルが何も変わらず終了
+    # しない (2026-06-04 確認)。 fork の親文脈引き継ぎは初回 spawn で完了した役目なので、
+    # restart のタイミングで resume_session_id を落として通常タブと完全に同じ launch_alias
+    # 起動経路に合流させる。 役目を終えた fork jsonl は state helper 内で同時に掃除する
+    # (= delete_session の GC と同型、 蓄積させない)。 parent_id は派生履歴として残し、
+    # ドロワー上の親子インデント表示は維持する。
+    state.demote_fork_to_normal(session_id)
+    # monitor tail を初回 bind 扱いに戻す (= 2026-06-30 stream-from-zero、 詳細は
+    # `backend/jsonl/routes.py` `_initialize_sid_tail` docstring)。 旧版は path 切替
+    # 検知時に offset=st_size で「既に書かれた行を skip」 する設計で、 restart 後の
+    # 新 claude が boot banner / user 初発 / tool_use/tool_result / assistant final を
+    # 一気に書き終えるケースで全部巻き添え skip され「結果が来るまで何も表示されない、
+    # 来た瞬間に batch 表示」 という UX 退行になっていた。 reset 後は次 monitor tick で
+    # offset=0 から path 内全行を publish、 chat 非表示対象は events.py の filter で除外。
+    from backend.jsonl.routes import request_sid_tail_reset  # noqa: PLC0415
+    request_sid_tail_reset(session_id)
+    # 新規 spawn (= 同 PWA_SID で tmux 再生成 + claude 再起動 + SessionStart hook で
+    # 新 claude_sid を confirm_bind)。 ensure_pty_session_for は terminal.routes に居て
+    # main.py 経由で chat router 登録より後で import される ↔ chat 早期 import の循環
+    # 防止のため、 ここだけ関数内 import に残す。
+    from backend.terminal.routes import ensure_pty_session_for  # noqa: PLC0415
+    try:
+        # restart は autoresume を skip (= prefer_fresh)。 直前 claude プロセスの
+        # 完全 shutdown 前に `claude --resume <直前 sid>` が走ると重複起動検知で
+        # rc=0 即 exit する race (= log 観測で spawn → 2ms exited → watchdog の
+        # 2s 待ちに間に合わず、 launch_alias 投入届かない、 2026-06-29 確認)。
+        # restart のセマンティクス = 文脈リセット + プロセスリセットなので、
+        # 直前 sid を resume するのが意味的にも矛盾。
+        await ensure_pty_session_for(session_id, prefer_fresh=True)
+    except Exception:
+        logger.exception("restart spawn phase failed for %s", session_id)
+        return {"ok": False, "reason": "spawn_failed"}
+    await _reset_tab_status(session_id)
     # 全 sid SSE (/sessions/status/stream) にも変化を伝える (= per-sid と整合)
     sessions_overview.notify()
     return {"ok": True}
+
+
+@router.post("/sessions/{session_id}/account")
+async def move_session_account(session_id: str, payload: dict = Body(...), _: str = Depends(require_session)):
+    """Move a tab to another account in place: the same tab, with the same name, continues its conversation under
+    `account_id`. The conversation up to its latest clean point is written into that account's projects folder,
+    the tab's claude is stopped, and the tab starts again resuming it there."""
+    account_id = payload.get("account_id")
+    if not isinstance(account_id, str) or account_id not in (get_config().get("accounts") or {}):
+        raise_error(400, "unknown_account", "そのアカウントは設定にありません")
+    meta = sessions_meta[session_id]
+    if account_id == (meta.account_id or default_account_id()):
+        return session_row(meta)
+    new_claude_id, _moved = _write_lineage(session_id, None, account_id)
+    _stop_tab(session_id)
+    meta.account_id = account_id
+    meta.resume_session_id = new_claude_id
+    save_sessions_meta()
+    from backend.jsonl.routes import request_sid_tail_reset  # noqa: PLC0415
+    request_sid_tail_reset(session_id)
+    from backend.terminal.routes import ensure_pty_session_for  # noqa: PLC0415
+    try:
+        await ensure_pty_session_for(session_id)
+    except Exception:
+        logger.exception("account move spawn phase failed for %s", session_id)
+        raise_error(500, "spawn_failed", "移した先で会話を開けませんでした")
+    await _reset_tab_status(session_id)
+    sessions_overview.notify()
+    return session_row(meta)
 
 
 @router.delete("/sessions/{session_id}")
