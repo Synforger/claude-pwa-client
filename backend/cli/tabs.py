@@ -308,6 +308,18 @@ def child_note(tier: str, child: str) -> Path | None:
     return folder / "pages" / child / "memo.md" if folder is not None else None
 
 
+def own_note() -> Path | None:
+    """The memo of this tab: the one `children` and the 📋 read (= the tier's `pages/<tab id>/memo.md`) when it
+    exists, else the `PWA_NOTE` this tab was started with (= a tab started before memos moved to `pages/`).
+    `None` when neither exists."""
+    me, tier = os.environ.get("PWA_SID"), my_tier()
+    placed = child_note(tier, me) if me and tier else None
+    if placed is not None and placed.is_file():
+        return placed
+    given = os.environ.get("PWA_NOTE")
+    return Path(given) if given and Path(given).is_file() else None
+
+
 def note_state(path: Path | None) -> str:
     try:
         found = STATE.search(path.read_text(encoding="utf-8")) if path is not None else None
@@ -408,8 +420,8 @@ def report(kind: str, file: Path) -> int:
     status, answer = call("/agent-messages", {"to": mine["parent_id"], "from": me, "text": body})
     if not (status == 200 and isinstance(answer, dict) and answer.get("ok")):
         return fail(f"親へ届いていません {refused(status, answer)}")
-    note = Path(os.environ.get("PWA_NOTE") or "")
-    if note.is_file():
+    note = own_note()
+    if note is not None:
         written = note.read_text(encoding="utf-8")
         note.write_text(STATE.sub(f"- 状態: {STATES[kind]}", written, count=1) if STATE.search(written)
                         else f"- 状態: {STATES[kind]}\n\n{written}", encoding="utf-8")
@@ -517,9 +529,9 @@ def child_not_handed_over(record: Path) -> str | None:
 
     子は journal を書かない。 起き直した子は、 メモの「渡された仕事」 と「引き継ぎ」 だけを読んで続ける。
     """
-    note = os.environ.get("PWA_NOTE")
-    if not note or not Path(note).is_file():
-        return "このタブのメモが見つかりません (= PWA_NOTE)"
+    note = own_note()
+    if note is None:
+        return "このタブのメモが見つかりません (= 階層の pages/<タブの id>/memo.md も PWA_NOTE も無い)"
     real = Path(os.path.realpath(note))
     if not any(Path(os.path.realpath(path)) == real for path in written_paths(record)):
         return f"この会話はタブのメモ ({note}) を書いていません。 `{CARRY}` に続きを書いてから打ってください"
