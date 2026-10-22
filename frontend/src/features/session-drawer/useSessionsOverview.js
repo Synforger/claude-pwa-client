@@ -24,6 +24,7 @@ import { applyOverviewSnapshot } from './applyOverviewSnapshot.js'
 import { registerConnection, notifyConnectionChange } from '../../transport/connectionStatus.js'
 import { overviewSse } from '../../transport/select.ts'
 import { setWaitingInputMap } from '../../state/sessions.js'
+import { reconcileSessionIds } from './useSessions.js'
 
 export function useSessionsOverview({ setLoading, optimisticRef, onPayloadRef }) {
   const liveRef = useRef(false)
@@ -42,6 +43,8 @@ export function useSessionsOverview({ setLoading, optimisticRef, onPayloadRef })
           if (info && typeof info === 'object' && info.waiting_input) waiting[sid] = true
         }
         setWaitingInputMap(waiting)
+        // snapshot は backend の全部のタブを持つ: 手元の一覧と食い違えば取り直す (= タブの増減)
+        reconcileSessionIds(Object.keys(payload))
       }
       // last_seen_at 等の追加 field を別 hook に流すための副経路 (= 未読同期、 2026-06-10 追加)。
       if (onPayloadRef?.current) onPayloadRef.current(payload)
