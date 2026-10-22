@@ -1,0 +1,9 @@
+{
+  "name": "pwa-client",
+  "description": "Skills for working with a claude-pwa-client install: talking to other tabs, child tabs, finding a tab's conversation record, and running the client.",
+  "author": {
+    "name": "Synforger"
+  },
+  "repository": "https://github.com/Synforger/claude-pwa-client",
+  "license": "Apache-2.0"
+}
