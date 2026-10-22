@@ -622,6 +622,9 @@ def register_session(
         parent_id=parent_id, resume_session_id=resume_session_id,
         account_id=account_id, child=child,
     )
+    if child:
+        # 子のタブは親が仕事を渡すために立てる物で、 進みは親への報告で届く。 通知は切って立てる (= 画面の ⚙ で入れ直せる)
+        meta.notify_mode = NotifyMode.OFF.value
     sessions_meta[sid] = meta
     stream_states[sid] = StreamState(agent_id=agent_id)
     agent_status[sid] = _make_agent_status(agent_id)

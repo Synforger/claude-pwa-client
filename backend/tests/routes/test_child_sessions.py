@@ -72,6 +72,9 @@ def test_a_child_is_opened_under_its_parent_and_starts_with_the_parent_s_message
     assert body["account_id"] == "work"
     child = isolated_state.sessions_meta[body["id"]]
     assert child.child and child.parent_id == "ses_p" and child.resume_session_id is None
+    # 子の通知は切って立つ (= 進みは親への報告で届く)。 親の通知はそのまま
+    assert child.notify_mode == "off" and body["notify_mode"] == "off"
+    assert isolated_state.sessions_meta["ses_p"].notify_mode == "both"
     # 最初の発話は、 親のタブからの連絡の封筒
     assert opened == [(body["id"], {"text": f'{AGENT_MESSAGE_OPENING}\n<agent-message from="lead" session="ses_p">\n'
                                             f"tier=normal\n\nbuild it\n</agent-message>", "enter": True})]
