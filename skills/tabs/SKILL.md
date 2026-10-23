@@ -165,3 +165,9 @@ Claude Desktop conversation has no binding and no `pwa-*` tmux session: it is no
 
 To read the dialogue, parse the file line by line as JSON, keep rows whose `type` is `user` or `assistant`, and
 collect the `text` blocks of `message.content` (a string or a list). Skip `tool_use` and `tool_result` blocks.
+
+What the operator types while Claude is working has no `user` row. When Claude takes it in the middle of its work,
+it is a row with `type` `attachment` whose `attachment.type` is `queued_command`; the text is `attachment.prompt`.
+Keep those rows too, or every interruption is missing. (The `queue-operation` rows with `operation` `enqueue` also
+hold each typed text in `content`, but a message that waited for the next turn is then written again as a `user`
+row, so reading them as well counts it twice.)
