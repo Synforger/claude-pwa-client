@@ -80,7 +80,9 @@ async def post_e2e_seed(request: Request, body: E2eSeedRequest) -> E2eSeedRespon
     # actually exercised (= keeps startup graph clean + dodges a state.py side
     # effect for non-e2e processes).
     from backend._common.config import projects_dir_for_account
+    from backend.jsonl import history as session_history
     from backend.jsonl import jsonl_watcher as watcher
+    from backend.jsonl.routes import request_sid_tail_reset
     from backend._common.state import register_session, sessions_meta
 
     agents = (await _agents_snapshot())
@@ -118,6 +120,11 @@ async def post_e2e_seed(request: Request, body: E2eSeedRequest) -> E2eSeedRespon
     # would produce.
     if body.sid in sessions_meta:
         sessions_meta.pop(body.sid, None)
+    # 前の seed の記録は、 新しい記録へ結び直すと「終わった会話」 として控えに積まれ、 履歴がつないで
+    # 出し続ける (= 入れ替えと同じ扱い)。 seed は新しいタブなので、 控えを消し、 見張りにも前の記録を
+    # 忘れさせる (= 次の見張りが path の切り替わりを見て、 控えに積み直さない)。
+    session_history.forget(body.sid)
+    request_sid_tail_reset(body.sid)
     register_session(
         agent_id=body.agent_id,
         title=body.title or body.sid,

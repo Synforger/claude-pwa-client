@@ -100,6 +100,14 @@ def next_base(pwa_sid: str) -> int:
     return entries[0]["base"] + _size(entries[0])
 
 
+def forget(pwa_sid: str) -> None:
+    """pwa_sid の終わった会話の控えを全部消す (= タブを作り直した時。 次の会話は通しの位置 0 から始まる)。"""
+    history = _load()
+    if history.pop(pwa_sid, None) is None:
+        return
+    _save(history)
+
+
 def record_end(pwa_sid: str, claude_sid: Optional[str], jsonl_path: Optional[str] = None) -> None:
     """pwa_sid の終了イベントを履歴に追加。 claude_sid が None or 既に先頭と同一なら no-op。"""
     if not pwa_sid or not claude_sid:
