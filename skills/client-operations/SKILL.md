@@ -71,7 +71,7 @@ reaches the running backend only after that checkout has pulled and built.
    - Then, from the repo folder, check `<environment>/bin/python -c "import backend.main"`.
 5. If backend files changed, restart through the resident service (below) and report it in one line. After the plist
    was rewritten, restart with `launchctl bootout` then `launchctl bootstrap`: `kickstart -k` starts from the plist it
-   read before.
+   read before. Bootstrap only once the old one has left launchd (see Restart path below).
    - The resident process must not carry `UV_PROJECT_ENVIRONMENT`. Tabs the backend starts inherit its environment,
      and a `uv run` in any of them rebuilds the backend's environment with another project's dependencies (the
      backend then fails to send files, images and pages). After a restart, `ps -E -p <pid>` must not show it.
@@ -110,6 +110,10 @@ environment called directly), `WorkingDirectory` (absolute), `EnvironmentVariabl
 tool called by a relative path fails), `RunAtLoad` and `KeepAlive` both true for a resident service,
 `StandardOutPath` and `StandardErrorPath` (absolute; if they equal a log file the service holds open, bootstrap fails
 with an I/O error, so kill the old process first). Validate with `plutil -lint`. Examples are in `docs/setup/launchd/`.
+
+The same `Bootstrap failed: 5: Input/output error` comes when the label is still loaded: `launchctl bootout` returns
+before a service with open terminals has left launchd. Before bootstrapping the same label again, wait until
+`launchctl print gui/<uid>/<label>` fails (exit 113).
 
 ### After: observe
 
