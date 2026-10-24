@@ -99,3 +99,18 @@ def test_corrupt_file_starts_fresh(monkeypatch, tmp_path):
     history.record_end("ses_x", "claude-aaa")
 
     assert [e["claude_sid"] for e in _entries(history, "ses_x")] == ["claude-aaa"]
+
+
+def test_forget_drops_only_that_tab(monkeypatch, tmp_path):
+    from backend.jsonl import history
+
+    monkeypatch.setattr(history, "SESSION_HISTORY_PATH", tmp_path / "session_history.json")
+
+    history.record_end("ses_a", "claude-a1", jsonl_path="/p/a1.jsonl")
+    history.record_end("ses_b", "claude-b1", jsonl_path="/p/b1.jsonl")
+    history.forget("ses_a")
+    history.forget("ses_never_seen")  # 控えの無いタブは何もしない
+
+    assert history.ended("ses_a") == []
+    assert history.next_base("ses_a") == 0
+    assert [e["claude_sid"] for e in _entries(history, "ses_b")] == ["claude-b1"]
