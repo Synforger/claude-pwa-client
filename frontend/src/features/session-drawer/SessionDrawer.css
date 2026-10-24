@@ -1,9 +1,10 @@
-/* サイドドロワー */
+/* サイドドロワー。 入力欄 (= z-index 60) より上に開く (= 一覧を開いている間は文を打たないので、 下の方のタブの
+   ⋯ の小窓が入力欄の後ろに潜らないようにする)。 一覧から開く窓 (= 100 / 200) はこの上を通る。 */
 .drawer-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.45);
-  z-index: 50;
+  z-index: 70;
   animation: drawer-fade 0.18s ease-out;
 }
 @keyframes drawer-fade {
@@ -18,7 +19,7 @@
   width: min(78vw, 320px);
   background: var(--bg);
   border-right: 1px solid var(--border);
-  z-index: 51;
+  z-index: 71;
   transform: translateX(-100%);
   transition: transform 0.22s ease-out;
   display: flex;
