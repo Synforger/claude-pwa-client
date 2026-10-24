@@ -433,6 +433,37 @@ def _page_client(tmp_path, monkeypatch, folder):
     return TestClient(files_mod.page_app), files_mod
 
 
+def test_file_open_leaves_the_client_s_address_for_the_pages_port(tmp_path, monkeypatch):
+    client, _ = _raw_client(tmp_path, monkeypatch)
+    site = _site(tmp_path)
+    _with_page_origin(monkeypatch, tmp_path / "pages")
+    res = client.get("/file/open", params={"path": str(site / "index.html")}, follow_redirects=False,
+                     headers={"host": "box.example.ts.net"})
+    assert res.headers["location"] == f"http://box.example.ts.net:{_PAGE_PORT}/deck/index.html"
+    from http.cookies import SimpleCookie  # noqa: PLC0415
+    cookie = SimpleCookie(res.headers["set-cookie"])["cpc_client"]
+    assert cookie.value == "http://box.example.ts.net" and cookie["httponly"] and cookie["path"] == "/"
+
+
+def test_a_markdown_opened_as_a_tab_on_the_pages_port_goes_to_the_client_preview(tmp_path, monkeypatch):
+    from urllib.parse import quote  # noqa: PLC0415
+    site = _site(tmp_path)
+    (site / "notes.md").write_text("# Notes\n")
+    client, _ = _page_client(tmp_path, monkeypatch, tmp_path / "pages")
+    # client の口が置いた形 (= 値は引用符で包まれて届く) のまま載せる
+    from_client = {"Sec-Fetch-Dest": "document", "cookie": 'cpc_client="http://testserver:8765"'}
+    res = client.get("/deck/notes.md", headers=from_client, follow_redirects=False)
+    assert res.status_code == 307
+    assert res.headers["location"] == "http://testserver:8765/?preview=" + quote(str(site / "notes.md"), safe="")
+    # 別の host の cookie と、 cookie の無い時は回さない (= 今まで通り、 配れない形として断る)
+    elsewhere = {"Sec-Fetch-Dest": "document", "cookie": 'cpc_client="https://evil.example"'}
+    assert client.get("/deck/notes.md", headers=elsewhere, follow_redirects=False).status_code == 415
+    assert client.get("/deck/notes.md", headers={"Sec-Fetch-Dest": "document"}, follow_redirects=False).status_code == 415
+    # HTML のページはタブとして開かれてもページ
+    page = client.get("/deck/index.html", headers=from_client)
+    assert page.status_code == 200 and page.headers["content-type"] == "text/html; charset=utf-8"
+
+
 def test_page_origin_serves_the_page_and_its_relative_files_on_an_origin_of_its_own_that_cannot_move_the_top_screen(tmp_path, monkeypatch):
     site = _site(tmp_path)
     client, files_mod = _page_client(tmp_path, monkeypatch, tmp_path / "pages")

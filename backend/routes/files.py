@@ -10,7 +10,7 @@ import os
 import re
 import threading
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
@@ -201,7 +201,12 @@ def open_file_in_browser(request: Request, path: str = Query(...)):
         raise HTTPException(status_code=404, detail="File not found")
     target = _page_target(resolved, request)
     if target is not None:
-        return RedirectResponse(url=target, status_code=307)
+        response = RedirectResponse(url=target, status_code=307)
+        # ページの port が、 HTML 以外の file を client の画面へ回す先 (= cookie は port で分かれないので、 同じ host の
+        # ページの port にも届く。 client の URL は手元と Tailscale 越しで形が違い、 ページの port からは分からない)
+        response.set_cookie(_CLIENT_COOKIE, str(request.base_url).rstrip("/"), httponly=True, samesite="lax",
+                            secure=request.url.scheme == "https")
+        return response
     # 相対の行き先 (= backend が path の前置きの下に置かれても、 同じ前置きの下の view へ回る)。
     return RedirectResponse(url="view/" + quote(str(resolved).lstrip("/")), status_code=307)
 
@@ -289,11 +294,16 @@ def _client_preview(request: Request, resolved: Path, levels_up: int) -> Redirec
     `document` でないので今まで通り配る。 印の無い要求 (= 古いブラウザ・curl) も今まで通り。
     levels_up は、 要求の URL の folder から client の画面 (= backend の根) まで上がる段の数。
     """
-    if request.headers.get("sec-fetch-dest") != "document":
-        return None
-    if resolved.suffix.lower() in (".html", ".htm") or not resolved.is_file():
+    if not _opened_as_tab(request, resolved):
         return None
     return RedirectResponse(url="../" * levels_up + "?preview=" + quote(str(resolved), safe=""), status_code=307)
+
+
+def _opened_as_tab(request: Request, resolved: Path) -> bool:
+    """ブラウザのタブそのものとして開かれた、 在る HTML 以外の file か (= `_client_preview` の説明)。"""
+    if request.headers.get("sec-fetch-dest") != "document":
+        return False
+    return resolved.suffix.lower() not in (".html", ".htm") and resolved.is_file()
 
 
 # ページの origin: page_origin の folder の file を、 sandbox を外した普通のページとして配る口。 backend とは別の
@@ -309,6 +319,8 @@ page_app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
 # 置けるのは folder の中に在る HTML の path の分だけで、 中身は JSON、 大きさは /file の書き込みと同じ上限まで。
 # 書く時に `If-Match` (= 読んだ時の ETag) を付けると、 その間に別の画面が書いていたら 412 で断る。
 _STORE_PREFIX = "/.store/"
+# client の画面の URL を、 ページの port へ渡す cookie (= `open_file_in_browser` が置き、 `_pages_client_preview` が読む)
+_CLIENT_COOKIE = "cpc_client"
 _store_lock = threading.Lock()
 
 
@@ -400,7 +412,26 @@ async def put_store(request: Request, page: str):
 
 @page_app.get("/{path:path}")
 def get_page(request: Request, path: str):
-    return _view_response(_in_folder(path), _page_csp(request), request)
+    resolved = _in_folder(path)
+    preview = _pages_client_preview(request, resolved)
+    if preview is not None:
+        return preview
+    return _view_response(resolved, _page_csp(request), request)
+
+
+def _pages_client_preview(request: Request, resolved: Path) -> RedirectResponse | None:
+    """ページの port でタブとして開かれた HTML 以外の file を、 client の画面のプレビューへ回す (= 回す先が分からなければ None)。
+
+    回す先は、 client がこの port へ回した時に置いた cookie の URL。 host が今の要求と違う cookie は使わない
+    (= よその site へ回す口にしない)。
+    """
+    if not _opened_as_tab(request, resolved):
+        return None
+    client = urlsplit(request.cookies.get(_CLIENT_COOKIE, ""))
+    if client.scheme not in ("http", "https") or not client.hostname or client.hostname != request.url.hostname:
+        return None
+    base = f"{client.scheme}://{client.netloc}{client.path.rstrip('/')}"
+    return RedirectResponse(url=f"{base}/?preview=" + quote(str(resolved), safe=""), status_code=307)
 
 
 @router.put("/file")
