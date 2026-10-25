@@ -1,10 +1,9 @@
-import React, { useRef, useState, useCallback, useDeferredValue, useMemo, Profiler } from 'react'
+import React, { useRef, useState, useCallback, useDeferredValue, useMemo } from 'react'
 import { useT } from '../../i18n/t.js'
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { visit } from 'unist-util-visit'
 import { useThrottledStreamingText } from './useThrottledStreamingText.js'
-import { recordPerfSample } from '../app-effects/perfProbe.js'
 import { apiUrl } from '../../_common/api.js'
 import './MessageRenderer.css'
 
@@ -415,19 +414,6 @@ const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile, 
   // 2026-07-15 R1: さらに増分化 — 再パースは「伸びている末尾ブロック」 だけ (= 下の chunk 分割)。
   const throttledText = useThrottledStreamingText(text, streaming)
 
-  // 発熱調査 段階 2 (= 2026-07-13): この message subtree の render 実測を beacon に流す。
-  // React 公式の Profiler (= actualDuration) を使う。 memo 済みなので再 render された
-  // message しか記録されない。 markdown パース (= remark) は render 中に走るので
-  // actualDuration に含まれる。 DOM layout / paint は含まれない (= それは stall 側で見る)。
-  const onProfile = useCallback(
-    (_id, _phase, actualDuration) => {
-      recordPerfSample('md-render', actualDuration, {
-        len: text.length,
-        streaming: !!streaming,
-      })
-    },
-    [text.length, streaming],
-  )
   // F-24: さらに useDeferredValue で優先度も下げ、 入力 (= scroll / tap) を優先描画する。
   const deferredText = useDeferredValue(throttledText)
 
@@ -457,27 +443,19 @@ const MessageRenderer = React.memo(function MessageRenderer({ text, onOpenFile, 
     // streaming 中: 確定 chunk は memo で再パースゼロ、 末尾だけ 500ms ごとに再パース。
     // 不完全な Markdown (閉じてない表/フェンス) でも react-markdown は例外を吐かない。
     return (
-      <Profiler id="md-render" onRender={onProfile}>
+      <>
         {streamingParts.chunks.map((c, i) => (
           <MarkdownChunk key={i} text={c} plugins={plugins} components={components} />
         ))}
         <MarkdownChunk text={streamingParts.tail} plugins={plugins} components={components} />
-      </Profiler>
+      </>
     )
   }
   // 長文は markdown のまま畳む (= 描画する text で判定して、 表示と判定をずらさない)。
   if (!asWritten && isCollapsibleMessage(deferredText)) {
-    return (
-      <Profiler id="md-render" onRender={onProfile}>
-        <CollapsibleMarkdown text={deferredText} plugins={plugins} components={components} />
-      </Profiler>
-    )
+    return <CollapsibleMarkdown text={deferredText} plugins={plugins} components={components} />
   }
-  return (
-    <Profiler id="md-render" onRender={onProfile}>
-      <MarkdownChunk text={deferredText} plugins={plugins} components={components} />
-    </Profiler>
-  )
+  return <MarkdownChunk text={deferredText} plugins={plugins} components={components} />
 })
 
 export default MessageRenderer

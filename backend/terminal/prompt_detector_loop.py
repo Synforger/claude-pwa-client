@@ -69,6 +69,11 @@ IDLE_POLL_INTERVAL_SEC: float = 2.0
 _next_poll_at: dict[str, float] = {}
 
 
+def _due_sessions(sids: list[str], next_poll_at: dict[str, float], now: float) -> list[str]:
+    """今回 poll する sid (= 次 poll 時刻に達したもの。 時刻の無い sid は即 poll) を、 sids の順で返す (= pure、 test 対象)。"""
+    return [sid for sid in sids if now >= next_poll_at.get(sid, 0.0)]
+
+
 def _poll_interval_for(state: DetectorState | None) -> float:
     """session の現在 state から次 poll までの間隔を返す (= pure、 test 対象)。"""
     if state is not None and state.current_state == PromptState.IDLE:
@@ -300,16 +305,17 @@ async def prompt_detector_loop() -> None:
                     _detector_states.pop(stale, None)
                     _last_events.pop(stale, None)
                     _next_poll_at.pop(stale, None)
+                # 適応 poll: IDLE 継続中の sid は次 poll 時刻まで skip (= capture-pane subprocess を
+                # 撃たない)。 全 session が待ちの tick は、 下の一括取得も撃たない。
+                now = asyncio.get_running_loop().time()
+                due = _due_sessions(list(sessions_meta.keys()), _next_poll_at, now)
+                if not due:
+                    continue
                 # 存在 + alternate_on は全 session 一括 1 subprocess で先取り
                 # (= per-session の has-session + display-message を tick から消す)。
                 # None (= tmux 不在 / 失敗) は _tick_one の per-session fallback。
                 alt_map = await list_pane_alternate_states()
-                now = asyncio.get_running_loop().time()
-                for sid in list(sessions_meta.keys()):
-                    # 適応 poll: IDLE 継続中の sid はまだ次 poll 時刻でなければ skip
-                    # (= capture-pane subprocess を撃たない)。
-                    if now < _next_poll_at.get(sid, 0.0):
-                        continue
+                for sid in due:
                     try:
                         if alt_map is None:
                             await _tick_one(sid)
