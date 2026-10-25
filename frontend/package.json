@@ -40,7 +40,7 @@
     "jsdom": "^29.1.1",
     "typescript": "^5.7.2",
     "vite": "^8.0.4",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   },
   "allowScripts": {
     "protobufjs": false,
