@@ -39,7 +39,7 @@ function fakeWindow() {
   }
 }
 
-beforeEach(() => { vi.useFakeTimers(); _resetForTest() })
+beforeEach(() => { vi.useFakeTimers(); _resetForTest(); document.head.innerHTML = '' })
 afterEach(() => { vi.useRealTimers() })
 
 describe('runningBuildId', () => {
@@ -158,7 +158,7 @@ describe('installUpdateChecks', () => {
   it('checks at the interval while the app is visible, and not while it is hidden', async () => {
     const nav = fakeNavigator({ controlled: true })
     const win = fakeWindow()
-    const doc = { visibilityState: 'visible' }
+    const doc = { visibilityState: 'visible', querySelector: (q) => document.querySelector(q) }
     installUpdateChecks({ win, doc, nav })
     await vi.advanceTimersByTimeAsync(UPDATE_CHECK_INTERVAL_MS)
     expect(nav.registration.update).toHaveBeenCalledTimes(1)
@@ -227,7 +227,7 @@ describe('installUpdateChecks without a service worker (the iPhone app)', () => 
     const { win, send, foreground } = setup()
     await foreground()
     expect(win.location.reload).toHaveBeenCalledTimes(1)
-    expect(send).toHaveBeenCalledWith({ stage: 'update:reload', from: 'OLDbuild1', to: 'NEWbuild1' })
+    expect(send).toHaveBeenCalledWith({ stage: 'update:reload', from: 'OLDbuild1', to: 'NEWbuild1', serviceWorker: false })
     await foreground()
     expect(win.location.reload).toHaveBeenCalledTimes(1)
   })
@@ -299,5 +299,43 @@ describe('installUpdateChecks without a service worker (the iPhone app)', () => 
     doc.visibilityState = 'visible'
     await vi.advanceTimersByTimeAsync(UPDATE_CHECK_INTERVAL_MS)
     expect(http.apiFetch).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('installUpdateChecks with a service worker that does not take the screen over', () => {
+  // ホーム画面の PWA: service worker は在るが、 新しい版が有効になった知らせが画面に届かない
+  function setup(served) {
+    document.head.innerHTML = '<script type="module" crossorigin src="/assets/index-OLDbuild1.js"></script>'
+    const nav = fakeNavigator({ controlled: true })
+    const win = fakeWindow()
+    const http = fakeHttp(served)
+    const send = vi.fn()
+    installUpdateChecks({ win, doc: document, nav, http, send })
+    const foreground = async () => {
+      win.dispatchEvent(new Event('cpc:fg'))
+      await vi.advanceTimersByTimeAsync(0)
+    }
+    return { nav, win, send, foreground }
+  }
+
+  it('moves once the entry page names another build, and still asks the service worker to update', async () => {
+    const { nav, win, send, foreground } = setup('NEWbuild1')
+    await foreground()
+    expect(nav.registration.update).toHaveBeenCalledTimes(1)
+    expect(win.location.reload).toHaveBeenCalledTimes(1)
+    expect(send).toHaveBeenCalledWith({ stage: 'update:reload', from: 'OLDbuild1', to: 'NEWbuild1', serviceWorker: true })
+  })
+
+  it('reloads once when both the entry page and the new service worker notice the build', async () => {
+    const { nav, win, foreground } = setup('NEWbuild1')
+    await foreground()
+    nav.fire('controllerchange')
+    expect(win.location.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays while the entry page names the build the screen runs', async () => {
+    const { win, foreground } = setup('OLDbuild1')
+    await foreground()
+    expect(win.location.reload).not.toHaveBeenCalled()
   })
 })
