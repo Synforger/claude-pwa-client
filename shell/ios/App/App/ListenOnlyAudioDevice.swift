@@ -51,6 +51,8 @@ final class ListenOnlyAudioDevice: NSObject, RTCAudioDevice {
         _ = stopPlayout()
         teardown()
         delegate = nil
+        // initializePlayout が開けた音の口を閉じる (= 開いたままだと、 通話の後も app が音の口を持ち続ける)
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         return true
     }
 

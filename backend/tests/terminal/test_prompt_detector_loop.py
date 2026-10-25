@@ -276,6 +276,14 @@ def test_tick_cleans_last_event_when_session_gone(monkeypatch, stub_session):
     _run(run())
 
 
+def test_due_sessions_are_the_ones_whose_poll_time_has_come():
+    """今回 poll する sid は、 次 poll 時刻に達したものと時刻の無いもの。 1 つも無い tick は一括取得も撃たない。"""
+    nexts = {"ses_idle": 12.0, "ses_due": 9.5}
+    assert loop_mod._due_sessions(["ses_idle", "ses_due", "ses_new"], nexts, 10.0) == ["ses_due", "ses_new"]
+    assert loop_mod._due_sessions(["ses_idle"], nexts, 10.0) == []
+    assert loop_mod._due_sessions(["ses_idle"], nexts, 12.0) == ["ses_idle"]
+
+
 def test_poll_interval_stretches_only_for_idle():
     """適応 poll: IDLE 継続中だけ間隔が伸びる (= それ以外は 500ms 維持)。"""
     from backend.terminal.prompt_detector import DetectorState, PromptState

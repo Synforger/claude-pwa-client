@@ -22,7 +22,6 @@ import { useReadOnSessionOpen } from '../push-notify/useReadOnSessionOpen.js'
 import { useNotificationClear } from '../push-notify/useNotificationClear.js'
 import { useDeepLink } from '../session-drawer/useDeepLink.js'
 import { usePushSubscription } from '../push-notify/usePushSubscription.js'
-import { usePerfBeacon } from './usePerfBeacon.js'
 import { useViewportSettle } from './useViewportSettle.js'
 import {
   subscribe as subscribeUi,
@@ -91,9 +90,6 @@ export default function AppEffects() {
   // mountEffects:true で副作用 listener (= visibility / interval / SW broken) の hub を本 instance に集約
   // (= J-2、 SessionDrawer 側は default = listener なしの subscribe のみ)。
   usePushSubscription({ mountEffects: true })
-
-  // main thread 詰まりの実機観測 beacon (= 発熱調査、 60s ごとに perf:stall を backend log へ)。
-  usePerfBeacon()
 
   // キーボードが閉じた後に残った文書の送りを戻す (= 画面が上へずれたまま残る件、 戻した時は viewport:settle を記録へ)。
   useViewportSettle()
