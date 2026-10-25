@@ -1,8 +1,9 @@
 // Regression: on the iPhone home-screen web app (= display-mode: standalone) a tapped HTML path
-// opened /file/view as a new tab, which the home-screen app shows in place of itself with no
-// control to come back: the chat could only be reached again by closing the app. The page now
-// opens in the preview sheet, drawn in a frame (= its script runs and its relative image
-// loads), and the sheet's ✕ brings the chat back without leaving the app's page.
+// opened inside the app (first as a new tab that replaced the app, then in the preview sheet). The
+// page is handed to Safari instead (= `x-safari-https://`, which iOS opens in Safari), and the app
+// stays where it was: no preview sheet, no new window, the chat still on screen. The test browser
+// does not hand the address on, so the address itself is checked by the unit tests of
+// `_common/externalBrowser.js`.
 
 import { test, expect } from '@playwright/test'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -10,36 +11,28 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { seedSession, appendEvent } from '../../helpers/fixture.js'
 import { openClient } from '../../helpers/pwa.js'
-import { testCard } from '../../helpers/png.js'
 
 const SID = 'ses_e2echatgld'
 
-// The home-screen app reports itself through display-mode; the test browser is a plain tab
+// The home-screen app reports itself through display-mode and navigator.standalone; the test browser is a plain tab
 async function asHomeScreen(page) {
   await page.addInitScript(() => {
     const real = window.matchMedia.bind(window)
     window.matchMedia = (query) => (query === '(display-mode: standalone)'
       ? { ...real(query), matches: true, media: query }
       : real(query))
+    Object.defineProperty(window.navigator, 'standalone', { value: true, configurable: true })
   })
 }
 
-test.describe('regression: an HTML page opened from the iPhone home-screen app can be left', () => {
+test.describe('regression: an HTML page tapped in the iPhone home-screen app leaves the app', () => {
   test.skip(({ browserName }) => browserName !== 'webkit', 'the home-screen app is an iPhone WebKit')
 
-  test('the page is drawn in the preview sheet, and its ✕ returns to the chat', async ({ page, request }) => {
+  test('the page is handed on, and the app stays on the chat', async ({ page, request }) => {
     // /file/open only serves files under HOME, so the sample page is written under ~/.cache
     const dir = join(homedir(), '.cache', 'cpc-e2e', 'home-screen-page')
-    mkdirSync(join(dir, 'cam'), { recursive: true })
-    writeFileSync(join(dir, 'cam', 'a.png'), testCard(120, 80))
-    writeFileSync(join(dir, 'index.html'), `<!doctype html><meta charset="utf-8">
-<p id="drawn"></p><img id="pic" src="cam/a.png" alt="">
-<p id="isolated"></p>
-<script>
-document.getElementById('drawn').textContent = 'drawn by the page script'
-let reach; try { reach = String(parent.document.title) } catch { reach = 'blocked' }
-document.getElementById('isolated').textContent = self.origin + ' ' + reach
-</script>`)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><meta charset="utf-8"><p>sample page</p>')
     const html = join(dir, 'index.html')
     try {
       const seeded = await seedSession(request, 'e2e-chat-golden')
@@ -59,19 +52,12 @@ document.getElementById('isolated').textContent = self.origin + ' ' + reach
       await openClient(page, { sid: SID })
       const appUrl = page.url()
 
+      const popups = []
+      page.context().on('page', (popup) => popups.push(popup.url()))
       await page.locator('.file-link', { hasText: 'index.html' }).last().click()
-      const modal = page.locator('[data-testid=file-preview-modal]')
-      await expect(modal).toBeVisible({ timeout: 10_000 })
-      expect(page.url()).toBe(appUrl)
-
-      const frame = page.frameLocator('[data-testid=file-preview-page]')
-      await expect(frame.locator('#drawn')).toHaveText('drawn by the page script', { timeout: 10_000 })
-      await expect.poll(() => frame.locator('#pic').evaluate((img) => img.naturalWidth)).toBe(120)
-      // The page stays apart from the app: the backend's sandbox gives it no origin of its own
-      expect(await frame.locator('#isolated').textContent()).toBe('null blocked')
-
-      await modal.locator('.modal-close').click()
-      await expect(modal).toHaveCount(0)
+      await page.waitForTimeout(1_000)
+      await expect(page.locator('[data-testid=file-preview-modal]')).toHaveCount(0)
+      expect(popups).toEqual([])
       expect(page.url()).toBe(appUrl)
       await expect(page.locator('.file-link', { hasText: 'index.html' }).last()).toBeVisible()
     } finally {
