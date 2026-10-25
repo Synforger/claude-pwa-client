@@ -11,6 +11,7 @@ backend が runtime に持つ JSON ファイルの schema を一括宣言する�
 | `backend/data/session_meta.json` | **YES** (= 真値、 損失で全タブ消失) | jsonl_bindings + session_history から部分再構築可、 ただし title / notify_mode / parent_id は失われる |
 | `backend/data/jsonl_bindings.json` | YES (= 真値、 損失で chat 表示できなくなる) | claude jsonl ファイル名 (= claude_sid) から逆引き可能だが手作業重い |
 | `backend/data/session_history.json` | YES (= restart 復旧の唯一の手段) | 復元不可 (= 各 restart の直前 claude_sid を記録、 外部から再構築不能) |
+| `backend/data/tier_tabs.json` | 推奨 (= 損失で、 人が閉じた階層のタブが次の見回りでまた置かれる) | 残っているタブからは部分的にしか戻らない (= 閉じた階層は分からない) |
 | `backend/data/subscriptions.json` | YES (= 損失で Web Push 全消失) | クライアント側で「通知を有効にする」 再実行で復活可能だが iOS は再ホーム画面追加が必要なケースあり |
 | `backend/secrets/vapid.json` | **YES** (= 鍵ペア、 損失で全 push subscription が無効化) | 復元不可 (= 新鍵生成すると全 client の subscription が `applicationServerKey` 不一致で reject される) |
 | `backend/config.json` | YES (= 個人 cwd / launch_alias / accounts) | 復元可能だが手作業 |
@@ -36,9 +37,10 @@ backup 先 = 同 PC の別 path (= `$AGENT_PLATFORM_ROOT/state/claude-pwa-client
 | `resume_session_id` | str? | NO | fork タブが初回 spawn で `claude --resume <id>` に使う claude session ID、 通常タブ + restart 後は null |
 | `account_id` | str? | NO | `config.json::accounts` の key (= 起動 env を差し替え)、 null = personal 相当 |
 | `child` | bool | NO (default `false`) | 子のタブ (= 別のタブの Claude が `POST /sessions/<親>/children` で立てたタブ) か。 親は `parent_id` |
+| `tier_tab` | str? | NO | [階層のタブ](tier-tabs.md) として置いたタブの階層 (= 新しい会話はこの階層で起動する)、 それ以外のタブは null |
 
 `GET /sessions` の各行はこの物に **`tier`** を足して返します (= そのタブのエージェントが起動した階層。 エージェントの
-プロセスが持つ環境変数 `AGENT_TIER` と同じ値で、 分からないタブは `null`)。 `tier` は `session_meta.json` には保存せず、
+プロセスが持つ環境変数 `AGENT_TIER` と同じ値。 Claude がまだ居ない階層のタブは `tier_tab`、 分からないタブは `null`)。 `tier` は `session_meta.json` には保存せず、
 backend が claude のプロセスを見つけた時に読み直します (= 画面の一覧は、 口座の隣に階層の最後の名前を出します)。
 
 ## `backend/data/jsonl_bindings.json`
@@ -57,6 +59,12 @@ backend が claude のプロセスを見つけた時に読み直します (= 画
 | `start_time` | float | unix 秒 (= bind 確定時刻) |
 | `jsonl_path` | str | `~/.claude/projects/<cwd-hash>/<claude_sid>.jsonl` の絶対パス。 chat tail の入力 |
 | `confirmed` | bool | hook が `SessionStart` を送ってきたかどうか (= false なら autoresume 経路で消える可能性あり) |
+
+## `backend/data/tier_tabs.json`
+
+**形式**: `dict[agent_id, list[str]]`。 [階層のタブ](tier-tabs.md) を入れたエージェントごとに、 タブを置いたことのある階層 (= `normal` / `projects/<P>` / `projects/<P>/subprojects/<S>`) を名前順で持つ。
+
+**writer**: `backend/tier_tabs/record.py::save`。 backend が階層のタブを置いた時と、 既にタブのある階層を初めて見た時に書く。 ここに在る階層には、 タブが閉じられていても backend は置き直さない。
 
 ## `backend/data/session_history.json`
 

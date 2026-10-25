@@ -104,7 +104,7 @@ backend に認証は無いので、 同じ機械の中の Claude は次の口を
 |---|---|
 | `agent_message_unknown_receiver` | その名前 / id のタブが無い |
 | `agent_message_ambiguous_receiver` | 同じ名前のタブが複数ある。 返ってきた id のどれかを指定する |
-| `agent_message_receiver_not_running` | 宛先のタブで Claude が動いていない。 連絡で会話を起動することはしない |
+| `agent_message_receiver_not_running` | 宛先のタブで Claude が動いていない。 連絡で会話を起動することはしない (= [階層のタブ](tier-tabs.md) として置かれたタブだけは、 届いた連絡がその階層で Claude を起動する) |
 | `agent_message_receiver_not_ready` | 宛先の会話がまだ始まっていないため、 検査できない (= 検査を設定している時のみ) |
 | `agent_message_refused` | 検査が連絡を通さなかった。 理由が `reason` に、 検査が「本文のどこが当たったか」 を出していればその行が `hits` に入っている |
 | `agent_message_check_failed` | 検査を実行できなかった、 または時間内に終わらなかった |

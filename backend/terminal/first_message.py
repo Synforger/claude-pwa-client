@@ -6,6 +6,11 @@ launcher (= agent cfg `launcher: true`) の新しい会話は、 最初の発話
 発話を見て起動の仕方を決め、 本文を最初のメッセージとして claude に渡す (= 打鍵ではなく引数なので
 複数行でも崩れない)。
 
+階層のタブとして置いたタブ (= `SessionDef.tier_tab`、 `backend/tier_tabs/`) は、 最初の発話の代わりに
+その階層の封筒で起動し、 送られた本文は claude が打鍵を受け取れるようになってから次の発話として打つ
+(= 本文を封筒に足すと 1 行目が client の文になり、 人が打った発話として数えられなくなる)。 自動の入れ替えの
+発話は自分の階層を運ぶので、 そのまま最初の発話にする。
+
 「claude がまだ居ない」 は pane のプロセスで決める (= backend の記憶に頼ると、 再起動を跨いだ時に
 本文が zsh へコマンドとして打たれる)。 起動を打った後は `input_ready` の旗で次の送信を待たせる
 (= 起動途中の wrapper へ打鍵が流れ込まない)。
@@ -18,6 +23,8 @@ import os
 import uuid
 from pathlib import Path
 
+from backend._common.state import sessions_meta
+from backend.jsonl.jsonl_predicates import ROLLOVER_OPENING, unwrap_pasted
 from backend.terminal import input_ready
 from backend.terminal.pty_discover import claude_in_pane, register_claude_when_ready
 from backend.terminal.runner import tmux_send_keys, wait_until_typeable
@@ -26,11 +33,16 @@ from backend.terminal.session_resolver import (
     first_message_command,
     uses_launcher,
 )
+from backend.tier_tabs.envelope import envelope
 
 logger = logging.getLogger(__name__)
 
-# launcher が claude を起動するまでの上限 (= binding 登録の探索)。
+# launcher が claude を起動するまでの上限 (= binding 登録の探索)。 封筒で起動した後に本文を打つ前の待ちにも使う
+# (= launcher は起動の前にエージェントを pull するので、 送信口の待ちの上限より長くかかる)。
 LAUNCH_DISCOVER_SEC = 60.0
+
+# 封筒で起動した後に本文を打つ task (= 参照を持たないと、 終わる前に回収されることがある)。
+_following: set[asyncio.Task] = set()
 
 
 def _uploads_dir() -> Path:
@@ -57,7 +69,9 @@ async def launch_with_first_message(session_id: str, text: str) -> dict | None:
     await ensure_pty_session_for(session_id)
     if not input_ready.is_ready(session_id) or claude_in_pane(session_id):
         return None
-    command = first_message_command(session_id, _message_file(session_id, text))
+    tier = _placed_tier(session_id, text)
+    first = envelope(tier) if tier is not None else text
+    command = first_message_command(session_id, _message_file(session_id, first))
     input_ready.mark_starting(session_id)
     # 立て直した直後の pane (= 自動の入れ替え) は、 tmux が session を作り終えるまで打鍵を受けない。
     # 入力行に残った打ちかけ (= 前の失敗の残り) を消してから打つ。
@@ -67,6 +81,30 @@ async def launch_with_first_message(session_id: str, text: str) -> dict | None:
         input_ready.mark_ready(session_id)
         logger.warning("first message launch failed session=%s", session_id)
         return {"ok": False, "reason": "launch_failed"}
-    logger.info("first message launch session=%s", session_id)
+    logger.info("first message launch session=%s tier_tab=%s", session_id, tier)
     asyncio.create_task(register_claude_when_ready(session_id, max_wait=LAUNCH_DISCOVER_SEC))
+    if tier is not None:
+        task = asyncio.create_task(_send_when_ready(session_id, text))
+        _following.add(task)
+        task.add_done_callback(_following.discard)
     return {"ok": True, "launched": True}
+
+
+def _placed_tier(session_id: str, text: str) -> str | None:
+    """The tier the tab's new conversation starts in by envelope (= a tab placed as a tier tab), or None when
+    the text itself is the first message (= not a tier tab, or a rollover that carries its own tier)."""
+    meta = sessions_meta.get(session_id)
+    if meta is None or meta.tier_tab is None:
+        return None
+    return None if unwrap_pasted(text).lstrip().startswith(ROLLOVER_OPENING) else meta.tier_tab
+
+
+async def _send_when_ready(session_id: str, text: str) -> None:
+    """Type `text` as the next message once the claude started by the envelope takes input."""
+    from backend.terminal.routes import pty_send  # noqa: PLC0415  (= routes imports this module)
+    if not await input_ready.wait_ready(session_id, LAUNCH_DISCOVER_SEC):
+        logger.warning("tier tab: claude did not take input in %ds session=%s", LAUNCH_DISCOVER_SEC, session_id)
+    result = await pty_send(session_id, {"text": text, "enter": True}, None)
+    if not result.get("ok"):
+        logger.error("tier tab: the message after the envelope did not go in session=%s reason=%s",
+                     session_id, result.get("reason"))

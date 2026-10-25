@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 
 import backend.jsonl.jsonl_watcher as jsonl_watcher
-from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENINGS, ROLLOVER_OPENING, unwrap_pasted
+from backend.jsonl.jsonl_predicates import CLIENT_OPENINGS, ROLLOVER_OPENING, unwrap_pasted
 from backend.routes.agent_messages import entered_text, lines_from_the_end
 from backend.routes.overview import context_pct_of, is_busy
 from backend.routes.rollover import TAG, close_envelope
@@ -101,7 +101,7 @@ def due(cfg: dict, pct: int | None, idle_minutes: float, busy: bool) -> str | No
 
 def _decisive(raw: bytes) -> str | None:
     """記録の 1 行が、 人の打った発話なら `operator`、 締めを頼む発話なら `close`。 どちらでもなければ None
-    (= 別のタブからの連絡と、 起動し直した会話の最初の発話は、 頼んだかどうかを変えない)。"""
+    (= 別のタブからの連絡と、 起動し直した会話・階層のタブの最初の発話は、 頼んだかどうかを変えない)。"""
     if b'"user"' not in raw and b"queued_command" not in raw:
         return None
     try:
@@ -114,7 +114,7 @@ def _decisive(raw: bytes) -> str | None:
     text = unwrap_pasted(text).lstrip()
     if text.startswith(ROLLOVER_OPENING):
         return "close" if f'<{TAG} phase="close"' in text else None
-    return None if text.startswith(AGENT_MESSAGE_OPENINGS) else "operator"
+    return None if text.startswith(CLIENT_OPENINGS) else "operator"
 
 
 def asked(record: Path) -> bool:

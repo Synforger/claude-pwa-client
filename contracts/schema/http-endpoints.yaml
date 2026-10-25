@@ -35,7 +35,8 @@ endpoints:
           account_id:  { type: string, nullable: true }
           notify_mode: { type: string }
           created_at:  { type: string }
-          tier:        { type: string, nullable: true, description: "the tier the tab's agent started in (= its AGENT_TIER); null when not known" }
+          tier:        { type: string, nullable: true, description: "the tier the tab's agent started in (= its AGENT_TIER), else the tier a tier tab was placed for; null when not known" }
+          tier_tab:    { type: string, nullable: true, description: "the tier a tier tab was placed for (= its new conversations start in it); null for other tabs" }
         required: [sid, title, agent_id]
     response_kind: json
     auth: tailnet

@@ -3,7 +3,8 @@
 
     tabs [--agent-dir <エージェントの folder>] <以下の命令>
     tabs    list               連絡できるタブの一覧 (= id / 階層 / 口座 / 状態 / 境界 / 名前。 階層はこのエージェントのタブの物で、
-                                 別の agent のタブは「別の agent」 と出る)。
+                                 別の agent のタブは「別の agent」 と出る)。 claude がまだ居ない階層のタブは状態が
+                                 「未起動」 で、 送った連絡がその階層の claude を起動する。
                                  別の機械のタブは、 末尾に `<相手の名前>:<id>` の形で並ぶ
     tabs    send <to> <file>     <file> の中身を <to> (= タブの id か名前) へ送る。
                                  別の機械のタブは `<相手の名前>:<タブの id か名前>`
@@ -18,6 +19,11 @@
                                  会話) は、 一覧と同じにその会話の最初の発話から導く。
                                  子のタブ (= `AGENT_CHILD=1`) は journal の代わりに、 この会話がタブのメモに
                                  `## 引き継ぎ` を書いた時だけ頼む
+    tabs    open <階層>          このエージェントの <階層> (= `normal` / `projects/<P>` / `projects/<P>/subprojects/<S>`)
+                                 のタブを一覧に置く (= 閉じた階層のタブを戻す時。 新しい階層のタブは、 設定で
+                                 `tier_tabs` を入れたエージェントなら backend が自分で置く)。 claude は、 そのタブへ
+                                 最初の発話 (= 人の送信か `tabs send`) が届いた時に、 その階層で起動する。
+                                 その階層のタブが既にあれば止まる
 
     子のタブ (= このタブが仕事を渡すために立てるタブ。 手順は skill `child-tab`):
     tabs    new <題> <本文の file>
@@ -212,10 +218,14 @@ def listing() -> int:
               file=sys.stderr)
         return 1
     launch, live, me = launcher(), running(), os.environ.get("PWA_SID")
+    my_agent = next((tab.get("agent_id") for tab in tabs if tab["id"] == me), None)
     for tab in tabs:
         claude = live.get(tab["id"])
         if claude is None:
-            continue        # claude が動いていないタブへは届かない
+            # claude が動いていないタブへは届かない。 階層のタブは、 届いた連絡でその階層の claude が起動する
+            if tab.get("tier_tab"):
+                placed_row(launch, tab, my_agent, live.get(me))
+            continue
         # 階層はこのエージェントの物 (= その folder で動いていない claude は別の agent で、 封筒が運ぶ階層もその agent の物)
         ours = Path(os.path.realpath(str(claude.get("cwd") or ""))) == Path(os.path.realpath(agent_dir()))
         tier, folder = (launch.tier_of(launch.first_message(claude["account_dir"], claude["sessionId"])) if ours
@@ -238,6 +248,22 @@ def listing() -> int:
         ]).rstrip())
     others()
     return 0
+
+
+def placed_row(launch, tab: dict, my_agent: str | None, mine: dict | None) -> None:
+    """claude がまだ居ない階層のタブを 1 行出す (= 状態は「未起動」、 境界はまだ何も読んでいない)。"""
+    ours = my_agent is not None and tab.get("agent_id") == my_agent
+    tier = tab["tier_tab"] if ours else "別の agent"
+    folder = launch.tier_folder(tab["tier_tab"]) if ours else None
+    shown = not works_unknown((mine or {}).get("sessionId"), folder)
+    print("  ".join([
+        tab["id"],
+        tier if shown else HIDDEN,
+        f"口座={tab.get('account_id') or 'personal'}",
+        "未起動",
+        "境界=なし",
+        (tab.get("title") or "") if shown else f"({HIDDEN}のタブ)",
+    ]).rstrip())
 
 
 def others() -> None:
@@ -372,6 +398,15 @@ def new_child(title: str, file: Path) -> int:
                     f"## 渡された仕事\n\n{task}\n\n{CARRY}\n\n{CARRY_EMPTY}\n", encoding="utf-8")
     started = "" if body.get("started") else " (= 最初の発話を渡せていません。 子のタブを開いて確かめてください)"
     print(f"立てました: {child} ({title}){started}\n  メモ: {note}")
+    return 0
+
+
+def open_tier(tier: str) -> int:
+    """このエージェントの階層のタブを一覧に置く (= claude は最初の発話が届いた時に、 その階層で起動する)。"""
+    status, body = call("/tier-tabs", {"agent_dir": str(agent_dir()), "tier": tier})
+    if status != 200 or not isinstance(body, dict) or not body.get("id"):
+        return fail(f"階層のタブを置けません {refused(status, body)}")
+    print(f"置きました: {body['id']} ({body.get('title') or tier})")
     return 0
 
 
@@ -582,6 +617,8 @@ def main(argv: list[str]) -> int:
         agent_dir_option, argv = Path(argv[1]).expanduser(), argv[2:]
     if argv == ["list"]:
         return listing()
+    if len(argv) == 2 and argv[0] == "open":
+        return open_tier(argv[1])
     if len(argv) == 3 and argv[0] == "new":
         return new_child(argv[1], Path(argv[2]))
     if argv[:1] == ["children"] and argv[1:] in ([], ["--summary"]):

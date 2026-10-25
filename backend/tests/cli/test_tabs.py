@@ -81,6 +81,10 @@ class Backend:
                 backend.calls.append({"method": method, "path": self.path, "form": form})
                 if method == "GET" and self.path == "/sessions":
                     return self.reply(200, backend.tabs)
+                if method == "POST" and self.path == "/tier-tabs":
+                    if backend.answers.get("tier-tabs", 200) != 200:
+                        return self.reply(backend.answers["tier-tabs"], {"detail": {"code": "tier_tab_exists", "message": "has one"}})
+                    return self.reply(200, {"id": "ses_tier", "title": "B", "child": False, "tier_tab": "projects/B"})
                 if method == "POST" and self.path.endswith("/children"):
                     if backend.answers.get("children", 200) != 200:
                         return self.reply(backend.answers["children"], {"detail": {"code": "child_session_limit", "message": "full"}})
@@ -497,3 +501,35 @@ def test_the_listing_hides_a_tab_working_in_a_boundary_this_tab_does_not_know(tm
     assert module.works_unknown("s-client", work / "company/hub") is False
     assert module.works_unknown(None, work / "agent") is True
     assert module.works_unknown("s-normal", None) is False
+
+
+# --- 階層のタブ -----------------------------------------------------------------------------------------
+
+def test_open_asks_the_backend_for_the_tier_s_tab_of_this_agent(tabs):
+    assert tabs.run("open", "projects/B") == 0
+    [call] = tabs.backend.called("POST", "/tier-tabs")
+    assert call["form"] == {"agent_dir": str(tabs.agent), "tier": "projects/B"}
+    assert "置きました: ses_tier (B)" in tabs.out
+
+
+def test_open_names_the_backend_s_refusal(tabs):
+    tabs.backend.answers["tier-tabs"] = 409
+    assert tabs.run("open", "projects/B") == 1
+    assert "tier_tab_exists" in tabs.err
+
+
+def test_the_listing_shows_a_placed_tier_tab_before_its_claude_starts(tabs):
+    tabs.backend.tabs = [
+        {"id": "ses_parent", "title": "main", "agent_id": "agent_a", "child": False, "parent_id": None},
+        {"id": "ses_placed", "title": "P", "agent_id": "agent_a", "child": False, "parent_id": None,
+         "tier_tab": "projects/P"},
+        {"id": "ses_theirs", "title": "Q", "agent_id": "agent_b", "child": False, "parent_id": None,
+         "tier_tab": "normal"},
+        {"id": "ses_hand", "title": "hand", "agent_id": "agent_a", "child": False, "parent_id": None},
+    ]
+    assert tabs.run("list") == 0
+    lines = {line.split()[0]: line for line in tabs.out.splitlines() if line.strip()}
+    assert lines["ses_placed"].split("  ") == ["ses_placed", "projects/P", "口座=personal", "未起動", "境界=なし", "P"]
+    assert lines["ses_theirs"].split("  ")[1] == "別の agent"
+    # a tab without claude that was not placed for a tier is still not listed
+    assert "ses_hand" not in lines

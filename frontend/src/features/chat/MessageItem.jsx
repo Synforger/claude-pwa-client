@@ -8,7 +8,7 @@ import { formatToolResultContent, formatDuration, formatModelName, formatTokens 
 import { diffLines, compactDiff } from '../../_common/diff.js'
 import { apiFetch } from '../../_common/api.js'
 import { useT } from '../../i18n/t.js'
-import { parseAgentMessage, parseRollover } from './agentMessage.js'
+import { parseAgentMessage, parseRollover, parseTabOpen } from './agentMessage.js'
 import './MessageItem.css'
 
 const RESULT_PREVIEW_CHARS = 800
@@ -335,6 +335,8 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
   const relayed = useMemo(() => (msg.role === 'user' ? parseAgentMessage(msg.text) : null), [msg.role, msg.text])
   // 自動の入れ替えの発話 (= 締めを頼む発話と、 起動し直した会話の最初の発話) も同じ user 行で届く。
   const rollover = useMemo(() => (msg.role === 'user' ? parseRollover(msg.text) : null), [msg.role, msg.text])
+  // backend が階層ごとに立てたタブの最初の発話も同じ user 行で届く。
+  const tabOpen = useMemo(() => (msg.role === 'user' ? parseTabOpen(msg.text) : null), [msg.role, msg.text])
   // system kind は messageRegistry に「fromEvent + Render」 ペアで集約しており、
   // ここでは generic lookup で表示コンポーネントを引くだけ (= F-04 consumer)。
   // 新しい system kind を増やす時は messageRegistry に Render を 1 個足すだけで配線完了、
@@ -398,7 +400,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
 
   return (
     <div
-      className={`message ${msg.role}${relayed || rollover ? ' relayed' : ''}`}
+      className={`message ${msg.role}${relayed || rollover || tabOpen ? ' relayed' : ''}`}
       data-testid={`message-bubble-${msg.role}`}
       data-cpc-role={msg.role}
       data-cpc-uuid={msg.uuid || ''}
@@ -575,6 +577,11 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
               <MessageRenderer text={rollover.text} onOpenFile={onOpenFile} streaming={false} />
             )}
           </span>
+        </div>
+      ) : tabOpen ? (
+        <div className="relayed-block">
+          <div className="relayed-from" data-testid="tab-open-label">{t('chat.tab_open')}</div>
+          <span className="bubble" data-testid="tab-open-body">{tabOpen.tier ?? '?'}</span>
         </div>
       ) : (
         <span className="bubble">

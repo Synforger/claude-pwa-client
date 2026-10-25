@@ -117,12 +117,15 @@ def is_agent_message(text) -> bool:
 # 締めを頼む発話と、 起動し直した会話の最初の発話の両方がこの行で始まる (= 封筒を作るのは
 # routes/rollover.py、 同じ行を docs/reference/rollover.md に載せている)。
 ROLLOVER_OPENING = "Automatic session rollover, sent by the client (the operator did not type this):"
+# backend がエージェントの階層ごとに立てたタブの、 最初の発話の 1 行目 (= 封筒を作るのは
+# backend/tier_tabs/envelope.py、 同じ行を docs/reference/tier-tabs.md に載せている)。
+TAB_OPEN_OPENING = "Tab opened by the client for its tier (the operator did not type this):"
 # 端末から入るが、 人が打っていない発話の 1 行目の全部。
-CLIENT_OPENINGS = (*AGENT_MESSAGE_OPENINGS, ROLLOVER_OPENING)
+CLIENT_OPENINGS = (*AGENT_MESSAGE_OPENINGS, ROLLOVER_OPENING, TAB_OPEN_OPENING)
 
 
 def is_client_message(text) -> bool:
-    """端末から入ったが人が打っていない発話か (= 別のタブからの連絡と、 自動の入れ替えの発話)。"""
+    """端末から入ったが人が打っていない発話か (= 別のタブからの連絡、 自動の入れ替えの発話、 階層のタブの最初の発話)。"""
     return isinstance(text, str) and unwrap_pasted(text).lstrip().startswith(CLIENT_OPENINGS)
 
 

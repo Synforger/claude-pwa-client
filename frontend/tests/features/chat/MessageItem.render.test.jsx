@@ -12,7 +12,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { render, cleanup } from '@testing-library/react'
 import MessageItem from '../../../src/features/chat/MessageItem.jsx'
-import { AGENT_MESSAGE_OPENING, ROLLOVER_OPENING } from '../../../src/features/chat/agentMessage.js'
+import { AGENT_MESSAGE_OPENING, ROLLOVER_OPENING, TAB_OPEN_OPENING } from '../../../src/features/chat/agentMessage.js'
 
 afterEach(cleanup)
 
@@ -53,6 +53,17 @@ describe('MessageItem render smoke', () => {
     expect(getByTestId('relayed-operator').textContent).toContain('have the owner fix it')
     expect(container.textContent).toContain('a title that wraps overlaps')
     expect(container.textContent).not.toContain('operator-said')
+  })
+
+  it('the first message of a tier tab shows the tier, not the envelope', () => {
+    const text = `${TAB_OPEN_OPENING}\n<tab-open>\ntier=projects/music\n</tab-open>`
+    const { container, getByTestId } = render(
+      <MessageItem {...baseProps} msg={{ id: 'u9', role: 'user', text }} />,
+    )
+    expect(getByTestId('tab-open-label').textContent).toBeTruthy()
+    expect(getByTestId('tab-open-body').textContent).toBe('projects/music')
+    expect(container.textContent).not.toContain('tab-open>')
+    expect(container.querySelector('.message.user.relayed')).not.toBeNull()
   })
 
   it('a request to close for a rollover says why, not the envelope', () => {

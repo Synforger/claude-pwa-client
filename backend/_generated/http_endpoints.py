@@ -20,7 +20,8 @@ class GetSessionsResponseItem(BaseModel):
     account_id: Optional[str] = None
     notify_mode: Optional[str] = None
     created_at: Optional[str] = None
-    tier: Optional[str] = None  # the tier the tab's agent started in (= its AGENT_TIER); null when not known
+    tier: Optional[str] = None  # the tier the tab's agent started in (= its AGENT_TIER), else the tier a tier tab was placed for; null when not known
+    tier_tab: Optional[str] = None  # the tier a tier tab was placed for (= its new conversations start in it); null for other tabs
 
 
 class GetSessionsOverviewResponse(BaseModel):

@@ -55,7 +55,7 @@ your own words without the quoted material and send again.
 | Code | Meaning and what to do |
 |---|---|
 | `agent_message_refused` | The body contains material the receiver may not read. Rewrite it in your own words. |
-| `agent_message_receiver_not_running` | No Claude runs in the receiver's tab. Tell the operator; a message never starts a conversation. |
+| `agent_message_receiver_not_running` | No Claude runs in the receiver's tab. Tell the operator; a message never starts a conversation (except in a tier tab, below). |
 | `agent_message_ambiguous_receiver` | Several tabs share the name. Use the id from `tabs list`. |
 | `agent_message_check_failed` | The screening did not run. Send once more; if it repeats, tell the operator. |
 
@@ -87,6 +87,25 @@ Such notes go through the guard as if the sender had read no protected material,
 operator), `agent_message_peer_not_allowed` (this tab or the receiver is not on an account allowed to talk to
 that machine), `agent_message_unknown_peer` (the other machine's configuration does not list this one). See
 `docs/reference/agent-messages.md` for the setup.
+
+## Tier tabs
+
+An agent whose configuration has `tier_tabs: true` gets one tab per tier (`normal`, `projects/<P>`,
+`projects/<P>/subprojects/<S>`) placed in the list by the backend; a new tier folder gets its tab within a minute.
+No Claude runs in a placed tab until a first message reaches it (the operator's, or a note sent with `tabs send`;
+`tabs list` shows such a tab as `未起動`). The backend then starts Claude with an envelope the client writes, not
+the operator's words: `Tab opened by the client for its tier (the operator did not type this):` followed by a
+`<tab-open>` block with the `tier=` line. The message that arrived comes next, unchanged. Run the startup as for
+a new session, then answer that message.
+
+The backend does not place a tier tab again once it was closed. To bring one back:
+
+```
+tabs open <tier>
+```
+
+It refuses when that tier already has a tab, or when the agent has no folder for it. See
+`docs/reference/tier-tabs.md`.
 
 ## Child tabs
 

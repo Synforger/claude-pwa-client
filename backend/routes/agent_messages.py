@@ -62,6 +62,7 @@ from backend._common.state import sessions_meta
 from backend.terminal.pty_discover import claude_in_pane
 from backend.terminal.routes import pty_send
 from backend.terminal.runner import jsonl_path_for_session
+from backend.terminal.session_resolver import uses_launcher
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -217,6 +218,10 @@ async def check(receiver_id: str, text: str) -> None:
     if not AGENT_MESSAGE_CHECK:
         return
     record = jsonl_path_for_session(receiver_id)
+    if record is None and _waits_for_first_message(receiver_id):
+        # 階層のタブの、 まだ始まっていない会話: 何も読んでいない相手として通す (= この連絡で始まる会話)
+        await judge(f"tier-tab:{receiver_id}", text, receiver_id)
+        return
     if record is None:
         raise_error(409, "agent_message_receiver_not_ready",
                     "宛先の会話がまだ始まっていないため、 検査できません")
@@ -335,6 +340,18 @@ def _tab_running(tab_id: str) -> bool:
     return os.environ.get("CPC_E2E") == "1" or claude_in_pane(tab_id)
 
 
+def _waits_for_first_message(tab_id: str) -> bool:
+    """階層のタブとして置かれ、 claude がまだ居ないタブか (= 届いた連絡が、 その階層で claude を起動する。
+    `terminal/first_message.py`)。"""
+    meta = sessions_meta.get(tab_id)
+    return meta is not None and meta.tier_tab is not None and uses_launcher(tab_id) and not _tab_running(tab_id)
+
+
+def _tab_reachable(tab_id: str) -> bool:
+    """連絡が届くタブか (= claude が動いているか、 最初の発話で claude が起動する階層のタブ)。"""
+    return _tab_running(tab_id) or _waits_for_first_message(tab_id)
+
+
 async def send_to_peer(peer_name: str, tab: str, sender: str, text: str) -> dict:
     """別の機械のタブへの連絡。 こちらの検査を通してから相手の backend へ渡す。
 
@@ -395,8 +412,9 @@ async def post_agent_message(
     receiver_id = resolve_receiver(to)
     if receiver_id == sender:
         raise_error(400, "agent_message_to_self", "自分のタブへは送れません")
-    if not _tab_running(receiver_id):
-        # 連絡で会話を起こさない: 新しい会話は最初の発話で起動の仕方が決まる。
+    if not _tab_reachable(receiver_id):
+        # 連絡で会話を起こさない: 新しい会話は最初の発話で起動の仕方が決まる (= 階層のタブだけは、 階層が
+        # タブに決まっているので、 連絡が最初の発話になって起動する)。
         raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いていません")
     await check(receiver_id, text)
     said = await operator_said_for(sender, receiver_id) if operator_said else None
@@ -438,7 +456,7 @@ async def post_relayed_agent_message(request: Request, body: dict = Body(...)) -
     if not allowed_for_peer(peer, receiver_id):
         raise_error(403, "agent_message_peer_not_allowed",
                     f"宛先のタブは {peer_name} の機械と連絡できません", peer=peer_name)
-    if not _tab_running(receiver_id):
+    if not _tab_reachable(receiver_id):
         raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いていません")
     await check(receiver_id, text)
     payload = {"text": relayed_envelope(peer_name, title, session, text), "enter": True}
@@ -452,7 +470,7 @@ async def post_relayed_agent_message(request: Request, body: dict = Body(...)) -
 async def get_tabs_for_peer(request: Request) -> dict:
     """相手の機械へ、 連絡を受けられるこの機械のタブの一覧を返す (= その相手と連絡してよいタブだけ)。"""
     _peer_name, peer = _require_peer(request)
-    return {"tabs": [{"id": m.id, "title": m.title, "running": _tab_running(m.id)}
+    return {"tabs": [{"id": m.id, "title": m.title, "running": _tab_reachable(m.id)}
                      for m in sessions_meta.values() if allowed_for_peer(peer, m.id)]}
 
 
