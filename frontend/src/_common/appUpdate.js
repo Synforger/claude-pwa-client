@@ -8,13 +8,12 @@
 // ここで確かめる機会を足す:
 //   - 前面へ戻った時 / ブラウザが保存していた頁を戻した時 (= transport/lifecycle.ts の cpc:fg)
 //   - 開いている間は一定の間隔
-// 確かめ方は入れ物で 2 つに分かれる:
-//   - service worker が在る (= ブラウザ・ホーム画面の PWA): service worker に新しい版を探させ、
-//     新しい service worker が有効になったら移る
-//   - service worker が無い (= iPhone の app の WKWebView。 App-Bound Domains を宣言しない app には
-//     service worker の口が無い): 入口の頁を取り直し、 そこに載っている build が今動かしている
-//     build と違えば移る。 app は声の会話を裏で続けるために殺されずに生き続けるので、 これが無いと
-//     古い JS が何日も走る
+// 確かめ方は 2 つで、 どちらが先に気づいても移るのは 1 回:
+//   - 入口の頁を取り直し、 そこに載っている build が今動かしている build と違えば移る。 どの入れ物でも
+//     行う。 service worker の入れ替えは、 画面がそれを受け取れる時にしか効かない: iPhone の app の
+//     WKWebView には service worker の口が無く (= App-Bound Domains を宣言する app にだけ在る)、
+//     ホーム画面の PWA も、 build が何度も入れ替わった後に木の一覧の無い古い画面のまま動いていた
+//   - service worker が在る時は、 加えて新しい版を探させ、 新しい service worker が有効になったら移る
 // 移る時は 1 回だけ読み込み直して新しい build の画面へ移る。
 // 会話は保存済みで、 打ちかけの入力は頁を離れる時に保存される (= features/chat/useChatStorage.js)
 // ので、 読み込み直しでは消えない。 消えるのは、 選んだだけでまだ送っていない添付 (= 選び直しになる)。
@@ -101,8 +100,8 @@ export function installUpdateChecks({
     })
   }
 
-  let check
-  if (nav.serviceWorker) {
+  const hasServiceWorker = !!nav.serviceWorker
+  if (hasServiceWorker) {
     // 新しい service worker が有効になった = 新しい build が載った。
     // 初めて登録された時 (= 管理する service worker が無かった頁に付いた時) は更新ではないので数えない。
     let controlled = !!nav.serviceWorker.controller
@@ -110,20 +109,23 @@ export function installUpdateChecks({
       if (!controlled) { controlled = true; return }
       reloadWhenFree()
     })
-    check = () => { checkForUpdate(nav) }
-  } else {
-    const running = runningBuildId(doc)
-    // 入口の script を持たない頁 (= 開発の server) は、 比べる build が無い
+  }
+
+  // 入口の script を持たない頁 (= 開発の server) は、 比べる build が無い
+  const running = runningBuildId(doc)
+  const checkServedBuild = () => {
     if (!running) return
-    check = () => {
-      fetchServedBuildId(http).then(served => {
-        if (!served || served === running || readReloadedTo(win) === served) return
-        reloadWhenFree(() => {
-          saveReloadedTo(win, served)
-          send({ stage: 'update:reload', from: running, to: served })
-        })
+    fetchServedBuildId(http).then(served => {
+      if (!served || served === running || readReloadedTo(win) === served) return
+      reloadWhenFree(() => {
+        saveReloadedTo(win, served)
+        send({ stage: 'update:reload', from: running, to: served, serviceWorker: hasServiceWorker })
       })
-    }
+    })
+  }
+  const check = () => {
+    checkServedBuild()
+    if (hasServiceWorker) checkForUpdate(nav)
   }
 
   win.addEventListener('cpc:fg', check)
