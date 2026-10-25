@@ -35,7 +35,8 @@
 (= 既定 8765、 別 port の PC は `PWA_PORT`)、 送り主は自分のタブの `PWA_SID`。
 
 エージェントの folder は、 `--agent-dir` > 環境変数 `AGENT_ROOT` > 器の根 (= `AGENT_PLATFORM_ROOT`) の `agents/` の下で
-起動 script (= `.tooling/lib/claude-launch.py`) を持つ 1 つ、 の順に決める (= どれも無ければ止まる)。 番人の印の置き場は、 `AREA_GUARD_STATE` > 器の根の `state/guard/marks` > `~/.cache/area-guard`。
+起動 script (= `.tooling/lib/claude-launch.py`) を持つ物、 の順に決める。 器の根の下に 2 つ以上ある時は、 作業 folder を
+中に含む 1 つを選ぶ (= どれでも決まらなければ止まる)。 起動 script はエージェントの場所を自分の file の置き場から決める。 番人の印の置き場は、 `AREA_GUARD_STATE` > 器の根の `state/guard/marks` > `~/.cache/area-guard`。
 
 別の機械 (= backend の設定の `agent_message_peers` に書いた相手) のタブへは、 こちらの backend が番人の検査を
 通してから相手の backend へ渡し、 相手の backend が自分の番人を通して届ける。 相手の機械に見えるのも、
@@ -78,17 +79,22 @@ TIMEOUT_SEC = 240
 
 
 def agent_dir() -> Path:
-    """エージェントの folder (= `--agent-dir` > `AGENT_ROOT` > 器の根の `agents/` の下で起動 script を持つ 1 つ)。"""
+    """エージェントの folder (= `--agent-dir` > `AGENT_ROOT` > 器の根の `agents/` の下で起動 script を持つ物のうち、
+    1 つしか無ければそれ、 2 つ以上なら作業 folder を中に含む 1 つ)。"""
     if agent_dir_option is not None:
         return agent_dir_option
     if os.environ.get("AGENT_ROOT"):
         return Path(os.environ["AGENT_ROOT"]).expanduser()
     if PLATFORM_ROOT is None:
         raise SystemExit("tabs: エージェントの folder が分かりません。 --agent-dir か AGENT_PLATFORM_ROOT で渡してください")
-    found = sorted(PLATFORM_ROOT.glob("agents/*/.tooling/lib/claude-launch.py"))
+    found = sorted(script.parents[2] for script in PLATFORM_ROOT.glob("agents/*/.tooling/lib/claude-launch.py"))
+    if len(found) > 1:
+        # タブの claude はエージェントの根か、 その下の階層で動くので、 作業 folder を含む 1 つがそのタブのエージェント
+        here = Path.cwd().resolve()
+        found = [agent for agent in found if here.is_relative_to(agent.resolve())] or found
     if len(found) != 1:
         raise SystemExit(f"tabs: {PLATFORM_ROOT / 'agents'} の下に起動 script を持つ folder が{len(found)}個あります。 --agent-dir で 1 つを渡してください")
-    return found[0].parents[2]
+    return found[0]
 
 
 def launcher():
@@ -96,7 +102,6 @@ def launcher():
     script = agent / ".tooling/lib/claude-launch.py"
     if not script.is_file():
         raise SystemExit(f"tabs: エージェントの起動 script が見つかりません ({script})。 --agent-dir か AGENT_PLATFORM_ROOT で場所を渡してください")
-    os.environ["AGENT_ROOT"] = str(agent)     # 起動 script は import の時に環境変数からエージェントの場所を読む
     spec = importlib.util.spec_from_file_location("claude_launch", script)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

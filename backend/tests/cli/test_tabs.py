@@ -27,7 +27,7 @@ import os
 import re
 from pathlib import Path
 
-AGENT = Path(os.environ.get("AGENT_ROOT", Path(__file__).resolve().parents[3]))
+AGENT = Path(__file__).resolve().parents[2]
 CHILD_START = re.compile(r"<child-start>\\ntier=(.*?)\\n</child-start>", re.S)
 
 
@@ -168,11 +168,11 @@ def tabs(tmp_path, backend):
 
 # --- エージェントの folder の場所 -------------------------------------------------------
 
-def where(env: dict[str, str], *argv: str) -> subprocess.CompletedProcess:
+def where(env: dict[str, str], *argv: str, cwd: Path = REPO_ROOT) -> subprocess.CompletedProcess:
     """新しい process で、 tabs が決めたエージェントの folder と印の置き場を JSON で出させる (= 器の根と HOME は import の時に読まれる)。"""
     script = ("import json, sys; from backend.cli import tabs; tabs.main(sys.argv[1:]); "
               "print(json.dumps({'agent': str(tabs.agent_dir()), 'marks': str(tabs.MARKS)}))")
-    return subprocess.run([sys.executable, "-c", script, *argv], cwd=REPO_ROOT, capture_output=True, text=True, timeout=60,
+    return subprocess.run([sys.executable, "-c", script, *argv], cwd=cwd, capture_output=True, text=True, timeout=60,
                           env={"PATH": os.environ["PATH"], "PYTHONPATH": str(REPO_ROOT), "PYTHONDONTWRITEBYTECODE": "1", **env})
 
 
@@ -203,12 +203,36 @@ def test_a_root_gives_the_only_agent_and_the_marks_place(tmp_path):
     assert placed(done) == {"agent": str(agent), "marks": str(root / "state/guard/marks")}
 
 
-def test_a_root_with_several_agents_asks_for_one(tmp_path):
+def test_a_root_with_several_agents_asks_for_one_outside_them(tmp_path):
     root = tmp_path / "platform"
     add_launcher(root, "one")
     add_launcher(root, "two")
     done = where({"HOME": str(tmp_path), "AGENT_PLATFORM_ROOT": str(root)})
     assert done.returncode == 1 and "2個あります" in done.stderr and "--agent-dir" in done.stderr
+    (root / "agents/three").mkdir()
+    done = where({"HOME": str(tmp_path), "AGENT_PLATFORM_ROOT": str(root)}, "nothing", cwd=root / "agents/three")
+    assert done.returncode == 1 and "2個あります" in done.stderr
+
+
+def test_a_root_with_several_agents_gives_the_one_the_tab_works_in(tmp_path):
+    root = tmp_path / "platform"
+    add_launcher(root, "one")
+    two = add_launcher(root, "two")
+    env = {"HOME": str(tmp_path), "AGENT_PLATFORM_ROOT": str(root)}
+    assert placed(where(env, "nothing", cwd=two))["agent"] == str(two)
+    tier = two / "projects/P/subprojects/S"
+    tier.mkdir(parents=True)
+    assert placed(where(env, "nothing", cwd=tier))["agent"] == str(two)
+
+
+def test_a_root_with_several_agents_finds_the_tab_s_one_through_a_link(tmp_path):
+    root = tmp_path / "platform"
+    add_launcher(root, "one")
+    two = add_launcher(root, "two")
+    link = tmp_path / "linked-platform"
+    link.symlink_to(root)
+    done = where({"HOME": str(tmp_path), "AGENT_PLATFORM_ROOT": str(link)}, "nothing", cwd=two)
+    assert placed(done)["agent"] == str(link / "agents/two")
 
 
 def test_the_agent_comes_from_the_strongest_of_the_option_the_variable_and_the_root(tmp_path):
