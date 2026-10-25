@@ -59,6 +59,15 @@ send/receive path.
 Each machine's backend runs the code and the built screen of its own checkout. A change that landed on `develop`
 reaches the running backend only after that checkout has pulled and built.
 
+On an agent platform whose manifest marks the client `auto_update`, the `platform update` service does this on every
+machine every 10 minutes: it moves the checkout to the head of `develop` (only when it is on `develop`, has no local
+change and has not diverged), runs `task build`, syncs the environment when `pyproject.toml` or `uv.lock` changed,
+and restarts the backend when `backend/`, `pyproject.toml` or `uv.lock` changed. While a voice call's worker runs it
+holds the restart, and a later run does it. What it did is in `$AGENT_PLATFORM_ROOT/state/platform/logs/update.out`
+(a run with nothing to do writes no line); what is still owed is in `$AGENT_PLATFORM_ROOT/state/platform/update.json`. A merged change
+therefore needs no hand to reach the machines. Ship by hand with the steps below when it must be live at once, such
+as before a check on a device; the next run then finds nothing to do.
+
 1. Note the current commit: `git rev-parse HEAD`.
 2. `git pull --ff-only origin develop` (it works only on `develop` with no local change; read the reason when it stops).
 3. `task build`. A screen that is open switches to the new build the next time it is in front.
