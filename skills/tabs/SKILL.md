@@ -10,8 +10,9 @@ Every tab of the client runs its own Claude Code conversation. The client's back
 reach each other, and `tabs` is the command an agent uses for it. It is installed by `task cli:install` (a link
 in `~/.local/bin`) and runs only inside a tab of the client (= the tab's id is in `PWA_SID`).
 
-`tabs` finds the agent's folder from `--agent-dir`, then `AGENT_ROOT`, then the one folder under
-`$AGENT_PLATFORM_ROOT/agents/` that holds the agent's launch script. It reaches the backend on its port (= the
+`tabs` finds the agent's folder from `--agent-dir`, then `AGENT_ROOT`, then the folders under
+`$AGENT_PLATFORM_ROOT/agents/` that hold the agent's launch script: the only one, or, when there are several, the one
+that contains the current working folder (= a tab's Claude runs in its agent's folder or a tier below it). It reaches the backend on its port (= the
 client's configuration for this machine; `PWA_PORT` when it is not the default).
 
 ## Sending a message to another tab
