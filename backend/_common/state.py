@@ -101,6 +101,9 @@ class SessionDef:
     # 子のタブ (= 別のタブの claude が仕事を渡すために立てたタブ、 `routes/child_sessions.py`)。 親は
     # parent_id が持つ。 フォークのタブと通常のタブは False。
     child: bool = False
+    # 階層のタブ (= `backend/tier_tabs/`) が、 どの階層のために置いたタブか。 新しい会話はこの階層で起動する
+    # (= `terminal/first_message.py`)。 人や子の仕組みが立てたタブは None。
+    tier_tab: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -113,6 +116,7 @@ class SessionDef:
             "resume_session_id": self.resume_session_id,
             "account_id": self.account_id,
             "child": self.child,
+            "tier_tab": self.tier_tab,
         }
 
 
@@ -162,6 +166,7 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
                 resume_session_id=entry.get("resume_session_id"),
                 account_id=entry.get("account_id"),
                 child=entry.get("child") is True,
+                tier_tab=entry.get("tier_tab") if isinstance(entry.get("tier_tab"), str) else None,
             )
     else:
         # 初期化: agent ごと 1 セッションを生成する
@@ -600,11 +605,13 @@ def register_session(
     account_id: str | None = None,
     sid: str | None = None,
     child: bool = False,
+    tier_tab: str | None = None,
 ) -> SessionDef:
     """新規セッションを登録して全状態 dict を初期化する。 永続化まで行う。
 
     parent_id / resume_session_id はフォーク (= 会話分岐) で生まれたタブにのみ渡す
     (= 出自と、 初回 spawn で resume する claude session id)。 子のタブ (= child) は parent_id だけを持つ。
+    tier_tab は階層のタブとして置くタブにだけ渡す (= 新しい会話をその階層で起動する)。
     account_id は config.json accounts の key (= 個人 / 会社 OAuth の選択)。 None は
     personal 相当 (= 通常 ~/.claude/) として扱う。
     sid が指定された場合は新規生成せずその値で登録する (= ADR-020 e2e seed が
@@ -620,7 +627,7 @@ def register_session(
     meta = SessionDef(
         id=sid, agent_id=agent_id, title=title, created_at=int(time.time()),
         parent_id=parent_id, resume_session_id=resume_session_id,
-        account_id=account_id, child=child,
+        account_id=account_id, child=child, tier_tab=tier_tab,
     )
     if child:
         # 子のタブは親が仕事を渡すために立てる物で、 進みは親への報告で届く。 通知は切って立てる (= 画面の ⚙ で入れ直せる)

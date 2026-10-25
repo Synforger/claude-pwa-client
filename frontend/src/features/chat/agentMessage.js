@@ -70,5 +70,23 @@ export function parseRollover(text) {
   }
 }
 
-/** 端末から入ったが人が打っていない発話か (= 別のタブからの連絡と、 自動の入れ替えの発話)。 */
-export const isClientMessage = (text) => !!(parseAgentMessage(text) || parseRollover(text))
+// backend がエージェントの階層ごとに立てたタブの、 最初の発話。 1 行目は backend の
+// `jsonl/jsonl_predicates.py` と同じ文字列で、 backend の test が両者の一致を見ている。
+export const TAB_OPEN_OPENING =
+  'Tab opened by the client for its tier (the operator did not type this):'
+
+const TAB_OPEN = /^<tab-open>\n([\s\S]*?)\n<\/tab-open>\s*$/
+
+/** 階層のタブの最初の発話なら { tier } (= 立てた階層。 `tier=` の行が無ければ null)、 違えば null。 */
+export function parseTabOpen(text) {
+  if (typeof text !== 'string') return null
+  const trimmed = text.trimStart()
+  if (!trimmed.startsWith(TAB_OPEN_OPENING)) return null
+  const m = TAB_OPEN.exec(trimmed.slice(TAB_OPEN_OPENING.length).trimStart())
+  if (!m) return null
+  const line = m[1].split('\n').find((l) => l.startsWith('tier='))
+  return { tier: line ? line.slice('tier='.length).trim() : null }
+}
+
+/** 端末から入ったが人が打っていない発話か (= 別のタブからの連絡、 自動の入れ替えの発話、 階層のタブの最初の発話)。 */
+export const isClientMessage = (text) => !!(parseAgentMessage(text) || parseRollover(text) || parseTabOpen(text))

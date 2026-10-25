@@ -9,6 +9,12 @@ import pytest
 from fastapi import HTTPException
 
 
+def _meta(sid):
+    """A tab's record as the overview reads it (= it looks at the tier a tier tab was placed for)."""
+    from backend._common.state import SessionDef
+    return SessionDef(id=sid, agent_id="agent_a", title=sid, created_at=0)
+
+
 def _setup_session(state, sid="ses_cfg"):
     from backend._common.state import StreamState
     state.sessions_meta[sid] = object()
@@ -25,8 +31,8 @@ def test_build_sessions_overview_reflects_busy(isolated_state):
     state.stream_states.clear()
     state.agent_status.clear()
     # busy=True の session と busy=False の session
-    state.sessions_meta["ses_a"] = object()
-    state.sessions_meta["ses_b"] = object()
+    state.sessions_meta["ses_a"] = _meta("ses_a")
+    state.sessions_meta["ses_b"] = _meta("ses_b")
     state.stream_states["ses_a"] = StreamState(busy=True)
     state.stream_states["ses_b"] = StreamState(busy=False)
     state.agent_status["ses_a"] = {}
@@ -298,7 +304,7 @@ def test_build_sessions_overview_includes_last_seen_at(isolated_state):
     state = isolated_state
     state.sessions_meta.clear(); state.stream_states.clear(); state.agent_status.clear()
     state.session_last_seen_at.clear()
-    state.sessions_meta["ses_a"] = object()
+    state.sessions_meta["ses_a"] = _meta("ses_a")
     state.stream_states["ses_a"] = StreamState(busy=False)
     state.agent_status["ses_a"] = {}
     state.session_last_seen_at["ses_a"] = 1234.5
@@ -330,8 +336,8 @@ def test_build_sessions_overview_ors_pane_working(isolated_state):
     state.sessions_meta.clear()
     state.stream_states.clear()
     state.agent_status.clear()
-    state.sessions_meta["ses_sp"] = object()
-    state.sessions_meta["ses_stop"] = object()
+    state.sessions_meta["ses_sp"] = _meta("ses_sp")
+    state.sessions_meta["ses_stop"] = _meta("ses_stop")
     # JSONL 上は turn 終了済 (busy=False) でも、 スピナーが回っていれば busy=True
     state.stream_states["ses_sp"] = StreamState(busy=False, pane_working=True)
     # Stop 押下は スピナー観測より優先して False

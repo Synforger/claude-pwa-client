@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  AGENT_MESSAGE_OPENING, AGENT_MESSAGE_REMOTE_OPENING, ROLLOVER_OPENING,
-  isClientMessage, parseAgentMessage, parseRollover,
+  AGENT_MESSAGE_OPENING, AGENT_MESSAGE_REMOTE_OPENING, ROLLOVER_OPENING, TAB_OPEN_OPENING,
+  isClientMessage, parseAgentMessage, parseRollover, parseTabOpen,
 } from '../../../src/features/chat/agentMessage.js'
 
 const wrap = (body, from = 'tools', session = 'ses_sender') =>
@@ -100,5 +100,26 @@ describe('parseRollover', () => {
     expect(isClientMessage(start)).toBe(true)
     expect(isClientMessage(wrap('hello'))).toBe(true)
     expect(isClientMessage('hello')).toBe(false)
+  })
+})
+
+describe('parseTabOpen', () => {
+  const opened = (tier) => `${TAB_OPEN_OPENING}\n<tab-open>\ntier=${tier}\n</tab-open>`
+
+  it('reads the tier the client opened the tab for', () => {
+    expect(parseTabOpen(opened('projects/music/subprojects/demo'))).toEqual({ tier: 'projects/music/subprojects/demo' })
+    expect(parseTabOpen(opened('normal'))).toEqual({ tier: 'normal' })
+  })
+
+  it('is not a typed message, a relayed one or a rollover', () => {
+    expect(parseTabOpen('hello')).toBeNull()
+    expect(parseTabOpen(`${TAB_OPEN_OPENING}\nno envelope`)).toBeNull()
+    expect(parseTabOpen(wrap('hello'))).toBeNull()
+    expect(parseAgentMessage(opened('normal'))).toBeNull()
+    expect(parseRollover(opened('normal'))).toBeNull()
+  })
+
+  it('counts with the messages the operator did not type', () => {
+    expect(isClientMessage(opened('normal'))).toBe(true)
   })
 })

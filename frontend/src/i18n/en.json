@@ -211,6 +211,7 @@
   "chat.relayed_operator_said": "The operator said",
   "chat.rollover_close": "Automatic rollover: closing",
   "chat.rollover_start": "Automatic rollover: started",
+  "chat.tab_open": "Tier tab opened by the client",
   "chat.rollover_reason_context": "Context reached {pct}%. This session wraps up at the next stopping point and hands over to a new one.",
   "chat.rollover_reason_idle": "Context is at {pct}% and nothing has happened for {minutes} minutes. This session closes and a new one starts.",
   "chat.thinking": "Thinking…",

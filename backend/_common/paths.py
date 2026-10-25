@@ -112,6 +112,8 @@ JSONL_BINDINGS_PATH = DATA_DIR / "jsonl_bindings.json"
 # kill する直前にその時点の claude_sid を記録 → binding が事故で消えた / 古い backup に
 # 戻った時の復旧源として使う。 N 件で打ち切るので無限肥大しない。
 SESSION_HISTORY_PATH = DATA_DIR / "session_history.json"
+# agent_id → タブを立てたことのある階層 (= 閉じたタブを立て直さないための記録)。 書くのは backend/tier_tabs/record.py
+TIER_TABS_PATH = DATA_DIR / "tier_tabs.json"
 VAPID_PATH = SECRETS_DIR / "vapid.json"
 
 # お気に入り: 1 行に 1 path のテキスト (= エージェントは 1 行足すだけで登録できる)

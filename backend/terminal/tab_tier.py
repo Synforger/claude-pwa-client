@@ -3,7 +3,7 @@
 The agent's launcher decides a tier from the conversation's first message and hands it to claude as an
 environment variable, so the backend reads the variable instead of deriving a tier of its own (see `tier`).
 `pty_discover` records it when it finds the claude of a tab; the routes that list tabs or place a tab's memo
-read what was recorded. Nothing here starts a process, so it is safe to call from the event loop.
+read what was recorded. A tier tab whose claude has not started yet answers with the tier it was placed for. Nothing here starts a process, so it is safe to call from the event loop.
 """
 
 from __future__ import annotations
@@ -45,8 +45,14 @@ def record_tier(session_id: str, claude_pid: int) -> bool:
 
 
 def tab_tier(session_id: str) -> str | None:
-    """The tier a tab was started in, or `None` when it is not known (= no claude seen yet, or none was given)."""
-    return _tiers.get(session_id)
+    """The tier a tab works in: the one its claude was started in, else the one it was placed for as a tier tab
+    (= `SessionDef.tier_tab`), else `None` (= no claude seen yet, or none was given)."""
+    known = _tiers.get(session_id)
+    if known is not None:
+        return known
+    from backend._common.state import sessions_meta  # noqa: PLC0415
+    meta = sessions_meta.get(session_id)
+    return meta.tier_tab if meta is not None else None
 
 
 def forget_tier(session_id: str) -> None:

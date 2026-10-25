@@ -12,8 +12,10 @@ export interface GetSessionsResponseItem {
   account_id?: string | null
   notify_mode?: string
   created_at?: string
-  /** the tier the tab's agent started in (= its AGENT_TIER); null when not known */
+  /** the tier the tab's agent started in (= its AGENT_TIER), else the tier a tier tab was placed for; null when not known */
   tier?: string | null
+  /** the tier a tier tab was placed for (= its new conversations start in it); null for other tabs */
+  tier_tab?: string | null
 }
 
 export type GetSessionsResponse = GetSessionsResponseItem[]

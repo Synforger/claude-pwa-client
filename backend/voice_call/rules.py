@@ -18,10 +18,10 @@ from backend.speech.speech import VOICE_INPUT_MARK, parse_mark
 MAX_HEARD = 2000
 
 
-# iPhone の app の小窓 (= PiP) に出す文。 別のタブからの連絡と自動の入れ替えは、 封筒の頭で見分けて出さない
+# iPhone の app の小窓 (= PiP) に出す文。 別のタブからの連絡と自動の入れ替えと階層のタブの最初の発話は、 封筒の頭で見分けて出さない
 # (= 人の発話ではない)。 割り込んだ時に claude が書く中断の行も出さない。 返事の行の頭の言い方の印
 # (= `[happy]` / `[mute]`) は外す
-_ENVELOPE_HEADS = ("Message from ", "Automatic session rollover", "<")
+_ENVELOPE_HEADS = ("Message from ", "Automatic session rollover", "Tab opened by the client", "<")
 _LINE_MARK = re.compile(r"^\[[a-z][^\]\n]*\](?!\()\s*", re.MULTILINE)   # (= 行の頭のリンク `[文字](URL)` は残す)
 
 # 小窓は返事を markdown のまま受け取り、 表・見出し・箇条書き・コードの枠まで描く (= app の `ChatMarkdown.swift`)
