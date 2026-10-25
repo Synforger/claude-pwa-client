@@ -29,6 +29,7 @@ import {
 import { deriveSessionBadges } from '../push-notify/useSessionBadges.js'
 import { loadFolded, toggleFolded } from './sessionTree.js'
 import { folderTree, loadFoldedFolders, toggleFoldedFolder } from './folderTree.js'
+import { sendTreeReport, treeReport } from './treeReport.js'
 import { usePushSubscription } from '../push-notify/usePushSubscription.js'
 import {
   TEXT_ZOOM_MAX,
@@ -360,6 +361,16 @@ export default function SessionDrawer() {
   )
   // 畳む印の列は、 畳める行が 1 つでも在る時だけ空ける (= 無ければ題の位置を今までと変えない)
   const hasTree = orderedSessions.some(row => row.kind === 'folder' || row.children > 0)
+
+  // 開くたびに、 木の組み上がりを記録へ 1 行 (= treeReport.js)。 開いた時の 1 回だけで、 開いている間の
+  // 変化では送らない
+  const treeRef = useRef({ sortedSessions, orderedSessions })
+  treeRef.current = { sortedSessions, orderedSessions }
+  useEffect(() => {
+    if (!open) return
+    const tree = treeRef.current
+    sendTreeReport(treeReport({ build: runningBuildId(), sessions: tree.sortedSessions, rows: tree.orderedSessions }))
+  }, [open])
 
   return (
     <>
