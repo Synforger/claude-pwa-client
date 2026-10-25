@@ -41,16 +41,18 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
       .catch(() => { /* noop */ })
   })
-  // 開いたままの画面を新しい build へ移す配線 (= 前面へ戻った時と一定の間隔で更新を確かめ、
-  // 新しい service worker が有効になったら 1 回だけ読み込み直す)。 中身は _common/appUpdate.js。
-  // 選んだだけで送っていない添付 (= どのタブの物でも) が在る間は、 読み込み直しを見送る。
-  installUpdateChecks({
-    unsent: {
-      hasAny: () => Object.values(getEphemeralSnapshot().attachments).some((items) => items && items.length > 0),
-      subscribe: subscribeEphemeral,
-    },
-  })
 }
+
+// 開いたままの画面を新しい build へ移す配線 (= 前面へ戻った時と一定の間隔で更新を確かめ、
+// 新しい build が載っていたら 1 回だけ読み込み直す)。 service worker の無い iPhone の app の中でも
+// 付ける (= 確かめ方は入れ物で変わる。 中身は _common/appUpdate.js)。
+// 選んだだけで送っていない添付 (= どのタブの物でも) が在る間は、 読み込み直しを見送る。
+installUpdateChecks({
+  unsent: {
+    hasAny: () => Object.values(getEphemeralSnapshot().attachments).some((items) => items && items.length > 0),
+    subscribe: subscribeEphemeral,
+  },
+})
 
 // ルーティング:
 //   `?terminal=<id>`      → xterm.js single-shot (= debug / 直リンク用)

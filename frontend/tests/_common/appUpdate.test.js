@@ -4,6 +4,7 @@ import {
   UPDATE_CHECK_INTERVAL_MS,
   runningBuildId,
   checkForUpdate,
+  fetchServedBuildId,
   installUpdateChecks,
   _resetForTest,
 } from '../../src/_common/appUpdate.js'
@@ -25,8 +26,13 @@ function fakeNavigator({ controlled }) {
 
 function fakeWindow() {
   const target = new EventTarget()
+  const stored = new Map()
   return {
     location: { reload: vi.fn() },
+    sessionStorage: {
+      getItem: (key) => (stored.has(key) ? stored.get(key) : null),
+      setItem: (key, value) => { stored.set(key, String(value)) },
+    },
     addEventListener: target.addEventListener.bind(target),
     dispatchEvent: target.dispatchEvent.bind(target),
     setInterval: (fn, ms) => setInterval(fn, ms),
@@ -173,5 +179,125 @@ describe('installUpdateChecks', () => {
     expect(win.location.reload).toHaveBeenCalledTimes(1)
     win.dispatchEvent(new Event('cpc:fg'))
     expect(nav.serviceWorker.getRegistration).toHaveBeenCalledTimes(1)
+  })
+})
+
+// 入口の頁を配る backend の代わり: 配っている build を差し替えられ、 取りに来た回数を数える
+function fakeHttp(build) {
+  const http = {
+    build,
+    fail: false,
+    apiFetch: vi.fn((path) => {
+      if (http.fail) return Promise.reject(new Error('offline'))
+      const html = `<!doctype html><html><head><script type="module" crossorigin src="/assets/index-${http.build}.js"></script></head></html>`
+      return Promise.resolve({ ok: path === '/', text: () => Promise.resolve(html) })
+    }),
+  }
+  return http
+}
+
+describe('fetchServedBuildId', () => {
+  it('reads the build off the entry page the backend serves now', async () => {
+    await expect(fetchServedBuildId(fakeHttp('NEWbuild1'))).resolves.toBe('NEWbuild1')
+  })
+
+  it('is null when the entry page cannot be fetched (offline)', async () => {
+    const http = fakeHttp('NEWbuild1')
+    http.fail = true
+    await expect(fetchServedBuildId(http)).resolves.toBeNull()
+  })
+})
+
+describe('installUpdateChecks without a service worker (the iPhone app)', () => {
+  // service worker の口が無い入れ物で、 今の画面が OLDbuild1 を動かしている
+  function setup({ served = 'NEWbuild1', unsent = null } = {}) {
+    document.head.innerHTML = '<script type="module" crossorigin src="/assets/index-OLDbuild1.js"></script>'
+    const win = fakeWindow()
+    const http = fakeHttp(served)
+    const send = vi.fn()
+    installUpdateChecks({ win, doc: document, nav: {}, unsent, http, send })
+    const foreground = async () => {
+      win.dispatchEvent(new Event('cpc:fg'))
+      await vi.advanceTimersByTimeAsync(0)
+    }
+    return { win, http, send, foreground }
+  }
+
+  it('reloads once when the backend serves another build, and records the move', async () => {
+    const { win, send, foreground } = setup()
+    await foreground()
+    expect(win.location.reload).toHaveBeenCalledTimes(1)
+    expect(send).toHaveBeenCalledWith({ stage: 'update:reload', from: 'OLDbuild1', to: 'NEWbuild1' })
+    await foreground()
+    expect(win.location.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not reload while the backend serves the build the screen runs', async () => {
+    const { win, http, send, foreground } = setup({ served: 'OLDbuild1' })
+    await foreground()
+    expect(http.apiFetch).toHaveBeenCalledWith('/')
+    expect(win.location.reload).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('does not reload when the entry page cannot be fetched', async () => {
+    const { win, http, foreground } = setup()
+    http.fail = true
+    await foreground()
+    expect(win.location.reload).not.toHaveBeenCalled()
+  })
+
+  it('holds the reload while an attachment is picked but not sent', async () => {
+    let any = true
+    const listeners = new Set()
+    const unsent = {
+      hasAny: () => any,
+      subscribe: (fn) => { listeners.add(fn); return () => listeners.delete(fn) },
+    }
+    const { win, foreground } = setup({ unsent })
+    await foreground()
+    expect(win.location.reload).not.toHaveBeenCalled()
+    any = false
+    for (const fn of [...listeners]) fn()
+    expect(win.location.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not reload again for a build it already reloaded to (the entry page stayed old somewhere)', async () => {
+    document.head.innerHTML = '<script type="module" crossorigin src="/assets/index-OLDbuild1.js"></script>'
+    const win = fakeWindow()
+    win.sessionStorage.setItem('cpc_update_reloaded_to', 'NEWbuild1')
+    installUpdateChecks({ win, doc: document, nav: {}, http: fakeHttp('NEWbuild1'), send: vi.fn() })
+    win.dispatchEvent(new Event('cpc:fg'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(win.location.reload).not.toHaveBeenCalled()
+  })
+
+  it('remembers the build it reloaded to', async () => {
+    const { win, foreground } = setup()
+    await foreground()
+    expect(win.sessionStorage.getItem('cpc_update_reloaded_to')).toBe('NEWbuild1')
+  })
+
+  it('does nothing on a page without an entry script (dev server)', async () => {
+    document.head.innerHTML = '<script type="module" src="/src/main.jsx"></script>'
+    const win = fakeWindow()
+    const http = fakeHttp('NEWbuild1')
+    installUpdateChecks({ win, doc: document, nav: {}, http, send: vi.fn() })
+    win.dispatchEvent(new Event('cpc:fg'))
+    await vi.advanceTimersByTimeAsync(UPDATE_CHECK_INTERVAL_MS)
+    expect(http.apiFetch).not.toHaveBeenCalled()
+  })
+
+  it('checks at the interval while the app is visible, and not while it is hidden', async () => {
+    document.head.innerHTML = '<script type="module" crossorigin src="/assets/index-OLDbuild1.js"></script>'
+    const win = fakeWindow()
+    const http = fakeHttp('OLDbuild1')
+    const doc = { visibilityState: 'hidden', querySelector: (q) => document.querySelector(q) }
+    installUpdateChecks({ win, doc, nav: {}, http, send: vi.fn() })
+    await vi.advanceTimersByTimeAsync(UPDATE_CHECK_INTERVAL_MS * 2)
+    expect(http.apiFetch).not.toHaveBeenCalled()
+    doc.visibilityState = 'visible'
+    await vi.advanceTimersByTimeAsync(UPDATE_CHECK_INTERVAL_MS)
+    expect(http.apiFetch).toHaveBeenCalledTimes(1)
   })
 })
