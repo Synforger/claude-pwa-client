@@ -64,7 +64,7 @@ machine every 10 minutes: it moves the checkout to the head of `develop` (only w
 change and has not diverged), runs `task build`, syncs the environment when `pyproject.toml` or `uv.lock` changed,
 and restarts the backend when `backend/`, `pyproject.toml` or `uv.lock` changed. While a voice call's worker runs it
 holds the restart, and a later run does it. What it did is in `$AGENT_PLATFORM_ROOT/state/platform/logs/update.out`
-(a run with nothing to do writes no line); what is still owed is in `state/platform/update.json`. A merged change
+(a run with nothing to do writes no line); what is still owed is in `$AGENT_PLATFORM_ROOT/state/platform/update.json`. A merged change
 therefore needs no hand to reach the machines. Ship by hand with the steps below when it must be live at once, such
 as before a check on a device; the next run then finds nothing to do.
 
