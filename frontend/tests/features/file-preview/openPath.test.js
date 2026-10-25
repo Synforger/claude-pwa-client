@@ -2,23 +2,25 @@
 //
 // path のタップの開き先は 1 か所で決まる: HTML だけがブラウザの新しい窓 (= OS の既定のブラウザ。 スクリプトが動く形)、
 // folder は木、 それ以外 (= 資料の pdf・Office・tif、 画像、 Markdown) は client の中のプレビュー。 既定のブラウザで開く時は、
-// メモを畳む等の後始末を呼ばない。 iPhone のホーム画面の PWA は、 新しい窓を開くと戻れないので、 HTML もプレビューの枠で開く。
+// メモを畳む等の後始末を呼ばない。 iPhone のホーム画面の PWA は、 HTML を Safari へ渡す (= _common/externalBrowser.js)。
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { openPath } from '../../../src/features/file-preview/openPath.js'
 import { getSnapshot, setOverlay } from '../../../src/state/ui.js'
 
 const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
 
-// ホーム画面から開いた形 (= display-mode: standalone) の iPhone にする
+// ホーム画面から開いた形 (= display-mode: standalone、 navigator.standalone) の iPhone にする
 function asIphoneHomeScreen() {
   vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(IPHONE_UA)
   window.matchMedia = vi.fn(query => ({ matches: query === '(display-mode: standalone)', media: query }))
+  Object.defineProperty(window.navigator, 'standalone', { value: true, configurable: true })
 }
 
 afterEach(() => {
   vi.restoreAllMocks()
   delete window.matchMedia
   delete window.Capacitor
+  delete window.navigator.standalone
   setOverlay('previewPath', null)
   setOverlay('treeOpen', null)
 })
@@ -83,14 +85,21 @@ describe('openPath', () => {
     expect(getSnapshot().overlays.previewPath).toBe('~/notes/plan.md')
   })
 
-  it('opens an HTML file in the preview on the iPhone home screen, where a new window leaves no way back', () => {
+  it('hands an HTML file to Safari on the iPhone home screen, and does not open the preview', () => {
     asIphoneHomeScreen()
     const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const href = vi.fn()
+    vi.spyOn(window, 'location', 'get').mockReturnValue({
+      get href() { return 'http://localhost:3000/' },
+      set href(value) { href(value) },
+    })
     const onLeave = vi.fn()
     openPath('~/pages/deck/index.html', { onLeave })
     expect(open).not.toHaveBeenCalled()
-    expect(onLeave).toHaveBeenCalledTimes(1)
-    expect(getSnapshot().overlays.previewPath).toBe('~/pages/deck/index.html')
+    expect(href).toHaveBeenCalledTimes(1)
+    expect(href.mock.calls[0][0]).toMatch(/^x-safari-http:\/\/localhost:\d+\/file\/open\?path=~%2Fpages%2Fdeck%2Findex\.html$/)
+    expect(onLeave).not.toHaveBeenCalled()
+    expect(getSnapshot().overlays.previewPath ?? null).toBe(null)
   })
 
   it('previews a document on the iPhone home screen like anywhere else', () => {

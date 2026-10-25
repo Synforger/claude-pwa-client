@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 import { visit } from 'unist-util-visit'
 import { useThrottledStreamingText } from './useThrottledStreamingText.js'
 import { apiUrl } from '../../_common/api.js'
+import { isHomeScreenWebApp, openInBrowser } from '../../_common/externalBrowser.js'
 import './MessageRenderer.css'
 
 const PATH_RE = /(?<![(`])(~\/[^\s`"')\]]+|\/Users\/[^\s`"')\]]+)/g
@@ -322,7 +323,7 @@ function urlTransform(url, key) {
   return defaultUrlTransform(url)
 }
 
-// 返事の中の画像。 読めない時は説明の文字を出す。 押すと、 Mac の画像は file のプレビューで、 外の画像は新しいタブで開く。
+// 返事の中の画像。 読めない時は説明の文字を出す。 押すと、 Mac の画像は file のプレビューで、 外の画像は外のブラウザで開く。
 function MarkdownImage({ src, alt, onOpenFile }) {
   const t = useT()
   const [failed, setFailed] = useState(false)
@@ -332,7 +333,7 @@ function MarkdownImage({ src, alt, onOpenFile }) {
   const local = localPathOf(src)
   const open = () => {
     if (local != null) onOpenFile(local)
-    else window.open(src, '_blank', 'noreferrer')
+    else openInBrowser(src)
   }
   return <img className="md-image" src={src} alt={alt || ''} loading="lazy" onError={() => setFailed(true)} onClick={open} />
 }
@@ -353,7 +354,13 @@ function buildComponents(onOpenFile) {
       }
       // slack:// は同じタブのまま OS に渡す (= 新しいタブにすると、 アプリが開いた後に空のタブが残る)。
       if (/^slack:\/\//i.test(href || '')) return <a href={href}>{children}</a>
-      return <a href={href} target="_blank" rel="noreferrer">{children}</a>
+      // ホーム画面の PWA は新しいタブが PWA の中の閲覧の画面になるので、 外のブラウザへ渡す (= _common/externalBrowser.js)
+      const toBrowser = (event) => {
+        if (!isHomeScreenWebApp() || !/^https?:\/\//i.test(href || '')) return
+        event.preventDefault()
+        openInBrowser(href)
+      }
+      return <a href={href} target="_blank" rel="noreferrer" onClick={toBrowser}>{children}</a>
     },
     pre({ children }) {
       return <CodeBlock>{children}</CodeBlock>
