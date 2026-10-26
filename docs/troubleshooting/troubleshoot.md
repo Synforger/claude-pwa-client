@@ -75,6 +75,13 @@ SW (`frontend/public/sw.js`) の navigation fetch 戦略は **network-first (cac
 起動可能。 タブ状態 (= activeId 等) は localStorage にあり SW cache と無関係なので、
 network-first でもリセットされない。 hashed asset (`/assets/*`) は内容不変なので cache-first。
 
+iOS は裏に回した PWA をメモリが足りない時に落とし、 前面へ戻した時に起こし直す。 その読み込みは
+「写しがあれば写しを使う」 読み方で頼まれ、 ブラウザの HTTP の写しに入口の頁が残っていると、
+backend に問い合わせずにそこから起動する (= 写しを取った頃の build が、 何度 deploy しても立ち
+続ける)。 なので SW は、 入口の頁を頼まれた読み方によらず `cache: 'no-store'` で network から取り、
+backend は入口の頁を `Cache-Control: no-store` で配る (= SW の無い iPhone の app でも、 ブラウザが
+入口の頁の写しを持たない)。
+
 **経緯 (= 2026-06-22 → 07-09 の反転)**: 一時期 navigation を cache-first にしていたが、
 (a) 新 build が永遠に反映されない、 (b) キャッシュ key が URL 完全一致 (query 込み) のため
 起動経路ごとの URL 違い (`/` / `/?ses=<sid>` / `/?_r=<ts>`) が別世代の index を分裂堆積し

@@ -54,12 +54,16 @@ def test_websocket_route_still_works(client):
         assert ws.receive_text() == "ses_abc"
 
 
-def test_entrypoints_are_no_cache(client):
-    """index.html / manifest.json は毎回鮮度確認させる (= iOS PWA が古い index を掴む対策)。"""
-    assert client.get("/index.html").headers["cache-control"] == "no-cache"
+def test_entry_page_is_never_stored(client):
+    """The entry page is no-store: iOS WebKit boots a page it brings back from a stored copy even under no-cache."""
+    assert client.get("/index.html").headers["cache-control"] == "no-store"
+    # / is index.html too
+    assert client.get("/").headers["cache-control"] == "no-store"
+
+
+def test_manifest_is_revalidated(client):
+    """manifest.json is revalidated on every use."""
     assert client.get("/manifest.json").headers["cache-control"] == "no-cache"
-    # SPA の / も index.html なので同じ扱い
-    assert client.get("/").headers["cache-control"] == "no-cache"
 
 
 def test_hashed_assets_are_immutable(client):

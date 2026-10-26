@@ -44,8 +44,8 @@ export function checkForUpdate(nav = navigator) {
     .catch(() => { /* 圏外など。 次の機会に確かめる */ })
 }
 
-// backend が今配っている build (= 入口の頁を取り直して読む。 入口の頁は no-cache で配られるので、
-// 取るたびに backend へ鮮度を確かめに行く。 backend/_internal/static_files.py)。 取れない時は null。
+// backend が今配っている build (= 入口の頁を取り直して読む。 入口の頁は no-store で配られるので、
+// 取るたびに backend から取る。 backend/_internal/static_files.py)。 取れない時は null。
 export function fetchServedBuildId(http = httpClient) {
   return Promise.resolve()
     .then(() => http.apiFetch('/'))

@@ -14,6 +14,7 @@ const ORIGIN = 'https://host.example'
 function loadSw() {
   const listeners = {}
   const puts = []
+  const fetched = []
   const cache = { put: (key) => { puts.push(typeof key === 'string' ? key : key.url); return Promise.resolve() } }
   const context = {
     self: {
@@ -29,19 +30,21 @@ function loadSw() {
       keys: () => Promise.resolve([]),
       delete: () => Promise.resolve(true),
     },
-    fetch: () => Promise.resolve({ ok: true, clone() { return this } }),
+    fetch: (request) => { fetched.push(request); return Promise.resolve({ ok: true, clone() { return this } }) },
+    // Copies the request and lays the init over it, as `new Request(request, init)` does
+    Request: class { constructor(input, init = {}) { Object.assign(this, input, init) } },
     URL,
     console,
   }
   vm.runInNewContext(SW_SOURCE, context)
-  return { listeners, puts }
+  return { listeners, puts, fetched }
 }
 
 // fetch listener に 1 件流し、 respondWith された応答の処理 (= cache 保存) が終わるまで待つ。
-async function dispatch(sw, { pathname, mode = 'no-cors', destination = '' }) {
+async function dispatch(sw, { pathname, mode = 'no-cors', destination = '', cache = 'default' }) {
   let responded = null
   const event = {
-    request: { method: 'GET', url: `${ORIGIN}${pathname}`, mode, destination },
+    request: { method: 'GET', url: `${ORIGIN}${pathname}`, mode, destination, cache },
     respondWith: (p) => { responded = p },
   }
   sw.listeners.fetch(event)
@@ -57,6 +60,14 @@ describe('sw.js fetch strategy', () => {
     const r = await dispatch(sw, { pathname: '/?ses=abc', mode: 'navigate', destination: 'document' })
     expect(r.responded).toBe(true)
     expect(sw.puts).toEqual(['/'])
+  })
+
+  it('takes the entry page from the network even when the browser asks for a cached copy', async () => {
+    const r = await dispatch(sw, { pathname: '/', mode: 'navigate', destination: 'document', cache: 'force-cache' })
+    expect(r.responded).toBe(true)
+    expect(sw.fetched).toHaveLength(1)
+    expect(sw.fetched[0].url).toBe(`${ORIGIN}/`)
+    expect(sw.fetched[0].cache).toBe('no-store')
   })
 
   it('leaves an iframe navigation alone (= it is not the app shell)', async () => {
