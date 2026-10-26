@@ -67,7 +67,10 @@ self.addEventListener('fetch', (event) => {
     if (req.destination === 'iframe') return
     event.respondWith((async () => {
       try {
-        const fresh = await fetch(req)
+        // Always from the network, whatever cache mode the browser asked for: when iOS brings back a page it
+        // dropped in the background, it asks for the entry page "from the cache if there", and fetch(req) then
+        // answers from WebKit's HTTP cache without asking the backend, booting whatever build is stored there.
+        const fresh = await fetch(new Request(req, { cache: 'no-store' }))
         if (fresh && fresh.ok) {
           const cache = await caches.open(SHELL_CACHE)
           // 単一キー `/` に正規化して保存 (= `/?ses=` / `/?_r=` 等の起動経路 URL 違いで

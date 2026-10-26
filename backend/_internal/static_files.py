@@ -11,21 +11,26 @@ from starlette.websockets import WebSocketClose
 
 
 class CacheControlledStaticFiles(StaticFiles):
-    """index.html / manifest.json / sw.js は no-cache、ハッシュ付き assets は immutable で長期キャッシュ。
+    """The entry page is never stored, manifest.json / sw.js are revalidated, hashed assets are cached for good.
 
-    iOS Safari (PWA) はデフォルトで Cache-Control 無しレスポンスを長時間キャッシュするため、
-    index.html が古いままになり Vite の新しいハッシュ付き assets ファイルを参照できなくなる。
-    エントリポイント (= index.html / manifest.json / sw.js) だけ毎回鮮度確認させ、
-    /assets/ 配下はファイル名にハッシュが入っているので永久キャッシュして問題ない。
+    The entry page names the build's hashed assets, so a stale copy boots an old build. iOS WebKit, when it
+    brings back a page it dropped in the background, takes the entry page from its HTTP cache without asking
+    the backend, even under no-cache; only no-store keeps it from having a copy to take. That matters where no
+    service worker stands in between (the iPhone app); the service worker fetches it with no-store itself
+    (frontend/public/sw.js) and keeps its own copy for offline starts. /assets/ file names carry a content hash,
+    so they never need checking.
     """
 
-    NO_CACHE_PATHS = {"index.html", "manifest.json", "sw.js"}
+    NO_STORE_PATHS = {"", ".", "index.html"}
+    NO_CACHE_PATHS = {"manifest.json", "sw.js"}
     IMMUTABLE_PREFIX = "assets/"
 
     async def get_response(self, path: str, scope):
         response = await super().get_response(path, scope)
         normalized = path.lstrip("/")
-        if normalized in self.NO_CACHE_PATHS or normalized in ("", "."):
+        if normalized in self.NO_STORE_PATHS:
+            response.headers["Cache-Control"] = "no-store"
+        elif normalized in self.NO_CACHE_PATHS:
             response.headers["Cache-Control"] = "no-cache"
         elif normalized.startswith(self.IMMUTABLE_PREFIX):
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
