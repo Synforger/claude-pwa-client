@@ -66,7 +66,7 @@ def _size(entry: dict) -> int:
         try:
             return Path(path).stat().st_size
         except OSError:
-            # benign: the record was deleted (= a forked tab's record is cleaned up at restart);
+            # benign: the record was deleted (= old records are removed by age and size);
             # the size noted when it was stacked stands in for it below.
             pass
     size = entry.get("size")

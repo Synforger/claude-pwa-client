@@ -680,17 +680,13 @@ def set_notify_mode(session_id: str, mode: str | NotifyMode) -> bool:
 
 
 def demote_fork_to_normal(session_id: str) -> str | None:
-    """フォーク産タブを通常タブに降格させる (= backend-F-44)。
+    """Make a forked tab an ordinary tab, for a restart that starts a fresh conversation.
 
-    restart_session で fork タブを再 spawn する際、 `resume_session_id` が残ったままだと
-    `claude --resume <同一 id>` が走り、 claude CLI が重複起動を検知して即 exit する
-    (= 2026-06-04 観測、 詳細経緯は routes/sessions.py restart_session のコメント参照)。
-    fork の親文脈引き継ぎは初回 spawn で完了した役目なので、 restart のタイミングで
-    通常タブ化し、 役目を終えた fork jsonl も同期 GC する。
+    With `resume_session_id` left in place the respawn runs `claude --resume <same id>`, which claude refuses as a
+    duplicate and exits at once. The fork's record stays: it holds the conversation the tab had since the fork, and
+    the tab goes on showing it. Old records are removed by age and size like every other tab's (`cleanup_old_jsonl`).
 
-    SessionDef.resume_session_id を None に書き戻し、 永続化、 fork jsonl を unlink。
-    呼び出し元 (= restart_session) は kill / spawn の流れの中でこれを 1 行呼ぶだけ。
-    戻り値 = 掃除した fork resume id (= 通知 / log 用)、 元々通常タブなら None。
+    Returns the resume id that was cleared, or None for a tab that was not a fork.
     """
     meta = sessions_meta.get(session_id)
     if meta is None:
@@ -700,26 +696,6 @@ def demote_fork_to_normal(session_id: str) -> str | None:
         return None
     meta.resume_session_id = None
     save_sessions_meta()
-    # fork jsonl GC (= delete_session の GC と同型、 蓄積させない)。
-    # 失敗しても restart 本体は続行 (= unlink は best-effort)。
-    try:
-        # path 計算の真値は config (= state から jsonl 層への隠れ依存を作らない)
-        from backend._common.config import cwd_to_project_dir  # noqa: PLC0415
-        cwd = (_agents().get(meta.agent_id) or {}).get("cwd")
-        # account_id 無しだと personal に fallback し work account の fork jsonl を
-        # 見つけられない (= delete_session の GC と同じ渡し忘れの根治)。
-        account_id = getattr(meta, "account_id", None)
-        project_dir = cwd_to_project_dir(cwd, account_id=account_id) if cwd else None
-        if project_dir is not None:
-            fork_jsonl = project_dir / f"{fork_resume_id}.jsonl"
-            if fork_jsonl.exists():
-                fork_jsonl.unlink(missing_ok=True)
-                logger.info(
-                    "fork: gc jsonl on demote session=%s file=%s",
-                    session_id, fork_jsonl.name,
-                )
-    except Exception:
-        logger.debug("fork jsonl gc on demote failed for %s", session_id, exc_info=True)
     return fork_resume_id
 
 
