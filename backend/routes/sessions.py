@@ -377,8 +377,7 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
     # claude CLI が重複起動を検知して即 exit (rc=0) する = ターミナルが何も変わらず終了
     # しない (2026-06-04 確認)。 fork の親文脈引き継ぎは初回 spawn で完了した役目なので、
     # restart のタイミングで resume_session_id を落として通常タブと完全に同じ launch_alias
-    # 起動経路に合流させる。 役目を終えた fork jsonl は state helper 内で同時に掃除する
-    # (= delete_session の GC と同型、 蓄積させない)。 parent_id は派生履歴として残し、
+    # 起動経路に合流させる。 fork の記録は通常タブの記録と同じに残す。 parent_id は派生履歴として残し、
     # ドロワー上の親子インデント表示は維持する。
     state.demote_fork_to_normal(session_id)
     # monitor tail を初回 bind 扱いに戻す (= 2026-06-30 stream-from-zero、 詳細は
@@ -443,12 +442,6 @@ async def move_session_account(session_id: str, payload: dict = Body(...), _: st
 
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str, _: str = Depends(require_session)):
-    # フォーク産タブはここで掴んでおく (= unregister 後だと meta が消えて辿れない)。
-    # resume_session_id は build_forked_lineage で書き出した新 jsonl のファイル名。
-    meta = sessions_meta.get(session_id)
-    fork_resume_id = getattr(meta, "resume_session_id", None) if meta is not None else None
-    fork_agent_id = getattr(meta, "agent_id", None) if meta is not None else None
-    fork_account_id = getattr(meta, "account_id", None) if meta is not None else None
     # PTY + tmux + JSONL binding を一括 cleanup
     input_ready.forget(session_id)
     try:
@@ -467,31 +460,6 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
             p.unlink(missing_ok=True)
         except Exception:
             logger.debug("tmp file unlink failed: %s", p, exc_info=True)
-    # フォーク産 jsonl の GC: 削除時にこのタブが生成した新 jsonl も消す。
-    # build_forked_lineage は parentUuid 鎖を全部新ファイルに書き出す (= 自己完結) ので、
-    # 孫フォークがあっても孫の jsonl 単体で resume できる。 親 fork jsonl を消して問題ない。
-    # 元タブの jsonl (= claude が普段使ってる alias 起動由来) はここでは絶対に触らない。
-    if fork_resume_id and fork_agent_id:
-        try:
-            cwd = (AGENTS.get(fork_agent_id) or {}).get("cwd")
-            # module-attribute lookup で monkeypatch 互換維持 (= test が
-            # `monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", ...)` する)。
-            # account_id を渡さないと personal (~/.claude) に fallback し、 work account の
-            # fork jsonl は exists()=False で GC が常に空振りする (= spawn 側 2026-07-22
-            # 根治と同型の渡し忘れ)。
-            project_dir = (
-                jsonl_watcher._cwd_to_project_dir(cwd, account_id=fork_account_id)
-                if cwd else None
-            )
-            if project_dir is not None:
-                fork_jsonl = project_dir / f"{fork_resume_id}.jsonl"
-                if fork_jsonl.exists():
-                    fork_jsonl.unlink(missing_ok=True)
-                    logger.info(
-                        "fork: gc jsonl session=%s file=%s", session_id, fork_jsonl.name,
-                    )
-        except Exception:
-            logger.debug("fork jsonl gc failed for %s", session_id, exc_info=True)
     unregister_session(session_id)
     return {"status": "ok", "session_id": session_id}
 

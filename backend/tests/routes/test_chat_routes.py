@@ -182,12 +182,12 @@ def test_accounts_endpoint_marks_the_default(tmp_path, monkeypatch):
 
 
 # --- backend-F-44: demote_fork_to_normal helper ---
-def test_demote_fork_to_normal_clears_resume_id_and_gcs_jsonl(tmp_path, monkeypatch, isolated_state):
-    """fork タブの resume_session_id を落として fork jsonl も unlink (= F-44 helper)。"""
+def test_demote_fork_to_normal_clears_resume_id_and_keeps_record(tmp_path, monkeypatch, isolated_state):
+    """fork タブの resume_session_id を落とし、 会話の記録は残す。"""
     import backend._common.config as config_mod
     state = isolated_state
     monkeypatch.setattr(state, "save_sessions_meta", lambda: None)
-    # demote_fork_to_normal の path 解決は config が真値 (= audit A-2 で jsonl 依存を撤去)
+    # 記録の在処を tmp_path に向ける (= 向けないと、 消す実装でも別の folder を見て試験が素通りする)
     monkeypatch.setattr(config_mod, "cwd_to_project_dir", lambda cwd, account_id=None: tmp_path)
     from backend._common.config import AGENTS
     aid = next(iter(AGENTS))
@@ -200,7 +200,7 @@ def test_demote_fork_to_normal_clears_resume_id_and_gcs_jsonl(tmp_path, monkeypa
     out = state.demote_fork_to_normal(fork.id)
     assert out == "fake-claude-uuid"
     assert state.sessions_meta[fork.id].resume_session_id is None
-    assert not fork_jsonl.exists()
+    assert fork_jsonl.exists()
 
 
 def test_demote_fork_to_normal_noop_for_regular_tab(monkeypatch, isolated_state):

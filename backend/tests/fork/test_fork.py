@@ -613,12 +613,12 @@ def test_fork_endpoint_not_found_across_all_files(tmp_path, monkeypatch, isolate
     raise AssertionError("expected 404 when uuid is in no file")
 
 
-# --- フォーク産タブ削除時の jsonl GC ---
-# build_forked_lineage で書き出した新 jsonl は claude --resume の入口。 タブを消したら
-# このファイルも消える (= ディスク蓄積しない) のが期待動作。 元タブの jsonl は触らない。
+# --- フォーク産タブの記録 ---
+# build_forked_lineage で書き出した新 jsonl は、 fork の後の会話の本体。 通常タブの記録と同じに、
+# 入れ替えでもタブを閉じても残す。 古い記録の掃除は maintenance の cleanup_old_jsonl が持つ。
 
 
-def test_delete_fork_session_removes_its_jsonl(tmp_path, monkeypatch, isolated_state):
+def test_delete_fork_session_keeps_its_jsonl(tmp_path, monkeypatch, isolated_state):
     import backend.routes.chat as chat_routes  # noqa: PLC0415
     import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
     chat_routes, parent, src = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
@@ -631,8 +631,8 @@ def test_delete_fork_session_removes_its_jsonl(tmp_path, monkeypatch, isolated_s
     asyncio.get_event_loop().run_until_complete(
         chat_routes.delete_session(forked["id"], _="ok")
     )
-    # 新 jsonl は消える、 元タブの jsonl (= OLD.jsonl) は残る
-    assert not new_path.exists()
+    # 閉じても通常タブと同じに記録は残る (= 古い記録の掃除は maintenance の役目)
+    assert new_path.exists()
     assert src.exists()
 
 
@@ -652,20 +652,23 @@ def test_delete_normal_session_does_not_touch_jsonl(tmp_path, monkeypatch, isola
 # `claude --resume <同一 id>` が走って claude CLI が重複起動を検知し rc=0 で即 exit する
 # (= 2026-06-04 実機確認、 ターミナルが変わらず「終了してない」 ように見える)。 restart は
 # 文脈リセット + プロセスリセットのセマンティクスに揃えるべきで、 fork の親文脈引き継ぎは
-# 初回 spawn で完了した役目。 restart のタイミングで通常タブ化し fork jsonl も掃除する。
+# 初回 spawn で完了した役目。 restart のタイミングで通常タブ化する。 記録は残す。
 
 
 def test_restart_fork_session_promotes_to_normal_tab(tmp_path, monkeypatch, isolated_state):
     import backend.routes.chat as chat_routes  # noqa: PLC0415
     import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
     import backend._common.config as config_mod  # noqa: PLC0415
+    from backend.jsonl import chain, history  # noqa: PLC0415
     chat_routes, parent, _src = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
     monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd, account_id=None: tmp_path)
-    # demote (= restart 内の fork GC) の path 解決は config が真値 (= audit A-2)
+    # 記録の在処を tmp_path に向ける (= 向けないと、 消す実装でも別の folder を見て試験が素通りする)
     monkeypatch.setattr(config_mod, "cwd_to_project_dir", lambda cwd, account_id=None: tmp_path)
+    monkeypatch.setattr(history, "SESSION_HISTORY_PATH", tmp_path / "session_history.json")
     forked = _run(chat_routes.fork_session(parent.id, {"from_uuid": "u2"}))
     fork_jsonl = tmp_path / f"{forked['resume_session_id']}.jsonl"
     assert fork_jsonl.exists()
+    history.record_end(forked["id"], forked["resume_session_id"], str(fork_jsonl))
     # ensure_pty_session_for と内部副作用は noop に差し替え (= restart の通常タブ化部分のみを検証)
     from backend.terminal.routes import ensure_pty_session_for as real_spawn  # noqa: F401, PLC0415
     async def _noop(_sid, **_kwargs):
@@ -683,8 +686,9 @@ def test_restart_fork_session_promotes_to_normal_tab(tmp_path, monkeypatch, isol
     promoted = sessions_meta[forked["id"]]
     assert promoted.resume_session_id is None
     assert promoted.parent_id == parent.id
-    # 役目を終えた fork jsonl は掃除される
-    assert not fork_jsonl.exists()
+    # 入れ替えの後も、 fork の後の会話をタブの記録として読める
+    assert fork_jsonl.exists()
+    assert [segment.path for segment in chain.segments(forked["id"], None)] == [fork_jsonl]
 
 
 def test_restart_normal_session_keeps_meta_unchanged(tmp_path, monkeypatch, isolated_state):
