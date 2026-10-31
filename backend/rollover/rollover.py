@@ -22,7 +22,8 @@ backend の記憶には持たないので、 backend を再起動しても同じ
 
 頼むのは 1 度に 1 つのタブだけで、 頼まれて締めへ向かっているタブが在る間は次を頼まない (= 締めは
 作業 tree への commit と push を伴うことが多く、 同じ作業 tree を使う会話の締めが重なると互いの
-書きかけを巻き込む)。 同じタブへは、 人がそのタブで最後に打ってから 1 度だけ頼む (= 人が打てば数え直す)。
+書きかけを巻き込む)。 同じ会話へは、 人がそのタブで最後に打ってから 1 度だけ頼む (= 人が打てば未依頼に戻る)。
+ただし戻っても、 前回頼んでから `REASK_AFTER_SECS` 秒が空くまでは頼み直さない。
 """
 from __future__ import annotations
 
@@ -48,12 +49,19 @@ logger = logging.getLogger(__name__)
 # 手前に置く使い方では、 その余裕 (= 寿命 − minutes) の 1/3 より短く取る。
 TICK_SEC = 60.0
 
+# Minimum gap before the same conversation is asked to close again. A tab that is spoken to by voice
+# resets the "already asked" answer with every utterance, so without a gap each look would ask again.
+REASK_AFTER_SECS = 300.0
+
 # 記録ごとの「読んだ位置」 と「最後に端末から入った、 人の発話か締めを頼む発話」。 読み直しを省くためだけの
 # 物で、 無くなれば記録を末尾から読み直して同じ値になる。
 _seen: dict[str, tuple[int, str | None]] = {}
 # 締めを頼む発話を打ったが、 まだ記録に現れていない会話。 推論中の claude へ打った発話は積まれて、
 # 作業の合間に渡るまで記録に書かれない。 その間に次の見回りが同じ発話をもう 1 度打たないための物。
 _pending: set[str] = set()
+# When each conversation was last asked to close (= wall-clock seconds). Kept in memory only: a restart
+# forgets it and may ask once more.
+_asked_at: dict[str, float] = {}
 # 推論を始めて、 まだ見回りが見ていないタブ。 hook が入れ、 推論が終われば (= `Stop` の hook) 抜く。
 _started: set[str] = set()
 # 推論を始めたタブが在る時に、 間隔を待たずに見回りを起こす合図 (= 見回りの loop が作る)。
@@ -115,6 +123,11 @@ def _decisive(raw: bytes) -> str | None:
     if text.startswith(ROLLOVER_OPENING):
         return "close" if f'<{TAG} phase="close"' in text else None
     return None if text.startswith(CLIENT_OPENINGS) else "operator"
+
+
+def reask_allowed(last_asked_at: float | None, now: float) -> bool:
+    """Whether a conversation may be asked to close now, given when it was last asked (None = never)."""
+    return last_asked_at is None or now - last_asked_at >= REASK_AFTER_SECS
 
 
 def asked(record: Path) -> bool:
@@ -182,16 +195,19 @@ async def tick() -> str | None:
     for key in [k for k in _seen if k not in records]:
         del _seen[key]
     _pending.intersection_update(records)
+    for key in [k for k in _asked_at if k not in records]:
+        del _asked_at[key]
     if closing:
         return None
     # 静かなタブを、 静かな時間の長い順に。 推論中のタブはその後。
     for _, minus_idle, sid, reason, pct, key in sorted(wanted):
-        if not claude_in_pane(sid):
+        if not reask_allowed(_asked_at.get(key), now) or not claude_in_pane(sid):
             continue
         idle_minutes = int(-minus_idle)
         result = await pty_send(sid, {"text": close_envelope(sid, reason, pct, idle_minutes), "enter": True}, None)
         if result.get("ok"):
             _pending.add(key)
+            _asked_at[key] = now
         logger.info("rollover: asked session=%s reason=%s context_pct=%s idle_minutes=%d ok=%s",
                     sid, reason, pct, idle_minutes, result.get("ok"))
         return sid

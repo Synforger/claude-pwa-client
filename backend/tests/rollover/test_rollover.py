@@ -90,9 +90,11 @@ def _write(path: Path, *rows: dict) -> Path:
 def _fresh_memory():
     watch._seen.clear()
     watch._pending.clear()
+    watch._asked_at.clear()
     yield
     watch._seen.clear()
     watch._pending.clear()
+    watch._asked_at.clear()
 
 
 @pytest.mark.parametrize("rows, expected", [
@@ -225,12 +227,60 @@ def test_a_tab_under_the_working_line_is_left_alone_until_it_is_quiet(tabs):
     assert tabs.tick() is None and tabs.sent == []
 
 
-def test_the_operator_typing_again_lets_the_tab_be_asked_again(tabs):
+def _asked_long_ago(key: Path, seconds: float) -> None:
+    watch._asked_at[str(key)] -= seconds
+
+
+def test_the_operator_typing_again_does_not_bring_the_ask_back_within_the_gap(tabs):
     record = tabs.add("ses_a", pct=70, busy=True)
     assert tabs.tick() == "ses_a"
     _write(record, _queued(tabs.sent[0][1]), _queued("hold on, answer this first"))
+    assert tabs.tick() is None
+    assert len(tabs.sent) == 1
+
+
+def test_the_operator_typing_again_lets_the_tab_be_asked_again_after_the_gap(tabs):
+    record = tabs.add("ses_a", pct=70, busy=True)
+    assert tabs.tick() == "ses_a"
+    _write(record, _queued(tabs.sent[0][1]), _queued("hold on, answer this first"))
+    _asked_long_ago(record, watch.REASK_AFTER_SECS + 1)
     assert tabs.tick() == "ses_a"
     assert len(tabs.sent) == 2
+
+
+@pytest.mark.parametrize("last, now, expected", [
+    (None, 1000.0, True),
+    (1000.0, 1000.0 + watch.REASK_AFTER_SECS - 1, False),
+    (1000.0, 1000.0 + watch.REASK_AFTER_SECS, True),
+])
+def test_when_the_same_conversation_may_be_asked_again(last, now, expected):
+    assert watch.reask_allowed(last, now) is expected
+
+
+def test_an_ask_that_failed_does_not_start_the_gap(tabs, monkeypatch):
+    record = tabs.add("ses_a", pct=70, busy=True)
+    outcomes = iter([{"ok": False}, {"ok": True}])
+    sent: list[str] = []
+
+    async def flaky_send(sid, payload, idempotency_key=None):
+        sent.append(sid)
+        return next(outcomes)
+
+    monkeypatch.setattr(watch, "pty_send", flaky_send)
+    assert tabs.tick() == "ses_a"
+    assert str(record) not in watch._asked_at
+    assert tabs.tick() == "ses_a"
+    assert sent == ["ses_a", "ses_a"]
+    assert str(record) in watch._asked_at
+
+
+def test_the_time_of_an_ask_is_dropped_with_its_record(tabs):
+    record = tabs.add("ses_a", pct=70, busy=True)
+    assert tabs.tick() == "ses_a"
+    tabs.records["ses_a"] = _write(tabs.tmp / "next.jsonl", _typed(START))
+    tabs.pct["ses_a"] = 5
+    tabs.tick()
+    assert str(record) not in watch._asked_at
 
 
 def test_one_tab_at_a_time_and_the_longest_quiet_first(tabs):
