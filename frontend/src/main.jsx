@@ -7,6 +7,7 @@ import ErrorBoundary from './layout/ErrorBoundary.jsx'
 import { hardRefreshAppShell } from './_common/appRefresh.js'
 import { installListeners } from './transport/lifecycle.ts'
 import { installUpdateChecks } from './_common/appUpdate.js'
+import { getSnapshot as getVoiceSnapshot, subscribe as subscribeVoice } from './state/voice.js'
 import { subscribe as subscribeEphemeral, getSnapshot as getEphemeralSnapshot } from './state/ephemeral.js'
 
 // transport lifecycle (= visibility / pagehide / pageshow / freeze) の配線。
@@ -46,11 +47,19 @@ if ('serviceWorker' in navigator) {
 // 開いたままの画面を新しい build へ移す配線 (= 前面へ戻った時と一定の間隔で更新を確かめ、
 // 新しい build が載っていたら 1 回だけ読み込み直す)。 service worker の無い iPhone の app の中でも
 // 付ける (= 確かめ方は入れ物で変わる。 中身は _common/appUpdate.js)。
-// 選んだだけで送っていない添付 (= どのタブの物でも) が在る間は、 読み込み直しを見送る。
+// 選んだだけで送っていない添付 (= どのタブの物でも) が在る間と、 声の会話を開いている間 (= 読み込み直すと
+// マイクと声が止まる) は、 読み込み直しを見送る。
 installUpdateChecks({
   unsent: {
-    hasAny: () => Object.values(getEphemeralSnapshot().attachments).some((items) => items && items.length > 0),
-    subscribe: subscribeEphemeral,
+    hasAny: () => (
+      Object.values(getEphemeralSnapshot().attachments).some((items) => items && items.length > 0)
+      || Object.keys(getVoiceSnapshot().phase).length > 0
+    ),
+    subscribe: (listener) => {
+      const stopAttachments = subscribeEphemeral(listener)
+      const stopVoice = subscribeVoice(listener)
+      return () => { stopAttachments(); stopVoice() }
+    },
   },
 })
 

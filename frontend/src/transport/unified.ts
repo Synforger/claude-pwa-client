@@ -102,6 +102,8 @@ class UnifiedTransport {
       this.state = 'open'
       this.lastEventAt = Date.now()
       notifyConnectionChange()
+      // 通信が戻った時に、 動かしている build を確かめる (= _common/appUpdate.js)
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('cpc:connected'))
     }
     es.onmessage = (ev: MessageEvent<string>) => this.onMessage(ev)
     es.onerror = () => {
