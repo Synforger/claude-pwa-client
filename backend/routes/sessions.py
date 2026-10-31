@@ -45,7 +45,7 @@ from backend._common.state import (
 from backend.terminal import input_ready
 from backend.terminal.runner import pty_sessions
 from backend.terminal.tab_stop import stop_tab
-from backend.terminal.tab_tier import forget_tier, tab_tier
+from backend.terminal.tab_tier import tab_tier
 import backend.jsonl.jsonl_watcher as jsonl_watcher
 from backend.jsonl import history as session_history
 
@@ -453,7 +453,6 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
         # 残す (= 2026-06-22)。
         logger.warning("session cleanup failed for %s", session_id, exc_info=True)
     # The tab's memo stays: it lives in the agent's own folder, beside the tab's other pages.
-    forget_tier(session_id)
     # 一時ファイルをクリーンアップ
     for p in session_tmp_files.pop(session_id, []):
         try:

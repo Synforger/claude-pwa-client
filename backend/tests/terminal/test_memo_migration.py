@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import pytest
 
-from backend.terminal import tab_tier
 from backend.terminal.memo_migration import migrate_memos
 from backend.terminal.tab_memo import memo_path
 
@@ -11,7 +10,6 @@ from backend.terminal.tab_memo import memo_path
 @pytest.fixture
 def tab(agent_folder, isolated_state, monkeypatch):
     monkeypatch.setattr(isolated_state, "save_sessions_meta", lambda: None)
-    monkeypatch.setattr(tab_tier, "_tiers", {})
     return isolated_state.register_session("agent_a", title="A")
 
 
@@ -33,7 +31,7 @@ def test_a_plain_file_goes_to_the_place_of_the_tab(tab, legacy, agent_folder):
 
 def test_a_plain_file_follows_the_tier_the_tab_was_started_in(tab, legacy, agent_folder, monkeypatch):
     (agent_folder / "projects" / "alpha").mkdir(parents=True)
-    monkeypatch.setitem(tab_tier._tiers, tab.id, "projects/alpha")
+    tab.tier = "projects/alpha"
     (legacy / f"{tab.id}.md").write_text("x", encoding="utf-8")
     migrate_memos(legacy)
     assert (agent_folder / "projects" / "alpha" / "pages" / tab.id / "memo.md").read_text(encoding="utf-8") == "x"

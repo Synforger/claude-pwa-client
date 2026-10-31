@@ -38,10 +38,10 @@ backup 先 = 同 PC の別 path (= `$AGENT_PLATFORM_ROOT/state/claude-pwa-client
 | `account_id` | str? | NO | `config.json::accounts` の key (= 起動 env を差し替え)、 null = personal 相当 |
 | `child` | bool | NO (default `false`) | 子のタブ (= 別のタブの Claude が `POST /sessions/<親>/children` で立てたタブ) か。 親は `parent_id` |
 | `tier_tab` | str? | NO | [階層のタブ](tier-tabs.md) として置いたタブの階層 (= 新しい会話はこの階層で起動する)、 それ以外のタブは null |
+| `tier` | str? | NO | そのタブの Claude が最後に起動した階層 (= エージェントのプロセスが持つ環境変数 `AGENT_TIER` の値)。 まだ Claude を見ていないタブは null |
 
-`GET /sessions` の各行はこの物に **`tier`** を足して返します (= そのタブのエージェントが起動した階層。 エージェントの
-プロセスが持つ環境変数 `AGENT_TIER` と同じ値。 Claude がまだ居ない階層のタブは `tier_tab`、 分からないタブは `null`)。 `tier` は `session_meta.json` には保存せず、
-backend が claude のプロセスを見つけた時に読み直します (= 画面の一覧は、 口座の隣に階層の最後の名前を出します)。
+`GET /sessions` の各行の **`tier`** は、 この物の `tier` です。 無ければ `tier_tab`、 どちらも無ければ `null` を返します (= 画面の一覧は、 タブをこの階層の folder に入れます)。
+`tier` は backend が Claude のプロセスを見つけた時に読み、 変わっていれば保存するので、 backend や機械を再起動して Claude が居ない間も残ります。
 
 ## `backend/data/jsonl_bindings.json`
 

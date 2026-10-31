@@ -61,8 +61,8 @@ def waiting():
 
 
 @pytest.fixture(autouse=True)
-def clean_registry(monkeypatch):
-    monkeypatch.setattr(tab_tier, "_tiers", {})
+def a_tab_named_ses_a(isolated_state):
+    isolated_state.register_session("agent_a", title="A", sid="ses_a")
 
 
 def test_the_tier_is_read_from_the_environment_of_the_claude_process(waiting):
@@ -88,11 +88,9 @@ def test_a_recorded_tier_is_what_the_tab_lists_and_a_new_value_is_reported_once(
     assert tab_tier.record_tier("ses_a", pid) is False
 
 
-def test_a_tab_whose_claude_was_given_no_tier_is_recorded_with_none_and_still_reported_once(waiting):
-    pid = waiting()
-    assert tab_tier.record_tier("ses_a", pid) is True
+def test_a_tab_whose_claude_was_given_no_tier_has_none_and_nothing_is_reported(waiting):
+    assert tab_tier.record_tier("ses_a", waiting()) is False
     assert tab_tier.tab_tier("ses_a") is None
-    assert tab_tier.record_tier("ses_a", pid) is False
 
 
 def test_a_restarted_claude_replaces_the_tier(waiting):
@@ -101,9 +99,23 @@ def test_a_restarted_claude_replaces_the_tier(waiting):
     assert tab_tier.tab_tier("ses_a") == "normal"
 
 
-def test_a_forgotten_tab_has_no_tier(waiting):
-    tab_tier.record_tier("ses_a", waiting(AGENT_TIER="normal"))
-    tab_tier.forget_tier("ses_a")
-    assert tab_tier.tab_tier("ses_a") is None
-    tab_tier.forget_tier("ses_a")
+def test_a_claude_that_names_no_tier_leaves_what_is_known(waiting):
+    tab_tier.record_tier("ses_a", waiting(AGENT_TIER="projects/alpha"))
+    assert tab_tier.record_tier("ses_a", waiting()) is False
+    assert tab_tier.tab_tier("ses_a") == "projects/alpha"
 
+
+def test_a_recorded_tier_is_written_to_disk_and_read_back_when_the_backend_starts_again(waiting, isolated_state):
+    """A restart of the backend or the machine ends every claude; the tab keeps its tier without one."""
+    tab_tier.record_tier("ses_a", waiting(AGENT_TIER="projects/alpha"))
+    isolated_state.sessions_meta.clear()
+    assert tab_tier.tab_tier("ses_a") is None
+
+    isolated_state.sessions_meta.update(isolated_state._load_sessions_meta())
+    assert tab_tier.tab_tier("ses_a") == "projects/alpha"
+
+
+def test_a_tab_the_backend_does_not_list_has_no_tier_and_records_none(waiting):
+    assert tab_tier.tab_tier("ses_unknown") is None
+    assert tab_tier.record_tier("ses_unknown", waiting(AGENT_TIER="normal")) is False
+    assert tab_tier.tab_tier("ses_unknown") is None
