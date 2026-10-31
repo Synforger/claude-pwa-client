@@ -2,6 +2,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   UPDATE_CHECK_INTERVAL_MS,
+  RELOAD_RETRY_MS,
+  CONNECTED_CHECK_GAP_MS,
   runningBuildId,
   checkForUpdate,
   fetchServedBuildId,
@@ -237,7 +239,7 @@ describe('installUpdateChecks without a service worker (the iPhone app)', () => 
     await foreground()
     expect(http.apiFetch).toHaveBeenCalledWith('/')
     expect(win.location.reload).not.toHaveBeenCalled()
-    expect(send).not.toHaveBeenCalled()
+    expect(send.mock.calls.map(([line]) => line.stage)).toEqual(['update:boot'])
   })
 
   it('does not reload when the entry page cannot be fetched', async () => {
@@ -265,17 +267,52 @@ describe('installUpdateChecks without a service worker (the iPhone app)', () => 
   it('does not reload again for a build it already reloaded to (the entry page stayed old somewhere)', async () => {
     document.head.innerHTML = '<script type="module" crossorigin src="/assets/index-OLDbuild1.js"></script>'
     const win = fakeWindow()
-    win.sessionStorage.setItem('cpc_update_reloaded_to', 'NEWbuild1')
-    installUpdateChecks({ win, doc: document, nav: {}, http: fakeHttp('NEWbuild1'), send: vi.fn() })
+    win.sessionStorage.setItem('cpc_update_reloaded_to', JSON.stringify({ build: 'NEWbuild1', at: Date.now() }))
+    const send = vi.fn()
+    installUpdateChecks({ win, doc: document, nav: {}, http: fakeHttp('NEWbuild1'), send })
     win.dispatchEvent(new Event('cpc:fg'))
     await vi.advanceTimersByTimeAsync(0)
     expect(win.location.reload).not.toHaveBeenCalled()
+    expect(send).toHaveBeenCalledWith({ stage: 'update:held', from: 'OLDbuild1', to: 'NEWbuild1' })
+  })
+
+  it('moves again once the time to wait has passed (it was brought back to an old page)', async () => {
+    document.head.innerHTML = '<script type="module" crossorigin src="/assets/index-OLDbuild1.js"></script>'
+    const win = fakeWindow()
+    win.sessionStorage.setItem('cpc_update_reloaded_to', JSON.stringify({ build: 'NEWbuild1', at: Date.now() }))
+    installUpdateChecks({ win, doc: document, nav: {}, http: fakeHttp('NEWbuild1'), send: vi.fn() })
+    await vi.advanceTimersByTimeAsync(RELOAD_RETRY_MS - 1)
+    win.dispatchEvent(new Event('cpc:fg'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(win.location.reload).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(win.location.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not reload when it cannot remember the move, or it would reload at every start', async () => {
+    document.head.innerHTML = '<script type="module" crossorigin src="/assets/index-OLDbuild1.js"></script>'
+    const win = fakeWindow()
+    win.sessionStorage.setItem = () => { throw new Error('private mode') }
+    const send = vi.fn()
+    installUpdateChecks({ win, doc: document, nav: {}, http: fakeHttp('NEWbuild1'), send })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(win.location.reload).not.toHaveBeenCalled()
+    expect(send).toHaveBeenCalledWith({ stage: 'update:held', from: 'OLDbuild1', to: 'NEWbuild1' })
+  })
+
+  it('moves when what it remembered is in the older form', async () => {
+    document.head.innerHTML = '<script type="module" crossorigin src="/assets/index-OLDbuild1.js"></script>'
+    const win = fakeWindow()
+    win.sessionStorage.setItem('cpc_update_reloaded_to', 'NEWbuild1')
+    installUpdateChecks({ win, doc: document, nav: {}, http: fakeHttp('NEWbuild1'), send: vi.fn() })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(win.location.reload).toHaveBeenCalledTimes(1)
   })
 
   it('remembers the build it reloaded to', async () => {
     const { win, foreground } = setup()
     await foreground()
-    expect(win.sessionStorage.getItem('cpc_update_reloaded_to')).toBe('NEWbuild1')
+    expect(JSON.parse(win.sessionStorage.getItem('cpc_update_reloaded_to')).build).toBe('NEWbuild1')
   })
 
   it('does nothing on a page without an entry script (dev server)', async () => {
@@ -295,9 +332,71 @@ describe('installUpdateChecks without a service worker (the iPhone app)', () => 
     const doc = { visibilityState: 'hidden', querySelector: (q) => document.querySelector(q) }
     installUpdateChecks({ win, doc, nav: {}, http, send: vi.fn() })
     await vi.advanceTimersByTimeAsync(UPDATE_CHECK_INTERVAL_MS * 2)
-    expect(http.apiFetch).not.toHaveBeenCalled()
+    expect(http.apiFetch).toHaveBeenCalledTimes(1)
     doc.visibilityState = 'visible'
     await vi.advanceTimersByTimeAsync(UPDATE_CHECK_INTERVAL_MS)
+    expect(http.apiFetch).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('a screen that started on an old entry page', () => {
+  function start({ served = 'NEWbuild1', win = fakeWindow(), nav = {}, fail = false } = {}) {
+    document.head.innerHTML = '<script type="module" crossorigin src="/assets/index-OLDbuild1.js"></script>'
+    const http = fakeHttp(served)
+    http.fail = fail
+    const send = vi.fn()
+    installUpdateChecks({ win, doc: document, nav, http, send })
+    return { win, http, send }
+  }
+
+  it('moves to the build the backend serves without waiting to come back to the front', async () => {
+    const { win, send } = start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(win.location.reload).toHaveBeenCalledTimes(1)
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ stage: 'update:reload', to: 'NEWbuild1' }))
+  })
+
+  it('records which build started, in which container, and how the page was loaded', async () => {
+    const win = fakeWindow()
+    win.Capacitor = { isNativePlatform: () => true }
+    win.performance = { getEntriesByType: () => [{ type: 'back_forward', transferSize: 0 }] }
+    const { send } = start({ served: 'OLDbuild1', win })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(send).toHaveBeenCalledWith({
+      stage: 'update:boot',
+      build: 'OLDbuild1',
+      served: 'OLDbuild1',
+      container: 'app',
+      serviceWorker: false,
+      navigation: 'back_forward',
+      transferSize: 0,
+    })
+  })
+
+  it('tells a home-screen web app from a browser tab', async () => {
+    const win = fakeWindow()
+    win.matchMedia = () => ({ matches: true })
+    const { send } = start({ served: 'OLDbuild1', win })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ container: 'home-screen' }))
+  })
+
+  it('moves when the connection comes back after starting offline', async () => {
+    const { win, http } = start({ fail: true })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(win.location.reload).not.toHaveBeenCalled()
+    http.fail = false
+    await vi.advanceTimersByTimeAsync(CONNECTED_CHECK_GAP_MS)
+    win.dispatchEvent(new Event('cpc:connected'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(win.location.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not fetch the entry page again for a connection that opens right after a check', async () => {
+    const { win, http } = start({ served: 'OLDbuild1' })
+    await vi.advanceTimersByTimeAsync(0)
+    win.dispatchEvent(new Event('cpc:connected'))
+    await vi.advanceTimersByTimeAsync(0)
     expect(http.apiFetch).toHaveBeenCalledTimes(1)
   })
 })
