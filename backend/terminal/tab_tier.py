@@ -3,7 +3,9 @@
 The agent's launcher decides a tier from the conversation's first message and hands it to claude as an
 environment variable, so the backend reads the variable instead of deriving a tier of its own (see `tier`).
 `pty_discover` records it when it finds the claude of a tab; the routes that list tabs or place a tab's memo
-read what was recorded. A tier tab whose claude has not started yet answers with the tier it was placed for. Nothing here starts a process, so it is safe to call from the event loop.
+read what was recorded. What is recorded is stored with the tab (`SessionDef.tier`), so a tab keeps its tier while
+no claude runs in it, as after a restart of the backend or the machine. A tier tab whose claude has not started yet
+answers with the tier it was placed for. Nothing here starts a process, so it is safe to call from the event loop.
 """
 
 from __future__ import annotations
@@ -18,9 +20,6 @@ logger = logging.getLogger(__name__)
 
 TIER_VARIABLE = "AGENT_TIER"
 
-#: tab id → the tier its claude was started with (= `None` when the process was given none)
-_tiers: dict[str, str | None] = {}
-
 
 def read_tier(pid: int) -> str | None:
     """The tier of the process `pid` (= `None` when it is gone, not readable, or was given none)."""
@@ -31,30 +30,29 @@ def read_tier(pid: int) -> str | None:
 
 
 def set_tier(session_id: str, tier: str | None) -> bool:
-    """Remember the tier a tab was started in. True when it differs from what was known."""
-    changed = session_id not in _tiers or _tiers[session_id] != tier
-    _tiers[session_id] = tier
-    if changed:
-        logger.info("tab tier session=%s tier=%s", session_id, tier)
-    return changed
+    """Store the tier a tab was started in. True when it differs from what was known."""
+    from backend._common import state  # noqa: PLC0415
+    meta = state.sessions_meta.get(session_id)
+    if meta is None or meta.tier == tier:
+        return False
+    meta.tier = tier
+    state.save_sessions_meta()
+    logger.info("tab tier session=%s tier=%s", session_id, tier)
+    return True
 
 
 def record_tier(session_id: str, claude_pid: int) -> bool:
-    """Remember the tier of the claude now running in a tab. True when it differs from what was known."""
-    return set_tier(session_id, read_tier(claude_pid))
+    """Store the tier of the claude now running in a tab. True when it differs from what was known. A process that
+    names no tier leaves what is known: it may simply be gone by now, and a tab does not change tier by that."""
+    tier = read_tier(claude_pid)
+    return tier is not None and set_tier(session_id, tier)
 
 
 def tab_tier(session_id: str) -> str | None:
-    """The tier a tab works in: the one its claude was started in, else the one it was placed for as a tier tab
+    """The tier a tab works in: the one its claude was last started in, else the one it was placed for as a tier tab
     (= `SessionDef.tier_tab`), else `None` (= no claude seen yet, or none was given)."""
-    known = _tiers.get(session_id)
-    if known is not None:
-        return known
     from backend._common.state import sessions_meta  # noqa: PLC0415
     meta = sessions_meta.get(session_id)
-    return meta.tier_tab if meta is not None else None
-
-
-def forget_tier(session_id: str) -> None:
-    """Drop what is known about a tab that no longer exists."""
-    _tiers.pop(session_id, None)
+    if meta is None:
+        return None
+    return meta.tier if meta.tier is not None else meta.tier_tab

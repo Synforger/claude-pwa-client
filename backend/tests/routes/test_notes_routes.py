@@ -14,7 +14,6 @@ from starlette.testclient import TestClient
 
 from backend._generated import http_endpoints as http
 from backend._common.config import FILE_SIZE_LIMIT
-from backend.terminal import tab_tier
 from backend.terminal.runner import tmux_session_env_args
 from backend.terminal.tab_memo import memo_file, memo_path
 
@@ -43,7 +42,7 @@ def client(tabs):
 
 def started_in(monkeypatch, tab, tier):
     """The agent of `tab` was started in `tier`."""
-    monkeypatch.setitem(tab_tier._tiers, tab.id, tier)
+    tab.tier = tier
 
 
 def test_a_tab_without_a_memo_reads_empty_and_nothing_is_created(client, tabs, agent_folder):

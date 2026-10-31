@@ -3,6 +3,7 @@ claude is found."""
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import subprocess
 import sys
@@ -18,7 +19,6 @@ from backend.terminal import pty_discover, tab_tier
 @pytest.fixture
 def tabs(isolated_state, monkeypatch):
     monkeypatch.setattr(isolated_state, "save_sessions_meta", lambda: None)
-    monkeypatch.setattr(tab_tier, "_tiers", {})
     return isolated_state.register_session("agent_a", title="A"), isolated_state.register_session("agent_a", title="B")
 
 
@@ -33,7 +33,7 @@ def client(tabs):
 
 def test_every_row_has_a_tier_and_it_is_null_when_not_known(client, tabs):
     a, b = tabs
-    tab_tier._tiers[a.id] = "projects/alpha"
+    a.tier = "projects/alpha"
     rows = {row["id"]: row for row in client.get("/sessions").json()}
     assert rows[a.id]["tier"] == "projects/alpha"
     assert "tier" in rows[b.id] and rows[b.id]["tier"] is None
@@ -41,21 +41,25 @@ def test_every_row_has_a_tier_and_it_is_null_when_not_known(client, tabs):
 
 def test_the_title_stays_what_the_user_set(client, tabs):
     a, _ = tabs
-    tab_tier._tiers[a.id] = "projects/alpha"
+    a.tier = "projects/alpha"
     renamed = client.patch(f"/sessions/{a.id}", json={"title": "my own name"}).json()
     assert renamed["title"] == "my own name" and renamed["tier"] == "projects/alpha"
     assert {row["id"]: row["title"] for row in client.get("/sessions").json()}[a.id] == "my own name"
 
 
-def test_the_tier_is_not_stored_with_the_tab(tabs, isolated_state):
+def test_the_tier_is_stored_with_the_tab_and_comes_back_when_the_backend_loads_it(tabs, isolated_state, tmp_path, monkeypatch):
     a, _ = tabs
-    tab_tier._tiers[a.id] = "projects/alpha"
-    assert "tier" not in isolated_state.sessions_meta[a.id].to_dict()
+    a.tier = "projects/alpha"
+    path = tmp_path / "stored_meta.json"
+    path.write_text(json.dumps([a.to_dict()]))
+    monkeypatch.setattr(isolated_state, "SESSION_META_PATH", path)
+    loaded = isolated_state._load_sessions_meta()
+    assert loaded[a.id].tier == "projects/alpha"
 
 
 def test_the_overview_carries_the_tier_of_each_tab(tabs):
     a, b = tabs
-    tab_tier._tiers[a.id] = "normal"
+    a.tier = "normal"
     payload = overview._build_sessions_overview()
     assert payload[a.id]["tier"] == "normal"
     assert payload[b.id]["tier"] is None

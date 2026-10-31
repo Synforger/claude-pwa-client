@@ -104,6 +104,9 @@ class SessionDef:
     # 階層のタブ (= `backend/tier_tabs/`) が、 どの階層のために置いたタブか。 新しい会話はこの階層で起動する
     # (= `terminal/first_message.py`)。 人や子の仕組みが立てたタブは None。
     tier_tab: str | None = None
+    # The tier the tab's claude was last started in (`terminal/tab_tier.py`). Stored so that it survives a restart
+    # of the backend or the machine, when the tab's claude is gone until its next message.
+    tier: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -117,6 +120,7 @@ class SessionDef:
             "account_id": self.account_id,
             "child": self.child,
             "tier_tab": self.tier_tab,
+            "tier": self.tier,
         }
 
 
@@ -167,6 +171,7 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
                 account_id=entry.get("account_id"),
                 child=entry.get("child") is True,
                 tier_tab=entry.get("tier_tab") if isinstance(entry.get("tier_tab"), str) else None,
+                tier=entry.get("tier") if isinstance(entry.get("tier"), str) else None,
             )
     else:
         # 初期化: agent ごと 1 セッションを生成する

@@ -129,12 +129,12 @@ def test_process_start_time_and_cwd_compat(monkeypatch):
         assert pty_discover.process_cwd(77) == "/some/where"
 
 
-def test_refresh_tier_reads_the_tier_of_the_claude_now_in_the_pane_and_reports_a_change_once(monkeypatch):
+def test_refresh_tier_reads_the_tier_of_the_claude_now_in_the_pane_and_reports_a_change_once(monkeypatch, isolated_state):
     """A claude that starts after the wait ran out (or replaces the one seen) gets its tier read again."""
     import asyncio
     from backend.terminal import tab_tier
 
-    monkeypatch.setattr(tab_tier, "_tiers", {"ses_a": "normal"})
+    isolated_state.register_session("agent_a", title="A", sid="ses_a").tier = "normal"
     monkeypatch.setattr(pty_discover, "claude_pid_in_pane", lambda sid: 42 if sid == "ses_a" else None)
     monkeypatch.setattr(tab_tier, "read_tier", lambda pid: "projects/alpha" if pid == 42 else None)
     notified = []
@@ -146,11 +146,11 @@ def test_refresh_tier_reads_the_tier_of_the_claude_now_in_the_pane_and_reports_a
     assert notified == [1]
 
 
-def test_refresh_tier_keeps_what_is_known_when_no_claude_runs_in_the_pane(monkeypatch):
+def test_refresh_tier_keeps_what_is_known_when_no_claude_runs_in_the_pane(monkeypatch, isolated_state):
     import asyncio
     from backend.terminal import tab_tier
 
-    monkeypatch.setattr(tab_tier, "_tiers", {"ses_a": "projects/alpha"})
+    isolated_state.register_session("agent_a", title="A", sid="ses_a").tier = "projects/alpha"
     monkeypatch.setattr(pty_discover, "claude_pid_in_pane", lambda sid: None)
     asyncio.run(pty_discover.refresh_tier("ses_a"))
     assert tab_tier.tab_tier("ses_a") == "projects/alpha"

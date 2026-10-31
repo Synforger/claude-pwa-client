@@ -51,9 +51,8 @@ def agent(tmp_path) -> Path:
 
 
 @pytest.fixture
-def configured(monkeypatch, tmp_path, isolated_state, agent) -> dict[str, str]:
-    """MAIN has tier tabs; WORK (with a child agent in the same folder) does not. → the tiers claude runs in
-    (= tab id → tier, what `tab_tier` learns from a running claude)."""
+def configured(monkeypatch, tmp_path, isolated_state, agent) -> None:
+    """MAIN has tier tabs; WORK (with a child agent in the same folder) does not."""
     path = tmp_path / "config.json"
     agents = {
         "agent_a": {"cwd": str(agent), "display_name": "MAIN", "launch_alias": "main", "launcher": True,
@@ -68,9 +67,6 @@ def configured(monkeypatch, tmp_path, isolated_state, agent) -> dict[str, str]:
     # the session resolver holds the agents it read when it was imported
     monkeypatch.setattr(session_resolver, "AGENTS", agents)
     monkeypatch.setattr(record, "TIER_TABS_PATH", tmp_path / "data" / "tier_tabs.json")
-    running: dict[str, str] = {}
-    monkeypatch.setattr(tab_tier, "_tiers", running)
-    return running
 
 
 def run(coroutine):
@@ -148,7 +144,7 @@ def test_a_placed_tab_works_in_its_tier_before_its_claude_starts(configured, iso
     assert tab_tier.tab_tier(first) == "normal"
     assert isolated_state.sessions_meta[first].to_dict()["tier_tab"] == "normal"
     # once its claude runs, the tier the claude was given wins
-    configured[first] = "projects/B"
+    isolated_state.sessions_meta[first].tier = "projects/B"
     assert tab_tier.tab_tier(first) == "projects/B"
 
 
@@ -162,16 +158,15 @@ def test_a_closed_tab_is_not_placed_again_but_a_new_folder_gets_one(configured, 
 
 def test_a_tier_that_already_has_a_tab_is_recorded_without_another(configured, isolated_state):
     isolated_state.sessions_meta["ses_hand"] = SessionDef(id="ses_hand", agent_id="agent_a", title="music",
-                                                          created_at=0)
-    configured["ses_hand"] = "projects/A"
+                                                          created_at=0, tier="projects/A")
     assert titles(isolated_state, tier_tabs.place_new_tiers()) == ["MAIN", "A・S", "B"]
     assert "projects/A" in record.load()["agent_a"]
 
 
 def test_a_child_tab_in_a_tier_does_not_count_as_its_tab(configured, isolated_state):
     isolated_state.sessions_meta["ses_kid"] = SessionDef(id="ses_kid", agent_id="agent_a", title="kid",
-                                                         created_at=0, parent_id="ses_x", child=True)
-    configured["ses_kid"] = "projects/B"
+                                                         created_at=0, parent_id="ses_x", child=True,
+                                                         tier="projects/B")
     assert "B" in titles(isolated_state, tier_tabs.place_new_tiers())
 
 

@@ -18,8 +18,7 @@ TEMPLATE = '<html><title>{{title}}</title><p>階層: {{tier}}</p><p>{{unknown}} 
 
 
 @pytest.fixture
-def tab(a_tab, monkeypatch):
-    monkeypatch.setattr(tab_tier, "_tiers", {})
+def tab(a_tab):
     return a_tab
 
 
@@ -32,7 +31,7 @@ def template(agent_folder):
 
 
 def started_in(monkeypatch, tab, tier):
-    monkeypatch.setitem(tab_tier._tiers, tab.id, tier)
+    tab.tier = tier
 
 
 # --- The fill-in (pure) ---
@@ -112,7 +111,6 @@ def test_a_template_that_cannot_be_read_leaves_no_page_and_does_not_raise(tab, t
 
 
 def test_the_title_of_the_tab_is_what_the_page_shows(a_tab, template, isolated_state, monkeypatch):
-    monkeypatch.setattr(tab_tier, "_tiers", {})
     isolated_state.sessions_meta[a_tab.id].title = "<b>調査</b>"
     started_in(monkeypatch, a_tab, "normal")
     assert "<title>&lt;b&gt;調査&lt;/b&gt;</title>" in make_page(a_tab.id).read_text(encoding="utf-8")
