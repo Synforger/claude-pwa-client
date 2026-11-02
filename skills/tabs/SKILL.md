@@ -58,7 +58,7 @@ your own words without the quoted material and send again.
 | Code | Meaning and what to do |
 |---|---|
 | `agent_message_refused` | The body contains material the receiver may not read. Rewrite it in your own words. |
-| `agent_message_receiver_not_running` | No Claude runs in the receiver's tab and a message cannot start one (its agent has no launcher and there is no earlier conversation). Tell the operator. |
+| `agent_message_receiver_not_running` | No Claude runs in the receiver's tab and the message could not start one. Start it yourself instead of asking the operator to open the tab: run `tabs list`, and if the tab is listed send the same message once more; if it is not, run `tabs open <tier>` and send. If it still does not arrive, send the client's tab the command, the code and the time, as a defect of the client. |
 | `agent_message_receiver_not_ready` | The receiver's Claude did not start in time, or its conversation has not begun. Send once more. |
 | `agent_message_ambiguous_receiver` | Several tabs share the name. Use the id from `tabs list`. |
 | `agent_message_check_failed` | The screening did not run. Send once more; if it repeats, tell the operator. |
