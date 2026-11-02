@@ -1,15 +1,15 @@
 // @vitest-environment jsdom
 //
 // 📋 の頭には、 そのタブのトップページへのリンクが固定で出る (= メモの本文とは別の行)。 ページが無いタブでは出ない。
-// 押すと path の開き方 (= openPath) で開き、 書く最中には出ない。
+// 押すと path の開き方 (= openLinkedPath) で開き、 書く最中には出ない。
 import { it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, cleanup, fireEvent, screen, waitFor, act } from '@testing-library/react'
 import NoteModal from '../../../src/features/notes/NoteModal.jsx'
 import { setOverlay } from '../../../src/state/ui.js'
 import * as sessions from '../../../src/state/sessions.js'
 
-const openPath = vi.hoisted(() => vi.fn())
-vi.mock('../../../src/features/file-preview/openPath.js', () => ({ openPath }))
+const openLinkedPath = vi.hoisted(() => vi.fn())
+vi.mock('../../../src/features/file-preview/openPath.js', () => ({ openLinkedPath }))
 
 const SID = 'ses_note'
 
@@ -25,7 +25,7 @@ afterEach(() => {
   act(() => setOverlay('notes', false))
   cleanup()
   vi.restoreAllMocks()
-  openPath.mockReset()
+  openLinkedPath.mockReset()
 })
 
 it('shows the link to the tab\'s top page above the memo, and opens it by the path', async () => {
@@ -35,8 +35,8 @@ it('shows the link to the tab\'s top page above the memo, and opens it by the pa
   expect(link.textContent).toContain('Page')
   expect(screen.getByTestId('notes-body').firstElementChild).toBe(link)
   fireEvent.click(link)
-  expect(openPath).toHaveBeenCalledTimes(1)
-  expect(openPath.mock.calls[0][0]).toBe('/a/pages/x/index.html')
+  expect(openLinkedPath).toHaveBeenCalledTimes(1)
+  expect(openLinkedPath.mock.calls[0][0]).toBe('/a/pages/x/index.html')
 })
 
 it('keeps the link when the memo is empty, because the link is not part of the memo', async () => {

@@ -289,6 +289,26 @@ endpoints:
       - "Content-Type は拡張子の画像型、 X-Content-Type-Options: nosniff"
     implementation: backend/routes/files.py
 
+  - method: POST
+    path: /file/reveal
+    description: "フォルダを backend の機械の Finder で開く (= 会話とメモのリンクを押した時)"
+    request_body:
+      type: object
+      required: [path]
+      properties:
+        path: { type: string, description: "フォルダの path (= ~/... も可)" }
+    response:
+      type: object
+      properties:
+        revealed: { type: boolean, description: "Finder に渡したか。 フォルダでない・Finder が無い時は false で、 画面は今までどおり開く" }
+      required: [revealed]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "HOME 配下外 / deny list 該当は 403 (= /file と同じ境界)"
+      - "名前に拡張子があるフォルダは開かず、 親の中で選んだ状態で見せる (= Foo.app を走らせない)"
+    implementation: backend/routes/files.py
+
   - method: PUT
     path: /file
     description: "HOME 配下ファイル書き込み"

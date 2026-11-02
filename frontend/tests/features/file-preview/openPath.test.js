@@ -4,7 +4,7 @@
 // folder は木、 それ以外 (= 資料の pdf・Office・tif、 画像、 Markdown) は client の中のプレビュー。 既定のブラウザで開く時は、
 // メモを畳む等の後始末を呼ばない。 iPhone のホーム画面の PWA は、 HTML を Safari へ渡す (= _common/externalBrowser.js)。
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { openPath } from '../../../src/features/file-preview/openPath.js'
+import { openLinkedPath, openPath } from '../../../src/features/file-preview/openPath.js'
 import { getSnapshot, setOverlay } from '../../../src/state/ui.js'
 
 const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
@@ -136,6 +136,68 @@ describe('openPath', () => {
 
   it('opens a folder in the tree', () => {
     openPath('~/pages/deck/')
+    expect(getSnapshot().overlays.treeOpen).toBe('~/pages/deck/')
+  })
+})
+
+describe('openLinkedPath', () => {
+  // The backend's answer to `POST /file/reveal`
+  function backendAnswers(revealed) {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ revealed }), { status: 200 }))
+    vi.stubGlobal('fetch', fetch)
+    return fetch
+  }
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('hands a folder to the backend on a computer, and leaves the screen as it was', async () => {
+    const fetch = backendAnswers(true)
+    const onLeave = vi.fn()
+    await openLinkedPath('~/Movies/session', { onLeave })
+    expect(fetch).toHaveBeenCalledTimes(1)
+    const [url, options] = fetch.mock.calls[0]
+    expect(url).toMatch(/\/file\/reveal$/)
+    expect(options.method).toBe('POST')
+    expect(JSON.parse(options.body)).toEqual({ path: '~/Movies/session' })
+    expect(onLeave).not.toHaveBeenCalled()
+    expect(getSnapshot().overlays.treeOpen ?? null).toBe(null)
+    expect(getSnapshot().overlays.previewPath ?? null).toBe(null)
+  })
+
+  it.each(['~/notes/plan.md', '~/pictures/photo.png', '~/materials/spec.pdf'])(
+    'opens the file %s as before when the backend says it is not a folder', async path => {
+      backendAnswers(false)
+      const onLeave = vi.fn()
+      await openLinkedPath(path, { onLeave })
+      expect(onLeave).toHaveBeenCalledTimes(1)
+      expect(getSnapshot().overlays.previewPath).toBe(path)
+    })
+
+  it('opens the tree when the backend has no Finder', async () => {
+    backendAnswers(false)
+    await openLinkedPath('~/pages/deck/')
+    expect(getSnapshot().overlays.treeOpen).toBe('~/pages/deck/')
+  })
+
+  it('opens the path as before when the backend cannot be reached', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline') }))
+    await openLinkedPath('~/notes/plan.md')
+    expect(getSnapshot().overlays.previewPath).toBe('~/notes/plan.md')
+  })
+
+  it('opens HTML within the tap: nothing is awaited before the new window', () => {
+    const fetch = backendAnswers(true)
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    openLinkedPath('~/pages/deck/index.html')
+    expect(open).toHaveBeenCalledTimes(1)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('keeps the tree on an iPhone, without asking the backend', async () => {
+    const fetch = backendAnswers(true)
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(IPHONE_UA)
+    await openLinkedPath('~/pages/deck/')
+    expect(fetch).not.toHaveBeenCalled()
     expect(getSnapshot().overlays.treeOpen).toBe('~/pages/deck/')
   })
 })
