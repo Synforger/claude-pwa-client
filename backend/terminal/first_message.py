@@ -7,7 +7,7 @@ launcher (= agent cfg `launcher: true`) の新しい会話は、 最初の発話
 複数行でも崩れない)。
 
 階層のタブとして置いたタブ (= `SessionDef.tier_tab`、 `backend/tier_tabs/`) と、 別のタブからの連絡で始まる
-会話 (= 連絡の本文からは階層が決まらないので、 タブが覚えている階層 `SessionDef.tier`) は、 最初の発話の代わりに
+会話 (= 連絡の本文からは階層が決まらないので、 タブが覚えている階層 `SessionDef.tier`、 覚えていなければ `normal`) は、 最初の発話の代わりに
 その階層の封筒で起動し、 送られた本文は claude が打鍵を受け取れるようになってから次の発話として打つ
 (= 本文を封筒に足すと 1 行目が client の文になり、 人が打った発話として数えられなくなる)。 自動の入れ替えの
 発話は自分の階層を運ぶので、 そのまま最初の発話にする。
@@ -34,6 +34,7 @@ from backend.terminal.session_resolver import (
     first_message_command,
     uses_launcher,
 )
+from backend.terminal.tier import DEFAULT_TIER
 from backend.tier_tabs.envelope import envelope
 
 logger = logging.getLogger(__name__)
@@ -94,7 +95,8 @@ async def launch_with_first_message(session_id: str, text: str) -> dict | None:
 def _placed_tier(session_id: str, text: str) -> str | None:
     """The tier the tab's new conversation starts in by envelope, or None when the text itself is the first
     message. A rollover carries its own tier, and the operator's words choose it in a tab not placed for a tier;
-    a message from another tab cannot, so it starts in the tier the tab remembers."""
+    a message from another tab cannot, so it starts in the tier the tab remembers, or in `normal`, where the
+    operator's words start when they name no tier."""
     meta = sessions_meta.get(session_id)
     if meta is None:
         return None
@@ -103,7 +105,7 @@ def _placed_tier(session_id: str, text: str) -> str | None:
         return None
     if meta.tier_tab is not None:
         return meta.tier_tab
-    return meta.tier if opening.startswith(AGENT_MESSAGE_OPENINGS) else None
+    return (meta.tier or DEFAULT_TIER) if opening.startswith(AGENT_MESSAGE_OPENINGS) else None
 
 
 async def _send_when_ready(session_id: str, text: str) -> None:

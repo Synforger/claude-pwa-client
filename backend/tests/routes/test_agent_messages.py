@@ -37,8 +37,10 @@ def typed(monkeypatch) -> list[tuple[str, dict]]:
 
     monkeypatch.setattr(am, "pty_send", fake_send)
     monkeypatch.setattr(am, "claude_in_pane", lambda sid: sid != "ses_idle")
-    # ses_idle has a shell left in its pane and no tier (= a message has no way to start its claude)
+    # ses_idle has a shell left in its pane, its agent has no launcher and it has no conversation to reopen
+    # (= a message has no way to start its claude)
     monkeypatch.setattr(am, "has_tmux_session", lambda sid: True)
+    monkeypatch.setattr(am, "resume_command_for", lambda sid: None)
     return calls
 
 
@@ -839,15 +841,73 @@ def test_a_shell_in_the_pane_takes_a_message_when_the_tab_remembers_its_tier(cli
     assert typed[0][0] == "ses_idle"
 
 
-@pytest.mark.parametrize("change", [
-    pytest.param({}, id="no tier and no way to start"),
-    pytest.param({"tier": "projects/P", "child": True}, id="a finished child"),
-])
-def test_a_shell_in_the_pane_is_left_alone_when_the_message_cannot_decide_how_to_start(
-        client, tabs, typed, started, monkeypatch, change):
+def test_a_shell_in_the_pane_of_a_tab_with_no_tier_takes_a_message(client, tabs, typed, started, monkeypatch):
     monkeypatch.setattr(am, "uses_launcher", lambda sid: True)
-    for name, value in change.items():
-        setattr(tabs["ses_idle"], name, value)
+    assert tabs["ses_idle"].tier is None
+    assert _send(client, to="ses_idle").status_code == 200
+    assert typed[0][0] == "ses_idle"
+
+
+def test_a_launcher_tab_without_a_tmux_session_or_a_conversation_takes_a_message(client, tabs, typed, started, monkeypatch):
+    monkeypatch.setattr(am, "has_tmux_session", lambda sid: False)
+    monkeypatch.setattr(am, "resolve_launch_alias", lambda sid: None)
+    monkeypatch.setattr(am, "uses_launcher", lambda sid: True)
+    assert _send(client, to="ses_idle").status_code == 200
+    assert started == ["ses_idle"] and typed[0][0] == "ses_idle"
+
+
+@pytest.fixture
+def keys(monkeypatch) -> list[tuple]:
+    """What was typed into the shell before the message (= the command that reopens the conversation)."""
+    typed_keys: list[tuple] = []
+
+    def fake_keys(session_id, text=None, key=None, enter=False):
+        typed_keys.append((session_id, key or text))
+        return True
+
+    async def fake_register(session_id, max_wait):
+        return None
+
+    monkeypatch.setattr(am, "tmux_send_keys", fake_keys)
+    monkeypatch.setattr(am, "register_claude_when_ready", fake_register)
+    monkeypatch.setattr(am.input_ready, "wait_ready", _ready)
+    return typed_keys
+
+
+@pytest.mark.parametrize("launcher, child", [
+    pytest.param(True, True, id="a finished child keeps its task"),
+    pytest.param(False, False, id="an agent without a launcher"),
+])
+def test_a_shell_in_the_pane_gets_the_last_conversation_back_before_the_message(
+        client, tabs, typed, started, keys, monkeypatch, launcher, child):
+    monkeypatch.setattr(am, "uses_launcher", lambda sid: launcher)
+    monkeypatch.setattr(am, "resume_command_for", lambda sid: "main --resume abc")
+    tabs["ses_idle"].child = child
+    try:
+        assert _send(client, to="ses_idle").status_code == 200
+    finally:
+        am.input_ready.forget("ses_idle")
+    assert keys == [("ses_idle", "C-u"), ("ses_idle", "main --resume abc")]
+    assert typed[0][0] == "ses_idle"
+
+
+def test_a_finished_child_with_no_conversation_starts_from_the_message(client, tabs, typed, started, keys, monkeypatch):
+    monkeypatch.setattr(am, "uses_launcher", lambda sid: True)
+    tabs["ses_idle"].child = True
+    assert _send(client, to="ses_idle").status_code == 200
+    assert keys == []
+    assert typed[0][0] == "ses_idle"
+
+
+def test_a_launcher_tab_that_is_not_a_child_starts_a_new_conversation_in_its_shell(
+        client, tabs, typed, started, keys, monkeypatch):
+    monkeypatch.setattr(am, "uses_launcher", lambda sid: True)
+    monkeypatch.setattr(am, "resume_command_for", lambda sid: "main --resume abc")
+    assert _send(client, to="ses_idle").status_code == 200
+    assert keys == []  # the operator's own message would start a new one too
+
+
+def test_only_an_agent_without_a_launcher_or_a_conversation_is_left_without_a_way(client, tabs, typed, started):
     r = _send(client, to="ses_idle")
     assert (r.status_code, r.json()["detail"]["code"]) == (409, "agent_message_receiver_not_running")
     assert started == [] and typed == []

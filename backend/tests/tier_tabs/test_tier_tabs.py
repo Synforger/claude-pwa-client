@@ -266,6 +266,13 @@ def test_a_message_to_a_tab_not_placed_for_a_tier_starts_in_the_tier_the_tab_rem
     assert launched == [("launch", envelope("projects/B")), ("send", relayed)]
 
 
+def test_a_message_to_a_tab_that_remembers_no_tier_starts_in_normal(launched, isolated_state):
+    isolated_state.sessions_meta["ses_new"] = SessionDef(id="ses_new", agent_id="agent_a", title="new", created_at=0)
+    relayed = f'{AGENT_MESSAGE_OPENING}\n<agent-message from="MAIN" session="ses_n">\nplease check\n</agent-message>'
+    run(deliver("ses_new", relayed))
+    assert launched == [("launch", envelope("normal")), ("send", relayed)]
+
+
 def test_the_operator_s_words_still_choose_the_tier_in_a_tab_not_placed_for_one(launched, isolated_state):
     isolated_state.sessions_meta["ses_hand"] = SessionDef(
         id="ses_hand", agent_id="agent_a", title="hand", created_at=0, tier="projects/B")
@@ -289,13 +296,14 @@ def test_a_tab_that_was_not_placed_starts_with_what_was_sent(launched, isolated_
 
 # --- messages to a placed tab --------------------------------------------------------------------------------
 
-def test_a_placed_tab_takes_messages_before_its_claude_starts(configured, isolated_state, monkeypatch):
+def test_a_tab_of_a_launcher_agent_takes_messages_before_its_claude_starts(configured, isolated_state, monkeypatch):
     tabs = tier_tabs.place_new_tiers()
     monkeypatch.setattr(agent_messages, "claude_in_pane", lambda sid: False)
     assert agent_messages._tab_reachable(tabs[0])
+    # a tab the operator opened is the same: the message starts it in the tier it remembers, or in normal
     isolated_state.sessions_meta["ses_hand"] = SessionDef(id="ses_hand", agent_id="agent_a", title="hand",
                                                           created_at=0)
-    assert not agent_messages._tab_reachable("ses_hand")
+    assert agent_messages._tab_reachable("ses_hand")
 
 
 def test_a_message_to_a_placed_tab_is_checked_as_for_a_conversation_that_read_nothing(configured, isolated_state,

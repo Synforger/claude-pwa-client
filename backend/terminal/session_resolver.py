@@ -101,6 +101,14 @@ def _resume_command(session_id: str, claude_sid: str) -> str | None:
     return f"{shlex.quote(CLAUDE_PATH)} --resume {shlex.quote(claude_sid)}"
 
 
+def resume_command_for(session_id: str) -> str | None:
+    """The command that reopens the tab's last conversation (= a fork's starting point, or the conversation the tab
+    last ran), None when there is none to reopen."""
+    meta = sessions_meta.get(session_id)
+    claude_sid = (meta.resume_session_id if meta is not None else None) or last_resumable_claude_sid(session_id)
+    return _resume_command(session_id, claude_sid) if claude_sid else None
+
+
 def resolve_launch_alias(session_id: str, *, prefer_fresh: bool = False) -> str | None:
     """初回 spawn で zsh prompt に送る起動コマンドを解決する。
 
