@@ -902,7 +902,7 @@ endpoints:
     auth: localhost
     invariants:
       - "本文に送り主を名乗る封筒を付けて届ける (= 1 行目は固定、 人の送信口 /pty/{sid}/send には付かない)"
-      - "宛先で claude が動いていない時は、 人の操作と同じに起動してから届ける (= tmux が無ければ画面で開いた時の起動、 pane が shell ならタブの階層で新しい会話)。 起動の仕方が決まらないタブには 409 agent_message_receiver_not_running を返す"
+      - "宛先で claude が動いていない時は、 人の操作と同じに起動してから届ける (= tmux が無ければ画面で開いた時の起動、 pane が shell ならタブの階層 (= 無ければ normal) で新しい会話、 子のタブと起動ラッパの無いエージェントは前の会話を開き直す)。 起動ラッパが無く開き直す会話も無いタブには 409 agent_message_receiver_not_running を返す"
       - "起動が間に合わなければ、 打たずに 409 agent_message_receiver_not_ready を返す"
       - "config の agent_message_check が 0 以外で終われば届けず、 理由を 403 で返す"
       - "送り主のタブで最後に端末から入った発話が人の物なら <operator-said> として封筒に入れる (= agent_message_operator_check が 0 以外なら入れずに届ける)"

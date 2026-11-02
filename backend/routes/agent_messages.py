@@ -61,10 +61,15 @@ from backend._common.errors import raise_error
 from backend._common.state import sessions_meta
 from backend.terminal import input_ready
 from backend.terminal.first_message import LAUNCH_DISCOVER_SEC
-from backend.terminal.pty_discover import claude_in_pane
+from backend.terminal.pty_discover import claude_in_pane, register_claude_when_ready
 from backend.terminal.routes import pty_send
-from backend.terminal.runner import has_tmux_session, jsonl_path_for_session
-from backend.terminal.session_resolver import ensure_pty_session_for, resolve_launch_alias, uses_launcher
+from backend.terminal.runner import has_tmux_session, jsonl_path_for_session, tmux_send_keys
+from backend.terminal.session_resolver import (
+    ensure_pty_session_for,
+    resolve_launch_alias,
+    resume_command_for,
+    uses_launcher,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -345,19 +350,23 @@ def _tab_running(tab_id: str) -> bool:
 
 def _message_starts_claude(tab_id: str) -> bool:
     """Whether a message can start the claude of this tab, which has none running. A message does what the
-    operator's own action on the tab would do, so the two never differ: without a tmux session, the start the
-    screen makes when it opens the tab (= the last conversation is reopened); with a shell left in the pane, a
-    new conversation in the tab's stored tier (`terminal/first_message.py`). A child tab is not restarted that
-    way, because only its parent can give it a task. A tab with neither a command nor a tier has no way to
-    decide where its claude would run."""
+    operator's own action on the tab would do, so the two never differ:
+
+    - without a tmux session, the start the screen makes when it opens the tab (= the last conversation is reopened)
+    - with a shell left in the pane, a new conversation (`terminal/first_message.py`) in the tier the tab remembers,
+      or `normal` when it remembers none (= what the operator's words start when they name no tier)
+    - a child, or an agent without a launcher, with a shell left in the pane: its last conversation is reopened, since
+      a child keeps the task its parent gave it and an agent without a launcher cannot start from a first message
+
+    Only an agent without a launcher and with no conversation to reopen is left with no way to start."""
     meta = sessions_meta.get(tab_id)
     if meta is None or _tab_running(tab_id):
         return False
     if not input_ready.is_ready(tab_id):  # already starting: the message waits for it
         return True
-    if not has_tmux_session(tab_id) and resolve_launch_alias(tab_id) is not None:
-        return True
-    return uses_launcher(tab_id) and not meta.child and (meta.tier_tab or meta.tier) is not None
+    if not has_tmux_session(tab_id):
+        return resolve_launch_alias(tab_id) is not None or uses_launcher(tab_id)
+    return uses_launcher(tab_id) or resume_command_for(tab_id) is not None
 
 
 def _tab_reachable(tab_id: str) -> bool:
@@ -365,12 +374,28 @@ def _tab_reachable(tab_id: str) -> bool:
     return _tab_running(tab_id) or _message_starts_claude(tab_id)
 
 
+def _reopens_in_its_shell(tab_id: str) -> bool:
+    """Whether a shell left in the pane is given back the tab's last conversation, not a new one (= a child, or an
+    agent without a launcher)."""
+    meta = sessions_meta.get(tab_id)
+    return meta is not None and (meta.child or not uses_launcher(tab_id))
+
+
 async def _wake(tab_id: str) -> None:
-    """Start the tab's claude if opening the tab would, and wait until it takes input. The sender learns here
-    when it did not start, and nothing is typed into a pane that is not listening."""
+    """Start the tab's claude the way the operator's action would, and wait until it takes input. The sender learns
+    here when it did not start, and nothing is typed into a pane that is not listening. A new conversation is left to
+    the first message (`pty_send`), which starts it with the message."""
     if _tab_running(tab_id):
         return
+    shell_left = has_tmux_session(tab_id) and input_ready.is_ready(tab_id)
     await ensure_pty_session_for(tab_id)
+    if shell_left and _reopens_in_its_shell(tab_id) and (command := resume_command_for(tab_id)) is not None:
+        input_ready.mark_starting(tab_id)
+        if not (tmux_send_keys(tab_id, key="C-u") and tmux_send_keys(tab_id, text=command, enter=True)):
+            input_ready.mark_ready(tab_id)
+            raise_error(409, "agent_message_receiver_not_ready", "宛先の claude を起動できませんでした。 もう一度送ってください")
+        logger.info("agent message: reopened the last conversation in the shell session=%s", tab_id)
+        asyncio.create_task(register_claude_when_ready(tab_id, max_wait=LAUNCH_DISCOVER_SEC))
     if not await input_ready.wait_ready(tab_id, LAUNCH_DISCOVER_SEC):
         raise_error(409, "agent_message_receiver_not_ready",
                     f"宛先の claude が {LAUNCH_DISCOVER_SEC:.0f} 秒以内に起動しませんでした。 もう一度送ってください")
