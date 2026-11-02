@@ -164,6 +164,7 @@
   "plan_approval.reject": "却下 (keep planning)",
   "plan_approval.no_content": "(plan 内容なし)",
   "file_preview.too_large": "ファイルが大きすぎます",
+  "file_preview.not_text": "この画面では開けないファイルです",
   "file_preview.favorite_remove": "お気に入りから削除",
   "file_preview.favorite_add": "お気に入りに登録",
   "file_preview.saving": "保存中...",

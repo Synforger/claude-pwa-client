@@ -299,6 +299,7 @@ function FilePreviewModalBody({ path, onClose }) {
     apiFetch(`/file?path=${encodeURIComponent(path)}`, { signal: controller.signal })
       .then(r => {
         if (r.status === 413) return r.json().then(d => Promise.reject(translateHttpErrorDetail(d.detail, t('file_preview.too_large'))))
+        if (r.status === 415) return Promise.reject(t('file_preview.not_text'))
         return r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`)
       })
       .then(data => setContent(data.content))

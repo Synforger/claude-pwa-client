@@ -625,39 +625,65 @@ def home_dir(monkeypatch, tmp_path):
 def test_a_folder_opens_in_finder_with_or_without_the_last_slash(finder, home_dir):
     folder = home_dir / "Movies" / "session"
     folder.mkdir(parents=True)
-    assert files_routes.reveal_folder(str(folder)) == {"revealed": True}
-    assert files_routes.reveal_folder(f"{folder}/") == {"revealed": True}
+    assert files_routes.reveal_path(str(folder)) == {"revealed": True}
+    assert files_routes.reveal_path(f"{folder}/") == {"revealed": True}
     assert finder == [["open", "-a", "Finder", str(folder)]] * 2
 
 
 def test_a_folder_with_a_suffix_is_shown_and_not_opened_so_a_bundle_cannot_run(finder, home_dir):
     bundle = home_dir / "Tool.app"
     bundle.mkdir()
-    assert files_routes.reveal_folder(str(bundle)) == {"revealed": True}
+    assert files_routes.reveal_path(str(bundle)) == {"revealed": True}
     assert finder == [["open", "-R", str(bundle)]]
 
 
-@pytest.mark.parametrize("name", ["note.md", "missing", "missing/"])
-def test_a_path_that_is_not_a_folder_is_left_to_the_screen(finder, home_dir, name):
-    (home_dir / "note.md").write_text("x")
-    assert files_routes.reveal_folder(str(home_dir / name)) == {"revealed": False}
+@pytest.mark.parametrize("name, content", [
+    ("note.md", b"# plan\n"),
+    ("script", "日本語の文".encode("shift_jis")),  # text in any encoding, without a NUL byte
+    ("page.html", b"\0"),  # HTML opens in a browser whatever it holds
+    ("shot.png", b"\x89PNG\r\n\0"),
+    ("spec.pdf", b"%PDF-1.7\n\0"),
+])
+def test_a_file_the_client_shows_is_left_to_the_screen(finder, home_dir, name, content):
+    (home_dir / name).write_bytes(content)
+    assert files_routes.reveal_path(str(home_dir / name)) == {"revealed": False}
     assert finder == []
+
+
+@pytest.mark.parametrize("name", ["missing", "missing/"])
+def test_a_path_that_does_not_exist_is_left_to_the_screen(finder, home_dir, name):
+    assert files_routes.reveal_path(str(home_dir / name)) == {"revealed": False}
+    assert finder == []
+
+
+@pytest.mark.parametrize("name, size, head", [
+    pytest.param("take.mp4", 2 * 1024, b"\0\0\0\x18ftypmp42", id="binary"),
+    pytest.param("big.log", files_routes.FILE_SIZE_LIMIT + 1, b"line", id="text over the preview's limit"),
+    pytest.param("huge.png", files_routes.IMAGE_SIZE_LIMIT + 1, b"\x89PNG", id="image over its limit"),
+])
+def test_a_file_the_client_cannot_show_is_shown_selected_in_its_folder(finder, home_dir, name, size, head):
+    target = home_dir / name
+    with target.open("wb") as handle:
+        handle.write(head)
+        handle.truncate(size)
+    assert files_routes.reveal_path(str(target)) == {"revealed": True}
+    assert finder == [["open", "-R", str(target)]]
 
 
 @pytest.mark.parametrize("path", ["/etc", "~/.ssh", "~/repo/secrets"])
 def test_a_folder_the_file_routes_refuse_is_refused_here_too(finder, path):
     with pytest.raises(HTTPException) as refused:
-        files_routes.reveal_folder(path)
+        files_routes.reveal_path(path)
     assert refused.value.status_code == 403
     assert finder == []
 
 
 def test_nothing_opens_without_finder_or_on_the_e2e_backend(finder, home_dir, monkeypatch):
     monkeypatch.setattr(files_routes.sys, "platform", "linux")
-    assert files_routes.reveal_folder(str(home_dir)) == {"revealed": False}
+    assert files_routes.reveal_path(str(home_dir)) == {"revealed": False}
     monkeypatch.setattr(files_routes.sys, "platform", "darwin")
     monkeypatch.setenv("CPC_E2E", "1")
-    assert files_routes.reveal_folder(str(home_dir)) == {"revealed": False}
+    assert files_routes.reveal_path(str(home_dir)) == {"revealed": False}
     assert finder == []
 
 
@@ -668,4 +694,13 @@ def test_finder_failing_leaves_the_path_to_the_screen(home_dir, monkeypatch):
     monkeypatch.setattr(files_routes.sys, "platform", "darwin")
     monkeypatch.delenv("CPC_E2E", raising=False)
     monkeypatch.setattr(files_routes.subprocess, "run", fails)
-    assert files_routes.reveal_folder(str(home_dir)) == {"revealed": False}
+    assert files_routes.reveal_path(str(home_dir)) == {"revealed": False}
+
+
+def test_reading_a_binary_file_as_text_is_refused(home_dir):
+    (home_dir / "take.mp4").write_bytes(b"\0\0\0\x18ftypmp42")
+    with pytest.raises(HTTPException) as refused:
+        files_routes.get_file(str(home_dir / "take.mp4"))
+    assert refused.value.status_code == 415
+    (home_dir / "note.md").write_text("# plan\n")
+    assert files_routes.get_file(str(home_dir / "note.md"))["content"] == "# plan\n"

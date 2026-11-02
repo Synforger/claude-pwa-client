@@ -123,13 +123,13 @@ export interface GetFileResponse {
 
 /** POST /file/reveal request body */
 export interface PostFileRevealRequest {
-  /** フォルダの path (= ~/... も可) */
+  /** 押された path (= ~/... も可) */
   path: string
 }
 
 /** POST /file/reveal response */
 export interface PostFileRevealResponse {
-  /** Finder に渡したか。 フォルダでない・Finder が無い時は false で、 画面は今までどおり開く */
+  /** Finder に渡したか。 画面で見せられる file・無い path・Finder が無い時は false で、 画面は今までどおり開く */
   revealed: boolean
 }
 

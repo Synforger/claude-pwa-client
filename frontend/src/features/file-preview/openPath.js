@@ -5,8 +5,9 @@
 // folder は木、 それ以外 (= Markdown・画像・資料の pdf・Office・tif) は client の中のプレビュー。 資料はプレビューの
 // 枠の中で、 backend が頁の画像にして返した頁を見せる。
 //
-// Links written in the chat and the memo go through `openLinkedPath`: on a computer a folder opens in Finder on the
-// machine the backend runs on, and everything else opens as above. An iPhone or iPad keeps the tree, since its
+// Links written in the chat and the memo go through `openLinkedPath`: on a computer a folder, and a file the client
+// cannot show (= the backend decides), open in Finder on the machine the backend runs on, and everything else opens
+// as above. An iPhone or iPad keeps the tree, since its
 // operator may not be near that machine. The file tree and the favorites stay in the tree, which is where they browse.
 import { setOverlay } from '../../state/ui.js'
 import { apiFetch, apiUrl } from '../../_common/api.js'
@@ -50,7 +51,8 @@ async function revealFolder(path) {
   }
 }
 
-// Only the backend knows whether a path is a folder (= agents often leave out the last `/`), so it is asked first.
+// Only the backend knows whether a path is a folder (= agents often leave out the last `/`) and whether a file can be
+// shown (= by its size and its bytes), so it is asked first.
 // HTML is decided without waiting: a browser opens a new tab only within the tap itself.
 export async function openLinkedPath(path, { onLeave } = {}) {
   if (!isHtmlPath(path) && !isMobileSafari() && await revealFolder(path)) return
