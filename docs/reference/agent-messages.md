@@ -98,14 +98,34 @@ backend に認証は無いので、 同じ機械の中の Claude は次の口を
 次へ進みます)。 停止 (= Escape) は並ばず、 すぐ打たれます。 停止で Claude Code が入力欄へ戻した文 (= 取り消した
 発話と、 待っていた発話) は、 止まるのを見届けてから消します。
 
+## Claude が動いていないタブへ送った時
+
+一覧に載っているタブへの連絡は、 Claude が動いていなくても届きます。 連絡は、 人がそのタブで操作した時と同じに
+Claude を起動します。
+
+| タブの状態 | 起動の仕方 |
+|---|---|
+| tmux の session が無い (= 機械の再起動の後など) | 画面でタブを開いた時と同じ起動。 前の会話があれば開き直し (= resume)、 口座はタブの物 |
+| pane が shell に戻っている (= 会話を終えた後) | タブが覚えている階層で、 新しい会話を[階層の封筒](tier-tabs.md#話し始めた時)で起動 |
+| 起動の途中 | 起動を待って届ける |
+
+連絡の本文は、 Claude が入力を受け取れるようになってから打ちます (= 待つ上限は 60 秒)。 届かなかった時は、
+打たずに `agent_message_receiver_not_ready` を返します。 宛先の検査は、 開き直す会話が読んだ境界で行い、 新しい
+会話は何も読んでいない相手として行います。
+
+次のタブは起動せず、 `agent_message_receiver_not_running` を返します: 階層も前の会話も無いタブ (= どこで
+起動するかが決まらない)、 pane が shell に戻った子のタブ (= 仕事を渡せるのは親だけ)。
+
+`tabs list` は、 Claude が動いていないタブの状態を、 起動できるなら `未起動`、 起動できないなら `起こせない` と出します。
+
 ## 届かない時
 
 | 返ってくる code | 意味 |
 |---|---|
 | `agent_message_unknown_receiver` | その名前 / id のタブが無い |
 | `agent_message_ambiguous_receiver` | 同じ名前のタブが複数ある。 返ってきた id のどれかを指定する |
-| `agent_message_receiver_not_running` | 宛先のタブで Claude が動いていない。 連絡で会話を起動することはしない (= [階層のタブ](tier-tabs.md) として置かれたタブだけは、 届いた連絡がその階層で Claude を起動する) |
-| `agent_message_receiver_not_ready` | 宛先の会話がまだ始まっていないため、 検査できない (= 検査を設定している時のみ) |
+| `agent_message_receiver_not_running` | 宛先のタブで Claude が動いておらず、 起動もできない (= 上の「Claude が動いていないタブへ送った時」) |
+| `agent_message_receiver_not_ready` | 宛先の Claude が時間内に起動しなかった。 または宛先の会話がまだ始まっていないため、 検査できない (= 検査を設定している時のみ)。 もう一度送る |
 | `agent_message_refused` | 検査が連絡を通さなかった。 理由が `reason` に、 検査が「本文のどこが当たったか」 を出していればその行が `hits` に入っている |
 | `agent_message_check_failed` | 検査を実行できなかった、 または時間内に終わらなかった |
 | `agent_message_local_only` | 別の機械から呼ばれた |

@@ -59,10 +59,12 @@ from backend.jsonl.jsonl_predicates import (
 )
 from backend._common.errors import raise_error
 from backend._common.state import sessions_meta
+from backend.terminal import input_ready
+from backend.terminal.first_message import LAUNCH_DISCOVER_SEC
 from backend.terminal.pty_discover import claude_in_pane
 from backend.terminal.routes import pty_send
-from backend.terminal.runner import jsonl_path_for_session
-from backend.terminal.session_resolver import uses_launcher
+from backend.terminal.runner import has_tmux_session, jsonl_path_for_session
+from backend.terminal.session_resolver import ensure_pty_session_for, resolve_launch_alias, uses_launcher
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -85,6 +87,7 @@ PEER_LIST_TIMEOUT_SEC = 10.0
 # 相手の backend どうしが呼び合う口 (= 設定された相手の接続元からだけ受ける)。
 RELAYED_PATH = "/agent-messages/relayed"
 PEER_TABS_PATH = "/agent-messages/tabs"
+LOCAL_TABS_PATH = "/agent-messages/local-tabs"
 
 
 def resolve_receiver(to: str) -> str:
@@ -218,8 +221,8 @@ async def check(receiver_id: str, text: str) -> None:
     if not AGENT_MESSAGE_CHECK:
         return
     record = jsonl_path_for_session(receiver_id)
-    if record is None and _waits_for_first_message(receiver_id):
-        # 階層のタブの、 まだ始まっていない会話: 何も読んでいない相手として通す (= この連絡で始まる会話)
+    if record is None and _message_starts_claude(receiver_id):
+        # まだ始まっていない会話: 何も読んでいない相手として通す (= この連絡で始まる会話)
         await judge(f"tier-tab:{receiver_id}", text, receiver_id)
         return
     if record is None:
@@ -340,16 +343,37 @@ def _tab_running(tab_id: str) -> bool:
     return os.environ.get("CPC_E2E") == "1" or claude_in_pane(tab_id)
 
 
-def _waits_for_first_message(tab_id: str) -> bool:
-    """階層のタブとして置かれ、 claude がまだ居ないタブか (= 届いた連絡が、 その階層で claude を起動する。
-    `terminal/first_message.py`)。"""
+def _message_starts_claude(tab_id: str) -> bool:
+    """Whether a message can start the claude of this tab, which has none running. A message does what the
+    operator's own action on the tab would do, so the two never differ: without a tmux session, the start the
+    screen makes when it opens the tab (= the last conversation is reopened); with a shell left in the pane, a
+    new conversation in the tab's stored tier (`terminal/first_message.py`). A child tab is not restarted that
+    way, because only its parent can give it a task. A tab with neither a command nor a tier has no way to
+    decide where its claude would run."""
     meta = sessions_meta.get(tab_id)
-    return meta is not None and meta.tier_tab is not None and uses_launcher(tab_id) and not _tab_running(tab_id)
+    if meta is None or _tab_running(tab_id):
+        return False
+    if not input_ready.is_ready(tab_id):  # already starting: the message waits for it
+        return True
+    if not has_tmux_session(tab_id) and resolve_launch_alias(tab_id) is not None:
+        return True
+    return uses_launcher(tab_id) and not meta.child and (meta.tier_tab or meta.tier) is not None
 
 
 def _tab_reachable(tab_id: str) -> bool:
-    """連絡が届くタブか (= claude が動いているか、 最初の発話で claude が起動する階層のタブ)。"""
-    return _tab_running(tab_id) or _waits_for_first_message(tab_id)
+    """Whether a message reaches this tab (= its claude runs, or the message can start it)."""
+    return _tab_running(tab_id) or _message_starts_claude(tab_id)
+
+
+async def _wake(tab_id: str) -> None:
+    """Start the tab's claude if opening the tab would, and wait until it takes input. The sender learns here
+    when it did not start, and nothing is typed into a pane that is not listening."""
+    if _tab_running(tab_id):
+        return
+    await ensure_pty_session_for(tab_id)
+    if not await input_ready.wait_ready(tab_id, LAUNCH_DISCOVER_SEC):
+        raise_error(409, "agent_message_receiver_not_ready",
+                    f"宛先の claude が {LAUNCH_DISCOVER_SEC:.0f} 秒以内に起動しませんでした。 もう一度送ってください")
 
 
 async def send_to_peer(peer_name: str, tab: str, sender: str, text: str) -> dict:
@@ -413,10 +437,9 @@ async def post_agent_message(
     if receiver_id == sender:
         raise_error(400, "agent_message_to_self", "自分のタブへは送れません")
     if not _tab_reachable(receiver_id):
-        # 連絡で会話を起こさない: 新しい会話は最初の発話で起動の仕方が決まる (= 階層のタブだけは、 階層が
-        # タブに決まっているので、 連絡が最初の発話になって起動する)。
-        raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いていません")
+        raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
     await check(receiver_id, text)
+    await _wake(receiver_id)
     said = await operator_said_for(sender, receiver_id) if operator_said else None
     title = await sender_title(sender, receiver_id)
     result = await pty_send(receiver_id, {"text": envelope(sender, text, said, title), "enter": True}, None)
@@ -457,8 +480,9 @@ async def post_relayed_agent_message(request: Request, body: dict = Body(...)) -
         raise_error(403, "agent_message_peer_not_allowed",
                     f"宛先のタブは {peer_name} の機械と連絡できません", peer=peer_name)
     if not _tab_reachable(receiver_id):
-        raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いていません")
+        raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
     await check(receiver_id, text)
+    await _wake(receiver_id)
     payload = {"text": relayed_envelope(peer_name, title, session, text), "enter": True}
     result = await pty_send(receiver_id, payload, None)
     logger.info("agent message peer=%s sender=%s receiver=%s chars=%d operator_said=False ok=%s",
@@ -472,6 +496,20 @@ async def get_tabs_for_peer(request: Request) -> dict:
     _peer_name, peer = _require_peer(request)
     return {"tabs": [{"id": m.id, "title": m.title, "running": _tab_reachable(m.id)}
                      for m in sessions_meta.values() if allowed_for_peer(peer, m.id)]}
+
+
+@router.get(LOCAL_TABS_PATH)
+async def get_local_tabs(request: Request) -> dict:
+    """Whether each tab of this machine takes a message, and the conversation it last ran, for `tabs list` (= a
+    tab with no claude is not in Claude Code's own records). Callable only from this machine."""
+    client_host = request.client.host if request.client else None
+    if client_host not in LOCAL_CLIENTS:
+        raise_error(403, "agent_message_local_only", "この口は同じ機械の中からだけ使えます")
+    tabs = []
+    for tab_id in list(sessions_meta):
+        record = jsonl_path_for_session(tab_id)
+        tabs.append({"id": tab_id, "reachable": _tab_reachable(tab_id), "conversation": record.stem if record else None})
+    return {"tabs": tabs}
 
 
 @router.get("/agent-messages/peers")

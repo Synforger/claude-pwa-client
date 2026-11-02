@@ -26,8 +26,9 @@ pick up, a decision that affects it. Do not wait for the operator to carry it.
    tabs list
    ```
 
-   One line per tab that has a running Claude: id, tier, account, state, boundaries read, name. Tabs of another
-   agent show `別の agent` instead of a tier. When several tabs own the same thing, choose by the tab's name. When
+   One line per tab: id, tier, account, state, boundaries read, name. A tab with no running Claude has the state
+   `未起動` (a message starts it) or `起こせない` (it cannot be started). Tabs of another agent show `別の agent`
+   instead of a tier. When several tabs own the same thing, choose by the tab's name. When
    the name does not decide it, send to the nearest one and carry on.
 
 2. Write the body to a file and send it.
@@ -37,7 +38,9 @@ pick up, a decision that affects it. Do not wait for the operator to carry it.
    ```
 
    `届きました` means the note is in the receiver's terminal; a receiver in the middle of work reads it at its
-   next break.
+   next break. A tab with no running Claude is started first, the way the operator's action would start it: without
+   a tmux session its last conversation is reopened, and with a shell left in the pane a new conversation starts in
+   its tier. This can take up to a minute.
 
 3. Write the body so it stands alone: the request, the facts from the sender's side, and what the receiver is free
    to decide. Give a reproduction in terms of a sample, not of material the receiver is not allowed to see.
@@ -55,7 +58,8 @@ your own words without the quoted material and send again.
 | Code | Meaning and what to do |
 |---|---|
 | `agent_message_refused` | The body contains material the receiver may not read. Rewrite it in your own words. |
-| `agent_message_receiver_not_running` | No Claude runs in the receiver's tab. Tell the operator; a message never starts a conversation (except in a tier tab, below). |
+| `agent_message_receiver_not_running` | No Claude runs in the receiver's tab and a message cannot start one (it has no tier and no earlier conversation, or it is a child that finished). Tell the operator. |
+| `agent_message_receiver_not_ready` | The receiver's Claude did not start in time, or its conversation has not begun. Send once more. |
 | `agent_message_ambiguous_receiver` | Several tabs share the name. Use the id from `tabs list`. |
 | `agent_message_check_failed` | The screening did not run. Send once more; if it repeats, tell the operator. |
 

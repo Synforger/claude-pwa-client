@@ -6,7 +6,8 @@ launcher (= agent cfg `launcher: true`) の新しい会話は、 最初の発話
 発話を見て起動の仕方を決め、 本文を最初のメッセージとして claude に渡す (= 打鍵ではなく引数なので
 複数行でも崩れない)。
 
-階層のタブとして置いたタブ (= `SessionDef.tier_tab`、 `backend/tier_tabs/`) は、 最初の発話の代わりに
+階層のタブとして置いたタブ (= `SessionDef.tier_tab`、 `backend/tier_tabs/`) と、 別のタブからの連絡で始まる
+会話 (= 連絡の本文からは階層が決まらないので、 タブが覚えている階層 `SessionDef.tier`) は、 最初の発話の代わりに
 その階層の封筒で起動し、 送られた本文は claude が打鍵を受け取れるようになってから次の発話として打つ
 (= 本文を封筒に足すと 1 行目が client の文になり、 人が打った発話として数えられなくなる)。 自動の入れ替えの
 発話は自分の階層を運ぶので、 そのまま最初の発話にする。
@@ -24,7 +25,7 @@ import uuid
 from pathlib import Path
 
 from backend._common.state import sessions_meta
-from backend.jsonl.jsonl_predicates import ROLLOVER_OPENING, unwrap_pasted
+from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENINGS, ROLLOVER_OPENING, unwrap_pasted
 from backend.terminal import input_ready
 from backend.terminal.pty_discover import claude_in_pane, register_claude_when_ready
 from backend.terminal.runner import tmux_send_keys, wait_until_typeable
@@ -91,12 +92,18 @@ async def launch_with_first_message(session_id: str, text: str) -> dict | None:
 
 
 def _placed_tier(session_id: str, text: str) -> str | None:
-    """The tier the tab's new conversation starts in by envelope (= a tab placed as a tier tab), or None when
-    the text itself is the first message (= not a tier tab, or a rollover that carries its own tier)."""
+    """The tier the tab's new conversation starts in by envelope, or None when the text itself is the first
+    message. A rollover carries its own tier, and the operator's words choose it in a tab not placed for a tier;
+    a message from another tab cannot, so it starts in the tier the tab remembers."""
     meta = sessions_meta.get(session_id)
-    if meta is None or meta.tier_tab is None:
+    if meta is None:
         return None
-    return None if unwrap_pasted(text).lstrip().startswith(ROLLOVER_OPENING) else meta.tier_tab
+    opening = unwrap_pasted(text).lstrip()
+    if opening.startswith(ROLLOVER_OPENING):
+        return None
+    if meta.tier_tab is not None:
+        return meta.tier_tab
+    return meta.tier if opening.startswith(AGENT_MESSAGE_OPENINGS) else None
 
 
 async def _send_when_ready(session_id: str, text: str) -> None:

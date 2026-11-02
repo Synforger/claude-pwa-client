@@ -258,6 +258,21 @@ def test_a_message_from_another_tab_also_goes_in_after_the_envelope(launched, is
     assert launched == [("launch", envelope("projects/B")), ("send", relayed)]
 
 
+def test_a_message_to_a_tab_not_placed_for_a_tier_starts_in_the_tier_the_tab_remembers(launched, isolated_state):
+    isolated_state.sessions_meta["ses_hand"] = SessionDef(
+        id="ses_hand", agent_id="agent_a", title="hand", created_at=0, tier="projects/B")
+    relayed = f'{AGENT_MESSAGE_OPENING}\n<agent-message from="MAIN" session="ses_n">\nplease check\n</agent-message>'
+    run(deliver("ses_hand", relayed))
+    assert launched == [("launch", envelope("projects/B")), ("send", relayed)]
+
+
+def test_the_operator_s_words_still_choose_the_tier_in_a_tab_not_placed_for_one(launched, isolated_state):
+    isolated_state.sessions_meta["ses_hand"] = SessionDef(
+        id="ses_hand", agent_id="agent_a", title="hand", created_at=0, tier="projects/B")
+    run(deliver("ses_hand", "projects A, please"))
+    assert launched == [("launch", "projects A, please")]
+
+
 def test_a_rollover_carries_its_own_tier_and_starts_as_it_is(launched, isolated_state):
     tabs = tier_tabs.place_new_tiers()
     rolled = f'{ROLLOVER_OPENING}\n<session-rollover phase="start">\ntier=projects/B\nmode=wait\n</session-rollover>'

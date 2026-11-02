@@ -435,8 +435,19 @@ export interface GetAgentMessagesTabsResponse {
   tabs: ({
       id: string
       title: string
-      /** そのタブで claude が動いているか */
+      /** そのタブへ連絡が届くか (= claude が動いているか、 連絡で起動できる) */
       running: boolean
+    })[]
+}
+
+/** GET /agent-messages/local-tabs response */
+export interface GetAgentMessagesLocalTabsResponse {
+  tabs: ({
+      id: string
+      /** claude が動いているか、 連絡で起動できる */
+      reachable: boolean
+      /** 最後の会話の claude の session id */
+      conversation?: string | null
     })[]
 }
 
