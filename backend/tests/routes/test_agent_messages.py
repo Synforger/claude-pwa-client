@@ -37,6 +37,8 @@ def typed(monkeypatch) -> list[tuple[str, dict]]:
 
     monkeypatch.setattr(am, "pty_send", fake_send)
     monkeypatch.setattr(am, "claude_in_pane", lambda sid: sid != "ses_idle")
+    # ses_idle has a shell left in its pane and no tier (= a message has no way to start its claude)
+    monkeypatch.setattr(am, "has_tmux_session", lambda sid: True)
     return calls
 
 
@@ -763,3 +765,125 @@ def test_a_peer_written_wrong_is_left_out_and_the_others_stay(monkeypatch, tmp_p
         "broken": entry, "has:colon": {"url": "https://x.test", "address": "100.64.0.4"},
         "home": {"url": "https://home.test/", "address": "100.64.0.2"}})
     assert config_mod.AGENT_MESSAGE_PEERS == {"home": {"url": "https://home.test", "address": "100.64.0.2", "accounts": None}}
+
+
+# --- a tab with no claude ------------------------------------------------------------------------------------
+
+
+async def _ready(session_id, timeout=None):
+    return True
+
+
+@pytest.fixture
+def started(monkeypatch) -> list[str]:
+    """The tabs the message path asked to start. The start itself is the screen's (= `ensure_pty_session_for`)."""
+    calls: list[str] = []
+
+    async def fake_ensure(session_id):
+        calls.append(session_id)
+
+    monkeypatch.setattr(am, "ensure_pty_session_for", fake_ensure)
+    return calls
+
+
+@pytest.fixture
+def no_tmux(monkeypatch) -> None:
+    """ses_idle has no tmux session, and opening it would reopen its last conversation."""
+    monkeypatch.setattr(am, "has_tmux_session", lambda sid: False)
+    monkeypatch.setattr(am, "resolve_launch_alias", lambda sid: "main --resume abc")
+
+
+def test_a_message_starts_a_tab_without_a_tmux_session_the_way_opening_it_does(client, tabs, typed, started, no_tmux):
+    assert _send(client, to="ses_idle").status_code == 200
+    assert started == ["ses_idle"]
+    assert typed[0][0] == "ses_idle"
+
+
+def test_a_message_waits_for_the_started_claude_before_it_is_typed(client, tabs, typed, started, no_tmux, monkeypatch):
+    waits: list[tuple[float, int]] = []
+
+    async def fake_wait(session_id, timeout=None):
+        waits.append((timeout, len(typed)))
+        return True
+
+    monkeypatch.setattr(am.input_ready, "wait_ready", fake_wait)
+    assert _send(client, to="ses_idle").status_code == 200
+    assert waits == [(am.LAUNCH_DISCOVER_SEC, 0)]  # the wait came before anything was typed
+    assert len(typed) == 1
+
+
+def test_a_claude_that_did_not_start_in_time_gets_nothing_typed(client, tabs, typed, started, no_tmux, monkeypatch):
+    async def never(session_id, timeout=None):
+        return False
+
+    monkeypatch.setattr(am.input_ready, "wait_ready", never)
+    r = _send(client, to="ses_idle")
+    assert (r.status_code, r.json()["detail"]["code"]) == (409, "agent_message_receiver_not_ready")
+    assert typed == []
+
+
+def test_a_message_to_a_tab_that_is_already_starting_waits_for_it(client, tabs, typed, started, monkeypatch):
+    am.input_ready.mark_starting("ses_idle")
+    try:
+        monkeypatch.setattr(am.input_ready, "wait_ready", _ready)
+        assert _send(client, to="ses_idle").status_code == 200
+    finally:
+        am.input_ready.forget("ses_idle")
+    assert typed[0][0] == "ses_idle"
+
+
+def test_a_shell_in_the_pane_takes_a_message_when_the_tab_remembers_its_tier(client, tabs, typed, started, monkeypatch):
+    monkeypatch.setattr(am, "uses_launcher", lambda sid: True)
+    tabs["ses_idle"].tier = "projects/P"
+    assert _send(client, to="ses_idle").status_code == 200
+    assert typed[0][0] == "ses_idle"
+
+
+@pytest.mark.parametrize("change", [
+    pytest.param({}, id="no tier and no way to start"),
+    pytest.param({"tier": "projects/P", "child": True}, id="a finished child"),
+])
+def test_a_shell_in_the_pane_is_left_alone_when_the_message_cannot_decide_how_to_start(
+        client, tabs, typed, started, monkeypatch, change):
+    monkeypatch.setattr(am, "uses_launcher", lambda sid: True)
+    for name, value in change.items():
+        setattr(tabs["ses_idle"], name, value)
+    r = _send(client, to="ses_idle")
+    assert (r.status_code, r.json()["detail"]["code"]) == (409, "agent_message_receiver_not_running")
+    assert started == [] and typed == []
+
+
+def test_the_guard_judges_a_tab_to_be_reopened_by_its_last_conversation(
+        client, tabs, typed, started, no_tmux, monkeypatch, tmp_path):
+    judged: list[str] = []
+
+    async def fake_judge(session, text, receiver):
+        judged.append(session)
+
+    _config(monkeypatch, tmp_path, agent_message_check=["true", "{file}", "{session}"])
+    monkeypatch.setattr(am, "judge", fake_judge)
+    monkeypatch.setattr(am, "jsonl_path_for_session", lambda sid: Path("/records/abc.jsonl") if sid == "ses_idle" else None)
+    assert _send(client, to="ses_idle").status_code == 200
+    assert judged == ["abc"]
+
+    # a new conversation has read nothing yet
+    judged.clear()
+    monkeypatch.setattr(am, "jsonl_path_for_session", lambda sid: None)
+    assert _send(client, to="ses_idle").status_code == 200
+    assert judged == ["tier-tab:ses_idle"]
+
+
+def test_the_list_learns_which_tabs_take_a_message_and_what_they_last_ran(client, tabs, typed, monkeypatch):
+    monkeypatch.setattr(am, "jsonl_path_for_session", lambda sid: Path("/records/abc.jsonl") if sid == "ses_idle" else None)
+    r = client.get(am.LOCAL_TABS_PATH)
+    assert r.status_code == 200
+    assert {row["id"]: (row["reachable"], row["conversation"]) for row in r.json()["tabs"]} == {
+        "ses_sender": (True, None), "ses_receiver": (True, None), "ses_idle": (False, "abc"),
+    }
+
+
+def test_only_this_machine_may_read_the_local_tabs(tabs, typed):
+    app = FastAPI()
+    app.include_router(am.router)
+    r = TestClient(app, client=("100.64.0.9", 1234)).get(am.LOCAL_TABS_PATH)
+    assert r.json()["detail"]["code"] == "agent_message_local_only"

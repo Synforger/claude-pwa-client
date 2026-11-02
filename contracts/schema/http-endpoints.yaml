@@ -882,7 +882,8 @@ endpoints:
     auth: localhost
     invariants:
       - "本文に送り主を名乗る封筒を付けて届ける (= 1 行目は固定、 人の送信口 /pty/{sid}/send には付かない)"
-      - "宛先で claude が動いていなければ届けない (= 連絡で会話を起動しない)"
+      - "宛先で claude が動いていない時は、 人の操作と同じに起動してから届ける (= tmux が無ければ画面で開いた時の起動、 pane が shell ならタブの階層で新しい会話)。 起動の仕方が決まらないタブには 409 agent_message_receiver_not_running を返す"
+      - "起動が間に合わなければ、 打たずに 409 agent_message_receiver_not_ready を返す"
       - "config の agent_message_check が 0 以外で終われば届けず、 理由を 403 で返す"
       - "送り主のタブで最後に端末から入った発話が人の物なら <operator-said> として封筒に入れる (= agent_message_operator_check が 0 以外なら入れずに届ける)"
       - "宛先が <相手の名前>:<タブ> で、 その名前が config の agent_message_peers に在れば、 検査 (= 宛先の名前をそのまま渡す) を通してから相手の backend へ渡す。 人の発話は、 頼まれても付けない"
@@ -931,7 +932,7 @@ endpoints:
             properties:
               id:      { type: string }
               title:   { type: string }
-              running: { type: boolean, description: "そのタブで claude が動いているか" }
+              running: { type: boolean, description: "そのタブへ連絡が届くか (= claude が動いているか、 連絡で起動できる)" }
             required: [id, title, running]
       required: [tabs]
     response_kind: json
@@ -939,6 +940,28 @@ endpoints:
     invariants:
       - "受けるのは config の agent_message_peers に書いた相手の接続元からの呼び出しだけ"
       - "相手の設定の accounts に入らないタブは、 名前も id も返さない"
+    implementation: backend/routes/agent_messages.py
+
+  - method: GET
+    path: /agent-messages/local-tabs
+    description: "この機械の各タブへ連絡が届くかと、 最後の会話 (= tabs list が使う)"
+    response:
+      type: object
+      properties:
+        tabs:
+          type: array
+          items:
+            type: object
+            properties:
+              id:           { type: string }
+              reachable:    { type: boolean, description: "claude が動いているか、 連絡で起動できる" }
+              conversation: { type: string, nullable: true, description: "最後の会話の claude の session id" }
+            required: [id, reachable]
+      required: [tabs]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "受けるのは同じ機械の中からの呼び出しだけ (= タブの名前は返さない)"
     implementation: backend/routes/agent_messages.py
 
   - method: GET

@@ -61,6 +61,7 @@ class Backend:
         self.calls: list[dict] = []
         self.answers: dict[str, int] = {}
         self.tabs: list[dict] = []
+        self.local_tabs: list[dict] = []
         backend = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -81,6 +82,8 @@ class Backend:
                 backend.calls.append({"method": method, "path": self.path, "form": form})
                 if method == "GET" and self.path == "/sessions":
                     return self.reply(200, backend.tabs)
+                if method == "GET" and self.path == "/agent-messages/local-tabs":
+                    return self.reply(200, {"tabs": backend.local_tabs})
                 if method == "POST" and self.path == "/tier-tabs":
                     if backend.answers.get("tier-tabs", 200) != 200:
                         return self.reply(backend.answers["tier-tabs"], {"detail": {"code": "tier_tab_exists", "message": "has one"}})
@@ -525,11 +528,21 @@ def test_the_listing_shows_a_placed_tier_tab_before_its_claude_starts(tabs):
          "tier_tab": "projects/P"},
         {"id": "ses_theirs", "title": "Q", "agent_id": "agent_b", "child": False, "parent_id": None,
          "tier_tab": "normal"},
-        {"id": "ses_hand", "title": "hand", "agent_id": "agent_a", "child": False, "parent_id": None},
+        {"id": "ses_hand", "title": "hand", "agent_id": "agent_a", "child": False, "parent_id": None,
+         "tier": "projects/P"},
+        {"id": "ses_fresh", "title": "desk", "agent_id": "agent_a", "child": False, "parent_id": None},
+    ]
+    tabs.backend.local_tabs = [
+        {"id": "ses_placed", "reachable": True, "conversation": None},
+        {"id": "ses_theirs", "reachable": True, "conversation": None},
+        {"id": "ses_hand", "reachable": True, "conversation": "conv-hand"},
+        {"id": "ses_fresh", "reachable": False, "conversation": None},
     ]
     assert tabs.run("list") == 0
     lines = {line.split()[0]: line for line in tabs.out.splitlines() if line.strip()}
     assert lines["ses_placed"].split("  ") == ["ses_placed", "projects/P", "口座=personal", "未起動", "境界=なし", "P"]
     assert lines["ses_theirs"].split("  ")[1] == "別の agent"
-    # a tab without claude that was not placed for a tier is still not listed
-    assert "ses_hand" not in lines
+    # a tab the operator opened, with no claude right now, is told apart from a tab that does not exist
+    assert lines["ses_hand"].split("  ") == ["ses_hand", "projects/P", "口座=personal", "未起動", "境界=なし", "hand"]
+    # no tier: where it works cannot be checked, so its name stays hidden
+    assert lines["ses_fresh"].split("  ") == ["ses_fresh", "別の境界", "口座=personal", "起こせない", "境界=なし", "(別の境界のタブ)"]

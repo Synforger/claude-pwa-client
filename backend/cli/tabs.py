@@ -3,8 +3,8 @@
 
     tabs [--agent-dir <エージェントの folder>] <以下の命令>
     tabs    list               連絡できるタブの一覧 (= id / 階層 / 口座 / 状態 / 境界 / 名前。 階層はこのエージェントのタブの物で、
-                                 別の agent のタブは「別の agent」 と出る)。 claude がまだ居ない階層のタブは状態が
-                                 「未起動」 で、 送った連絡がその階層の claude を起動する。
+                                 別の agent のタブは「別の agent」 と出る)。 claude が動いていないタブは状態が
+                                 「未起動」 で、 送った連絡がそのタブの claude を起動する。 起動できないタブは「起こせない」。
                                  別の機械のタブは、 末尾に `<相手の名前>:<id>` の形で並ぶ
     tabs    send <to> <file>     <file> の中身を <to> (= タブの id か名前) へ送る。
                                  別の機械のタブは `<相手の名前>:<タブの id か名前>`
@@ -219,12 +219,12 @@ def listing() -> int:
         return 1
     launch, live, me = launcher(), running(), os.environ.get("PWA_SID")
     my_agent = next((tab.get("agent_id") for tab in tabs if tab["id"] == me), None)
+    local_status, local = call("/agent-messages/local-tabs")
+    asleep = {row["id"]: row for row in local["tabs"]} if local_status == 200 and isinstance(local, dict) else {}
     for tab in tabs:
         claude = live.get(tab["id"])
         if claude is None:
-            # claude が動いていないタブへは届かない。 階層のタブは、 届いた連絡でその階層の claude が起動する
-            if tab.get("tier_tab"):
-                placed_row(launch, tab, my_agent, live.get(me))
+            asleep_row(launch, tab, my_agent, live.get(me), asleep.get(tab["id"]) or {})
             continue
         # 階層はこのエージェントの物 (= その folder で動いていない claude は別の agent で、 封筒が運ぶ階層もその agent の物)
         ours = Path(os.path.realpath(str(claude.get("cwd") or ""))) == Path(os.path.realpath(agent_dir()))
@@ -250,19 +250,26 @@ def listing() -> int:
     return 0
 
 
-def placed_row(launch, tab: dict, my_agent: str | None, mine: dict | None) -> None:
-    """claude がまだ居ない階層のタブを 1 行出す (= 状態は「未起動」、 境界はまだ何も読んでいない)。"""
+def asleep_row(launch, tab: dict, my_agent: str | None, mine: dict | None, status: dict) -> None:
+    """claude が動いていないタブを 1 行出す。 `status` は backend の答え (= 連絡で起動できるか、 最後の会話)。
+    動いているタブと同じ決まりで階層と名前を伏せ、 階層の分からないこのエージェントのタブは、 働く場所を
+    確かめられないので伏せる。"""
     ours = my_agent is not None and tab.get("agent_id") == my_agent
-    tier = tab["tier_tab"] if ours else "別の agent"
-    folder = launch.tier_folder(tab["tier_tab"]) if ours else None
-    shown = not works_unknown((mine or {}).get("sessionId"), folder)
+    tier = tab.get("tier_tab") or tab.get("tier")
+    folder = launch.tier_folder(tier) if ours and tier else None
+    conversation = status.get("conversation")
+    marks = read_areas(conversation) if conversation else 0
+    mine_session = (mine or {}).get("sessionId")
+    shown = ((not ours or tier is not None) and (not marks or known_to(mine_session, conversation))
+             and not works_unknown(mine_session, folder))
     print("  ".join([
         tab["id"],
-        tier if shown else HIDDEN,
+        (tier if ours else "別の agent") if shown else HIDDEN,
         f"口座={tab.get('account_id') or 'personal'}",
-        "未起動",
-        "境界=なし",
+        "未起動" if status.get("reachable") else "起こせない",
+        f"境界={marks}" if marks else "境界=なし",
         (tab.get("title") or "") if shown else f"({HIDDEN}のタブ)",
+        f"(= 子のタブ、 親 {tab.get('parent_id')})" if tab.get("child") else "",
     ]).rstrip())
 
 

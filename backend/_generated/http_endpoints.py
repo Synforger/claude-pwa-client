@@ -420,6 +420,12 @@ class GetAgentMessagesTabsResponse(BaseModel):
     tabs: list[dict[str, Any]]
 
 
+class GetAgentMessagesLocalTabsResponse(BaseModel):
+    """GET /agent-messages/local-tabs response"""
+    model_config = ConfigDict(extra="forbid")
+    tabs: list[dict[str, Any]]
+
+
 class GetAgentMessagesPeersResponse(BaseModel):
     """GET /agent-messages/peers response"""
     model_config = ConfigDict(extra="forbid")
