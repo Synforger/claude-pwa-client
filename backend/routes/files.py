@@ -8,6 +8,8 @@ import json
 import logging
 import os
 import re
+import subprocess
+import sys
 import threading
 from pathlib import Path
 from urllib.parse import quote, urlsplit
@@ -209,6 +211,36 @@ def open_file_in_browser(request: Request, path: str = Query(...)):
         return response
     # 相対の行き先 (= backend が path の前置きの下に置かれても、 同じ前置きの下の view へ回る)。
     return RedirectResponse(url="view/" + quote(str(resolved).lstrip("/")), status_code=307)
+
+
+# How long Finder may take to take the request (= `open` returns as soon as it has handed the folder over).
+REVEAL_TIMEOUT_SEC = 5.0
+
+
+def _finder_command(folder: Path) -> list[str]:
+    """The command that shows a folder in Finder. A folder whose name has a suffix may be a bundle (`Foo.app`), which
+    opening would run, so it is shown selected in its parent instead."""
+    if folder.suffix:
+        return ["open", "-R", str(folder)]
+    return ["open", "-a", "Finder", str(folder)]
+
+
+@router.post("/file/reveal")
+def reveal_folder(path: str = Body(..., embed=True)) -> dict:
+    """Show a folder (= a path tapped in the chat or the memo) in Finder on the machine the backend runs on.
+    `revealed` is false when the path is not a folder or there is no Finder here, and the screen then opens the path
+    as it opens any other. HOME and the deny list bound it as they bound `/file`. The e2e backend never opens a window
+    on the machine running the tests."""
+    resolved = _resolve_safe(path)
+    if sys.platform != "darwin" or os.environ.get("CPC_E2E") == "1" or not resolved.is_dir():
+        return {"revealed": False}
+    try:
+        subprocess.run(_finder_command(resolved), check=True, capture_output=True, timeout=REVEAL_TIMEOUT_SEC)
+    except (OSError, subprocess.SubprocessError) as error:
+        logger.warning("folder could not be shown in Finder: %s (%s)", resolved, error)
+        return {"revealed": False}
+    logger.info("folder shown in Finder: %s", resolved)
+    return {"revealed": True}
 
 
 # 資料 (= pdf・Office・tif) は頁の画像の頁にして返す。 元の file と同じ path の URL で配るので、 HTML のページから

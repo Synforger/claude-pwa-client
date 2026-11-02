@@ -1,10 +1,12 @@
 """files_routes.py の _resolve_safe (= path injection 防御) の unit test。"""
 import pathlib
+import subprocess
 
 import pytest
 from fastapi import HTTPException
 
 from backend._common.config import HOME
+from backend.routes import files as files_routes
 from backend.routes.files import _resolve_safe
 
 
@@ -600,3 +602,70 @@ def test_page_store_is_only_for_pages_in_the_folder(tmp_path, monkeypatch):
         assert client.get("/.store/" + page).status_code == status, page
         assert client.put("/.store/" + page, content=b"{}", headers=_JSON).status_code == status, page
     assert not (tmp_path / "store").exists()
+
+
+# --- showing a folder in Finder ---
+
+@pytest.fixture
+def finder(monkeypatch):
+    """What would have been run. Nothing opens on the machine running the tests."""
+    commands: list[list[str]] = []
+    monkeypatch.setattr(files_routes.sys, "platform", "darwin")
+    monkeypatch.delenv("CPC_E2E", raising=False)
+    monkeypatch.setattr(files_routes.subprocess, "run", lambda command, **kwargs: commands.append(command))
+    return commands
+
+
+@pytest.fixture
+def home_dir(monkeypatch, tmp_path):
+    monkeypatch.setattr(files_routes, "HOME", tmp_path.resolve())
+    return tmp_path.resolve()
+
+
+def test_a_folder_opens_in_finder_with_or_without_the_last_slash(finder, home_dir):
+    folder = home_dir / "Movies" / "session"
+    folder.mkdir(parents=True)
+    assert files_routes.reveal_folder(str(folder)) == {"revealed": True}
+    assert files_routes.reveal_folder(f"{folder}/") == {"revealed": True}
+    assert finder == [["open", "-a", "Finder", str(folder)]] * 2
+
+
+def test_a_folder_with_a_suffix_is_shown_and_not_opened_so_a_bundle_cannot_run(finder, home_dir):
+    bundle = home_dir / "Tool.app"
+    bundle.mkdir()
+    assert files_routes.reveal_folder(str(bundle)) == {"revealed": True}
+    assert finder == [["open", "-R", str(bundle)]]
+
+
+@pytest.mark.parametrize("name", ["note.md", "missing", "missing/"])
+def test_a_path_that_is_not_a_folder_is_left_to_the_screen(finder, home_dir, name):
+    (home_dir / "note.md").write_text("x")
+    assert files_routes.reveal_folder(str(home_dir / name)) == {"revealed": False}
+    assert finder == []
+
+
+@pytest.mark.parametrize("path", ["/etc", "~/.ssh", "~/repo/secrets"])
+def test_a_folder_the_file_routes_refuse_is_refused_here_too(finder, path):
+    with pytest.raises(HTTPException) as refused:
+        files_routes.reveal_folder(path)
+    assert refused.value.status_code == 403
+    assert finder == []
+
+
+def test_nothing_opens_without_finder_or_on_the_e2e_backend(finder, home_dir, monkeypatch):
+    monkeypatch.setattr(files_routes.sys, "platform", "linux")
+    assert files_routes.reveal_folder(str(home_dir)) == {"revealed": False}
+    monkeypatch.setattr(files_routes.sys, "platform", "darwin")
+    monkeypatch.setenv("CPC_E2E", "1")
+    assert files_routes.reveal_folder(str(home_dir)) == {"revealed": False}
+    assert finder == []
+
+
+def test_finder_failing_leaves_the_path_to_the_screen(home_dir, monkeypatch):
+    def fails(command, **kwargs):
+        raise subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr(files_routes.sys, "platform", "darwin")
+    monkeypatch.delenv("CPC_E2E", raising=False)
+    monkeypatch.setattr(files_routes.subprocess, "run", fails)
+    assert files_routes.reveal_folder(str(home_dir)) == {"revealed": False}

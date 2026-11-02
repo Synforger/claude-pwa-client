@@ -9,7 +9,7 @@
 // は AppShell に残置 (= drawer から開く dialog が terminal 表示時にも見える必要があるため、 hidden な
 // ChatPanel 配下に置けない)。 詳細は AppShell.jsx 末尾の F-1 注釈参照。
 import { useEffect, useRef, useMemo, useCallback, useState, useSyncExternalStore } from 'react'
-import { openPath } from '../features/file-preview/openPath.js'
+import { openLinkedPath } from '../features/file-preview/openPath.js'
 import {
   subscribe as subscribeUi,
   getSnapshot as getUiSnapshot,
@@ -223,7 +223,7 @@ export default function ChatPanel({ sid }) {
     return () => navigator.serviceWorker.removeEventListener('message', onMessage)
   }, [fetchLatest, setActiveId])
 
-  const handleOpenPath = useCallback((path) => openPath(path), [])
+  const handleOpenPath = useCallback((path) => openLinkedPath(path), [])
 
   const handleStopClick = useCallback(() => setOverlay('confirmStop', true), [])
   const handleSendClick = useCallback((text) => sendMessage(text), [sendMessage])

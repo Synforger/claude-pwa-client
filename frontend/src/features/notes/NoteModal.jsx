@@ -12,7 +12,7 @@ import { useTextZoom } from '../../_common/useTextZoom.js'
 import { useT } from '../../i18n/t.js'
 import ConfirmDialog from '../../_common/ConfirmDialog.jsx'
 import MessageRenderer from '../chat/MessageRenderer.jsx'
-import { openPath } from '../file-preview/openPath.js'
+import { openLinkedPath } from '../file-preview/openPath.js'
 import '../../_common/Modal.css'
 import './NoteModal.css'
 
@@ -100,8 +100,8 @@ export default function NoteModal() {
   const handleEdit = () => { setEditText(content ?? ''); setError(null); setEditMode(true) }
   const handleCancel = () => { setEditMode(false); setError(null) }
   const handleReset = async () => { setResetConfirm(false); await write('') }
-  // path をタップしたら開く (= 開き先は openPath)。 木やプレビューへ移る時はメモを畳む (= 同じ場所に重なるため)
-  const handleOpenFile = useCallback((path) => openPath(path, { onLeave: () => setOverlay('notes', false) }), [])
+  // path をタップしたら開く (= 開き先は openLinkedPath)。 木やプレビューへ移る時はメモを畳む (= 同じ場所に重なるため)
+  const handleOpenFile = useCallback((path) => openLinkedPath(path, { onLeave: () => setOverlay('notes', false) }), [])
 
   useEscape(() => {
     if (resetConfirm) setResetConfirm(false)

@@ -121,6 +121,18 @@ class GetFileResponse(BaseModel):
     content: str
 
 
+class PostFileRevealRequest(BaseModel):
+    """POST /file/reveal request body"""
+    model_config = ConfigDict(extra="forbid")
+    path: str  # フォルダの path (= ~/... も可)
+
+
+class PostFileRevealResponse(BaseModel):
+    """POST /file/reveal response"""
+    model_config = ConfigDict(extra="forbid")
+    revealed: bool  # Finder に渡したか。 フォルダでない・Finder が無い時は false で、 画面は今までどおり開く
+
+
 class PutFileRequest(BaseModel):
     """PUT /file request body"""
     model_config = ConfigDict(extra="forbid")

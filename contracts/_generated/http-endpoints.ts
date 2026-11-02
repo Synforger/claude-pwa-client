@@ -121,6 +121,18 @@ export interface GetFileResponse {
   content: string
 }
 
+/** POST /file/reveal request body */
+export interface PostFileRevealRequest {
+  /** フォルダの path (= ~/... も可) */
+  path: string
+}
+
+/** POST /file/reveal response */
+export interface PostFileRevealResponse {
+  /** Finder に渡したか。 フォルダでない・Finder が無い時は false で、 画面は今までどおり開く */
+  revealed: boolean
+}
+
 /** PUT /file request body */
 export interface PutFileRequest {
   path: string
