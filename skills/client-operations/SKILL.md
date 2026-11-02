@@ -73,8 +73,9 @@ as before a check on a device; the next run then finds nothing to do.
 3. `task build`. A screen that is open switches to the new build the next time it is in front.
 4. See whether backend files changed: `git diff --stat <noted commit>..HEAD -- backend/ pyproject.toml uv.lock`.
    No change: done.
-   - The resident service runs its environment's own `uvicorn` directly and does not sync dependencies when it
-     starts. If `pyproject.toml` or `uv.lock` changed, bring the environment in line before restarting: on an agent
+   - The resident service runs its environment's own `uvicorn`, not `uv run`, and does not sync dependencies when it
+     starts. On an agent platform launchd starts the platform's launcher program with `uvicorn` as its child, so the
+     pid `launchctl` shows is the launcher's. If `pyproject.toml` or `uv.lock` changed, bring the environment in line before restarting: on an agent
      platform, `$AGENT_PLATFORM_ROOT/manifest/bin/platform build` (it also writes the service's plist, so do not edit
      the plist by hand); elsewhere, install them into the environment the service runs.
    - Then, from the repo folder, check `<environment>/bin/python -c "import backend.main"`.
