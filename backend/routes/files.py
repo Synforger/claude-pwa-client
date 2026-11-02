@@ -69,6 +69,8 @@ def get_file(path: str = Query(...)):
         raise HTTPException(status_code=400, detail="Not a file")
     if resolved.stat().st_size > FILE_SIZE_LIMIT:
         raise_error(413, "file_too_large", "ファイルが大きすぎます（上限 1MB）", limit="1MB")
+    if not _is_text(resolved):
+        raise HTTPException(status_code=415, detail="Not a text file")
     try:
         content = resolved.read_text(errors="replace")
     except Exception:
@@ -213,33 +215,61 @@ def open_file_in_browser(request: Request, path: str = Query(...)):
     return RedirectResponse(url="view/" + quote(str(resolved).lstrip("/")), status_code=307)
 
 
-# How long Finder may take to take the request (= `open` returns as soon as it has handed the folder over).
+# How long Finder may take to take the request (= `open` returns as soon as it has handed the path over).
 REVEAL_TIMEOUT_SEC = 5.0
+# How much of a file is read to tell text from binary, and the byte that tells (= the same test git uses for a diff).
+TEXT_SNIFF_BYTES = 8000
+BINARY_MARK = b"\0"
 
 
-def _finder_command(folder: Path) -> list[str]:
-    """The command that shows a folder in Finder. A folder whose name has a suffix may be a bundle (`Foo.app`), which
-    opening would run, so it is shown selected in its parent instead."""
-    if folder.suffix:
-        return ["open", "-R", str(folder)]
-    return ["open", "-a", "Finder", str(folder)]
+def _is_text(path: Path) -> bool:
+    """Whether a file reads as text: no NUL byte in its first `TEXT_SNIFF_BYTES`."""
+    try:
+        with path.open("rb") as handle:
+            return BINARY_MARK not in handle.read(TEXT_SNIFF_BYTES)
+    except OSError:
+        return False
+
+
+def _shown_in_client(path: Path) -> bool:
+    """Whether the client's screen can show this file: HTML in a browser, an image or a document in the preview,
+    and text within the preview's size limit. Anything else would end in an error or garbled bytes."""
+    suffix = path.suffix.lower()
+    size = path.stat().st_size
+    if suffix in (".html", ".htm"):
+        return True
+    if suffix in _IMAGE_MEDIA_TYPES:
+        return size <= IMAGE_SIZE_LIMIT
+    if convert.kind_of(path) is not None:
+        return size <= VIEW_SIZE_LIMIT
+    return size <= FILE_SIZE_LIMIT and _is_text(path)
+
+
+def _finder_command(target: Path) -> list[str]:
+    """The command that shows a path in Finder. A folder opens; a file, and a folder whose name has a suffix (which
+    may be a bundle such as `Foo.app`, which opening would run), are shown selected in their parent."""
+    if target.is_dir() and not target.suffix:
+        return ["open", "-a", "Finder", str(target)]
+    return ["open", "-R", str(target)]
 
 
 @router.post("/file/reveal")
-def reveal_folder(path: str = Body(..., embed=True)) -> dict:
-    """Show a folder (= a path tapped in the chat or the memo) in Finder on the machine the backend runs on.
-    `revealed` is false when the path is not a folder or there is no Finder here, and the screen then opens the path
-    as it opens any other. HOME and the deny list bound it as they bound `/file`. The e2e backend never opens a window
-    on the machine running the tests."""
+def reveal_path(path: str = Body(..., embed=True)) -> dict:
+    """Show a path tapped in the chat or the memo in Finder on the machine the backend runs on, when it is a folder
+    or a file the client cannot show. `revealed` is false otherwise, and when there is no Finder here, and the screen
+    then opens the path as it opens any other. HOME and the deny list bound it as they bound `/file`. The e2e backend
+    never opens a window on the machine running the tests."""
     resolved = _resolve_safe(path)
-    if sys.platform != "darwin" or os.environ.get("CPC_E2E") == "1" or not resolved.is_dir():
+    if sys.platform != "darwin" or os.environ.get("CPC_E2E") == "1" or not resolved.exists():
+        return {"revealed": False}
+    if resolved.is_file() and _shown_in_client(resolved):
         return {"revealed": False}
     try:
         subprocess.run(_finder_command(resolved), check=True, capture_output=True, timeout=REVEAL_TIMEOUT_SEC)
     except (OSError, subprocess.SubprocessError) as error:
-        logger.warning("folder could not be shown in Finder: %s (%s)", resolved, error)
+        logger.warning("path could not be shown in Finder: %s (%s)", resolved, error)
         return {"revealed": False}
-    logger.info("folder shown in Finder: %s", resolved)
+    logger.info("path shown in Finder: %s", resolved)
     return {"revealed": True}
 
 

@@ -164,6 +164,7 @@
   "plan_approval.reject": "Reject (keep planning)",
   "plan_approval.no_content": "(no plan body)",
   "file_preview.too_large": "File is too large",
+  "file_preview.not_text": "This file cannot be shown here",
   "file_preview.favorite_remove": "Remove from favorites",
   "file_preview.favorite_add": "Add to favorites",
   "file_preview.saving": "Saving...",
