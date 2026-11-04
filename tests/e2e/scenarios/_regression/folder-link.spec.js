@@ -1,6 +1,7 @@
-// A folder path written in the chat opens in Finder on a computer, and so does a file the screen cannot show. An iPhone
-// keeps the tree, and a file the screen shows opens as it always did. The test backend never opens a window on the machine running the tests (= it answers `revealed: false`,
-// which is also what a backend without Finder answers), so the computer's case answers `POST /file/reveal` here.
+// On a computer a path written in the chat opens as a double click in Finder would (= `POST /file/os-open`), except
+// Markdown, which stays in the preview. An iPhone keeps everything in the client. The test backend never opens anything
+// on the machine running the tests (= it answers `opened: false`, as a backend that is not a Mac does), so the
+// computer's case answers the route here.
 
 import { test, expect } from '@playwright/test'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -42,9 +43,9 @@ test.describe('regression: a folder link', () => {
   test('a computer hands the folder to the backend and stays on the chat', async ({ page, browserName }) => {
     test.skip(browserName !== 'chromium', 'the computer is the desktop browser')
     const asked = []
-    await page.route('**/file/reveal', async (route) => {
+    await page.route('**/file/os-open', async (route) => {
       asked.push(route.request().postDataJSON())
-      await route.fulfill({ json: { revealed: true } })
+      await route.fulfill({ json: { opened: true } })
     })
     await page.locator('.file-link', { hasText: 'session_one' }).last().click()
     await expect.poll(() => asked).toEqual([{ path: `${folder}/` }])
@@ -52,19 +53,34 @@ test.describe('regression: a folder link', () => {
     await expect(page.locator('[data-testid=file-preview-modal]')).toHaveCount(0)
   })
 
-  test('a computer opens the tree when the backend has no Finder', async ({ page, browserName }) => {
+  test('a computer opens the tree when the backend is not a Mac', async ({ page, browserName }) => {
     test.skip(browserName !== 'chromium', 'the computer is the desktop browser')
     await page.locator('.file-link', { hasText: 'session_one' }).last().click()
     await expect(page.locator('[data-testid=file-tree-modal]')).toBeVisible()
   })
 
-  test('a file opens in the preview as before', async ({ page }) => {
+  test('Markdown stays in the preview and the backend is not asked', async ({ page }) => {
+    const asked = []
+    page.on('request', (sent) => { if (sent.url().endsWith('/file/os-open')) asked.push(sent.url()) })
     await page.locator('.file-link', { hasText: 'plan.md' }).last().click()
     await expect(page.locator('[data-testid=file-preview-modal]')).toBeVisible()
+    expect(asked).toEqual([])
+  })
+
+  test('a computer hands a file to the backend and stays on the chat', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'the computer is the desktop browser')
+    const asked = []
+    await page.route('**/file/os-open', async (route) => {
+      asked.push(route.request().postDataJSON())
+      await route.fulfill({ json: { opened: true } })
+    })
+    await page.locator('.file-link', { hasText: 'take.mp4' }).last().click()
+    await expect.poll(() => asked).toEqual([{ path: video }])
+    await expect(page.locator('[data-testid=file-preview-modal]')).toHaveCount(0)
   })
 
   test('a file the screen cannot show says so instead of showing its bytes', async ({ page }) => {
-    // the test backend has no Finder, so the computer also falls back to the preview here
+    // the test backend opens nothing, so the computer also falls back to the preview here
     await page.locator('.file-link', { hasText: 'take.mp4' }).last().click()
     const modal = page.locator('[data-testid=file-preview-modal]')
     await expect(modal).toBeVisible()
@@ -74,7 +90,7 @@ test.describe('regression: a folder link', () => {
   test('an iPhone keeps the tree and does not ask the backend', async ({ page, browserName }) => {
     test.skip(browserName !== 'webkit', 'the iPhone is the mobile WebKit')
     const asked = []
-    page.on('request', (sent) => { if (sent.url().endsWith('/file/reveal')) asked.push(sent.url()) })
+    page.on('request', (sent) => { if (sent.url().endsWith('/file/os-open')) asked.push(sent.url()) })
     await page.locator('.file-link', { hasText: 'session_one' }).last().click()
     await expect(page.locator('[data-testid=file-tree-modal]')).toBeVisible()
     expect(asked).toEqual([])

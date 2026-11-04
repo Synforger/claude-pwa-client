@@ -121,16 +121,16 @@ class GetFileResponse(BaseModel):
     content: str
 
 
-class PostFileRevealRequest(BaseModel):
-    """POST /file/reveal request body"""
+class PostFileOsOpenRequest(BaseModel):
+    """POST /file/os-open request body"""
     model_config = ConfigDict(extra="forbid")
     path: str  # 押された path (= ~/... も可)
 
 
-class PostFileRevealResponse(BaseModel):
-    """POST /file/reveal response"""
+class PostFileOsOpenResponse(BaseModel):
+    """POST /file/os-open response"""
     model_config = ConfigDict(extra="forbid")
-    revealed: bool  # Finder に渡したか。 画面で見せられる file・無い path・Finder が無い時は false で、 画面は今までどおり開く
+    opened: bool  # OS に渡したか。 Markdown・HTML・無い path・Mac でない時は false で、 画面は今までどおり開く
 
 
 class PutFileRequest(BaseModel):

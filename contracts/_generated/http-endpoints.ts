@@ -121,16 +121,16 @@ export interface GetFileResponse {
   content: string
 }
 
-/** POST /file/reveal request body */
-export interface PostFileRevealRequest {
+/** POST /file/os-open request body */
+export interface PostFileOsOpenRequest {
   /** 押された path (= ~/... も可) */
   path: string
 }
 
-/** POST /file/reveal response */
-export interface PostFileRevealResponse {
-  /** Finder に渡したか。 画面で見せられる file・無い path・Finder が無い時は false で、 画面は今までどおり開く */
-  revealed: boolean
+/** POST /file/os-open response */
+export interface PostFileOsOpenResponse {
+  /** OS に渡したか。 Markdown・HTML・無い path・Mac でない時は false で、 画面は今までどおり開く */
+  opened: boolean
 }
 
 /** PUT /file request body */
