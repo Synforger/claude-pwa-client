@@ -387,8 +387,9 @@ def _client_preview(request: Request, resolved: Path) -> RedirectResponse | None
 # ページの origin: page_origin の folder の file を、 sandbox を外した普通のページとして配る口。 backend とは別の
 # 待ち受け (= 別の port。 立てるのは main の lifespan) なので、 ページの origin は backend と別になり、 その origin の
 # localStorage は開き直しても残る (= /file/view の sandbox の origin は毎回 null で、 何も残らない)。 sandbox の他は
-# /file/view と同じで、 読める画像・スクリプト・CSS はこの port の物だけ。 fetch はこの port の保存箱 (= `/.store/`)
-# にだけ届く (= backend の口にも外にも届かない)。 folder の中の全部のページが 1 つの origin を共有する。
+# /file/view と同じで、 読める画像・スクリプト・CSS はこの port の物だけ。 fetch が届くのは、 この port の保存箱
+# (= `/.store/`) と、 そのページの folder とその下の file だけ (= backend の口にも、 外にも、 隣の folder のページにも
+# 届かない)。 folder の中の全部のページが 1 つの origin を共有する。
 # frame-ancestors は同じ host の全部の port (= ホーム画面の PWA は、 backend の origin のプレビューの枠に嵌めて開く)。
 page_app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
 
@@ -411,9 +412,12 @@ _PAGE_SANDBOX = (
 
 
 def _page_csp(request: Request) -> str:
-    port = page_origin()[1]
+    """ページの port が配る 1 file の CSP。 fetch の先は、 保存箱と、 要求の URL の folder とその下 (= CSP の path の
+    一致は、 `/` で終わる path をその下の全部に当てる。 header は ASCII なので path は percent の形で書く)。"""
+    origin = _same_host(request, page_origin()[1])
+    folder = quote(request.scope["path"].rsplit("/", 1)[0] + "/")
     return (
-        f"{_PAGE_POLICY}; {_PAGE_SANDBOX}; connect-src {_same_host(request, port)}{_STORE_PREFIX}; "
+        f"{_PAGE_POLICY}; {_PAGE_SANDBOX}; connect-src {origin}{_STORE_PREFIX} {origin}{folder}; "
         f"frame-ancestors {_same_host(request, '*')}"
     )
 

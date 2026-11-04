@@ -157,14 +157,15 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   `{"folder": "~/pages", "port": 8775}` の形で書く。 path をタップすると `/file/view` の代わりに
   `<同じ host>:<port>/<folder の中の path>` が開き、 ページが `localStorage` に残した物は次に開いた時も残る
   (= `/file/view` は sandbox でページの origin を毎回作り直すので、 何も残らない)。 folder の中のページは 1 つの origin を
-  共有する。 backend の口にもほかの host にも通信できない所は `/file/view` と同じ。 ページが上の画面 (= 枠に嵌めて開いた時の、
+  共有する。 backend の口にもほかの host にも通信できない所は `/file/view` と同じ。 ページが fetch できるのは、 その port の
+  保存箱 (= 下) と、 ページの folder とその下の file だけ (= 横の目次が、 同じ folder のトップページを読んで全部のページを
+  並べられる。 隣の folder のページは読めない)。 ページが上の画面 (= 枠に嵌めて開いた時の、
   枠の外の画面) を別の頁へ移すこと (= `target="_top"`・`top.location`) は封じる (= 閉じる ✕ で必ず元の画面へ戻れるように)。
   それ以外 (= スクリプト・フォーム・ポップアップ・ダイアログ・ダウンロード) は使える。 backend は `127.0.0.1:<port>` で待ち受けるので、
   Tailscale 越しに使う時は同じ番号を tailnet に出す (= `tailscale serve --bg --https=<port> http://127.0.0.1:<port>`)。
   書き損じた時と port が塞がっている時は起動ログに理由を出し、 その folder も今どおり `/file/view` で開く
   - **保存箱**: `localStorage` はブラウザごと (= 同じ端末でもブラウザと app で別々) なので、 どこで開いても同じ物を
-    読ませたいページは、 その port の `/.store/<folder の中のページの path>` へ読み書きする。 ページが fetch できる
-    先はここだけ
+    読ませたいページは、 その port の `/.store/<folder の中のページの path>` へ読み書きする
     - `GET` → 置いた JSON (= まだ無ければ `null`) と、 その `ETag`
     - `PUT` (= `Content-Type: application/json`) → 丸ごと置き換えて `204` と新しい `ETag`。 1 MB まで
     - `PUT` に `If-Match: <読んだ時の ETag>` を付けると、 その間に別の画面が書いていた時は書かずに `412` と今の中身を返す
