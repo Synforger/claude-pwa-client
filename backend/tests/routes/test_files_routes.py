@@ -295,7 +295,11 @@ def test_file_view_serves_the_page_and_its_relative_files_all_sandboxed(tmp_path
         assert res.headers["content-type"] == kind
         csp = res.headers["content-security-policy"]
         assert csp == files_mod.VIEW_CSP
-        assert csp.startswith("sandbox allow-scripts;") and "allow-same-origin" not in csp
+        sandbox = csp.split(";")[0].split()
+        assert sandbox[0] == "sandbox" and "allow-scripts" in sandbox
+        assert "allow-same-origin" not in sandbox and "allow-top-navigation" not in csp
+        # ページのリンクは新しいタブもダウンロードも開ける
+        assert {"allow-popups", "allow-popups-to-escape-sandbox", "allow-downloads"} <= set(sandbox)
         assert "connect-src 'none'" in csp
         assert "frame-ancestors 'self'" in csp
         assert res.headers["x-content-type-options"] == "nosniff"
@@ -311,11 +315,13 @@ def test_file_view_keeps_the_home_and_deny_list_boundaries(tmp_path, monkeypatch
     assert client.get("/file/open", params={"path": "/etc/x.html"}).status_code == 403
 
 
-@pytest.mark.parametrize("name", ["notes.rst", "run.sh", "noext", "data.bin"])
-def test_file_view_refuses_types_it_does_not_serve(tmp_path, monkeypatch, name):
+@pytest.mark.parametrize("dest", [None, "image", "script", "style"])
+@pytest.mark.parametrize("name", ["notes.rst", "notes.md", "run.sh", "noext", "data.bin"])
+def test_file_view_refuses_types_it_does_not_serve_to_what_a_page_reads_itself(tmp_path, monkeypatch, name, dest):
     client, _ = _raw_client(tmp_path, monkeypatch)
     (tmp_path / name).write_text("x")
-    assert client.get("/file/view" + str(tmp_path / name)).status_code == 415
+    headers = {} if dest is None else {"Sec-Fetch-Dest": dest}
+    assert client.get("/file/view" + str(tmp_path / name), headers=headers).status_code == 415
 
 
 def test_file_open_takes_html_only(tmp_path, monkeypatch):
@@ -343,15 +349,37 @@ def test_file_open_in_a_tab_sends_a_file_that_is_not_html_to_the_client_preview(
     assert urljoin("http://host/file/open", res.headers["location"]) == "http://host/?preview=" + quote(str(target), safe="")
 
 
-def test_file_view_in_a_tab_sends_a_linked_markdown_to_the_client_preview(tmp_path, monkeypatch):
-    from urllib.parse import quote, urljoin  # noqa: PLC0415
-    client, _ = _raw_client(tmp_path, monkeypatch)
-    site = _site(tmp_path)
+def _linked_files(site):
+    """ページのリンクの先になる file (= 名前 → 配る形)。 文字の file は文字、 文字でない file はダウンロード。"""
     (site / "notes.md").write_text("# Notes\n")
-    url = "/file/view" + str(site / "notes.md")
-    res = client.get(url, headers=_AS_TAB, follow_redirects=False)
-    assert res.status_code == 307
-    assert urljoin("http://host" + url, res.headers["location"]) == "http://host/?preview=" + quote(str(site / "notes.md"), safe="")
+    (site / "run.py").write_text("print('x')\n")
+    (site / "data.bin").write_bytes(b"\x00\x01\x02")
+    (site / "clip.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42")
+    return {
+        "cam/a.png": "image/png",
+        "clip.mp4": "video/mp4",
+        "notes.md": "text/plain; charset=utf-8",
+        "run.py": "text/plain; charset=utf-8",
+        "data.bin": "application/octet-stream",
+    }
+
+
+@pytest.mark.parametrize("dest", ["document", "iframe"])
+def test_a_file_a_page_links_opens_in_that_browser_not_in_the_client(tmp_path, monkeypatch, dest):
+    # 意図: ページのリンクで開いた file は、 client の画面へ飛ばず、 そのブラウザ (= タブか枠) の中で見せる
+    client, files_mod = _raw_client(tmp_path, monkeypatch)
+    site = _site(tmp_path)
+    for rel, kind in _linked_files(site).items():
+        res = client.get("/file/view" + str(site / rel), headers={"Sec-Fetch-Dest": dest}, follow_redirects=False)
+        assert res.status_code == 200, rel
+        assert res.headers["content-type"] == kind, rel
+        assert res.headers["content-security-policy"] == files_mod.VIEW_CSP, rel
+        attachment = res.headers.get("content-disposition", "").startswith("attachment")
+        assert attachment == (kind == "application/octet-stream"), rel
+    # 在らない file と folder は、 回さずに無いと返す
+    for missing in ["gone.png", "gone.md", "cam"]:
+        res = client.get("/file/view" + str(site / missing), headers={"Sec-Fetch-Dest": dest}, follow_redirects=False)
+        assert res.status_code == 404, missing
 
 
 def test_file_open_keeps_pages_frames_and_page_files_as_they_were(tmp_path, monkeypatch):
@@ -435,34 +463,30 @@ def _page_client(tmp_path, monkeypatch, folder):
     return TestClient(files_mod.page_app), files_mod
 
 
-def test_file_open_leaves_the_client_s_address_for_the_pages_port(tmp_path, monkeypatch):
+def test_file_open_sends_a_page_to_its_port_without_leaving_anything_behind(tmp_path, monkeypatch):
     client, _ = _raw_client(tmp_path, monkeypatch)
     site = _site(tmp_path)
     _with_page_origin(monkeypatch, tmp_path / "pages")
     res = client.get("/file/open", params={"path": str(site / "index.html")}, follow_redirects=False,
                      headers={"host": "box.example.ts.net"})
     assert res.headers["location"] == f"http://box.example.ts.net:{_PAGE_PORT}/deck/index.html"
-    from http.cookies import SimpleCookie  # noqa: PLC0415
-    cookie = SimpleCookie(res.headers["set-cookie"])["cpc_client"]
-    assert cookie.value == "http://box.example.ts.net" and cookie["httponly"] and cookie["path"] == "/"
+    assert "set-cookie" not in res.headers
 
 
-def test_a_markdown_opened_as_a_tab_on_the_pages_port_goes_to_the_client_preview(tmp_path, monkeypatch):
-    from urllib.parse import quote  # noqa: PLC0415
+def test_a_file_a_page_links_on_the_pages_port_opens_in_that_browser(tmp_path, monkeypatch):
+    # 意図: ページの port のページのリンクも、 client の画面へ飛ばず、 そのブラウザの中で見せる
     site = _site(tmp_path)
-    (site / "notes.md").write_text("# Notes\n")
     client, _ = _page_client(tmp_path, monkeypatch, tmp_path / "pages")
-    # client の口が置いた形 (= 値は引用符で包まれて届く) のまま載せる
-    from_client = {"Sec-Fetch-Dest": "document", "cookie": 'cpc_client="http://testserver:8765"'}
-    res = client.get("/deck/notes.md", headers=from_client, follow_redirects=False)
-    assert res.status_code == 307
-    assert res.headers["location"] == "http://testserver:8765/?preview=" + quote(str(site / "notes.md"), safe="")
-    # 別の host の cookie と、 cookie の無い時は回さない (= 今まで通り、 配れない形として断る)
-    elsewhere = {"Sec-Fetch-Dest": "document", "cookie": 'cpc_client="https://evil.example"'}
-    assert client.get("/deck/notes.md", headers=elsewhere, follow_redirects=False).status_code == 415
-    assert client.get("/deck/notes.md", headers={"Sec-Fetch-Dest": "document"}, follow_redirects=False).status_code == 415
+    for rel, kind in _linked_files(site).items():
+        res = client.get(f"/deck/{rel}", headers=_AS_TAB, follow_redirects=False)
+        assert res.status_code == 200, rel
+        assert res.headers["content-type"] == kind, rel
+        assert "allow-same-origin" in res.headers["content-security-policy"], rel
+    # ページが自分で読む要求には、 形の決まった物だけを配る
+    assert client.get("/deck/notes.md", headers={"Sec-Fetch-Dest": "image"}).status_code == 415
+    assert client.get("/deck/notes.md").status_code == 415
     # HTML のページはタブとして開かれてもページ
-    page = client.get("/deck/index.html", headers=from_client)
+    page = client.get("/deck/index.html", headers=_AS_TAB)
     assert page.status_code == 200 and page.headers["content-type"] == "text/html; charset=utf-8"
 
 
