@@ -290,8 +290,8 @@ endpoints:
     implementation: backend/routes/files.py
 
   - method: POST
-    path: /file/reveal
-    description: "フォルダと、 画面で見せられない file を、 backend の機械の Finder で見せる (= 会話とメモのリンクを押した時)"
+    path: /file/os-open
+    description: "会話とメモで押された path を、 backend の機械で Finder のダブルクリックと同じに開く (= フォルダは Finder、 file は既定のアプリ)"
     request_body:
       type: object
       required: [path]
@@ -300,14 +300,15 @@ endpoints:
     response:
       type: object
       properties:
-        revealed: { type: boolean, description: "Finder に渡したか。 画面で見せられる file・無い path・Finder が無い時は false で、 画面は今までどおり開く" }
-      required: [revealed]
+        opened: { type: boolean, description: "OS に渡したか。 Markdown・HTML・無い path・Mac でない時は false で、 画面は今までどおり開く" }
+      required: [opened]
     response_kind: json
     auth: tailnet
     invariants:
       - "HOME 配下外 / deny list 該当は 403 (= /file と同じ境界)"
-      - "フォルダは開く。 file と、 名前に拡張子があるフォルダは、 親の中で選んだ状態で見せる (= Foo.app を走らせない)"
-      - "画面で見せられる file (= HTML、 上限内の画像と資料、 1MB 以下で先頭 8000 byte に NUL の無い文字) は Finder に渡さない"
+      - "走らせる物 (= .app・.command・.pkg など、 拡張子のあるフォルダ、 拡張子の無い実行の file) は開かず、 親の中で選んだ状態で見せる"
+      - "開くアプリの無い file は、 親の中で選んだ状態で見せる"
+      - "Markdown と HTML は OS に渡さない (= client が開く)"
     implementation: backend/routes/files.py
 
   - method: PUT

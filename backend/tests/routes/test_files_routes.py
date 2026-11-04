@@ -604,10 +604,10 @@ def test_page_store_is_only_for_pages_in_the_folder(tmp_path, monkeypatch):
     assert not (tmp_path / "store").exists()
 
 
-# --- showing a folder in Finder ---
+# --- opening a path as a double click in Finder would ---
 
 @pytest.fixture
-def finder(monkeypatch):
+def os_open(monkeypatch):
     """What would have been run. Nothing opens on the machine running the tests."""
     commands: list[list[str]] = []
     monkeypatch.setattr(files_routes.sys, "platform", "darwin")
@@ -622,79 +622,109 @@ def home_dir(monkeypatch, tmp_path):
     return tmp_path.resolve()
 
 
-def test_a_folder_opens_in_finder_with_or_without_the_last_slash(finder, home_dir):
+def test_a_folder_opens_in_finder_with_or_without_the_last_slash(os_open, home_dir):
     folder = home_dir / "Movies" / "session"
     folder.mkdir(parents=True)
-    assert files_routes.reveal_path(str(folder)) == {"revealed": True}
-    assert files_routes.reveal_path(f"{folder}/") == {"revealed": True}
-    assert finder == [["open", "-a", "Finder", str(folder)]] * 2
-
-
-def test_a_folder_with_a_suffix_is_shown_and_not_opened_so_a_bundle_cannot_run(finder, home_dir):
-    bundle = home_dir / "Tool.app"
-    bundle.mkdir()
-    assert files_routes.reveal_path(str(bundle)) == {"revealed": True}
-    assert finder == [["open", "-R", str(bundle)]]
+    assert files_routes.open_with_os(str(folder)) == {"opened": True}
+    assert files_routes.open_with_os(f"{folder}/") == {"opened": True}
+    assert os_open == [["open", "-a", "Finder", str(folder)]] * 2
 
 
 @pytest.mark.parametrize("name, content", [
-    ("note.md", b"# plan\n"),
-    ("script", "日本語の文".encode("shift_jis")),  # text in any encoding, without a NUL byte
-    ("page.html", b"\0"),  # HTML opens in a browser whatever it holds
-    ("shot.png", b"\x89PNG\r\n\0"),
+    ("tool.py", b"print('x')\n"),
     ("spec.pdf", b"%PDF-1.7\n\0"),
+    ("shot.png", b"\x89PNG\r\n\0"),
+    ("deck.pptx", b"PK\0"),
+    ("take.mp4", b"\0\0\0\x18ftyp"),
+    ("big.log", b"line\n"),
 ])
-def test_a_file_the_client_shows_is_left_to_the_screen(finder, home_dir, name, content):
+def test_a_file_opens_in_its_default_application(os_open, home_dir, name, content):
     (home_dir / name).write_bytes(content)
-    assert files_routes.reveal_path(str(home_dir / name)) == {"revealed": False}
-    assert finder == []
+    assert files_routes.open_with_os(str(home_dir / name)) == {"opened": True}
+    assert os_open == [["open", str(home_dir / name)]]
+
+
+def test_a_script_with_a_suffix_opens_like_any_file_even_when_it_is_executable(os_open, home_dir):
+    script = home_dir / "run.py"
+    script.write_text("print('x')\n")
+    script.chmod(0o755)
+    assert files_routes.open_with_os(str(script)) == {"opened": True}
+    assert os_open == [["open", str(script)]]  # Finder opens a file with a suffix in its application, never runs it
+
+
+@pytest.mark.parametrize("name, is_folder, executable", [
+    pytest.param("Tool.app", True, False, id="a bundle"),
+    pytest.param("session.v2", True, False, id="a folder with a suffix"),
+    pytest.param("go.command", False, False, id="a Terminal command"),
+    pytest.param("setup.pkg", False, False, id="an installer"),
+    pytest.param("profile.MOBILECONFIG", False, False, id="a profile, in any case"),
+    pytest.param("build", False, True, id="an executable without a suffix"),
+])
+def test_a_path_that_would_run_something_is_only_shown_in_its_folder(os_open, home_dir, name, is_folder, executable):
+    target = home_dir / name
+    if is_folder:
+        target.mkdir()
+    else:
+        target.write_text("x")
+        target.chmod(0o755 if executable else 0o644)
+    assert files_routes.open_with_os(str(target)) == {"opened": True}
+    assert os_open == [["open", "-R", str(target)]]
+
+
+@pytest.mark.parametrize("name", ["note.md", "NOTES.MARKDOWN", "page.html", "old.htm"])
+def test_markdown_and_html_are_left_to_the_client(os_open, home_dir, name):
+    (home_dir / name).write_text("x")
+    assert files_routes.open_with_os(str(home_dir / name)) == {"opened": False}
+    assert os_open == []
 
 
 @pytest.mark.parametrize("name", ["missing", "missing/"])
-def test_a_path_that_does_not_exist_is_left_to_the_screen(finder, home_dir, name):
-    assert files_routes.reveal_path(str(home_dir / name)) == {"revealed": False}
-    assert finder == []
-
-
-@pytest.mark.parametrize("name, size, head", [
-    pytest.param("take.mp4", 2 * 1024, b"\0\0\0\x18ftypmp42", id="binary"),
-    pytest.param("big.log", files_routes.FILE_SIZE_LIMIT + 1, b"line", id="text over the preview's limit"),
-    pytest.param("huge.png", files_routes.IMAGE_SIZE_LIMIT + 1, b"\x89PNG", id="image over its limit"),
-])
-def test_a_file_the_client_cannot_show_is_shown_selected_in_its_folder(finder, home_dir, name, size, head):
-    target = home_dir / name
-    with target.open("wb") as handle:
-        handle.write(head)
-        handle.truncate(size)
-    assert files_routes.reveal_path(str(target)) == {"revealed": True}
-    assert finder == [["open", "-R", str(target)]]
+def test_a_path_that_does_not_exist_is_left_to_the_screen(os_open, home_dir, name):
+    assert files_routes.open_with_os(str(home_dir / name)) == {"opened": False}
+    assert os_open == []
 
 
 @pytest.mark.parametrize("path", ["/etc", "~/.ssh", "~/repo/secrets"])
-def test_a_folder_the_file_routes_refuse_is_refused_here_too(finder, path):
+def test_a_path_the_file_routes_refuse_is_refused_here_too(os_open, path):
     with pytest.raises(HTTPException) as refused:
-        files_routes.reveal_path(path)
+        files_routes.open_with_os(path)
     assert refused.value.status_code == 403
-    assert finder == []
+    assert os_open == []
 
 
-def test_nothing_opens_without_finder_or_on_the_e2e_backend(finder, home_dir, monkeypatch):
+def test_nothing_opens_off_a_mac_or_on_the_e2e_backend(os_open, home_dir, monkeypatch):
     monkeypatch.setattr(files_routes.sys, "platform", "linux")
-    assert files_routes.reveal_path(str(home_dir)) == {"revealed": False}
+    assert files_routes.open_with_os(str(home_dir)) == {"opened": False}
     monkeypatch.setattr(files_routes.sys, "platform", "darwin")
     monkeypatch.setenv("CPC_E2E", "1")
-    assert files_routes.reveal_path(str(home_dir)) == {"revealed": False}
-    assert finder == []
+    assert files_routes.open_with_os(str(home_dir)) == {"opened": False}
+    assert os_open == []
 
 
-def test_finder_failing_leaves_the_path_to_the_screen(home_dir, monkeypatch):
+def test_a_file_no_application_opens_is_shown_in_its_folder_instead(home_dir, monkeypatch):
+    tried: list[list[str]] = []
+
+    def no_application(command, **kwargs):
+        tried.append(command)
+        if "-R" not in command:
+            raise subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr(files_routes.sys, "platform", "darwin")
+    monkeypatch.delenv("CPC_E2E", raising=False)
+    monkeypatch.setattr(files_routes.subprocess, "run", no_application)
+    (home_dir / "data.xyz").write_bytes(b"\0")
+    assert files_routes.open_with_os(str(home_dir / "data.xyz")) == {"opened": True}
+    assert tried == [["open", str(home_dir / "data.xyz")], ["open", "-R", str(home_dir / "data.xyz")]]
+
+
+def test_the_os_failing_leaves_the_path_to_the_screen(home_dir, monkeypatch):
     def fails(command, **kwargs):
         raise subprocess.CalledProcessError(1, command)
 
     monkeypatch.setattr(files_routes.sys, "platform", "darwin")
     monkeypatch.delenv("CPC_E2E", raising=False)
     monkeypatch.setattr(files_routes.subprocess, "run", fails)
-    assert files_routes.reveal_path(str(home_dir)) == {"revealed": False}
+    assert files_routes.open_with_os(str(home_dir)) == {"opened": False}
 
 
 def test_reading_a_binary_file_as_text_is_refused(home_dir):

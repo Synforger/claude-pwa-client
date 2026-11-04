@@ -141,39 +141,46 @@ describe('openPath', () => {
 })
 
 describe('openLinkedPath', () => {
-  // The backend's answer to `POST /file/reveal`
-  function backendAnswers(revealed) {
-    const fetch = vi.fn(async () => new Response(JSON.stringify({ revealed }), { status: 200 }))
+  // The backend's answer to `POST /file/os-open`
+  function backendAnswers(opened) {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ opened }), { status: 200 }))
     vi.stubGlobal('fetch', fetch)
     return fetch
   }
 
   afterEach(() => vi.unstubAllGlobals())
 
-  it('hands a folder to the backend on a computer, and leaves the screen as it was', async () => {
-    const fetch = backendAnswers(true)
-    const onLeave = vi.fn()
-    await openLinkedPath('~/Movies/session', { onLeave })
-    expect(fetch).toHaveBeenCalledTimes(1)
-    const [url, options] = fetch.mock.calls[0]
-    expect(url).toMatch(/\/file\/reveal$/)
-    expect(options.method).toBe('POST')
-    expect(JSON.parse(options.body)).toEqual({ path: '~/Movies/session' })
-    expect(onLeave).not.toHaveBeenCalled()
-    expect(getSnapshot().overlays.treeOpen ?? null).toBe(null)
-    expect(getSnapshot().overlays.previewPath ?? null).toBe(null)
-  })
-
-  it.each(['~/notes/plan.md', '~/pictures/photo.png', '~/materials/spec.pdf'])(
-    'opens the file %s as before when the backend says it is not a folder', async path => {
-      backendAnswers(false)
+  it.each(['~/Movies/session', '~/tools/run.py', '~/materials/spec.pdf', '~/pictures/photo.png'])(
+    'hands %s to the backend on a computer, and leaves the screen as it was', async path => {
+      const fetch = backendAnswers(true)
       const onLeave = vi.fn()
       await openLinkedPath(path, { onLeave })
-      expect(onLeave).toHaveBeenCalledTimes(1)
-      expect(getSnapshot().overlays.previewPath).toBe(path)
+      expect(fetch).toHaveBeenCalledTimes(1)
+      const [url, options] = fetch.mock.calls[0]
+      expect(url).toMatch(/\/file\/os-open$/)
+      expect(options.method).toBe('POST')
+      expect(JSON.parse(options.body)).toEqual({ path })
+      expect(onLeave).not.toHaveBeenCalled()
+      expect(getSnapshot().overlays.treeOpen ?? null).toBe(null)
+      expect(getSnapshot().overlays.previewPath ?? null).toBe(null)
     })
 
-  it('opens the tree when the backend has no Finder', async () => {
+  it.each(['~/notes/plan.md', '~/notes/README.MARKDOWN'])('keeps Markdown %s in the preview without asking', async path => {
+    const fetch = backendAnswers(true)
+    await openLinkedPath(path)
+    expect(fetch).not.toHaveBeenCalled()
+    expect(getSnapshot().overlays.previewPath).toBe(path)
+  })
+
+  it('opens the path as before when the backend did not open it', async () => {
+    backendAnswers(false)
+    const onLeave = vi.fn()
+    await openLinkedPath('~/materials/spec.pdf', { onLeave })
+    expect(onLeave).toHaveBeenCalledTimes(1)
+    expect(getSnapshot().overlays.previewPath).toBe('~/materials/spec.pdf')
+  })
+
+  it('opens the tree when the backend is not a Mac', async () => {
     backendAnswers(false)
     await openLinkedPath('~/pages/deck/')
     expect(getSnapshot().overlays.treeOpen).toBe('~/pages/deck/')
@@ -181,8 +188,8 @@ describe('openLinkedPath', () => {
 
   it('opens the path as before when the backend cannot be reached', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline') }))
-    await openLinkedPath('~/notes/plan.md')
-    expect(getSnapshot().overlays.previewPath).toBe('~/notes/plan.md')
+    await openLinkedPath('~/materials/spec.pdf')
+    expect(getSnapshot().overlays.previewPath).toBe('~/materials/spec.pdf')
   })
 
   it('opens HTML within the tap: nothing is awaited before the new window', () => {
@@ -193,11 +200,13 @@ describe('openLinkedPath', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it('keeps the tree on an iPhone, without asking the backend', async () => {
+  it('keeps everything in the client on an iPhone, without asking the backend', async () => {
     const fetch = backendAnswers(true)
     vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(IPHONE_UA)
     await openLinkedPath('~/pages/deck/')
-    expect(fetch).not.toHaveBeenCalled()
     expect(getSnapshot().overlays.treeOpen).toBe('~/pages/deck/')
+    await openLinkedPath('~/materials/spec.pdf')
+    expect(getSnapshot().overlays.previewPath).toBe('~/materials/spec.pdf')
+    expect(fetch).not.toHaveBeenCalled()
   })
 })

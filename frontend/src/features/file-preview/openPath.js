@@ -5,10 +5,11 @@
 // folder は木、 それ以外 (= Markdown・画像・資料の pdf・Office・tif) は client の中のプレビュー。 資料はプレビューの
 // 枠の中で、 backend が頁の画像にして返した頁を見せる。
 //
-// Links written in the chat and the memo go through `openLinkedPath`: on a computer a folder, and a file the client
-// cannot show (= the backend decides), open in Finder on the machine the backend runs on, and everything else opens
-// as above. An iPhone or iPad keeps the tree, since its
-// operator may not be near that machine. The file tree and the favorites stay in the tree, which is where they browse.
+// Links written in the chat and the memo go through `openLinkedPath`: on a computer every path but Markdown and HTML
+// opens on the machine the backend runs on, as a double click in Finder would (= a folder in Finder, a file in its
+// default application). Markdown stays in the preview and HTML in the browser as above. An iPhone or iPad keeps all of
+// the above, since its operator may not be near that machine. The file tree and the favorites stay in the client,
+// which is where they browse.
 import { setOverlay } from '../../state/ui.js'
 import { apiFetch, apiUrl } from '../../_common/api.js'
 import { openInBrowser } from '../../_common/externalBrowser.js'
@@ -38,23 +39,24 @@ export function openPath(path, { onLeave } = {}) {
   else setOverlay('previewPath', path)
 }
 
-async function revealFolder(path) {
+const MARKDOWN_RE = /\.(md|markdown)$/i
+
+async function openWithOs(path) {
   try {
-    const response = await apiFetch('/file/reveal', {
+    const response = await apiFetch('/file/os-open', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path }),
     })
-    return response.ok && (await response.json()).revealed === true
+    return response.ok && (await response.json()).opened === true
   } catch {
     return false
   }
 }
 
-// Only the backend knows whether a path is a folder (= agents often leave out the last `/`) and whether a file can be
-// shown (= by its size and its bytes), so it is asked first.
-// HTML is decided without waiting: a browser opens a new tab only within the tap itself.
+// The backend decides how its OS opens a path (= a folder written without the last `/`, a file that would run
+// something), so it is asked first. HTML and Markdown are decided here: a browser opens a new tab only within the tap.
 export async function openLinkedPath(path, { onLeave } = {}) {
-  if (!isHtmlPath(path) && !isMobileSafari() && await revealFolder(path)) return
+  if (!isHtmlPath(path) && !MARKDOWN_RE.test(path) && !isMobileSafari() && await openWithOs(path)) return
   openPath(path, { onLeave })
 }

@@ -215,11 +215,20 @@ def open_file_in_browser(request: Request, path: str = Query(...)):
     return RedirectResponse(url="view/" + quote(str(resolved).lstrip("/")), status_code=307)
 
 
-# How long Finder may take to take the request (= `open` returns as soon as it has handed the path over).
-REVEAL_TIMEOUT_SEC = 5.0
+# How long the OS may take to take the request (= `open` returns as soon as it has handed the path over).
+OS_OPEN_TIMEOUT_SEC = 5.0
 # How much of a file is read to tell text from binary, and the byte that tells (= the same test git uses for a diff).
 TEXT_SNIFF_BYTES = 8000
 BINARY_MARK = b"\0"
+# Files the client shows itself on every screen (= Markdown in the preview, HTML in a browser through `/file/open`).
+CLIENT_SUFFIXES = frozenset({".md", ".markdown", ".html", ".htm"})
+# Files that run a program, install something or open another path when opened: they are only shown in Finder, so a
+# tapped path never runs anything. A folder with a suffix (= a bundle such as `Foo.app`) is treated the same.
+RUNS_SUFFIXES = frozenset({
+    ".app", ".command", ".tool", ".terminal", ".pkg", ".mpkg", ".dmg", ".jar", ".workflow", ".action",
+    ".fileloc", ".webloc", ".inetloc", ".mobileconfig", ".shortcut", ".scpt", ".scptd", ".applescript", ".osax",
+    ".prefpane", ".saver", ".kext", ".plugin", ".bundle",
+})
 
 
 def _is_text(path: Path) -> bool:
@@ -231,46 +240,47 @@ def _is_text(path: Path) -> bool:
         return False
 
 
-def _shown_in_client(path: Path) -> bool:
-    """Whether the client's screen can show this file: HTML in a browser, an image or a document in the preview,
-    and text within the preview's size limit. Anything else would end in an error or garbled bytes."""
-    suffix = path.suffix.lower()
-    size = path.stat().st_size
-    if suffix in (".html", ".htm"):
+def _runs_when_opened(target: Path) -> bool:
+    """Whether opening the path would run something: a suffix in `RUNS_SUFFIXES`, a folder with any suffix, or an
+    executable file without a suffix (= Finder runs such a file in Terminal)."""
+    suffix = target.suffix.lower()
+    if suffix in RUNS_SUFFIXES or (target.is_dir() and suffix):
         return True
-    if suffix in _IMAGE_MEDIA_TYPES:
-        return size <= IMAGE_SIZE_LIMIT
-    if convert.kind_of(path) is not None:
-        return size <= VIEW_SIZE_LIMIT
-    return size <= FILE_SIZE_LIMIT and _is_text(path)
+    return target.is_file() and not suffix and os.access(target, os.X_OK)
 
 
-def _finder_command(target: Path) -> list[str]:
-    """The command that shows a path in Finder. A folder opens; a file, and a folder whose name has a suffix (which
-    may be a bundle such as `Foo.app`, which opening would run), are shown selected in their parent."""
-    if target.is_dir() and not target.suffix:
-        return ["open", "-a", "Finder", str(target)]
-    return ["open", "-R", str(target)]
+def _os_open_commands(target: Path) -> list[list[str]]:
+    """The commands that open a path as a double click in Finder would, tried in order. A path that would run something
+    is only shown selected in its folder, which is also the fallback when no application opens a file."""
+    reveal = ["open", "-R", str(target)]
+    if _runs_when_opened(target):
+        return [reveal]
+    if target.is_dir():
+        return [["open", "-a", "Finder", str(target)]]
+    return [["open", str(target)], reveal]
 
 
-@router.post("/file/reveal")
-def reveal_path(path: str = Body(..., embed=True)) -> dict:
-    """Show a path tapped in the chat or the memo in Finder on the machine the backend runs on, when it is a folder
-    or a file the client cannot show. `revealed` is false otherwise, and when there is no Finder here, and the screen
-    then opens the path as it opens any other. HOME and the deny list bound it as they bound `/file`. The e2e backend
-    never opens a window on the machine running the tests."""
+@router.post("/file/os-open")
+def open_with_os(path: str = Body(..., embed=True)) -> dict:
+    """Open a path tapped in the chat or the memo on the machine the backend runs on, as a double click in Finder
+    would: a folder in Finder, a file in its default application. `opened` is false for Markdown and HTML (= the client
+    shows them), for a path that does not exist and when this machine is not a Mac, and the screen then opens the path
+    as before. HOME and the deny list bound it as they bound `/file`. The e2e backend never opens anything on the
+    machine running the tests."""
     resolved = _resolve_safe(path)
     if sys.platform != "darwin" or os.environ.get("CPC_E2E") == "1" or not resolved.exists():
-        return {"revealed": False}
-    if resolved.is_file() and _shown_in_client(resolved):
-        return {"revealed": False}
-    try:
-        subprocess.run(_finder_command(resolved), check=True, capture_output=True, timeout=REVEAL_TIMEOUT_SEC)
-    except (OSError, subprocess.SubprocessError) as error:
-        logger.warning("path could not be shown in Finder: %s (%s)", resolved, error)
-        return {"revealed": False}
-    logger.info("path shown in Finder: %s", resolved)
-    return {"revealed": True}
+        return {"opened": False}
+    if resolved.is_file() and resolved.suffix.lower() in CLIENT_SUFFIXES:
+        return {"opened": False}
+    for command in _os_open_commands(resolved):
+        try:
+            subprocess.run(command, check=True, capture_output=True, timeout=OS_OPEN_TIMEOUT_SEC)
+        except (OSError, subprocess.SubprocessError) as error:
+            logger.warning("the OS did not open %s with %s (%s)", resolved, command[:-1], error)
+            continue
+        logger.info("opened by the OS with %s: %s", command[:-1], resolved)
+        return {"opened": True}
+    return {"opened": False}
 
 
 # 資料 (= pdf・Office・tif) は頁の画像の頁にして返す。 元の file と同じ path の URL で配るので、 HTML のページから
