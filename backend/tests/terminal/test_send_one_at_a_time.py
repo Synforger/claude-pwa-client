@@ -55,6 +55,8 @@ def pane(monkeypatch, tmp_path):
 
     monkeypatch.setattr(runner, "wipe_input_line", wipe)
     monkeypatch.setattr(routes, "wipe_input_line", wipe)
+    # 停止は Escape の前に入力欄を読む。 本物の読みは tmux を呼び、 混んだ機械では Enter までの待ちを越える
+    monkeypatch.setattr(routes, "read_input_box", lambda session_id: state["box"].get(session_id))
     monkeypatch.setattr(runner, "tmux_send_keys", send_keys)
     monkeypatch.setattr(runner, "TWO_STAGE_ENTER_DELAY_SEC", ENTER_DELAY)
     monkeypatch.setattr(routes, "tmux_send_keys", send_keys)
