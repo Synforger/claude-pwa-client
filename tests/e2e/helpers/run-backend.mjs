@@ -5,6 +5,7 @@
 // history is never touched. SIGINT / SIGTERM tear the child down cleanly.
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -25,6 +26,10 @@ const AGENT_DIR = resolve(RUNTIME, 'agent')
 const CONFIG_PATH = resolve(RUNTIME, 'config.json')
 
 const PORT = process.env.CPC_E2E_PORT || '18765'
+// The page origin's folder and port (= the setting `page_origin`): HTML in this folder opens from its own port. The
+// folder is under HOME, as the backend serves nothing outside it, and apart from the folders other scenarios write.
+const PAGE_ORIGIN_DIR = resolve(homedir(), '.cache', 'cpc-e2e', 'page-origin')
+const PAGE_ORIGIN_PORT = Number(PORT) + 10
 
 // Fresh tmp tree per launch — global-teardown also wipes this but a crashed
 // run could leave stale files. Idempotent.
@@ -33,6 +38,7 @@ mkdirSync(DATA_DIR, { recursive: true })
 mkdirSync(LOGS_DIR, { recursive: true })
 mkdirSync(SECRETS_DIR, { recursive: true, mode: 0o700 })
 mkdirSync(USER_DIR, { recursive: true })
+mkdirSync(PAGE_ORIGIN_DIR, { recursive: true })
 mkdirSync(AGENT_DIR, { recursive: true })
 
 // Isolate the e2e account's claude config dir to fixtures/_runtime/.claude
@@ -94,6 +100,7 @@ const config = {
     { id: 'fixture', title: 'Fixture', icon: '🧪' },
     { id: 'fixture-page', title: 'Fixture page', icon: '📄', view: 'page' },
   ],
+  page_origin: { folder: PAGE_ORIGIN_DIR, port: PAGE_ORIGIN_PORT },
   claude_path: '/usr/bin/true',
   cors_allow_origins: ['*'],
 }

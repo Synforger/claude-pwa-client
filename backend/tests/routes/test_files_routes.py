@@ -504,10 +504,30 @@ def test_page_origin_serves_the_page_and_its_relative_files_on_an_origin_of_its_
         assert "allow-top-navigation" not in csp
         assert csp.startswith(files_mod._PAGE_POLICY)
         assert "form-action 'none'" in csp
-        assert f"connect-src http://testserver:{_PAGE_PORT}/.store/;" in csp
+        # fetch は保存箱と、 そのページの folder とその下だけ
+        assert f"connect-src http://testserver:{_PAGE_PORT}/.store/ http://testserver:{_PAGE_PORT}/{rel.rsplit('/', 1)[0]}/;" in csp
         assert csp.endswith("frame-ancestors http://testserver:*")
         assert res.headers["x-content-type-options"] == "nosniff"
     assert client.get("/deck/cam/a.png").content == (site / "cam" / "a.png").read_bytes()
+
+
+def test_a_page_reads_only_its_own_folder_and_the_header_stays_ascii(tmp_path, monkeypatch):
+    # 意図: 説明のページが同じ folder のトップページを fetch で読める。 隣の folder は CSP の外。 日本語と空白の
+    # folder の名前は percent の形で書き、 header に ASCII 以外を入れない
+    site = tmp_path / "pages" / "階層 A" / "tab"
+    site.mkdir(parents=True)
+    (site / "index.html").write_text("<!doctype html><p>top</p>")
+    (site / "guide.html").write_text("<!doctype html><p>guide</p>")
+    client, _ = _page_client(tmp_path, monkeypatch, tmp_path / "pages")
+    res = client.get("/階層 A/tab/guide.html", headers={"Sec-Fetch-Dest": "document"})
+    assert res.status_code == 200
+    csp = res.headers["content-security-policy"]
+    csp.encode("ascii")
+    connect = next(part.split()[1:] for part in csp.split("; ") if part.startswith("connect-src "))
+    assert connect == [f"http://testserver:{_PAGE_PORT}/.store/", f"http://testserver:{_PAGE_PORT}/%E9%9A%8E%E5%B1%A4%20A/tab/"]
+    # その folder のトップページは fetch の形の要求 (= `Sec-Fetch-Dest: empty`) で読める
+    top = client.get("/階層 A/tab/index.html", headers={"Sec-Fetch-Dest": "empty"})
+    assert top.status_code == 200 and top.text == "<!doctype html><p>top</p>"
 
 
 def test_page_origin_keeps_the_folder_and_deny_list_boundaries(tmp_path, monkeypatch):

@@ -73,7 +73,7 @@ def test_page_server_serves_with_the_scheme_the_proxy_names(tmp_path, monkeypatc
     assert body == "<!doctype html><p>deck</p>"
     csp = headers["content-security-policy"]
     assert "allow-same-origin" in csp and "allow-top-navigation" not in csp
-    assert f"connect-src https://box.example.ts.net:{port}/.store/;" in csp
+    assert f"connect-src https://box.example.ts.net:{port}/.store/ https://box.example.ts.net:{port}/deck/;" in csp
     assert csp.endswith("frame-ancestors https://box.example.ts.net:*")
 
 
