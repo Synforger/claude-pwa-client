@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import uuid
 from pathlib import Path
 
@@ -42,6 +43,9 @@ logger = logging.getLogger(__name__)
 # launcher が claude を起動するまでの上限 (= binding 登録の探索)。 封筒で起動した後に本文を打つ前の待ちにも使う
 # (= launcher は起動の前にエージェントを pull するので、 送信口の待ちの上限より長くかかる)。
 LAUNCH_DISCOVER_SEC = 60.0
+
+# The block a child tab's first message carries its tier in (= written by `tabs new`, read by the launcher).
+CHILD_START = re.compile(r"^<child-start>$", re.M)
 
 # 封筒で起動した後に本文を打つ task (= 参照を持たないと、 終わる前に回収されることがある)。
 _following: set[asyncio.Task] = set()
@@ -94,18 +98,24 @@ async def launch_with_first_message(session_id: str, text: str) -> dict | None:
 
 def _placed_tier(session_id: str, text: str) -> str | None:
     """The tier the tab's new conversation starts in by envelope, or None when the text itself is the first
-    message. A rollover carries its own tier, and the operator's words choose it in a tab not placed for a tier;
-    a message from another tab cannot, so it starts in the tier the tab remembers, or in `normal`, where the
-    operator's words start when they name no tier."""
+    message. A rollover and a child tab's first message (= `<child-start>`) carry their own tier, and the operator's
+    words choose it in a tab not placed for a tier; a message from another tab cannot, so it starts in the tier the
+    tab remembers, else its parent's (= a child works in its parent's tier), else `normal`, where the operator's
+    words start when they name no tier."""
     meta = sessions_meta.get(session_id)
     if meta is None:
         return None
     opening = unwrap_pasted(text).lstrip()
-    if opening.startswith(ROLLOVER_OPENING):
+    # Only a child's message may carry its tier: in any other tab, a `<child-start>` line written in a message
+    # would let the sender choose the tier the receiver starts in.
+    if opening.startswith(ROLLOVER_OPENING) or (meta.child and CHILD_START.search(text)):
         return None
     if meta.tier_tab is not None:
         return meta.tier_tab
-    return (meta.tier or DEFAULT_TIER) if opening.startswith(AGENT_MESSAGE_OPENINGS) else None
+    if not opening.startswith(AGENT_MESSAGE_OPENINGS):
+        return None
+    parent = sessions_meta.get(meta.parent_id) if meta.child and meta.parent_id else None
+    return meta.tier or (parent.tier if parent is not None else None) or DEFAULT_TIER
 
 
 async def _send_when_ready(session_id: str, text: str) -> None:

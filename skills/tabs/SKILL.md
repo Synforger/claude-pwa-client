@@ -119,7 +119,7 @@ running when the parent restarts. Use `tabs` from the parent:
 ```
 tabs new <title> <task file>      open a child; the task becomes its first message
 tabs children [--summary]         list the children this tab opened (id, state, Claude's state, title)
-tabs close <child id> [--force]   close a child and delete its memo; a child still working needs --force
+tabs close <child id> [--force]   close a child and clear its memo and untouched top page; a child still working needs --force
 ```
 
 The child starts in the same tier as the parent. A child cannot open children (`tabs new` refuses); work that

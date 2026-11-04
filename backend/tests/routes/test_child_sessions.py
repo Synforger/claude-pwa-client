@@ -197,3 +197,11 @@ def test_a_child_stays_a_child_after_the_backend_starts_again(opened, isolated_s
 def test_the_limit_comes_from_the_settings(monkeypatch, tmp_path, value, expected):
     _config(monkeypatch, tmp_path, **({} if value is None else {"child_sessions_max": value}))
     assert config_mod.CHILD_SESSIONS_MAX == expected
+
+
+def test_a_child_works_in_its_parent_s_tier_from_the_start(opened, isolated_state):
+    isolated_state.sessions_meta["ses_p"].tier = "projects/P/subprojects/S"
+    with _client() as client:
+        body = client.post("/sessions/ses_p/children", data={"text": "build it"}).json()
+    assert isolated_state.sessions_meta[body["id"]].tier == "projects/P/subprojects/S"
+    assert body["tier"] == "projects/P/subprojects/S"

@@ -30,6 +30,7 @@ from backend._common.state import register_session, sessions_meta
 from backend.terminal.routes import pty_send
 from backend.terminal.runner import jsonl_path_for_session
 from backend.terminal.session_resolver import ensure_pty_session_for
+from backend.terminal.tab_tier import tab_tier
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -82,8 +83,10 @@ async def post_child_session(
         record = jsonl_path_for_session(session_id)
         name = record.stem if record is not None else f"child:{session_id}"
         await judge(name, text, session_id)
+    # The child works in its parent's tier from the start: its memo, its top page and `tabs list` know the tier
+    # before its claude reports it, and a message that wakes it later starts it there.
     meta = register_session(agent_id, (title or "").strip() or None, parent_id=session_id,
-                            account_id=parent.account_id, child=True)
+                            account_id=parent.account_id, child=True, tier=tab_tier(session_id))
     try:
         await ensure_pty_session_for(meta.id)
     except Exception:

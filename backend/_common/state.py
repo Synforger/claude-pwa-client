@@ -611,12 +611,14 @@ def register_session(
     sid: str | None = None,
     child: bool = False,
     tier_tab: str | None = None,
+    tier: str | None = None,
 ) -> SessionDef:
     """新規セッションを登録して全状態 dict を初期化する。 永続化まで行う。
 
     parent_id / resume_session_id はフォーク (= 会話分岐) で生まれたタブにのみ渡す
     (= 出自と、 初回 spawn で resume する claude session id)。 子のタブ (= child) は parent_id だけを持つ。
     tier_tab は階層のタブとして置くタブにだけ渡す (= 新しい会話をその階層で起動する)。
+    tier は、 claude が起動する前から決まっている階層 (= 子のタブは親の階層で起動する)。
     account_id は config.json accounts の key (= 個人 / 会社 OAuth の選択)。 None は
     personal 相当 (= 通常 ~/.claude/) として扱う。
     sid が指定された場合は新規生成せずその値で登録する (= ADR-020 e2e seed が
@@ -632,7 +634,7 @@ def register_session(
     meta = SessionDef(
         id=sid, agent_id=agent_id, title=title, created_at=int(time.time()),
         parent_id=parent_id, resume_session_id=resume_session_id,
-        account_id=account_id, child=child, tier_tab=tier_tab,
+        account_id=account_id, child=child, tier_tab=tier_tab, tier=tier,
     )
     if child:
         # 子のタブは親が仕事を渡すために立てる物で、 進みは親への報告で届く。 通知は切って立てる (= 画面の ⚙ で入れ直せる)
