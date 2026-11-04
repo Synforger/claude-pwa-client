@@ -67,6 +67,10 @@ Message from another session, relayed by the client (the operator did not type t
 
 普通のタブと同じ `DELETE /sessions/<子のタブの id>` です。 画面の一覧の ⋯ からも閉じられます。
 
+閉じると、 client がその子のために書いた物も一緒に片付きます。 片付くのは、 メモ (= `pages/<子の id>/memo.md`)、 雛形から
+作ったまま手の入っていないトップページ、 それで空になった folder です。 子が自分で書いた説明のページは残ります。 子の
+階層の folder と親の階層の folder の両方を見ます。
+
 ## 画面の一覧
 
 子のタブは、 フォークのタブと同じように親の直下に字下げして並び、 名前の前に `↳` が付きます (= フォークは `⑂`)。

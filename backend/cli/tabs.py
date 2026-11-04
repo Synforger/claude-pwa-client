@@ -490,8 +490,7 @@ def close_child(child: str, force: bool) -> int:
     status, body = call(f"/sessions/{urllib.parse.quote(child)}", method="DELETE")
     if status != 200:
         return fail(f"閉じられません {refused(status, body)}")
-    if note is not None:
-        note.unlink(missing_ok=True)
+    # メモとトップページは backend が閉じる時に片付ける (= `backend/terminal/child_folder.py`)
     print(f"閉じました: {child} ({state})")
     return 0
 

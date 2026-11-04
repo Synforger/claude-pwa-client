@@ -43,6 +43,7 @@ from backend._common.state import (
     unregister_session,
 )
 from backend.terminal import input_ready
+from backend.terminal.child_folder import clear_child_folder
 from backend.terminal.runner import pty_sessions
 from backend.terminal.tab_stop import stop_tab
 from backend.terminal.tab_tier import tab_tier
@@ -452,7 +453,9 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
         # delete 経路の kill 失敗 = backend に session が残るゴースト化の原因。 warning で
         # 残す (= 2026-06-22)。
         logger.warning("session cleanup failed for %s", session_id, exc_info=True)
-    # The tab's memo stays: it lives in the agent's own folder, beside the tab's other pages.
+    # A tab's memo stays: it lives in the agent's own folder, beside the tab's other pages. A child's goes with it,
+    # since closing a child ends the work it was opened for.
+    clear_child_folder(session_id)
     # 一時ファイルをクリーンアップ
     for p in session_tmp_files.pop(session_id, []):
         try:

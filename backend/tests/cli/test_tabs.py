@@ -379,7 +379,8 @@ def test_close_closes_only_my_finished_children_unless_forced(family):
     assert family.run("close", "ses_a") == 1 and "まだ作業中" in family.err
     assert family.backend.called("DELETE", "/sessions/ses_a") == []
     assert family.run("close", "ses_b") == 0
-    assert family.backend.called("DELETE", "/sessions/ses_b") and not (family.agent / "pages/ses_b/memo.md").exists()
+    # the backend clears the memo when it closes a child (= `terminal/child_folder.py`); the command only asks it to
+    assert family.backend.called("DELETE", "/sessions/ses_b")
     assert family.run("close", "ses_a", "--force") == 0 and family.backend.called("DELETE", "/sessions/ses_a")
 
 

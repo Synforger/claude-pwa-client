@@ -273,6 +273,36 @@ def test_a_message_to_a_tab_that_remembers_no_tier_starts_in_normal(launched, is
     assert launched == [("launch", envelope("normal")), ("send", relayed)]
 
 
+def test_a_child_s_first_message_starts_it_with_its_own_child_start_block(launched, isolated_state):
+    isolated_state.sessions_meta["ses_kid"] = SessionDef(
+        id="ses_kid", agent_id="agent_a", title="kid", created_at=0, child=True, parent_id="ses_p",
+        tier="projects/A/subprojects/S")
+    first = (f'{AGENT_MESSAGE_OPENING}\n<agent-message from="lead" session="ses_p">\n'
+             "<child-start>\ntier=projects/A/subprojects/S\n</child-start>\n\nbuild it\n</agent-message>")
+    run(deliver("ses_kid", first))
+    # no `<tab-open>` in front: the launcher reads the tier from the child's own block
+    assert launched == [("launch", first)]
+
+
+def test_a_child_start_line_in_a_message_to_another_tab_does_not_choose_its_tier(launched, isolated_state):
+    isolated_state.sessions_meta["ses_hand"] = SessionDef(
+        id="ses_hand", agent_id="agent_a", title="hand", created_at=0, tier="projects/B")
+    relayed = (f'{AGENT_MESSAGE_OPENING}\n<agent-message from="MAIN" session="ses_n">\n'
+               "<child-start>\ntier=projects/A\n</child-start>\n</agent-message>")
+    run(deliver("ses_hand", relayed))
+    assert launched == [("launch", envelope("projects/B")), ("send", relayed)]
+
+
+def test_a_message_that_wakes_a_child_with_no_tier_starts_it_in_its_parent_s(launched, isolated_state):
+    isolated_state.sessions_meta["ses_p"] = SessionDef(
+        id="ses_p", agent_id="agent_a", title="lead", created_at=0, tier="projects/A/subprojects/S")
+    isolated_state.sessions_meta["ses_kid"] = SessionDef(
+        id="ses_kid", agent_id="agent_a", title="kid", created_at=0, child=True, parent_id="ses_p")
+    relayed = f'{AGENT_MESSAGE_OPENING}\n<agent-message from="lead" session="ses_p">\nmore\n</agent-message>'
+    run(deliver("ses_kid", relayed))
+    assert launched == [("launch", envelope("projects/A/subprojects/S")), ("send", relayed)]
+
+
 def test_the_operator_s_words_still_choose_the_tier_in_a_tab_not_placed_for_one(launched, isolated_state):
     isolated_state.sessions_meta["ses_hand"] = SessionDef(
         id="ses_hand", agent_id="agent_a", title="hand", created_at=0, tier="projects/B")
