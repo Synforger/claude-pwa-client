@@ -12,7 +12,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
 from fastapi import APIRouter, Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
@@ -156,7 +156,12 @@ _PAGE_POLICY = (
     "form-action 'none'; base-uri 'none'"
 )
 # frame-ancestors は同じ host だけ (= iPhone のホーム画面の PWA は、 HTML をプレビューの枠の iframe に嵌めて開く)。
-VIEW_CSP = f"sandbox allow-scripts; {_PAGE_POLICY}; connect-src 'none'; frame-ancestors 'self'"
+# ページのリンクは、 新しいタブ (= `target="_blank"`) とダウンロードまで普通のページと同じに開く (= 開いた先は
+# sandbox の外。 /file/view の先なら、 その応答がまた sandbox を付ける)。
+VIEW_CSP = (
+    "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads; "
+    f"{_PAGE_POLICY}; connect-src 'none'; frame-ancestors 'self'"
+)
 _VIEW_HEADERS = {
     "Cache-Control": "no-cache",
     "X-Content-Type-Options": "nosniff",
@@ -196,7 +201,7 @@ def open_file_in_browser(request: Request, path: str = Query(...)):
     """チャットの path (= `~/…` も可) の HTML と資料 (= pdf・Office・tif) を、 page_origin の folder の中なら別の port へ、 それ以外は
     `/file/view/<絶対 path>` へ回す。"""
     resolved = _resolve_safe(path)
-    preview = _client_preview(request, resolved, levels_up=1)
+    preview = _client_preview(request, resolved)
     if preview is not None:
         return preview
     if resolved.suffix.lower() not in (".html", ".htm") and convert.kind_of(resolved) is None:
@@ -205,12 +210,7 @@ def open_file_in_browser(request: Request, path: str = Query(...)):
         raise HTTPException(status_code=404, detail="File not found")
     target = _page_target(resolved, request)
     if target is not None:
-        response = RedirectResponse(url=target, status_code=307)
-        # ページの port が、 HTML 以外の file を client の画面へ回す先 (= cookie は port で分かれないので、 同じ host の
-        # ページの port にも届く。 client の URL は手元と Tailscale 越しで形が違い、 ページの port からは分からない)
-        response.set_cookie(_CLIENT_COOKIE, str(request.base_url).rstrip("/"), httponly=True, samesite="lax",
-                            secure=request.url.scheme == "https")
-        return response
+        return RedirectResponse(url=target, status_code=307)
     # 相対の行き先 (= backend が path の前置きの下に置かれても、 同じ前置きの下の view へ回る)。
     return RedirectResponse(url="view/" + quote(str(resolved).lstrip("/")), status_code=307)
 
@@ -330,11 +330,23 @@ def _document_response(resolved: Path, kind: str, request: Request, csp: str) ->
     return HTMLResponse(pages.failed(resolved.name, shown, store_status.error, lang), status_code=422, headers=no_store)
 
 
+# ブラウザが頁としてそこへ移った印 (= ページのリンクを押した。 タブそのものか、 枠の中の頁)。 ページが自分で読む
+# 画像・スクリプトの要求は別の印 (= `image`・`script` など) で、 印の無い要求 (= 古いブラウザ・curl) も頁ではない。
+_NAVIGATION_DESTS = frozenset({"document", "iframe", "frame"})
+_TEXT_MEDIA_TYPE = "text/plain; charset=utf-8"
+
+
 def _view_response(resolved: Path, csp: str, request: Request) -> Response:
-    """/file/view とページの origin が配る 1 file (= 形・在るか・大きさを確かめ、 CSP を付けて返す)。"""
+    """/file/view とページの origin が配る 1 file (= 形・在るか・大きさを確かめ、 CSP を付けて返す)。
+
+    ページのリンクで開いた file は、 そのブラウザの中で見せる: 配る形の決まった物はその形、 資料は頁の画像の頁、
+    それ以外は中身が文字なら文字 (= Markdown・コード)、 文字でなければダウンロード。 ページが自分で読む要求には、
+    形の決まった物と資料だけを配る。
+    """
     kind = convert.kind_of(resolved)
     media_type = _VIEW_MEDIA_TYPES.get(resolved.suffix.lower())
-    if media_type is None and kind is None:
+    followed = request.headers.get("sec-fetch-dest") in _NAVIGATION_DESTS
+    if media_type is None and kind is None and not followed:
         raise HTTPException(status_code=415, detail="Unsupported media type")
     if not resolved.is_file():
         raise HTTPException(status_code=404, detail="File not found")
@@ -342,40 +354,34 @@ def _view_response(resolved: Path, csp: str, request: Request) -> Response:
         raise_error(413, "file_too_large", "ファイルが大きすぎます（上限 50MB）", limit="50MB")
     if kind is not None:
         return _document_response(resolved, kind, request, csp)
-    return FileResponse(
-        resolved, media_type=media_type, headers={"Content-Security-Policy": csp, **_VIEW_HEADERS},
-    )
+    headers = {"Content-Security-Policy": csp, **_VIEW_HEADERS}
+    if media_type is not None:
+        return FileResponse(resolved, media_type=media_type, headers=headers)
+    if _is_text(resolved):
+        return FileResponse(resolved, media_type=_TEXT_MEDIA_TYPE, headers=headers)
+    return FileResponse(resolved, media_type="application/octet-stream", headers=headers, filename=resolved.name)
 
 
 @router.get("/file/view/{path:path}")
 def get_file_view(request: Request, path: str):
-    resolved = _resolve_safe("/" + path)
-    # 行き先は相対で書く (= `/file/view/` と path の folder の段を上がった所が client の画面)
-    preview = _client_preview(request, resolved, levels_up=path.count("/") + 2)
-    if preview is not None:
-        return preview
-    return _view_response(resolved, VIEW_CSP, request)
+    return _view_response(_resolve_safe("/" + path), VIEW_CSP, request)
 
 
-def _client_preview(request: Request, resolved: Path, levels_up: int) -> RedirectResponse | None:
-    """ブラウザのタブそのものとして開かれた HTML 以外の file を、 client の画面のプレビューへ回す (= それ以外は None)。
+def _client_preview(request: Request, resolved: Path) -> RedirectResponse | None:
+    """`/file/open` をブラウザのタブそのものとして開いた、 在る HTML 以外の file を、 client の画面のプレビューへ回す
+    (= それ以外は None)。
 
-    Markdown・画像・PDF・コードは、 client の中のプレビュー (= 上の × で会話へ戻る) で見せる。 外の道具や HTML の
-    ページのリンクが file の口を新しいタブで開くと、 ページにして描いても会話へ戻る口が無い。 client の中の
-    プレビューの枠 (= iframe) と、 ページが読む画像・スクリプトは、 ブラウザの印 (= `Sec-Fetch-Dest`) が
-    `document` でないので今まで通り配る。 印の無い要求 (= 古いブラウザ・curl) も今まで通り。
-    levels_up は、 要求の URL の folder から client の画面 (= backend の根) まで上がる段の数。
+    `/file/open` は、 会話の path と外の道具 (= ボードの拡張など) が file を開く入口。 そこから開いた Markdown・画像・
+    PDF・コードは、 client の中のプレビュー (= 上の × で会話へ戻る) で見せる。 client の中のプレビューの枠 (= iframe)
+    は、 ブラウザの印 (= `Sec-Fetch-Dest`) が `document` でないので今まで通りページの口へ回す。 印の無い要求
+    (= 古いブラウザ・curl) も今まで通り。 HTML のページの中のリンクは `/file/view` かページの port へ届き、 ここは
+    通らない (= そのブラウザで開く。 `_view_response`)。
     """
-    if not _opened_as_tab(request, resolved):
-        return None
-    return RedirectResponse(url="../" * levels_up + "?preview=" + quote(str(resolved), safe=""), status_code=307)
-
-
-def _opened_as_tab(request: Request, resolved: Path) -> bool:
-    """ブラウザのタブそのものとして開かれた、 在る HTML 以外の file か (= `_client_preview` の説明)。"""
     if request.headers.get("sec-fetch-dest") != "document":
-        return False
-    return resolved.suffix.lower() not in (".html", ".htm") and resolved.is_file()
+        return None
+    if resolved.suffix.lower() in (".html", ".htm") or not resolved.is_file():
+        return None
+    return RedirectResponse(url="../?preview=" + quote(str(resolved), safe=""), status_code=307)
 
 
 # ページの origin: page_origin の folder の file を、 sandbox を外した普通のページとして配る口。 backend とは別の
@@ -391,8 +397,6 @@ page_app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
 # 置けるのは folder の中に在る HTML の path の分だけで、 中身は JSON、 大きさは /file の書き込みと同じ上限まで。
 # 書く時に `If-Match` (= 読んだ時の ETag) を付けると、 その間に別の画面が書いていたら 412 で断る。
 _STORE_PREFIX = "/.store/"
-# client の画面の URL を、 ページの port へ渡す cookie (= `open_file_in_browser` が置き、 `_pages_client_preview` が読む)
-_CLIENT_COOKIE = "cpc_client"
 _store_lock = threading.Lock()
 
 
@@ -484,26 +488,7 @@ async def put_store(request: Request, page: str):
 
 @page_app.get("/{path:path}")
 def get_page(request: Request, path: str):
-    resolved = _in_folder(path)
-    preview = _pages_client_preview(request, resolved)
-    if preview is not None:
-        return preview
-    return _view_response(resolved, _page_csp(request), request)
-
-
-def _pages_client_preview(request: Request, resolved: Path) -> RedirectResponse | None:
-    """ページの port でタブとして開かれた HTML 以外の file を、 client の画面のプレビューへ回す (= 回す先が分からなければ None)。
-
-    回す先は、 client がこの port へ回した時に置いた cookie の URL。 host が今の要求と違う cookie は使わない
-    (= よその site へ回す口にしない)。
-    """
-    if not _opened_as_tab(request, resolved):
-        return None
-    client = urlsplit(request.cookies.get(_CLIENT_COOKIE, ""))
-    if client.scheme not in ("http", "https") or not client.hostname or client.hostname != request.url.hostname:
-        return None
-    base = f"{client.scheme}://{client.netloc}{client.path.rstrip('/')}"
-    return RedirectResponse(url=f"{base}/?preview=" + quote(str(resolved), safe=""), status_code=307)
+    return _view_response(_in_folder(path), _page_csp(request), request)
 
 
 @router.put("/file")
