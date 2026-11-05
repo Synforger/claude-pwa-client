@@ -1,11 +1,12 @@
 """Clearing what the client wrote for a closed child tab (`terminal/child_folder.py`): the memo and an untouched
-top page go, the folder goes once it is empty, and a page the child wrote stays. A tab that is not a child keeps
-its memo."""
+top page go, the folder goes once it is empty, and a page the child wrote stays. A page the client wrote is told untouched by the fingerprint kept
+when it was made, even after the template changed. A tab that is not a child keeps its memo."""
 from __future__ import annotations
 
 import pytest
 
 from backend.terminal.child_folder import clear_child_folder
+from backend.terminal.tab_page import make_page
 from backend.terminal.page_template import fill_template, template_file
 
 TEMPLATE = "<html><title>{{title}}</title><p>{{tier}}</p></html>"
@@ -88,3 +89,64 @@ def test_a_tab_that_is_not_a_child_keeps_its_memo(family):
     _write(folder, page=fill_template(TEMPLATE, title="lead", tier="projects/P"))
     assert clear_child_folder(parent.id) == []
     assert (folder / "memo.md").is_file() and (folder / "index.html").is_file()
+
+
+# --- A page the client wrote, and a template that changed after that ---
+
+NEW_TEMPLATE = "<html><title>{{title}}</title><p>newer layout: {{tier}}</p></html>"
+
+
+def _made_page(child, agent, monkeypatch):
+    """The top page of `child` made by the client (= `make_page`), whose fingerprint is then kept on the tab."""
+    child.tier = "projects/P"
+    page = make_page(child.id)
+    assert page == agent / "projects" / "P" / "pages" / child.id / "index.html"
+    return page
+
+
+def test_an_untouched_page_goes_after_the_template_changed(family, monkeypatch):
+    _parent, child, agent = family
+    page = _made_page(child, agent, monkeypatch)
+    template_file(agent).write_text(NEW_TEMPLATE, encoding="utf-8")
+    clear_child_folder(child.id)
+    assert not page.parent.exists()
+
+
+def test_a_page_with_one_script_line_goes_after_the_template_changed(family, monkeypatch):
+    _parent, child, agent = family
+    page = _made_page(child, agent, monkeypatch)
+    page.write_text(page.read_text(encoding="utf-8") + '\n<script src="../_common/toc.js" defer></script>', encoding="utf-8")
+    template_file(agent).write_text(NEW_TEMPLATE, encoding="utf-8")
+    clear_child_folder(child.id)
+    assert not page.parent.exists()
+
+
+def test_a_page_with_one_changed_character_stays_after_the_template_changed(family, monkeypatch):
+    _parent, child, agent = family
+    page = _made_page(child, agent, monkeypatch)
+    page.write_text(page.read_text(encoding="utf-8").replace("kid", "kids"), encoding="utf-8")
+    template_file(agent).write_text(NEW_TEMPLATE, encoding="utf-8")
+    clear_child_folder(child.id)
+    assert page.is_file()
+
+
+def test_a_child_without_a_fingerprint_is_judged_by_the_template_as_it_is(family, monkeypatch):
+    # 意図: 指紋を残す前に立てた子は、 今までどおり今の雛形との比較だけで決まる (= 雛形が変わっていれば残る)
+    _parent, child, agent = family
+    page = _made_page(child, agent, monkeypatch)
+    child.top_page_sha = None
+    template_file(agent).write_text(NEW_TEMPLATE, encoding="utf-8")
+    clear_child_folder(child.id)
+    assert page.is_file()
+    template_file(agent).write_text(TEMPLATE, encoding="utf-8")
+    clear_child_folder(child.id)
+    assert not page.parent.exists()
+
+
+def test_a_page_that_matches_neither_the_fingerprint_nor_the_template_stays(family, monkeypatch):
+    _parent, child, agent = family
+    page = _made_page(child, agent, monkeypatch)
+    child.top_page_sha = "0" * 64
+    template_file(agent).write_text(NEW_TEMPLATE, encoding="utf-8")
+    clear_child_folder(child.id)
+    assert page.is_file()

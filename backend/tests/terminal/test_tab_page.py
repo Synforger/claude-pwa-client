@@ -10,7 +10,7 @@ from starlette.testclient import TestClient
 
 from backend._generated import http_endpoints as http
 from backend.terminal import pty_discover, tab_tier
-from backend.terminal.page_template import fill_template, template_file
+from backend.terminal.page_template import fill_template, page_fingerprint, template_file
 from backend.terminal.tab_memo import page_file, page_path
 from backend.terminal.tab_page import existing_page, make_page
 
@@ -114,6 +114,28 @@ def test_the_title_of_the_tab_is_what_the_page_shows(a_tab, template, isolated_s
     isolated_state.sessions_meta[a_tab.id].title = "<b>調査</b>"
     started_in(monkeypatch, a_tab, "normal")
     assert "<title>&lt;b&gt;調査&lt;/b&gt;</title>" in make_page(a_tab.id).read_text(encoding="utf-8")
+
+
+# --- The fingerprint of the page a child tab was given ---
+
+def test_a_child_tab_keeps_the_fingerprint_of_the_page_it_was_given(tab, template, monkeypatch):
+    started_in(monkeypatch, tab, "normal")
+    tab.child = True
+    made = make_page(tab.id)
+    assert tab.top_page_sha == page_fingerprint(made.read_text(encoding="utf-8"))
+
+
+def test_a_tab_that_is_not_a_child_keeps_no_fingerprint(tab, template, monkeypatch):
+    started_in(monkeypatch, tab, "normal")
+    make_page(tab.id)
+    assert tab.top_page_sha is None
+
+
+def test_the_fingerprint_ignores_script_lines_and_nothing_else():
+    page = "<html>\n<p>a</p>\n</html>"
+    with_script = "<html>\n<script src=\"../x.js\" defer></script>\n<p>a</p>\n</html>"
+    assert page_fingerprint(with_script) == page_fingerprint(page)
+    assert page_fingerprint(page.replace("a", "b")) != page_fingerprint(page)
 
 
 # --- Every way a tab's tier is recorded makes the page ---
