@@ -32,7 +32,8 @@
 | `projects/<P>/subprojects/<S>` | `cwd/projects/<P>/subprojects/<S>/` | `<P>・<S>` |
 | `projects/<P>/subprojects/<S1>/subprojects/<S2>` | `cwd/projects/<P>/subprojects/<S1>/subprojects/<S2>/` | `<P>・<S1>・<S2>` |
 
-サブプロジェクトの下の `subprojects/` も、 何段でも階層です。 名前が `_` か `.` で始まる folder は階層ではありません
+サブプロジェクトの下の `subprojects/` も、 何段でも階層です。 置いたタブは、 上の階層のタブのうち一番近いタブの口座で
+動きます (= 会社の口座の階層の下に置いたタブは、 会社の口座)。 上にタブが無ければ、 既定の口座です。 名前が `_` か `.` で始まる folder は階層ではありません
 (= `_archive` など)。
 
 - backend は起動の 90 秒後に 1 回目を見て、 その後は 60 秒ごとに見ます。 1 回目を待つのは、 動いているタブの

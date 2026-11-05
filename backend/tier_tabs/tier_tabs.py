@@ -90,11 +90,33 @@ def tab_of(agent_id: str, tier: str) -> str | None:
                  if meta.agent_id == agent_id and not meta.child and tab_tier(meta.id) == tier), None)
 
 
+def parent_tier(tier: str) -> str | None:
+    """The tier `tier` sits in (= `projects/<P>/subprojects/<S>` → `projects/<P>`, `projects/<P>` → `normal`), None for
+    `normal`."""
+    if tier == DEFAULT_TIER:
+        return None
+    parts = tier.split("/")
+    return "/".join(parts[:-2]) if len(parts) > 2 else DEFAULT_TIER
+
+
+def parent_account(agent_id: str, tier: str) -> str | None:
+    """The account of the nearest tier above `tier` that has a tab of `agent_id`, so a tab placed for a new folder
+    works under the same account as the tiers around it (= None: the default account)."""
+    above = parent_tier(tier)
+    while above is not None:
+        tab = tab_of(agent_id, above)
+        if tab is not None:
+            return sessions_meta[tab].account_id
+        above = parent_tier(above)
+    return None
+
+
 def place_tab(agent_id: str, tier: str) -> SessionDef:
     """Place a tab of `agent_id` for `tier` in the list (= no claude yet) and record the tier."""
     from backend._common.config import AGENTS  # noqa: PLC0415
     cfg = AGENTS[agent_id]
-    meta = register_session(agent_id, tab_name(tier, cfg.get("display_name") or agent_id), tier_tab=tier)
+    meta = register_session(agent_id, tab_name(tier, cfg.get("display_name") or agent_id), tier_tab=tier,
+                            account_id=parent_account(agent_id, tier))
     tiers = record.load()
     tiers.setdefault(agent_id, set()).add(tier)
     record.save(tiers)

@@ -174,7 +174,8 @@ def _write_lineage(session_id: str, from_uuid: str | None, target_account_id: st
     else:
         # 位置指定なし: live jsonl の末尾から最初の安全な切れ目を採る。 道具の実行中に
         # 呼ばれてもそこまで下がるので、 呼び出し側は位置を気にしなくてよい。
-        src_path = candidates[0] if candidates else None
+        # Only the tab's own conversation: another file of the folder is another tab's conversation.
+        src_path = live if live is not None and live.exists() else None
         if src_path is None:
             raise_error(404, "message_not_found", "この会話のログが見つかりません")
         src_lines = split_jsonl_text(src_path.read_text(encoding="utf-8"))
@@ -422,6 +423,14 @@ async def move_session_account(session_id: str, payload: dict = Body(...), _: st
         raise_error(400, "unknown_account", "そのアカウントは設定にありません")
     meta = sessions_meta[session_id]
     if account_id == (meta.account_id or default_account_id()):
+        return session_row(meta)
+    if (jsonl_resolver.resolve_jsonl(session_id, prefer="live") is None and not meta.resume_session_id
+            and meta.sleeping_claude_sid() is None):
+        # A tab with no conversation yet (= a tier tab before its first message) only changes its account: there is
+        # nothing to carry over, and its first message starts it under the new account.
+        meta.account_id = account_id
+        save_sessions_meta()
+        sessions_overview.notify()
         return session_row(meta)
     new_claude_id, _moved = _write_lineage(session_id, None, account_id)
     await _stop_tab(session_id)

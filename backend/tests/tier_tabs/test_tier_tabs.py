@@ -411,3 +411,23 @@ def test_the_endpoint_answers_only_this_machine(configured, agent):
     with client("100.64.0.9") as c:
         r = c.post("/tier-tabs", data={"agent_dir": str(agent), "tier": "normal"})
     assert r.status_code == 403
+
+
+def test_a_placed_tab_works_under_the_account_of_the_nearest_tier_above(configured, isolated_state):
+    from backend._common.state import register_session  # noqa: PLC0415
+    register_session("agent_a", "見本", tier_tab="projects/見本", account_id="work")
+    sub = tier_tabs.place_tab("agent_a", "projects/見本/subprojects/親")
+    deeper = tier_tabs.place_tab("agent_a", "projects/見本/subprojects/親/subprojects/子")
+    alone = tier_tabs.place_tab("agent_a", "projects/別")
+    assert sub.account_id == "work" and deeper.account_id == "work"
+    assert alone.account_id is None
+
+
+@pytest.mark.parametrize("tier, parent", [
+    ("normal", None),
+    ("projects/A", "normal"),
+    ("projects/A/subprojects/S", "projects/A"),
+    ("projects/A/subprojects/S/subprojects/T", "projects/A/subprojects/S"),
+])
+def test_the_tier_above(tier, parent):
+    assert tier_tabs.parent_tier(tier) == parent
