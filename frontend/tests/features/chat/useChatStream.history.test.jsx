@@ -127,6 +127,13 @@ describe('useChatStream history catch-up', () => {
     expect(historyPaths()).toEqual(['/jsonl/history/ses_a'])
   })
 
+  it('keeps the cache when the screen has no offset, since it cannot tell whether anything is missing', async () => {
+    respondWithHistory([{ events: [userEvent(4)], pos: 100, reached: false }])
+    const { result } = mountTab(cached(1, 3))
+    await waitFor(() => expect(uuids(result.current)).toEqual(['u1', 'u2', 'u3', 'u4']))
+    expect(transport.advanceOffset).not.toHaveBeenCalled()
+  })
+
   it('keeps the cache when the history could not be fetched', async () => {
     apiFetch.mockResolvedValue({ ok: false })
     const { result } = mountTab(cached(1, 3))

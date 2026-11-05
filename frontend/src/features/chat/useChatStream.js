@@ -225,7 +225,7 @@ export function useChatStream({
   // 穴が空かない (= 上限は backend の HISTORY_CATCH_UP_LINES)。 offset 起点の `from` は付けない: offset は
   // streaming 中の in-flight を含まず先行し得るので、 offset 起点にすると「作業中エージェントのツール履歴」
   // が更新のたび飛び越されて消える (= 実機報告の中抜け)。 since は窓を広げるだけで、 直近 N 行は必ず含まれる。
-  // 窓が since の直後の行まで届かなかった (= 返事の reached が false) 時は、 取り込む前にその sid の cache を
+  // since を付けて、 窓が since の直後の行まで届かなかった (= 返事の reached が false) 時は、 取り込む前にその sid の cache を
   // 捨てて、 返った event だけで並べ直す (= historyCatchUp.js)。 捨てた後は offset を GET の pos まで進める
   // (= 以降の stream の流し直しが、 届かない古い位置から始まって印を出さないように)。 GET の event は SSE と
   // 同じ pipeline (handleEventRef → processStreamEvent / reconcile) を通すので uuid dedup で cache とも
@@ -253,11 +253,14 @@ export function useChatStream({
     if (!sid) { subscribedRef.current.shown = null; declareSubscribed(); return undefined }
     let cancelled = false
     ;(async () => {
-      const data = await fetchHistory(sid, chatTransport.getOffset(sid))  // 取れない時は stream の replay が埋める
+      const since = chatTransport.getOffset(sid)
+      const data = await fetchHistory(sid, since)  // 取れない時は stream の replay が埋める
       if (data && !cancelled) {
         const dropped = ingestHistory(data, {
           sid,
           dropCache: dropSidCache,
+          // 画面の位置が無い時は、 cache と窓の間に穴があるかが分からないので捨てない (= cache に重ねる)
+          dropWhenNotReached: since !== null,
           ingest: ev => handleEventRef.current?.(sid, ev, true),
           isCancelled: () => cancelled,
         })
