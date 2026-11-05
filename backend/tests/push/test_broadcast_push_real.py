@@ -93,3 +93,21 @@ def test_broadcast_collects_dead_subscriptions(monkeypatch):
     _run(push_mod.broadcast_push("hello", session_id="ses_x"))
     assert len(sent) == 2
     assert [s["endpoint"] for s in removed] == ["gone"]
+
+
+def test_broadcast_skipped_for_a_tab_whose_notifications_are_off(monkeypatch):
+    """通知を切ったタブ (= 子のタブは切って立つ) へは送らず、 未読も数えない。 ほかのタブへは送る。"""
+    from backend._common.state import SessionDef  # noqa: PLC0415
+    sent: list = []
+    _setup(monkeypatch, [{"endpoint": "a"}], sent)
+    monkeypatch.setattr(state_mod, "views_by_conn", {})
+    monkeypatch.setitem(state_mod.sessions_meta, "ses_off", SessionDef(id="ses_off", agent_id="a", title="child",
+                                                                     created_at=0, notify_mode="off", child=True))
+    monkeypatch.setitem(state_mod.sessions_meta, "ses_on", SessionDef(id="ses_on", agent_id="a", title="main",
+                                                                    created_at=0, notify_mode="banner"))
+    _run(push_mod.broadcast_push("done", session_id="ses_off"))
+    assert sent == []
+    assert push_mod.unread_count == 0
+    _run(push_mod.broadcast_push("done", session_id="ses_on"))
+    assert len(sent) == 1
+    assert push_mod.unread_count == 1
