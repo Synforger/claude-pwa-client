@@ -2,7 +2,9 @@
 
 A child tab is opened to hand one piece of work over, and closing it ends that work. What the client wrote for it goes
 with it: its memo, its top page while it is still the template the client filled, and the folder once it is empty.
-A page the child wrote itself stays, as every explanation page does. Called by `routes/sessions.py` when a child is
+A top page counts as untouched when it differs from the filled template only by lines that load a script and hold
+nothing else (= a tool that adds a shared part, such as a contents bar, to every page of the tier). A page the child
+wrote itself stays, as every explanation page does. Called by `routes/sessions.py` when a child is
 closed. The child's tier folder and its parent's are both looked at: `tabs new` writes the memo in the parent's tier,
 and a child that started in another tier has its top page there.
 """
@@ -10,6 +12,7 @@ and a child that started in another tier has its top page there.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 from backend._common import state
@@ -19,6 +22,9 @@ from backend.terminal.tab_tier import tab_tier
 from backend.terminal.tier import DEFAULT_TIER
 
 logger = logging.getLogger(__name__)
+
+#: A line that only loads a script (= `<script src="…" defer></script>`): a tool adds such a line to every page
+SCRIPT_LINE = re.compile(r'\s*<script\s+src="[^"]*"(\s+[a-z-]+(="[^"]*")?)*\s*>\s*</script>\s*', re.IGNORECASE)
 
 
 def clear_child_folder(session_id: str) -> list[Path]:
@@ -46,7 +52,12 @@ def _filled_pages(template: Path, title: str, tiers: set[str]) -> set[str]:
         text = template.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return set()
-    return {fill_template(text, title=title, tier=tier) for tier in tiers}
+    return {_without_script_lines(fill_template(text, title=title, tier=tier)) for tier in tiers}
+
+
+def _without_script_lines(text: str) -> str:
+    """`text` without the lines that only load a script (= what is left to compare with the filled template)."""
+    return "\n".join(line for line in text.splitlines() if not SCRIPT_LINE.fullmatch(line))
 
 
 def _clear(folder: Path, filled: set[str]) -> list[Path]:
@@ -57,7 +68,7 @@ def _clear(folder: Path, filled: set[str]) -> list[Path]:
         if memo.is_file():
             memo.unlink()
             removed.append(memo)
-        if page.is_file() and page.read_text(encoding="utf-8") in filled:
+        if page.is_file() and _without_script_lines(page.read_text(encoding="utf-8")) in filled:
             page.unlink()
             removed.append(page)
         if folder.is_dir() and not any(folder.iterdir()):
