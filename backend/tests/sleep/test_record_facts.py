@@ -1,6 +1,8 @@
 """What the rows of a conversation record say about work a sleeping claude would lose (`sleep/record_facts.py`)."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 
 from backend.sleep.record_facts import RecordFacts, fold_row
@@ -85,3 +87,14 @@ def test_rows_that_are_not_messages_change_nothing(row):
 def test_the_rows_of_a_sub_agent_are_not_the_conversation():
     side = {**_call("ScheduleWakeup"), "isSidechain": True}
     assert _fold(side) == RecordFacts()
+
+
+def test_the_newest_row_time_is_kept_whatever_the_row():
+    facts = RecordFacts()
+    for row in ({"type": "user", "timestamp": "2026-11-05T03:58:29.000Z", "message": {"content": "go"}},
+                {"type": "assistant", "isSidechain": True, "timestamp": "2026-11-05T04:00:00Z"},
+                {"type": "system", "timestamp": "2026-11-05T03:59:00Z"},
+                {"type": "ai-title"},
+                {"type": "user", "timestamp": "not a time"}):
+        fold_row(facts, row)
+    assert facts.last_row_at == datetime(2026, 11, 5, 4, 0, tzinfo=timezone.utc).timestamp()

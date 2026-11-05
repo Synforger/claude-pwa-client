@@ -9,6 +9,8 @@ import sys
 import time
 from pathlib import Path
 
+from datetime import datetime, timezone
+
 import pytest
 
 from backend.sleep import sleep_judgement as j
@@ -85,35 +87,59 @@ def test_the_returned_facts_are_a_copy(tmp_path):
     assert sensors.record_facts_of(record).wakeup_pending is True
 
 
-# --- the newest write ---
+# --- when the conversation last did anything ---
 
 
-def test_the_newest_write_counts_the_records_of_the_sub_agents(tmp_path):
+def _stamped(row: dict, at: float) -> dict:
+    """`row` with the ISO time Claude Code writes on it."""
+    return {**row, "timestamp": datetime.fromtimestamp(at, tz=timezone.utc).isoformat().replace("+00:00", "Z")}
+
+
+def _activity(record: Path) -> float:
+    return sensors.last_activity(record, sensors.record_facts_of(record))
+
+
+def test_activity_is_the_newest_row_time_not_the_file_s_modification_time(tmp_path):
+    # a running claude rewrites its record without adding a row: the file is new, the conversation is not
     record = tmp_path / "c.jsonl"
-    record.write_text("x\n")
+    record.write_bytes(_line(_stamped(PROMPT, 1000)) + _line(_stamped(DONE, 2000)))
+    os.utime(record, (9000, 9000))
+    assert _activity(record) == 2000
+
+
+def test_activity_counts_the_rows_of_the_sub_agents(tmp_path):
+    record = tmp_path / "c.jsonl"
+    record.write_bytes(_line(_stamped(PROMPT, 1000)))
     sub = tmp_path / "c" / "subagents"
     sub.mkdir(parents=True)
-    (sub / "agent-1.jsonl").write_text("x\n")
-    os.utime(record, (1000, 1000))
-    os.utime(sub / "agent-1.jsonl", (5000, 5000))
-    assert sensors.newest_write(record) == 5000
-
-
-def test_the_newest_write_without_sub_agents_is_the_record_itself(tmp_path):
-    record = tmp_path / "c.jsonl"
-    record.write_text("x\n")
-    os.utime(record, (1234, 1234))
-    assert sensors.newest_write(record) == 1234
+    (sub / "agent-1.jsonl").write_bytes(_line({**_stamped(DONE, 5000), "isSidechain": True}))
+    os.utime(sub / "agent-1.jsonl", (100, 100))
+    assert _activity(record) == 5000
 
 
 def test_an_old_sub_agent_record_does_not_make_the_record_look_newer(tmp_path):
     record = tmp_path / "c.jsonl"
-    record.write_text("x\n")
+    record.write_bytes(_line(_stamped(DONE, 9000)))
     (tmp_path / "c" / "subagents").mkdir(parents=True)
-    (tmp_path / "c" / "subagents" / "agent-1.jsonl").write_text("x\n")
-    os.utime(record, (9000, 9000))
-    os.utime(tmp_path / "c" / "subagents" / "agent-1.jsonl", (100, 100))
-    assert sensors.newest_write(record) == 9000
+    (tmp_path / "c" / "subagents" / "agent-1.jsonl").write_bytes(_line(_stamped(DONE, 100)))
+    assert _activity(record) == 9000
+
+
+def test_a_record_without_row_times_counts_by_its_modification_time(tmp_path):
+    record = tmp_path / "c.jsonl"
+    record.write_bytes(_line(PROMPT))
+    os.utime(record, (1234, 1234))
+    assert _activity(record) == 1234
+
+
+def test_a_tab_whose_record_was_only_rewritten_is_quiet(monkeypatch, tmp_path):
+    _stand_in(monkeypatch, tmp_path)
+    record = tmp_path / "c.jsonl"                         # the record the stand-in answers with
+    two_hours_ago = time.time() - 7200
+    record.write_bytes(_line(_stamped(PROMPT, two_hours_ago)) + _line(_stamped(DONE, two_hours_ago)))
+    os.utime(record, None)                                # rewritten just now, two hours after its last row
+    facts = sensors.gather("ses_x", 60)
+    assert facts.quiet_minutes > 100 and j.judge(facts, 60) == ()
 
 
 # --- the processes under a claude ---

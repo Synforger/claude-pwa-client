@@ -68,17 +68,21 @@ def _fold_line(facts: RecordFacts, raw: bytes) -> None:
         logger.debug("sleep: a line of a record could not be parsed")
 
 
-def newest_write(record: Path) -> float:
-    """The modification time of the newest file among the conversation record and the records of its sub-agents
-    (= the `subagents/` folder named like the record, next to it)."""
-    newest = record.stat().st_mtime
-    for path in record.with_suffix("").joinpath("subagents").rglob("*"):
+def last_activity(record: Path, scanned: RecordFacts) -> float:
+    """When the conversation last did anything (unix seconds): the newest row time of the record (`scanned`, its
+    facts) and of the records of its sub-agents (= the `subagents/` folder named like the record, next to it). A
+    record with no row time counts by its modification time."""
+    newest = _activity_of(record, scanned)
+    for path in record.with_suffix("").joinpath("subagents").rglob("*.jsonl"):
         try:
-            if path.is_file():
-                newest = max(newest, path.stat().st_mtime)
+            newest = max(newest, _activity_of(path, record_facts_of(path)))
         except OSError:
             continue
     return newest
+
+
+def _activity_of(record: Path, scanned: RecordFacts) -> float:
+    return scanned.last_row_at if scanned.last_row_at is not None else record.stat().st_mtime
 
 
 def _names_of(process: psutil.Process) -> tuple[str, ...]:
@@ -139,9 +143,10 @@ def gather(session_id: str, minutes: int, by_hand: bool = False) -> SleepFacts:
         return facts
     record = jsonl_watcher.get_jsonl_for(session_id)
     try:
-        quiet = (time.time() - newest_write(record)) / 60 if record is not None else None
+        scanned = record_facts_of(record) if record is not None else None
+        quiet = (time.time() - last_activity(record, scanned)) / 60 if record is not None and scanned else None
     except OSError:
-        quiet = None
+        scanned, quiet = None, None
     facts = dataclasses.replace(facts, record_found=quiet is not None, quiet_minutes=quiet)
     if judge(facts, minutes, by_hand) or record is None:
         return facts
@@ -150,10 +155,7 @@ def gather(session_id: str, minutes: int, by_hand: bool = False) -> SleepFacts:
                                 rolling_over=rollover.asked(record))
     if judge(facts, minutes, by_hand):
         return facts
-    try:
-        facts = dataclasses.replace(facts, record=record_facts_of(record))
-    except OSError:
-        return dataclasses.replace(facts, record_found=False)
+    facts = dataclasses.replace(facts, record=scanned)
     if judge(facts, minutes, by_hand):
         return facts
     return dataclasses.replace(facts, foreign_processes=foreign_processes(process_tree(pid)))

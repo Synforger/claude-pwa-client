@@ -71,7 +71,7 @@ class SleepFacts:
 
     turn_open:         claude is answering, or a message of the operator waits in its queue (= the last hook is not
                        a `Stop`, or a `UserPromptSubmit` came after it)
-    quiet_minutes:     minutes since the newest write to the conversation record or to a record of its sub-agents
+    quiet_minutes:     minutes since the newest row time of the conversation record or of a record of its sub-agents
     rollover_idle_pct: the agent's `rollover.idle.context_pct`, None when the agent has none (= the condition is off)
     """
     claude_running: bool | None = None
