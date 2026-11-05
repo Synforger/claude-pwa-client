@@ -17,6 +17,11 @@
 //     WKWebView には service worker の口が無く (= App-Bound Domains を宣言する app にだけ在る)、
 //     ホーム画面の PWA も、 build が何度も入れ替わった後に木の一覧の無い古い画面のまま動いていた
 //   - service worker が在る時は、 加えて新しい版を探させ、 新しい service worker が有効になったら移る
+// The service worker reloads, once a new version of it is active, every screen that cannot move itself
+// (public/sw.js): a screen of an old build has no check of its own and would run on. A screen that runs this code
+// tells the worker so, at start and whenever the worker changes (`announceSelfUpdating`); the worker leaves it
+// alone, because the hold that keeps an unsent attachment or a voice call (below) does not reach a reload the worker
+// makes.
 // 移る時は 1 回だけ読み込み直して新しい build の画面へ移る。
 // 会話は保存済みで、 打ちかけの入力は頁を離れる時に保存される (= features/chat/useChatStorage.js)
 // ので、 読み込み直しでは消えない。 消えるのは、 選んだだけでまだ送っていない添付 (= 選び直しになる)。
@@ -39,11 +44,23 @@ export const RELOAD_RETRY_MS = UPDATE_CHECK_INTERVAL_MS
 // 接続が開いた時に確かめるのを見送る間隔。 前面へ戻る時は接続も張り直すので、 同じ確かめが続けて走る。
 export const CONNECTED_CHECK_GAP_MS = 5_000
 
+// The type of the message that tells the service worker "this screen moves itself to a new build" (public/sw.js reads
+// the same value).
+export const SELF_UPDATING_MESSAGE = 'self-updating'
+
 // この画面が動かしている build (= 読み込んだ入口の script の、 中身から決まる名前の部分)。
 export function runningBuildId(doc = document) {
   const entry = doc.querySelector('script[type="module"][src*="/assets/index-"]')
   const match = entry && /\/assets\/index-(.+)\.js$/.exec(entry.getAttribute('src') || '')
   return match ? match[1] : null
+}
+
+// Tells the service worker that controls this screen that it moves itself. Does nothing while no worker controls the
+// screen (the controllerchange that gives it one announces again).
+export function announceSelfUpdating(build, nav = navigator) {
+  const controller = nav.serviceWorker?.controller
+  if (!controller || typeof controller.postMessage !== 'function') return
+  try { controller.postMessage({ type: SELF_UPDATING_MESSAGE, build }) } catch { /* a screen that cannot announce is only reloaded by the worker as well */ }
 }
 
 // service worker に、 新しい版が出ていないかを確かめさせる。
@@ -140,9 +157,12 @@ export function installUpdateChecks({
     // 初めて登録された時 (= 管理する service worker が無かった頁に付いた時) は更新ではないので数えない。
     let controlled = !!nav.serviceWorker.controller
     nav.serviceWorker.addEventListener('controllerchange', () => {
+      // The worker that took over does not know this screen: announce again before any reload.
+      announceSelfUpdating(runningBuildId(doc), nav)
       if (!controlled) { controlled = true; return }
       reloadWhenFree()
     })
+    announceSelfUpdating(runningBuildId(doc), nav)
   }
 
   // 入口の script を持たない頁 (= 開発の server) は、 比べる build が無い

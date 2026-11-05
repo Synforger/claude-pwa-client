@@ -23,6 +23,7 @@ import {
 import {
   moveToAccount,
   createSession,
+  hasServerRows,
   renameSession,
   setAccountPinned,
   setNotifyMode,
@@ -367,12 +368,19 @@ export default function SessionDrawer() {
 
   // 開くたびに、 木の組み上がりを記録へ 1 行 (= treeReport.js)。 開いた時の 1 回だけで、 開いている間の
   // 変化では送らない
-  const treeRef = useRef({ sortedSessions, orderedSessions })
-  treeRef.current = { sortedSessions, orderedSessions }
+  // The report for the page coming back to the front is sent by useSessions.
+  const treeRef = useRef({ sortedSessions, orderedSessions, agentCount: agents.length })
+  treeRef.current = { sortedSessions, orderedSessions, agentCount: agents.length }
   useEffect(() => {
     if (!open) return
     const tree = treeRef.current
-    sendTreeReport(treeReport({ build: runningBuildId(), sessions: tree.sortedSessions, rows: tree.orderedSessions }))
+    sendTreeReport(treeReport({
+      build: runningBuildId(),
+      sessions: tree.sortedSessions,
+      rows: tree.orderedSessions,
+      agentCount: tree.agentCount,
+      serverAnswered: hasServerRows(),
+    }))
   }, [open])
 
   return (

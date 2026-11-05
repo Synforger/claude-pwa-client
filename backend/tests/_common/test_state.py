@@ -264,3 +264,15 @@ def test_the_fingerprint_of_a_childs_top_page_survives_a_restart_of_the_backend(
     path.write_text(json.dumps([child.to_dict(), plain.to_dict()]))
     loaded = state._load_sessions_meta()
     assert loaded["s1"].top_page_sha == "ab" * 32 and loaded["s2"].top_page_sha is None
+
+
+def test_holding_a_tab_on_its_account_tells_the_open_lists(isolated_state, monkeypatch):
+    # 意図: 別の端末で口座への固定の印を変えた時、 開いている一覧の札が次の通知を待たずに変わる (= overview)
+    state.sessions_meta["s1"] = state.SessionDef(id="s1", agent_id="a", title="t", created_at=0)
+    told = []
+    monkeypatch.setattr(state.sessions_overview, "notify", lambda: told.append(1))
+    assert state.set_account_pinned("s1", True) is True
+    assert state.sessions_meta["s1"].account_pinned is True
+    assert told == [1]
+    assert state.set_account_pinned("ses_unknown", True) is False
+    assert told == [1]

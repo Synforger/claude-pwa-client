@@ -27,3 +27,15 @@ def test_the_overview_marks_a_sleeping_tab(isolated_state):
     state_mod.sessions_meta["ses_s1"].sleep = state_mod.SleepMark(claude_sid="c1", record="/tmp/c1.jsonl", slept_at=1)
     body = overview._build_sessions_overview()
     assert body["ses_s1"]["asleep"] is True and body["ses_s2"]["asleep"] is False
+
+
+def test_the_overview_carries_the_account_of_each_tab(isolated_state):
+    # 意図: 口座の自動の移し替えの直後に、 開いている一覧の口座の札が変わる (= /sessions を取り直すのを待たない)
+    for sid in ("ses_a1", "ses_a2"):
+        state_mod.stream_states[sid] = state_mod.StreamState(agent_id="a")
+        state_mod.sessions_meta[sid] = state_mod.SessionDef(id=sid, agent_id="a", title=sid, created_at=0)
+    moved = state_mod.sessions_meta["ses_a1"]
+    moved.account_id, moved.fallback_from, moved.account_pinned = "personal", "company", True
+    body = overview._build_sessions_overview()
+    assert (body["ses_a1"]["account_id"], body["ses_a1"]["fallback_from"], body["ses_a1"]["account_pinned"]) == ("personal", "company", True)
+    assert (body["ses_a2"]["account_id"], body["ses_a2"]["fallback_from"], body["ses_a2"]["account_pinned"]) == (None, None, False)

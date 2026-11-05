@@ -48,10 +48,10 @@ endpoints:
 
   - method: GET
     path: /sessions/overview
-    description: "全セッションの作業中 / 最後に見た時刻 / 入力待ち / 階層を 1 回で返す (= stream の overview と同じ中身)"
+    description: "全セッションの作業中 / 最後に見た時刻 / 入力待ち / 階層 / 眠り / 口座を 1 回で返す (= stream の overview と同じ中身)"
     response:
       type: object
-      description: "sid → { busy, last_seen_at, waiting_input, tier, asleep }"
+      description: "sid → { busy, last_seen_at, waiting_input, tier, asleep, account_id, fallback_from, account_pinned }"
     response_kind: json
     auth: tailnet
     invariants:

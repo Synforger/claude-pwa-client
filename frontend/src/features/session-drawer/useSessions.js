@@ -19,6 +19,7 @@ import {
   setAgents,
 } from '../../state/sessions.js'
 import { sameSessionIds } from './sessionIds.js'
+import { sendTreeReportOfState } from './treeReport.js'
 
 // セッション (= UI 上の 1 タブ = 1 議題) のリストと、 現在 active な session_id を管理する。
 // backend `/sessions` を真値とし、 起動時に GET でローカルの localStorage と同期する。
@@ -31,6 +32,9 @@ import { sameSessionIds } from './sessionIds.js'
 
 let lsHydrated = false
 let backendInitRequested = false
+// False until a backend answer has replaced the local copy of the list. While it is false the rows are only what this
+// device remembered (= they can lack fields the backend added since), so every chance to ask again is taken.
+let serverRowsApplied = false
 
 function hydrateFromLocalStorage() {
   if (lsHydrated) return
@@ -53,21 +57,41 @@ function hydrateFromLocalStorage() {
 // 巻き込まないようにする保険 (= 旧 useState lazy 初期化と同方針)。
 hydrateFromLocalStorage()
 
-async function fetchBackendInitial() {
-  if (backendInitRequested) return
-  backendInitRequested = true
-  try {
+// Asks the backend for the list and the agents and takes what comes. One request at a time: a call made while one is
+// in flight waits for that one. Returns once both answers (or their failures) are in; a failed answer changes nothing.
+let inflight = null
+export function refetchFromBackend() {
+  if (inflight) return inflight
+  inflight = (async () => {
     const [serverSessions, serverAgents] = await Promise.all([
       apiFetch(`/sessions`).then(r => r.json()).catch(() => null),
       apiFetch(`/agents`).then(r => r.json()).catch(() => null),
     ])
     if (Array.isArray(serverAgents)) setAgents(serverAgents)
     if (Array.isArray(serverSessions)) applyServerSessions(serverSessions)
-  } catch {
-    // 起動時 fetch 失敗 = localStorage 先読み結果で継続。 次回 retry は visibility 復帰系の
-    // 別経路 (= status SSE / overview SSE) が拾うので、 本 hook では再試行しない。
-    backendInitRequested = false  // retry 余地は残す (= 次 mount で再試行)
-  }
+  })().finally(() => { inflight = null })
+  return inflight
+}
+
+async function fetchBackendInitial() {
+  if (backendInitRequested) return
+  backendInitRequested = true
+  // A failed first fetch (= the network is not back yet when the page wakes) leaves the local copy on screen; the next
+  // foreground or overview snapshot asks again while `serverRowsApplied` is false.
+  await refetchFromBackend()
+}
+
+// The page came back to the front (= from the background, or restored by the browser): the rows on screen may be
+// older than the backend's, and no snapshot says so when the set of tabs is the same. Ask for the list again.
+let foregroundInstalled = false
+function installForegroundRefetch() {
+  if (foregroundInstalled || typeof window === 'undefined') return
+  foregroundInstalled = true
+  // The record goes first: it shows the rows the page woke up with, before the answer replaces them.
+  window.addEventListener('cpc:fg', () => {
+    sendTreeReportOfState({ serverAnswered: serverRowsApplied, trigger: 'foreground' })
+    refetchFromBackend()
+  })
 }
 
 // backend の一覧を手元の真値にする。
@@ -75,6 +99,7 @@ function applyServerSessions(serverSessions) {
   // 並び順: created_at 降順 (新しい順) で固定。 ChatGPT と同じく新規作成が一番上
   const sorted = [...serverSessions].sort((a, b) => (b.created_at || 0) - (a.created_at || 0))
   setSessions(sorted)
+  serverRowsApplied = true
   // active が backend に居ない or 未設定なら先頭 (= 一番新しい) に寄せる
   const cur = getSnapshot().activeId
   if (!(cur && sorted.some(s => s.id === cur))) {
@@ -90,15 +115,19 @@ let latestSnapshotIds = null
 
 export async function reconcileSessionIds(snapshotIds) {
   latestSnapshotIds = snapshotIds
-  if (refetching || sameSessionIds(snapshotIds, getSnapshot().sessions)) return
+  if (refetching || (serverRowsApplied && sameSessionIds(snapshotIds, getSnapshot().sessions))) return
   refetching = true
   try {
-    const serverSessions = await apiFetch(`/sessions`).then(r => r.json()).catch(() => null)
-    if (Array.isArray(serverSessions)) applyServerSessions(serverSessions)
+    await refetchFromBackend()
   } finally {
     refetching = false
   }
   if (latestSnapshotIds !== snapshotIds) reconcileSessionIds(latestSnapshotIds)
+}
+
+// Whether a backend answer has replaced the local copy of the list yet (= for the record of how the tree came out).
+export function hasServerRows() {
+  return serverRowsApplied
 }
 
 // 以下、 mutation API は module-level の純関数 (= component instance に依存しない)。
@@ -296,8 +325,10 @@ export function useSessions() {
   }, [activeId])
 
   // 起動時に backend の真値を取得して同期 (= module-level guard で 1 回限定)
+  // The refetch when the page returns to the front is wired here too.
   useEffect(() => {
     fetchBackendInitial()
+    installForegroundRefetch()
   }, [])
 
   // 戻り値の関数は安定 identity で返す (= 旧 useCallback 互換、 ChatInput / MessageItem 等
