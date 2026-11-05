@@ -165,6 +165,22 @@ async def post_e2e_working(request: Request, session_id: str, working: bool = Bo
     return {"ok": True, "working": working}
 
 
+@router.post("/e2e/asleep/{session_id}")
+async def post_e2e_asleep(request: Request, session_id: str, asleep: bool = Body(..., embed=True)) -> dict:
+    """Mark a tab as put to sleep, or awake again, the way `backend/sleep/sleeper.py` leaves it, and tell the open
+    lists (= the overview). Neither claude nor tmux is touched: the test backend has none."""
+    _ensure_localhost(request)
+    _ensure_e2e_enabled()
+    from backend._common.state import SleepMark, save_sessions_meta, sessions_meta, sessions_overview  # noqa: PLC0415
+    meta = sessions_meta.get(session_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"unknown session: {session_id}")
+    meta.sleep = SleepMark(claude_sid="e2e-asleep", record="/dev/null", slept_at=0) if asleep else None
+    save_sessions_meta()
+    sessions_overview.notify()
+    return {"ok": True, "asleep": asleep}
+
+
 @router.post("/e2e/forget-sends")
 async def post_e2e_forget_sends(request: Request) -> dict:
     """送信の identity (= send_id) の控えを全部忘れる。 本番では送ってから 60 秒で忘れる (= TTL) ので、
