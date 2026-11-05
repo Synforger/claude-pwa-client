@@ -26,13 +26,21 @@ def test_a_started_claude_is_typed_to_only_once_its_screen_is_claudes(client, ta
     assert looked_when_typed == [0] and len(typed) == 1               # the look came before anything was typed
 
 
-def test_a_claude_whose_screen_never_comes_gets_nothing_typed(client, tabs, typed, started, no_tmux, monkeypatch):
+def test_a_screen_that_is_never_recognised_is_typed_to_and_checked_for_receipt(client, tabs, typed, started, no_tmux,
+                                                                               monkeypatch):
+    # an installation without Claude's status bar never shows the screen the wait looks for
     async def never(session_id):
         return False
+    delivered: list[str] = []
+
+    async def taken(session_id, text):
+        delivered.append(session_id)
+        return True
     monkeypatch.setattr(am, "wait_for_claude_screen", never)
+    monkeypatch.setattr(am, "deliver_to_woken", taken)
     monkeypatch.setattr(am.input_ready, "wait_ready", _ready)
     r = _send(client, to="ses_idle")
-    assert _code(r) == (409, "agent_message_receiver_not_ready") and typed == []
+    assert r.status_code == 200 and delivered == ["ses_idle"]
 
 
 def test_a_message_the_woken_tab_did_not_take_is_refused_not_said_to_have_arrived(

@@ -408,8 +408,10 @@ async def wake_tab(tab_id: str) -> bool:
         raise_error(409, "agent_message_receiver_not_ready",
                     f"宛先の claude が {LAUNCH_DISCOVER_SEC:.0f} 秒以内に起動しませんでした。 もう一度送ってください")
     if not await wait_for_claude_screen(tab_id):
-        raise_error(409, "agent_message_receiver_not_ready",
-                    f"宛先の claude の画面が {SCREEN_WAIT_SEC:.0f} 秒以内に入力を受けられる形になりませんでした。 もう一度送ってください")
+        # The screen is recognised by Claude's status bar, which not every installation shows: typing anyway is safe,
+        # since what is typed to a woken tab is checked for receipt and put right once (`deliver_to_woken`).
+        logger.warning("agent message: the screen of session=%s did not look like Claude's within %.0fs; typing anyway",
+                       tab_id, SCREEN_WAIT_SEC)
     return True
 
 
