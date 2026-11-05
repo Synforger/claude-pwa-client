@@ -62,6 +62,8 @@ backend と frontend を繋ぐリアルタイム経路は **4 本の SSE + 2 本
 
 overview は毎回フル snapshot なので、 取りこぼし / 再接続 / 複数デバイスでも次の snapshot で必ず正しい状態に収束する (= reconcile-on-snapshot)。 楽観意図 (`optimisticRef`) は送信 / 停止 直後の逆向き古 snapshot から UI を保護する短期ウィンドウのみで、 1500ms タイマー駆動は撤去し snapshot 駆動の event ベースに揃えた。
 
+1 タブ分の中身は `busy` / `last_seen_at` / `waiting_input` / `tier` / `asleep` と、 口座の 3 欄 (`account_id` = 今動いている口座、 `fallback_from` = 使用率の線で移した元の口座、 `account_pinned` = 口座への固定)。 `tier` と `asleep` と口座の 3 欄は、 一覧の行へ `frontend/src/features/session-drawer/` の `setSessionTiers` / `asleepChanges` / `accountChanges` が書き込む (= 開いている一覧が、 口座の自動の移し替えや眠りに `GET /sessions` を取り直さず追いつく)。 行のそれ以外の欄 (`child` など) は `GET /sessions` からしか来ないので、 画面は前面へ戻った時と、 backend の答えをまだ受けていない間の snapshot ごとに、 `GET /sessions` と `GET /agents` を取り直す (= `useSessions.js` の `refetchFromBackend`)。 画面は前面へ戻った時にも、 一覧を開いた時と同じ `drawer:tree` の記録を backend の `sw-log` へ 1 行送る (= `trigger` が `foreground`。 `build` / `sessionCount` / `withTierCount` / `childCount` / `agentCount` / `serverAnswered` / `folderCount` で、 その画面がどの build で、 backend の答えを受けたかを記録から読める)
+
 fan-out は `OverviewBroadcaster` (= per-connection `asyncio.Event` を broadcaster が一括 `notify`)。 旧実装の単一 `Event` 共有では 1 接続の generator が `clear()` した瞬間に他接続の `wait` が起きそこねて push を落としていた。
 
 ### jsonl channel: 入出力分離の「出力」 側 (= 旧 /jsonl/stream/*)

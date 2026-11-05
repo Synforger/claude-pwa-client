@@ -178,6 +178,12 @@ def _build_sessions_overview() -> dict:
             "tier": tab_tier(sid),
             # Whether the tab's claude was put to sleep (= backend/sleep/), so the list marks it as soon as it sleeps.
             "asleep": sessions_meta[sid].sleep is not None,
+            # The account the tab runs on now, the account it was moved off (= null when it was not moved), and whether it
+            # is held on its account, so a list that is already on screen follows an automatic move between accounts
+            # (= backend/account_fallback/) without fetching /sessions again.
+            "account_id": sessions_meta[sid].account_id,
+            "fallback_from": sessions_meta[sid].fallback_from,
+            "account_pinned": sessions_meta[sid].account_pinned,
         }
     return out
 
@@ -203,7 +209,7 @@ def _mark_user_stopped(session_id: str) -> bool:
 
 @router.get("/sessions/overview")
 def get_sessions_overview() -> dict:
-    """全 session の busy + last_seen_at + waiting_input + tier を 1 回で返す (= stream の overview と同じ中身)。
+    """全 session の busy + last_seen_at + waiting_input + tier + asleep + 口座の 3 欄を 1 回で返す (= stream の overview と同じ中身)。
 
     stream を張らずに今の状態だけ見たい側 (= iPhone のウィジェット) が引く。"""
     return _build_sessions_overview()
