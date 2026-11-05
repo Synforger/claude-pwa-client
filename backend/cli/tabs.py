@@ -39,6 +39,9 @@
                                  子のタブから親のタブへ結果を返し、 メモの状態を「完了」 か「詰まり」 にする
     tabs    close <子の id> [--force]
                                  このタブが立てた子を閉じ、 そのメモを消す。 作業中の子は --force の時だけ閉じる
+    tabs    sleep <子の id>      このタブが立てた子の claude を今すぐ眠らせる (= 静かなタブを眠らせる見回りと同じ眠り。
+                                 届いた連絡で同じ会話のまま起きる)。 報告を受けて、 続きの仕事まで待たせる子に打つ。
+                                 子が答えを書き終えるまで最大 60 秒待ち、 眠らせられない時は理由を出す
 
 運ぶのは PWA の backend (= `POST /agent-messages`)、 通すかどうかを決めるのは番人。 この script は
 呼び出しを 1 つにまとめるだけで、 判定は持たない。 port は `pwa-hook.sh` と同じ決め方
@@ -538,7 +541,8 @@ def children(summary: bool) -> int:
         return 0
     for tab, state in states:
         claude = live.get(tab["id"])
-        print("  ".join([tab["id"], state, str(claude.get("status") or "?") if claude else "claude なし",
+        print("  ".join([tab["id"], state, str(claude.get("status") or "?") if claude else "眠り" if tab.get("asleep")
+                         else "claude なし",
                          tab.get("title") or "", f"← {QUIET} (= 記録の最後を見る)" if tab["id"] in quiet else ""]).rstrip())
     return 0
 
@@ -586,6 +590,42 @@ def close_child(child: str, force: bool) -> int:
     # メモとトップページは backend が閉じる時に片付ける (= `backend/terminal/child_folder.py`)
     print(f"閉じました: {child} ({state})")
     return 0
+
+
+#: 子を眠らせられなかった理由 (= backend の `reasons`) の読み方
+SLEEP_REASONS = {
+    "claude_not_running": "claude が動いていません",
+    "starting": "claude が起動の途中です",
+    "turn_open": "まだ答えを書いています",
+    "processes_running": "裏のコマンドが走っています",
+    "awaiting_tool_result": "道具の結果を待っています",
+    "no_record": "会話の記録が見つかりません",
+    "wakeup_scheduled": "起こす予約があります",
+    "cron_scheduled": "定期の予約があります",
+    "voice_call": "声の通話の最中です",
+    "rolling_over": "入れ替えの最中です",
+    "partial_record": "会話の記録の最後の行が書きかけです",
+    "claude_did_not_end": "claude が終わりませんでした",
+}
+
+
+def sleep_child(child: str) -> int:
+    """このタブが立てた子の claude を今すぐ眠らせる (= backend が条件を見て、 普通に終わらせて端末を閉じる)。"""
+    me = os.environ.get("PWA_SID")
+    found, why = my_children()
+    if found is None or not me:
+        return fail(f"子の一覧を取れません: {why or 'PWA のタブの外'}")
+    if child not in {t["id"] for t in found}:
+        return fail(f"{child} はこのタブが立てた子ではありません (= 眠らせられるのは自分の子だけ)")
+    status, body = call(f"/sessions/{urllib.parse.quote(me)}/children/{urllib.parse.quote(child)}/sleep", {})
+    if status == 200 and isinstance(body, dict) and body.get("ok"):
+        print(f"眠っています: {child} (前から)" if body.get("already") else f"眠らせました: {child}")
+        return 0
+    params = ((body.get("detail") or {}).get("params") or {}) if isinstance(body, dict) else {}
+    reasons = [r for r in str(params.get("reasons") or "").split(",") if r]
+    if reasons:
+        return fail(f"{child} を眠らせられません: " + " / ".join(SLEEP_REASONS.get(r, r) for r in reasons))
+    return fail(f"眠らせられません {refused(status, body)}")
 
 
 #: journal の file の path の形
@@ -726,6 +766,8 @@ def main(argv: list[str]) -> int:
         return report(argv[1], Path(argv[2]))
     if len(argv) in (2, 3) and argv[0] == "close" and argv[2:] in ([], ["--force"]):
         return close_child(argv[1], force=len(argv) == 3)
+    if len(argv) == 2 and argv[0] == "sleep":
+        return sleep_child(argv[1])
     if len(argv) in (2, 4) and argv[0] == "rollover" and argv[1] in ("continue", "wait") and argv[2:3] in ([], ["--tier"]):
         return rollover(argv[1], argv[3] if len(argv) == 4 else None)
     if len(argv) in (3, 4) and argv[0] == "send" and argv[3:] in ([], ["--operator-said"]):

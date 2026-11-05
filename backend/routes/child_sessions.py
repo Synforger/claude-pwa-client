@@ -17,6 +17,10 @@ claude も、 端末の入力を読む外の道具も、 「人が打った文�
 立てる) が決める。 どちらも無ければ親と同じ agent で立てる。 1 つのタブが同時に持てる子の数は
 `child_sessions_max` が決める (= 既定 5)。 閉じるのは今までのタブと同じ
 `DELETE /sessions/{sid}` で、 閉じた子は数から外れる。
+
+親は、 報告を受けて待たせておく子を今すぐ眠らせられる (= `POST /sessions/{親}/children/{子}/sleep`)。 眠らせ方と
+起こし方は、 静かなタブを眠らせる見回りと同じ (= `backend/sleep/`、 届いた連絡で同じ会話のまま起きる)。 違うのは、
+静かな時間を待たないことと、 入れ替えの線を超えた子も眠らせることだけ。 眠った子も閉じるまでは子の数に入る。
 """
 from __future__ import annotations
 
@@ -27,6 +31,7 @@ from fastapi import APIRouter, Form, Request
 from backend._common.errors import raise_error
 from backend.routes.agent_messages import LOCAL_CLIENTS, envelope, judge
 from backend._common.state import register_session, sessions_meta
+from backend.sleep.sleeper import sleep_now
 from backend.terminal.routes import pty_send
 from backend.terminal.runner import jsonl_path_for_session
 from backend.terminal.session_resolver import ensure_pty_session_for
@@ -97,3 +102,26 @@ async def post_child_session(
     logger.info("child session parent=%s child=%s agent=%s chars=%d started=%s",
                 session_id, meta.id, agent_id, len(text), result.get("ok"))
     return {**meta.to_dict(), "started": bool(result.get("ok"))}
+
+
+@router.post("/sessions/{session_id}/children/{child_id}/sleep")
+async def post_child_sleep(request: Request, session_id: str, child_id: str) -> dict:
+    """親のタブが、 自分の子のタブの claude を今すぐ眠らせる。 → `{"ok": true}` (= 眠った、 または前から眠っている)。
+
+    子が答えを書き終える間と、 その答えのコマンドが走る間は、 最大 60 秒待つ (= `sleeper.PASSING_WAIT_SEC`)。
+    ほかの理由 (= 起こしの予約・声の通話・入れ替えの最中など) で眠らせられない時は 409 で、 理由を `reasons` に返す。
+    """
+    client_host = request.client.host if request.client else None
+    if client_host not in LOCAL_CLIENTS:
+        logger.warning("child sleep rejected: non-local client=%s", client_host)
+        raise_error(403, "child_session_local_only", "この口は同じ機械の中からだけ使えます")
+    if child_id not in children_of(session_id):
+        raise_error(404, "child_session_not_a_child", f"{child_id} は {session_id} の子のタブではありません",
+                    session=session_id, child=child_id)
+    if sessions_meta[child_id].sleep is not None:
+        return {"ok": True, "already": True}
+    reasons = await sleep_now(child_id)
+    if reasons:
+        raise_error(409, "child_sleep_refused", f"{child_id} を眠らせられません: {', '.join(reasons)}",
+                    child=child_id, reasons=",".join(reasons))
+    return {"ok": True, "already": False}

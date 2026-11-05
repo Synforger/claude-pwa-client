@@ -52,7 +52,7 @@ class World:
             self.events.append(f"kill-session claude_alive={claude.poll() is None}")
             return True
 
-        monkeypatch.setattr(sleeper, "gather", lambda sid, minutes: self.facts)
+        monkeypatch.setattr(sleeper, "gather", lambda sid, minutes, by_hand=False: self.facts)
         monkeypatch.setattr(sleeper.jsonl_watcher, "get_jsonl_for", lambda sid: self.record)
         monkeypatch.setattr(sleeper, "claude_pid_in_pane", lambda sid: claude.pid)
         monkeypatch.setattr(sleeper, "kill_tmux_session", kill_session)
@@ -191,3 +191,57 @@ def test_a_sleep_mark_round_trips_through_the_tab_definition():
     assert SleepMark.from_dict(None) is None
     assert SleepMark.from_dict({"claude_sid": "", "record": "x"}) is None
     assert SleepMark.from_dict({"record": "x"}) is None
+
+
+# --- a parent putting its child to sleep (= `sleep_now`) ---------------------------------------------------------
+
+def test_a_child_its_parent_puts_to_sleep_sleeps_without_the_quiet_time(monkeypatch, isolated_state, tmp_path, caplog):
+    claude = _claude()
+    world = World(monkeypatch, isolated_state, tmp_path, claude,
+                  facts=dataclasses.replace(READY, quiet_minutes=2.0, context_pct=55))
+    caplog.set_level("INFO", logger="backend.sleep.sleeper")
+    assert _run(sleeper.sleep_now(world.meta.id)) == ()
+    assert claude.poll() is not None and world.meta.sleep is not None
+    assert "by_hand=1" in caplog.text
+    claude.stdout.close()
+
+
+def test_a_sleep_by_hand_waits_for_the_child_to_finish_its_answer(monkeypatch, isolated_state, tmp_path):
+    claude = _claude()
+    world = World(monkeypatch, isolated_state, tmp_path, claude, facts=dataclasses.replace(READY, turn_open=True))
+    monkeypatch.setattr(sleeper, "PASSING_LOOK_SEC", 0.01)
+    looks = []
+
+    def gather(sid, minutes, by_hand=False):
+        looks.append(by_hand)
+        return world.facts if len(looks) < 3 else READY   # the answer ends at the third look
+
+    monkeypatch.setattr(sleeper, "gather", gather)
+    assert _run(sleeper.sleep_now(world.meta.id)) == ()
+    assert looks == [True, True, True] and world.meta.sleep is not None
+    claude.stdout.close()
+
+
+def test_a_sleep_by_hand_gives_up_on_an_answer_that_does_not_end(monkeypatch, isolated_state, tmp_path):
+    claude = _claude()
+    world = World(monkeypatch, isolated_state, tmp_path, claude, facts=dataclasses.replace(READY, turn_open=True))
+    monkeypatch.setattr(sleeper, "PASSING_WAIT_SEC", 0.05)
+    monkeypatch.setattr(sleeper, "PASSING_LOOK_SEC", 0.01)
+    assert _run(sleeper.sleep_now(world.meta.id)) == (j.TURN_OPEN,)
+    assert claude.poll() is None and world.meta.sleep is None
+    claude.kill()
+    claude.wait()
+    claude.stdout.close()
+
+
+def test_a_sleep_by_hand_answers_at_once_for_a_condition_that_does_not_pass_by_itself(monkeypatch, isolated_state,
+                                                                                         tmp_path):
+    claude = _claude()
+    world = World(monkeypatch, isolated_state, tmp_path, claude,
+                  facts=dataclasses.replace(READY, turn_open=True, record=RecordFacts(wakeup_pending=True)))
+    monkeypatch.setattr(sleeper, "PASSING_WAIT_SEC", 30.0)
+    assert _run(asyncio.wait_for(sleeper.sleep_now(world.meta.id), 5)) == (j.TURN_OPEN, j.WAKEUP_SCHEDULED)
+    assert claude.poll() is None and world.meta.sleep is None
+    claude.kill()
+    claude.wait()
+    claude.stdout.close()

@@ -6,6 +6,10 @@ quiet tab was left awake. The sensors read the cheap facts first and stop at the
 fact that was not read is `None` here and its condition is skipped; an answer with no failing condition is always
 about facts that were all read.
 
+A parent tab can also put one of its children to sleep at once (`tabs sleep`). That sleep does not wait for the
+quiet minutes, and it does not leave a child above the rollover's line awake: the parent knows the child is waiting,
+and the rollover takes the child over once a message wakes it. Every other condition holds as it does for the patrol.
+
 Used by `sleep_patrol.py` and, once more just before the claude is ended, by `sleeper.py`.
 """
 from __future__ import annotations
@@ -27,6 +31,12 @@ CRON_SCHEDULED = "cron_scheduled"
 AWAITING_TOOL_RESULT = "awaiting_tool_result"
 VOICE_CALL = "voice_call"
 ROLLING_OVER = "rolling_over"
+
+# The conditions a sleep asked for by hand does not look at (= the parent decides the child is done).
+NOT_ASKED_BY_HAND = frozenset({NOT_QUIET, CONTEXT_AT_ROLLOVER_LINE})
+# The conditions that pass by themselves within moments of a report: the child finishing its last answer and the
+# commands of that answer. A sleep asked for by hand waits for these, and answers with the others at once.
+PASSING = frozenset({STARTING, TURN_OPEN, PROCESSES_RUNNING, AWAITING_TOOL_RESULT})
 
 # Language tools that stay under a claude whether or not it works. Matched against the name of a process and the
 # names in its command line (= a tool run by node shows as `node`, with its own name in the arguments). Nothing
@@ -77,8 +87,15 @@ class SleepFacts:
     rolling_over: bool | None = None
 
 
-def judge(facts: SleepFacts, minutes: float) -> tuple[str, ...]:
-    """The conditions of `facts` that are not met for a tab that sleeps after `minutes` of quiet. Empty = it may sleep."""
+def judge(facts: SleepFacts, minutes: float, by_hand: bool = False) -> tuple[str, ...]:
+    """The conditions of `facts` that are not met for a tab that sleeps after `minutes` of quiet, or, `by_hand`, for a
+    tab its parent puts to sleep now (= without `NOT_ASKED_BY_HAND`). Empty = it may sleep."""
+    reasons = _unmet(facts, minutes)
+    return tuple(reason for reason in reasons if reason not in NOT_ASKED_BY_HAND) if by_hand else reasons
+
+
+def _unmet(facts: SleepFacts, minutes: float) -> tuple[str, ...]:
+    """Every condition of `facts` that is not met for a sleep after `minutes` of quiet."""
     reasons: list[str] = []
     if facts.claude_running is False:
         reasons.append(CLAUDE_NOT_RUNNING)

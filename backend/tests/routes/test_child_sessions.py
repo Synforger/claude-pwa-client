@@ -205,3 +205,67 @@ def test_a_child_works_in_its_parent_s_tier_from_the_start(opened, isolated_stat
         body = client.post("/sessions/ses_p/children", data={"text": "build it"}).json()
     assert isolated_state.sessions_meta[body["id"]].tier == "projects/P/subprojects/S"
     assert body["tier"] == "projects/P/subprojects/S"
+
+
+# --- 親が子を眠らせる -----------------------------------------------------------------------------------------
+
+class Asked:
+    """眠らせる処理に頼まれた子 (= `children`) と、 処理が返す理由 (= `answer`)。"""
+
+    def __init__(self):
+        self.children: list[str] = []
+        self.answer: tuple[str, ...] = ()
+
+
+@pytest.fixture
+def family(opened, isolated_state, monkeypatch) -> Asked:
+    """親 ses_p の子 ses_c と、 よその子 ses_x。 眠らせる処理は差し替えて、 頼まれた子を記録する。"""
+    isolated_state.sessions_meta["ses_c"] = SessionDef(id="ses_c", agent_id="agent_sub", title="c", created_at=0,
+                                                       parent_id="ses_p", child=True)
+    isolated_state.sessions_meta["ses_x"] = SessionDef(id="ses_x", agent_id="agent_sub", title="x", created_at=0,
+                                                       parent_id="ses_other", child=True)
+    asked = Asked()
+
+    async def fake_sleep_now(session_id):
+        asked.children.append(session_id)
+        return asked.answer
+
+    monkeypatch.setattr(cs, "sleep_now", fake_sleep_now)
+    return asked
+
+
+def test_a_parent_puts_its_own_child_to_sleep(family):
+    with _client() as client:
+        r = client.post("/sessions/ses_p/children/ses_c/sleep")
+    assert r.status_code == 200 and r.json() == {"ok": True, "already": False}
+    assert family.children == ["ses_c"]
+
+
+def test_a_tab_cannot_put_another_tab_s_child_to_sleep(family):
+    with _client() as client:
+        r = client.post("/sessions/ses_p/children/ses_x/sleep")
+    assert r.status_code == 404 and r.json()["detail"]["code"] == "child_session_not_a_child"
+    assert family.children == []
+
+
+def test_a_sleep_from_outside_the_machine_is_refused(family):
+    with _client("100.64.0.9") as client:
+        r = client.post("/sessions/ses_p/children/ses_c/sleep")
+    assert r.status_code == 403 and family.children == []
+
+
+def test_a_child_already_asleep_is_left_as_it_is(family, isolated_state):
+    from backend._common.state import SleepMark  # noqa: PLC0415
+    isolated_state.sessions_meta["ses_c"].sleep = SleepMark(claude_sid="s", record="/r/s.jsonl", slept_at=1)
+    with _client() as client:
+        r = client.post("/sessions/ses_p/children/ses_c/sleep")
+    assert r.json() == {"ok": True, "already": True} and family.children == []
+
+
+def test_a_child_that_cannot_sleep_says_why(family):
+    family.answer = ("voice_call",)
+    with _client() as client:
+        r = client.post("/sessions/ses_p/children/ses_c/sleep")
+    assert r.status_code == 409
+    detail = r.json()["detail"]
+    assert detail["code"] == "child_sleep_refused" and detail["params"]["reasons"] == "voice_call"
