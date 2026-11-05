@@ -32,7 +32,7 @@ backup 先 = 同 PC の別 path (= `$AGENT_PLATFORM_ROOT/state/claude-pwa-client
 | `agent_id` | str | YES | `config.json::agents` の key (= 起動 cwd + launch_alias 解決) |
 | `title` | str | YES | UI ドロワー / topbar 表示名 |
 | `created_at` | int | YES | unix 秒 (= 作成時刻) |
-| `notify_mode` | str | NO (default `"both"`) | `both` / `banner` / `off` (= Web Push の音 / バナー / 無効) |
+| `notify_mode` | str | NO (default `"both"`) | `both` / `banner` / `off` (= Web Push の音 / バナー / 無効)。 `off` のタブへは backend が Web Push を送らず、 未読にも数えない。 子のタブは `off` で立つ |
 | `parent_id` | str? | NO | fork 元か、 子のタブを立てた親の PWA session ID (= ドロワーで親の下にインデント表示)、 通常タブは null |
 | `resume_session_id` | str? | NO | fork タブが初回 spawn で `claude --resume <id>` に使う claude session ID、 通常タブ + restart 後は null |
 | `account_id` | str? | NO | `config.json::accounts` の key (= 起動 env を差し替え)、 null = personal 相当 |

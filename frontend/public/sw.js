@@ -200,7 +200,8 @@ self.addEventListener('push', (event) => {
     // セッションごとの通知モード (both / banner / off) と「自分が見てる session」 を合成して
     // silent / autoClose を決める。 **どの分岐でも showNotification は必ず呼ぶ** (= silent push
     // 判定を避けて iOS の subscription 破棄を構造的に回避する不変条件)。
-    //   - 見てる session、 または off : silent + 直後に close (= バナー/通知センターに残さない)
+    //   - 見てる session、 または off : silent + 直後に close (= バナー/通知センターに残さない。 off のタブへは backend が
+    //     そもそも送らないので、 ここに来るのは前の版の backend からの push だけ)
     //   - banner                      : silent バナー (= 音なし、 通知センターには残る)
     //   - both (既定)                 : 音 + バナー
     const mode = data.notify_mode || 'both'

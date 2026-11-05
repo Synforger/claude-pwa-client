@@ -194,6 +194,13 @@ def notification_title_for(session_id: str) -> str:
     return _config.NOTIFICATION_TITLE_DEFAULT
 
 
+def _notify_mode_of(session_id: str | None) -> str:
+    """The notification mode of a tab (`both` / `banner` / `off`); `both` for no tab, an unknown one, or a bad value."""
+    meta = sessions_meta.get(session_id) if session_id else None
+    mode = meta.notify_mode if meta is not None else NotifyMode.BOTH.value
+    return mode if mode in NOTIFY_MODES else NotifyMode.BOTH.value
+
+
 async def broadcast_push(
     message: str,
     title: str | None = None,
@@ -218,6 +225,10 @@ async def broadcast_push(
     # 該当 session に iPhone の app の通話がつながっていれば送らない (= 返事は声で聞いている。 他のタブへの
     # 通知はそのまま)。 通話の process が終わると記録が消えるので、 止まりっぱなしにはならない。
     if is_session_on_call(session_id):
+        return
+    # A tab whose notifications are off gets no push at all. Sending one and letting the service worker close it at
+    # once still showed it on iPhone, and counted it as unread; a push that is never sent cannot be "silent" either.
+    if _notify_mode_of(session_id) == NotifyMode.OFF.value:
         return
 
     body_clean = sanitize_notif_body(message)
@@ -248,11 +259,7 @@ async def broadcast_push(
         # は必ず呼びつつ silent / autoclose だけ切替える (= subscription 破棄回避は不変)。
         # 2026-06-21: notify_mode 抽出は SessionDef field 直 read で軽量化 (= backend-F-46、
         # 旧来 dict get → dataclass field アクセス 1 hop)。 不正値 fallback は NotifyMode で正規化。
-        meta = sessions_meta.get(session_id)
-        mode_value = meta.notify_mode if meta is not None else NotifyMode.BOTH.value
-        if mode_value not in NOTIFY_MODES:
-            mode_value = NotifyMode.BOTH.value
-        payload_dict["notify_mode"] = mode_value
+        payload_dict["notify_mode"] = _notify_mode_of(session_id)
     payload = json.dumps(payload_dict, ensure_ascii=False)
     dead: list[dict] = []
 
