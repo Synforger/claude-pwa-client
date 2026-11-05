@@ -37,6 +37,7 @@ endpoints:
           created_at:  { type: string }
           tier:        { type: string, nullable: true, description: "the tier the tab's agent started in (= its AGENT_TIER), else the tier a tier tab was placed for; null when not known" }
           tier_tab:    { type: string, nullable: true, description: "the tier a tier tab was placed for (= its new conversations start in it); null for other tabs" }
+          asleep:      { type: boolean, description: "true while the tab's claude is put to sleep (= it starts again in the same conversation when the tab is opened or written to)" }
         required: [sid, title, agent_id]
     response_kind: json
     auth: tailnet

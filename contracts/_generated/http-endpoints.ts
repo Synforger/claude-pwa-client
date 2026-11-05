@@ -16,6 +16,8 @@ export interface GetSessionsResponseItem {
   tier?: string | null
   /** the tier a tier tab was placed for (= its new conversations start in it); null for other tabs */
   tier_tab?: string | null
+  /** true while the tab's claude is put to sleep (= it starts again in the same conversation when the tab is opened or written to) */
+  asleep?: boolean
 }
 
 export type GetSessionsResponse = GetSessionsResponseItem[]

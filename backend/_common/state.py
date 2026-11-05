@@ -81,6 +81,33 @@ NOTIFY_MODES: tuple[str, ...] = tuple(m.value for m in NotifyMode)
 
 
 @dataclass
+class SleepMark:
+    """What a sleeping tab keeps so that the next start opens the same conversation (= `backend/sleep/`): the claude
+    session id and the path of its record, the account the conversation belongs to (= it can be reopened only under
+    that account's claude folder), and when the tab went to sleep (= unix seconds)."""
+    claude_sid: str
+    record: str
+    slept_at: int
+    account_id: str | None = None
+
+    def to_dict(self) -> dict:
+        return {"claude_sid": self.claude_sid, "record": self.record, "slept_at": self.slept_at,
+                "account_id": self.account_id}
+
+    @classmethod
+    def from_dict(cls, raw: object) -> "SleepMark | None":
+        """The mark stored in `session_meta.json`, None when the entry holds none or a malformed one."""
+        if not isinstance(raw, dict):
+            return None
+        claude_sid, record, slept_at = raw.get("claude_sid"), raw.get("record"), raw.get("slept_at")
+        if not (isinstance(claude_sid, str) and claude_sid and isinstance(record, str)):
+            return None
+        account_id = raw.get("account_id")
+        return cls(claude_sid=claude_sid, record=record, slept_at=slept_at if isinstance(slept_at, int) else 0,
+                   account_id=account_id if isinstance(account_id, str) else None)
+
+
+@dataclass
 class SessionDef:
     id: str
     agent_id: str
@@ -107,6 +134,15 @@ class SessionDef:
     # The tier the tab's claude was last started in (`terminal/tab_tier.py`). Stored so that it survives a restart
     # of the backend or the machine, when the tab's claude is gone until its next message.
     tier: str | None = None
+    # Set while the tab's claude is put to sleep (`backend/sleep/`): the conversation the next start reopens.
+    # Cleared once that claude runs again.
+    sleep: SleepMark | None = None
+
+    def sleeping_claude_sid(self) -> str | None:
+        """The conversation a sleeping tab reopens, None for a tab that is not asleep or whose account changed since
+        (= a conversation of another account's folder cannot be reopened)."""
+        mark = self.sleep
+        return mark.claude_sid if mark is not None and mark.account_id == self.account_id else None
 
     def to_dict(self) -> dict:
         return {
@@ -121,6 +157,8 @@ class SessionDef:
             "child": self.child,
             "tier_tab": self.tier_tab,
             "tier": self.tier,
+            "sleep": self.sleep.to_dict() if self.sleep is not None else None,
+            "asleep": self.sleep is not None,
         }
 
 
@@ -172,6 +210,7 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
                 child=entry.get("child") is True,
                 tier_tab=entry.get("tier_tab") if isinstance(entry.get("tier_tab"), str) else None,
                 tier=entry.get("tier") if isinstance(entry.get("tier"), str) else None,
+                sleep=SleepMark.from_dict(entry.get("sleep")),
             )
     else:
         # 初期化: agent ごと 1 セッションを生成する

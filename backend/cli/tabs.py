@@ -4,7 +4,8 @@
     tabs [--agent-dir <エージェントの folder>] <以下の命令>
     tabs    list               連絡できるタブの一覧 (= id / 階層 / 口座 / 状態 / 境界 / 名前。 階層はこのエージェントのタブの物で、
                                  別の agent のタブは「別の agent」 と出る)。 claude が動いていないタブは状態が
-                                 「未起動」 で、 送った連絡がそのタブの claude を起動する。 起動できないタブは「起こせない」。
+                                 「未起動」 で、 送った連絡がそのタブの claude を起動する。 静かなので眠らせたタブ
+                                 (= 設定の `sleep`) は「眠り」 で、 連絡が同じ会話で起こす。 起動できないタブは「起こせない」。
                                  別の機械のタブは、 末尾に `<相手の名前>:<id>` の形で並ぶ
     tabs    send <to> <file>     <file> の中身を <to> (= タブの id か名前) へ送る。
                                  別の機械のタブは `<相手の名前>:<タブの id か名前>`
@@ -266,7 +267,7 @@ def asleep_row(launch, tab: dict, my_agent: str | None, mine: dict | None, statu
         tab["id"],
         (tier if ours else "別の agent") if shown else HIDDEN,
         f"口座={tab.get('account_id') or 'personal'}",
-        "未起動" if status.get("reachable") else "起こせない",
+        "眠り" if status.get("asleep") else "未起動" if status.get("reachable") else "起こせない",
         f"境界={marks}" if marks else "境界=なし",
         (tab.get("title") or "") if shown else f"({HIDDEN}のタブ)",
         f"(= 子のタブ、 親 {tab.get('parent_id')})" if tab.get("child") else "",

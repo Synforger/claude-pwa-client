@@ -639,6 +639,7 @@ export default function SessionDrawer() {
                       ? <span className="drawer-item-fork-mark" title={t('drawer.child')}>↳</span>
                       : <span className="drawer-item-fork-mark" title={t('drawer.fork')}>⑂</span>)}
                     <span className="drawer-item-title">{s.title}</span>
+                    {s.asleep && <span className="drawer-item-asleep" data-testid="session-asleep">💤</span>}
                     {isFolded && <span className="drawer-item-hidden" title={t('drawer.hidden', { count: hidden })}>+{hidden}</span>}
                     {accountLabel && <span className="drawer-item-account">{accountLabel}</span>}
                     {badge && <span className={`tab-badge ${badge.kind}`}>{badge.label}</span>}
