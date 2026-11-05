@@ -30,8 +30,10 @@
 | `normal` | `cwd` そのもの | エージェントの `display_name` |
 | `projects/<P>` | `cwd/projects/<P>/` | `<P>` |
 | `projects/<P>/subprojects/<S>` | `cwd/projects/<P>/subprojects/<S>/` | `<P>・<S>` |
+| `projects/<P>/subprojects/<S1>/subprojects/<S2>` | `cwd/projects/<P>/subprojects/<S1>/subprojects/<S2>/` | `<P>・<S1>・<S2>` |
 
-名前が `_` か `.` で始まる folder は階層ではありません (= `_archive` など)。
+サブプロジェクトの下の `subprojects/` も、 何段でも階層です。 名前が `_` か `.` で始まる folder は階層ではありません
+(= `_archive` など)。
 
 - backend は起動の 90 秒後に 1 回目を見て、 その後は 60 秒ごとに見ます。 1 回目を待つのは、 動いているタブの
   階層を backend が知るまでの間です
@@ -79,7 +81,7 @@ tabs open projects/<P>
 | 項目 | 中身 |
 |---|---|
 | `agent_dir` | エージェントの folder (= どれか 1 つのエージェントの `cwd`。 ほかのエージェントの `child_agent` に名指されたエージェントは数えません) |
-| `tier` | `normal` / `projects/<P>` / `projects/<P>/subprojects/<S>` (= そのエージェントに folder がある階層) |
+| `tier` | `normal` / `projects/<P>` / `projects/<P>/subprojects/<S>` (= `subprojects/<名前>` は何段でも続く。 そのエージェントに folder がある階層) |
 
 受け付けると、 置いたタブの記録 (= `GET /sessions` の 1 件と同じ形。 `tier_tab` に階層) を返します。 呼べるのは
 backend と同じ機械の中からだけです。 `tier_tabs` を入れていないエージェントでも使えます。

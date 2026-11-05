@@ -1,7 +1,7 @@
 """The first message of a tier tab and the tab's name, as pure functions. Called by `tier_tabs`.
 
 A tier tab is a tab the backend places for one tier of an agent (= `normal`, `projects/<P>`,
-`projects/<P>/subprojects/<S>`). Its claude starts with an envelope the backend writes, not words of the
+`projects/<P>/subprojects/<S>`, and `subprojects/<S>` below a subproject at any depth). Its claude starts with an envelope the backend writes, not words of the
 operator: the fixed first line (`TAB_OPEN_OPENING`) tells claude and the tools that read the terminal's
 input apart from a typed message, and the `tier=` line inside the block is what the agent's launcher reads
 to start in that tier (= the same shape as `<session-rollover phase="start">` and `<child-start>`).

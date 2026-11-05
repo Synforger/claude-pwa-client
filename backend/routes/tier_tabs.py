@@ -27,7 +27,7 @@ async def post_tier_tab(request: Request, agent_dir: str = Form(...), tier: str 
 
     form:
         agent_dir (str): the agent's folder (= the `cwd` of one agent in `config.json`)
-        tier      (str): `normal`, `projects/<P>` or `projects/<P>/subprojects/<S>` (= a folder of that agent)
+        tier      (str): `normal`, `projects/<P>` or `projects/<P>/subprojects/<S>`, with `subprojects/<S>` repeated at any depth (= a folder of that agent)
     """
     client_host = request.client.host if request.client else None
     if client_host not in LOCAL_CLIENTS:

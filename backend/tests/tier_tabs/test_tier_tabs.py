@@ -124,6 +124,26 @@ def test_the_tiers_are_the_agent_its_projects_and_their_subprojects(agent):
     assert tier_tabs.folder_tiers(agent) == ["normal", "projects/A", "projects/A/subprojects/S", "projects/B"]
 
 
+def test_subprojects_below_subprojects_are_tiers_at_any_depth(tmp_path):
+    for rel in ("projects/見本/subprojects/親/subprojects/子/subprojects/孫", "projects/見本/subprojects/親/subprojects/_skip",
+                "projects/見本/subprojects/兄"):
+        (tmp_path / rel).mkdir(parents=True)
+    assert tier_tabs.folder_tiers(tmp_path) == [
+        "normal", "projects/見本", "projects/見本/subprojects/兄", "projects/見本/subprojects/親",
+        "projects/見本/subprojects/親/subprojects/子", "projects/見本/subprojects/親/subprojects/子/subprojects/孫",
+    ]
+    assert tab_name("projects/見本/subprojects/親/subprojects/子", "MAIN") == "見本・親・子"
+
+
+def test_a_link_back_up_the_tree_does_not_loop(tmp_path):
+    sub = tmp_path / "projects/見本/subprojects/親"
+    (sub / "subprojects").mkdir(parents=True)
+    (sub / "subprojects/戻り").symlink_to(tmp_path / "projects/見本")
+    tiers = tier_tabs.folder_tiers(tmp_path)
+    assert tiers[:3] == ["normal", "projects/見本", "projects/見本/subprojects/親"]
+    assert len(tiers) < 10
+
+
 def test_a_folder_without_projects_has_only_normal(tmp_path):
     assert tier_tabs.folder_tiers(tmp_path) == ["normal"]
 

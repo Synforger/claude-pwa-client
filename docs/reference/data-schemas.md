@@ -62,7 +62,7 @@ backup 先 = 同 PC の別 path (= `$AGENT_PLATFORM_ROOT/state/claude-pwa-client
 
 ## `backend/data/tier_tabs.json`
 
-**形式**: `dict[agent_id, list[str]]`。 [階層のタブ](tier-tabs.md) を入れたエージェントごとに、 タブを置いたことのある階層 (= `normal` / `projects/<P>` / `projects/<P>/subprojects/<S>`) を名前順で持つ。
+**形式**: `dict[agent_id, list[str]]`。 [階層のタブ](tier-tabs.md) を入れたエージェントごとに、 タブを置いたことのある階層 (= `normal` / `projects/<P>` / `projects/<P>/subprojects/<S>` と、 その下の `subprojects/` の何段でも) を名前順で持つ。
 
 **writer**: `backend/tier_tabs/record.py::save`。 backend が階層のタブを置いた時と、 既にタブのある階層を初めて見た時に書く。 ここに在る階層には、 タブが閉じられていても backend は置き直さない。
 

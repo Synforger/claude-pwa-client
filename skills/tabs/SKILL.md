@@ -95,7 +95,7 @@ that machine), `agent_message_unknown_peer` (the other machine's configuration d
 ## Tier tabs
 
 An agent whose configuration has `tier_tabs: true` gets one tab per tier (`normal`, `projects/<P>`,
-`projects/<P>/subprojects/<S>`) placed in the list by the backend; a new tier folder gets its tab within a minute.
+`projects/<P>/subprojects/<S>`, and `subprojects/<S>` below a subproject at any depth) placed in the list by the backend; a new tier folder gets its tab within a minute.
 No Claude runs in a placed tab until a first message reaches it (the operator's, or a note sent with `tabs send`;
 `tabs list` shows such a tab as `未起動`). The backend then starts Claude with an envelope the client writes, not
 the operator's words: `Tab opened by the client for its tier (the operator did not type this):` followed by a

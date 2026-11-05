@@ -71,7 +71,7 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 - `child_agent` (任意): このエージェントのタブが子のタブを立てる時に使うエージェントの key。
   書いていなければ、 子も同じエージェントで立つ。 詳細: [child-sessions.md](child-sessions.md)
 - `tier_tabs` (任意、 既定 `false`): `true` の時、 backend がこのエージェントの階層 (= `cwd` の folder と、 その下の
-  `projects/<P>`・`projects/<P>/subprojects/<S>`) ごとにタブを一覧に置く。 置いたタブは、 最初の発話が届いた時に
+  `projects/<P>`・`projects/<P>/subprojects/<S>`・その下の `subprojects/` の何段でも) ごとにタブを一覧に置く。 置いたタブは、 最初の発話が届いた時に
   その階層で Claude を起動する。 `launcher: true` が要る。
   詳細: [tier-tabs.md](tier-tabs.md)
 - `rollover` (任意): context が決めた割合に届いた会話を締めさせて、 同じタブで新しい会話を起動し直す

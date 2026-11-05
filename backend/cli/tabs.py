@@ -20,7 +20,7 @@
                                  会話) は、 一覧と同じにその会話の最初の発話から導く。
                                  子のタブ (= `AGENT_CHILD=1`) は journal の代わりに、 この会話がタブのメモに
                                  `## 引き継ぎ` を書いた時だけ頼む
-    tabs    open <階層>          このエージェントの <階層> (= `normal` / `projects/<P>` / `projects/<P>/subprojects/<S>`)
+    tabs    open <階層>          このエージェントの <階層> (= `normal` / `projects/<P>` / `projects/<P>/subprojects/<S>`、 `subprojects/<S>` は何段でも)
                                  のタブを一覧に置く (= 閉じた階層のタブを戻す時。 新しい階層のタブは、 設定で
                                  `tier_tabs` を入れたエージェントなら backend が自分で置く)。 claude は、 そのタブへ
                                  最初の発話 (= 人の送信か `tabs send`) が届いた時に、 その階層で起動する。
@@ -601,7 +601,7 @@ def rollover(mode: str, tier: str | None) -> int:
         return 1
     # 終了された後では直せないので、 起動器が受け取れる階層かを先に見る
     if launcher().tier_folder(tier) is None:
-        print(f"tabs: 階層が見つかりません: {tier} (= normal / projects/<P> / projects/<P>/subprojects/<S>)", file=sys.stderr)
+        print(f"tabs: 階層が見つかりません: {tier} (= normal / projects/<P> / projects/<P>/subprojects/<S>、 subprojects/<S> は何段でも)", file=sys.stderr)
         return 1
     # 終了された後では書けないので、 締め (= journal と commit) が済んだかを先に見る
     missing = not_handed_over()
