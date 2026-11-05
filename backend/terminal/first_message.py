@@ -33,6 +33,7 @@ from backend.terminal.runner import tmux_send_keys, wait_until_typeable
 from backend.terminal.session_resolver import (
     ensure_pty_session_for,
     first_message_command,
+    resume_command_for,
     uses_launcher,
 )
 from backend.terminal.tier import DEFAULT_TIER
@@ -75,6 +76,9 @@ async def launch_with_first_message(session_id: str, text: str) -> dict | None:
     await ensure_pty_session_for(session_id)
     if not input_ready.is_ready(session_id) or claude_in_pane(session_id):
         return None
+    meta = sessions_meta.get(session_id)
+    if meta is not None and meta.sleeping_claude_sid() is not None:
+        return await _reopen_then_send(session_id, text)
     tier = _placed_tier(session_id, text)
     first = envelope(tier) if tier is not None else text
     command = first_message_command(session_id, _message_file(session_id, first))
@@ -93,6 +97,27 @@ async def launch_with_first_message(session_id: str, text: str) -> dict | None:
         task = asyncio.create_task(_send_when_ready(session_id, text))
         _following.add(task)
         task.add_done_callback(_following.discard)
+    return {"ok": True, "launched": True}
+
+
+async def _reopen_then_send(session_id: str, text: str) -> dict:
+    """A sleeping tab's pane holds a shell (= its claude did not come back when the tab woke): reopen the conversation
+    the tab slept in, and type `text` once it takes input. A first message would start a new conversation and the
+    tab's conversation would not come back."""
+    command = resume_command_for(session_id)
+    input_ready.mark_starting(session_id)
+    ok = (command is not None
+          and await wait_until_typeable(session_id, input_ready.INPUT_READY_TIMEOUT_SEC)
+          and tmux_send_keys(session_id, key="C-u") and tmux_send_keys(session_id, text=command, enter=True))
+    if not ok:
+        input_ready.mark_ready(session_id)
+        logger.warning("sleeping tab: could not reopen its conversation session=%s", session_id)
+        return {"ok": False, "reason": "launch_failed"}
+    logger.info("sleeping tab: reopened its conversation for the first message session=%s", session_id)
+    asyncio.create_task(register_claude_when_ready(session_id, max_wait=LAUNCH_DISCOVER_SEC))
+    task = asyncio.create_task(_send_when_ready(session_id, text))
+    _following.add(task)
+    task.add_done_callback(_following.discard)
     return {"ok": True, "launched": True}
 
 

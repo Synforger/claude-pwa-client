@@ -51,7 +51,7 @@ endpoints:
     description: "全セッションの作業中 / 最後に見た時刻 / 入力待ち / 階層を 1 回で返す (= stream の overview と同じ中身)"
     response:
       type: object
-      description: "sid → { busy, last_seen_at, waiting_input, tier }"
+      description: "sid → { busy, last_seen_at, waiting_input, tier, asleep }"
     response_kind: json
     auth: tailnet
     invariants:

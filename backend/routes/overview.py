@@ -176,6 +176,8 @@ def _build_sessions_overview() -> dict:
             # The tier the tab's agent started in (= null when not known), so a list that was already on
             # screen when the agent launched shows it without being reloaded.
             "tier": tab_tier(sid),
+            # Whether the tab's claude was put to sleep (= backend/sleep/), so the list marks it as soon as it sleeps.
+            "asleep": sessions_meta[sid].sleep is not None,
         }
     return out
 

@@ -17,3 +17,13 @@ def test_overview_get_matches_the_stream_payload(isolated_state):
     assert body == overview._build_sessions_overview()
     assert set(body) == {"ses_w1", "ses_w2"}
     assert body["ses_w1"]["busy"] is True and body["ses_w2"]["busy"] is False
+
+
+def test_the_overview_marks_a_sleeping_tab(isolated_state):
+    # 意図: 眠った直後に一覧の 💤 が出る (= /sessions を取り直すのを待たない)
+    for sid in ("ses_s1", "ses_s2"):
+        state_mod.stream_states[sid] = state_mod.StreamState(agent_id="a")
+        state_mod.sessions_meta[sid] = state_mod.SessionDef(id=sid, agent_id="a", title=sid, created_at=0)
+    state_mod.sessions_meta["ses_s1"].sleep = state_mod.SleepMark(claude_sid="c1", record="/tmp/c1.jsonl", slept_at=1)
+    body = overview._build_sessions_overview()
+    assert body["ses_s1"]["asleep"] is True and body["ses_s2"]["asleep"] is False
