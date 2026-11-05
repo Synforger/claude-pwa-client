@@ -157,6 +157,10 @@ class SessionDef:
     # (`terminal/tab_page.py`). Closing the child compares the page with it (`terminal/child_folder.py`). None for a
     # tab that is not a child, and for a child whose page was made before this was kept.
     top_page_sha: str | None = None
+    # For a child tab: the time (epoch seconds) of the last row of its conversation at the stop its parent was already
+    # told about (`backend/child_watch/`), so that the same stop is never told twice, nor after a restart. A child that
+    # works on and stops again has a later last row, and is told about again.
+    stop_told_at: float | None = None
 
     def sleeping_claude_sid(self) -> str | None:
         """The conversation a sleeping tab reopens, None for a tab that is not asleep or whose account changed since
@@ -185,6 +189,7 @@ class SessionDef:
             "account_pinned": self.account_pinned,
             "pause_asked_at": self.pause_asked_at,
             "top_page_sha": self.top_page_sha,
+            "stop_told_at": self.stop_told_at,
         }
 
 
@@ -253,6 +258,7 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
                 account_pinned=entry.get("account_pinned") is True,
                 pause_asked_at=_optional_number(entry.get("pause_asked_at")),
                 top_page_sha=_optional_str(entry.get("top_page_sha")),
+                stop_told_at=_optional_number(entry.get("stop_told_at")),
             )
     else:
         # 初期化: agent ごと 1 セッションを生成する

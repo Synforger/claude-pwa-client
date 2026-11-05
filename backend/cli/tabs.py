@@ -34,7 +34,10 @@
                                  子のタブを立て、 本文を最初の発話として渡す。 子はこのタブと同じ階層で起動し、
                                  このタブの id を親として覚える。 渡した本文は子のタブのメモ (= 階層の
                                  `pages/<子の id>/memo.md`) にも残る (= 子が入れ替わった後に読み直す)。 子のタブからは立てられない
-    tabs    children [--summary] このタブが立てた子の一覧 (= id / 状態 / claude の状態 / 題)。 --summary は 1 行
+    tabs    children [--summary] このタブが立てた子の一覧 (= id / メモの状態 / claude の欄 / 題)。 claude の欄は
+                                 `作業中` (答えの途中) / `入力待ち` (claude は動いていて答えていない) / `眠り` / `Claude なし`。
+                                 メモが作業中のまま入力待ちの子には `← 報告なしで止まっている` が付く。 --summary は 1 行
+                                 (= その子の数を `静か` と数える)
     tabs    report <done|stuck> <本文の file>
                                  子のタブから親のタブへ結果を返し、 メモの状態を「完了」 か「詰まり」 にする
     tabs    close <子の id> [--force]
@@ -79,6 +82,10 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import NamedTuple
+
+# 子のタブのメモの状態の行の読み方は backend と同じ file (= 標準ライブラリだけ)。 repo の根から読む
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from backend.child_watch.child_memo import STATE_LINE as STATE, WORKING, memo_state  # noqa: E402
 
 HOME = Path.home()
 BASE = f"http://127.0.0.1:{os.environ.get('PWA_PORT', '8765')}"
@@ -421,12 +428,16 @@ def own_tier() -> str | None:
 
 # --- 子のタブ ----------------------------------------------------------------------
 
-#: 子のタブのメモの状態の行 (= `report` が書き換え、 `children` と起動の検査が読む)
-STATE = re.compile(r"^- 状態: (.*)$", re.M)
+#: 子のタブのメモの状態の行 (= `report` が書き換え、 `children` と起動の検査が読む。 読み方は `STATE` と `WORKING`)
 STATES = {"done": "完了", "stuck": "詰まり"}
-WORKING = "作業中"
-#: 作業中のまま claude が動いていない子の印
+#: `children` の claude の欄の 4 つの語 (= 答えの途中 / claude は動いているが答えていない / 眠らせた / 動いていない)
+CLAUDE_ANSWERING = "作業中"
+CLAUDE_WAITING = "入力待ち"
+CLAUDE_ASLEEP = "眠り"
+CLAUDE_NONE = "Claude なし"
+#: 作業中のメモのまま入力待ちの子 (= 報告せずに止まった) の印。 `--summary` ではこの子の数を `静か` と数える (= 起動の検査の形)
 QUIET = "静か"
+STOPPED_MARK = "← 報告なしで止まっている"
 #: 子のタブのメモの、 入れ替えの引き継ぎを書く節 (= 子が自分の入れ替えの前に書き、 起き直した子が読む)
 CARRY = "## 引き継ぎ"
 CARRY_EMPTY = "(まだ無し)"
@@ -452,14 +463,6 @@ def own_note() -> Path | None:
         return placed
     given = os.environ.get("PWA_NOTE")
     return Path(given) if given and Path(given).is_file() else None
-
-
-def note_state(path: Path | None) -> str:
-    try:
-        found = STATE.search(path.read_text(encoding="utf-8")) if path is not None else None
-    except OSError:
-        found = None
-    return found.group(1).strip() if found else "?"
 
 
 def fail(message: str) -> int:
@@ -524,6 +527,13 @@ def my_children() -> tuple[list[dict] | None, str]:
     return [t for t in tabs if t.get("child") and t.get("parent_id") == me], ""
 
 
+def claude_word(tab: dict, claude: dict | None) -> str:
+    """`children` の claude の欄の語。 動いている claude は、 答えの途中 (= 状態が `busy`) か、 入力待ちのどちらか。"""
+    if claude:
+        return CLAUDE_ANSWERING if claude.get("status") == "busy" else CLAUDE_WAITING
+    return CLAUDE_ASLEEP if tab.get("asleep") else CLAUDE_NONE
+
+
 def children(summary: bool) -> int:
     found, why = my_children()
     if found is None:
@@ -531,19 +541,16 @@ def children(summary: bool) -> int:
               file=sys.stdout if summary else sys.stderr)
         return 0 if summary else 1
     tier, live = my_tier(), running()
-    states = [(t, note_state(child_note(tier, t["id"]) if tier else None)) for t in found]
-    # 作業中のまま claude が動いていない子 (= 報告せずに止まった。 API の接続が切れた子は、 次の発話まで待ち続ける)
-    quiet = {t["id"] for t, state in states if state == WORKING and (live.get(t["id"]) or {}).get("status") != "busy"}
+    rows = [(t, memo_state(child_note(tier, t["id"]) if tier else None), claude_word(t, live.get(t["id"]))) for t in found]
+    # メモは作業中なのに claude が入力待ちの子 (= 報告せずに止まった。 API の接続が切れた子は、 次の発話まで待ち続ける)
+    stopped = {t["id"] for t, state, word in rows if state == WORKING and word == CLAUDE_WAITING}
     if summary:
-        counts = {name: sum(1 for _, state in states if state == name) for name in (WORKING, *STATES.values())}
-        counts[QUIET] = len(quiet)
+        counts = {name: sum(1 for _, state, _ in rows if state == name) for name in (WORKING, *STATES.values())}
+        counts[QUIET] = len(stopped)
         print(f"children: {len(found)}" + (" (" + " / ".join(f"{k} {v}" for k, v in counts.items()) + ")" if found else ""))
         return 0
-    for tab, state in states:
-        claude = live.get(tab["id"])
-        print("  ".join([tab["id"], state, str(claude.get("status") or "?") if claude else "眠り" if tab.get("asleep")
-                         else "claude なし",
-                         tab.get("title") or "", f"← {QUIET} (= 記録の最後を見る)" if tab["id"] in quiet else ""]).rstrip())
+    for tab, state, word in rows:
+        print("  ".join([tab["id"], state, word, tab.get("title") or "", STOPPED_MARK if tab["id"] in stopped else ""]).rstrip())
     return 0
 
 
@@ -581,7 +588,7 @@ def close_child(child: str, force: bool) -> int:
         return fail(f"{child} はこのタブが立てた子ではありません (= 閉じられるのは自分の子だけ)")
     tier = my_tier()
     note = child_note(tier, child) if tier else None
-    state = note_state(note)
+    state = memo_state(note)
     if state == WORKING and not force:
         return fail(f"{child} はまだ作業中です。 結果を受け取ってから閉じるか、 --force で閉じてください")
     status, body = call(f"/sessions/{urllib.parse.quote(child)}", method="DELETE")
