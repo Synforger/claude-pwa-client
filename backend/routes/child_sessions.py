@@ -91,7 +91,8 @@ async def post_child_session(
     # The child works in its parent's tier from the start: its memo, its top page and `tabs list` know the tier
     # before its claude reports it, and a message that wakes it later starts it there.
     meta = register_session(agent_id, (title or "").strip() or None, parent_id=session_id,
-                            account_id=parent.account_id, child=True, tier=tab_tier(session_id))
+                            account_id=parent.account_id, child=True, tier=tab_tier(session_id),
+                            account_pinned=parent.account_pinned, fallback_from=parent.fallback_from)
     try:
         await ensure_pty_session_for(meta.id)
     except Exception:

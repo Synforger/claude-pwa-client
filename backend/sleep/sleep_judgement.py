@@ -34,6 +34,10 @@ ROLLING_OVER = "rolling_over"
 
 # The conditions a sleep asked for by hand does not look at (= the parent decides the child is done).
 NOT_ASKED_BY_HAND = frozenset({NOT_QUIET, CONTEXT_AT_ROLLOVER_LINE})
+# The conditions a tab whose turn a usage limit stopped does not look at: what such a stop leaves looking like work in
+# progress (the turn that never closed, the call that will never get its result, the start that got no answer). What
+# is really running under it (commands, wake-ups, cron jobs, a call) is still looked at.
+LEFT_BY_A_LIMIT_STOP = frozenset({TURN_OPEN, AWAITING_TOOL_RESULT, STARTING})
 # The conditions that pass by themselves within moments of a report: the child finishing its last answer and the
 # commands of that answer. A sleep asked for by hand waits for these, and answers with the others at once.
 PASSING = frozenset({STARTING, TURN_OPEN, PROCESSES_RUNNING, AWAITING_TOOL_RESULT})
@@ -87,11 +91,12 @@ class SleepFacts:
     rolling_over: bool | None = None
 
 
-def judge(facts: SleepFacts, minutes: float, by_hand: bool = False) -> tuple[str, ...]:
+def judge(facts: SleepFacts, minutes: float, by_hand: bool = False, stopped_by_limit: bool = False) -> tuple[str, ...]:
     """The conditions of `facts` that are not met for a tab that sleeps after `minutes` of quiet, or, `by_hand`, for a
-    tab its parent puts to sleep now (= without `NOT_ASKED_BY_HAND`). Empty = it may sleep."""
-    reasons = _unmet(facts, minutes)
-    return tuple(reason for reason in reasons if reason not in NOT_ASKED_BY_HAND) if by_hand else reasons
+    tab its parent puts to sleep now (= without `NOT_ASKED_BY_HAND`). `stopped_by_limit` is for a tab whose turn a
+    usage limit stopped, which is interrupted at that stop (= without `LEFT_BY_A_LIMIT_STOP`). Empty = it may sleep."""
+    left = (NOT_ASKED_BY_HAND if by_hand else frozenset()) | (LEFT_BY_A_LIMIT_STOP if stopped_by_limit else frozenset())
+    return tuple(reason for reason in _unmet(facts, minutes) if reason not in left)
 
 
 def _unmet(facts: SleepFacts, minutes: float) -> tuple[str, ...]:

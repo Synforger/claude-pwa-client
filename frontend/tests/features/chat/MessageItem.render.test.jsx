@@ -12,7 +12,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { render, cleanup } from '@testing-library/react'
 import MessageItem from '../../../src/features/chat/MessageItem.jsx'
-import { AGENT_MESSAGE_OPENING, ROLLOVER_OPENING, TAB_OPEN_OPENING } from '../../../src/features/chat/agentMessage.js'
+import { AGENT_MESSAGE_OPENING, CLIENT_NOTICE_OPENING, ROLLOVER_OPENING, TAB_OPEN_OPENING } from '../../../src/features/chat/agentMessage.js'
 
 afterEach(cleanup)
 
@@ -250,5 +250,26 @@ describe('進行中かは表示位置から導出する', () => {
       <MessageItem {...baseProps} isLast msg={withTool('a4')} />,
     )
     expect(container.querySelector('.file-link')).toBeNull()
+  })
+
+  it('the client\'s notice after a move shows the two accounts and its words, not the envelope', () => {
+    const text = `${CLIENT_NOTICE_OPENING}\n<account-move from="work" to="personal" reason="limit">\nA usage limit stopped this session.\n</account-move>`
+    const { container, getByTestId } = render(
+      <MessageItem {...baseProps} msg={{ id: 'n1', role: 'user', text }} />,
+    )
+    expect(getByTestId('client-notice-label').textContent).toMatch(/work/)
+    expect(getByTestId('client-notice-label').textContent).toMatch(/personal/)
+    expect(getByTestId('client-notice-body').textContent).toContain('A usage limit stopped this session.')
+    expect(container.textContent).not.toContain('<account-move')
+    expect(container.firstChild.className).toContain('relayed')
+  })
+
+  it('the client\'s notice after a limit ended shows the account', () => {
+    const text = `${CLIENT_NOTICE_OPENING}\n<limit-resume account="personal">\nThe usage limit has ended.\n</limit-resume>`
+    const { container, getByTestId } = render(
+      <MessageItem {...baseProps} msg={{ id: 'n2', role: 'user', text }} />,
+    )
+    expect(getByTestId('client-notice-label').textContent).toMatch(/personal/)
+    expect(container.textContent).not.toContain('<limit-resume')
   })
 })

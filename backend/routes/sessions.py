@@ -4,7 +4,7 @@ crosscut-F-04)。
 責務:
 - GET    /sessions                        : list
 - POST   /sessions                        : 作成
-- PATCH  /sessions/{sid}                  : title / notify_mode 変更
+- PATCH  /sessions/{sid}                  : title / notify_mode / account_pinned 変更
 - POST   /sessions/{sid}/fork             : フォーク (= jsonl 鎖を新 claude_sid で書き出し)
 - POST   /sessions/{sid}/restart          : claude プロセス kill + spawn (= 文脈リセット)
 - POST   /sessions/{sid}/account          : 同じタブのまま口座を移して会話を続ける
@@ -14,41 +14,35 @@ session メタ / status SSE / accounts は別 module (= overview.py / accounts.p
 """
 from __future__ import annotations
 
+import asyncio
 import logging
-import uuid
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from backend._common import state
-from backend._common.config import AGENTS, cwd_to_project_dir, default_account_id, get_config
-from backend.fork.fork import (
-    build_forked_lineage_lazy,
-    fork_point_status,
-    latest_clean_fork_point,
-)
-from backend.jsonl.jsonl_tail import split_jsonl_text
+from backend._common.config import AGENTS, get_config
 from backend._common.errors import raise_error
-from backend.jsonl import resolver as jsonl_resolver
 from backend._common.state import (
     SessionDef,
-    atomic_write_text,
     register_session,
     rename_session,
-    save_sessions_meta,
     sessions_meta,
     sessions_overview,
+    set_account_pinned,
     set_notify_mode,
     session_tmp_files,
     stream_states,
     unregister_session,
 )
+from backend.accounts.account_move import move_tab_account
+from backend.accounts.tab_restart import reset_tab_status, stop_tab_claude
+from backend.fork.lineage import write_lineage
 from backend.terminal import input_ready
 from backend.terminal.child_folder import clear_child_folder
 from backend.terminal.runner import pty_sessions
 from backend.terminal.tab_stop import stop_tab
 from backend.terminal.tab_tier import tab_tier
 import backend.jsonl.jsonl_watcher as jsonl_watcher
-from backend.jsonl import history as session_history
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +98,7 @@ async def create_session(payload: dict = Body(...)):
 def patch_session(session_id: str, payload: dict = Body(...), _: str = Depends(require_session)):
     title = payload.get("title")
     notify_mode = payload.get("notify_mode")
+    account_pinned = payload.get("account_pinned")
     touched = False
     if isinstance(title, str) and title.strip():
         rename_session(session_id, title.strip())
@@ -112,138 +107,14 @@ def patch_session(session_id: str, payload: dict = Body(...), _: str = Depends(r
         if not set_notify_mode(session_id, notify_mode):
             raise_error(400, "invalid_notify_mode", "notify_mode は both / banner / off")
         touched = True
+    if account_pinned is not None:
+        if not isinstance(account_pinned, bool):
+            raise_error(400, "invalid_account_pinned", "account_pinned は true / false")
+        set_account_pinned(session_id, account_pinned)
+        touched = True
     if not touched:
-        raise_error(400, "title_or_notify_required", "title または notify_mode が必要")
+        raise_error(400, "title_or_notify_required", "title / notify_mode / account_pinned のどれかが必要")
     return session_row(sessions_meta[session_id])
-
-
-def _write_lineage(session_id: str, from_uuid: str | None, target_account_id: str | None) -> tuple[str, bool]:
-    """Write the conversation of a tab up to `from_uuid` (or, when it is `None`, up to the latest clean point) as a
-    new claude session, in the projects folder of `target_account_id` when that is another account. Returns the
-    new session's id and whether it moved to another account. Used by the fork and by moving a tab's account."""
-    parent = sessions_meta[session_id]
-
-    # from_uuid を含む jsonl を探す。 claude は途中で session id をロール (= compact / 継続)
-    # することがあり、 画面に残る古いメッセージは前のファイルに居る一方、 live binding
-    # は今 open 中の新ファイルを返す。 そのため「今のファイルだけ」 でなく同じ cwd の
-    # project dir 内の全 jsonl を新しい順に走査して、 uuid を実際に含むファイルを source
-    # にする (= uuid は一意なので確実に当たる)。
-    live = jsonl_resolver.resolve_jsonl(session_id, prefer="live")
-    project_dir = jsonl_resolver.resolve_jsonl(session_id, prefer="project_dir")
-    # fork 専用フォールバック: cwd 解決不能でも live があれば「live と同じ dir」 を使う
-    # (= 過去 behavior 互換、 resolver 一般 API はこの fallback を持たない)。
-    if project_dir is None and live is not None:
-        project_dir = live.parent
-
-    candidates: list = []
-    if live is not None and live.exists():
-        candidates.append(live)
-    if project_dir is not None and project_dir.is_dir():
-        others = sorted(
-            (p for p in project_dir.glob("*.jsonl") if p != live),
-            key=lambda p: p.stat().st_mtime, reverse=True,
-        )
-        candidates.extend(others)  # 全部走査。 ハード上限 (旧 40 / 拡張 200) は長期 cwd で
-        # 「祖先 uuid が範囲外」 で lineage を中途半端に打ち切る事故の元だったので撤廃。
-        # 自然な上限は maintenance.cleanup_old_jsonl (= 14 日 / 500MB 自動掃除) が引いてくれる。
-
-    if from_uuid:
-        needle = from_uuid.encode("utf-8")
-        src_path = None
-        for p in candidates:
-            try:
-                if needle in p.read_bytes():
-                    src_path = p
-                    break
-            except OSError:
-                continue
-
-        if src_path is None:
-            logger.warning(
-                "fork: from_uuid not found session=%s uuid=%s scanned=%d dir=%s",
-                session_id, from_uuid, len(candidates), project_dir,
-            )
-            raise_error(404, "message_not_found", "この会話のログに該当メッセージが見つかりません")
-
-        # まず src_path 単体で fork point の妥当性 (= tool 行で切れてないか) を確認。
-        # 大半のフォークは src_path の中で会話が閉じてて、 ここで全部完結する。
-        src_lines = split_jsonl_text(src_path.read_text(encoding="utf-8"))
-        status = fork_point_status(src_lines, from_uuid)
-        if status != "ok":
-            raise_error(400, "cannot_fork_here", "この位置からは分岐できません (= user 発言か完了したターンのみ)")
-    else:
-        # 位置指定なし: live jsonl の末尾から最初の安全な切れ目を採る。 道具の実行中に
-        # 呼ばれてもそこまで下がるので、 呼び出し側は位置を気にしなくてよい。
-        # Only the tab's own conversation: another file of the folder is another tab's conversation.
-        src_path = live if live is not None and live.exists() else None
-        if src_path is None:
-            raise_error(404, "message_not_found", "この会話のログが見つかりません")
-        src_lines = split_jsonl_text(src_path.read_text(encoding="utf-8"))
-        from_uuid = latest_clean_fork_point(src_lines)
-        if from_uuid is None:
-            raise_error(400, "cannot_fork_here", "引き継げる切れ目がまだありません (= ターンの完了を待ってください)")
-
-    # lazy stitching: build_forked_lineage_lazy が鎖を辿りながら、 親 uuid が src_lines に
-    # 無い時だけ fetch_more で次の jsonl を 1 個取りに来る。 鎖が src_lines 内で閉じれば
-    # 追加 jsonl は読まれない (= 大半のケース)。 同 cwd の他 jsonl は新しい順に提供。
-    other_iter = None
-    if project_dir is not None and project_dir.is_dir():
-        other_iter = iter(sorted(
-            (p for p in project_dir.glob("*.jsonl") if p != src_path),
-            key=lambda p: p.stat().st_mtime, reverse=True,
-        ))
-    extra_files: list[str] = []
-
-    def fetch_more():
-        if other_iter is None:
-            return None
-        try:
-            nxt = next(other_iter)
-        except StopIteration:
-            return None
-        try:
-            lines = split_jsonl_text(nxt.read_text(encoding="utf-8"))
-        except OSError:
-            return []  # 1 ファイルだけ読み損ねても次へ進めるよう空 list を返す
-        extra_files.append(nxt.name)
-        return lines
-
-    new_claude_id = str(uuid.uuid4())
-    try:
-        forked = build_forked_lineage_lazy(src_lines, from_uuid, new_claude_id, fetch_more)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    if not forked:
-        raise_error(400, "empty_conversation", "分岐対象の会話が空です")
-    logger.info(
-        "fork: session=%s src=%s from_uuid=%s extra_files=%d -> new_jsonl=%s.jsonl rows=%d",
-        session_id, src_path.name, from_uuid, len(extra_files),
-        new_claude_id, len(forked),
-    )
-
-    # 新 jsonl は project dir (= 同 cwd hash) に置く。 新タブは agent を継承 = 同 cwd で spawn
-    # するので claude --resume がこの新 jsonl を確実に見つける。
-    #
-    # アカウントを移す時は **移し先の** projects dir に置く。 spawn 時の CLAUDE_CONFIG_DIR は
-    # new_meta.account_id で決まるので、 lineage を元のアカウント配下に置いたままだと
-    # `claude --resume` が見つけられず空タブになる (= 2026-07-22 の空タブ事故と同じ構造)。
-    # 会話ログの行はアカウント固有の識別子を持たない (= cwd / gitBranch / version / userType のみ)
-    # ので、 置き場所を変えるだけで移し先から読める。
-    # account_id が None のタブ (= 古い時期に作られた) は既定 account と等価。 素の比較だと
-    # 「既定 account へ移す」 が移行扱いになり、 同じ場所に置き直して title に札が付く。
-    current_account = parent.account_id or default_account_id()
-    moving = bool(target_account_id) and target_account_id != current_account
-    if moving:
-        cwd = (AGENTS.get(parent.agent_id) or {}).get("cwd")
-        if not cwd:
-            raise_error(400, "cwd_unresolved", "この会話の作業ディレクトリが解決できません")
-        dest_dir = cwd_to_project_dir(cwd, account_id=target_account_id)
-        dest_dir.mkdir(parents=True, exist_ok=True)
-    else:
-        dest_dir = src_path.parent
-    dest = dest_dir / f"{new_claude_id}.jsonl"
-    atomic_write_text(dest, "\n".join(forked) + "\n")
-    return new_claude_id, moving
 
 
 @router.post("/sessions/{session_id}/fork")
@@ -260,7 +131,7 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
         raise_error(400, "from_uuid_required", "from_uuid が必要です")
 
     parent = sessions_meta[session_id]
-    new_claude_id, _moved = _write_lineage(session_id, from_uuid, None)
+    new_claude_id = (await asyncio.to_thread(write_lineage, session_id, from_uuid, None)).claude_id
 
     new_meta = register_session(
         parent.agent_id,
@@ -298,81 +169,12 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
     return session_row(new_meta)
 
 
-async def _stop_tab(session_id: str) -> None:
-    """Stop the claude of a tab and its pane, keeping the tab itself (= the first half of a restart). Returns once
-    that claude has ended, so the next one never runs beside it."""
-    # kill する前に現 claude_sid を履歴に積む (= 事故時の復旧源、 pwa_sid あたり最新 3 件保持)。
-    # binding が落ちてる場合は no-op になる (= record_end が None を弾く)。
-    try:
-        cur = jsonl_watcher.get_jsonl_for(session_id)
-        if cur is not None:
-            cur_sid = cur.stem  # claude jsonl ファイル名 = claude_sid
-            session_history.record_end(session_id, cur_sid, jsonl_path=str(cur))
-    except Exception:
-        # 履歴記録の失敗は復旧経路を 1 本失うので、 debug ではなく warning で残す
-        # (= 2026-06-22 silent-failure sweep)。
-        logger.warning("session_history record failed for %s", session_id, exc_info=True)
-    # kill 経路は delete_session と同じだが、 sessions_meta は維持して即 spawn し直す
-    try:
-        await stop_tab(session_id)
-        pty_sessions.pop(session_id, None)
-        jsonl_watcher.unregister(session_id)
-    except Exception:
-        # kill 失敗 = claude プロセスが残ったまま spawn する経路に進み二重起動の race を起こす
-        # 可能性がある。 warning で残す (= 2026-06-22)。
-        logger.warning("restart kill phase failed for %s", session_id, exc_info=True)
-
-
-async def _reset_tab_status(session_id: str) -> None:
-    """Forget what the stopped claude left in a tab's status, so the next one starts clean."""
-    # agent_status の進行中フラグと蓄積 state をリセット (= 新プロセス = 新 claude_sid で
-    # 過去 JSONL の集約結果 (= tasks / todos / current_tool 等) を持ち越さない)。
-    # SessionState.lock 経由で複数 mutate を 1 critical section に束ねる (= backend-F-07)。
-    # 注意: この lock を取るのは restart のこの区間だけで、 常時系の mutate 経路
-    # (= mutate_agent_status 等) は lock を取らない。 全経路が
-    # 単一 event loop 上の同期処理 (= await を跨がない dict 書換) なので dict 破壊は起きない。
-    # lock の意味は「reset の複数 field 書換を 1 まとまりにする」 ことだけで、 mutate 経路との
-    # 排他保証と読まないこと。
-    # 2026-07-03: tasks / todos / model / ctx_pct / budget_* / mode / permission_mode
-    # を追加リセット。 restart は「文脈 + プロセスリセット」 なので、 前 claude 由来の状態は
-    # 全て消す。 新 JSONL からの task_reminder / model 通知で正しい値に埋め直す。
-    sess = state.get_session(session_id)
-    if sess is not None:
-        async with sess.lock:
-            a = sess.status
-            a["current_tool"] = None
-            a["pending_plan"] = None
-            a["subagent"] = None
-            a["plan_mode"] = False
-            a["tasks"] = []
-            a["todos"] = []
-            a["model"] = ""
-            a["ctx_pct"] = 0
-            a["budget_used"] = None
-            a["budget_total"] = None
-            a["budget_remaining"] = None
-            a["mode"] = ""
-            a["permission_mode"] = ""
-            # 新プロセス = 過去の Stop 意思は無効化 (= 残ったまま sticky だと新 turn が永久に
-            # busy=false に強制されて停止ボタンが立たない逆方向のバグになる)。
-            sess.stream.user_stopped = False
-            # 終了を停止と対称化 (= busy 系を同期でリセット)。 restart は user_stopped を
-            # False に戻すので、 busy / pane_working / queued_sends を落とさないと overview
-            # busy (= st.busy OR pane_working) が残り、 「推論中に終了 → 青丸残留」 になる。
-            # 旧来は monitor の path 切替再計算 / detector poll の非同期自己回復頼みで、
-            # それが発火し損ねると永久残留していた。
-            sess.stream.busy = False
-            sess.stream.pane_working = False
-            sess.stream.queued_sends = 0
-            sess.stream.status_event.set()
-
-
 @router.post("/sessions/{session_id}/restart")
 async def restart_session(session_id: str, _: str = Depends(require_session)):
     """claude プロセスを kill + 新規 spawn する (= /clear と違ってプロセスメモリも完全解放)。
     新 claude_sid に切り替わるが SessionStart hook で bindings 更新されるので、 PWA タブは
     シームレスに続けて使える。 長期稼働で claude プロセスメモリが累積する問題への対策。"""
-    await _stop_tab(session_id)
+    await stop_tab_claude(session_id)
     # フォーク産タブを通常タブ化する (= state.demote_fork_to_normal、 backend-F-44)。
     # restart のセマンティクスは「文脈リセット + プロセスリセット」 で、 fork タブの
     # resume_session_id を残したままだと再 spawn で `claude --resume <同一 id>` が走り、
@@ -407,7 +209,7 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
     except Exception:
         logger.exception("restart spawn phase failed for %s", session_id)
         return {"ok": False, "reason": "spawn_failed"}
-    await _reset_tab_status(session_id)
+    await reset_tab_status(session_id)
     # 全 sid SSE (/sessions/status/stream) にも変化を伝える (= per-sid と整合)
     sessions_overview.notify()
     return {"ok": True}
@@ -421,33 +223,7 @@ async def move_session_account(session_id: str, payload: dict = Body(...), _: st
     account_id = payload.get("account_id")
     if not isinstance(account_id, str) or account_id not in (get_config().get("accounts") or {}):
         raise_error(400, "unknown_account", "そのアカウントは設定にありません")
-    meta = sessions_meta[session_id]
-    if account_id == (meta.account_id or default_account_id()):
-        return session_row(meta)
-    if (jsonl_resolver.resolve_jsonl(session_id, prefer="live") is None and not meta.resume_session_id
-            and meta.sleeping_claude_sid() is None):
-        # A tab with no conversation yet (= a tier tab before its first message) only changes its account: there is
-        # nothing to carry over, and its first message starts it under the new account.
-        meta.account_id = account_id
-        save_sessions_meta()
-        sessions_overview.notify()
-        return session_row(meta)
-    new_claude_id, _moved = _write_lineage(session_id, None, account_id)
-    await _stop_tab(session_id)
-    meta.account_id = account_id
-    meta.resume_session_id = new_claude_id
-    save_sessions_meta()
-    from backend.jsonl.routes import request_sid_tail_reset  # noqa: PLC0415
-    request_sid_tail_reset(session_id)
-    from backend.terminal.routes import ensure_pty_session_for  # noqa: PLC0415
-    try:
-        await ensure_pty_session_for(session_id)
-    except Exception:
-        logger.exception("account move spawn phase failed for %s", session_id)
-        raise_error(500, "spawn_failed", "移した先で会話を開けませんでした")
-    await _reset_tab_status(session_id)
-    sessions_overview.notify()
-    return session_row(meta)
+    return session_row(await move_tab_account(session_id, account_id))
 
 
 @router.delete("/sessions/{session_id}")

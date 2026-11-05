@@ -88,5 +88,31 @@ export function parseTabOpen(text) {
   return { tier: line ? line.slice('tier='.length).trim() : null }
 }
 
-/** 端末から入ったが人が打っていない発話か (= 別のタブからの連絡、 自動の入れ替えの発話、 階層のタブの最初の発話)。 */
-export const isClientMessage = (text) => !!(parseAgentMessage(text) || parseRollover(text) || parseTabOpen(text))
+// backend が自分で書いて打つ連絡 (= 口座を移した時の続けての連絡と、 上限が戻った時の連絡)。 1 行目は backend の
+// `jsonl/jsonl_predicates.py` と同じ文字列で、 backend の test が両者の一致を見ている。 連絡の種類は次の block が言う。
+export const CLIENT_NOTICE_OPENING = 'Sent by the client (the operator did not type this):'
+
+const NOTICE = /^<(account-move|limit-resume)((?: [a-z_]+="[^"\n]*")*)>\n([\s\S]*)\n<\/\1>\s*$/
+
+/** client の連絡なら { kind, from, to, account, text } (= `account-move` か `limit-resume` / 口座を移した連絡の
+ *  移る前と後の口座 / 上限が戻った連絡の口座、 無い欄は null / 本文)、 違えば null。 */
+export function parseClientNotice(text) {
+  if (typeof text !== 'string') return null
+  const trimmed = text.trimStart()
+  if (!trimmed.startsWith(CLIENT_NOTICE_OPENING)) return null
+  const m = NOTICE.exec(trimmed.slice(CLIENT_NOTICE_OPENING.length).trimStart())
+  if (!m) return null
+  return {
+    kind: m[1],
+    from: attribute(m[2], 'from'),
+    to: attribute(m[2], 'to'),
+    account: attribute(m[2], 'account'),
+    text: m[3],
+  }
+}
+
+/** 端末から入ったが人が打っていない発話か (= 別のタブからの連絡、 自動の入れ替えの発話、 階層のタブの最初の発話、
+ *  client の連絡)。 */
+export const isClientMessage = (text) => !!(
+  parseAgentMessage(text) || parseRollover(text) || parseTabOpen(text) || parseClientNotice(text)
+)

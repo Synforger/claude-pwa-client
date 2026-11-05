@@ -14,7 +14,7 @@ import backend.jsonl.jsonl_watcher as jsonl_watcher
 from backend._common.state import SessionDef, save_sessions_meta, sessions_meta, sessions_overview
 from backend.rollover.rollover import TICK_SEC
 from backend.sleep.sleep_judgement import judge
-from backend.sleep.sleep_sensors import gather
+from backend.sleep.sleep_sensors import gather, note_woken
 from backend.sleep.sleep_settings import sleep_minutes
 from backend.sleep.sleeper import put_to_sleep
 from backend.terminal import input_ready
@@ -40,6 +40,7 @@ async def _clear_when_awake(meta: SessionDef) -> None:
     if not input_ready.is_ready(session_id) or await asyncio.to_thread(claude_pid_in_pane, session_id) is None:
         return
     mark, meta.sleep = meta.sleep, None
+    note_woken(session_id)
     save_sessions_meta()
     sessions_overview.notify()
     record = jsonl_watcher.get_jsonl_for(session_id)

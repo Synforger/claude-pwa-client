@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  AGENT_MESSAGE_OPENING, AGENT_MESSAGE_REMOTE_OPENING, ROLLOVER_OPENING, TAB_OPEN_OPENING,
-  isClientMessage, parseAgentMessage, parseRollover, parseTabOpen,
+  AGENT_MESSAGE_OPENING, AGENT_MESSAGE_REMOTE_OPENING, CLIENT_NOTICE_OPENING, ROLLOVER_OPENING, TAB_OPEN_OPENING,
+  isClientMessage, parseAgentMessage, parseClientNotice, parseRollover, parseTabOpen,
 } from '../../../src/features/chat/agentMessage.js'
 
 const wrap = (body, from = 'tools', session = 'ses_sender') =>
@@ -121,5 +121,34 @@ describe('parseTabOpen', () => {
 
   it('counts with the messages the operator did not type', () => {
     expect(isClientMessage(opened('normal'))).toBe(true)
+  })
+})
+
+describe('parseClientNotice', () => {
+  const moved = `${CLIENT_NOTICE_OPENING}\n<account-move from="work" to="personal" reason="limit">\nA usage limit stopped this session.\n</account-move>`
+  const resumed = `${CLIENT_NOTICE_OPENING}\n<limit-resume account="personal">\nThe usage limit has ended.\n</limit-resume>`
+
+  it('reads the accounts out of the notice sent after a move', () => {
+    expect(parseClientNotice(moved)).toEqual({
+      kind: 'account-move', from: 'work', to: 'personal', account: null, text: 'A usage limit stopped this session.',
+    })
+  })
+
+  it('reads the account out of the notice sent after a limit ended', () => {
+    expect(parseClientNotice(resumed)).toEqual({
+      kind: 'limit-resume', from: null, to: null, account: 'personal', text: 'The usage limit has ended.',
+    })
+  })
+
+  it('is not a notice without the first line, with an unknown block, or with the rollover first line', () => {
+    expect(parseClientNotice('<limit-resume account="personal">\nx\n</limit-resume>')).toBeNull()
+    expect(parseClientNotice(`${CLIENT_NOTICE_OPENING}\n<something account="a">\nx\n</something>`)).toBeNull()
+    expect(parseClientNotice(moved.replace(CLIENT_NOTICE_OPENING, ROLLOVER_OPENING))).toBeNull()
+    expect(parseClientNotice(undefined)).toBeNull()
+  })
+
+  it('is a message of the client, not of the operator', () => {
+    expect(isClientMessage(moved)).toBe(true)
+    expect(isClientMessage(resumed)).toBe(true)
   })
 })

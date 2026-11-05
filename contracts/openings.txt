@@ -1,0 +1,14 @@
+# The first lines of the messages the client types into a tab's terminal itself (= not typed by the operator), one per
+# line, each with a `>` at its head. Tools outside the client (the guard, hooks of the agents) read it to tell the
+# operator's words from the client's. The source is CLIENT_OPENINGS in backend/jsonl/jsonl_predicates.py; a test fails
+# when the two differ, so fix this file when it does.
+# A message from another session of this machine
+>Message from another session, relayed by the client (the operator did not type this):
+# A message from a session on another machine
+>Message from a session on another machine, relayed by the client (the operator did not type this):
+# The automatic session rollover (closing request and the first message of the new session)
+>Automatic session rollover, sent by the client (the operator did not type this):
+# The first message of a tab opened for its tier
+>Tab opened by the client for its tier (the operator did not type this):
+# The client's own notices (after an account move, after a usage limit ended)
+>Sent by the client (the operator did not type this):

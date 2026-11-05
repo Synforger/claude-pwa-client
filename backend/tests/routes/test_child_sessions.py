@@ -269,3 +269,19 @@ def test_a_child_that_cannot_sleep_says_why(family):
     assert r.status_code == 409
     detail = r.json()["detail"]
     assert detail["code"] == "child_sleep_refused" and detail["params"]["reasons"] == "voice_call"
+
+
+def test_a_child_starts_with_the_mark_and_the_own_account_of_its_parent(opened, isolated_state):
+    parent = isolated_state.sessions_meta["ses_p"]
+    parent.account_pinned, parent.fallback_from, parent.account_id = True, "company", "work"
+    with _client() as client:
+        body = client.post("/sessions/ses_p/children", data={"agent_id": "agent_sub", "text": "go"}).json()
+    child = isolated_state.sessions_meta[body["id"]]
+    assert (child.account_pinned, child.fallback_from, child.account_id) == (True, "company", "work")
+    assert body["account_pinned"] is True and body["fallback_from"] == "company"
+
+
+def test_a_child_of_a_tab_that_is_not_pinned_is_not_pinned(opened, isolated_state):
+    with _client() as client:
+        body = client.post("/sessions/ses_p/children", data={"agent_id": "agent_sub", "text": "go"}).json()
+    assert isolated_state.sessions_meta[body["id"]].account_pinned is False and body["fallback_from"] is None

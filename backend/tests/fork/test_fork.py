@@ -11,6 +11,8 @@ import json
 import pytest
 
 from backend.fork.fork import build_forked_lineage_lazy, is_clean_fork_point
+from backend.fork.lineage import write_lineage
+from backend.jsonl import resolver as jsonl_resolver
 
 
 def _run(coro):
@@ -300,6 +302,8 @@ def test_fork_inherits_parent_account_id(tmp_path, monkeypatch, isolated_state):
 
 def _setup_account_move(tmp_path, monkeypatch, isolated_state, source_lines=SAMPLE):
     """A tab on personal, the work account's projects folder under tmp, and the stop / spawn of the tab recorded."""
+    import backend.accounts.tab_restart as tab_restart_mod  # noqa: PLC0415
+    import backend.fork.lineage as lineage_mod  # noqa: PLC0415
     import backend.routes.sessions as sessions_mod  # noqa: PLC0415
     import backend.terminal.routes as pty_routes  # noqa: PLC0415
     _chat, tab, src = _setup_fork_env(tmp_path, monkeypatch, isolated_state, source_lines)
@@ -310,9 +314,9 @@ def _setup_account_move(tmp_path, monkeypatch, isolated_state, source_lines=SAMP
         "work": {"display_name": "Work", "env": {"CLAUDE_CONFIG_DIR": str(tmp_path / "work")}},
     }
     monkeypatch.setattr(sessions_mod, "get_config", lambda: {"accounts": accounts})
-    monkeypatch.setattr(sessions_mod, "AGENTS", {tab.agent_id: {"cwd": "/work/cwd"}})
+    monkeypatch.setattr(lineage_mod, "AGENTS", {tab.agent_id: {"cwd": "/work/cwd"}})
     monkeypatch.setattr(
-        sessions_mod, "cwd_to_project_dir",
+        lineage_mod, "cwd_to_project_dir",
         lambda cwd, account_id=None: work_dir if account_id == "work" else src.parent,
     )
     events: list[str] = []
@@ -320,7 +324,7 @@ def _setup_account_move(tmp_path, monkeypatch, isolated_state, source_lines=SAMP
     async def _stop(sid):
         events.append(f"kill {sid}")
         return True
-    monkeypatch.setattr(sessions_mod, "stop_tab", _stop)
+    monkeypatch.setattr(tab_restart_mod, "stop_tab", _stop)
 
     async def _spawn(sid, **_kwargs):
         events.append(f"spawn {sid}")
@@ -363,8 +367,11 @@ def test_moving_to_the_account_the_tab_is_on_changes_nothing(tmp_path, monkeypat
 def test_a_tab_without_an_account_id_is_on_the_default_account(tmp_path, monkeypatch, isolated_state):
     """A tab made before accounts existed has no `account_id` and runs on the default one: moving it there is
     nothing, and moving it elsewhere moves it."""
+    import backend.accounts.account_move as account_move_mod  # noqa: PLC0415
+    import backend.fork.lineage as lineage_mod  # noqa: PLC0415
     sessions_mod, tab, _src, work_dir, events = _setup_account_move(tmp_path, monkeypatch, isolated_state)
-    monkeypatch.setattr(sessions_mod, "default_account_id", lambda: "personal")
+    monkeypatch.setattr(lineage_mod, "default_account_id", lambda: "personal")
+    monkeypatch.setattr(account_move_mod, "default_account_id", lambda: "personal")
     tab.account_id = None
     _run(sessions_mod.move_session_account(tab.id, {"account_id": "personal"}))
     assert events == []
@@ -797,7 +804,7 @@ def test_a_tab_with_no_conversation_yet_only_changes_its_account(tmp_path, monke
     # 意図: 最初の発話の前の階層のタブを移しても、 同じ folder に在る別のタブの会話を写さない (= 別のタブの会話を
     # 開き直す形になり、 境界も口座も越える)
     sessions_mod, tab, src, work_dir, events = _setup_account_move(tmp_path, monkeypatch, isolated_state)
-    monkeypatch.setattr(sessions_mod.jsonl_resolver, "resolve_jsonl",
+    monkeypatch.setattr(jsonl_resolver, "resolve_jsonl",
                         lambda _sid, prefer=None: None if prefer == "live" else src.parent)
     out = _run(sessions_mod.move_session_account(tab.id, {"account_id": "work"}))
     assert out["account_id"] == "work"
@@ -809,8 +816,8 @@ def test_a_tab_with_no_conversation_yet_only_changes_its_account(tmp_path, monke
 def test_carrying_a_conversation_over_never_takes_another_tab_s_record(tmp_path, monkeypatch, isolated_state):
     from fastapi import HTTPException  # noqa: PLC0415
     sessions_mod, tab, src, work_dir, _events = _setup_account_move(tmp_path, monkeypatch, isolated_state)
-    monkeypatch.setattr(sessions_mod.jsonl_resolver, "resolve_jsonl",
+    monkeypatch.setattr(jsonl_resolver, "resolve_jsonl",
                         lambda _sid, prefer=None: None if prefer == "live" else src.parent)
     with pytest.raises(HTTPException):
-        sessions_mod._write_lineage(tab.id, None, "work")
+        write_lineage(tab.id, None, "work")
     assert list(work_dir.glob("*.jsonl")) == []

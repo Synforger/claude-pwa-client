@@ -6,7 +6,7 @@
         + jsonl の共有部品 (jsonl_tail / jsonl_predicates / jsonl_watcher)
     L1: terminal   (= tmux / PTY の入力口。 L0 のみ import 可)
     L2: jsonl      (= JSONL tail → SSE の出力口。 L0 / L1 を import 可)
-    L3: routes / maintenance / rollover / sleep / main / cli / voice_call / device  (= orchestrator。 全層 import 可)
+    L3: routes / maintenance / rollover / sleep / accounts / account_fallback / limit_resume / fork.lineage / main / cli / voice_call / device  (= orchestrator。 全層 import 可)
 
 歴史: jsonl ↔ terminal が相互 import で双方向結合し、 同じ状態を両側から書く構造が
 busy 誤表示 / 二重 spawn TOCTOU 系 bug の温床だった (= 2026-07-05 audit の層もつれ)。
@@ -36,6 +36,7 @@ LEVELS: dict[str, int] = {
     "speech": 0,
     "usage": 0,
     "fork": 0,
+    "fork.lineage": 3,
     "jsonl.jsonl_tail": 0,
     "jsonl.jsonl_predicates": 0,
     "jsonl.jsonl_watcher": 0,
@@ -46,6 +47,9 @@ LEVELS: dict[str, int] = {
     "maintenance": 3,
     "rollover": 3,
     "sleep": 3,
+    "accounts": 3,
+    "account_fallback": 3,
+    "limit_resume": 3,
     "tier_tabs": 3,
     "main": 3,
     "cli": 3,

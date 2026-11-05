@@ -98,3 +98,30 @@ def test_the_newest_row_time_is_kept_whatever_the_row():
                 {"type": "user", "timestamp": "not a time"}):
         fold_row(facts, row)
     assert facts.last_row_at == datetime(2026, 11, 5, 4, 0, tzinfo=timezone.utc).timestamp()
+
+
+# --- the stop a usage limit leaves at the end of the conversation ---
+
+from backend.tests.limit_samples import limit_stop_row  # noqa: E402
+
+
+def test_a_conversation_ending_in_a_limit_row_is_stopped_by_the_limit():
+    facts = _fold(_prompt(), _call("Read"), _result(), limit_stop_row("lim1", None, "2026-11-05T10:00:00.000Z"))
+    assert facts.stopped_by_limit
+    assert facts.limit_stop.uuid == "lim1"
+    assert facts.limit_stop.at == datetime(2026, 11, 5, 10, 0, tzinfo=timezone.utc).timestamp()
+    assert facts.awaiting_tool_result is False
+
+
+@pytest.mark.parametrize("after", [_prompt(), _said(), _queued("human")])
+def test_a_prompt_or_an_answer_after_the_limit_row_ends_the_stop(after):
+    assert not _fold(limit_stop_row("lim1", None), after).stopped_by_limit
+
+
+def test_rows_that_are_not_messages_do_not_end_the_stop():
+    assert _fold(limit_stop_row("lim1", None), {"type": "system", "subtype": "turn_duration"}).stopped_by_limit
+
+
+@pytest.mark.parametrize("changes", [{"error": "authentication_failed"}, {"apiErrorIsTransient": True}])
+def test_an_error_row_that_is_not_a_limit_is_no_stop(changes):
+    assert not _fold(limit_stop_row("x", None, **changes)).stopped_by_limit

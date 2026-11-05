@@ -137,6 +137,18 @@ class SessionDef:
     # Set while the tab's claude is put to sleep (`backend/sleep/`): the conversation the next start reopens.
     # Cleared once that claude runs again.
     sleep: SleepMark | None = None
+    # The account the tab belongs to while it runs on another one because that account's usage reached its line
+    # (`backend/account_fallback/`); None for a tab on its own account. `account_id` is where it runs now.
+    fallback_from: str | None = None
+    # The record the client wrote into the other account's projects folder for that move. The client deletes it
+    # when the tab leaves that account again.
+    fallback_copy: str | None = None
+    # The uuid of the usage-limit stop that the client already answered with a message to carry on
+    # (`backend/limit_resume/`), so that the same stop is never answered twice, nor after a restart.
+    limit_resumed: str | None = None
+    # The operator keeps this tab on its own account: the account fallback never moves it, and brings it back at the
+    # next break when it runs elsewhere. A child tab starts with its parent's mark.
+    account_pinned: bool = False
 
     def sleeping_claude_sid(self) -> str | None:
         """The conversation a sleeping tab reopens, None for a tab that is not asleep or whose account changed since
@@ -159,7 +171,16 @@ class SessionDef:
             "tier": self.tier,
             "sleep": self.sleep.to_dict() if self.sleep is not None else None,
             "asleep": self.sleep is not None,
+            "fallback_from": self.fallback_from,
+            "fallback_copy": self.fallback_copy,
+            "limit_resumed": self.limit_resumed,
+            "account_pinned": self.account_pinned,
         }
+
+
+def _optional_str(value: object) -> str | None:
+    """A stored text, None when the entry holds none or something else."""
+    return value if isinstance(value, str) and value else None
 
 
 def _default_title(agent_id: str, index: int) -> str:
@@ -211,6 +232,10 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
                 tier_tab=entry.get("tier_tab") if isinstance(entry.get("tier_tab"), str) else None,
                 tier=entry.get("tier") if isinstance(entry.get("tier"), str) else None,
                 sleep=SleepMark.from_dict(entry.get("sleep")),
+                fallback_from=_optional_str(entry.get("fallback_from")),
+                fallback_copy=_optional_str(entry.get("fallback_copy")),
+                limit_resumed=_optional_str(entry.get("limit_resumed")),
+                account_pinned=entry.get("account_pinned") is True,
             )
     else:
         # 初期化: agent ごと 1 セッションを生成する
@@ -651,6 +676,8 @@ def register_session(
     child: bool = False,
     tier_tab: str | None = None,
     tier: str | None = None,
+    account_pinned: bool = False,
+    fallback_from: str | None = None,
 ) -> SessionDef:
     """新規セッションを登録して全状態 dict を初期化する。 永続化まで行う。
 
@@ -658,6 +685,7 @@ def register_session(
     (= 出自と、 初回 spawn で resume する claude session id)。 子のタブ (= child) は parent_id だけを持つ。
     tier_tab は階層のタブとして置くタブにだけ渡す (= 新しい会話をその階層で起動する)。
     tier は、 claude が起動する前から決まっている階層 (= 子のタブは親の階層で起動する)。
+    account_pinned / fallback_from は子のタブが親から継ぐ物 (= 口座の固定の印と、 親が逃げ先で動いている時の本来の口座)。
     account_id は config.json accounts の key (= 個人 / 会社 OAuth の選択)。 None は
     personal 相当 (= 通常 ~/.claude/) として扱う。
     sid が指定された場合は新規生成せずその値で登録する (= ADR-020 e2e seed が
@@ -674,6 +702,7 @@ def register_session(
         id=sid, agent_id=agent_id, title=title, created_at=int(time.time()),
         parent_id=parent_id, resume_session_id=resume_session_id,
         account_id=account_id, child=child, tier_tab=tier_tab, tier=tier,
+        account_pinned=account_pinned, fallback_from=fallback_from,
     )
     if child:
         # 子のタブは親が仕事を渡すために立てる物で、 進みは親への報告で届く。 通知は切って立てる (= 画面の ⚙ で入れ直せる)
@@ -721,6 +750,16 @@ def set_notify_mode(session_id: str, mode: str | NotifyMode) -> bool:
     if value not in NOTIFY_MODES:
         return False
     sessions_meta[session_id].notify_mode = value
+    save_sessions_meta()
+    return True
+
+
+def set_account_pinned(session_id: str, pinned: bool) -> bool:
+    """タブの口座の固定の印を付ける / 外して永続化する。 タブが無ければ False。"""
+    meta = sessions_meta.get(session_id)
+    if meta is None:
+        return False
+    meta.account_pinned = pinned
     save_sessions_meta()
     return True
 

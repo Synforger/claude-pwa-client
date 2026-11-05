@@ -270,3 +270,36 @@ def test_a_tab_whose_rollover_was_asked_is_left_awake(monkeypatch, tmp_path):
 def test_a_tab_still_starting_is_left_awake(monkeypatch, tmp_path):
     _stand_in(monkeypatch, tmp_path, ready=False)
     assert j.judge(sensors.gather("ses_x", 60), 60) == (j.STARTING,)
+
+
+def test_a_tab_a_limit_stopped_is_read_past_its_open_turn_to_the_processes_under_it(monkeypatch, tmp_path):
+    calls = _stand_in(monkeypatch, tmp_path, busy=True, ready=False, tree=(j.ProcessNode(names=("sleep",)),))
+    facts = sensors.gather("ses_x", 0, by_hand=True, stopped_by_limit=True)
+    assert "record" in calls and calls[-1] == "tree"
+    assert j.judge(facts, 0, by_hand=True, stopped_by_limit=True) == (j.PROCESSES_RUNNING,)
+    # asked without the stop, the same tab is not read further than its open turn
+    calls.clear()
+    assert j.judge(sensors.gather("ses_x", 0, by_hand=True), 0, by_hand=True) == (j.STARTING, j.TURN_OPEN)
+    assert "tree" not in calls
+
+
+def test_a_tab_that_just_woke_is_quiet_from_zero_though_its_rows_are_old(monkeypatch, tmp_path):
+    _stand_in(monkeypatch, tmp_path)
+    sensors._woken_at.pop("ses_x", None)
+    assert sensors.gather("ses_x", 60).quiet_minutes > 100                  # the record is two hours old
+    sensors.note_woken("ses_x")
+    try:
+        assert sensors.gather("ses_x", 60).quiet_minutes < 1
+        sensors.note_woken("ses_x", time.time() - 600)
+        assert 9 < sensors.gather("ses_x", 60).quiet_minutes < 11          # measured from the time it woke
+    finally:
+        sensors._woken_at.pop("ses_x", None)
+
+
+def test_a_row_newer_than_the_wake_is_what_the_quiet_time_is_measured_from(monkeypatch, tmp_path):
+    _stand_in(monkeypatch, tmp_path)
+    sensors.note_woken("ses_x", time.time() - 7 * 3600)                     # woke long ago: the rows are newer
+    try:
+        assert 100 < sensors.gather("ses_x", 60).quiet_minutes < 130
+    finally:
+        sensors._woken_at.pop("ses_x", None)

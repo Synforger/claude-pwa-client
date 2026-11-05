@@ -132,6 +132,45 @@ def latest_clean_fork_point(source_lines: list[str]) -> str | None:
     return None
 
 
+def is_limit_stop_row(row: dict) -> bool:
+    """Whether `row` is what Claude Code writes when a usage limit ended the turn: an error message of the assistant
+    (`isApiErrorMessage`) whose `error` is `rate_limit`. A 429 that Claude Code marks as passing
+    (`apiErrorIsTransient`, a temporary shortage of capacity) is not a limit."""
+    return (row.get("type") == "assistant" and row.get("isApiErrorMessage") is True
+            and row.get("error") == "rate_limit" and row.get("apiErrorIsTransient") is not True)
+
+
+def _without_limit_stops(source_lines: list[str]) -> list[str]:
+    """`source_lines` without the rows a usage limit wrote."""
+    kept: list[str] = []
+    for raw in source_lines:
+        try:
+            row = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            row = None
+        if not (isinstance(row, dict) and is_limit_stop_row(row)):
+            kept.append(raw)
+    return kept
+
+
+def latest_cut_through_tool_results(source_lines: list[str]) -> str | None:
+    """The uuid of the last message of the conversation once the rows a usage limit wrote are left out, so that the
+    tool results of the turn it stopped stay. A conversation that then ends in a tool call with no result cannot be
+    cut there: the latest clean point is taken, as for any cut. None when there is no row to cut at."""
+    kept = _without_limit_stops(source_lines)
+    parsed = _parse_lines(kept)
+    for row in reversed(parsed):
+        if row.get("type") not in ("user", "assistant") or not row.get("uuid") or row.get("isSidechain") or row.get("isMeta"):
+            continue
+        if row.get("type") == "assistant":
+            message_id = (row.get("message") or {}).get("id")
+            group = [d for d in parsed if (d.get("message") or {}).get("id") == message_id] if message_id else [row]
+            if any("tool_use" in _content_block_types(d) for d in group):
+                return latest_clean_fork_point(kept)
+        return row["uuid"]
+    return None
+
+
 def is_clean_fork_point(source_lines: list[str], from_uuid: str) -> bool:
     """fork_point_status が "ok" かの薄いラッパ (= 既存呼び出し / test 互換)。"""
     return fork_point_status(source_lines, from_uuid) == "ok"

@@ -99,3 +99,21 @@ def test_a_sleep_by_hand_keeps_every_other_condition():
     facts = dataclasses.replace(READY, quiet_minutes=1.0, turn_open=True, on_voice_call=True,
                                 record=RecordFacts(wakeup_pending=True))
     assert j.judge(facts, MINUTES, by_hand=True) == (j.TURN_OPEN, j.WAKEUP_SCHEDULED, j.VOICE_CALL)
+
+
+def test_a_tab_a_limit_stopped_is_not_held_by_what_the_stop_leaves_looking_like_work():
+    facts = dataclasses.replace(READY, starting=True, turn_open=True, record=RecordFacts(awaiting_tool_result=True))
+    assert j.judge(facts, MINUTES) == (j.STARTING, j.TURN_OPEN, j.AWAITING_TOOL_RESULT)
+    assert j.judge(facts, MINUTES, stopped_by_limit=True) == ()
+
+
+def test_a_tab_a_limit_stopped_is_still_held_by_what_really_runs_under_it():
+    facts = dataclasses.replace(READY, claude_running=False, foreign_processes=("sleep",), on_voice_call=True,
+                                rolling_over=True, record=RecordFacts(wakeup_pending=True, cron_open=1))
+    assert j.judge(facts, MINUTES, stopped_by_limit=True) == (
+        j.CLAUDE_NOT_RUNNING, j.PROCESSES_RUNNING, j.WAKEUP_SCHEDULED, j.CRON_SCHEDULED, j.VOICE_CALL, j.ROLLING_OVER)
+
+
+def test_the_two_options_add_up():
+    facts = dataclasses.replace(READY, quiet_minutes=1.0, turn_open=True)
+    assert j.judge(facts, MINUTES, by_hand=True, stopped_by_limit=True) == ()
