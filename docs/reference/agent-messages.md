@@ -71,6 +71,8 @@ Message from another session, relayed by the client (the operator did not type t
 
 人が画面から送った発話には、 この 1 行目は付きません。 Claude の端末への入力を読む外部の道具で
 「人が打った発話」 と「別のタブから届いた連絡」 を分けたい時は、 この 1 行目で見分けられます。
+client が端末へ打つ連絡の 1 行目の全部 (別の機械から届く連絡、 自動の入れ替え、 階層のタブ、 client の連絡の分を含む) は、
+`contracts/openings.txt` に 1 行 1 つ (頭に `>`) で出しています。 外の道具はこの file を読めます。
 
 ### 見分けが成り立つ条件
 
