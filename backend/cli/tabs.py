@@ -433,6 +433,7 @@ STATES = {"done": "完了", "stuck": "詰まり"}
 #: `children` の claude の欄の 4 つの語 (= 答えの途中 / claude は動いているが答えていない / 眠らせた / 動いていない)
 CLAUDE_ANSWERING = "作業中"
 CLAUDE_WAITING = "入力待ち"
+CLAUDE_BACKGROUND = "裏の仕事待ち"
 CLAUDE_ASLEEP = "眠り"
 CLAUDE_NONE = "Claude なし"
 #: 作業中のメモのまま入力待ちの子 (= 報告せずに止まった) の印。 `--summary` ではこの子の数を `静か` と数える (= 起動の検査の形)
@@ -527,11 +528,28 @@ def my_children() -> tuple[list[dict] | None, str]:
     return [t for t in tabs if t.get("child") and t.get("parent_id") == me], ""
 
 
-def claude_word(tab: dict, claude: dict | None) -> str:
-    """`children` の claude の欄の語。 動いている claude は、 答えの途中 (= 状態が `busy`) か、 入力待ちのどちらか。"""
-    if claude:
-        return CLAUDE_ANSWERING if claude.get("status") == "busy" else CLAUDE_WAITING
-    return CLAUDE_ASLEEP if tab.get("asleep") else CLAUDE_NONE
+#: 区切りの判定で、 答えの途中を示す理由 (= backend の `sleep_judgement.TURN_OPEN`)。
+TURN_OPEN = "turn_open"
+
+
+def claude_word(tab: dict, claude: dict | None, blocked_by: list[str] | None = None) -> str:
+    """`children` の claude の欄の語。 動いている claude は、 答えの途中 (= 状態が `busy` か、 区切りの判定が答えの途中と
+    言う)、 裏の仕事待ち (= 区切りの判定に他の理由がある: 裏のコマンド・起こす予約・定期の予約・結果待ちなど)、
+    入力待ち (= 区切りに居る) のどれか。 `blocked_by` は backend の区切りの判定 (= 取れなかった時は None で、
+    答えていない claude を裏の仕事待ちとして扱う。 止まったと言い切れないため)。"""
+    if not claude:
+        return CLAUDE_ASLEEP if tab.get("asleep") else CLAUDE_NONE
+    if claude.get("status") == "busy" or TURN_OPEN in (blocked_by or ()):
+        return CLAUDE_ANSWERING
+    return CLAUDE_BACKGROUND if blocked_by is None or blocked_by else CLAUDE_WAITING
+
+
+def holds(me: str) -> dict[str, list[str] | None]:
+    """子のタブの id → 今その子を区切りから外している理由 (= backend の `GET /sessions/{親}/children`)。 取れなければ空。"""
+    status, body = call(f"/sessions/{urllib.parse.quote(me)}/children")
+    if status != 200 or not isinstance(body, dict):
+        return {}
+    return {c.get("id"): c.get("blocked_by") for c in body.get("children") or [] if isinstance(c, dict)}
 
 
 def children(summary: bool) -> int:
@@ -540,9 +558,11 @@ def children(summary: bool) -> int:
         print(f"children: UNKNOWN ({why})" if summary else f"tabs: 子の一覧を取れません: {why}",
               file=sys.stdout if summary else sys.stderr)
         return 0 if summary else 1
-    tier, live = my_tier(), running()
-    rows = [(t, memo_state(child_note(tier, t["id"]) if tier else None), claude_word(t, live.get(t["id"]))) for t in found]
-    # メモは作業中なのに claude が入力待ちの子 (= 報告せずに止まった。 API の接続が切れた子は、 次の発話まで待ち続ける)
+    tier, live, held = my_tier(), running(), holds(os.environ.get("PWA_SID") or "")
+    rows = [(t, memo_state(child_note(tier, t["id"]) if tier else None), claude_word(t, live.get(t["id"]), held.get(t["id"])))
+            for t in found]
+    # メモは作業中なのに claude が区切りで入力を待っている子 (= 報告せずに止まった。 止まった子の見回りと同じ判定。
+    # 裏のコマンドの終わりを待つ子は、 終われば claude が自分で起きるので数えない)
     stopped = {t["id"] for t, state, word in rows if state == WORKING and word == CLAUDE_WAITING}
     if summary:
         counts = {name: sum(1 for _, state, _ in rows if state == name) for name in (WORKING, *STATES.values())}

@@ -285,3 +285,32 @@ def test_a_child_of_a_tab_that_is_not_pinned_is_not_pinned(opened, isolated_stat
     with _client() as client:
         body = client.post("/sessions/ses_p/children", data={"agent_id": "agent_sub", "text": "go"}).json()
     assert isolated_state.sessions_meta[body["id"]].account_pinned is False and body["fallback_from"] is None
+
+
+# --- 子が今何に止められているか -----------------------------------------------------------
+
+def test_a_parent_reads_what_holds_each_of_its_children_now(family, isolated_state, monkeypatch):
+    from backend.account_fallback.fallback_sensors import TabBreak  # noqa: PLC0415
+    from backend._common.state import SleepMark  # noqa: PLC0415
+    isolated_state.sessions_meta["ses_d"] = SessionDef(id="ses_d", agent_id="agent_sub", title="d", created_at=0,
+                                                       parent_id="ses_p", child=True,
+                                                       sleep=SleepMark(claude_sid="d", record="/x", slept_at=0))
+    read = []
+
+    def fake_break(session_id):
+        read.append(session_id)
+        return TabBreak(None, ("processes_running",))
+    monkeypatch.setattr(cs, "read_tab_break", fake_break)
+    with _client() as client:
+        r = client.get("/sessions/ses_p/children")
+    assert r.status_code == 200
+    assert r.json() == {"children": [{"id": "ses_c", "blocked_by": ["processes_running"]},
+                                     {"id": "ses_d", "blocked_by": None}]}
+    assert read == ["ses_c"]                                    # a sleeping child is not read; another's child is not listed
+
+
+def test_the_children_of_an_unknown_tab_or_from_another_machine_are_refused(family):
+    with _client() as client:
+        assert client.get("/sessions/ses_nobody/children").status_code == 404
+    with _client("100.64.0.9") as client:
+        assert client.get("/sessions/ses_p/children").status_code == 403

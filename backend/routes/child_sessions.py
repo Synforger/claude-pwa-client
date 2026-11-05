@@ -18,17 +18,22 @@ claude も、 端末の入力を読む外の道具も、 「人が打った文�
 `child_sessions_max` が決める (= 既定 5)。 閉じるのは今までのタブと同じ
 `DELETE /sessions/{sid}` で、 閉じた子は数から外れる。
 
+親は、 自分の子が今何に止められているか (= 止まった子の見回りと同じ区切りの判定) を `GET /sessions/{親}/children` で
+読める。 `tabs children` はこれで、 裏のコマンドの終わりを待つ子を 「止まった子」 と見分ける。
+
 親は、 報告を受けて待たせておく子を今すぐ眠らせられる (= `POST /sessions/{親}/children/{子}/sleep`)。 眠らせ方と
 起こし方は、 静かなタブを眠らせる見回りと同じ (= `backend/sleep/`、 届いた連絡で同じ会話のまま起きる)。 違うのは、
 静かな時間を待たないことと、 入れ替えの線を超えた子も眠らせることだけ。 眠った子も閉じるまでは子の数に入る。
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Form, Request
 
 from backend._common.errors import raise_error
+from backend.account_fallback.fallback_sensors import read_tab_break
 from backend.routes.agent_messages import LOCAL_CLIENTS, envelope, judge
 from backend._common.state import register_session, sessions_meta
 from backend.sleep.sleeper import sleep_now
@@ -103,6 +108,28 @@ async def post_child_session(
     logger.info("child session parent=%s child=%s agent=%s chars=%d started=%s",
                 session_id, meta.id, agent_id, len(text), result.get("ok"))
     return {**meta.to_dict(), "started": bool(result.get("ok"))}
+
+
+@router.get("/sessions/{session_id}/children")
+async def get_children(request: Request, session_id: str) -> dict:
+    """What holds each child of the tab now: the conditions that keep it from being at a break, as the child watch
+    reads them (`child_watch/watch_sensors.py`: the sleep judgement asked by hand, a usage-limit stop taken into
+    account). → `{"children": [{"id": …, "blocked_by": [...] | null}]}`; an empty list = the child is at a break (its
+    claude waits for input with nothing running), null = the child is asleep. `tabs children` reads it, so that a
+    child waiting for a command it started in the background is not shown as stopped."""
+    client_host = request.client.host if request.client else None
+    if client_host not in LOCAL_CLIENTS:
+        raise_error(403, "child_session_local_only", "この口は同じ機械の中からだけ使えます")
+    if session_id not in sessions_meta:
+        raise_error(404, "session_not_found", f"タブが見つかりません: {session_id}", session=session_id)
+
+    def blocked_by(child_id: str) -> list[str] | None:
+        if sessions_meta[child_id].sleep is not None:
+            return None
+        return list(read_tab_break(child_id).blocked_by)
+    ids = children_of(session_id)
+    found = await asyncio.gather(*(asyncio.to_thread(blocked_by, child_id) for child_id in ids))
+    return {"children": [{"id": child_id, "blocked_by": held} for child_id, held in zip(ids, found)]}
 
 
 @router.post("/sessions/{session_id}/children/{child_id}/sleep")
