@@ -15,6 +15,7 @@ import backend.push.push as push
 import backend.terminal.session_resolver as session_resolver
 from backend._common.state import SleepMark, register_session, sessions_meta
 from backend.account_fallback.fallback_sensors import TabBreak
+from backend.sleep.record_facts import LimitStop
 from backend.jsonl.jsonl_predicates import CLIENT_NOTICE_OPENING
 from backend.routes.agent_messages import allowed_for_peer
 from backend.tests.account_fallback.conftest import usage_row
@@ -54,6 +55,18 @@ def test_a_tab_the_limit_stopped_is_moved_with_its_tool_results_and_told_to_carr
     assert text.splitlines()[0] == CLIENT_NOTICE_OPENING
     assert '<account-move from="work" to="personal" reason="limit">' in text
     assert "Carry on with the work you were doing before it stopped." in text
+
+
+def test_a_tab_at_a_break_still_owed_the_continuation_of_a_limit_is_moved_at_its_break_and_told_to_carry_on(env):
+    """A tab that answered background notifications after Claude Code booked its continuation at a limit: the
+    conversation does not end in the stop, so the move cuts at the turn as usual, but the claude started on the other
+    account has lost the booking, so the patrol sends it."""
+    env.rows = [usage_row(five=100)]
+    env.owed = LimitStop("n1", time.time() - 120)
+    run(patrol.tick())
+    assert _uuids(_copy_of(env)) == ["u1", "a1", "u2", "lim1"]          # cut at the turn, not through tool results
+    [(_session_id, text)] = env.sent
+    assert '<account-move from="work" to="personal" reason="limit">' in text
 
 
 @pytest.mark.parametrize("seven_only", [False, True])
@@ -143,7 +156,7 @@ def test_a_move_is_logged(env, caplog):
     with caplog.at_level(logging.INFO):
         run(patrol.tick())
     assert any(r.getMessage() == f"account fallback: moved session={env.tab.id} from=work to=personal "
-                                 f"stopped_by_limit=False" for r in caplog.records)
+                                 f"stopped_by_limit=False continuation_owed=False" for r in caplog.records)
 
 
 def test_no_push_notification_is_sent(env, monkeypatch):

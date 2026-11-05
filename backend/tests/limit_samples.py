@@ -19,6 +19,30 @@ def limit_stop_row(uuid: str, parent: str | None, timestamp: str = "2026-11-05T1
     return row
 
 
+def limit_notice_row(uuid: str, parent: str | None, timestamp: str = "2026-11-05T10:00:00.000Z",
+                     text: str = "Usage limit reached · continuing automatically at 2am · esc to cancel") -> dict:
+    """The notice Claude Code writes when a usage limit stops it and it books its own continuation for the reset
+    (a `system` row of subtype `informational`, as a real record of Claude Code 2.1.318 holds it). It comes with the
+    API-error row or, when the limit falls outside a turn's answer, alone."""
+    return {"parentUuid": parent, "isSidechain": False, "type": "system", "subtype": "informational",
+            "content": text, "isMeta": False, "level": "notice", "uuid": uuid, "timestamp": timestamp,
+            "sessionId": "OLD"}
+
+
+def limit_reset_rows(parent: str | None, timestamp: str = "2026-11-05T12:00:00.000Z") -> list[dict]:
+    """What Claude Code writes when the limit resets and it sends the continuation it booked: its notice, then the
+    prompt of the continuation (`isMeta`, origin `auto-continuation`)."""
+    return [
+        {"parentUuid": parent, "isSidechain": False, "type": "system", "subtype": "informational",
+         "content": "Usage limit reset · Continuing automatically", "isMeta": False, "uuid": "reset-notice",
+         "timestamp": timestamp, "sessionId": "OLD"},
+        {"parentUuid": "reset-notice", "isSidechain": False, "type": "user", "isMeta": True,
+         "origin": {"kind": "auto-continuation"}, "uuid": "reset-prompt", "timestamp": timestamp, "sessionId": "OLD",
+         "message": {"role": "user", "content": "Your claude.ai usage limit has reset. Continue the task you were "
+                                                 "working on when the limit was reached."}},
+    ]
+
+
 def message_row(uuid: str, parent: str | None, kind: str, content, timestamp: str = "2026-11-05T09:00:00.000Z") -> dict:
     """A user or assistant row; `content` is a text or the list of blocks."""
     return {"parentUuid": parent, "isSidechain": False, "type": kind, "uuid": uuid, "timestamp": timestamp,

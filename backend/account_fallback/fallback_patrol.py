@@ -84,7 +84,8 @@ async def _pause(session_id: str, meta: SessionDef, wanted: Move, tab_break: Tab
 async def _move(session_id: str, current: str, home: str, rule: FallbackRule | None, action: Move,
                 tab_break: TabBreak) -> bool:
     """Do `action` on the tab. True when it moved. A move that fails leaves the tab on the account it was on, and the
-    next look tries again. A tab that was stopped by a limit, or asked to come to a break, is told to carry on."""
+    next look tries again. A tab that was stopped by a limit, or still owed the continuation Claude Code booked at a
+    limit (the move starts claude again, which loses it), or asked to come to a break, is told to carry on."""
     moving = action is Move.MOVE
     target = rule.to_account if moving and rule is not None else home
     cut = LineageCut.THROUGH_TOOL_RESULTS if tab_break.stop is not None else LineageCut.CLEAN_TURN
@@ -94,13 +95,14 @@ async def _move(session_id: str, current: str, home: str, rule: FallbackRule | N
         logger.warning("account fallback: could not move session=%s from=%s to=%s: %s", session_id, current, target,
                        error.detail)
         return False
-    logger.info("account fallback: %s session=%s from=%s to=%s stopped_by_limit=%s",
-                "moved" if moving else "returned", session_id, current, target, tab_break.stop is not None)
+    logger.info("account fallback: %s session=%s from=%s to=%s stopped_by_limit=%s continuation_owed=%s",
+                "moved" if moving else "returned", session_id, current, target, tab_break.stop is not None,
+                tab_break.owed is not None)
     meta = sessions_meta.get(session_id)
     asked = meta is not None and meta.pause_asked_at is not None
     if meta is not None:
         _clear_pause(session_id, meta)
-    if tab_break.stop is not None:
+    if tab_break.stop is not None or tab_break.owed is not None:
         await send_to_tab(session_id, carry_on_envelope(current, target, LIMIT))
     elif asked and moving:
         await send_to_tab(session_id, carry_on_envelope(current, target, PAUSE))

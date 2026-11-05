@@ -102,7 +102,7 @@ def test_the_newest_row_time_is_kept_whatever_the_row():
 
 # --- the stop a usage limit leaves at the end of the conversation ---
 
-from backend.tests.limit_samples import limit_stop_row  # noqa: E402
+from backend.tests.limit_samples import limit_notice_row, limit_reset_rows, limit_stop_row  # noqa: E402
 
 
 def test_a_conversation_ending_in_a_limit_row_is_stopped_by_the_limit():
@@ -125,3 +125,53 @@ def test_rows_that_are_not_messages_do_not_end_the_stop():
 @pytest.mark.parametrize("changes", [{"error": "authentication_failed"}, {"apiErrorIsTransient": True}])
 def test_an_error_row_that_is_not_a_limit_is_no_stop(changes):
     assert not _fold(limit_stop_row("x", None, **changes)).stopped_by_limit
+
+
+def test_claude_codes_notice_alone_is_a_limit_stop():
+    facts = _fold(_prompt(), _said(), limit_notice_row("n1", None, "2026-11-05T10:00:00.000Z"))
+    assert facts.limit_stop.uuid == "n1" and facts.continuation_owed.uuid == "n1"
+
+
+@pytest.mark.parametrize("order", ["error_first", "notice_first"])
+def test_the_error_row_and_the_notice_of_one_stop_are_one_stop_from_the_first(order):
+    rows = [limit_stop_row("e1", None, "2026-11-05T10:00:00.000Z"), limit_notice_row("n1", None, "2026-11-05T10:00:01.000Z")]
+    facts = _fold(_prompt(), *(rows if order == "error_first" else rows[::-1]))
+    first = "e1" if order == "error_first" else "n1"
+    assert facts.limit_stop.uuid == first and facts.continuation_owed.uuid == first
+
+
+def _notification() -> dict:
+    return {"type": "user", "origin": {"kind": "task-notification"},
+            "message": {"content": "<task-notification>done</task-notification>"}}
+
+
+def test_answering_a_background_notification_ends_the_stop_but_leaves_the_continuation_owed():
+    facts = _fold(_prompt(), _said(), limit_notice_row("n1", None), _notification(), _said("noted"))
+    assert facts.limit_stop is None
+    assert facts.continuation_owed.uuid == "n1"
+
+
+def test_a_second_notice_of_the_same_booking_keeps_the_first_stop():
+    facts = _fold(limit_notice_row("n1", None), _notification(), _said(),
+                  limit_notice_row("n2", None, text="Usage limit reached again · continuing automatically at 9pm"))
+    assert facts.continuation_owed.uuid == "n1"
+
+
+@pytest.mark.parametrize("settle", [
+    pytest.param(lambda: limit_reset_rows("n1")[:1], id="reset notice"),
+    pytest.param(lambda: limit_reset_rows("n1")[1:], id="claude code's own continuation"),
+    pytest.param(lambda: [_prompt()], id="a person's prompt"),
+    pytest.param(lambda: [{"type": "user", "message": {"content": "go on"}}], id="a prompt with no origin"),
+    pytest.param(lambda: [_queued("human")], id="a prompt queued by a person"),
+])
+def test_the_continuation_is_settled_by_the_reset_or_a_prompt(settle):
+    assert _fold(limit_notice_row("n1", None), *settle()).continuation_owed is None
+
+
+@pytest.mark.parametrize("row", [
+    {"type": "system", "subtype": "informational", "content": "Something else"},
+    {"type": "system", "subtype": "turn_duration", "content": "Usage limit reached"},
+    {"type": "system", "subtype": "informational", "content": None},
+])
+def test_other_system_rows_open_no_stop(row):
+    assert _fold(row) == RecordFacts()

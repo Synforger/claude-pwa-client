@@ -66,8 +66,8 @@
 | 自動の入れ替えの最中 | `rolling_over` |
 
 **ターンの途中で上限に当たって止まったタブは、止まったこと自体を区切りとして移します。** 会話の最後が、
-Claude Code が上限で止まった時に書く行 (`isApiErrorMessage: true`、`error: "rate_limit"`、一時的な混雑を示す
-`apiErrorIsTransient` が付かないもの) のタブです。この場合、止まったことで残る見かけだけを見ません:
+Claude Code が上限で止まった時に書く行 (誤りの行か知らせ。形は [上限が戻った時の続き](limit-resume.md#止まったタブ))
+のタブです。この場合、止まったことで残る見かけだけを見ません:
 返事を作っているように見えること (`turn_open`)、結果の無い道具の呼び出し (`awaiting_tool_result`)、起動の途中
 (`starting`)。**裏のコマンド・起こす予約・定期の予約・声の通話・入れ替えの最中・Claude が動いていないこと
 は、止まったタブでも待ちます**(移すと消えるものを消さないため)。判定は上の表と同じ 1 か所で、止まったタブの
@@ -89,7 +89,7 @@ account fallback: waits session=ses_0123456789ab account=work reasons=turn_open,
    書いた会話を消して、次の回にもう一度試します
 4. タブの Claude を止め、同じタブを、書いた会話の `--resume` で立て直します
 5. タブの定義 (`session_meta.json`) に、本来の口座 (`fallback_from`) と、書いた会話の path (`fallback_copy`) を保存します
-6. **止まっていたタブには、続けての連絡を 1 通送ります。** 区切りを頼んだタブにも、理由の欄を変えた同じ連絡を 1 通送ります ([答え続けているタブ](#答え続けているタブ))。それ以外のタブには何も送りません
+6. **止まっていたタブには、続けての連絡を 1 通送ります。** 会話の最後は止まった所でなくても、Claude Code が上限で予約した続きがまだ果たされていないタブ (上限の後に裏の仕事の知らせへ答えて区切りに来たタブなど) も同じです。Claude を立て直すとその予約は消えるので、代わりに送ります ([上限が戻った時の続き](limit-resume.md#止まったタブ))。区切りを頼んだタブにも、理由の欄を変えた同じ連絡を 1 通送ります ([答え続けているタブ](#答え続けているタブ))。それ以外のタブには何も送りません
 
 続けての連絡は、client の連絡の 1 行目 (「client が送った、人が打っていない」と分かる固定の行) で始まります。
 
@@ -194,8 +194,8 @@ account fallback: no break after asking to pause session=ses_0123456789ab accoun
 - backend の log に、移した・戻した・写しを消した、が 1 行ずつ出ます
 
 ```
-account fallback: moved session=ses_0123456789ab from=work to=personal stopped_by_limit=False
-account fallback: returned session=ses_0123456789ab from=personal to=work stopped_by_limit=False
+account fallback: moved session=ses_0123456789ab from=work to=personal stopped_by_limit=False continuation_owed=False
+account fallback: returned session=ses_0123456789ab from=personal to=work stopped_by_limit=False continuation_owed=False
 account move: deleted the record the client wrote path=~/.claude/projects/-path-to-agent/3f2a….jsonl
 ```
 
