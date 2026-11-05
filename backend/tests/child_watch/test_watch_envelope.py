@@ -17,6 +17,6 @@ def test_the_block_names_the_child_its_title_and_the_reason():
 
 
 def test_a_limit_says_claude_code_carries_on_by_itself_and_idle_says_it_waits_without_a_report():
-    assert "reservation to carry on by itself once the limit is over" in child_stopped_envelope("c", "t", LIMIT)
+    assert "Once the limit is over it is told to carry on" in child_stopped_envelope("c", "t", LIMIT)
     idle = child_stopped_envelope("c", "t", IDLE)
     assert "waiting for input" in idle and "has not reported" in idle and "usage limit" not in idle

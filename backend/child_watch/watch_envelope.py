@@ -12,8 +12,9 @@ from backend.jsonl.jsonl_predicates import CLIENT_NOTICE_OPENING as OPENING
 TAG = "child-stopped"
 
 _BODY = {
-    LIMIT: ("A usage limit stopped this child before it reported. Claude Code holds a reservation to carry on by "
-            "itself once the limit is over, so it needs nothing from you unless it stays stopped."),
+    LIMIT: ("A usage limit stopped this child before it reported. Once the limit is over it is told to carry on "
+            "(by Claude Code itself, or by the client when the child's claude was started again since), so it needs "
+            "nothing from you unless it stays stopped."),
 }
 _IDLE_BODY = ("This child is waiting for input and has not reported. It stopped without running `tabs report`: "
               "read the end of its conversation, then send it a message or close it.")
