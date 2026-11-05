@@ -105,6 +105,7 @@ import backend.rollover.rollover as rollover  # noqa: E402
 import backend.sleep as sleep  # noqa: E402
 import backend.account_fallback as account_fallback  # noqa: E402
 import backend.limit_resume as limit_resume  # noqa: E402
+import backend.child_watch.watch_patrol as child_watch  # noqa: E402
 import backend.terminal.session_resolver as session_resolver  # noqa: E402
 import backend.routes.rollover as rollover_routes  # noqa: E402
 import backend.routes.subagents as subagents_routes  # noqa: E402
@@ -276,6 +277,9 @@ async def lifespan(app: FastAPI):
     # 上限が戻った時の続き: 上限で止まったタブに、 戻ったら続けての連絡を 1 通送る (= `backend/limit_resume/`)。
     resume_task = asyncio.create_task(limit_resume.resume_loop())
 
+    # 止まった子: 報告せずに入力待ちで止まった子のタブがあれば、 親のタブへ 1 通知らせる (= `backend/child_watch/`)。
+    child_watch_task = asyncio.create_task(child_watch.watch_loop())
+
     # 階層のタブ: `tier_tabs: true` の agent の folder を見回り、 まだタブを立てたことの無い階層にタブを立てて
     # 起動する (= `backend/tier_tabs/tier_tabs.py`。 設定の無い agent には何もしない)。
     tier_tabs_task = asyncio.create_task(tier_tabs.tier_tabs_loop())
@@ -311,10 +315,11 @@ async def lifespan(app: FastAPI):
     sleep_task.cancel()
     fallback_task.cancel()
     resume_task.cancel()
+    child_watch_task.cancel()
     tier_tabs_task.cancel()
     prompt_detector_task.cancel()
     for _t in (blocker_monitor_task, uploads_gc_task, maintenance_task, rollover_task, sleep_task, fallback_task,
-               resume_task, tier_tabs_task, prompt_detector_task):
+               resume_task, child_watch_task, tier_tabs_task, prompt_detector_task):
         try:
             await _t
         except (asyncio.CancelledError, Exception):

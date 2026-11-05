@@ -321,24 +321,67 @@ def family(tabs):
     return tabs
 
 
+def running_claude(family, tab: str, status: str, number: int = 1) -> None:
+    """A claude of the given status runs in the tab (= the record Claude Code keeps for a live claude)."""
+    sessions = family.home / ".claude/sessions"
+    sessions.mkdir(exist_ok=True)
+    (sessions / f"{number}.json").write_text(
+        json.dumps({"sessionId": f"s-{tab}", "pid": os.getpid(), "tmux": f"pwa-{tab}:0", "status": status}), encoding="utf-8")
+
+
+def lines_by_tab(family) -> dict[str, str]:
+    family.run("children")
+    return {line.split()[0]: line for line in family.out.splitlines()}
+
+
 def test_children_counts_only_my_children_by_state(family):
+    running_claude(family, "ses_a", "idle")
     assert family.run("children", "--summary") == 0
     assert "children: 2 (作業中 1 / 完了 1 / 詰まり 0 / 静か 1)" in family.out
     family.run("children")
     assert "ses_a  作業中" in family.out and "ses_b  完了" in family.out and "ses_other" not in family.out
 
 
-def test_a_working_child_without_claude_is_marked_quiet_and_a_finished_one_is_not(family):
-    family.run("children")
-    lines = {line.split()[0]: line for line in family.out.splitlines()}
-    assert "claude なし" in lines["ses_a"] and "静か" in lines["ses_a"] and "静か" not in lines["ses_b"]
+def test_the_claude_column_says_answering_waiting_asleep_or_no_claude(family):
+    family.backend.tabs.insert(3, {"id": "ses_c", "title": "C", "child": True, "parent_id": "ses_parent"})
+    family.backend.tabs.insert(4, {"id": "ses_d", "title": "D", "child": True, "parent_id": "ses_parent", "asleep": True})
+    for tab in ("ses_c", "ses_d"):
+        family.note(tab, f"# {tab}\n\n- 状態: 作業中\n")
+    running_claude(family, "ses_a", "busy", 1)
+    running_claude(family, "ses_c", "idle", 2)
+    lines = lines_by_tab(family)
+    assert lines["ses_a"].split("  ")[2] == "作業中"
+    assert lines["ses_c"].split("  ")[2] == "入力待ち"
+    assert lines["ses_d"].split("  ")[2] == "眠り"
+    assert lines["ses_b"].split("  ")[2] == "Claude なし"
 
 
-def test_a_working_child_with_claude_is_not_quiet(family):
-    sessions = family.home / ".claude/sessions"
-    sessions.mkdir()
-    (sessions / "1.json").write_text(
-        json.dumps({"sessionId": "s-a", "pid": os.getpid(), "tmux": "pwa-ses_a:0", "status": "busy"}), encoding="utf-8")
+def test_a_working_child_whose_claude_waits_is_marked_as_stopped_without_a_report(family):
+    running_claude(family, "ses_a", "idle")
+    lines = lines_by_tab(family)
+    assert "入力待ち" in lines["ses_a"] and "← 報告なしで止まっている" in lines["ses_a"]
+    assert "静か" not in family.out
+
+
+def test_only_a_waiting_claude_of_a_working_memo_is_marked(family):
+    """Asleep, no claude, answering, and a child that has reported are not stopped without a report."""
+    family.backend.tabs[1]["asleep"] = True
+    assert "報告なしで" not in lines_by_tab(family)["ses_a"]                  # asleep, memo working
+    family.backend.tabs[1]["asleep"] = False
+    assert "報告なしで" not in lines_by_tab(family)["ses_a"]                  # no claude, memo working
+    running_claude(family, "ses_a", "busy")
+    assert "報告なしで" not in lines_by_tab(family)["ses_a"]                  # answering
+    running_claude(family, "ses_b", "idle", 2)
+    assert "報告なしで" not in lines_by_tab(family)["ses_b"]                  # waiting, but its memo says done
+
+
+def test_a_working_child_with_claude_answering_is_not_counted_as_quiet(family):
+    running_claude(family, "ses_a", "busy")
+    family.run("children", "--summary")
+    assert "children: 2 (作業中 1 / 完了 1 / 詰まり 0 / 静か 0)" in family.out
+
+
+def test_a_working_child_without_claude_is_not_counted_as_quiet(family):
     family.run("children", "--summary")
     assert "children: 2 (作業中 1 / 完了 1 / 詰まり 0 / 静か 0)" in family.out
 
@@ -407,7 +450,7 @@ def test_children_shows_a_sleeping_child_as_asleep(family):
     family.backend.tabs[2]["asleep"] = True
     family.run("children")
     lines = {line.split()[0]: line for line in family.out.splitlines()}
-    assert "眠り" in lines["ses_b"] and "claude なし" in lines["ses_a"]
+    assert "眠り" in lines["ses_b"] and "Claude なし" in lines["ses_a"]
 
 
 # --- 起動し直し -------------------------------------------------------------------------
