@@ -62,6 +62,7 @@ from backend._common.state import sessions_meta
 from backend.terminal import input_ready
 from backend.terminal.first_message import LAUNCH_DISCOVER_SEC
 from backend.terminal.pty_discover import claude_in_pane, register_claude_when_ready
+from backend.terminal.receipt import SCREEN_WAIT_SEC, deliver_to_woken, wait_for_claude_screen
 from backend.terminal.routes import pty_send
 from backend.terminal.runner import has_tmux_session, jsonl_path_for_session, tmux_send_keys
 from backend.terminal.session_resolver import (
@@ -384,12 +385,16 @@ def _reopens_in_its_shell(tab_id: str) -> bool:
     return meta is not None and (meta.child or not uses_launcher(tab_id) or meta.sleeping_claude_sid() is not None)
 
 
-async def wake_tab(tab_id: str) -> None:
+async def wake_tab(tab_id: str) -> bool:
     """Start the tab's claude the way the operator's action would, and wait until it takes input. The sender learns
     here when it did not start, and nothing is typed into a pane that is not listening. A new conversation is left to
-    the first message (`pty_send`), which starts it with the message."""
+    the first message (`pty_send`), which starts it with the message. → True when this started the claude (= the
+    message is then typed by `deliver_message`, which makes sure it was taken); False when it was running already.
+
+    A claude that was started is also waited for until its pane shows Claude's screen: its hooks say it is ready before
+    it has read the conversation and drawn the input, and what is typed in between is lost."""
     if _tab_running(tab_id):
-        return
+        return False
     shell_left = has_tmux_session(tab_id) and input_ready.is_ready(tab_id)
     await ensure_pty_session_for(tab_id)
     if shell_left and _reopens_in_its_shell(tab_id) and (command := resume_command_for(tab_id)) is not None:
@@ -402,6 +407,22 @@ async def wake_tab(tab_id: str) -> None:
     if not await input_ready.wait_ready(tab_id, LAUNCH_DISCOVER_SEC):
         raise_error(409, "agent_message_receiver_not_ready",
                     f"宛先の claude が {LAUNCH_DISCOVER_SEC:.0f} 秒以内に起動しませんでした。 もう一度送ってください")
+    if not await wait_for_claude_screen(tab_id):
+        raise_error(409, "agent_message_receiver_not_ready",
+                    f"宛先の claude の画面が {SCREEN_WAIT_SEC:.0f} 秒以内に入力を受けられる形になりませんでした。 もう一度送ってください")
+    return True
+
+
+async def deliver_message(tab_id: str, text: str, woke: bool) -> dict:
+    """Type `text` (= a message already in its envelope) into the tab and press Enter. A tab that `wake_tab` started
+    (`woke`) is only said to have taken it when its record shows the message (after one rescue, see
+    `terminal/receipt.py`); otherwise 409 `agent_message_not_taken`. A tab that was running already gets the plain
+    `pty_send`, whose answer is that of the typing."""
+    if not woke:
+        return await pty_send(tab_id, {"text": text, "enter": True}, None)
+    if not await deliver_to_woken(tab_id, text):
+        raise_error(409, "agent_message_not_taken", "宛先が受け取りませんでした。 もう一度送ってください")
+    return {"ok": True, "confirmed": True}
 
 
 async def send_to_peer(peer_name: str, tab: str, sender: str, text: str) -> dict:
@@ -467,10 +488,10 @@ async def post_agent_message(
     if not _tab_reachable(receiver_id):
         raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
     await check(receiver_id, text)
-    await wake_tab(receiver_id)
+    woke = await wake_tab(receiver_id)
     said = await operator_said_for(sender, receiver_id) if operator_said else None
     title = await sender_title(sender, receiver_id)
-    result = await pty_send(receiver_id, {"text": envelope(sender, text, said, title), "enter": True}, None)
+    result = await deliver_message(receiver_id, envelope(sender, text, said, title), woke)
     logger.info("agent message sender=%s receiver=%s chars=%d operator_said=%s ok=%s",
                 sender, receiver_id, len(text), said is not None, result.get("ok"))
     return {**result, "to": receiver_id, "operator_said": said is not None}
@@ -510,9 +531,8 @@ async def post_relayed_agent_message(request: Request, body: dict = Body(...)) -
     if not _tab_reachable(receiver_id):
         raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
     await check(receiver_id, text)
-    await wake_tab(receiver_id)
-    payload = {"text": relayed_envelope(peer_name, title, session, text), "enter": True}
-    result = await pty_send(receiver_id, payload, None)
+    woke = await wake_tab(receiver_id)
+    result = await deliver_message(receiver_id, relayed_envelope(peer_name, title, session, text), woke)
     logger.info("agent message peer=%s sender=%s receiver=%s chars=%d operator_said=False ok=%s",
                 peer_name, session, receiver_id, len(text), result.get("ok"))
     return {**result, "to": receiver_id, "operator_said": False}

@@ -10,21 +10,20 @@ import logging
 
 from fastapi import HTTPException
 
-from backend.routes.agent_messages import wake_tab
-from backend.terminal.routes import pty_send
+from backend.routes.agent_messages import deliver_message, wake_tab
 
 logger = logging.getLogger(__name__)
 
 
 async def send_to_tab(session_id: str, text: str) -> bool:
     """Type `text` into the tab as a message and press Enter. True when the tab took it; False (with the reason in the
-    log) when its claude could not be started or did not take the input."""
+    log) when its claude could not be started or did not take the message."""
     try:
-        await wake_tab(session_id)
+        woke = await wake_tab(session_id)
+        result = await deliver_message(session_id, text, woke)
     except HTTPException as error:
-        logger.warning("client message: the tab could not be woken session=%s: %s", session_id, error.detail)
+        logger.warning("client message: the tab did not take the message session=%s: %s", session_id, error.detail)
         return False
-    result = await pty_send(session_id, {"text": text, "enter": True}, None)
     if not result.get("ok"):
         logger.warning("client message: the tab did not take the message session=%s reason=%s", session_id,
                        result.get("reason"))

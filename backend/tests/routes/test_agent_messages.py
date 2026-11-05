@@ -36,6 +36,17 @@ def typed(monkeypatch) -> list[tuple[str, dict]]:
         return {"ok": True, "delivered": True}
 
     monkeypatch.setattr(am, "pty_send", fake_send)
+
+    # a tab that was started shows Claude's screen at once, and takes what is typed (= `terminal/receipt.py` has its own tests)
+    async def fake_screen(session_id):
+        return True
+
+    async def fake_deliver(session_id, text):
+        await fake_send(session_id, {"text": text, "enter": True}, None)
+        return True
+
+    monkeypatch.setattr(am, "wait_for_claude_screen", fake_screen)
+    monkeypatch.setattr(am, "deliver_to_woken", fake_deliver)
     monkeypatch.setattr(am, "claude_in_pane", lambda sid: sid != "ses_idle")
     # ses_idle has a shell left in its pane, its agent has no launcher and it has no conversation to reopen
     # (= a message has no way to start its claude)

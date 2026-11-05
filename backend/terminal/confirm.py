@@ -137,6 +137,12 @@ async def _wait_count_added(counter, path, initial_pos: int, timeout: float) -> 
     return n > 0
 
 
+async def wait_prompt_row(path, initial_pos: int, timeout: float) -> bool:
+    """Wait until a row of a person's prompt is written to the record after `initial_pos` (= its size before the typing),
+    for at most `timeout` seconds. True when one is."""
+    return await _wait_count_added(_count_user_prompts, path, initial_pos, timeout=timeout)
+
+
 def _delivery_counter(text: str):
     """送信本文に応じた確認カウンタを返す。 slash command は `<command-name>` 行、
     素プロンプトは素の user 行で確認する。 返り値 (counter, is_slash)。"""

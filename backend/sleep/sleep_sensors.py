@@ -34,6 +34,17 @@ PROCESS_COUNT_MAX = 300
 # Arguments of a process that can name the tool it runs (= `node /path/typescript-language-server --stdio`).
 NAMED_ARGUMENTS = 3
 
+# When each tab was last seen waking from sleep (unix seconds). The quiet time is measured from the later of this and the
+# newest row of its conversation: a woken tab has done nothing yet, and measured by its old rows it would sleep again
+# within a minute. Memory only: a tab that is quiet by its rows after a restart of the backend sleeps as any quiet tab.
+_woken_at: dict[str, float] = {}
+
+
+def note_woken(session_id: str, at: float | None = None) -> None:
+    """Record that the tab woke from sleep now (or at `at`), which starts its quiet time over."""
+    _woken_at[session_id] = time.time() if at is None else at
+
+
 # Per record: how far it was read and what the rows read so far left behind. Only a shortcut: a record read from
 # its start again gives the same facts, so a restart of the backend loses nothing.
 _scans: dict[str, tuple[int, RecordFacts]] = {}
@@ -145,7 +156,8 @@ def gather(session_id: str, minutes: int, by_hand: bool = False, stopped_by_limi
     record = jsonl_watcher.get_jsonl_for(session_id)
     try:
         scanned = record_facts_of(record) if record is not None else None
-        quiet = (time.time() - last_activity(record, scanned)) / 60 if record is not None and scanned else None
+        quiet = ((time.time() - max(last_activity(record, scanned), _woken_at.get(session_id, 0.0))) / 60
+                 if record is not None and scanned else None)
     except OSError:
         scanned, quiet = None, None
     facts = dataclasses.replace(facts, record_found=quiet is not None, quiet_minutes=quiet)

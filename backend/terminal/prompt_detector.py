@@ -312,7 +312,7 @@ class DetectorState:
 def _tier_a_alternate(snapshot: TailSnapshot) -> Optional[Verdict]:
     if not snapshot.alternate_on:
         return None
-    if _claude_tui_owns_screen(snapshot.tail_text):
+    if claude_tui_owns_screen(snapshot.tail_text):
         # claude 2.1.201 で「alternate flag は立ってるが画面は Claude TUI 本体」 の pane
         # を実測 (= 2026-07-06 会社 PC、 10 pane 中 4 本が常時 1)。 当初の実測前提
         # 「Claude Code は alternate screen を使わない」 が claude 側更新で崩れたため、
@@ -541,7 +541,7 @@ def _tier_b_build_verdict(
     )
 
 
-def _claude_tui_owns_screen(tail: str) -> bool:
+def claude_tui_owns_screen(tail: str) -> bool:
     """pane 末尾が Claude Code 自身の TUI (= 入力欄 + status bar) かを判定。
 
     末尾側に rate-limit status (`5h:NN%` / `ctx:NN%`) か bypass chip が見えていれば
@@ -578,7 +578,7 @@ def _tier_c_text_prompt(
     if state._idle_for(snapshot) < config.idle_threshold_sec:
         return None
     # Claude TUI が画面を占有中なら text prompt は存在しえない (= dialog は tier B が担当)
-    if _claude_tui_owns_screen(snapshot.tail_text):
+    if claude_tui_owns_screen(snapshot.tail_text):
         return None
     tail = snapshot.tail_text
     for pattern, category in (

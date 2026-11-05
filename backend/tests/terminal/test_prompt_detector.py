@@ -93,7 +93,7 @@ def test_tier_a_off_falls_through():
     assert verdict.state == PromptState.ACTIVE
 
 
-def test_tier_a_skipped_when_claude_tui_owns_screen():
+def test_tier_a_skipped_whenclaude_tui_owns_screen():
     """claude 2.1.201 実測 (= 2026-07-06): alternate flag が立ったまま Claude TUI 本体が
     画面に居る pane がある。 可視内容が Claude TUI (= status bar 末尾) なら tier A を
     出さない (= 「TUI running」 banner の常時点灯誤検知を塞ぐ)。"""
@@ -336,7 +336,7 @@ def test_tier_c_needs_idle_after_input_grace():
     assert verdict.state != PromptState.TEXT_PROMPT
 
 
-def test_tier_c_skipped_when_claude_tui_owns_screen():
+def test_tier_c_skipped_whenclaude_tui_owns_screen():
     """実測 (= 2026-07-06): チャット本文の番号リストが pane に描画され、 numbered_menu
     regex に誤 hit した。 pane 末尾に Claude の status bar が見えている = Claude TUI が
     画面占有中 = subprocess の生 prompt は存在しえないので tier C は丸ごと skip。"""
@@ -624,7 +624,7 @@ def test_tier_b_glyph_path_unchanged_with_ansi_present():
 def test_owns_screen_finds_status_bar_past_blank_lines_and_hints():
     """入力欄複数行 + status bar の下にヒント行/空行が挟まって status bar が末尾 4 行の外に
     出ても、 非空行末尾 8 行で拾って Claude TUI 占有と判定する (= banner 出っぱなし根治)。"""
-    from backend.terminal.prompt_detector import _claude_tui_owns_screen
+    from backend.terminal.prompt_detector import claude_tui_owns_screen
     tail = "\n".join([
         "9 tasks (8 done, 1 open)",
         "❯ ",
@@ -634,10 +634,10 @@ def test_owns_screen_finds_status_bar_past_blank_lines_and_hints():
         "",
         "",
     ])
-    assert _claude_tui_owns_screen(tail) is True
+    assert claude_tui_owns_screen(tail) is True
 
 
-def test_tier_a_suppressed_when_claude_tui_owns_screen_via_status_bar():
+def test_tier_a_suppressed_whenclaude_tui_owns_screen_via_status_bar():
     """alternate_on=True でも、 末尾側に Claude TUI status bar が見える素の入力欄 pane は
     tier A の "TUI running" を出さない (= 画像の状況、 下位 tier に流れて ACTIVE)。"""
     tail = "\n".join([
@@ -654,9 +654,9 @@ def test_tier_a_suppressed_when_claude_tui_owns_screen_via_status_bar():
 
 def test_owns_screen_false_for_real_fullscreen_tui():
     """vim/less 等 status bar の無い本物の全画面 TUI は占有と誤判定しない (= tier A が生きる)。"""
-    from backend.terminal.prompt_detector import _claude_tui_owns_screen
+    from backend.terminal.prompt_detector import claude_tui_owns_screen
     tail = "\n".join([f"~ line {i}" for i in range(20)] + ["-- INSERT --"])
-    assert _claude_tui_owns_screen(tail) is False
+    assert claude_tui_owns_screen(tail) is False
     v = analyze(_snap(tail, alternate=True), _new_state())
     assert v.state == PromptState.TUI
 
