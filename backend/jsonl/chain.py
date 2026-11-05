@@ -55,45 +55,74 @@ def base_of(sid: str, current: Path) -> int:
     return segments(sid, current)[-1].base
 
 
-def _size(path: Path) -> int:
-    try:
-        return path.stat().st_size
-    except OSError:
-        return 0
+@dataclass(frozen=True)
+class Window:
+    """つないだ記録から切り出した窓。 lines は [(行, 行末の通しの位置)]、 end は読み終えた通しの位置。
+
+    reached は、 呼び手が渡した since の直後の行から欠けずに返したか (= since を渡さなかった時は測れないので False)。
+    """
+    lines: list[tuple[str, int]]
+    end: int
+    reached: bool
+
+    def after(self, position: int | None) -> list[tuple[str, int]]:
+        """窓の行のうち position (= 画面が描き終えた位置) より後ろの行。 position が無い / 今の終わりより先を指す時は窓の全部。"""
+        if position is None or not 0 <= position <= self.end:
+            return self.lines
+        return [(raw, pos) for raw, pos in self.lines if pos > position]
+
+
+def read_window(
+    segs: list[Segment], since: int | None, recent_lines: int, limit_lines: int,
+) -> Window:
+    """つないだ記録の窓を返す。 窓の頭は「直近 recent_lines 行の頭」と since の早い方で、 直近 limit_lines 行より前にはしない。
+
+    since は画面が描き終えた通しの位置。 画面を閉じている間に書かれた行が recent_lines を超えても、 since まで
+    遡って返す (= 画面の中に穴が空かない)。 limit_lines を超える時は直近 limit_lines 行までで、 reached は False。
+    since が今の終わりより先を指す時 (= 画面の位置が先行した) は、 抜けが無いので直近 recent_lines 行で reached は True。
+    読むのは窓の分だけ (= 頭の位置は末尾から改行を数えて決め、 窓の外の行は読まない)。
+    """
+    if not segs:
+        return Window([], 0, since is not None)
+    picked: list[tuple[str, int]] = []
+    end = segs[-1].base
+    remaining_limit = limit_lines
+    remaining_recent = recent_lines
+    head: int | None = None  # 打ち切った時の窓の頭の通しの位置 (= 古い記録まで全部読んだ時は None)
+    for index, seg in enumerate(reversed(segs)):
+        # initial_offset(path, n) は n 行より多い file では n - 1 行の所を返す。 1 行多く頼んで n 行にする。
+        recent_offset = initial_offset(seg.path, remaining_recent + 1)
+        since_offset = None if since is None else max(0, since - seg.base)
+        if since_offset is None or since_offset >= recent_offset:
+            local_head = recent_offset  # since が直近の窓の中 (= 普段の再接続)。 上限の位置は測らずに済む
+        else:
+            local_head = max(initial_offset(seg.path, remaining_limit + 1), since_offset)
+        pairs, new_pos = read_complete_lines_with_pos(seg.path, local_head)
+        if index == 0:
+            end = seg.base + new_pos
+        needed = remaining_recent
+        if since is not None:
+            needed = max(needed, sum(1 for _raw, pos in pairs if seg.base + pos > since))
+        cut = max(0, len(pairs) - min(needed, remaining_limit))
+        if cut:
+            local_head = pairs[cut - 1][1]  # 切り落とした最後の行の行末 = 残す最初の行の頭
+        kept = pairs[cut:]
+        picked = [(raw, seg.base + pos) for raw, pos in kept] + picked
+        remaining_limit -= len(kept)
+        remaining_recent = max(0, remaining_recent - len(kept))
+        if local_head > 0 or remaining_limit <= 0:
+            head = seg.base + local_head
+            break
+    reached = since is not None and (head is None or head <= since)
+    return Window(picked, end, reached)
 
 
 def read(segs: list[Segment], start: int | None, max_lines: int) -> tuple[list[tuple[str, int]], int]:
-    """つないだ記録を、 start (= 画面が読み終えた通しの位置) から読む。
+    """つないだ記録を、 start (= 画面が読み終えた通しの位置) より後ろの行だけ、 直近 max_lines 行まで読む。
 
-    返り値 ([(行, 行末の通しの位置)], 読み終えた通しの位置)。 読むのは直近 max_lines 行まで (= 久しぶりに
-    開いたタブの全区間を流し直すと、 画面の表示上限を大きく超えて CPU を焼くだけ。 それより前は画面の
-    localStorage の cache が持っている)。 start が無い / どの記録も指していない時は、 直近 max_lines 行。
+    返り値 ([(行, 行末の通しの位置)], 読み終えた通しの位置)。 久しぶりに開いたタブの全区間を流し直すと、
+    画面の表示上限を大きく超えて CPU を焼くだけなので、 窓は max_lines 行までにする。 start が無い /
+    どの記録も指していない時は、 直近 max_lines 行。
     """
-    if not segs:
-        return [], 0
-    cur = segs[-1]
-    end = cur.base + _size(cur.path)
-    if start is not None and cur.base <= start <= end:
-        # 今の会話の中を指している (= つなぎ直しの普段の形)。 前の会話は読まない。
-        local = max(start - cur.base, initial_offset(cur.path, max_lines))
-        pairs, new_pos = read_complete_lines_with_pos(cur.path, local)
-        return [(raw, cur.base + pos) for raw, pos in pairs], cur.base + new_pos
-    picked: list[tuple[str, int]] = []
-    remaining = max_lines
-    for seg in reversed(segs):
-        # initial_offset(path, n) は末尾の改行も 1 つと数えるので、 n 行より多い file では n - 1 行の所を
-        # 返す。 1 行多く頼んで、 読んだ中から末尾の remaining 行を取る (= 記録をまたいで行数を揃える)。
-        offset = initial_offset(seg.path, remaining + 1)
-        pairs, new_pos = read_complete_lines_with_pos(seg.path, offset)
-        if seg is cur:
-            end = cur.base + new_pos
-        taken = pairs[-remaining:]
-        picked = [(raw, seg.base + pos) for raw, pos in taken] + picked
-        if offset > 0 or len(pairs) > remaining:
-            break  # この記録だけで足りた (= それより古い記録は読まない)
-        remaining -= len(taken)
-        if remaining <= 0:
-            break
-    if start is not None and 0 <= start <= end:
-        picked = [(raw, pos) for raw, pos in picked if pos > start]
-    return picked, end
+    window = read_window(segs, start, max_lines, max_lines)
+    return window.after(start), window.end

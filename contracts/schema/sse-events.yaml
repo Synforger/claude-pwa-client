@@ -21,7 +21,7 @@
 
 kind: sse-events
 version: "1.0"
-schema_version: "1.1"
+schema_version: "1.2"
 
 events:
 
@@ -411,3 +411,19 @@ events:
     trigger: "backend/terminal/prompt_detector_loop.py が状態遷移を検知 → broadcaster publish"
     consumer: "processStreamEvent → state/promptState.js (= ChatPanel banner + quick-reply)"
     render_target: "banner"
+
+  history_refetch:
+    description: "stream のつなぎ直しの流し直しが、 画面の位置まで届かなかった印 (= 画面を閉じている間に書かれた行が窓の上限を超えた)。 画面は cache を捨てて履歴を取り直す"
+    type: object
+    required: [sid, corr_id]
+    properties:
+      sid:     { type: string, description: "session id (= 配送 envelope が注入)" }
+      corr_id: { type: string, description: "W3C trace_id 頭 8 文字 (= 配送 envelope が注入)" }
+    additionalProperties: false
+    invariants:
+      - "その sid の流し直しの frame の先頭に 1 つだけ載る (= 後ろに続く frame は届いた分の行)"
+      - "client が位置を持たずに購読した時 (= 窓が届いたかを測れない時) は載せない"
+      - "chat 履歴には積まない (= 画面の cache の取り直しの合図だけ)"
+    trigger: "backend/routes/unified_stream.py の流し直しが、 client の位置の直後の行から欠けずに返せなかった時"
+    consumer: "useChatStream (= その sid の cache を捨てて GET /jsonl/history を取り直す)"
+    render_target: "skip"

@@ -419,7 +419,66 @@ def test_history_no_jsonl_returns_empty(tmp_path, monkeypatch):
     app = FastAPI(); app.include_router(jr.router)
     r = TestClient(app).get("/jsonl/history/ses_x")
     assert r.status_code == 200
-    assert r.json() == {"events": [], "pos": 0}
+    assert r.json() == {"events": [], "pos": 0, "reached": False}
+
+
+# --- 履歴 GET: 画面が描き終えた位置 (= since) まで遡る窓と reached ---
+
+def _numbered_user_lines(path, count):
+    import json
+    path.write_text("".join(
+        json.dumps({"type": "user", "message": {"role": "user", "content": f"m{i}"}, "uuid": f"u{i}"}) + "\n"
+        for i in range(count)), encoding="utf-8")
+
+
+def _pos_after_lines(path, line_count):
+    return sum(len(raw) + 1 for raw in path.read_bytes().split(b"\n")[:line_count])
+
+
+def _user_texts(data):
+    return [e["text"] for e in data["events"] if e.get("type") == "user_message"]
+
+
+def test_history_since_reaches_back_past_the_recent_lines(tmp_path, monkeypatch):
+    p = tmp_path / "c.jsonl"
+    _numbered_user_lines(p, 1200)
+    data = _hist_client(monkeypatch, p).get(f"/jsonl/history/ses_x?since={_pos_after_lines(p, 100)}").json()
+    texts = _user_texts(data)
+    assert texts[0] == "m100" and texts[-1] == "m1199" and len(texts) == 1100
+    assert data["reached"] is True
+    assert data["pos"] == p.stat().st_size
+
+
+def test_history_since_past_the_limit_returns_the_latest_lines_and_not_reached(tmp_path, monkeypatch):
+    p = tmp_path / "c.jsonl"
+    _numbered_user_lines(p, 4000)
+    data = _hist_client(monkeypatch, p).get(f"/jsonl/history/ses_x?since={_pos_after_lines(p, 10)}").json()
+    texts = _user_texts(data)
+    assert len(texts) == jr.HISTORY_CATCH_UP_LINES
+    assert texts[0] == "m1000" and texts[-1] == "m3999"
+    assert data["reached"] is False
+
+
+def test_history_without_since_is_the_recent_lines_and_not_measured(tmp_path, monkeypatch):
+    p = tmp_path / "c.jsonl"
+    _numbered_user_lines(p, 1200)
+    data = _hist_client(monkeypatch, p).get("/jsonl/history/ses_x").json()
+    assert len(_user_texts(data)) == jr.INITIAL_REPLAY_LINES
+    assert data["reached"] is False
+
+
+def test_history_since_ahead_of_the_end_returns_the_recent_lines_as_reached(tmp_path, monkeypatch):
+    p = tmp_path / "c.jsonl"
+    _numbered_user_lines(p, 1200)
+    data = _hist_client(monkeypatch, p).get(f"/jsonl/history/ses_x?since={p.stat().st_size + 99999}").json()
+    assert len(_user_texts(data)) == jr.INITIAL_REPLAY_LINES
+    assert data["reached"] is True
+
+
+def test_history_rejects_a_negative_since(tmp_path, monkeypatch):
+    p = tmp_path / "c.jsonl"
+    _numbered_user_lines(p, 3)
+    assert _hist_client(monkeypatch, p).get("/jsonl/history/ses_x?since=-1").status_code == 422
 
 
 # --- 履歴 GET の tool_result 切り詰め (= 2026-07-27 転送量削減) ---
