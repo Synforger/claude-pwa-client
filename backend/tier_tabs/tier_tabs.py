@@ -3,8 +3,8 @@
 
 An agent turns this on with `tier_tabs: true` in its configuration (it needs `launcher: true`, since only the
 launcher reads the tier from the first message). Its tiers are read from its folder (`cwd`): `normal`, every
-`projects/<P>` and every `projects/<P>/subprojects/<S>` (= folders whose name starts with `_` or `.` are not
-tiers). Every `TICK_SEC` the backend places a tab for each tier that is not in the record yet (`record.py`).
+`projects/<P>`, and every `subprojects/<S>` below a tier, as deep as they go (= `projects/<P>/subprojects/<S1>/
+subprojects/<S2>`; folders whose name starts with `_` or `.` are not tiers). Every `TICK_SEC` the backend places a tab for each tier that is not in the record yet (`record.py`).
 A placed tab remembers its tier (`SessionDef.tier_tab`) and starts no claude: the first message sent to it
 (by the operator, or a message from another tab) starts its claude in that tier (`terminal/first_message.py`).
 A tier that already has a tab when it is first seen (= a tab the operator opened by hand) is recorded without
@@ -36,11 +36,25 @@ SEED_DELAY_SEC = 90.0
 
 
 def folder_tiers(folder: Path) -> list[str]:
-    """The tiers of the agent whose folder is `folder` (= `normal` first, then each project and its subprojects)."""
+    """The tiers of the agent whose folder is `folder` (= `normal` first, then each project followed by its
+    subprojects, each subproject followed by its own, at any depth)."""
     tiers = [DEFAULT_TIER]
+    seen: set[Path] = set()
     for project in _tier_folders(folder / "projects"):
-        tiers.append(f"projects/{project.name}")
-        tiers += [f"projects/{project.name}/subprojects/{sub.name}" for sub in _tier_folders(project / "subprojects")]
+        tiers += _tier_and_below(project, f"projects/{project.name}", seen)
+    return tiers
+
+
+def _tier_and_below(tier_folder: Path, tier: str, seen: set[Path]) -> list[str]:
+    """`tier` and every tier under its `subprojects/`, depth first. A folder reached a second time (= a link back up
+    the tree) is left out, so the walk ends."""
+    real = tier_folder.resolve()
+    if real in seen:
+        return []
+    seen.add(real)
+    tiers = [tier]
+    for sub in _tier_folders(tier_folder / "subprojects"):
+        tiers += _tier_and_below(sub, f"{tier}/subprojects/{sub.name}", seen)
     return tiers
 
 
@@ -76,11 +90,33 @@ def tab_of(agent_id: str, tier: str) -> str | None:
                  if meta.agent_id == agent_id and not meta.child and tab_tier(meta.id) == tier), None)
 
 
+def parent_tier(tier: str) -> str | None:
+    """The tier `tier` sits in (= `projects/<P>/subprojects/<S>` → `projects/<P>`, `projects/<P>` → `normal`), None for
+    `normal`."""
+    if tier == DEFAULT_TIER:
+        return None
+    parts = tier.split("/")
+    return "/".join(parts[:-2]) if len(parts) > 2 else DEFAULT_TIER
+
+
+def parent_account(agent_id: str, tier: str) -> str | None:
+    """The account of the nearest tier above `tier` that has a tab of `agent_id`, so a tab placed for a new folder
+    works under the same account as the tiers around it (= None: the default account)."""
+    above = parent_tier(tier)
+    while above is not None:
+        tab = tab_of(agent_id, above)
+        if tab is not None:
+            return sessions_meta[tab].account_id
+        above = parent_tier(above)
+    return None
+
+
 def place_tab(agent_id: str, tier: str) -> SessionDef:
     """Place a tab of `agent_id` for `tier` in the list (= no claude yet) and record the tier."""
     from backend._common.config import AGENTS  # noqa: PLC0415
     cfg = AGENTS[agent_id]
-    meta = register_session(agent_id, tab_name(tier, cfg.get("display_name") or agent_id), tier_tab=tier)
+    meta = register_session(agent_id, tab_name(tier, cfg.get("display_name") or agent_id), tier_tab=tier,
+                            account_id=parent_account(agent_id, tier))
     tiers = record.load()
     tiers.setdefault(agent_id, set()).add(tier)
     record.save(tiers)

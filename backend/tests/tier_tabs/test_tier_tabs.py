@@ -124,6 +124,26 @@ def test_the_tiers_are_the_agent_its_projects_and_their_subprojects(agent):
     assert tier_tabs.folder_tiers(agent) == ["normal", "projects/A", "projects/A/subprojects/S", "projects/B"]
 
 
+def test_subprojects_below_subprojects_are_tiers_at_any_depth(tmp_path):
+    for rel in ("projects/見本/subprojects/親/subprojects/子/subprojects/孫", "projects/見本/subprojects/親/subprojects/_skip",
+                "projects/見本/subprojects/兄"):
+        (tmp_path / rel).mkdir(parents=True)
+    assert tier_tabs.folder_tiers(tmp_path) == [
+        "normal", "projects/見本", "projects/見本/subprojects/兄", "projects/見本/subprojects/親",
+        "projects/見本/subprojects/親/subprojects/子", "projects/見本/subprojects/親/subprojects/子/subprojects/孫",
+    ]
+    assert tab_name("projects/見本/subprojects/親/subprojects/子", "MAIN") == "見本・親・子"
+
+
+def test_a_link_back_up_the_tree_does_not_loop(tmp_path):
+    sub = tmp_path / "projects/見本/subprojects/親"
+    (sub / "subprojects").mkdir(parents=True)
+    (sub / "subprojects/戻り").symlink_to(tmp_path / "projects/見本")
+    tiers = tier_tabs.folder_tiers(tmp_path)
+    assert tiers[:3] == ["normal", "projects/見本", "projects/見本/subprojects/親"]
+    assert len(tiers) < 10
+
+
 def test_a_folder_without_projects_has_only_normal(tmp_path):
     assert tier_tabs.folder_tiers(tmp_path) == ["normal"]
 
@@ -391,3 +411,23 @@ def test_the_endpoint_answers_only_this_machine(configured, agent):
     with client("100.64.0.9") as c:
         r = c.post("/tier-tabs", data={"agent_dir": str(agent), "tier": "normal"})
     assert r.status_code == 403
+
+
+def test_a_placed_tab_works_under_the_account_of_the_nearest_tier_above(configured, isolated_state):
+    from backend._common.state import register_session  # noqa: PLC0415
+    register_session("agent_a", "見本", tier_tab="projects/見本", account_id="work")
+    sub = tier_tabs.place_tab("agent_a", "projects/見本/subprojects/親")
+    deeper = tier_tabs.place_tab("agent_a", "projects/見本/subprojects/親/subprojects/子")
+    alone = tier_tabs.place_tab("agent_a", "projects/別")
+    assert sub.account_id == "work" and deeper.account_id == "work"
+    assert alone.account_id is None
+
+
+@pytest.mark.parametrize("tier, parent", [
+    ("normal", None),
+    ("projects/A", "normal"),
+    ("projects/A/subprojects/S", "projects/A"),
+    ("projects/A/subprojects/S/subprojects/T", "projects/A/subprojects/S"),
+])
+def test_the_tier_above(tier, parent):
+    assert tier_tabs.parent_tier(tier) == parent

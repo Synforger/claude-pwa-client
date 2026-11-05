@@ -8,6 +8,8 @@
 import asyncio
 import json
 
+import pytest
+
 from backend.fork.fork import build_forked_lineage_lazy, is_clean_fork_point
 
 
@@ -789,3 +791,26 @@ def test_create_session_invokes_ensure_pty(tmp_path, monkeypatch, isolated_state
     assert captured["sid"] == result["id"]
     # prefer_fresh は明示しない (= default False、 通常経路で autoresume 許可)
     assert captured["kwargs"].get("prefer_fresh", False) is False
+
+
+def test_a_tab_with_no_conversation_yet_only_changes_its_account(tmp_path, monkeypatch, isolated_state):
+    # 意図: 最初の発話の前の階層のタブを移しても、 同じ folder に在る別のタブの会話を写さない (= 別のタブの会話を
+    # 開き直す形になり、 境界も口座も越える)
+    sessions_mod, tab, src, work_dir, events = _setup_account_move(tmp_path, monkeypatch, isolated_state)
+    monkeypatch.setattr(sessions_mod.jsonl_resolver, "resolve_jsonl",
+                        lambda _sid, prefer=None: None if prefer == "live" else src.parent)
+    out = _run(sessions_mod.move_session_account(tab.id, {"account_id": "work"}))
+    assert out["account_id"] == "work"
+    assert out["resume_session_id"] is None
+    assert events == []
+    assert list(work_dir.glob("*.jsonl")) == []
+
+
+def test_carrying_a_conversation_over_never_takes_another_tab_s_record(tmp_path, monkeypatch, isolated_state):
+    from fastapi import HTTPException  # noqa: PLC0415
+    sessions_mod, tab, src, work_dir, _events = _setup_account_move(tmp_path, monkeypatch, isolated_state)
+    monkeypatch.setattr(sessions_mod.jsonl_resolver, "resolve_jsonl",
+                        lambda _sid, prefer=None: None if prefer == "live" else src.parent)
+    with pytest.raises(HTTPException):
+        sessions_mod._write_lineage(tab.id, None, "work")
+    assert list(work_dir.glob("*.jsonl")) == []
