@@ -253,6 +253,26 @@ export async function setNotifyMode(id, mode) {
   }
 }
 
+export async function setAccountPinned(id, pinned) {
+  // 楽観更新 (= 通知設定と同じ)。 固定の印は口座の移し替えに効くので、 backend が受けなかった時は元に戻す。
+  const before = getSnapshot().sessions.find((s) => s.id === id)?.account_pinned === true
+  storePatchSession(id, { account_pinned: pinned })
+  try {
+    const r = await apiFetch(`/sessions/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account_pinned: pinned }),
+    })
+    if (!r || !r.ok) {
+      console.warn('[sessions] account_pinned set failed:', id, pinned, r?.status)
+      storePatchSession(id, { account_pinned: before })
+    }
+  } catch (e) {
+    console.warn('[sessions] account_pinned set errored:', id, pinned, e)
+    storePatchSession(id, { account_pinned: before })
+  }
+}
+
 export function setActiveId(sid) {
   storeSetActiveId(sid)
 }

@@ -24,9 +24,11 @@ import {
   moveToAccount,
   createSession,
   renameSession,
+  setAccountPinned,
   setNotifyMode,
 } from './useSessions.js'
 import { deriveSessionBadges } from '../push-notify/useSessionBadges.js'
+import { AccountPinMark, AccountPinMenuItem } from './AccountPin.jsx'
 import { loadFolded, toggleFolded } from './sessionTree.js'
 import { folderTree, loadFoldedFolders, toggleFoldedFolder } from './folderTree.js'
 import { sendTreeReport, treeReport } from './treeReport.js'
@@ -121,6 +123,7 @@ export default function SessionDrawer() {
   const onRename = useCallback((id, title) => renameSession(id, title), [])
   const onMoveToAccount = useCallback((id, accountId) => moveToAccount(id, accountId), [])
   const onSetNotifyMode = useCallback((id, mode) => setNotifyMode(id, mode), [])
+  const onSetAccountPinned = useCallback((id, pinned) => setAccountPinned(id, pinned), [])
   const onDelete = useCallback((sid) => setOverlay('confirmDelete', sid), [])
 
   // Push 状態を本 component で直接 hook (= usePushSubscription)。 onCloseMenu は SessionDrawer
@@ -641,6 +644,7 @@ export default function SessionDrawer() {
                     <span className="drawer-item-title">{s.title}</span>
                     {s.asleep && <span className="drawer-item-asleep" data-testid="session-asleep">💤</span>}
                     {isFolded && <span className="drawer-item-hidden" title={t('drawer.hidden', { count: hidden })}>+{hidden}</span>}
+                    <AccountPinMark session={s} accountCount={accounts.length} />
                     {accountLabel && <span className="drawer-item-account">{accountLabel}</span>}
                     {badge && <span className={`tab-badge ${badge.kind}`}>{badge.label}</span>}
                   </button>
@@ -687,6 +691,11 @@ export default function SessionDrawer() {
                         ))}
                       </>
                     )}
+                    <AccountPinMenuItem
+                      session={s}
+                      accountCount={accounts.length}
+                      onSetPinned={(id, pinned) => { setMenuFor(null); onSetAccountPinned(id, pinned) }}
+                    />
                     {onSetNotifyMode && (
                       <>
                         <div className="drawer-popup-sep" />

@@ -28,14 +28,16 @@ def home_is_limited(rows: Iterable[dict], rule: FallbackRule, now: float) -> boo
     return None if state is None else state.at_limit
 
 
-def decide(*, current: str, home: str, rule: FallbackRule | None, limited: bool | None, at_break: bool) -> Move:
+def decide(*, current: str, home: str, rule: FallbackRule | None, limited: bool | None, at_break: bool,
+           pinned: bool = False) -> Move:
     """What to do with a tab that runs on `current` and belongs to `home` (= the same account unless it was moved).
 
     `rule` is the fallback of `home` (None when it has none), `limited` whether the usage of `home` is at the rule's
-    line (None = not known), `at_break` whether the tab may be interrupted now. A tab on its own account moves when
-    the account is limited. A moved tab is brought back when the account is not limited any more, or its fallback has
-    gone from the configuration. Whatever is not known leaves the tab where it is."""
+    line (None = not known), `at_break` whether the tab may be interrupted now, `pinned` whether the operator keeps
+    the tab on its own account. A tab on its own account moves when the account is limited, unless it is pinned. A
+    moved tab is brought back when the account is not limited any more, its fallback has gone from the configuration,
+    or it is pinned (= even while the account is limited). Whatever is not known leaves the tab where it is."""
     if current != home:
-        returns = rule is None or limited is False
+        returns = pinned or rule is None or limited is False
         return Move.RETURN if returns and at_break else Move.STAY
-    return Move.MOVE if rule is not None and limited is True and at_break else Move.STAY
+    return Move.MOVE if rule is not None and limited is True and at_break and not pinned else Move.STAY

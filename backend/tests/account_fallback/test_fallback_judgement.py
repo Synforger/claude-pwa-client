@@ -39,3 +39,13 @@ def test_a_moved_tab_is_brought_back_when_the_account_is_not_limited_and_the_tab
 
 def test_a_moved_tab_whose_fallback_is_gone_from_the_configuration_is_brought_back():
     assert decide(current="personal", home="work", rule=None, limited=None, at_break=True) is Move.RETURN
+
+
+def test_a_pinned_tab_is_never_moved():
+    assert decide(current="work", home="work", rule=RULE, limited=True, at_break=True, pinned=True) is Move.STAY
+
+
+def test_a_pinned_tab_that_runs_elsewhere_comes_back_at_a_break_even_while_the_account_is_limited():
+    assert decide(current="personal", home="work", rule=RULE, limited=True, at_break=True, pinned=True) is Move.RETURN
+    assert decide(current="personal", home="work", rule=RULE, limited=True, at_break=False, pinned=True) is Move.STAY
+    assert decide(current="personal", home="work", rule=RULE, limited=None, at_break=True, pinned=True) is Move.RETURN

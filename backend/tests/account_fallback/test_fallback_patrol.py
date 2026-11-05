@@ -226,3 +226,31 @@ def test_a_moved_tab_is_judged_for_other_machines_by_the_account_it_belongs_to(e
 
 def test_a_tab_blocks_nothing_it_was_not_asked_about(env):
     assert TabBreak(None, ()).at_break and not TabBreak(None, ("turn_open",)).at_break
+
+
+# --- a tab the operator keeps on its account ---
+
+def test_a_pinned_tab_stays_on_its_account_at_the_line_and_a_tab_beside_it_moves(env):
+    env.tab.account_pinned = True
+    other = register_session(env.tab.agent_id, title="O", account_id="work")
+    env.rows = [usage_row(five=100)]
+    assert run(patrol.tick()) == [other.id]
+    assert (env.tab.account_id, env.tab.fallback_from) == ("work", None)
+
+
+def test_a_tab_pinned_while_it_runs_elsewhere_comes_back_at_the_next_break_though_the_account_is_at_the_line(env):
+    _moved(env)
+    env.tab.account_pinned = True
+    env.blocked_by = ("turn_open",)
+    assert run(patrol.tick()) == [] and env.tab.account_id == "personal"          # not at a break yet
+    env.blocked_by = ()
+    assert run(patrol.tick()) == [env.tab.id]
+    assert (env.tab.account_id, env.tab.fallback_from, env.tab.fallback_copy) == ("work", None, None)
+
+
+def test_a_pinned_tab_asleep_is_not_moved_when_it_is_woken(env):
+    _asleep(env)
+    env.tab.account_pinned = True
+    env.rows = [usage_row(five=100)]
+    run(patrol.move_before_wake(env.tab.id))
+    assert env.tab.account_id == "work" and env.events == []

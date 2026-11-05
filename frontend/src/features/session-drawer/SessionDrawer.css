@@ -343,6 +343,11 @@ span.drawer-item-fold {
   opacity: 0.8;
 }
 /* どのアカウントで動いている会話かの札。 アカウントを 2 つ以上設定している時だけ出す。 */
+.drawer-item-pin {
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+
 .drawer-item-account {
   flex: 0 0 auto;
   color: var(--text-dim, #8a8f98);

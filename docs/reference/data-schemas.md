@@ -42,6 +42,7 @@ backup 先 = 同 PC の別 path (= `$AGENT_PLATFORM_ROOT/state/claude-pwa-client
 | `fallback_from` | str? | NO | [口座の逃げ先](account-fallback.md) で別の口座へ移っている間だけ値を持つ、 タブの本来の口座 (= `account_id` は今動いている口座)。 戻すと null |
 | `fallback_copy` | str? | NO | 上の移し替えで、 client が逃げ先の口座の projects folder に書いた会話の記録の path。 戻す時に client が消す。 `fallback_from` と一緒に null になる |
 | `limit_resumed` | str? | NO | [上限が戻った時の続き](limit-resume.md) で、 続けての連絡を送った止まりの行の uuid (= 同じ止まりに 2 通目を送らない)。 まだ送っていないタブは null |
+| `account_pinned` | bool | NO (default `false`) | 要のタブの印。 true のタブは [口座の逃げ先](account-fallback.md) が移さず、 逃げ先で動いていれば次の区切りで戻す。 子のタブは立てた時に親の印を継ぐ |
 
 `GET /sessions` の各行の **`tier`** は、 この物の `tier` です。 無ければ `tier_tab`、 どちらも無ければ `null` を返します (= 画面の一覧は、 タブをこの階層の folder に入れます)。
 `tier` は backend が Claude のプロセスを見つけた時に読み、 変わっていれば保存するので、 backend や機械を再起動して Claude が居ない間も残ります。

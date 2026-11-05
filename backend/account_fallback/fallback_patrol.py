@@ -75,14 +75,16 @@ async def _look(session_id: str, rows: list[dict], now: float) -> bool:
     current, home = accounts
     rule = read_rules().get(home)
     limited = _limited(rows, rule, now)
-    if decide(current=current, home=home, rule=rule, limited=limited, at_break=True) is Move.STAY:
+    wanted = decide(current=current, home=home, rule=rule, limited=limited, at_break=True, pinned=meta.account_pinned)
+    if wanted is Move.STAY:
         _last_blocked.pop(session_id, None)
         return False
     with claimed(session_id) as mine:
         if not mine:
             return False
         tab_break = await asyncio.to_thread(read_tab_break, session_id)
-        action = decide(current=current, home=home, rule=rule, limited=limited, at_break=tab_break.at_break)
+        action = decide(current=current, home=home, rule=rule, limited=limited, at_break=tab_break.at_break,
+                        pinned=meta.account_pinned)
         if _last_blocked.get(session_id) != tab_break.blocked_by:
             _last_blocked[session_id] = tab_break.blocked_by
             if tab_break.blocked_by:
@@ -114,7 +116,9 @@ async def move_before_wake(session_id: str) -> None:
         return
     rows = await asyncio.to_thread(read_all_rate_limits_tail)
     limited = _limited(rows, rule, time.time())
-    if decide(current=current, home=home, rule=rule, limited=limited, at_break=True) is not Move.MOVE:
+    wanted = decide(current=current, home=home, rule=rule, limited=limited, at_break=True,
+                    pinned=sessions_meta[session_id].account_pinned)
+    if wanted is not Move.MOVE:
         return
     with claimed(session_id) as mine:
         if not mine:

@@ -4,7 +4,7 @@ crosscut-F-04)。
 責務:
 - GET    /sessions                        : list
 - POST   /sessions                        : 作成
-- PATCH  /sessions/{sid}                  : title / notify_mode 変更
+- PATCH  /sessions/{sid}                  : title / notify_mode / account_pinned 変更
 - POST   /sessions/{sid}/fork             : フォーク (= jsonl 鎖を新 claude_sid で書き出し)
 - POST   /sessions/{sid}/restart          : claude プロセス kill + spawn (= 文脈リセット)
 - POST   /sessions/{sid}/account          : 同じタブのまま口座を移して会話を続ける
@@ -28,6 +28,7 @@ from backend._common.state import (
     rename_session,
     sessions_meta,
     sessions_overview,
+    set_account_pinned,
     set_notify_mode,
     session_tmp_files,
     stream_states,
@@ -97,6 +98,7 @@ async def create_session(payload: dict = Body(...)):
 def patch_session(session_id: str, payload: dict = Body(...), _: str = Depends(require_session)):
     title = payload.get("title")
     notify_mode = payload.get("notify_mode")
+    account_pinned = payload.get("account_pinned")
     touched = False
     if isinstance(title, str) and title.strip():
         rename_session(session_id, title.strip())
@@ -105,8 +107,13 @@ def patch_session(session_id: str, payload: dict = Body(...), _: str = Depends(r
         if not set_notify_mode(session_id, notify_mode):
             raise_error(400, "invalid_notify_mode", "notify_mode は both / banner / off")
         touched = True
+    if account_pinned is not None:
+        if not isinstance(account_pinned, bool):
+            raise_error(400, "invalid_account_pinned", "account_pinned は true / false")
+        set_account_pinned(session_id, account_pinned)
+        touched = True
     if not touched:
-        raise_error(400, "title_or_notify_required", "title または notify_mode が必要")
+        raise_error(400, "title_or_notify_required", "title / notify_mode / account_pinned のどれかが必要")
     return session_row(sessions_meta[session_id])
 
 

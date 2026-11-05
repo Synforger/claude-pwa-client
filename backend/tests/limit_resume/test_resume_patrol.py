@@ -184,3 +184,11 @@ def test_a_resume_is_logged(env, caplog):
         run(patrol.tick())
     assert any(r.getMessage().startswith(f"limit resume: session={env.tab.id} account=personal stop=lim1")
                for r in caplog.records)
+
+
+def test_a_pinned_tab_is_told_to_carry_on_like_any_other(env):
+    env.tab.account_pinned = True
+    env.rows = [_at_limit(env)]
+    run(patrol.tick())
+    env.rows = [_recovered(env)]
+    assert run(patrol.tick()) == [env.tab.id]
