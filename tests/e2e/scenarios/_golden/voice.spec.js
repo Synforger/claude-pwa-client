@@ -6,9 +6,11 @@
 // says how to say it, and is not shown in the bubble. What the person types while it is open
 // on any screen goes with a `[voice]` mark at its head (the backend puts it on), so the agent
 // knows the reply will be heard; the bubble does not show that mark either.
-// Opening the conversation of an agent that listens loads the listening parts (voice activity
-// detection in the page) and starts listening to the microphone; closing it lets the
-// microphone go. What is said, judged and written down is the live scenario's to check
+// An agent that listens also shows a microphone button. The voice button and the microphone
+// button switch on their own: the voice alone takes no microphone, the microphone button loads
+// the listening parts (voice activity detection in the page) and starts listening, and closing
+// it lets the microphone go. The conversation ends when both are off. What is said, judged and
+// written down is the live scenario's to check
 // (scenarios/live/voice-conversation.spec.js): a tone cannot stand in for speech.
 //
 // The speech engine is the test backend's own fixture (silence for every sentence, and a
@@ -102,10 +104,11 @@ test.describe('golden: voice', () => {
     ])
     await expect.poll(started, { timeout: 20_000 }).toBe(3)
     expect(asked.utterances).toHaveLength(1)
+    // `values` is what a mark carries for its sentence (none here), handed on as the utterances call returned it.
     expect(asked.synthesis).toEqual([
-      { mark: 'happy', text: 'Done!' },
-      { mark: 'happy', text: 'The tests pass.' },
-      { mark: 'calm', text: 'The notes are in .' },
+      { mark: 'happy', text: 'Done!', values: {} },
+      { mark: 'happy', text: 'The tests pass.', values: {} },
+      { mark: 'calm', text: 'The notes are in .', values: {} },
     ])
     await expect(page.locator('[data-testid=voice-error]')).toHaveCount(0)
     // The mark is for the voice: the bubble shows the reply without it.
@@ -121,7 +124,7 @@ test.describe('golden: voice', () => {
     ])
     reply(tab.jsonl_path, 'between', [{ type: 'text', text: 'Three files.' }])
     await expect.poll(started, { timeout: 20_000 }).toBe(4)
-    expect(asked.synthesis.at(-1)).toEqual({ mark: 'calm', text: 'Three files.' })
+    expect(asked.synthesis.at(-1)).toEqual({ mark: 'calm', text: 'Three files.', values: {} })
     expect(asked.synthesis.map((u) => u.text)).not.toContain('List the files here')
 
     // A reload closes it again (sound needs a press), and brings nothing back to be said.
@@ -193,7 +196,7 @@ test.describe('golden: voice', () => {
     await other.close()
   })
 
-  test('turning the voice on leaves the microphone alone; the microphone button takes it, and closing or turning the voice off lets it go', async ({ page, request }, testInfo) => {
+  test('the voice and the microphone switch on their own: the voice leaves the microphone alone, and the microphone button takes and lets it go', async ({ page, request }, testInfo) => {
     const tab = await seedSession(request, 'e2e-voice')
     const loaded = []
     page.on('response', (r) => {
@@ -203,7 +206,10 @@ test.describe('golden: voice', () => {
     await openClient(page, { sid: tab.sid })
     const mics = () => page.evaluate(() => window.__voice.mics.map((t) => t.readyState))
 
-    await expect(page.locator(micButton)).toHaveCount(0)
+    // An agent that listens shows the microphone button beside the voice button, closed, before anything is on.
+    await expect(page.locator(micButton)).toHaveAttribute('data-state', 'muted')
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'off')
+    expect(await mics()).toEqual([])
     await page.locator(button).click()
     await expect(page.locator(button)).toHaveAttribute('data-state', 'on')
     // The voice alone takes no microphone: only the voice plays.
@@ -243,15 +249,31 @@ test.describe('golden: voice', () => {
     await expect(page.locator(micButton)).toHaveAttribute('data-state', 'listening', { timeout: 30_000 })
     await expect.poll(mics, { timeout: 5_000 }).toEqual(['ended', 'live'])
 
-    // Turning the voice off closes everything, and the microphone button goes.
+    // Turning the voice off leaves the microphone as it was: the conversation goes on, only the reply is quiet.
     await page.locator(button).click()
     await expect(page.locator(button)).toHaveAttribute('data-state', 'off')
-    await expect(page.locator(micButton)).toHaveCount(0)
-    await expect.poll(mics, { timeout: 5_000 }).toEqual(['ended', 'ended'])
+    await expect(page.locator(micButton)).toHaveAttribute('data-state', 'listening')
+    await page.waitForTimeout(1500)
+    expect(await mics()).toEqual(['ended', 'live'])
 
-    // The microphone was left open, so the next time the voice is turned on, it takes the microphone again.
+    // Turning the voice on again leaves the microphone as it was, too.
     await page.locator(button).click()
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'on')
+    await expect(page.locator(micButton)).toHaveAttribute('data-state', 'listening')
+    expect(await mics()).toEqual(['ended', 'live'])
+
+    // Both off ends the conversation: the microphone goes, and the buttons stay for the next time.
+    await page.locator(micButton).click()
+    await expect(page.locator(micButton)).toHaveAttribute('data-state', 'muted')
+    await expect.poll(mics, { timeout: 5_000 }).toEqual(['ended', 'ended'])
+    await page.locator(button).click()
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'off')
+    await expect(page.locator(micButton)).toHaveAttribute('data-state', 'muted')
+
+    // The microphone button alone starts a conversation by voice input: it listens and the reply stays quiet.
+    await page.locator(micButton).click()
     await expect(page.locator(micButton)).toHaveAttribute('data-state', 'listening', { timeout: 30_000 })
+    await expect(page.locator(button)).toHaveAttribute('data-state', 'off')
     await expect.poll(mics, { timeout: 5_000 }).toEqual(['ended', 'ended', 'live'])
   })
 
