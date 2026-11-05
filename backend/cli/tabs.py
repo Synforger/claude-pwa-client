@@ -6,8 +6,11 @@
                                  別の agent のタブは「別の agent」 と出る)。 claude が動いていないタブは状態が
                                  「未起動」 で、 送った連絡がそのタブの claude を起動する。 静かなので眠らせたタブ
                                  (= 設定の `sleep`) は「眠り」 で、 連絡が同じ会話で起こす。 起動できないタブは「起こせない」。
-                                 別の機械のタブは、 末尾に `<相手の名前>:<id>` の形で並ぶ
-    tabs    send <to> <file>     <file> の中身を <to> (= タブの id か名前) へ送る。
+                                 このタブが知らない境界のタブは、 階層が「別の境界」 で、 名前の欄は `(別の境界のタブ)`。
+                                 番人がそのタブの階層を「役」 として見せてよいと答えた時 (= `--roles`) は、 名前の欄に
+                                 `役=<役の名前>` が出る。 別の機械のタブは、 末尾に `<相手の名前>:<id>` の形で並ぶ
+    tabs    send <to> <file>     <file> の中身を <to> へ送る。 <to> は、 タブの id > 見せてよい役の名前 > タブの名前 の順に解く
+                                 (= 役の名前は、 その役の階層で働くタブへ。 複数ならその階層に置かれたタブ、 決まらなければ id を並べて断る)。
                                  別の機械のタブは `<相手の名前>:<タブの id か名前>`
     tabs    send <to> <file> --operator-said
                                  同じ送信に、 このタブで操作者が最後に打った発話を付ける
@@ -72,6 +75,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import NamedTuple
 
 HOME = Path.home()
 BASE = f"http://127.0.0.1:{os.environ.get('PWA_PORT', '8765')}"
@@ -212,6 +216,75 @@ def read_area_names(session: str) -> list[str]:
     return sorted(data if isinstance(data, list) else data.get("areas") or [])
 
 
+#: このエージェントの物ではないタブの階層の欄に出す語
+OTHER_AGENT = "別の agent"
+#: 番人に「見せてよい役」 を訊く時に待つ上限 (= 答えられない番人でも一覧と送信を止めない)
+ROLES_TIMEOUT_SEC = 30
+
+
+class Place(NamedTuple):
+    """タブが働く場所。 階層は別の agent のタブなら `OTHER_AGENT`、 階層の分からないこのエージェントのタブなら `None`。"""
+    tier: str | None
+    folder: Path | None
+    conversation: str | None
+    marks: int
+
+
+def place_of(launch, tab: dict, claude: dict | None, my_agent: str | None, status: dict) -> Place:
+    """タブの階層と folder と会話。 `claude` はそのタブで動いている claude (= 無ければ None)、 `status` は backend の
+    答え (= claude が動いていないタブの、 起動できるか・最後の会話)。 その folder で動いていない claude は別の agent で、
+    封筒が運ぶ階層もその agent の物。"""
+    if claude is not None:
+        conversation = claude["sessionId"]
+        ours = Path(os.path.realpath(str(claude.get("cwd") or ""))) == Path(os.path.realpath(agent_dir()))
+        tier, folder = launch.tier_of(launch.first_message(claude["account_dir"], conversation)) if ours else (OTHER_AGENT, None)
+    else:
+        conversation = status.get("conversation")
+        ours = my_agent is not None and tab.get("agent_id") == my_agent
+        tier = (tab.get("tier_tab") or tab.get("tier")) if ours else OTHER_AGENT
+        folder = launch.tier_folder(tier) if ours and tier else None
+    return Place(tier, folder, conversation, read_areas(conversation) if conversation else 0)
+
+
+def visible(mine: str | None, place: Place) -> bool:
+    """このタブ (= claude の session `mine`) に、 `place` のタブの階層と名前を見せてよいか。 働く場所は、 読んだ
+    境界と、 階層の folder を含む境界の 2 つで見る (= 起動したばかりのタブは、 まだ何も読んでいない)。"""
+    return (not place.marks or known_to(mine, place.conversation)) and not works_unknown(mine, place.folder)
+
+
+def ask_roles(folder: Path | None, session: str | None) -> dict[str, str]:
+    """見る側のタブ (= 階層の folder `folder`、 claude の session `session`) に見せてよい役を、 番人に訊く。
+    → 役の名前 → その役の folder (実体の path)。 番人が無い・`--roles` を知らない (= exit が 0 でない)・
+    時間切れの時は役は無し (= 役を知らない機械でも、 今までの動きのまま進む)。"""
+    if folder is None or not PEERS.is_file():
+        return {}
+    command = [sys.executable, str(PEERS), "--roles", "--folder", str(folder), *(["--session", session] if session else [])]
+    try:
+        done = subprocess.run(command, capture_output=True, text=True, errors="replace", timeout=ROLES_TIMEOUT_SEC)
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    if done.returncode != 0:
+        return {}
+    roles: dict[str, str] = {}
+    for line in done.stdout.splitlines():
+        name, tab_char, where = line.partition("\t")
+        if tab_char and name.strip() and where.strip():
+            roles.setdefault(name.strip(), os.path.realpath(os.path.expanduser(where.strip())))
+    return roles
+
+
+def viewer_roles(launch, mine: str | None) -> dict[str, str]:
+    """このタブに見せてよい役 (= 役の名前 → folder)。 見る側は、 このタブの階層の folder と claude の session。"""
+    tier = my_tier()
+    return ask_roles(launch.tier_folder(tier) if tier else None, mine)
+
+
+def hidden_name(roles: dict[str, str], folder: Path | None) -> str:
+    """伏せたタブの名前の欄。 その階層の folder が見せてよい役の folder と同じなら役の名前、 でなければ伏せたまま。"""
+    role = next((name for name, where in roles.items() if folder is not None and where == os.path.realpath(folder)), None)
+    return f"役={role}" if role else f"({HIDDEN}のタブ)"
+
+
 def listing() -> int:
     status, tabs = call("/sessions")
     if status != 200 or not isinstance(tabs, list):
@@ -222,56 +295,30 @@ def listing() -> int:
     my_agent = next((tab.get("agent_id") for tab in tabs if tab["id"] == me), None)
     local_status, local = call("/agent-messages/local-tabs")
     asleep = {row["id"]: row for row in local["tabs"]} if local_status == 200 and isinstance(local, dict) else {}
+    mine = (live.get(me) or {}).get("sessionId")
+    roles = viewer_roles(launch, mine)
     for tab in tabs:
-        claude = live.get(tab["id"])
-        if claude is None:
-            asleep_row(launch, tab, my_agent, live.get(me), asleep.get(tab["id"]) or {})
-            continue
-        # 階層はこのエージェントの物 (= その folder で動いていない claude は別の agent で、 封筒が運ぶ階層もその agent の物)
-        ours = Path(os.path.realpath(str(claude.get("cwd") or ""))) == Path(os.path.realpath(agent_dir()))
-        tier, folder = (launch.tier_of(launch.first_message(claude["account_dir"], claude["sessionId"])) if ours
-                        else ("別の agent", None))
-        marks = read_areas(claude["sessionId"])
-        # このタブが知らない境界で働くタブは、 階層と名前を伏せる (= 宛先は id で指す)。 働く場所は、 読んだ
-        # 境界と、 階層の folder を含む境界の 2 つで見る (= 起動したばかりのタブは、 まだ何も読んでいない)
-        mine = (live.get(me) or {}).get("sessionId")
-        shown = tab["id"] == me or ((not marks or known_to(mine, claude["sessionId"]))
-                                    and not works_unknown(mine, folder))
-        print("  ".join([
+        claude, answer = live.get(tab["id"]), asleep.get(tab["id"]) or {}
+        place = place_of(launch, tab, claude, my_agent, answer)
+        # このタブが知らない境界で働くタブ (と、 階層の分からないこのエージェントのタブ) は、 階層と名前を伏せる
+        # (= 宛先は id で指す)。 伏せたタブが見せてよい役の folder で働いていれば、 名前の欄に役を出す
+        shown = place.tier is not None and ((claude is not None and tab["id"] == me) or visible(mine, place))
+        state = (str(claude.get("status") or "?") if claude is not None
+                 else "眠り" if answer.get("asleep") else "未起動" if answer.get("reachable") else "起こせない")
+        cells = [
             tab["id"],
-            tier if shown else HIDDEN,
+            place.tier if shown else HIDDEN,
             f"口座={tab.get('account_id') or 'personal'}",
-            str(claude.get("status") or "?"),
-            f"境界={marks}" if marks else "境界=なし",
-            (tab.get("title") or "") if shown else f"({HIDDEN}のタブ)",
-            "(= このタブ)" if tab["id"] == me else "",
-            f"(= 子のタブ、 親 {tab.get('parent_id')})" if tab.get("child") else "",
-        ]).rstrip())
+            state,
+            f"境界={place.marks}" if place.marks else "境界=なし",
+            (tab.get("title") or "") if shown else hidden_name(roles, place.folder),
+        ]
+        if claude is not None:
+            cells.append("(= このタブ)" if tab["id"] == me else "")
+        cells.append(f"(= 子のタブ、 親 {tab.get('parent_id')})" if tab.get("child") else "")
+        print("  ".join(cells).rstrip())
     others()
     return 0
-
-
-def asleep_row(launch, tab: dict, my_agent: str | None, mine: dict | None, status: dict) -> None:
-    """claude が動いていないタブを 1 行出す。 `status` は backend の答え (= 連絡で起動できるか、 最後の会話)。
-    動いているタブと同じ決まりで階層と名前を伏せ、 階層の分からないこのエージェントのタブは、 働く場所を
-    確かめられないので伏せる。"""
-    ours = my_agent is not None and tab.get("agent_id") == my_agent
-    tier = tab.get("tier_tab") or tab.get("tier")
-    folder = launch.tier_folder(tier) if ours and tier else None
-    conversation = status.get("conversation")
-    marks = read_areas(conversation) if conversation else 0
-    mine_session = (mine or {}).get("sessionId")
-    shown = ((not ours or tier is not None) and (not marks or known_to(mine_session, conversation))
-             and not works_unknown(mine_session, folder))
-    print("  ".join([
-        tab["id"],
-        (tier if ours else "別の agent") if shown else HIDDEN,
-        f"口座={tab.get('account_id') or 'personal'}",
-        "眠り" if status.get("asleep") else "未起動" if status.get("reachable") else "起こせない",
-        f"境界={marks}" if marks else "境界=なし",
-        (tab.get("title") or "") if shown else f"({HIDDEN}のタブ)",
-        f"(= 子のタブ、 親 {tab.get('parent_id')})" if tab.get("child") else "",
-    ]).rstrip())
 
 
 def others() -> None:
@@ -289,6 +336,49 @@ def others() -> None:
                 print("  ".join([f"{name}:{tab.get('id')}", "別の機械", tab.get("title") or ""]).rstrip())
 
 
+def not_delivered(code: str, message: str) -> int:
+    print(f"tabs: 届いていません [{code}]: {message}", file=sys.stderr)
+    return 1
+
+
+def same_folder(left: Path | str | None, right: Path | str | None) -> bool:
+    return left is not None and right is not None and os.path.realpath(left) == os.path.realpath(right)
+
+
+def role_receiver(to: str) -> tuple[str, tuple[str, str] | None]:
+    """宛先 `to` が、 このタブに見せてよい役の名前なら、 その役のタブの id。 → (送り先, 断る理由 (= 番号と文))。
+    タブの id と、 役でない名前は `to` のまま返す (= backend が解く)。 役のタブは、 その役の folder で働くタブが
+    1 つならそれ、 複数なら、 その階層に置かれた階層のタブ。 役の名前が、 このタブに見えているタブの名前と同じ
+    時は、 どちらにも送らない。"""
+    status, tabs = call("/sessions")
+    if status != 200 or not isinstance(tabs, list) or any(tab["id"] == to for tab in tabs):
+        return to, None
+    launch, live, me = launcher(), running(), os.environ.get("PWA_SID")
+    mine = (live.get(me) or {}).get("sessionId")
+    folder = viewer_roles(launch, mine).get(to)
+    if folder is None:
+        return to, None
+    my_agent = next((tab.get("agent_id") for tab in tabs if tab["id"] == me), None)
+    local_status, local = call("/agent-messages/local-tabs")
+    asleep = {row["id"]: row for row in local["tabs"]} if local_status == 200 and isinstance(local, dict) else {}
+    places = {tab["id"]: place_of(launch, tab, live.get(tab["id"]), my_agent, asleep.get(tab["id"]) or {}) for tab in tabs}
+    there = [tab for tab in tabs if same_folder(places[tab["id"]].folder, folder)]
+    if not there:
+        return to, ("agent_message_unknown_receiver", f"その役のタブが見つかりません: {to}")
+    named = [tab["id"] for tab in tabs
+             if tab.get("title") == to and tab not in there and visible(mine, places[tab["id"]])]
+    if named:
+        return to, ("agent_message_ambiguous_receiver",
+                    f"役の名前と同じ名前のタブがあります。 id で指定してください: {', '.join([tab['id'] for tab in there] + named)}")
+    if len(there) > 1:
+        placed = [tab for tab in there if tab.get("tier_tab") and same_folder(launch.tier_folder(tab["tier_tab"]), folder)]
+        if len(placed) != 1:
+            return to, ("agent_message_ambiguous_receiver",
+                        f"その役のタブが {len(there)} 個あります。 id で指定してください: {', '.join(tab['id'] for tab in there)}")
+        there = placed
+    return there[0]["id"], None
+
+
 def send(to: str, file: Path, operator_said: bool = False) -> int:
     me = os.environ.get("PWA_SID")
     if not me:
@@ -299,7 +389,10 @@ def send(to: str, file: Path, operator_said: bool = False) -> int:
     except OSError as error:
         print(f"tabs: {file} を読めません: {error}", file=sys.stderr)
         return 1
-    form = {"to": to, "from": me, "text": text}
+    receiver, refusal = role_receiver(to)
+    if refusal is not None:
+        return not_delivered(*refusal)
+    form = {"to": receiver, "from": me, "text": text}
     if operator_said:
         form["operator_said"] = "true"
     status, body = call("/agent-messages", form)
@@ -309,8 +402,7 @@ def send(to: str, file: Path, operator_said: bool = False) -> int:
         return 0
     detail = (body.get("detail") if isinstance(body, dict) else None) or {}
     detail = detail if isinstance(detail, dict) else {"message": str(detail)}
-    print(f"tabs: 届いていません [{detail.get('code', status)}]: {detail.get('message', body)}", file=sys.stderr)
-    return 1
+    return not_delivered(detail.get("code", status), detail.get("message", body))
 
 
 def own_tier() -> str | None:
