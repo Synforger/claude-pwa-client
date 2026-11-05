@@ -1,5 +1,6 @@
-"""The limit resume patrol tells a tab that a usage limit stopped to carry on, once, when the limit is over
-(`limit_resume/resume_patrol.py`). The usage log and the message sent are replaced; the record is a real file."""
+"""The limit resume patrol tells a tab still owed the continuation of a usage-limit stop to carry on, once, when the
+limit is over (`limit_resume/resume_patrol.py`). A running tab is left to Claude Code's own continuation for one look.
+The usage log and the message sent are replaced; the record is a real file."""
 from __future__ import annotations
 
 import json
@@ -16,7 +17,9 @@ from backend.jsonl.jsonl_predicates import CLIENT_NOTICE_OPENING
 from backend.limit_resume.resume_envelope import resume_envelope
 from backend.tests.account_fallback.conftest import accounts_with_fallback, usage_row
 from backend.tests.async_run import run
-from backend.tests.limit_samples import iso, limit_stop_row, message_row, stopped_mid_turn, use_accounts
+from backend.tests.limit_samples import (
+    iso, limit_notice_row, limit_reset_rows, limit_stop_row, message_row, stopped_mid_turn, use_accounts,
+)
 
 
 @pytest.fixture
@@ -39,6 +42,7 @@ def env(tmp_path, monkeypatch, isolated_state):
         return env.deliver
     monkeypatch.setattr(patrol, "send_to_tab", _send)
     monkeypatch.setattr(patrol, "_seen_at_limit", {})
+    monkeypatch.setattr(patrol, "_found_due", {})
     return env
 
 
@@ -50,11 +54,18 @@ def _recovered(env, account="personal", pct=20):
     return usage_row(account, five=pct, ts=env.now - 5)
 
 
+def _look_twice(env) -> list[str]:
+    """Two looks at a running tab whose limit is over: the first leaves it to Claude Code, the second answers."""
+    sent_before = len(env.sent)
+    assert run(patrol.tick()) == [] and len(env.sent) == sent_before
+    return run(patrol.tick())
+
+
 def test_a_stopped_tab_is_told_to_carry_on_when_the_usage_has_come_down_from_the_limit(env):
     env.rows = [_at_limit(env)]
     assert run(patrol.tick()) == [] and env.sent == []                  # the limit is still on
     env.rows = [_recovered(env)]
-    assert run(patrol.tick()) == [env.tab.id]
+    assert _look_twice(env) == [env.tab.id]
     [(session_id, text)] = env.sent
     assert session_id == env.tab.id
     assert text == resume_envelope("personal")
@@ -62,7 +73,7 @@ def test_a_stopped_tab_is_told_to_carry_on_when_the_usage_has_come_down_from_the
 
 def test_a_window_that_reset_after_the_stop_ends_it_even_when_the_stop_was_not_watched(env):
     env.rows = [usage_row("personal", five=100, five_resets=env.stop_at + 120, ts=env.stop_at - 30)]
-    assert run(patrol.tick()) == [env.tab.id]
+    assert _look_twice(env) == [env.tab.id]
 
 
 def test_the_message_has_the_envelope_of_the_clients_own_messages_and_names_the_account(env):
@@ -77,7 +88,7 @@ def test_the_tab_of_an_account_with_a_fallback_is_the_resumes_once_the_account_i
     env.rows = [usage_row("work", five=96, five_resets=env.now + 3600, ts=env.now - 60)]
     assert run(patrol.tick()) == [] and env.sent == []                  # at its line: the fallback's tab to move
     env.rows = [usage_row("work", five=94, ts=env.now - 5)]
-    assert run(patrol.tick()) == [env.tab.id]
+    assert _look_twice(env) == [env.tab.id]
     assert env.sent[0][1] == resume_envelope("work")
 
 
@@ -96,7 +107,7 @@ def test_one_stop_is_answered_once_however_often_the_patrol_looks(env):
     env.rows = [_at_limit(env)]
     run(patrol.tick())
     env.rows = [_recovered(env)]
-    assert run(patrol.tick()) == [env.tab.id]
+    assert _look_twice(env) == [env.tab.id]
     assert run(patrol.tick()) == [] and run(patrol.tick()) == []
     assert len(env.sent) == 1
 
@@ -105,7 +116,7 @@ def test_one_stop_is_answered_once_across_a_restart_of_the_backend(env, monkeypa
     env.rows = [_at_limit(env)]
     run(patrol.tick())
     env.rows = [_recovered(env)]
-    run(patrol.tick())
+    _look_twice(env)
     assert state_mod.SESSION_META_PATH.is_file()
     state_mod.sessions_meta.clear()
     state_mod.sessions_meta.update(state_mod._load_sessions_meta())          # what a restart reads back
@@ -118,20 +129,21 @@ def test_a_later_stop_is_answered_again(env):
     env.rows = [_at_limit(env)]
     run(patrol.tick())
     env.rows = [_recovered(env)]
-    run(patrol.tick())
+    _look_twice(env)
     with env.record.open("a") as fh:           # a record only grows: the tab was told, worked, and was stopped again
         for row in (message_row("u3", "lim1", "user", "go on"), limit_stop_row("lim2", "u3", iso(env.now - 60))):
             fh.write(json.dumps(row) + "\n")
     env.rows = [usage_row("personal", five=100, five_resets=env.now + 3600, ts=env.now - 30)]
     run(patrol.tick())
     env.rows = [usage_row("personal", five=10, ts=env.now)]
-    assert run(patrol.tick()) == [env.tab.id] and len(env.sent) == 2
+    assert _look_twice(env) == [env.tab.id] and len(env.sent) == 2
 
 
 def test_a_message_that_did_not_arrive_is_tried_again_at_the_next_look(env):
     env.rows = [_at_limit(env)]
     run(patrol.tick())
     env.rows = [_recovered(env)]
+    run(patrol.tick())                                                   # left to Claude Code for one look
     env.deliver = False
     assert run(patrol.tick()) == [] and env.tab.limit_resumed is None
     env.deliver = True
@@ -161,6 +173,7 @@ def test_a_tab_the_other_feature_is_working_on_is_left_for_the_next_look(env):
     env.rows = [_at_limit(env)]
     run(patrol.tick())
     env.rows = [_recovered(env)]
+    run(patrol.tick())                                                   # left to Claude Code for one look
     with claimed(env.tab.id):
         assert run(patrol.tick()) == [] and env.sent == [] and env.tab.limit_resumed is None
     assert run(patrol.tick()) == [env.tab.id]
@@ -181,7 +194,7 @@ def test_a_resume_is_logged(env, caplog):
     run(patrol.tick())
     env.rows = [_recovered(env)]
     with caplog.at_level(logging.INFO):
-        run(patrol.tick())
+        _look_twice(env)
     assert any(r.getMessage().startswith(f"limit resume: session={env.tab.id} account=personal stop=lim1")
                for r in caplog.records)
 
@@ -191,4 +204,41 @@ def test_a_pinned_tab_is_told_to_carry_on_like_any_other(env):
     env.rows = [_at_limit(env)]
     run(patrol.tick())
     env.rows = [_recovered(env)]
-    assert run(patrol.tick()) == [env.tab.id]
+    assert _look_twice(env) == [env.tab.id]
+
+
+# --- Claude Code's own continuation, and the continuation a restarted claude has lost ---
+
+def _append(env, *rows: dict) -> None:
+    with env.record.open("a") as fh:
+        for row in rows:
+            fh.write(json.dumps(row) + "\n")
+
+
+def test_a_running_tab_whose_claude_sent_its_own_continuation_is_not_told_again(env):
+    env.rows = [_at_limit(env)]
+    run(patrol.tick())
+    env.rows = [_recovered(env)]
+    assert run(patrol.tick()) == []                                     # left to Claude Code
+    _append(env, *limit_reset_rows("lim1", iso(env.now - 2)))
+    assert run(patrol.tick()) == [] and run(patrol.tick()) == [] and env.sent == []
+
+
+def test_answers_to_background_notifications_after_the_stop_leave_the_continuation_owed(env):
+    """The shape of a real record: the limit's notice after a closed turn, then a background task's notification and
+    the answer to it, and nothing after. Claude Code still owes the continuation; a claude started again has lost it."""
+    env.record.write_text("\n".join(json.dumps(r) for r in (
+        message_row("u1", None, "user", "please read it", iso(env.stop_at - 60)),
+        message_row("a1", "u1", "assistant", [{"type": "text", "text": "done"}], iso(env.stop_at - 1)),
+        limit_notice_row("n1", "a1", iso(env.stop_at)),
+        {**message_row("u2", "n1", "user", "<task-notification>x</task-notification>", iso(env.stop_at + 50)),
+         "origin": {"kind": "task-notification"}},
+        message_row("a2", "u2", "assistant", [{"type": "text", "text": "noted"}], iso(env.stop_at + 60)),
+    )) + "\n")
+    env.tab.sleep = SleepMark(claude_sid="tab", record=str(env.record), slept_at=int(env.now - 300), account_id="personal")
+    env.running = False
+    env.rows = [_at_limit(env)]
+    run(patrol.tick())
+    env.rows = [_recovered(env)]
+    assert run(patrol.tick()) == [env.tab.id]                           # asleep: no claude of its own to continue
+    assert env.tab.limit_resumed == "n1"

@@ -8,9 +8,25 @@
 
 ## 止まったタブ
 
-会話の最後が、Claude Code が上限で止まった時に書く行 (`isApiErrorMessage: true`、`error: "rate_limit"`、一時的な
-混雑を示す `apiErrorIsTransient` が付かないもの) のタブです。この行の後に発話や返事が 1 つでも書かれれば、止まって
-いるタブではなくなります。
+Claude Code は上限で止まると、上限が戻った時の続きを自分で予約し、戻った時に自分で続けます。ただし予約は、それを
+した Claude の中にしか在りません。眠らせた・口座を移した・backend が立て直したタブの Claude は、新しく起動した
+Claude なので予約を持っていません。この仕組みが続けさせるのは、**予約がまだ果たされていないタブ**です。
+
+予約が始まるのは、会話の記録に次のどちらかが書かれた時です (同じ止まりで両方が書かれることが多く、先の行を
+止まりとして扱います)。
+
+| 行 | 形 |
+|---|---|
+| 上限の誤りの行 | `type: "assistant"`、`isApiErrorMessage: true`、`error: "rate_limit"` で、一時的な混雑を示す `apiErrorIsTransient` が付かないもの |
+| 上限の知らせ | `type: "system"`、`subtype: "informational"`、本文が `Usage limit reached` で始まるもの (例: `Usage limit reached · continuing automatically at 2am · esc to cancel`。`Usage limit reached again …` も同じ予約) |
+
+予約が果たされたと見るのは、その後に次のどれかが書かれた時です。
+
+- 上限が戻った知らせ (`type: "system"`、本文が `Usage limit reset` で始まるもの) と、Claude Code 自身の続きの発話 (`origin.kind: "auto-continuation"`)
+- 人が打った発話、または端末へ打ち込まれた連絡 (`origin.kind: "human"`。この仕組みと口座の移し替えの連絡も含みます)
+
+裏の仕事の終わりの知らせ (`origin.kind: "task-notification"`) と、それへの返事では果たされません。上限の後も
+Claude はこれらに答えることがあり、その間も予約は残っています。
 
 ## 戻った、の判定
 
@@ -52,6 +68,11 @@ The usage limit has ended. Carry on with the work you were doing before it stopp
 なので、また 1 通送ります。見回りは [自動の入れ替え](rollover.md) と同じ 60 秒ごとです。
 
 Claude が動いていない、眠ってもいないタブには送りません (このために起動はしません)。
+
+**起きているタブには、戻ったと分かった次の見回りで送ります。** 最初の見回りでは送らず、その Claude 自身の続きに
+任せます。予約を持つ Claude なら、その間に続けて記録に戻った知らせが書かれるので、何も送りません。次の見回り
+でもまだ予約が残っていれば、その Claude は予約を持っていない (起動し直した) ので、代わりに送ります。眠っている
+タブは予約を持つ Claude がいないので、戻ったと分かった見回りで送ります。
 
 ## 見え方
 

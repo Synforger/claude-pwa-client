@@ -1,6 +1,11 @@
-"""The limit resume patrol: looks over the tabs on the rollover's interval and, for a tab whose turn a usage limit
-stopped, sends one message to carry on once the limit of its account is over. A tab asleep is woken by that message,
-in the same conversation. See `docs/reference/limit-resume.md`.
+"""The limit resume patrol: looks over the tabs on the rollover's interval and, for a tab still owed the continuation
+of a usage-limit stop, sends one message to carry on once the limit of its account is over. A tab asleep is woken by
+that message, in the same conversation. See `docs/reference/limit-resume.md`.
+
+Claude Code books that continuation itself and sends it when the limit resets, but only the claude that booked it
+does; one that was started again since (put to sleep, moved, the backend restarted it) has lost it. A running tab is
+therefore left to Claude Code for one look after the limit is seen over: when its own continuation came, the record
+no longer owes it. A sleeping tab has no claude to send it and is told at once.
 
 The judgement is `resume_judgement.py`. One stop is answered once: the uuid of the stop is kept in the tab's
 definition before the message is sent, so neither a second look nor a restart of the backend sends it again.
@@ -32,15 +37,19 @@ logger = logging.getLogger(__name__)
 # The stop (its uuid) of each tab that was seen while its account was at the line. Memory only: a stop the usage
 # explains by a reset after it does not need it.
 _seen_at_limit: dict[str, str] = {}
+# The stop (its uuid) of each running tab that was already found due on an earlier look: it is told on the next look
+# that still finds it owed. Memory only: after a restart of the backend the running claude is a new one, which has
+# lost Claude Code's continuation, and waiting one more look costs nothing.
+_found_due: dict[str, str] = {}
 
 
 def _stop_of(meta: SessionDef) -> LimitStop | None:
-    """The usage-limit stop the tab's conversation ends in. Blocking."""
+    """The usage-limit stop whose continuation the tab is still owed. Blocking."""
     record = Path(meta.sleep.record) if meta.sleep is not None else jsonl_watcher.get_jsonl_for(meta.id)
     if record is None:
         return None
     try:
-        return record_facts_of(record).limit_stop
+        return record_facts_of(record).continuation_owed
     except OSError:
         return None
 
@@ -53,6 +62,7 @@ async def _look(session_id: str, rows: list[dict], now: float) -> bool:
     stop = await asyncio.to_thread(_stop_of, meta)
     if stop is None:
         _seen_at_limit.pop(session_id, None)
+        _found_due.pop(session_id, None)
         return False
     if meta.limit_resumed == stop.uuid:
         return False
@@ -64,8 +74,12 @@ async def _look(session_id: str, rows: list[dict], now: float) -> bool:
     if not should_resume(stop=stop, resumed=meta.limit_resumed, state=state,
                          seen_at_limit=_seen_at_limit.get(session_id) == stop.uuid):
         return False
-    if meta.sleep is None and await asyncio.to_thread(claude_pid_in_pane, session_id) is None:
-        return False            # nothing runs in the tab: it is not started for this
+    if meta.sleep is None:
+        if await asyncio.to_thread(claude_pid_in_pane, session_id) is None:
+            return False        # nothing runs in the tab: it is not started for this
+        if _found_due.get(session_id) != stop.uuid:
+            _found_due[session_id] = stop.uuid
+            return False        # its own claude may still send the continuation it booked
     with claimed(session_id) as mine:
         if not mine:
             return False
@@ -75,6 +89,8 @@ async def _look(session_id: str, rows: list[dict], now: float) -> bool:
         if not sent:
             meta.limit_resumed = None            # nothing arrived; the next look tries again
             save_sessions_meta()
+        if sent:
+            _found_due.pop(session_id, None)
         logger.info("limit resume: session=%s account=%s stop=%s asleep=%d sent=%s", session_id, account, stop.uuid,
                     meta.sleep is not None, sent)
         return sent
