@@ -12,6 +12,7 @@ import pytest
 import backend.limit_resume.resume_patrol as patrol
 from backend._common import state as state_mod
 from backend._common.state import SleepMark, register_session
+from backend.jsonl.jsonl_predicates import CLIENT_NOTICE_OPENING
 from backend.limit_resume.resume_envelope import resume_envelope
 from backend.tests.account_fallback.conftest import accounts_with_fallback, usage_row
 from backend.tests.async_run import run
@@ -66,7 +67,7 @@ def test_a_window_that_reset_after_the_stop_ends_it_even_when_the_stop_was_not_w
 
 def test_the_message_has_the_envelope_of_the_clients_own_messages_and_names_the_account(env):
     text = resume_envelope("personal")
-    assert text.splitlines()[0].startswith("Automatic session rollover, sent by the client")
+    assert text.splitlines()[0] == CLIENT_NOTICE_OPENING
     assert '<limit-resume account="personal">' in text and text.rstrip().endswith("</limit-resume>")
     assert "The usage limit has ended. Carry on with the work you were doing before it stopped." in text
 

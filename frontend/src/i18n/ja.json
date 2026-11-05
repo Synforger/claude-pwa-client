@@ -213,6 +213,8 @@
   "chat.rollover_close": "自動の入れ替え: 締め",
   "chat.rollover_start": "自動の入れ替え: 起動",
   "chat.tab_open": "階層のタブとして起動",
+  "chat.notice_account_move": "口座を移しました: {from} → {to}",
+  "chat.notice_limit_resume": "上限が戻りました: {account}",
   "chat.rollover_reason_context": "context が {pct}% に届きました。 区切りで締めて、 新しい会話へ引き継ぎます。",
   "chat.rollover_reason_idle": "context {pct}% のまま {minutes} 分、 更新がありません。 締めて、 新しい会話を起動します。",
   "chat.thinking": "推論中…",

@@ -88,9 +88,10 @@ account fallback: waits session=ses_0123456789ab account=work reasons=turn_open,
 5. タブの定義 (`session_meta.json`) に、本来の口座 (`fallback_from`) と、書いた会話の path (`fallback_copy`) を保存します
 6. **止まっていたタブには、続けての連絡を 1 通送ります。** 止まっていないタブには何も送りません
 
-続けての連絡は、自動の入れ替えと同じ 1 行目 (「client が送った、人が打っていない」と分かる行) で始まります。
+続けての連絡は、client の連絡の 1 行目 (「client が送った、人が打っていない」と分かる固定の行) で始まります。
 
 ```
+Sent by the client (the operator did not type this):
 <account-move from="work" to="personal" reason="limit">
 A usage limit stopped this session, so the client moved it to another account. Carry on with the work you were doing before it stopped.
 </account-move>

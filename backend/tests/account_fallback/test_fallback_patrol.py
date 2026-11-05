@@ -15,6 +15,7 @@ import backend.push.push as push
 import backend.terminal.session_resolver as session_resolver
 from backend._common.state import SleepMark, register_session, sessions_meta
 from backend.account_fallback.fallback_sensors import TabBreak
+from backend.jsonl.jsonl_predicates import CLIENT_NOTICE_OPENING
 from backend.routes.agent_messages import allowed_for_peer
 from backend.tests.account_fallback.conftest import usage_row
 from backend.tests.async_run import run
@@ -50,7 +51,7 @@ def test_a_tab_the_limit_stopped_is_moved_with_its_tool_results_and_told_to_carr
     assert _uuids(_copy_of(env)) == ["u1", "a1", "u2"]                  # the limit's own row is left out
     [(session_id, text)] = env.sent
     assert session_id == env.tab.id
-    assert text.splitlines()[0].startswith("Automatic session rollover, sent by the client")
+    assert text.splitlines()[0] == CLIENT_NOTICE_OPENING
     assert '<account-move from="work" to="personal" reason="limit">' in text
     assert "Carry on with the work you were doing before it stopped." in text
 

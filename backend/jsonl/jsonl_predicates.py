@@ -120,8 +120,11 @@ ROLLOVER_OPENING = "Automatic session rollover, sent by the client (the operator
 # backend がエージェントの階層ごとに立てたタブの、 最初の発話の 1 行目 (= 封筒を作るのは
 # backend/tier_tabs/envelope.py、 同じ行を docs/reference/tier-tabs.md に載せている)。
 TAB_OPEN_OPENING = "Tab opened by the client for its tier (the operator did not type this):"
+# backend が自分で書いて端末へ打つ連絡 (= 口座を移した時の続けての連絡、 上限が戻った時の連絡) の 1 行目。
+# 連絡の種類は、 この行の次の block (= `<account-move …>` `<limit-resume …>`) が言う。
+CLIENT_NOTICE_OPENING = "Sent by the client (the operator did not type this):"
 # 端末から入るが、 人が打っていない発話の 1 行目の全部。
-CLIENT_OPENINGS = (*AGENT_MESSAGE_OPENINGS, ROLLOVER_OPENING, TAB_OPEN_OPENING)
+CLIENT_OPENINGS = (*AGENT_MESSAGE_OPENINGS, ROLLOVER_OPENING, TAB_OPEN_OPENING, CLIENT_NOTICE_OPENING)
 
 
 def is_client_message(text) -> bool:

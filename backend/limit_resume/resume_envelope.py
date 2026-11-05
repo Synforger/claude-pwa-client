@@ -1,12 +1,11 @@
 """The message the client sends a tab whose turn a usage limit stopped, once the limit is over. The first line is the one
-the client's other automatic messages begin with, so a reader can tell the operator did not type it (see
-`routes/rollover.py`).
+the client's own notices begin with, so a reader can tell the operator did not type it.
 
 Used by `resume_patrol.py`.
 """
 from __future__ import annotations
 
-from backend.jsonl.jsonl_predicates import ROLLOVER_OPENING as OPENING
+from backend.jsonl.jsonl_predicates import CLIENT_NOTICE_OPENING as OPENING
 
 TAG = "limit-resume"
 

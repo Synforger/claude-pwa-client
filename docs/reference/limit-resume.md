@@ -38,9 +38,10 @@
 2. タブが眠っていれば、連絡と同じ道 (`tabs send` と同じ起こし方) で、同じ会話を開き直します
 3. 続けての連絡を入力欄に打って確定します。届かなかった時は uuid を消して、次の回にもう一度送ります
 
-連絡は、自動の入れ替えと同じ 1 行目 (「client が送った、人が打っていない」と分かる行) で始まります。
+連絡は、client の連絡の 1 行目 (「client が送った、人が打っていない」と分かる固定の行) で始まります。
 
 ```
+Sent by the client (the operator did not type this):
 <limit-resume account="personal">
 The usage limit has ended. Carry on with the work you were doing before it stopped.
 </limit-resume>
