@@ -1,8 +1,8 @@
-"""The state line of a child tab's memo (`- 状態: 作業中`): `tabs report` rewrites it, and `tabs children`, the startup
-check and the child watch read it. Standard library only, because the `tabs` command imports it without the
+"""The state line of a child tab's memo (`- 状態: 作業中`): `tabs report` rewrites it, the backend sets it back to
+working when the parent hands the child more work, and `tabs children`, the startup check and the child watch read it. Standard library only, because the `tabs` command imports it without the
 backend's dependencies.
 
-Used by `backend/cli/tabs.py` and `watch_sensors.py`.
+Used by `backend/cli/tabs.py`, `watch_sensors.py` and `child_work.py`.
 """
 from __future__ import annotations
 
@@ -24,3 +24,16 @@ def memo_state(path: Path | None) -> str:
     except (OSError, UnicodeDecodeError):
         found = None
     return found.group(1).strip() if found else UNKNOWN
+
+
+def with_state(text: str, state: str) -> str:
+    """`text` (a memo) with its state line saying `state`; a memo without the line gets one at the top."""
+    line = f"- 状態: {state}"
+    if STATE_LINE.search(text):
+        return STATE_LINE.sub(line, text, count=1)
+    return f"{line}\n\n{text}"
+
+
+def save_memo_state(path: Path, state: str) -> None:
+    """Write `state` into the state line of the memo at `path`."""
+    path.write_text(with_state(path.read_text(encoding="utf-8"), state), encoding="utf-8")
