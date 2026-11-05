@@ -998,3 +998,10 @@ def test_a_message_that_was_not_delivered_hands_no_work(client, tabs, typed, mon
     monkeypatch.setattr(am, "pty_send", refuse)
     _send(client)
     assert noted == []
+
+
+def test_a_message_the_sender_says_hands_no_work_is_not_noted_as_work(client, tabs, typed, monkeypatch):
+    noted = []
+    monkeypatch.setattr(am, "hand_work", lambda sender, receiver: noted.append((sender, receiver)) or True)
+    assert _send(client, hands_work="false").status_code == 200
+    assert noted == [] and len(typed) == 1

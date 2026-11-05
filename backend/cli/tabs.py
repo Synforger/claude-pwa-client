@@ -14,6 +14,9 @@
                                  別の機械のタブは `<相手の名前>:<タブの id か名前>`
     tabs    send <to> <file> --operator-said
                                  同じ送信に、 このタブで操作者が最後に打った発話を付ける
+    tabs    send <to> <file> --no-work
+                                 仕事を渡さない連絡として送る (= 受け取り・返事の要らない知らせ)。 報告を終えた自分の子へ
+                                 送っても、 子のメモを `作業中` に戻さない (= 印の無い連絡は、 子への次の仕事として数える)
     tabs    rollover <continue|wait> [--tier <階層>]
                                  このタブを終了して起動し直す (= 自動の入れ替え。 締めを終えた最後の 1 手)。
                                  この会話が Write / Edit で書いた journal に `## 入れ替えの時点` が在り、 commit が
@@ -389,7 +392,11 @@ def role_receiver(to: str) -> tuple[str, tuple[str, str] | None]:
     return there[0]["id"], None
 
 
-def send(to: str, file: Path, operator_said: bool = False) -> int:
+#: `send` が受ける印 (= どちらも 1 回まで、 順は問わない)
+SEND_FLAGS = {"--operator-said", "--no-work"}
+
+
+def send(to: str, file: Path, operator_said: bool = False, hands_work: bool = True) -> int:
     me = os.environ.get("PWA_SID")
     if not me:
         print("tabs: このタブの id (= PWA_SID) がありません。 PWA のタブの中から打ってください", file=sys.stderr)
@@ -405,6 +412,8 @@ def send(to: str, file: Path, operator_said: bool = False) -> int:
     form = {"to": receiver, "from": me, "text": text}
     if operator_said:
         form["operator_said"] = "true"
+    if not hands_work:
+        form["hands_work"] = "false"
     status, body = call("/agent-messages", form)
     if status == 200 and isinstance(body, dict) and body.get("ok"):
         said = "操作者の発話つき" if body.get("operator_said") else "操作者の発話なし"
@@ -795,8 +804,8 @@ def main(argv: list[str]) -> int:
         return sleep_child(argv[1])
     if len(argv) in (2, 4) and argv[0] == "rollover" and argv[1] in ("continue", "wait") and argv[2:3] in ([], ["--tier"]):
         return rollover(argv[1], argv[3] if len(argv) == 4 else None)
-    if len(argv) in (3, 4) and argv[0] == "send" and argv[3:] in ([], ["--operator-said"]):
-        return send(argv[1], Path(argv[2]), operator_said=len(argv) == 4)
+    if len(argv) >= 3 and argv[0] == "send" and set(argv[3:]) <= SEND_FLAGS and len(set(argv[3:])) == len(argv[3:]):
+        return send(argv[1], Path(argv[2]), operator_said="--operator-said" in argv[3:], hands_work="--no-work" not in argv[3:])
     print("\n\n".join(__doc__.split("\n\n")[1:3]), file=sys.stderr)
     return 2
 

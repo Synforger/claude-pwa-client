@@ -139,7 +139,9 @@ should be split further goes into its report. `tabs new` also writes the task in
 A child that has reported but will take the next piece of the same work can wait asleep instead of closed: `tabs
 sleep <child id>` ends its Claude and frees its memory at once, without the quiet minutes of the sleep patrol, and
 the next `tabs send` to it reopens the same conversation. A message the parent delivers to a child that has reported
-sets its memo back to `作業中`, since the child holds work again; it reports again when that work is done. It waits up to a minute for the child to finish its last
+sets its memo back to `作業中`, since the child holds work again; it reports again when that work is done. A message
+that hands no work (an acknowledgement, "no reply needed") goes with `tabs send <child> <file> --no-work`, which leaves
+the memo as the report left it. It waits up to a minute for the child to finish its last
 answer and names the reason when the child cannot sleep (a scheduled wake-up, a voice call, a rollover). A sleeping
 child still counts towards `child_sessions_max`.
 

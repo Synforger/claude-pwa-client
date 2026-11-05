@@ -902,3 +902,27 @@ def test_without_a_guard_that_knows_roles_a_name_is_left_to_the_backend(world):
     world.install_guard({}, exit_code=2)
     assert send(world.tabs, "role-b") == 0
     assert sent_to(world.tabs) == ["role-b"]
+
+
+# --- 仕事を渡さない連絡 ----------------------------------------------------------------
+
+@pytest.mark.parametrize("flags, hands_work, operator_said", [
+    ([], None, None),
+    (["--no-work"], "false", None),
+    (["--operator-said", "--no-work"], "false", "true"),
+    (["--no-work", "--operator-said"], "false", "true"),
+])
+def test_send_says_whether_the_message_hands_work(family, flags, hands_work, operator_said):
+    body = family.work / "body.md"
+    body.write_text("got it, no reply needed", encoding="utf-8")
+    assert family.run("send", "ses_a", str(body), *flags) == 0
+    [call] = family.backend.called("POST", "/agent-messages")
+    assert call["form"].get("hands_work") == hands_work and call["form"].get("operator_said") == operator_said
+
+
+@pytest.mark.parametrize("flags", [["--no-work", "--no-work"], ["--quiet"]])
+def test_send_refuses_a_flag_it_does_not_know_or_one_given_twice(family, flags):
+    body = family.work / "body.md"
+    body.write_text("x", encoding="utf-8")
+    assert family.run("send", "ses_a", str(body), *flags) == 2
+    assert family.backend.called("POST", "/agent-messages") == []
