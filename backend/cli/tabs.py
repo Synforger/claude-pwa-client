@@ -85,7 +85,7 @@ from typing import NamedTuple
 
 # 子のタブのメモの状態の行の読み方は backend と同じ file (= 標準ライブラリだけ)。 repo の根から読む
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from backend.child_watch.child_memo import STATE_LINE as STATE, WORKING, memo_state  # noqa: E402
+from backend.child_watch.child_memo import STATE_LINE as STATE, WORKING, memo_state, with_state  # noqa: E402
 
 HOME = Path.home()
 BASE = f"http://127.0.0.1:{os.environ.get('PWA_PORT', '8765')}"
@@ -573,9 +573,7 @@ def report(kind: str, file: Path) -> int:
         return fail(f"親へ届いていません {refused(status, answer)}")
     note = own_note()
     if note is not None:
-        written = note.read_text(encoding="utf-8")
-        note.write_text(STATE.sub(f"- 状態: {STATES[kind]}", written, count=1) if STATE.search(written)
-                        else f"- 状態: {STATES[kind]}\n\n{written}", encoding="utf-8")
+        note.write_text(with_state(note.read_text(encoding="utf-8"), STATES[kind]), encoding="utf-8")
     print(f"届きました: 親のタブ {mine['parent_id']} ({STATES[kind]})")
     return 0
 

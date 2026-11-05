@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 import backend.child_watch.watch_patrol as patrol
+import backend.child_watch.child_work as child_work
 import backend.child_watch.watch_sensors as sensors
 from backend._common import state as state_mod
 from backend._common.state import SleepMark, register_session
@@ -163,7 +164,7 @@ def test_a_memo_in_the_parents_tier_folder_counts_like_one_in_the_childs(env, mo
     def _tier_folder(tab_id):
         seen.append(tab_id)
         return env.memo.parents[2] if tab_id == env.parent.id else env.memo.parents[2] / "elsewhere"
-    monkeypatch.setattr(sensors, "tier_folder", _tier_folder)
+    monkeypatch.setattr(child_work, "tier_folder", _tier_folder)
     run(patrol.tick())
     assert run(patrol.tick()) == [env.child.id] and seen[:2] == [env.child.id, env.parent.id]
 

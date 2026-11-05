@@ -980,3 +980,21 @@ def test_the_list_tells_a_tab_put_to_sleep_from_one_that_never_started(client, t
     rows = {row["id"]: row for row in client.get(am.LOCAL_TABS_PATH).json()["tabs"]}
     assert rows["ses_idle"]["asleep"] is True
     assert rows["ses_receiver"]["asleep"] is False
+
+
+def test_a_delivered_message_is_noted_as_work_handed_to_a_child(client, tabs, typed, monkeypatch):
+    noted = []
+    monkeypatch.setattr(am, "hand_work", lambda sender, receiver: noted.append((sender, receiver)) or True)
+    assert _send(client).status_code == 200
+    assert noted == [("ses_sender", "ses_receiver")]
+
+
+def test_a_message_that_was_not_delivered_hands_no_work(client, tabs, typed, monkeypatch):
+    noted = []
+    monkeypatch.setattr(am, "hand_work", lambda sender, receiver: noted.append((sender, receiver)) or True)
+
+    async def refuse(session_id, payload, idempotency_key=None):
+        return {"ok": False, "delivered": False}
+    monkeypatch.setattr(am, "pty_send", refuse)
+    _send(client)
+    assert noted == []

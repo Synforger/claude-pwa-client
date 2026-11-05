@@ -31,6 +31,10 @@ backend が「人がこう打った」 と言ってきても、 こちらには�
 それを走らせ、 終了コード 0 の時だけ届ける (= 0 以外は拒否して、 標準エラーの最後の行を理由として返す)。
 書いていなければ検査なしで届ける。 人の発話を付けてよいかは `agent_message_operator_check` が別に決める
 (= 0 以外なら発話を付けずに本文だけ届ける)。
+
+親が自分の子へ届けた連絡は、 子への次の仕事として数える: 報告済み (= `完了` / `詰まり`) の子のメモの状態の行を
+`作業中` に戻す (= `child_watch/child_work.py`)。 そうしないと、 次の仕事の途中で止まった子を、 止まった子の見回り
+も `tabs children` も 「仕事の無い子」 と見る。
 """
 from __future__ import annotations
 
@@ -58,6 +62,7 @@ from backend.jsonl.jsonl_predicates import (
     unwrap_pasted,
 )
 from backend._common.errors import raise_error
+from backend.child_watch.child_work import hand_work
 from backend._common.state import sessions_meta
 from backend.terminal import input_ready
 from backend.terminal.first_message import LAUNCH_DISCOVER_SEC
@@ -496,6 +501,8 @@ async def post_agent_message(
     result = await deliver_message(receiver_id, envelope(sender, text, said, title), woke)
     logger.info("agent message sender=%s receiver=%s chars=%d operator_said=%s ok=%s",
                 sender, receiver_id, len(text), said is not None, result.get("ok"))
+    if result.get("ok"):
+        await asyncio.to_thread(hand_work, sender, receiver_id)
     return {**result, "to": receiver_id, "operator_said": said is not None}
 
 
