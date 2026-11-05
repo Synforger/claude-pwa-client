@@ -103,6 +103,8 @@ import backend.routes.notes as notes_routes  # noqa: E402
 import backend.routes.restart as restart_routes  # noqa: E402
 import backend.rollover.rollover as rollover  # noqa: E402
 import backend.sleep as sleep  # noqa: E402
+import backend.account_fallback as account_fallback  # noqa: E402
+import backend.terminal.session_resolver as session_resolver  # noqa: E402
 import backend.routes.rollover as rollover_routes  # noqa: E402
 import backend.routes.subagents as subagents_routes  # noqa: E402
 import backend.routes.tier_tabs as tier_tabs_routes  # noqa: E402
@@ -264,6 +266,12 @@ async def lifespan(app: FastAPI):
     # (= `backend/sleep/`。 設定の無い agent のタブには何もしない)。
     sleep_task = asyncio.create_task(sleep.sleep_loop())
 
+    # 口座の逃げ先: 設定に `fallback` を書いた口座のタブを、 使用率が線に届いた間だけ逃げ先の口座で動かす
+    # (= `backend/account_fallback/`)。 眠っているタブは、 起こす時に移す。 設定の無い口座のタブには何もしない。
+    account_fallback.warn_unusable()
+    session_resolver.register_wake_hook(account_fallback.move_before_wake)
+    fallback_task = asyncio.create_task(account_fallback.fallback_loop())
+
     # 階層のタブ: `tier_tabs: true` の agent の folder を見回り、 まだタブを立てたことの無い階層にタブを立てて
     # 起動する (= `backend/tier_tabs/tier_tabs.py`。 設定の無い agent には何もしない)。
     tier_tabs_task = asyncio.create_task(tier_tabs.tier_tabs_loop())
@@ -297,10 +305,11 @@ async def lifespan(app: FastAPI):
     maintenance_task.cancel()
     rollover_task.cancel()
     sleep_task.cancel()
+    fallback_task.cancel()
     tier_tabs_task.cancel()
     prompt_detector_task.cancel()
-    for _t in (blocker_monitor_task, uploads_gc_task, maintenance_task, rollover_task, sleep_task, tier_tabs_task,
-               prompt_detector_task):
+    for _t in (blocker_monitor_task, uploads_gc_task, maintenance_task, rollover_task, sleep_task, fallback_task,
+               tier_tabs_task, prompt_detector_task):
         try:
             await _t
         except (asyncio.CancelledError, Exception):

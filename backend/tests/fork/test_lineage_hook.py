@@ -12,7 +12,8 @@ from fastapi import HTTPException
 import backend._common.config as config
 import backend.fork.lineage_hook as lineage_hook
 from backend.accounts.account_move import move_tab_account
-from backend.tests.fork.test_fork import SAMPLE, _run, _setup_account_move, _setup_fork_env
+from backend.tests.async_run import run as _run
+from backend.tests.fork.test_fork import SAMPLE, _setup_account_move, _setup_fork_env
 
 
 def _hook(monkeypatch, tmp_path: Path, body: str) -> Path:

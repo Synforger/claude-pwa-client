@@ -20,6 +20,7 @@ import asyncio
 import logging
 import shlex
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from backend._common.config import AGENTS, CLAUDE_PATH
@@ -175,6 +176,17 @@ def resolve_autoresume_fallback(session_id: str, *, prefer_fresh: bool = False) 
     return cfg.get("launch_alias")
 
 
+# What runs before a sleeping tab is reopened (= registered at startup by the feature that may want the tab to wake
+# on another account). The terminal layer only offers the place: it never imports that feature.
+_wake_hook: Callable[[str], Awaitable[None]] | None = None
+
+
+def register_wake_hook(hook: Callable[[str], Awaitable[None]] | None) -> None:
+    """Set the coroutine function called, with the tab's id, before a sleeping tab is reopened (None clears it)."""
+    global _wake_hook
+    _wake_hook = hook
+
+
 # ensure_pty_session_for の per-sid 直列化 lock。 「pty_sessions 未登録確認 → spawn 完了」
 # の間に await (= spawn_pty_session 内の subprocess 起動) があり、 同一 sid の並行呼び出し
 # (= per-sid SSE 開通と /jsonl/stream/all の再接続 sweep が time-close に発火する等) が
@@ -210,6 +222,13 @@ async def ensure_pty_session_for(session_id: str, *, prefer_fresh: bool = False)
     `prefer_fresh=True` は restart 経路用 (= autoresume race 回避)、 詳細は
     `resolve_launch_alias` の docstring 参照。
     """
+    meta = sessions_meta.get(session_id)
+    if _wake_hook is not None and meta is not None and meta.sleeping_claude_sid() is not None:
+        # before the lock: the hook may move the tab, which starts it again through this function
+        try:
+            await _wake_hook(session_id)
+        except Exception:
+            logger.exception("wake hook failed session=%s; the tab wakes where it slept", session_id)
     lock = _spawn_locks.setdefault(session_id, asyncio.Lock())
     async with lock:
         existing = pty_sessions.get(session_id)

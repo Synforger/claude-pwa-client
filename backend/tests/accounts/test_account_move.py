@@ -5,7 +5,8 @@ from __future__ import annotations
 import backend._common.config as config
 from backend.accounts.account_move import move_tab_account, remove_written_copy
 from backend.fork.lineage import LineageCut
-from backend.tests.fork.test_fork import _run, _setup_account_move
+from backend.tests.async_run import run as _run
+from backend.tests.fork.test_fork import _setup_account_move
 
 
 def _with_projects(monkeypatch, src, work_dir) -> None:

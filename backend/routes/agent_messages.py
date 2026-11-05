@@ -304,7 +304,10 @@ def allowed_for_peer(peer: dict, tab_id: str) -> bool:
     """そのタブが、 この相手と連絡してよいか (= 相手の設定の accounts。 書いていなければ全部のタブ)。"""
     from backend._common.config import default_account_id  # noqa: PLC0415
     accounts = peer.get("accounts")
-    return accounts is None or (sessions_meta[tab_id].account_id or default_account_id()) in accounts
+    meta = sessions_meta[tab_id]
+    # the account the tab belongs to, not the one it runs on for now: a tab the account fallback moved is not let
+    # through to a machine its own account may not talk to
+    return accounts is None or (meta.fallback_from or meta.account_id or default_account_id()) in accounts
 
 
 def peer_of_caller(request: Request) -> tuple[str, dict] | None:
@@ -381,7 +384,7 @@ def _reopens_in_its_shell(tab_id: str) -> bool:
     return meta is not None and (meta.child or not uses_launcher(tab_id) or meta.sleeping_claude_sid() is not None)
 
 
-async def _wake(tab_id: str) -> None:
+async def wake_tab(tab_id: str) -> None:
     """Start the tab's claude the way the operator's action would, and wait until it takes input. The sender learns
     here when it did not start, and nothing is typed into a pane that is not listening. A new conversation is left to
     the first message (`pty_send`), which starts it with the message."""
@@ -464,7 +467,7 @@ async def post_agent_message(
     if not _tab_reachable(receiver_id):
         raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
     await check(receiver_id, text)
-    await _wake(receiver_id)
+    await wake_tab(receiver_id)
     said = await operator_said_for(sender, receiver_id) if operator_said else None
     title = await sender_title(sender, receiver_id)
     result = await pty_send(receiver_id, {"text": envelope(sender, text, said, title), "enter": True}, None)
@@ -507,7 +510,7 @@ async def post_relayed_agent_message(request: Request, body: dict = Body(...)) -
     if not _tab_reachable(receiver_id):
         raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
     await check(receiver_id, text)
-    await _wake(receiver_id)
+    await wake_tab(receiver_id)
     payload = {"text": relayed_envelope(peer_name, title, session, text), "enter": True}
     result = await pty_send(receiver_id, payload, None)
     logger.info("agent message peer=%s sender=%s receiver=%s chars=%d operator_said=False ok=%s",
