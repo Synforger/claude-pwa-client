@@ -270,3 +270,14 @@ def test_a_tab_whose_rollover_was_asked_is_left_awake(monkeypatch, tmp_path):
 def test_a_tab_still_starting_is_left_awake(monkeypatch, tmp_path):
     _stand_in(monkeypatch, tmp_path, ready=False)
     assert j.judge(sensors.gather("ses_x", 60), 60) == (j.STARTING,)
+
+
+def test_a_tab_a_limit_stopped_is_read_past_its_open_turn_to_the_processes_under_it(monkeypatch, tmp_path):
+    calls = _stand_in(monkeypatch, tmp_path, busy=True, ready=False, tree=(j.ProcessNode(names=("sleep",)),))
+    facts = sensors.gather("ses_x", 0, by_hand=True, stopped_by_limit=True)
+    assert "record" in calls and calls[-1] == "tree"
+    assert j.judge(facts, 0, by_hand=True, stopped_by_limit=True) == (j.PROCESSES_RUNNING,)
+    # asked without the stop, the same tab is not read further than its open turn
+    calls.clear()
+    assert j.judge(sensors.gather("ses_x", 0, by_hand=True), 0, by_hand=True) == (j.STARTING, j.TURN_OPEN)
+    assert "tree" not in calls

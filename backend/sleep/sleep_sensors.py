@@ -130,16 +130,17 @@ def _turn_open(session_id: str) -> bool:
     return is_busy(session_id) or (state is not None and state.queued_sends > 0)
 
 
-def gather(session_id: str, minutes: int, by_hand: bool = False) -> SleepFacts:
+def gather(session_id: str, minutes: int, by_hand: bool = False, stopped_by_limit: bool = False) -> SleepFacts:
     """Read the facts about a tab, cheapest first, and stop at the first condition that fails. `minutes` is how long
-    the tab must have been quiet; `by_hand` reads for a sleep its parent asked for (= `judge`)."""
+    the tab must have been quiet; `by_hand` reads for a sleep its parent asked for and `stopped_by_limit` for a tab
+    whose turn a usage limit stopped (= `judge`), so the facts those leave out are read past."""
     pid = claude_pid_in_pane(session_id)
     facts = SleepFacts(claude_running=pid is not None)
     if pid is None:
         return facts
     facts = dataclasses.replace(facts, starting=not input_ready.is_ready(session_id), turn_open=_turn_open(session_id),
                                 on_voice_call=is_session_on_call(session_id))
-    if judge(facts, minutes, by_hand):
+    if judge(facts, minutes, by_hand, stopped_by_limit):
         return facts
     record = jsonl_watcher.get_jsonl_for(session_id)
     try:
@@ -148,14 +149,14 @@ def gather(session_id: str, minutes: int, by_hand: bool = False) -> SleepFacts:
     except OSError:
         scanned, quiet = None, None
     facts = dataclasses.replace(facts, record_found=quiet is not None, quiet_minutes=quiet)
-    if judge(facts, minutes, by_hand) or record is None:
+    if judge(facts, minutes, by_hand, stopped_by_limit) or record is None:
         return facts
     facts = dataclasses.replace(facts, context_pct=context_pct_of(session_id),
                                 rollover_idle_pct=rollover_idle_pct(session_id),
                                 rolling_over=rollover.asked(record))
-    if judge(facts, minutes, by_hand):
+    if judge(facts, minutes, by_hand, stopped_by_limit):
         return facts
     facts = dataclasses.replace(facts, record=scanned)
-    if judge(facts, minutes, by_hand):
+    if judge(facts, minutes, by_hand, stopped_by_limit):
         return facts
     return dataclasses.replace(facts, foreign_processes=foreign_processes(process_tree(pid)))

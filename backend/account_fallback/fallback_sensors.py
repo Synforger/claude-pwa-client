@@ -1,9 +1,10 @@
 """Reads whether a tab is at a break where it may be moved to another account. Blocking (process table, files);
 callers on the event loop run it in a thread.
 
-A tab is at a break when the sleep judgement, asked by hand, finds nothing in the way (`sleep_judgement.judge`); a tab
-whose turn a usage limit stopped is at a break by that very stop, except that a voice call or an automatic rollover in
-progress still holds it. The record a sleeping tab keeps is read for the stop too.
+A tab is at a break when the sleep judgement, asked by hand, finds nothing in the way (`sleep_judgement.judge`). A tab
+whose turn a usage limit stopped is judged the same way, except for what the stop itself leaves looking like work in
+progress (the open turn, the call without a result, the start): what really runs under it still holds it. The record a
+sleeping tab keeps is read for the stop too.
 
 Used by `fallback_patrol.py`.
 """
@@ -14,12 +15,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import backend.jsonl.jsonl_watcher as jsonl_watcher
-import backend.rollover.rollover as rollover
-from backend._common.state import is_session_on_call, sessions_meta
+from backend._common.state import sessions_meta
 from backend.sleep.record_facts import LimitStop
-from backend.sleep.sleep_judgement import SleepFacts, judge
+from backend.sleep.sleep_judgement import judge
 from backend.sleep.sleep_sensors import gather, record_facts_of
-from backend.terminal.pty_discover import claude_pid_in_pane
 
 logger = logging.getLogger(__name__)
 
@@ -48,14 +47,10 @@ def _stop_of(record: Path | None) -> LimitStop | None:
 
 def read_tab_break(session_id: str) -> TabBreak:
     """Read the stop and the break of a running tab."""
-    record = jsonl_watcher.get_jsonl_for(session_id)
-    stop = _stop_of(record)
-    if stop is None:
-        return TabBreak(None, judge(gather(session_id, 0, by_hand=True), 0, by_hand=True))
-    held = SleepFacts(claude_running=claude_pid_in_pane(session_id) is not None,
-                      on_voice_call=is_session_on_call(session_id),
-                      rolling_over=rollover.asked(record) if record is not None else False)
-    return TabBreak(stop, judge(held, 0, by_hand=True))
+    stop = _stop_of(jsonl_watcher.get_jsonl_for(session_id))
+    stopped = stop is not None
+    facts = gather(session_id, 0, by_hand=True, stopped_by_limit=stopped)
+    return TabBreak(stop, judge(facts, 0, by_hand=True, stopped_by_limit=stopped))
 
 
 def sleeping_stop(session_id: str) -> LimitStop | None:
