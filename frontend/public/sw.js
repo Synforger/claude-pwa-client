@@ -21,7 +21,24 @@ const SHELL_CACHE = 'claude-pwa-shell-__BUILD_ID__'
 // 外し忘れると、 PWA の画面ごと開いた HTML が `/` として保存され、 圏外で開くと本体の代わりにそれが出る。
 const EMBEDDED_PREFIXES = ['/moonlight/', '/ext/', '/file/']
 
+// Screens that run `src/_common/appUpdate.js` move themselves to a new build, and say so with a message of this type
+// (`announceSelfUpdating`). A screen of an older build has no such code and no check of its own: it would run on for as
+// long as the browser keeps it. So when a new worker takes over, it reloads the screens that did not announce.
+const SELF_UPDATING_MESSAGE = 'self-updating'
+
+// How long the new worker waits after claiming its screens before it moves those that did not announce: a screen that
+// runs the announcing code answers the takeover (controllerchange) at once (measured on WebKit: the announcement
+// reached the worker within 2 ms of the claim), so the wait is a margin for a screen busy with something else on a
+// phone at that moment.
+const SELF_UPDATING_GRACE_MS = 3000
+
+// The ids of the screens that announced themselves to this worker, and whether this worker replaced another one (= a
+// first registration reloads nothing: the screens it finds have just loaded).
+const selfUpdating = new Set()
+let replacedAnotherWorker = false
+
 self.addEventListener('install', (event) => {
+  replacedAnotherWorker = !!self.registration.active
   event.waitUntil(self.skipWaiting())
 })
 
@@ -31,8 +48,31 @@ self.addEventListener('activate', (event) => {
     const keys = await caches.keys()
     await Promise.all(keys.filter((k) => k !== SHELL_CACHE).map((k) => caches.delete(k)))
     await self.clients.claim()
+    if (replacedAnotherWorker) {
+      await new Promise((resolve) => setTimeout(resolve, SELF_UPDATING_GRACE_MS))
+      await moveScreensThatCannotMoveThemselves()
+    }
   })())
 })
+
+// Reloads every top-level screen this worker controls that did not announce itself, onto the entry page the network
+// serves now, and records which ones in the backend's log. Screens embedded from the folders the worker never touches
+// (`EMBEDDED_PREFIXES`) and frames are left alone. The reloads are started and not awaited: the browser answers a
+// navigation through the worker, and only once the worker has finished activating, so waiting for one here would wait
+// for this very activation.
+async function moveScreensThatCannotMoveThemselves() {
+  const screens = await self.clients.matchAll({ type: 'window', includeUncontrolled: false })
+  const moved = []
+  for (const screen of screens) {
+    if (screen.frameType && screen.frameType !== 'top-level') continue
+    if (selfUpdating.has(screen.id)) continue
+    const { pathname } = new URL(screen.url)
+    if (EMBEDDED_PREFIXES.some((prefix) => pathname.startsWith(prefix))) continue
+    moved.push(pathname)
+    screen.navigate(screen.url).catch(() => diagLog('update:sw-navigate-failed', { path: pathname }))
+  }
+  if (moved.length > 0) diagLog('update:sw-navigate', { moved, announced: selfUpdating.size, controlled: screens.length })
+}
 
 // アプリシェルの fetch 戦略 (= 2026-07-09 再改定、 「更新地獄」 の根治)。
 //
@@ -118,6 +158,9 @@ self.addEventListener('message', (event) => {
   const d = event.data
   if (d && d.type === 'active-session' && event.source && event.source.id) {
     clientActive[event.source.id] = { sid: d.sid || null }
+  }
+  if (d && d.type === SELF_UPDATING_MESSAGE && event.source && event.source.id) {
+    selfUpdating.add(event.source.id)
   }
 })
 

@@ -7,6 +7,8 @@ import {
   runningBuildId,
   checkForUpdate,
   fetchServedBuildId,
+  announceSelfUpdating,
+  SELF_UPDATING_MESSAGE,
   installUpdateChecks,
   _resetForTest,
 } from '../../src/_common/appUpdate.js'
@@ -436,5 +438,56 @@ describe('installUpdateChecks with a service worker that does not take the scree
     const { win, foreground } = setup('OLDbuild1')
     await foreground()
     expect(win.location.reload).not.toHaveBeenCalled()
+  })
+})
+
+// The service worker moves the screens that cannot move themselves; a screen running this code says it can.
+describe('telling the service worker that this screen moves itself', () => {
+  const ENTRY = '<script type="module" crossorigin src="/assets/index-mXKnAty4.js"></script>'
+
+  // A service worker's stand-in that keeps the messages sent to it; `takeOver` hands the screen a new one
+  function workerNavigator({ controlled }) {
+    const nav = fakeNavigator({ controlled })
+    const sent = []
+    const worker = () => ({ postMessage: (message) => sent.push(message) })
+    if (controlled) nav.serviceWorker.controller = worker()
+    nav.takeOver = () => { nav.serviceWorker.controller = worker(); nav.fire('controllerchange') }
+    return { nav, sent }
+  }
+
+  it('announces the build it runs to the worker that controls it, when it starts', () => {
+    document.head.innerHTML = ENTRY
+    const { nav, sent } = workerNavigator({ controlled: true })
+    installUpdateChecks({ win: fakeWindow(), doc: document, nav })
+    expect(sent).toEqual([{ type: SELF_UPDATING_MESSAGE, build: 'mXKnAty4' }])
+  })
+
+  it('announces again to the worker that takes over, before it reloads', () => {
+    document.head.innerHTML = ENTRY
+    const { nav, sent } = workerNavigator({ controlled: true })
+    const win = fakeWindow()
+    let sentBeforeReload = null
+    win.location.reload.mockImplementation(() => { sentBeforeReload = sent.length })
+    installUpdateChecks({ win, doc: document, nav })
+    sent.length = 0
+    nav.takeOver()
+    expect(sentBeforeReload).toBe(1)
+    expect(sent).toEqual([{ type: SELF_UPDATING_MESSAGE, build: 'mXKnAty4' }])
+    expect(win.location.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('has nobody to tell before the first worker takes the screen, and tells it once it does', () => {
+    document.head.innerHTML = ENTRY
+    const { nav, sent } = workerNavigator({ controlled: false })
+    installUpdateChecks({ win: fakeWindow(), doc: document, nav })
+    expect(sent).toEqual([])
+    nav.takeOver()
+    expect(sent).toEqual([{ type: SELF_UPDATING_MESSAGE, build: 'mXKnAty4' }])
+  })
+
+  it('does nothing where there is no service worker, and does not throw when the worker cannot be reached', () => {
+    expect(() => announceSelfUpdating('b', {})).not.toThrow()
+    const broken = { serviceWorker: { controller: { postMessage: () => { throw new Error('gone') } } } }
+    expect(() => announceSelfUpdating('b', broken)).not.toThrow()
   })
 })
