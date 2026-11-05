@@ -2,29 +2,26 @@
 
 A child tab is opened to hand one piece of work over, and closing it ends that work. What the client wrote for it goes
 with it: its memo, its top page while it is still the template the client filled, and the folder once it is empty.
-A top page counts as untouched when it differs from the filled template only by lines that load a script and hold
-nothing else (= a tool that adds a shared part, such as a contents bar, to every page of the tier). A page the child
-wrote itself stays, as every explanation page does. Called by `routes/sessions.py` when a child is
-closed. The child's tier folder and its parent's are both looked at: `tabs new` writes the memo in the parent's tier,
-and a child that started in another tier has its top page there.
+A top page counts as untouched when it matches what the client wrote for the tab (= the fingerprint kept in
+`SessionDef.top_page_sha`), or, for a tab that has none or whose page does not match it, the template as it is now
+filled in. Lines that only load a script are ignored in both (= a tool adds a shared part, such as a contents bar, to
+every page of the tier). A page the child wrote itself stays, as every explanation page does. Called by
+`routes/sessions.py` when a child is closed. The child's tier folder and its parent's are both looked at: `tabs new`
+writes the memo in the parent's tier, and a child that started in another tier has its top page there.
 """
 
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 
 from backend._common import state
-from backend.terminal.page_template import fill_template, template_file
+from backend.terminal.page_template import fill_template, page_fingerprint, template_file
 from backend.terminal.tab_memo import MEMO_NAME, PAGE_NAME, agent_folder, memo_file, tier_folder
 from backend.terminal.tab_tier import tab_tier
 from backend.terminal.tier import DEFAULT_TIER
 
 logger = logging.getLogger(__name__)
-
-#: A line that only loads a script (= `<script src="…" defer></script>`): a tool adds such a line to every page
-SCRIPT_LINE = re.compile(r'\s*<script\s+src="[^"]*"(\s+[a-z-]+(="[^"]*")?)*\s*>\s*</script>\s*', re.IGNORECASE)
 
 
 def clear_child_folder(session_id: str) -> list[Path]:
@@ -37,38 +34,37 @@ def clear_child_folder(session_id: str) -> list[Path]:
     folders = {memo_file(tier_folder(tab_id), session_id).parent for tab_id in tab_ids}
     tiers = {tier for tier in (*(tab_tier(tab_id) for tab_id in tab_ids), DEFAULT_TIER) if tier}
     template = template_file(agent_folder(session_id))
-    filled = _filled_pages(template, meta.title, tiers)
+    untouched = _filled_fingerprints(template, meta.title, tiers)
+    if meta.top_page_sha:
+        untouched.add(meta.top_page_sha)
     removed: list[Path] = []
     for folder in sorted(folders):
-        removed += _clear(folder, filled)
+        removed += _clear(folder, untouched)
     if removed:
         logger.info("child tab folder cleared session=%s removed=%s", session_id, [str(path) for path in removed])
     return removed
 
 
-def _filled_pages(template: Path, title: str, tiers: set[str]) -> set[str]:
-    """Every top page the client could have made for the tab (= the template filled with each tier it may have had)."""
+def _filled_fingerprints(template: Path, title: str, tiers: set[str]) -> set[str]:
+    """The fingerprint of every top page the client could make for the tab from the template as it is now (= the
+    template filled with each tier the tab may have had)."""
     try:
         text = template.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return set()
-    return {_without_script_lines(fill_template(text, title=title, tier=tier)) for tier in tiers}
+    return {page_fingerprint(fill_template(text, title=title, tier=tier)) for tier in tiers}
 
 
-def _without_script_lines(text: str) -> str:
-    """`text` without the lines that only load a script (= what is left to compare with the filled template)."""
-    return "\n".join(line for line in text.splitlines() if not SCRIPT_LINE.fullmatch(line))
-
-
-def _clear(folder: Path, filled: set[str]) -> list[Path]:
-    """Remove the memo and an untouched top page from `folder`, and the folder when nothing else is left in it."""
+def _clear(folder: Path, untouched: set[str]) -> list[Path]:
+    """Remove the memo and a top page whose fingerprint is in `untouched` from `folder`, and the folder when nothing
+    else is left in it."""
     removed: list[Path] = []
     memo, page = folder / MEMO_NAME, folder / PAGE_NAME
     try:
         if memo.is_file():
             memo.unlink()
             removed.append(memo)
-        if page.is_file() and _without_script_lines(page.read_text(encoding="utf-8")) in filled:
+        if page.is_file() and page_fingerprint(page.read_text(encoding="utf-8")) in untouched:
             page.unlink()
             removed.append(page)
         if folder.is_dir() and not any(folder.iterdir()):

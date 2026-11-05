@@ -149,6 +149,10 @@ class SessionDef:
     # The operator keeps this tab on its own account: the account fallback never moves it, and brings it back at the
     # next break when it runs elsewhere. A child tab starts with its parent's mark.
     account_pinned: bool = False
+    # The fingerprint (sha256, hex) of the top page the client wrote for a child tab when it made the page
+    # (`terminal/tab_page.py`). Closing the child compares the page with it (`terminal/child_folder.py`). None for a
+    # tab that is not a child, and for a child whose page was made before this was kept.
+    top_page_sha: str | None = None
 
     def sleeping_claude_sid(self) -> str | None:
         """The conversation a sleeping tab reopens, None for a tab that is not asleep or whose account changed since
@@ -175,6 +179,7 @@ class SessionDef:
             "fallback_copy": self.fallback_copy,
             "limit_resumed": self.limit_resumed,
             "account_pinned": self.account_pinned,
+            "top_page_sha": self.top_page_sha,
         }
 
 
@@ -236,6 +241,7 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
                 fallback_copy=_optional_str(entry.get("fallback_copy")),
                 limit_resumed=_optional_str(entry.get("limit_resumed")),
                 account_pinned=entry.get("account_pinned") is True,
+                top_page_sha=_optional_str(entry.get("top_page_sha")),
             )
     else:
         # 初期化: agent ごと 1 セッションを生成する

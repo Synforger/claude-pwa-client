@@ -2,7 +2,9 @@
 
 The backend makes it from the agent's template when a tab's tier is recorded, and the 📋 screen links to it.
 A page that exists is never touched: the tab's agent and the operator own what is written in it. Called by
-`pty_discover` (once the tier of a tab is known) and by the memo routes (to tell the screen the page).
+`pty_discover` (once the tier of a tab is known) and by the memo routes (to tell the screen the page). For a child
+tab it also keeps the fingerprint of the page it wrote, so that closing the child can tell the page untouched even
+after the template has changed (`terminal/child_folder.py`).
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ from pathlib import Path
 
 from backend._common import state
 from backend._common.state import atomic_write_text
-from backend.terminal.page_template import fill_template, template_file
+from backend.terminal.page_template import fill_template, page_fingerprint, template_file
 from backend.terminal.tab_memo import agent_folder, page_path
 from backend.terminal.tab_tier import tab_tier
 
@@ -43,5 +45,8 @@ def make_page(session_id: str) -> Path | None:
     except (OSError, UnicodeDecodeError):
         logger.exception("failed to make the top page of tab %s from %s", session_id, template)
         return None
+    if meta.child:
+        meta.top_page_sha = page_fingerprint(text)
+        state.save_sessions_meta()
     logger.info("tab page made session=%s path=%s", session_id, page)
     return page

@@ -252,3 +252,15 @@ def test_a_tab_reopens_a_sleeping_conversation_only_under_the_account_it_slept_i
     tab.account_id = "personal"
     assert tab.sleeping_claude_sid() is None
     assert state.SessionDef(id="s2", agent_id="a", title="t", created_at=0).sleeping_claude_sid() is None
+
+
+def test_the_fingerprint_of_a_childs_top_page_survives_a_restart_of_the_backend(monkeypatch, tmp_path):
+    path = tmp_path / "meta.json"
+    monkeypatch.setattr(state, "SESSION_META_PATH", path)
+    monkeypatch.setattr(state, "_agents", lambda: {"agent_a": {}})
+    child = state.SessionDef(id="s1", agent_id="agent_a", title="kid", created_at=1, child=True, top_page_sha="ab" * 32)
+    plain = state.SessionDef(id="s2", agent_id="agent_a", title="plain", created_at=1)
+    assert child.to_dict()["top_page_sha"] == "ab" * 32 and plain.to_dict()["top_page_sha"] is None
+    path.write_text(json.dumps([child.to_dict(), plain.to_dict()]))
+    loaded = state._load_sessions_meta()
+    assert loaded["s1"].top_page_sha == "ab" * 32 and loaded["s2"].top_page_sha is None
