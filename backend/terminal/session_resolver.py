@@ -105,7 +105,8 @@ def resume_command_for(session_id: str) -> str | None:
     """The command that reopens the tab's last conversation (= a fork's starting point, or the conversation the tab
     last ran), None when there is none to reopen."""
     meta = sessions_meta.get(session_id)
-    claude_sid = (meta.resume_session_id if meta is not None else None) or last_resumable_claude_sid(session_id)
+    claude_sid = ((meta.sleeping_claude_sid() or meta.resume_session_id) if meta is not None else None) \
+        or last_resumable_claude_sid(session_id)
     return _resume_command(session_id, claude_sid) if claude_sid else None
 
 
@@ -134,6 +135,11 @@ def resolve_launch_alias(session_id: str, *, prefer_fresh: bool = False) -> str 
     (= 意図的分岐) は prefer_fresh 関係なく resume_session_id 経路が優先される。
     """
     meta = sessions_meta.get(session_id)
+    # A tab put to sleep reopens the conversation it slept in (`backend/sleep/`), before anything else: a fork's
+    # starting point is older, and the last record the bindings name may be gone.
+    asleep_id = meta.sleeping_claude_sid() if meta is not None and not prefer_fresh else None
+    if asleep_id:
+        return _resume_command(session_id, asleep_id)
     resume_id = getattr(meta, "resume_session_id", None) if meta is not None else None
     if resume_id:
         return _resume_command(session_id, resume_id)
@@ -161,8 +167,8 @@ def resolve_autoresume_fallback(session_id: str, *, prefer_fresh: bool = False) 
     if uses_launcher(session_id):
         return None
     meta = sessions_meta.get(session_id)
-    if meta is not None and getattr(meta, "resume_session_id", None):
-        return None
+    if meta is not None and (getattr(meta, "resume_session_id", None) or meta.sleeping_claude_sid()):
+        return None     # a fork, or a sleeping tab: a new conversation would not be the one that must come back
     if last_resumable_claude_sid(session_id) is None:
         return None
     cfg = resolve_agent_cfg(session_id) or {}

@@ -127,7 +127,7 @@ def test_resolve_launch_alias_wraps_alias_with_autoresume(tmp_path, monkeypatch)
     monkeypatch.setattr(psr, "AGENTS", {"agent_x": {"launch_alias": "my_alias"}})
     monkeypatch.setattr(psr, "CLAUDE_PATH", "/usr/local/bin/claude")
     monkeypatch.setattr(psr, "sessions_meta", {
-        "ses_x": type("M", (), {"agent_id": "agent_x", "resume_session_id": None})()
+        "ses_x": type("M", (), {"sleeping_claude_sid": lambda self: None, "agent_id": "agent_x", "resume_session_id": None})()
     })
     result = pr._resolve_launch_alias("ses_x")
     assert result == "/usr/local/bin/claude --resume sess-fresh"
@@ -141,7 +141,7 @@ def test_resolve_launch_alias_returns_plain_alias_when_no_resumable(tmp_path, mo
     monkeypatch.setattr(psr, "AGENTS", {"agent_x": {"launch_alias": "my_alias"}})
     monkeypatch.setattr(psr, "CLAUDE_PATH", "/usr/local/bin/claude")
     monkeypatch.setattr(psr, "sessions_meta", {
-        "ses_x": type("M", (), {"agent_id": "agent_x", "resume_session_id": None})()
+        "ses_x": type("M", (), {"sleeping_claude_sid": lambda self: None, "agent_id": "agent_x", "resume_session_id": None})()
     })
     assert pr._resolve_launch_alias("ses_x") == "my_alias"
 
@@ -154,7 +154,7 @@ def test_resolve_launch_alias_fork_resume_takes_precedence(tmp_path, monkeypatch
     monkeypatch.setattr(psr, "AGENTS", {"agent_x": {"launch_alias": "my_alias"}})
     monkeypatch.setattr(psr, "CLAUDE_PATH", "/usr/local/bin/claude")
     monkeypatch.setattr(psr, "sessions_meta", {
-        "ses_x": type("M", (), {"agent_id": "agent_x", "resume_session_id": "fork-sid-9"})()
+        "ses_x": type("M", (), {"sleeping_claude_sid": lambda self: None, "agent_id": "agent_x", "resume_session_id": "fork-sid-9"})()
     })
     assert pr._resolve_launch_alias("ses_x") == "/usr/local/bin/claude --resume fork-sid-9"
 

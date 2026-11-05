@@ -1,5 +1,6 @@
 """state.py の pure 関数 + SessionState 集約 + NotifyMode Enum の unit test。"""
 import asyncio
+import json
 
 from backend._common import state
 
@@ -224,3 +225,30 @@ def test_session_language_reads_the_settings_of_the_tab_account(monkeypatch, tmp
                         state.SessionDef(id="s_lang", agent_id="a", title="t", created_at=0, account_id="work"))
     assert state.session_language("s_lang") == "日本語"
     assert state.session_language("s_unknown") == ""
+
+
+def test_a_sleep_mark_is_stored_with_the_tab_and_shown_as_a_flag():
+    mark = state.SleepMark(claude_sid="abc", record="/records/abc.jsonl", slept_at=9)
+    sleeping = state.SessionDef(id="s1", agent_id="a", title="t", created_at=0, sleep=mark)
+    awake = state.SessionDef(id="s2", agent_id="a", title="t", created_at=0)
+    assert sleeping.to_dict()["sleep"] == mark.to_dict() and sleeping.to_dict()["asleep"] is True
+    assert awake.to_dict()["sleep"] is None and awake.to_dict()["asleep"] is False
+
+
+def test_a_sleep_mark_survives_a_restart_of_the_backend(monkeypatch, tmp_path):
+    path = tmp_path / "session_meta.json"
+    monkeypatch.setattr(state, "SESSION_META_PATH", path)
+    monkeypatch.setattr(state, "_agents", lambda: {"a": {}})
+    mark = state.SleepMark(claude_sid="abc", record="/records/abc.jsonl", slept_at=9, account_id="work")
+    sleeping = state.SessionDef(id="s1", agent_id="a", title="t", created_at=0, account_id="work", sleep=mark)
+    path.write_text(json.dumps([sleeping.to_dict()]))
+    assert state._load_sessions_meta()["s1"].sleep == mark
+
+
+def test_a_tab_reopens_a_sleeping_conversation_only_under_the_account_it_slept_in():
+    mark = state.SleepMark(claude_sid="abc", record="/r/abc.jsonl", slept_at=9, account_id="work")
+    tab = state.SessionDef(id="s1", agent_id="a", title="t", created_at=0, account_id="work", sleep=mark)
+    assert tab.sleeping_claude_sid() == "abc"
+    tab.account_id = "personal"
+    assert tab.sleeping_claude_sid() is None
+    assert state.SessionDef(id="s2", agent_id="a", title="t", created_at=0).sleeping_claude_sid() is None

@@ -547,3 +547,19 @@ def test_the_listing_shows_a_placed_tier_tab_before_its_claude_starts(tabs):
     assert lines["ses_hand"].split("  ") == ["ses_hand", "projects/P", "口座=personal", "未起動", "境界=なし", "hand"]
     # no tier: where it works cannot be checked, so its name stays hidden
     assert lines["ses_fresh"].split("  ") == ["ses_fresh", "別の境界", "口座=personal", "起こせない", "境界=なし", "(別の境界のタブ)"]
+
+
+def test_the_listing_tells_a_tab_put_to_sleep_from_one_that_never_started(tabs):
+    tabs.backend.tabs = [
+        {"id": "ses_parent", "title": "main", "agent_id": "agent_a", "child": False, "parent_id": None},
+        {"id": "ses_nap", "title": "nap", "agent_id": "agent_a", "child": False, "parent_id": None, "tier": "projects/P"},
+        {"id": "ses_new", "title": "new", "agent_id": "agent_a", "child": False, "parent_id": None, "tier": "projects/P"},
+    ]
+    tabs.backend.local_tabs = [
+        {"id": "ses_nap", "reachable": True, "conversation": "conv-nap", "asleep": True},
+        {"id": "ses_new", "reachable": True, "conversation": None, "asleep": False},
+    ]
+    assert tabs.run("list") == 0
+    lines = {line.split()[0]: line for line in tabs.out.splitlines() if line.strip()}
+    assert lines["ses_nap"].split("  ")[3] == "眠り"
+    assert lines["ses_new"].split("  ")[3] == "未起動"

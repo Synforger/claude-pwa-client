@@ -102,6 +102,7 @@ import backend.routes.hooks as hooks_routes  # noqa: E402
 import backend.routes.notes as notes_routes  # noqa: E402
 import backend.routes.restart as restart_routes  # noqa: E402
 import backend.rollover.rollover as rollover  # noqa: E402
+import backend.sleep as sleep  # noqa: E402
 import backend.routes.rollover as rollover_routes  # noqa: E402
 import backend.routes.subagents as subagents_routes  # noqa: E402
 import backend.routes.tier_tabs as tier_tabs_routes  # noqa: E402
@@ -259,6 +260,10 @@ async def lifespan(app: FastAPI):
     # (= `backend/rollover/rollover.py`。 条件の無い agent のタブには何もしない)。
     rollover_task = asyncio.create_task(rollover.rollover_loop())
 
+    # 眠り: 設定に `sleep` を書いた agent の静かなタブの claude を終わらせ、 同じ会話で起こせる形にする
+    # (= `backend/sleep/`。 設定の無い agent のタブには何もしない)。
+    sleep_task = asyncio.create_task(sleep.sleep_loop())
+
     # 階層のタブ: `tier_tabs: true` の agent の folder を見回り、 まだタブを立てたことの無い階層にタブを立てて
     # 起動する (= `backend/tier_tabs/tier_tabs.py`。 設定の無い agent には何もしない)。
     tier_tabs_task = asyncio.create_task(tier_tabs.tier_tabs_loop())
@@ -291,9 +296,10 @@ async def lifespan(app: FastAPI):
     uploads_gc_task.cancel()
     maintenance_task.cancel()
     rollover_task.cancel()
+    sleep_task.cancel()
     tier_tabs_task.cancel()
     prompt_detector_task.cancel()
-    for _t in (blocker_monitor_task, uploads_gc_task, maintenance_task, rollover_task, tier_tabs_task,
+    for _t in (blocker_monitor_task, uploads_gc_task, maintenance_task, rollover_task, sleep_task, tier_tabs_task,
                prompt_detector_task):
         try:
             await _t

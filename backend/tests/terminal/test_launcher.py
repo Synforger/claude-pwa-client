@@ -115,6 +115,31 @@ def test_the_first_message_launches_with_the_text_in_a_private_file(pane, monkey
     assert not input_ready.is_ready("ses_x")
 
 
+def test_a_sleeping_tab_with_a_shell_left_reopens_its_conversation_instead_of_starting_a_new_one(pane, monkeypatch):
+    # 意図: 眠ったタブの開き直しが落ちて pane に shell が残っても、 人の発話で新しい会話を始めない (= 会話が戻らなくなる)
+    keys, _ = pane
+    sent: list[str] = []
+
+    class _Meta:
+        def sleeping_claude_sid(self):
+            return "claude-a"
+    monkeypatch.setitem(fm.sessions_meta, "ses_x", _Meta())
+    monkeypatch.setattr(fm, "resume_command_for", lambda _sid: "agent_a --resume claude-a")
+
+    async def _send_when_ready(_sid, text):
+        sent.append(text)
+    monkeypatch.setattr(fm, "_send_when_ready", _send_when_ready)
+
+    async def scenario():
+        out = await fm.launch_with_first_message("ses_x", "hello")
+        await asyncio.sleep(0)
+        return out
+    assert _run(scenario()) == {"ok": True, "launched": True}
+    assert [k["text"] for k in keys] == [None, "agent_a --resume claude-a"]
+    assert not any("--first-message-file" in (k["text"] or "") for k in keys)
+    assert sent == ["hello"]
+
+
 def test_a_second_send_while_starting_is_not_a_second_launch(pane, monkeypatch, tmp_path):
     keys, _ = pane
     _run(fm.launch_with_first_message("ses_x", "one"))

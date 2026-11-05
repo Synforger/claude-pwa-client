@@ -907,6 +907,19 @@ def test_a_launcher_tab_that_is_not_a_child_starts_a_new_conversation_in_its_she
     assert keys == []  # the operator's own message would start a new one too
 
 
+def test_a_launcher_tab_put_to_sleep_gets_its_conversation_back_from_a_shell_left_in_its_pane(
+        client, tabs, typed, started, keys, monkeypatch):
+    from backend._common.state import SleepMark  # noqa: PLC0415
+    monkeypatch.setattr(am, "uses_launcher", lambda sid: True)
+    monkeypatch.setattr(am, "resume_command_for", lambda sid: "main --resume abc")
+    tabs["ses_idle"].sleep = SleepMark(claude_sid="abc", record="/records/abc.jsonl", slept_at=1)
+    try:
+        assert _send(client, to="ses_idle").status_code == 200
+    finally:
+        am.input_ready.forget("ses_idle")
+    assert keys == [("ses_idle", "C-u"), ("ses_idle", "main --resume abc")]   # not a new conversation
+
+
 def test_only_an_agent_without_a_launcher_or_a_conversation_is_left_without_a_way(client, tabs, typed, started):
     r = _send(client, to="ses_idle")
     assert (r.status_code, r.json()["detail"]["code"]) == (409, "agent_message_receiver_not_running")
@@ -947,3 +960,12 @@ def test_only_this_machine_may_read_the_local_tabs(tabs, typed):
     app.include_router(am.router)
     r = TestClient(app, client=("100.64.0.9", 1234)).get(am.LOCAL_TABS_PATH)
     assert r.json()["detail"]["code"] == "agent_message_local_only"
+
+
+def test_the_list_tells_a_tab_put_to_sleep_from_one_that_never_started(client, tabs, typed, monkeypatch):
+    from backend._common.state import SleepMark  # noqa: PLC0415
+    monkeypatch.setattr(am, "jsonl_path_for_session", lambda sid: None)
+    tabs["ses_idle"].sleep = SleepMark(claude_sid="abc", record="/records/abc.jsonl", slept_at=1)
+    rows = {row["id"]: row for row in client.get(am.LOCAL_TABS_PATH).json()["tabs"]}
+    assert rows["ses_idle"]["asleep"] is True
+    assert rows["ses_receiver"]["asleep"] is False

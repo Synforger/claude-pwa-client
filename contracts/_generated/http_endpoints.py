@@ -22,6 +22,7 @@ class GetSessionsResponseItem(BaseModel):
     created_at: Optional[str] = None
     tier: Optional[str] = None  # the tier the tab's agent started in (= its AGENT_TIER), else the tier a tier tab was placed for; null when not known
     tier_tab: Optional[str] = None  # the tier a tier tab was placed for (= its new conversations start in it); null for other tabs
+    asleep: Optional[bool] = None  # true while the tab's claude is put to sleep (= it starts again in the same conversation when the tab is opened or written to)
 
 
 class GetSessionsOverviewResponse(BaseModel):

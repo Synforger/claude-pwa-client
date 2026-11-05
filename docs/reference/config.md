@@ -76,6 +76,9 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   詳細: [tier-tabs.md](tier-tabs.md)
 - `rollover` (任意): context が決めた割合に届いた会話を締めさせて、 同じタブで新しい会話を起動し直す
   条件。 書いていないエージェントでは何も起きない。 項目と流れは [rollover.md](rollover.md)
+- `sleep` (任意): 使っていない間だけ、 そのエージェントのタブの Claude を終わらせてメモリを返し、 触られた時と
+  連絡が届いた時に同じ会話で起こす条件 (`{"minutes": 60}`)。 書いていないエージェントでは何も起きない。
+  項目と条件は [sleep.md](sleep.md)
 - `voice` (任意): エージェントの返事を音声合成の engine で音にするための設定 (= engine の URL と声の番号、
   言い方の印。 人の声を聞き取る engine と、 言い終えを判定する model も足せて、 足すと話すだけで送る会話に
   なる)。 書いていないエージェントは声を持たない。 項目と口は [voice.md](voice.md)

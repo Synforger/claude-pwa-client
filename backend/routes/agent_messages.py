@@ -375,10 +375,10 @@ def _tab_reachable(tab_id: str) -> bool:
 
 
 def _reopens_in_its_shell(tab_id: str) -> bool:
-    """Whether a shell left in the pane is given back the tab's last conversation, not a new one (= a child, or an
-    agent without a launcher)."""
+    """Whether a shell left in the pane is given back the tab's last conversation, not a new one (= a child, an
+    agent without a launcher, or a tab put to sleep, whose conversation must come back)."""
     meta = sessions_meta.get(tab_id)
-    return meta is not None and (meta.child or not uses_launcher(tab_id))
+    return meta is not None and (meta.child or not uses_launcher(tab_id) or meta.sleeping_claude_sid() is not None)
 
 
 async def _wake(tab_id: str) -> None:
@@ -525,15 +525,17 @@ async def get_tabs_for_peer(request: Request) -> dict:
 
 @router.get(LOCAL_TABS_PATH)
 async def get_local_tabs(request: Request) -> dict:
-    """Whether each tab of this machine takes a message, and the conversation it last ran, for `tabs list` (= a
-    tab with no claude is not in Claude Code's own records). Callable only from this machine."""
+    """Whether each tab of this machine takes a message, the conversation it last ran, and whether it was put to sleep
+    (= `backend/sleep/`), for `tabs list` (= a tab with no claude is not in Claude Code's own records). Callable only
+    from this machine."""
     client_host = request.client.host if request.client else None
     if client_host not in LOCAL_CLIENTS:
         raise_error(403, "agent_message_local_only", "この口は同じ機械の中からだけ使えます")
     tabs = []
     for tab_id in list(sessions_meta):
         record = jsonl_path_for_session(tab_id)
-        tabs.append({"id": tab_id, "reachable": _tab_reachable(tab_id), "conversation": record.stem if record else None})
+        tabs.append({"id": tab_id, "reachable": _tab_reachable(tab_id), "conversation": record.stem if record else None,
+                     "asleep": sessions_meta[tab_id].sleep is not None})
     return {"tabs": tabs}
 
 

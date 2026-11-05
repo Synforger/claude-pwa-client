@@ -335,6 +335,13 @@ span.drawer-item-fold {
   color: var(--text-dim, #8a8f98);
   font-size: 11px;
 }
+/* A tab whose claude is asleep (backend/sleep/): it wakes, in the same conversation, when it is opened or written to. */
+.drawer-item-asleep {
+  flex: none;
+  margin-left: 4px;
+  font-size: 12px;
+  opacity: 0.8;
+}
 /* どのアカウントで動いている会話かの札。 アカウントを 2 つ以上設定している時だけ出す。 */
 .drawer-item-account {
   flex: 0 0 auto;
