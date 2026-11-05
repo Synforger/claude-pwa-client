@@ -149,6 +149,10 @@ class SessionDef:
     # The operator keeps this tab on its own account: the account fallback never moves it, and brings it back at the
     # next break when it runs elsewhere. A child tab starts with its parent's mark.
     account_pinned: bool = False
+    # When (epoch seconds) the account fallback asked this tab to come to a break because its account was at the
+    # line while the tab kept answering (`backend/account_fallback/`). It is why no second request is sent during one
+    # stay above the line, also after a restart; cleared when the usage is under the line or the tab has moved.
+    pause_asked_at: float | None = None
     # The fingerprint (sha256, hex) of the top page the client wrote for a child tab when it made the page
     # (`terminal/tab_page.py`). Closing the child compares the page with it (`terminal/child_folder.py`). None for a
     # tab that is not a child, and for a child whose page was made before this was kept.
@@ -179,6 +183,7 @@ class SessionDef:
             "fallback_copy": self.fallback_copy,
             "limit_resumed": self.limit_resumed,
             "account_pinned": self.account_pinned,
+            "pause_asked_at": self.pause_asked_at,
             "top_page_sha": self.top_page_sha,
         }
 
@@ -186,6 +191,11 @@ class SessionDef:
 def _optional_str(value: object) -> str | None:
     """A stored text, None when the entry holds none or something else."""
     return value if isinstance(value, str) and value else None
+
+
+def _optional_number(value: object) -> float | None:
+    """A stored time, None when the entry holds none or something else."""
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
 def _default_title(agent_id: str, index: int) -> str:
@@ -241,6 +251,7 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
                 fallback_copy=_optional_str(entry.get("fallback_copy")),
                 limit_resumed=_optional_str(entry.get("limit_resumed")),
                 account_pinned=entry.get("account_pinned") is True,
+                pause_asked_at=_optional_number(entry.get("pause_asked_at")),
                 top_page_sha=_optional_str(entry.get("top_page_sha")),
             )
     else:

@@ -4,7 +4,9 @@ usage is at its line to the account its fallback names, and brings them back whe
 What is configured is in `fallback_settings.py`, the judgement in `fallback_judgement.py`, what is read about a tab in
 `fallback_sensors.py`; the move itself is `accounts/account_move.py` (see `docs/reference/account-fallback.md`). A
 tab asleep is not moved (that would wake it): `move_before_wake` moves it when it is woken. A tab whose turn the
-limit stopped is moved at once, with the tool results of that turn, and told to carry on.
+limit stopped is moved at once, with the tool results of that turn, and told to carry on. A tab that keeps answering
+is asked once to come to a break (the mark is `pause_asked_at`); when it does, the same look moves it and tells it to
+carry on.
 """
 from __future__ import annotations
 
@@ -15,11 +17,12 @@ import time
 from fastapi import HTTPException
 
 from backend._common.config import default_account_id
-from backend._common.state import sessions_meta
-from backend.account_fallback.fallback_envelope import carry_on_envelope
-from backend.account_fallback.fallback_judgement import Move, decide, home_is_limited
+from backend._common.state import SessionDef, save_sessions_meta, sessions_meta
+from backend.account_fallback.fallback_envelope import LIMIT, PAUSE, carry_on_envelope, pause_envelope
+from backend.account_fallback.fallback_judgement import (
+    Move, decide, home_is_limited, pause_overdue, should_ask_to_pause)
 from backend.account_fallback.fallback_sensors import TabBreak, read_tab_break, sleeping_stop
-from backend.account_fallback.fallback_settings import FallbackRule, read_rules
+from backend.account_fallback.fallback_settings import FallbackRule, display_name_of, read_rules
 from backend.accounts.account_move import move_tab_account
 from backend.accounts.client_message import send_to_tab
 from backend.accounts.tab_claim import claimed
@@ -31,6 +34,8 @@ logger = logging.getLogger(__name__)
 
 # The reasons a tab that is wanted elsewhere was last held for, so that the same reasons are logged once.
 _last_blocked: dict[str, tuple[str, ...]] = {}
+# The tabs whose request to come to a break has been waited on for too long, so that it is said once.
+_gave_up_on: set[str] = set()
 
 
 def _accounts_of(session_id: str) -> tuple[str, str] | None:
@@ -46,10 +51,40 @@ def _limited(rows: list[dict], rule: FallbackRule | None, now: float) -> bool | 
     return home_is_limited(rows, rule, now) if rule is not None else None
 
 
+def _clear_pause(session_id: str, meta: SessionDef) -> None:
+    """Forget that the tab was asked to come to a break."""
+    _gave_up_on.discard(session_id)
+    if meta.pause_asked_at is not None:
+        meta.pause_asked_at = None
+        save_sessions_meta()
+
+
+async def _pause(session_id: str, meta: SessionDef, wanted: Move, tab_break: TabBreak, current: str,
+                 rule: FallbackRule | None, now: float) -> None:
+    """A tab that is wanted on the fallback account but is not at a break: ask it once to come to one when it keeps
+    answering, and say once that the request has gone unanswered for too long."""
+    if meta.pause_asked_at is not None:
+        if session_id not in _gave_up_on and pause_overdue(meta.pause_asked_at, now):
+            _gave_up_on.add(session_id)
+            logger.info("account fallback: no break after asking to pause session=%s account=%s waited_sec=%d",
+                        session_id, current, now - meta.pause_asked_at)
+        return
+    if rule is None or not should_ask_to_pause(wanted=wanted, blocked_by=tab_break.blocked_by,
+                                                stopped_by_limit=tab_break.stop is not None,
+                                                asked_at=meta.pause_asked_at):
+        return
+    meta.pause_asked_at = now
+    save_sessions_meta()
+    if not await send_to_tab(session_id, pause_envelope(current, rule.to_account, display_name_of(rule.to_account))):
+        _clear_pause(session_id, meta)                                   # not delivered: the next look asks again
+        return
+    logger.info("account fallback: asked to pause session=%s account=%s", session_id, current)
+
+
 async def _move(session_id: str, current: str, home: str, rule: FallbackRule | None, action: Move,
                 tab_break: TabBreak) -> bool:
     """Do `action` on the tab. True when it moved. A move that fails leaves the tab on the account it was on, and the
-    next look tries again."""
+    next look tries again. A tab that was stopped by a limit, or asked to come to a break, is told to carry on."""
     moving = action is Move.MOVE
     target = rule.to_account if moving and rule is not None else home
     cut = LineageCut.THROUGH_TOOL_RESULTS if tab_break.stop is not None else LineageCut.CLEAN_TURN
@@ -61,8 +96,14 @@ async def _move(session_id: str, current: str, home: str, rule: FallbackRule | N
         return False
     logger.info("account fallback: %s session=%s from=%s to=%s stopped_by_limit=%s",
                 "moved" if moving else "returned", session_id, current, target, tab_break.stop is not None)
+    meta = sessions_meta.get(session_id)
+    asked = meta is not None and meta.pause_asked_at is not None
+    if meta is not None:
+        _clear_pause(session_id, meta)
     if tab_break.stop is not None:
-        await send_to_tab(session_id, carry_on_envelope(current, target))
+        await send_to_tab(session_id, carry_on_envelope(current, target, LIMIT))
+    elif asked and moving:
+        await send_to_tab(session_id, carry_on_envelope(current, target, PAUSE))
     return True
 
 
@@ -70,11 +111,15 @@ async def _look(session_id: str, rows: list[dict], now: float) -> bool:
     """Look at one tab and move it if it must. True when it moved."""
     accounts = _accounts_of(session_id)
     meta = sessions_meta.get(session_id)
-    if accounts is None or meta is None or meta.sleep is not None:
+    if accounts is None or meta is None:
         return False
     current, home = accounts
     rule = read_rules().get(home)
     limited = _limited(rows, rule, now)
+    if limited is False or rule is None or meta.account_pinned:
+        _clear_pause(session_id, meta)                                   # under the line again, or kept where it is
+    if meta.sleep is not None:
+        return False
     wanted = decide(current=current, home=home, rule=rule, limited=limited, at_break=True, pinned=meta.account_pinned)
     if wanted is Move.STAY:
         _last_blocked.pop(session_id, None)
@@ -91,13 +136,15 @@ async def _look(session_id: str, rows: list[dict], now: float) -> bool:
                 logger.info("account fallback: waits session=%s account=%s reasons=%s", session_id, current,
                             ",".join(tab_break.blocked_by))
         if action is Move.STAY:
+            await _pause(session_id, meta, wanted, tab_break, current, rule, now)
             return False
         return await _move(session_id, current, home, rule, action, tab_break)
 
 
 async def tick() -> list[str]:
     """Look over every tab once. → the tabs that were moved or brought back."""
-    if not read_rules() and not any(meta.fallback_from for meta in sessions_meta.values()):
+    if not read_rules() and not any(meta.fallback_from or meta.pause_asked_at is not None
+                                    for meta in sessions_meta.values()):
         return []
     rows = await asyncio.to_thread(read_all_rate_limits_tail)
     now = time.time()
@@ -131,6 +178,7 @@ async def move_before_wake(session_id: str) -> None:
             logger.warning("account fallback: a sleeping tab stays on its account session=%s: %s", session_id,
                            error.detail)
             return
+        _clear_pause(session_id, sessions_meta[session_id])
         logger.info("account fallback: moved session=%s from=%s to=%s asleep=1", session_id, current, rule.to_account)
 
 

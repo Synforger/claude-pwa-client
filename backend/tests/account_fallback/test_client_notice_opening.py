@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from backend.account_fallback.fallback_envelope import carry_on_envelope
+from backend.account_fallback.fallback_envelope import PAUSE, carry_on_envelope, pause_envelope
 from backend.jsonl.jsonl_predicates import CLIENT_NOTICE_OPENING, CLIENT_OPENINGS, ROLLOVER_OPENING, is_client_message
 from backend.limit_resume.resume_envelope import resume_envelope
 
@@ -12,7 +12,8 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_both_notices_begin_with_their_own_line_and_not_the_rollover_s():
-    for text in (carry_on_envelope("work", "personal"), resume_envelope("personal")):
+    for text in (carry_on_envelope("work", "personal"), carry_on_envelope("work", "personal", PAUSE),
+                 pause_envelope("work", "personal", "Personal"), resume_envelope("personal")):
         assert text.splitlines()[0] == CLIENT_NOTICE_OPENING != ROLLOVER_OPENING
         assert is_client_message(text)
 

@@ -78,3 +78,11 @@ def warn_unusable() -> None:
     """Say at startup, one line each, which `fallback` of the configuration is left out and why."""
     for problem in parse_rules(config.get_config().get("accounts"))[1]:
         logger.warning("account fallback: %s", problem)
+
+
+def display_name_of(account: str) -> str:
+    """The name the operator knows the account by (= `accounts.<account>.display_name`), the account's key without one."""
+    accounts = config.get_config().get("accounts")
+    entry = accounts.get(account) if isinstance(accounts, dict) else None
+    name = entry.get("display_name") if isinstance(entry, dict) else None
+    return name if isinstance(name, str) and name else account
