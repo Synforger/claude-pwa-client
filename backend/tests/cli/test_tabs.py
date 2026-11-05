@@ -88,6 +88,12 @@ class Backend:
                     if backend.answers.get("tier-tabs", 200) != 200:
                         return self.reply(backend.answers["tier-tabs"], {"detail": {"code": "tier_tab_exists", "message": "has one"}})
                     return self.reply(200, {"id": "ses_tier", "title": "B", "child": False, "tier_tab": "projects/B"})
+                if method == "POST" and self.path.endswith("/sleep"):
+                    if backend.answers.get("sleep", 200) != 200:
+                        return self.reply(backend.answers["sleep"], {"detail": {
+                            "code": "child_sleep_refused", "message": "no",
+                            "params": {"reasons": "voice_call,wakeup_scheduled"}}})
+                    return self.reply(200, {"ok": True, "already": False})
                 if method == "POST" and self.path.endswith("/children"):
                     if backend.answers.get("children", 200) != 200:
                         return self.reply(backend.answers["children"], {"detail": {"code": "child_session_limit", "message": "full"}})
@@ -382,6 +388,26 @@ def test_close_closes_only_my_finished_children_unless_forced(family):
     # the backend clears the memo when it closes a child (= `terminal/child_folder.py`); the command only asks it to
     assert family.backend.called("DELETE", "/sessions/ses_b")
     assert family.run("close", "ses_a", "--force") == 0 and family.backend.called("DELETE", "/sessions/ses_a")
+
+
+def test_sleep_puts_only_my_own_children_to_sleep(family):
+    assert family.run("sleep", "ses_other") == 1 and "このタブが立てた子ではありません" in family.err
+    assert not [c for c in family.backend.calls if c["path"].endswith("/sleep")]
+    assert family.run("sleep", "ses_b") == 0 and "眠らせました: ses_b" in family.out
+    assert family.backend.called("POST", "/sessions/ses_parent/children/ses_b/sleep")
+
+
+def test_sleep_names_why_a_child_was_left_awake(family):
+    family.backend.answers["sleep"] = 409
+    assert family.run("sleep", "ses_b") == 1
+    assert "ses_b を眠らせられません: 声の通話の最中です / 起こす予約があります" in family.err
+
+
+def test_children_shows_a_sleeping_child_as_asleep(family):
+    family.backend.tabs[2]["asleep"] = True
+    family.run("children")
+    lines = {line.split()[0]: line for line in family.out.splitlines()}
+    assert "眠り" in lines["ses_b"] and "claude なし" in lines["ses_a"]
 
 
 # --- 起動し直し -------------------------------------------------------------------------

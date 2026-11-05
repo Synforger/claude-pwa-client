@@ -5,7 +5,8 @@ The terminal is closed with the claude, because the tab is then a tab without a 
 starts again with `claude --resume` (`terminal/session_resolver.py`). A shell left in the pane would start a new
 conversation instead of reopening this one.
 
-Used by `sleep_patrol.py`.
+Used by `sleep_patrol.py` (= `put_to_sleep`) and by a parent tab putting its child to sleep (= `sleep_now`, through
+`routes/child_sessions.py`).
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ import psutil
 
 import backend.jsonl.jsonl_watcher as jsonl_watcher
 from backend._common.state import SleepMark, save_sessions_meta, sessions_meta, sessions_overview
-from backend.sleep.sleep_judgement import judge
+from backend.sleep.sleep_judgement import PASSING, judge
 from backend.sleep.sleep_sensors import gather
 from backend.terminal.pty_discover import claude_pid_in_pane
 from backend.terminal.runner import kill_tmux_session, pty_sessions, terminate_pty_session
@@ -27,6 +28,14 @@ logger = logging.getLogger(__name__)
 
 # How long a claude that was asked to end gets to end. Past it the tab stays awake: a claude is never killed here.
 EXIT_WAIT_SEC = 20.0
+# How long a sleep asked for by hand waits for the conditions that pass by themselves (= `PASSING`), and how often it
+# looks again. A child that has just reported is still writing the end of its answer.
+PASSING_WAIT_SEC = 60.0
+PASSING_LOOK_SEC = 2.0
+# Why a tab whose conditions all held was still left awake, and the answer for a tab that is not in the list.
+UNKNOWN_TAB = "unknown_tab"
+PARTIAL_RECORD = "partial_record"
+CLAUDE_DID_NOT_END = "claude_did_not_end"
 
 
 def ends_with_newline(record: Path) -> bool:
@@ -65,17 +74,36 @@ async def _close_terminal(session_id: str) -> None:
 async def put_to_sleep(session_id: str, minutes: int) -> bool:
     """Put the tab's claude to sleep if every condition still holds. True when it slept; False leaves the tab awake
     and as it was."""
+    return not await _sleep(session_id, minutes, by_hand=False)
+
+
+async def sleep_now(session_id: str) -> tuple[str, ...]:
+    """Put the tab's claude to sleep now, for its parent: without waiting for the quiet minutes, and waiting up to
+    `PASSING_WAIT_SEC` for the conditions that pass by themselves. → the conditions that kept it awake; empty when it
+    slept."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + PASSING_WAIT_SEC
+    while True:
+        reasons = await _sleep(session_id, 0, by_hand=True)
+        if not reasons or not PASSING.issuperset(reasons) or loop.time() >= deadline:
+            return reasons
+        await asyncio.sleep(PASSING_LOOK_SEC)
+
+
+async def _sleep(session_id: str, minutes: int, by_hand: bool) -> tuple[str, ...]:
+    """Put the tab's claude to sleep if every condition still holds. → the conditions that kept it awake (= the tab
+    is as it was); empty when it slept."""
     meta = sessions_meta.get(session_id)
     if meta is None:
-        return False
-    facts = await asyncio.to_thread(gather, session_id, minutes)
-    if reasons := judge(facts, minutes):
+        return (UNKNOWN_TAB,)
+    facts = await asyncio.to_thread(gather, session_id, minutes, by_hand)
+    if reasons := judge(facts, minutes, by_hand):
         logger.info("sleep: not now session=%s reasons=%s", session_id, ",".join(reasons))
-        return False
+        return reasons
     record = jsonl_watcher.get_jsonl_for(session_id)
     if record is None or not await asyncio.to_thread(ends_with_newline, record):
         logger.warning("sleep: the record is missing or ends in a partial line session=%s", session_id)
-        return False
+        return (PARTIAL_RECORD,)
     meta.sleep = SleepMark(claude_sid=record.stem, record=str(record), slept_at=int(time.time()),
                           account_id=meta.account_id)
     save_sessions_meta()
@@ -84,9 +112,9 @@ async def put_to_sleep(session_id: str, minutes: int) -> bool:
         meta.sleep = None
         save_sessions_meta()
         logger.warning("sleep: the claude did not end in %.0fs; left awake session=%s", EXIT_WAIT_SEC, session_id)
-        return False
+        return (CLAUDE_DID_NOT_END,)
     await _close_terminal(session_id)
     sessions_overview.notify()
-    logger.info("sleep: session=%s claude_sid=%s idle_min=%d context_pct=%s", session_id, record.stem,
-                facts.quiet_minutes or 0, facts.context_pct)
-    return True
+    logger.info("sleep: session=%s claude_sid=%s idle_min=%d context_pct=%s%s", session_id, record.stem,
+                facts.quiet_minutes or 0, facts.context_pct, " by_hand=1" if by_hand else "")
+    return ()

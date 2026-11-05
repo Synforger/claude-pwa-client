@@ -128,12 +128,18 @@ running when the parent restarts. Use `tabs` from the parent:
 tabs new <title> <task file>      open a child; the task becomes its first message
 tabs children [--summary]         list the children this tab opened (id, state, Claude's state, title)
 tabs close <child id> [--force]   close a child and clear its memo and untouched top page; a child still working needs --force
+tabs sleep <child id>             put a child's Claude to sleep now; a message wakes it in the same conversation
 ```
 
 The child starts in the same tier as the parent. A child cannot open children (`tabs new` refuses); work that
 should be split further goes into its report. `tabs new` also writes the task into the child's memo
 (`pages/<child id>/memo.md` in the tier folder) so the child can read it again after it restarts. Up to
 `child_sessions_max` children (5 by default) can be open at once; close the ones that have reported.
+A child that has reported but will take the next piece of the same work can wait asleep instead of closed: `tabs
+sleep <child id>` ends its Claude and frees its memory at once, without the quiet minutes of the sleep patrol, and
+the next `tabs send` to it reopens the same conversation. It waits up to a minute for the child to finish its last
+answer and names the reason when the child cannot sleep (a scheduled wake-up, a voice call, a rollover). A sleeping
+child still counts towards `child_sessions_max`.
 
 ### Working as a child
 

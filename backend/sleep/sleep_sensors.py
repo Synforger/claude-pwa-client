@@ -126,16 +126,16 @@ def _turn_open(session_id: str) -> bool:
     return is_busy(session_id) or (state is not None and state.queued_sends > 0)
 
 
-def gather(session_id: str, minutes: int) -> SleepFacts:
+def gather(session_id: str, minutes: int, by_hand: bool = False) -> SleepFacts:
     """Read the facts about a tab, cheapest first, and stop at the first condition that fails. `minutes` is how long
-    the tab must have been quiet."""
+    the tab must have been quiet; `by_hand` reads for a sleep its parent asked for (= `judge`)."""
     pid = claude_pid_in_pane(session_id)
     facts = SleepFacts(claude_running=pid is not None)
     if pid is None:
         return facts
     facts = dataclasses.replace(facts, starting=not input_ready.is_ready(session_id), turn_open=_turn_open(session_id),
                                 on_voice_call=is_session_on_call(session_id))
-    if judge(facts, minutes):
+    if judge(facts, minutes, by_hand):
         return facts
     record = jsonl_watcher.get_jsonl_for(session_id)
     try:
@@ -143,17 +143,17 @@ def gather(session_id: str, minutes: int) -> SleepFacts:
     except OSError:
         quiet = None
     facts = dataclasses.replace(facts, record_found=quiet is not None, quiet_minutes=quiet)
-    if judge(facts, minutes) or record is None:
+    if judge(facts, minutes, by_hand) or record is None:
         return facts
     facts = dataclasses.replace(facts, context_pct=context_pct_of(session_id),
                                 rollover_idle_pct=rollover_idle_pct(session_id),
                                 rolling_over=rollover.asked(record))
-    if judge(facts, minutes):
+    if judge(facts, minutes, by_hand):
         return facts
     try:
         facts = dataclasses.replace(facts, record=record_facts_of(record))
     except OSError:
         return dataclasses.replace(facts, record_found=False)
-    if judge(facts, minutes):
+    if judge(facts, minutes, by_hand):
         return facts
     return dataclasses.replace(facts, foreign_processes=foreign_processes(process_tree(pid)))

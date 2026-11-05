@@ -87,3 +87,15 @@ def test_caffeinate_and_commands_count_as_work():
 
 def test_a_process_with_no_readable_name_counts_as_work():
     assert j.foreign_processes((_node("?"),)) == ("?",)
+
+
+def test_a_sleep_by_hand_does_not_wait_for_the_quiet_time_nor_stop_at_the_rollover_line():
+    facts = dataclasses.replace(READY, quiet_minutes=1.0, context_pct=55)
+    assert j.judge(facts, MINUTES) == (j.NOT_QUIET, j.CONTEXT_AT_ROLLOVER_LINE)
+    assert j.judge(facts, MINUTES, by_hand=True) == ()
+
+
+def test_a_sleep_by_hand_keeps_every_other_condition():
+    facts = dataclasses.replace(READY, quiet_minutes=1.0, turn_open=True, on_voice_call=True,
+                                record=RecordFacts(wakeup_pending=True))
+    assert j.judge(facts, MINUTES, by_hand=True) == (j.TURN_OPEN, j.WAKEUP_SCHEDULED, j.VOICE_CALL)
