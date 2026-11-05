@@ -42,6 +42,27 @@ def test_the_memo_the_untouched_page_and_the_empty_folder_go(family):
     assert not folder.exists()
 
 
+def test_a_page_that_only_gained_a_script_line_is_untouched(family, monkeypatch):
+    # 意図: 階層の全部のページに部品 (= 横の目次) を足す道具が 1 行足しただけのトップページも、 閉じた時に片付ける
+    _parent, child, agent = family
+    template = "<html>\n<head><title>{{title}}</title></head>\n<body><p>{{tier}}</p></body>\n</html>\n"
+    template_file(agent).write_text(template, encoding="utf-8")
+    folder = agent / "projects" / "P" / "pages" / child.id
+    filled = fill_template(template, title="kid", tier="projects/P")
+    _write(folder, page=filled.replace("</head>", '</head>\n<script src="../_common/toc-sidebar.js" defer></script>'))
+    clear_child_folder(child.id)
+    assert not folder.exists()
+
+
+def test_a_page_with_a_script_line_and_its_own_words_stays(family):
+    _parent, child, agent = family
+    folder = agent / "projects" / "P" / "pages" / child.id
+    page = fill_template(TEMPLATE, title="kid", tier="projects/P") + '\n<script src="x.js"></script>\n<p>found</p>'
+    _write(folder, page=page)
+    clear_child_folder(child.id)
+    assert (folder / "index.html").is_file()
+
+
 def test_a_page_the_child_wrote_stays_and_so_does_its_folder(family):
     _parent, child, agent = family
     folder = agent / "projects" / "P" / "pages" / child.id
