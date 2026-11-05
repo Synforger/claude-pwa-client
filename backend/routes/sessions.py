@@ -14,6 +14,7 @@ session メタ / status SSE / accounts は別 module (= overview.py / accounts.p
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -123,7 +124,7 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
         raise_error(400, "from_uuid_required", "from_uuid が必要です")
 
     parent = sessions_meta[session_id]
-    new_claude_id = write_lineage(session_id, from_uuid, None).claude_id
+    new_claude_id = (await asyncio.to_thread(write_lineage, session_id, from_uuid, None)).claude_id
 
     new_meta = register_session(
         parent.agent_id,

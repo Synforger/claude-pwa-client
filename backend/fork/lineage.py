@@ -23,6 +23,7 @@ from backend.fork.fork import (
     latest_clean_fork_point,
     latest_cut_through_tool_results,
 )
+from backend.fork.lineage_hook import LineageHookFailed, carry_over
 from backend.jsonl import resolver as jsonl_resolver
 from backend.jsonl.jsonl_tail import split_jsonl_text
 
@@ -173,4 +174,12 @@ def write_lineage(session_id: str, from_uuid: str | None, target_account_id: str
         dest_dir = src_path.parent
     dest = dest_dir / f"{new_claude_id}.jsonl"
     atomic_write_text(dest, "\n".join(forked) + "\n")
+    previous = live.stem if live is not None else src_path.stem
+    try:
+        carry_over(new_claude_id, previous)
+    except LineageHookFailed as error:
+        # the record is the client's own and nothing opened it: it goes, so that no copy of the conversation is left
+        dest.unlink(missing_ok=True)
+        logger.warning("lineage hook failed session=%s new=%s: %s", session_id, new_claude_id, error)
+        raise_error(409, "lineage_hook_failed", f"新しい会話の準備の命令が成功しませんでした: {error}")
     return WrittenLineage(new_claude_id, moving, dest)

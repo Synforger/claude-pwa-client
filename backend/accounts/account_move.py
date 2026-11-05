@@ -8,8 +8,8 @@ wrote into the account the tab leaves.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
-
 from pathlib import Path
 
 import backend._common.config as config
@@ -43,7 +43,7 @@ async def move_tab_account(session_id: str, account_id: str, *, cut: LineageCut 
         save_sessions_meta()
         sessions_overview.notify()
         return meta
-    written = write_lineage(session_id, None, account_id, cut=cut)
+    written = await asyncio.to_thread(write_lineage, session_id, None, account_id, cut=cut)
     await stop_tab_claude(session_id)
     previous_copy = meta.fallback_copy
     meta.account_id = account_id
