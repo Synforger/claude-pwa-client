@@ -137,6 +137,15 @@ class SessionDef:
     # Set while the tab's claude is put to sleep (`backend/sleep/`): the conversation the next start reopens.
     # Cleared once that claude runs again.
     sleep: SleepMark | None = None
+    # The account the tab belongs to while it runs on another one because that account's usage reached its line
+    # (`backend/account_fallback/`); None for a tab on its own account. `account_id` is where it runs now.
+    fallback_from: str | None = None
+    # The record the client wrote into the other account's projects folder for that move. The client deletes it
+    # when the tab leaves that account again.
+    fallback_copy: str | None = None
+    # The uuid of the usage-limit stop that the client already answered with a message to carry on
+    # (`backend/limit_resume/`), so that the same stop is never answered twice, nor after a restart.
+    limit_resumed: str | None = None
 
     def sleeping_claude_sid(self) -> str | None:
         """The conversation a sleeping tab reopens, None for a tab that is not asleep or whose account changed since
@@ -159,7 +168,15 @@ class SessionDef:
             "tier": self.tier,
             "sleep": self.sleep.to_dict() if self.sleep is not None else None,
             "asleep": self.sleep is not None,
+            "fallback_from": self.fallback_from,
+            "fallback_copy": self.fallback_copy,
+            "limit_resumed": self.limit_resumed,
         }
+
+
+def _optional_str(value: object) -> str | None:
+    """A stored text, None when the entry holds none or something else."""
+    return value if isinstance(value, str) and value else None
 
 
 def _default_title(agent_id: str, index: int) -> str:
@@ -211,6 +228,9 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
                 tier_tab=entry.get("tier_tab") if isinstance(entry.get("tier_tab"), str) else None,
                 tier=entry.get("tier") if isinstance(entry.get("tier"), str) else None,
                 sleep=SleepMark.from_dict(entry.get("sleep")),
+                fallback_from=_optional_str(entry.get("fallback_from")),
+                fallback_copy=_optional_str(entry.get("fallback_copy")),
+                limit_resumed=_optional_str(entry.get("limit_resumed")),
             )
     else:
         # 初期化: agent ごと 1 セッションを生成する

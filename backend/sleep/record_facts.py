@@ -9,11 +9,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from backend.fork.fork import is_limit_stop_row
 from backend.jsonl.jsonl_predicates import is_sidechain, is_user_prompt, queued_prompt_text
 
 SCHEDULE_WAKEUP = "ScheduleWakeup"
 CRON_CREATE = "CronCreate"
 CRON_DELETE = "CronDelete"
+
+
+@dataclass(frozen=True)
+class LimitStop:
+    """A turn that a usage limit ended: the uuid of the row Claude Code wrote for it, and its time (unix seconds)."""
+    uuid: str
+    at: float
 
 
 @dataclass
@@ -24,6 +32,8 @@ class RecordFacts:
     wakeup_pending:       a ScheduleWakeup was called after the last user prompt (= nothing delivered it yet)
     awaiting_tool_result: the last row of the conversation is a tool call that has no result yet (= claude waits for
                           an answer, a permission, or a tool that is still running)
+    limit_stop:           the usage-limit stop the conversation ends in, None when it does not (= a limit row is
+                          forgotten by any prompt or answer after it)
     last_row_at:          the time (unix seconds) of the newest row that carries one, None when no row does. This is
                           when the conversation last did anything: a running claude also rewrites its record without
                           adding a row, so the file's modification time says nothing about the conversation
@@ -32,6 +42,12 @@ class RecordFacts:
     wakeup_pending: bool = False
     awaiting_tool_result: bool = False
     last_row_at: float | None = None
+    limit_stop: LimitStop | None = None
+
+    @property
+    def stopped_by_limit(self) -> bool:
+        """Whether the conversation ends in a turn that a usage limit stopped."""
+        return self.limit_stop is not None
 
 
 def _tool_names(row: dict) -> list[str]:
@@ -69,14 +85,21 @@ def fold_row(facts: RecordFacts, row: object) -> None:
     if kind == "attachment":
         if queued_prompt_text(row) is not None:
             facts.wakeup_pending = False
+            facts.limit_stop = None
         return
     if kind == "user":
         facts.awaiting_tool_result = False
+        facts.limit_stop = None
         if is_user_prompt(row):
             facts.wakeup_pending = False
         return
     if kind != "assistant":
         return
+    if is_limit_stop_row(row):
+        facts.awaiting_tool_result = False
+        facts.limit_stop = LimitStop(uuid=str(row.get("uuid") or ""), at=stamp if stamp is not None else 0.0)
+        return
+    facts.limit_stop = None
     names = _tool_names(row)
     facts.awaiting_tool_result = bool(names)
     for name in names:

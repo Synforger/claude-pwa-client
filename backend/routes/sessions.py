@@ -123,7 +123,7 @@ async def fork_session(session_id: str, payload: dict = Body(...), _: str = Depe
         raise_error(400, "from_uuid_required", "from_uuid が必要です")
 
     parent = sessions_meta[session_id]
-    new_claude_id, _moved = write_lineage(session_id, from_uuid, None)
+    new_claude_id = write_lineage(session_id, from_uuid, None).claude_id
 
     new_meta = register_session(
         parent.agent_id,

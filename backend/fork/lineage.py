@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import logging
 import uuid
+from enum import Enum
+from pathlib import Path
+from typing import NamedTuple
 
 from fastapi import HTTPException
 
@@ -18,6 +21,7 @@ from backend.fork.fork import (
     build_forked_lineage_lazy,
     fork_point_status,
     latest_clean_fork_point,
+    latest_cut_through_tool_results,
 )
 from backend.jsonl import resolver as jsonl_resolver
 from backend.jsonl.jsonl_tail import split_jsonl_text
@@ -25,10 +29,27 @@ from backend.jsonl.jsonl_tail import split_jsonl_text
 logger = logging.getLogger(__name__)
 
 
-def write_lineage(session_id: str, from_uuid: str | None, target_account_id: str | None) -> tuple[str, bool]:
-    """Write the conversation of a tab up to `from_uuid` (or, when it is `None`, up to the latest clean point) as a
-    new claude session, in the projects folder of `target_account_id` when that is another account. Returns the
-    new session's id and whether it moved to another account. Used by the fork and by moving a tab's account."""
+class LineageCut(str, Enum):
+    """Where `write_lineage` ends the conversation when it is not told a message to end at."""
+    # the latest finished turn or prompt of the operator (= nothing of a turn that is still going is carried)
+    CLEAN_TURN = "clean_turn"
+    # the end of the conversation, without the rows a usage limit wrote: the tool results of the turn it stopped stay
+    THROUGH_TOOL_RESULTS = "through_tool_results"
+
+
+class WrittenLineage(NamedTuple):
+    """The new claude session `write_lineage` wrote: its id, whether it was written for another account, and the
+    record's path."""
+    claude_id: str
+    moved: bool
+    path: Path
+
+
+def write_lineage(session_id: str, from_uuid: str | None, target_account_id: str | None, *,
+                  cut: LineageCut = LineageCut.CLEAN_TURN) -> WrittenLineage:
+    """Write the conversation of a tab up to `from_uuid` (or, when it is `None`, up to the point `cut` names) as a
+    new claude session, in the projects folder of `target_account_id` when that is another account. Used by the fork
+    and by moving a tab's account."""
     parent = sessions_meta[session_id]
 
     # from_uuid を含む jsonl を探す。 claude は途中で session id をロール (= compact / 継続)
@@ -87,7 +108,8 @@ def write_lineage(session_id: str, from_uuid: str | None, target_account_id: str
         if src_path is None:
             raise_error(404, "message_not_found", "この会話のログが見つかりません")
         src_lines = split_jsonl_text(src_path.read_text(encoding="utf-8"))
-        from_uuid = latest_clean_fork_point(src_lines)
+        from_uuid = (latest_cut_through_tool_results(src_lines) if cut is LineageCut.THROUGH_TOOL_RESULTS
+                     else latest_clean_fork_point(src_lines))
         if from_uuid is None:
             raise_error(400, "cannot_fork_here", "引き継げる切れ目がまだありません (= ターンの完了を待ってください)")
 
@@ -151,4 +173,4 @@ def write_lineage(session_id: str, from_uuid: str | None, target_account_id: str
         dest_dir = src_path.parent
     dest = dest_dir / f"{new_claude_id}.jsonl"
     atomic_write_text(dest, "\n".join(forked) + "\n")
-    return new_claude_id, moving
+    return WrittenLineage(new_claude_id, moving, dest)
