@@ -93,6 +93,8 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 - `env`: claude 起動時の追加環境変数。 代表的なキーは `CLAUDE_CONFIG_DIR`
   (= claude の設定 / 認証ディレクトリを切り替える)。 アカウントごとに別の認証情報を
   分離保持できる
+- `fallback` (任意): `{"to": "<逃げ先の口座>", "at_pct": <1〜100>}`。 この口座の使用率が `at_pct` 以上の間、
+  この口座のタブを逃げ先の口座で動かす。 書かない口座は何もしない。 詳細: [`account-fallback.md`](account-fallback.md)
 
 タブ新規作成時にエージェント × アカウントの組み合わせを選択する。 会話一覧の ⋯ メニューから
 既存の会話を別アカウントで継続することもできる (= 会話をそのまま引き継いだタブが開く)。
@@ -130,6 +132,11 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 - `uploads_tmp`: 添付ファイルの一時保存先ディレクトリ
 - `agent_message_check` (任意): タブどうしの連絡を届ける前に走らせる検査コマンド (= 語のリスト)。
   書き方は [agent-messages.md](agent-messages.md) の「届ける前に検査する」 を参照
+- `lineage_hook` (任意): 新しい会話の記録を書いた直後 (= フォークと、 タブの口座の移し替え) に 1 回走らせる命令
+  (= 語のリスト)。 語の中の `{session}` は新しい会話の id、 `{from_session}` は引き継ぐ元の会話の id に、
+  先頭の `~` は home に置き換わる。 命令が 0 以外で終わった時と 30 秒で終わらなかった時は、 新しい会話を開かない
+  (= 手での移し替えとフォークは `409 lineage_hook_failed`、 書いた記録は消す。 口座の逃げ先の見回りはタブを
+  そのままにして次の回にもう一度試す)。 書かなければ何も走らない。 詳細: [`account-fallback.md`](account-fallback.md)
 - `agent_message_peers` (任意): 連絡を運び合う別の機械の backend (= 名前 → `url` / `address` / `accounts`)。
   書いた時だけ、 宛先 `相手の名前:タブ` で別の機械のタブへ送れる。 詳細: [`agent-messages.md`](agent-messages.md)
 - `agent_message_operator_check` (任意): 連絡に人の発話を付けてよいかを決めるコマンド (= 語のリスト)。
