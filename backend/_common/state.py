@@ -778,6 +778,7 @@ def set_account_pinned(session_id: str, pinned: bool) -> bool:
         return False
     meta.account_pinned = pinned
     save_sessions_meta()
+    sessions_overview.notify()
     return True
 
 
