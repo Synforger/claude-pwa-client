@@ -32,7 +32,7 @@ backend が「人がこう打った」 と言ってきても、 こちらには�
 書いていなければ検査なしで届ける。 人の発話を付けてよいかは `agent_message_operator_check` が別に決める
 (= 0 以外なら発話を付けずに本文だけ届ける)。
 
-親が自分の子へ届けた連絡は、 子への次の仕事として数える: 報告済み (= `完了` / `詰まり`) の子のメモの状態の行を
+親が自分の子へ届けた連絡は、 送り主が仕事を渡さない連絡と言わない限り (= `hands_work`)、 子への次の仕事として数える: 報告済み (= `完了` / `詰まり`) の子のメモの状態の行を
 `作業中` に戻す (= `child_watch/child_work.py`)。 そうしないと、 次の仕事の途中で止まった子を、 止まった子の見回り
 も `tabs children` も 「仕事の無い子」 と見る。
 """
@@ -469,6 +469,7 @@ async def post_agent_message(
     sender: str = Form(..., alias="from"),
     text: str = Form(...),
     operator_said: bool = Form(False),
+    hands_work: str | None = Form(None),
 ) -> dict:
     """タブの中の claude が、 別のタブの claude へ連絡を送る。
 
@@ -477,6 +478,9 @@ async def post_agent_message(
         from          (str):  送り主のタブの id (= そのタブの環境変数 `PWA_SID`)
         text          (str):  本文
         operator_said (bool): 送り主のタブで人が最後に打った発話を封筒に入れるか (= 既定は入れない)
+        hands_work    (str):  宛先が送り主の子の時、 次の仕事を渡す連絡か。 `false` の時だけ渡さない (= 受け取りの知らせ
+                              など)。 真偽の欄にしないのは、 form で送られなかった真偽の欄を FastAPI が既定によらず
+                              false として受けるため
     """
     client_host = request.client.host if request.client else None
     if client_host not in LOCAL_CLIENTS:
@@ -501,7 +505,7 @@ async def post_agent_message(
     result = await deliver_message(receiver_id, envelope(sender, text, said, title), woke)
     logger.info("agent message sender=%s receiver=%s chars=%d operator_said=%s ok=%s",
                 sender, receiver_id, len(text), said is not None, result.get("ok"))
-    if result.get("ok"):
+    if result.get("ok") and (hands_work or "").strip().lower() != "false":
         await asyncio.to_thread(hand_work, sender, receiver_id)
     return {**result, "to": receiver_id, "operator_said": said is not None}
 
