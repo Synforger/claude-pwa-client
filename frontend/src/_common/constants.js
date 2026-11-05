@@ -30,6 +30,7 @@ export const REPLAY_SKEW_TOLERANCE_MS = 5 * 60 * 1000
 export const LS_SESSIONS_META = 'cpc_sessions_meta'   // [{id, agent_id, title, created_at}, ...]
 export const LS_ACTIVE_SESSION = 'cpc_active_session'  // 現在表示中の session_id
 export const LS_MESSAGES = 'cpc_messages'              // {session_id: [...]} (LZString 圧縮)
+export const LS_MESSAGES_V2_PREFIX = `${LS_MESSAGES}_v2_`  // sid 別に 1 key ずつ保存する形の key の接頭辞
 export const LS_INPUT = 'cpc_input'                    // {session_id: 入力中文字列}
 export const LS_SESSION_ACTIVITY = 'cpc_session_activity'  // {session_id: {length, ts}} ドロワー並び順用
 // 旧キー (マイグレーション用)

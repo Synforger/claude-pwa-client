@@ -42,6 +42,10 @@ def _emitted_types() -> set[str]:
     src = (REPO / "backend/terminal/prompt_detector_loop.py").read_text()
     if re.search(r'"prompt_state"', src):
         out.add("prompt_state")
+    # history_refetch は stream の流し直しが合成する (= 記録の行に由来しない印)
+    src = (REPO / "backend/routes/unified_stream.py").read_text()
+    if re.search(r'"type": "history_refetch"', src):
+        out.add("history_refetch")
     return out
 
 

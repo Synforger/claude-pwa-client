@@ -1188,6 +1188,7 @@ endpoints:
       - "jsonl channel は query `jsonl=sid:off,...` / control op で購読宣言した sid のみ配信 (= fan-out 遮断)"
       - "jsonl frame = {ch, pos, ev}。 ev は sse-events.yaml の event そのまま (= schema 変更なし)、 pos は行末実 byte 位置 (= null は ephemeral)"
       - "接続時 warmup (= PTY ensure) + replay は購読 sid のみ (= 全 sid sweep なし)"
+      - "replay の offset は GET /jsonl/history の since と同じ窓で読む。 offset の直後の行から欠けずに流せなかった時は、 その sid の frame の先頭に history_refetch event を 1 つ載せる (= offset を持たない購読には載せない)"
       - "query `conn` (= client 生成 id) 必須、 `view` で視認中 sid を同時申告可"
       - "keep-alive は {ch:sys,_hb:1} を 25s 間隔"
       - "切断で views 登録 / conn 登録が自動消滅 (= /views/ws の TCP FIN と等価の stale-free)"

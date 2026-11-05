@@ -3,7 +3,7 @@
  * Regenerate: cd contracts && npm run codegen:types
  */
 
-export const SSE_EVENTS_SCHEMA_VERSION = "1.1" as const
+export const SSE_EVENTS_SCHEMA_VERSION = "1.2" as const
 
 /** tool_result を含む user 行 (= 既存 tool_use への結果紐付け専用、 表示バブルは作らない) */
 export interface UserEvent {
@@ -269,10 +269,19 @@ export interface PromptStateEvent {
   key_requires_enter?: boolean
 }
 
+/** stream のつなぎ直しの流し直しが、 画面の位置まで届かなかった印 (= 画面を閉じている間に書かれた行が窓の上限を超えた)。 画面は cache を捨てて履歴を取り直す */
+export interface HistoryRefetchEvent {
+  type: "history_refetch"
+  /** session id (= 配送 envelope が注入) */
+  sid: string
+  /** W3C trace_id 頭 8 文字 (= 配送 envelope が注入) */
+  corr_id: string
+}
 
-export type AnySseEvent = UserEvent | UserMessageEvent | AssistantEvent | ResultEvent | AskUserQuestionEvent | TaskNotificationEvent | SystemEvent | SystemErrorEvent | HookErrorEvent | SystemNoteEvent | AttachmentEvent | BudgetEvent | ModeEvent | PermissionModeEvent | TurnDurationEvent | StopHookSummaryEvent | AwaySummaryEvent | PromptStateEvent
+
+export type AnySseEvent = UserEvent | UserMessageEvent | AssistantEvent | ResultEvent | AskUserQuestionEvent | TaskNotificationEvent | SystemEvent | SystemErrorEvent | HookErrorEvent | SystemNoteEvent | AttachmentEvent | BudgetEvent | ModeEvent | PermissionModeEvent | TurnDurationEvent | StopHookSummaryEvent | AwaySummaryEvent | PromptStateEvent | HistoryRefetchEvent
 
 
-export const SSE_EVENT_TYPES = ["user", "user_message", "assistant", "result", "ask_user_question", "task_notification", "system", "system_error", "hook_error", "system_note", "attachment", "budget", "mode", "permission_mode", "turn_duration", "stop_hook_summary", "away_summary", "prompt_state"] as const
+export const SSE_EVENT_TYPES = ["user", "user_message", "assistant", "result", "ask_user_question", "task_notification", "system", "system_error", "hook_error", "system_note", "attachment", "budget", "mode", "permission_mode", "turn_duration", "stop_hook_summary", "away_summary", "prompt_state", "history_refetch"] as const
 
 export type SseEventType = typeof SSE_EVENT_TYPES[number]

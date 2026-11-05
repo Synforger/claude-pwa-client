@@ -54,7 +54,7 @@ def test_event_dispatch_table_covers_19_types():
         "user", "user_message", "assistant", "result", "ask_user_question", "task_notification",
         "system", "system_error", "hook_error", "system_note", "attachment",
         "budget", "mode", "permission_mode", "turn_duration",
-        "stop_hook_summary", "away_summary", "prompt_state",
+        "stop_hook_summary", "away_summary", "prompt_state", "history_refetch",
     }
     assert set(EVENT_BY_TYPE.keys()) == expected
 
@@ -153,6 +153,26 @@ def test_prompt_state_event_matches_contract():
     validated = model.model_validate(event)
     assert validated.state == "inline_tui"
     assert validated.options == ["1", "2"]
+
+
+def test_history_refetch_mark_matches_contract(isolated_state, tmp_path, monkeypatch):
+    """流し直しが画面の位置まで届かなかった時に載せる印が contract model に準拠する。
+
+    印は jsonl_line_to_events 経由でなく流し直しが合成するため replay fixture に乗らない。
+    窓の上限を小さくして、 届かない形を作る。
+    """
+    import backend.routes.unified_stream as us
+
+    path = tmp_path / "c.jsonl"
+    path.write_text("".join(
+        json.dumps({"type": "user", "uuid": f"u{i}", "message": {"content": f"m{i}"}}) + "\n" for i in range(5)))
+    monkeypatch.setattr(us, "_latest_jsonl", lambda sid: path)
+    monkeypatch.setattr(us, "INITIAL_REPLAY_LINES", 1)
+    monkeypatch.setattr(us, "HISTORY_CATCH_UP_LINES", 2)
+    frames = us._replay_frames("ses_mark", 0)
+    mark = frames[0]["ev"]
+    validated = EVENT_BY_TYPE["history_refetch"].model_validate(mark)
+    assert validated.sid == "ses_mark"
 
 
 def test_prompt_state_snapshot_matches_contract():

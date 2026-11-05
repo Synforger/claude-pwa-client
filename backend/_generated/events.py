@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 
 
 class UserEvent(BaseModel):
@@ -237,7 +237,15 @@ class PromptStateEvent(BaseModel):
     key_requires_enter: Optional[bool] = None  # 1 打鍵後に Enter が要るか (= shell prompt true / Ink dialog false)
 
 
-AnyEvent = Union[UserEvent, UserMessageEvent, AssistantEvent, ResultEvent, AskUserQuestionEvent, TaskNotificationEvent, SystemEvent, SystemErrorEvent, HookErrorEvent, SystemNoteEvent, AttachmentEvent, BudgetEvent, ModeEvent, PermissionModeEvent, TurnDurationEvent, StopHookSummaryEvent, AwaySummaryEvent, PromptStateEvent]
+class HistoryRefetchEvent(BaseModel):
+    """stream のつなぎ直しの流し直しが、 画面の位置まで届かなかった印 (= 画面を閉じている間に書かれた行が窓の上限を超えた)。 画面は cache を捨てて履歴を取り直す"""
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["history_refetch"]
+    sid: str  # session id (= 配送 envelope が注入)
+    corr_id: str  # W3C trace_id 頭 8 文字 (= 配送 envelope が注入)
+
+
+AnyEvent = Union[UserEvent, UserMessageEvent, AssistantEvent, ResultEvent, AskUserQuestionEvent, TaskNotificationEvent, SystemEvent, SystemErrorEvent, HookErrorEvent, SystemNoteEvent, AttachmentEvent, BudgetEvent, ModeEvent, PermissionModeEvent, TurnDurationEvent, StopHookSummaryEvent, AwaySummaryEvent, PromptStateEvent, HistoryRefetchEvent]
 
 EVENT_BY_TYPE: dict[str, type[BaseModel]] = {
     "user": UserEvent,
@@ -258,4 +266,5 @@ EVENT_BY_TYPE: dict[str, type[BaseModel]] = {
     "stop_hook_summary": StopHookSummaryEvent,
     "away_summary": AwaySummaryEvent,
     "prompt_state": PromptStateEvent,
+    "history_refetch": HistoryRefetchEvent,
 }

@@ -68,6 +68,11 @@ router = APIRouter()
 # フォールバックとして使われる。
 INITIAL_REPLAY_LINES = 500
 
+# 画面が描き終えた位置 (= since) まで遡って返す時の、 窓の行数の上限。 画面を長く閉じていた間に
+# INITIAL_REPLAY_LINES を超える行が書かれても、 この行数までは since から欠けずに返す。 超える時は
+# 直近のこの行数までで、 届かなかった事を `reached` で伝える。
+HISTORY_CATCH_UP_LINES = 3000
+
 # tail の polling 間隔 (秒)。
 POLL_INTERVAL = 0.5
 
@@ -217,25 +222,37 @@ def _shrink_tool_results(ev: dict) -> None:
 def get_chat_history(
     session_id: str,
     from_pos: int | None = Query(None, alias="from"),
+    since: int | None = Query(None, ge=0),
 ) -> dict:
     """チャット履歴の権威スナップショットを 1 発 GET で返す (= client=射影の「状態は GET」 経路)。
 
     frontend は sid 表示時にこれを叩いて履歴を確定させ (= stream の初回 replay 依存を外す)、
     以降 stream は差分だけを流す。 events は SSE の ev payload と同形状、 pos は読み終えた
-    byte 位置 (= stream 購読の起点にすれば replay 重複が消える)。 from (= 描画・永続化した
-    offset) 指定ありはその位置以降、 未指定/無効 (= 初回 / cache 消失) は直近 N 行。 GET は
-    stream とは別リクエストなので、 stream が復帰し損ねても履歴は必ず取れる。
+    byte 位置 (= stream 購読の起点にすれば replay 重複が消える)。 GET は stream とは別リクエスト
+    なので、 stream が復帰し損ねても履歴は必ず取れる。
+
+    窓は 3 通り。 since (= 画面が描き終えた位置) 指定ありは、 直近 N 行の頭と since の早い方から (= 画面を
+    閉じている間に N 行を超えて書かれても、 画面の中に穴が空かない)。 ただし HISTORY_CATCH_UP_LINES 行を
+    超えない。 from (= 描画・永続化した offset) 指定ありはその位置以降。 どちらも無い / 無効 (= 初回 /
+    cache 消失) は直近 N 行。 `reached` は窓が since の直後の行から欠けずに届いたか (= False なら画面の
+    cache との間に抜けが残るので、 cache を捨てて返った event だけで並べ直す)。 since を付けない問い合わせは
+    測れないので False。
 
     読むのはタブの記録を古い順につないだ物で、 pos はその通しの位置 (= backend/jsonl/chain.py)。 今の
-    会話が短ければ、 直近 N 行に前の会話の末尾も入る (= 入れ替えの後も、 それまでの会話がタブに残る)。
+    会話が短ければ、 窓に前の会話の末尾も入る (= 入れ替えの後も、 それまでの会話がタブに残る)。
     """
     segs = chain.segments(session_id, _latest_jsonl(session_id))
-    pairs, end_pos = chain.read(segs, from_pos, INITIAL_REPLAY_LINES)
+    if since is not None:
+        window = chain.read_window(segs, since, INITIAL_REPLAY_LINES, HISTORY_CATCH_UP_LINES)
+        pairs, end_pos, reached = window.lines, window.end, window.reached
+    else:
+        pairs, end_pos = chain.read(segs, from_pos, INITIAL_REPLAY_LINES)
+        reached = False
     events = _lines_to_events([raw for raw, _pos in pairs], session_language(session_id))
     for ev in events:
         _inject_envelope(ev, session_id)
         _shrink_tool_results(ev)
-    return {"events": events, "pos": end_pos}
+    return {"events": events, "pos": end_pos, "reached": reached}
 
 
 def _parse_all_from(spec: str | None) -> dict[str, int]:

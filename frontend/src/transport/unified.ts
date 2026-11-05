@@ -262,9 +262,10 @@ class UnifiedTransport {
     try { localStorage.setItem(LS_OFFSETS, JSON.stringify(this.offsets)) } catch { /* ignore */ }
   }
 
-  /** sid の現在 offset (= 描画・永続化した位置)。 GET /jsonl/history の from に渡す。 */
-  getOffset(sid: string): number {
-    return this.offsets[sid] ?? 0
+  /** sid の現在 offset (= 描画・永続化した位置)。 GET /jsonl/history の since に渡す。 無ければ null。 */
+  getOffset(sid: string): number | null {
+    const offset = this.offsets[sid]
+    return Number.isFinite(offset) ? Math.floor(offset) : null
   }
 
   /** GET で権威スナップショットを取り込んだ後、 offset をそこまで前進させる (= 単調)。

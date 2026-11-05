@@ -24,6 +24,7 @@ frame 形式 (= data 行 JSON、 SSE id 行は使わない。 offset は frame �
     {"ch":"sys","type":"hello","conn":"<id>"}
     {"ch":"sys","_hb":1}
     {"ch":"jsonl","pos":<int|null>,"ev":{...sse-event...}}
+    {"ch":"jsonl","pos":null,"ev":{"type":"history_refetch","sid":"<sid>",...}}   # 流し直しが画面の位置まで届かなかった印
     {"ch":"status","data":{<sid>: {...}}}
     {"ch":"overview","data":{<sid>: {...}}}
     {"ch":"subagents","sid":"<sid>","data":{"subagents":[...],"workflows":[...]}}
@@ -41,6 +42,7 @@ from fastapi.responses import StreamingResponse
 from backend.jsonl import chain
 from backend.jsonl.events import jsonl_line_to_events
 from backend.jsonl.routes import (
+    HISTORY_CATCH_UP_LINES,
     INITIAL_REPLAY_LINES,
     _inject_envelope,
     _latest_jsonl,
@@ -149,14 +151,20 @@ def _replay_frames(sid: str, start: int | None) -> list[dict]:
     prompt_state snapshot も末尾に付ける (= 切断中の遷移取りこぼしを接続時に収束、
     旧 per-sid / all SSE と同じ規約)。
 
-    久しぶりに購読された sid は client offset が大きく遅れている。 全区間 replay は表示上限
-    (= frontend MAX_MESSAGES) を大幅に超えて CPU を焼くだけなので、 直近 N 行 (= INITIAL_REPLAY_LINES)
-    に clamp する (= それ以前は client の localStorage cache が持っている)。
+    start は履歴 GET の since と同じ意味で、 窓も同じ (= 直近 N 行 (= INITIAL_REPLAY_LINES) の頭と start の
+    早い方から。 ただし HISTORY_CATCH_UP_LINES 行を超えない)。 流すのは start より後ろの行だけ (= 手前は
+    画面が描き終えている。 start が今の終わりより先を指す時は窓をそのまま流す)。 久しぶりに購読された sid で
+    全区間を流すと表示上限 (= frontend MAX_MESSAGES) を大幅に超えて CPU を焼くだけなので、 窓の上限までに
+    する。 start の直後の行から欠けずに流せなかった時は、 画面が cache を捨てて履歴を取り直すための印
+    (= history_refetch) を先頭に 1 つ載せる。 start が無い購読は窓が届いたかを測れないので印を載せない。
     """
     frames: list[dict] = []
-    pairs, _end = chain.read(chain.segments(sid, _latest_jsonl(sid)), start, INITIAL_REPLAY_LINES)
+    window = chain.read_window(
+        chain.segments(sid, _latest_jsonl(sid)), start, INITIAL_REPLAY_LINES, HISTORY_CATCH_UP_LINES)
+    if start is not None and not window.reached:
+        frames.append({"ch": "jsonl", "pos": None, "ev": _inject_envelope({"type": "history_refetch"}, sid)})
     language = session_language(sid)
-    for raw, line_pos in pairs:
+    for raw, line_pos in window.after(start):
         raw = raw.strip()
         if not raw:
             continue

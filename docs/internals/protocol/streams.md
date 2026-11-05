@@ -112,15 +112,17 @@ tmux server は `exit-empty off` + 番兵 session `claudepwa-sentinel` (= backen
 
 - **並び**: 終わった会話の記録 (= `backend/jsonl/history.py` の控え、 最新 3 件) + 今の会話の記録。 控えに積むのは、 入れ替えとセッション終了の口 (= `restart_session`) と、 口を通らない切り替えを見張りが見つけた時 (= `_initialize_sid_tail`)
 - **起点**: 各記録の起点 (= `base`) は控えに積んだ時に 1 度だけ決め、 古い記録が控えから落ちても、 file が消えても動かさない。 今の会話の起点は、 最後に終わった会話の記録の直後
-- **流し直しの読み方**: `from` が今の会話の中を指していれば、 今の会話だけをそこから読む (= つなぎ直しの普段の形)。 それより前を指していれば、 つないだ記録の直近 N 行のうちその位置より後ろ。 画面を閉じている間に入れ替わったタブは、 前の会話の残り (= 締めの作業と入れ替えの発話) から今の会話まで繋がって流れる
+- **流し直しの読み方**: client の offset を `since` と同じに扱い、 履歴 GET と同じ窓 (= 下の § `GET /jsonl/history/{sid}` の窓) から、 offset より後ろの行だけを流す (= 手前は画面が描き終えている)。 画面を閉じている間に入れ替わったタブは、 前の会話の残り (= 締めの作業と入れ替えの発話) から今の会話まで繋がって流れる。 offset が今の終わりより先を指す時は、 手前を飛ばさず窓をそのまま流す
+- **届かなかった時の印**: offset の直後の行から欠けずに流せなかった時 (= 窓の上限 `HISTORY_CATCH_UP_LINES` を超えて書かれた) は、 その sid の frame の先頭に `history_refetch` を 1 つ載せる。 画面は cache を捨てて履歴を取り直す。 offset を持たない購読は、 窓が届いたかを測れないので載せない
 - **file ごとの位置にしない理由**: client の offset はタブに 1 つで、 どの記録の位置かを持たない。 file ごとの位置だと、 今の会話の記録が前の会話の offset より育った時に、 offset を今の会話の中の位置と読んで頭を飛ばす
 
 ## `GET /jsonl/history/{sid}`: 状態は GET、 stream は差分 (= client=射影)
 
 タブ表示時に **履歴の権威スナップショット**を 1 発で取る経路 (= `backend/jsonl/routes.py::get_chat_history`)。 stream の初回 replay に履歴復元を依存させないための「状態は GET / stream は差分だけ」 分離で、 stream が復帰し損ねても履歴は必ず取れる。
 
-- **返すもの**: `{events, pos}`。 `events` は SSE と同形状 (= 同じ ingest pipeline を通す、 uuid dedup で cache とも stream replay とも重複しない)、 `pos` は読み終えた byte 位置
-- **窓**: `from` 指定ありはその位置以降、 未指定 / 無効は直近 N 行 (= `INITIAL_REPLAY_LINES`、 タブの記録をつないだ物の直近 N 行)。 frontend は **`from` を付けない**: offset は streaming 中の in-flight を含まず先行し得るため、 offset 起点にすると作業中のツール履歴が飛ばされる
+- **返すもの**: `{events, pos, reached}`。 `events` は SSE と同形状 (= 同じ ingest pipeline を通す、 uuid dedup で cache とも stream replay とも重複しない)、 `pos` は読み終えた byte 位置、 `reached` は窓が `since` の直後の行から欠けずに届いたか
+- **窓**: 3 通り。 `since` 指定ありは、 直近 N 行 (= `INITIAL_REPLAY_LINES`、 タブの記録をつないだ物の直近 N 行) の頭と `since` の早い方から返す。 ただし `HISTORY_CATCH_UP_LINES` 行を超えない (= 超える時は直近のその行数までで、 `reached` は false)。 `from` 指定ありはその位置以降。 どちらも無い / 無効は直近 N 行。 `since` を付けない問い合わせは窓が届いたかを測れないので `reached` は false。 `since` が今の終わりより先を指す時 (= 画面の位置が先行した) は、 抜けが無いので直近 N 行を返し `reached` は true
+- **frontend の使い方**: `since` に画面の offset (= 無ければ付けない) を渡し、 `from` は付けない。 offset は streaming 中の in-flight を含まず先行し得るため、 offset 起点にすると作業中のツール履歴が飛ばされる。 `since` は窓を広げるだけで、 直近 N 行は必ず含まれる。 `reached` が false の時は、 取り込む前にその sid の cache (= メッセージと localStorage に保存した分) を捨て、 返った event だけで並べ直す
 - **転送量の削減** (= 2026-07-27、 携帯 + Tailscale 経由の体感速度): 実測 1.18MB → 247KB
   - **JSON gzip** (= `backend/_internal/compression.py`)。 **SSE は対象外** — content-type が `text/event-stream` のものは素通しする。 streaming を圧縮すると gzip の内部 buffer に event が滞留してライブ更新が詰まるため、 ここは構造的に分けている (= pin: `backend/tests/_internal/test_compression.py::test_sse_is_never_compressed`)
   - **表示に使われない本文の除去** (= `_shrink_tool_results`)。 履歴の 65% が tool_result で、 その大半が base64 画像だった。 UI は tool_result 内の画像を「画像」 プレースホルダ 1 語に畳む (= `frontend/src/_common/format.js`) ので本体は 1 byte も表示に使われない → 履歴経路に限り画像本体を落とし、 長大 text も冒頭 `TOOL_RESULT_PREVIEW_CHARS` に切り詰める。 元の文字数は `full_chars` で残し、 UI の文字数ラベルはそれを使うので表示は不変 (= pin: `backend/tests/jsonl/test_jsonl_routes.py::test_shrink_tool_results_drops_image_payload_but_keeps_placeholder`)
@@ -175,6 +177,7 @@ backend `backend/jsonl/events.py::jsonl_line_to_events` が JSONL 1 行から組
 | `permission_mode` | `mode` | permission mode 切替 (= acceptEdits / plan / bypassPermissions) |
 | `budget` | `remaining` | サブスク残予算 (= StatusBar 描画) |
 | `prompt_state` | `state`, `input_mode`, `options[]` | tmux pane の入力待ち検出 (= prompt detector)。 JSONL 由来でなく `backend/terminal/prompt_detector_loop.py` が状態遷移 / excerpt 変化時のみ publish。 ChatPanel の banner + quick-reply button が消費、 返信は `POST /pty/{sid}/send-raw-key`。 field 詳細 = `contracts/schema/sse-events.yaml` |
+| `history_refetch` | (`sid` のみ) | stream のつなぎ直しの流し直しが、 画面の位置 (= `jsonl=sid:off` の off) の直後の行から欠けずに届かなかった印。 その sid の流し直しの先頭に 1 つだけ載り、 `pos` は null。 画面はその sid の cache を捨てて `GET /jsonl/history` を取り直す。 offset を持たない購読には載せない。 field 詳細 = `contracts/schema/sse-events.yaml` |
 | `session_end` | (frontend 注入) | restart で claude プロセスを kill した境界 (= MessageList の区切り表示。 backend tail でなく `useChatStream.endSession` が messages に直接挿入) |
 
 #### 添付 / タスク系
