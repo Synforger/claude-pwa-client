@@ -19,7 +19,7 @@ from backend.child_watch.watch_envelope import child_stopped_envelope
 from backend.child_watch.watch_judgement import IDLE, LIMIT
 from backend.sleep.sleep_sensors import record_facts_of
 from backend.tests.async_run import run
-from backend.tests.limit_samples import iso, limit_stop_row, message_row, stopped_mid_turn
+from backend.tests.limit_samples import iso, limit_notice_row, limit_reset_rows, message_row, stopped_mid_turn
 
 
 def _answer(uuid: str, parent: str, at: float) -> dict:
@@ -41,8 +41,11 @@ def env(tmp_path, monkeypatch, isolated_state, agent_folder):
     env = SimpleNamespace(parent=parent, child=child, record=record, memo=memo, now=now, blocked_by=(), sent=[],
                           deliver=True)
     monkeypatch.setattr(sensors.jsonl_watcher, "get_jsonl_for", lambda _sid: record)
-    monkeypatch.setattr(sensors, "read_tab_break",
-                        lambda _sid: TabBreak(record_facts_of(record).limit_stop, env.blocked_by))
+
+    def _break(_sid):
+        facts = record_facts_of(record)
+        return TabBreak(facts.limit_stop, env.blocked_by, owed=facts.continuation_owed)
+    monkeypatch.setattr(sensors, "read_tab_break", _break)
 
     async def _send(session_id, text):
         env.sent.append((session_id, text))
@@ -116,13 +119,30 @@ def test_a_usage_limit_stop_is_told_with_the_reason_limit(env):
     assert env.sent == [(env.parent.id, child_stopped_envelope(env.child.id, "Build the parser", LIMIT))]
 
 
-def test_a_continuation_claude_code_owes_is_told_with_the_reason_limit(env, monkeypatch):
-    facts = record_facts_of(env.record)
-    facts.continuation_owed = True
-    monkeypatch.setattr(sensors, "record_facts_of", lambda _record: facts)
+def test_a_limit_notice_alone_is_told_with_the_reason_limit(env):
+    _append(env, limit_notice_row("n1", "a1", iso(env.now - 300)))
     run(patrol.tick())
-    run(patrol.tick())
+    assert run(patrol.tick()) == [env.child.id]
     assert env.sent[0][1] == child_stopped_envelope(env.child.id, "Build the parser", LIMIT)
+
+
+def test_a_continuation_still_owed_after_the_stop_was_answered_is_told_with_the_reason_limit(env):
+    """An answer to a background notification ends the stop, but the continuation Claude Code booked stays owed."""
+    notification = {"type": "user", "uuid": "t1", "parentUuid": "n1", "timestamp": iso(env.now - 200),
+                    "origin": {"kind": "task-notification"}, "message": {"content": "<task-notification>x</task-notification>"}}
+    _append(env, limit_notice_row("n1", "a1", iso(env.now - 300)), notification, _answer("a2", "t1", env.now - 100))
+    assert record_facts_of(env.record).limit_stop is None
+    run(patrol.tick())
+    assert run(patrol.tick()) == [env.child.id]
+    assert env.sent[0][1] == child_stopped_envelope(env.child.id, "Build the parser", LIMIT)
+
+
+def test_a_continuation_settled_by_the_reset_leaves_a_plain_idle_stop(env):
+    _append(env, limit_notice_row("n1", "a1", iso(env.now - 300)), *limit_reset_rows("n1", iso(env.now - 200)),
+            _answer("a2", "reset-prompt", env.now - 100))
+    run(patrol.tick())
+    assert run(patrol.tick()) == [env.child.id]
+    assert env.sent[0][1] == child_stopped_envelope(env.child.id, "Build the parser", IDLE)
 
 
 @pytest.mark.parametrize("memo_state", ["完了", "詰まり"])

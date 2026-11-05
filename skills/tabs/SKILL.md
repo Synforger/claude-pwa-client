@@ -127,7 +127,7 @@ running when the parent restarts. Use `tabs` from the parent:
 
 ```
 tabs new <title> <task file>      open a child; the task becomes its first message
-tabs children [--summary]         list the children this tab opened (id, state, Claude's state, title)
+tabs children [--summary]         list the children this tab opened (id, memo state, what its Claude is doing, title)
 tabs close <child id> [--force]   close a child and clear its memo and untouched top page; a child still working needs --force
 tabs sleep <child id>             put a child's Claude to sleep now; a message wakes it in the same conversation
 ```
@@ -141,6 +141,17 @@ sleep <child id>` ends its Claude and frees its memory at once, without the quie
 the next `tabs send` to it reopens the same conversation. It waits up to a minute for the child to finish its last
 answer and names the reason when the child cannot sleep (a scheduled wake-up, a voice call, a rollover). A sleeping
 child still counts towards `child_sessions_max`.
+
+`tabs children` prints, per child: its id, the state in its memo (`作業中` / `完了` / `詰まり`), what its Claude is doing,
+and its title. The Claude column has four words: `作業中` (answering), `入力待ち` (running, not answering), `眠り` (asleep)
+and `Claude なし`. A child whose memo still says `作業中` while its Claude is `入力待ち` ends the line with
+`← 報告なしで止まっている`, and `--summary` counts such children as `静か`.
+
+A child that stops without reporting is not silent for long: the client looks over the children every minute and, when
+one is at a break on two looks in a row (nothing answering, running or scheduled), sends the parent one message for that
+stop. Its first line is the client's own opening line, its block is `<child-stopped child="…" title="…" reason="…">`, and
+`reason` is `limit` (a usage limit stopped it and Claude Code will carry on by itself once the limit is over) or `idle`
+(it waits for input and has not reported). Look at the end of its conversation, then send it a message or close it.
 
 ### Working as a child
 

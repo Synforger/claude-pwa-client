@@ -45,6 +45,7 @@ backup 先 = 同 PC の別 path (= `$AGENT_PLATFORM_ROOT/state/claude-pwa-client
 | `account_pinned` | bool | NO (default `false`) | 要のタブの印。 true のタブは [口座の逃げ先](account-fallback.md) が移さず、 逃げ先で動いていれば次の区切りで戻す。 子のタブは立てた時に親の印を継ぐ |
 | `pause_asked_at` | float? | NO | [口座の逃げ先](account-fallback.md) が、返事を作り続けているタブに区切りを頼んだ時刻 (= epoch 秒)。 この「線を超えている間」に 2 通目を送らないための印で、 backend を再起動しても残る。 口座が線を下回った時、 タブを移した時、 固定した時に null |
 | `top_page_sha` | str? | NO | 子のタブのトップページ (= `pages/<子の id>/index.html`) を client が雛形から書いた時の、書いた中身の指紋 (= sha256 の 16 進、 目次の部品などを読む 1 行だけの行を除いた中身で取る)。 閉じる時の片付けが、 ページの今の中身をこれと比べる。 子でないタブと、 指紋を残す前に立てた子は null |
+| `stop_told_at` | float? | NO | 子のタブが報告せずに止まったことを親に知らせた時の、 その子の会話の記録の最後の行の時刻 (= epoch 秒)。 [止まった子の見回り](child-sessions.md#止まった子の見回り) が、 同じ止まりに 2 通目を送らないための印。 まだ知らせていない子と、 子でないタブは null |
 
 `GET /sessions` の各行の **`tier`** は、 この物の `tier` です。 無ければ `tier_tab`、 どちらも無ければ `null` を返します (= 画面の一覧は、 タブをこの階層の folder に入れます)。
 `tier` は backend が Claude のプロセスを見つけた時に読み、 変わっていれば保存するので、 backend や機械を再起動して Claude が居ない間も残ります。

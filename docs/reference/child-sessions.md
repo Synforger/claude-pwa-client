@@ -83,6 +83,71 @@ Message from another session, relayed by the client (the operator did not type t
 口は `POST /sessions/<親のタブの id>/children/<子のタブの id>/sleep` です。条件と待ち方は
 [静かなタブの眠り](sleep.md#親が子のタブを眠らせる) にあります。眠った子も子の数に入ります。
 
+## 子の一覧 (`tabs children`)
+
+親のタブから `tabs children` を打つと、 そのタブが立てた子が 1 行ずつ出ます。
+
+```
+ses_a1b2  作業中  入力待ち  build the parser  ← 報告なしで止まっている
+ses_c3d4  完了   Claude なし  fix the header
+```
+
+| 欄 | 中身 |
+|---|---|
+| 1 | 子のタブの id |
+| 2 | 子のメモ (= `pages/<子の id>/memo.md`) の状態の行。 `作業中` / `完了` / `詰まり`。 `tabs report` が書き換える |
+| 3 | 子の Claude が今していること。 下の表の 4 つの語 |
+| 4 | 子の題 |
+| 5 | メモが `作業中` のまま Claude が `入力待ち` の子にだけ付く `← 報告なしで止まっている` |
+
+| 第 3 欄 | 意味 |
+|---|---|
+| `作業中` | Claude が答えている途中 |
+| `入力待ち` | Claude は動いていて、 答えていない (= 次の発話を待っている) |
+| `眠り` | [眠らせた](sleep.md) 子。 連絡が届くと同じ会話で起きる |
+| `Claude なし` | Claude が動いていない |
+
+`tabs children --summary` は 1 行です (`children: 2 (作業中 1 / 完了 1 / 詰まり 0 / 静か 1)`)。 最後の `静か` は、 5 欄目の
+印が付いた子の数です。
+
+## 止まった子の見回り
+
+子が報告しないまま止まると、 親は気づけません。 上限で止まった子も、 返事を書き終えて入力待ちになった子も、 親の会話には
+何も届きません。 client は 1 分ごと (= [自動の入れ替え](rollover.md) と同じ間隔) に子のタブを見回り、
+**報告せずに止まった子があれば、 親のタブへ連絡を 1 通**送ります。 設定はありません。
+
+見回りが対象にする子は、 メモの状態が `作業中` で、 眠っておらず、 親のタブが残っている子です。 そのうえで、 次の全部が
+**続けて 2 回の見回り**で、 子の会話の記録の同じ最後の行のまま見えた時に送ります。
+
+- Claude が動いている
+- 答えの途中・裏で走るコマンド・道具の結果待ち・起こす予約・定期の予約・声の通話・入れ替えのどれも無い
+  (= [眠りの判定](sleep.md) を親が手で頼んだ時と同じ。 上限の止まりがそう見せる物は除く)
+
+送る連絡は、 [上限が戻った時の続き](limit-resume.md) などと同じく client が書いた物で、 1 行目は
+`Sent by the client (the operator did not type this):` です (= 操作者の発話と区別できる行)。 本文は英語の決まった形です。
+
+```
+Sent by the client (the operator did not type this):
+<child-stopped child="ses_a1b2" title="build the parser" reason="idle">
+This child is waiting for input and has not reported. …
+</child-stopped>
+```
+
+| `reason` | いつ | 本文 |
+|---|---|---|
+| `limit` | 会話の記録に上限の止まり、 または Claude Code がまだ果たしていない続きの予約がある | 上限が戻ると Claude Code が自分で続ける予約があるので、 止まったままの時だけ手を出す |
+| `idle` | それ以外 | 報告せずに入力待ちで止まっている。 会話の終わりを読み、 連絡を送るか閉じる |
+
+同じ止まりには 1 通です。 止まりの印は子の会話の記録の最後の行の時刻で、 子のタブの定義の `stop_told_at`
+([data-schemas.md](data-schemas.md)) に残すので、 backend を再起動しても繰り返しません。 子がまた動いて止まれば、
+最後の行の時刻が進むので、 新しい止まりとして 1 通送ります。 連絡が届かなかった時は印を戻し、 次の見回りで送り直します。
+
+送るたびに backend の log に 1 行出ます。
+
+```
+child watch: session=ses_a1b2 parent=ses_parent reason=idle sent=True
+```
+
 ## 画面の一覧
 
 子のタブは、 フォークのタブと同じように親の直下に字下げして並び、 名前の前に `↳` が付きます (= フォークは `⑂`)。

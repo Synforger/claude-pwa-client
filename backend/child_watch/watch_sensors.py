@@ -2,8 +2,9 @@
 (files, process table); callers on the event loop run it in a thread.
 
 "At a break" is the account fallback's reading of a tab (`account_fallback.fallback_sensors.read_tab_break`): the sleep
-judgement asked by hand, with a usage-limit stop taken into account. A child that answers, runs a command, waits for a
-tool, has a wake-up or a cron job scheduled, is on a call or is rolling over is not at a break.
+judgement asked by hand, with a usage-limit stop taken into account, and the continuation Claude Code still owes after
+a limit (`TabBreak.owed`). A child that answers, runs a command, waits for a tool, has a wake-up or a cron job
+scheduled, is on a call or is rolling over is not at a break.
 
 Used by `watch_patrol.py`.
 """
@@ -64,7 +65,5 @@ def look_at_child(meta: SessionDef) -> ChildLook | None:
         return None
     if facts.last_row_at is None:
         return None
-    # TODO: read `RecordFacts.continuation_owed` directly once the record facts carry it
-    owed = bool(getattr(facts, "continuation_owed", False))
     return ChildLook(mark=facts.last_row_at, reason=stop_reason(limit_stop=taken.stop is not None,
-                                                                  continuation_owed=owed))
+                                                                  continuation_owed=taken.owed is not None))
