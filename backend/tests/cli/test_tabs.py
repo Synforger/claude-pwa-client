@@ -62,6 +62,8 @@ class Backend:
         self.answers: dict[str, int] = {}
         self.tabs: list[dict] = []
         self.local_tabs: list[dict] = []
+        # 子のタブの id → 区切りから外している理由 (= `GET /sessions/{親}/children`)。 無い子は区切りに居る (= [])
+        self.holds: dict[str, list[str] | None] = {}
         backend = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -82,6 +84,13 @@ class Backend:
                 backend.calls.append({"method": method, "path": self.path, "form": form})
                 if method == "GET" and self.path == "/sessions":
                     return self.reply(200, backend.tabs)
+                if method == "GET" and self.path.startswith("/sessions/") and self.path.endswith("/children"):
+                    if backend.answers.get("holds", 200) != 200:
+                        return self.reply(backend.answers["holds"], {})
+                    parent = self.path.split("/")[2]
+                    return self.reply(200, {"children": [
+                        {"id": t["id"], "blocked_by": backend.holds.get(t["id"], [])}
+                        for t in backend.tabs if t.get("child") and t.get("parent_id") == parent]})
                 if method == "GET" and self.path == "/agent-messages/local-tabs":
                     return self.reply(200, {"tabs": backend.local_tabs})
                 if method == "POST" and self.path == "/tier-tabs":
@@ -361,6 +370,29 @@ def test_a_working_child_whose_claude_waits_is_marked_as_stopped_without_a_repor
     lines = lines_by_tab(family)
     assert "入力待ち" in lines["ses_a"] and "← 報告なしで止まっている" in lines["ses_a"]
     assert "静か" not in family.out
+
+
+def test_a_child_waiting_for_its_background_command_is_not_marked_as_stopped(family):
+    """Claude Code wakes a child itself when a command it started in the background ends: such a child holds work."""
+    running_claude(family, "ses_a", "idle")
+    family.backend.holds["ses_a"] = ["processes_running"]
+    lines = lines_by_tab(family)
+    assert lines["ses_a"].split("  ")[2] == "裏の仕事待ち" and "報告なしで" not in lines["ses_a"]
+    family.run("children", "--summary")
+    assert "静か 0" in family.out
+
+
+def test_the_judgement_saying_a_turn_is_open_reads_as_answering(family):
+    running_claude(family, "ses_a", "idle")
+    family.backend.holds["ses_a"] = ["turn_open"]
+    assert lines_by_tab(family)["ses_a"].split("  ")[2] == "作業中"
+
+
+def test_without_the_backends_judgement_a_quiet_claude_is_not_called_stopped(family):
+    running_claude(family, "ses_a", "idle")
+    family.backend.answers["holds"] = 500
+    lines = lines_by_tab(family)
+    assert lines["ses_a"].split("  ")[2] == "裏の仕事待ち" and "報告なしで" not in lines["ses_a"]
 
 
 def test_only_a_waiting_claude_of_a_working_memo_is_marked(family):

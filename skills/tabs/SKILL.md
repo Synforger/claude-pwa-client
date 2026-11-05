@@ -144,9 +144,11 @@ answer and names the reason when the child cannot sleep (a scheduled wake-up, a 
 child still counts towards `child_sessions_max`.
 
 `tabs children` prints, per child: its id, the state in its memo (`作業中` / `完了` / `詰まり`), what its Claude is doing,
-and its title. The Claude column has four words: `作業中` (answering), `入力待ち` (running, not answering), `眠り` (asleep)
-and `Claude なし`. A child whose memo still says `作業中` while its Claude is `入力待ち` ends the line with
-`← 報告なしで止まっている`, and `--summary` counts such children as `静か`.
+and its title. The Claude column has five words: `作業中` (answering), `裏の仕事待ち` (not answering, but waiting for a
+command it started in the background, a wake-up, a cron job or a tool result: it goes on by itself when that ends),
+`入力待ち` (at a break, waiting for a message), `眠り` (asleep) and `Claude なし`. A child whose memo still says `作業中`
+while its Claude is `入力待ち` ends the line with `← 報告なしで止まっている`, and `--summary` counts such children as
+`静か`; this is the same judgement as the watch that tells the parent.
 
 A child that stops without reporting is not silent for long: the client looks over the children every minute and, when
 one is at a break on two looks in a row (nothing answering, running or scheduled), sends the parent one message for that
