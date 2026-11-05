@@ -28,14 +28,22 @@ pick up, a decision that affects it. Do not wait for the operator to carry it.
 
    One line per tab: id, tier, account, state, boundaries read, name. A tab with no running Claude has the state
    `未起動` (a message starts it) or `起こせない` (it cannot be started). Tabs of another agent show `別の agent`
-   instead of a tier. When several tabs own the same thing, choose by the tab's name. When
-   the name does not decide it, send to the nearest one and carry on.
+   instead of a tier. A tab that works in a boundary this tab does not know shows `別の境界` as its tier and
+   `(別の境界のタブ)` as its name; when the guard says its tier may be shown as a role, the name cell reads
+   `役=<role name>` instead (the tier stays `別の境界`). When several tabs own the same thing, choose by the tab's
+   name. When the name does not decide it, send to the nearest one and carry on.
 
 2. Write the body to a file and send it.
 
    ```
-   tabs send <tab id or name> <body file>
+   tabs send <tab id, role or name> <body file>
    ```
+
+   The receiver is resolved in this order: the tab's id; then a role name from `tabs list` (the tab working in that
+   role's folder, or, when several do, the one placed for that tier); then the tab's name. Roles exist only when
+   the guard answers `--roles`; without it every receiver is an id or a name, as before. If a role has several tabs
+   and none is the placed one, or its name is also the name of a tab you can see, nothing is sent and the ids are
+   listed: choose by id. A role with no tab says so; `tabs open` does not apply to it.
 
    `届きました` means the note is in the receiver's terminal; a receiver in the middle of work reads it at its
    next break. A tab with no running Claude is started first, the way the operator's action would start it: without
@@ -60,7 +68,7 @@ your own words without the quoted material and send again.
 | `agent_message_refused` | The body contains material the receiver may not read. Rewrite it in your own words. |
 | `agent_message_receiver_not_running` | No Claude runs in the receiver's tab and the message could not start one. Start it yourself instead of asking the operator to open the tab: run `tabs list`, and if the tab is listed send the same message once more; if it is not, run `tabs open <tier>` and send. If it still does not arrive, send the client's tab the command, the code and the time, as a defect of the client. |
 | `agent_message_receiver_not_ready` | The receiver's Claude did not start in time, or its conversation has not begun. Send once more. |
-| `agent_message_ambiguous_receiver` | Several tabs share the name. Use the id from `tabs list`. |
+| `agent_message_ambiguous_receiver` | Several tabs share the name, or a role has several tabs, or a role name is also a tab's name. Use the id from `tabs list` (the message lists them). |
 | `agent_message_check_failed` | The screening did not run. Send once more; if it repeats, tell the operator. |
 
 ## Receiving a message
