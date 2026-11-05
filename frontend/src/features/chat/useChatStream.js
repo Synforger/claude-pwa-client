@@ -5,6 +5,7 @@ import { useStreamBuffer } from './useStreamBuffer.js'
 import { processStreamEvent } from './processStreamEvent.js'
 import { observeVoiceEvent, subscribeVoice, voiceOnSids } from '../voice/index.js'
 import { reconcileUserMessage } from './reconcileUserMessage.js'
+import { fetchHistory, ingestHistory, removeSavedMessages } from './historyCatchUp.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
 import { chatTransport } from '../../transport/select.ts'
 import {
@@ -143,9 +144,35 @@ export function useChatStream({
   const loadingRef = useRef(loading)
   useLayoutEffect(() => { loadingRef.current = loading }, [loading])
   useLayoutEffect(() => { isOnlineRef.current = isOnline }, [isOnline])
+  // その sid の画面の cache (= メッセージと localStorage に保存した分) を捨てる。 履歴の窓が画面の位置まで
+  // 届かなかった時に、 古い cache と窓の間の穴を残さないため (= historyCatchUp.js)。
+  const dropSidCache = useCallback((targetSid) => {
+    buffer.resetBuf(targetSid)
+    setMessages(prev => ({ ...prev, [targetSid]: [] }))
+    removeSavedMessages(targetSid)
+  }, [setMessages]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // stream の流し直しが画面の位置まで届かなかった印 (= history_refetch) を受けた時の取り直し。 印の後ろに
+  // 続く frame が空にした cache へ載るよう、 捨てるのは同期で行い、 履歴の取得はその後に待つ。
+  const refetchHistoryAfterMark = useCallback(async (targetSid) => {
+    dropSidCache(targetSid)
+    const data = await fetchHistory(targetSid, null)
+    if (!data) return
+    ingestHistory(data, {
+      sid: targetSid,
+      dropCache: dropSidCache,
+      dropWhenNotReached: false,
+      ingest: ev => handleEventRef.current?.(targetSid, ev, true),
+    })
+  }, [dropSidCache])
+
   useLayoutEffect(() => {
     // fromHistory = 履歴の読み込み (= GET) で届いた event か。 声は stream で新しく届いた物だけを鳴らす。
     handleEventRef.current = (curSid, event, fromHistory = false) => {
+      if (event.type === 'history_refetch') {
+        refetchHistoryAfterMark(curSid)
+        return
+      }
       observeVoiceEvent(curSid, event, { history: fromHistory })
       if (event.type === 'user_message') {
         buffer.cancelAndFlush(curSid)
@@ -193,13 +220,17 @@ export function useChatStream({
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 状態は GET で取る、 stream は差分だけ (= client=射影)。 sid 表示時に GET /jsonl/history で
-  // **常に直近 N 行 (= 権威的な最新窓)** を取り込む。 from (= offset) は付けない: offset は
-  // streaming 中の in-flight を含まず先行し得るので、 offset 起点にすると「作業中エージェントの
-  // ツール履歴」 が更新のたび飛び越されて消える (= 実機報告の中抜け)。 直近 N 行なら in-flight も
-  // 必ず含まれ、 offset のズレに関係なく最新が全部来る。 GET の event は SSE と同じ pipeline
-  // (handleEventRef → processStreamEvent / reconcile) を通すので uuid dedup で cache とも stream
-  // replay とも重複せず、 MessageList の ts ソートで時系列に並ぶ。 offset は前進させない (=
-  // 永続 offset は useChatStorage のメッセージ保存に結合したまま、 = 描画・永続化した位置)。
+  // **直近 N 行 (= 権威的な最新窓)** を取り込む。 画面の offset は `since` として渡す: backend は窓の頭を
+  // 「直近 N 行の頭」 と since の早い方にするので、 画面を閉じている間に N 行を超えて書かれても cache との間に
+  // 穴が空かない (= 上限は backend の HISTORY_CATCH_UP_LINES)。 offset 起点の `from` は付けない: offset は
+  // streaming 中の in-flight を含まず先行し得るので、 offset 起点にすると「作業中エージェントのツール履歴」
+  // が更新のたび飛び越されて消える (= 実機報告の中抜け)。 since は窓を広げるだけで、 直近 N 行は必ず含まれる。
+  // 窓が since の直後の行まで届かなかった (= 返事の reached が false) 時は、 取り込む前にその sid の cache を
+  // 捨てて、 返った event だけで並べ直す (= historyCatchUp.js)。 捨てた後は offset を GET の pos まで進める
+  // (= 以降の stream の流し直しが、 届かない古い位置から始まって印を出さないように)。 GET の event は SSE と
+  // 同じ pipeline (handleEventRef → processStreamEvent / reconcile) を通すので uuid dedup で cache とも
+  // stream replay とも重複せず、 MessageList の ts ソートで時系列に並ぶ。 捨てなかった時は offset を前進させない
+  // (= 永続 offset は useChatStorage のメッセージ保存に結合したまま、 = 描画・永続化した位置)。
   //
   // 購読宣言 (= setSubscribedSids) は unified の電力設計: 宣言した sid だけ wire に乗る
   // (2026-07-14)。 legacy は no-op (= 全 sid 配信)。
@@ -222,22 +253,20 @@ export function useChatStream({
     if (!sid) { subscribedRef.current.shown = null; declareSubscribed(); return undefined }
     let cancelled = false
     ;(async () => {
-      try {
-        const r = await apiFetch(`/jsonl/history/${encodeURIComponent(sid)}`)
-        if (r && r.ok && !cancelled) {
-          const data = await r.json().catch(() => null)
-          if (data && Array.isArray(data.events)) {
-            for (const ev of data.events) {
-              if (cancelled) break
-              handleEventRef.current?.(sid, ev, true)
-            }
-          }
-        }
-      } catch { /* GET 失敗は stream の replay が埋める */ }
+      const data = await fetchHistory(sid, chatTransport.getOffset(sid))  // 取れない時は stream の replay が埋める
+      if (data && !cancelled) {
+        const dropped = ingestHistory(data, {
+          sid,
+          dropCache: dropSidCache,
+          ingest: ev => handleEventRef.current?.(sid, ev, true),
+          isCancelled: () => cancelled,
+        })
+        if (dropped && !cancelled) chatTransport.advanceOffset(sid, data.pos)
+      }
       if (!cancelled) { subscribedRef.current.shown = sid; declareSubscribed() }
     })()
     return () => { cancelled = true }
-  }, [sid, declareSubscribed])
+  }, [sid, declareSubscribed, dropSidCache])
 
   // iOS bg 復帰時の再接続は transport/lifecycle.ts の unifiedTransport.bumpReconnect() が
   // 一手に担う (= 旧 reconnectKey 駆動の visibilitychange effect は 2026-07-27 退役)。

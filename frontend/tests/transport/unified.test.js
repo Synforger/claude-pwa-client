@@ -208,6 +208,27 @@ describe('unified transport', () => {
     u1()
   })
 
+  it('getOffset は offset が無い sid に null を返し、 有れば整数で返す (= 履歴 GET の since は無ければ付けない)', async () => {
+    localStorage.setItem('cpc_v2_jsonl_offsets', JSON.stringify({ ses_a: 123 }))
+    const { unifiedJsonl } = await freshTransport()
+    expect(unifiedJsonl.getOffset('ses_none')).toBeNull()
+    expect(unifiedJsonl.getOffset('ses_a')).toBe(123)
+    unifiedJsonl.advanceOffset('ses_none', 0)
+    expect(unifiedJsonl.getOffset('ses_none')).toBe(0)
+  })
+
+  it('history_refetch の印は handler に届き、 pos が無いので offset を動かさない', async () => {
+    const { unifiedJsonl } = await freshTransport()
+    const seen = []
+    const u1 = unifiedJsonl.subscribe(e => seen.push(e))
+    const es = FakeEventSource.instances.at(-1)
+    es.open()
+    es.emit({ ch: 'jsonl', pos: null, ev: { type: 'history_refetch', sid: 'ses_a', corr_id: 'c' } })
+    expect(seen).toEqual([{ type: 'history_refetch', sid: 'ses_a', corr_id: 'c' }])
+    expect(unifiedJsonl.getOffset('ses_a')).toBeNull()
+    u1()
+  })
+
   it('subagents channel は sid 別に振分けられ、 遅参にも再配布', async () => {
     const { unifiedSubagentsSse, unifiedJsonl } = await freshTransport()
     const seen = []
