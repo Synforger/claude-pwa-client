@@ -232,6 +232,11 @@ Do not decide by the working folder (many tabs of one agent start in the same fo
 binding does not hold it), or by an old table of tab-to-conversation pairs (they change on every restart). A
 Claude Desktop conversation has no binding and no `pwa-*` tmux session: it is not a tab.
 
+A record is read as what its conversation read. The record of a tab that works in a boundary this tab does not know
+(`別の境界` in `tabs list`) is refused by the guard before it is read, and the refusal names the outward name of a
+tab that may read it. Do not look for another way to open it: send the question with `tabs send` to that tab, or to
+the tab whose record it is, and let it answer from its own record.
+
 To read the dialogue, parse the file line by line as JSON, keep rows whose `type` is `user` or `assistant`, and
 collect the `text` blocks of `message.content` (a string or a list). Skip `tool_use` and `tool_result` blocks.
 
