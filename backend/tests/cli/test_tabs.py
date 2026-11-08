@@ -666,7 +666,7 @@ def test_the_listing_tells_a_tab_put_to_sleep_from_one_that_never_started(tabs):
     assert lines["ses_new"].split("  ")[3] == "未起動"
 
 
-# --- 役 (= 番人が見せてよいと答えた、 伏せたタブの階層) -------------------------------------------------
+# --- 外向きの名前 (= 番人が見せてよいと答えた、 伏せたタブの階層の名前) ---------------------------------------------
 
 FAKE_GUARD = '''
 import json
@@ -703,8 +703,8 @@ def unknown_areas(read, areas):
 '''
 
 
-class RolesWorld:
-    """役の試験の舞台: 見る側のタブ (= 動いている claude 付き) と、 秘密の境界の folder 2 つ、 見える folder 2 つ。"""
+class OutwardNamesWorld:
+    """外向きの名前の試験の舞台: 見る側のタブ (= 動いている claude 付き) と、 秘密の境界の folder 2 つ、 見える folder 2 つ。"""
 
     def __init__(self, tabs: Tabs):
         self.tabs = tabs
@@ -729,7 +729,7 @@ class RolesWorld:
         self.tabs.backend.local_tabs = [{"id": row["id"], "reachable": True, "conversation": None} for row in rows]
 
     def install_guard(self, roles: dict[str, str], **config: object) -> None:
-        """作り物の番人を置く。 `roles` は役の名前 → folder。 `config` は sleep_sec・exit_code・junk。"""
+        """作り物の番人を置く。 `roles` は外向きの名前 → folder (= 番人の `--roles` の答え)。 `config` は sleep_sec・exit_code・junk。"""
         self.guard.mkdir(parents=True, exist_ok=True)
         (self.guard / "peers.py").write_text(FAKE_GUARD, encoding="utf-8")
         (self.guard / "roles.json").write_text(json.dumps({"roles": roles, **config}), encoding="utf-8")
@@ -744,7 +744,7 @@ class RolesWorld:
 
 @pytest.fixture
 def world(tabs):
-    return RolesWorld(tabs)
+    return OutwardNamesWorld(tabs)
 
 
 def listed(tabs: Tabs) -> dict[str, list[str]]:
@@ -752,27 +752,27 @@ def listed(tabs: Tabs) -> dict[str, list[str]]:
     return {line.split("  ")[0]: line.split("  ") for line in tabs.out.splitlines() if line.strip()}
 
 
-def test_the_listing_names_a_hidden_tab_by_its_role_only_when_its_folder_is_the_role_s(world):
+def test_the_listing_names_a_hidden_tab_by_its_outward_name_only_when_its_folder_is_that_name_s(world):
     world.put({"id": "ses_b", "title": "client B", "tier_tab": "projects/B"},
               {"id": "ses_c", "title": "client C", "tier_tab": "projects/C"},
               {"id": "ses_open", "title": "Open", "tier_tab": "projects/Open"})
     world.install_guard({"role-b": str(world.folder["B"]), "role-open": str(world.folder["Open"])})
     lines = listed(world.tabs)
-    # a hidden tab keeps the hidden tier; only its name cell tells the role
-    assert lines["ses_b"][1:] == ["別の境界", "口座=personal", "未起動", "境界=なし", "役=role-b"]
-    # another folder: the role does not apply
+    # a hidden tab keeps the hidden tier; its name cell is the outward name itself
+    assert lines["ses_b"][1:] == ["別の境界", "口座=personal", "未起動", "境界=なし", "role-b"]
+    # another folder: the name does not apply
     assert lines["ses_c"][1:] == ["別の境界", "口座=personal", "未起動", "境界=なし", "(別の境界のタブ)"]
-    # a tab that is not hidden shows its own name, even in the folder of a role
+    # a tab that is not hidden shows its own name, even in the folder of an outward name
     assert lines["ses_open"][1:] == ["projects/Open", "口座=personal", "未起動", "境界=なし", "Open"]
     # the guard is asked once, with the viewer's folder and claude session
     assert world.roles_asked() == [["--roles", "--folder", str(world.tabs.agent), "--session", "viewer-conv"]]
 
 
-def test_the_listing_compares_the_role_folder_by_its_real_path(world):
+def test_the_listing_compares_the_outward_name_folder_by_its_real_path(world):
     world.put({"id": "ses_b", "title": "client B", "tier_tab": "projects/B"})
     (world.tabs.work / "link").symlink_to(world.folder["B"])
     world.install_guard({"role-b": str(world.tabs.work / "link")})
-    assert listed(world.tabs)["ses_b"][-1] == "役=role-b"
+    assert listed(world.tabs)["ses_b"][-1] == "role-b"
 
 
 @pytest.mark.parametrize("guard", ["missing", "old", "failing", "junk"])
@@ -789,27 +789,27 @@ def test_without_an_answer_from_the_guard_the_listing_stays_as_it_was(world, gua
 
 
 def load_tabs_module():
-    spec = importlib.util.spec_from_file_location("tabs_roles", TABS)
+    spec = importlib.util.spec_from_file_location("tabs_outward_names", TABS)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-def test_a_guard_that_does_not_answer_in_time_gives_no_roles(world, monkeypatch):
+def test_a_guard_that_does_not_answer_in_time_gives_no_outward_names(world, monkeypatch):
     world.install_guard({"role-b": str(world.folder["B"])}, sleep_sec=30)
     monkeypatch.setenv("HOME", str(world.tabs.home))
     module = load_tabs_module()
-    monkeypatch.setattr(module, "ROLES_TIMEOUT_SEC", 1)
-    assert module.ask_roles(world.tabs.agent, "viewer-conv") == {}
+    monkeypatch.setattr(module, "OUTWARD_NAMES_TIMEOUT_SEC", 1)
+    assert module.ask_outward_names(world.tabs.agent, "viewer-conv") == {}
 
 
-def test_the_roles_come_back_by_name_with_real_folders_and_without_a_session_when_it_is_unknown(world, monkeypatch):
+def test_the_outward_names_come_back_by_name_with_real_folders_and_without_a_session_when_it_is_unknown(world, monkeypatch):
     world.install_guard({"role-b": str(world.folder["B"])}, junk=True)
     monkeypatch.setenv("HOME", str(world.tabs.home))
     module = load_tabs_module()
-    assert module.ask_roles(world.tabs.agent, None) == {"role-b": str(world.folder["B"])}
+    assert module.ask_outward_names(world.tabs.agent, None) == {"role-b": str(world.folder["B"])}
     assert world.roles_asked() == [["--roles", "--folder", str(world.tabs.agent)]]
-    assert module.ask_roles(None, "viewer-conv") == {}
+    assert module.ask_outward_names(None, "viewer-conv") == {}
 
 
 def sent_to(tabs: Tabs) -> list[str]:
@@ -830,7 +830,7 @@ def test_a_tab_id_is_sent_as_it_is_without_asking_the_guard(world):
     assert world.roles_asked() == []
 
 
-def test_a_role_goes_to_the_only_tab_working_in_its_folder(world):
+def test_an_outward_name_goes_to_the_only_tab_working_in_its_folder(world):
     world.put({"id": "ses_b", "title": "client B", "tier_tab": "projects/B"}, {"id": "ses_c", "title": "client C", "tier_tab": "projects/C"})
     world.install_guard({"role-b": str(world.folder["B"])})
     assert send(world.tabs, "role-b") == 0
@@ -839,7 +839,7 @@ def test_a_role_goes_to_the_only_tab_working_in_its_folder(world):
     assert len(world.roles_asked()) == 1
 
 
-def test_a_role_with_several_tabs_goes_to_the_tab_placed_for_its_tier(world):
+def test_an_outward_name_with_several_tabs_goes_to_the_tab_placed_for_its_tier(world):
     world.put({"id": "ses_hand", "title": "hand", "tier": "projects/B"},
               {"id": "ses_placed", "title": "placed", "tier_tab": "projects/B"},
               {"id": "ses_child", "title": "child", "tier": "projects/B", "child": True, "parent_id": "ses_placed"})
@@ -852,7 +852,7 @@ def test_a_role_with_several_tabs_goes_to_the_tab_placed_for_its_tier(world):
     [{"id": "ses_x", "title": "x", "tier": "projects/B"}, {"id": "ses_y", "title": "y", "tier": "projects/B"}],
     [{"id": "ses_x", "title": "x", "tier_tab": "projects/B"}, {"id": "ses_y", "title": "y", "tier_tab": "projects/B"}],
 ], ids=["no placed tab", "two placed tabs"])
-def test_a_role_with_several_tabs_and_no_single_placed_one_asks_for_an_id(world, rows):
+def test_an_outward_name_with_several_tabs_and_no_single_placed_one_asks_for_an_id(world, rows):
     world.put(*rows)
     world.install_guard({"role-b": str(world.folder["B"])})
     assert send(world.tabs, "role-b") == 1
@@ -861,16 +861,16 @@ def test_a_role_with_several_tabs_and_no_single_placed_one_asks_for_an_id(world,
     assert sent_to(world.tabs) == []
 
 
-def test_a_role_without_a_tab_is_refused_without_the_hint_to_open_one(world):
+def test_an_outward_name_without_a_tab_is_refused_without_the_hint_to_open_one(world):
     world.put({"id": "ses_b", "title": "client B", "tier_tab": "projects/B"})
     world.install_guard({"role-d": str(world.folder["D"])})
     assert send(world.tabs, "role-d") == 1
-    assert "その役のタブが見つかりません" in world.tabs.err
+    assert "その名前のタブが見つかりません" in world.tabs.err
     assert "tabs open" not in world.tabs.err
     assert sent_to(world.tabs) == []
 
 
-def test_a_role_that_is_also_the_name_of_a_visible_tab_goes_to_neither(world):
+def test_an_outward_name_that_is_also_the_name_of_a_visible_tab_goes_to_neither(world):
     world.put({"id": "ses_b", "title": "client B", "tier_tab": "projects/B"},
               {"id": "ses_open", "title": "role-b", "tier_tab": "projects/Open"})
     world.install_guard({"role-b": str(world.folder["B"])})
@@ -880,7 +880,7 @@ def test_a_role_that_is_also_the_name_of_a_visible_tab_goes_to_neither(world):
     assert sent_to(world.tabs) == []
 
 
-def test_the_name_of_a_hidden_tab_does_not_stand_in_the_way_of_a_role(world):
+def test_the_name_of_a_hidden_tab_does_not_stand_in_the_way_of_an_outward_name(world):
     world.put({"id": "ses_b", "title": "client B", "tier_tab": "projects/B"},
               {"id": "ses_c", "title": "role-b", "tier_tab": "projects/C"})
     world.install_guard({"role-b": str(world.folder["B"])})
@@ -888,14 +888,14 @@ def test_the_name_of_a_hidden_tab_does_not_stand_in_the_way_of_a_role(world):
     assert sent_to(world.tabs) == ["ses_b"]
 
 
-def test_a_name_that_is_not_a_role_is_left_to_the_backend(world):
+def test_a_name_that_is_not_an_outward_name_is_left_to_the_backend(world):
     world.put({"id": "ses_open", "title": "Open", "tier_tab": "projects/Open"})
     world.install_guard({"role-b": str(world.folder["B"])})
     assert send(world.tabs, "Open") == 0
     assert sent_to(world.tabs) == ["Open"]
 
 
-def test_without_a_guard_that_knows_roles_a_name_is_left_to_the_backend(world):
+def test_without_a_guard_that_knows_outward_names_a_name_is_left_to_the_backend(world):
     world.put({"id": "ses_b", "title": "client B", "tier_tab": "projects/B"})
     assert send(world.tabs, "role-b") == 0
     assert sent_to(world.tabs) == ["role-b"]
