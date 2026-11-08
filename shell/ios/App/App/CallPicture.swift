@@ -68,6 +68,8 @@ import UIKit
     private var pending: Task<Void, Never>?
     /// 最後に ±10 が押された時
     private var lastSkip: CFAbsoluteTime?
+    /// 小窓が何も出していない間か (= 記録に残すのは黒くなった最初の 1 回だけ)
+    private var blank = false
 
     func start(over screen: UIView) {
         guard AVPictureInPictureController.isPictureInPictureSupported() else {
@@ -309,10 +311,36 @@ import UIKit
         enqueue(pixels)
     }
 
-    /// 中身は変わっていない: 最後に描いた絵を、 今の時刻で流し直す (= まだ何も描いていなければ描く)
+    /// 中身は変わっていない: 最後に描いた絵を、 今の時刻で流し直す (= まだ何も描いていなければ描く)。 小窓が何も
+    /// 出していなければ、 記録に残して流し直す
     private func refresh() {
         guard let drawn else { return render() }
+        if showsNothing() {
+            if !blank { Self.report("blank", condition) }
+            blank = true
+            layer.flush()
+        } else {
+            blank = false
+        }
         enqueue(drawn)
+    }
+
+    /// 掛け直しの後に呼ぶ: 層を流し直して、 今の絵を出し直す (= 音の部品が入れ替わると、 層が印を出さずに止まる事がある)
+    func recover() {
+        Self.report("recovered", condition)
+        layer.flush()
+        render()
+    }
+
+    /// 小窓が出ているのに、 層が何も出していないか。 iOS が今出ている絵を答えるのは時計が止まっている間 (= マイクを
+    /// 切った間) だけなので、 その間だけ確かめる (= 動いている間は答えが無く、 黒と見分けられない)
+    private func showsNothing() -> Bool {
+        guard controller?.isPictureInPictureActive == true, let timebase = layer.controlTimebase,
+              CMTimebaseGetRate(timebase) == 0 else { return false }
+        if #available(iOS 17.4, *) {
+            return layer.sampleBufferRenderer.displayedPixelBuffer() == nil
+        }
+        return false
     }
 
     private func enqueue(_ pixels: CVPixelBuffer) {

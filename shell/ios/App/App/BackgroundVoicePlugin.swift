@@ -58,8 +58,11 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
     /// 今の通話を持つ plugin (= 端末の操作が、 マイクやスピーカーを使う間だけ通話を外す。 `withCallPaused`)
     @MainActor private static weak var current: BackgroundVoicePlugin?
     /// 掛け直す時の値 (= 始めた時の URL に、 その後に変わったマイク・返事の声の入 / 切・声の大きさを重ねる)。
-    /// 通話を切ると URL を忘れる (= 外している間に切られたら、 掛け直さない)
-    private var callURL: URL?
+    /// 通話を切ると URL を忘れる (= 外している間に切られたら、 掛け直さない)。 声だけ聞く部品は、 URL が在る間
+    /// (= 掛け直しの間も) 音の設定を止めない
+    private var callURL: URL? {
+        didSet { ListenOnlyAudioDevice.shared.callContinues = callURL != nil }
+    }
     private var micOn = true
     private var speechOn = true
     private var volume: Double?
@@ -290,6 +293,8 @@ public class BackgroundVoicePlugin: CAPPlugin, CAPBridgedPlugin {
         }
         await disconnect(keepPicture: keepPicture)
         await connect(url, mic: micOn, keepPicture: keepPicture)
+        // 掛け直しで音の部品が入れ替わると、 小窓の層が印を出さずに止まる事がある: 流し直して今の絵を出し直す
+        picture?.recover()
     }
 
     /// 掛け直す先 (= 始めた時の URL に、 その後に変わった返事の声の入 / 切と声の大きさを重ねる)。 つなぎ直しの印
