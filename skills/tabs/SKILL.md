@@ -40,10 +40,10 @@ pick up, a decision that affects it. Do not wait for the operator to carry it.
    ```
 
    The receiver is resolved in this order: the tab's id; then an outward name from `tabs list` (the tab working in
-   that name's folder, or, when several do, the one placed for that tier); then the tab's name. Outward names exist
-   only when the guard answers `--roles`; without it every receiver is an id or a name, as before. If an outward
-   name has several tabs and none is the placed one, or it is also the name of a tab you can see, nothing is sent
-   and the ids are listed: choose by id. An outward name with no tab says so; `tabs open` does not apply to it.
+   that name's folder; when several do, the one placed for that tier; when none is placed, the only one that is not
+   a child); then the tab's name. Outward names exist only when the guard answers `--roles`; without it every
+   receiver is an id or a name, as before. If that still leaves several tabs, or the outward name is also the name
+   of a tab you can see, nothing is sent and the reason and the ids are listed: choose by id. An outward name with no tab says so; `tabs open` does not apply to it.
 
    `届きました` means the note is in the receiver's terminal; a receiver in the middle of work reads it at its
    next break. A tab with no running Claude is started first, the way the operator's action would start it: without
