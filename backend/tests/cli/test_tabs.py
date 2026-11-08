@@ -11,7 +11,7 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qs, parse_qsl, urlsplit
 
 import pytest
 
@@ -91,6 +91,11 @@ class Backend:
                     return self.reply(200, {"children": [
                         {"id": t["id"], "blocked_by": backend.holds.get(t["id"], [])}
                         for t in backend.tabs if t.get("child") and t.get("parent_id") == parent]})
+                if method == "GET" and self.path.startswith("/page-url?"):
+                    if backend.answers.get("page-url", 200) != 200:
+                        return self.reply(backend.answers["page-url"], {"detail": {
+                            "code": "page_not_on_tailnet", "message": "not served"}})
+                    return self.reply(200, {"url": "https://mac.tailnet.ts.net:8776/agent/page.html"})
                 if method == "GET" and self.path == "/agent-messages/local-tabs":
                     return self.reply(200, {"tabs": backend.local_tabs})
                 if method == "POST" and self.path == "/tier-tabs":
@@ -926,3 +931,22 @@ def test_send_refuses_a_flag_it_does_not_know_or_one_given_twice(family, flags):
     body.write_text("x", encoding="utf-8")
     assert family.run("send", "ses_a", str(body), *flags) == 2
     assert family.backend.called("POST", "/agent-messages") == []
+
+
+# --- ページの tailnet の URL -----------------------------------------------------------------------------
+
+
+def test_page_url_prints_the_url_the_backend_makes_for_the_absolute_path(tabs):
+    page = tabs.work / "page.html"
+    page.write_text("x", encoding="utf-8")
+    assert tabs.run("page-url", str(page)) == 0, tabs.err
+    assert tabs.out == "https://mac.tailnet.ts.net:8776/agent/page.html\n"
+    [asked] = [call for call in tabs.backend.calls if call["path"].startswith("/page-url?")]
+    assert parse_qs(urlsplit(asked["path"]).query) == {"path": [str(page)]}
+
+
+def test_page_url_stops_with_the_backend_s_reason(tabs):
+    tabs.backend.answers["page-url"] = 409
+    assert tabs.run("page-url", str(tabs.work / "page.html")) == 1
+    assert tabs.out == ""
+    assert "[page_not_on_tailnet]: not served" in tabs.err

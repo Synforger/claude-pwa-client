@@ -2,7 +2,7 @@
 
 依存方向の真値 (= この test が法律):
 
-    L0: _common / _internal / observability / _generated / documents / push / speech / usage / fork
+    L0: _common / _internal / observability / _generated / documents / push / speech / usage / fork / page_url
         + jsonl の共有部品 (jsonl_tail / jsonl_predicates / jsonl_watcher)
     L1: terminal   (= tmux / PTY の入力口。 L0 のみ import 可)
     L2: jsonl      (= JSONL tail → SSE の出力口。 L0 / L1 を import 可)
@@ -36,6 +36,7 @@ LEVELS: dict[str, int] = {
     "speech": 0,
     "usage": 0,
     "fork": 0,
+    "page_url": 0,
     "fork.lineage": 3,
     "jsonl.jsonl_tail": 0,
     "jsonl.jsonl_predicates": 0,

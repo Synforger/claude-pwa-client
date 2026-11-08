@@ -174,6 +174,11 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   それ以外 (= スクリプト・フォーム・ポップアップ・ダイアログ・ダウンロード) は使える。 backend は `127.0.0.1:<port>` で待ち受けるので、
   Tailscale 越しに使う時は同じ番号を tailnet に出す (= `tailscale serve --bg --https=<port> http://127.0.0.1:<port>`)。
   書き損じた時と port が塞がっている時は起動ログに理由を出し、 その folder も今どおり `/file/view` で開く
+  - **ページの URL**: 端末へ渡すページの URL は `tabs page-url <file>` が出す (= 手元の `localhost` は、 Tailscale 越しの
+    端末では開かない)。 backend が、 `tailscale serve status` から「ページの port へ流している tailnet の口」 を探して
+    `https://<tailnet の名前>[:<口の port>]/<folder の中の path>` を組む (= 口は `GET /page-url?path=<絶対 path>`、
+    同じ機械の中からだけ)。 folder の外の file・page_origin が無い・待ち受けが開いていない・serve がその port を
+    出していない時は、 URL を作らずに理由を返す
   - **保存箱**: `localStorage` はブラウザごと (= 同じ端末でもブラウザと app で別々) なので、 どこで開いても同じ物を
     読ませたいページは、 その port の `/.store/<folder の中のページの path>` へ読み書きする
     - `GET` → 置いた JSON (= まだ無ければ `null`) と、 その `ETag`

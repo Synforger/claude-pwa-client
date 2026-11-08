@@ -31,6 +31,9 @@
                                  `tier_tabs` を入れたエージェントなら backend が自分で置く)。 claude は、 そのタブへ
                                  最初の発話 (= 人の送信か `tabs send`) が届いた時に、 その階層で起動する。
                                  その階層のタブが既にあれば止まる
+    tabs    page-url <file>      ページの origin (= client の設定の `page_origin`) の folder の中の <file> を、 操作者の端末で
+                                 開ける tailnet の URL にして出す (= `tailscale serve` がページの port を出している口から組む)。
+                                 folder の外の file・serve が無い時は、 理由を出して止まる。 操作者へページを渡す時の URL はこれ
 
     子のタブ (= このタブが仕事を渡すために立てるタブ。 手順は skill `child-tab`):
     tabs    new <題> <本文の file>
@@ -487,6 +490,17 @@ def refused(status: int, body: object) -> str:
     return f"[{detail.get('code', status)}]: {detail.get('message', body)}"
 
 
+def page_url(file: Path) -> int:
+    """ページの file の tailnet の URL を出す (= 組み立ては backend の `GET /page-url`)。"""
+    query = urllib.parse.urlencode({"path": str(file.expanduser().resolve())})
+    status, body = call(f"/page-url?{query}")
+    url = body.get("url") if status == 200 and isinstance(body, dict) else None
+    if not isinstance(url, str) or not url:
+        return fail(f"URL を作れません {refused(status, body)}")
+    print(url)
+    return 0
+
+
 def new_child(title: str, file: Path) -> int:
     """子のタブを立て、 本文を最初の発話として渡す。 子はこのタブと同じ階層で起動する (= 本文の検査は、 子が
     このタブと同じ境界を読む前提で通る。 違う階層に立てると、 このタブだけが読んだ物が子へ通る)。"""
@@ -801,6 +815,8 @@ def main(argv: list[str]) -> int:
         return report(argv[1], Path(argv[2]))
     if len(argv) in (2, 3) and argv[0] == "close" and argv[2:] in ([], ["--force"]):
         return close_child(argv[1], force=len(argv) == 3)
+    if len(argv) == 2 and argv[0] == "page-url":
+        return page_url(Path(argv[1]))
     if len(argv) == 2 and argv[0] == "sleep":
         return sleep_child(argv[1])
     if len(argv) in (2, 4) and argv[0] == "rollover" and argv[1] in ("continue", "wait") and argv[2:3] in ([], ["--tier"]):

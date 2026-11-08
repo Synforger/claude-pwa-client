@@ -120,6 +120,20 @@ tabs open <tier>
 It refuses when that tier already has a tab, or when the agent has no folder for it. See
 `docs/reference/tier-tabs.md`.
 
+## Handing the operator a page: `tabs page-url`
+
+A page in the folder of the client's `page_origin` opens on the operator's devices only through the tailnet, not
+through `localhost`. Never write a `localhost` or `127.0.0.1` URL for the operator; ask for the address instead:
+
+```
+tabs page-url <file>
+```
+
+It prints the URL (`https://<this machine on the tailnet>[:<port>]/<path inside the folder>`), made by the backend from
+the page origin and what `tailscale serve` exposes. It stops with the reason when the file is outside the folder, when
+there is no `page_origin` or its listener is closed, or when `tailscale serve` does not expose the page port (the
+reason names the `tailscale serve` command that would).
+
 ## Child tabs
 
 A child tab is a normal tab that a parent tab opens to hand work over. It keeps its own conversation, so it keeps
