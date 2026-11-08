@@ -39,11 +39,14 @@ export function isMobileSafari() {
   return false
 }
 
+// この画面で利用者が通知をオンにしているか (= 意思の印)。 実際の購読はこの印に合わせて作り・外す。
 export function isPushEnabledLocally() {
   try { return localStorage.getItem(ENABLED_KEY) === '1' } catch { return false }
 }
 
-function setEnabledFlag(on) {
+// 利用者の意思を印に書く。 切り替えを押した瞬間に書く: 購読の作り・外しは端末と網を待つので、 その途中で
+// 画面が止まっても、 見回り (usePushSubscription) が古い意思で購読を作り直さないようにするため。
+export function setPushIntent(on) {
   try {
     if (on) localStorage.setItem(ENABLED_KEY, '1')
     else localStorage.removeItem(ENABLED_KEY)
@@ -69,6 +72,7 @@ async function getRegistration() {
   return await navigator.serviceWorker.ready
 }
 
+// 購読を作って backend へ渡す。 意思の印 (setPushIntent) を書くのは呼ぶ側で、 印がオンの間だけ購読を残す。
 export async function enablePush() {
   if (!isPushSupported()) {
     throw new Error(tRaw('push.error.unsupported'))
@@ -110,32 +114,45 @@ export async function enablePush() {
     })
   }
 
+  // 購読を待つ間に利用者がオフにしていたら、 作った購読を backend へ渡さずに外す
+  if (!isPushEnabledLocally()) {
+    await dropSubscription(sub)
+    return false
+  }
   const res = await apiFetch(`/push/subscribe`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(sub.toJSON()),
   })
   if (!res.ok) throw new Error(tRaw('push.error.subscribe_failed'))
-
-  setEnabledFlag(true)
+  // backend へ渡している間にオフにされた時も同じ (= 渡した購読を backend からも外す)
+  if (!isPushEnabledLocally()) {
+    await dropSubscription(sub)
+    return false
+  }
   return true
 }
 
+// 通知を切る。 意思の印を先に消し、 それから購読を backend と端末の両方から外す。
 export async function disablePush() {
+  setPushIntent(false)
   const reg = await getRegistration()
-  if (!reg) { setEnabledFlag(false); return }
+  if (!reg) return
   const sub = await reg.pushManager.getSubscription()
-  if (sub) {
-    try {
-      await apiFetch(`/push/unsubscribe`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sub.toJSON()),
-      })
-    } catch { /* ignore */ }
-    await sub.unsubscribe().catch(() => {})
-  }
-  setEnabledFlag(false)
+  if (sub) await dropSubscription(sub)
+}
+
+// 購読を backend から外し (= もう送らせない)、 端末からも外す。 backend へ届かなくても端末の購読を外せば、
+// その宛先は無効になり、 backend は次に送った時に捨てる。
+async function dropSubscription(sub) {
+  try {
+    await apiFetch(`/push/unsubscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sub.toJSON()),
+    })
+  } catch { /* ignore */ }
+  await sub.unsubscribe().catch(() => {})
 }
 
 function buffersEqual(a, b) {
