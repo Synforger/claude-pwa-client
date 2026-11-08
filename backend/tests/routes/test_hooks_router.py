@@ -4,6 +4,7 @@ POST /hooks/event の payload 種別ごとの分岐 (= Stop / Notification / 未
 session_id 逆引き (= cwd → PWA session) の挙動を確認する。 実際の push 配信は
 broadcast_push をモックして引数だけ検証する。
 """
+import time
 from pathlib import Path
 
 import pytest
@@ -420,3 +421,28 @@ def test_session_start_reads_the_tier_again_from_the_claude_that_started(fake_bi
     response = TestClient(app).post("/hooks/event", json=payload, headers={"X-PWA-SID": "ses_tab"})
     assert response.status_code == 200
     assert refreshed == ["ses_tab"]
+
+
+def test_session_start_starts_the_tab_s_quiet_time_over(fake_bindings, captured_pushes, monkeypatch, tmp_path):
+    """A conversation opened in the tab (= `/resume` inside a running claude too) counts as activity, so an old
+    conversation reopened by hand is not put to sleep by its old rows."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    import backend.sleep.sleep_sensors as sensors
+
+    monkeypatch.setattr(jsonl_watcher, "_PERSIST_PATH", tmp_path / "bindings.json")
+    monkeypatch.setattr(hooks_router, "sessions_meta", {"ses_tab": object()})
+
+    async def refresh(_sid):
+        return None
+
+    monkeypatch.setattr(hooks_router.pty_discover, "refresh_tier", refresh)
+    monkeypatch.setattr(sensors, "_woken_at", {})
+    transcript = tmp_path / "claude-old.jsonl"
+    transcript.write_text("{}\n")
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    payload = {"hook_event_name": "SessionStart", "session_id": "claude-old", "transcript_path": str(transcript), "source": "resume"}
+    before = time.time()
+    assert TestClient(app).post("/hooks/event", json=payload, headers={"X-PWA-SID": "ses_tab"}).status_code == 200
+    assert sensors._woken_at["ses_tab"] >= before
