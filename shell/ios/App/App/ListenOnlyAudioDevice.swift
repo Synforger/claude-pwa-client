@@ -22,6 +22,16 @@ final class ListenOnlyAudioDevice: NSObject, RTCAudioDevice {
     /// WebRTC の声を受ける皿 (= 再生の thread で毎回作らない)
     private let scratch = UnsafeMutablePointer<Int16>.allocate(capacity: maxFrames)
 
+    /// 通話が続いているか (= 掛け直しの間も真)。 真の間は、 部品を閉じても音の設定を止めない。 裏で小窓を出したまま
+    /// 音の設定を止めると、 小窓の絵の層が中断されて黒くなる (= 小窓の ▶︎ でマイクを入れる掛け直しで起きた)。
+    /// `BackgroundVoicePlugin` が通話の始めと終わりで切り替え、 WebRTC の thread が読むので lock で守る。
+    var callContinues: Bool {
+        get { callLock.lock(); defer { callLock.unlock() }; return continuing }
+        set { callLock.lock(); continuing = newValue; callLock.unlock() }
+    }
+    private let callLock = NSLock()
+    private var continuing = false
+
     private var delegate: RTCAudioDeviceDelegate?
     private var engine: AVAudioEngine?
     private var source: AVAudioSourceNode?
@@ -51,8 +61,11 @@ final class ListenOnlyAudioDevice: NSObject, RTCAudioDevice {
         _ = stopPlayout()
         teardown()
         delegate = nil
-        // initializePlayout が開けた音の口を閉じる (= 開いたままだと、 通話の後も app が音の口を持ち続ける)
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        // 通話を終えた時は、 initializePlayout が開けた音の口を閉じる (= 開いたままだと、 通話の後も app が音の口を
+        // 持ち続ける)。 掛け直しの間は閉じない (= 次の部品がすぐ同じ口を使い、 閉じると小窓が黒くなる)
+        if !callContinues {
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
         return true
     }
 
