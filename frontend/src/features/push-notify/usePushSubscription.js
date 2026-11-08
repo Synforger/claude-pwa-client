@@ -39,6 +39,7 @@ import {
   isStandalone,
   isMobileSafari,
   isPushEnabledLocally,
+  setPushIntent,
 } from './push.js'
 import {
   subscribe as subscribePush,
@@ -71,6 +72,12 @@ async function enablePushOnce() {
     try { await enablePush() } finally { enableInflight = null }
   })()
   return enableInflight
+}
+
+// 購読を外す。 待たずに投げる: 端末が取り消しに答えないことがあり (= iOS のホーム画面の PWA)、 待つと
+// 切り替えと見回りがそこで止まる。 外すのは 2 回やっても害が無く、 外し損ねは次の見回りがもう一度外す。
+function dropPushInBackground() {
+  disablePush().catch((e) => console.warn('[push] disablePush failed, the next ping retries:', e))
 }
 
 function computeAvailable() {
@@ -120,7 +127,11 @@ export function usePushSubscription({ onCloseMenu, mountEffects = false } = {}) 
         applyStateFromEnvironment(have)
         const available = computeAvailable()
         const curLocalFlag = isPushEnabledLocally()
-        if (
+        // 購読を利用者の意思 (= 印) に合わせる。 印がオフなのに購読が残っていれば外す (= オフにした後で
+        // 外し終える前に画面が止まった時)。 印がオンなのに購読が無ければ作り直す (= 失効した時)
+        if (have && !curLocalFlag) {
+          dropPushInBackground()
+        } else if (
           !have &&
           curLocalFlag &&
           available &&
@@ -188,11 +199,20 @@ export function usePushSubscription({ onCloseMenu, mountEffects = false } = {}) 
     onCloseMenu?.()
     try {
       if (getPushSnapshot().enabled) {
-        await disablePush()
+        // 意思はこの場で書いて画面に出す。 購読を外し終えるのは待たない (= 端末が答えない間も切り替えを
+        // 塞がない。 外し損ねた購読は見回りが外す)
+        setPushIntent(false)
         applyStateFromEnvironment(false)
+        dropPushInBackground()
       } else {
-        await enablePushOnce()
-        applyStateFromEnvironment(true)
+        setPushIntent(true)
+        try {
+          await enablePushOnce()
+        } catch (e) {
+          setPushIntent(false)
+          throw e
+        }
+        applyStateFromEnvironment(isPushEnabledLocally())
       }
     } catch (e) {
       alert(e?.message || tRaw('push.change_failed'))
