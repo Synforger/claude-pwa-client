@@ -192,7 +192,7 @@ def _stand_in(monkeypatch, tmp_path: Path, **over):
     calls: list[str] = []
     answers = {
         "pid": 4242, "ready": True, "busy": False, "queued": 0, "call": False, "pct": 10, "asked": False,
-        "tree": (), "record": record, **over,
+        "tree": (), "record": record, "started": 0.0, **over,
     }
 
     def note(name, value):
@@ -210,6 +210,7 @@ def _stand_in(monkeypatch, tmp_path: Path, **over):
     monkeypatch.setattr(sensors.rollover, "asked", note("asked", answers["asked"]))
     monkeypatch.setattr(sensors, "process_tree", note("tree", answers["tree"]))
     monkeypatch.setattr(sensors, "rollover_idle_pct", lambda _sid: 40)
+    monkeypatch.setattr(sensors, "claude_started_at", lambda _pid: answers["started"])
     sensors.stream_states.pop("ses_x", None)
     return calls
 
@@ -303,3 +304,16 @@ def test_a_row_newer_than_the_wake_is_what_the_quiet_time_is_measured_from(monke
         assert 100 < sensors.gather("ses_x", 60).quiet_minutes < 130
     finally:
         sensors._woken_at.pop("ses_x", None)
+
+
+def test_a_claude_started_after_the_newest_row_is_quiet_from_its_start(monkeypatch, tmp_path):
+    # a tab woken before a restart of the backend (= the wake noted in memory is gone), or whose claude was started
+    # again: the rows are two hours old, the claude five minutes
+    _stand_in(monkeypatch, tmp_path, started=time.time() - 300)
+    sensors._woken_at.pop("ses_x", None)
+    assert 4 < sensors.gather("ses_x", 60).quiet_minutes < 6
+
+
+def test_the_start_of_a_running_process_is_read_and_a_missing_one_is_none():
+    assert time.time() - 86400 * 365 < sensors.claude_started_at(os.getpid()) <= time.time()
+    assert sensors.claude_started_at(2 ** 22 + 12345) == 0.0

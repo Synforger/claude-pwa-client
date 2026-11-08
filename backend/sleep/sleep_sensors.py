@@ -34,15 +34,25 @@ PROCESS_COUNT_MAX = 300
 # Arguments of a process that can name the tool it runs (= `node /path/typescript-language-server --stdio`).
 NAMED_ARGUMENTS = 3
 
-# When each tab was last seen waking from sleep (unix seconds). The quiet time is measured from the later of this and the
-# newest row of its conversation: a woken tab has done nothing yet, and measured by its old rows it would sleep again
-# within a minute. Memory only: a tab that is quiet by its rows after a restart of the backend sleeps as any quiet tab.
+# When each tab last woke or had a conversation opened in it (unix seconds). The quiet time is measured from the latest
+# of this, the start of the claude now running in the tab, and the newest row of its conversation: a tab that just
+# woke, or whose operator just reopened an old conversation (= `/resume` inside a running claude), has done nothing
+# yet, and measured by its old rows it would sleep again within a minute. This is kept in memory; the claude's start
+# is the part that outlives a restart of the backend.
 _woken_at: dict[str, float] = {}
 
 
 def note_woken(session_id: str, at: float | None = None) -> None:
-    """Record that the tab woke from sleep now (or at `at`), which starts its quiet time over."""
+    """Record that the tab woke, or had a conversation opened in it, now (or at `at`): its quiet time starts over."""
     _woken_at[session_id] = time.time() if at is None else at
+
+
+def claude_started_at(pid: int) -> float:
+    """When the claude `pid` started (unix seconds), 0 when it cannot be read."""
+    try:
+        return psutil.Process(pid).create_time()
+    except (psutil.Error, OSError):
+        return 0.0
 
 
 # Per record: how far it was read and what the rows read so far left behind. Only a shortcut: a record read from
@@ -156,8 +166,9 @@ def gather(session_id: str, minutes: int, by_hand: bool = False, stopped_by_limi
     record = jsonl_watcher.get_jsonl_for(session_id)
     try:
         scanned = record_facts_of(record) if record is not None else None
-        quiet = ((time.time() - max(last_activity(record, scanned), _woken_at.get(session_id, 0.0))) / 60
-                 if record is not None and scanned else None)
+        since = max(last_activity(record, scanned), _woken_at.get(session_id, 0.0), claude_started_at(pid)) \
+            if record is not None and scanned else None
+        quiet = (time.time() - since) / 60 if since is not None else None
     except OSError:
         scanned, quiet = None, None
     facts = dataclasses.replace(facts, record_found=quiet is not None, quiet_minutes=quiet)
