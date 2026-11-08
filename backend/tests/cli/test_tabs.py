@@ -866,6 +866,24 @@ def test_an_outward_name_with_several_tabs_and_no_single_placed_one_asks_for_an_
     assert sent_to(world.tabs) == []
 
 
+def test_an_outward_name_without_a_placed_tab_goes_to_the_only_tab_that_is_not_a_child(world):
+    world.put({"id": "ses_hand", "title": "hand", "tier": "projects/B"},
+              {"id": "ses_child", "title": "child", "tier": "projects/B", "child": True, "parent_id": "ses_hand"})
+    world.install_guard({"role-b": str(world.folder["B"])})
+    assert send(world.tabs, "role-b") == 0
+    assert sent_to(world.tabs) == ["ses_hand"]
+
+
+def test_two_tabs_that_are_not_children_and_no_placed_tab_say_why_and_leave_out_the_children(world):
+    world.put({"id": "ses_x", "title": "x", "tier": "projects/B"}, {"id": "ses_y", "title": "y", "tier": "projects/B"},
+              {"id": "ses_child", "title": "child", "tier": "projects/B", "child": True, "parent_id": "ses_x"})
+    world.install_guard({"role-b": str(world.folder["B"])})
+    assert send(world.tabs, "role-b") == 1
+    assert "その階層に置かれたタブがありません" in world.tabs.err
+    assert "id で指定してください: ses_x, ses_y" in world.tabs.err
+    assert sent_to(world.tabs) == []
+
+
 def test_an_outward_name_without_a_tab_is_refused_without_the_hint_to_open_one(world):
     world.put({"id": "ses_b", "title": "client B", "tier_tab": "projects/B"})
     world.install_guard({"role-d": str(world.folder["D"])})

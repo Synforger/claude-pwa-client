@@ -10,7 +10,8 @@
                                  番人がそのタブの階層に外へ見せてよい名前があると答えた時 (= `--roles`) は、 名前の欄に
                                  その外向きの名前が出る。 別の機械のタブは、 末尾に `<相手の名前>:<id>` の形で並ぶ
     tabs    send <to> <file>     <file> の中身を <to> へ送る。 <to> は、 タブの id > 外向きの名前 > タブの名前 の順に解く
-                                 (= 外向きの名前は、 その名前の階層で働くタブへ。 複数ならその階層に置かれたタブ、 決まらなければ id を並べて断る)。
+                                 (= 外向きの名前は、 その名前の階層で働くタブへ。 複数ならその階層に置かれたタブ、 無ければ子でない
+                                 ただ 1 つのタブ、 決まらなければ id を並べて断る)。
                                  別の機械のタブは `<相手の名前>:<タブの id か名前>`
     tabs    send <to> <file> --operator-said
                                  同じ送信に、 このタブで操作者が最後に打った発話を付ける
@@ -364,9 +365,8 @@ def same_folder(left: Path | str | None, right: Path | str | None) -> bool:
 
 def outward_receiver(to: str) -> tuple[str, tuple[str, str] | None]:
     """宛先 `to` が、 このタブに見せてよい外向きの名前なら、 その名前のタブの id。 → (送り先, 断る理由 (= 番号と文))。
-    タブの id と、 外向きの名前でない名前は `to` のまま返す (= backend が解く)。 その名前のタブは、 その folder で働く
-    タブが 1 つならそれ、 複数なら、 その階層に置かれた階層のタブ。 外向きの名前が、 このタブに見えているタブの名前と同じ
-    時は、 どちらにも送らない。"""
+    タブの id と、 外向きの名前でない名前は `to` のまま返す (= backend が解く)。 その名前のタブは `outward_holder` が
+    決める。 外向きの名前が、 このタブに見えているタブの名前と同じ時は、 どちらにも送らない。"""
     status, tabs = call("/sessions")
     if status != 200 or not isinstance(tabs, list) or any(tab["id"] == to for tab in tabs):
         return to, None
@@ -387,13 +387,30 @@ def outward_receiver(to: str) -> tuple[str, tuple[str, str] | None]:
     if named:
         return to, ("agent_message_ambiguous_receiver",
                     f"外向きの名前と同じ名前のタブがあります。 id で指定してください: {', '.join([tab['id'] for tab in there] + named)}")
-    if len(there) > 1:
-        placed = [tab for tab in there if tab.get("tier_tab") and same_folder(launch.tier_folder(tab["tier_tab"]), folder)]
-        if len(placed) != 1:
-            return to, ("agent_message_ambiguous_receiver",
-                        f"その名前のタブが {len(there)} 個あります。 id で指定してください: {', '.join(tab['id'] for tab in there)}")
-        there = placed
-    return there[0]["id"], None
+    placed = [tab for tab in there if tab.get("tier_tab") and same_folder(launch.tier_folder(tab["tier_tab"]), folder)]
+    return outward_holder(there, placed)
+
+
+def outward_holder(there: list[dict], placed: list[dict]) -> tuple[str, tuple[str, str] | None]:
+    """外向きの名前で届けるタブ。 `there` はその名前の folder で働くタブ、 `placed` はそのうちその階層に置かれた階層のタブ。
+    → (送り先の id, 断る理由)。 1 つならそれ、 置かれたタブが 1 つならそれ、 置かれたタブが無ければ子でないタブが
+    1 つの時はそれ (= 子のタブは親の階層で立つので、 親が受ける)。 決まらない時は、 なぜ決まらないかと候補の id で断る
+    (= 古い方・新しい方では選ばない。 違う会話へ黙って届き、 外の送り主にはどれの中身も見えない)。"""
+    if len(there) == 1:
+        return there[0]["id"], None
+    if len(placed) == 1:
+        return placed[0]["id"], None
+    if placed:
+        return "", ("agent_message_ambiguous_receiver",
+                    f"その名前の階層に置かれたタブが {len(placed)} 個あります。 id で指定してください: "
+                    f"{', '.join(tab['id'] for tab in placed)}")
+    grown = [tab for tab in there if not tab.get("child")]
+    if len(grown) == 1:
+        return grown[0]["id"], None
+    candidates = grown or there
+    return "", ("agent_message_ambiguous_receiver",
+                f"その名前の階層で働くタブが {len(candidates)} 個あり、 その階層に置かれたタブがありません (= 子のタブは数えない)。 "
+                f"その境界の持ち主が 1 つに整えるまで、 id で指定してください: {', '.join(tab['id'] for tab in candidates)}")
 
 
 #: `send` が受ける印 (= どちらも 1 回まで、 順は問わない)
