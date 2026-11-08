@@ -184,6 +184,9 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
     # 起動経路に合流させる。 fork の記録は通常タブの記録と同じに残す。 parent_id は派生履歴として残し、
     # ドロワー上の親子インデント表示は維持する。
     state.demote_fork_to_normal(session_id)
+    # 次の発話は新しい会話で始める (= claude の居ないタブへの発話は、 ふつうは最後の会話を開き直す)
+    from backend.terminal.first_message import request_fresh  # noqa: PLC0415
+    request_fresh(session_id)
     # monitor tail を初回 bind 扱いに戻す (= 2026-06-30 stream-from-zero、 詳細は
     # `backend/jsonl/routes.py` `_initialize_sid_tail` docstring)。 旧版は path 切替
     # 検知時に offset=st_size で「既に書かれた行を skip」 する設計で、 restart 後の

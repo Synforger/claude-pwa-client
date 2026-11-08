@@ -74,7 +74,8 @@ sleep: awake session=ses_0123456789ab reasons=not_quiet,processes_running
 2. 会話の記録の file が在り、最後の行が改行で終わっていることを確かめます
 3. 起こす先の会話の id と記録の path を、タブの定義 (`session_meta.json`) に保存します
 4. Claude に終わるよう頼み (`SIGTERM`)、終わるのを待ちます。**強制終了はしません。** 20 秒待っても終わらなければ、
-   保存した印を消して眠らせるのをやめ、そのタブは起きたままにします
+   保存した印を消して眠らせるのをやめ、そのタブは起きたままにします。頼んだ Claude がその後で終わり、端末にシェルが
+   残っても、次の発話はそのタブの前の会話を開き直します (= [agent-messages.md](agent-messages.md) の起動の表)
 5. Claude が終わってから、タブの端末 (tmux の session) ごと閉じます
 6. log に 1 行出します
 
@@ -82,8 +83,8 @@ sleep: awake session=ses_0123456789ab reasons=not_quiet,processes_running
 sleep: session=ses_0123456789ab claude_sid=7a1c9e2e-1111-2222-3333-444455556666 idle_min=75 context_pct=22
 ```
 
-端末ごと閉じるのは、端末にシェルだけが残ったタブでは、起動の script を持つエージェント (`launcher: true`) が
-前の会話ではなく新しい会話を始めるからです。端末ごと無いタブなら、前の会話が開き直されます。
+端末ごと閉じるのは、眠ったタブを、機械の再起動の後と同じ「端末ごと無いタブ」として起こすためです。端末にシェルだけが
+残ったタブも、次の発話で前の会話を開き直します。新しい会話になるのは、開き直す会話が無い時と、⟳ でやり直した直後だけです。
 
 ## 親が子のタブを眠らせる
 
@@ -142,6 +143,6 @@ sleep: woke session=ses_0123456789ab claude_sid=7a1c9e2e-1111-2222-3333-44445555
 |---|---|
 | 静かなのに眠らない | log の `sleep: awake ... reasons=` を見る。理由は上の表の通り |
 | 理由が出ない | そのエージェントに `sleep` が無い / 値が 1 以上の整数でない / 設定の後に backend を再起動していない |
-| `sleep: ... left awake` が出る | Claude が 20 秒以内に終わらなかった。そのタブは起きたまま |
+| `sleep: ... left awake` が出る | Claude が 20 秒以内に終わらなかった。そのタブは起きたまま。後から Claude が終わっても、次の発話で前の会話が開き直される (log の `tab without a claude: reopened`) |
 | `sleep: the record is missing or ends in a partial line` が出る | 会話の記録が無い、または最後の行が書きかけ。次の見回りでもう一度見る |
 | 起こしたら別の会話になった | log の `sleep: woke ... bound=` が保存した `claude_sid` と違う。そのタブで起きた会話の記録を確かめる |

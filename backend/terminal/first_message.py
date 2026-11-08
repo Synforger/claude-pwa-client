@@ -12,6 +12,11 @@ launcher (= agent cfg `launcher: true`) の新しい会話は、 最初の発話
 (= 本文を封筒に足すと 1 行目が client の文になり、 人が打った発話として数えられなくなる)。 自動の入れ替えの
 発話は自分の階層を運ぶので、 そのまま最初の発話にする。
 
+claude の居ない pane に届いた発話は、 そのタブに開き直せる最後の会話があれば、 新しい会話を始めずにそれを開き直して
+から打つ (= 眠らせ損ねて後から終わった claude、 落ちた claude。 新しい会話で始めると、 タブの会話が黙って消える)。 新しい
+会話で始めるのは、 自動の入れ替えの発話、 会話をまだ持たないタブ (= 置いたばかりの階層のタブ、 立てたばかりの子)、 ⟳ の
+やり直し (= `request_fresh`) の後だけ。
+
 「claude がまだ居ない」 は pane のプロセスで決める (= backend の記憶に頼ると、 再起動を跨いだ時に
 本文が zsh へコマンドとして打たれる)。 起動を打った後は `input_ready` の旗で次の送信を待たせる
 (= 起動途中の wrapper へ打鍵が流れ込まない)。
@@ -51,6 +56,14 @@ CHILD_START = re.compile(r"^<child-start>$", re.M)
 # 封筒で起動した後に本文を打つ task (= 参照を持たないと、 終わる前に回収されることがある)。
 _following: set[asyncio.Task] = set()
 
+# ⟳ のやり直しで、 次の発話を新しい会話で始めるタブ (= backend の再起動を跨ぐと消え、 その時は開き直す側に倒れる)。
+_fresh_requested: set[str] = set()
+
+
+def request_fresh(session_id: str) -> None:
+    """Start the tab's next conversation anew instead of reopening its last one (= the ⟳ restart resets the context)."""
+    _fresh_requested.add(session_id)
+
 
 def _uploads_dir() -> Path:
     from backend._common.config import UPLOADS_TMP  # noqa: PLC0415
@@ -79,6 +92,12 @@ async def launch_with_first_message(session_id: str, text: str) -> dict | None:
     meta = sessions_meta.get(session_id)
     if meta is not None and meta.sleeping_claude_sid() is not None:
         return await _reopen_then_send(session_id, text)
+    fresh = session_id in _fresh_requested
+    _fresh_requested.discard(session_id)
+    if meta is not None and not fresh and not _opens_a_conversation(meta, text) and resume_command_for(session_id):
+        logger.info("tab without a claude: reopening its last conversation instead of starting a new one session=%s",
+                    session_id)
+        return await _reopen_then_send(session_id, text)
     tier = _placed_tier(session_id, text)
     first = envelope(tier) if tier is not None else text
     command = first_message_command(session_id, _message_file(session_id, first))
@@ -100,10 +119,15 @@ async def launch_with_first_message(session_id: str, text: str) -> dict | None:
     return {"ok": True, "launched": True}
 
 
+def _opens_a_conversation(meta, text: str) -> bool:
+    """Whether `text` is meant to start a new conversation: a rollover's opening, or a child's first task."""
+    return unwrap_pasted(text).lstrip().startswith(ROLLOVER_OPENING) or bool(meta.child and CHILD_START.search(text))
+
+
 async def _reopen_then_send(session_id: str, text: str) -> dict:
-    """A sleeping tab's pane holds a shell (= its claude did not come back when the tab woke): reopen the conversation
-    the tab slept in, and type `text` once it takes input. A first message would start a new conversation and the
-    tab's conversation would not come back."""
+    """The tab's pane holds a shell (= its claude did not come back when the tab woke, or it ended without the tab
+    asking): reopen the tab's last conversation, and type `text` once it takes input. A first message would start a
+    new conversation and the tab's conversation would not come back."""
     command = resume_command_for(session_id)
     input_ready.mark_starting(session_id)
     ok = (command is not None
@@ -111,9 +135,9 @@ async def _reopen_then_send(session_id: str, text: str) -> dict:
           and tmux_send_keys(session_id, key="C-u") and tmux_send_keys(session_id, text=command, enter=True))
     if not ok:
         input_ready.mark_ready(session_id)
-        logger.warning("sleeping tab: could not reopen its conversation session=%s", session_id)
+        logger.warning("tab without a claude: could not reopen its conversation session=%s", session_id)
         return {"ok": False, "reason": "launch_failed"}
-    logger.info("sleeping tab: reopened its conversation for the first message session=%s", session_id)
+    logger.info("tab without a claude: reopened its conversation for the first message session=%s", session_id)
     asyncio.create_task(register_claude_when_ready(session_id, max_wait=LAUNCH_DISCOVER_SEC))
     task = asyncio.create_task(_send_when_ready(session_id, text))
     _following.add(task)

@@ -11,6 +11,8 @@ import stat
 
 import pytest
 
+from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENINGS, ROLLOVER_OPENING
+
 import backend.terminal.first_message as fm
 from backend.terminal import input_ready
 from backend.terminal import session_resolver as sr
@@ -267,3 +269,86 @@ def test_claude_is_looked_for_under_the_pane_at_the_default_depth(monkeypatch):
     monkeypatch.setattr(pd, "_find_claude_descendant_info", _find)
     assert pd.claude_in_pane("ses_x") is False
     assert depths == [6]
+
+
+# --- claude の居ないタブ (= 眠りの印が無い) への発話 -------------------------------------------------------------
+
+class _AwakeMeta:
+    """眠りの印の無いタブ (= 眠らせ損ねて後から claude が終わった、 落ちた)。"""
+
+    def __init__(self, child: bool = False):
+        self.child = child
+        self.tier_tab = None
+        self.tier = None
+        self.parent_id = None
+
+    def sleeping_claude_sid(self):
+        return None
+
+
+def _awake_tab(monkeypatch, *, child: bool = False, last: str | None = "agent_a --resume claude-a") -> list[str]:
+    """claude の居ない pane の、 眠りの印の無いタブを置く。 `last` はそのタブの最後の会話を開き直す命令。 → 後から打った本文。"""
+    sent: list[str] = []
+    monkeypatch.setitem(fm.sessions_meta, "ses_x", _AwakeMeta(child=child))
+    monkeypatch.setattr(fm, "resume_command_for", lambda _sid: last)
+
+    async def _send_when_ready(_sid, text):
+        sent.append(text)
+    monkeypatch.setattr(fm, "_send_when_ready", _send_when_ready)
+    fm._fresh_requested.discard("ses_x")
+    return sent
+
+
+def _launch(text: str) -> dict | None:
+    async def scenario():
+        out = await fm.launch_with_first_message("ses_x", text)
+        await asyncio.sleep(0)
+        return out
+    return _run(scenario())
+
+
+def test_a_tab_whose_claude_ended_without_a_sleep_mark_reopens_its_last_conversation(pane, monkeypatch):
+    # 意図: 眠らせ損ねて (= 20 秒で終わらず印を外した後に) claude が終わったタブへの発話で、 新しい会話を始めない
+    keys, _ = pane
+    sent = _awake_tab(monkeypatch)
+    assert _launch("つづき") == {"ok": True, "launched": True}
+    assert [k["text"] for k in keys] == [None, "agent_a --resume claude-a"]
+    assert sent == ["つづき"]
+
+
+def test_a_message_from_another_tab_also_reopens_instead_of_starting_in_a_remembered_tier(pane, monkeypatch):
+    keys, _ = pane
+    sent = _awake_tab(monkeypatch)
+    text = f"{AGENT_MESSAGE_OPENINGS[0]}\nhello"
+    assert _launch(text) == {"ok": True, "launched": True}
+    assert keys[-1]["text"] == "agent_a --resume claude-a"
+    assert sent == [text]
+
+
+@pytest.mark.parametrize("child, text", [
+    (False, f"{ROLLOVER_OPENING}\n<session-rollover phase=\"start\">\ntier=normal\nmode=wait\n</session-rollover>"),
+    (True, "<child-start>\ntier=normal\n</child-start>\nthe task"),
+], ids=["rollover", "child's first task"])
+def test_a_rollover_and_a_child_s_first_task_start_a_new_conversation(pane, monkeypatch, child, text):
+    keys, _ = pane
+    _awake_tab(monkeypatch, child=child)
+    assert _launch(text) == {"ok": True, "launched": True}
+    assert "--first-message-file" in keys[-1]["text"]
+
+
+def test_after_a_restart_the_next_message_starts_a_new_conversation_once(pane, monkeypatch):
+    keys, state = pane
+    _awake_tab(monkeypatch)
+    fm.request_fresh("ses_x")
+    assert _launch("最初から") == {"ok": True, "launched": True}
+    assert "--first-message-file" in keys[-1]["text"]
+    input_ready.forget("ses_x")
+    assert _launch("つづき") == {"ok": True, "launched": True}
+    assert keys[-1]["text"] == "agent_a --resume claude-a"
+
+
+def test_a_tab_with_no_conversation_to_reopen_starts_a_new_one(pane, monkeypatch):
+    keys, _ = pane
+    _awake_tab(monkeypatch, last=None)
+    assert _launch("hello") == {"ok": True, "launched": True}
+    assert "--first-message-file" in keys[-1]["text"]

@@ -47,8 +47,9 @@ pick up, a decision that affects it. Do not wait for the operator to carry it.
 
    `届きました` means the note is in the receiver's terminal; a receiver in the middle of work reads it at its
    next break. A tab with no running Claude is started first, the way the operator's action would start it: without
-   a tmux session its last conversation is reopened, and with a shell left in the pane a new conversation starts in
-   its tier (`normal` when it has none). A child gets its last conversation back. This can take up to a minute.
+   a tmux session, or with only a shell left in the pane, its last conversation is reopened (a child too). A new
+   conversation starts in its tier (`normal` when it has none) only when there is no conversation to reopen or the
+   operator restarted the tab with ⟳. This can take up to a minute.
 
 3. Write the body so it stands alone: the request, the facts from the sender's side, and what the receiver is free
    to decide. Give a reproduction in terms of a sample, not of material the receiver is not allowed to see.
