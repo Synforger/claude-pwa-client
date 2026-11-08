@@ -54,7 +54,10 @@ def test_a_path_through_a_link_is_answered_by_where_the_file_really_is(pages, tm
     assert asked(str(tmp_path / "link/pages/report.html")).json()["url"].endswith("/agent/pages/report.html")
 
 
-def test_a_file_outside_the_folder_is_refused(pages, tmp_path):
+def test_a_file_outside_the_folder_is_refused_before_the_tailnet_is_asked(pages, tmp_path, monkeypatch):
+    def serve_status():
+        raise PageUrlRefusal("page_tailnet_unavailable", "no tailscale")
+    monkeypatch.setattr(modules()[1], "serve_status", serve_status)
     (tmp_path / "other.html").write_text("x", encoding="utf-8")
     response = asked(str(tmp_path / "other.html"))
     assert (response.status_code, code_of(response)) == (400, "page_outside_origin")
