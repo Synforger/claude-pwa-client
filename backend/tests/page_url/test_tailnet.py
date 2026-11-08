@@ -26,6 +26,13 @@ def test_the_status_comes_back_as_a_dict_and_the_command_is_asked_for_json(tmp_p
     assert (tmp_path / "args").read_text().split() == ["serve", "status", "--json"]
 
 
+def test_the_command_is_told_to_act_as_the_command_line_without_a_terminal(tmp_path, monkeypatch):
+    # the macOS app's command, run by the resident backend, starts the app unless it is told (= its own switch)
+    stand_in(tmp_path, monkeypatch,
+             'if [ "$TAILSCALE_BE_CLI" = 1 ] && [ ! -t 0 ]; then echo "{}"; else echo "The Tailscale GUI failed to start"; fi')
+    assert tailnet.serve_status() == {}
+
+
 def test_nothing_served_is_an_empty_status(tmp_path, monkeypatch):
     stand_in(tmp_path, monkeypatch, "exit 0")
     assert tailnet.serve_status() == {}
@@ -33,7 +40,7 @@ def test_nothing_served_is_an_empty_status(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("body, words", [
     ("echo 'not running' >&2; exit 1", "exit 1"),
-    ("echo 'not json'", "JSON"),
+    ("echo 'The Tailscale GUI failed to start'", "JSON ではありません: The Tailscale GUI failed to start"),
 ])
 def test_a_failing_or_garbled_command_is_refused_with_the_reason(tmp_path, monkeypatch, body, words):
     stand_in(tmp_path, monkeypatch, body)

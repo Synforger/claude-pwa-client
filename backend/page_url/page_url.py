@@ -21,12 +21,16 @@ LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 def page_url(file: Path, folder: Path, port: int, serve_status: dict) -> str:
     """The tailnet URL of `file` (= resolved) in the page origin `folder` (= resolved) served on the local `port`."""
+    return f"{tailnet_base(serve_status, port)}/{quote(path_in_origin(file, folder))}"
+
+
+def path_in_origin(file: Path, folder: Path) -> str:
+    """The path of `file` (= resolved) inside the page origin `folder` (= resolved), as the page port serves it."""
     try:
-        relative = file.relative_to(folder)
+        return file.relative_to(folder).as_posix()
     except ValueError:
         raise PageUrlRefusal("page_outside_origin",
                              f"ページの origin の folder ({folder}) の外の file です: {file}") from None
-    return f"{tailnet_base(serve_status, port)}/{quote(relative.as_posix())}"
 
 
 def tailnet_base(serve_status: dict, port: int) -> str:
