@@ -2,6 +2,8 @@
 the message is looked for in the record, with one rescue."""
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import backend.terminal.receipt as receipt
@@ -54,7 +56,7 @@ def typing(monkeypatch, pane):
         log["typed"] += 1
         return {"ok": True, "confirmed": log["confirmed"]}
 
-    async def taken(session_id, initial_pos, timeout):
+    async def taken(session_id, initial_pos, timeout, text):
         log["asked"].append(timeout)
         answers = log["taken"]
         return answers[min(len(log["asked"]), len(answers)) - 1] if answers else False
@@ -117,3 +119,26 @@ def test_a_typing_that_failed_is_not_waited_on(typing, monkeypatch):
     monkeypatch.setattr(receipt, "pty_send", failed)
     assert run(receipt.deliver_to_woken("ses_x", TEXT)) is False
     assert typing["asked"] == []
+
+
+def test_a_message_queued_while_claude_answers_is_taken_without_an_enter(monkeypatch, pane, tmp_path):
+    """Claude was answering the message typed before: this one is queued and shows in the input box until the turn's
+    next break, and no row of a person's prompt is written for it. The row of its queueing says it was taken."""
+    record = tmp_path / "r.jsonl"
+    record.write_text("")
+    log = {"enters": 0}
+
+    async def pty_send(session_id, payload, key=None):
+        with record.open("a") as out:
+            out.write(json.dumps({"type": "queue-operation", "operation": "enqueue", "content": payload["text"]}) + "\n")
+        return {"ok": True, "confirmed": False}
+
+    def keys(session_id, text=None, key=None, enter=False):
+        log["enters"] += 1
+        return True
+    monkeypatch.setattr(receipt, "pty_send", pty_send)
+    monkeypatch.setattr(receipt, "tmux_send_keys", keys)
+    monkeypatch.setattr(receipt, "jsonl_path_for_session", lambda _sid: record)
+    pane["screens"] = ["│ > Sent by the client (the operator did not type this):\n" + CLAUDE_SCREEN]
+    assert run(receipt.deliver_to_woken("ses_x", TEXT)) is True
+    assert log["enters"] == 0
