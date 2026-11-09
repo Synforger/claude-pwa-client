@@ -241,16 +241,20 @@ def launched(configured, monkeypatch, tmp_path) -> list[tuple[str, str]]:
     async def fake_register(session_id, max_wait):
         return None
 
-    async def fake_send(session_id, payload, idempotency_key=None):
-        events.append(("send", payload["text"]))
-        return {"ok": True}
+    async def fake_deliver(session_id, text):
+        events.append(("send", text))
+        return True
+
+    async def screen_up(session_id):
+        return True
 
     monkeypatch.setattr(first_message, "ensure_pty_session_for", fake_ensure)
     monkeypatch.setattr(first_message, "claude_in_pane", lambda sid: False)
     monkeypatch.setattr(first_message, "wait_until_typeable", typeable)
     monkeypatch.setattr(first_message, "tmux_send_keys", fake_keys)
     monkeypatch.setattr(first_message, "register_claude_when_ready", fake_register)
-    monkeypatch.setattr("backend.terminal.routes.pty_send", fake_send)
+    monkeypatch.setattr("backend.terminal.receipt.deliver_to_woken", fake_deliver)
+    monkeypatch.setattr("backend.terminal.receipt.wait_for_claude_screen", screen_up)
     monkeypatch.setattr(first_message, "_uploads_dir", lambda: tmp_path / "uploads")
     return events
 
@@ -259,7 +263,7 @@ async def deliver(session_id: str, text: str):
     result = await first_message.launch_with_first_message(session_id, text)
     # what claude's start would do: the launcher's session reports in, the next message goes in
     input_ready.mark_ready(session_id)
-    await asyncio.gather(*first_message._following)
+    await asyncio.gather(*first_message._typers.values())
     return result
 
 

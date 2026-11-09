@@ -931,6 +931,23 @@ def test_a_launcher_tab_put_to_sleep_gets_its_conversation_back_from_a_shell_lef
     assert keys == [("ses_idle", "C-u"), ("ses_idle", "main --resume abc")]   # not a new conversation
 
 
+def test_a_tab_whose_launch_is_still_starting_is_not_given_a_second_reopening(
+        client, tabs, typed, started, keys, monkeypatch):
+    # Intent: on a loaded machine the reopening typed into a woken tab takes minutes; when the wait for it ended (= the
+    # flag is raised without a SessionStart), a message must not type the reopening into the pane once more.
+    from backend._common.state import SleepMark  # noqa: PLC0415
+    monkeypatch.setattr(am, "uses_launcher", lambda sid: True)
+    monkeypatch.setattr(am, "resume_command_for", lambda sid: "main --resume abc")
+    tabs["ses_idle"].sleep = SleepMark(claude_sid="abc", record="/records/abc.jsonl", slept_at=1)
+    am.input_ready.mark_starting("ses_idle")
+    am.input_ready._slot("ses_idle").set()
+    try:
+        assert _send(client, to="ses_idle").status_code == 200
+    finally:
+        am.input_ready.forget("ses_idle")
+    assert keys == []
+
+
 def test_only_an_agent_without_a_launcher_or_a_conversation_is_left_without_a_way(client, tabs, typed, started):
     r = _send(client, to="ses_idle")
     assert (r.status_code, r.json()["detail"]["code"]) == (409, "agent_message_receiver_not_running")

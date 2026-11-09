@@ -128,9 +128,7 @@ def test_a_sleeping_tab_with_a_shell_left_reopens_its_conversation_instead_of_st
     monkeypatch.setitem(fm.sessions_meta, "ses_x", _Meta())
     monkeypatch.setattr(fm, "resume_command_for", lambda _sid: "agent_a --resume claude-a")
 
-    async def _send_when_ready(_sid, text):
-        sent.append(text)
-    monkeypatch.setattr(fm, "_send_when_ready", _send_when_ready)
+    monkeypatch.setattr(fm, "_hold", lambda _sid, text: sent.append(text))
 
     async def scenario():
         out = await fm.launch_with_first_message("ses_x", "hello")
@@ -292,9 +290,7 @@ def _awake_tab(monkeypatch, *, child: bool = False, last: str | None = "agent_a 
     monkeypatch.setitem(fm.sessions_meta, "ses_x", _AwakeMeta(child=child))
     monkeypatch.setattr(fm, "resume_command_for", lambda _sid: last)
 
-    async def _send_when_ready(_sid, text):
-        sent.append(text)
-    monkeypatch.setattr(fm, "_send_when_ready", _send_when_ready)
+    monkeypatch.setattr(fm, "_hold", lambda _sid, text: sent.append(text))
     fm._fresh_requested.discard("ses_x")
     return sent
 

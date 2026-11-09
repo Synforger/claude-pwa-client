@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,17 @@ logger = logging.getLogger(__name__)
 # 足した値にする。 超えた時は打鍵せず失敗を返し、 本文を入力欄へ戻す経路に載せる。
 INPUT_READY_TIMEOUT_SEC: float = 20.0
 
+# How long a launch typed into a pane counts as still starting while its claude has not announced itself. The flag
+# above gives up after its own wait so that a broken detection does not hold every send, but a launch that is merely
+# slow must not be typed a second time. Measured under a load average over 100: a new pane's shell took about four
+# minutes to show its prompt and the launch five minutes to reach SessionStart; this is twice that.
+LAUNCH_GIVE_UP_SEC: float = 600.0
+# How often a wait for the end of a launch looks again.
+LAUNCH_LOOK_SEC: float = 0.5
+
 _events: dict[str, asyncio.Event] = {}
+# When the launch now in flight was typed, per tab (= `time.monotonic()`); absent once its claude announced itself.
+_launch_started: dict[str, float] = {}
 
 
 def _slot(session_id: str) -> asyncio.Event:
@@ -44,16 +55,42 @@ def mark_starting(session_id: str) -> None:
     """claude をこれから起動する (= 打鍵を待たせる)。 spawn が launch_alias を投入する
     経路だけが呼ぶ。 alias を投入しない再 attach は既に claude が走っているので対象外。"""
     _slot(session_id).clear()
+    _launch_started[session_id] = time.monotonic()
 
 
 def mark_ready(session_id: str) -> None:
     """claude が起動を通知した (= 打鍵してよい)。 SessionStart hook から呼ぶ。"""
     _slot(session_id).set()
+    _launch_started.pop(session_id, None)
 
 
 def forget(session_id: str) -> None:
     """session ごと消える時に旗も落とす (= delete 経路)。"""
     _events.pop(session_id, None)
+    _launch_started.pop(session_id, None)
+
+
+def abandon_launch(session_id: str) -> None:
+    """Stop waiting for the launch in flight, which was given up: the next send may type a launch again and is not
+    held back by the flag of the abandoned one."""
+    _slot(session_id).set()
+    _launch_started.pop(session_id, None)
+
+
+def launching(session_id: str) -> bool:
+    """Whether a launch typed into the tab's pane is still starting: its claude has not announced itself and
+    `LAUNCH_GIVE_UP_SEC` has not passed. Unlike `is_ready`, the end of a wait does not end it, so nothing types a
+    second launch into a pane whose first one is still on its way."""
+    started = _launch_started.get(session_id)
+    return started is not None and time.monotonic() - started < LAUNCH_GIVE_UP_SEC
+
+
+async def wait_launched(session_id: str) -> bool:
+    """Wait for the launch in flight to end. True when its claude announced itself (or none was in flight); False when
+    it was given up after `LAUNCH_GIVE_UP_SEC`."""
+    while launching(session_id):
+        await asyncio.sleep(LAUNCH_LOOK_SEC)
+    return session_id not in _launch_started
 
 
 def is_ready(session_id: str) -> bool:
