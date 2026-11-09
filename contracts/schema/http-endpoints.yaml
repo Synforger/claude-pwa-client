@@ -233,6 +233,83 @@ endpoints:
       - "is_default が true になるのは高々 1 件 (= 0 件もあり得る)"
     implementation: backend/routes/accounts.py
 
+  - method: POST
+    path: /accounts/{account}/continue
+    description: "口座の止める線で止まったタブを続ける (= その口座の held_at が付いたタブ全部に続けての連絡を送って起こし、 印を消す)"
+    response:
+      type: object
+      properties:
+        continued: { type: array, items: { type: string }, description: "続けたタブの id" }
+        failed:    { type: array, items: { type: string }, description: "連絡が届かず、 印が残ったタブの id" }
+      required: [continued, failed]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "使用率がまだ今日の線以上なら 409 (code = still_at_line)、 何も送らず印も消さない"
+      - "設定に無い口座は 404 (code = unknown_account)"
+    implementation: backend/routes/account_hold.py
+
+  - method: GET
+    path: /settings
+    description: "設定の画面が出す値 (= 口座の使用率と線、 止まったタブの数、 エージェントごとの眠りと入れ替え、 通知の題、 子の上限、 この機械の状態)"
+    response:
+      type: object
+      properties:
+        accounts:
+          type: array
+          items:
+            type: object
+            properties:
+              id:             { type: string }
+              display_name:   { type: string }
+              is_default:     { type: boolean }
+              usage:          { type: object, nullable: true, description: "five_hour_pct / five_hour_resets_at / seven_day_pct / seven_day_resets_at。 使用率の行が無い口座は null" }
+              mode:           { type: string, description: "fallback = タブを逃げ先へ移す / hold = 区切りで止める / none" }
+              fallback:       { type: object, nullable: true, description: "to / to_display_name / at_pct / seven_day_at_pct / seven_day_today_pct" }
+              hold:           { type: object, nullable: true, description: "seven_day_at_pct (曜日 → 線) / today_pct (今日の線、 無ければ null)" }
+              held_count:     { type: integer }
+              can_continue:   { type: boolean, description: "止まったタブが在り、 使用率が今日の線を下回っている (= 続けられる)" }
+              pinned_tabs:    { type: array, items: { type: object, properties: { id: { type: string }, title: { type: string } } } }
+            required: [id, display_name, mode, held_count, can_continue, pinned_tabs]
+        agents:
+          type: array
+          items:
+            type: object
+            properties:
+              id:            { type: string }
+              display_name:  { type: string }
+              sleep_minutes: { type: integer, nullable: true }
+              rollover:      { type: object, description: "working_context_pct / idle_context_pct / idle_minutes (書いていなければ null)" }
+            required: [id, display_name, rollover]
+        child_sessions_max:   { type: integer }
+        notification_title:   { type: string }
+        machine:              { type: object, description: "version / backend_started_at / loop_stall ({ stood_still_sec, back_at } か null)" }
+        limits:               { type: object, description: "weekdays / line_pct_min / line_pct_max / context_pct_min / context_pct_max / minutes_min" }
+      required: [accounts, agents, child_sessions_max, notification_title, machine, limits]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "値は今 backend が読んでいる設定 (= PUT /settings の後は書き換えた値)"
+    implementation: backend/routes/settings.py
+
+  - method: PUT
+    path: /settings
+    description: "設定の画面から、 許した欄だけを部分的に変える (= config.json と同じ形で、 変える欄だけを書く。 null はその欄を消す)"
+    request_body:
+      type: object
+      description: "accounts.<口座>.fallback.at_pct / .fallback.seven_day_at_pct.<曜日> / .hold.seven_day_at_pct.<曜日>、 agents.<エージェント>.sleep.minutes / .rollover の数の欄、 child_sessions_max、 notification_title だけ"
+    response:
+      type: object
+      description: "変えた後の GET /settings と同じ中身"
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "許した欄以外を 1 つでも含む、 または値が読む側の規則に合わない時は 400 (code = settings_rejected、 params.reasons に欄ごとの理由)、 何も書かない"
+      - "config.json の他の欄は、 値も並びも字下げも変えない (= 一時 file に書いてから置き換える)"
+      - "書いた後に設定を読み直し、 次の見回りから新しい値で動く"
+      - "config.json を読めない・書けない時は 500 (code = settings_not_written)"
+    implementation: backend/routes/settings.py
+
   - method: GET
     path: /extensions
     description: "拡張 (= 別 repo のアプリを iframe で嵌める口) の一覧"

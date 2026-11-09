@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from backend.account_fallback.fallback_envelope import PAUSE, carry_on_envelope, pause_envelope
+from backend.account_hold.hold_envelope import continue_envelope, stop_envelope
 from backend.jsonl.jsonl_predicates import CLIENT_NOTICE_OPENING, CLIENT_OPENINGS, ROLLOVER_OPENING, is_client_message
 from backend.limit_resume.resume_envelope import resume_envelope
 
@@ -13,7 +14,8 @@ ROOT = Path(__file__).resolve().parents[3]
 
 def test_both_notices_begin_with_their_own_line_and_not_the_rollover_s():
     for text in (carry_on_envelope("work", "personal"), carry_on_envelope("work", "personal", PAUSE),
-                 pause_envelope("work", "personal", "Personal"), resume_envelope("personal")):
+                 pause_envelope("work", "personal", "Personal"), stop_envelope("personal", "Personal"),
+                 continue_envelope("personal"), resume_envelope("personal")):
         assert text.splitlines()[0] == CLIENT_NOTICE_OPENING != ROLLOVER_OPENING
         assert is_client_message(text)
 
@@ -28,4 +30,5 @@ def test_the_opening_line_is_the_same_everywhere_it_is_written():
     """The backend writes the first line, the screen reads it and the docs tell other tools about it."""
     assert f"'{CLIENT_NOTICE_OPENING}'" in (ROOT / "frontend/src/features/chat/agentMessage.js").read_text()
     assert CLIENT_NOTICE_OPENING in (ROOT / "docs/reference/account-fallback.md").read_text()
+    assert CLIENT_NOTICE_OPENING in (ROOT / "docs/reference/account-hold.md").read_text()
     assert CLIENT_NOTICE_OPENING in (ROOT / "docs/reference/limit-resume.md").read_text()

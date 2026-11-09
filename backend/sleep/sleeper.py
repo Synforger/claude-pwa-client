@@ -5,8 +5,8 @@ The terminal is closed with the claude, because the tab is then a tab without a 
 starts again with `claude --resume` (`terminal/session_resolver.py`). A shell left in the pane would start a new
 conversation instead of reopening this one.
 
-Used by `sleep_patrol.py` (= `put_to_sleep`) and by a parent tab putting its child to sleep (= `sleep_now`, through
-`routes/child_sessions.py`).
+Used by `sleep_patrol.py` (= `put_to_sleep`), by a parent tab putting its child to sleep (= `sleep_now`, through
+`routes/child_sessions.py`) and by the account hold, which stops a tab at a break it has read itself (= `sleep_at_break`).
 """
 from __future__ import annotations
 
@@ -90,14 +90,21 @@ async def sleep_now(session_id: str) -> tuple[str, ...]:
         await asyncio.sleep(PASSING_LOOK_SEC)
 
 
-async def _sleep(session_id: str, minutes: int, by_hand: bool) -> tuple[str, ...]:
+async def sleep_at_break(session_id: str, *, stopped_by_limit: bool = False) -> tuple[str, ...]:
+    """Put the tab's claude to sleep now, once, for a caller that has read that the tab is at a break (`stopped_by_limit`
+    when a usage limit stopped its turn, which is judged as `judge` does). It does not wait for conditions that pass by
+    themselves. → the conditions that kept it awake; empty when it slept."""
+    return await _sleep(session_id, 0, by_hand=True, stopped_by_limit=stopped_by_limit)
+
+
+async def _sleep(session_id: str, minutes: int, by_hand: bool, stopped_by_limit: bool = False) -> tuple[str, ...]:
     """Put the tab's claude to sleep if every condition still holds. → the conditions that kept it awake (= the tab
     is as it was); empty when it slept."""
     meta = sessions_meta.get(session_id)
     if meta is None:
         return (UNKNOWN_TAB,)
-    facts = await asyncio.to_thread(gather, session_id, minutes, by_hand)
-    if reasons := judge(facts, minutes, by_hand):
+    facts = await asyncio.to_thread(gather, session_id, minutes, by_hand, stopped_by_limit)
+    if reasons := judge(facts, minutes, by_hand, stopped_by_limit):
         logger.info("sleep: not now session=%s reasons=%s", session_id, ",".join(reasons))
         return reasons
     record = jsonl_watcher.get_jsonl_for(session_id)

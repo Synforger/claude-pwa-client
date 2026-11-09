@@ -153,6 +153,14 @@ class SessionDef:
     # line while the tab kept answering (`backend/account_fallback/`). It is why no second request is sent during one
     # stay above the line, also after a restart; cleared when the usage is under the line or the tab has moved.
     pause_asked_at: float | None = None
+    # When (epoch seconds) the account hold put this tab to sleep because the usage of the account it runs on was at the
+    # line the operator set (`backend/account_hold/`). It stays until the operator continues the tab from the
+    # settings screen, or a message from another tab wakes it; nothing continues it by itself.
+    held_at: float | None = None
+    # When (epoch seconds) the account hold asked this tab to come to a break because it kept answering above the line
+    # (`backend/account_hold/`). It is why no second request is sent during one stay above the line, also after a
+    # restart; cleared when the usage is under the line or the tab has been held.
+    hold_asked_at: float | None = None
     # The fingerprint (sha256, hex) of the top page the client wrote for a child tab when it made the page
     # (`terminal/tab_page.py`). Closing the child compares the page with it (`terminal/child_folder.py`). None for a
     # tab that is not a child, and for a child whose page was made before this was kept.
@@ -188,6 +196,8 @@ class SessionDef:
             "limit_resumed": self.limit_resumed,
             "account_pinned": self.account_pinned,
             "pause_asked_at": self.pause_asked_at,
+            "held_at": self.held_at,
+            "hold_asked_at": self.hold_asked_at,
             "top_page_sha": self.top_page_sha,
             "stop_told_at": self.stop_told_at,
         }
@@ -257,6 +267,8 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
                 limit_resumed=_optional_str(entry.get("limit_resumed")),
                 account_pinned=entry.get("account_pinned") is True,
                 pause_asked_at=_optional_number(entry.get("pause_asked_at")),
+                held_at=_optional_number(entry.get("held_at")),
+                hold_asked_at=_optional_number(entry.get("hold_asked_at")),
                 top_page_sha=_optional_str(entry.get("top_page_sha")),
                 stop_told_at=_optional_number(entry.get("stop_told_at")),
             )

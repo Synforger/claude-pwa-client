@@ -98,6 +98,14 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   7 日の枠の線を曜日 (`mon` `tue` `wed` `thu` `fri` `sat` `sun`) ごとに変える表で、 書いていない曜日は
   `at_pct` を使う (5 時間の枠の線は `at_pct` のまま)。 書かない口座は何もしない。
   詳細: [`account-fallback.md`](account-fallback.md)
+- `hold` (任意): `{"seven_day_at_pct": {"mon": <1〜100>, ...}}`。口座の 7 日の使用率が、その曜日の線以上の間、
+  その口座で動く固定していないタブを区切りで止める (曜日を書かなければ、その日は止めない)。自動では再開せず、
+  続けるのは画面の設定から。`fallback` を持つ口座には置けない。詳細: [`account-hold.md`](account-hold.md)
+
+画面の「設定」から、`accounts.*.fallback` の線、`accounts.*.hold` の線、`agents.*.sleep.minutes`、
+`agents.*.rollover` の数、`child_sessions_max`、`notification_title` を変えられる。変えた値は `config.json` に書かれ、
+次の見回りから効く。それ以外の欄と、`config.json` を手で書き換えた時は、backend の再起動が要る。
+詳細: [`settings-screen.md`](settings-screen.md)
 
 タブ新規作成時にエージェント × アカウントの組み合わせを選択する。 会話一覧の ⋯ メニューから
 既存の会話を別アカウントで継続することもできる (= 会話をそのまま引き継いだタブが開く)。

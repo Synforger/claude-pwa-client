@@ -44,6 +44,8 @@ backup 先 = 同 PC の別 path (= `$AGENT_PLATFORM_ROOT/state/claude-pwa-client
 | `limit_resumed` | str? | NO | [上限が戻った時の続き](limit-resume.md) で、 続けての連絡を送った止まりの行の uuid (= 同じ止まりに 2 通目を送らない)。 まだ送っていないタブは null |
 | `account_pinned` | bool | NO (default `false`) | 要のタブの印。 true のタブは [口座の逃げ先](account-fallback.md) が移さず、 逃げ先で動いていれば次の区切りで戻す。 子のタブは立てた時に親の印を継ぐ |
 | `pause_asked_at` | float? | NO | [口座の逃げ先](account-fallback.md) が、返事を作り続けているタブに区切りを頼んだ時刻 (= epoch 秒)。 この「線を超えている間」に 2 通目を送らないための印で、 backend を再起動しても残る。 口座が線を下回った時、 タブを移した時、 固定した時に null |
+| `held_at` | float? | NO | [口座の止める線](account-hold.md) が、タブを区切りで止めた時刻 (= epoch 秒)。 操作者が画面から続けるか、別のタブからの連絡でタブが起きるまで残り、 backend を再起動しても残る |
+| `hold_asked_at` | float? | NO | [口座の止める線](account-hold.md) が、返事を作り続けているタブに区切りを頼んだ時刻 (= epoch 秒)。 この「線を超えている間」に 2 通目を送らないための印。 使用率が線を下回った時、 タブを止めた時に null |
 | `top_page_sha` | str? | NO | 子のタブのトップページ (= `pages/<子の id>/index.html`) を client が雛形から書いた時の、書いた中身の指紋 (= sha256 の 16 進、 目次の部品などを読む 1 行だけの行を除いた中身で取る)。 閉じる時の片付けが、 ページの今の中身をこれと比べる。 子でないタブと、 指紋を残す前に立てた子は null |
 | `stop_told_at` | float? | NO | 子のタブが報告せずに止まったことを親に知らせた時の、 その子の会話の記録の最後の行の時刻 (= epoch 秒)。 [止まった子の見回り](child-sessions.md#止まった子の見回り) が、 同じ止まりに 2 通目を送らないための印。 まだ知らせていない子と、 子でないタブは null |
 
