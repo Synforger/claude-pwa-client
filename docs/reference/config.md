@@ -93,16 +93,19 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 - `env`: claude 起動時の追加環境変数。 代表的なキーは `CLAUDE_CONFIG_DIR`
   (= claude の設定 / 認証ディレクトリを切り替える)。 アカウントごとに別の認証情報を
   分離保持できる
-- `fallback` (任意): `{"to": "<逃げ先の口座>", "at_pct": <1〜100>, "seven_day_at_pct": {"mon": <1〜100>, ...}}`。
-  この口座の使用率が `at_pct` 以上の間、 この口座のタブを逃げ先の口座で動かす。 `seven_day_at_pct` (任意) は
+- `fallback` (任意): `{"to": "<逃げ先の口座>", "at_pct": <1〜100>, "ahead_pct": <0〜50>, "seven_day_at_pct": {"mon": <1〜100>, ...}}`。
+  この口座の使用率が `at_pct` 以上の間、 この口座のタブを逃げ先の口座で動かす。 `ahead_pct` (任意、 既定 0) は、
+  線のどれだけ手前から、 prompt のキャッシュが冷えたタブを先に逃げ先へ移すかの幅 (% の幅。 0 は先回りしない)。
+  戻すのも、 キャッシュが冷えた時。 `seven_day_at_pct` (任意) は
   7 日の枠の線を曜日 (`mon` `tue` `wed` `thu` `fri` `sat` `sun`) ごとに変える表で、 書いていない曜日は
   `at_pct` を使う (5 時間の枠の線は `at_pct` のまま)。 書かない口座は何もしない。
   詳細: [`account-fallback.md`](account-fallback.md)
-- `hold` (任意): `{"seven_day_at_pct": {"mon": <1〜100>, ...}}`。口座の 7 日の使用率が、その曜日の線以上の間、
-  その口座で動く固定していないタブを区切りで止める (曜日を書かなければ、その日は止めない)。自動では再開せず、
-  続けるのは画面の設定から。`fallback` を持つ口座には置けない。詳細: [`account-hold.md`](account-hold.md)
+- `hold` (任意): `{"five_hour_at_pct": <1〜100>, "seven_day_at_pct": {"mon": <1〜100>, ...}}`。口座の 7 日の使用率が、
+  その曜日の線以上の間、 または 5 時間の使用率が `five_hour_at_pct` 以上の間、 その口座で動く固定していないタブを区切りで
+  止める (曜日を書かなければ、 その日は 7 日では止めない。 `five_hour_at_pct` を書かなければ、 5 時間では止めない)。
+  自動では再開せず、 続けるのは画面の設定から。`fallback` を持つ口座には置けない。詳細: [`account-hold.md`](account-hold.md)
 
-画面の「設定」から、`accounts.*.fallback` の線、`accounts.*.hold` の線、`agents.*.sleep.minutes`、
+画面の「設定」から、`accounts.*.fallback` の線と先回りの幅、`accounts.*.hold` の線、`agents.*.sleep.minutes`、
 `agents.*.rollover` の数、`child_sessions_max`、`notification_title` を変えられる。変えた値は `config.json` に書かれ、
 次の見回りから効く。それ以外の欄と、`config.json` を手で書き換えた時は、backend の再起動が要る。
 詳細: [`settings-screen.md`](settings-screen.md)

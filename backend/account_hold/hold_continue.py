@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from backend._common.state import save_sessions_meta, sessions_meta
 from backend.account_hold.hold_envelope import continue_envelope
-from backend.account_hold.hold_judgement import hold_line_pct, is_over_line
+from backend.account_hold.hold_judgement import is_over_line, reached_line_pct
 from backend.account_hold.hold_settings import read_rules
 from backend.account_hold.hold_tabs import held_tabs
 from backend.accounts.client_message import send_to_tab
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class StillAtLine(Exception):
-    """The usage of the account is still at the line of today, so its tabs are not continued."""
+    """The usage of the account is still at a line of today, so its tabs are not continued."""
 
     def __init__(self, account: str, line_pct: int) -> None:
         super().__init__(f"the usage of {account} is still at {line_pct}% or more")
@@ -40,11 +40,12 @@ class Continued:
 
 async def continue_account(account: str) -> Continued:
     """Continue every tab the account hold stopped on `account`. Raises `StillAtLine` while the usage of the account is
-    at the line of today."""
+    at a line of today."""
     now = time.time()
     rule = read_rules().get(account)
-    if rule is not None and is_over_line(read_all_rate_limits_tail(), rule, now):
-        raise StillAtLine(account, hold_line_pct(rule, now) or 0)
+    rows = read_all_rate_limits_tail()
+    if rule is not None and is_over_line(rows, rule, now):
+        raise StillAtLine(account, reached_line_pct(rows, rule, now) or 0)
     continued: list[str] = []
     failed: list[str] = []
     for meta in held_tabs(account):

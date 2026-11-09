@@ -126,6 +126,7 @@ def _moved(env):
 
 def test_a_moved_tab_comes_back_when_the_usage_is_under_the_line_and_the_record_the_client_wrote_goes(env, caplog):
     _moved(env)
+    env.cold()
     copy = _copy_of(env)
     env.rows = [usage_row(five=100), usage_row(five=40)]
     with caplog.at_level(logging.INFO):
@@ -139,6 +140,7 @@ def test_a_moved_tab_comes_back_when_the_usage_is_under_the_line_and_the_record_
 
 def test_a_moved_tab_comes_back_when_the_window_that_stopped_it_has_reset(env):
     _moved(env)
+    env.cold()
     env.rows = [usage_row(five=100, five_resets=time.time() - 60)]
     assert run(patrol.tick()) == [env.tab.id] and env.tab.account_id == "work"
 

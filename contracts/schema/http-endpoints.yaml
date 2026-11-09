@@ -265,8 +265,8 @@ endpoints:
               is_default:     { type: boolean }
               usage:          { type: object, nullable: true, description: "five_hour_pct / five_hour_resets_at / seven_day_pct / seven_day_resets_at。 使用率の行が無い口座は null" }
               mode:           { type: string, description: "fallback = タブを逃げ先へ移す / hold = 区切りで止める / none" }
-              fallback:       { type: object, nullable: true, description: "to / to_display_name / at_pct / seven_day_at_pct / seven_day_today_pct" }
-              hold:           { type: object, nullable: true, description: "seven_day_at_pct (曜日 → 線) / today_pct (今日の線、 無ければ null)" }
+              fallback:       { type: object, nullable: true, description: "to / to_display_name / at_pct / ahead_pct (先回りの幅、 0 = 先回りしない) / seven_day_at_pct / seven_day_today_pct" }
+              hold:           { type: object, nullable: true, description: "five_hour_at_pct (5 時間の線、 無ければ null) / seven_day_at_pct (曜日 → 線) / today_pct (今日の 7 日の線、 無ければ null)" }
               held_count:     { type: integer }
               tabs:           { type: object, description: "その口座で動くタブの数 (total / running = 眠っていない / pinned = 固定 / held = 線で止まっている)" }
               can_continue:   { type: boolean, description: "止まったタブが在り、 使用率が今日の線を下回っている (= 続けられる)" }
@@ -285,7 +285,7 @@ endpoints:
         child_sessions_max:   { type: integer }
         notification_title:   { type: string }
         machine:              { type: object, description: "version / backend_started_at / loop_stall ({ stood_still_sec, back_at } か null)" }
-        limits:               { type: object, description: "weekdays / line_pct_min / line_pct_max / context_pct_min / context_pct_max / minutes_min" }
+        limits:               { type: object, description: "weekdays / line_pct_min / line_pct_max / ahead_pct_min / ahead_pct_max / context_pct_min / context_pct_max / minutes_min" }
       required: [accounts, agents, child_sessions_max, notification_title, machine, limits]
     response_kind: json
     auth: tailnet
@@ -298,7 +298,7 @@ endpoints:
     description: "設定の画面から、 許した欄だけを部分的に変える (= config.json と同じ形で、 変える欄だけを書く。 null はその欄を消す)"
     request_body:
       type: object
-      description: "accounts.<口座>.fallback.at_pct / .fallback.seven_day_at_pct.<曜日> / .hold.seven_day_at_pct.<曜日>、 agents.<エージェント>.sleep.minutes / .rollover の数の欄、 child_sessions_max、 notification_title だけ"
+      description: "accounts.<口座>.fallback.at_pct / .fallback.ahead_pct / .fallback.seven_day_at_pct.<曜日> / .hold.five_hour_at_pct / .hold.seven_day_at_pct.<曜日>、 agents.<エージェント>.sleep.minutes / .rollover の数の欄、 child_sessions_max、 notification_title だけ"
     response:
       type: object
       description: "変えた後の GET /settings と同じ中身"

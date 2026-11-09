@@ -23,11 +23,16 @@ def usage_row(account="personal", seven=10, five=10, seven_resets=None) -> dict:
             "seven_day_pct": seven, "seven_day_resets_at": seven_resets if seven_resets is not None else now + 86400}
 
 
-def accounts(hold_days=None) -> dict:
-    return {"personal": {"display_name": "Personal", "env": {},
-                         "hold": {"seven_day_at_pct": {day: LINE_PCT for day in WEEKDAYS} if hold_days is None
-                                  else hold_days}},
-            "work": {"display_name": "Work", "env": {"CLAUDE_CONFIG_DIR": "/nonexistent-work"}}}
+def accounts(hold_days=None, five_hour_at_pct=None, work_fallback=None) -> dict:
+    """The accounts of the fixture: `personal` holds, `work` has no hold. `five_hour_at_pct` adds a line of the 5 hours
+    to the hold; `work_fallback` gives `work` a fallback (to `personal`) with that line."""
+    hold = {"seven_day_at_pct": {day: LINE_PCT for day in WEEKDAYS} if hold_days is None else hold_days}
+    if five_hour_at_pct is not None:
+        hold["five_hour_at_pct"] = five_hour_at_pct
+    work = {"display_name": "Work", "env": {"CLAUDE_CONFIG_DIR": "/nonexistent-work"}}
+    if work_fallback is not None:
+        work["fallback"] = {"to": "personal", "at_pct": work_fallback}
+    return {"personal": {"display_name": "Personal", "env": {}, "hold": hold}, "work": work}
 
 
 @pytest.fixture

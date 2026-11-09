@@ -1,17 +1,20 @@
 """The account fallback settings, read from the accounts of `config.json` (= `accounts.<account>.fallback`).
 
     "accounts": {
-      "work":     { "env": {...}, "fallback": { "to": "personal", "at_pct": 95,
+      "work":     { "env": {...}, "fallback": { "to": "personal", "at_pct": 95, "ahead_pct": 5,
                                                 "seven_day_at_pct": { "mon": 70, "sat": 100 } } },
       "personal": { "env": {...} }
     }
 
 An account moves its tabs to `to` once the usage of its 5 hours or its 7 days is at `at_pct` or more (1 to 100), and
 takes them back when that is over. `seven_day_at_pct` (optional) gives the line of the 7 days for single days of the
-week (`mon` to `sun`, each 1 to 100); a day it does not name, and an account without it, use `at_pct`. A `fallback` is
-used only when `to` is another account of the configuration, the account it names has no `fallback` of its own (= no
-reverse direction, no chain), `at_pct` is a whole number from 1 to 100 and `seven_day_at_pct` is a table of that
-form. Any other `fallback` is left out and named in a warning at startup. Without a usable `fallback` nothing moves.
+week (`mon` to `sun`, each 1 to 100); a day it does not name, and an account without it, use `at_pct`. `ahead_pct`
+(optional, 0 to 50, 0 when it is left out) is how many percentage points before a line the account starts moving the
+tabs whose cache has gone cold (`fallback_judgement.py`); 0 moves nothing before the line. A `fallback` is used only
+when `to` is another account of the configuration, the account it names has no `fallback` of its own (= no reverse
+direction, no chain), `at_pct` is a whole number from 1 to 100, `ahead_pct` is a whole number from 0 to 50 and
+`seven_day_at_pct` is a table of that form. Any other `fallback` is left out and named in a warning at startup.
+Without a usable `fallback` nothing moves.
 
 Used by `fallback_patrol.py`.
 """
@@ -26,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 AT_PCT_MIN = 1
 AT_PCT_MAX = 100
+AHEAD_PCT_MIN = 0
+AHEAD_PCT_MAX = 50
 # The names of the days of the week in the order `datetime.weekday()` counts them (Monday is 0).
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
@@ -36,16 +41,23 @@ class FallbackRule:
 
     at_pct:           the line of the 5 hours, and of the 7 days on a day `seven_day_at_pct` does not name
     seven_day_at_pct: the line of the 7 days on the days of the week it names (`WEEKDAYS` to a percentage)
+    ahead_pct:        how many percentage points before a line the tabs with a cold cache start moving (0 = not before)
     """
     from_account: str
     to_account: str
     at_pct: int
     seven_day_at_pct: dict[str, int] = field(default_factory=dict)
+    ahead_pct: int = 0
 
 
 def is_pct(value: object) -> bool:
     """Whether `value` is a line that can be set: a whole number from `AT_PCT_MIN` to `AT_PCT_MAX`."""
     return isinstance(value, int) and not isinstance(value, bool) and AT_PCT_MIN <= value <= AT_PCT_MAX
+
+
+def is_ahead_pct(value: object) -> bool:
+    """Whether `value` is a width of `ahead_pct` that can be set: a whole number from `AHEAD_PCT_MIN` to `AHEAD_PCT_MAX`."""
+    return isinstance(value, int) and not isinstance(value, bool) and AHEAD_PCT_MIN <= value <= AHEAD_PCT_MAX
 
 
 def seven_day_problem(table: object) -> str | None:
@@ -75,6 +87,8 @@ def _problem(name: str, raw: object, accounts: dict) -> str | None:
     at_pct = raw.get("at_pct")
     if not is_pct(at_pct):
         return f"`at_pct` is not a whole number from {AT_PCT_MIN} to {AT_PCT_MAX}: {at_pct!r}"
+    if "ahead_pct" in raw and not is_ahead_pct(raw["ahead_pct"]):
+        return f"`ahead_pct` is not a whole number from {AHEAD_PCT_MIN} to {AHEAD_PCT_MAX}: {raw['ahead_pct']!r}"
     return seven_day_problem(raw["seven_day_at_pct"]) if "seven_day_at_pct" in raw else None
 
 
@@ -92,7 +106,8 @@ def parse_rules(accounts: object) -> tuple[dict[str, FallbackRule], tuple[str, .
             continue
         raw = account["fallback"]
         rules[name] = FallbackRule(from_account=name, to_account=raw["to"], at_pct=raw["at_pct"],
-                                   seven_day_at_pct=dict(raw.get("seven_day_at_pct", {})))
+                                   seven_day_at_pct=dict(raw.get("seven_day_at_pct", {})),
+                                   ahead_pct=raw.get("ahead_pct", 0))
     return rules, tuple(problems)
 
 

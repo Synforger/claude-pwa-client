@@ -1,26 +1,31 @@
 """The account fallback patrol: looks over the tabs on the rollover's interval, moves the tabs of an account whose
-usage is at its line to the account its fallback names, and brings them back when the usage is over.
+usage is at its line to the account its fallback names (the tabs whose cache is cold already `ahead_pct` before the
+line), and brings them back when the usage is over (the tabs whose cache is cold, once the account is clear of that
+width; at once when the account they run on has reached its own line and theirs has not).
 
 What is configured is in `fallback_settings.py`, the judgement in `fallback_judgement.py`, what is read about a tab in
 `fallback_sensors.py`; the move itself is `accounts/account_move.py` (see `docs/reference/account-fallback.md`). A
-tab asleep is not moved (that would wake it): `move_before_wake` moves it when it is woken. A tab whose turn the
-limit stopped is moved at once, with the tool results of that turn, and told to carry on. A tab that keeps answering
-is asked once to come to a break (the mark is `pause_asked_at`); when it does, the same look moves it and tells it to
-carry on.
+tab asleep is not moved (that would wake it): `move_before_wake` moves it, or brings it back, when it is woken. A tab
+whose turn the limit stopped is moved at once, with the tool results of that turn, and told to carry on. A tab that
+keeps answering is asked once to come to a break (the mark is `pause_asked_at`) when it must move whatever its cache
+is; when it does, the same look moves it and tells it to carry on.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
 
 from fastapi import HTTPException
 
 from backend._common.config import default_account_id
 from backend._common.state import SessionDef, save_sessions_meta, sessions_meta
-from backend.account_fallback.fallback_envelope import LIMIT, PAUSE, carry_on_envelope, pause_envelope
+from backend.account_fallback.fallback_envelope import (
+    LIMIT, PAUSE, carry_on_envelope, pause_envelope, return_pause_envelope)
 from backend.account_fallback.fallback_judgement import (
-    Move, decide, home_is_limited, pause_overdue, should_ask_to_pause)
+    Move, cold_reasons, decide, home_is_limited, home_is_near, pause_overdue, returns_over_target_line,
+    should_ask_to_pause, urgent_move)
 from backend.account_fallback.fallback_sensors import TabBreak, read_tab_break, sleeping_stop
 from backend.account_fallback.fallback_settings import FallbackRule, display_name_of, read_rules
 from backend.accounts.account_move import move_tab_account
@@ -36,6 +41,9 @@ logger = logging.getLogger(__name__)
 _last_blocked: dict[str, tuple[str, ...]] = {}
 # The tabs whose request to come to a break has been waited on for too long, so that it is said once.
 _gave_up_on: set[str] = set()
+# What was last said about a tab that stays on purpose (= it waits for its cache to go cold, or for the account it
+# would move to to be under its line), so that the same thing is said once.
+_last_note: dict[str, str] = {}
 
 
 def _accounts_of(session_id: str) -> tuple[str, str] | None:
@@ -47,8 +55,30 @@ def _accounts_of(session_id: str) -> tuple[str, str] | None:
     return current, meta.fallback_from or current
 
 
-def _limited(rows: list[dict], rule: FallbackRule | None, now: float) -> bool | None:
-    return home_is_limited(rows, rule, now) if rule is not None else None
+@dataclass(frozen=True)
+class _Lines:
+    """What the usage log says about the account a tab belongs to (at its line, within `ahead_pct` of it) and about
+    the account it would be moved to, or runs on now (at its own line). None = not known."""
+    limited: bool | None = None
+    near: bool | None = None
+    target_over: bool | None = None
+
+
+def _is_over_hold_line(rows: list[dict], account: str, now: float) -> bool | None:
+    """Whether `account` is at the line where the account hold stops its tabs (False when it has none)."""
+    # Imported here: `account_hold` imports this package (its break and its settings), so a module-level import of it
+    # would make the two packages import each other.
+    from backend.account_hold.hold_judgement import is_over_line  # noqa: PLC0415
+    from backend.account_hold.hold_settings import read_rules as read_hold_rules  # noqa: PLC0415
+    return is_over_line(rows, read_hold_rules().get(account), now)
+
+
+def _lines(rows: list[dict], rule: FallbackRule | None, current: str, home: str, now: float) -> _Lines:
+    if rule is None:
+        return _Lines()
+    target = rule.to_account if current == home else current
+    return _Lines(limited=home_is_limited(rows, rule, now), near=home_is_near(rows, rule, now),
+                  target_over=_is_over_hold_line(rows, target, now))
 
 
 def _clear_pause(session_id: str, meta: SessionDef) -> None:
@@ -59,10 +89,10 @@ def _clear_pause(session_id: str, meta: SessionDef) -> None:
         save_sessions_meta()
 
 
-async def _pause(session_id: str, meta: SessionDef, wanted: Move, tab_break: TabBreak, current: str,
+async def _pause(session_id: str, meta: SessionDef, wanted: Move, tab_break: TabBreak, current: str, home: str,
                  rule: FallbackRule | None, now: float) -> None:
-    """A tab that is wanted on the fallback account but is not at a break: ask it once to come to one when it keeps
-    answering, and say once that the request has gone unanswered for too long."""
+    """A tab that must move whatever its cache is (`wanted` is `urgent_move`) but is not at a break: ask it once to
+    come to one when it keeps answering, and say once that the request has gone unanswered for too long."""
     if meta.pause_asked_at is not None:
         if session_id not in _gave_up_on and pause_overdue(meta.pause_asked_at, now):
             _gave_up_on.add(session_id)
@@ -75,14 +105,35 @@ async def _pause(session_id: str, meta: SessionDef, wanted: Move, tab_break: Tab
         return
     meta.pause_asked_at = now
     save_sessions_meta()
-    if not await send_to_tab(session_id, pause_envelope(current, rule.to_account, display_name_of(rule.to_account))):
+    request = (pause_envelope(current, rule.to_account, display_name_of(rule.to_account)) if wanted is Move.MOVE else
+               return_pause_envelope(current, home, display_name_of(current), display_name_of(home)))
+    if not await send_to_tab(session_id, request):
         _clear_pause(session_id, meta)                                   # not delivered: the next look asks again
         return
     logger.info("account fallback: asked to pause session=%s account=%s", session_id, current)
 
 
+def _log_move(session_id: str, current: str, target: str, action: Move, lines: _Lines, tab_break: TabBreak,
+              cold: tuple[str, ...], returns_over_line: bool) -> None:
+    """Say what was done to the tab and why: a move because the account is at its line, a move ahead of the line, a
+    return because the account the tab ran on reached its own line, or a return (once the cache is cold)."""
+    stopped, owed = tab_break.stop is not None, tab_break.owed is not None
+    if action is Move.MOVE and lines.limited is True:
+        logger.info("account fallback: moved session=%s from=%s to=%s stopped_by_limit=%s continuation_owed=%s",
+                    session_id, current, target, stopped, owed)
+    elif action is Move.MOVE:
+        logger.info("account fallback: moved ahead session=%s from=%s to=%s cold=%s", session_id, current, target,
+                    ",".join(cold))
+    elif returns_over_line:
+        logger.info("account fallback: back because %s is at its line session=%s from=%s to=%s stopped_by_limit=%s "
+                    "continuation_owed=%s", current, session_id, current, target, stopped, owed)
+    else:
+        logger.info("account fallback: returned session=%s from=%s to=%s cold=%s stopped_by_limit=%s "
+                    "continuation_owed=%s", session_id, current, target, ",".join(cold), stopped, owed)
+
+
 async def _move(session_id: str, current: str, home: str, rule: FallbackRule | None, action: Move,
-                tab_break: TabBreak) -> bool:
+                tab_break: TabBreak, lines: _Lines, cold: tuple[str, ...]) -> bool:
     """Do `action` on the tab. True when it moved. A move that fails leaves the tab on the account it was on, and the
     next look tries again. A tab that was stopped by a limit, or still owed the continuation Claude Code booked at a
     limit (the move starts claude again, which loses it), or asked to come to a break, is told to carry on."""
@@ -95,18 +146,43 @@ async def _move(session_id: str, current: str, home: str, rule: FallbackRule | N
         logger.warning("account fallback: could not move session=%s from=%s to=%s: %s", session_id, current, target,
                        error.detail)
         return False
-    logger.info("account fallback: %s session=%s from=%s to=%s stopped_by_limit=%s continuation_owed=%s",
-                "moved" if moving else "returned", session_id, current, target, tab_break.stop is not None,
-                tab_break.owed is not None)
+    _log_move(session_id, current, target, action, lines, tab_break, cold,
+              returns_over_line=returns_over_target_line(current=current, home=home, rule=rule, limited=lines.limited,
+                                                         target_over_line=lines.target_over))
+    _last_note.pop(session_id, None)
     meta = sessions_meta.get(session_id)
     asked = meta is not None and meta.pause_asked_at is not None
     if meta is not None:
         _clear_pause(session_id, meta)
     if tab_break.stop is not None or tab_break.owed is not None:
         await send_to_tab(session_id, carry_on_envelope(current, target, LIMIT))
-    elif asked and moving:
+    elif asked:
         await send_to_tab(session_id, carry_on_envelope(current, target, PAUSE))
     return True
+
+
+def _stay_note(session_id: str, current: str, home: str, rule: FallbackRule | None, lines: _Lines,
+               cold: tuple[str, ...] | None, pinned: bool) -> str | None:
+    """Why a tab stays on purpose, None when it does not: it is on the fallback account and goes back when its cache is
+    cold (`cold` = None when the tab was not read), or it would be moved ahead of the line to an account that is at its
+    own line."""
+    if rule is None or pinned:
+        return None
+    if current != home and lines.near is False and cold == ():
+        return f"returns when cold session={session_id} account={current} home={home}"
+    if current == home and lines.limited is False and lines.near is True and lines.target_over is True:
+        return (f"not moved ahead of the line because {rule.to_account} is at its line session={session_id} "
+                f"account={current}")
+    return None
+
+
+def _say_stay(session_id: str, note: str | None) -> None:
+    """Log the note once, and forget it when the tab no longer stays for that reason."""
+    if note is None:
+        _last_note.pop(session_id, None)
+    elif _last_note.get(session_id) != note:
+        _last_note[session_id] = note
+        logger.info("account fallback: %s", note)
 
 
 async def _look(session_id: str, rows: list[dict], now: float) -> bool:
@@ -117,30 +193,38 @@ async def _look(session_id: str, rows: list[dict], now: float) -> bool:
         return False
     current, home = accounts
     rule = read_rules().get(home)
-    limited = _limited(rows, rule, now)
-    if limited is False or rule is None or meta.account_pinned:
-        _clear_pause(session_id, meta)                                   # under the line again, or kept where it is
+    lines = _lines(rows, rule, current, home, now)
+    urgent = urgent_move(current=current, home=home, rule=rule, limited=lines.limited,
+                         target_over_line=lines.target_over, pinned=meta.account_pinned)
+    if rule is None or meta.account_pinned or (lines.limited is not None and urgent is Move.STAY):
+        _clear_pause(session_id, meta)                                   # nothing needs the tab to move now
     if meta.sleep is not None:
         return False
-    wanted = decide(current=current, home=home, rule=rule, limited=limited, at_break=True, pinned=meta.account_pinned)
+    wanted = decide(current=current, home=home, rule=rule, limited=lines.limited, at_break=True,
+                    pinned=meta.account_pinned, near=lines.near, target_over_line=lines.target_over)
     if wanted is Move.STAY:
         _last_blocked.pop(session_id, None)
+        _say_stay(session_id, _stay_note(session_id, current, home, rule, lines, None, meta.account_pinned))
         return False
     with claimed(session_id) as mine:
         if not mine:
             return False
         tab_break = await asyncio.to_thread(read_tab_break, session_id)
-        action = decide(current=current, home=home, rule=rule, limited=limited, at_break=tab_break.at_break,
-                        pinned=meta.account_pinned)
+        cold = cold_reasons(quiet_minutes=tab_break.quiet_minutes, context_pct=tab_break.context_pct,
+                            rollover_idle_pct=tab_break.rollover_idle_pct)
+        action = decide(current=current, home=home, rule=rule, limited=lines.limited, at_break=tab_break.at_break,
+                        pinned=meta.account_pinned, near=lines.near, cold=bool(cold), target_over_line=lines.target_over)
         if _last_blocked.get(session_id) != tab_break.blocked_by:
             _last_blocked[session_id] = tab_break.blocked_by
             if tab_break.blocked_by:
                 logger.info("account fallback: waits session=%s account=%s reasons=%s", session_id, current,
                             ",".join(tab_break.blocked_by))
         if action is Move.STAY:
-            await _pause(session_id, meta, wanted, tab_break, current, rule, now)
+            await _pause(session_id, meta, urgent, tab_break, current, home, rule, now)
+            if tab_break.at_break:
+                _say_stay(session_id, _stay_note(session_id, current, home, rule, lines, cold, meta.account_pinned))
             return False
-        return await _move(session_id, current, home, rule, action, tab_break)
+        return await _move(session_id, current, home, rule, action, tab_break, lines, cold)
 
 
 async def tick() -> list[str]:
@@ -154,34 +238,48 @@ async def tick() -> list[str]:
 
 
 async def move_before_wake(session_id: str) -> None:
-    """Called before a sleeping tab is reopened: when the account it belongs to is at its line, the tab is moved to the
-    account its fallback names and wakes there. It is asleep, so it is at a break by definition."""
+    """Called before a sleeping tab is reopened: when the account it belongs to is at its line, or near it (`ahead_pct`),
+    the tab is moved to the account its fallback names and wakes there; when it runs on the fallback account and the
+    account it belongs to is clear of its line, or the account it runs on has reached its own line, it is brought back
+    and wakes there. It is asleep, so it is at a break by definition, and its cache is cold."""
     accounts = _accounts_of(session_id)
     if accounts is None:
         return
     current, home = accounts
     rule = read_rules().get(home)
-    if rule is None:
+    if rule is None and current == home:
         return
     rows = await asyncio.to_thread(read_all_rate_limits_tail)
-    limited = _limited(rows, rule, time.time())
-    wanted = decide(current=current, home=home, rule=rule, limited=limited, at_break=True,
-                    pinned=sessions_meta[session_id].account_pinned)
-    if wanted is not Move.MOVE:
+    now = time.time()
+    lines = _lines(rows, rule, current, home, now)
+    wanted = decide(current=current, home=home, rule=rule, limited=lines.limited, at_break=True,
+                    pinned=sessions_meta[session_id].account_pinned, near=lines.near, target_over_line=lines.target_over)
+    if wanted is Move.STAY:
         return
+    moving = wanted is Move.MOVE
+    target = rule.to_account if moving and rule is not None else home
     with claimed(session_id) as mine:
         if not mine:
             return
         stop = await asyncio.to_thread(sleeping_stop, session_id)
         cut = LineageCut.THROUGH_TOOL_RESULTS if stop is not None else LineageCut.CLEAN_TURN
         try:
-            await move_tab_account(session_id, rule.to_account, cut=cut, fallback_from=home)
+            await move_tab_account(session_id, target, cut=cut, fallback_from=home if moving else None)
         except HTTPException as error:
             logger.warning("account fallback: a sleeping tab stays on its account session=%s: %s", session_id,
                            error.detail)
             return
         _clear_pause(session_id, sessions_meta[session_id])
-        logger.info("account fallback: moved session=%s from=%s to=%s asleep=1", session_id, current, rule.to_account)
+        _last_note.pop(session_id, None)
+        if moving:
+            logger.info("account fallback: moved%s session=%s from=%s to=%s asleep=1",
+                        "" if lines.limited is True else " ahead", session_id, current, target)
+        elif returns_over_target_line(current=current, home=home, rule=rule, limited=lines.limited,
+                                      target_over_line=lines.target_over):
+            logger.info("account fallback: back because %s is at its line session=%s from=%s to=%s asleep=1", current,
+                        session_id, current, target)
+        else:
+            logger.info("account fallback: returned session=%s from=%s to=%s asleep=1", session_id, current, target)
 
 
 async def fallback_loop(interval_sec: float = TICK_SEC) -> None:

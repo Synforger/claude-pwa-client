@@ -16,7 +16,7 @@ from backend._common import state
 from backend._common.paths import LOGS_DIR, REPO_ROOT
 from backend.account_fallback import fallback_settings
 from backend.account_fallback.fallback_judgement import seven_day_line_pct
-from backend.account_fallback.fallback_settings import AT_PCT_MAX, AT_PCT_MIN, WEEKDAYS
+from backend.account_fallback.fallback_settings import AHEAD_PCT_MAX, AHEAD_PCT_MIN, AT_PCT_MAX, AT_PCT_MIN, WEEKDAYS
 from backend.account_hold import hold_settings
 from backend.account_hold.hold_judgement import hold_line_pct, is_over_line
 from backend.account_hold.hold_tabs import account_of, held_tabs
@@ -86,9 +86,11 @@ def _account_view(name: str, entry: object, rows: list[dict], now: float) -> dic
         "mode": "fallback" if fallback is not None else "hold" if hold is not None else "none",
         "fallback": None if fallback is None else {
             "to": fallback.to_account, "to_display_name": fallback_settings.display_name_of(fallback.to_account),
-            "at_pct": fallback.at_pct, "seven_day_at_pct": dict(fallback.seven_day_at_pct),
+            "at_pct": fallback.at_pct, "ahead_pct": fallback.ahead_pct,
+            "seven_day_at_pct": dict(fallback.seven_day_at_pct),
             "seven_day_today_pct": seven_day_line_pct(fallback, now)},
-        "hold": None if hold is None else {"seven_day_at_pct": dict(hold.seven_day_at_pct),
+        "hold": None if hold is None else {"five_hour_at_pct": hold.five_hour_at_pct,
+                                           "seven_day_at_pct": dict(hold.seven_day_at_pct),
                                            "today_pct": hold_line_pct(hold, now)},
         "held_count": len(held),
         "tabs": _tab_counts(name),
@@ -126,5 +128,6 @@ def build_view(now: float | None = None) -> dict:
         "machine": {"version": RUNNING_VERSION, "backend_started_at": state.backend_start_time,
                     "loop_stall": last_loop_stall()},
         "limits": {"weekdays": list(WEEKDAYS), "line_pct_min": AT_PCT_MIN, "line_pct_max": AT_PCT_MAX,
+                   "ahead_pct_min": AHEAD_PCT_MIN, "ahead_pct_max": AHEAD_PCT_MAX,
                    "context_pct_min": CONTEXT_PCT_MIN, "context_pct_max": CONTEXT_PCT_MAX, "minutes_min": MINUTES_MIN},
     }

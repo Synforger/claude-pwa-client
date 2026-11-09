@@ -42,9 +42,10 @@ def test_get_shows_the_usage_and_the_lines_of_each_account(client):
     assert (work["mode"], personal["mode"]) == ("fallback", "hold")
     assert work["usage"]["five_hour_pct"] == 30 and work["usage"]["seven_day_pct"] == 40
     assert work["usage"]["seven_day_resets_at"] > time.time()
-    assert work["fallback"] == {"to": "personal", "to_display_name": "個人", "at_pct": 95,
+    assert work["fallback"] == {"to": "personal", "to_display_name": "個人", "at_pct": 95, "ahead_pct": 0,
                                 "seven_day_at_pct": {"mon": 70}, "seven_day_today_pct": work["fallback"]["seven_day_today_pct"]}
     assert personal["hold"]["seven_day_at_pct"] == {"mon": 70, "sat": 100} and personal["fallback"] is None
+    assert personal["hold"]["five_hour_at_pct"] is None
     assert work["display_name"] == "Work" and personal["display_name"] == "個人"
 
 
@@ -134,3 +135,29 @@ def test_put_answers_500_when_the_file_cannot_be_read(client, config_file):
     config_file.write_text("{ nope", encoding="utf-8")
     answer = client.put("/settings", json={"child_sessions_max": 2})
     assert answer.status_code == 500 and answer.json()["detail"]["code"] == "settings_not_written"
+
+
+def test_get_shows_the_width_ahead_of_the_line_and_the_line_of_the_5_hours_and_the_limits_of_both(client, config_file):
+    answer = client.put("/settings", json={"accounts": {"work": {"fallback": {"ahead_pct": 5}},
+                                                       "personal": {"hold": {"five_hour_at_pct": 95}}}})
+    assert answer.status_code == 200
+    view = client.get("/settings").json()
+    assert _account(view, "work")["fallback"]["ahead_pct"] == 5
+    assert _account(view, "personal")["hold"]["five_hour_at_pct"] == 95
+    assert (view["limits"]["ahead_pct_min"], view["limits"]["ahead_pct_max"]) == (0, 50)
+    written = json.loads(config_file.read_text(encoding="utf-8"))
+    assert written["accounts"]["work"]["fallback"]["ahead_pct"] == 5
+    assert written["accounts"]["personal"]["hold"]["five_hour_at_pct"] == 95
+
+
+def test_get_cannot_continue_while_the_5_hours_are_at_their_line(client, config_file, monkeypatch):
+    client.put("/settings", json={"accounts": {"personal": {"hold": {"five_hour_at_pct": 95}}}})
+    stopped = register_session("agent_a", "stopped", account_id="personal")
+    stopped.held_at = 5.0
+    stopped.sleep = SleepMark(claude_sid="c", record="/r", slept_at=1)
+    monkeypatch.setattr(settings_view, "read_all_rate_limits_tail",
+                        lambda: [usage_row("personal", five=96, seven=10)])
+    assert _account(client.get("/settings").json(), "personal")["can_continue"] is False
+    monkeypatch.setattr(settings_view, "read_all_rate_limits_tail",
+                        lambda: [usage_row("personal", five=90, seven=10)])
+    assert _account(client.get("/settings").json(), "personal")["can_continue"] is True

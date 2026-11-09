@@ -4,7 +4,11 @@ from __future__ import annotations
 import time
 from datetime import datetime
 
-from backend.account_fallback.fallback_judgement import Move, decide, home_is_limited, seven_day_line_pct
+import pytest
+
+from backend.account_fallback.fallback_judgement import (
+    PROMPT_CACHE_LIFETIME_MIN, QUIET, ROLLOVER_LINE, Move, cold_reasons, decide, home_is_limited, home_is_near,
+    returns_over_target_line, seven_day_line_pct, urgent_move)
 from backend.account_fallback.fallback_settings import FallbackRule
 from backend.tests.account_fallback.conftest import usage_row
 
@@ -106,3 +110,155 @@ def test_a_moved_tab_returns_by_the_line_of_the_day_the_usage_is_read_on():
     on_saturday = home_is_limited([row], WEEKLY_RULE, SATURDAY_NOON)
     assert decide(current="personal", home="work", rule=WEEKLY_RULE, limited=on_monday, at_break=True) is Move.STAY
     assert decide(current="personal", home="work", rule=WEEKLY_RULE, limited=on_saturday, at_break=True) is Move.RETURN
+
+
+# --- ahead of the line ---
+
+AHEAD_RULE = FallbackRule("work", "personal", 95, ahead_pct=5)
+AHEAD_WEEKLY_RULE = FallbackRule("work", "personal", 95, WEEK, ahead_pct=5)
+
+
+def test_the_usage_is_near_the_line_from_the_width_ahead_of_it_and_not_before():
+    now = time.time()
+    assert home_is_near([usage_row(five=89)], AHEAD_RULE, now) is False
+    assert home_is_near([usage_row(five=90)], AHEAD_RULE, now) is True
+    assert home_is_near([usage_row(five=10, seven=90)], AHEAD_RULE, now) is True      # either window
+    assert home_is_near([usage_row("personal", five=100)], AHEAD_RULE, now) is None    # nothing about this account
+    assert home_is_near([usage_row(five=99, five_resets=now - 1)], AHEAD_RULE, now) is False   # that window reset
+
+
+def test_the_usage_is_near_the_line_of_the_day_by_the_width_ahead_of_that_line():
+    assert home_is_near([_row_at(MONDAY_NOON, 10, 65)], AHEAD_WEEKLY_RULE, MONDAY_NOON) is True      # 70 - 5
+    assert home_is_near([_row_at(MONDAY_NOON, 10, 64)], AHEAD_WEEKLY_RULE, MONDAY_NOON) is False
+    assert home_is_near([_row_at(SATURDAY_NOON, 10, 95)], AHEAD_WEEKLY_RULE, SATURDAY_NOON) is True   # 100 - 5
+    assert home_is_near([_row_at(SATURDAY_NOON, 10, 94)], AHEAD_WEEKLY_RULE, SATURDAY_NOON) is False
+
+
+def test_without_a_width_the_usage_is_near_exactly_when_it_is_limited():
+    now = time.time()
+    for five in (50, 94, 95, 100):
+        row = [usage_row(five=five)]
+        assert home_is_near(row, RULE, now) is home_is_limited(row, RULE, now)
+
+
+def test_the_line_ahead_never_falls_below_the_lowest_line_that_can_be_set():
+    low = FallbackRule("work", "personal", 3, ahead_pct=50)
+    now = time.time()
+    assert home_is_near([usage_row(five=0, seven=0)], low, now) is False
+    assert home_is_near([usage_row(five=1, seven=0)], low, now) is True
+
+
+def test_being_limited_is_being_near():
+    now = time.time()
+    for five in range(0, 101, 5):
+        row = [usage_row(five=five)]
+        assert home_is_limited(row, AHEAD_RULE, now) is not True or home_is_near(row, AHEAD_RULE, now) is True
+
+
+# --- a cold cache ---
+
+def test_the_cache_lifetime_is_an_hour():
+    assert PROMPT_CACHE_LIFETIME_MIN == 60
+
+
+@pytest.mark.parametrize("quiet, context, line, reasons", [
+    (PROMPT_CACHE_LIFETIME_MIN, None, None, (QUIET,)),
+    (PROMPT_CACHE_LIFETIME_MIN - 1, None, None, ()),
+    (5, 40, 40, (ROLLOVER_LINE,)),                       # at the line where the rollover takes the tab over
+    (5, 39, 40, ()),
+    (90, 50, 40, (QUIET, ROLLOVER_LINE)),
+    (5, 90, None, ()),                                    # the agent has no rollover line
+    (None, None, None, ()),                               # nothing was read: not cold
+])
+def test_the_cache_is_cold_after_an_hour_of_quiet_or_at_the_line_where_the_rollover_takes_the_tab(
+        quiet, context, line, reasons):
+    assert cold_reasons(quiet_minutes=quiet, context_pct=context, rollover_idle_pct=line) == reasons
+
+
+def test_a_tab_on_its_own_account_moves_ahead_of_the_line_only_when_its_cache_is_cold():
+    ahead = dict(current="work", home="work", rule=AHEAD_RULE, limited=False, near=True, at_break=True)
+    assert decide(**ahead, cold=True) is Move.MOVE
+    assert decide(**ahead, cold=False) is Move.STAY
+    assert decide(**{**ahead, "near": False}, cold=True) is Move.STAY
+    assert decide(**{**ahead, "near": None}, cold=True) is Move.STAY
+    assert decide(**{**ahead, "at_break": False}, cold=True) is Move.STAY
+    assert decide(**ahead, cold=True, pinned=True) is Move.STAY
+
+
+def test_a_tab_at_the_line_moves_whatever_its_cache_is():
+    line = dict(current="work", home="work", rule=AHEAD_RULE, limited=True, near=True, at_break=True)
+    assert decide(**line, cold=False) is Move.MOVE and decide(**line, cold=True) is Move.MOVE
+
+
+def test_a_tab_is_not_moved_ahead_of_the_line_to_an_account_that_is_at_its_own_line():
+    ahead = dict(current="work", home="work", rule=AHEAD_RULE, limited=False, near=True, at_break=True, cold=True)
+    assert decide(**ahead, target_over_line=True) is Move.STAY
+    assert decide(**ahead, target_over_line=False) is Move.MOVE and decide(**ahead, target_over_line=None) is Move.MOVE
+    assert decide(**{**ahead, "limited": True}, target_over_line=True) is Move.MOVE   # at the line it moves all the same
+
+
+def test_a_width_of_zero_moves_nothing_ahead():
+    now = time.time()
+    row = [usage_row(five=94)]
+    near, limited = home_is_near(row, RULE, now), home_is_limited(row, RULE, now)
+    assert decide(current="work", home="work", rule=RULE, limited=limited, near=near, at_break=True, cold=True) is Move.STAY
+
+
+# --- coming back ---
+
+def _away(**over):
+    return {**dict(current="personal", home="work", rule=AHEAD_RULE, limited=False, near=False, at_break=True,
+                   cold=True), **over}
+
+
+def test_a_moved_tab_comes_back_when_the_account_is_clear_and_its_cache_is_cold_and_not_before():
+    assert decide(**_away()) is Move.RETURN
+    assert decide(**_away(cold=False)) is Move.STAY                       # a working tab is not brought back at once
+    assert decide(**_away(at_break=False)) is Move.STAY
+
+
+def test_a_moved_tab_stays_while_the_account_is_below_its_line_but_within_the_width_ahead_of_it():
+    assert decide(**_away(limited=False, near=True)) is Move.STAY
+    assert decide(**_away(limited=True, near=True)) is Move.STAY
+    assert decide(**_away(limited=None, near=None)) is Move.STAY
+
+
+def test_a_pinned_tab_and_a_tab_whose_fallback_is_gone_come_back_without_waiting_for_the_cache():
+    assert decide(**_away(cold=False, pinned=True, limited=True, near=True)) is Move.RETURN
+    assert decide(**_away(cold=False, rule=None, limited=None, near=None)) is Move.RETURN
+
+
+def test_a_moved_tab_comes_back_at_once_when_the_account_it_runs_on_is_at_its_line_and_its_own_is_not():
+    over = _away(cold=False, near=True, target_over_line=True)
+    assert decide(**over) is Move.RETURN
+    assert decide(**{**over, "at_break": False}) is Move.STAY
+    assert decide(**{**over, "limited": True}) is Move.STAY                # both are at their lines: it stays, and stops
+    assert decide(**{**over, "limited": None}) is Move.STAY                # not known: it stays
+    assert decide(**{**over, "target_over_line": False}) is Move.STAY
+    assert decide(**{**over, "target_over_line": None}) is Move.STAY
+
+
+def test_the_return_over_the_line_of_the_account_it_runs_on_is_that_and_nothing_else():
+    ok = dict(current="personal", home="work", rule=AHEAD_RULE, limited=False, target_over_line=True)
+    assert returns_over_target_line(**ok) is True
+    assert returns_over_target_line(**{**ok, "current": "work"}) is False        # on its own account
+    assert returns_over_target_line(**{**ok, "rule": None}) is False
+    assert returns_over_target_line(**{**ok, "limited": True}) is False
+    assert returns_over_target_line(**{**ok, "limited": None}) is False
+    assert returns_over_target_line(**{**ok, "target_over_line": False}) is False
+
+
+def test_the_move_that_cannot_wait_for_the_cache_is_the_one_off_an_account_at_its_line_or_off_one_that_reached_its_own():
+    own = dict(home="work", rule=AHEAD_RULE, pinned=False)
+    assert urgent_move(current="work", limited=True, target_over_line=None, **own) is Move.MOVE
+    assert urgent_move(current="work", limited=False, target_over_line=None, **own) is Move.STAY   # only near: it waits
+    assert urgent_move(current="personal", limited=False, target_over_line=True, **own) is Move.RETURN
+    assert urgent_move(current="personal", limited=False, target_over_line=False, **own) is Move.STAY
+    assert urgent_move(current="personal", limited=True, target_over_line=True, **own) is Move.STAY
+
+
+def test_a_pinned_tab_and_a_tab_without_a_fallback_have_no_urgent_move():
+    assert urgent_move(current="personal", home="work", rule=AHEAD_RULE, limited=False, target_over_line=True,
+                       pinned=True) is Move.STAY
+    assert urgent_move(current="personal", home="work", rule=None, limited=None, target_over_line=True,
+                       pinned=False) is Move.STAY

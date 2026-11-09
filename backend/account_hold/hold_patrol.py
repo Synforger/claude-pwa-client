@@ -1,8 +1,11 @@
-"""The account hold patrol: looks over the tabs on the rollover's interval and, while the usage of the 7 days of an
-account is at its line of the day, stops the tabs that run on it (except the ones the operator pinned to their own
-account) at a break. A stopped tab is put to sleep the way the sleep does it (`sleep/sleeper.py`: the same conversation
-reopens when the tab is woken) and keeps the mark `held_at`; nothing continues it by itself, not even a day without a
-line (see `docs/reference/account-hold.md`).
+"""The account hold patrol: looks over the tabs on the rollover's interval and, while the usage of an account is at a
+line (the 7 days at the line of the day, the 5 hours at `five_hour_at_pct`), stops the tabs that run on it (except the
+ones the operator pinned to their own account) at a break. A tab the account fallback moved to the account is not
+stopped while the account it belongs to is clear of its line: the fallback brings it back (see
+`fallback_judgement.returns_over_target_line`), and it is stopped only when both accounts are at their lines. A
+stopped tab is put to sleep the way the sleep does it (`sleep/sleeper.py`: the same conversation reopens when the tab
+is woken) and keeps the mark `held_at`; nothing continues it by itself, not even a day without a line (see
+`docs/reference/account-hold.md`).
 
 What is configured is in `hold_settings.py`, the judgement in `hold_judgement.py`; the break of a tab is read as the
 account fallback reads it. A tab that keeps answering is asked once to come to a break (the mark is `hold_asked_at`);
@@ -16,7 +19,8 @@ import logging
 import time
 
 from backend._common.state import SessionDef, save_sessions_meta, sessions_meta
-from backend.account_fallback.fallback_judgement import pause_overdue
+from backend.account_fallback import fallback_settings
+from backend.account_fallback.fallback_judgement import home_is_limited, pause_overdue, returns_over_target_line
 from backend.account_fallback.fallback_sensors import TabBreak, read_tab_break
 from backend.account_fallback.fallback_settings import display_name_of
 from backend.account_hold.hold_envelope import stop_envelope
@@ -93,6 +97,18 @@ async def _hold(session_id: str, account: str, tab_break: TabBreak, now: float) 
     return True
 
 
+def _goes_back_instead(meta: SessionDef, account: str, rows: list[dict], now: float) -> bool:
+    """Whether the tab, which runs on `account` over its line, is brought back by the account fallback instead of being
+    stopped: it was moved here from an account of which the fallback says it is clear of its line."""
+    home = meta.fallback_from
+    if home is None or home == account:
+        return False
+    rule = fallback_settings.read_rules().get(home)
+    return returns_over_target_line(current=account, home=home, rule=rule,
+                                    limited=home_is_limited(rows, rule, now) if rule is not None else None,
+                                    target_over_line=True)
+
+
 async def _look(session_id: str, rows: list[dict], rules: dict[str, HoldRule], now: float) -> bool:
     """Look at one tab and stop it if it must. True when it was stopped."""
     meta = sessions_meta.get(session_id)
@@ -101,8 +117,8 @@ async def _look(session_id: str, rows: list[dict], rules: dict[str, HoldRule], n
     _release_if_woken(session_id, meta)
     account = account_of(meta)
     over = is_over_line(rows, rules.get(account) if account else None, now)
-    if over is not True or meta.account_pinned or meta.sleep is not None:
-        _clear_ask(session_id, meta)                                     # under the line, kept where it is, or asleep
+    if over is not True or meta.account_pinned or meta.sleep is not None or _goes_back_instead(meta, account, rows, now):
+        _clear_ask(session_id, meta)             # under the line, kept where it is, asleep, or brought back
         return False
     with claimed(session_id) as mine:
         if not mine:
