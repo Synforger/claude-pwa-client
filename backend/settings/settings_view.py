@@ -63,6 +63,15 @@ def _usage_of(account: str, rows: list[dict]) -> dict | None:
                                               "seven_day_resets_at")}
 
 
+def _tab_counts(name: str) -> dict:
+    """The tabs that run on the account: all of them, the ones whose claude is awake, the ones pinned to it and the ones
+    the account hold stopped."""
+    tabs = [meta for meta in list(state.sessions_meta.values()) if account_of(meta) == name]
+    return {"total": len(tabs), "running": sum(1 for meta in tabs if meta.sleep is None),
+            "pinned": sum(1 for meta in tabs if meta.account_pinned),
+            "held": sum(1 for meta in tabs if meta.held_at is not None)}
+
+
 def _account_view(name: str, entry: object, rows: list[dict], now: float) -> dict:
     fallback = fallback_settings.read_rules().get(name)
     hold = hold_settings.read_rules().get(name)
@@ -82,6 +91,7 @@ def _account_view(name: str, entry: object, rows: list[dict], now: float) -> dic
         "hold": None if hold is None else {"seven_day_at_pct": dict(hold.seven_day_at_pct),
                                            "today_pct": hold_line_pct(hold, now)},
         "held_count": len(held),
+        "tabs": _tab_counts(name),
         # A stopped tab can be continued once the usage is under the line of today (= not known counts as under).
         "can_continue": bool(held) and over_hold_line is not True,
         "pinned_tabs": [{"id": meta.id, "title": meta.title} for meta in list(state.sessions_meta.values())

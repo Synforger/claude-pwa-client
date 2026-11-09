@@ -65,6 +65,19 @@ def test_get_counts_the_tabs_a_line_stopped_and_says_whether_they_can_be_continu
     assert _account(client.get("/settings").json(), "personal")["can_continue"] is True
 
 
+def test_get_counts_the_tabs_on_each_account_by_what_they_are_doing(client):
+    register_session("agent_a", "awake", account_id="personal")
+    pinned = register_session("agent_a", "pinned", account_id="personal", account_pinned=True)
+    stopped = register_session("agent_a", "stopped", account_id="personal")
+    stopped.held_at = 5.0
+    stopped.sleep = SleepMark(claude_sid="c", record="/r", slept_at=1)
+    register_session("agent_a", "elsewhere", account_id="work")
+    view = client.get("/settings").json()
+    assert _account(view, "personal")["tabs"] == {"total": 3, "running": 2, "pinned": 1, "held": 1}
+    assert _account(view, "work")["tabs"] == {"total": 1, "running": 1, "pinned": 0, "held": 0}
+    assert pinned.account_pinned
+
+
 def test_get_lists_the_tabs_pinned_to_an_account(client):
     pinned = register_session("agent_a", "pinned", account_id="work", account_pinned=True)
     register_session("agent_a", "not pinned", account_id="work")

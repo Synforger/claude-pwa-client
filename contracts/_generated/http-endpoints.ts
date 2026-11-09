@@ -124,6 +124,8 @@ export interface GetSettingsResponse {
       /** seven_day_at_pct (曜日 → 線) / today_pct (今日の線、 無ければ null) */
       hold?: Record<string, unknown> | null
       held_count: number
+      /** その口座で動くタブの数 (total / running = 眠っていない / pinned = 固定 / held = 線で止まっている) */
+      tabs: Record<string, unknown>
       /** 止まったタブが在り、 使用率が今日の線を下回っている (= 続けられる) */
       can_continue: boolean
       pinned_tabs: ({

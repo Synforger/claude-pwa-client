@@ -268,9 +268,10 @@ endpoints:
               fallback:       { type: object, nullable: true, description: "to / to_display_name / at_pct / seven_day_at_pct / seven_day_today_pct" }
               hold:           { type: object, nullable: true, description: "seven_day_at_pct (曜日 → 線) / today_pct (今日の線、 無ければ null)" }
               held_count:     { type: integer }
+              tabs:           { type: object, description: "その口座で動くタブの数 (total / running = 眠っていない / pinned = 固定 / held = 線で止まっている)" }
               can_continue:   { type: boolean, description: "止まったタブが在り、 使用率が今日の線を下回っている (= 続けられる)" }
               pinned_tabs:    { type: array, items: { type: object, properties: { id: { type: string }, title: { type: string } } } }
-            required: [id, display_name, mode, held_count, can_continue, pinned_tabs]
+            required: [id, display_name, mode, held_count, tabs, can_continue, pinned_tabs]
         agents:
           type: array
           items:

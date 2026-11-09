@@ -72,7 +72,7 @@
 
 ### `GET /settings`
 
-`accounts` (口座ごとの `usage`・`mode` (`fallback` / `hold` / `none`)・`fallback`・`hold`・`held_count`・`can_continue`・`pinned_tabs`)、
+`accounts` (口座ごとの `usage`・`mode` (`fallback` / `hold` / `none`)・`fallback`・`hold`・`held_count`・`tabs` (その口座で動くタブの数の内訳)・`can_continue`・`pinned_tabs`)、
 `agents` (エージェントごとの `sleep_minutes` と `rollover`)、`child_sessions_max`、`notification_title`、`machine`
 (`version`・`backend_started_at`・`loop_stall`)、`limits` (入力の上限と下限) を返します。
 
