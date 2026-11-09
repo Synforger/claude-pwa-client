@@ -88,14 +88,15 @@ export function parseTabOpen(text) {
   return { tier: line ? line.slice('tier='.length).trim() : null }
 }
 
-// backend が自分で書いて打つ連絡 (= 口座を移した時の続けての連絡と、 上限が戻った時の連絡)。 1 行目は backend の
+// backend が自分で書いて打つ連絡 (= 口座を移した時の続けての連絡、 上限が戻った時の連絡、 口座の止める線で止める連絡と続ける連絡)。 1 行目は backend の
 // `jsonl/jsonl_predicates.py` と同じ文字列で、 backend の test が両者の一致を見ている。 連絡の種類は次の block が言う。
 export const CLIENT_NOTICE_OPENING = 'Sent by the client (the operator did not type this):'
 
-const NOTICE = /^<(account-move|limit-resume)((?: [a-z_]+="[^"\n]*")*)>\n([\s\S]*)\n<\/\1>\s*$/
+const NOTICE = /^<(account-move|account-hold|limit-resume)((?: [a-z_]+="[^"\n]*")*)>\n([\s\S]*)\n<\/\1>\s*$/
 
-/** client の連絡なら { kind, from, to, account, text } (= `account-move` か `limit-resume` / 口座を移した連絡の
- *  移る前と後の口座 / 上限が戻った連絡の口座、 無い欄は null / 本文)、 違えば null。 */
+/** client の連絡なら { kind, from, to, account, phase, text } (= `account-move` / `account-hold` / `limit-resume` /
+ *  口座を移した連絡の移る前と後の口座 / 止める線の連絡と上限が戻った連絡の口座 / 止める線の連絡の `stop` か `continue`、
+ *  無い欄は null / 本文)、 違えば null。 */
 export function parseClientNotice(text) {
   if (typeof text !== 'string') return null
   const trimmed = text.trimStart()
@@ -107,6 +108,7 @@ export function parseClientNotice(text) {
     from: attribute(m[2], 'from'),
     to: attribute(m[2], 'to'),
     account: attribute(m[2], 'account'),
+    phase: attribute(m[2], 'phase'),
     text: m[3],
   }
 }

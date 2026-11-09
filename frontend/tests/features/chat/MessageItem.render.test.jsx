@@ -264,6 +264,22 @@ describe('進行中かは表示位置から導出する', () => {
     expect(container.firstChild.className).toContain('relayed')
   })
 
+  it('the client\'s notices of the account hold say with the account which of the two it is', () => {
+    const labels = []
+    for (const phase of ['stop', 'continue']) {
+      const text = `${CLIENT_NOTICE_OPENING}\n<account-hold phase="${phase}" account="personal">\nbody ${phase}\n</account-hold>`
+      const { container, getByTestId, unmount } = render(
+        <MessageItem {...baseProps} msg={{ id: `h-${phase}`, role: 'user', text }} />,
+      )
+      labels.push(getByTestId('client-notice-label').textContent)
+      expect(getByTestId('client-notice-body').textContent).toContain(`body ${phase}`)
+      expect(container.textContent).not.toContain('<account-hold')
+      unmount()
+    }
+    expect(labels.every(label => label.includes('personal'))).toBe(true)
+    expect(labels[0]).not.toBe(labels[1])
+  })
+
   it('the client\'s notice after a limit ended shows the account', () => {
     const text = `${CLIENT_NOTICE_OPENING}\n<limit-resume account="personal">\nThe usage limit has ended.\n</limit-resume>`
     const { container, getByTestId } = render(

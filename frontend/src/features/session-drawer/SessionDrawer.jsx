@@ -33,7 +33,6 @@ import { AccountPinMark, AccountPinMenuItem } from './AccountPin.jsx'
 import { loadFolded, toggleFolded } from './sessionTree.js'
 import { folderTree, loadFoldedFolders, toggleFoldedFolder } from './folderTree.js'
 import { sendTreeReport, treeReport } from './treeReport.js'
-import { usePushSubscription } from '../push-notify/usePushSubscription.js'
 import {
   TEXT_ZOOM_MAX,
   TEXT_ZOOM_MIN,
@@ -48,13 +47,8 @@ import {
   setLang,
 } from '../../state/locale.js'
 import { useT } from '../../i18n/t.js'
-import { hardRefreshAppShell } from '../../_common/appRefresh.js'
 import { runningBuildId } from '../../_common/appUpdate.js'
-import ConfirmDialog from '../../_common/ConfirmDialog.jsx'
 import './SessionDrawer.css'
-
-// backend の再起動後、 新しい backend が応答したかを問い合わせる間隔。
-const RESTART_POLL_MS = 1000
 
 // ⋯ メニューを押した時、 viewport 下端からどれくらい離れていれば「上方向に展開する」 と
 // 判定するか (= px)。 近すぎると下に展開した popup が画面外に出るので flip-up に切替。
@@ -64,7 +58,7 @@ const MENU_FLIP_UP_THRESHOLD_PX = 140
 // - 上部: 「+ 新規会話」 → agent を選ぶ → createSession
 // - リスト: 会話項目をタップで activeSession 切替、 ⋯ メニューでリネーム / 削除
 // - badges: pending(?)、 processing(●青)、 new(●赤) を項目右に表示
-// - ヘッダの ⋯ : ドロワー総合メニュー (通知 ON/OFF、 リセット等の PWA レベル設定)
+// - ヘッダの ⚙ : ドロワー総合メニュー (設定の画面を開く、 文字の大きさ、 言語)
 //
 // W2 Phase E-2 (= 2026-06-29): props 自己解決化。 OverlayHost が引数なしで lazy + Suspense で
 // render し、 本 component は state/sessions.js + state/messages.js + state/ephemeral.js +
@@ -127,15 +121,7 @@ export default function SessionDrawer() {
   const onSetAccountPinned = useCallback((id, pinned) => setAccountPinned(id, pinned), [])
   const onDelete = useCallback((sid) => setOverlay('confirmDelete', sid), [])
 
-  // Push 状態を本 component で直接 hook (= usePushSubscription)。 onCloseMenu は SessionDrawer
-  // の global メニューを閉じる callback を渡す。 mountEffects 未指定 (= default false) で
-  // 副作用 listener は AppEffects.jsx 側 1 instance に集約 (= J-2、 state/push.js singleton store
-  // 経由で state を共有)、 本 instance は subscribe + toggle 呼出のみ。
   const [globalMenuOpen, setGlobalMenuOpen] = useState(false)  // ヘッダ ⋯ の総合メニュー
-  const {
-    pushEnabled, pushBroken, pushBusy, pushAvailable, handleTogglePush,
-  } = usePushSubscription({ onCloseMenu: () => setGlobalMenuOpen(false) })
-  const onTogglePush = handleTogglePush
 
   const [agentPicker, setAgentPicker] = useState(false) // + ボタン押下後の agent 選択メニュー
   const [accounts, setAccounts] = useState([])
@@ -147,92 +133,10 @@ export default function SessionDrawer() {
   const [renameFor, setRenameFor] = useState(null)      // リネーム inline 編集中の session_id
   const [renameValue, setRenameValue] = useState('')
   const renameInputRef = useRef(null)
-  const [resetBusy, setResetBusy] = useState(false)
   const globalMenuRef = useRef(null)
   const isLastSession = sessions.length <= 1
-  // リセット (= SW を新版に差し替え + cache 全消し + reload)。
-  // PWA 化すると Safari の cache クリア UI に届かなくなるための救済。
-  // localStorage / IndexedDB / 通知許可は触らない (= 状態は保持)。
-  // 注: registration.unregister() は紐づく PushSubscription を無効化する (W3C 仕様)。
-  // 過去にこれを呼んでいたため backend に古い endpoint が大量に残った。 update() で
-  // 新版 SW を install (= sw.js の skipWaiting + clients.claim で即時反映) して、
-  // 既存 PushSubscription は維持する。
-  const runningBuild = useMemo(() => runningBuildId(), [])
-  const handleReset = async () => {
-    setResetBusy(true)
-    // 刷新本体は _common/appRefresh.js (= vite:preloadError 自動復旧と共有の真値 1 箇所)。
-    await hardRefreshAppShell()
-  }
-  // global popup に出す項目があるか (= ⋯ ボタン自体の表示条件)。
-  // リセットは常時あるので、 ⋯ ボタンは常に表示される。
+  // 総合メニュー (= ⚙) に出す項目は、 設定を開く・文字の大きさ・言語で、 常にあるので ⚙ は常に表示される。
   const hasGlobalMenuItems = true
-
-  // backend 再起動 (= backend が launchd に kickstart を頼む)。 出すのは backend が
-  // 再起動できると答えた時だけ (= launchd の job でない backend は止めたら戻らない)。
-  // 総合メニューを開くたびに問い合わせる (= 失敗は「出さない」 側に倒す)。
-  const [restartable, setRestartable] = useState(false)
-  const [restartConfirm, setRestartConfirm] = useState(false)
-  const [restartError, setRestartError] = useState('')
-  const [restarting, setRestarting] = useState(false)
-  // 再起動前の backend の起動時刻。 これと違う値が返ったら新しい backend が応答している。
-  const startedAtRef = useRef(null)
-  useEffect(() => {
-    if (!globalMenuOpen) return
-    const ctrl = new AbortController()
-    apiFetch('/backend/restartable', { signal: ctrl.signal })
-      .then(r => (r.ok ? r.json() : { restartable: false }))
-      .then(body => {
-        setRestartable(Boolean(body.restartable))
-        startedAtRef.current = body.started_at ?? null
-      })
-      .catch(() => setRestartable(false))
-    return () => ctrl.abort()
-  }, [globalMenuOpen])
-  const handleRestart = async () => {
-    setRestartConfirm(false)
-    setRestartError('')
-    try {
-      const r = await apiFetch('/backend/restart', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: true }),
-      })
-      if (!r.ok) {
-        const body = await r.json().catch(() => ({}))
-        setRestartError(body.detail || `HTTP ${r.status}`)
-        return
-      }
-    } catch (e) {
-      setRestartError(String(e?.message || e))
-      return
-    }
-    setRestarting(true)
-    // 新しい backend が応答するまで待ち、 アプリごと読み込み直す (= 「アプリを更新」 と同じ
-    // 刷新なので、 backend と一緒に入った新しい画面もここで拾う)。 戻らない間は帯が出たまま。
-    // 起動時刻を返さない backend からの入れ替えでは、 一度つながらなくなってから
-    // またつながったことを「戻った」 とする (= 止まる前の古い backend の応答と取り違えない)。
-    const before = startedAtRef.current
-    let wentDown = false
-    for (;;) {
-      await new Promise(resolve => setTimeout(resolve, RESTART_POLL_MS))
-      try {
-        const r = await apiFetch('/backend/restartable', { retry: 0 })
-        if (!r.ok) { wentDown = true; continue }
-        const body = await r.json()
-        if (before != null ? body.started_at !== before : wentDown) break
-      } catch {
-        wentDown = true // 止まっている間は接続できない。 そのまま待つ。
-      }
-    }
-    await hardRefreshAppShell()
-  }
-  // 失敗の理由はボタンの直下に出すので、 閉じたメニューを開き直す。
-  useEffect(() => {
-    if (restartError) setGlobalMenuOpen(true)
-  }, [restartError])
-  useEffect(() => {
-    if (!globalMenuOpen) setRestartError('')
-  }, [globalMenuOpen])
 
   useEffect(() => {
     if (renameFor && renameInputRef.current) {
@@ -405,43 +309,13 @@ export default function SessionDrawer() {
             <button className="drawer-close" onClick={onClose} aria-label={t('drawer.close')}>×</button>
             {globalMenuOpen && hasGlobalMenuItems && (
               <div className="drawer-global-popup" onClick={e => e.stopPropagation()}>
-                {pushAvailable && onTogglePush && (
-                  <button
-                    onClick={() => { setGlobalMenuOpen(false); onTogglePush() }}
-                    disabled={pushBusy}
-                  >
-                    {pushEnabled
-                      ? t('drawer.push.on')
-                      : pushBroken
-                        ? t('drawer.push.broken')
-                        : t('drawer.push.off')}
-                  </button>
-                )}
+                {/* 設定の画面 (= 口座の線・眠りと入れ替え・通知・アプリの更新と backend の再起動) を開く */}
                 <button
-                  onClick={() => { setGlobalMenuOpen(false); handleReset() }}
-                  disabled={resetBusy}
-                  title={t('drawer.menu.update_app_title')}
+                  onClick={() => { setGlobalMenuOpen(false); setOverlay('drawer', false); setOverlay('settings', true) }}
+                  data-testid="open-settings"
                 >
-                  {t('drawer.menu.update_app')}
-                  {/* この画面が動かしている build (= 載せた build と同じかを見比べる手がかり) */}
-                  {runningBuild && (
-                    <span className="drawer-global-build" data-testid="running-build">build {runningBuild}</span>
-                  )}
+                  {t('drawer.menu.settings')}
                 </button>
-                {restartable && (
-                  <button
-                    onClick={() => { setGlobalMenuOpen(false); setRestartConfirm(true) }}
-                    title={t('drawer.menu.restart_backend_title')}
-                    data-testid="restart-backend"
-                  >
-                    {t('drawer.menu.restart_backend')}
-                  </button>
-                )}
-                {restartError && (
-                  <div className="drawer-global-error" role="alert">
-                    {t('drawer.restart.failed', { reason: restartError })}
-                  </div>
-                )}
                 {/* メモと markdown のプレビューの字の大きさ。 − / ＋ は 10% ずつ、 % を押すと 100% に戻る。
                     押しても閉じない (= 何度か押して決める) */}
                 <div className="drawer-global-size-row" data-testid="text-size">
@@ -747,17 +621,6 @@ export default function SessionDrawer() {
           })}
         </div>
       </aside>
-      {restarting && (
-        <div className="backend-restart-banner" role="status" data-testid="backend-restarting">
-          {t('drawer.restart.in_progress')}
-        </div>
-      )}
-      <ConfirmDialog
-        open={restartConfirm}
-        text={t('drawer.restart.confirm')}
-        onCancel={() => setRestartConfirm(false)}
-        onConfirm={handleRestart}
-      />
     </>
   )
 }
