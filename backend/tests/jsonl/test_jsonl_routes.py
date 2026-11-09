@@ -267,6 +267,35 @@ def test_busy_after_idle_settles_missing_terminal_marker(tmp_path):
     assert busy_after_idle(p) is False
 
 
+_NOTIFICATION = {"type": "user", "origin": {"kind": "task-notification"},
+                 "message": {"content": "<task-notification>\n<status>killed</status>\n</task-notification>"}}
+_ANSWERED = {"type": "assistant", "message": {"content": [{"type": "text", "text": "waiting"}], "stop_reason": "end_turn"}}
+
+
+def test_busy_after_idle_settles_a_notification_no_request_followed(tmp_path):
+    # Intent: a claude started again writes the notification of the background task it lost and waits for input;
+    # the tab is not answering, or the child watch never tells the parent that it stopped.
+    from backend.jsonl.session_status import busy_after_idle, compute_busy_from_tail
+    p = tmp_path / "s.jsonl"
+    _write_jsonl(p, [{"type": "user", "message": {"content": "go"}}, _ANSWERED, _NOTIFICATION])
+    assert compute_busy_from_tail(p) is True
+    assert busy_after_idle(p) is False
+
+
+def test_busy_after_idle_keeps_a_notification_being_answered_busy(tmp_path):
+    from backend.jsonl.session_status import busy_after_idle
+    p = tmp_path / "s.jsonl"
+    _write_jsonl(p, [_ANSWERED, _NOTIFICATION, {"type": "api-request"}])
+    assert busy_after_idle(p) is True
+
+
+def test_busy_after_idle_keeps_a_person_s_prompt_busy_before_its_request(tmp_path):
+    from backend.jsonl.session_status import busy_after_idle
+    p = tmp_path / "s.jsonl"
+    _write_jsonl(p, [_ANSWERED, {"type": "user", "origin": {"kind": "human"}, "message": {"content": "next"}}])
+    assert busy_after_idle(p) is True
+
+
 def test_busy_after_idle_keeps_tool_use_busy(tmp_path):
     # 末尾が tool_use (= 長時間ツール実行中) は idle でも busy 維持 (誤って送信ボタンに戻さない)
     from backend.jsonl.session_status import busy_after_idle

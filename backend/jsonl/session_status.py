@@ -247,6 +247,17 @@ def compute_busy_from_tail(path: Path, tail_bytes: int = 32768) -> bool:
     return False
 
 
+# The `origin.kind` of the user row Claude Code writes for a background task's notification, and the type of the row
+# it writes when it sends a request to the model (= a turn has begun).
+TASK_NOTIFICATION_ORIGIN = "task-notification"
+API_REQUEST_ROW = "api-request"
+
+
+def _is_task_notification(line: dict) -> bool:
+    origin = line.get("origin")
+    return isinstance(origin, dict) and origin.get("kind") == TASK_NOTIFICATION_ORIGIN
+
+
 def busy_after_idle(path: Path, tail_bytes: int = 32768) -> bool:
     """idle watchdog 用の busy 再判定。 monitor が busy=True のまま長時間 JSONL が静かな時に呼ぶ。
 
@@ -256,11 +267,19 @@ def busy_after_idle(path: Path, tail_bytes: int = 32768) -> bool:
     マーカー欠落 (= claude-code #22566) とみなして settled=False** を返す。 長時間 新規行
     ゼロなら streaming 途中ではあり得ず、 応答済みと判断できるため安全。 IN_PROGRESS
     (= `tool_use` 末尾、 長時間ツール実行中) は busy=True を維持するので、 ツール実行中に
-    誤って送信ボタンへ戻すことはない。"""
+    誤って送信ボタンへ戻すことはない。
+
+    A background task's notification that no request to the model followed is settled too: the claude did not take
+    it up. A claude started again (= its tab moved to another account, which ends the commands it ran in the
+    background) writes the notification of the task it lost and waits for input, and nothing would end the turn."""
     lines = _read_tail_lines(path, tail_bytes)
     if not lines:
         return False
+    requested = False
     for d in reversed(lines):
+        if d.get("type") == API_REQUEST_ROW:
+            requested = True
+            continue
         kind = classify_jsonl_line(d)
         if kind == LineKind.IN_PROGRESS:
             return True
@@ -270,7 +289,7 @@ def busy_after_idle(path: Path, tail_bytes: int = 32768) -> bool:
         if kind == LineKind.INTERRUPT:
             return False
         if kind == LineKind.START:
-            return True
+            return requested or not _is_task_notification(d)
     return False
 
 
