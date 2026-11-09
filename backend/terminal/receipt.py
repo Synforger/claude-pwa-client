@@ -4,7 +4,8 @@ sure the typed message was taken.
 A claude reopening a conversation is ready by its hooks (`input_ready`) before it has read the conversation and drawn
 its screen, and keys typed in between are lost, though the typing itself succeeds. So a woken tab is typed to only
 once its pane shows Claude's screen, and what was typed is then looked for in the conversation record: a row of a
-person's prompt. When it does not come, the pane says why: the text still waits in the input (Enter was lost) or it is
+person's prompt, or, when Claude was answering, the row of the text being queued (= it is read at the turn's next
+break, and shows in the input box until then). When it does not come, the pane says why: the text still waits in the input (Enter was lost) or it is
 gone (it was typed too early); either is put right once.
 
 Used by `routes/agent_messages.py` for a tab it had to wake (`deliver_to_woken`, `wait_for_claude_screen`). A tab that
@@ -17,7 +18,7 @@ import asyncio
 import logging
 
 from backend.terminal.ansi_text import strip_ansi
-from backend.terminal.confirm import CONFIRM_TIMEOUT_SEC, wait_prompt_row
+from backend.terminal.confirm import CONFIRM_TIMEOUT_SEC, wait_taken_row
 from backend.terminal.prompt_detector import claude_tui_owns_screen
 from backend.terminal.routes import pty_send
 from backend.terminal.runner import capture_pane_ansi_tail, jsonl_path_for_session, tmux_send_keys
@@ -59,9 +60,9 @@ def text_waits_in_input(pane: str, text: str) -> bool:
     return PASTE_PLACEHOLDER in pane or (bool(head) and head in " ".join(pane.split()))
 
 
-async def _taken(session_id: str, initial_pos: int, timeout: float) -> bool:
+async def _taken(session_id: str, initial_pos: int, timeout: float, text: str) -> bool:
     path = jsonl_path_for_session(session_id)
-    return path is not None and await wait_prompt_row(path, initial_pos, timeout)
+    return path is not None and await wait_taken_row(path, initial_pos, timeout, text)
 
 
 def _record_end(session_id: str) -> int:
@@ -80,7 +81,7 @@ async def deliver_to_woken(session_id: str, text: str) -> bool:
     result = await pty_send(session_id, {"text": text, "enter": True}, None)
     if not result.get("ok"):
         return False
-    if result.get("confirmed") or await _taken(session_id, initial_pos, TAKEN_WAIT_SEC - CONFIRM_TIMEOUT_SEC):
+    if result.get("confirmed") or await _taken(session_id, initial_pos, TAKEN_WAIT_SEC - CONFIRM_TIMEOUT_SEC, text):
         return True
     if text_waits_in_input(await asyncio.to_thread(pane_text, session_id), text):
         logger.info("receipt: the message waits in the input, sending Enter session=%s", session_id)
@@ -89,4 +90,4 @@ async def deliver_to_woken(session_id: str, text: str) -> bool:
         logger.info("receipt: the message is gone, typing it again session=%s", session_id)
         if not (await pty_send(session_id, {"text": text, "enter": True}, None)).get("ok"):
             return False
-    return await _taken(session_id, initial_pos, TAKEN_WAIT_SEC)
+    return await _taken(session_id, initial_pos, TAKEN_WAIT_SEC, text)

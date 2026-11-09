@@ -21,7 +21,7 @@ import json
 import logging
 import re
 
-from backend.jsonl.jsonl_predicates import INTERRUPT_USER_RE
+from backend.jsonl.jsonl_predicates import INTERRUPT_USER_RE, unwrap_pasted
 from backend.jsonl.jsonl_predicates import is_user_prompt as _is_user_prompt_pred
 from backend.jsonl.jsonl_tail import read_complete_lines
 
@@ -30,6 +30,9 @@ logger = logging.getLogger(__name__)
 # 送達確認の監視窓。 これを過ぎても confirmed=False は送達失敗と限らない
 # (= picker 等の対話 UI や turn 実行中の queue 送信では確認行が書かれない)。
 CONFIRM_TIMEOUT_SEC: float = 4.0
+
+# How much of a typed text a queued prompt has to begin with to count as that text (= whitespace folded).
+TAKEN_HEAD_CHARS = 30
 
 # slash command (= /deep-research, /clear 等) を素プロンプトと区別して数える。
 # `_count_user_prompts` が harness XML として除外する `<command-name>` 行をこちらで拾う。
@@ -137,10 +140,42 @@ async def _wait_count_added(counter, path, initial_pos: int, timeout: float) -> 
     return n > 0
 
 
-async def wait_prompt_row(path, initial_pos: int, timeout: float) -> bool:
-    """Wait until a row of a person's prompt is written to the record after `initial_pos` (= its size before the typing),
-    for at most `timeout` seconds. True when one is."""
-    return await _wait_count_added(_count_user_prompts, path, initial_pos, timeout=timeout)
+def _flat(text: str) -> str:
+    return " ".join(unwrap_pasted(text).split())
+
+
+def _is_queued_text(d: dict, head: str) -> bool:
+    """A row saying Claude put a prompt that begins with `head` in its queue. Text typed while Claude answers is queued
+    and read at the turn's next break; it gets no row of a person's prompt, but this row is written as it is queued."""
+    return (d.get("type") == "queue-operation" and d.get("operation") == "enqueue"
+            and isinstance(d.get("content"), str) and _flat(d["content"]).startswith(head))
+
+
+def _taken_counter(text: str):
+    """A counter of the rows that show `text` was taken: a row of a person's prompt, or the queueing of `text`."""
+    head = _flat(text)[:TAKEN_HEAD_CHARS]
+
+    def count(path, from_pos: int = 0) -> tuple[int, int]:
+        try:
+            lines, end_pos = read_complete_lines(path, from_pos)
+        except OSError:
+            return (0, from_pos)
+        found = _count_in_lines(lines, _is_plain_user_prompt)
+        for raw in lines:
+            try:
+                d = json.loads(raw)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            found += bool(head) and isinstance(d, dict) and _is_queued_text(d, head)
+        return (found, end_pos)
+    return count
+
+
+async def wait_taken_row(path, initial_pos: int, timeout: float, text: str) -> bool:
+    """Wait until the record shows that `text`, typed when the record was `initial_pos` long, was taken: a row of a
+    person's prompt, or the row of `text` being queued because Claude was answering. True when one is written within
+    `timeout` seconds."""
+    return await _wait_count_added(_taken_counter(text), path, initial_pos, timeout=timeout)
 
 
 def _delivery_counter(text: str):
