@@ -400,7 +400,8 @@ async def wake_tab(tab_id: str) -> bool:
     it has read the conversation and drawn the input, and what is typed in between is lost."""
     if _tab_running(tab_id):
         return False
-    shell_left = has_tmux_session(tab_id) and input_ready.is_ready(tab_id)
+    # A launch still starting is waited for, not typed a second time (= `input_ready.launching`).
+    shell_left = has_tmux_session(tab_id) and input_ready.is_ready(tab_id) and not input_ready.launching(tab_id)
     await ensure_pty_session_for(tab_id)
     if shell_left and _reopens_in_its_shell(tab_id) and (command := resume_command_for(tab_id)) is not None:
         input_ready.mark_starting(tab_id)

@@ -393,7 +393,7 @@ async def spawn_pty_session(
     # JSONL に何も書かれない (= フォーク resume と同型の罠)。 register_claude_when_ready が
     # claude プロセスを検出できなければ autoresume 失敗とみなして fallback alias を打ち直す。
     if fallback_alias and is_new_tmux_session and USE_TMUX_WRAP:
-        asyncio.create_task(_autoresume_watchdog(session_id, fallback_alias))
+        asyncio.create_task(_autoresume_watchdog(session_id, fallback_alias, session=session))
     return session
 
 
@@ -470,6 +470,7 @@ async def _send_launch_alias(
 async def _autoresume_watchdog(
     session_id: str, fallback_alias: str,
     initial_delay: float = 2.0, max_wait: float = 10.0, interval: float = 0.5,
+    *, session: "PtySession | None" = None,
 ) -> None:
     """`claude --resume <id>` が即 exit した時に通常 alias で再起動する watchdog。
 
@@ -483,10 +484,19 @@ async def _autoresume_watchdog(
     起動した claude と二重起動 → 元会話喪失」 の race を起こす。 加えて、 投入直前に
     jsonl_watcher の binding が confirmed=true になっていれば SessionStart hook が走った証拠
     なので fallback は不要 → 投入をキャンセル。
+
+    The `max_wait` window starts once the shell has shown its prompt (`session.prompt_ready`, up to
+    `input_ready.LAUNCH_GIVE_UP_SEC`): the alias was typed ahead of it, and on a loaded machine a new shell can take
+    minutes to run it, which would otherwise look like a claude that exited at once.
     """
     try:
         from backend.terminal.pty_discover import tmux_pane_pids, find_claude_descendant
         import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
+        if session is not None and session.control_mode:
+            try:
+                await asyncio.wait_for(session.prompt_ready.wait(), timeout=input_ready.LAUNCH_GIVE_UP_SEC)
+            except asyncio.TimeoutError:
+                logger.warning("autoresume watchdog: the shell showed no prompt session=%s", session_id)
         await asyncio.sleep(initial_delay)
         loop = asyncio.get_running_loop()
         deadline = loop.time() + max_wait

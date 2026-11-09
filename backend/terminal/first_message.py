@@ -20,6 +20,11 @@ claude の居ない pane に届いた発話は、 そのタブに開き直せる
 「claude がまだ居ない」 は pane のプロセスで決める (= backend の記憶に頼ると、 再起動を跨いだ時に
 本文が zsh へコマンドとして打たれる)。 起動を打った後は `input_ready` の旗で次の送信を待たせる
 (= 起動途中の wrapper へ打鍵が流れ込まない)。
+
+A launch stays in flight until its claude announces itself (`input_ready.launching`), however long the machine takes
+to start it. While it is in flight no second launch is typed, and every message that arrives for the tab (the one the
+launch was typed for included) is held here and typed in order once the claude's screen is up, each checked for
+receipt (`receipt.deliver_to_woken`). Nothing is typed into a pane whose claude has not announced itself.
 """
 from __future__ import annotations
 
@@ -53,8 +58,10 @@ LAUNCH_DISCOVER_SEC = 60.0
 # The block a child tab's first message carries its tier in (= written by `tabs new`, read by the launcher).
 CHILD_START = re.compile(r"^<child-start>$", re.M)
 
-# 封筒で起動した後に本文を打つ task (= 参照を持たないと、 終わる前に回収されることがある)。
-_following: set[asyncio.Task] = set()
+# Messages held for a tab while its launch is in flight, in the order they arrived, and the one task per tab that types
+# them (= kept referenced, or it may be collected before it ends).
+_held: dict[str, list[str]] = {}
+_typers: dict[str, asyncio.Task] = {}
 
 # ⟳ のやり直しで、 次の発話を新しい会話で始めるタブ (= backend の再起動を跨ぐと消え、 その時は開き直す側に倒れる)。
 _fresh_requested: set[str] = set()
@@ -113,9 +120,17 @@ async def launch_with_first_message(session_id: str, text: str) -> dict | None:
     logger.info("first message launch session=%s tier_tab=%s", session_id, tier)
     asyncio.create_task(register_claude_when_ready(session_id, max_wait=LAUNCH_DISCOVER_SEC))
     if tier is not None:
-        task = asyncio.create_task(_send_when_ready(session_id, text))
-        _following.add(task)
-        task.add_done_callback(_following.discard)
+        _hold(session_id, text)
+    return {"ok": True, "launched": True}
+
+
+def hold_while_launching(session_id: str, text: str) -> dict | None:
+    """Keep `text` for the tab while a launch typed into its pane is still starting, to be typed once that claude takes
+    input. → the send's answer, or None when no launch is in flight (= the caller sends as usual)."""
+    if not input_ready.launching(session_id):
+        return None
+    _hold(session_id, text)
+    logger.info("launch in flight: holding the message until its claude takes input session=%s", session_id)
     return {"ok": True, "launched": True}
 
 
@@ -139,9 +154,7 @@ async def _reopen_then_send(session_id: str, text: str) -> dict:
         return {"ok": False, "reason": "launch_failed"}
     logger.info("tab without a claude: reopened its conversation for the first message session=%s", session_id)
     asyncio.create_task(register_claude_when_ready(session_id, max_wait=LAUNCH_DISCOVER_SEC))
-    task = asyncio.create_task(_send_when_ready(session_id, text))
-    _following.add(task)
-    task.add_done_callback(_following.discard)
+    _hold(session_id, text)
     return {"ok": True, "launched": True}
 
 
@@ -167,12 +180,40 @@ def _placed_tier(session_id: str, text: str) -> str | None:
     return meta.tier or (parent.tier if parent is not None else None) or DEFAULT_TIER
 
 
-async def _send_when_ready(session_id: str, text: str) -> None:
-    """Type `text` as the next message once the claude started by the envelope takes input."""
-    from backend.terminal.routes import pty_send  # noqa: PLC0415  (= routes imports this module)
-    if not await input_ready.wait_ready(session_id, LAUNCH_DISCOVER_SEC):
-        logger.warning("tier tab: claude did not take input in %ds session=%s", LAUNCH_DISCOVER_SEC, session_id)
-    result = await pty_send(session_id, {"text": text, "enter": True}, None)
-    if not result.get("ok"):
-        logger.error("tier tab: the message after the envelope did not go in session=%s reason=%s",
-                     session_id, result.get("reason"))
+def _hold(session_id: str, text: str) -> None:
+    """Add `text` to the tab's held messages, and start the task that types them unless it runs already."""
+    _held.setdefault(session_id, []).append(text)
+    task = _typers.get(session_id)
+    if task is None or task.done():
+        task = asyncio.create_task(_type_held(session_id))
+        _typers[session_id] = task
+        task.add_done_callback(lambda done: _typers.pop(session_id) if _typers.get(session_id) is done else None)
+
+
+async def _type_held(session_id: str) -> None:
+    """Type the tab's held messages one by one, each once the launch in flight has ended and Claude's screen is up.
+    A launch given up is followed by sending the held messages again, which launches anew with the first of them."""
+    # routes and receipt import this module.
+    from backend.terminal import receipt, routes  # noqa: PLC0415
+    while _held.get(session_id):
+        if not await input_ready.wait_launched(session_id):
+            logger.error("launch given up: no claude announced itself in %.0fs session=%s; sending the held messages "
+                         "again", input_ready.LAUNCH_GIVE_UP_SEC, session_id)
+            input_ready.abandon_launch(session_id)
+            for text in _held.pop(session_id, []):
+                result = await routes.pty_send(session_id, {"text": text, "enter": True}, None)
+                if not result.get("ok"):
+                    logger.error("a held message did not go in session=%s reason=%s", session_id, result.get("reason"))
+            continue
+        if not await receipt.wait_for_claude_screen(session_id):
+            logger.warning("held message: the screen of session=%s did not look like Claude's; typing anyway", session_id)
+        text = _held[session_id].pop(0)
+        try:
+            taken = await receipt.deliver_to_woken(session_id, text)
+        except Exception:
+            # The tab may have been closed meanwhile; the next held message is still tried.
+            logger.exception("a held message could not be typed session=%s", session_id)
+            continue
+        if not taken:
+            logger.error("a held message was not taken session=%s", session_id)
+    _held.pop(session_id, None)

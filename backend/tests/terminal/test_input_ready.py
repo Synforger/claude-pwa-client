@@ -87,42 +87,50 @@ def _fake_tmux(monkeypatch, calls):
     return routes
 
 
-def test_send_does_not_type_until_claude_is_up(monkeypatch):
-    """起動中の pane には 1 打鍵も入れない。 ready になってから本文と Enter が出る。
+def test_send_during_a_launch_is_held_and_typed_once_claude_is_up(monkeypatch):
+    """起動中の pane には 1 打鍵も入れない。 本文は預かり、 claude が起動を知らせてから打つ。
 
     endpoint を直呼びする test は sid を共有しない: `Idempotency-Key` の既定値が
     FastAPI の Header object のまま渡るので、 同じ sid で 2 度呼ぶと send_dedup が
     2 発目を「連打」 と見て落とす (= 実運用では header の実値 or None が入る)。
     """
+    import backend.terminal.first_message as fm
+    import backend.terminal.receipt as receipt
     calls: list[dict] = []
+    delivered: list[str] = []
     routes = _fake_tmux(monkeypatch, calls)
+
+    async def fake_deliver(_sid, text):
+        delivered.append(text)
+        return True
+
+    async def screen_up(_sid):
+        return True
+    monkeypatch.setattr(receipt, "deliver_to_woken", fake_deliver)
+    monkeypatch.setattr(receipt, "wait_for_claude_screen", screen_up)
+    monkeypatch.setattr(input_ready, "LAUNCH_LOOK_SEC", 0.001)
 
     async def scenario():
         input_ready.mark_starting("ses_wait")
-        send = asyncio.create_task(
-            routes.pty_send("ses_wait", {"text": "hello", "enter": True})
-        )
+        out = await routes.pty_send("ses_wait", {"text": "hello", "enter": True})
+        assert out == {"ok": True, "launched": True}
         for _ in range(20):
             await asyncio.sleep(0)
-        assert calls == [], f"claude 起動前に打鍵している: {calls}"
+        assert calls == [] and delivered == [], f"claude 起動前に打鍵している: {calls}"
         input_ready.mark_ready("ses_wait")
-        out = await send
-        assert out["ok"] is True
-        assert calls == [
-            {"text": "hello", "key": None, "enter": False},
-            {"text": None, "key": None, "enter": True},
-        ]
+        await asyncio.gather(*fm._typers.values())
+        assert delivered == ["hello"]
     asyncio.run(scenario())
 
 
 def test_send_refuses_instead_of_typing_blind_after_the_timeout(monkeypatch):
-    """待ち切れなかったら打鍵せず失敗を返す (= 本文は client 側の入力欄へ戻る)。"""
+    """起動中でないのに旗が下りた pane では、 待ち切れなかったら打鍵せず失敗を返す (= 本文は client 側の入力欄へ戻る)。"""
     calls: list[dict] = []
     routes = _fake_tmux(monkeypatch, calls)
     monkeypatch.setattr(input_ready, "INPUT_READY_TIMEOUT_SEC", 0.01)
 
     async def scenario():
-        input_ready.mark_starting("ses_timeout")
+        input_ready._slot("ses_timeout").clear()
         out = await routes.pty_send("ses_timeout", {"text": "hello", "enter": True})
         assert out == {"ok": False, "reason": "not_ready"}
         assert calls == [], f"待ち切れなかったのに打鍵している: {calls}"

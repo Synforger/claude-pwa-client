@@ -59,9 +59,9 @@ from backend.terminal.confirm import (
     _is_plain_user_prompt,
     _wait_count_added,
 )
-from backend.terminal.first_message import launch_with_first_message
+from backend.terminal.first_message import hold_while_launching, launch_with_first_message
 from backend.speech.speech import VOICE_INPUT_MARK, mark_voice_input
-from backend.terminal.input_ready import wait_ready
+from backend.terminal.input_ready import launching, wait_ready
 from backend.terminal.send_dedup import send_dedup
 from backend.terminal.session_resolver import (
     ensure_pty_session_for,
@@ -636,6 +636,9 @@ async def pty_send(session_id: str, payload: dict, idempotency_key: str | None =
     if os.environ.get("CPC_E2E") == "1" and text and enter:
         return _e2e_inject_user_row(session_id, text)
 
+    # A launch still starting takes the text later, and is not typed a second time (= `first_message.py`).
+    if text and enter and (held := hold_while_launching(session_id, text)) is not None:
+        return held
     # launcher の新しい会話: 最初の本文で claude を起動する (= `first_message.py`)。
     if text and enter and (launched := await launch_with_first_message(session_id, text)) is not None:
         return launched
@@ -724,7 +727,7 @@ async def pty_send_with_files(
     if idempotency_key and send_dedup.check_and_mark(session_id, idempotency_key):
         # 添付経路は必ず本文送信 (= 空 form も含めて enter=True 相当)、 常に dedup 対象。
         return {"ok": True, "deduped": True, "saved_files": []}
-    if not await wait_ready(session_id):
+    if not launching(session_id) and not await wait_ready(session_id):
         # 添付を保存する前に返す (= 打てないと分かっている送信で uploads/tmp を汚さない)。
         return {"ok": False, "reason": "not_ready", "saved_files": []}
     saved = await save_to_tmp(files, session_id)
@@ -744,6 +747,8 @@ async def pty_send_with_files(
     if not full_text:
         return {"ok": False, "reason": "empty"}
     saved_files = [{"name": s["name"], "path": s["path"]} for s in saved]
+    if (held := hold_while_launching(session_id, full_text)) is not None:
+        return {**held, "saved_files": saved_files}
     # launcher の新しい会話: 最初の本文で claude を起動する (= `first_message.py`)。
     if (launched := await launch_with_first_message(session_id, full_text)) is not None:
         return {**launched, "saved_files": saved_files}
