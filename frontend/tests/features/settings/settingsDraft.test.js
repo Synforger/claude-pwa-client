@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   WEEKDAYS, accountDraftOf, accountPatch, agentDraftOf, agentPatch, childLimitPatch, formatMoment, formatPct,
-  hasReset, parseField, reasonsOf, titlePatch, todayKey,
+  hasReset, liftLaterDays, lineRule, parseField, reasonsOf, ruleMessage, titlePatch, todayKey, usageBar,
 } from '../../../src/features/settings/settingsDraft.js'
 import { AGENT, LIMITS, PERSONAL, WORK } from './fixtures.js'
 
@@ -153,5 +153,82 @@ describe('display helpers', () => {
     expect(reasonsOf({ detail: 'Not found' })).toEqual(['Not found'])
     expect(reasonsOf({ detail: { message: '失敗' } })).toEqual(['失敗'])
     expect(reasonsOf(null)).toEqual([])
+  })
+})
+
+describe('liftLaterDays (the days count from Sunday: sun, mon, tue, wed, thu, fri, sat)', () => {
+  const RANGE = lineRule(LIMITS)
+  const week = (over = {}) => ({ mon: '50', tue: '47', wed: '59', thu: '', fri: '30', sat: '100', sun: '20', ...over })
+
+  it('lifts the later days that are below the new value up to it, and leaves the higher ones and the earlier ones', () => {
+    // monday 35 -> 50: tuesday 47 -> 50, wednesday 59 stays, friday 30 -> 50, sunday (before monday) stays
+    const { days, lifted } = liftLaterDays(week(), 'mon', '35', RANGE)
+    expect(lifted).toEqual(['tue', 'fri'])
+    expect(days).toMatchObject({ mon: '50', tue: '50', wed: '59', thu: '', fri: '50', sat: '100', sun: '20' })
+  })
+
+  it('does not move anything when the line is lowered', () => {
+    const before = week({ mon: '30' })
+    expect(liftLaterDays(before, 'mon', '50', RANGE)).toEqual({ days: before, lifted: [] })
+  })
+
+  it('does not move anything when the value did not change', () => {
+    expect(liftLaterDays(week(), 'mon', '50', RANGE).lifted).toEqual([])
+  })
+
+  it('does not lift a blank day', () => {
+    const { days } = liftLaterDays(week(), 'mon', '35', RANGE)
+    expect(days.thu).toBe('')
+  })
+
+  it('does not lift a day that holds something out of range', () => {
+    const { days, lifted } = liftLaterDays(week({ tue: 'abc', fri: '300' }), 'mon', '35', RANGE)
+    expect(days.tue).toBe('abc')
+    expect(days.fri).toBe('300')
+    expect(lifted).toEqual([])
+  })
+
+  it('counts sunday first: editing sunday lifts monday to saturday, editing saturday lifts nothing', () => {
+    const lifted = liftLaterDays(week({ sun: '60', mon: '10', sat: '5' }), 'sun', '20', RANGE)
+    expect(lifted.lifted).toEqual(['mon', 'tue', 'wed', 'fri', 'sat'])
+    expect(lifted.days).toMatchObject({ sun: '60', mon: '60', tue: '60', wed: '60', thu: '', fri: '60', sat: '60' })
+    expect(liftLaterDays(week({ sat: '90' }), 'sat', '10', RANGE).lifted).toEqual([])
+  })
+
+  it('does not move anything when the new value is blank or out of range', () => {
+    expect(liftLaterDays(week({ mon: '' }), 'mon', '35', RANGE).lifted).toEqual([])
+    expect(liftLaterDays(week({ mon: '101' }), 'mon', '35', RANGE).lifted).toEqual([])
+    expect(liftLaterDays(week({ mon: 'x' }), 'mon', '35', RANGE).lifted).toEqual([])
+  })
+
+  it('lifts when a blank day gets a value, since that is not lowering a line', () => {
+    expect(liftLaterDays(week({ mon: '50' }), 'mon', '', RANGE).lifted).toEqual(['tue', 'fri'])
+  })
+
+  it('does not change what it was given', () => {
+    const given = week()
+    liftLaterDays(given, 'mon', '35', RANGE)
+    expect(given).toEqual(week())
+  })
+})
+
+describe('usageBar and ruleMessage', () => {
+  const NOW = 1000
+  it('puts the line on the bar and says it is over when the usage reaches it', () => {
+    expect(usageBar({ pct: 46, resetsAt: NOW + 10, line: 47, nowSeconds: NOW })).toEqual({ pct: 46, line: 47, over: false })
+    expect(usageBar({ pct: 47, resetsAt: NOW + 10, line: 47, nowSeconds: NOW })).toEqual({ pct: 47, line: 47, over: true })
+  })
+
+  it('reads a window that has reset as 0, not over, and a day without a line as no line', () => {
+    expect(usageBar({ pct: 96, resetsAt: NOW - 1, line: 95, nowSeconds: NOW })).toEqual({ pct: 0, line: 95, over: false })
+    expect(usageBar({ pct: 96, resetsAt: NOW + 1, line: null, nowSeconds: NOW })).toEqual({ pct: 96, line: null, over: false })
+    expect(usageBar({ pct: null, resetsAt: null, line: 50, nowSeconds: NOW }).pct).toBe(0)
+  })
+
+  it('names the message of a rule by its kind and range', () => {
+    expect(ruleMessage({ min: 1, max: 100 })).toEqual({ key: 'settings.error.whole_range', vars: { min: 1, max: 100 } })
+    expect(ruleMessage({ min: 1, max: 100, whole: false }).key).toBe('settings.error.number_range')
+    expect(ruleMessage({ min: 0 }).key).toBe('settings.error.whole_min')
+    expect(ruleMessage({ min: 1, whole: false }).key).toBe('settings.error.number_min')
   })
 })

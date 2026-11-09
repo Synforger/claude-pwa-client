@@ -2,9 +2,9 @@
 import { useT } from '../../i18n/t.js'
 
 /** 数の欄 1 つ。 invalid の時は枠を赤にする (= 保存は押せない)。 */
-export function NumberField({ label, value, onChange, invalid, suffix, placeholder, testId, title }) {
+export function NumberField({ label, value, onChange, onFocus, onBlur, invalid, error, lifted, today, suffix, placeholder, testId, title }) {
   return (
-    <label className={`settings-field${invalid ? ' invalid' : ''}`} title={title}>
+    <label className={`settings-field${invalid ? ' invalid' : ''}${lifted ? ' lifted' : ''}${today ? ' today' : ''}`} title={title}>
       <span className="settings-field-label">{label}</span>
       <span className="settings-field-input">
         <input
@@ -13,11 +13,14 @@ export function NumberField({ label, value, onChange, invalid, suffix, placehold
           value={value}
           placeholder={placeholder}
           onChange={e => onChange(e.target.value)}
+          onFocus={onFocus}
+          onBlur={onBlur}
           aria-invalid={invalid ? 'true' : undefined}
           data-testid={testId}
         />
         {suffix && <span className="settings-field-suffix">{suffix}</span>}
       </span>
+      {invalid && error && <span className="settings-field-error" role="alert">{error}</span>}
     </label>
   )
 }

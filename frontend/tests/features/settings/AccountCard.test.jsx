@@ -44,6 +44,117 @@ describe('usage', () => {
   })
 })
 
+describe('the account in the card', () => {
+  it('shows the name set in the configuration and how many tabs run on the account, split by what they are doing', () => {
+    const { getByTestId } = show(WORK)
+    expect(getByTestId('settings-account-name').textContent).toBe('Work')
+    expect(getByTestId('settings-tab-counts').textContent).toBe('タブ 3 個: 動いている 2・固定 1・線で止まっている 0')
+    cleanup()
+    expect(show(PERSONAL).getByTestId('settings-tab-counts').textContent).toContain('線で止まっている 2')
+  })
+})
+
+describe('usage bars', () => {
+  it('draws each bar to the usage and puts the line of today on it', () => {
+    const { getByTestId } = show(WORK)
+    const five = getByTestId('settings-usage-five')
+    expect(five.querySelector('[data-testid=settings-bar-fill]').style.width).toBe('30%')
+    expect(five.querySelector('[data-testid=settings-bar-line]').style.marginLeft).toBe('95%')
+    const seven = getByTestId('settings-usage-seven')
+    expect(seven.querySelector('[data-testid=settings-bar-line]').style.marginLeft).toBe('95%')
+  })
+
+  it('turns the bar red when the usage is at the line, for the 5 hours and for the 7 days alike', () => {
+    const over = { ...WORK, usage: { ...WORK.usage, five_hour_pct: 96, seven_day_pct: 96 } }
+    const { getByTestId } = show(over)
+    for (const row of ['settings-usage-five', 'settings-usage-seven']) {
+      expect(getByTestId(row).querySelector('.settings-bar-fill').className).toContain('over')
+      expect(getByTestId(row).querySelector('.settings-usage-pct').className).toContain('over')
+    }
+  })
+
+  it('has no line on the 7 days of a hold account on a day without a line, and none on its 5 hours', () => {
+    const { getByTestId } = show({ ...PERSONAL, hold: { ...PERSONAL.hold, today_pct: null } })
+    expect(getByTestId('settings-usage-seven').querySelector('[data-testid=settings-bar-line]')).toBeNull()
+    expect(getByTestId('settings-usage-five').querySelector('[data-testid=settings-bar-line]')).toBeNull()
+  })
+})
+
+describe('the field of today', () => {
+  it('marks only the field of the day of the week of the screen\'s clock', () => {
+    const monday = new Date(2026, 10, 9, 12).getTime() / 1000
+    const { getByTestId, container } = show(WORK, { nowSeconds: monday })
+    expect(container.querySelectorAll('.settings-field.today').length).toBe(1)
+    expect(getByTestId('settings-day-mon').closest('.settings-field').className).toContain('today')
+    expect(getByTestId('settings-day-tue').closest('.settings-field').className).not.toContain('today')
+  })
+})
+
+describe('what is wrong with a value', () => {
+  it('says, under the field and before save is pressed, what the field takes', () => {
+    const { getByTestId } = show(WORK)
+    type(getByTestId, 'settings-day-thu', '101')
+    const field = getByTestId('settings-day-thu').closest('.settings-field')
+    expect(field.querySelector('.settings-field-error').textContent).toBe('1〜100 の整数で入れてください')
+    expect(getByTestId('settings-account-save').disabled).toBe(true)
+  })
+})
+
+describe('lifting the later days', () => {
+  const edit = (getByTestId, day, value) => {
+    fireEvent.focus(getByTestId(`settings-day-${day}`))
+    type(getByTestId, `settings-day-${day}`, value)
+    fireEvent.blur(getByTestId(`settings-day-${day}`))
+  }
+
+  it('lifts the later days below the new value when the field is left, marks them and says what moved', () => {
+    const account = { ...WORK, fallback: { ...WORK.fallback, seven_day_at_pct: { mon: 35, tue: 47, wed: 59, sun: 20 } } }
+    const { getByTestId, container } = show(account)
+    edit(getByTestId, 'mon', '50')
+    expect(getByTestId('settings-day-tue').value).toBe('50')
+    expect(getByTestId('settings-day-wed').value).toBe('59')
+    expect(getByTestId('settings-day-sun').value).toBe('20')
+    expect(getByTestId('settings-lifted').textContent).toContain('火')
+    expect(getByTestId('settings-lifted').textContent).toContain('50%')
+    expect(container.querySelectorAll('.settings-field.lifted').length).toBe(1)
+  })
+
+  it('compares with the saved value when the field changed without being entered', () => {
+    const account = { ...WORK, fallback: { ...WORK.fallback, seven_day_at_pct: { mon: 35, tue: 47 } } }
+    const { getByTestId } = show(account)
+    type(getByTestId, 'settings-day-mon', '50')
+    fireEvent.blur(getByTestId('settings-day-mon'))
+    expect(getByTestId('settings-day-tue').value).toBe('50')
+  })
+
+  it('waits for the field to be left: typing does not move anything', () => {
+    const account = { ...WORK, fallback: { ...WORK.fallback, seven_day_at_pct: { mon: 35, tue: 47 } } }
+    const { getByTestId, queryByTestId } = show(account)
+    fireEvent.focus(getByTestId('settings-day-mon'))
+    type(getByTestId, 'settings-day-mon', '5')
+    type(getByTestId, 'settings-day-mon', '50')
+    expect(getByTestId('settings-day-tue').value).toBe('47')
+    expect(queryByTestId('settings-lifted')).toBeNull()
+  })
+
+  it('saves the values on the screen, the lifted ones too', async () => {
+    const account = { ...WORK, fallback: { ...WORK.fallback, seven_day_at_pct: { mon: 35, tue: 47, wed: 59 } } }
+    const { getByTestId, onSave } = show(account)
+    edit(getByTestId, 'mon', '50')
+    fireEvent.click(getByTestId('settings-account-save'))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave).toHaveBeenCalledWith({ accounts: { work: { fallback: { seven_day_at_pct: { mon: 50, tue: 50 } } } } })
+  })
+
+  it('does not move the later days when the line is lowered', () => {
+    const account = { ...WORK, fallback: { ...WORK.fallback, seven_day_at_pct: { mon: 50, tue: 40 } } }
+    const { getByTestId, queryByTestId } = show(account)
+    edit(getByTestId, 'mon', '30')
+    expect(getByTestId('settings-day-tue').value).toBe('40')
+    expect(queryByTestId('settings-lifted')).toBeNull()
+  })
+})
+
 describe('lines', () => {
   it('shows the 5-hour line only for an account that has a fallback, and a day per weekday', () => {
     const fallback = show(WORK)
@@ -101,7 +212,7 @@ describe('tabs the line stopped', () => {
   it('cannot be pressed while the usage is at the line', () => {
     const { getByTestId } = show({ ...PERSONAL, can_continue: false })
     expect(getByTestId('settings-continue').disabled).toBe(true)
-    expect(getByTestId('settings-held').textContent).toContain('使用率がまだ今日の線以上です')
+    expect(getByTestId('settings-continue-blocked').textContent).toBe('今 55% / 今日の線 70%')
   })
 
   it('says the line when the backend refuses with 409', async () => {

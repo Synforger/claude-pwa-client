@@ -99,26 +99,56 @@
   white-space: pre-wrap;
 }
 
-/* 使用率: 名前・使用率・戻る時刻を 1 行に並べる */
+/* 使用率: 名前・バー・使用率を 1 行に、 戻る時刻をその下に出す。 バーの印は今日の線、 線以上ならバーと数字が赤 */
 .settings-usage {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 .settings-usage-row {
   display: grid;
-  grid-template-columns: 4.5em 3.5em 1fr;
-  align-items: baseline;
-  gap: 8px;
+  grid-template-columns: 4.5em 1fr 3.2em;
+  align-items: center;
+  gap: 2px 8px;
   font-size: 13px;
 }
 .settings-usage-label { color: var(--text-dim); }
+.settings-bar {
+  /* 塗りと今日の線の印は、 同じ格子の 1 つの区画に重ねる (= 位置を絶対指定せず、 塗りは幅、 印は左の余白の % で置く) */
+  display: grid;
+  height: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.settings-bar-fill {
+  grid-area: 1 / 1;
+  justify-self: start;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  min-width: 2px;
+}
+.settings-bar-fill.over { background: var(--red); }
+.settings-bar-line {
+  grid-area: 1 / 1;
+  justify-self: start;
+  align-self: stretch;
+  width: 2px;
+  margin-block: -4px;
+  transform: translateX(-1px);
+  background: var(--yellow);
+  border-radius: 1px;
+}
 .settings-usage-pct {
   color: var(--text);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+  text-align: right;
 }
+.settings-usage-pct.over { color: var(--red); }
 .settings-usage-reset {
+  grid-column: 2 / 4;
   color: var(--text-dim);
   font-size: 12px;
 }
@@ -166,6 +196,31 @@
 }
 .settings-field-text .settings-field-input input {
   font-variant-numeric: normal;
+}
+
+/* 今日の曜日の欄は、 枠と背景で目立たせる */
+.settings-field.today .settings-field-input input {
+  border-color: var(--accent);
+  background: rgba(124, 111, 255, 0.14);
+}
+.settings-field.today .settings-field-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+/* 範囲の外の値の理由 (= 保存を押す前に、 欄のすぐ下に出す) */
+.settings-field-error {
+  font-size: 11px;
+  line-height: 1.4;
+  color: #f08080;
+}
+
+/* 線を書き換えて、 後の曜日が持ち上がった欄を一瞬光らせる (= 持ち上げた長さは AccountCard.jsx の LIFT_FLASH_MS) */
+.settings-field.lifted .settings-field-input input {
+  animation: settings-lift-flash 1.6s ease-out;
+}
+@keyframes settings-lift-flash {
+  0%, 40% { background: rgba(74, 222, 128, 0.35); border-color: var(--green); }
+  100% { background: var(--bg); border-color: var(--border); }
 }
 
 /* 保存の帯 */

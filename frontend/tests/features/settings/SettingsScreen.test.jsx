@@ -84,10 +84,42 @@ describe('the screen', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('設定を読み込めませんでした')
   })
 
-  it('closes with the close button', async () => {
+  it('closes with the close button when nothing was changed', async () => {
     setOverlay('settings', true)
     render(<SettingsScreen />)
     await screen.findByTestId('settings-accounts')
+    fireEvent.click(screen.getByLabelText(/閉じる|Close/))
+    expect(uiSnapshot().overlays.settings).toBe(false)
+    expect(screen.queryByText('保存していない変更があります。 捨てて閉じますか?')).toBeNull()
+  })
+
+  it('asks before closing with a change that is not saved, and closes only when the operator says to discard it', async () => {
+    setOverlay('settings', true)
+    render(<SettingsScreen />)
+    const limit = await screen.findByTestId('settings-child-limit')
+    fireEvent.change(limit.querySelector('[data-testid=settings-child-limit-input]'), { target: { value: '2' } })
+    fireEvent.click(screen.getByLabelText(/閉じる|Close/))
+    expect(uiSnapshot().overlays.settings).toBe(true)
+    await screen.findByText('保存していない変更があります。 捨てて閉じますか?')
+    fireEvent.click(screen.getByText('いいえ'))
+    expect(uiSnapshot().overlays.settings).toBe(true)
+    fireEvent.click(screen.getByLabelText(/閉じる|Close/))
+    fireEvent.click(await screen.findByText('はい'))
+    expect(uiSnapshot().overlays.settings).toBe(false)
+  })
+
+  it('closes without asking once the change is saved', async () => {
+    backend({
+      'GET /settings': () => json(VIEW),
+      'GET /backend/restartable': () => json({ restartable: false }),
+      'PUT /settings': () => json({ ...VIEW, child_sessions_max: 2 }),
+    })
+    setOverlay('settings', true)
+    render(<SettingsScreen />)
+    const limit = await screen.findByTestId('settings-child-limit')
+    fireEvent.change(limit.querySelector('[data-testid=settings-child-limit-input]'), { target: { value: '2' } })
+    fireEvent.click(limit.querySelector('[data-testid=settings-child-limit-save]'))
+    await waitFor(() => expect(limit.querySelector('.settings-note.ok')).not.toBeNull())
     fireEvent.click(screen.getByLabelText(/閉じる|Close/))
     expect(uiSnapshot().overlays.settings).toBe(false)
   })

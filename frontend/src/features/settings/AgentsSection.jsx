@@ -4,18 +4,23 @@ import { useT } from '../../i18n/t.js'
 import { NumberField, SaveBar } from './SettingsFields.jsx'
 import { useCardSave } from './useCardSave.js'
 import { useDraft } from './useDraft.js'
-import { agentDraftOf, agentPatch, childLimitPatch } from './settingsDraft.js'
+import { useReportDirty } from './SettingsDirty.js'
+import { CHILD_LIMIT_RULE, agentDraftOf, agentPatch, agentRules, childLimitPatch, ruleMessage } from './settingsDraft.js'
 
 function AgentCard({ agent, limits, onSave }) {
   const t = useT()
   const [draft, setDraft] = useDraft(agentDraftOf(agent), JSON.stringify([agent.sleep_minutes, agent.rollover]))
   const { saving, reasons, saved, run } = useCardSave(onSave)
   const { patch, invalid } = useMemo(() => agentPatch(agent, draft, limits), [agent, draft, limits])
+  useReportDirty(`agent:${agent.id}`, patch !== null || invalid.length > 0)
+  const rules = useMemo(() => agentRules(limits), [limits])
+  const errorOf = (name) => { const m = ruleMessage(rules[name]); return t(m.key, m.vars) }
   const field = (name, label, suffix, hint) => (
     <NumberField
       label={label} suffix={suffix} value={draft[name]} title={hint}
       onChange={value => setDraft(prev => ({ ...prev, [name]: value }))}
-      invalid={invalid.includes(name)} placeholder={t('settings.agents.blank')} testId={`settings-agent-${name}`}
+      invalid={invalid.includes(name)} error={errorOf(name)} placeholder={t('settings.agents.blank')}
+      testId={`settings-agent-${name}`}
     />
   )
   return (
@@ -42,10 +47,13 @@ function ChildLimit({ value, onSave }) {
   const [text, setText] = useDraft(String(value), String(value))
   const { saving, reasons, saved, run } = useCardSave(onSave)
   const { patch, invalid } = useMemo(() => childLimitPatch(value, text), [value, text])
+  useReportDirty('child-limit', patch !== null || invalid.length > 0)
+  const message = ruleMessage(CHILD_LIMIT_RULE)
   return (
     <section className="settings-card" data-testid="settings-child-limit">
       <NumberField
         label={t('settings.agents.child_limit')} value={text} onChange={setText} invalid={invalid.length > 0}
+        error={t(message.key, message.vars)}
         placeholder={t('settings.agents.blank')} testId="settings-child-limit-input" title={t('settings.agents.child_limit_hint')}
       />
       <div className="settings-note">{t('settings.agents.child_limit_hint')}</div>

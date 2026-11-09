@@ -5,6 +5,7 @@ import { usePushSubscription } from '../push-notify/usePushSubscription.js'
 import { SaveBar } from './SettingsFields.jsx'
 import { useCardSave } from './useCardSave.js'
 import { useDraft } from './useDraft.js'
+import { useReportDirty } from './SettingsDirty.js'
 import { titlePatch } from './settingsDraft.js'
 
 function PushToggle() {
@@ -24,6 +25,7 @@ function TitleField({ value, onSave }) {
   const [text, setText] = useDraft(value, value)
   const { saving, reasons, saved, run } = useCardSave(onSave)
   const { patch } = useMemo(() => titlePatch(value, text), [value, text])
+  useReportDirty('title', patch !== null)
   return (
     <div className="settings-block">
       <label className="settings-field settings-field-text">

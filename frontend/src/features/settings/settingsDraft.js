@@ -6,6 +6,9 @@
 
 export const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
 
+// 7 日の枠が戻る日から数えた曜日の順 (= 線を上げた時に「後の曜日」 を決める順。 画面の並びは `WEEKDAYS` のまま)。
+export const WEEK_FROM_SUNDAY = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+
 const WHOLE = /^\d+$/
 const NUMBER = /^\d+(\.\d+)?$/
 
@@ -32,7 +35,7 @@ export function accountDraftOf(account) {
 /** 口座の入力と今の値の差 → { patch, invalid }。 patch = PUT /settings の本文 (= 変わりが無ければ null)、
  *  invalid = 規則に合わない欄 (= 'atPct' と曜日の名前)。 */
 export function accountPatch(account, draft, limits) {
-  const range = { min: limits.line_pct_min, max: limits.line_pct_max }
+  const range = lineRule(limits)
   const before = accountDraftOf(account)
   const invalid = []
   const fields = {}
@@ -53,6 +56,30 @@ export function accountPatch(account, draft, limits) {
   return { patch: { accounts: { [account.id]: { [key]: section } } }, invalid }
 }
 
+/** ある曜日の線を書き換えた時に、 後の曜日の線を持ち上げる。 `days` = 曜日ごとの入力 (= 書き換えた後)、 `day` = 書き換えた
+ *  曜日、 `before` = その欄の書き換える前の文字、 `range` = { min, max }。 → { days, lifted }。 lifted = 持ち上げた曜日。
+ *  決まりは次だけで、 値を推測して動かさない:
+ *   - 持ち上げるのは、 書き換えた曜日より後 (= `WEEK_FROM_SUNDAY` の順) で、 新しい値より低い線だけ。 新しい値まで上げる
+ *   - 前の曜日は動かさない。 空の曜日 (= なし) と、 範囲外の文字が入った曜日は動かさない
+ *   - 線を下げた時 (= 新しい値が前の値以下) と、 新しい値が空・範囲外の時は、 何も動かさない
+ *   - 前の値が空だった欄に値を書いた時は、 下げたのではないので持ち上げる */
+export function liftLaterDays(days, day, before, range) {
+  const now = parseField(days[day], range)
+  const was = parseField(before, range)
+  if (!now.ok || now.value === null) return { days, lifted: [] }
+  if (was.ok && was.value !== null && now.value <= was.value) return { days, lifted: [] }
+  const lifted = []
+  const next = { ...days }
+  for (const later of WEEK_FROM_SUNDAY.slice(WEEK_FROM_SUNDAY.indexOf(day) + 1)) {
+    const value = parseField(days[later], range)
+    if (value.ok && value.value !== null && value.value < now.value) {
+      next[later] = String(now.value)
+      lifted.push(later)
+    }
+  }
+  return lifted.length ? { days: next, lifted } : { days, lifted: [] }
+}
+
 /** エージェントの入力の初期値。 */
 export function agentDraftOf(agent) {
   return {
@@ -63,16 +90,34 @@ export function agentDraftOf(agent) {
   }
 }
 
-/** エージェントの入力と今の値の差 → { patch, invalid }。 */
-export function agentPatch(agent, draft, limits) {
-  const before = agentDraftOf(agent)
+/** 口座の線の欄 (= 5 時間の線と曜日の線) の規則。 */
+export const lineRule = (limits) => ({ min: limits.line_pct_min, max: limits.line_pct_max })
+
+/** エージェントの欄ごとの規則 (= 入力の名前 → `parseField` の規則)。 */
+export function agentRules(limits) {
   const pct = { min: limits.context_pct_min, max: limits.context_pct_max, whole: false }
-  const rules = {
+  return {
     sleep: { min: limits.minutes_min },
     working: pct,
     idleContext: pct,
     idleMinutes: { min: limits.minutes_min, whole: false },
   }
+}
+
+/** 子のタブの上限の欄の規則。 */
+export const CHILD_LIMIT_RULE = { min: 0 }
+
+/** 規則に合わない時に欄の下へ出す理由の、 翻訳の key と値。 */
+export function ruleMessage(rule) {
+  const range = Number.isFinite(rule.max)
+  const kind = rule.whole === false ? 'number' : 'whole'
+  return { key: `settings.error.${kind}_${range ? 'range' : 'min'}`, vars: { min: rule.min, max: rule.max } }
+}
+
+/** エージェントの入力と今の値の差 → { patch, invalid }。 */
+export function agentPatch(agent, draft, limits) {
+  const before = agentDraftOf(agent)
+  const rules = agentRules(limits)
   const invalid = []
   const value = {}
   for (const [name, rule] of Object.entries(rules)) {
@@ -98,7 +143,7 @@ export function agentPatch(agent, draft, limits) {
 
 /** 子のタブの上限の入力 → { patch, invalid }。 空は既定に戻す (= null)。 */
 export function childLimitPatch(currentValue, text) {
-  const parsed = parseField(text, { min: 0 })
+  const parsed = parseField(text, CHILD_LIMIT_RULE)
   if (!parsed.ok) return { patch: null, invalid: ['childSessionsMax'] }
   if (text.trim() === asText(currentValue)) return { patch: null, invalid: [] }
   return { patch: { child_sessions_max: parsed.value }, invalid: [] }
@@ -123,6 +168,14 @@ export function formatMoment(epochSeconds) {
   if (typeof epochSeconds !== 'number') return '—'
   const at = new Date(epochSeconds * 1000)
   return `${at.getMonth() + 1}/${at.getDate()} ${two(at.getHours())}:${two(at.getMinutes())}`
+}
+
+/** 使用率の横のバー。 `pct` = 使用率、 `resetsAt` = 窓が戻る時刻 (epoch 秒、 過ぎていれば使用率は古い値で 0 と読む)、
+ *  `line` = 今日の線 (= 無ければ null)。 → { pct (0〜100 に収めた値)、 line、 over (= 線以上か) }。 */
+export function usageBar({ pct, resetsAt, line, nowSeconds }) {
+  const effective = hasReset(resetsAt, nowSeconds) || typeof pct !== 'number' ? 0 : pct
+  const known = typeof line === 'number' ? line : null
+  return { pct: Math.min(100, Math.max(0, effective)), line: known, over: known !== null && effective >= known }
 }
 
 /** 窓がもう戻っている (= `*_resets_at` が過ぎている) か。 戻っていれば使用率は古い値で、 0 と読む手がかりになる。 */
