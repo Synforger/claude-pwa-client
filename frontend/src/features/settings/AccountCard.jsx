@@ -1,5 +1,5 @@
-// 設定の画面の口座 1 つ分: タブの数と使用率 (バーに今日の線を重ねる)、 線 (曜日ごと・5 時間)、 線で止まっているタブと
-// 続ける口、 口座を固定しているタブと外す口。
+// 設定の画面の口座 1 つ分: タブの数と使用率 (バーに今日の線を重ねる)、 線 (曜日ごと・5 時間・先回りの幅)、 線で止まっている
+// タブと続ける口、 口座を固定しているタブと外す口。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useT } from '../../i18n/t.js'
 import { NumberField, SaveBar } from './SettingsFields.jsx'
@@ -7,7 +7,7 @@ import { useReportDirty } from './SettingsDirty.js'
 import { useCardSave } from './useCardSave.js'
 import { useDraft } from './useDraft.js'
 import {
-  WEEKDAYS, accountDraftOf, accountPatch, formatMoment, formatPct, hasReset, liftLaterDays, lineRule, ruleMessage,
+  WEEKDAYS, accountDraftOf, accountPatch, aheadRule, formatMoment, formatPct, hasReset, liftLaterDays, lineRule, ruleMessage,
   todayKey, usageBar,
 } from './settingsDraft.js'
 
@@ -157,12 +157,15 @@ export default function AccountCard({ account, limits, nowSeconds, onSave, onCon
   const usage = account.usage
   const lines = account.mode === 'fallback'
     ? { five: account.fallback.at_pct, seven: account.fallback.seven_day_today_pct }
-    : { five: null, seven: account.hold?.today_pct ?? null }
+    : { five: account.hold?.five_hour_at_pct ?? null, seven: account.hold?.today_pct ?? null }
   const fiveBar = usageBar({ pct: usage?.five_hour_pct, resetsAt: usage?.five_hour_resets_at, line: lines.five, nowSeconds })
   const sevenBar = usageBar({ pct: usage?.seven_day_pct, resetsAt: usage?.seven_day_resets_at, line: lines.seven, nowSeconds })
 
   const lineKind = account.mode === 'fallback' ? 'move' : 'stop'
   const rangeError = (() => { const m = ruleMessage(lineRule(limits)); return t(m.key, m.vars) })()
+  const aheadError = (() => { const m = ruleMessage(aheadRule(limits)); return t(m.key, m.vars) })()
+  // 止めた後に「続ける」 が押せない理由に出す使用率は、 線に届いている窓 (= 5 時間か 7 日) のもの。
+  const blocked = fiveBar.over ? { pct: fiveBar.pct, line: lines.five } : { pct: sevenBar.pct, line: lines.seven }
   return (
     <section className="settings-card" data-testid={`settings-account-${account.id}`}>
       <header className="settings-card-head">
@@ -174,11 +177,25 @@ export default function AccountCard({ account, limits, nowSeconds, onSave, onCon
       <div className="settings-block">
         <div className="settings-block-title">{t(`settings.lines.title_${lineKind}`)}</div>
         <div className="settings-note">{t(`settings.lines.hint_${lineKind}`)}</div>
-        {account.mode === 'fallback' && (
+        {account.mode === 'fallback' ? (
+          <>
+            <NumberField
+              label={t('settings.lines.five_hour')} suffix="%" value={draft.atPct}
+              onChange={value => setDraft(prev => ({ ...prev, atPct: value }))}
+              invalid={invalid.includes('atPct')} error={rangeError} testId="settings-at-pct" title={t('settings.lines.five_hour_hint')}
+            />
+            <NumberField
+              label={t('settings.lines.ahead')} suffix="%" value={draft.ahead} placeholder="0"
+              onChange={value => setDraft(prev => ({ ...prev, ahead: value }))}
+              invalid={invalid.includes('ahead')} error={aheadError} testId="settings-ahead-pct" title={t('settings.lines.ahead_hint')}
+            />
+          </>
+        ) : (
           <NumberField
-            label={t('settings.lines.five_hour')} suffix="%" value={draft.atPct}
-            onChange={value => setDraft(prev => ({ ...prev, atPct: value }))}
-            invalid={invalid.includes('atPct')} error={rangeError} testId="settings-at-pct" title={t('settings.lines.five_hour_hint')}
+            label={t('settings.lines.five_hour')} suffix="%" value={draft.fiveHour} placeholder={t('settings.lines.blank')}
+            onChange={value => setDraft(prev => ({ ...prev, fiveHour: value }))}
+            invalid={invalid.includes('fiveHour')} error={rangeError} testId="settings-five-hour-pct"
+            title={t('settings.lines.five_hour_stop_hint')}
           />
         )}
         <div className="settings-days" data-testid="settings-days">
@@ -200,7 +217,7 @@ export default function AccountCard({ account, limits, nowSeconds, onSave, onCon
         <SaveBar dirty={patch !== null} invalid={invalid.length > 0} saving={saving} saved={saved} reasons={reasons}
           onSave={() => run(patch)} testId="settings-account-save" />
       </div>
-      <HeldTabs account={account} blocked={{ pct: sevenBar.pct, line: lines.seven }} onContinue={onContinue} />
+      <HeldTabs account={account} blocked={blocked} onContinue={onContinue} />
       <PinnedTabs account={account} onUnpin={onUnpin} />
     </section>
   )
