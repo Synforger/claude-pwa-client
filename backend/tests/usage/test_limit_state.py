@@ -50,3 +50,27 @@ def test_nothing_is_said_without_a_row_or_a_figure():
 def test_a_window_without_a_reset_time_stays_at_the_limit_with_no_end():
     state = limit_state([_row(five=100, five_resets=None)], "work", 95, NOW)
     assert state.at_limit and state.ends_at is None
+
+
+def test_without_a_line_of_its_own_the_7_days_use_the_same_line_as_the_5_hours():
+    rows = [_row(five=10, seven=80)]
+    assert limit_state(rows, "work", 95, NOW) == limit_state(rows, "work", 95, NOW, seven_day_line_pct=None)
+    assert limit_state(rows, "work", 95, NOW).at_limit is False
+
+
+def test_the_7_days_can_be_asked_about_against_a_line_of_their_own():
+    rows = [_row(five=10, seven=80, seven_resets=NOW + 900)]
+    state = limit_state(rows, "work", 95, NOW, seven_day_line_pct=70)
+    assert state.at_limit and state.ends_at == NOW + 900
+    assert limit_state(rows, "work", 95, NOW, seven_day_line_pct=81).at_limit is False
+
+
+def test_the_line_of_the_7_days_does_not_move_the_line_of_the_5_hours():
+    rows = [_row(five=80, seven=10)]
+    assert limit_state(rows, "work", 95, NOW, seven_day_line_pct=70).at_limit is False
+    assert limit_state(rows, "work", 70, NOW, seven_day_line_pct=100).at_limit is True
+
+
+def test_a_7_day_window_that_has_reset_is_over_against_its_own_line_too():
+    state = limit_state([_row(seven=90, seven_resets=NOW - 1)], "work", 95, NOW, seven_day_line_pct=70)
+    assert (state.at_limit, state.last_reset, state.ends_at) == (False, NOW - 1, None)

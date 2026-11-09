@@ -60,3 +60,48 @@ def test_startup_names_each_unusable_fallback_in_one_line(monkeypatch, caplog):
     assert [r.getMessage() for r in caplog.records if "account fallback" in r.getMessage()] == [
         "account fallback: accounts.work.fallback is ignored: `at_pct` is not a whole number from 1 to 100: 0"]
     assert read_rules() == {}
+
+
+WEEK = {"mon": 70, "tue": 76, "wed": 82, "thu": 88, "fri": 94, "sat": 100, "sun": 70}
+
+
+def test_a_table_of_lines_by_day_of_the_week_is_kept_with_the_rule():
+    rules, problems = parse_rules(_accounts(work={"to": "personal", "at_pct": 95, "seven_day_at_pct": WEEK}))
+    assert rules["work"] == FallbackRule("work", "personal", 95, WEEK) and problems == ()
+
+
+def test_a_table_may_name_only_some_days():
+    rules, problems = parse_rules(_accounts(work={"to": "personal", "at_pct": 95, "seven_day_at_pct": {"sat": 100}}))
+    assert rules["work"].seven_day_at_pct == {"sat": 100} and problems == ()
+
+
+def test_without_a_table_every_day_has_the_line_of_at_pct():
+    rules, _ = parse_rules(_accounts(work={"to": "personal", "at_pct": 95}))
+    assert rules["work"].seven_day_at_pct == {}
+
+
+@pytest.mark.parametrize("table", [
+    "mon", None, [70], 70,                           # not an object
+    {"monday": 70}, {"Mon": 70}, {"": 70},           # not a name of a day
+    {"mon": 0}, {"mon": 101}, {"mon": 70.5}, {"mon": "70"}, {"mon": True}, {"mon": None},   # not a line
+    {"mon": 70, "sat": 101},                         # one bad entry spoils the table
+])
+def test_a_table_that_cannot_be_used_leaves_the_whole_fallback_out_and_names_why(table):
+    rules, problems = parse_rules(_accounts(work={"to": "personal", "at_pct": 95, "seven_day_at_pct": table}))
+    assert rules == {} and len(problems) == 1
+    assert problems[0].startswith("accounts.work.fallback is ignored: `seven_day_at_pct")
+
+
+def test_the_two_ends_of_a_daily_line_are_allowed():
+    table = {"mon": 1, "sat": 100}
+    rules, problems = parse_rules(_accounts(work={"to": "personal", "at_pct": 95, "seven_day_at_pct": table}))
+    assert rules["work"].seven_day_at_pct == table and problems == ()
+
+
+def test_startup_names_a_table_that_cannot_be_used(monkeypatch, caplog):
+    use_accounts(monkeypatch, _accounts(work={"to": "personal", "at_pct": 95, "seven_day_at_pct": {"mon": 0}}))
+    with caplog.at_level(logging.WARNING):
+        warn_unusable()
+    assert [r.getMessage() for r in caplog.records if "account fallback" in r.getMessage()] == [
+        "account fallback: accounts.work.fallback is ignored: "
+        "`seven_day_at_pct.mon` is not a whole number from 1 to 100: 0"]

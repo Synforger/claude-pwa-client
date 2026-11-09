@@ -3,7 +3,8 @@ given (`usage.read_all_rate_limits_tail`) and the time it is told, and touches n
 
 A window (the 5 hours, the 7 days) is at the limit when its usage is at or above the line and its reset time has not
 passed. Used by the account fallback (`account_fallback/fallback_judgement.py`) and by the limit resume
-(`limit_resume/resume_judgement.py`), which differ in the line they ask about.
+(`limit_resume/resume_judgement.py`), which differ in the line they ask about. The 7 days may be asked about against a
+line of their own.
 """
 from __future__ import annotations
 
@@ -46,8 +47,10 @@ def _number(value: object) -> float | None:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
-def limit_state(rows: Iterable[dict], account_id: str, line_pct: float, now: float) -> LimitState | None:
-    """The state of `account_id` against `line_pct` (= a percentage) at time `now`. None when the log has no row of
+def limit_state(rows: Iterable[dict], account_id: str, line_pct: float, now: float, *,
+                seven_day_line_pct: float | None = None) -> LimitState | None:
+    """The state of `account_id` against `line_pct` (= a percentage) at time `now`. `seven_day_line_pct` is the line of
+    the 7 days when it differs from the 5 hours' (= without it `line_pct` is both). None when the log has no row of
     the account or its newest row has no usage figure, since nothing can be said then."""
     row = latest_account_row(rows, account_id)
     if row is None:
@@ -56,12 +59,13 @@ def limit_state(rows: Iterable[dict], account_id: str, line_pct: float, now: flo
     ends: list[float] = []
     resets_passed: list[float] = []
     known = False
-    for pct_field, reset_field in WINDOWS:
+    lines = (line_pct, line_pct if seven_day_line_pct is None else seven_day_line_pct)
+    for (pct_field, reset_field), line in zip(WINDOWS, lines):
         pct = _number(row.get(pct_field))
         if pct is None:
             continue
         known = True
-        if pct < line_pct:
+        if pct < line:
             continue
         resets_at = _number(row.get(reset_field))
         if resets_at is not None and resets_at <= now:

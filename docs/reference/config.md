@@ -93,8 +93,11 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 - `env`: claude 起動時の追加環境変数。 代表的なキーは `CLAUDE_CONFIG_DIR`
   (= claude の設定 / 認証ディレクトリを切り替える)。 アカウントごとに別の認証情報を
   分離保持できる
-- `fallback` (任意): `{"to": "<逃げ先の口座>", "at_pct": <1〜100>}`。 この口座の使用率が `at_pct` 以上の間、
-  この口座のタブを逃げ先の口座で動かす。 書かない口座は何もしない。 詳細: [`account-fallback.md`](account-fallback.md)
+- `fallback` (任意): `{"to": "<逃げ先の口座>", "at_pct": <1〜100>, "seven_day_at_pct": {"mon": <1〜100>, ...}}`。
+  この口座の使用率が `at_pct` 以上の間、 この口座のタブを逃げ先の口座で動かす。 `seven_day_at_pct` (任意) は
+  7 日の枠の線を曜日 (`mon` `tue` `wed` `thu` `fri` `sat` `sun`) ごとに変える表で、 書いていない曜日は
+  `at_pct` を使う (5 時間の枠の線は `at_pct` のまま)。 書かない口座は何もしない。
+  詳細: [`account-fallback.md`](account-fallback.md)
 
 タブ新規作成時にエージェント × アカウントの組み合わせを選択する。 会話一覧の ⋯ メニューから
 既存の会話を別アカウントで継続することもできる (= 会話をそのまま引き継いだタブが開く)。

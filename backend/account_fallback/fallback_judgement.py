@@ -1,7 +1,8 @@
 """Whether the account fallback moves a tab, brings it back, or leaves it. Pure: it takes the facts and answers, and
 reads no file, no log and no state.
 
-The usage of the account a tab belongs to is judged by `usage.limit_state`; a tab may be moved or brought back only at
+The usage of the account a tab belongs to is judged by `usage.limit_state`, against the line of the 5 hours and the
+line of the 7 days of the day (`seven_day_line_pct`); a tab may be moved or brought back only at
 a break, which `sleep_judgement.judge` (= asked by hand) decides, or which a turn that a usage limit stopped is.
 
 A tab that keeps answering is never at a break, so it is asked once to come to one (`should_ask_to_pause`); the
@@ -11,10 +12,11 @@ Used by `fallback_patrol.py`.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 from typing import Iterable
 
-from backend.account_fallback.fallback_settings import FallbackRule
+from backend.account_fallback.fallback_settings import WEEKDAYS, FallbackRule
 from backend.sleep.sleep_judgement import TURN_OPEN
 from backend.usage.limit_state import limit_state
 
@@ -30,9 +32,15 @@ class Move(str, Enum):
     RETURN = "return"    # from where it runs now, to the account it belongs to
 
 
+def seven_day_line_pct(rule: FallbackRule, now: float) -> int:
+    """The line of the 7 days at time `now`: the one `rule` names for that day of the week (by the local time of this
+    machine, so it changes at 0:00), `at_pct` when it names none."""
+    return rule.seven_day_at_pct.get(WEEKDAYS[datetime.fromtimestamp(now).weekday()], rule.at_pct)
+
+
 def home_is_limited(rows: Iterable[dict], rule: FallbackRule, now: float) -> bool | None:
     """Whether the usage of the account of `rule` is at its line. None when the log says nothing about the account."""
-    state = limit_state(rows, rule.from_account, rule.at_pct, now)
+    state = limit_state(rows, rule.from_account, rule.at_pct, now, seven_day_line_pct=seven_day_line_pct(rule, now))
     return None if state is None else state.at_limit
 
 
