@@ -107,6 +107,7 @@ import backend.sleep as sleep  # noqa: E402
 import backend.account_fallback as account_fallback  # noqa: E402
 import backend.limit_resume as limit_resume  # noqa: E402
 import backend.child_watch.watch_patrol as child_watch  # noqa: E402
+from backend.observability.loop_stall import loop_stall_watch  # noqa: E402
 import backend.terminal.session_resolver as session_resolver  # noqa: E402
 import backend.routes.rollover as rollover_routes  # noqa: E402
 import backend.routes.subagents as subagents_routes  # noqa: E402
@@ -293,6 +294,10 @@ async def lifespan(app: FastAPI):
     from backend.terminal.prompt_detector_loop import prompt_detector_loop
     prompt_detector_task = asyncio.create_task(prompt_detector_loop())
 
+    # 止まった backend の報告: event loop が止まったら全 thread の stack を log の folder に書く
+    # (= `backend/observability/loop_stall.py`)。
+    loop_stall_task = asyncio.create_task(loop_stall_watch(LOG_DIR))
+
     # tmux server 強靭化 (= exit-empty off + 番兵 session)。 起動直後に一度固定して
     # おくことで、 最初の PTY spawn を待たずに「session 全滅 → server 死 → 次の attach
     # が claude --resume 一斉再走」 のカスケードを封じる (= 2026-07-13 resume storm)。
@@ -319,8 +324,9 @@ async def lifespan(app: FastAPI):
     child_watch_task.cancel()
     tier_tabs_task.cancel()
     prompt_detector_task.cancel()
+    loop_stall_task.cancel()
     for _t in (blocker_monitor_task, uploads_gc_task, maintenance_task, rollover_task, sleep_task, fallback_task,
-               resume_task, child_watch_task, tier_tabs_task, prompt_detector_task):
+               resume_task, child_watch_task, tier_tabs_task, prompt_detector_task, loop_stall_task):
         try:
             await _t
         except (asyncio.CancelledError, Exception):

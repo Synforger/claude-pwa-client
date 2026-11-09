@@ -54,6 +54,21 @@ find backend -name __pycache__ -type d -exec rm -rf {} +
 リネーム / 移動を伴う backend の構造変更後に「直したはずなのに ImportError が出続ける」
 場合はまず purge を疑う。
 
+## backend: しばらく何も答えなくなる (機械が重い時など)
+
+画面が固まる・送信が返らない・タブへの連絡が遅れる時は、 backend の event loop が止まっていないかを見る。 loop が
+15 秒以上止まると、 backend は全 thread の stack を log の folder の `loop-stall.log` に書き、 loop が戻った時に
+`backend.error.log` に 1 行出す。
+
+```
+loop stall: the event loop stood still 42s; the stacks are in <log folder>/loop-stall.log
+```
+
+`loop-stall.log` の `Timeout (...)!` から次の `--- the stacks above ...` の行までが 1 回分。 event loop の thread
+(= 下の方に `run_forever` の行がある stack) のいちばん上の行が、 loop を止めていた呼び出し。 `Current thread` と
+書かれた thread があれば、 それは GIL を握ったまま他の thread を全部止めていた呼び出し。 その stack を添えて issue
+を出す。 機械そのものが重いだけなら、 macOS の log (`log show`) は同じ時刻にも出続けている。
+
 ## SW (Service Worker) 登録が失効した / 通知が来なくなった
 
 PWA の Service Worker が古い世代のまま居座って Web Push を受け取らなくなる場合がある:
