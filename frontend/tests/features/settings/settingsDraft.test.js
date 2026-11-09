@@ -70,6 +70,56 @@ describe('accountPatch', () => {
     expect(accountPatch(WORK, draft, LIMITS).invalid).toEqual(['atPct'])
   })
 
+  it('sends the width ahead of the line of a fallback account, and a blank as null (= no width)', () => {
+    const draft = accountDraftOf(WORK)
+    draft.ahead = '5'
+    expect(accountPatch(WORK, draft, LIMITS).patch).toEqual({ accounts: { work: { fallback: { ahead_pct: 5 } } } })
+    const withWidth = { ...WORK, fallback: { ...WORK.fallback, ahead_pct: 5 } }
+    const blank = accountDraftOf(withWidth)
+    blank.ahead = ''
+    expect(accountPatch(withWidth, blank, LIMITS).patch).toEqual({ accounts: { work: { fallback: { ahead_pct: null } } } })
+  })
+
+  it('takes a width from 0 to 50 and names a width outside it', () => {
+    const draft = accountDraftOf(WORK)
+    for (const ok of ['0', '50']) {
+      draft.ahead = ok
+      expect(accountPatch(WORK, draft, LIMITS).invalid).toEqual([])
+    }
+    for (const bad of ['51', '-1', '2.5', 'x']) {
+      draft.ahead = bad
+      expect(accountPatch(WORK, draft, LIMITS)).toEqual({ patch: null, invalid: ['ahead'] })
+    }
+  })
+
+  it('sends the line of the 5 hours of a hold account under `hold`, and a blank as null (= no line)', () => {
+    const draft = accountDraftOf(PERSONAL)
+    draft.fiveHour = '95'
+    expect(accountPatch(PERSONAL, draft, LIMITS).patch).toEqual({
+      accounts: { personal: { hold: { five_hour_at_pct: 95 } } },
+    })
+    const withLine = { ...PERSONAL, hold: { ...PERSONAL.hold, five_hour_at_pct: 95 } }
+    const blank = accountDraftOf(withLine)
+    expect(blank.fiveHour).toBe('95')
+    blank.fiveHour = ''
+    expect(accountPatch(withLine, blank, LIMITS).patch).toEqual({
+      accounts: { personal: { hold: { five_hour_at_pct: null } } },
+    })
+  })
+
+  it('names a line of the 5 hours of a hold account that is out of range', () => {
+    const draft = accountDraftOf(PERSONAL)
+    for (const bad of ['0', '101', '9.5']) {
+      draft.fiveHour = bad
+      expect(accountPatch(PERSONAL, draft, LIMITS)).toEqual({ patch: null, invalid: ['fiveHour'] })
+    }
+  })
+
+  it('has the fields of a fallback account blank for a hold account and the other way round', () => {
+    expect(accountDraftOf(PERSONAL)).toMatchObject({ atPct: '', ahead: '', fiveHour: '' })
+    expect(accountDraftOf(WORK)).toMatchObject({ atPct: '95', ahead: '0', fiveHour: '' })
+  })
+
   it('reads the table of the account in the order of the week', () => {
     expect(Object.keys(accountDraftOf(PERSONAL).days)).toEqual(WEEKDAYS)
     expect(accountDraftOf(PERSONAL).days).toMatchObject({ mon: '70', tue: '', sat: '100' })

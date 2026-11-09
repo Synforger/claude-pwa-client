@@ -23,17 +23,24 @@ export function parseField(text, { min, max = Infinity, whole = true }) {
 
 const asText = (value) => (value === null || value === undefined ? '' : String(value))
 
-/** 口座の入力の初期値 (= view の今の値)。 days = 曜日ごとの線、 atPct = 5 時間の線 (= 逃げ先のある口座だけ)。 */
+/** 口座の入力の初期値 (= view の今の値)。 days = 曜日ごとの線、 atPct = 逃げ先のある口座の 5 時間の線、
+ *  ahead = その口座の先回りの幅、 fiveHour = 逃げ先のない口座の 5 時間の止める線 (= 空は線なし)。 */
 export function accountDraftOf(account) {
-  const table = account.mode === 'fallback' ? account.fallback.seven_day_at_pct : account.hold?.seven_day_at_pct
+  const fallback = account.mode === 'fallback'
+  const table = fallback ? account.fallback.seven_day_at_pct : account.hold?.seven_day_at_pct
   return {
-    atPct: account.mode === 'fallback' ? asText(account.fallback.at_pct) : '',
+    atPct: fallback ? asText(account.fallback.at_pct) : '',
+    ahead: fallback ? asText(account.fallback.ahead_pct) : '',
+    fiveHour: fallback ? '' : asText(account.hold?.five_hour_at_pct),
     days: Object.fromEntries(WEEKDAYS.map((day) => [day, asText(table?.[day])])),
   }
 }
 
+/** 先回りの幅の欄の規則 (= 0 は先回りしない)。 */
+export const aheadRule = (limits) => ({ min: limits.ahead_pct_min, max: limits.ahead_pct_max })
+
 /** 口座の入力と今の値の差 → { patch, invalid }。 patch = PUT /settings の本文 (= 変わりが無ければ null)、
- *  invalid = 規則に合わない欄 (= 'atPct' と曜日の名前)。 */
+ *  invalid = 規則に合わない欄 (= 'atPct'・'ahead'・'fiveHour' と曜日の名前)。 */
 export function accountPatch(account, draft, limits) {
   const range = lineRule(limits)
   const before = accountDraftOf(account)
@@ -44,6 +51,13 @@ export function accountPatch(account, draft, limits) {
     const parsed = parseField(draft.atPct, range)
     if (!parsed.ok || parsed.value === null) invalid.push('atPct')
     else if (draft.atPct.trim() !== before.atPct) fields.at_pct = parsed.value
+    const ahead = parseField(draft.ahead, aheadRule(limits))
+    if (!ahead.ok) invalid.push('ahead')
+    else if (draft.ahead.trim() !== before.ahead) fields.ahead_pct = ahead.value
+  } else {
+    const five = parseField(draft.fiveHour, range)
+    if (!five.ok) invalid.push('fiveHour')
+    else if (draft.fiveHour.trim() !== before.fiveHour) fields.five_hour_at_pct = five.value
   }
   for (const day of WEEKDAYS) {
     const parsed = parseField(draft.days[day], range)

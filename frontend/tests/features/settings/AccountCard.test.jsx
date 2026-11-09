@@ -167,6 +167,47 @@ describe('lines', () => {
     expect(hold.getByTestId('settings-day-sat').value).toBe('100')
   })
 
+  it('shows the width ahead of the line for a fallback account, and the 5-hour line for a hold account', () => {
+    const fallback = show({ ...WORK, fallback: { ...WORK.fallback, ahead_pct: 5 } })
+    expect(fallback.getByTestId('settings-ahead-pct').value).toBe('5')
+    expect(fallback.queryByTestId('settings-five-hour-pct')).toBeNull()
+    cleanup()
+    const hold = show({ ...PERSONAL, hold: { ...PERSONAL.hold, five_hour_at_pct: 95 } })
+    expect(hold.getByTestId('settings-five-hour-pct').value).toBe('95')
+    expect(hold.queryByTestId('settings-ahead-pct')).toBeNull()
+    cleanup()
+    expect(show(PERSONAL).getByTestId('settings-five-hour-pct').value).toBe('')
+  })
+
+  it('saves a new width ahead of the line and nothing else', async () => {
+    const { getByTestId, onSave } = show(WORK)
+    type(getByTestId, 'settings-ahead-pct', '5')
+    fireEvent.click(getByTestId('settings-account-save'))
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1))
+    expect(onSave).toHaveBeenCalledWith({ accounts: { work: { fallback: { ahead_pct: 5 } } } })
+  })
+
+  it('saves a new 5-hour line of a hold account and nothing else', async () => {
+    const { getByTestId, onSave } = show(PERSONAL)
+    type(getByTestId, 'settings-five-hour-pct', '95')
+    fireEvent.click(getByTestId('settings-account-save'))
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1))
+    expect(onSave).toHaveBeenCalledWith({ accounts: { personal: { hold: { five_hour_at_pct: 95 } } } })
+  })
+
+  it('refuses a width above 50: the field is marked, the range is shown and save stays off', () => {
+    const { getByTestId, container } = show(WORK)
+    type(getByTestId, 'settings-ahead-pct', '51')
+    expect(getByTestId('settings-account-save').disabled).toBe(true)
+    expect(container.querySelector('.settings-field.invalid')).not.toBeNull()
+    expect(container.textContent).toContain('0〜50 の整数で入れてください')
+  })
+
+  it('puts the 5-hour line of a hold account on the 5-hour bar', () => {
+    const { getByTestId } = show({ ...PERSONAL, hold: { ...PERSONAL.hold, five_hour_at_pct: 95 } })
+    expect(getByTestId('settings-usage-five').querySelector('[data-testid=settings-bar-line]').style.marginLeft).toBe('95%')
+  })
+
   it('keeps save off until a line changes, then saves the change and nothing else', async () => {
     const { getByTestId, onSave } = show(PERSONAL)
     const save = getByTestId('settings-account-save')
@@ -207,6 +248,12 @@ describe('tabs the line stopped', () => {
     fireEvent.click(getByTestId('settings-continue'))
     await waitFor(() => expect(onContinue).toHaveBeenCalledWith('personal'))
     await waitFor(() => expect(getByTestId('settings-held').textContent).toContain('2 個のタブに続けてと頼みました'))
+  })
+
+  it('names the 5 hours as what blocks continuing when they are the window at the line', () => {
+    const account = { ...PERSONAL, can_continue: false, hold: { ...PERSONAL.hold, five_hour_at_pct: 95 },
+      usage: { ...PERSONAL.usage, five_hour_pct: 96 } }
+    expect(show(account).getByTestId('settings-continue-blocked').textContent).toBe('今 96% / 今日の線 95%')
   })
 
   it('cannot be pressed while the usage is at the line', () => {

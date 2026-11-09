@@ -19,6 +19,11 @@ def apply(update):
      ("accounts", "work", "fallback", "seven_day_at_pct", "tue"), 50),
     ({"accounts": {"personal": {"hold": {"seven_day_at_pct": {"sun": 80}}}}},
      ("accounts", "personal", "hold", "seven_day_at_pct", "sun"), 80),
+    ({"accounts": {"work": {"fallback": {"ahead_pct": 5}}}}, ("accounts", "work", "fallback", "ahead_pct"), 5),
+    ({"accounts": {"work": {"fallback": {"ahead_pct": 0}}}}, ("accounts", "work", "fallback", "ahead_pct"), 0),
+    ({"accounts": {"work": {"fallback": {"ahead_pct": 50}}}}, ("accounts", "work", "fallback", "ahead_pct"), 50),
+    ({"accounts": {"personal": {"hold": {"five_hour_at_pct": 95}}}},
+     ("accounts", "personal", "hold", "five_hour_at_pct"), 95),
     ({"agents": {"agent_a": {"sleep": {"minutes": 30}}}}, ("agents", "agent_a", "sleep", "minutes"), 30),
     ({"agents": {"agent_b": {"sleep": {"minutes": 15}}}}, ("agents", "agent_b", "sleep", "minutes"), 15),
     ({"agents": {"agent_a": {"rollover": {"working": {"context_pct": 55}}}}},
@@ -61,6 +66,7 @@ def test_a_hold_is_made_on_an_account_that_has_none():
      lambda s: "mon" in s["accounts"]["personal"]["hold"]["seven_day_at_pct"]),
     ({"accounts": {"work": {"fallback": {"seven_day_at_pct": {"mon": None}}}}},
      lambda s: "mon" in s["accounts"]["work"]["fallback"]["seven_day_at_pct"]),
+    ({"accounts": {"work": {"fallback": {"ahead_pct": None}}}}, lambda s: "ahead_pct" in s["accounts"]["work"]["fallback"]),
     ({"agents": {"agent_a": {"sleep": {"minutes": None}}}}, lambda s: "minutes" in s["agents"]["agent_a"]["sleep"]),
     ({"child_sessions_max": None}, lambda s: "child_sessions_max" in s),
     ({"notification_title": None}, lambda s: "notification_title" in s),
@@ -102,6 +108,15 @@ def test_every_refused_field_is_named_not_only_the_first():
     {"accounts": {"work": {"fallback": {"at_pct": None}}}},
     {"accounts": {"personal": {"hold": {"seven_day_at_pct": {"mon": 0}}}}},
     {"accounts": {"personal": {"hold": {"seven_day_at_pct": {"mon": [70]}}}}},
+    {"accounts": {"work": {"fallback": {"ahead_pct": -1}}}},
+    {"accounts": {"work": {"fallback": {"ahead_pct": 51}}}},
+    {"accounts": {"work": {"fallback": {"ahead_pct": 2.5}}}},
+    {"accounts": {"work": {"fallback": {"ahead_pct": "5"}}}},
+    {"accounts": {"work": {"fallback": {"ahead_pct": True}}}},
+    {"accounts": {"personal": {"hold": {"five_hour_at_pct": 0}}}},
+    {"accounts": {"personal": {"hold": {"five_hour_at_pct": 101}}}},
+    {"accounts": {"personal": {"hold": {"five_hour_at_pct": 95.5}}}},
+    {"accounts": {"personal": {"hold": {"five_hour_at_pct": "95"}}}},
     {"agents": {"agent_a": {"sleep": {"minutes": 0}}}},
     {"agents": {"agent_a": {"sleep": {"minutes": 1.5}}}},
     {"agents": {"agent_a": {"rollover": {"working": {"context_pct": 0}}}}},
@@ -155,3 +170,38 @@ def test_a_problem_that_was_there_already_does_not_stop_another_field_from_chang
 def test_nothing_is_applied_when_one_field_is_refused():
     with pytest.raises(Rejected):
         apply({"child_sessions_max": 3, "agents": {"agent_a": {"sleep": {"minutes": 0}}}})
+
+
+def test_the_line_of_the_5_hours_of_a_hold_is_removed_with_null_and_the_days_stay():
+    settings = copy.deepcopy(SETTINGS)
+    settings["accounts"]["personal"]["hold"]["five_hour_at_pct"] = 95
+    updated, _ = apply_update(settings, {"accounts": {"personal": {"hold": {"five_hour_at_pct": None}}}})
+    assert updated["accounts"]["personal"]["hold"] == {"seven_day_at_pct": {"mon": 70, "sat": 100}}
+
+
+def test_a_line_of_the_5_hours_makes_a_hold_on_an_account_that_has_none():
+    settings = copy.deepcopy(SETTINGS)
+    del settings["accounts"]["personal"]["hold"]
+    updated, changed = apply_update(settings, {"accounts": {"personal": {"hold": {"five_hour_at_pct": 90}}}})
+    assert updated["accounts"]["personal"]["hold"] == {"five_hour_at_pct": 90}
+    assert changed == ["accounts.personal.hold.five_hour_at_pct"]
+
+
+def test_a_hold_whose_only_line_is_taken_away_is_refused_since_it_would_have_no_line_at_all():
+    settings = copy.deepcopy(SETTINGS)
+    settings["accounts"]["personal"]["hold"] = {"five_hour_at_pct": 95}
+    with pytest.raises(Rejected) as refused:
+        apply_update(settings, {"accounts": {"personal": {"hold": {"five_hour_at_pct": None}}}})
+    assert "names neither" in refused.value.reasons[0]
+
+
+def test_a_line_of_the_5_hours_cannot_be_given_to_an_account_that_moves_its_tabs_away():
+    with pytest.raises(Rejected) as refused:
+        apply({"accounts": {"work": {"hold": {"five_hour_at_pct": 90}}}})
+    assert "has a `fallback`" in refused.value.reasons[0]
+
+
+def test_the_width_ahead_of_the_line_of_an_account_without_a_fallback_is_refused():
+    with pytest.raises(Rejected) as refused:
+        apply({"accounts": {"personal": {"fallback": {"ahead_pct": 5}}}})
+    assert "has no `fallback`" in refused.value.reasons[0]

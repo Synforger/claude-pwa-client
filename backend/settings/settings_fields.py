@@ -4,12 +4,13 @@ file and does not touch what it is given.
 
 A partial update has the shape of `config.json` and names only what changes:
 
-    {"accounts": {"personal": {"hold": {"seven_day_at_pct": {"mon": 70, "tue": null}}}},
+    {"accounts": {"personal": {"hold": {"five_hour_at_pct": 95, "seven_day_at_pct": {"mon": 70, "tue": null}}}},
      "agents": {"agent_a": {"sleep": {"minutes": 30}}},
      "child_sessions_max": 4}
 
-A field is set to a value, or removed with `null` (= a day of the week without a line, an agent that does not sleep, the
-default of `child_sessions_max` and `notification_title`). Every field outside `FIELDS` is refused, and so is a value
+A field is set to a value, or removed with `null` (= a day of the week without a line, no line of the 5 hours for a
+`hold`, no width ahead of the line for a `fallback`, an agent that does not sleep, the default of `child_sessions_max`
+and `notification_title`). Every field outside `FIELDS` is refused, and so is a value
 that the readers of the field (`fallback_settings`, `hold_settings`, the sleep and the rollover) would not use. The
 settings after the update must not have a problem the ones before did not have: a `fallback` or `hold` that was
 already unusable does not stop another account's line from being changed.
@@ -22,7 +23,7 @@ import copy
 from typing import Any, Iterator
 
 from backend.account_fallback import fallback_settings
-from backend.account_fallback.fallback_settings import WEEKDAYS, is_pct
+from backend.account_fallback.fallback_settings import WEEKDAYS, is_ahead_pct, is_pct
 from backend.account_hold import hold_settings
 
 # The numbers the rollover's fields take: the percentage of the context (1 to 100) and the minutes a tab must be quiet.
@@ -33,7 +34,9 @@ MINUTES_MIN = 1
 # by the screen; the readers of `FIELDS` below are the truth.
 CHANGEABLE_PATHS = (
     "accounts.*.fallback.at_pct",
+    "accounts.*.fallback.ahead_pct",
     "accounts.*.fallback.seven_day_at_pct.<day>",
+    "accounts.*.hold.five_hour_at_pct",
     "accounts.*.hold.seven_day_at_pct.<day>",
     "agents.*.sleep.minutes",
     "agents.*.rollover.working.context_pct",
@@ -68,6 +71,9 @@ def _problem_of(path: Path, value: object) -> str | None:
     kind = _kind_of(path)
     if kind == "line":
         return None if is_pct(value) else f"a whole number from {fallback_settings.AT_PCT_MIN} to {fallback_settings.AT_PCT_MAX}"
+    if kind == "ahead":
+        return None if is_ahead_pct(value) else \
+            f"a whole number from {fallback_settings.AHEAD_PCT_MIN} to {fallback_settings.AHEAD_PCT_MAX}"
     if kind == "sleep_minutes":
         return None if _is_whole(value, MINUTES_MIN) else f"a whole number of {MINUTES_MIN} or more"
     if kind == "context_pct":
@@ -83,8 +89,10 @@ def _problem_of(path: Path, value: object) -> str | None:
 def _kind_of(path: Path) -> str | None:
     """What kind of field `path` is, None when it is not one the screen may change."""
     match path:
-        case ("accounts", _, "fallback", "at_pct"):
+        case ("accounts", _, "fallback", "at_pct") | ("accounts", _, "hold", "five_hour_at_pct"):
             return "line"
+        case ("accounts", _, "fallback", "ahead_pct"):
+            return "ahead"
         case ("accounts", _, "fallback" | "hold", "seven_day_at_pct", day) if day in WEEKDAYS:
             return "line"
         case ("agents", _, "sleep", "minutes"):

@@ -19,6 +19,18 @@ def test_a_table_of_days_is_a_rule():
     assert rules == {"personal": HoldRule("personal", {"mon": 70, "sat": 100})} and problems == ()
 
 
+def test_a_line_of_the_5_hours_is_a_rule_with_or_without_the_table_of_days():
+    both, _ = parse_rules({"personal": {**PERSONAL, "hold": {"five_hour_at_pct": 95, "seven_day_at_pct": {"mon": 70}}}})
+    only_five, problems = parse_rules({"personal": {**PERSONAL, "hold": {"five_hour_at_pct": 95}}})
+    assert both == {"personal": HoldRule("personal", {"mon": 70}, 95)}
+    assert only_five == {"personal": HoldRule("personal", {}, 95)} and problems == ()
+
+
+def test_a_hold_without_a_line_of_the_5_hours_has_none():
+    rules, _ = parse_rules({"personal": {**PERSONAL, "hold": {"seven_day_at_pct": {"mon": 70}}}})
+    assert rules["personal"].five_hour_at_pct is None
+
+
 def test_an_empty_table_is_a_rule_that_stops_nothing():
     rules, problems = parse_rules({"personal": {**PERSONAL, "hold": {"seven_day_at_pct": {}}}})
     assert rules == {"personal": HoldRule("personal", {})} and problems == ()
@@ -26,7 +38,12 @@ def test_an_empty_table_is_a_rule_that_stops_nothing():
 
 @pytest.mark.parametrize("hold, reason", [
     ("mon", "it is not an object"),
-    ({}, "`seven_day_at_pct` is missing"),
+    ({}, "it names neither `seven_day_at_pct` nor `five_hour_at_pct`"),
+    ({"five_hour_at_pct": 0}, "`five_hour_at_pct` is not a whole number from 1 to 100"),
+    ({"five_hour_at_pct": 101}, "`five_hour_at_pct` is not a whole number"),
+    ({"five_hour_at_pct": 95.5}, "`five_hour_at_pct` is not a whole number"),
+    ({"five_hour_at_pct": True}, "`five_hour_at_pct` is not a whole number"),
+    ({"five_hour_at_pct": 95, "seven_day_at_pct": {"mon": 0}}, "`seven_day_at_pct.mon` is not a whole number"),
     ({"seven_day_at_pct": 70}, "`seven_day_at_pct` is not an object"),
     ({"seven_day_at_pct": {"monday": 70}}, "which is not one of mon"),
     ({"seven_day_at_pct": {"mon": 0}}, "`seven_day_at_pct.mon` is not a whole number from 1 to 100"),

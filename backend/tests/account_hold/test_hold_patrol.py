@@ -9,8 +9,9 @@ from backend.account_hold.hold_envelope import CONTINUE, STOP
 from backend.jsonl.jsonl_predicates import CLIENT_NOTICE_OPENING
 from backend.sleep.sleep_judgement import PROCESSES_RUNNING, TURN_OPEN
 from backend.sleep.record_facts import LimitStop
-from backend.tests.account_hold.conftest import usage_row
+from backend.tests.account_hold.conftest import accounts, usage_row
 from backend.tests.async_run import run
+from backend.tests.limit_samples import use_accounts
 
 
 def test_a_tab_on_the_account_over_its_line_is_put_to_sleep_at_a_break_and_marked(env, caplog):
@@ -28,9 +29,71 @@ def test_a_tab_stays_while_the_usage_is_under_the_line(env):
     assert run(patrol.tick()) == [] and env.slept == [] and env.tab.held_at is None
 
 
-def test_the_5_hours_do_not_stop_a_tab(env):
+def test_the_5_hours_do_not_stop_a_tab_without_a_line_of_their_own(env):
     env.rows = [usage_row(five=100, seven=10)]
     assert run(patrol.tick()) == [] and env.slept == []
+
+
+def test_a_tab_is_put_to_sleep_when_the_5_hours_are_at_their_line(env, monkeypatch, caplog):
+    use_accounts(monkeypatch, accounts(five_hour_at_pct=95))
+    env.rows = [usage_row(five=94, seven=10)]
+    assert run(patrol.tick()) == [] and env.slept == []
+    env.rows = [usage_row(five=95, seven=10)]
+    caplog.set_level(logging.INFO, logger=patrol.logger.name)
+    assert run(patrol.tick()) == [env.tab.id]
+    assert env.tab.held_at is not None and f"account hold: held session={env.tab.id} account=personal" in caplog.text
+
+
+def test_a_tab_is_stopped_by_the_5_hours_on_a_day_whose_7_days_have_no_line(env, monkeypatch):
+    use_accounts(monkeypatch, accounts(hold_days={}, five_hour_at_pct=95))
+    env.rows = [usage_row(five=96, seven=100)]
+    assert run(patrol.tick()) == [env.tab.id]
+
+
+def test_a_5_hours_window_that_has_reset_does_not_stop_a_tab(env, monkeypatch):
+    use_accounts(monkeypatch, accounts(five_hour_at_pct=95))
+    usage = usage_row(five=99, seven=10)
+    usage["five_hour_resets_at"] = usage["timestamp"] - 60
+    env.rows = [usage]
+    assert run(patrol.tick()) == [] and env.slept == []
+
+
+def test_a_pinned_tab_is_not_stopped_by_the_5_hours_either(env, monkeypatch):
+    use_accounts(monkeypatch, accounts(five_hour_at_pct=95))
+    env.tab.account_pinned = True
+    env.rows = [usage_row(five=99, seven=10)]
+    assert run(patrol.tick()) == [] and env.slept == []
+
+
+# --- a tab the fallback of another account moved here ---
+
+def test_a_tab_moved_here_is_not_stopped_while_the_account_it_belongs_to_is_clear_of_its_line(env, monkeypatch):
+    use_accounts(monkeypatch, accounts(five_hour_at_pct=95, work_fallback=95))
+    env.tab.fallback_from = "work"
+    env.rows = [usage_row("work", five=10), usage_row(five=96, seven=10)]
+    assert run(patrol.tick()) == [] and env.slept == [] and env.tab.held_at is None
+
+
+def test_a_tab_moved_here_is_stopped_when_the_account_it_belongs_to_is_at_its_line_too(env, monkeypatch):
+    use_accounts(monkeypatch, accounts(five_hour_at_pct=95, work_fallback=95))
+    env.tab.fallback_from = "work"
+    env.rows = [usage_row("work", five=95), usage_row(five=96, seven=10)]
+    assert run(patrol.tick()) == [env.tab.id]
+
+
+def test_a_tab_moved_here_is_stopped_when_the_usage_of_the_account_it_belongs_to_is_not_known(env, monkeypatch):
+    use_accounts(monkeypatch, accounts(five_hour_at_pct=95, work_fallback=95))
+    env.tab.fallback_from = "work"
+    env.rows = [usage_row(five=96, seven=10)]
+    assert run(patrol.tick()) == [env.tab.id]
+
+
+def test_a_tab_moved_here_that_is_not_to_be_stopped_is_not_asked_to_come_to_a_break_either(env, monkeypatch):
+    use_accounts(monkeypatch, accounts(five_hour_at_pct=95, work_fallback=95))
+    env.tab.fallback_from = "work"
+    env.blocked_by = (TURN_OPEN,)
+    env.rows = [usage_row("work", five=10), usage_row(seven=90)]
+    assert run(patrol.tick()) == [] and env.sent == [] and env.tab.hold_asked_at is None
 
 
 def test_a_tab_of_an_account_without_a_hold_is_left_alone_whatever_its_usage(env):

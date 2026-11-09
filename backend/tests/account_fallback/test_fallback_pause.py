@@ -181,6 +181,7 @@ def test_a_tab_not_yet_overdue_is_waited_for_without_a_word_in_the_log(answering
 def test_the_request_is_asked_only_of_a_tab_that_is_wanted_elsewhere_and_is_answering():
     ask = dict(wanted=Move.MOVE, blocked_by=("turn_open", "processes_running"), stopped_by_limit=False, asked_at=None)
     assert should_ask_to_pause(**ask) is True
+    assert should_ask_to_pause(**{**ask, "wanted": Move.RETURN}) is True       # off an account that reached its own line
     assert should_ask_to_pause(**{**ask, "wanted": Move.STAY}) is False
     assert should_ask_to_pause(**{**ask, "blocked_by": ("processes_running",)}) is False
     assert should_ask_to_pause(**{**ask, "stopped_by_limit": True}) is False

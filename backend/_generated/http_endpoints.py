@@ -120,7 +120,7 @@ class GetSettingsResponse(BaseModel):
     child_sessions_max: int
     notification_title: str
     machine: dict[str, Any]  # version / backend_started_at / loop_stall ({ stood_still_sec, back_at } か null)
-    limits: dict[str, Any]  # weekdays / line_pct_min / line_pct_max / context_pct_min / context_pct_max / minutes_min
+    limits: dict[str, Any]  # weekdays / line_pct_min / line_pct_max / ahead_pct_min / ahead_pct_max / context_pct_min / context_pct_max / minutes_min
 
 
 class PutSettingsRequest(BaseModel):

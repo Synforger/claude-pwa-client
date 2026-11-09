@@ -119,9 +119,9 @@ export interface GetSettingsResponse {
       usage?: Record<string, unknown> | null
       /** fallback = タブを逃げ先へ移す / hold = 区切りで止める / none */
       mode: string
-      /** to / to_display_name / at_pct / seven_day_at_pct / seven_day_today_pct */
+      /** to / to_display_name / at_pct / ahead_pct (先回りの幅、 0 = 先回りしない) / seven_day_at_pct / seven_day_today_pct */
       fallback?: Record<string, unknown> | null
-      /** seven_day_at_pct (曜日 → 線) / today_pct (今日の線、 無ければ null) */
+      /** five_hour_at_pct (5 時間の線、 無ければ null) / seven_day_at_pct (曜日 → 線) / today_pct (今日の 7 日の線、 無ければ null) */
       hold?: Record<string, unknown> | null
       held_count: number
       /** その口座で動くタブの数 (total / running = 眠っていない / pinned = 固定 / held = 線で止まっている) */
@@ -144,7 +144,7 @@ export interface GetSettingsResponse {
   notification_title: string
   /** version / backend_started_at / loop_stall ({ stood_still_sec, back_at } か null) */
   machine: Record<string, unknown>
-  /** weekdays / line_pct_min / line_pct_max / context_pct_min / context_pct_max / minutes_min */
+  /** weekdays / line_pct_min / line_pct_max / ahead_pct_min / ahead_pct_max / context_pct_min / context_pct_max / minutes_min */
   limits: Record<string, unknown>
 }
 

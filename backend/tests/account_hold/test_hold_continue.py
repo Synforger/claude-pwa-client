@@ -13,8 +13,9 @@ from backend.account_hold.hold_continue import StillAtLine, continue_account
 from backend.account_hold.hold_envelope import CONTINUE
 from backend.jsonl.jsonl_predicates import CLIENT_NOTICE_OPENING
 from backend.routes import account_hold as account_hold_routes
-from backend.tests.account_hold.conftest import usage_row
+from backend.tests.account_hold.conftest import accounts, usage_row
 from backend.tests.async_run import run
+from backend.tests.limit_samples import use_accounts
 
 
 def _held(tab, at=100.0):
@@ -98,3 +99,15 @@ def test_the_route_answers_409_while_the_usage_is_at_the_line(env, client):
 
 def test_the_route_answers_404_for_an_account_that_is_not_configured(env, client):
     assert client.post("/accounts/nobody/continue").status_code == 404
+
+
+def test_it_is_refused_while_the_5_hours_are_at_their_line_and_the_answer_names_that_line(env, monkeypatch):
+    use_accounts(monkeypatch, accounts(five_hour_at_pct=95))
+    _held(env.tab)
+    env.rows = [usage_row(five=95, seven=10)]
+    with pytest.raises(StillAtLine) as refused:
+        run(continue_account("personal"))
+    assert refused.value.line_pct == 95
+    assert env.sent == [] and env.tab.held_at == 100.0
+    env.rows = [usage_row(five=94, seven=10)]
+    assert run(continue_account("personal")).continued == (env.tab.id,)

@@ -105,3 +105,20 @@ def test_startup_names_a_table_that_cannot_be_used(monkeypatch, caplog):
     assert [r.getMessage() for r in caplog.records if "account fallback" in r.getMessage()] == [
         "account fallback: accounts.work.fallback is ignored: "
         "`seven_day_at_pct.mon` is not a whole number from 1 to 100: 0"]
+
+
+def test_the_width_ahead_of_the_line_is_zero_when_it_is_left_out_and_otherwise_the_one_set():
+    assert parse_rules(_accounts(work={"to": "personal", "at_pct": 95}))[0]["work"].ahead_pct == 0
+    assert parse_rules(_accounts(work={"to": "personal", "at_pct": 95, "ahead_pct": 5}))[0]["work"].ahead_pct == 5
+
+
+@pytest.mark.parametrize("ahead_pct", [0, 1, 50])
+def test_a_width_from_0_to_50_is_used(ahead_pct):
+    rules, problems = parse_rules(_accounts(work={"to": "personal", "at_pct": 95, "ahead_pct": ahead_pct}))
+    assert rules["work"].ahead_pct == ahead_pct and problems == ()
+
+
+@pytest.mark.parametrize("ahead_pct", [-1, 51, 5.5, "5", True, None])
+def test_a_width_that_is_not_a_whole_number_from_0_to_50_leaves_the_fallback_out_and_names_it(ahead_pct):
+    rules, problems = parse_rules(_accounts(work={"to": "personal", "at_pct": 95, "ahead_pct": ahead_pct}))
+    assert rules == {} and len(problems) == 1 and "`ahead_pct` is not a whole number from 0 to 50" in problems[0]

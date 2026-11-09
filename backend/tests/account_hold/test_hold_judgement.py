@@ -1,5 +1,5 @@
-"""Whether the account hold stops the tabs of an account (`hold_judgement.py`): the line of the day, and the usage of
-the 7 days against it."""
+"""Whether the account hold stops the tabs of an account (`hold_judgement.py`): the line of the day for the 7 days, the
+line of the 5 hours, and the usage against them."""
 from __future__ import annotations
 
 import time
@@ -7,7 +7,7 @@ from datetime import datetime
 
 import pytest
 
-from backend.account_hold.hold_judgement import hold_line_pct, is_over_line, should_ask_to_hold
+from backend.account_hold.hold_judgement import hold_line_pct, is_over_line, reached_line_pct, should_ask_to_hold
 from backend.account_hold.hold_settings import HoldRule
 from backend.sleep.sleep_judgement import PROCESSES_RUNNING, TURN_OPEN
 
@@ -31,8 +31,47 @@ def test_the_7_days_are_over_the_line_of_the_day_at_the_line_or_more(seven, over
     assert is_over_line([row(seven=seven)], RULE, MONDAY_NOON) is over
 
 
-def test_the_5_hours_never_count():
+def test_the_5_hours_never_count_without_a_line_of_their_own():
     assert is_over_line([row(five=100, seven=10)], RULE, MONDAY_NOON) is False
+
+
+FIVE_RULE = HoldRule("personal", {"mon": 70, "sat": 100}, five_hour_at_pct=95)
+
+
+@pytest.mark.parametrize("five, over", [(94, False), (95, True), (100, True)])
+def test_the_5_hours_are_over_their_line_at_the_line_or_more(five, over):
+    assert is_over_line([row(five=five, seven=10)], FIVE_RULE, MONDAY_NOON) is over
+
+
+def test_either_window_over_its_line_is_over_the_line():
+    assert is_over_line([row(five=10, seven=70)], FIVE_RULE, MONDAY_NOON) is True
+    assert is_over_line([row(five=95, seven=10)], FIVE_RULE, MONDAY_NOON) is True
+    assert is_over_line([row(five=94, seven=69)], FIVE_RULE, MONDAY_NOON) is False
+
+
+def test_the_5_hours_stop_on_a_day_whose_7_days_have_no_line():
+    assert is_over_line([row(five=95, seven=100, now=TUESDAY_NOON)], FIVE_RULE, TUESDAY_NOON) is True
+    assert is_over_line([row(five=94, seven=100, now=TUESDAY_NOON)], FIVE_RULE, TUESDAY_NOON) is False
+
+
+def test_a_line_of_the_5_hours_alone_is_a_rule():
+    only_five = HoldRule("personal", {}, five_hour_at_pct=95)
+    assert is_over_line([row(five=95, seven=100)], only_five, MONDAY_NOON) is True
+    assert is_over_line([row(five=94, seven=100)], only_five, MONDAY_NOON) is False
+
+
+def test_a_5_hours_window_that_has_reset_is_not_over_its_line():
+    usage = row(five=99, seven=10)
+    usage["five_hour_resets_at"] = MONDAY_NOON - 60
+    assert is_over_line([usage], FIVE_RULE, MONDAY_NOON) is False
+
+
+def test_the_line_reached_is_the_one_of_the_window_that_is_at_it_and_the_7_days_come_first():
+    assert reached_line_pct([row(five=10, seven=70)], FIVE_RULE, MONDAY_NOON) == 70
+    assert reached_line_pct([row(five=95, seven=10)], FIVE_RULE, MONDAY_NOON) == 95
+    assert reached_line_pct([row(five=95, seven=70)], FIVE_RULE, MONDAY_NOON) == 70
+    assert reached_line_pct([row(five=10, seven=10)], FIVE_RULE, MONDAY_NOON) is None
+    assert reached_line_pct([row(five=95, seven=100, now=TUESDAY_NOON)], FIVE_RULE, TUESDAY_NOON) == 95
 
 
 def test_a_day_without_a_line_is_never_over_it():
