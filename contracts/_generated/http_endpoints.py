@@ -105,6 +105,36 @@ class GetAccountsResponseItem(BaseModel):
     is_default: bool  # account_id 未設定の session と等価な account (= env に CLAUDE_CONFIG_DIR を持たない最初のもの)
 
 
+class PostAccountsAccountContinueResponse(BaseModel):
+    """POST /accounts/{account}/continue response"""
+    model_config = ConfigDict(extra="forbid")
+    continued: list[str]  # 続けたタブの id
+    failed: list[str]  # 連絡が届かず、 印が残ったタブの id
+
+
+class GetSettingsResponse(BaseModel):
+    """GET /settings response"""
+    model_config = ConfigDict(extra="forbid")
+    accounts: list[dict[str, Any]]
+    agents: list[dict[str, Any]]
+    child_sessions_max: int
+    notification_title: str
+    machine: dict[str, Any]  # version / backend_started_at / loop_stall ({ stood_still_sec, back_at } か null)
+    limits: dict[str, Any]  # weekdays / line_pct_min / line_pct_max / context_pct_min / context_pct_max / minutes_min
+
+
+class PutSettingsRequest(BaseModel):
+    """PUT /settings request body"""
+    model_config = ConfigDict(extra="forbid")
+    pass
+
+
+class PutSettingsResponse(BaseModel):
+    """PUT /settings response"""
+    model_config = ConfigDict(extra="forbid")
+    pass
+
+
 class GetExtensionsResponseItem(BaseModel):
     """GET /extensions response[i]"""
     model_config = ConfigDict(extra="forbid")

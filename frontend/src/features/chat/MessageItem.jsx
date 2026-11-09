@@ -590,7 +590,10 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
           <div className="relayed-from" data-testid="client-notice-label">
             {notice.kind === 'account-move'
               ? t('chat.notice_account_move', { from: notice.from ?? '?', to: notice.to ?? '?' })
-              : t('chat.notice_limit_resume', { account: notice.account ?? '?' })}
+              : notice.kind === 'account-hold'
+                ? t(notice.phase === 'continue' ? 'chat.notice_account_hold_continue' : 'chat.notice_account_hold_stop',
+                  { account: notice.account ?? '?' })
+                : t('chat.notice_limit_resume', { account: notice.account ?? '?' })}
           </div>
           <span className="bubble" data-testid="client-notice-body">
             <MessageRenderer text={notice.text} onOpenFile={onOpenFile} streaming={false} />

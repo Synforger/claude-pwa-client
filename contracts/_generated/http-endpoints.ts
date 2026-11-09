@@ -101,6 +101,59 @@ export interface GetAccountsResponseItem {
 
 export type GetAccountsResponse = GetAccountsResponseItem[]
 
+/** POST /accounts/{account}/continue response */
+export interface PostAccountsAccountContinueResponse {
+  /** 続けたタブの id */
+  continued: string[]
+  /** 連絡が届かず、 印が残ったタブの id */
+  failed: string[]
+}
+
+/** GET /settings response */
+export interface GetSettingsResponse {
+  accounts: ({
+      id: string
+      display_name: string
+      is_default?: boolean
+      /** five_hour_pct / five_hour_resets_at / seven_day_pct / seven_day_resets_at。 使用率の行が無い口座は null */
+      usage?: Record<string, unknown> | null
+      /** fallback = タブを逃げ先へ移す / hold = 区切りで止める / none */
+      mode: string
+      /** to / to_display_name / at_pct / seven_day_at_pct / seven_day_today_pct */
+      fallback?: Record<string, unknown> | null
+      /** seven_day_at_pct (曜日 → 線) / today_pct (今日の線、 無ければ null) */
+      hold?: Record<string, unknown> | null
+      held_count: number
+      /** その口座で動くタブの数 (total / running = 眠っていない / pinned = 固定 / held = 線で止まっている) */
+      tabs: Record<string, unknown>
+      /** 止まったタブが在り、 使用率が今日の線を下回っている (= 続けられる) */
+      can_continue: boolean
+      pinned_tabs: ({
+          id?: string
+          title?: string
+        })[]
+    })[]
+  agents: ({
+      id: string
+      display_name: string
+      sleep_minutes?: number | null
+      /** working_context_pct / idle_context_pct / idle_minutes (書いていなければ null) */
+      rollover: Record<string, unknown>
+    })[]
+  child_sessions_max: number
+  notification_title: string
+  /** version / backend_started_at / loop_stall ({ stood_still_sec, back_at } か null) */
+  machine: Record<string, unknown>
+  /** weekdays / line_pct_min / line_pct_max / context_pct_min / context_pct_max / minutes_min */
+  limits: Record<string, unknown>
+}
+
+/** PUT /settings request body */
+export type PutSettingsRequest = Record<string, unknown>
+
+/** PUT /settings response */
+export type PutSettingsResponse = Record<string, unknown>
+
 /** GET /extensions response[i] */
 export interface GetExtensionsResponseItem {
   /** ^[a-z0-9][a-z0-9-]{0,31}$ */

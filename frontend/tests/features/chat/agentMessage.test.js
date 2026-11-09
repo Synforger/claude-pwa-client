@@ -130,14 +130,24 @@ describe('parseClientNotice', () => {
 
   it('reads the accounts out of the notice sent after a move', () => {
     expect(parseClientNotice(moved)).toEqual({
-      kind: 'account-move', from: 'work', to: 'personal', account: null, text: 'A usage limit stopped this session.',
+      kind: 'account-move', from: 'work', to: 'personal', account: null, phase: null, text: 'A usage limit stopped this session.',
     })
   })
 
   it('reads the account out of the notice sent after a limit ended', () => {
     expect(parseClientNotice(resumed)).toEqual({
-      kind: 'limit-resume', from: null, to: null, account: 'personal', text: 'The usage limit has ended.',
+      kind: 'limit-resume', from: null, to: null, account: 'personal', phase: null, text: 'The usage limit has ended.',
     })
+  })
+
+  it('reads the phase and the account out of the notices of the account hold', () => {
+    const stop = `${CLIENT_NOTICE_OPENING}\n<account-hold phase="stop" account="personal">\n止めます\n</account-hold>`
+    const carry = `${CLIENT_NOTICE_OPENING}\n<account-hold phase="continue" account="personal">\n続けます\n</account-hold>`
+    expect(parseClientNotice(stop)).toEqual({
+      kind: 'account-hold', from: null, to: null, account: 'personal', phase: 'stop', text: '止めます',
+    })
+    expect(parseClientNotice(carry)).toMatchObject({ kind: 'account-hold', phase: 'continue' })
+    expect(isClientMessage(stop)).toBe(true)
   })
 
   it('is not a notice without the first line, with an unknown block, or with the rollover first line', () => {

@@ -43,18 +43,19 @@ class FallbackRule:
     seven_day_at_pct: dict[str, int] = field(default_factory=dict)
 
 
-def _is_pct(value: object) -> bool:
+def is_pct(value: object) -> bool:
+    """Whether `value` is a line that can be set: a whole number from `AT_PCT_MIN` to `AT_PCT_MAX`."""
     return isinstance(value, int) and not isinstance(value, bool) and AT_PCT_MIN <= value <= AT_PCT_MAX
 
 
-def _seven_day_problem(table: object) -> str | None:
-    """Why `seven_day_at_pct` cannot be used, None when it can."""
+def seven_day_problem(table: object) -> str | None:
+    """Why a `seven_day_at_pct` table (of a `fallback`, or of a `hold`) cannot be used, None when it can."""
     if not isinstance(table, dict):
         return f"`seven_day_at_pct` is not an object: {table!r}"
     for day, pct in table.items():
         if day not in WEEKDAYS:
             return f"`seven_day_at_pct` names {day!r}, which is not one of {', '.join(WEEKDAYS)}"
-        if not _is_pct(pct):
+        if not is_pct(pct):
             return f"`seven_day_at_pct.{day}` is not a whole number from {AT_PCT_MIN} to {AT_PCT_MAX}: {pct!r}"
     return None
 
@@ -72,9 +73,9 @@ def _problem(name: str, raw: object, accounts: dict) -> str | None:
     if isinstance(target, dict) and "fallback" in target:
         return f"the account `{to}` it moves to has a `fallback` of its own"
     at_pct = raw.get("at_pct")
-    if not _is_pct(at_pct):
+    if not is_pct(at_pct):
         return f"`at_pct` is not a whole number from {AT_PCT_MIN} to {AT_PCT_MAX}: {at_pct!r}"
-    return _seven_day_problem(raw["seven_day_at_pct"]) if "seven_day_at_pct" in raw else None
+    return seven_day_problem(raw["seven_day_at_pct"]) if "seven_day_at_pct" in raw else None
 
 
 def parse_rules(accounts: object) -> tuple[dict[str, FallbackRule], tuple[str, ...]]:

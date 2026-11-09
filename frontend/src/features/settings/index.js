@@ -1,0 +1,11 @@
+// features/settings 配線 entry。
+//
+// ⚙ のメニューの「設定」 から開く、 設定の画面 (= SettingsScreen)。 OverlayHost が `ui.overlays.settings` で開く。
+// component は static import しない (= lazy chunk を保つ。 contract test が grep gate)。
+
+import { register as registerOverlay } from '../../core/overlayRegistry.js'
+
+registerOverlay('settings', {
+  dispatch: () => null,
+  Component: () => import('./SettingsScreen.jsx'),
+})

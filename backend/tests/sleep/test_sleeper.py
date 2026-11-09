@@ -52,7 +52,7 @@ class World:
             self.events.append(f"kill-session claude_alive={claude.poll() is None}")
             return True
 
-        monkeypatch.setattr(sleeper, "gather", lambda sid, minutes, by_hand=False: self.facts)
+        monkeypatch.setattr(sleeper, "gather", lambda sid, minutes, by_hand=False, stopped_by_limit=False: self.facts)
         monkeypatch.setattr(sleeper.jsonl_watcher, "get_jsonl_for", lambda sid: self.record)
         monkeypatch.setattr(sleeper, "claude_pid_in_pane", lambda sid: claude.pid)
         monkeypatch.setattr(sleeper, "kill_tmux_session", kill_session)
@@ -212,7 +212,7 @@ def test_a_sleep_by_hand_waits_for_the_child_to_finish_its_answer(monkeypatch, i
     monkeypatch.setattr(sleeper, "PASSING_LOOK_SEC", 0.01)
     looks = []
 
-    def gather(sid, minutes, by_hand=False):
+    def gather(sid, minutes, by_hand=False, stopped_by_limit=False):
         looks.append(by_hand)
         return world.facts if len(looks) < 3 else READY   # the answer ends at the third look
 
@@ -244,4 +244,26 @@ def test_a_sleep_by_hand_answers_at_once_for_a_condition_that_does_not_pass_by_i
     assert claude.poll() is None and world.meta.sleep is None
     claude.kill()
     claude.wait()
+    claude.stdout.close()
+
+
+# --- the account hold putting a tab to sleep at a break it has read (= `sleep_at_break`) --------------------------
+
+def test_a_tab_at_a_break_sleeps_at_once_without_the_quiet_time(monkeypatch, isolated_state, tmp_path):
+    claude = _claude()
+    world = World(monkeypatch, isolated_state, tmp_path, claude,
+                  facts=dataclasses.replace(READY, quiet_minutes=0.5, context_pct=70))
+    assert _run(sleeper.sleep_at_break(world.meta.id)) == ()
+    assert claude.poll() is not None and world.meta.sleep is not None
+    claude.stdout.close()
+
+
+def test_a_tab_whose_turn_a_limit_stopped_sleeps_but_one_that_is_answering_does_not(monkeypatch, isolated_state,
+                                                                                   tmp_path):
+    claude = _claude()
+    world = World(monkeypatch, isolated_state, tmp_path, claude, facts=dataclasses.replace(READY, turn_open=True))
+    assert _run(sleeper.sleep_at_break(world.meta.id)) == (j.TURN_OPEN,)
+    assert world.meta.sleep is None and claude.poll() is None
+    assert _run(sleeper.sleep_at_break(world.meta.id, stopped_by_limit=True)) == ()
+    assert world.meta.sleep is not None
     claude.stdout.close()

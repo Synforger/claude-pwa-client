@@ -91,6 +91,7 @@ import backend.jsonl.routes as jsonl_routes  # noqa: E402
 import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: E402
 import backend.terminal.memo_migration as memo_migration  # noqa: E402
 import backend.terminal.pty_discover as pty_discover  # noqa: E402
+import backend.routes.account_hold as account_hold_routes  # noqa: E402
 import backend.routes.agent_messages as agent_messages_routes  # noqa: E402
 import backend.routes.chat as chat_routes  # noqa: E402
 import backend.routes.child_sessions as child_sessions_routes  # noqa: E402
@@ -105,11 +106,13 @@ import backend.routes.restart as restart_routes  # noqa: E402
 import backend.rollover.rollover as rollover  # noqa: E402
 import backend.sleep as sleep  # noqa: E402
 import backend.account_fallback as account_fallback  # noqa: E402
+import backend.account_hold as account_hold  # noqa: E402
 import backend.limit_resume as limit_resume  # noqa: E402
 import backend.child_watch.watch_patrol as child_watch  # noqa: E402
 from backend.observability.loop_stall import loop_stall_watch  # noqa: E402
 import backend.terminal.session_resolver as session_resolver  # noqa: E402
 import backend.routes.rollover as rollover_routes  # noqa: E402
+import backend.routes.settings as settings_routes  # noqa: E402
 import backend.routes.subagents as subagents_routes  # noqa: E402
 import backend.routes.tier_tabs as tier_tabs_routes  # noqa: E402
 import backend.tier_tabs.tier_tabs as tier_tabs  # noqa: E402
@@ -276,6 +279,11 @@ async def lifespan(app: FastAPI):
     session_resolver.register_wake_hook(account_fallback.move_before_wake)
     fallback_task = asyncio.create_task(account_fallback.fallback_loop())
 
+    # 口座の止める線: 設定に `hold` を書いた口座のタブを、 7 日の使用率が線に届いた間だけ区切りで止める
+    # (= `backend/account_hold/`)。 続けるのは操作者が画面から行い、 自動では再開しない。
+    account_hold.warn_unusable()
+    hold_task = asyncio.create_task(account_hold.hold_loop())
+
     # 上限が戻った時の続き: 上限で止まったタブに、 戻ったら続けての連絡を 1 通送る (= `backend/limit_resume/`)。
     resume_task = asyncio.create_task(limit_resume.resume_loop())
 
@@ -320,13 +328,14 @@ async def lifespan(app: FastAPI):
     rollover_task.cancel()
     sleep_task.cancel()
     fallback_task.cancel()
+    hold_task.cancel()
     resume_task.cancel()
     child_watch_task.cancel()
     tier_tabs_task.cancel()
     prompt_detector_task.cancel()
     loop_stall_task.cancel()
     for _t in (blocker_monitor_task, uploads_gc_task, maintenance_task, rollover_task, sleep_task, fallback_task,
-               resume_task, child_watch_task, tier_tabs_task, prompt_detector_task, loop_stall_task):
+               hold_task, resume_task, child_watch_task, tier_tabs_task, prompt_detector_task, loop_stall_task):
         try:
             await _t
         except (asyncio.CancelledError, Exception):
@@ -374,6 +383,7 @@ async def healthz() -> dict:
     return {"ok": True}
 
 
+app.include_router(account_hold_routes.router)
 app.include_router(agent_messages_routes.router)
 app.include_router(chat_routes.router)
 app.include_router(child_sessions_routes.router)
@@ -388,6 +398,7 @@ app.include_router(page_url_routes.router)
 app.include_router(pty_routes.router)
 app.include_router(restart_routes.router)
 app.include_router(rollover_routes.router)
+app.include_router(settings_routes.router)
 app.include_router(push.router)
 app.include_router(subagents_routes.router)
 app.include_router(tier_tabs_routes.router)

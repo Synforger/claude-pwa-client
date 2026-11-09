@@ -10,6 +10,7 @@ const INITIAL = {
     menu: false,
     favs: false,
     notes: false,
+    settings: false,
     subagents: false,
     subagentsFocus: null,
     previewPath: null,

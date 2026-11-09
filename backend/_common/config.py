@@ -34,9 +34,15 @@ FILE_SIZE_LIMIT = 1 * 1024 * 1024  # 1MB
 SUPPORTED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
 
+def _read_config_file() -> dict[str, Any]:
+    """config.json を読んで返す。 読めない時は例外 (= file が無い・読めない・JSON として壊れている)。"""
+    with open(CONFIG_PATH) as f:
+        return json.load(f)
+
+
 @lru_cache(maxsize=1)
 def get_config() -> dict[str, Any]:
-    """config.json を 1 度だけ読んで dict を返す。
+    """config.json を 1 度だけ読んで dict を返す (= 読み直すのは `reload_config()` だけ)。
 
     file が無い場合は空 dict にフォールバックする (= test 環境で minimum
     fixture を流し込めるよう、 import 時には絶対に I/O 失敗で落ちない)。
@@ -44,8 +50,7 @@ def get_config() -> dict[str, Any]:
     重要キーの欠落を warn ログに出す。
     """
     try:
-        with open(CONFIG_PATH) as f:
-            return json.load(f)
+        return _read_config_file()
     except FileNotFoundError:
         logger.warning(
             "config.json not found at %s; running with empty config "
@@ -56,6 +61,32 @@ def get_config() -> dict[str, Any]:
     except (OSError, json.JSONDecodeError):
         logger.exception("Failed to load config.json at %s", CONFIG_PATH)
         return {}
+
+
+# 読み直しの時に、 古い dict の中身を入れ替えて同じ物を使い続ける節。 `from backend._common.config import AGENTS`
+# は import 時の dict をそのまま持ち続けるので、 別の dict に差し替えると、 そう書いた側だけ古い値を読み続ける。
+_SHARED_SECTIONS = ("agents", "accounts")
+
+
+def reload_config() -> dict[str, Any]:
+    """config.json を読み直し、 次の `get_config()` から新しい値を返させる。 読めない時は例外を投げて今の値を残す。
+
+    `agents` と `accounts` は同じ dict の中身を入れ替える (= `_SHARED_SECTIONS`)。 設定の書き換えで効く欄
+    (逃げ先・止める線・眠り・入れ替え・通知の題・子の上限) は、 起動時に 1 度しか読まない所が無いので、
+    次の見回りからこの値で動く。
+    """
+    _read_config_file()
+    previous = get_config()
+    get_config.cache_clear()
+    fresh = get_config()
+    for name in _SHARED_SECTIONS:
+        old, new = previous.get(name), fresh.get(name)
+        if isinstance(old, dict) and isinstance(new, dict):
+            for key in [key for key in old if key not in new]:
+                del old[key]
+            old.update(new)
+            fresh[name] = old
+    return fresh
 
 
 def _projects_dirs_from_accounts(accounts: dict[str, Any]) -> list[Path]:

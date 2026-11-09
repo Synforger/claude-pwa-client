@@ -120,7 +120,7 @@ test.describe('regression: an open screen moves to a newly deployed build', () =
     await expect(page.locator('.drawer-global-menu')).toBeVisible({ timeout: 10_000 })
   })
 
-  test('the menu shows which build the screen is running', async ({ page, request }) => {
+  test('the settings screen shows which build the screen is running', async ({ page, request }) => {
     await seedSession(request, 'e2e-chat-golden')
     await openClient(page, { sid: SID })
     const entry = await runningBuild(page)
@@ -128,6 +128,7 @@ test.describe('regression: an open screen moves to a newly deployed build', () =
 
     await page.locator('.hamburger').click()
     await page.locator('.drawer-global-menu').click()
+    await page.locator('[data-testid=open-settings]').click()
     await expect(page.locator('[data-testid=running-build]')).toHaveText(`build ${id}`)
   })
 })

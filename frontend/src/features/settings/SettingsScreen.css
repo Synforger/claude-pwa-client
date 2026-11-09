@@ -1,0 +1,293 @@
+/* 設定の画面 (= ⚙ のメニューの「設定」)。 枠は共通のモーダル (_common/Modal.css) で、 ここは中身の並べ方だけ持つ。 */
+.settings-overlay {
+  align-items: stretch;
+}
+.settings-modal {
+  max-width: 720px;
+  margin: 0 auto;
+  height: 100dvh;
+  border-radius: 0;
+}
+.settings-modal .modal-header {
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+}
+.settings-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.settings-body {
+  overflow-y: auto;
+  padding: 8px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.settings-section h3 {
+  margin: 12px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+.settings-card {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.settings-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.settings-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.settings-badge {
+  font-size: 11px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.settings-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-block-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.settings-block-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.settings-note {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.settings-note.warn { color: var(--yellow); }
+.settings-note.ok { color: var(--green); }
+.settings-dim {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.settings-error {
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 6px 8px;
+  background: rgba(220, 80, 80, 0.10);
+  border: 1px solid rgba(220, 80, 80, 0.30);
+  border-radius: 4px;
+  color: #f08080;
+  white-space: pre-wrap;
+}
+
+/* 使用率: 名前・バー・使用率を 1 行に、 戻る時刻をその下に出す。 バーの印は今日の線、 線以上ならバーと数字が赤 */
+.settings-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-usage-row {
+  display: grid;
+  grid-template-columns: 4.5em 1fr 3.2em;
+  align-items: center;
+  gap: 2px 8px;
+  font-size: 13px;
+}
+.settings-usage-label { color: var(--text-dim); }
+.settings-bar {
+  /* 塗りと今日の線の印は、 同じ格子の 1 つの区画に重ねる (= 位置を絶対指定せず、 塗りは幅、 印は左の余白の % で置く) */
+  display: grid;
+  height: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.settings-bar-fill {
+  grid-area: 1 / 1;
+  justify-self: start;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  min-width: 2px;
+}
+.settings-bar-fill.over { background: var(--red); }
+.settings-bar-line {
+  grid-area: 1 / 1;
+  justify-self: start;
+  align-self: stretch;
+  width: 2px;
+  margin-block: -4px;
+  transform: translateX(-1px);
+  background: var(--yellow);
+  border-radius: 1px;
+}
+.settings-usage-pct {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+}
+.settings-usage-pct.over { color: var(--red); }
+.settings-usage-reset {
+  grid-column: 2 / 4;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+/* 入力欄 */
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.settings-field-label {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.settings-field-input {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.settings-field-input input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 16px; /* 16px 未満だと iOS が入力のたびに拡大する */
+  font-variant-numeric: tabular-nums;
+}
+.settings-field.invalid .settings-field-input input {
+  border-color: var(--red);
+}
+.settings-field-suffix {
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.settings-days {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+}
+.settings-field-text .settings-field-input input {
+  font-variant-numeric: normal;
+}
+
+/* 今日の曜日の欄は、 枠と背景で目立たせる */
+.settings-field.today .settings-field-input input {
+  border-color: var(--accent);
+  background: rgba(124, 111, 255, 0.14);
+}
+.settings-field.today .settings-field-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+/* 範囲の外の値の理由 (= 保存を押す前に、 欄のすぐ下に出す) */
+.settings-field-error {
+  font-size: 11px;
+  line-height: 1.4;
+  color: #f08080;
+}
+
+/* 線を書き換えて、 後の曜日が持ち上がった欄を一瞬光らせる (= 持ち上げた長さは AccountCard.jsx の LIFT_FLASH_MS) */
+.settings-field.lifted .settings-field-input input {
+  animation: settings-lift-flash 1.6s ease-out;
+}
+@keyframes settings-lift-flash {
+  0%, 40% { background: rgba(74, 222, 128, 0.35); border-color: var(--green); }
+  100% { background: var(--bg); border-color: var(--border); }
+}
+
+/* 保存の帯 */
+.settings-save-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.settings-save-bar .settings-error {
+  flex-basis: 100%;
+}
+.settings-save-bar .modal-save-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+}
+
+/* 固定しているタブ */
+.settings-tab-title {
+  font-size: 13px;
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* この機械 */
+.settings-wide {
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+.settings-build {
+  margin-left: 8px;
+  font-size: 11px;
+  opacity: 0.55;
+}
+.settings-fact {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+.settings-fact-label { color: var(--text-dim); flex-shrink: 0; }
+.settings-fact-value {
+  color: var(--text);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* backend の再起動中に画面上部に出す帯 (= 新しい backend が応答するとアプリごと読み込み直す) */
+.backend-restart-banner {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  padding: 8px 14px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+}
