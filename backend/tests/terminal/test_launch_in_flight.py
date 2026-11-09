@@ -174,12 +174,13 @@ def test_a_launch_given_up_sends_its_held_messages_again(pane, monkeypatch):
         resent.append(payload["text"])
         return {"ok": True}
     monkeypatch.setattr(routes, "pty_send", fake_send)
-    monkeypatch.setattr(input_ready, "LAUNCH_GIVE_UP_SEC", 0.02)
     input_ready.mark_starting(SID)
 
     async def scenario():
         assert fm.hold_while_launching(SID, "one") is not None
         assert fm.hold_while_launching(SID, "two") is not None
+        # the limit passes only once both are held, however slow the machine is
+        monkeypatch.setattr(input_ready, "LAUNCH_GIVE_UP_SEC", 0.0)
         await asyncio.gather(*fm._typers.values())
     _run(scenario())
     assert resent == ["one", "two"]
