@@ -100,6 +100,13 @@ A usage limit stopped this session, so the client moved it to another account. C
 </account-move>
 ```
 
+### 画面から手で移す時
+
+画面のタブの口座の札から移す時 (`POST /sessions/<タブの id>/account`) は、線も区切りも確かめずに、上の 2〜5 と同じ
+手順ですぐ移します。続けての連絡は送りません。Claude を立て直すので、その Claude が裏で動かしていたコマンドは
+終わります。立て直した Claude は、終わったコマンドの知らせを会話に書いて入力を待ちます。その知らせには答えないので、
+タブは応答中とは数えません。子のタブなら、[止まった子の見回り](child-sessions.md#止まった子の見回り)が親へ知らせます。
+
 どこかの手順が失敗した時、タブは元の口座のまま残り、log に理由が 1 行出ます。
 
 ```
