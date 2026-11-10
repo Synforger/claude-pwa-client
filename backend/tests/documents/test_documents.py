@@ -371,6 +371,11 @@ def test_an_unexpected_error_is_a_failure_not_a_crash(tmp_path, fake_render):
     assert not list((tmp_path / "cache").glob(".work-*"))  # 作業の folder は残らない
 
 
+# How long a test waits for a conversion on its worker thread: the loop ends as soon as it is ready, so the limit only
+# has to outlast a machine under heavy load.
+CONVERSION_WAIT_SEC = 60
+
+
 def test_requests_while_converting_share_one_conversion(tmp_path, fake_render):
     fake_render["gate"] = threading.Event()
     store = DocumentStore(tmp_path / "cache", 1 << 30)
@@ -379,13 +384,29 @@ def test_requests_while_converting_share_one_conversion(tmp_path, fake_render):
         states = [store.status(source) for _ in range(3)]
         assert all(s.state == "running" and s.phase in ("start", "render") for s in states)
         fake_render["gate"].set()
-        deadline = time.time() + 5
+        deadline = time.time() + CONVERSION_WAIT_SEC
         while store.status(source).state != "ready":
             assert time.time() < deadline
             time.sleep(0.01)
         assert fake_render["calls"] == 1
     finally:
         fake_render["gate"].set()
+
+
+def test_a_conversion_that_ends_just_before_the_lock_is_not_started_again(tmp_path, fake_render, monkeypatch):
+    # The look for the entry happens outside the lock: a conversion that ends between that look and the lock has left
+    # its entry and its job by then. On a loaded machine this started the same conversion a second time.
+    store, source = inline_store(tmp_path), doc(tmp_path)
+    store.status(source)
+    assert store.status(source).state == "ready" and fake_render["calls"] == 1
+    real_entry, looks = store._entry, {"count": 0}
+
+    def stale_first_look(key):
+        looks["count"] += 1
+        return None if looks["count"] == 1 else real_entry(key)
+    monkeypatch.setattr(store, "_entry", stale_first_look)
+    assert store.status(source).state == "ready"
+    assert fake_render["calls"] == 1
 
 
 def test_a_half_made_entry_is_not_used(tmp_path, fake_render):
