@@ -18,8 +18,10 @@ from backend.tests.async_run import run
 from backend.tests.limit_samples import use_accounts
 
 
-def _held(tab, at=100.0):
+def _held(tab, at=100.0, owes=True):
+    """`tab` was stopped at `at`; `owes`: it had work left (it was asked to come to a break, or a limit stopped it)."""
     tab.held_at = at
+    tab.owes_carry_on = owes
     tab.sleep = SleepMark(claude_sid="c1", record="/r.jsonl", slept_at=1)
 
 
@@ -68,10 +70,19 @@ def test_an_account_without_a_hold_is_continued_without_a_line_to_check(env, mon
     assert run(continue_account("personal")).continued == (env.tab.id,)
 
 
-def test_a_log_that_says_nothing_does_not_hold_the_tabs_back(env):
+def test_a_log_that_says_nothing_holds_the_tabs_back(env):
     _held(env.tab)
     env.rows = []
+    with pytest.raises(StillAtLine):                                  # not known is not clear
+        run(continue_account("personal"))
+    assert env.sent == [] and env.tab.held_at == 100.0
+
+
+def test_a_tab_stopped_with_nothing_left_to_do_is_released_without_a_message(env):
+    _held(env.tab, owes=False)
+    env.rows = [usage_row(seven=10)]
     assert run(continue_account("personal")).continued == (env.tab.id,)
+    assert env.sent == [] and env.tab.held_at is None and env.tab.sleep is not None      # it sleeps on
 
 
 @pytest.fixture

@@ -165,6 +165,10 @@ class SessionDef:
     # no account is clear for it, oldest first (`backend/account_hold/hold_mail.py`). They are handed over, and
     # removed, once it may take them.
     kept_messages: list[str] = field(default_factory=list)
+    # The client owes this tab one message to carry on: it asked the tab to come to a break (saying the rest would
+    # follow), or a usage limit stopped the tab before it was moved or stopped. Cleared when that message reached the
+    # tab, or when the tab was woken by someone else; asking marks (`pause_asked_at`, `hold_asked_at`) leave it.
+    owes_carry_on: bool = False
     # The fingerprint (sha256, hex) of the top page the client wrote for a child tab when it made the page
     # (`terminal/tab_page.py`). Closing the child compares the page with it (`terminal/child_folder.py`). None for a
     # tab that is not a child, and for a child whose page was made before this was kept.
@@ -203,6 +207,7 @@ class SessionDef:
             "held_at": self.held_at,
             "hold_asked_at": self.hold_asked_at,
             "kept_messages": list(self.kept_messages),
+            "owes_carry_on": self.owes_carry_on,
             "top_page_sha": self.top_page_sha,
             "stop_told_at": self.stop_told_at,
         }
@@ -280,6 +285,7 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
                 held_at=_optional_number(entry.get("held_at")),
                 hold_asked_at=_optional_number(entry.get("hold_asked_at")),
                 kept_messages=_texts(entry.get("kept_messages")),
+                owes_carry_on=entry.get("owes_carry_on") is True,
                 top_page_sha=_optional_str(entry.get("top_page_sha")),
                 stop_told_at=_optional_number(entry.get("stop_told_at")),
             )

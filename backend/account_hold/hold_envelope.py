@@ -30,8 +30,11 @@ def stop_envelope(account: str, account_name: str, *, both: bool = False) -> str
             f"</{TAG}>")
 
 
-def continue_envelope(account: str) -> str:
-    """The message that asks a tab the operator continues to carry on with what it was doing before it was stopped."""
+def continue_envelope(account: str, *, stopped: bool = True) -> str:
+    """The message that asks a tab to carry on with what it was doing: one that was stopped (`stopped`), or one that
+    was asked to come to a break and then was neither stopped nor moved."""
+    body = ("止めていたタブを続けます。止める前の作業を続けてください" if stopped else
+            "区切りを頼みましたが、止めずにこのまま続けます。頼む前の作業を続けてください")
     return (f'{OPENING}\n<{TAG} phase="{CONTINUE}" account="{_attr(account)}">\n'
-            f"止めていたタブを続けます。止める前の作業を続けてください\n"
+            f"{body}\n"
             f"</{TAG}>")

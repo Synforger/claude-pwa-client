@@ -25,6 +25,19 @@ logger = logging.getLogger(__name__)
 _seen_at_break: dict[str, float] = {}
 
 
+async def _send_or_keep(parent_id: str, text: str) -> bool:
+    """Send the parent the message, or keep it for the parent while it sleeps with no account clear to run on
+    (`account_hold.hold_mail`), so that the notice does not wake it on an account at its line. True when it was sent
+    or kept."""
+    # Imported here: the account hold imports the account fallback, which sends its messages through the message
+    # route, which imports this package.
+    from backend.account_hold import hold_mail  # noqa: PLC0415
+    if await asyncio.to_thread(hold_mail.must_keep, parent_id):
+        hold_mail.keep(parent_id, text)
+        return True
+    return await send_to_tab(parent_id, text)
+
+
 async def _look(session_id: str) -> bool:
     """Look at one tab and tell its parent if it stopped without reporting. True when the message was sent."""
     meta = sessions_meta.get(session_id)
@@ -42,7 +55,7 @@ async def _look(session_id: str) -> bool:
             return False
         before, meta.stop_told_at = meta.stop_told_at, look.mark     # before sending: a restart must not send it twice
         save_sessions_meta()
-        sent = await send_to_tab(meta.parent_id, child_stopped_envelope(session_id, meta.title, look.reason))
+        sent = await _send_or_keep(meta.parent_id, child_stopped_envelope(session_id, meta.title, look.reason))
         if not sent:
             meta.stop_told_at = before                              # nothing arrived; the next look tries again
             save_sessions_meta()
