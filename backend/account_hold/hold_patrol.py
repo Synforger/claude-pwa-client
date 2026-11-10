@@ -4,8 +4,9 @@ ones the operator pinned to their own account) at a break. A tab the account fal
 stopped while the account it belongs to is clear of its line: the fallback brings it back (see
 `fallback_judgement.returns_over_target_line`), and it is stopped only when both accounts are at their lines. A
 stopped tab is put to sleep the way the sleep does it (`sleep/sleeper.py`: the same conversation reopens when the tab
-is woken) and keeps the mark `held_at`; nothing continues it by itself, not even a day without a line (see
-`docs/reference/account-hold.md`).
+is woken) and keeps the mark `held_at`. It stays stopped until the operator continues it, except a tab that the fallback
+moved here from another account: that one is brought back and continued when the account it belongs to is clear of its
+line (`hold_resume.py`); a day without a line does not continue anything (see `docs/reference/account-hold.md`).
 
 What is configured is in `hold_settings.py`, the judgement in `hold_judgement.py`; the break of a tab is read as the
 account fallback reads it. A tab that keeps answering is asked once to come to a break (the mark is `hold_asked_at`);
@@ -25,6 +26,7 @@ from backend.account_fallback.fallback_sensors import TabBreak, read_tab_break
 from backend.account_fallback.fallback_settings import display_name_of
 from backend.account_hold.hold_envelope import stop_envelope
 from backend.account_hold.hold_judgement import is_over_line, should_ask_to_hold
+from backend.account_hold.hold_resume import resume_on_home
 from backend.account_hold.hold_settings import HoldRule, read_rules
 from backend.account_hold.hold_tabs import account_of
 from backend.accounts.client_message import send_to_tab
@@ -136,14 +138,16 @@ async def _look(session_id: str, rows: list[dict], rules: dict[str, HoldRule], n
 
 
 async def tick() -> list[str]:
-    """Look over every tab once. → the tabs that were stopped."""
+    """Look over every tab once, then resume the stopped tabs whose own account is clear. → the tabs that were stopped."""
     rules = read_rules()
     if not rules and not any(meta.held_at is not None or meta.hold_asked_at is not None
                              for meta in sessions_meta.values()):
         return []
     rows = await asyncio.to_thread(read_all_rate_limits_tail)
     now = time.time()
-    return [session_id for session_id in list(sessions_meta) if await _look(session_id, rows, rules, now)]
+    stopped = [session_id for session_id in list(sessions_meta) if await _look(session_id, rows, rules, now)]
+    await resume_on_home(rows, rules, now)
+    return stopped
 
 
 async def hold_loop(interval_sec: float = TICK_SEC) -> None:

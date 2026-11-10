@@ -1,8 +1,9 @@
 """Continues the tabs the account hold stopped, when the operator asks (= `POST /accounts/{account}/continue`). Each
 stopped tab on the account is sent the message that asks it to carry on, which wakes it in the same conversation, and
-loses its mark. It is refused while the usage of the account is still at the line of today.
+loses its mark. It is refused while the usage of the account is still at the line of today. `continue_tab` is the
+sending of that message to one tab, which `hold_resume.py` uses too.
 
-Used by `routes/account_hold.py`.
+Used by `routes/account_hold.py` and `hold_resume.py`.
 """
 from __future__ import annotations
 
@@ -49,17 +50,25 @@ async def continue_account(account: str) -> Continued:
     continued: list[str] = []
     failed: list[str] = []
     for meta in held_tabs(account):
-        session_id = meta.id
-        with claimed(session_id) as mine:
-            sent = mine and await send_to_tab(session_id, continue_envelope(account))
-        if not sent:
-            failed.append(session_id)
+        if not await continue_tab(meta.id, account):
+            failed.append(meta.id)
             continue
-        live = sessions_meta.get(session_id)
-        if live is not None:
-            live.held_at = None
-            live.hold_asked_at = None
-            save_sessions_meta()
-        continued.append(session_id)
-        logger.info("account hold: continued session=%s account=%s", session_id, account)
+        continued.append(meta.id)
+        logger.info("account hold: continued session=%s account=%s", meta.id, account)
     return Continued(tuple(continued), tuple(failed))
+
+
+async def continue_tab(session_id: str, account: str) -> bool:
+    """Send one stopped tab the message that asks it to carry on, and take its marks off once it took it. `account` is
+    the account the message names (= where the tab runs now). True when the tab took the message; False when it is
+    being worked on by another feature or did not take it (the marks stay, so the next call tries again)."""
+    with claimed(session_id) as mine:
+        sent = mine and await send_to_tab(session_id, continue_envelope(account))
+    if not sent:
+        return False
+    live = sessions_meta.get(session_id)
+    if live is not None:
+        live.held_at = None
+        live.hold_asked_at = None
+        save_sessions_meta()
+    return True

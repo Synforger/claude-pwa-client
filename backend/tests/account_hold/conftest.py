@@ -9,9 +9,11 @@ import pytest
 
 import backend.account_hold.hold_continue as hold_continue
 import backend.account_hold.hold_patrol as patrol
+import backend.account_hold.hold_resume as hold_resume
 from backend._common.state import SleepMark, register_session, sessions_meta
 from backend.account_fallback.fallback_sensors import TabBreak
 from backend.account_fallback.fallback_settings import WEEKDAYS
+from backend.accounts.tab_claim import claimed
 from backend.tests.limit_samples import use_accounts
 
 LINE_PCT = 70
@@ -39,12 +41,15 @@ def accounts(hold_days=None, five_hour_at_pct=None, work_fallback=None) -> dict:
 def env(monkeypatch, isolated_state):
     """`env.tab` runs on personal (the account with the hold) and `env.other` on work (no hold); `env.rows` is the usage
     log; `env.blocked_by` / `env.stop` say what is read about every tab; `env.sleep_reasons` is what keeps a tab awake
-    when it is put to sleep; `env.sent` collects the messages sent and `env.slept` the tabs put to sleep."""
+    when it is put to sleep; `env.sent` collects the messages sent and `env.slept` the tabs put to sleep; `env.moved`
+    collects the tabs the fallback was asked to bring back to the account they belong to, which it does while
+    `env.move_works`."""
     use_accounts(monkeypatch, accounts())
     monkeypatch.setattr(isolated_state, "save_sessions_meta", lambda: None)
     state = SimpleNamespace(tab=register_session("agent_a", "on personal", account_id="personal"),
                             other=register_session("agent_a", "on work", account_id="work"),
-                            rows=[], blocked_by=(), stop=None, sleep_reasons=(), sent=[], slept=[], deliver=True)
+                            rows=[], blocked_by=(), stop=None, sleep_reasons=(), sent=[], slept=[], deliver=True,
+                            moved=[], move_works=True)
     monkeypatch.setattr(patrol, "save_sessions_meta", lambda: None)
     monkeypatch.setattr(hold_continue, "save_sessions_meta", lambda: None)
     for module in (patrol, hold_continue):
@@ -62,7 +67,17 @@ def env(monkeypatch, isolated_state):
         state.sent.append((session_id, text))
         return state.deliver
 
+    async def _move_home(session_id):
+        with claimed(session_id) as mine:
+            if not mine:
+                return
+            state.moved.append(session_id)
+            meta = sessions_meta[session_id]
+            if state.move_works and meta.fallback_from is not None:
+                meta.account_id, meta.fallback_from = meta.fallback_from, None
+
     monkeypatch.setattr(patrol, "sleep_at_break", _sleep)
+    monkeypatch.setattr(hold_resume, "move_before_wake", _move_home)
     for module in (patrol, hold_continue):
         monkeypatch.setattr(module, "send_to_tab", _send)
     return state

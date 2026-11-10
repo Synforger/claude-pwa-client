@@ -7,7 +7,9 @@ from datetime import datetime
 
 import pytest
 
-from backend.account_hold.hold_judgement import hold_line_pct, is_over_line, reached_line_pct, should_ask_to_hold
+from backend.account_fallback.fallback_settings import FallbackRule
+from backend.account_hold.hold_judgement import (
+    hold_line_pct, is_over_line, reached_line_pct, resumes_on_home, should_ask_to_hold)
 from backend.account_hold.hold_settings import HoldRule
 from backend.sleep.sleep_judgement import PROCESSES_RUNNING, TURN_OPEN
 
@@ -107,3 +109,30 @@ def test_an_account_without_a_rule_is_never_over_a_line():
 ])
 def test_a_tab_is_asked_once_to_come_to_a_break_only_while_it_keeps_answering(blocked_by, stopped, asked_at, asks):
     assert should_ask_to_hold(blocked_by=blocked_by, stopped_by_limit=stopped, asked_at=asked_at) is asks
+
+
+# --- a stopped tab goes back to the account it belongs to ---
+
+WORK = FallbackRule("work", "personal", 95)
+
+
+def _resumes(*, current="personal", rule=WORK, limited=False, near=False, target_over_line=True, pinned=False) -> bool:
+    return resumes_on_home(current=current, home="work", rule=rule, limited=limited, near=near,
+                           target_over_line=target_over_line, pinned=pinned)
+
+
+@pytest.mark.parametrize("facts, expected", [
+    ({}, True),                                                   # work is clear
+    ({"limited": True, "near": True}, False),                     # work is at its line
+    ({"limited": None, "near": None}, False),                     # nothing is known about work
+    ({"rule": None}, False),                                      # work has no fallback any more
+    ({"near": True, "target_over_line": False}, False),           # within the width, and personal is clear
+    ({"near": True, "target_over_line": True}, True),             # within the width, but personal is at its line
+    ({"pinned": True}, True),                                     # a pinned tab goes home as soon as work is clear
+    ({"pinned": True, "limited": True, "near": True}, False),     # but not into a work that is at its line
+    ({"current": "work"}, True),                                  # brought back already, the message was not taken
+    ({"current": "work", "near": True}, False),
+    ({"current": "work", "limited": True, "near": True}, False),
+])
+def test_a_stopped_tab_goes_back_and_carries_on_only_when_the_account_it_belongs_to_is_clear(facts, expected):
+    assert _resumes(**facts) is expected
