@@ -78,7 +78,7 @@ def test_a_tab_moved_here_is_stopped_when_the_account_it_belongs_to_is_at_its_li
     use_accounts(monkeypatch, accounts(five_hour_at_pct=95, work_fallback=95))
     env.tab.fallback_from = "work"
     env.rows = [usage_row("work", five=95), usage_row(five=96, seven=10)]
-    assert run(patrol.tick()) == [env.tab.id]
+    assert run(patrol.tick()) == [env.tab.id, env.other.id]          # and the tab still on work, stopped there
 
 
 def test_a_tab_moved_here_is_stopped_when_the_usage_of_the_account_it_belongs_to_is_not_known(env, monkeypatch):

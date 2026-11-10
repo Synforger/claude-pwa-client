@@ -117,9 +117,11 @@ def test_a_tab_is_not_moved_ahead_to_an_account_that_is_at_its_own_line_and_the_
                     f"session={held.tab.id} account=work"]
 
 
-def test_a_tab_at_the_line_is_moved_even_when_the_account_it_moves_to_is_at_its_own_line(held):
+def test_a_tab_at_the_line_is_not_moved_to_an_account_that_is_at_its_own_line(held, caplog):
     held.rows = [usage_row(five=100), usage_row("personal", five=96)]
-    assert run(patrol.tick()) == [held.tab.id]
+    caplog.set_level(logging.INFO, logger=patrol.logger.name)
+    assert run(patrol.tick()) == [] and held.tab.account_id == "work"     # the account hold stops it there
+    assert f"not moved because personal is at its line too session={held.tab.id} account=work" in caplog.text
 
 
 def test_a_tab_asleep_is_moved_ahead_of_the_line_when_it_is_woken(ahead):

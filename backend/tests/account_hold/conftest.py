@@ -78,6 +78,6 @@ def env(monkeypatch, isolated_state):
 
     monkeypatch.setattr(patrol, "sleep_at_break", _sleep)
     monkeypatch.setattr(hold_resume, "move_before_wake", _move_home)
-    for module in (patrol, hold_continue):
+    for module in (patrol, hold_continue, hold_resume):
         monkeypatch.setattr(module, "send_to_tab", _send)
     return state

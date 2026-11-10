@@ -474,6 +474,8 @@ export interface PostAgentMessagesResponse {
   to: string
   /** 送り主のタブで人が打った発話を封筒に入れたか */
   operator_said: boolean
+  /** 宛先が口座の止める線で止まっていて動ける口座が無いので、 起こさずに預かったか (= 動ける口座ができた時に届く) */
+  kept?: boolean
 }
 
 /** POST /agent-messages/relayed request body */
@@ -496,6 +498,8 @@ export interface PostAgentMessagesRelayedResponse {
   to: string
   /** 常に false (= 人の発話は機械を跨がない) */
   operator_said: boolean
+  /** 宛先が口座の止める線で止まっていて動ける口座が無いので、 起こさずに預かったか */
+  kept?: boolean
 }
 
 /** GET /agent-messages/tabs response */

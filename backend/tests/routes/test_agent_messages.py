@@ -103,6 +103,16 @@ def test_a_message_reaches_the_receiver_in_an_envelope_naming_the_sender(client,
     )
 
 
+def test_a_message_to_a_stopped_tab_with_no_clear_account_is_kept_without_waking_it(client, tabs, typed, monkeypatch):
+    from backend.account_hold import hold_mail
+    monkeypatch.setattr(hold_mail, "must_keep", lambda sid: sid == "ses_receiver")
+    r = _send(client, text="later")
+    assert r.status_code == 200 and r.json() == {"ok": True, "kept": True, "to": "ses_receiver", "operator_said": False}
+    assert typed == []
+    [kept] = tabs["ses_receiver"].kept_messages
+    assert kept.startswith(am.OPENING) and "later" in kept
+
+
 def test_the_receiver_can_be_named_by_its_title(client, tabs, typed):
     r = _send(client, to="client work")
     assert r.status_code == 200

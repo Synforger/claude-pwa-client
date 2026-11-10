@@ -437,6 +437,7 @@ class PostAgentMessagesResponse(BaseModel):
     delivered: Optional[bool] = None
     to: str  # 届け先のタブの id (= 別の機械のタブは <相手の名前>:<id>)
     operator_said: bool  # 送り主のタブで人が打った発話を封筒に入れたか
+    kept: Optional[bool] = None  # 宛先が口座の止める線で止まっていて動ける口座が無いので、 起こさずに預かったか (= 動ける口座ができた時に届く)
 
 
 class PostAgentMessagesRelayedRequest(BaseModel):
@@ -455,6 +456,7 @@ class PostAgentMessagesRelayedResponse(BaseModel):
     delivered: Optional[bool] = None
     to: str  # 届け先のタブの id
     operator_said: bool  # 常に false (= 人の発話は機械を跨がない)
+    kept: Optional[bool] = None  # 宛先が口座の止める線で止まっていて動ける口座が無いので、 起こさずに預かったか
 
 
 class GetAgentMessagesTabsResponse(BaseModel):

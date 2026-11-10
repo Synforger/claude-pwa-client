@@ -433,6 +433,19 @@ async def deliver_message(tab_id: str, text: str, woke: bool) -> dict:
     return {"ok": True, "confirmed": True}
 
 
+async def _deliver_or_keep(tab_id: str, text: str) -> dict:
+    """Deliver `text` (= a message in its envelope), or keep it without waking the tab when the account hold has the
+    tab stopped and no account is clear for it to run on (`account_hold/hold_mail.py`): the hold hands it over once one
+    is. → the answer of the delivery, or `{"ok": True, "kept": True}`."""
+    # Imported here: the account hold imports the account fallback, which sends its messages through this module.
+    from backend.account_hold import hold_mail  # noqa: PLC0415
+    if await asyncio.to_thread(hold_mail.must_keep, tab_id):
+        hold_mail.keep(tab_id, text)
+        return {"ok": True, "kept": True}
+    woke = await wake_tab(tab_id)
+    return await deliver_message(tab_id, text, woke)
+
+
 async def send_to_peer(peer_name: str, tab: str, sender: str, text: str) -> dict:
     """別の機械のタブへの連絡。 こちらの検査を通してから相手の backend へ渡す。
 
@@ -500,12 +513,11 @@ async def post_agent_message(
     if not _tab_reachable(receiver_id):
         raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
     await check(receiver_id, text)
-    woke = await wake_tab(receiver_id)
     said = await operator_said_for(sender, receiver_id) if operator_said else None
     title = await sender_title(sender, receiver_id)
-    result = await deliver_message(receiver_id, envelope(sender, text, said, title), woke)
-    logger.info("agent message sender=%s receiver=%s chars=%d operator_said=%s ok=%s",
-                sender, receiver_id, len(text), said is not None, result.get("ok"))
+    result = await _deliver_or_keep(receiver_id, envelope(sender, text, said, title))
+    logger.info("agent message sender=%s receiver=%s chars=%d operator_said=%s ok=%s kept=%s",
+                sender, receiver_id, len(text), said is not None, result.get("ok"), result.get("kept", False))
     if result.get("ok") and (hands_work or "").strip().lower() != "false":
         await asyncio.to_thread(hand_work, sender, receiver_id)
     return {**result, "to": receiver_id, "operator_said": said is not None}
@@ -545,10 +557,9 @@ async def post_relayed_agent_message(request: Request, body: dict = Body(...)) -
     if not _tab_reachable(receiver_id):
         raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
     await check(receiver_id, text)
-    woke = await wake_tab(receiver_id)
-    result = await deliver_message(receiver_id, relayed_envelope(peer_name, title, session, text), woke)
-    logger.info("agent message peer=%s sender=%s receiver=%s chars=%d operator_said=False ok=%s",
-                peer_name, session, receiver_id, len(text), result.get("ok"))
+    result = await _deliver_or_keep(receiver_id, relayed_envelope(peer_name, title, session, text))
+    logger.info("agent message peer=%s sender=%s receiver=%s chars=%d operator_said=False ok=%s kept=%s",
+                peer_name, session, receiver_id, len(text), result.get("ok"), result.get("kept", False))
     return {**result, "to": receiver_id, "operator_said": False}
 
 

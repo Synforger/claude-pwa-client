@@ -2,16 +2,19 @@
 line (the 7 days at the line of the day, the 5 hours at `five_hour_at_pct`), stops the tabs that run on it (except the
 ones the operator pinned to their own account) at a break. A tab the account fallback moved to the account is not
 stopped while the account it belongs to is clear of its line: the fallback brings it back (see
-`fallback_judgement.returns_over_target_line`), and it is stopped only when both accounts are at their lines. A
+`fallback_judgement.returns_over_target_line`), and it is stopped only when both accounts are at their lines. A tab on
+an account with a fallback is stopped on it when that account is at its fallback line and the account the fallback
+names is at its hold line (`hold_judgement.both_at_lines`: the fallback moves no tab onto an account at its line). A
 stopped tab is put to sleep the way the sleep does it (`sleep/sleeper.py`: the same conversation reopens when the tab
-is woken) and keeps the mark `held_at`. It stays stopped until the operator continues it, except a tab that the fallback
-moved here from another account: that one is brought back and continued when the account it belongs to is clear of its
-line (`hold_resume.py`); a day without a line does not continue anything (see `docs/reference/account-hold.md`).
+is woken) and keeps the mark `held_at`. It stays stopped until the operator continues it, except a tab whose account has
+a fallback: that one is continued on whichever of the two accounts is clear first (`hold_resume.py`); a day without a
+line does not continue anything (see `docs/reference/account-hold.md`).
 
 What is configured is in `hold_settings.py`, the judgement in `hold_judgement.py`; the break of a tab is read as the
 account fallback reads it. A tab that keeps answering is asked once to come to a break (the mark is `hold_asked_at`);
-when it does, the next look stops it. A message from another tab reaches a stopped tab as it does a sleeping one, and
-wakes it: the patrol then takes the mark off.
+when it does, the next look stops it. A message from another tab to a stopped tab waits while no account is clear for
+the tab (`hold_mail.py`) and is handed over once one is; a tab woken all the same (by the operator, or a message while
+an account is clear) loses the mark here.
 """
 from __future__ import annotations
 
@@ -25,8 +28,8 @@ from backend.account_fallback.fallback_judgement import home_is_limited, pause_o
 from backend.account_fallback.fallback_sensors import TabBreak, read_tab_break
 from backend.account_fallback.fallback_settings import display_name_of
 from backend.account_hold.hold_envelope import stop_envelope
-from backend.account_hold.hold_judgement import is_over_line, should_ask_to_hold
-from backend.account_hold.hold_resume import resume_on_home
+from backend.account_hold.hold_judgement import both_at_lines, is_over_line, should_ask_to_hold
+from backend.account_hold.hold_resume import hand_over_kept, resume_on_home
 from backend.account_hold.hold_settings import HoldRule, read_rules
 from backend.account_hold.hold_tabs import account_of
 from backend.accounts.client_message import send_to_tab
@@ -62,7 +65,7 @@ def _release_if_woken(session_id: str, meta: SessionDef) -> None:
     logger.info("account hold: released session=%s account=%s woken=1", session_id, account_of(meta))
 
 
-async def _ask(session_id: str, meta: SessionDef, account: str, tab_break: TabBreak, now: float) -> None:
+async def _ask(session_id: str, meta: SessionDef, account: str, tab_break: TabBreak, now: float, *, both: bool) -> None:
     """A tab that must be stopped but is not at a break: ask it once to come to one when it keeps answering, and say
     once that the request has gone unanswered for too long."""
     if meta.hold_asked_at is not None:
@@ -76,7 +79,7 @@ async def _ask(session_id: str, meta: SessionDef, account: str, tab_break: TabBr
         return
     meta.hold_asked_at = now
     save_sessions_meta()
-    if not await send_to_tab(session_id, stop_envelope(account, display_name_of(account))):
+    if not await send_to_tab(session_id, stop_envelope(account, display_name_of(account), both=both)):
         _clear_ask(session_id, meta)                                     # not delivered: the next look asks again
         return
     logger.info("account hold: asked to stop session=%s account=%s", session_id, account)
@@ -111,6 +114,17 @@ def _goes_back_instead(meta: SessionDef, account: str, rows: list[dict], now: fl
                                     target_over_line=True)
 
 
+def _both_at_lines(meta: SessionDef, account: str, rows: list[dict], rules: dict[str, HoldRule], now: float) -> bool:
+    """Whether the tab, on its own `account`, is stopped there because that account is at its fallback line and the
+    account the fallback names is at its hold line."""
+    rule = fallback_settings.read_rules().get(account)
+    if rule is None:
+        return False
+    return both_at_lines(current=account, home=meta.fallback_from or account, rule=rule,
+                         limited=home_is_limited(rows, rule, now),
+                         fallback_over=is_over_line(rows, rules.get(rule.to_account), now))
+
+
 async def _look(session_id: str, rows: list[dict], rules: dict[str, HoldRule], now: float) -> bool:
     """Look at one tab and stop it if it must. True when it was stopped."""
     meta = sessions_meta.get(session_id)
@@ -118,7 +132,8 @@ async def _look(session_id: str, rows: list[dict], rules: dict[str, HoldRule], n
         return False
     _release_if_woken(session_id, meta)
     account = account_of(meta)
-    over = is_over_line(rows, rules.get(account) if account else None, now)
+    both = account is not None and _both_at_lines(meta, account, rows, rules, now)
+    over = True if both else is_over_line(rows, rules.get(account) if account else None, now)
     if over is not True or meta.account_pinned or meta.sleep is not None or _goes_back_instead(meta, account, rows, now):
         _clear_ask(session_id, meta)             # under the line, kept where it is, asleep, or brought back
         return False
@@ -133,20 +148,23 @@ async def _look(session_id: str, rows: list[dict], rules: dict[str, HoldRule], n
                             ",".join(tab_break.blocked_by))
         if tab_break.at_break:
             return await _hold(session_id, account, tab_break, now)
-        await _ask(session_id, meta, account, tab_break, now)
+        await _ask(session_id, meta, account, tab_break, now,
+                   both=both or fallback_settings.read_rules().get(meta.fallback_from or account) is not None)
         return False
 
 
 async def tick() -> list[str]:
-    """Look over every tab once, then resume the stopped tabs whose own account is clear. → the tabs that were stopped."""
+    """Look over every tab once, then resume the stopped tabs that have an account clear to carry on on, and hand over
+    the messages kept for the tabs that may take them now. → the tabs that were stopped."""
     rules = read_rules()
-    if not rules and not any(meta.held_at is not None or meta.hold_asked_at is not None
+    if not rules and not any(meta.held_at is not None or meta.hold_asked_at is not None or meta.kept_messages
                              for meta in sessions_meta.values()):
         return []
     rows = await asyncio.to_thread(read_all_rate_limits_tail)
     now = time.time()
     stopped = [session_id for session_id in list(sessions_meta) if await _look(session_id, rows, rules, now)]
     await resume_on_home(rows, rules, now)
+    await hand_over_kept(rows, rules, now)
     return stopped
 
 

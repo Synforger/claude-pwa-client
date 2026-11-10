@@ -194,7 +194,15 @@ def test_a_tab_is_not_moved_ahead_of_the_line_to_an_account_that_is_at_its_own_l
     ahead = dict(current="work", home="work", rule=AHEAD_RULE, limited=False, near=True, at_break=True, cold=True)
     assert decide(**ahead, target_over_line=True) is Move.STAY
     assert decide(**ahead, target_over_line=False) is Move.MOVE and decide(**ahead, target_over_line=None) is Move.MOVE
-    assert decide(**{**ahead, "limited": True}, target_over_line=True) is Move.MOVE   # at the line it moves all the same
+
+
+def test_a_tab_at_the_line_is_not_moved_to_an_account_at_its_own_line_either():
+    line = dict(current="work", home="work", rule=AHEAD_RULE, limited=True, near=True, at_break=True)
+    assert decide(**line, cold=False, target_over_line=True) is Move.STAY    # both at their lines: the hold stops it
+    assert decide(**line, cold=True, target_over_line=True) is Move.STAY
+    assert decide(**line, cold=False, target_over_line=None) is Move.MOVE    # not known: it moves, as before
+    assert urgent_move(current="work", home="work", rule=AHEAD_RULE, limited=True, target_over_line=True,
+                       pinned=False) is Move.STAY                           # so it is not asked to pause either
 
 
 def test_a_width_of_zero_moves_nothing_ahead():

@@ -5,9 +5,12 @@ file, no log and no state.
 The usage of an account is judged by `usage.limit_state` against the line the rule names for the day of the week for
 its 7 days (`hold_line_pct`) and against its `five_hour_at_pct` for its 5 hours; a window the rule names no line for
 never counts. A tab may be stopped only at a break (which the account fallback's `read_tab_break` reads); a tab that
-keeps answering is asked once to come to one (`should_ask_to_hold`). A tab stopped on the account the fallback moved it
-to goes back to the account it belongs to, and carries on, once that account is clear of its line
-(`resumes_on_home`, which asks the fallback's `decide` the same question as the return of a cold tab).
+keeps answering is asked once to come to one (`should_ask_to_hold`). An account with a fallback has no hold line of
+its own, but its tabs are stopped on it too while it is at its fallback line and the account its fallback names is at
+its hold line (`both_at_lines`): the fallback moves no tab onto an account at its line. A stopped tab whose account has
+a fallback carries on on whichever account is clear first (`carry_on_account`): the account it belongs to
+(`resumes_on_home`, which asks the fallback's `decide` the same question as the return of a cold tab), or, while that
+is still at its line, the account its fallback names.
 
 Used by `hold_patrol.py`, `hold_resume.py` and `hold_continue.py`.
 """
@@ -59,6 +62,14 @@ def reached_line_pct(rows: Iterable[dict], rule: HoldRule, now: float) -> int | 
     return None
 
 
+def both_at_lines(*, current: str, home: str, rule: FallbackRule | None, limited: bool | None,
+                  fallback_over: bool | None) -> bool:
+    """Whether a tab on its own account (`current` is `home`) is stopped there although the account has no hold line:
+    the account is at the line of its fallback `rule` (`limited`) and the account the fallback names is at its hold
+    line (`fallback_over`), so the fallback does not move it. Not when either is not known."""
+    return current == home and rule is not None and limited is True and fallback_over is True
+
+
 def should_ask_to_hold(*, blocked_by: tuple[str, ...], stopped_by_limit: bool, asked_at: float | None) -> bool:
     """Whether the tab is asked to come to a break: it is held because claude is answering (`turn_open` among
     `blocked_by`; a tab held only by commands, wake-ups or a call is not answering), no usage limit stopped it (that
@@ -83,3 +94,22 @@ def resumes_on_home(*, current: str, home: str, rule: FallbackRule | None, limit
         return near is False
     return decide(current=current, home=home, rule=rule, limited=limited, at_break=True, pinned=pinned, near=near,
                   cold=True, target_over_line=target_over_line) is Move.RETURN
+
+
+def carry_on_account(*, current: str, home: str, rule: FallbackRule | None, limited: bool | None, near: bool | None,
+                     current_over: bool | None, fallback_over: bool | None, pinned: bool) -> str | None:
+    """The account a stopped tab that runs on `current` and belongs to `home` carries on on, None while it stays
+    stopped. `rule` is the fallback of `home`; `limited` and `near` say where the usage of `home` is against it,
+    `current_over` whether `current` is at its hold line and `fallback_over` whether the account the fallback names is.
+
+    The account it belongs to, once that is clear (`resumes_on_home`); while that is still at its line, the account the
+    fallback names, once that is known to be clear of its hold line (= the move a tab at its line makes, unless it is
+    pinned). A tab whose account has no fallback is continued by the operator, never by this."""
+    if rule is None:
+        return None
+    if resumes_on_home(current=current, home=home, rule=rule, limited=limited, near=near,
+                       target_over_line=current_over, pinned=pinned):
+        return home
+    if limited is True and fallback_over is False and not pinned:
+        return rule.to_account
+    return None
