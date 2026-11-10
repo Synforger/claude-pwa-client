@@ -4,6 +4,9 @@ Wire protocol (= xterm.js に直接食わせる前提):
     Server → Client:
         - binary frame: PTY 子プロセスからの raw stdout バイト列。
           そのまま xterm.write() に渡すと ANSI 含めて render される。
+          接続直後の最初の frame は pane の今の画面の写し (= connect_snapshot)。
+        - text frame (JSON): {"type": "snapshot", "status": "none"} = 写しを撮れなかった
+          (= client は TUI に再描画させる Ctrl-L を自分で送る)。
     Client → Server:
         - binary frame: user 入力 (= stdin に流すバイト列、 keystroke そのまま)。
         - text frame (JSON): control message。
@@ -11,7 +14,7 @@ Wire protocol (= xterm.js に直接食わせる前提):
 
 接続契機:
     - 新規 session_id: claude プロセスを spawn して PtySession を作る
-    - 既存 session_id (= 生存中): 既存セッションに再アタッチ、 過去出力は queue 残量分が即流れる
+    - 既存 session_id (= 生存中): 既存セッションに再アタッチ、 切断中の出力は捨てて pane の今の画面の写しが最初に流れる
     - 既存 session_id (= exit 済): 新規 spawn し直し
 """
 from __future__ import annotations
@@ -59,6 +62,7 @@ from backend.terminal.confirm import (
     _is_plain_user_prompt,
     _wait_count_added,
 )
+from backend.terminal.connect_snapshot import send_connect_snapshot
 from backend.terminal.first_message import hold_while_launching, launch_with_first_message
 from backend.speech.speech import VOICE_INPUT_MARK, mark_voice_input
 from backend.terminal.input_ready import launching, wait_ready
@@ -179,22 +183,14 @@ async def pty_socket(ws: WebSocket, session_id: str) -> None:
             return
         pty_sessions[session_id] = session
 
-    # 切断中に session.output_queue へ溜まった backlog (= claude TUI のヘッダ定期
-    # redraw / カーソル点滅等の incremental refresh) を捨てる。 そのまま流すと
-    # 再接続後の xterm に「同じ画面が 2-3 回重なる」 描画事故になる (= 2026-06-12 報告)。
-    # 復元は client 側の Ctrl-L 送信で TUI に最新画面を 1 度だけ描かせる経路に任せる。
-    drained = 0
-    while not session.output_queue.empty():
-        try:
-            session.output_queue.get_nowait()
-            drained += 1
-        except asyncio.QueueEmpty:
-            break
-    if drained:
-        logger.info("pty_socket: drained %d backlog chunks before pump session=%s", drained, session_id)
-
+    # The client's first size must reach tmux before the screen is captured, so the input
+    # side starts first. send_connect_snapshot drops the backlog that built up while no
+    # client was attached (replaying it stacks the same screen 2-3 times) and sends the
+    # pane's current screen as the first output; live output flows only after that.
+    resized: asyncio.Future[tuple[int, int]] = asyncio.get_running_loop().create_future()
+    pump_in = asyncio.create_task(_pump_from_client(ws, session, resized))
+    await send_connect_snapshot(ws, session, resized, pump_in)
     pump_out = asyncio.create_task(_pump_to_client(ws, session))
-    pump_in = asyncio.create_task(_pump_from_client(ws, session))
 
     done, pending = await asyncio.wait(
         [pump_out, pump_in],
@@ -281,8 +277,14 @@ async def _pump_to_client(ws: WebSocket, session: PtySession) -> None:
                 t.cancel()
 
 
-async def _pump_from_client(ws: WebSocket, session: PtySession) -> None:
-    """client 入力 → PTY stdin / control。"""
+async def _pump_from_client(
+    ws: WebSocket, session: PtySession, resized: asyncio.Future[tuple[int, int]] | None = None,
+) -> None:
+    """client 入力 → PTY stdin / control。
+
+    `resized` (= 接続直後の写しの待ち合わせ用) には、 最初の resize を tmux へ渡した時点で
+    `(rows, cols)` を入れる。
+    """
     try:
         while True:
             msg = await ws.receive()
@@ -300,11 +302,11 @@ async def _pump_from_client(ws: WebSocket, session: PtySession) -> None:
                 except json.JSONDecodeError:
                     continue
                 if ctrl.get("type") == "resize":
-                    resize_pty(
-                        session,
-                        int(ctrl.get("rows", 40)),
-                        int(ctrl.get("cols", 120)),
-                    )
+                    rows = int(ctrl.get("rows", 40))
+                    cols = int(ctrl.get("cols", 120))
+                    resize_pty(session, rows, cols)
+                    if resized is not None and not resized.done():
+                        resized.set_result((max(1, rows), max(1, cols)))
                 elif ctrl.get("type") == "input":
                     # debug / fallback 経路 (= バイナリが使えない client 用)
                     payload = ctrl.get("data", "")
