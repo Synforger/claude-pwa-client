@@ -8,7 +8,9 @@ What is configured is in `fallback_settings.py`, the judgement in `fallback_judg
 tab asleep is not moved (that would wake it): `move_before_wake` moves it, or brings it back, when it is woken. A tab
 whose turn the limit stopped is moved at once, with the tool results of that turn, and told to carry on. A tab that
 keeps answering is asked once to come to a break (the mark is `pause_asked_at`) when it must move whatever its cache
-is; when it does, the same look moves it and tells it to carry on.
+is; when it does, the same look moves it and tells it to carry on. No tab is moved to an account at its hold line, so
+the carry-on always lands on an account clear of its lines; with both accounts at their lines the tab is not asked to
+pause either, and the account hold stops it where it is (`account_hold/`).
 """
 from __future__ import annotations
 
@@ -164,8 +166,8 @@ async def _move(session_id: str, current: str, home: str, rule: FallbackRule | N
 def _stay_note(session_id: str, current: str, home: str, rule: FallbackRule | None, lines: _Lines,
                cold: tuple[str, ...] | None, pinned: bool) -> str | None:
     """Why a tab stays on purpose, None when it does not: it is on the fallback account and goes back when its cache is
-    cold (`cold` = None when the tab was not read), or it would be moved ahead of the line to an account that is at its
-    own line."""
+    cold (`cold` = None when the tab was not read), or it would be moved (ahead of the line, or at it) to an account
+    that is at its own line."""
     if rule is None or pinned:
         return None
     if current != home and lines.near is False and cold == ():
@@ -173,6 +175,8 @@ def _stay_note(session_id: str, current: str, home: str, rule: FallbackRule | No
     if current == home and lines.limited is False and lines.near is True and lines.target_over is True:
         return (f"not moved ahead of the line because {rule.to_account} is at its line session={session_id} "
                 f"account={current}")
+    if current == home and lines.limited is True and lines.target_over is True:
+        return (f"not moved because {rule.to_account} is at its line too session={session_id} account={current}")
     return None
 
 

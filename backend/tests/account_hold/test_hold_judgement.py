@@ -9,7 +9,7 @@ import pytest
 
 from backend.account_fallback.fallback_settings import FallbackRule
 from backend.account_hold.hold_judgement import (
-    hold_line_pct, is_over_line, reached_line_pct, resumes_on_home, should_ask_to_hold)
+    both_at_lines, carry_on_account, hold_line_pct, is_over_line, reached_line_pct, resumes_on_home, should_ask_to_hold)
 from backend.account_hold.hold_settings import HoldRule
 from backend.sleep.sleep_judgement import PROCESSES_RUNNING, TURN_OPEN
 
@@ -136,3 +136,38 @@ def _resumes(*, current="personal", rule=WORK, limited=False, near=False, target
 ])
 def test_a_stopped_tab_goes_back_and_carries_on_only_when_the_account_it_belongs_to_is_clear(facts, expected):
     assert _resumes(**facts) is expected
+
+
+# --- a tab on an account with a fallback, when both accounts are at their lines ---
+
+@pytest.mark.parametrize("facts, expected", [
+    ({}, True),                                                   # work at its line, personal at its hold line
+    ({"fallback_over": False}, False),                            # personal is clear: the fallback moves it there
+    ({"fallback_over": None}, False),                             # not known: the fallback moves it, as before
+    ({"limited": False}, False),                                  # work is clear
+    ({"limited": None}, False),
+    ({"current": "personal"}, False),                             # moved already: personal's own hold line judges it
+    ({"rule": None}, False),                                      # work has no fallback
+])
+def test_a_tab_on_its_own_account_is_stopped_there_only_when_both_accounts_are_at_their_lines(facts, expected):
+    args = {**dict(current="work", home="work", rule=WORK, limited=True, fallback_over=True), **facts}
+    assert both_at_lines(**args) is expected
+
+
+@pytest.mark.parametrize("facts, expected", [
+    ({}, None),                                                   # both at their lines: it stays stopped
+    ({"limited": False, "near": False}, "work"),                  # work clear first: on work
+    ({"fallback_over": False}, "personal"),                       # personal clear first: on personal
+    ({"limited": False, "near": False, "fallback_over": False}, "work"),   # both clear: its own account
+    ({"fallback_over": None}, None),                              # personal not known: it stays stopped
+    ({"limited": None, "near": None, "fallback_over": False}, None),       # work not known: it stays stopped
+    ({"fallback_over": False, "pinned": True}, None),             # a pinned tab never goes to personal
+    ({"rule": None, "fallback_over": False}, None),               # no fallback: the operator continues it
+])
+@pytest.mark.parametrize("current", ["work", "personal"])
+def test_a_stopped_tab_carries_on_on_whichever_account_is_clear_first(current, facts, expected):
+    args = {**dict(current=current, home="work", rule=WORK, limited=True, near=True, pinned=False,
+                   current_over=current == "personal", fallback_over=True), **facts}
+    if current == "personal":
+        args["current_over"] = args["fallback_over"]              # on personal, the two are the same account
+    assert carry_on_account(**args) == expected

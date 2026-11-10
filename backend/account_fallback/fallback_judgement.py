@@ -10,7 +10,8 @@ account reads its whole conversation again at its first message there. That is w
 only when its account is at its line, and a tab with a cold cache (`cold_reasons`) is moved already `ahead_pct` before
 the line (`home_is_near`) and is brought back once the account is clear of that width. A moved tab is also brought
 back at once, warm or not, when the account it runs on has reached its own line (`target_over_line`) and the account
-it belongs to has not.
+it belongs to has not. No tab is moved to an account at its own line, not even from an account at its line: with both
+accounts at their lines the tab stays where it is, and the account hold stops it there (`account_hold`).
 
 A tab that keeps answering is never at a break, so it is asked once to come to one (`should_ask_to_pause`) when it
 must move whatever its cache is (`urgent_move`); the request is given up on after `PAUSE_WAIT_SEC` (`pause_overdue`).
@@ -105,7 +106,8 @@ def decide(*, current: str, home: str, rule: FallbackRule | None, limited: bool 
     operator keeps the tab on its own account.
 
     A tab on its own account moves when the account is limited, unless it is pinned; when the account is only near its
-    line, a tab with a cold cache moves, if the account it would move to is not at its line. A moved tab is brought
+    line, a tab with a cold cache moves. Either way only if the account it would move to is not at its line (= with
+    both at their lines it stays, and the account hold stops it). A moved tab is brought
     back when its fallback has gone from the configuration, it is pinned (= even while the account is limited), or the
     account it runs on has reached its line and the account it belongs to has not; and, once the account it belongs
     to is not near its line any more, when its cache is cold. Whatever is not known leaves the tab where it is."""
@@ -117,7 +119,7 @@ def decide(*, current: str, home: str, rule: FallbackRule | None, limited: bool 
         return Move.RETURN if returns and at_break else Move.STAY
     if rule is None or pinned or not at_break:
         return Move.STAY
-    if limited is True or (near is True and cold and target_over_line is not True):
+    if (limited is True or (near is True and cold)) and target_over_line is not True:
         return Move.MOVE
     return Move.STAY
 

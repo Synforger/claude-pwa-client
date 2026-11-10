@@ -98,16 +98,21 @@ def test_work_within_the_width_ahead_of_its_line_takes_the_tab_back_while_person
 
 # --- only personal is clear ---
 
-def test_personal_clear_while_work_is_at_its_line_does_not_continue_the_tab(held):
+def test_personal_clear_while_work_is_at_its_line_continues_the_tab_where_it_is(held, caplog):
     held.rows = [usage_row("work", seven=96), usage_row(seven=10)]
+    caplog.set_level(logging.INFO, logger=hold_resume.logger.name)
+    run(patrol.tick())
+    assert held.moved == [] and (held.tab.account_id, held.tab.held_at) == ("personal", None)
+    [(session_id, text)] = held.sent
+    assert session_id == held.tab.id and f'<account-hold phase="{CONTINUE}" account="personal">' in text
+    assert f"account hold: resumed on personal session={held.tab.id} from=personal" in caplog.text
+
+
+def test_personal_whose_usage_is_not_known_leaves_the_tab_stopped_for_the_operator(held):
+    from backend.account_hold.hold_continue import continue_account
+    held.rows = [usage_row("work", seven=96)]
     run(patrol.tick())
     assert _nothing_happened(held)
-
-
-def test_the_operator_can_still_continue_a_tab_that_work_did_not_take_back(held):
-    from backend.account_hold.hold_continue import continue_account
-    held.rows = [usage_row("work", seven=96), usage_row(seven=10)]
-    run(patrol.tick())
     assert run(continue_account("personal")).continued == (held.tab.id,) and held.tab.held_at is None
 
 
@@ -129,7 +134,8 @@ def test_a_stopped_tab_that_was_pinned_afterwards_continues_when_work_is_clear_a
     assert _nothing_happened(held)
     held.rows = [usage_row("work", seven=10), usage_row(seven=90)]
     run(patrol.tick())
-    assert held.tab.account_id == "work" and held.tab.held_at is None and len(held.sent) == 1
+    assert held.tab.account_id == "work" and held.tab.held_at is None
+    assert [session_id for session_id, _text in held.sent] == [held.tab.id, held.other.id]   # work's own tab too
 
 
 # --- tabs that are not this one's ---

@@ -17,13 +17,16 @@ def _attr(value: str) -> str:
     return value.replace('"', "'").replace("\n", " ")
 
 
-def stop_envelope(account: str, account_name: str) -> str:
+def stop_envelope(account: str, account_name: str, *, both: bool = False) -> str:
     """The message that asks a tab that keeps answering, on an account at its hold line, to come to a break: the client
-    puts it to sleep there."""
+    puts it to sleep there. `both`: the tab's account has a fallback and both accounts are at their lines, so the client
+    continues it by itself once either is clear."""
+    reason, then = (("本来の口座も移す先の口座も使用量が線を超えたので", "どちらかの口座が線を下回った時に、client から")
+                    if both else (f"{account_name} の口座の使用量が止める線を超えたので", "操作者が画面から続けた時に"))
     return (f'{OPENING}\n<{TAG} phase="{STOP}" account="{_attr(account)}">\n'
-            f"{account_name} の口座の使用量が止める線を超えたので、このタブを止めます。"
+            f"{reason}、このタブを止めます。"
             f"今の作業を区切りの良い所まで進めて、この返事を終えてください。"
-            f"続きは、操作者が画面から続けた時に頼む連絡が届きます\n"
+            f"続きは、{then}頼む連絡が届きます\n"
             f"</{TAG}>")
 
 

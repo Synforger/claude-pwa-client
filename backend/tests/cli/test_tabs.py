@@ -115,7 +115,7 @@ class Backend:
                 if method == "POST" and self.path == "/agent-messages":
                     if backend.answers.get("send", 200) != 200:
                         return self.reply(backend.answers["send"], {"detail": {"code": "agent_message_refused", "message": "no"}})
-                    return self.reply(200, {"ok": True, "to": form.get("to")})
+                    return self.reply(200, {"ok": True, "to": form.get("to"), **backend.answers.get("send-body", {})})
                 if method == "DELETE":
                     return self.reply(200, {"ok": True})
                 return self.reply(404, {})
@@ -833,6 +833,13 @@ def test_a_tab_id_is_sent_as_it_is_without_asking_the_guard(world):
     assert send(world.tabs, "ses_b") == 0
     assert sent_to(world.tabs) == ["ses_b"]
     assert world.roles_asked() == []
+
+
+def test_a_message_kept_for_a_stopped_tab_says_so_instead_of_delivered(world):
+    world.put({"id": "ses_b", "title": "role-b", "tier_tab": "projects/B"})
+    world.tabs.backend.answers["send-body"] = {"kept": True}
+    assert send(world.tabs, "ses_b") == 0
+    assert "預かりました: ses_b" in world.tabs.out and "届きました" not in world.tabs.out
 
 
 def test_an_outward_name_goes_to_the_only_tab_working_in_its_folder(world):

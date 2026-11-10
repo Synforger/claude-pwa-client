@@ -438,7 +438,10 @@ def send(to: str, file: Path, operator_said: bool = False, hands_work: bool = Tr
     status, body = call("/agent-messages", form)
     if status == 200 and isinstance(body, dict) and body.get("ok"):
         said = "操作者の発話つき" if body.get("operator_said") else "操作者の発話なし"
-        print(f"届きました: {body.get('to')} ({said})")
+        if body.get("kept"):
+            print(f"預かりました: {body.get('to')} ({said}。 宛先は口座の線で止まっています。 動ける口座ができた時に届けます)")
+        else:
+            print(f"届きました: {body.get('to')} ({said})")
         return 0
     detail = (body.get("detail") if isinstance(body, dict) else None) or {}
     detail = detail if isinstance(detail, dict) else {"message": str(detail)}

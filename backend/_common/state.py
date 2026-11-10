@@ -161,6 +161,10 @@ class SessionDef:
     # (`backend/account_hold/`). It is why no second request is sent during one stay above the line, also after a
     # restart; cleared when the usage is under the line or the tab has been held.
     hold_asked_at: float | None = None
+    # The messages from other tabs (each in its envelope) kept for this tab while the account hold has it stopped and
+    # no account is clear for it, oldest first (`backend/account_hold/hold_mail.py`). They are handed over, and
+    # removed, once it may take them.
+    kept_messages: list[str] = field(default_factory=list)
     # The fingerprint (sha256, hex) of the top page the client wrote for a child tab when it made the page
     # (`terminal/tab_page.py`). Closing the child compares the page with it (`terminal/child_folder.py`). None for a
     # tab that is not a child, and for a child whose page was made before this was kept.
@@ -198,6 +202,7 @@ class SessionDef:
             "pause_asked_at": self.pause_asked_at,
             "held_at": self.held_at,
             "hold_asked_at": self.hold_asked_at,
+            "kept_messages": list(self.kept_messages),
             "top_page_sha": self.top_page_sha,
             "stop_told_at": self.stop_told_at,
         }
@@ -206,6 +211,11 @@ class SessionDef:
 def _optional_str(value: object) -> str | None:
     """A stored text, None when the entry holds none or something else."""
     return value if isinstance(value, str) and value else None
+
+
+def _texts(value: object) -> list[str]:
+    """Stored texts, empty when the entry holds none or something else (= a non-text item is left out)."""
+    return [item for item in value if isinstance(item, str) and item] if isinstance(value, list) else []
 
 
 def _optional_number(value: object) -> float | None:
@@ -269,6 +279,7 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
                 pause_asked_at=_optional_number(entry.get("pause_asked_at")),
                 held_at=_optional_number(entry.get("held_at")),
                 hold_asked_at=_optional_number(entry.get("hold_asked_at")),
+                kept_messages=_texts(entry.get("kept_messages")),
                 top_page_sha=_optional_str(entry.get("top_page_sha")),
                 stop_told_at=_optional_number(entry.get("stop_told_at")),
             )
