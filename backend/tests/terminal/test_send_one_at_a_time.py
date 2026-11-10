@@ -47,7 +47,7 @@ def pane(monkeypatch, tmp_path):
                     fh.write(json.dumps({"type": "user", "message": {"role": "user", "content": said}}) + "\n")
         return True
 
-    async def never_launches(session_id, text):
+    async def never_launches(session_id, text, send_id=None):
         return None
 
     async def ready(session_id):

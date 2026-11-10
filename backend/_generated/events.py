@@ -245,7 +245,16 @@ class HistoryRefetchEvent(BaseModel):
     corr_id: str  # W3C trace_id 頭 8 文字 (= 配送 envelope が注入)
 
 
-AnyEvent = Union[UserEvent, UserMessageEvent, AssistantEvent, ResultEvent, AskUserQuestionEvent, TaskNotificationEvent, SystemEvent, SystemErrorEvent, HookErrorEvent, SystemNoteEvent, AttachmentEvent, BudgetEvent, ModeEvent, PermissionModeEvent, TurnDurationEvent, StopHookSummaryEvent, AwaySummaryEvent, PromptStateEvent, HistoryRefetchEvent]
+class SendFailedEvent(BaseModel):
+    """画面から送った発話を、 起動中のタブのために預かって後で打ったが、 Claude が受け取らなかった印。 画面はその送信の吹き出しを届いていない形にし、 文を入力欄へ戻す"""
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["send_failed"]
+    sid: str  # session id
+    corr_id: str  # W3C trace_id 頭 8 文字 (= 配送 envelope が注入)
+    send_id: str  # 画面が送信に付けた id (= Idempotency-Key)
+
+
+AnyEvent = Union[UserEvent, UserMessageEvent, AssistantEvent, ResultEvent, AskUserQuestionEvent, TaskNotificationEvent, SystemEvent, SystemErrorEvent, HookErrorEvent, SystemNoteEvent, AttachmentEvent, BudgetEvent, ModeEvent, PermissionModeEvent, TurnDurationEvent, StopHookSummaryEvent, AwaySummaryEvent, PromptStateEvent, HistoryRefetchEvent, SendFailedEvent]
 
 EVENT_BY_TYPE: dict[str, type[BaseModel]] = {
     "user": UserEvent,
@@ -267,4 +276,5 @@ EVENT_BY_TYPE: dict[str, type[BaseModel]] = {
     "away_summary": AwaySummaryEvent,
     "prompt_state": PromptStateEvent,
     "history_refetch": HistoryRefetchEvent,
+    "send_failed": SendFailedEvent,
 }

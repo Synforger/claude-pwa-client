@@ -637,10 +637,10 @@ async def pty_send(session_id: str, payload: dict, idempotency_key: str | None =
         return _e2e_inject_user_row(session_id, text)
 
     # A launch still starting takes the text later, and is not typed a second time (= `first_message.py`).
-    if text and enter and (held := hold_while_launching(session_id, text)) is not None:
+    if text and enter and (held := hold_while_launching(session_id, text, idempotency_key)) is not None:
         return held
     # launcher の新しい会話: 最初の本文で claude を起動する (= `first_message.py`)。
-    if text and enter and (launched := await launch_with_first_message(session_id, text)) is not None:
+    if text and enter and (launched := await launch_with_first_message(session_id, text, idempotency_key)) is not None:
         return launched
 
     # 本文送信は claude が打鍵を受け取れるようになるまで待つ (= restart 直後の
@@ -747,10 +747,10 @@ async def pty_send_with_files(
     if not full_text:
         return {"ok": False, "reason": "empty"}
     saved_files = [{"name": s["name"], "path": s["path"]} for s in saved]
-    if (held := hold_while_launching(session_id, full_text)) is not None:
+    if (held := hold_while_launching(session_id, full_text, idempotency_key)) is not None:
         return {**held, "saved_files": saved_files}
     # launcher の新しい会話: 最初の本文で claude を起動する (= `first_message.py`)。
-    if (launched := await launch_with_first_message(session_id, full_text)) is not None:
+    if (launched := await launch_with_first_message(session_id, full_text, idempotency_key)) is not None:
         return {**launched, "saved_files": saved_files}
     # text 経路と同じ共通部 (= 1 通ずつ、 2 段送信、 到達確認)。 添付経路は本文が長い (= path 追記で伸びる)
     # ので paste / Enter 競合の懸念はむしろ大きい。

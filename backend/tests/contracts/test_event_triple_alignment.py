@@ -46,6 +46,10 @@ def _emitted_types() -> set[str]:
     src = (REPO / "backend/routes/unified_stream.py").read_text()
     if re.search(r'"type": "history_refetch"', src):
         out.add("history_refetch")
+    # send_failed は預かった発話を打つ道が合成する (= 画面の送信が届かなかった印)
+    src = (REPO / "backend/terminal/first_message.py").read_text()
+    if re.search(r'"type": "send_failed"', src):
+        out.add("send_failed")
     return out
 
 

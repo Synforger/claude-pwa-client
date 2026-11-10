@@ -129,7 +129,7 @@ def test_a_photo_sent_without_text_is_marked_during_a_call(monkeypatch):
     async def saved(_files, _sid):
         return [{"name": "photo.jpg", "path": "/tmp/uploads/photo.jpg"}]
 
-    async def not_launched(_sid, _text):
+    async def not_launched(_sid, _text, _send_id=None):
         return None
 
     monkeypatch.setattr(routes, "_require_session", lambda _sid: None)
