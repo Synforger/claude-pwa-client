@@ -95,6 +95,11 @@ class DocumentStore:
             return Status("ready", entry=entry)
         with self._lock:
             job = self._jobs.get(key)
+            # A conversion that ended between the look above and the lock has left its entry and its job: look again,
+            # or a second conversion of the same file starts.
+            if job is None and (entry := self._entry(key)) is not None:
+                self._touch(entry)
+                return Status("ready", entry=entry)
             started = job is None or (job.error is not None and (retry or self._forgotten(job)))
             if started:
                 job = self._jobs[key] = Job()

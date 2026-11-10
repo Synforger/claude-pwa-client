@@ -278,10 +278,21 @@ export interface HistoryRefetchEvent {
   corr_id: string
 }
 
+/** 画面から送った発話を、 起動中のタブのために預かって後で打ったが、 Claude が受け取らなかった印。 画面はその送信の吹き出しを届いていない形にし、 文を入力欄へ戻す */
+export interface SendFailedEvent {
+  type: "send_failed"
+  /** session id */
+  sid: string
+  /** W3C trace_id 頭 8 文字 (= 配送 envelope が注入) */
+  corr_id: string
+  /** 画面が送信に付けた id (= Idempotency-Key) */
+  send_id: string
+}
 
-export type AnySseEvent = UserEvent | UserMessageEvent | AssistantEvent | ResultEvent | AskUserQuestionEvent | TaskNotificationEvent | SystemEvent | SystemErrorEvent | HookErrorEvent | SystemNoteEvent | AttachmentEvent | BudgetEvent | ModeEvent | PermissionModeEvent | TurnDurationEvent | StopHookSummaryEvent | AwaySummaryEvent | PromptStateEvent | HistoryRefetchEvent
+
+export type AnySseEvent = UserEvent | UserMessageEvent | AssistantEvent | ResultEvent | AskUserQuestionEvent | TaskNotificationEvent | SystemEvent | SystemErrorEvent | HookErrorEvent | SystemNoteEvent | AttachmentEvent | BudgetEvent | ModeEvent | PermissionModeEvent | TurnDurationEvent | StopHookSummaryEvent | AwaySummaryEvent | PromptStateEvent | HistoryRefetchEvent | SendFailedEvent
 
 
-export const SSE_EVENT_TYPES = ["user", "user_message", "assistant", "result", "ask_user_question", "task_notification", "system", "system_error", "hook_error", "system_note", "attachment", "budget", "mode", "permission_mode", "turn_duration", "stop_hook_summary", "away_summary", "prompt_state", "history_refetch"] as const
+export const SSE_EVENT_TYPES = ["user", "user_message", "assistant", "result", "ask_user_question", "task_notification", "system", "system_error", "hook_error", "system_note", "attachment", "budget", "mode", "permission_mode", "turn_duration", "stop_hook_summary", "away_summary", "prompt_state", "history_refetch", "send_failed"] as const
 
 export type SseEventType = typeof SSE_EVENT_TYPES[number]

@@ -5,6 +5,7 @@ import { useStreamBuffer } from './useStreamBuffer.js'
 import { processStreamEvent } from './processStreamEvent.js'
 import { observeVoiceEvent, subscribeVoice, voiceOnSids } from '../voice/index.js'
 import { reconcileUserMessage } from './reconcileUserMessage.js'
+import { failUserBubble } from './failUserBubble.js'
 import { fetchHistory, ingestHistory, removeSavedMessages } from './historyCatchUp.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
 import { chatTransport } from '../../transport/select.ts'
@@ -171,6 +172,24 @@ export function useChatStream({
     handleEventRef.current = (curSid, event, fromHistory = false) => {
       if (event.type === 'history_refetch') {
         refetchHistoryAfterMark(curSid)
+        return
+      }
+      // A message the backend held and typed later was not taken (backend/terminal/first_message.py). Its send was
+      // answered "held", so the bubble is marked here and the text goes back into the input. The text is only in the
+      // bubble, so the input is restored from inside the update, later (an update run twice puts the same value).
+      if (event.type === 'send_failed') {
+        if (fromHistory || !event.send_id) return
+        setMessages(prev => {
+          const failed = failUserBubble(prev[curSid] || [], m => m.send_id === event.send_id)
+          if (!failed) return prev
+          queueMicrotask(() => {
+            setInput(cur => ({ ...cur, [curSid]: cur[curSid] || failed.text }))
+            try { onSendFailed?.(curSid, failed.text) } catch { /* ignore consumer error */ }
+          })
+          return { ...prev, [curSid]: failed.next }
+        })
+        setLoading(prev => ({ ...prev, [curSid]: false }))
+        optimisticRef.current[curSid] = null
         return
       }
       observeVoiceEvent(curSid, event, { history: fromHistory })
@@ -397,20 +416,8 @@ export function useChatStream({
     // 2026-06-30 撤去)。
     const failBubble = (extraInput) => {
       setMessages(prev => {
-        const arr = prev[to] || []
-        const idx = arr.findIndex(m => m && m.id === optimisticUserId)
-        if (idx < 0) return prev // 既に reconcile で消費済 (= 正常確定)
-        const target = arr[idx]
-        if (!target.optimistic || target.sendFailed) return prev
-        const next = [...arr]
-        next[idx] = { ...target, sendFailed: true }
-        while (next.length) {
-          const tail = next[next.length - 1]
-          if (tail.role === 'agent' && tail.streaming && !tail.text && !tail.thinking && (!tail.tools || !tail.tools.length)) {
-            next.pop()
-          } else break
-        }
-        return { ...prev, [to]: next }
+        const failed = failUserBubble(prev[to] || [], m => m.id === optimisticUserId)
+        return failed ? { ...prev, [to]: failed.next } : prev
       })
       setLoading(prev => ({ ...prev, [to]: false }))
       optimisticRef.current[to] = null

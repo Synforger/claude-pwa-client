@@ -103,14 +103,60 @@ def test_a_text_that_is_gone_is_typed_once_more(typing):
     assert (typing["typed"], typing["enters"]) == (2, 0)
 
 
-def test_a_message_that_never_comes_is_refused_after_one_rescue_and_no_more(typing, pane):
+@pytest.fixture
+def short_rescue(monkeypatch):
+    monkeypatch.setattr(receipt, "RESCUE_SEC", 0.05)
+
+
+def test_a_text_left_in_the_input_gets_enter_again_until_it_is_taken(typing, pane):
+    # A claude that has just read a long conversation on a busy machine drops the first Enters.
+    pane["screens"] = ["│ > Sent by the client (the operator did not type this):\n" + CLAUDE_SCREEN]
+    typing["taken"] = [False, False, False, True]
+    assert run(receipt.deliver_to_woken("ses_x", TEXT)) is True
+    assert (typing["typed"], typing["enters"]) == (1, 3)
+
+
+def test_each_wait_after_an_enter_is_a_short_one(typing, pane):
+    pane["screens"] = ["│ > Sent by the client (the operator did not type this):\n" + CLAUDE_SCREEN]
+    typing["taken"] = [False, True]
+    run(receipt.deliver_to_woken("ses_x", TEXT))
+    assert typing["asked"] == [receipt.TAKEN_WAIT_SEC - receipt.CONFIRM_TIMEOUT_SEC, receipt.ENTER_AGAIN_SEC]
+
+
+def test_a_text_left_in_the_input_is_given_up_after_the_rescue_time(typing, pane, short_rescue):
     pane["screens"] = ["│ > [Pasted text #1 +4 lines]\n" + CLAUDE_SCREEN]
     assert run(receipt.deliver_to_woken("ses_x", TEXT)) is False
-    assert (typing["typed"], typing["enters"]) == (1, 1)
-    typing["asked"].clear()
-    pane["screens"] = [CLAUDE_SCREEN]
+    assert typing["typed"] == 1 and typing["enters"] >= 2
+
+
+def test_a_text_that_is_gone_is_typed_once_more_and_never_a_third_time(typing, short_rescue):
     assert run(receipt.deliver_to_woken("ses_x", TEXT)) is False
-    assert typing["typed"] == 3 and typing["enters"] == 1                    # the second try typed once more, never more
+    assert (typing["typed"], typing["enters"]) == (2, 0)
+
+
+def test_a_launch_in_flight_is_waited_for_before_typing_so_the_text_is_not_held_twice(typing, monkeypatch):
+    # Typing while the launch starts hands the text to the launch's held messages, and the rescue typing it again
+    # would hold it a second time: the receiver got each message twice.
+    calls = {"launching": True, "waited": 0}
+
+    async def launched(_sid):
+        calls["waited"] += 1
+        calls["launching"] = False
+        return True
+    monkeypatch.setattr(receipt.input_ready, "launching", lambda _sid: calls["launching"])
+    monkeypatch.setattr(receipt.input_ready, "wait_launched", launched)
+    typing["confirmed"] = True
+    assert run(receipt.deliver_to_woken("ses_x", TEXT)) is True
+    assert (calls["waited"], typing["typed"]) == (1, 1)
+
+
+def test_a_launch_given_up_is_not_typed_into(typing, monkeypatch):
+    async def given_up(_sid):
+        return False
+    monkeypatch.setattr(receipt.input_ready, "launching", lambda _sid: True)
+    monkeypatch.setattr(receipt.input_ready, "wait_launched", given_up)
+    assert run(receipt.deliver_to_woken("ses_x", TEXT)) is False
+    assert typing["typed"] == 0
 
 
 def test_a_typing_that_failed_is_not_waited_on(typing, monkeypatch):

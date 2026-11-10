@@ -180,6 +180,7 @@ backend `backend/jsonl/events.py::jsonl_line_to_events` が JSONL 1 行から組
 | `budget` | `remaining` | サブスク残予算 (= StatusBar 描画) |
 | `prompt_state` | `state`, `input_mode`, `options[]` | tmux pane の入力待ち検出 (= prompt detector)。 JSONL 由来でなく `backend/terminal/prompt_detector_loop.py` が状態遷移 / excerpt 変化時のみ publish。 ChatPanel の banner + quick-reply button が消費、 返信は `POST /pty/{sid}/send-raw-key`。 field 詳細 = `contracts/schema/sse-events.yaml` |
 | `history_refetch` | (`sid` のみ) | stream のつなぎ直しの流し直しが、 画面の位置 (= `jsonl=sid:off` の off) の直後の行から欠けずに届かなかった印。 その sid の流し直しの先頭に 1 つだけ載り、 `pos` は null。 画面はその sid の cache を捨てて `GET /jsonl/history` を取り直す。 offset を持たない購読には載せない。 field 詳細 = `contracts/schema/sse-events.yaml` |
+| `send_failed` | `send_id` | 画面から送った発話を、 起動中のタブのために backend が預かって後で打ったが、 受け取りの確かめと救いの後も記録に載らなかった印。 `pos` は null。 画面は同じ `send_id` の吹き出しを届いていない形にし、 文を入力欄へ戻す。 field 詳細 = `contracts/schema/sse-events.yaml` |
 | `session_end` | (frontend 注入) | restart で claude プロセスを kill した境界 (= MessageList の区切り表示。 backend tail でなく `useChatStream.endSession` が messages に直接挿入) |
 
 #### 添付 / タスク系

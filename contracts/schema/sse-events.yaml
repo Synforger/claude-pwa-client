@@ -427,3 +427,19 @@ events:
     trigger: "backend/routes/unified_stream.py の流し直しが、 client の位置の直後の行から欠けずに返せなかった時"
     consumer: "useChatStream (= その sid の cache を捨てて GET /jsonl/history を取り直す)"
     render_target: "skip"
+
+  send_failed:
+    description: "画面から送った発話を、 起動中のタブのために預かって後で打ったが、 Claude が受け取らなかった印。 画面はその送信の吹き出しを届いていない形にし、 文を入力欄へ戻す"
+    type: object
+    required: [sid, corr_id, send_id]
+    properties:
+      sid:     { type: string, description: "session id" }
+      corr_id: { type: string, description: "W3C trace_id 頭 8 文字 (= 配送 envelope が注入)" }
+      send_id: { type: string, description: "画面が送信に付けた id (= Idempotency-Key)" }
+    additionalProperties: false
+    invariants:
+      - "送信の HTTP が「預かった」 と返した発話だけに出る (= その場で失敗した送信は HTTP の答えで画面が知る)"
+      - "chat 履歴には積まない (= 記録の行から作る event ではない)"
+    trigger: "backend/terminal/first_message.py の預かった発話を打つ道が、 受け取りの確かめと救いの後も記録に行を見なかった時、 または起動を諦めた後の打ち直しが失敗した時"
+    consumer: "useChatStream (= 同じ send_id の吹き出しを sendFailed にし、 文を入力欄へ戻す)"
+    render_target: "skip"

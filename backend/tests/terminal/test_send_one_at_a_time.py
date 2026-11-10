@@ -47,7 +47,7 @@ def pane(monkeypatch, tmp_path):
                     fh.write(json.dumps({"type": "user", "message": {"role": "user", "content": said}}) + "\n")
         return True
 
-    async def never_launches(session_id, text):
+    async def never_launches(session_id, text, send_id=None):
         return None
 
     async def ready(session_id):
@@ -158,8 +158,15 @@ def test_a_turn_that_is_not_running_makes_the_next_body_wait_for_the_line(pane, 
     assert order == ["typed:first", "confirmed:first", "typed:second", "confirmed:second"]
 
 
-def test_a_key_to_stop_is_not_kept_waiting_behind_a_body(pane):
+# The wait between the paste and Enter in the test of the stop key: long enough that a loaded machine cannot let the
+# Enter pass before the test types Escape (= the default ENTER_DELAY did, at a load average above 100).
+STOP_KEY_ENTER_DELAY = 1.0
+
+
+def test_a_key_to_stop_is_not_kept_waiting_behind_a_body(pane, monkeypatch):
     """Escape (= 停止) は並ばない。 本文を打っている最中でも、 すぐ打たれる。"""
+    monkeypatch.setattr(runner, "TWO_STAGE_ENTER_DELAY_SEC", STOP_KEY_ENTER_DELAY)
+
     async def run():
         body = asyncio.create_task(send("ses_a", "a long body"))
         # 本文が貼られて、 Enter を待っている間に打つ (= 決まった時間だけ待つと、 機械が混んでいる時は待ちが

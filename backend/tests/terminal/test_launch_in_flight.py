@@ -189,6 +189,57 @@ def test_a_launch_given_up_sends_its_held_messages_again(pane, monkeypatch):
     assert input_ready.is_ready(SID) and not input_ready.launching(SID)
 
 
+@pytest.fixture
+def published(monkeypatch):
+    """The events the held messages publish to the screen."""
+    events: list[tuple[str, dict]] = []
+    monkeypatch.setattr(fm.jsonl_event_broadcaster, "publish", lambda sid, event, pos=None: events.append((sid, event)))
+    return events
+
+
+def test_a_held_message_from_the_screen_that_is_not_taken_is_told_back(pane, published, monkeypatch):
+    # Intent: the send answered "held" at once, so the screen showed the bubble as sent. When the message does not get
+    # in, the screen is told by the send's id, and its bubble says it was not delivered.
+    async def not_taken(_sid, _text):
+        return False
+    monkeypatch.setattr(receipt, "deliver_to_woken", not_taken)
+    input_ready.mark_starting(SID)
+
+    async def scenario():
+        assert await routes.pty_send(SID, {"text": "hello", "enter": True}, "send-lost") == {"ok": True, "launched": True}
+        assert fm.hold_while_launching(SID, "from another tab") is not None
+        input_ready.mark_ready(SID)
+        await asyncio.gather(*fm._typers.values())
+    _run(scenario())
+    assert published == [(SID, {"type": "send_failed", "sid": SID, "send_id": "send-lost"})]
+
+
+def test_a_held_message_that_is_taken_tells_the_screen_nothing(pane, published):
+    _, delivered = pane
+    input_ready.mark_starting(SID)
+
+    async def scenario():
+        await routes.pty_send(SID, {"text": "hello", "enter": True}, "send-taken")
+        input_ready.mark_ready(SID)
+        await asyncio.gather(*fm._typers.values())
+    _run(scenario())
+    assert delivered == ["hello"] and published == []
+
+
+def test_a_held_message_whose_resend_fails_after_a_launch_given_up_is_told_back(pane, published, monkeypatch):
+    async def failed_send(_sid, payload, _key=None):
+        return {"ok": False, "reason": "not_ready"}
+    input_ready.mark_starting(SID)
+
+    async def scenario():
+        assert fm.hold_while_launching(SID, "one", "send-1") is not None
+        monkeypatch.setattr(routes, "pty_send", failed_send)
+        monkeypatch.setattr(input_ready, "LAUNCH_GIVE_UP_SEC", 0.0)
+        await asyncio.gather(*fm._typers.values())
+    _run(scenario())
+    assert published == [(SID, {"type": "send_failed", "sid": SID, "send_id": "send-1"})]
+
+
 def test_with_no_launch_in_flight_the_send_is_not_held():
     assert fm.hold_while_launching(SID, "hello") is None
     assert SID not in fm._held
