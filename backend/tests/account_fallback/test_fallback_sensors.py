@@ -36,14 +36,12 @@ def test_the_break_is_the_sleep_judgement_asked_by_hand_so_the_quiet_minutes_are
 def test_what_the_cache_is_judged_cold_from_is_read_with_the_break(reads):
     reads["facts"] = SleepFacts(claude_running=True, quiet_minutes=75, record_found=True, context_pct=42.5,
                                 rollover_idle_pct=40)
-    tab_break = sensors.read_tab_break("ses_x")
-    assert (tab_break.quiet_minutes, tab_break.context_pct, tab_break.rollover_idle_pct) == (75, 42.5, 40)
+    assert sensors.read_tab_break("ses_x").quiet_minutes == 75
 
 
 def test_a_tab_whose_facts_were_not_all_read_leaves_the_cold_facts_unknown(reads):
     reads["facts"] = SleepFacts(claude_running=True, turn_open=True)
-    tab_break = sensors.read_tab_break("ses_x")
-    assert (tab_break.quiet_minutes, tab_break.context_pct, tab_break.rollover_idle_pct) == (None, None, None)
+    assert sensors.read_tab_break("ses_x").quiet_minutes is None
 
 
 def test_the_line_of_the_automatic_rollover_is_not_looked_at(reads):

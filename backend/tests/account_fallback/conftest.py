@@ -35,7 +35,7 @@ def accounts_with_fallback(at_pct=95, ahead_pct=None, personal_hold=None) -> dic
 @pytest.fixture
 def env(tmp_path, monkeypatch, isolated_state):
     """`env.tab` runs on work; `env.rows` is the usage log; `env.stop` / `env.blocked_by` / `env.owed` say what is read about the tab
-    (a stop leaves its continuation owed); `env.quiet_minutes` / `env.context_pct` / `env.rollover_idle_pct` the facts its
+    (a stop leaves its continuation owed); `env.quiet_minutes` the fact its
     cache is judged cold from (`env.cold()` makes it quiet for the cache's lifetime);
     `env.sent` collects the messages sent to tabs; `env.events` the stops and spawns of the tab's claude."""
     sessions_mod, tab, src, work_dir, events = _setup_account_move(
@@ -44,13 +44,11 @@ def env(tmp_path, monkeypatch, isolated_state):
     use_accounts(monkeypatch, accounts_with_fallback())
     monkeypatch.setattr(config, "CLAUDE_PROJECTS_DIRS", [src.parent.parent, work_dir.parent], raising=False)
     state = SimpleNamespace(tab=tab, src=src, work_dir=work_dir, events=events, rows=[], stop=None, blocked_by=(),
-                            owed=None, sent=[], tmp_path=tmp_path, quiet_minutes=0, context_pct=None,
-                            rollover_idle_pct=None)
+                            owed=None, sent=[], tmp_path=tmp_path, quiet_minutes=0)
     monkeypatch.setattr(patrol, "read_all_rate_limits_tail", lambda: state.rows)
     monkeypatch.setattr(patrol, "read_tab_break",
                         lambda _sid: TabBreak(state.stop, state.blocked_by, owed=state.owed or state.stop,
-                                              quiet_minutes=state.quiet_minutes, context_pct=state.context_pct,
-                                              rollover_idle_pct=state.rollover_idle_pct))
+                                              quiet_minutes=state.quiet_minutes))
 
     async def _send(session_id, text):
         state.sent.append((session_id, text))

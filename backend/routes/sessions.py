@@ -35,6 +35,7 @@ from backend._common.state import (
     unregister_session,
 )
 from backend.accounts.account_move import move_tab_account
+from backend.accounts.tab_claim import claimed
 from backend.accounts.tab_restart import reset_tab_status, stop_tab_claude
 from backend.fork.lineage import write_lineage
 from backend.terminal import input_ready
@@ -201,17 +202,24 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
     # main.py 経由で chat router 登録より後で import される ↔ chat 早期 import の循環
     # 防止のため、 ここだけ関数内 import に残す。
     from backend.terminal.routes import ensure_pty_session_for  # noqa: PLC0415
-    try:
-        # restart は autoresume を skip (= prefer_fresh)。 直前 claude プロセスの
-        # 完全 shutdown 前に `claude --resume <直前 sid>` が走ると重複起動検知で
-        # rc=0 即 exit する race (= log 観測で spawn → 2ms exited → watchdog の
-        # 2s 待ちに間に合わず、 launch_alias 投入届かない、 2026-06-29 確認)。
-        # restart のセマンティクス = 文脈リセット + プロセスリセットなので、
-        # 直前 sid を resume するのが意味的にも矛盾。
-        await ensure_pty_session_for(session_id, prefer_fresh=True)
-    except Exception:
-        logger.exception("restart spawn phase failed for %s", session_id)
-        return {"ok": False, "reason": "spawn_failed"}
+    # The account hold imports the account fallback, which sends its messages through the message route.
+    from backend.account_hold.new_conversation_account import choose_account_for_new_conversation  # noqa: PLC0415
+    with claimed(session_id) as mine:
+        if mine:
+            # A new conversation has no cache to lose: it starts on the account the tab may run on now. The claim
+            # keeps the account fallback and hold off the tab until the new claude is up.
+            await asyncio.to_thread(choose_account_for_new_conversation, session_id)
+        try:
+            # restart は autoresume を skip (= prefer_fresh)。 直前 claude プロセスの
+            # 完全 shutdown 前に `claude --resume <直前 sid>` が走ると重複起動検知で
+            # rc=0 即 exit する race (= log 観測で spawn → 2ms exited → watchdog の
+            # 2s 待ちに間に合わず、 launch_alias 投入届かない、 2026-06-29 確認)。
+            # restart のセマンティクス = 文脈リセット + プロセスリセットなので、
+            # 直前 sid を resume するのが意味的にも矛盾。
+            await ensure_pty_session_for(session_id, prefer_fresh=True)
+        except Exception:
+            logger.exception("restart spawn phase failed for %s", session_id)
+            return {"ok": False, "reason": "spawn_failed"}
     await reset_tab_status(session_id)
     # 全 sid SSE (/sessions/status/stream) にも変化を伝える (= per-sid と整合)
     sessions_overview.notify()

@@ -57,17 +57,13 @@ def test_a_tab_with_a_warm_cache_is_not_moved_ahead_of_the_line(ahead):
     assert run(patrol.tick()) == [] and ahead.tab.account_id == "work"
 
 
-@pytest.mark.parametrize("cold, why", [
-    (lambda env: env.cold(), "quiet"),
-    (lambda env: (setattr(env, "context_pct", 45), setattr(env, "rollover_idle_pct", 40)), "context_at_rollover_line"),
-])
-def test_a_tab_with_a_cold_cache_is_moved_ahead_of_the_line(ahead, caplog, cold, why):
+def test_a_tab_with_a_cold_cache_is_moved_ahead_of_the_line(ahead, caplog):
     ahead.rows = [usage_row(five=92)]
-    cold(ahead)
+    ahead.cold()
     with caplog.at_level(logging.INFO):
         assert run(patrol.tick()) == [ahead.tab.id]
     assert (ahead.tab.account_id, ahead.tab.fallback_from) == ("personal", "work")
-    assert f"account fallback: moved ahead session={ahead.tab.id} from=work to=personal cold={why}" in _messages(caplog)
+    assert f"account fallback: moved ahead session={ahead.tab.id} from=work to=personal cold=quiet" in _messages(caplog)
     assert ahead.sent == []                                          # it was at a break: nothing to carry on from
 
 
@@ -162,11 +158,12 @@ def test_a_moved_tab_comes_back_when_its_cache_has_gone_cold(ahead, caplog):
                for m in _messages(caplog))
 
 
-def test_a_moved_tab_comes_back_when_its_context_is_at_the_line_where_the_rollover_takes_it_over(ahead):
+def test_a_moved_tab_with_a_warm_cache_waits_for_the_rollover_to_start_its_next_conversation_back_home(ahead):
+    # the rollover chooses the account of the next conversation (`account_hold/new_conversation_account.py`), so the
+    # long conversation of a tab at the rollover's line is not read again on the other account before it
     _moved(ahead)
     ahead.rows = [usage_row(five=10)]
-    ahead.context_pct, ahead.rollover_idle_pct = 41, 40
-    assert run(patrol.tick()) == [ahead.tab.id] and ahead.tab.account_id == "work"
+    assert run(patrol.tick()) == [] and ahead.tab.account_id == "personal"
 
 
 def test_a_moved_tab_stays_while_the_account_is_within_the_width_ahead_of_its_line_even_when_cold(ahead):

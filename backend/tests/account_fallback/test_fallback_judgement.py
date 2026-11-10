@@ -7,7 +7,7 @@ from datetime import datetime
 import pytest
 
 from backend.account_fallback.fallback_judgement import (
-    PROMPT_CACHE_LIFETIME_MIN, QUIET, ROLLOVER_LINE, Move, cold_reasons, decide, home_is_limited, home_is_near,
+    PROMPT_CACHE_LIFETIME_MIN, QUIET, Move, cold_reasons, decide, home_is_limited, home_is_near,
     returns_over_target_line, seven_day_line_pct, urgent_move)
 from backend.account_fallback.fallback_settings import FallbackRule
 from backend.tests.account_fallback.conftest import usage_row
@@ -161,18 +161,14 @@ def test_the_cache_lifetime_is_an_hour():
     assert PROMPT_CACHE_LIFETIME_MIN == 60
 
 
-@pytest.mark.parametrize("quiet, context, line, reasons", [
-    (PROMPT_CACHE_LIFETIME_MIN, None, None, (QUIET,)),
-    (PROMPT_CACHE_LIFETIME_MIN - 1, None, None, ()),
-    (5, 40, 40, (ROLLOVER_LINE,)),                       # at the line where the rollover takes the tab over
-    (5, 39, 40, ()),
-    (90, 50, 40, (QUIET, ROLLOVER_LINE)),
-    (5, 90, None, ()),                                    # the agent has no rollover line
-    (None, None, None, ()),                               # nothing was read: not cold
+@pytest.mark.parametrize("quiet, reasons", [
+    (PROMPT_CACHE_LIFETIME_MIN, (QUIET,)),
+    (PROMPT_CACHE_LIFETIME_MIN - 1, ()),
+    (None, ()),                                           # nothing was read: not cold
 ])
-def test_the_cache_is_cold_after_an_hour_of_quiet_or_at_the_line_where_the_rollover_takes_the_tab(
-        quiet, context, line, reasons):
-    assert cold_reasons(quiet_minutes=quiet, context_pct=context, rollover_idle_pct=line) == reasons
+def test_the_cache_is_cold_after_an_hour_of_quiet_only(quiet, reasons):
+    # a tab at the rollover's line is not cold: the rollover starts its next conversation on the right account
+    assert cold_reasons(quiet_minutes=quiet) == reasons
 
 
 def test_a_tab_on_its_own_account_moves_ahead_of_the_line_only_when_its_cache_is_cold():
