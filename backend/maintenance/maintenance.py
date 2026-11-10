@@ -6,7 +6,7 @@ backend logs (RotatingFileHandler) / uploads/tmp (1h GC) は別経路で既対�
 このモジュールは以下を担当:
 
   1. PWA タブ削除後の残骸 tmux session の kill
-  2. 古い JSONL ファイル (~/.claude/projects/) の自動削除 (mtime + quota)
+  2. 古い JSONL ファイル (~/.claude/projects/) の自動削除 (mtime only)
   3. 古い statusline map ファイルの削除 (対応 tmux session 無いもの)
 
 2026-06-21 (backend-F-33): Sunshine restart / streamer ゾンビ reap の管理を
@@ -32,16 +32,11 @@ from backend.terminal.runner import tmux_base_argv
 logger = logging.getLogger(__name__)
 
 
-# 保持基準: mtime が KEEP_DAYS 日以内 = 残す、 それより古いものは削除候補。
-# 加えて、 残った合計が MAX_BYTES を超える場合は古い方から削除して quota 内に収める。
-# 実機観測 (2026-06-04) で 468MB / 168 ファイルまで蓄積していたので、 quota を 500MB に
-# 引き下げて 24h ループで効くようにする (= 旧 1GB 設定だと threshold まで届かず KEEP_DAYS
-# だけが効いていて、 mtime 新しめのファイルが溜まり続けていた)。 KEEP_DAYS も 30→14 に
-# 短縮、 普段の試行錯誤履歴は十分カバーしつつ蓄積速度を半分にする。
+# A conversation record untouched for this many days is deleted. Age is the only rule: what is kept is bounded by
+# the window, while a total-size quota, always exceeded by a machine's records, deleted records younger than the
+# window (= conversations that `/resume` could still reopen) at every start.
 JSONL_KEEP_DAYS = 14
-JSONL_MAX_BYTES = 500 * 1024 * 1024  # 500 MB
-# 定期実行間隔。 起動時に 1 回 + この間隔で繰り返し。 24h → 12h に短縮して quota 超過の
-# 滞留時間を半減する (= 上の threshold 改定とセット)。
+# How often the maintenance runs after the run at start.
 MAINTENANCE_INTERVAL_SEC = 12 * 3600
 
 # アイドル pwa-* tmux session を kill する閾値。 session_attached=0 かつ session_activity が
@@ -200,24 +195,12 @@ def cleanup_stale_statusline_map() -> int:
     return removed
 
 
-def cleanup_old_jsonl(
-    keep_days: int = JSONL_KEEP_DAYS,
-    max_bytes: int = JSONL_MAX_BYTES,
-) -> int:
-    """~/.claude/projects/*/*.jsonl を mtime 順で整理する。
+def cleanup_old_jsonl(keep_days: int = JSONL_KEEP_DAYS) -> int:
+    """Delete the conversation records (`~/.claude*/projects/*/*.jsonl`) not written for `keep_days` days, so that
+    Claude Code's records, which it never deletes itself, do not pile up. → how many were deleted.
 
-    1. mtime が keep_days 日以前のものを削除 (= ただし現在 PWA タブが bind 中の jsonl は除く)
-    2. それでも全体合計が max_bytes を超える場合は更に古い方から削除して quota 内に収める
-
-    quota は project 単位でなく全 project の合計で見る (= project 数だけ掛け算で蓄積するのを防ぐ)。
-    binding 中の jsonl は長期 idle でも削除しない (= backend 再起動 / Mac 再起動跨ぎで復帰した
-    アクティブセッションが「14 日無書き込み」 で削除される事故を塞ぐ)。
-
-    claude CLI の会話ログは turn ごとに append され、 /clear で新ファイルが切られるが、
-    自動 cleanup が無いので無限に蓄積する (= 実機で 468 MB / 168 ファイルの蓄積を確認)。
-
-    複数アカウント (= ACCOUNTS で CLAUDE_CONFIG_DIR を指定) の場合は、 各アカウントの
-    projects dir を全部対象に走査する (= quota は全アカウント合計で見る)。
+    A record a tab is bound to is kept however old it is: a tab that came back after a restart of the backend or of
+    the machine still reopens it. Every account's projects folder is looked at.
     """
     bases = [b for b in _config.CLAUDE_PROJECTS_DIRS if b.is_dir()]
     if not bases:
@@ -239,7 +222,6 @@ def cleanup_old_jsonl(
         return 0
     cutoff = time.time() - keep_days * 86400
     deleted = 0
-    # 全 project を 1 リストに集約 (= quota は全体合計で見る)
     all_files: list[tuple[Path, float, int]] = []
     for base in bases:
         for proj_dir in base.iterdir():
@@ -251,45 +233,18 @@ def cleanup_old_jsonl(
                     all_files.append((f, st.st_mtime, st.st_size))
                 except OSError:
                     continue
-    all_files.sort(key=lambda x: x[1])  # mtime 古い順
-    # Step 1: keep_days より古いものを削除 (bound は除外)
-    survivors: list[tuple[Path, float, int]] = []
     for f, mt, sz in all_files:
-        if str(f.resolve()) in bound_paths:
-            survivors.append((f, mt, sz))
-            continue
-        if mt < cutoff:
-            try:
-                f.unlink()
-                deleted += 1
-                logger.info(
-                    "jsonl gc: removed by age %s (age=%.1fd, size=%dKB)",
-                    f.name, (time.time() - mt) / 86400, sz // 1024,
-                )
-                continue
-            except OSError:
-                # benign: JSONL unlink race with the watcher; if removal fails, keep the
-                # file in the survivor set and try again on the next gc pass.
-                pass
-        survivors.append((f, mt, sz))
-    # Step 2: 残量が全体 quota 超なら古い方から削除 (bound は除外)
-    total = sum(sz for _, _, sz in survivors)
-    for f, _mt, sz in survivors:
-        if total <= max_bytes:
-            break
-        if str(f.resolve()) in bound_paths:
+        if mt >= cutoff or str(f.resolve()) in bound_paths:
             continue
         try:
             f.unlink()
-            total -= sz
             deleted += 1
             logger.info(
-                "jsonl gc: removed by quota %s (size=%dKB, remaining=%dMB)",
-                f.name, sz // 1024, total // (1024 * 1024),
+                "jsonl gc: removed by age %s (age=%.1fd, size=%dKB)",
+                f.name, (time.time() - mt) / 86400, sz // 1024,
             )
         except OSError:
-            # benign: deleting oldest JSONL hit a race; skip and continue collapsing the
-            # quota — next pass will retry the same file.
+            # benign: JSONL unlink race with the watcher; the next gc pass tries the same file again.
             pass
     if deleted:
         logger.info("jsonl gc: total %d files deleted", deleted)
