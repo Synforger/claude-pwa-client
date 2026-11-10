@@ -30,14 +30,12 @@ logger = logging.getLogger(__name__)
 class TabBreak:
     """What was read about a tab: the usage-limit stop its conversation ends in (None when it does not), the
     conditions that keep the tab from being interrupted (empty = it is at a break), the stop whose continuation is
-    still owed (None when there is none; see `RecordFacts.continuation_owed`), and the facts the cold cache is judged
-    from (`fallback_judgement.cold_reasons`; None = not read, which a tab that is not at a break leaves)."""
+    still owed (None when there is none; see `RecordFacts.continuation_owed`), and the quiet minutes the cold cache is
+    judged from (`fallback_judgement.cold_reasons`; None = not read, which a tab that is not at a break leaves)."""
     stop: LimitStop | None
     blocked_by: tuple[str, ...]
     owed: LimitStop | None = None
     quiet_minutes: float | None = None
-    context_pct: float | None = None
-    rollover_idle_pct: float | None = None
 
     @property
     def at_break(self) -> bool:
@@ -61,8 +59,7 @@ def read_tab_break(session_id: str) -> TabBreak:
     stopped = record.limit_stop is not None
     facts = gather(session_id, 0, by_hand=True, stopped_by_limit=stopped)
     return TabBreak(record.limit_stop, judge(facts, 0, by_hand=True, stopped_by_limit=stopped),
-                    owed=record.continuation_owed, quiet_minutes=facts.quiet_minutes, context_pct=facts.context_pct,
-                    rollover_idle_pct=facts.rollover_idle_pct)
+                    owed=record.continuation_owed, quiet_minutes=facts.quiet_minutes)
 
 
 def sleeping_stop(session_id: str) -> LimitStop | None:

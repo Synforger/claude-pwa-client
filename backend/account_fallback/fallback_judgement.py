@@ -37,7 +37,6 @@ PROMPT_CACHE_LIFETIME_MIN = 60
 
 # Why a tab's cache counts as cold (= logged as they are).
 QUIET = "quiet"
-ROLLOVER_LINE = "context_at_rollover_line"
 
 
 class Move(str, Enum):
@@ -73,17 +72,12 @@ def home_is_near(rows: Iterable[dict], rule: FallbackRule, now: float) -> bool |
     return None if state is None else state.at_limit
 
 
-def cold_reasons(*, quiet_minutes: float | None, context_pct: float | None,
-                 rollover_idle_pct: float | None) -> tuple[str, ...]:
+def cold_reasons(*, quiet_minutes: float | None) -> tuple[str, ...]:
     """Why the cache of a running tab is cold, empty when it is not (= or it is not known): the tab has been quiet for
-    `PROMPT_CACHE_LIFETIME_MIN`, or its context is at the line (`rollover.idle.context_pct`) where the rollover takes it
-    over at its next break, so its conversation is left behind anyway. A tab that sleeps is cold by itself."""
-    reasons = []
-    if quiet_minutes is not None and quiet_minutes >= PROMPT_CACHE_LIFETIME_MIN:
-        reasons.append(QUIET)
-    if context_pct is not None and rollover_idle_pct is not None and context_pct >= rollover_idle_pct:
-        reasons.append(ROLLOVER_LINE)
-    return tuple(reasons)
+    `PROMPT_CACHE_LIFETIME_MIN`. A tab that sleeps is cold by itself. A tab whose context is at the rollover's line is
+    not: moving it would read its long conversation again on the other account, while the rollover starts its next
+    conversation on the right account for nothing (`account_hold/new_conversation_account.py`)."""
+    return (QUIET,) if quiet_minutes is not None and quiet_minutes >= PROMPT_CACHE_LIFETIME_MIN else ()
 
 
 def returns_over_target_line(*, current: str, home: str, rule: FallbackRule | None, limited: bool | None,

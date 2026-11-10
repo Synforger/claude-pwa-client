@@ -220,8 +220,7 @@ async def _look(session_id: str, rows: list[dict], now: float) -> bool:
         if not mine:
             return False
         tab_break = await asyncio.to_thread(read_tab_break, session_id)
-        cold = cold_reasons(quiet_minutes=tab_break.quiet_minutes, context_pct=tab_break.context_pct,
-                            rollover_idle_pct=tab_break.rollover_idle_pct)
+        cold = cold_reasons(quiet_minutes=tab_break.quiet_minutes)
         action = decide(current=current, home=home, rule=rule, limited=lines.limited, at_break=tab_break.at_break,
                         pinned=meta.account_pinned, near=lines.near, cold=bool(cold), target_over_line=lines.target_over)
         if _last_blocked.get(session_id) != tab_break.blocked_by:
