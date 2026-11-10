@@ -137,6 +137,8 @@ export interface GetSettingsResponse {
       id: string
       display_name: string
       sleep_minutes?: number | null
+      /** メモリの逼迫の間に眠らせるまでの分数。 null = 早く眠らせない */
+      sleep_pressure_minutes?: number | null
       /** working_context_pct / idle_context_pct / idle_minutes (書いていなければ null) */
       rollover: Record<string, unknown>
     })[]

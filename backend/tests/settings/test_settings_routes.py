@@ -88,7 +88,7 @@ def test_get_lists_the_tabs_pinned_to_an_account(client):
 def test_get_shows_the_sleep_and_the_rollover_of_each_agent_the_title_and_the_limit(client):
     view = client.get("/settings").json()
     agent_a, agent_b = view["agents"]
-    assert agent_a == {"id": "agent_a", "display_name": "Agent A", "sleep_minutes": 60,
+    assert agent_a == {"id": "agent_a", "display_name": "Agent A", "sleep_minutes": 60, "sleep_pressure_minutes": None,
                        "rollover": {"working_context_pct": 60, "idle_context_pct": 40, "idle_minutes": 50}}
     assert agent_b["sleep_minutes"] is None and agent_b["rollover"]["idle_minutes"] is None
     assert (view["child_sessions_max"], view["notification_title"]) == (5, "通知")

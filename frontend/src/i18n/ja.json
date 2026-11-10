@@ -311,6 +311,8 @@
   "settings.agents.title": "タブの眠りと入れ替え",
   "settings.agents.sleep": "眠るまでの分数",
   "settings.agents.sleep_hint": "静かなタブの Claude を終わらせるまでの分数。 空ならこのエージェントは眠りません",
+  "settings.agents.pressure": "メモリの逼迫の時の分数",
+  "settings.agents.pressure_hint": "機械のメモリが逼迫している間は、 この分数より静かなタブを、 一番長く静かなものから 1 分に 1 本ずつ眠らせます。 眠るまでの分数以下。 空なら早く眠らせません",
   "settings.agents.rollover": "入れ替えの線",
   "settings.agents.rollover_hint": "context がこの割合に届いた会話に、 区切りで締めて引き継ぐよう頼みます。 空の欄は使いません",
   "settings.agents.working": "作業中の context",

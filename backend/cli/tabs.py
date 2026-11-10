@@ -92,7 +92,7 @@ from typing import NamedTuple
 
 # 子のタブのメモの状態の行の読み方は backend と同じ file (= 標準ライブラリだけ)。 repo の根から読む
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from backend.child_watch.child_memo import STATE_LINE as STATE, WORKING, memo_state, with_state  # noqa: E402
+from backend.child_watch.child_memo import DONE, STATE_LINE as STATE, STUCK, WORKING, memo_state, with_state  # noqa: E402
 
 HOME = Path.home()
 BASE = f"http://127.0.0.1:{os.environ.get('PWA_PORT', '8765')}"
@@ -462,7 +462,7 @@ def own_tier() -> str | None:
 # --- 子のタブ ----------------------------------------------------------------------
 
 #: 子のタブのメモの状態の行 (= `report` が書き換え、 `children` と起動の検査が読む。 読み方は `STATE` と `WORKING`)
-STATES = {"done": "完了", "stuck": "詰まり"}
+STATES = {"done": DONE, "stuck": STUCK}
 #: `children` の claude の欄の 4 つの語 (= 答えの途中 / claude は動いているが答えていない / 眠らせた / 動いていない)
 CLAUDE_ANSWERING = "作業中"
 CLAUDE_WAITING = "入力待ち"
@@ -675,6 +675,7 @@ SLEEP_REASONS = {
     "rolling_over": "入れ替えの最中です",
     "partial_record": "会話の記録の最後の行が書きかけです",
     "claude_did_not_end": "claude が終わりませんでした",
+    "claimed": "ほかの機能 (口座の振り分けか、別の眠らせ) がこのタブを扱っています",
 }
 
 

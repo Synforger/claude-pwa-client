@@ -77,7 +77,7 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 - `rollover` (任意): context が決めた割合に届いた会話を締めさせて、 同じタブで新しい会話を起動し直す
   条件。 書いていないエージェントでは何も起きない。 項目と流れは [rollover.md](rollover.md)
 - `sleep` (任意): 使っていない間だけ、 そのエージェントのタブの Claude を終わらせてメモリを返し、 触られた時と
-  連絡が届いた時に同じ会話で起こす条件 (`{"minutes": 60}`)。 書いていないエージェントでは何も起きない。
+  連絡が届いた時に同じ会話で起こす条件 (`{"minutes": 60, "pressure_minutes": 10}`。 後ろはメモリの逼迫の間だけの短い分数)。 書いていないエージェントでは何も起きない。
   項目と条件は [sleep.md](sleep.md)
 - `voice` (任意): エージェントの返事を音声合成の engine で音にするための設定 (= engine の URL と声の番号、
   言い方の印。 人の声を聞き取る engine と、 言い終えを判定する model も足せて、 足すと話すだけで送る会話に
@@ -105,7 +105,7 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   止める (曜日を書かなければ、 その日は 7 日では止めない。 `five_hour_at_pct` を書かなければ、 5 時間では止めない)。
   自動では再開せず、 続けるのは画面の設定から。`fallback` を持つ口座には置けない。詳細: [`account-hold.md`](account-hold.md)
 
-画面の「設定」から、`accounts.*.fallback` の線と先回りの幅、`accounts.*.hold` の線、`agents.*.sleep.minutes`、
+画面の「設定」から、`accounts.*.fallback` の線と先回りの幅、`accounts.*.hold` の線、`agents.*.sleep.minutes` と `pressure_minutes`、
 `agents.*.rollover` の数、`child_sessions_max`、`notification_title` を変えられる。変えた値は `config.json` に書かれ、
 次の見回りから効く。それ以外の欄と、`config.json` を手で書き換えた時は、backend の再起動が要る。
 詳細: [`settings-screen.md`](settings-screen.md)

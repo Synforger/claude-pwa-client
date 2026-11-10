@@ -52,7 +52,8 @@ class World:
             self.events.append(f"kill-session claude_alive={claude.poll() is None}")
             return True
 
-        monkeypatch.setattr(sleeper, "gather", lambda sid, minutes, by_hand=False, stopped_by_limit=False: self.facts)
+        monkeypatch.setattr(sleeper, "gather",
+                            lambda sid, minutes, by_hand=False, stopped_by_limit=False, reported=False: self.facts)
         monkeypatch.setattr(sleeper.jsonl_watcher, "get_jsonl_for", lambda sid: self.record)
         monkeypatch.setattr(sleeper, "claude_pid_in_pane", lambda sid: claude.pid)
         monkeypatch.setattr(sleeper, "kill_tmux_session", kill_session)
@@ -212,7 +213,7 @@ def test_a_sleep_by_hand_waits_for_the_child_to_finish_its_answer(monkeypatch, i
     monkeypatch.setattr(sleeper, "PASSING_LOOK_SEC", 0.01)
     looks = []
 
-    def gather(sid, minutes, by_hand=False, stopped_by_limit=False):
+    def gather(sid, minutes, by_hand=False, stopped_by_limit=False, reported=False):
         looks.append(by_hand)
         return world.facts if len(looks) < 3 else READY   # the answer ends at the third look
 
@@ -267,3 +268,45 @@ def test_a_tab_whose_turn_a_limit_stopped_sleeps_but_one_that_is_answering_does_
     assert _run(sleeper.sleep_at_break(world.meta.id, stopped_by_limit=True)) == ()
     assert world.meta.sleep is not None
     claude.stdout.close()
+
+
+def test_the_patrol_leaves_a_tab_another_feature_holds(monkeypatch, isolated_state, tmp_path):
+    from backend.accounts.tab_claim import claimed  # noqa: PLC0415
+    claude = _claude()
+    world = World(monkeypatch, isolated_state, tmp_path, claude)
+    with claimed(world.meta.id):
+        assert _run(sleeper.put_to_sleep(world.meta.id, 60)) is False
+    assert claude.poll() is None and world.meta.sleep is None and world.events == []
+    claude.kill()
+    claude.stdout.close()
+
+
+def test_a_message_waits_while_the_tab_falls_asleep_and_then_finds_it_asleep(monkeypatch, isolated_state, tmp_path):
+    claude = _claude()
+    world = World(monkeypatch, isolated_state, tmp_path, claude)
+    seen: list[tuple[bool, bool]] = []
+
+    async def both():
+        sleeping = asyncio.create_task(sleeper.put_to_sleep(world.meta.id, 60))
+        await asyncio.sleep(0)                                      # the sleep has marked the tab
+        assert sleeper.is_falling_asleep(world.meta.id)
+        await sleeper.wait_until_asleep(world.meta.id)
+        seen.append((sleeper.is_falling_asleep(world.meta.id), world.meta.sleep is not None))
+        return await sleeping
+
+    assert _run(both()) is True
+    assert seen == [(False, True)]                                 # the message goes to a sleeping tab
+    claude.stdout.close()
+
+
+def test_a_tab_that_is_not_falling_asleep_is_not_waited_for(monkeypatch):
+    monkeypatch.setattr(sleeper, "FALLING_ASLEEP_WAIT_SEC", 5.0)
+    loop_time = asyncio.run(_timed(sleeper.wait_until_asleep("ses_awake")))
+    assert loop_time < 0.1
+
+
+async def _timed(coro) -> float:
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    await coro
+    return loop.time() - start

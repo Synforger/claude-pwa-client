@@ -1,4 +1,4 @@
-// 設定の画面の「タブの眠りと入れ替え」。 エージェントごとの眠るまでの分数と入れ替えの線、 子のタブの上限数。
+// 設定の画面の「タブの眠りと入れ替え」。 エージェントごとの眠るまでの分数 (普段とメモリの逼迫の時) と入れ替えの線、 子のタブの上限数。
 import { useMemo } from 'react'
 import { useT } from '../../i18n/t.js'
 import { NumberField, SaveBar } from './SettingsFields.jsx'
@@ -9,7 +9,7 @@ import { CHILD_LIMIT_RULE, agentDraftOf, agentPatch, agentRules, childLimitPatch
 
 function AgentCard({ agent, limits, onSave }) {
   const t = useT()
-  const [draft, setDraft] = useDraft(agentDraftOf(agent), JSON.stringify([agent.sleep_minutes, agent.rollover]))
+  const [draft, setDraft] = useDraft(agentDraftOf(agent), JSON.stringify([agent.sleep_minutes, agent.sleep_pressure_minutes, agent.rollover]))
   const { saving, reasons, saved, run } = useCardSave(onSave)
   const { patch, invalid } = useMemo(() => agentPatch(agent, draft, limits), [agent, draft, limits])
   useReportDirty(`agent:${agent.id}`, patch !== null || invalid.length > 0)
@@ -28,6 +28,7 @@ function AgentCard({ agent, limits, onSave }) {
       <header className="settings-card-head"><span className="settings-card-name">{agent.display_name}</span></header>
       <div className="settings-block">
         {field('sleep', t('settings.agents.sleep'), t('settings.unit.minutes'), t('settings.agents.sleep_hint'))}
+        {field('pressure', t('settings.agents.pressure'), t('settings.unit.minutes'), t('settings.agents.pressure_hint'))}
       </div>
       <div className="settings-block">
         <div className="settings-block-title">{t('settings.agents.rollover')}</div>

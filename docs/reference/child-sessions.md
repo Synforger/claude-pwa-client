@@ -80,8 +80,9 @@ Message from another session, relayed by the client (the operator did not type t
 
 ## 眠らせる
 
-報告を受けた子を、続きの仕事まで同じタブで待たせる時は、閉じずに眠らせられます。親のタブから
-`tabs sleep <子のタブの id>` を打つと、その子の Claude が終わってメモリが空き、連絡が届くと同じ会話で起きます。
+`tabs report done` で報告した子は、エージェントに `sleep` の設定があれば、答えを書き終えて 5 分たつと見回りが
+眠らせます ([報告を終えた子](sleep.md#報告を終えた子))。続きの仕事を送れば同じ会話で起きます。それより早く眠らせたい時は、
+親のタブから `tabs sleep <子のタブの id>` を打ちます。その子の Claude が終わってメモリが空き、連絡が届くと同じ会話で起きます。
 口は `POST /sessions/<親のタブの id>/children/<子のタブの id>/sleep` です。条件と待ち方は
 [静かなタブの眠り](sleep.md#親が子のタブを眠らせる) にあります。眠った子も子の数に入ります。
 

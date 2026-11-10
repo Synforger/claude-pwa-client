@@ -6,6 +6,19 @@ quiet tab was left awake. The sensors read the cheap facts first and stop at the
 fact that was not read is `None` here and its condition is skipped; an answer with no failing condition is always
 about facts that were all read.
 
+A child that has reported its work done is put to sleep by the patrol without waiting for the quiet minutes
+(`reported`): once it has answered something since it last started, and has then been quiet for
+`REPORTED_QUIET_MINUTES` (= the end of its answer and the rows of a sub-agent it left running in the background).
+Like a sleep asked for by hand, it does not leave a child above the rollover's line awake.
+
+While the machine is short of memory, the patrol puts to sleep the tab that has been quiet the longest of those that
+may sleep after the shorter `pressure_minutes` (`pick_under_pressure`), one per look. Short of memory means the
+operating system's pressure level was at warning or above on two looks in a row (`is_short_of_memory`): it stays up
+for a while after a tab was put to sleep, and one high reading would put one more to sleep than needed.
+
+A tab the account fallback or hold asked for a break, or owes a "carry on", is theirs, and the patrol leaves it awake
+(`ACCOUNT_PENDING`): those features do not look at a sleeping tab, and the tab would be left with the request.
+
 A parent tab can also put one of its children to sleep at once (`tabs sleep`). That sleep does not wait for the
 quiet minutes, and it does not leave a child above the rollover's line awake: the parent knows the child is waiting,
 and the rollover takes the child over once a message wakes it. Every other condition holds as it does for the patrol.
@@ -31,9 +44,20 @@ CRON_SCHEDULED = "cron_scheduled"
 AWAITING_TOOL_RESULT = "awaiting_tool_result"
 VOICE_CALL = "voice_call"
 ROLLING_OVER = "rolling_over"
+NOT_ANSWERED_SINCE_START = "not_answered_since_start"
+ACCOUNT_PENDING = "account_pending"
+
+# How long a child that reported its work done must be quiet before the patrol puts it to sleep (= 5 looks).
+REPORTED_QUIET_MINUTES = 5
+# The operating system's memory pressure level from which the machine is short of memory (macOS: 1 normal, 2 warning,
+# 4 critical).
+PRESSURE_WARNING_LEVEL = 2
 
 # The conditions a sleep asked for by hand does not look at (= the parent decides the child is done).
 NOT_ASKED_BY_HAND = frozenset({NOT_QUIET, CONTEXT_AT_ROLLOVER_LINE})
+# The conditions the sleep of a child that reported its work done does not look at (= its work is over, and the
+# rollover takes it over once a message wakes it).
+NOT_ASKED_FOR_A_REPORTED_CHILD = frozenset({CONTEXT_AT_ROLLOVER_LINE})
 # The conditions a tab whose turn a usage limit stopped does not look at: what such a stop leaves looking like work in
 # progress (the turn that never closed, the call that will never get its result, the start that got no answer). What
 # is really running under it (commands, wake-ups, cron jobs, a call) is still looked at.
@@ -77,6 +101,9 @@ class SleepFacts:
                        a `Stop`, or a `UserPromptSubmit` came after it)
     quiet_minutes:     minutes since the newest row time of the conversation record or of a record of its sub-agents
     rollover_idle_pct: the agent's `rollover.idle.context_pct`, None when the agent has none (= the condition is off)
+    answered_since_start: the conversation (or a sub-agent's) has a row newer than both the start of the claude now
+                       running and the tab's last waking (= it took something in since it was started)
+    account_pending:   the account fallback or hold asked the tab for a break, or owes it a "carry on"
     """
     claude_running: bool | None = None
     starting: bool | None = None
@@ -89,14 +116,38 @@ class SleepFacts:
     record: RecordFacts | None = None
     on_voice_call: bool | None = None
     rolling_over: bool | None = None
+    answered_since_start: bool | None = None
+    account_pending: bool | None = None
 
 
-def judge(facts: SleepFacts, minutes: float, by_hand: bool = False, stopped_by_limit: bool = False) -> tuple[str, ...]:
+def judge(facts: SleepFacts, minutes: float, by_hand: bool = False, stopped_by_limit: bool = False,
+          reported: bool = False) -> tuple[str, ...]:
     """The conditions of `facts` that are not met for a tab that sleeps after `minutes` of quiet, or, `by_hand`, for a
-    tab its parent puts to sleep now (= without `NOT_ASKED_BY_HAND`). `stopped_by_limit` is for a tab whose turn a
-    usage limit stopped, which is interrupted at that stop (= without `LEFT_BY_A_LIMIT_STOP`). Empty = it may sleep."""
+    tab its parent puts to sleep now (= without `NOT_ASKED_BY_HAND`), or, `reported`, for a child that reported its
+    work done (= without `NOT_ASKED_FOR_A_REPORTED_CHILD`, and only once it answered since it started).
+    `stopped_by_limit` is for a tab whose turn a usage limit stopped, which is interrupted at that stop (= without
+    `LEFT_BY_A_LIMIT_STOP`). Empty = it may sleep."""
     left = (NOT_ASKED_BY_HAND if by_hand else frozenset()) | (LEFT_BY_A_LIMIT_STOP if stopped_by_limit else frozenset())
-    return tuple(reason for reason in _unmet(facts, minutes) if reason not in left)
+    if reported:
+        left |= NOT_ASKED_FOR_A_REPORTED_CHILD
+    reasons = [reason for reason in _unmet(facts, minutes) if reason not in left]
+    if reported and facts.answered_since_start is False:
+        reasons.append(NOT_ANSWERED_SINCE_START)
+    if not by_hand and facts.account_pending:
+        reasons.append(ACCOUNT_PENDING)
+    return tuple(reasons)
+
+
+def is_short_of_memory(previous_level: int | None, level: int | None) -> bool:
+    """Whether the machine is short of memory: the pressure level read on this look and on the one before are both at
+    warning or above. A level that could not be read is not short."""
+    return all(value is not None and value >= PRESSURE_WARNING_LEVEL for value in (previous_level, level))
+
+
+def pick_under_pressure(candidates: list[tuple[str, float]]) -> str | None:
+    """Of the tabs that may sleep while the machine is short of memory (`(tab, quiet minutes)`), the one quiet the
+    longest; None when there is none."""
+    return max(candidates, key=lambda candidate: candidate[1])[0] if candidates else None
 
 
 def _unmet(facts: SleepFacts, minutes: float) -> tuple[str, ...]:

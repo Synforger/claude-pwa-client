@@ -111,6 +111,7 @@ def _agent_view(agent_id: str, entry: object) -> dict:
         "id": agent_id,
         "display_name": agent.get("display_name", agent_id.upper()),
         "sleep_minutes": sleep.get("minutes"),
+        "sleep_pressure_minutes": sleep.get("pressure_minutes"),
         "rollover": {"working_context_pct": working.get("context_pct"), "idle_context_pct": idle.get("context_pct"),
                      "idle_minutes": idle.get("minutes")},
     }
