@@ -94,6 +94,12 @@ def test_get_shows_the_sleep_and_the_rollover_of_each_agent_the_title_and_the_li
     assert (view["child_sessions_max"], view["notification_title"]) == (5, "通知")
 
 
+def test_get_shows_no_limit_on_the_child_tabs_as_null_once_the_field_is_removed(client):
+    answer = client.put("/settings", json={"child_sessions_max": None})
+    assert answer.status_code == 200 and answer.json()["child_sessions_max"] is None
+    assert client.get("/settings").json()["child_sessions_max"] is None
+
+
 def test_get_shows_the_running_version_the_start_time_and_the_last_stall(client, tmp_path, monkeypatch):
     machine = client.get("/settings").json()["machine"]
     assert machine["version"] == settings_view.RUNNING_VERSION and machine["backend_started_at"] > 0

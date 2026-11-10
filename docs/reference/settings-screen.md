@@ -61,7 +61,7 @@
 | 静かな時の context | `agents.<エージェント>.rollover.idle.context_pct` | 1〜100 |
 | 静かな時の分数 | `agents.<エージェント>.rollover.idle.minutes` | 1 以上 |
 
-子のタブの上限数 (`child_sessions_max`) は 0 以上の整数です。空にすると既定 (5) に戻ります ([子のタブ](child-sessions.md))。
+子のタブの上限数 (`child_sessions_max`) は 0 以上の整数です。空にすると上限なしになり、今の値が上限なしの時は欄に「上限なし」と出ます ([子のタブ](child-sessions.md))。
 
 ### 通知
 
@@ -112,7 +112,7 @@
 | `agents.<エージェント>.sleep.minutes` | 1 以上の整数、または `null` |
 | `agents.<エージェント>.rollover.working.context_pct` / `idle.context_pct` | 1〜100 の数、または `null` |
 | `agents.<エージェント>.rollover.idle.minutes` | 1 以上の数、または `null` |
-| `child_sessions_max` | 0 以上の整数、または `null` |
+| `child_sessions_max` | 0 以上の整数、または `null` (= 上限なし) |
 | `notification_title` | 空でない文字列、または `null` |
 
 - 値は、読む側 (逃げ先・止める線・眠り・入れ替え) と同じ規則で確かめます。`fallback` を持つ口座への `hold` のように、

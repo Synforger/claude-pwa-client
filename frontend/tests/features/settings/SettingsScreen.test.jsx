@@ -142,6 +142,25 @@ describe('changing a setting', () => {
     await waitFor(() => expect(screen.getByTestId('settings-agent-agent_a').querySelector('[data-testid=settings-agent-sleep]').value).toBe('30'))
   })
 
+  it('shows no limit on the child tabs as a blank field and removes the limit when it is emptied', async () => {
+    backend({
+      'GET /settings': () => json(VIEW),
+      'GET /backend/restartable': () => json({ restartable: false }),
+      'PUT /settings': () => json({ ...VIEW, child_sessions_max: null }),
+    })
+    render(<SettingsScreen />)
+    const limit = await screen.findByTestId('settings-child-limit')
+    const input = limit.querySelector('[data-testid=settings-child-limit-input]')
+    expect(input.value).toBe('5')
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.click(limit.querySelector('[data-testid=settings-child-limit-save]'))
+    await waitFor(() => expect(calls.some(c => c.method === 'PUT')).toBe(true))
+    expect(calls.find(c => c.method === 'PUT').body).toEqual({ child_sessions_max: null })
+    await waitFor(() => expect(limit.querySelector('.settings-note.ok')).not.toBeNull())
+    expect(input.value).toBe('')
+    expect(input.placeholder).toBe('上限なし')
+  })
+
   it('keeps what is typed in a card when another card saves', async () => {
     backend({
       'GET /settings': () => json(VIEW),

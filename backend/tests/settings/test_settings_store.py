@@ -102,12 +102,12 @@ def test_the_sleep_and_the_rollover_of_an_agent_are_read_again_by_the_code_that_
     assert sleep_minutes(tab.id) == 20 and rollover_idle_pct(tab.id) == 30
 
 
-def test_the_child_limit_and_the_notification_title_are_read_again(config_file):
+def test_the_child_limit_the_removal_of_it_and_the_notification_title_are_read_again(config_file):
     assert config.CHILD_SESSIONS_MAX == 5 and config.NOTIFICATION_TITLE_DEFAULT == "通知"
     update_settings({"child_sessions_max": 1, "notification_title": "New"})
     assert config.CHILD_SESSIONS_MAX == 1 and config.NOTIFICATION_TITLE_DEFAULT == "New"
     update_settings({"child_sessions_max": None, "notification_title": None})
-    assert config.CHILD_SESSIONS_MAX == config.CHILD_SESSIONS_MAX_DEFAULT
+    assert config.CHILD_SESSIONS_MAX is None
     assert config.NOTIFICATION_TITLE_DEFAULT == "Notification"
 
 

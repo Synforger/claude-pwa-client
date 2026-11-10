@@ -9,8 +9,8 @@ A partial update has the shape of `config.json` and names only what changes:
      "child_sessions_max": 4}
 
 A field is set to a value, or removed with `null` (= a day of the week without a line, no line of the 5 hours for a
-`hold`, no width ahead of the line for a `fallback`, an agent that does not sleep, the default of `child_sessions_max`
-and `notification_title`). Every field outside `FIELDS` is refused, and so is a value
+`hold`, no width ahead of the line for a `fallback`, an agent that does not sleep, no limit on the child tabs for
+`child_sessions_max`, the default of `notification_title`). Every field outside `FIELDS` is refused, and so is a value
 that the readers of the field (`fallback_settings`, `hold_settings`, the sleep and the rollover) would not use. The
 settings after the update must not have a problem the ones before did not have: a `fallback` or `hold` that was
 already unusable does not stop another account's line from being changed.

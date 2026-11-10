@@ -15,8 +15,8 @@ claude も、 端末の入力を読む外の道具も、 「人が打った文�
 
 子のタブの agent は、 呼び手が `agent_id` で選ぶか、 親の agent の設定の `child_agent` (= 子のタブはこの agent で
 立てる) が決める。 どちらも無ければ親と同じ agent で立てる。 1 つのタブが同時に持てる子の数は
-`child_sessions_max` が決める (= 既定 5)。 閉じるのは今までのタブと同じ
-`DELETE /sessions/{sid}` で、 閉じた子は数から外れる。
+`child_sessions_max` が決める (= 書かなければ上限なし。 数を書いた時だけその数で止める)。 閉じるのは今までの
+タブと同じ `DELETE /sessions/{sid}` で、 閉じた子は数から外れる。
 
 親は、 自分の子が今何に止められているか (= 止まった子の見回りと同じ区切りの判定) を `GET /sessions/{親}/children` で
 読める。 `tabs children` はこれで、 裏のコマンドの終わりを待つ子を 「止まった子」 と見分ける。
@@ -83,7 +83,7 @@ async def post_child_session(
     if not text.strip():
         raise_error(400, "child_session_empty", "本文が空です")
     held = children_of(session_id)
-    if len(held) >= CHILD_SESSIONS_MAX:
+    if CHILD_SESSIONS_MAX is not None and len(held) >= CHILD_SESSIONS_MAX:
         raise_error(409, "child_session_limit",
                     f"このタブの子は {len(held)} 個で、 上限 ({CHILD_SESSIONS_MAX}) に届いています。 終わった子を閉じてから立ててください",
                     limit=CHILD_SESSIONS_MAX, children=", ".join(held))

@@ -191,10 +191,34 @@ def test_a_child_stays_a_child_after_the_backend_starts_again(opened, isolated_s
     assert loaded["ses_p"].child is False
 
 
+def test_without_the_setting_there_is_no_limit_on_the_children(opened, isolated_state):
+    with _client() as client:
+        answers = [client.post("/sessions/ses_p/children", data={"agent_id": "agent_sub", "text": str(n)})
+                   for n in range(8)]
+    assert [a.status_code for a in answers] == [200] * 8
+    assert len(cs.children_of("ses_p")) == 8 and len(opened) == 8
+
+
+def test_a_null_setting_is_no_limit_either(opened, isolated_state, monkeypatch, tmp_path):
+    _config(monkeypatch, tmp_path, child_sessions_max=None)
+    with _client() as client:
+        answers = [client.post("/sessions/ses_p/children", data={"agent_id": "agent_sub", "text": str(n)})
+                   for n in range(7)]
+    assert [a.status_code for a in answers] == [200] * 7
+
+
+def test_a_limit_of_zero_opens_no_child(opened, isolated_state, monkeypatch, tmp_path):
+    _config(monkeypatch, tmp_path, child_sessions_max=0)
+    with _client() as client:
+        refused = client.post("/sessions/ses_p/children", data={"agent_id": "agent_sub", "text": "x"})
+    assert refused.status_code == 409 and refused.json()["detail"]["params"]["limit"] == 0
+    assert _children(isolated_state) == [] and opened == []
+
+
 @pytest.mark.parametrize("value, expected", [
-    (None, 5), (3, 3), (0, 0), (-1, 5), ("5", 5), (True, 5), (2.5, 5),
+    (None, None), (3, 3), (0, 0), (-1, None), ("5", None), (True, None), (2.5, None),
 ])
-def test_the_limit_comes_from_the_settings(monkeypatch, tmp_path, value, expected):
+def test_the_limit_comes_from_the_settings_and_anything_else_is_no_limit(monkeypatch, tmp_path, value, expected):
     _config(monkeypatch, tmp_path, **({} if value is None else {"child_sessions_max": value}))
     assert config_mod.CHILD_SESSIONS_MAX == expected
 

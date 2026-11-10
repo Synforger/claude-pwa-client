@@ -157,7 +157,7 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   同じ節を参照
 - `agent_message_sender_check` (任意): 連絡の封筒に送り主のタブ名を出してよいかを決めるコマンド
   (= 語のリスト)。 同じ節を参照
-- `child_sessions_max` (任意): 1 つのタブが同時に持てる子のタブの数 (= 0 以上の整数、 既定 5)。
+- `child_sessions_max` (任意): 1 つのタブが同時に持てる子のタブの数 (= 0 以上の整数。 書かない時と `null` は上限なし)。
   詳細: [child-sessions.md](child-sessions.md)
 - `rate_limits_log`: 使用率 (5h / 7d / context) を記録する JSONL の path。 **このファイルを
   書くのは claude の statusline スクリプト** (= claude が statusline subprocess に渡す

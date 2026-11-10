@@ -140,7 +140,8 @@ export interface GetSettingsResponse {
       /** working_context_pct / idle_context_pct / idle_minutes (書いていなければ null) */
       rollover: Record<string, unknown>
     })[]
-  child_sessions_max: number
+  /** 1 つのタブが同時に持てる子のタブの数。 null = 上限なし */
+  child_sessions_max?: number | null
   notification_title: string
   /** version / backend_started_at / loop_stall ({ stood_still_sec, back_at } か null) */
   machine: Record<string, unknown>

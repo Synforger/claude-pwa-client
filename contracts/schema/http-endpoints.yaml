@@ -282,7 +282,7 @@ endpoints:
               sleep_minutes: { type: integer, nullable: true }
               rollover:      { type: object, description: "working_context_pct / idle_context_pct / idle_minutes (書いていなければ null)" }
             required: [id, display_name, rollover]
-        child_sessions_max:   { type: integer }
+        child_sessions_max:   { type: integer, nullable: true, description: "1 つのタブが同時に持てる子のタブの数。 null = 上限なし" }
         notification_title:   { type: string }
         machine:              { type: object, description: "version / backend_started_at / loop_stall ({ stood_still_sec, back_at } か null)" }
         limits:               { type: object, description: "weekdays / line_pct_min / line_pct_max / ahead_pct_min / ahead_pct_max / context_pct_min / context_pct_max / minutes_min" }
