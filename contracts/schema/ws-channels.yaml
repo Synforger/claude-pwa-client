@@ -64,11 +64,17 @@ channels:
                 type: { const: pong }
                 ts:   { type: integer, description: "client から受信した ts を echo" }
               additionalProperties: false
+            - type: object
+              required: [type, status]
+              properties:
+                type:   { const: snapshot }
+                status: { const: none, description: "接続時に pane の今の画面の写しを撮れなかった (= client は Ctrl-L で TUI に描き直させる)" }
+              additionalProperties: false
     lifecycle:
-      connect: "client open → server tmux attach (= 既存) or spawn (= 新規) → output queue backlog drain → pump_out / pump_in 並走"
+      connect: "client open → server tmux attach (= 既存) or spawn (= 新規) → pump_in 起動 → 最初の resize を tmux へ渡した後、 切断中の backlog を捨て、 pane の今の画面の写しを最初の binary frame で送る (= 撮れなければ snapshot/none) → pump_out 起動"
       reconnect: "exponential backoff 500ms -> 10s with jitter"
       heartbeat: "client ping 25s with pong timeout 60s (= ADR-013、 iOS dead-but-OPEN 検知)"
-      on_reconnect: "reset terminal + Ctrl-L 送信 (= TUI 自力再描画 / ANSI 同期)"
+      on_reconnect: "最初の binary frame (= 写し) の直前に reset terminal。 写しが撮れなかった時 (= snapshot/none) だけ Ctrl-L を送る"
       bg_fg: "cpc:fg event で再接続、 features/terminal が listen して force reconnect"
       disconnect: "close code 4000 = heartbeat timeout / 1000 = normal / その他 = 異常切断"
     auth: tailnet
@@ -76,7 +82,7 @@ channels:
       - "binary frame は xterm.js writeUtf8(Uint8Array) で直渡し、 UTF-8 multi-byte boundary を decoder.decode(bytes, {stream:true}) で保持"
       - "control mode (-CC) 解釈は backend (= terminal/control_mode.py) が完了済の text frame で送る"
       - "60 秒 pong 不在で client が ws.close(4000, 'heartbeat-timeout') 発火 → reconnect サイクル"
-      - "再接続時の reset + Ctrl-L で TUI 状態をサーバ側真値から再構築"
+      - "接続時の写し (= tmux の pane の今の画面) で、 TUI の状態に依らず画面をサーバ側真値から再構築"
       - "kill -9 復帰時は backend (= terminal/runner.py) が spawn 経路で新 PTY 起動"
 
   views:

@@ -29,7 +29,13 @@ export interface PtyServerToClient1V1 {
   ts: number
 }
 
-export type PtyServerToClient1 = PtyServerToClient1V0 | PtyServerToClient1V1
+export interface PtyServerToClient1V2 {
+  type: "snapshot"
+  /** 接続時に pane の今の画面の写しを撮れなかった (= client は Ctrl-L で TUI に描き直させる) */
+  status: "none"
+}
+
+export type PtyServerToClient1 = PtyServerToClient1V0 | PtyServerToClient1V1 | PtyServerToClient1V2
 
 export interface ViewsClientToServer0V0 {
   /** null = 全タブ非表示 */

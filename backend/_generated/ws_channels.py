@@ -38,7 +38,13 @@ class PtyServerToClient1V1(BaseModel):
     ts: int  # client から受信した ts を echo
 
 
-PtyServerToClient1 = Union[PtyServerToClient1V0, PtyServerToClient1V1]
+class PtyServerToClient1V2(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["snapshot"]
+    status: Literal["none"]  # 接続時に pane の今の画面の写しを撮れなかった (= client は Ctrl-L で TUI に描き直させる)
+
+
+PtyServerToClient1 = Union[PtyServerToClient1V0, PtyServerToClient1V1, PtyServerToClient1V2]
 
 class ViewsClientToServer0V0(BaseModel):
     model_config = ConfigDict(extra="forbid")
