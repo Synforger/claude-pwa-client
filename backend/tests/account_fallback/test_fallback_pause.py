@@ -144,9 +144,16 @@ def test_a_tab_asked_and_then_woken_from_sleep_is_moved_and_forgotten(answering)
 
 def test_the_mark_goes_when_the_usage_falls_under_the_line_and_the_next_time_over_the_line_asks_again(answering):
     run(patrol.tick())
+    assert answering.tab.owes_carry_on                                 # it was told the rest would follow
     answering.rows = [usage_row(five=50)]
     run(patrol.tick())
-    assert answering.tab.pause_asked_at is None
+    assert answering.tab.pause_asked_at is None and answering.tab.owes_carry_on
+    answering.rows = [usage_row(five=97)]
+    run(patrol.tick())
+    assert len(_asks(answering)) == 1                                  # one request per tab while it is owed
+    answering.tab.owes_carry_on = False                                # the hold told it to carry on (`hold_resume`)
+    answering.rows = [usage_row(five=50)]
+    run(patrol.tick())
     answering.rows = [usage_row(five=97)]
     run(patrol.tick())
     assert len(_asks(answering)) == 2

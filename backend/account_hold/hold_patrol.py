@@ -29,7 +29,7 @@ from backend.account_fallback.fallback_sensors import TabBreak, read_tab_break
 from backend.account_fallback.fallback_settings import display_name_of
 from backend.account_hold.hold_envelope import stop_envelope
 from backend.account_hold.hold_judgement import both_at_lines, is_over_line, should_ask_to_hold
-from backend.account_hold.hold_resume import hand_over_kept, resume_on_home
+from backend.account_hold.hold_resume import carry_on_owed, hand_over_kept, resume_on_home
 from backend.account_hold.hold_settings import HoldRule, read_rules
 from backend.account_hold.hold_tabs import account_of
 from backend.accounts.client_message import send_to_tab
@@ -56,11 +56,12 @@ def _clear_ask(session_id: str, meta: SessionDef) -> None:
 
 
 def _release_if_woken(session_id: str, meta: SessionDef) -> None:
-    """Take the mark off a stopped tab that is awake again (= a message from another tab woke it): it is not stopped
-    any more."""
+    """Take the marks off a stopped tab that is awake again (= the operator opened it, or a message woke it): it is
+    not stopped any more, and what it does next is up to whoever woke it, so nothing is owed to it either."""
     if meta.held_at is None or meta.sleep is not None:
         return
     meta.held_at = None
+    meta.owes_carry_on = False
     save_sessions_meta()
     logger.info("account hold: released session=%s account=%s woken=1", session_id, account_of(meta))
 
@@ -74,14 +75,17 @@ async def _ask(session_id: str, meta: SessionDef, account: str, tab_break: TabBr
             logger.info("account hold: no break after asking to stop session=%s account=%s waited_sec=%d",
                         session_id, account, now - meta.hold_asked_at)
         return
-    if not should_ask_to_hold(blocked_by=tab_break.blocked_by, stopped_by_limit=tab_break.stop is not None,
-                              asked_at=meta.hold_asked_at):
-        return
+    if meta.owes_carry_on or not should_ask_to_hold(blocked_by=tab_break.blocked_by,
+                                                    stopped_by_limit=tab_break.stop is not None,
+                                                    asked_at=meta.hold_asked_at):
+        return                                   # one request per tab: one it was sent already brings it to a break
     meta.hold_asked_at = now
     save_sessions_meta()
     if not await send_to_tab(session_id, stop_envelope(account, display_name_of(account), both=both)):
         _clear_ask(session_id, meta)                                     # not delivered: the next look asks again
         return
+    meta.owes_carry_on = True
+    save_sessions_meta()
     logger.info("account hold: asked to stop session=%s account=%s", session_id, account)
 
 
@@ -95,6 +99,8 @@ async def _hold(session_id: str, account: str, tab_break: TabBreak, now: float) 
     if meta is None:
         return False
     meta.held_at = now
+    if tab_break.stop is not None or tab_break.owed is not None:
+        meta.owes_carry_on = True                                        # a usage limit cut its work short
     _clear_ask(session_id, meta)
     save_sessions_meta()
     logger.info("account hold: held session=%s account=%s stopped_by_limit=%s", session_id, account,
@@ -158,12 +164,13 @@ async def tick() -> list[str]:
     the messages kept for the tabs that may take them now. → the tabs that were stopped."""
     rules = read_rules()
     if not rules and not any(meta.held_at is not None or meta.hold_asked_at is not None or meta.kept_messages
-                             for meta in sessions_meta.values()):
+                             or meta.owes_carry_on for meta in sessions_meta.values()):
         return []
     rows = await asyncio.to_thread(read_all_rate_limits_tail)
     now = time.time()
     stopped = [session_id for session_id in list(sessions_meta) if await _look(session_id, rows, rules, now)]
     await resume_on_home(rows, rules, now)
+    await carry_on_owed(rows, rules, now)
     await hand_over_kept(rows, rules, now)
     return stopped
 

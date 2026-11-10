@@ -43,8 +43,10 @@ def both(env, monkeypatch):
     return env
 
 
-def _stop(meta) -> None:
+def _stop(meta, owes=True) -> None:
+    """`meta` was stopped; `owes`: it had work left when it was."""
     meta.held_at = 100.0
+    meta.owes_carry_on = owes
     meta.sleep = SleepMark(claude_sid="c1", record="/r.jsonl", slept_at=1)
 
 

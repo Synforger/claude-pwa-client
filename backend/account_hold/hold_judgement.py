@@ -102,14 +102,27 @@ def carry_on_account(*, current: str, home: str, rule: FallbackRule | None, limi
     stopped. `rule` is the fallback of `home`; `limited` and `near` say where the usage of `home` is against it,
     `current_over` whether `current` is at its hold line and `fallback_over` whether the account the fallback names is.
 
-    The account it belongs to, once that is clear (`resumes_on_home`); while that is still at its line, the account the
-    fallback names, once that is known to be clear of its hold line (= the move a tab at its line makes, unless it is
-    pinned). A tab whose account has no fallback is continued by the operator, never by this."""
+    The account it belongs to, once that is clear (`resumes_on_home`); while that is still at its line or within
+    `ahead_pct` of it, the account the fallback names, once that is known to be clear of its hold line (= the move a
+    tab at its line makes, and a cold tab within the width; unless it is pinned). A tab whose account has no fallback
+    is continued by the operator, never by this."""
     if rule is None:
         return None
     if resumes_on_home(current=current, home=home, rule=rule, limited=limited, near=near,
                        target_over_line=current_over, pinned=pinned):
         return home
-    if limited is True and fallback_over is False and not pinned:
+    if (limited is True or near is True) and fallback_over is False and not pinned:
         return rule.to_account
     return None
+
+
+def runs_where_it_is(*, current: str, home: str, rule: FallbackRule | None, limited: bool | None,
+                     current_over: bool | None, pinned: bool) -> bool:
+    """Whether an awake tab may go on where it runs now: the account it runs on is known to be clear of its hold line,
+    and it is not a tab on its own account at its fallback line (= the fallback moves it, or the hold stops it). A
+    pinned tab always may."""
+    if pinned:
+        return True
+    if current_over is not False:
+        return False
+    return not (rule is not None and current == home and limited is True)

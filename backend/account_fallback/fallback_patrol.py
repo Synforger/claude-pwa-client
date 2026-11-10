@@ -101,10 +101,10 @@ async def _pause(session_id: str, meta: SessionDef, wanted: Move, tab_break: Tab
             logger.info("account fallback: no break after asking to pause session=%s account=%s waited_sec=%d",
                         session_id, current, now - meta.pause_asked_at)
         return
-    if rule is None or not should_ask_to_pause(wanted=wanted, blocked_by=tab_break.blocked_by,
-                                                stopped_by_limit=tab_break.stop is not None,
-                                                asked_at=meta.pause_asked_at):
-        return
+    if rule is None or meta.owes_carry_on or not should_ask_to_pause(wanted=wanted, blocked_by=tab_break.blocked_by,
+                                                                     stopped_by_limit=tab_break.stop is not None,
+                                                                     asked_at=meta.pause_asked_at):
+        return                                   # one request per tab: one it was sent already brings it to a break
     meta.pause_asked_at = now
     save_sessions_meta()
     request = (pause_envelope(current, rule.to_account, display_name_of(rule.to_account)) if wanted is Move.MOVE else
@@ -112,6 +112,8 @@ async def _pause(session_id: str, meta: SessionDef, wanted: Move, tab_break: Tab
     if not await send_to_tab(session_id, request):
         _clear_pause(session_id, meta)                                   # not delivered: the next look asks again
         return
+    meta.owes_carry_on = True
+    save_sessions_meta()
     logger.info("account fallback: asked to pause session=%s account=%s", session_id, current)
 
 
@@ -138,7 +140,8 @@ async def _move(session_id: str, current: str, home: str, rule: FallbackRule | N
                 tab_break: TabBreak, lines: _Lines, cold: tuple[str, ...]) -> bool:
     """Do `action` on the tab. True when it moved. A move that fails leaves the tab on the account it was on, and the
     next look tries again. A tab that was stopped by a limit, or still owed the continuation Claude Code booked at a
-    limit (the move starts claude again, which loses it), or asked to come to a break, is told to carry on."""
+    limit (the move starts claude again, which loses it), or owed a message to carry on (`owes_carry_on`: it was asked
+    to come to a break), is told to carry on; a message that does not reach it stays owed."""
     moving = action is Move.MOVE
     target = rule.to_account if moving and rule is not None else home
     cut = LineageCut.THROUGH_TOOL_RESULTS if tab_break.stop is not None else LineageCut.CLEAN_TURN
@@ -153,13 +156,16 @@ async def _move(session_id: str, current: str, home: str, rule: FallbackRule | N
                                                          target_over_line=lines.target_over))
     _last_note.pop(session_id, None)
     meta = sessions_meta.get(session_id)
-    asked = meta is not None and meta.pause_asked_at is not None
-    if meta is not None:
-        _clear_pause(session_id, meta)
-    if tab_break.stop is not None or tab_break.owed is not None:
-        await send_to_tab(session_id, carry_on_envelope(current, target, LIMIT))
-    elif asked:
-        await send_to_tab(session_id, carry_on_envelope(current, target, PAUSE))
+    if meta is None:
+        return True
+    _clear_pause(session_id, meta)
+    limit = tab_break.stop is not None or tab_break.owed is not None
+    if limit or meta.owes_carry_on:
+        meta.owes_carry_on = True                # kept until the message is taken: the hold's next look sends it again
+        save_sessions_meta()
+        if await send_to_tab(session_id, carry_on_envelope(current, target, LIMIT if limit else PAUSE)):
+            meta.owes_carry_on = False
+            save_sessions_meta()
     return True
 
 

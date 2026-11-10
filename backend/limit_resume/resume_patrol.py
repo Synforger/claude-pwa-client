@@ -54,6 +54,14 @@ def _stop_of(meta: SessionDef) -> LimitStop | None:
         return None
 
 
+def _may_run(meta: SessionDef, rows: list[dict], now: float) -> bool:
+    """Whether the tab may run now (`account_hold.hold_mail.may_run`). Imported here: the account hold imports the
+    account fallback, which sends its messages through the message route this package's sender uses too."""
+    from backend.account_hold.hold_mail import may_run  # noqa: PLC0415
+    from backend.account_hold.hold_settings import read_rules as read_hold_rules  # noqa: PLC0415
+    return may_run(meta, rows, read_hold_rules(), now)
+
+
 async def _look(session_id: str, rows: list[dict], now: float) -> bool:
     """Look at one tab and tell it to carry on if its stop is over. True when the message was sent."""
     meta = sessions_meta.get(session_id)
@@ -74,6 +82,8 @@ async def _look(session_id: str, rows: list[dict], now: float) -> bool:
     if not should_resume(stop=stop, resumed=meta.limit_resumed, state=state,
                          seen_at_limit=_seen_at_limit.get(session_id) == stop.uuid):
         return False
+    if meta.held_at is not None or not await asyncio.to_thread(_may_run, meta, rows, now):
+        return False            # the account hold carries a stopped tab on; no tab is woken on an account at its line
     if meta.sleep is None:
         if await asyncio.to_thread(claude_pid_in_pane, session_id) is None:
             return False        # nothing runs in the tab: it is not started for this

@@ -26,6 +26,7 @@ def held(env, monkeypatch):
     use_accounts(monkeypatch, accounts(work_fallback=WORK_LINE_PCT))
     env.tab.fallback_from = "work"
     env.tab.held_at = 100.0
+    env.tab.owes_carry_on = True                      # it had work left: it was asked to come to a break
     env.tab.sleep = SleepMark(claude_sid="c1", record="/r.jsonl", slept_at=1)
     return env
 
@@ -78,13 +79,13 @@ def test_work_whose_usage_is_not_known_leaves_the_tab_stopped(held):
     assert _nothing_happened(held)
 
 
-def test_work_within_the_width_ahead_of_its_line_leaves_the_tab_stopped_while_personal_is_clear(held, monkeypatch):
+def test_work_within_the_width_ahead_of_its_line_continues_the_tab_on_personal_while_personal_is_clear(held, monkeypatch):
     config = accounts(work_fallback=WORK_LINE_PCT)
     config["work"]["fallback"]["ahead_pct"] = 5
     use_accounts(monkeypatch, config)
     held.rows = [usage_row("work", seven=91), usage_row(seven=10)]
     run(patrol.tick())
-    assert _nothing_happened(held)
+    assert held.moved == [] and (held.tab.account_id, held.tab.held_at) == ("personal", None) and len(held.sent) == 1
 
 
 def test_work_within_the_width_ahead_of_its_line_takes_the_tab_back_while_personal_is_at_its_line(held, monkeypatch):
@@ -108,12 +109,13 @@ def test_personal_clear_while_work_is_at_its_line_continues_the_tab_where_it_is(
     assert f"account hold: resumed on personal session={held.tab.id} from=personal" in caplog.text
 
 
-def test_personal_whose_usage_is_not_known_leaves_the_tab_stopped_for_the_operator(held):
-    from backend.account_hold.hold_continue import continue_account
+def test_personal_whose_usage_is_not_known_leaves_the_tab_stopped_and_the_operator_cannot_continue_it(held):
+    from backend.account_hold.hold_continue import StillAtLine, continue_account
     held.rows = [usage_row("work", seven=96)]
     run(patrol.tick())
     assert _nothing_happened(held)
-    assert run(continue_account("personal")).continued == (held.tab.id,) and held.tab.held_at is None
+    with pytest.raises(StillAtLine):
+        run(continue_account("personal"))
 
 
 # --- pinned tabs ---
@@ -135,7 +137,8 @@ def test_a_stopped_tab_that_was_pinned_afterwards_continues_when_work_is_clear_a
     held.rows = [usage_row("work", seven=10), usage_row(seven=90)]
     run(patrol.tick())
     assert held.tab.account_id == "work" and held.tab.held_at is None
-    assert [session_id for session_id, _text in held.sent] == [held.tab.id, held.other.id]   # work's own tab too
+    assert [session_id for session_id, _text in held.sent] == [held.tab.id]
+    assert held.other.held_at is None                    # work's own tab, stopped with nothing to do: released quietly
 
 
 # --- tabs that are not this one's ---
