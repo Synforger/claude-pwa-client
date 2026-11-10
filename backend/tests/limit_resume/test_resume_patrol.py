@@ -242,3 +242,22 @@ def test_answers_to_background_notifications_after_the_stop_leave_the_continuati
     env.rows = [_recovered(env)]
     assert run(patrol.tick()) == [env.tab.id]                           # asleep: no claude of its own to continue
     assert env.tab.limit_resumed == "n1"
+
+
+def test_a_child_that_reported_its_work_done_is_not_told_to_carry_on(env, monkeypatch):
+    env.tab.child = True
+    monkeypatch.setattr(patrol, "_has_reported", lambda _meta: True)
+    env.rows = [_at_limit(env)]
+    run(patrol.tick())
+    env.rows = [_recovered(env)]
+    run(patrol.tick())
+    assert run(patrol.tick()) == [] and env.sent == []
+
+
+def test_a_child_still_working_is_told_to_carry_on(env, monkeypatch):
+    env.tab.child = True
+    monkeypatch.setattr(patrol, "_has_reported", lambda _meta: False)
+    env.rows = [_at_limit(env)]
+    run(patrol.tick())
+    env.rows = [_recovered(env)]
+    assert _look_twice(env) == [env.tab.id]

@@ -21,13 +21,13 @@ export const PERSONAL = {
 }
 
 export const AGENT = {
-  id: 'agent_a', display_name: 'Agent A', sleep_minutes: 60,
+  id: 'agent_a', display_name: 'Agent A', sleep_minutes: 60, sleep_pressure_minutes: null,
   rollover: { working_context_pct: 60, idle_context_pct: 40, idle_minutes: 50 },
 }
 
 export const VIEW = {
   accounts: [WORK, PERSONAL],
-  agents: [AGENT, { id: 'agent_b', display_name: 'Agent B', sleep_minutes: null,
+  agents: [AGENT, { id: 'agent_b', display_name: 'Agent B', sleep_minutes: null, sleep_pressure_minutes: null,
     rollover: { working_context_pct: null, idle_context_pct: null, idle_minutes: null } }],
   child_sessions_max: 5,
   notification_title: '通知',

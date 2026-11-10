@@ -144,9 +144,23 @@ describe('agentPatch', () => {
     })
   })
 
+  it('sends the minutes while short of memory next to the sleep minutes', () => {
+    expect(agentPatch(AGENT, { ...agentDraftOf(AGENT), pressure: '10' }, LIMITS).patch).toEqual({
+      agents: { agent_a: { sleep: { pressure_minutes: 10 } } },
+    })
+  })
+
+  it('takes the minutes while short of memory off with the sleep minutes, so that the agent stops sleeping', () => {
+    const agent = { ...AGENT, sleep_pressure_minutes: 10 }
+    expect(agentPatch(agent, { ...agentDraftOf(agent), sleep: '' }, LIMITS).patch).toEqual({
+      agents: { agent_a: { sleep: { minutes: null, pressure_minutes: null } } },
+    })
+  })
+
   it.each([
     [{ sleep: '0' }, 'sleep'],
     [{ sleep: '1.5' }, 'sleep'],
+    [{ pressure: '0' }, 'pressure'],
     [{ working: '101' }, 'working'],
     [{ idleContext: '0' }, 'idleContext'],
     [{ idleMinutes: '0' }, 'idleMinutes'],

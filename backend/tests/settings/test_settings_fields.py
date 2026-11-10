@@ -205,3 +205,30 @@ def test_the_width_ahead_of_the_line_of_an_account_without_a_fallback_is_refused
     with pytest.raises(Rejected) as refused:
         apply({"accounts": {"personal": {"fallback": {"ahead_pct": 5}}}})
     assert "has no `fallback`" in refused.value.reasons[0]
+
+
+def test_the_minutes_while_short_of_memory_are_set_up_to_the_agent_s_minutes():
+    updated, changed = apply({"agents": {"agent_a": {"sleep": {"pressure_minutes": 10}}}})
+    assert updated["agents"]["agent_a"]["sleep"] == {"minutes": 60, "pressure_minutes": 10}
+    assert changed == ["agents.agent_a.sleep.pressure_minutes"]
+
+
+@pytest.mark.parametrize("update, reason", [
+    ({"agents": {"agent_a": {"sleep": {"pressure_minutes": 61}}}}, "must be 60 or less"),
+    ({"agents": {"agent_a": {"sleep": {"pressure_minutes": 0}}}}, "must be a whole number"),
+    ({"agents": {"agent_a": {"sleep": {"minutes": 5, "pressure_minutes": 10}}}}, "must be 5 or less"),
+])
+def test_minutes_while_short_of_memory_the_sleep_would_not_use_are_refused(update, reason):
+    with pytest.raises(Rejected) as refused:
+        apply(update)
+    assert reason in refused.value.reasons[0]
+
+
+def test_an_agent_that_stops_sleeping_cannot_keep_its_minutes_while_short_of_memory():
+    settings = copy.deepcopy(SETTINGS)
+    settings["agents"]["agent_a"]["sleep"]["pressure_minutes"] = 10
+    with pytest.raises(Rejected) as refused:
+        apply_update(settings, {"agents": {"agent_a": {"sleep": {"minutes": None}}}})
+    assert "does not sleep" in refused.value.reasons[0]
+    updated, _ = apply_update(settings, {"agents": {"agent_a": {"sleep": {"minutes": None, "pressure_minutes": None}}}})
+    assert updated["agents"]["agent_a"]["sleep"] == {}

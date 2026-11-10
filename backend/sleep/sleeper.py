@@ -5,8 +5,14 @@ The terminal is closed with the claude, because the tab is then a tab without a 
 starts again with `claude --resume` (`terminal/session_resolver.py`). A shell left in the pane would start a new
 conversation instead of reopening this one.
 
+A tab is "falling asleep" from the moment it is decided until its terminal is closed (`is_falling_asleep`). A message
+typed in that time would reach a claude that is ending and be lost, so the delivery of messages waits for it
+(`wait_until_asleep`) and then delivers to the sleeping tab. The patrol's sleeps take the tab's claim
+(`accounts/tab_claim.py`), so that they never end a tab the account fallback or hold is working on.
+
 Used by `sleep_patrol.py` (= `put_to_sleep`), by a parent tab putting its child to sleep (= `sleep_now`, through
-`routes/child_sessions.py`) and by the account hold, which stops a tab at a break it has read itself (= `sleep_at_break`).
+`routes/child_sessions.py`), by the account hold, which stops a tab at a break it has read itself (= `sleep_at_break`),
+and by the delivery of messages (= `wait_until_asleep`, `routes/agent_messages.py`).
 """
 from __future__ import annotations
 
@@ -18,7 +24,8 @@ from pathlib import Path
 import psutil
 
 import backend.jsonl.jsonl_watcher as jsonl_watcher
-from backend._common.state import SleepMark, save_sessions_meta, sessions_meta, sessions_overview
+from backend._common.state import SessionDef, SleepMark, save_sessions_meta, sessions_meta, sessions_overview
+from backend.accounts.tab_claim import claimed
 from backend.sleep.sleep_judgement import PASSING, judge
 from backend.sleep.sleep_sensors import gather
 from backend.terminal.pty_discover import claude_pid_in_pane
@@ -32,8 +39,29 @@ EXIT_WAIT_SEC = 20.0
 # looks again. A child that has just reported is still writing the end of its answer.
 PASSING_WAIT_SEC = 60.0
 PASSING_LOOK_SEC = 2.0
+# How long a delivery waits for a tab that is falling asleep: the claude's end, and the closing of the terminal.
+FALLING_ASLEEP_WAIT_SEC = EXIT_WAIT_SEC + 5.0
+FALLING_ASLEEP_LOOK_SEC = 0.2
 # Why a tab whose conditions all held was still left awake, and the answer for a tab that is not in the list.
 UNKNOWN_TAB = "unknown_tab"
+CLAIMED = "claimed"
+
+# The tabs falling asleep now. The backend runs on one event loop, so a set needs no lock.
+_falling_asleep: set[str] = set()
+
+
+def is_falling_asleep(session_id: str) -> bool:
+    """Whether the tab is being put to sleep now (= its claude may be ending)."""
+    return session_id in _falling_asleep
+
+
+async def wait_until_asleep(session_id: str) -> None:
+    """Wait while the tab is falling asleep, up to `FALLING_ASLEEP_WAIT_SEC`. A message delivered after this reaches
+    the tab as it is then: asleep, or awake when the sleep was given up."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + FALLING_ASLEEP_WAIT_SEC
+    while session_id in _falling_asleep and loop.time() < deadline:
+        await asyncio.sleep(FALLING_ASLEEP_LOOK_SEC)
 PARTIAL_RECORD = "partial_record"
 CLAUDE_DID_NOT_END = "claude_did_not_end"
 
@@ -71,10 +99,18 @@ async def _close_terminal(session_id: str) -> None:
         await terminate_pty_session(session)
 
 
-async def put_to_sleep(session_id: str, minutes: int) -> bool:
-    """Put the tab's claude to sleep if every condition still holds. True when it slept; False leaves the tab awake
-    and as it was."""
-    return not await _sleep(session_id, minutes, by_hand=False)
+async def put_to_sleep(session_id: str, minutes: int, *, reported: bool = False, stopped_by_limit: bool = False,
+                       pressure: bool = False) -> bool:
+    """Put the tab's claude to sleep if every condition still holds, for the patrol: after `minutes` of quiet, as a
+    child that reported its work done (`reported`, `stopped_by_limit` when a usage limit stopped its turn), or as the
+    one tab put to sleep while the machine is short of memory (`pressure`, only for the log). It takes the tab's claim
+    and leaves a tab another feature holds. True when it slept; False leaves the tab awake and as it was."""
+    with claimed(session_id) as mine:
+        if not mine:
+            logger.info("sleep: not now session=%s reasons=%s", session_id, CLAIMED)
+            return False
+        return not await _sleep(session_id, minutes, by_hand=False, stopped_by_limit=stopped_by_limit,
+                                reported=reported, pressure=pressure)
 
 
 async def sleep_now(session_id: str) -> tuple[str, ...]:
@@ -97,14 +133,28 @@ async def sleep_at_break(session_id: str, *, stopped_by_limit: bool = False) -> 
     return await _sleep(session_id, 0, by_hand=True, stopped_by_limit=stopped_by_limit)
 
 
-async def _sleep(session_id: str, minutes: int, by_hand: bool, stopped_by_limit: bool = False) -> tuple[str, ...]:
+async def _sleep(session_id: str, minutes: int, by_hand: bool, stopped_by_limit: bool = False, reported: bool = False,
+                 pressure: bool = False) -> tuple[str, ...]:
     """Put the tab's claude to sleep if every condition still holds. → the conditions that kept it awake (= the tab
     is as it was); empty when it slept."""
     meta = sessions_meta.get(session_id)
     if meta is None:
         return (UNKNOWN_TAB,)
-    facts = await asyncio.to_thread(gather, session_id, minutes, by_hand, stopped_by_limit)
-    if reasons := judge(facts, minutes, by_hand, stopped_by_limit):
+    if session_id in _falling_asleep:
+        return (CLAIMED,)
+    _falling_asleep.add(session_id)
+    try:
+        return await _end(meta, minutes, by_hand, stopped_by_limit, reported, pressure)
+    finally:
+        _falling_asleep.discard(session_id)
+
+
+async def _end(meta: SessionDef, minutes: int, by_hand: bool, stopped_by_limit: bool, reported: bool,
+               pressure: bool) -> tuple[str, ...]:
+    """The body of `_sleep`, while the tab is marked as falling asleep."""
+    session_id = meta.id
+    facts = await asyncio.to_thread(gather, session_id, minutes, by_hand, stopped_by_limit, reported)
+    if reasons := judge(facts, minutes, by_hand, stopped_by_limit, reported):
         logger.info("sleep: not now session=%s reasons=%s", session_id, ",".join(reasons))
         return reasons
     record = jsonl_watcher.get_jsonl_for(session_id)
@@ -122,6 +172,8 @@ async def _sleep(session_id: str, minutes: int, by_hand: bool, stopped_by_limit:
         return (CLAUDE_DID_NOT_END,)
     await _close_terminal(session_id)
     sessions_overview.notify()
+    flags = "".join(f" {name}=1" for name, on in (("by_hand", by_hand), ("reported", reported), ("pressure", pressure))
+                    if on)
     logger.info("sleep: session=%s claude_sid=%s idle_min=%d context_pct=%s%s", session_id, record.stem,
-                facts.quiet_minutes or 0, facts.context_pct, " by_hand=1" if by_hand else "")
+                facts.quiet_minutes or 0, facts.context_pct, flags)
     return ()

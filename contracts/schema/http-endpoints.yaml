@@ -280,6 +280,7 @@ endpoints:
               id:            { type: string }
               display_name:  { type: string }
               sleep_minutes: { type: integer, nullable: true }
+              sleep_pressure_minutes: { type: integer, nullable: true, description: "メモリの逼迫の間に眠らせるまでの分数。 null = 早く眠らせない" }
               rollover:      { type: object, description: "working_context_pct / idle_context_pct / idle_minutes (書いていなければ null)" }
             required: [id, display_name, rollover]
         child_sessions_max:   { type: integer, nullable: true, description: "1 つのタブが同時に持てる子のタブの数。 null = 上限なし" }

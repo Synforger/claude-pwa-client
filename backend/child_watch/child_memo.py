@@ -13,6 +13,9 @@ from pathlib import Path
 STATE_LINE = re.compile(r"^- 状態: (.*)$", re.M)
 #: The state of a child that has not reported (the memo is written with it when the child is opened).
 WORKING = "作業中"
+#: The states `tabs report done` and `tabs report stuck` write.
+DONE = "完了"
+STUCK = "詰まり"
 #: What `memo_state` answers for a memo that is missing, unreadable or without the line.
 UNKNOWN = "?"
 

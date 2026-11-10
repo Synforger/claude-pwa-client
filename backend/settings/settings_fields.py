@@ -9,7 +9,8 @@ A partial update has the shape of `config.json` and names only what changes:
      "child_sessions_max": 4}
 
 A field is set to a value, or removed with `null` (= a day of the week without a line, no line of the 5 hours for a
-`hold`, no width ahead of the line for a `fallback`, an agent that does not sleep, no limit on the child tabs for
+`hold`, no width ahead of the line for a `fallback`, an agent that does not sleep (or not sooner while the machine is
+short of memory, for `pressure_minutes`), no limit on the child tabs for
 `child_sessions_max`, the default of `notification_title`). Every field outside `FIELDS` is refused, and so is a value
 that the readers of the field (`fallback_settings`, `hold_settings`, the sleep and the rollover) would not use. The
 settings after the update must not have a problem the ones before did not have: a `fallback` or `hold` that was
@@ -39,6 +40,7 @@ CHANGEABLE_PATHS = (
     "accounts.*.hold.five_hour_at_pct",
     "accounts.*.hold.seven_day_at_pct.<day>",
     "agents.*.sleep.minutes",
+    "agents.*.sleep.pressure_minutes",
     "agents.*.rollover.working.context_pct",
     "agents.*.rollover.idle.context_pct",
     "agents.*.rollover.idle.minutes",
@@ -95,7 +97,7 @@ def _kind_of(path: Path) -> str | None:
             return "ahead"
         case ("accounts", _, "fallback" | "hold", "seven_day_at_pct", day) if day in WEEKDAYS:
             return "line"
-        case ("agents", _, "sleep", "minutes"):
+        case ("agents", _, "sleep", "minutes" | "pressure_minutes"):
             return "sleep_minutes"
         case ("agents", _, "rollover", "working" | "idle", "context_pct"):
             return "context_pct"
@@ -150,7 +152,24 @@ def _write(settings: dict, path: Path, value: object) -> None:
 
 def _problems(settings: dict) -> list[str]:
     accounts = settings.get("accounts")
-    return [*fallback_settings.parse_rules(accounts)[1], *hold_settings.parse_rules(accounts)[1]]
+    return [*fallback_settings.parse_rules(accounts)[1], *hold_settings.parse_rules(accounts)[1],
+            *_sleep_problems(settings.get("agents"))]
+
+
+def _sleep_problems(agents: object) -> list[str]:
+    """The agents whose `sleep.pressure_minutes` the sleep would not use: one without `minutes`, or above them."""
+    problems: list[str] = []
+    for agent_id, agent in (agents.items() if isinstance(agents, dict) else ()):
+        sleep = agent.get("sleep") if isinstance(agent, dict) else None
+        if not isinstance(sleep, dict) or sleep.get("pressure_minutes") is None:
+            continue
+        minutes, pressure = sleep.get("minutes"), sleep.get("pressure_minutes")
+        if not _is_whole(minutes, MINUTES_MIN):
+            problems.append(f"agents.{agent_id}.sleep.pressure_minutes: the agent does not sleep (no `minutes`)")
+        elif _is_whole(pressure, MINUTES_MIN) and pressure > minutes:
+            problems.append(f"agents.{agent_id}.sleep.pressure_minutes: must be {minutes} or less (= `minutes`), "
+                            f"got {pressure}")
+    return problems
 
 
 def apply_update(settings: dict[str, Any], update: object) -> tuple[dict[str, Any], list[str]]:

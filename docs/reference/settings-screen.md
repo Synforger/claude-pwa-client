@@ -18,6 +18,7 @@
 │  └─ 口座を固定しているタブの一覧 と 外す                   変えられる
 ├─ タブの眠りと入れ替え (エージェントごと)
 │  ├─ 眠るまでの分数                                        変えられる
+│  ├─ メモリの逼迫の時の分数                                変えられる
 │  ├─ 入れ替えの線 (作業中・静かな時の context と分数)          変えられる
 │  └─ 子のタブの上限数                                       変えられる
 ├─ 通知
@@ -56,7 +57,8 @@
 
 | 項目 | 設定の場所 | 意味 |
 |---|---|---|
-| 眠るまでの分数 | `agents.<エージェント>.sleep.minutes` | 1 以上の整数。空ならそのエージェントのタブは眠らない ([眠り](sleep.md)) |
+| 眠るまでの分数 | `agents.<エージェント>.sleep.minutes` | 1 以上の整数。空ならそのエージェントのタブは眠らない ([眠り](sleep.md))。空にすると、下の逼迫の時の分数も外れる |
+| メモリの逼迫の時の分数 | `agents.<エージェント>.sleep.pressure_minutes` | 1 以上、眠るまでの分数以下の整数。空なら逼迫の時も早く眠らせない ([メモリの逼迫](sleep.md#メモリの逼迫)) |
 | 作業中の context | `agents.<エージェント>.rollover.working.context_pct` | 1〜100。入れ替えを頼む線 ([自動の入れ替え](rollover.md)) |
 | 静かな時の context | `agents.<エージェント>.rollover.idle.context_pct` | 1〜100 |
 | 静かな時の分数 | `agents.<エージェント>.rollover.idle.minutes` | 1 以上 |
@@ -85,7 +87,7 @@
 ### `GET /settings`
 
 `accounts` (口座ごとの `usage`・`mode` (`fallback` / `hold` / `none`)・`fallback` (`ahead_pct` を含む)・`hold` (`five_hour_at_pct` を含む)・`held_count`・`tabs` (その口座で動くタブの数の内訳)・`can_continue`・`pinned_tabs`)、
-`agents` (エージェントごとの `sleep_minutes` と `rollover`)、`child_sessions_max`、`notification_title`、`machine`
+`agents` (エージェントごとの `sleep_minutes`・`sleep_pressure_minutes` と `rollover`)、`child_sessions_max`、`notification_title`、`machine`
 (`version`・`backend_started_at`・`loop_stall`)、`limits` (入力の上限と下限) を返します。
 
 ### `PUT /settings`
@@ -110,6 +112,7 @@
 | `accounts.<口座>.hold.five_hour_at_pct` | 1〜100 の整数、または `null` (口座に `hold` が無ければ作る。5 時間の線だけの `hold` の、その線は消せない) |
 | `accounts.<口座>.hold.seven_day_at_pct.<曜日>` | 1〜100 の整数、または `null` (口座に `hold` が無ければ作る) |
 | `agents.<エージェント>.sleep.minutes` | 1 以上の整数、または `null` |
+| `agents.<エージェント>.sleep.pressure_minutes` | 1 以上、その時の `minutes` 以下の整数、または `null`。`minutes` の無いエージェントには置けない |
 | `agents.<エージェント>.rollover.working.context_pct` / `idle.context_pct` | 1〜100 の数、または `null` |
 | `agents.<エージェント>.rollover.idle.minutes` | 1 以上の数、または `null` |
 | `child_sessions_max` | 0 以上の整数、または `null` (= 上限なし) |

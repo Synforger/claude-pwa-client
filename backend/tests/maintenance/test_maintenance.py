@@ -167,7 +167,7 @@ def test_jsonl_gc_deletes_nothing_without_a_bound_tab(monkeypatch, tmp_path):
     project = _old_transcripts(tmp_path, ["a.jsonl", "b.jsonl"])
     monkeypatch.setattr(m._config, "CLAUDE_PROJECTS_DIRS", [tmp_path / "projects"])
     monkeypatch.setattr(watcher, "list_bindings", lambda: {})
-    assert m.cleanup_old_jsonl(keep_days=14, max_bytes=10**12) == 0
+    assert m.cleanup_old_jsonl(keep_days=14) == 0
     assert sorted(p.name for p in project.iterdir()) == ["a.jsonl", "b.jsonl"]
 
 
@@ -177,8 +177,21 @@ def test_jsonl_gc_deletes_old_unbound_transcripts_when_it_sees_a_bound_tab(monke
     monkeypatch.setattr(m._config, "CLAUDE_PROJECTS_DIRS", [tmp_path / "projects"])
     monkeypatch.setattr(watcher, "list_bindings",
                         lambda: {"ses_a": {"confirmed": True, "jsonl_path": str(project / "bound.jsonl")}})
-    assert m.cleanup_old_jsonl(keep_days=14, max_bytes=10**12) == 1
+    assert m.cleanup_old_jsonl(keep_days=14) == 1
     assert sorted(p.name for p in project.iterdir()) == ["bound.jsonl"]
+
+
+def test_jsonl_gc_keeps_recent_transcripts_however_large(monkeypatch, tmp_path):
+    import backend.jsonl.jsonl_watcher as watcher
+    project = tmp_path / "projects" / "-x"
+    project.mkdir(parents=True)
+    (project / "bound.jsonl").write_text("{}\n")
+    (project / "recent.jsonl").write_bytes(b"{}\n" * (2 * 1024 * 1024))
+    monkeypatch.setattr(m._config, "CLAUDE_PROJECTS_DIRS", [tmp_path / "projects"])
+    monkeypatch.setattr(watcher, "list_bindings",
+                        lambda: {"ses_a": {"confirmed": True, "jsonl_path": str(project / "bound.jsonl")}})
+    assert m.cleanup_old_jsonl(keep_days=14) == 0
+    assert sorted(path.name for path in project.iterdir()) == ["bound.jsonl", "recent.jsonl"]
 
 
 def test_tmux_socket_is_one_per_platform_root(tmp_path):

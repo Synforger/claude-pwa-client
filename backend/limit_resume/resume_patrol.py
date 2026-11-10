@@ -5,7 +5,8 @@ that message, in the same conversation. See `docs/reference/limit-resume.md`.
 Claude Code books that continuation itself and sends it when the limit resets, but only the claude that booked it
 does; one that was started again since (put to sleep, moved, the backend restarted it) has lost it. A running tab is
 therefore left to Claude Code for one look after the limit is seen over: when its own continuation came, the record
-no longer owes it. A sleeping tab has no claude to send it and is told at once.
+no longer owes it. A sleeping tab has no claude to send it and is told at once. A child that reported its work done
+is not told: it has nothing to carry on.
 
 The judgement is `resume_judgement.py`. One stop is answered once: the uuid of the stop is kept in the tab's
 definition before the message is sent, so neither a second look nor a restart of the backend sends it again.
@@ -23,6 +24,8 @@ from backend._common.state import SessionDef, save_sessions_meta, sessions_meta
 from backend.account_fallback.fallback_settings import read_rules
 from backend.accounts.client_message import send_to_tab
 from backend.accounts.tab_claim import claimed
+from backend.child_watch.child_memo import DONE, memo_state
+from backend.child_watch.child_work import memo_of
 from backend.limit_resume.resume_envelope import resume_envelope
 from backend.limit_resume.resume_judgement import NO_FALLBACK_LINE_PCT, should_resume
 from backend.rollover.rollover import TICK_SEC
@@ -62,6 +65,11 @@ def _may_run(meta: SessionDef, rows: list[dict], now: float) -> bool:
     return may_run(meta, rows, read_hold_rules(), now)
 
 
+def _has_reported(meta: SessionDef) -> bool:
+    """Whether the child's memo says it reported its work done. Blocking (the memo)."""
+    return memo_state(memo_of(meta)) == DONE
+
+
 async def _look(session_id: str, rows: list[dict], now: float) -> bool:
     """Look at one tab and tell it to carry on if its stop is over. True when the message was sent."""
     meta = sessions_meta.get(session_id)
@@ -84,6 +92,8 @@ async def _look(session_id: str, rows: list[dict], now: float) -> bool:
         return False
     if meta.held_at is not None or not await asyncio.to_thread(_may_run, meta, rows, now):
         return False            # the account hold carries a stopped tab on; no tab is woken on an account at its line
+    if meta.child and await asyncio.to_thread(_has_reported, meta):
+        return False            # a child that reported its work done has nothing to carry on
     if meta.sleep is None:
         if await asyncio.to_thread(claude_pid_in_pane, session_id) is None:
             return False        # nothing runs in the tab: it is not started for this

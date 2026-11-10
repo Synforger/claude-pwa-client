@@ -311,6 +311,8 @@
   "settings.agents.title": "Sleep and rollover of tabs",
   "settings.agents.sleep": "Minutes until sleep",
   "settings.agents.sleep_hint": "Quiet minutes before a tab's Claude is put to sleep. Blank: this agent never sleeps",
+  "settings.agents.pressure": "Minutes while short of memory",
+  "settings.agents.pressure_hint": "While the machine is short of memory, tabs quiet for this long are put to sleep, the quietest first, one a minute. At most the minutes until sleep. Blank: never sooner",
   "settings.agents.rollover": "Rollover lines",
   "settings.agents.rollover_hint": "A conversation whose context reaches the line is asked to close and hand over. A blank field is not used",
   "settings.agents.working": "Context while working",

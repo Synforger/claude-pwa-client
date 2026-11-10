@@ -317,3 +317,13 @@ def test_a_claude_started_after_the_newest_row_is_quiet_from_its_start(monkeypat
 def test_the_start_of_a_running_process_is_read_and_a_missing_one_is_none():
     assert time.time() - 86400 * 365 < sensors.claude_started_at(os.getpid()) <= time.time()
     assert sensors.claude_started_at(2 ** 22 + 12345) == 0.0
+
+
+def test_a_tab_whose_conversation_has_a_row_since_its_claude_started_has_answered(monkeypatch, tmp_path):
+    _stand_in(monkeypatch, tmp_path, started=time.time() - 3 * 86400)
+    assert sensors.gather("ses_x", 60).answered_since_start is True
+
+
+def test_a_tab_started_after_its_last_row_has_not_answered_yet(monkeypatch, tmp_path):
+    _stand_in(monkeypatch, tmp_path, started=time.time())
+    assert sensors.gather("ses_x", 0, by_hand=True).answered_since_start is False

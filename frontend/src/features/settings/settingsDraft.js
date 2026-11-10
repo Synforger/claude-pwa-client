@@ -98,6 +98,7 @@ export function liftLaterDays(days, day, before, range) {
 export function agentDraftOf(agent) {
   return {
     sleep: asText(agent.sleep_minutes),
+    pressure: asText(agent.sleep_pressure_minutes),
     working: asText(agent.rollover.working_context_pct),
     idleContext: asText(agent.rollover.idle_context_pct),
     idleMinutes: asText(agent.rollover.idle_minutes),
@@ -112,6 +113,7 @@ export function agentRules(limits) {
   const pct = { min: limits.context_pct_min, max: limits.context_pct_max, whole: false }
   return {
     sleep: { min: limits.minutes_min },
+    pressure: { min: limits.minutes_min },
     working: pct,
     idleContext: pct,
     idleMinutes: { min: limits.minutes_min, whole: false },
@@ -148,8 +150,15 @@ export function agentPatch(agent, draft, limits) {
       ...('idleMinutes' in value ? { minutes: value.idleMinutes } : {}),
     }
   }
+  // 眠らない agent (= 分数を空にした) は、 逼迫の時の分数も外す。 残すと設定の検査が「眠らない agent の値」として断る
+  const pressure = 'pressure' in value ? value.pressure
+    : ('sleep' in value && value.sleep === null && before.pressure !== '' ? null : undefined)
+  const sleep = {
+    ...('sleep' in value ? { minutes: value.sleep } : {}),
+    ...(pressure !== undefined ? { pressure_minutes: pressure } : {}),
+  }
   const agentPatchBody = {
-    ...('sleep' in value ? { sleep: { minutes: value.sleep } } : {}),
+    ...(Object.keys(sleep).length ? { sleep } : {}),
     ...(Object.keys(rollover).length ? { rollover } : {}),
   }
   return { patch: { agents: { [agent.id]: agentPatchBody } }, invalid }

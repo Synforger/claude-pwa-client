@@ -117,3 +117,47 @@ def test_a_tab_a_limit_stopped_is_still_held_by_what_really_runs_under_it():
 def test_the_two_options_add_up():
     facts = dataclasses.replace(READY, quiet_minutes=1.0, turn_open=True)
     assert j.judge(facts, MINUTES, by_hand=True, stopped_by_limit=True) == ()
+
+
+# A child that reported its work done.
+REPORTED = dataclasses.replace(READY, quiet_minutes=j.REPORTED_QUIET_MINUTES, answered_since_start=True,
+                               account_pending=False)
+
+
+def test_a_reported_child_quiet_for_a_few_minutes_may_sleep_even_above_the_rollover_line():
+    assert j.judge(dataclasses.replace(REPORTED, context_pct=80), j.REPORTED_QUIET_MINUTES, reported=True) == ()
+
+
+def test_a_reported_child_that_has_not_answered_since_it_started_stays_awake():
+    facts = dataclasses.replace(REPORTED, answered_since_start=False)
+    assert j.judge(facts, j.REPORTED_QUIET_MINUTES, reported=True) == (j.NOT_ANSWERED_SINCE_START,)
+
+
+def test_a_reported_child_still_writing_stays_awake():
+    facts = dataclasses.replace(REPORTED, quiet_minutes=j.REPORTED_QUIET_MINUTES - 0.5)
+    assert j.judge(facts, j.REPORTED_QUIET_MINUTES, reported=True) == (j.NOT_QUIET,)
+
+
+def test_a_reported_child_stopped_by_a_limit_may_sleep_at_that_stop():
+    facts = dataclasses.replace(REPORTED, turn_open=True, record=RecordFacts(awaiting_tool_result=True))
+    assert j.judge(facts, j.REPORTED_QUIET_MINUTES, stopped_by_limit=True, reported=True) == ()
+
+
+def test_a_tab_the_account_features_wait_on_is_left_to_them_by_the_patrol_but_not_by_hand():
+    facts = dataclasses.replace(READY, account_pending=True)
+    assert j.judge(facts, MINUTES) == (j.ACCOUNT_PENDING,)
+    assert j.judge(dataclasses.replace(REPORTED, account_pending=True), j.REPORTED_QUIET_MINUTES,
+                   reported=True) == (j.ACCOUNT_PENDING,)
+    assert j.judge(facts, 0, by_hand=True) == ()
+
+
+@pytest.mark.parametrize("previous, level, short", [
+    (2, 2, True), (4, 2, True), (1, 2, False), (2, 1, False), (None, 4, False), (4, None, False), (1, 1, False),
+])
+def test_the_machine_is_short_of_memory_only_on_two_high_readings_in_a_row(previous, level, short):
+    assert j.is_short_of_memory(previous, level) is short
+
+
+def test_under_pressure_the_tab_quiet_the_longest_is_chosen():
+    assert j.pick_under_pressure([("a", 12.0), ("b", 40.0), ("c", 11.0)]) == "b"
+    assert j.pick_under_pressure([]) is None
