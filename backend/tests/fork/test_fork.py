@@ -16,9 +16,9 @@ from backend.jsonl import resolver as jsonl_resolver
 
 
 def _run(coro):
-    """fork_session が async 化された 2026-06-30 以降の test 呼出ラッパ (= existing
-    restart/delete test と同じ asyncio.get_event_loop パターンに揃える)。"""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    """Run a coroutine on a loop of its own. `asyncio.get_event_loop()` fails once an earlier test file's
+    `asyncio.run` has left no current loop, so the result would depend on the order of the test files."""
+    return asyncio.run(coro)
 
 
 def build_forked_lineage(source_lines, from_uuid, new_session_id):
@@ -637,7 +637,7 @@ def test_delete_fork_session_keeps_its_jsonl(tmp_path, monkeypatch, isolated_sta
     new_path = tmp_path / f"{forked['resume_session_id']}.jsonl"
     assert new_path.exists()
     # フォーク産タブを DELETE
-    asyncio.get_event_loop().run_until_complete(
+    asyncio.run(
         chat_routes.delete_session(forked["id"], _="ok")
     )
     # 閉じても通常タブと同じに記録は残る (= 古い記録の掃除は maintenance の役目)
@@ -650,7 +650,7 @@ def test_delete_normal_session_does_not_touch_jsonl(tmp_path, monkeypatch, isola
     フォーク GC ロジックが暴発しないかの安全弁テスト。"""
     import backend.routes.chat as chat_routes  # noqa: PLC0415
     chat_routes, parent, src = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
-    asyncio.get_event_loop().run_until_complete(
+    asyncio.run(
         chat_routes.delete_session(parent.id, _="ok")
     )
     assert src.exists()
@@ -687,7 +687,7 @@ def test_restart_fork_session_promotes_to_normal_tab(tmp_path, monkeypatch, isol
     monkeypatch.setattr(pty_routes, "ensure_pty_session_for", _noop)
     monkeypatch.setattr(pty_runner, "kill_tmux_session", lambda sid: True)
     # restart 実行
-    asyncio.get_event_loop().run_until_complete(
+    asyncio.run(
         chat_routes.restart_session(forked["id"], _="ok")
     )
     # resume_session_id は剥がれて通常タブ化、 parent_id は派生履歴として残す
@@ -710,7 +710,7 @@ def test_restart_normal_session_keeps_meta_unchanged(tmp_path, monkeypatch, isol
     import backend.terminal.runner as pty_runner  # noqa: PLC0415
     monkeypatch.setattr(pty_routes, "ensure_pty_session_for", _noop)
     monkeypatch.setattr(pty_runner, "kill_tmux_session", lambda sid: True)
-    asyncio.get_event_loop().run_until_complete(
+    asyncio.run(
         chat_routes.restart_session(parent.id, _="ok")
     )
     from backend._common.state import sessions_meta  # noqa: PLC0415
@@ -735,7 +735,7 @@ def test_restart_passes_prefer_fresh_to_ensure_pty(tmp_path, monkeypatch, isolat
     import backend.terminal.runner as pty_runner  # noqa: PLC0415
     monkeypatch.setattr(pty_routes, "ensure_pty_session_for", _spy)
     monkeypatch.setattr(pty_runner, "kill_tmux_session", lambda sid: True)
-    asyncio.get_event_loop().run_until_complete(
+    asyncio.run(
         chat_routes.restart_session(parent.id, _="ok")
     )
     assert captured["sid"] == parent.id
@@ -759,7 +759,7 @@ def test_restart_requests_tail_reset(tmp_path, monkeypatch, isolated_state):
     import backend.terminal.runner as pty_runner  # noqa: PLC0415
     monkeypatch.setattr(pty_routes, "ensure_pty_session_for", _noop)
     monkeypatch.setattr(pty_runner, "kill_tmux_session", lambda sid: True)
-    asyncio.get_event_loop().run_until_complete(
+    asyncio.run(
         chat_routes.restart_session(parent.id, _="ok")
     )
     assert called == [parent.id]
@@ -792,7 +792,7 @@ def test_create_session_invokes_ensure_pty(tmp_path, monkeypatch, isolated_state
         captured["kwargs"] = kwargs
     import backend.terminal.routes as pty_routes  # noqa: PLC0415
     monkeypatch.setattr(pty_routes, "ensure_pty_session_for", _spy)
-    result = asyncio.get_event_loop().run_until_complete(
+    result = asyncio.run(
         sess_routes.create_session({"agent_id": "agent_a", "title": "fresh"})
     )
     assert captured["sid"] == result["id"]
