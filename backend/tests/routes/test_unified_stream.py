@@ -686,3 +686,37 @@ def test_control_subscription_replays_without_waiting_for_the_terminal(unified_e
             await asyncio.sleep(0)
             us._conns.pop(conn.conn_id, None)
     _run(run())
+
+
+def test_a_slow_replay_does_not_stall_the_event_loop(unified_env, monkeypatch):
+    """A record read slowly (a loaded machine's disk) stalls only the screen that connects: the loop that runs every
+    other tab's screen and terminal keeps going while it is read."""
+    import time
+    state, sid_a, _sid_b, _ensured = unified_env
+
+    def slow_replay(_sid, _start):
+        time.sleep(0.4)
+        return []
+    monkeypatch.setattr(us, "_replay_frames", slow_replay)
+
+    async def run():
+        ticks = 0
+        done = asyncio.Event()
+
+        async def ticker():
+            nonlocal ticks
+            while not done.is_set():
+                ticks += 1
+                await asyncio.sleep(0.02)
+
+        counting = asyncio.create_task(ticker())
+        conn = us.UnifiedConn(conn_id="c1")
+        conn.jsonl_sids = {sid_a}
+        gen = us._unified_gen(conn, initial_view=sid_a)
+        await _read_until(gen, lambda p: p.get("ch") == "status")
+        done.set()
+        await counting
+        await gen.aclose()
+        return ticks
+
+    assert _run(run()) >= 10            # 0.4 s at one tick per 0.02 s: the loop was free while the record was read

@@ -63,7 +63,6 @@ from backend.jsonl.jsonl_predicates import (
 )
 from backend._common.errors import raise_error
 from backend.child_watch.child_work import hand_work
-from backend.sleep.sleeper import wait_until_asleep
 from backend._common.state import sessions_meta
 from backend.terminal import input_ready
 from backend.terminal.first_message import LAUNCH_DISCOVER_SEC
@@ -400,6 +399,8 @@ async def wake_tab(tab_id: str) -> bool:
     A claude that was started is also waited for until its pane shows Claude's screen: its hooks say it is ready before
     it has read the conversation and drawn the input, and what is typed in between is lost. A tab that is being put to
     sleep is waited for first: what is typed while its claude ends is lost, so the message goes to the sleeping tab."""
+    # Imported here: the sleep package reads the rollover, which reads this module.
+    from backend.sleep.sleeper import wait_until_asleep  # noqa: PLC0415
     await wait_until_asleep(tab_id)
     if _tab_running(tab_id):
         return False

@@ -143,7 +143,9 @@ def _warm_ptys(sids: list[str]) -> None:
 
 
 def _replay_frames(sid: str, start: int | None) -> list[dict]:
-    """1 sid の記録を start (= client offset、 無ければ直近 N 行) から event frame 化。
+    """1 sid の記録を start (= client offset、 無ければ直近 N 行) から event frame 化。 Blocking (= the records are
+    read from disk): callers run it in a thread, so that a slow disk on a loaded machine stalls only the screen that
+    connects, not the event loop every tab's screen and terminal run on.
 
     読むのはタブの記録を古い順につないだ物で、 pos はその通しの位置 (= backend/jsonl/chain.py)。 画面を
     閉じている間に会話が入れ替わっても、 前の会話の残り (= 締めの作業と、 入れ替えの発話) から流れる。
@@ -190,8 +192,8 @@ async def _subagents_watcher(conn: UnifiedConn, sid: str) -> None:
     base = _session_base(sid)
     if base is None:
         return
-    last_sig = _dir_signature(base)
-    last_payload = _build_subagents_payload(base, sid)
+    last_sig = await asyncio.to_thread(_dir_signature, base)
+    last_payload = await asyncio.to_thread(_build_subagents_payload, base, sid)
     await conn.queue.put({"ch": "subagents", "sid": sid, "data": last_payload})
     watch_targets = [d for d in (base / "subagents", base / "workflows") if d.is_dir()]
     try:
@@ -201,9 +203,9 @@ async def _subagents_watcher(conn: UnifiedConn, sid: str) -> None:
 
     async def _maybe_push() -> None:
         nonlocal last_sig, last_payload
-        sig = _dir_signature(base)
+        sig = await asyncio.to_thread(_dir_signature, base)
         if sig != last_sig or _payload_has_running(last_payload):
-            payload = _build_subagents_payload(base, sid)
+            payload = await asyncio.to_thread(_build_subagents_payload, base, sid)
             if sig != last_sig or payload != last_payload:
                 last_sig = sig
                 last_payload = payload
@@ -307,7 +309,7 @@ async def _unified_gen(conn: UnifiedConn, initial_view: str | None):
         #    warmup (= 端末の起動の保証) は背景で走らせ、 replay を待たせない
         _warm_ptys(sorted(conn.jsonl_sids))
         for sid in sorted(conn.jsonl_sids):
-            for f in _replay_frames(sid, conn.initial_offsets.get(sid)):
+            for f in await asyncio.to_thread(_replay_frames, sid, conn.initial_offsets.get(sid)):
                 yield _frame(f)
         conn.initial_offsets = {}
 
@@ -432,7 +434,7 @@ async def stream_unified_control(conn_id: str, body: dict):
         # 端末の起動の保証は背景で (= replay と応答を待たせない)
         _warm_ptys(sorted(added))
         for sid in sorted(added):
-            for f in _replay_frames(sid, froms.get(sid)):
+            for f in await asyncio.to_thread(_replay_frames, sid, froms.get(sid)):
                 await conn.queue.put(f)
         return {"ok": True, "subscribed": sorted(new_set)}
 
