@@ -9,7 +9,8 @@ An account with a `hold` stops its tabs (the ones the operator did not pin to it
 days is at the line of the day of the week or more, or the usage of its 5 hours is at `five_hour_at_pct` or more.
 `seven_day_at_pct` gives the line of the 7 days for single days (`mon` to `sun`, each 1 to 100); a day it does not
 name has no line. `five_hour_at_pct` (1 to 100) is the line of the 5 hours; without it the 5 hours never stop a tab.
-Nothing continues the tabs by itself: the operator does, from the settings screen. A `hold` is used only when it is an
+The operator continues the tabs from the settings screen; a tab the account fallback moved here is also brought back and
+continued by itself once its own account is clear of its line (`hold_resume.py`). A `hold` is used only when it is an
 object that names `seven_day_at_pct` (a table of that form), `five_hour_at_pct` (a whole number of that range) or both,
 and the account has no `fallback` (= an account either moves its tabs away or stops them). Any other `hold` is left
 out and named in a warning at startup. Without a usable `hold` nothing is stopped.
