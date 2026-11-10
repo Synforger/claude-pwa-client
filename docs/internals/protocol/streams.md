@@ -46,7 +46,7 @@ backend と frontend を繋ぐリアルタイム経路は **4 本の SSE + 2 本
 
 | 経路 | 種別 | backend 実装 | frontend consumer | payload | 接続パターン | 役割 |
 |---|---|---|---|---|---|---|
-| `/ws/pty/{sid}` | WebSocket | `backend/terminal/routes.py::pty_socket` | `frontend/src/features/terminal/Terminal.jsx` (= xterm.js、 WS 直書き) | client → server: `{"type":"input","data":"..."}` (= tmux send-keys 転送) / `{"type":"resize", ...}`。 server → client: `{"type":"output","data":"..."}` (= PTY 出力 bytes) | viewMode='terminal' 切替時に attach、 切断中は backend が `session.output_queue` に backlog 蓄積 (drain on reconnect) | xterm.js の入出力経路。 chat view のみ使う場合は接続しない (= W2 後は POST /sessions / restart 経路で backend 側 PTY spawn が完結するので、 chat view 単独で claude 起動が走り切る) |
+| `/ws/pty/{sid}` | WebSocket | `backend/terminal/routes.py::pty_socket` | `frontend/src/features/terminal/Terminal.jsx` (= xterm.js、 WS 直書き) | client → server: `{"type":"input","data":"..."}` (= tmux send-keys 転送) / `{"type":"resize", ...}`。 server → client: binary frame (= PTY 出力 bytes。 接続後の最初の 1 本は pane の今の画面の写し) / `{"type":"snapshot","status":"none"}` (= 写しを撮れなかった) | viewMode='terminal' 切替時に attach、 切断中は backend が `session.output_queue` に backlog 蓄積 (接続時に捨てて、 写しに置き換える) | xterm.js の入出力経路。 chat view のみ使う場合は接続しない (= W2 後は POST /sessions / restart 経路で backend 側 PTY spawn が完結するので、 chat view 単独で claude 起動が走り切る) |
 
 ## 経路別の設計判断 (= なぜこの分け方か)
 
@@ -84,9 +84,15 @@ Stop ボタン経路も同 control (op=stop) で通す。 素の HTTP POST 経�
 
 ### `/ws/pty/{sid}`: xterm 入出力経路
 
-`backend/terminal/routes.py::pty_socket` が WebSocket を受け、 PTY (= tmux + claude) の master_fd と client を bridge する。 attach 時に PtySession が存在しない / exit していれば spawn (= `spawn_pty_session(launch_alias=...)`、 ただし既存 tmux 残存時は launch_alias=None で乗っ取り防止)。 切断中の backlog (= claude TUI の定期 redraw / カーソル点滅等) は再接続時に drain して同画面 2-3 回重ね描き事故を防ぐ。
+`backend/terminal/routes.py::pty_socket` が WebSocket を受け、 PTY (= tmux + claude) の master_fd と client を bridge する。 attach 時に PtySession が存在しない / exit していれば spawn (= `spawn_pty_session(launch_alias=...)`、 ただし既存 tmux 残存時は launch_alias=None で乗っ取り防止)。 つないだ時の最初の出力は pane の今の画面の写し (= `connect_snapshot.send_connect_snapshot`)。 control mode の client が受け取るのはつないだ後の差分 (`%output`) だけで、 今の画面は届かないので、 backend が tmux から写して送る。 手順は次のとおり。
 
-`viewMode='terminal'` を経験した sid だけが LRU (= N=3) で mount され続け、 active 切替で visible / hidden を gate。 hidden な terminal は **WS ごと切断**し、 visible 復帰時に再接続 + `terminal.reset()` + Ctrl-L で TUI に最新画面を描き直させる (= 旧方式の「描画だけ skip して受信継続」 は見てない端末の全 PTY バイトを client が無線受信し続け、 携帯発熱の主犯級だった)。 chat view 単独運用なら一度も attach しないので、 PTY spawn は `/jsonl/stream/{sid,all}` 経路 + POST /sessions / restart 経路に任せる。
+1. client が最初の resize を送り、 backend がそれを tmux の client に反映する。 pane の大きさが resize と同じになるまで待ち (= 撮るたびに確かめ、 最大 20 回)、 resize が来ない client には 1.5 秒待って今の大きさのまま撮る。
+2. 切断中の backlog (= claude TUI の定期 redraw / カーソル点滅等) は、 つないだ瞬間に捨てる。 流すと同画面が 2-3 回重なる。 つないだ後、 撮り始める前に queue にあった出力は写しに入っているので、 撮れた時に捨てる。 撮っている間と撮った後に出た出力は捨てずに、 写しの後ろへ流す。 撮れなかった時は何も捨てない (= 端末が見られる出力は queue だけなので)。
+3. `display-message` と `capture-pane -p -e -N` を 1 回の tmux 呼び出し (= 命令を `;` でつなぐ) で撮り、 カーソルの位置と見え方 (`cursor_x` / `cursor_y` / `cursor_flag`) と alternate screen (`alternate_on`) を同じ瞬間の値にする。 呼び出しは `asyncio.to_thread` に逃がし、 tmux が遅くても event loop を止めない。 `-N` は、 行末まで続く背景色を落とさないため。
+4. 画面を消して (`ESC[H ESC[2J`)、 各行を位置を指して置き (`ESC[<行>;1H` + 行 + `ESC[0m` + `ESC[K`)、 カーソルを tmux の位置へ置いて、 見えている時だけ表示する。 alternate screen に居る時は先に `ESC[?1049h` で入る。 履歴 (scrollback) は送らない (= 履歴の中のカーソル制御が新しい端末の状態と合わず、 画面が壊れた前例がある)。 判定は `screen_snapshot.py`、 tmux を読むのは `screen_capture.py`。
+5. 撮れない時 (= pane が無い・tmux が答えない・読めない応答) は写しを送らず、 text frame `{"type":"snapshot","status":"none"}` を送って今までどおりつなぐ。 理由は log に 1 行残る。 画面の側はこれを受けると、 TUI に再描画させる Ctrl-L を自分で送る。
+
+`viewMode='terminal'` を経験した sid だけが LRU (= N=3) で mount され続け、 active 切替で visible / hidden を gate。 hidden な terminal は **WS ごと切断**し、 visible 復帰時に再接続し、 最初に届く pane の今の画面の写しの直前に `terminal.reset()` して描き直す (= 旧方式の「描画だけ skip して受信継続」 は見てない端末の全 PTY バイトを client が無線受信し続け、 携帯発熱の主犯級だった)。 chat view 単独運用なら一度も attach しないので、 PTY spawn は `/jsonl/stream/{sid,all}` 経路 + POST /sessions / restart 経路に任せる。
 
 tmux server は `exit-empty off` + 番兵 session `claudepwa-sentinel` (= backend 起動時と各 spawn 前に `ensure_tmux_resilience` が冪等適用) で「最後の session の kill = server 死 = 全 claude 消失 → 次の attach で `claude --resume` 一斉再走」 のカスケードを封じている。 番兵は `pwa-` prefix を持たないため maintenance の残骸掃除の対象外。
 

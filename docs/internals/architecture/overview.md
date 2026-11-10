@@ -37,7 +37,7 @@ backend は機能ごとのサブパッケージ + 中立基盤 `_common/` で構
 
 | package | 責務 | 主な file |
 |---|---|---|
-| `terminal/` | claude TUI を実 PTY + tmux で起動・駆動する入力経路。 control mode (`-CC`) パーサ、 送信到達の観測 (= 救済 Enter は 2026-07-05 退役、 介入しない)、 打鍵前の起動待ちを持つ | `runner.py` / `routes.py` (`/ws/pty` + `/pty/{sid}/send`) / `confirm.py` / `input_ready.py` / `control_mode.py` / `session_resolver.py` |
+| `terminal/` | claude TUI を実 PTY + tmux で起動・駆動する入力経路。 control mode (`-CC`) パーサ、 送信到達の観測 (= 救済 Enter は 2026-07-05 退役、 介入しない)、 打鍵前の起動待ちと、 端末をつないだ時に最初に送る pane の今の画面の写しを持つ | `runner.py` / `routes.py` (`/ws/pty` + `/pty/{sid}/send`) / `confirm.py` / `input_ready.py` / `control_mode.py` / `session_resolver.py` / `connect_snapshot.py` / `screen_capture.py` / `screen_snapshot.py` |
 | `jsonl/` | `~/.claude/projects/<cwd-hash>/<claude_session_id>.jsonl` を tail し、 chat UI 用 event 形式 (= `processStreamEvent` 入力) に変換する出力経路。 `terminal/` も使う JSONL 行プリミティブ (tail / predicates) と sid↔JSONL binding registry もここに置く | `events.py` (`jsonl_line_to_events`) / `routes.py` (`/jsonl/stream/{sid}`) / `session_status.py` / `notifications.py` / `plan_choices.py` / `resolver.py` / `jsonl_tail.py` / `jsonl_predicates.py` / `jsonl_watcher.py` |
 | `routes/` | HTTP / SSE / WS の各 endpoint を session / chat / overview / files / hooks / subagents / accounts 単位で分割保持 | `sessions.py` / `chat.py` / `overview.py` (`POST /sessions/{sid}/seen` + 旧 status / overview SSE の実装は unified へ吸収済) / `files.py` / `hooks.py` / `subagents.py` / `accounts.py` / `unified_stream.py` (`/stream/unified` = 多重化 1 本接続、 protocol 詳細 = `../protocol/streams.md`) |
 | `push/` | Web Push の配信と subscription 管理 | `push.py` |

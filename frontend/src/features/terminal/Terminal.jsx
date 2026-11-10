@@ -5,16 +5,18 @@
  * keyboard suppression) is delegated to the useTerminal hook so this file
  * only owns the WebSocket wire + the on-screen input bar.
  *
- * Wire protocol (= matches backend/pty_routes.py):
+ * Wire protocol (= matches backend/terminal/routes.py):
  *   server → client:
  *     - binary frames: raw PTY stdout bytes → fed straight into xterm.write()
- *     - text frames (JSON): { type: "exit" | "error", ... } control messages
+ *       (= the first one is the pane's current screen, see screenFeed.js)
+ *     - text frames (JSON): { type: "exit" | "error" | "snapshot", ... } control messages
  *   client → server:
  *     - binary frames: stdin bytes (= keystrokes / paste)
  *     - text frames (JSON): { type: "resize", rows, cols }
  */
 import { useEffect, useRef, useState, useCallback, memo } from 'react'
 import { useTerminal } from './useTerminal.js'
+import { createScreenFeed } from './screenFeed.js'
 import OnScreenKeyboard from '../ios-native/OnScreenKeyboard.jsx'
 import { useT } from '../../i18n/t.js'
 
@@ -61,15 +63,6 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
   // モバイルで TUI を直操作するため) の表示トグル。 縦を食うので既定 OFF。
   const [showKbd, setShowKbd] = useState(false)
 
-  // 発熱対策 (= 2026-07-13、 旧 F-11 hidden buffer を置換): hidden Terminal は WS ごと
-  // 切断する。 旧方式 (= 描画だけ skip して受信は継続) は、 agent が端末出力を吹き出す
-  // 使い方だと chat 画面を見ている間も全 PTY バイトを無線受信 + 処理し続け、 携帯の
-  // 発熱の主犯級だった。 visible 復帰時は再接続 + terminal.reset() + Ctrl-L で TUI に
-  // 最新画面を描き直させる (= backend 側も backlog drain + Ctrl-L 再描画が公式経路、
-  // scrollback 自動復元は描画破綻のため 2026-05-21 に廃止済み)。 切替コストは再接続
-  // 1 往復 (= LAN で体感 0.1-0.3s)、 「見てない端末の生映像」 と引き換えに受信ゼロ。
-  const hasConnectedRef = useRef(false)
-
   // Common byte/string sink to the live WS — used by control-key buttons and
   // the input bar. No-ops while the socket is not open.
   const sendRaw = useCallback((data) => {
@@ -96,7 +89,10 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
   // exponential backoff on close/error, and pump stdout into xterm.
   useEffect(() => {
     if (!terminal) return undefined
-    // hidden = 接続しない (= cleanup が直前接続を閉じる)。 visible 復帰で再接続。
+    // A hidden terminal holds no socket (cleanup closes the previous one) and connects again when it
+    // is shown. Keeping the socket and only skipping the drawing made the phone receive and parse
+    // every byte of a pane that streams output while another screen was in front, which heated it.
+    // Coming back costs one round trip, and the snapshot paints the screen again.
     if (!visible) return undefined
 
     let cancelled = false
@@ -104,7 +100,7 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
     const MAX_BACKOFF = 10_000
     let reconnectTimer = null
 
-    const connect = (isReconnect = false) => {
+    const connect = () => {
       if (cancelled) return
       // PTY WS はこの直書きが正 (= 旧 transport/ws-pty.ts 抽象化案は一度も配線されないまま
       // 2026-07-27 に退役、 xterm.js lifecycle と密結合なためここで完結させる)。
@@ -113,47 +109,26 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
       ws.binaryType = 'arraybuffer'
       wsRef.current = ws
 
-      let resetPending = false
+      // Every connection starts from the backend's snapshot of the pane's current screen,
+      // so the terminal asks for no repaint of its own (the size it sends first tells the
+      // backend what size to capture at).
+      const feed = createScreenFeed({
+        terminal,
+        sendKeys: (keys) => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(keys))
+        },
+        onExit,
+      })
       ws.addEventListener('open', () => {
         backoffMs = 500
-        // 再接続時は既存バッファを全消し → Ctrl-L で TUI に現状描画させる
-        // (= 消さずに Ctrl-L だけ送ると redraw が既存内容の下に積み重なる、 2026-06-11 報告)。
-        // ただし reset は open 時でなく「再描画の最初のバイトが届く直前」 まで遅延する:
-        // open 時に消すと Ctrl-L 応答が届くまで画面が空になり、 タブ切替のたびに
-        // 「セッションが終了した」 ように見えるフラッシュが出る (= 2026-07-13 報告、
-        // hidden=WS 切断化で再接続が日常操作になったため顕在化)。 直前まで旧画面を
-        // 見せておき、 新しい描画で上書きする。
-        resetPending = isReconnect
         const dims = getDimensions()
         if (dims) {
           ws.send(JSON.stringify({ type: 'resize', rows: dims.rows, cols: dims.cols }))
         }
-        ws.send(new TextEncoder().encode('\x0c'))
       })
 
-      ws.addEventListener('message', (ev) => {
-        if (typeof ev.data === 'string') {
-          try {
-            const ctrl = JSON.parse(ev.data)
-            if (ctrl.type === 'exit') {
-              terminal.write(
-                `\r\n\x1b[31m[backend reports PTY exited rc=${ctrl.returncode}]\x1b[0m\r\n`,
-              )
-              onExit?.(ctrl)
-            } else if (ctrl.type === 'error') {
-              terminal.write(`\r\n\x1b[31m[backend error: ${ctrl.message}]\x1b[0m\r\n`)
-            }
-          } catch { /* ignore */ }
-          return
-        }
-        // hidden 中は WS 自体が閉じているので、 ここに来る = visible。 即 write。
-        // 再接続後の最初のバイト直前に旧画面を消す (= paint-over、 空白フラッシュ防止)。
-        if (resetPending) {
-          resetPending = false
-          terminal.reset()
-        }
-        terminal.write(new Uint8Array(ev.data))
-      })
+      // A hidden terminal has no socket (it is closed on hide), so a message here is for a visible one.
+      ws.addEventListener('message', (ev) => feed.handleMessage(ev.data))
 
       const scheduleReconnect = (reason) => {
         if (cancelled) return
@@ -162,7 +137,7 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
         )
         reconnectTimer = setTimeout(() => {
           backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF)
-          connect(true)
+          connect()
         }, backoffMs)
       }
 
@@ -180,9 +155,7 @@ function TerminalImpl({ sessionId, wsBase = DEFAULT_WS_BASE, onExit, visible = t
       }
     })
 
-    // 2 回目以降の visible 復帰は reconnect 扱い (= reset + Ctrl-L 再描画)。
-    connect(hasConnectedRef.current)
-    hasConnectedRef.current = true
+    connect()
 
     return () => {
       cancelled = true
