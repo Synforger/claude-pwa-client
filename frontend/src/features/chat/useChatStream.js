@@ -174,9 +174,9 @@ export function useChatStream({
         refetchHistoryAfterMark(curSid)
         return
       }
-      // 預かって後で打った発話が受け取られなかった (= backend の first_message.py)。 送信の HTTP は「預かった」 と
-      // 返していたので、 ここで吹き出しを届いていない形にし、 文を入力欄へ戻す。
-      // 文は吹き出しにしか無いので、 入力欄へ戻すのは更新の中から後で打つ (= 更新が 2 回走っても同じ値を置くだけ)。
+      // A message the backend held and typed later was not taken (backend/terminal/first_message.py). Its send was
+      // answered "held", so the bubble is marked here and the text goes back into the input. The text is only in the
+      // bubble, so the input is restored from inside the update, later (an update run twice puts the same value).
       if (event.type === 'send_failed') {
         if (fromHistory || !event.send_id) return
         setMessages(prev => {

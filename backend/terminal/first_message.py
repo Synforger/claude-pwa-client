@@ -93,7 +93,7 @@ def _message_file(session_id: str, text: str) -> Path:
 async def launch_with_first_message(session_id: str, text: str, send_id: str | None = None) -> dict | None:
     """claude がまだ居ない launcher の pane なら、 text を最初の発話として起動して結果を返す。
     対象外 (= launcher でない / 起動中 / 既に claude が居る) は None (= 呼び手は通常の送信へ)。
-    send_id は画面の送信の id で、 預かって後で打つ本文が届かなかった時に画面へ返すのに使う。"""
+    `send_id` is the screen's id of the send, told back when a text held to be typed later is not taken."""
     if not uses_launcher(session_id):
         return None
     await ensure_pty_session_for(session_id)
