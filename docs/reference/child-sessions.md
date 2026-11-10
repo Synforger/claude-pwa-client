@@ -59,8 +59,10 @@ Message from another session, relayed by the client (the operator did not type t
 
 ## 数の上限
 
-1 つのタブが同時に持てる子は、 既定で 5 つです。 `config.json` の `child_sessions_max` で変えられます。
-子は同じアカウントの使用量を分け合うので、 上限を外すと一斉に立てた子が親のタブまで利用の制限に掛けます。
+1 つのタブが同時に持てる子の数に、既定の上限はありません。仕事の分け方で数を決めます。止まった子は、client の見張りが
+親へ知らせます。`config.json` に `child_sessions_max` を正の整数で書くと、その数に届いた時点で子を立てる口が
+`409` (`child_session_limit`) で断ります。鍵が無い時と `null` の時は上限なしです。
+子は同じアカウントの使用量を分け合うので、一斉に立てた子の使用量が親のタブまで利用の制限に掛けることがあります。
 閉じた子は数から外れます。
 
 ## 閉じる
@@ -176,7 +178,7 @@ child watch: session=ses_a1b2 parent=ses_parent reason=idle sent=True
 | 口が `child_session_unknown_parent` を返す | その id の親のタブが無い |
 | 口が `invalid_agent_id` を返す | `agent_id` か、 親のエージェントの `child_agent` が `agents` に無い |
 | 口が `child_session_empty` を返す | 本文が空 |
-| 口が `child_session_limit` を返す | 親の子が上限に届いている。 終わった子を閉じてから立てる |
+| 口が `child_session_limit` を返す | `child_sessions_max` に書いた数に親の子が届いている。 終わった子を閉じるか、 その鍵を消して上限をなくす |
 | 口が `child_session_local_only` を返す | 別の機械から呼ばれた |
 | 口が `agent_message_refused` を返す | 検査が本文を通さなかった。 理由が `reason` に入っている |
 | `started` が `false` | タブは立ったが、 最初の発話を渡せなかった。 子のタブを開いて発話を送ると、 それが最初の発話として会話が始まる |

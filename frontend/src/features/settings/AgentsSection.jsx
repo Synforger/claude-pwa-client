@@ -44,7 +44,8 @@ function AgentCard({ agent, limits, onSave }) {
 
 function ChildLimit({ value, onSave }) {
   const t = useT()
-  const [text, setText] = useDraft(String(value), String(value))
+  const current = value === null || value === undefined ? '' : String(value)
+  const [text, setText] = useDraft(current, current)
   const { saving, reasons, saved, run } = useCardSave(onSave)
   const { patch, invalid } = useMemo(() => childLimitPatch(value, text), [value, text])
   useReportDirty('child-limit', patch !== null || invalid.length > 0)
@@ -54,7 +55,7 @@ function ChildLimit({ value, onSave }) {
       <NumberField
         label={t('settings.agents.child_limit')} value={text} onChange={setText} invalid={invalid.length > 0}
         error={t(message.key, message.vars)}
-        placeholder={t('settings.agents.blank')} testId="settings-child-limit-input" title={t('settings.agents.child_limit_hint')}
+        placeholder={t('settings.agents.child_limit_none')} testId="settings-child-limit-input" title={t('settings.agents.child_limit_hint')}
       />
       <div className="settings-note">{t('settings.agents.child_limit_hint')}</div>
       <SaveBar dirty={patch !== null} invalid={invalid.length > 0} saving={saving} saved={saved} reasons={reasons}

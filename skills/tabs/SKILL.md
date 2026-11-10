@@ -149,8 +149,10 @@ tabs sleep <child id>             put a child's Claude to sleep now; a message w
 
 The child starts in the same tier as the parent. A child cannot open children (`tabs new` refuses); work that
 should be split further goes into its report. `tabs new` also writes the task into the child's memo
-(`pages/<child id>/memo.md` in the tier folder) so the child can read it again after it restarts. Up to
-`child_sessions_max` children (5 by default) can be open at once; close the ones that have reported.
+(`pages/<child id>/memo.md` in the tier folder) so the child can read it again after it restarts. There is no
+limit on the number of children by default: split the work by what does not overlap and open one child per piece. Close
+the ones that have reported. A positive `child_sessions_max` in the client's configuration stops `tabs new` at that
+number.
 A child that has reported but will take the next piece of the same work can wait asleep instead of closed: `tabs
 sleep <child id>` ends its Claude and frees its memory at once, without the quiet minutes of the sleep patrol, and
 the next `tabs send` to it reopens the same conversation. A message the parent delivers to a child that has reported
@@ -158,7 +160,7 @@ sets its memo back to `作業中`, since the child holds work again; it reports 
 that hands no work (an acknowledgement, "no reply needed") goes with `tabs send <child> <file> --no-work`, which leaves
 the memo as the report left it. It waits up to a minute for the child to finish its last
 answer and names the reason when the child cannot sleep (a scheduled wake-up, a voice call, a rollover). A sleeping
-child still counts towards `child_sessions_max`.
+child still counts towards `child_sessions_max` when one is set.
 
 `tabs children` prints, per child: its id, the state in its memo (`作業中` / `完了` / `詰まり`), what its Claude is doing,
 and its title. The Claude column has five words: `作業中` (answering), `裏の仕事待ち` (not answering, but waiting for a

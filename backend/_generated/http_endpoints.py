@@ -117,7 +117,7 @@ class GetSettingsResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     accounts: list[dict[str, Any]]
     agents: list[dict[str, Any]]
-    child_sessions_max: int
+    child_sessions_max: Optional[int] = None  # 1 つのタブが同時に持てる子のタブの数。 null = 上限なし
     notification_title: str
     machine: dict[str, Any]  # version / backend_started_at / loop_stall ({ stood_still_sec, back_at } か null)
     limits: dict[str, Any]  # weekdays / line_pct_min / line_pct_max / ahead_pct_min / ahead_pct_max / context_pct_min / context_pct_max / minutes_min

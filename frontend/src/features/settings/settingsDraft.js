@@ -155,7 +155,7 @@ export function agentPatch(agent, draft, limits) {
   return { patch: { agents: { [agent.id]: agentPatchBody } }, invalid }
 }
 
-/** 子のタブの上限の入力 → { patch, invalid }。 空は既定に戻す (= null)。 */
+/** 子のタブの上限の入力 → { patch, invalid }。 空は上限なし (= null)。 */
 export function childLimitPatch(currentValue, text) {
   const parsed = parseField(text, CHILD_LIMIT_RULE)
   if (!parsed.ok) return { patch: null, invalid: ['childSessionsMax'] }

@@ -166,6 +166,12 @@ describe('childLimitPatch and titlePatch', () => {
     expect(childLimitPatch(5, '-1')).toEqual({ patch: null, invalid: ['childSessionsMax'] })
   })
 
+  it('treats a limit that is null (= no limit) as blank: blank keeps it, a number sets one', () => {
+    expect(childLimitPatch(null, '')).toEqual({ patch: null, invalid: [] })
+    expect(childLimitPatch(null, '4')).toEqual({ patch: { child_sessions_max: 4 }, invalid: [] })
+    expect(childLimitPatch(null, 'x')).toEqual({ patch: null, invalid: ['childSessionsMax'] })
+  })
+
   it('sends the title that changed and null for blank', () => {
     expect(titlePatch('通知', '通知')).toEqual({ patch: null })
     expect(titlePatch('通知', ' お知らせ ')).toEqual({ patch: { notification_title: 'お知らせ' } })
