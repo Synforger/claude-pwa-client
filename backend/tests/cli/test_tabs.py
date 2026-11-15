@@ -1034,7 +1034,7 @@ def test_send_refuses_a_flag_it_does_not_know_or_one_given_twice(family, flags):
     assert family.backend.called("POST", "/agent-messages") == []
 
 
-# --- 理由の code の無い失敗 -------------------------------------------------------------------------------
+# --- failures that carried no code --------------------------------------------------------------------------------
 
 
 def send_body(family) -> Path:

@@ -475,8 +475,8 @@ export default function SessionDrawer() {
             // account_id が空のタブ (= 古い時期に作られた) は既定アカウントで動いている。
             // backend が /accounts の is_default で「未設定と等価な account」 を教えてくれる。
             const effectiveAccount = s.account_id || defaultAccountId
-            // アカウントが 1 つしか無い環境では札を出さない (= 全行同じ名前で情報量ゼロ)。 眠っているタブは、 起きた時に
-            // 動く口座を出し、 最後に動いた口座と違う時だけその口座を括弧で添える。
+            // No label with a single account (= every row would say the same). A sleeping tab shows the account it wakes on,
+            // with the account it last ran on in brackets only when the two differ.
             const accountLabel = accountLabelOf(s, accounts, defaultAccountId, t)
             // 移し先候補 = 今と違うアカウント。 1 つなら選択させず直接その名前のボタンを出す。
             const moveTargets = accounts.filter(a => a.id !== effectiveAccount)
