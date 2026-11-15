@@ -93,7 +93,8 @@ from typing import NamedTuple
 
 # 子のタブのメモの状態の行の読み方は backend と同じ file (= 標準ライブラリだけ)。 repo の根から読む
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from backend.child_watch.child_memo import DONE, STATE_LINE as STATE, STUCK, WORKING, memo_state, with_state  # noqa: E402
+from backend.child_watch.child_memo import (  # noqa: E402
+    DONE, STATE_LINE as STATE, STUCK, UNKNOWN, WORKING, memo_state, save_memo_state)
 
 HOME = Path.home()
 BASE = f"http://127.0.0.1:{os.environ.get('PWA_PORT', '8765')}"
@@ -688,16 +689,15 @@ def report(kind: str, file: Path) -> int:
     # The state is written before the report is sent: a parent that answers at once with more work has the backend set
     # the memo back to working, and a state written after the send would overwrite that and leave the child unwatched.
     note = own_note()
-    before = note.read_text(encoding="utf-8") if note is not None else None
-    marked = with_state(before, STATES[kind]) if before is not None else None
+    before = memo_state(note)
     if note is not None:
-        note.write_text(marked, encoding="utf-8")
+        save_memo_state(note, STATES[kind])
     status, answer = call("/agent-messages", {"to": mine["parent_id"], "from": me, "text": body})
     if not (status == 200 and isinstance(answer, dict) and answer.get("ok")):
-        # Put the state back, unless something else changed the memo meanwhile: a report that did not arrive must not
-        # leave the child marked as done.
-        if note is not None and note.read_text(encoding="utf-8") == marked:
-            note.write_text(before, encoding="utf-8")
+        # Put the state back, unless something else set it meanwhile: a report that did not arrive must not leave the
+        # child marked as done, and a state the backend or the agent wrote since is not ours to undo.
+        if note is not None and before != UNKNOWN and memo_state(note) == STATES[kind]:
+            save_memo_state(note, before)
         code, message = send_failure(status, answer)
         return fail(f"親へ{not_delivered_headline(code)} [{code}]: {message}")
     print(f"届きました: 親のタブ {mine['parent_id']} ({STATES[kind]})")

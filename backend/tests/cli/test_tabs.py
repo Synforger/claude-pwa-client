@@ -472,7 +472,7 @@ def test_a_report_marks_the_memo_before_it_is_sent_so_the_parent_s_next_work_is_
     assert "- 状態: 作業中" in note.read_text(encoding="utf-8")
 
 
-def test_a_report_that_was_not_sent_puts_the_memo_back_unless_it_changed_meanwhile(family, tmp_path):
+def test_a_report_that_was_not_sent_puts_the_state_back_unless_it_was_set_meanwhile(family, tmp_path):
     result = tmp_path / "result.txt"
     result.write_text("done\n", encoding="utf-8")
     note = family.agent / "pages/ses_a/memo.md"
@@ -481,7 +481,14 @@ def test_a_report_that_was_not_sent_puts_the_memo_back_unless_it_changed_meanwhi
     assert family.run("report", "stuck", str(result), PWA_SID="ses_a", AGENT_CHILD="1", PWA_NOTE=str(note)) == 1
     assert note.read_text(encoding="utf-8") == before
 
+    # a state set by someone else meanwhile is left alone
     family.backend.on_send = lambda: note.write_text(before + "\n- 追記\n", encoding="utf-8")
+    assert family.run("report", "stuck", str(result), PWA_SID="ses_a", AGENT_CHILD="1", PWA_NOTE=str(note)) == 1
+    assert note.read_text(encoding="utf-8") == before + "\n- 追記\n"
+
+    # a line added to the memo meanwhile is kept when the state is put back
+    note.write_text(before, encoding="utf-8")
+    family.backend.on_send = lambda: note.write_text(note.read_text(encoding="utf-8") + "\n- 追記\n", encoding="utf-8")
     assert family.run("report", "stuck", str(result), PWA_SID="ses_a", AGENT_CHILD="1", PWA_NOTE=str(note)) == 1
     assert note.read_text(encoding="utf-8") == before + "\n- 追記\n"
 
