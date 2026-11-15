@@ -22,6 +22,8 @@ import backend.rollover.rollover as watch
 from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENING, ROLLOVER_OPENING, is_client_message
 from backend.routes import rollover as ro
 from backend._common.state import SessionDef
+from backend.sleep import sleep_judgement as judgement
+from backend.sleep.sleep_judgement import SleepFacts
 
 ROOT = Path(__file__).resolve().parents[3]
 SETTINGS = {"working": {"context_pct": 60}, "idle": {"context_pct": 40, "minutes": 50}}
@@ -88,13 +90,11 @@ def _write(path: Path, *rows: dict) -> Path:
 
 @pytest.fixture(autouse=True)
 def _fresh_memory():
-    watch._seen.clear()
-    watch._pending.clear()
-    watch._asked_at.clear()
+    for memory in (watch._seen, watch._pending, watch._asked_at, watch._lapse_logged):
+        memory.clear()
     yield
-    watch._seen.clear()
-    watch._pending.clear()
-    watch._asked_at.clear()
+    for memory in (watch._seen, watch._pending, watch._asked_at, watch._lapse_logged):
+        memory.clear()
 
 
 @pytest.mark.parametrize("rows, expected", [
@@ -131,11 +131,47 @@ def test_a_request_typed_into_a_working_session_counts_before_the_record_shows_i
     """推論中の claude へ打った発話は、 作業の合間に渡るまで記録に書かれない。"""
     record = _write(tmp_path / "r.jsonl", _typed("build it"))
     assert watch.asked(record) is False
-    watch._pending.add(str(record))
+    watch._pending[str(record)] = 1
     assert watch.asked(record) is True
     _write(record, _queued(CLOSE), _queued("actually, wait"))    # 渡った後で、 人が打った
     assert watch.asked(record) is False                         # 記録が答える。 打った覚えは残さない
     assert str(record) not in watch._pending
+
+
+@pytest.mark.parametrize("rows, expected", [
+    ([_typed("build it"), _typed(CLOSE)], 1),
+    ([_typed(CLOSE), _typed(CLOSE)], 2),
+    ([_typed(CLOSE), _typed(CLOSE), _typed(CLOSE)], 2),                 # stops at 2
+    ([_typed(CLOSE), _typed(RELAYED)], 1),                              # a message during the close does not start it over
+    ([_typed(CLOSE), _typed(CLOSE), _typed(RELAYED)], 0),               # a message after the lapse is new work
+    ([_typed(CLOSE), _typed(CLOSE), _typed(RELAYED), _typed(CLOSE)], 1),
+    ([_typed(CLOSE), _typed(CLOSE), _typed("go on")], 0),
+])
+def test_the_asks_to_close_are_counted_from_the_record(tmp_path, rows, expected):
+    record = _write(tmp_path / "r.jsonl", *rows)
+    assert watch.close_requests(record) == expected
+    assert watch.close_requests(record) == expected
+
+
+def test_a_record_read_row_by_row_counts_as_one_read_from_the_end(tmp_path):
+    rows = [_typed("build it"), _typed(CLOSE), _tool(), _typed(RELAYED), _typed(CLOSE), _typed(RELAYED),
+            _typed(CLOSE), _typed("go on"), _typed(CLOSE)]
+    record = tmp_path / "r.jsonl"
+    for index, row in enumerate(rows):
+        _write(record, row)
+        watched = watch.close_requests(record)
+        watch._seen.clear()
+        fresh = watch.close_requests(record)
+        watch._seen[str(record)] = (record.stat().st_size, fresh)
+        assert watched == fresh, index
+
+
+def test_asks_that_never_reach_the_record_still_count_so_they_are_not_typed_forever(tmp_path):
+    record = _write(tmp_path / "r.jsonl", _typed("build it"))
+    watch._pending[str(record)] = 2
+    assert watch.close_requests(record) == 2
+    _write(record, _queued(CLOSE))                                      # only one reached the record
+    assert watch.close_requests(record) == 2
 
 
 def test_the_messages_the_client_types_are_told_apart_from_the_operator_s():
@@ -158,6 +194,14 @@ class Tabs:
         self.settings: dict[str, dict | None] = {}
         self.absent: set[str] = set()
         self.sent: list[tuple[str, str]] = []
+        self.close: dict[str, tuple[bool, bool, SleepFacts]] = {}
+        self.checked: list[str] = []
+
+        def close_check(sid):
+            self.checked.append(sid)
+            return self.close.get(sid, (False, False, SleepFacts()))
+
+        monkeypatch.setattr(watch, "_close_check", close_check)
         monkeypatch.setattr(watch, "settings_for", lambda sid: self.settings.get(sid, SETTINGS))
         monkeypatch.setattr(watch.jsonl_watcher, "get_jsonl_for", lambda sid: self.records.get(sid))
         monkeypatch.setattr(watch, "is_busy", lambda sid: self.busy.get(sid, False))
@@ -588,3 +632,97 @@ def test_both_messages_are_ones_the_screen_reads():
     for message, phase in ((CLOSE, "close"), (START, "start")):
         found = re.match(pattern, message.split("\n", 1)[1])
         assert found and found.group(1) == phase
+
+
+# --- a close that stalled -------------------------------------------------------------
+
+
+def _asked_once(tabs: Tabs, sid: str, quiet: float, pct: int = 10) -> Path:
+    record = tabs.add(sid, pct=pct, idle_minutes=quiet)
+    _write(record, _typed(CLOSE))
+    tabs.quiet_for(sid, quiet)
+    return record
+
+
+def test_a_close_that_stalled_is_asked_once_more_without_the_condition(tabs, caplog):
+    _asked_once(tabs, "ses_a", quiet=40)                       # 10%: the rollover condition does not hold
+    tabs.close["ses_a"] = (True, False, SleepFacts(rollover_asks=1, quiet_minutes=41))
+    with caplog.at_level("INFO", logger=watch.logger.name):
+        assert tabs.tick() == "ses_a"
+    (sid, text), = tabs.sent
+    assert 'reason="idle"' in text and 'idle_minutes="41"' in text      # the screen reads idle or context only
+    assert "again=1" in caplog.text
+
+
+@pytest.mark.parametrize("close", [
+    (False, False, SleepFacts(rollover_asks=1, quiet_minutes=41)),       # a command in the back, a wake-up, an account request, ...
+    (True, False, SleepFacts(rollover_asks=2, quiet_minutes=41)),        # asked twice already
+    (False, True, SleepFacts(rollover_asks=1, ends_in_limit_stop=True)),  # stopped by a usage limit
+])
+def test_a_close_that_did_not_stall_or_lapsed_is_not_asked_again(tabs, close):
+    _asked_once(tabs, "ses_a", quiet=40)
+    tabs.close["ses_a"] = close
+    assert tabs.tick() is None and tabs.sent == []
+
+
+def test_a_lapsed_ask_is_logged_once_per_conversation(tabs, caplog):
+    _asked_once(tabs, "ses_a", quiet=40)
+    tabs.close["ses_a"] = (False, True, SleepFacts(rollover_asks=2, quiet_minutes=41))
+    with caplog.at_level("INFO", logger=watch.logger.name):
+        tabs.tick()
+        tabs.tick()
+    assert caplog.text.count("rollover: lapsed session=ses_a asks=2") == 1
+
+
+def test_a_stalled_close_is_not_typed_into_a_tab_without_claude_or_within_the_gap(tabs):
+    record = _asked_once(tabs, "ses_a", quiet=40)
+    tabs.close["ses_a"] = (True, False, SleepFacts(rollover_asks=1, quiet_minutes=41))
+    tabs.absent.add("ses_a")
+    assert tabs.tick() is None
+    tabs.absent.clear()
+    watch._asked_at[str(record)] = time.time()
+    assert tabs.tick() is None and tabs.sent == []
+
+
+def test_a_new_ask_comes_before_an_ask_again(tabs):
+    _asked_once(tabs, "ses_a", quiet=58)
+    tabs.close["ses_a"] = (True, False, SleepFacts(rollover_asks=1, quiet_minutes=58))
+    tabs.add("ses_b", pct=45, idle_minutes=51)
+    assert tabs.tick() == "ses_b"
+    assert tabs.checked == []
+    _write(tabs.records["ses_b"], _typed(tabs.sent[0][1]))
+    tabs.busy["ses_b"] = True                                  # ses_b is closing
+    assert tabs.tick() is None
+    tabs.busy["ses_b"] = False
+    tabs.quiet_for("ses_b", 1)
+    assert tabs.tick() == "ses_a"
+
+
+def test_a_tab_asked_and_held_up_in_a_turn_does_not_hold_up_the_others(tabs):
+    """A tab in a turn whose record does not move (a permission, a hung tool) is not counted as closing."""
+    _asked_once(tabs, "ses_a", quiet=5, pct=70)
+    tabs.busy["ses_a"] = True
+    tabs.add("ses_b", pct=45, idle_minutes=51)
+    assert tabs.tick() is None                                 # closing: the next waits
+    tabs.quiet_for("ses_a", judgement.STALL_MINUTES + 1)
+    assert tabs.tick() == "ses_b"
+    assert tabs.checked == []                                  # a tab in a turn is not asked again
+
+
+def test_a_stalled_close_is_judged_as_the_sleep_judges_a_tab(monkeypatch):
+    """A close stalled when nothing but the close itself and the rollover's line keeps the tab from a break."""
+    seen: list[tuple[str, int, frozenset]] = []
+
+    def gather(sid, minutes, *args, ignoring=frozenset()):
+        seen.append((sid, minutes, ignoring))
+        return SleepFacts(claude_running=True, quiet_minutes=40, context_pct=70, rollover_idle_pct=40,
+                          rollover_asks=1, foreign_processes=())
+
+    import backend.sleep.sleep_sensors as sensors
+    monkeypatch.setattr(sensors, "gather", gather)
+    stalled, lapsed, _ = watch._close_check("ses_a")
+    assert (stalled, lapsed) == (True, False)
+    assert seen == [("ses_a", judgement.STALL_MINUTES, judgement.LEFT_BY_A_STALLED_CLOSE)]
+    monkeypatch.setattr(sensors, "gather", lambda *a, **k: SleepFacts(
+        claude_running=True, quiet_minutes=40, rollover_asks=1, foreign_processes=("sleep",)))
+    assert watch._close_check("ses_a")[0] is False             # a command runs in the back

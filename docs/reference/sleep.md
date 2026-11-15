@@ -51,12 +51,13 @@
 | 会話の中で `CronCreate` で作った定期実行が、`CronDelete` で消されずに残っていない | `cron_scheduled` |
 | 会話の最後の行が、結果のまだ無い道具の呼び出しではない (人の答えや許可を待っていない) | `awaiting_tool_result` |
 | 声の通話中ではない | `voice_call` |
-| 自動の入れ替えの途中 (締めを頼んだ後、新しい会話が起動するまで) ではない | `rolling_over` |
+| 自動の入れ替えの途中 (締めを頼んだ後、新しい会話が起動するまで) ではない。頼みの期限切れ ([rollover.md](rollover.md#締めの手が止まった時)) は途中と数えない | `rolling_over` |
 | 口座の振り分けが、そのタブに区切りや止めを頼んでいない。「続けて」を返す借りも無い ([account-fallback.md](account-fallback.md)・[account-hold.md](account-hold.md)) | `account_pending` |
 | 口座の振り分けが、そのタブを今扱っていない | `claimed` |
 
 - コンテキストの割合は、画面の上部に出ている値と、自動の入れ替えが使う値と同じです。`rollover.idle.context_pct`
-  を超えたタブは、眠らせずに入れ替えが引き受けます
+  を超えたタブは、眠らせずに入れ替えが引き受けます。入れ替えの頼みが期限切れになったタブは、引き受ける物が
+  無いので、線の上でも眠ります
 - 言語の道具は、作業していなくても Claude の下に居続けるので数えません: `clangd`・`pyright-langserver`・
   `typescript-language-server`・`gopls`・`rust-analyzer`・`sourcekit-lsp`。それ以外のプロセスは作業の印です。
   返事を作っている間に居る `caffeinate` も、走っているコマンドも含みます

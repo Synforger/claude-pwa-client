@@ -49,7 +49,7 @@ def test_a_tab_whose_claude_has_not_come_up_keeps_its_mark_and_has_no_wake_time(
 
 AWAKE = j.SleepFacts(
     claude_running=True, starting=False, turn_open=False, record_found=True, quiet_minutes=0.0, context_pct=20,
-    rollover_idle_pct=40, foreign_processes=(), record=RecordFacts(), on_voice_call=False, rolling_over=False,
+    rollover_idle_pct=40, foreign_processes=(), record=RecordFacts(), on_voice_call=False, rollover_asks=0,
     answered_since_start=True, account_pending=False,
 )
 

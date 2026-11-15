@@ -56,12 +56,19 @@ def test_the_line_of_the_automatic_rollover_is_not_looked_at(reads):
     (SleepFacts(claude_running=True, record=RecordFacts(wakeup_pending=True)), "wakeup_scheduled"),
     (SleepFacts(claude_running=True, record=RecordFacts(cron_open=1)), "cron_scheduled"),
     (SleepFacts(claude_running=True, on_voice_call=True), "voice_call"),
-    (SleepFacts(claude_running=True, rolling_over=True), "rolling_over"),
+    (SleepFacts(claude_running=True, rollover_asks=1), "rolling_over"),
 ])
 def test_a_tab_in_the_middle_of_something_is_not_at_a_break(reads, facts, reason):
     reads["facts"] = facts
     tab_break = sensors.read_tab_break("ses_x")
     assert tab_break.blocked_by == (reason,) and not tab_break.at_break
+
+
+def test_a_tab_whose_ask_to_close_lapsed_is_at_a_break(reads):
+    reads["facts"] = SleepFacts(claude_running=True, rollover_asks=2, quiet_minutes=45)
+    assert sensors.read_tab_break("ses_x").at_break
+    reads["facts"] = SleepFacts(claude_running=True, rollover_asks=1, ends_in_limit_stop=True)
+    assert sensors.read_tab_break("ses_x").at_break
 
 
 def _stopped_record(reads, tmp_path):
@@ -85,7 +92,7 @@ def test_a_tab_the_limit_stopped_is_judged_with_the_stop_taken_into_account(read
     (SleepFacts(claude_running=True, record=RecordFacts(wakeup_pending=True)), "wakeup_scheduled"),
     (SleepFacts(claude_running=True, record=RecordFacts(cron_open=1)), "cron_scheduled"),
     (SleepFacts(claude_running=True, on_voice_call=True), "voice_call"),
-    (SleepFacts(claude_running=True, rolling_over=True), "rolling_over"),
+    (SleepFacts(claude_running=True, rollover_asks=1), "rolling_over"),
 ])
 def test_a_tab_the_limit_stopped_is_still_held_by_what_really_runs(reads, tmp_path, facts, reason):
     _stopped_record(reads, tmp_path)

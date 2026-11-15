@@ -12,7 +12,7 @@ MINUTES = 60
 
 READY = j.SleepFacts(
     claude_running=True, starting=False, turn_open=False, record_found=True, quiet_minutes=61.0, context_pct=20,
-    rollover_idle_pct=40, foreign_processes=(), record=RecordFacts(), on_voice_call=False, rolling_over=False,
+    rollover_idle_pct=40, foreign_processes=(), record=RecordFacts(), on_voice_call=False, rollover_asks=0,
 )
 
 
@@ -43,7 +43,7 @@ def test_an_agent_without_a_rollover_line_has_no_context_condition():
     ({"record": RecordFacts(cron_open=1)}, j.CRON_SCHEDULED),
     ({"record": RecordFacts(awaiting_tool_result=True)}, j.AWAITING_TOOL_RESULT),
     ({"on_voice_call": True}, j.VOICE_CALL),
-    ({"rolling_over": True}, j.ROLLING_OVER),
+    ({"rollover_asks": 1}, j.ROLLING_OVER),
 ])
 def test_a_tab_is_left_awake_when_one_condition_fails(change, reason):
     assert j.judge(dataclasses.replace(READY, **change), MINUTES) == (reason,)
@@ -109,7 +109,7 @@ def test_a_tab_a_limit_stopped_is_not_held_by_what_the_stop_leaves_looking_like_
 
 def test_a_tab_a_limit_stopped_is_still_held_by_what_really_runs_under_it():
     facts = dataclasses.replace(READY, claude_running=False, foreign_processes=("sleep",), on_voice_call=True,
-                                rolling_over=True, record=RecordFacts(wakeup_pending=True, cron_open=1))
+                                rollover_asks=1, record=RecordFacts(wakeup_pending=True, cron_open=1))
     assert j.judge(facts, MINUTES, stopped_by_limit=True) == (
         j.CLAUDE_NOT_RUNNING, j.PROCESSES_RUNNING, j.WAKEUP_SCHEDULED, j.CRON_SCHEDULED, j.VOICE_CALL, j.ROLLING_OVER)
 
@@ -161,3 +161,34 @@ def test_the_machine_is_short_of_memory_only_on_two_high_readings_in_a_row(previ
 def test_under_pressure_the_tab_quiet_the_longest_is_chosen():
     assert j.pick_under_pressure([("a", 12.0), ("b", 40.0), ("c", 11.0)]) == "b"
     assert j.pick_under_pressure([]) is None
+
+
+# --- a lapsed ask to close ---------------------------------------------------------
+
+
+@pytest.mark.parametrize("asks, quiet, limit, expected", [
+    (0, 99, True, False),
+    (1, 99, False, False),
+    (1, 0, True, True),                         # a usage-limit stop lapses whatever the quiet
+    (2, j.STALL_MINUTES - 1, False, False),
+    (2, j.STALL_MINUTES, False, True),
+])
+def test_when_an_ask_to_close_lapsed(asks, quiet, limit, expected):
+    facts = j.SleepFacts(rollover_asks=asks, quiet_minutes=quiet, ends_in_limit_stop=limit)
+    assert j.close_lapsed(facts) is expected
+
+
+def test_a_lapsed_ask_neither_keeps_the_tab_closing_nor_above_the_line_awake():
+    asked = dataclasses.replace(READY, context_pct=70, rollover_idle_pct=40, rollover_asks=1, quiet_minutes=90)
+    assert set(j.judge(asked, 60)) == {j.ROLLING_OVER, j.CONTEXT_AT_ROLLOVER_LINE}
+    lapsed = dataclasses.replace(asked, rollover_asks=2)
+    assert j.judge(lapsed, 60) == ()
+    stopped = dataclasses.replace(asked, ends_in_limit_stop=True)
+    assert j.judge(stopped, 60) == ()
+
+
+def test_the_conditions_asked_to_be_ignored_are_not_looked_at():
+    facts = dataclasses.replace(READY, context_pct=70, rollover_idle_pct=40, rollover_asks=1, quiet_minutes=40)
+    assert j.judge(facts, j.STALL_MINUTES, ignoring=j.LEFT_BY_A_STALLED_CLOSE) == ()
+    assert j.judge(dataclasses.replace(facts, foreign_processes=("sleep",)), j.STALL_MINUTES,
+                   ignoring=j.LEFT_BY_A_STALLED_CLOSE) == (j.PROCESSES_RUNNING,)

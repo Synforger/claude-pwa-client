@@ -23,7 +23,13 @@ A parent tab can also put one of its children to sleep at once (`tabs sleep`). T
 quiet minutes, and it does not leave a child above the rollover's line awake: the parent knows the child is waiting,
 and the rollover takes the child over once a message wakes it. Every other condition holds as it does for the patrol.
 
-Used by `sleep_patrol.py` and, once more just before the claude is ended, by `sleeper.py`.
+A tab asked to close for a rollover is left awake while it closes (`ROLLING_OVER`), and also above the rollover's
+line, where the rollover takes it over. An ask that lapsed (`close_lapsed`: asked twice and quiet for `STALL_MINUTES`,
+or stopped by a usage limit) no longer counts as a close in progress, and its tab may sleep above the line: nothing
+will take it over until it is woken. The rollover watch reads the same judgement, ignoring the close itself
+(`LEFT_BY_A_STALLED_CLOSE`), to see that the close of a tab stalled and ask it once more.
+
+Used by `sleep_patrol.py`, once more just before the claude is ended by `sleeper.py`, and by `rollover/rollover.py`.
 """
 from __future__ import annotations
 
@@ -52,6 +58,14 @@ REPORTED_QUIET_MINUTES = 5
 # The operating system's memory pressure level from which the machine is short of memory (macOS: 1 normal, 2 warning,
 # 4 critical).
 PRESSURE_WARNING_LEVEL = 2
+
+# How long a tab asked to close may be quiet, with nothing else keeping it from a break, before its close counts as
+# stalled (= about 4 times the longest close measured, 8 minutes; under the rollover's idle 50 and the sleep's 60).
+STALL_MINUTES = 30
+# The conditions the check for a stalled close does not look at: the close itself, and the line it is to take over.
+LEFT_BY_A_STALLED_CLOSE = frozenset({ROLLING_OVER, CONTEXT_AT_ROLLOVER_LINE})
+# How many asks to close make an ask lapse once the tab is quiet (= `rollover.ASKS_MAX`, the first ask and one more).
+LAPSING_ASKS = 2
 
 # The conditions a sleep asked for by hand does not look at (= the parent decides the child is done).
 NOT_ASKED_BY_HAND = frozenset({NOT_QUIET, CONTEXT_AT_ROLLOVER_LINE})
@@ -104,6 +118,8 @@ class SleepFacts:
     answered_since_start: the conversation (or a sub-agent's) has a row newer than both the start of the claude now
                        running and the tab's last waking (= it took something in since it was started)
     account_pending:   the account fallback or hold asked the tab for a break, or owes it a "carry on"
+    rollover_asks:     how many times the rollover asked the conversation to close since the operator last typed (0..2)
+    ends_in_limit_stop: the conversation ends in a usage-limit stop
     """
     claude_running: bool | None = None
     starting: bool | None = None
@@ -115,19 +131,33 @@ class SleepFacts:
     foreign_processes: tuple[str, ...] | None = None
     record: RecordFacts | None = None
     on_voice_call: bool | None = None
-    rolling_over: bool | None = None
+    rollover_asks: int | None = None
+    ends_in_limit_stop: bool | None = None
     answered_since_start: bool | None = None
     account_pending: bool | None = None
 
 
+def close_lapsed(facts: SleepFacts) -> bool:
+    """Whether the rollover's ask to close lapsed: asked, and the conversation ends in a usage-limit stop (= it cannot
+    go on until the limit is over), or asked `LAPSING_ASKS` times and quiet for `STALL_MINUTES`."""
+    if not facts.rollover_asks:
+        return False
+    if facts.ends_in_limit_stop:
+        return True
+    return (facts.rollover_asks >= LAPSING_ASKS and facts.quiet_minutes is not None
+            and facts.quiet_minutes >= STALL_MINUTES)
+
+
 def judge(facts: SleepFacts, minutes: float, by_hand: bool = False, stopped_by_limit: bool = False,
-          reported: bool = False) -> tuple[str, ...]:
+          reported: bool = False, ignoring: frozenset[str] = frozenset()) -> tuple[str, ...]:
     """The conditions of `facts` that are not met for a tab that sleeps after `minutes` of quiet, or, `by_hand`, for a
     tab its parent puts to sleep now (= without `NOT_ASKED_BY_HAND`), or, `reported`, for a child that reported its
     work done (= without `NOT_ASKED_FOR_A_REPORTED_CHILD`, and only once it answered since it started).
     `stopped_by_limit` is for a tab whose turn a usage limit stopped, which is interrupted at that stop (= without
-    `LEFT_BY_A_LIMIT_STOP`). Empty = it may sleep."""
-    left = (NOT_ASKED_BY_HAND if by_hand else frozenset()) | (LEFT_BY_A_LIMIT_STOP if stopped_by_limit else frozenset())
+    `LEFT_BY_A_LIMIT_STOP`). The conditions in `ignoring` are not looked at either (= `LEFT_BY_A_STALLED_CLOSE`).
+    Empty = it may sleep."""
+    left = ((NOT_ASKED_BY_HAND if by_hand else frozenset()) | (LEFT_BY_A_LIMIT_STOP if stopped_by_limit else frozenset())
+            | ignoring)
     if reported:
         left |= NOT_ASKED_FOR_A_REPORTED_CHILD
     reasons = [reason for reason in _unmet(facts, minutes) if reason not in left]
@@ -163,8 +193,9 @@ def _unmet(facts: SleepFacts, minutes: float) -> tuple[str, ...]:
         reasons.append(NO_RECORD)
     elif facts.quiet_minutes is not None and facts.quiet_minutes < minutes:
         reasons.append(NOT_QUIET)
+    lapsed = close_lapsed(facts)
     if (facts.context_pct is not None and facts.rollover_idle_pct is not None
-            and facts.context_pct >= facts.rollover_idle_pct):
+            and facts.context_pct >= facts.rollover_idle_pct and not lapsed):
         reasons.append(CONTEXT_AT_ROLLOVER_LINE)
     if facts.foreign_processes:
         reasons.append(PROCESSES_RUNNING)
@@ -177,6 +208,6 @@ def _unmet(facts: SleepFacts, minutes: float) -> tuple[str, ...]:
             reasons.append(AWAITING_TOOL_RESULT)
     if facts.on_voice_call:
         reasons.append(VOICE_CALL)
-    if facts.rolling_over:
+    if facts.rollover_asks and not lapsed:
         reasons.append(ROLLING_OVER)
     return tuple(reasons)

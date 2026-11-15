@@ -191,7 +191,7 @@ def _stand_in(monkeypatch, tmp_path: Path, **over):
     os.utime(record, (time.time() - 7200, time.time() - 7200))
     calls: list[str] = []
     answers = {
-        "pid": 4242, "ready": True, "busy": False, "queued": 0, "call": False, "pct": 10, "asked": False,
+        "pid": 4242, "ready": True, "busy": False, "queued": 0, "call": False, "pct": 10, "asked": 0,
         "tree": (), "record": record, "started": 0.0, **over,
     }
 
@@ -207,7 +207,7 @@ def _stand_in(monkeypatch, tmp_path: Path, **over):
     monkeypatch.setattr(sensors, "is_session_on_call", note("call", answers["call"]))
     monkeypatch.setattr(sensors.jsonl_watcher, "get_jsonl_for", note("record", answers["record"]))
     monkeypatch.setattr(sensors, "context_pct_of", note("pct", answers["pct"]))
-    monkeypatch.setattr(sensors.rollover, "asked", note("asked", answers["asked"]))
+    monkeypatch.setattr(sensors.rollover, "close_requests", note("asked", answers["asked"]))
     monkeypatch.setattr(sensors, "process_tree", note("tree", answers["tree"]))
     monkeypatch.setattr(sensors, "rollover_idle_pct", lambda _sid: 40)
     monkeypatch.setattr(sensors, "claude_started_at", lambda _pid: answers["started"])
@@ -264,7 +264,7 @@ def test_a_tab_without_a_record_is_left_awake(monkeypatch, tmp_path):
 
 
 def test_a_tab_whose_rollover_was_asked_is_left_awake(monkeypatch, tmp_path):
-    _stand_in(monkeypatch, tmp_path, asked=True)
+    _stand_in(monkeypatch, tmp_path, asked=1)
     assert j.judge(sensors.gather("ses_x", 60), 60) == (j.ROLLING_OVER,)
 
 
@@ -327,3 +327,37 @@ def test_a_tab_whose_conversation_has_a_row_since_its_claude_started_has_answere
 def test_a_tab_started_after_its_last_row_has_not_answered_yet(monkeypatch, tmp_path):
     _stand_in(monkeypatch, tmp_path, started=time.time())
     assert sensors.gather("ses_x", 0, by_hand=True).answered_since_start is False
+
+
+CRON = {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "c", "name": "CronCreate"}]}}
+
+
+def test_a_record_read_from_several_threads_at_once_counts_each_row_once(tmp_path, monkeypatch):
+    """The sleep, the account patrols and the rollover watch read the same record from their threads."""
+    import threading
+
+    monkeypatch.setattr(sensors, "READ_CHUNK_BYTES", 64)     # many pieces, so the readers overlap
+    record = tmp_path / "c.jsonl"
+    record.write_bytes(_line(PROMPT) + b"".join(_line(CRON) for _ in range(200)))
+    start = threading.Barrier(8)
+    counts: list[int] = []
+
+    def read() -> None:
+        start.wait()
+        counts.append(sensors.record_facts_of(record).cron_open)
+
+    readers = [threading.Thread(target=read) for _ in range(8)]
+    for reader in readers:
+        reader.start()
+    for reader in readers:
+        reader.join()
+    assert counts == [200] * 8
+
+
+def test_a_tab_whose_ask_to_close_lapsed_is_read_past_its_close(monkeypatch, tmp_path):
+    """Asked twice and quiet: the close no longer keeps the tab awake, and every fact is read."""
+    calls = _stand_in(monkeypatch, tmp_path, asked=2, pct=70)
+    facts = sensors.gather("ses_x", 60)
+    assert facts.rollover_asks == 2 and facts.ends_in_limit_stop is False
+    assert j.judge(facts, 60) == ()
+    assert calls[-1] == "tree"
