@@ -415,6 +415,12 @@ def outward_holder(there: list[dict], placed: list[dict]) -> tuple[str, tuple[st
 
 #: `send` が受ける印 (= どちらも 1 回まで、 順は問わない)
 SEND_FLAGS = {"--operator-said", "--no-work"}
+# Why the operator's words did not go with a message that asked for them (= the backend's `operator_said_left_out`).
+OPERATOR_SAID_LEFT_OUT = {
+    "no_operator_words": "今の作業を始めたのが操作者の発話ではありません (別のタブの連絡・入れ替え・記録に無い)",
+    "refused": "宛先が読めない境界の言葉として検査が通しませんでした",
+    "other_machine": "別の機械への連絡には付けません",
+}
 
 
 def send(to: str, file: Path, operator_said: bool = False, hands_work: bool = True) -> int:
@@ -442,6 +448,9 @@ def send(to: str, file: Path, operator_said: bool = False, hands_work: bool = Tr
             print(f"預かりました: {body.get('to')} ({said}。 宛先は口座の線で止まっています。 動ける口座ができた時に届けます)")
         else:
             print(f"届きました: {body.get('to')} ({said})")
+        if operator_said and body.get("operator_said_left_out"):
+            reason = OPERATOR_SAID_LEFT_OUT.get(body["operator_said_left_out"], body["operator_said_left_out"])
+            print(f"操作者の発話は付きませんでした: {reason}。 要るなら、 操作者の言葉を本文に「」で写して送り直してください")
         return 0
     detail = (body.get("detail") if isinstance(body, dict) else None) or {}
     detail = detail if isinstance(detail, dict) else {"message": str(detail)}
