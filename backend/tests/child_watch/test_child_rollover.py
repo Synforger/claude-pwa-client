@@ -11,7 +11,6 @@ import pytest
 
 import backend.child_watch.watch_patrol as patrol
 import backend.rollover.rollover as watch
-import backend.routes.sessions as sessions_routes
 from backend.child_watch.child_memo import STUCK, WORKING, memo_state
 from backend.child_watch.child_work import hand_work
 from backend.child_watch.watch_sensors import is_watching
@@ -22,6 +21,9 @@ from backend.tests.async_run import run
 @pytest.fixture
 def rolling(env, monkeypatch):
     """The rollover of the child: what was typed into its terminal, in order, and the restarts of its claude."""
+    # Imported here, not at the top: importing the routes during collection binds their `AGENTS` to the configuration
+    # of that moment (= no agents), and later tests that create a tab then find their agent unknown.
+    import backend.routes.sessions as sessions_routes  # noqa: PLC0415
     typed: list[str] = []
     restarts: list[str] = []
 
