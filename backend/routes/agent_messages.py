@@ -52,6 +52,8 @@ from fastapi import APIRouter, Body, Form, Request
 
 from backend.jsonl.jsonl_predicates import (
     AGENT_MESSAGE_OPENING as OPENING,
+    AGENT_MESSAGE_OPENINGS,
+    AGENT_MESSAGE_TAG,
     agent_envelope as _envelope,
     AGENT_MESSAGE_REMOTE_OPENING as REMOTE_OPENING,
     CLIENT_OPENINGS,
@@ -93,6 +95,10 @@ HIT_LINES = 20
 HIT_LINE_CHARS = 300
 # 相手の backend を待つ上限。 相手も届ける前に自分の検査を走らせるので、 その上限より長く取る。
 RELAY_TIMEOUT_SEC = 240.0
+# 人の発話を頼まれたのに封筒に入れられなかった理由 (= 返事の `operator_said_left_out`)。
+OPERATOR_SAID_NONE = "no_operator_words"
+OPERATOR_SAID_REFUSED = "refused"
+OPERATOR_SAID_OTHER_MACHINE = "other_machine"
 # 相手のタブの一覧を待つ上限。 相手が落ちている時に、 一覧を打った側を待たせない (= 検査は走らないので短くてよい)。
 PEER_LIST_TIMEOUT_SEC = 10.0
 # 相手の backend どうしが呼び合う口 (= 設定された相手の接続元からだけ受ける)。
@@ -162,8 +168,12 @@ def entered_text(row: dict) -> str | None:
 
 
 def last_operator_text(record: Path | None) -> str | None:
-    """そのタブで人が最後に打った発話。 最後に端末から入った発話が別のタブからの連絡か自動の入れ替えの
-    発話なら None (= 今の作業を始めたのは人ではない)。 記録が読めない時も None。"""
+    """そのタブで人が最後に打った発話。 今の作業を始めた発話が別のタブからの連絡か自動の入れ替えの
+    発話なら None (= 今の作業を始めたのは人ではない)。 記録が読めない時も None。
+
+    作業の途中に積まれた連絡 (= `queued_command`) は、 その作業を始めた人の発話を隠さない。 人の発話の
+    すぐ後に別のタブの連絡が同じ作業へ積まれても、 送り主が答えているのは人の発話だからだ。 1 つの発話の
+    頭に連絡が入り、 その後ろに人の言葉が続く時は、 後ろの言葉を人の発話として読む (`_after_messages`)。"""
     if record is None:
         return None
     try:
@@ -178,10 +188,25 @@ def last_operator_text(record: Path | None) -> str | None:
             if text is None or not text.strip():
                 continue
             text = unwrap_pasted(text).strip()
-            return None if text.startswith(CLIENT_OPENINGS) else text
+            words = _after_messages(text)
+            if words and not words.startswith(CLIENT_OPENINGS):
+                return words
+            if queued_prompt_text(row) is None:
+                return None
     except OSError:
         logger.warning("agent message: sender's record could not be read: %s", record)
     return None
+
+
+def _after_messages(text: str) -> str:
+    """`text` without the other tabs' messages at its head (= what follows their envelopes). Claude Code puts what
+    waited in the input back into it when a turn is stopped, and what the operator says next is added after it, so one
+    prompt can hold a message and then the operator's words. The first closing tag after an opening is the envelope's
+    own, since a body cannot write one (`envelope`). → `text` unchanged when it does not begin with a message."""
+    closing = f"</{AGENT_MESSAGE_TAG}>"
+    while text.startswith(AGENT_MESSAGE_OPENINGS) and closing in text:
+        text = text.split(closing, 1)[1].strip()
+    return text
 
 
 def _write_private(text: str) -> Path:
@@ -275,23 +300,27 @@ async def sender_title(sender_id: str, receiver_id: str) -> str:
     return title
 
 
-async def operator_said_for(sender_id: str, receiver_id: str) -> str | None:
-    """封筒に入れる人の発話。 無い時と、 `agent_message_operator_check` が通さなかった時は None
-    (= 連絡は本文だけで届ける)。 語の `{sender_session}` は送り主の claude の session id。"""
+async def operator_said_for(sender_id: str, receiver_id: str) -> tuple[str | None, str | None]:
+    """封筒に入れる人の発話と、 入れられない時の理由 (= 送り主へ返す)。 → (発話, None) か (None, 理由)。
+    理由は `no_operator_words` (= 今の作業を始めたのが人の発話でない) か `refused` (=
+    `agent_message_operator_check` が通さなかった・宛先の記録がまだ無い)。 語の `{sender_session}` は送り主の
+    claude の session id。"""
     from backend._common.config import AGENT_MESSAGE_OPERATOR_CHECK  # noqa: PLC0415
     sender_record = jsonl_path_for_session(sender_id)
     said = last_operator_text(sender_record)
-    if said is None or not AGENT_MESSAGE_OPERATOR_CHECK:
-        return said
+    if said is None:
+        return None, OPERATOR_SAID_NONE
+    if not AGENT_MESSAGE_OPERATOR_CHECK:
+        return said, None
     receiver_record = jsonl_path_for_session(receiver_id)
     if receiver_record is None:
-        return None
+        return None, OPERATOR_SAID_REFUSED
     status, reason, _hits = await _run_check(AGENT_MESSAGE_OPERATOR_CHECK, said,
                                       {"session": receiver_record.stem, "sender_session": sender_record.stem})
     if status != 0:
         logger.info("agent message: operator's words left out sender=%s receiver=%s (%s)", sender_id, receiver_id, reason)
-        return None
-    return said
+        return None, OPERATOR_SAID_REFUSED
+    return said, None
 
 
 # --- 別の機械の backend ----------------------------------------------------------
@@ -510,21 +539,23 @@ async def post_agent_message(
         raise_error(400, "agent_message_empty", "本文が空です")
     peer_name, tab = split_peer(to)
     if peer_name is not None:
-        return await send_to_peer(peer_name, tab, sender, text)
+        result = await send_to_peer(peer_name, tab, sender, text)
+        return {**result, "operator_said_left_out": OPERATOR_SAID_OTHER_MACHINE} if operator_said else result
     receiver_id = resolve_receiver(to)
     if receiver_id == sender:
         raise_error(400, "agent_message_to_self", "自分のタブへは送れません")
     if not _tab_reachable(receiver_id):
         raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
     await check(receiver_id, text)
-    said = await operator_said_for(sender, receiver_id) if operator_said else None
+    said, left_out = await operator_said_for(sender, receiver_id) if operator_said else (None, None)
     title = await sender_title(sender, receiver_id)
     result = await _deliver_or_keep(receiver_id, envelope(sender, text, said, title))
     logger.info("agent message sender=%s receiver=%s chars=%d operator_said=%s ok=%s kept=%s",
                 sender, receiver_id, len(text), said is not None, result.get("ok"), result.get("kept", False))
     if result.get("ok") and (hands_work or "").strip().lower() != "false":
         await asyncio.to_thread(hand_work, sender, receiver_id)
-    return {**result, "to": receiver_id, "operator_said": said is not None}
+    answer = {**result, "to": receiver_id, "operator_said": said is not None}
+    return {**answer, "operator_said_left_out": left_out} if left_out is not None else answer
 
 
 def _require_peer(request: Request) -> tuple[str, dict]:

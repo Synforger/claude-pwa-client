@@ -950,6 +950,18 @@ def test_send_says_whether_the_message_hands_work(family, flags, hands_work, ope
     assert call["form"].get("hands_work") == hands_work and call["form"].get("operator_said") == operator_said
 
 
+@pytest.mark.parametrize("reason, says", [
+    ("no_operator_words", "今の作業を始めたのが操作者の発話ではありません"),
+    ("other_machine", "別の機械への連絡には付けません"),
+])
+def test_send_says_why_the_operator_s_words_did_not_go(family, reason, says):
+    family.backend.answers["send-body"] = {"operator_said": False, "operator_said_left_out": reason}
+    body = family.work / "body.md"
+    body.write_text("the title wraps", encoding="utf-8")
+    assert family.run("send", "ses_a", str(body), "--operator-said") == 0
+    assert "操作者の発話は付きませんでした" in family.out and says in family.out
+
+
 @pytest.mark.parametrize("flags", [["--no-work", "--no-work"], ["--quiet"]])
 def test_send_refuses_a_flag_it_does_not_know_or_one_given_twice(family, flags):
     body = family.work / "body.md"

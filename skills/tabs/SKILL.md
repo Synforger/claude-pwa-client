@@ -57,7 +57,10 @@ pick up, a decision that affects it. Do not wait for the operator to carry it.
 `tabs send <to> <file> --operator-said` also attaches the operator's last utterance in the sender's tab. Use it
 only when that utterance is what caused this message ("tell them to fix it"). Never for a message the sender
 decided to send, a reply, or a report: the receiver reads the attached text as the operator's own words in its tab.
-The backend reads that text from the conversation record; the sender cannot write it.
+The backend reads that text from the conversation record; the sender cannot write it. It is the utterance that began
+the sender's current work, even when another tab's message was queued into that work afterwards. When the words could
+not go (the work began with another tab's message, the check refused them, or the receiver is on another machine),
+`tabs send` says so in a line after `届きました`; copy the operator's words into the body in quotes if they are needed.
 
 If the guard that screens messages stops one, the reason line names what it objected to. Rewrite the body in
 your own words without the quoted material and send again.
