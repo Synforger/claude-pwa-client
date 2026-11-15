@@ -39,7 +39,7 @@ def test_build_sessions_overview_reflects_busy(isolated_state):
     state.agent_status["ses_b"] = {}
 
     ov = chat_routes._build_sessions_overview()
-    account = {"account_id": None, "fallback_from": None, "account_pinned": False}
+    account = {"account_id": None, "fallback_from": None, "account_pinned": False, "account_on_wake": None}
     assert ov["ses_a"] == {"busy": True, "last_seen_at": None, "waiting_input": False, "tier": None, "asleep": False, **account}
     assert ov["ses_b"] == {"busy": False, "last_seen_at": None, "waiting_input": False, "tier": None, "asleep": False, **account}
 

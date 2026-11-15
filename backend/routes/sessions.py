@@ -67,7 +67,13 @@ def session_row(meta: SessionDef) -> dict:
 # --- セッション CRUD ---
 @router.get("/sessions")
 def list_sessions():
-    return [session_row(m) for m in sessions_meta.values()]
+    """The tabs as the screen and `tabs list` list them. A sleeping tab carries `account_on_wake`, the account it runs
+    on once woken (`account_fallback.accounts_on_wake`; null for a tab that is awake). This handler runs in a worker
+    thread, which is where the usage log it reads may block."""
+    from backend.account_fallback.fallback_patrol import accounts_on_wake  # noqa: PLC0415 (= imports the routes)
+    from backend.usage.usage import read_all_rate_limits_tail  # noqa: PLC0415
+    on_wake = accounts_on_wake(read_all_rate_limits_tail)
+    return [{**session_row(m), "account_on_wake": on_wake.get(m.id)} for m in sessions_meta.values()]
 
 
 @router.post("/sessions")

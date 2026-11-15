@@ -337,7 +337,7 @@ def listing() -> int:
         cells = [
             tab["id"],
             place.tier if shown else HIDDEN,
-            f"口座={tab.get('account_id') or 'personal'}",
+            account_cell(tab),
             state,
             f"境界={place.marks}" if place.marks else "境界=なし",
             (tab.get("title") or "") if shown else hidden_name(outward, place.folder),
@@ -393,6 +393,16 @@ def send_failure(status: int, body: object) -> tuple[str, str]:
     return UNCONFIRMED_CODE, (f"backend から連絡の結果を受け取れませんでした (HTTP {status}): {raw}。 届いているかもしれません。 "
                               "もう一度送る前に、 宛先の会話に届いているかを確かめてください (= 2 通届くのを避けるため)。 繰り返す時は、 "
                               "このコマンドと時刻を client のタブへ不具合として送ってください")
+
+
+def account_cell(tab: dict) -> str:
+    """The account of a listed tab. A sleeping tab shows the account it runs on once woken (= `account_on_wake`, which
+    the account fallback decides when it wakes the tab), and the one it last ran on only when the two differ."""
+    last = tab.get("account_id") or "personal"
+    on_wake = tab.get("account_on_wake")
+    if on_wake and on_wake != last:
+        return f"口座={on_wake} (眠り、最後は {last})"
+    return f"口座={last}"
 
 
 def same_folder(left: Path | str | None, right: Path | str | None) -> bool:

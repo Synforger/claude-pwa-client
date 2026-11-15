@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { accountChanges } from '../../../src/features/session-drawer/sessionAccounts.js'
+import { accountChanges, accountLabelOf } from '../../../src/features/session-drawer/sessionAccounts.js'
 
 describe('accountChanges', () => {
   const sessions = [
@@ -43,5 +43,50 @@ describe('accountChanges', () => {
   it('ignores a tab the list does not have, and takes a missing snapshot for nothing to change', () => {
     expect(accountChanges(sessions, { ses_z: { account_id: 'personal' } })).toEqual([])
     expect(accountChanges(sessions, undefined)).toEqual([])
+  })
+})
+
+describe('accountChanges for the account a sleeping tab wakes on', () => {
+  it('names the account a tab wakes on when the snapshot says it changed', () => {
+    const sessions = [{ id: 'ses_a', account_id: 'personal', account_on_wake: 'personal' }]
+    expect(accountChanges(sessions, { ses_a: { account_on_wake: 'work' } })).toEqual([['ses_a', { account_on_wake: 'work' }]])
+  })
+
+  it('clears it when the tab woke up (= null in the snapshot)', () => {
+    const sessions = [{ id: 'ses_a', account_id: 'personal', account_on_wake: 'work' }]
+    expect(accountChanges(sessions, { ses_a: { account_on_wake: null } })).toEqual([['ses_a', { account_on_wake: null }]])
+  })
+
+  it('takes an unset field of a row and a null of the snapshot for the same thing', () => {
+    expect(accountChanges([{ id: 'ses_a' }], { ses_a: { account_on_wake: null } })).toEqual([])
+  })
+})
+
+describe('accountLabelOf', () => {
+  const accounts = [{ id: 'personal', display_name: 'Personal' }, { id: 'work', display_name: 'Work' }]
+  const t = (key, params) => `${key}:${params.account}`
+
+  it('shows the account a sleeping tab wakes on, and the one it last ran on in brackets when they differ', () => {
+    const session = { account_id: 'personal', account_on_wake: 'work' }
+    expect(accountLabelOf(session, accounts, null, t)).toBe('Work (drawer.account.asleep_last:Personal)')
+  })
+
+  it('shows no brackets when it wakes on the account it last ran on, or when it is awake', () => {
+    expect(accountLabelOf({ account_id: 'work', account_on_wake: 'work' }, accounts, null, t)).toBe('Work')
+    expect(accountLabelOf({ account_id: 'work', account_on_wake: null }, accounts, null, t)).toBe('Work')
+    expect(accountLabelOf({ account_id: 'work' }, accounts, null, t)).toBe('Work')
+  })
+
+  it('takes the default account for a row with no account', () => {
+    expect(accountLabelOf({}, accounts, 'personal', t)).toBe('Personal')
+    expect(accountLabelOf({ account_on_wake: 'work' }, accounts, 'personal', t)).toBe('Work (drawer.account.asleep_last:Personal)')
+  })
+
+  it('shows no label with one account configured', () => {
+    expect(accountLabelOf({ account_id: 'personal', account_on_wake: 'work' }, [accounts[0]], null, t)).toBeNull()
+  })
+
+  it('falls back to the id of an account the list does not know', () => {
+    expect(accountLabelOf({ account_id: 'gone' }, accounts, null, t)).toBe('gone')
   })
 })

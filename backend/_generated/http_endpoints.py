@@ -23,6 +23,7 @@ class GetSessionsResponseItem(BaseModel):
     tier: Optional[str] = None  # the tier the tab's agent started in (= its AGENT_TIER), else the tier a tier tab was placed for; null when not known
     tier_tab: Optional[str] = None  # the tier a tier tab was placed for (= its new conversations start in it); null for other tabs
     asleep: Optional[bool] = None  # true while the tab's claude is put to sleep (= it starts again in the same conversation when the tab is opened or written to)
+    account_on_wake: Optional[str] = None  # for a sleeping tab, the account it runs on once it is woken (= what the account fallback decides when it wakes it, which can differ from account_id); null for a tab that is awake
 
 
 class GetSessionsOverviewResponse(BaseModel):

@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from fastapi import HTTPException
@@ -246,27 +247,74 @@ async def tick() -> list[str]:
     return [session_id for session_id in list(sessions_meta) if await _look(session_id, rows, now)]
 
 
-async def move_before_wake(session_id: str) -> None:
-    """Called before a sleeping tab is reopened: when the account it belongs to is at its line, or near it (`ahead_pct`),
-    the tab is moved to the account its fallback names and wakes there; when it runs on the fallback account and the
-    account it belongs to is clear of its line, or the account it runs on has reached its own line, it is brought back
-    and wakes there. It is asleep, so it is at a break by definition, and its cache is cold."""
+@dataclass(frozen=True)
+class WakeDecision:
+    """What waking a sleeping tab does to its account: `move` is the judgement (`decide`, at a break, cache cold),
+    `current` the account it runs on now, `home` the one it belongs to, `lines` what the usage log says about them."""
+    current: str
+    home: str
+    rule: FallbackRule | None
+    lines: _Lines
+    move: Move
+
+    @property
+    def target(self) -> str:
+        """The account the tab runs on once it is awake."""
+        if self.move is Move.STAY:
+            return self.current
+        return self.rule.to_account if self.move is Move.MOVE and self.rule is not None else self.home
+
+
+def wake_decision(session_id: str, read_rows: Callable[[], list[dict]]) -> WakeDecision | None:
+    """Where a tab is woken, by the judgement `move_before_wake` acts on and the lists show. None for a tab that is
+    not in the list. `read_rows` reads the usage log, and is called only when the judgement needs it. Blocks on that
+    read."""
     accounts = _accounts_of(session_id)
     if accounts is None:
-        return
+        return None
     current, home = accounts
     rule = read_rules().get(home)
     if rule is None and current == home:
-        return
-    rows = await asyncio.to_thread(read_all_rate_limits_tail)
-    now = time.time()
-    lines = _lines(rows, rule, current, home, now)
+        return WakeDecision(current, home, rule, _Lines(), Move.STAY)
+    rows = read_rows()
+    lines = _lines(rows, rule, current, home, time.time())
     wanted = decide(current=current, home=home, rule=rule, limited=lines.limited, at_break=True,
                     pinned=sessions_meta[session_id].account_pinned, near=lines.near, target_over_line=lines.target_over)
-    if wanted is Move.STAY:
+    return WakeDecision(current, home, rule, lines, wanted)
+
+
+def accounts_on_wake(read_rows: Callable[[], list[dict]]) -> dict[str, str]:
+    """The account each sleeping tab runs on when it is woken, for the lists (= a tab that is awake is not in it).
+    Blocks on reading the usage log, which is read once for all the tabs; call it off the event loop."""
+    rows: list[dict] | None = None
+
+    def read_once() -> list[dict]:
+        nonlocal rows
+        if rows is None:
+            rows = read_rows()
+        return rows
+    out: dict[str, str] = {}
+    for session_id, meta in list(sessions_meta.items()):
+        if meta.sleep is None:
+            continue
+        decision = wake_decision(session_id, read_once)
+        if decision is not None:
+            out[session_id] = decision.target
+    return out
+
+
+async def move_before_wake(session_id: str) -> None:
+    """Called before a sleeping tab is reopened: when the account it belongs to is at its line, or near it (`ahead_pct`),
+    the tab is moved to the account its fallback names and wakes there; when it runs on the fallback account and the
+    account it belongs to is clear of its line, or the account it runs on has reached its own line, it is brought
+    back and wakes there. It is asleep, so it is at a break by definition, and its cache is cold. The judgement is
+    `wake_decision`, the same one the lists show."""
+    decision = await asyncio.to_thread(wake_decision, session_id, read_all_rate_limits_tail)
+    if decision is None or decision.move is Move.STAY:
         return
-    moving = wanted is Move.MOVE
-    target = rule.to_account if moving and rule is not None else home
+    current, home, rule, lines = decision.current, decision.home, decision.rule, decision.lines
+    moving = decision.move is Move.MOVE
+    target = decision.target
     with claimed(session_id) as mine:
         if not mine:
             return

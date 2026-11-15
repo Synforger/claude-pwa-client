@@ -164,6 +164,10 @@ def _build_sessions_overview() -> dict:
     received event timestamp と比較して、 last_seen_at が新しければ赤丸を消す
     (= iPhone と Mac の未読同期、 2026-06-10 追加)。"""
     from backend.terminal.prompt_detector_loop import is_waiting_input  # noqa: PLC0415
+    # The usage log goes through the one-second memo that `_build_all_status` has just filled, so this does not read
+    # the file again on the event loop.
+    from backend.account_fallback.fallback_patrol import accounts_on_wake  # noqa: PLC0415 (= imports the routes)
+    on_wake = accounts_on_wake(_read_rate_limits_tail_cached)
     out: dict[str, dict] = {}
     for sid in list(sessions_meta.keys()):
         out[sid] = {
@@ -184,6 +188,9 @@ def _build_sessions_overview() -> dict:
             "account_id": sessions_meta[sid].account_id,
             "fallback_from": sessions_meta[sid].fallback_from,
             "account_pinned": sessions_meta[sid].account_pinned,
+            # The account a sleeping tab runs on once it is woken (= null for a tab that is awake), which the list
+            # shows beside the one it last ran on.
+            "account_on_wake": on_wake.get(sid),
         }
     return out
 
@@ -209,7 +216,7 @@ def _mark_user_stopped(session_id: str) -> bool:
 
 @router.get("/sessions/overview")
 def get_sessions_overview() -> dict:
-    """全 session の busy + last_seen_at + waiting_input + tier + asleep + 口座の 3 欄を 1 回で返す (= stream の overview と同じ中身)。
+    """全 session の busy + last_seen_at + waiting_input + tier + asleep + 口座の 4 欄を 1 回で返す (= stream の overview と同じ中身)。
 
     stream を張らずに今の状態だけ見たい側 (= iPhone のウィジェット) が引く。"""
     return _build_sessions_overview()
