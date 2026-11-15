@@ -1,12 +1,12 @@
 """Carries on the tabs the client owes a message to carry on, once they may run, and hands over the messages kept for
 sleeping tabs. Three looks, in this order, each on the patrol's interval:
 
-1. Stopped tabs whose account has a fallback (`resume_on_home`). Such a tab is stopped only while both that account and
+1. Stopped tabs (`resume_on_home`). A tab whose account has a fallback is stopped only while both that account and
    the account its fallback names are at their lines; once either is clear, a tab that had work left
    (`owes_carry_on`) is moved there (the fallback's own wake-up move) and sent the message the operator's "continue"
    sends, on the account it now runs on. A tab that had nothing left to do is only released: it is not moved, not
    woken, and sent nothing; the wake-up move takes it to a clear account whenever it is woken. A tab whose account has
-   no fallback is continued by the operator only.
+   no fallback is carried on (or released) the same way once its own account is clear of its hold line.
 2. Awake tabs the client still owes a message (`carry_on_owed`): asked to come to a break and then neither moved nor
    stopped (the need went away), or a message that did not reach them. At a break on an account they may run on, they
    are sent the message once.
@@ -39,7 +39,7 @@ async def _resume(session_id: str, rows: list[dict], hold_rules: dict[str, HoldR
     current = account_of(meta) if meta is not None else None
     if meta is None or meta.held_at is None or current is None:
         return False
-    target = clear_account_for(meta, rows, hold_rules, now, for_messages=False)
+    target = clear_account_for(meta, rows, hold_rules, now, for_messages=True)
     if target is None:
         return False
     if not meta.owes_carry_on:

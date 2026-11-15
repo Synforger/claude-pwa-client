@@ -177,12 +177,12 @@ def test_a_tab_the_sleep_refuses_is_not_marked_and_is_looked_at_again(env):
     assert run(patrol.tick()) == [env.tab.id]
 
 
-def test_a_stopped_tab_stays_stopped_when_the_usage_falls_and_nothing_continues_it(env):
+def test_a_stopped_tab_with_nothing_left_is_released_quietly_when_the_usage_falls(env):
     env.rows = [usage_row(seven=90)]
     run(patrol.tick())
     env.rows = [usage_row(seven=5)]                        # a reset, or a day without a line
     assert run(patrol.tick()) == []
-    assert env.tab.held_at is not None and env.tab.sleep is not None and env.sent == []
+    assert env.tab.held_at is None and env.tab.sleep is not None and env.sent == []
 
 
 def test_a_message_that_wakes_a_stopped_tab_takes_the_mark_off(env, caplog):

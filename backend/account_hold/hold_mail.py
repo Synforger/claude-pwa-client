@@ -32,8 +32,7 @@ def clear_account_for(meta: SessionDef, rows: list[dict], hold_rules: dict[str, 
     For a tab
     whose account has a fallback, the account it belongs to or the one its fallback names, whichever is clear
     (`hold_judgement.carry_on_account`). For a tab whose account has none, its own account once that is clear of its
-    hold line, but only `for_messages`: a stopped tab of such an account is continued by the operator, and only a
-    message wakes it by itself."""
+    hold line."""
     current = account_of(meta)
     if current is None:
         return None
