@@ -13,7 +13,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const E2E_ROOT = resolve(__dirname, '..')
 const REPO_ROOT = resolve(E2E_ROOT, '..', '..')
 
-const RUNTIME = resolve(E2E_ROOT, 'fixtures', '_runtime')
+// A second backend of the same run (= the peer scenarios start two) names its own folder; one that starts again
+// after being stopped keeps what the first run wrote (CPC_E2E_REUSE_RUNTIME=1).
+const RUNTIME = process.env.CPC_E2E_RUNTIME_DIR
+  ? resolve(process.env.CPC_E2E_RUNTIME_DIR)
+  : resolve(E2E_ROOT, 'fixtures', '_runtime')
+const REUSE_RUNTIME = process.env.CPC_E2E_REUSE_RUNTIME === '1'
 const DATA_DIR = resolve(RUNTIME, 'data')
 const LOGS_DIR = resolve(RUNTIME, 'logs')
 const SECRETS_DIR = resolve(RUNTIME, 'secrets')
@@ -33,7 +38,7 @@ const PAGE_ORIGIN_PORT = Number(PORT) + 10
 
 // Fresh tmp tree per launch — global-teardown also wipes this but a crashed
 // run could leave stale files. Idempotent.
-rmSync(RUNTIME, { recursive: true, force: true })
+if (!REUSE_RUNTIME) rmSync(RUNTIME, { recursive: true, force: true })
 mkdirSync(DATA_DIR, { recursive: true })
 mkdirSync(LOGS_DIR, { recursive: true })
 mkdirSync(SECRETS_DIR, { recursive: true, mode: 0o700 })
@@ -103,6 +108,9 @@ const config = {
   page_origin: { folder: PAGE_ORIGIN_DIR, port: PAGE_ORIGIN_PORT },
   claude_path: '/usr/bin/true',
   cors_allow_origins: ['*'],
+  // The other machines this backend may message (= `agent_message_peers`), as JSON: {"<name>": {"url", "address"}}.
+  // `address` is where the other backend's calls come from: 127.0.0.1 when both run on this machine.
+  ...(process.env.CPC_E2E_PEERS ? { agent_message_peers: JSON.parse(process.env.CPC_E2E_PEERS) } : {}),
 }
 writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2))
 
