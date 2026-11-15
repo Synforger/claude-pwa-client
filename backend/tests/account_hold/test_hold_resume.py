@@ -143,6 +143,21 @@ def test_a_stopped_tab_that_was_pinned_afterwards_continues_when_work_is_clear_a
 
 # --- tabs that are not this one's ---
 
+def test_a_tab_of_personal_itself_carries_on_once_personal_is_clear_of_its_line(held):
+    own = held.other
+    own.account_id, own.held_at, own.owes_carry_on = "personal", 100.0, True
+    own.sleep = SleepMark(claude_sid="c2", record="/r2.jsonl", slept_at=1)
+    held.tab.held_at = None
+    held.rows = [usage_row("work", seven=99), usage_row(seven=90)]
+    run(patrol.tick())
+    assert own.held_at == 100.0 and held.sent == []                  # still over its line: stays stopped
+    held.rows = [usage_row("work", seven=99), usage_row(seven=10)]
+    run(patrol.tick())
+    assert own.held_at is None and own.account_id == "personal"
+    [(session_id, text)] = held.sent
+    assert session_id == own.id and f'<account-hold phase="{CONTINUE}" account="personal">' in text
+
+
 def test_a_tab_of_personal_itself_is_not_continued_when_work_is_clear(held):
     own = held.other
     own.account_id, own.held_at = "personal", 100.0

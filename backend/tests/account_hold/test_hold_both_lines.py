@@ -139,7 +139,9 @@ def test_a_message_to_a_stopped_tab_of_personal_itself_waits_until_personal_is_c
     assert both.sent == []
     both.rows = [usage_row(seven=10)]
     run(patrol.tick())
-    assert both.sent == [(both.tab.id, "hello")]                  # no continue: the operator continues such a tab
+    [(continued, text), kept] = both.sent                          # carried on, then the kept message
+    assert continued == both.tab.id and '<account-hold phase="continue" account="personal">' in text
+    assert kept == (both.tab.id, "hello")
 
 
 def test_a_stopped_tab_the_operator_woke_and_works_in_takes_its_kept_messages_at_the_next_look(both):
