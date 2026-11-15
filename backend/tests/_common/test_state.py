@@ -276,3 +276,66 @@ def test_holding_a_tab_on_its_account_tells_the_open_lists(isolated_state, monke
     assert told == [1]
     assert state.set_account_pinned("ses_unknown", True) is False
     assert told == [1]
+
+
+# --- atomic_write_text ---------------------------------------------------------------------------------------
+
+
+def test_atomic_write_text_replaces_the_file_and_leaves_no_temporary_file(tmp_path):
+    target = tmp_path / "data.json"
+    state.atomic_write_text(target, "one")
+    state.atomic_write_text(target, "two")
+    assert target.read_text() == "two" and [p.name for p in tmp_path.iterdir()] == ["data.json"]
+
+
+def test_two_writers_of_one_path_do_not_share_a_temporary_file(tmp_path):
+    """Each write has a temporary file of its own name (pid and uuid): a second write that starts while the first is
+    between its write and its rename must not overwrite or take away the first one's file."""
+    import threading
+
+    target = tmp_path / "data.json"
+    names: list[str] = []
+    real_replace = state.os.replace
+
+    def watching_replace(source, destination):
+        names.append(source.name)
+        real_replace(source, destination)
+
+    results = []
+
+    def write(content: str) -> None:
+        try:
+            state.atomic_write_text(target, content * 200_000)
+            results.append(None)
+        except BaseException as error:  # noqa: BLE001 (= the test reports what a writer raised)
+            results.append(error)
+
+    state.os.replace = watching_replace
+    try:
+        threads = [threading.Thread(target=write, args=(letter,)) for letter in "abcdefgh"]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    finally:
+        state.os.replace = real_replace
+    assert results == [None] * 8 and len(set(names)) == 8
+    assert len(set(target.read_text())) == 1             # one writer's whole content, never a mixture
+    assert [p.name for p in tmp_path.iterdir()] == ["data.json"]
+
+
+def test_a_write_that_fails_leaves_no_temporary_file_and_the_old_content(tmp_path, monkeypatch):
+    target = tmp_path / "data.json"
+    target.write_text("kept")
+
+    def broken(source, destination):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(state.os, "replace", broken)
+    try:
+        state.atomic_write_text(target, "new")
+    except OSError:
+        pass
+    else:
+        raise AssertionError("the failure must reach the caller")
+    assert target.read_text() == "kept" and [p.name for p in tmp_path.iterdir()] == ["data.json"]
