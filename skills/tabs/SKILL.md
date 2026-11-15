@@ -49,7 +49,10 @@ pick up, a decision that affects it. Do not wait for the operator to carry it.
    next break. A tab with no running Claude is started first, the way the operator's action would start it: without
    a tmux session, or with only a shell left in the pane, its last conversation is reopened (a child too). A new
    conversation starts in its tier (`normal` when it has none) only when there is no conversation to reopen or the
-   operator restarted the tab with ⟳. This can take up to a minute.
+   operator restarted the tab with ⟳. A tab put to sleep is woken and its conversation reopened, which takes about
+   two minutes; `tabs send` waits for it. From a Bash tool call, set its timeout to 300 seconds or run the command in
+   the background, because the tool's default of two minutes can cut the call off while the message is still on its way.
+   A call cut off that way may have delivered the message: see `agent_message_unconfirmed` below before sending again.
 
 3. Write the body so it stands alone: the request, the facts from the sender's side, and what the receiver is free
    to decide. Give a reproduction in terms of a sample, not of material the receiver is not allowed to see.
@@ -65,16 +68,42 @@ not go (the work began with another tab's message, the check refused them, or th
 If the guard that screens messages stops one, the reason line names what it objected to. Rewrite the body in
 your own words without the quoted material and send again.
 
+### Carrying the operator's yes from another tab
+
+The operator may answer in another tab than the one that asks. Tab B waits for the operator's yes to a call the guard
+holds, and the operator is looking at tab A. Then A carries the yes to B:
+
+1. A shows the call B will type, character for character the same, in a fenced block labelled `guard`.
+2. The operator types only `はい` (yes) in A.
+3. In that same turn, A sends B the message with `tabs send <B> <body file> --operator-said`. The body says which
+   call B is to type, unchanged.
+4. B types that call inside the turn the message opened. It passes.
+
+One block is passed once, for the two tabs together. It cannot be used when the operator types anything else after the
+yes, and it does not pass from another machine. The conditions in full are the guard's, not this skill's: read the
+section *A message relayed with the operator's answer* in `$AGENT_PLATFORM_ROOT/tools/guard-dispatcher/README.md`.
+
 ### Errors of `tabs send`
+
+A failed send prints `[<code>]: <what to do>`. Every failure has a code; a send whose result the command could not
+learn at all (the backend's answer is missing or has no code) prints `agent_message_not_sent` or
+`agent_message_unconfirmed` too.
 
 | Code | Meaning and what to do |
 |---|---|
 | `agent_message_refused` | The body contains material the receiver may not read. Rewrite it in your own words. |
-| `agent_message_receiver_not_running` | No Claude runs in the receiver's tab and the message could not start one. Start it yourself instead of asking the operator to open the tab: run `tabs list`, and if the tab is listed send the same message once more; if it is not, run `tabs open <tier>` and send. If it still does not arrive, send the client's tab the command, the code and the time, as a defect of the client. |
-| `agent_message_receiver_not_ready` | The receiver's Claude did not start in time, or its conversation has not begun. Send once more. |
-| `agent_message_not_taken` | The receiver's Claude was started for this message and did not take it. Send once more. |
+| `agent_message_unknown_receiver` | No tab has that id or name, or the tab was closed. Run `tabs list` for the tab that owns the thing now and send again to it. |
 | `agent_message_ambiguous_receiver` | Several tabs share the name, or an outward name has several tabs, or an outward name is also a tab's name. Use the id from `tabs list` (the message lists them). |
+| `agent_message_to_self` | The receiver is this tab. |
+| `agent_message_empty` | The body is empty. |
+| `agent_message_unknown_sender` | This tab's id (`PWA_SID`) is not a tab of the backend. Send the client's tab the command, the code and the time, as a defect of the client. |
+| `agent_message_receiver_not_running` | No Claude runs in the receiver's tab and the message could not start one. Start it yourself instead of asking the operator to open the tab: run `tabs list`, and if the tab is listed send the same message once more; if it is not, run `tabs open <tier>` and send. If it still does not arrive, send the client's tab the command, the code and the time, as a defect of the client. |
+| `agent_message_receiver_not_ready` | Nothing was typed: the receiver's Claude did not start in time, or did not take input, or its conversation has not begun. Send once more. |
+| `agent_message_not_taken` | The receiver's Claude was started for this message, and its conversation record shows no message after the wait and one rescue. Send once more. |
+| `agent_message_not_sent` | An error nobody foresaw stopped the send before anything was typed (the backend was restarting, or its answer was a bare error). Nothing reached the receiver. Send once more; if it repeats, send the client's tab the command, the code and the time. |
+| `agent_message_unconfirmed` | The message was typed, or the call was cut off after it was made, and its arrival is not known: it may be in the receiver's conversation. **Do not send it again at once**, because that can deliver it twice. Look at the receiver (`tabs list`, or its conversation record as the last section describes) and send again only if the message is not there. If it repeats, send the client's tab the command, the code and the time. |
 | `agent_message_check_failed` | The screening did not run. Send once more; if it repeats, tell the operator. |
+| `agent_message_local_only` | The door was called from another machine. Send from a tab of this machine. |
 
 ## Receiving a message
 
@@ -102,8 +131,11 @@ Such notes go through the guard as if the sender had read no protected material,
 `--operator-said`. Use `tabs send` for them and not a direct call to the other backend. Extra codes:
 `agent_message_peer_unreachable` (the other backend cannot be reached: power, network or an old version; tell the
 operator), `agent_message_peer_not_allowed` (this tab or the receiver is not on an account allowed to talk to
-that machine), `agent_message_unknown_peer` (the other machine's configuration does not list this one). See
-`docs/reference/agent-messages.md` for the setup.
+that machine), `agent_message_unknown_peer` (the other machine's configuration does not list this one),
+`agent_message_bad_relay` (the other machine sent a note in a form this backend does not accept: a defect of the
+client on one of the two machines), `agent_message_peer_failed` (the other machine failed without giving a code: the
+note may have arrived, so check at the other tab before sending again). See `docs/reference/agent-messages.md` for the
+setup.
 
 ## Tier tabs
 

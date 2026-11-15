@@ -78,6 +78,7 @@
 
 from __future__ import annotations
 
+import http.client
 import importlib.util
 import json
 import os
@@ -104,6 +105,14 @@ MARKS = Path(os.environ.get("AREA_GUARD_STATE") or (
 agent_dir_option: Path | None = None
 # backend の検査は番人の上限 (= 180 秒) まで待つことがある。
 TIMEOUT_SEC = 240
+#: The two codes for a send that failed with no reason from the backend. They differ in whether the message may have
+#: reached the receiver, which decides if sending it again is safe (the backend gives the same two for its own
+#: unforeseen errors).
+NOT_SENT_CODE = "agent_message_not_sent"
+UNCONFIRMED_CODE = "agent_message_unconfirmed"
+#: What a call that failed before any answer is, when it may have reached the backend's handler (= the connection broke
+#: or timed out after the request was sent). A refused connection did not.
+MAY_HAVE_ARRIVED = (TimeoutError, ConnectionResetError, ConnectionAbortedError, http.client.HTTPException, ValueError)
 
 
 def agent_dir() -> Path:
@@ -148,8 +157,10 @@ def call(path: str, form: dict | None = None, method: str | None = None) -> tupl
             return error.code, json.loads(error.read().decode("utf-8"))
         except ValueError:
             return error.code, {}
-    except (urllib.error.URLError, OSError, ValueError) as error:
-        return 0, {"detail": {"message": f"backend に繋がりません ({BASE}): {error}"}}
+    except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as error:
+        cause = error.reason if isinstance(error, urllib.error.URLError) else error
+        return 0, {"detail": {"message": f"backend に繋がりません ({BASE}): {error}",
+                              "may_have_arrived": isinstance(cause, MAY_HAVE_ARRIVED)}}
 
 
 def alive(pid) -> bool:
@@ -354,9 +365,34 @@ def others() -> None:
                 print("  ".join([f"{name}:{tab.get('id')}", "別の機械", tab.get("title") or ""]).rstrip())
 
 
+def not_delivered_headline(code: str) -> str:
+    """The first words of a failed send: a send whose arrival could not be checked is not said to have not arrived."""
+    return "届いたか確かめられていません" if code == UNCONFIRMED_CODE else "届いていません"
+
+
 def not_delivered(code: str, message: str) -> int:
-    print(f"tabs: 届いていません [{code}]: {message}", file=sys.stderr)
+    print(f"tabs: {not_delivered_headline(code)} [{code}]: {message}", file=sys.stderr)
     return 1
+
+
+def send_failure(status: int, body: object) -> tuple[str, str]:
+    """The code and the sentence for an answer of `/agent-messages` that was not a delivery. The backend's own when it
+    gave a code; otherwise one made here from what is known about the call, so that no failure is printed as a bare
+    number: nothing was sent (a connection that was refused, a request the backend turned down), or the message may
+    have arrived (a broken or timed-out call, an error of the backend, an answer without `ok`)."""
+    detail = body.get("detail") if isinstance(body, dict) else None
+    if isinstance(detail, dict) and detail.get("code"):
+        return str(detail["code"]), str(detail.get("message", ""))
+    raw = str(detail.get("message")) if isinstance(detail, dict) and detail.get("message") else (
+        str(detail) if detail else str(body)[:200])
+    if status == 0 and not (isinstance(detail, dict) and detail.get("may_have_arrived")):
+        return NOT_SENT_CODE, f"{raw}。 何も送っていません。 backend が起動し直している間かもしれません。 少し待って、 もう一度送ってください"
+    if 400 <= status < 500:
+        return NOT_SENT_CODE, (f"backend が理由を付けずに断りました (HTTP {status}): {raw}。 何も送っていません。 繰り返す時は、 "
+                               "このコマンドと時刻を client のタブへ不具合として送ってください")
+    return UNCONFIRMED_CODE, (f"backend から連絡の結果を受け取れませんでした (HTTP {status}): {raw}。 届いているかもしれません。 "
+                              "もう一度送る前に、 宛先の会話に届いているかを確かめてください (= 2 通届くのを避けるため)。 繰り返す時は、 "
+                              "このコマンドと時刻を client のタブへ不具合として送ってください")
 
 
 def same_folder(left: Path | str | None, right: Path | str | None) -> bool:
@@ -452,9 +488,7 @@ def send(to: str, file: Path, operator_said: bool = False, hands_work: bool = Tr
             reason = OPERATOR_SAID_LEFT_OUT.get(body["operator_said_left_out"], body["operator_said_left_out"])
             print(f"操作者の発話は付きませんでした: {reason}。 要るなら、 操作者の言葉を本文に「」で写して送り直してください")
         return 0
-    detail = (body.get("detail") if isinstance(body, dict) else None) or {}
-    detail = detail if isinstance(detail, dict) else {"message": str(detail)}
-    return not_delivered(detail.get("code", status), detail.get("message", body))
+    return not_delivered(*send_failure(status, body))
 
 
 def own_tier() -> str | None:
@@ -628,7 +662,7 @@ def children(summary: bool) -> int:
 
 
 def report(kind: str, file: Path) -> int:
-    """子のタブから親へ結果を返し、 メモの状態を書き換える (= 届かなければ書き換えない)。"""
+    """子のタブから親へ結果を返し、 メモの状態を書き換える (= 先に書き、 届かなければ元へ戻す)。"""
     me = os.environ.get("PWA_SID")
     if not me or not os.environ.get("AGENT_CHILD"):
         return fail("report は子のタブ (= AGENT_CHILD=1) の中から打ちます")
@@ -641,12 +675,21 @@ def report(kind: str, file: Path) -> int:
     except OSError as error:
         return fail(f"{file} を読めません: {error}")
     body = f"子のタブ {me} の報告 ({STATES[kind]})\n\n{text}"
+    # The state is written before the report is sent: a parent that answers at once with more work has the backend set
+    # the memo back to working, and a state written after the send would overwrite that and leave the child unwatched.
+    note = own_note()
+    before = note.read_text(encoding="utf-8") if note is not None else None
+    marked = with_state(before, STATES[kind]) if before is not None else None
+    if note is not None:
+        note.write_text(marked, encoding="utf-8")
     status, answer = call("/agent-messages", {"to": mine["parent_id"], "from": me, "text": body})
     if not (status == 200 and isinstance(answer, dict) and answer.get("ok")):
-        return fail(f"親へ届いていません {refused(status, answer)}")
-    note = own_note()
-    if note is not None:
-        note.write_text(with_state(note.read_text(encoding="utf-8"), STATES[kind]), encoding="utf-8")
+        # Put the state back, unless something else changed the memo meanwhile: a report that did not arrive must not
+        # leave the child marked as done.
+        if note is not None and note.read_text(encoding="utf-8") == marked:
+            note.write_text(before, encoding="utf-8")
+        code, message = send_failure(status, answer)
+        return fail(f"親へ{not_delivered_headline(code)} [{code}]: {message}")
     print(f"届きました: 親のタブ {mine['parent_id']} ({STATES[kind]})")
     return 0
 

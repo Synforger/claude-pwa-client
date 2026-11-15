@@ -46,9 +46,11 @@ import subprocess
 import urllib.error
 import urllib.request
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Form, Request
+from fastapi import APIRouter, Body, Form, HTTPException, Request
 
 from backend.jsonl.jsonl_predicates import (
     AGENT_MESSAGE_OPENING as OPENING,
@@ -105,6 +107,34 @@ PEER_LIST_TIMEOUT_SEC = 10.0
 RELAYED_PATH = "/agent-messages/relayed"
 PEER_TABS_PATH = "/agent-messages/tabs"
 LOCAL_TABS_PATH = "/agent-messages/local-tabs"
+# What `pty_send` answers with `ok: False` when it typed nothing into the pane (= the claude was not listening, or the
+# launch it needed could not be typed).
+NOTHING_TYPED_REASONS = ("not_ready", "launch_failed")
+# The two answers for a failure nobody foresaw. They differ in the one thing the sender needs to know: whether the
+# message may have reached the receiver, since sending it again then can put it there twice.
+NOT_SENT_CODE = "agent_message_not_sent"
+NOT_SENT_MESSAGE = ("連絡を打つ前に、 backend で想定外のエラーが起きました。 宛先には何も届いていません。 もう一度送ってください。 "
+                    "繰り返す時は、 この code と時刻を client のタブへ不具合として送ってください")
+UNCONFIRMED_CODE = "agent_message_unconfirmed"
+UNCONFIRMED_MESSAGE = ("宛先の端末へ打った後で、 届いたかを確かめられませんでした。 届いているかもしれません。 もう一度送る前に、 "
+                       "宛先の会話に届いているかを確かめてください (= 2 通届くのを避けるため)。 繰り返す時は、 この code と時刻を "
+                       "client のタブへ不具合として送ってください")
+
+
+@contextmanager
+def failing_as(code: str, message: str) -> Iterator[None]:
+    """Turn what the door did not foresee (an exception, or an HTTP error that carries no code) into `code`, so the
+    sender is told what happened and what to do next, not a bare 500. Errors that already carry a code pass through."""
+    try:
+        yield
+    except HTTPException as error:
+        if isinstance(error.detail, dict) and error.detail.get("code"):
+            raise
+        logger.warning("agent message: an error with no code became %s: %s %s", code, error.status_code, error.detail)
+        raise_error(500, code, message)
+    except Exception:
+        logger.exception("agent message: an unexpected error became %s", code)
+        raise_error(500, code, message)
 
 
 def resolve_receiver(to: str) -> str:
@@ -458,12 +488,27 @@ async def deliver_message(tab_id: str, text: str, woke: bool) -> dict:
     """Type `text` (= a message already in its envelope) into the tab and press Enter. A tab that `wake_tab` started
     (`woke`) is only said to have taken it when its record shows the message (after one rescue, see
     `terminal/receipt.py`); otherwise 409 `agent_message_not_taken`. A tab that was running already gets the plain
-    `pty_send`, whose answer is that of the typing."""
+    `pty_send`, whose answer is that of the typing: an answer that says it did not type is refused with the code that
+    tells the sender whether the message may have arrived (`refuse_untyped`)."""
     if not woke:
-        return await pty_send(tab_id, {"text": text, "enter": True}, None)
+        result = await pty_send(tab_id, {"text": text, "enter": True}, None)
+        if not result.get("ok"):
+            refuse_untyped(result)
+        return result
     if not await deliver_to_woken(tab_id, text):
         raise_error(409, "agent_message_not_taken", "宛先が受け取りませんでした。 もう一度送ってください")
     return {"ok": True, "confirmed": True}
+
+
+def refuse_untyped(result: dict) -> None:
+    """Refuse a delivery whose `pty_send` answered `ok: False`. A claude that was not listening, or a launch that could
+    not be typed, means nothing reached the receiver (`agent_message_receiver_not_ready`: send again). An answer with no
+    reason is a typing that stopped part way, which may have left the message in the receiver's input
+    (`agent_message_unconfirmed`: check before sending again)."""
+    if result.get("reason") in NOTHING_TYPED_REASONS:
+        raise_error(409, "agent_message_receiver_not_ready",
+                    "宛先の claude が入力を受け付ける状態になりませんでした。 何も打っていません。 もう一度送ってください")
+    raise_error(500, UNCONFIRMED_CODE, UNCONFIRMED_MESSAGE)
 
 
 async def _deliver_or_keep(tab_id: str, text: str) -> dict:
@@ -472,11 +517,15 @@ async def _deliver_or_keep(tab_id: str, text: str) -> dict:
     is. → the answer of the delivery, or `{"ok": True, "kept": True}`."""
     # Imported here: the account hold imports the account fallback, which sends its messages through this module.
     from backend.account_hold import hold_mail  # noqa: PLC0415
-    if await asyncio.to_thread(hold_mail.must_keep, tab_id):
-        hold_mail.keep(tab_id, text)
-        return {"ok": True, "kept": True}
-    woke = await wake_tab(tab_id)
-    return await deliver_message(tab_id, text, woke)
+    # Up to the typing of the message nothing reached the receiver, so an error there says so; from the typing on it
+    # may have.
+    with failing_as(NOT_SENT_CODE, NOT_SENT_MESSAGE):
+        if await asyncio.to_thread(hold_mail.must_keep, tab_id):
+            hold_mail.keep(tab_id, text)
+            return {"ok": True, "kept": True}
+        woke = await wake_tab(tab_id)
+    with failing_as(UNCONFIRMED_CODE, UNCONFIRMED_MESSAGE):
+        return await deliver_message(tab_id, text, woke)
 
 
 async def send_to_peer(peer_name: str, tab: str, sender: str, text: str) -> dict:
@@ -493,16 +542,19 @@ async def send_to_peer(peer_name: str, tab: str, sender: str, text: str) -> dict
                     f"このタブは {peer_name} の機械と連絡できません", peer=peer_name)
     if AGENT_MESSAGE_CHECK:
         await judge(name, text, name)
-    status, body = await call_peer(peer_name, peer, RELAYED_PATH, {
-        "to": tab, "from_title": sessions_meta[sender].title, "from_session": sender, "text": text,
-    })
+    # From the call on, the other machine may have delivered the message whatever happens to the answer.
+    with failing_as(UNCONFIRMED_CODE, UNCONFIRMED_MESSAGE):
+        status, body = await call_peer(peer_name, peer, RELAYED_PATH, {
+            "to": tab, "from_title": sessions_meta[sender].title, "from_session": sender, "text": text,
+        })
     if status is None:
         raise_error(502, "agent_message_peer_unreachable", f"{peer_name} の機械に繋がりませんでした", peer=peer_name)
     if status != 200:
         detail = body.get("detail") if isinstance(body.get("detail"), dict) else {}
         params = {k: v for k, v in (detail.get("params") or {}).items() if k not in ("status_code", "code", "message")}
         raise_error(status if 400 <= status < 600 else 502, detail.get("code") or "agent_message_peer_failed",
-                    detail.get("message") or f"{peer_name} の機械が連絡を受け取りませんでした (HTTP {status})",
+                    detail.get("message") or f"{peer_name} の機械が理由を付けずに失敗を返しました (HTTP {status})。 "
+                    "届いたかもしれないので、 もう一度送る前に相手のタブで確かめてください",
                     **{**params, "peer": peer_name})
     logger.info("agent message sender=%s receiver=%s chars=%d operator_said=False ok=%s",
                 sender, name, len(text), body.get("ok"))
@@ -541,21 +593,32 @@ async def post_agent_message(
     if peer_name is not None:
         result = await send_to_peer(peer_name, tab, sender, text)
         return {**result, "operator_said_left_out": OPERATOR_SAID_OTHER_MACHINE} if operator_said else result
-    receiver_id = resolve_receiver(to)
-    if receiver_id == sender:
-        raise_error(400, "agent_message_to_self", "自分のタブへは送れません")
-    if not _tab_reachable(receiver_id):
-        raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
-    await check(receiver_id, text)
-    said, left_out = await operator_said_for(sender, receiver_id) if operator_said else (None, None)
-    title = await sender_title(sender, receiver_id)
-    result = await _deliver_or_keep(receiver_id, envelope(sender, text, said, title))
+    with failing_as(NOT_SENT_CODE, NOT_SENT_MESSAGE):
+        receiver_id = resolve_receiver(to)
+        if receiver_id == sender:
+            raise_error(400, "agent_message_to_self", "自分のタブへは送れません")
+        if not _tab_reachable(receiver_id):
+            raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
+        await check(receiver_id, text)
+        said, left_out = await operator_said_for(sender, receiver_id) if operator_said else (None, None)
+        title = await sender_title(sender, receiver_id)
+        message = envelope(sender, text, said, title)
+    result = await _deliver_or_keep(receiver_id, message)
     logger.info("agent message sender=%s receiver=%s chars=%d operator_said=%s ok=%s kept=%s",
                 sender, receiver_id, len(text), said is not None, result.get("ok"), result.get("kept", False))
-    if result.get("ok") and (hands_work or "").strip().lower() != "false":
-        await asyncio.to_thread(hand_work, sender, receiver_id)
+    if (hands_work or "").strip().lower() != "false":
+        await hand_over_work(sender, receiver_id)
     answer = {**result, "to": receiver_id, "operator_said": said is not None}
     return {**answer, "operator_said_left_out": left_out} if left_out is not None else answer
+
+
+async def hand_over_work(sender: str, receiver_id: str) -> None:
+    """Count the message as the receiver's next work when the receiver is the sender's child. The message has been
+    delivered by now, so a memo that cannot be written is logged and does not turn the delivery into a failure."""
+    try:
+        await asyncio.to_thread(hand_work, sender, receiver_id)
+    except Exception:
+        logger.exception("agent message: the child's memo could not be set back to working child=%s", receiver_id)
 
 
 def _require_peer(request: Request) -> tuple[str, dict]:
@@ -585,14 +648,16 @@ async def post_relayed_agent_message(request: Request, body: dict = Body(...)) -
     to, title, session, text = (body.get(k) for k in ("to", "from_title", "from_session", "text"))
     if not all(isinstance(v, str) and v.strip() for v in (to, title, session, text)):
         raise_error(400, "agent_message_bad_relay", "相手の機械から届いた連絡の形が正しくありません")
-    receiver_id = resolve_receiver(to)
-    if not allowed_for_peer(peer, receiver_id):
-        raise_error(403, "agent_message_peer_not_allowed",
-                    f"宛先のタブは {peer_name} の機械と連絡できません", peer=peer_name)
-    if not _tab_reachable(receiver_id):
-        raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
-    await check(receiver_id, text)
-    result = await _deliver_or_keep(receiver_id, relayed_envelope(peer_name, title, session, text))
+    with failing_as(NOT_SENT_CODE, NOT_SENT_MESSAGE):
+        receiver_id = resolve_receiver(to)
+        if not allowed_for_peer(peer, receiver_id):
+            raise_error(403, "agent_message_peer_not_allowed",
+                        f"宛先のタブは {peer_name} の機械と連絡できません", peer=peer_name)
+        if not _tab_reachable(receiver_id):
+            raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
+        await check(receiver_id, text)
+        message = relayed_envelope(peer_name, title, session, text)
+    result = await _deliver_or_keep(receiver_id, message)
     logger.info("agent message peer=%s sender=%s receiver=%s chars=%d operator_said=False ok=%s kept=%s",
                 peer_name, session, receiver_id, len(text), result.get("ok"), result.get("kept", False))
     return {**result, "to": receiver_id, "operator_said": False}
