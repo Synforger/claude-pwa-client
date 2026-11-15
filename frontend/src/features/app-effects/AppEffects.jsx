@@ -23,6 +23,7 @@ import { useNotificationClear } from '../push-notify/useNotificationClear.js'
 import { useDeepLink } from '../session-drawer/useDeepLink.js'
 import { usePushSubscription } from '../push-notify/usePushSubscription.js'
 import { useViewportSettle } from './useViewportSettle.js'
+import { useKeyboardLog } from './useKeyboardLog.js'
 import {
   subscribe as subscribeUi,
   getSnapshot as getUiSnapshot,
@@ -93,6 +94,9 @@ export default function AppEffects() {
 
   // キーボードが閉じた後に残った文書の送りを戻す (= 画面が上へずれたまま残る件、 戻した時は viewport:settle を記録へ)。
   useViewportSettle()
+
+  // キーボードを出した入力欄の実物 (= 属性・見えているか) と、 日本語の変換が始まったかを記録へ残す (= 予測変換が出なくなる件を実機で捉える)。
+  useKeyboardLog()
 
   return null
 }
