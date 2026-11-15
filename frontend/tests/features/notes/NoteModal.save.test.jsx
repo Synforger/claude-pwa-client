@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
-// 📋 は、 メモを読んだ時の版 (= 応答の ETag) を書く時の `If-Match` で返す。 読んだ後にエージェントがメモを書いていたら
-// backend が 409 で断るので、 画面は「開き直してください」 を出し、 書きかけの文を残す。
+// 📋 sends the version it read (= the ETag of the answer) back in `If-Match` on a save. When an agent wrote the memo since,
+// the backend refuses with 412, and the screen asks for a reopen and keeps the draft.
 import { it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, cleanup, fireEvent, screen, waitFor, act } from '@testing-library/react'
 import NoteModal from '../../../src/features/notes/NoteModal.jsx'
@@ -13,14 +13,14 @@ vi.mock('../../../src/features/file-preview/openPath.js', () => ({ openLinkedPat
 const SID = 'ses_note'
 const NOTE = { path: '/a/pages/x/memo.md', content: '- 状態: 作業中', page: null }
 const CHANGED = { detail: { code: 'note_changed', message: 'メモが変わりました。開き直してください' } }
-const CHANGED_TEXT = 'The notes changed. Reopen them and try again.'   // この環境の言語 (= 英語) での文言
+const CHANGED_TEXT = 'The notes changed. Reopen them and try again.'   // the wording in this environment's language (= English)
 
 function json(body, status, headers = {}) {
   return new Response(JSON.stringify(body), { status, headers })
 }
 
-// 読みには今の版 (= 最初は v1、 書きが通ったらその答えの版) を付けて返し、 書きには次に渡された答えを返す。
-// 呼ばれた (url, init) を残す。
+// A read answers with the current version (= v1 first, then the version of the last save that passed); a write answers with the next answer given.
+// Keeps every (url, init) called.
 function backend(...writes) {
   const calls = []
   let version = '"v1"'
@@ -62,7 +62,7 @@ it('sends the version it read with the save', async () => {
 })
 
 it('keeps what was being written, and says to reopen, when the memo changed since it was read', async () => {
-  backend(json(CHANGED, 409))
+  backend(json(CHANGED, 412))
   await editAndSave('my unsaved text')
   await screen.findByText(CHANGED_TEXT)
   expect(screen.getByTestId('notes-editor').value).toBe('my unsaved text')

@@ -9,7 +9,7 @@ template when the tab's tier is recorded (`terminal/tab_page.py`); the read tell
 Emptying a memo deletes the file (= no empty files pile up). Other pages in the same folder are never touched.
 
 The read answers the memo's version in an `ETag` header (= a hash of the file as it was read; a memo that is not
-there has the version of an empty file). A write that carries it in `If-Match` is refused with 409 when the file
+there has the version of an empty file). A write that carries it in `If-Match` is refused with 412 when the file
 is not what was read any more, so a screen that opened an old copy cannot replace what the agent wrote since. A
 write without `If-Match` goes through as it always did.
 """
@@ -50,7 +50,7 @@ def _read_memo(path: Path) -> tuple[str, str]:
         if path.stat().st_size > FILE_SIZE_LIMIT:
             raise_error(413, "file_too_large", "ファイルが大きすぎます（上限 1MB）", limit="1MB")
     except FileNotFoundError:
-        pass
+        pass                          # benign: a memo that is not there reads as empty below
     raw = _memo_bytes(path)
     text = raw.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
     return text, _version(raw)
@@ -77,7 +77,7 @@ def put_note(
     if len(content.encode("utf-8")) > FILE_SIZE_LIMIT:
         raise_error(413, "file_too_large", "ファイルが大きすぎます（上限 1MB）", limit="1MB")
     if if_match is not None and if_match != _version(_memo_bytes(path)):
-        raise_error(409, "note_changed", "メモが変わりました。開き直してください")
+        raise_error(412, "note_changed", "メモが変わりました。開き直してください")
     try:
         if content == "":
             path.unlink(missing_ok=True)

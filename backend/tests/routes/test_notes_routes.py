@@ -141,7 +141,7 @@ def test_a_write_over_a_memo_the_agent_changed_since_the_read_is_refused_and_lea
     version = client.get(f"/sessions/{a.id}/note").headers["ETag"]
     _write_as_the_agent(a, "- 状態: 詰まり\n\n## 引き継ぎ\n\nwait for the parent\n")
     refused = client.put(f"/sessions/{a.id}/note", json={"content": "stale copy"}, headers={"If-Match": version})
-    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "note_changed"
+    assert refused.status_code == 412 and refused.json()["detail"]["code"] == "note_changed"
     assert "wait for the parent" in memo_path(a.id).read_text(encoding="utf-8")
 
 
@@ -159,7 +159,7 @@ def test_a_memo_that_is_not_there_has_the_version_of_an_empty_one(client, tabs):
     assert client.put(f"/sessions/{a.id}/note", json={"content": "x"}, headers={"If-Match": version}).status_code == 200
     # The agent wrote the memo meanwhile: a screen that read it as empty must not replace it
     _write_as_the_agent(a, "the agent's")
-    assert client.put(f"/sessions/{a.id}/note", json={"content": "y"}, headers={"If-Match": version}).status_code == 409
+    assert client.put(f"/sessions/{a.id}/note", json={"content": "y"}, headers={"If-Match": version}).status_code == 412
 
 
 def test_emptying_a_memo_is_refused_too_when_the_agent_changed_it(client, tabs):
@@ -167,7 +167,7 @@ def test_emptying_a_memo_is_refused_too_when_the_agent_changed_it(client, tabs):
     _write_as_the_agent(a, "old")
     version = client.get(f"/sessions/{a.id}/note").headers["ETag"]
     _write_as_the_agent(a, "new")
-    assert client.put(f"/sessions/{a.id}/note", json={"content": ""}, headers={"If-Match": version}).status_code == 409
+    assert client.put(f"/sessions/{a.id}/note", json={"content": ""}, headers={"If-Match": version}).status_code == 412
     assert memo_path(a.id).read_text(encoding="utf-8") == "new"
 
 

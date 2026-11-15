@@ -23,8 +23,8 @@ import './NoteModal.css'
 // 見る時は markdown のファイルと同じ描き方 (= 見出し / 表 / コード。 書いてある path はタップで開く) で、
 // 長くても畳まず、 段落の改行と空白は書いたとおりに残す。 書く時はただのテキスト欄。
 // メモはそのタブの下書きで、 タブを消すと消える。
-// 読んだ時の版 (= 応答の ETag) を覚え、 書く時に `If-Match` で返す。 読んでから file が変わっていたら (= エージェントが
-// 書いた) backend が 409 で断るので、 古い写しでメモを置き換えない。 断られた時は書きかけを残し、 開き直しを頼む。
+// The version read (= the ETag of the answer) is sent back in `If-Match` on a save. When the file changed since (= an
+// agent wrote it), the backend refuses with 412, so an old copy never replaces the memo; the draft stays and a reopen is asked for.
 // 頭に、 そのタブのトップページへのリンクを固定で置く (= メモの本文とは別の行。 ページは backend が
 // タブの階層を記録した時に作るので、 メモを空にしても消えない)。 ページが無いタブでは出さない。
 export default function NoteModal() {
@@ -44,7 +44,7 @@ export default function NoteModal() {
   const [editText, setEditText] = useState('')
   const [saving, setSaving] = useState(false)
   const [resetConfirm, setResetConfirm] = useState(false)
-  // いま見ている (= 書く前の写しの元の) メモの版。 null = 読んでいない
+  // The version of the memo on screen (= what the draft started from). null = not read yet
   const versionRef = useRef(null)
   // 見る時の字の大きさ (= 2 本の指 / Ctrl・⌘ + ホイール。 markdown のプレビューと同じ値)
   const bodyRef = useRef(null)
@@ -95,13 +95,13 @@ export default function NoteModal() {
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
-        throw Object.assign(new Error(translateHttpErrorDetail(d.detail, `HTTP ${res.status}`)), { changed: res.status === 409 })
+        throw Object.assign(new Error(translateHttpErrorDetail(d.detail, `HTTP ${res.status}`)), { changed: res.status === 412 })
       }
       versionRef.current = res.headers.get('ETag')
       setContent(text)
       setEditMode(false)
     } catch (e) {
-      // 変わっていた時は、 理由がそのまま「開き直してください」 になる。 editMode と editText には触れない (= 書きかけを残す)
+      // When it changed, the reason reads as the ask to reopen. editMode and editText are left alone (= the draft stays)
       setError(e.changed ? e.message : t('notes.save_error', { detail: e.message }))
     } finally {
       setSaving(false)

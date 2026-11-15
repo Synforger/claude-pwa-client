@@ -573,7 +573,7 @@ endpoints:
       - "書くのはそのタブの file だけ (= 他のタブからは見えない)"
       - "content が空文字なら file ごと消す"
       - "存在しないタブは 404、 1MB 超は 413"
-      - "If-Match に GET で読んだ版を付けた時、 file がその後に変わっていれば 409 (note_changed) で書かない。 付けない時は無条件に書く"
+      - "If-Match に GET で読んだ版を付けた時、 file がその後に変わっていれば 412 (note_changed) で書かない。 付けない時は無条件に書く"
       - "応答の ETag header が書いた後の版"
       - "タブを消すと (= DELETE /sessions/{sid}) メモも消える"
     implementation: backend/routes/notes.py
