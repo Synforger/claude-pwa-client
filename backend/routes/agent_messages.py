@@ -52,6 +52,8 @@ from fastapi import APIRouter, Body, Form, Request
 
 from backend.jsonl.jsonl_predicates import (
     AGENT_MESSAGE_OPENING as OPENING,
+    AGENT_MESSAGE_OPENINGS,
+    AGENT_MESSAGE_TAG,
     agent_envelope as _envelope,
     AGENT_MESSAGE_REMOTE_OPENING as REMOTE_OPENING,
     CLIENT_OPENINGS,
@@ -170,7 +172,8 @@ def last_operator_text(record: Path | None) -> str | None:
     発話なら None (= 今の作業を始めたのは人ではない)。 記録が読めない時も None。
 
     作業の途中に積まれた連絡 (= `queued_command`) は、 その作業を始めた人の発話を隠さない。 人の発話の
-    すぐ後に別のタブの連絡が同じ作業へ積まれても、 送り主が答えているのは人の発話だからだ。"""
+    すぐ後に別のタブの連絡が同じ作業へ積まれても、 送り主が答えているのは人の発話だからだ。 1 つの発話の
+    頭に連絡が入り、 その後ろに人の言葉が続く時は、 後ろの言葉を人の発話として読む (`_after_messages`)。"""
     if record is None:
         return None
     try:
@@ -185,13 +188,25 @@ def last_operator_text(record: Path | None) -> str | None:
             if text is None or not text.strip():
                 continue
             text = unwrap_pasted(text).strip()
-            if not text.startswith(CLIENT_OPENINGS):
-                return text
+            words = _after_messages(text)
+            if words and not words.startswith(CLIENT_OPENINGS):
+                return words
             if queued_prompt_text(row) is None:
                 return None
     except OSError:
         logger.warning("agent message: sender's record could not be read: %s", record)
     return None
+
+
+def _after_messages(text: str) -> str:
+    """`text` without the other tabs' messages at its head (= what follows their envelopes). Claude Code puts what
+    waited in the input back into it when a turn is stopped, and what the operator says next is added after it, so one
+    prompt can hold a message and then the operator's words. The first closing tag after an opening is the envelope's
+    own, since a body cannot write one (`envelope`). → `text` unchanged when it does not begin with a message."""
+    closing = f"</{AGENT_MESSAGE_TAG}>"
+    while text.startswith(AGENT_MESSAGE_OPENINGS) and closing in text:
+        text = text.split(closing, 1)[1].strip()
+    return text
 
 
 def _write_private(text: str) -> Path:
