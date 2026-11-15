@@ -493,7 +493,7 @@ def refuse_untyped(result: dict) -> None:
 
 
 def _forget_if_not_delivered(message_id: str | None, result: dict) -> None:
-    """A typing that failed answers `ok: false` without raising, so `delivering` took the id for delivered: forget it,
+    """A delivery that answered `ok: false` without raising leaves `delivering` taking the id for delivered: forget it,
     or the sender's next try with the same id would be dropped as a duplicate and the message lost."""
     if message_id is not None and not result.get("ok"):
         release(message_id)

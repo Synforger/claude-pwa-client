@@ -19,6 +19,8 @@ import threading
 import time
 from collections.abc import Iterator
 
+from fastapi import HTTPException
+
 from backend._common.errors import raise_error
 from backend._common.paths import SEEN_MESSAGE_IDS_PATH
 from backend._common.state import atomic_write_text
@@ -27,6 +29,9 @@ logger = logging.getLogger(__name__)
 
 # 72 hours a message is kept for another machine, plus a day.
 RETENTION_SEC = 96 * 3600
+# The refusal that says the message was typed and may have arrived (= `routes/agent_messages.py::UNCONFIRMED_CODE`).
+# Its id is kept as delivered: a kept message sent again on its own must not put a second copy into the receiver.
+MAY_HAVE_ARRIVED_CODE = "agent_message_unconfirmed"
 # What `claim` answers.
 CLAIMED = "claimed"
 ALREADY_DONE = "already_done"
@@ -98,7 +103,8 @@ def forget_in_flight() -> None:
 def delivering(message_id: str | None) -> Iterator[bool]:
     """Around the delivery of a message that may carry an id. Yields True when the caller is to deliver it, False when
     the id was delivered already (= answer it as a duplicate and type nothing). The id is remembered as delivered when
-    the block ends, and forgotten when it raises. A message with no id (`None`) is always delivered. 409
+    the block ends, and forgotten when it raises, except for a refusal that says the message may have arrived
+    (`MAY_HAVE_ARRIVED_CODE`), which is remembered as delivered. A message with no id (`None`) is always delivered. 409
     `agent_message_in_flight` when the same id is being delivered now."""
     if message_id is None:
         yield True
@@ -111,6 +117,12 @@ def delivering(message_id: str | None) -> Iterator[bool]:
         raise_error(409, "agent_message_in_flight", "同じ連絡をまだ届けている途中です。 少し待って送り直してください")
     try:
         yield True
+    except HTTPException as error:
+        if isinstance(error.detail, dict) and error.detail.get("code") == MAY_HAVE_ARRIVED_CODE:
+            complete(message_id)
+        else:
+            release(message_id)
+        raise
     except BaseException:
         release(message_id)
         raise

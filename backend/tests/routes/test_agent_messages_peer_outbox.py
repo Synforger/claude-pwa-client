@@ -279,3 +279,19 @@ def test_a_typing_that_answered_not_ok_does_not_use_the_id_up(machine, typed, mo
     answer = far.post(am.RELAYED_PATH, json=body).json()
     assert answer["ok"] is True and "duplicate" not in answer
     assert _to_receiver(typed) == ["retry me"]
+
+
+def test_a_message_that_may_have_arrived_is_not_typed_again_with_the_same_id(machine, typed, monkeypatch):
+    # The typing stopped part way: the message may be in the receiver already, so a resend must not add a second copy.
+    far = TestClient(FastAPI(), client=(PEER_ADDRESS, 50000))
+    far.app.include_router(am.router)
+    body = {"to": "ses_receiver", "from_title": "tools", "from_session": "ses_far", "text": "maybe in", "message_id": "e" * 32}
+    real = am._deliver_or_keep
+
+    async def stopped_part_way(tab_id, text):
+        am.raise_error(500, am.UNCONFIRMED_CODE, am.UNCONFIRMED_MESSAGE)
+    monkeypatch.setattr(am, "_deliver_or_keep", stopped_part_way)
+    assert far.post(am.RELAYED_PATH, json=body).json()["detail"]["code"] == am.UNCONFIRMED_CODE
+    monkeypatch.setattr(am, "_deliver_or_keep", real)
+    assert far.post(am.RELAYED_PATH, json=body).json()["duplicate"] is True
+    assert _to_receiver(typed) == []
