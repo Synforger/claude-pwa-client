@@ -9,7 +9,9 @@ import asyncio
 import http.client
 import json
 import logging
+import socket
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 
@@ -21,6 +23,10 @@ RELAY_TIMEOUT_SEC = 240.0
 # How long to wait for the other machine's tab list. A machine that is down must not keep the caller waiting (= no
 # check runs for a list, so a short wait is enough).
 PEER_LIST_TIMEOUT_SEC = 10.0
+# How long to wait for the connection itself before any call. urllib uses one limit for connecting and for reading,
+# so without this a machine that sleeps would hold a handed-over message for the whole `RELAY_TIMEOUT_SEC` before it is
+# kept (= a connection over the tailnet opens in well under a second when the machine is up).
+CONNECT_TIMEOUT_SEC = PEER_LIST_TIMEOUT_SEC
 # The paths the backends call on each other (= accepted only from a configured machine's address).
 RELAYED_PATH = "/agent-messages/relayed"
 PEER_TABS_PATH = "/agent-messages/tabs"
@@ -44,6 +50,7 @@ class PeerReply:
 
 
 def _call_peer(url: str, payload: dict | None, timeout: float) -> tuple[int, dict]:
+    _check_connects(url)
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     request = urllib.request.Request(url, data=data, method="POST" if data else "GET",
                                      headers={"Content-Type": "application/json"})
@@ -57,6 +64,17 @@ def _call_peer(url: str, payload: dict | None, timeout: float) -> tuple[int, dic
     except ValueError:
         body = {}
     return status, body if isinstance(body, dict) else {}
+
+
+def _check_connects(url: str) -> None:
+    """Open and close a connection to the machine within `CONNECT_TIMEOUT_SEC`, so that a machine that is down is
+    told apart in seconds. Raises `URLError` (= the request was never sent) when it does not open."""
+    parts = urllib.parse.urlsplit(url)
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    try:
+        socket.create_connection((parts.hostname, port), timeout=CONNECT_TIMEOUT_SEC).close()
+    except OSError as error:
+        raise urllib.error.URLError(error) from None
 
 
 async def call_peer(name: str, peer: dict, path: str, payload: dict | None = None,
