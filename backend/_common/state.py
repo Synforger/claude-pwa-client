@@ -48,10 +48,16 @@ logger = logging.getLogger(__name__)
 
 def atomic_write_text(path: Path, content: str) -> None:
     """tmp ファイルに書いて os.replace で差し替える atomic write。
-    書き込み途中に kill されても元ファイルは壊れない。 同一 FS 内のみ atomic。"""
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(content)
-    os.replace(tmp, path)
+    書き込み途中に kill されても元ファイルは壊れない。 同一 FS 内のみ atomic。
+    tmp の名前に pid と uuid を入れる (= 同じ path へ同時に書く 2 つの呼び出しが、 1 つの tmp を取り合わない)。
+    書けなかった時は tmp を残さない。"""
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(content)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 # --- 永続化パス ---
 from backend._common.paths import SESSION_META_PATH  # noqa: E402, F401

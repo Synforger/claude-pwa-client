@@ -6,7 +6,9 @@ tmux と claude は立てない。 「宛先で claude が動いているか」 
 from __future__ import annotations
 
 import json
+import re
 import sys
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -14,6 +16,7 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 import backend._common.config as config_mod
+from backend.peers import outbox_store, peer_call
 from backend.routes import agent_messages as am
 from backend._common.state import SessionDef
 
@@ -550,7 +553,7 @@ def carried(monkeypatch) -> list[tuple[str, dict | None]]:
         calls.append((url, payload))
         return 200, {"ok": True, "delivered": True, "to": "ses_far", "operator_said": False}
 
-    monkeypatch.setattr(am, "_call_peer", fake_call)
+    monkeypatch.setattr(peer_call, "_call_peer", fake_call)
     return calls
 
 
@@ -570,9 +573,12 @@ def test_a_message_for_a_tab_on_another_machine_is_handed_to_that_machine(client
     r = _send(client, to="home:notes", text="the build is on the other machine now")
     assert r.status_code == 200
     assert r.json() == {"ok": True, "delivered": True, "to": "home:ses_far", "operator_said": False}
-    assert carried == [("http://peer.test/agent-messages/relayed", {
-        "to": "notes", "from_title": "tools", "from_session": "ses_sender",
-        "text": "the build is on the other machine now"})]
+    [(url, payload)] = carried
+    assert url == "http://peer.test/agent-messages/relayed"
+    message_id = payload.pop("message_id")  # the sending backend gives each message an id (= `peers/seen_message_ids.py`)
+    assert re.fullmatch(r"[0-9a-f]{32}", message_id)
+    assert payload == {"to": "notes", "from_title": "tools", "from_session": "ses_sender",
+                       "text": "the build is on the other machine now"}
     assert typed == []  # この機械のタブには何も打たれない
 
 
@@ -645,21 +651,24 @@ def test_a_message_the_check_refuses_never_leaves_the_machine(client, tabs, type
     assert carried == []
 
 
-def test_a_machine_that_cannot_be_reached_is_reported(client, tabs, typed, monkeypatch, tmp_path):
+def test_a_machine_that_cannot_be_reached_keeps_the_message_instead_of_failing(client, tabs, typed, monkeypatch, tmp_path):
     _peers(monkeypatch, tmp_path)
 
     def down(url, payload, timeout):
-        raise OSError("no route to host")
-    monkeypatch.setattr(am, "_call_peer", down)
+        raise urllib.error.URLError(ConnectionRefusedError("refused"))
+    monkeypatch.setattr(peer_call, "_call_peer", down)
     r = _send(client, to="home:notes")
-    assert r.status_code == 502
-    assert r.json()["detail"]["code"] == "agent_message_peer_unreachable"
+    assert r.status_code == 200
+    body = r.json()
+    assert (body["ok"], body["outbox"], body["to"], body["reason"]) == (True, True, "home:notes", "peer_unreachable")
+    assert "kept" not in body  # `kept` is the account hold's (= a message kept for a stopped tab)
+    assert [e["to"] for e in outbox_store.pending("home")] == ["notes"]
 
 
 def test_the_other_machine_s_refusal_comes_back_as_it_was(client, tabs, typed, monkeypatch, tmp_path):
     _peers(monkeypatch, tmp_path)
     refusal = {"detail": {"code": "agent_message_receiver_not_running", "message": "宛先のタブで claude が動いていません"}}
-    monkeypatch.setattr(am, "_call_peer", lambda url, payload, timeout: (409, refusal))
+    monkeypatch.setattr(peer_call, "_call_peer", lambda url, payload, timeout: (409, refusal))
     r = _send(client, to="home:notes")
     assert r.status_code == 409
     assert r.json()["detail"]["code"] == "agent_message_receiver_not_running"
@@ -804,7 +813,7 @@ def test_the_tabs_of_each_peer_are_listed_for_a_caller_on_this_machine(client, t
             raise OSError("down")
         assert (url, payload) == ("http://home.test/agent-messages/tabs", None)
         return 200, {"tabs": [{"id": "ses_far", "title": "notes", "running": True}]}
-    monkeypatch.setattr(am, "_call_peer", fake_call)
+    monkeypatch.setattr(peer_call, "_call_peer", fake_call)
     assert client.get("/agent-messages/peers").json() == {"peers": [
         {"name": "home", "tabs": [{"id": "ses_far", "title": "notes", "running": True}], "error": None},
         {"name": "lab", "tabs": None, "error": "unreachable"},
@@ -820,7 +829,7 @@ def test_two_machines_carry_a_message_end_to_end(client, tabs, typed, monkeypatc
     def through(url, payload, timeout):
         r = far.post(url.removeprefix("http://peer.test"), json=payload)
         return r.status_code, r.json()
-    monkeypatch.setattr(am, "_call_peer", through)
+    monkeypatch.setattr(peer_call, "_call_peer", through)
     r = _send(client, to="home:client work", text="over the wire")
     assert r.json() == {"ok": True, "delivered": True, "to": "home:ses_receiver", "operator_said": False}
     assert typed[0][0] == "ses_receiver"

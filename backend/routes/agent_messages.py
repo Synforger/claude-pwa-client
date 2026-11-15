@@ -10,6 +10,10 @@
 書くのは届ける側の backend で、 どの機械から来たかは、 呼び出しの接続元を設定の相手と突き合わせて
 決める (= 送り主の言い分では決まらない)。 相手の機械のタブの一覧は `GET /agent-messages/peers`。
 
+相手の機械が答えない時 (= 眠っている・電源か網が落ちている) は、 連絡を失敗にせず、 こちらの backend が預かって、
+相手が戻った回に古い順に届ける (= `backend/peers/`。 応答は `outbox: true`)。 連絡には id (= `message_id`) が付き、
+相手が同じ id を 2 回受けても 1 回しか打たない (= 送り直しが重なっても二重にならない)。
+
 別の機械から届いた連絡は、 1 行目が別の文になる (= `REMOTE_OPENING`)。 受け取った側の claude と、
 端末の入力を読む外の道具が、 「この機械の外から来た」 を 1 行目だけで見分けられる。 **人の発話は
 機械を跨がない**: `<operator-said>` を書けるのは、 その発話が打たれた機械の backend だけで、 別の機械の
@@ -42,9 +46,8 @@ import asyncio
 import json
 import logging
 import os
+import re
 import subprocess
-import urllib.error
-import urllib.request
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -68,6 +71,15 @@ from backend.jsonl.jsonl_predicates import (
 from backend._common.errors import raise_error
 from backend.child_watch.child_work import hand_work
 from backend._common.state import sessions_meta
+from backend.peers import peer_send
+from backend.peers.peer_call import (  # noqa: F401 (= re-exported: the tests and the other routes read them here)
+    PEER_LIST_TIMEOUT_SEC,
+    PEER_TABS_PATH,
+    RELAY_TIMEOUT_SEC,
+    RELAYED_PATH,
+    call_peer,
+)
+from backend.peers.seen_message_ids import delivering, release
 from backend.terminal import input_ready
 from backend.terminal.first_message import LAUNCH_DISCOVER_SEC
 from backend.terminal.pty_discover import claude_in_pane, register_claude_when_ready
@@ -95,17 +107,12 @@ CHECK_TIMEOUT_SEC = 200.0
 # 検査が「どこが当たったか」 として出した行のうち、 送り主へ返す数と 1 行の長さ
 HIT_LINES = 20
 HIT_LINE_CHARS = 300
-# 相手の backend を待つ上限。 相手も届ける前に自分の検査を走らせるので、 その上限より長く取る。
-RELAY_TIMEOUT_SEC = 240.0
 # 人の発話を頼まれたのに封筒に入れられなかった理由 (= 返事の `operator_said_left_out`)。
 OPERATOR_SAID_NONE = "no_operator_words"
 OPERATOR_SAID_REFUSED = "refused"
 OPERATOR_SAID_OTHER_MACHINE = "other_machine"
-# 相手のタブの一覧を待つ上限。 相手が落ちている時に、 一覧を打った側を待たせない (= 検査は走らないので短くてよい)。
-PEER_LIST_TIMEOUT_SEC = 10.0
-# 相手の backend どうしが呼び合う口 (= 設定された相手の接続元からだけ受ける)。
-RELAYED_PATH = "/agent-messages/relayed"
-PEER_TABS_PATH = "/agent-messages/tabs"
+# 連絡の id (= `peers/seen_message_ids.py`)。 送り手の backend が付ける uuid4 の 32 桁
+MESSAGE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 LOCAL_TABS_PATH = "/agent-messages/local-tabs"
 # What `pty_send` answers with `ok: False` when it typed nothing into the pane (= the claude was not listening, or the
 # launch it needed could not be typed).
@@ -385,32 +392,6 @@ def peer_of_caller(request: Request) -> tuple[str, dict] | None:
     return None
 
 
-def _call_peer(url: str, payload: dict | None, timeout: float) -> tuple[int, dict]:
-    data = json.dumps(payload).encode("utf-8") if payload is not None else None
-    request = urllib.request.Request(url, data=data, method="POST" if data else "GET",
-                                     headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 (= url は設定の物)
-            raw, status = response.read(), response.status
-    except urllib.error.HTTPError as error:
-        raw, status = error.read(), error.code
-    try:
-        body = json.loads(raw or b"{}")
-    except ValueError:
-        body = {}
-    return status, body if isinstance(body, dict) else {}
-
-
-async def call_peer(name: str, peer: dict, path: str, payload: dict | None = None,
-                    timeout: float = RELAY_TIMEOUT_SEC) -> tuple[int | None, dict]:
-    """相手の backend を 1 回呼んで (HTTP の状態, 本文) を返す。 繋がらなければ状態は None。"""
-    try:
-        return await asyncio.to_thread(_call_peer, peer["url"] + path, payload, timeout)
-    except OSError as error:
-        logger.warning("agent message: peer %s could not be reached: %s", name, error)
-        return None, {}
-
-
 def _tab_running(tab_id: str) -> bool:
     # e2e (= CPC_E2E=1) には本物の claude が居ない。 送信口と同じく、 端末の代わりに記録へ行を足す。
     return os.environ.get("CPC_E2E") == "1" or claude_in_pane(tab_id)
@@ -511,6 +492,13 @@ def refuse_untyped(result: dict) -> None:
     raise_error(500, UNCONFIRMED_CODE, UNCONFIRMED_MESSAGE)
 
 
+def _forget_if_not_delivered(message_id: str | None, result: dict) -> None:
+    """A delivery that answered `ok: false` without raising leaves `delivering` taking the id for delivered: forget it,
+    or the sender's next try with the same id would be dropped as a duplicate and the message lost."""
+    if message_id is not None and not result.get("ok"):
+        release(message_id)
+
+
 async def _deliver_or_keep(tab_id: str, text: str) -> dict:
     """Deliver `text` (= a message in its envelope), or keep it without waking the tab when the account hold has the
     tab stopped and no account is clear for it to run on (`account_hold/hold_mail.py`): the hold hands it over once one
@@ -529,7 +517,8 @@ async def _deliver_or_keep(tab_id: str, text: str) -> dict:
 
 
 async def send_to_peer(peer_name: str, tab: str, sender: str, text: str) -> dict:
-    """別の機械のタブへの連絡。 こちらの検査を通してから相手の backend へ渡す。
+    """別の機械のタブへの連絡。 こちらの検査を通してから相手の backend へ渡す (= `peers/peer_send.py`)。
+    相手が答えない時は、 失敗にせず預かる (= 戻った時に届ける。 答えは `outbox: true`)。
 
     検査には、 宛先の session id の代わりに `<相手の名前>:<タブ>` を渡す (= この機械のどの会話でもない
     名前)。 人の発話は付けない (= 頼まれても。 機械を跨ぐと、 受け取る側で本物か確かめられない)。
@@ -544,21 +533,11 @@ async def send_to_peer(peer_name: str, tab: str, sender: str, text: str) -> dict
         await judge(name, text, name)
     # From the call on, the other machine may have delivered the message whatever happens to the answer.
     with failing_as(UNCONFIRMED_CODE, UNCONFIRMED_MESSAGE):
-        status, body = await call_peer(peer_name, peer, RELAYED_PATH, {
-            "to": tab, "from_title": sessions_meta[sender].title, "from_session": sender, "text": text,
-        })
-    if status is None:
-        raise_error(502, "agent_message_peer_unreachable", f"{peer_name} の機械に繋がりませんでした", peer=peer_name)
-    if status != 200:
-        detail = body.get("detail") if isinstance(body.get("detail"), dict) else {}
-        params = {k: v for k, v in (detail.get("params") or {}).items() if k not in ("status_code", "code", "message")}
-        raise_error(status if 400 <= status < 600 else 502, detail.get("code") or "agent_message_peer_failed",
-                    detail.get("message") or f"{peer_name} の機械が理由を付けずに失敗を返しました (HTTP {status})。 "
-                    "届いたかもしれないので、 もう一度送る前に相手のタブで確かめてください",
-                    **{**params, "peer": peer_name})
-    logger.info("agent message sender=%s receiver=%s chars=%d operator_said=False ok=%s",
-                sender, name, len(text), body.get("ok"))
-    return {**body, "to": f"{peer_name}:{body.get('to', tab)}", "operator_said": False}
+        answer = await peer_send.send(peer_name, peer, tab=tab, sender=sender, title=sessions_meta[sender].title,
+                                      text=text)
+    logger.info("agent message sender=%s receiver=%s chars=%d operator_said=False ok=%s outbox=%s",
+                sender, name, len(text), answer.get("ok"), answer.get("outbox", False))
+    return answer
 
 
 @router.post("/agent-messages")
@@ -569,6 +548,7 @@ async def post_agent_message(
     text: str = Form(...),
     operator_said: bool = Form(False),
     hands_work: str | None = Form(None),
+    message_id: str | None = Form(None),
 ) -> dict:
     """タブの中の claude が、 別のタブの claude へ連絡を送る。
 
@@ -580,6 +560,9 @@ async def post_agent_message(
         hands_work    (str):  宛先が送り主の子の時、 次の仕事を渡す連絡か。 `false` の時だけ渡さない (= 受け取りの知らせ
                               など)。 真偽の欄にしないのは、 form で送られなかった真偽の欄を FastAPI が既定によらず
                               false として受けるため
+        message_id    (str):  連絡の id (= uuid4 の 32 桁。 `tabs send` が 1 回の起動ごとに付ける)。 同じ id が 2 回目に
+                              来たら、 打たずに `{"ok": true, "duplicate": true}` を返す (= `peers/seen_message_ids.py`)。
+                              別の機械宛ての連絡には使わない (= 送り手の backend が自分で付ける)
     """
     client_host = request.client.host if request.client else None
     if client_host not in LOCAL_CLIENTS:
@@ -589,6 +572,8 @@ async def post_agent_message(
         raise_error(400, "agent_message_unknown_sender", f"送り主のタブが見つかりません: {sender}", sender=sender)
     if not text.strip():
         raise_error(400, "agent_message_empty", "本文が空です")
+    if message_id is not None and not MESSAGE_ID_RE.match(message_id):
+        raise_error(400, "agent_message_bad_id", "連絡の id は uuid4 の 32 桁 (小文字の 16 進) で書いてください")
     peer_name, tab = split_peer(to)
     if peer_name is not None:
         result = await send_to_peer(peer_name, tab, sender, text)
@@ -597,13 +582,18 @@ async def post_agent_message(
         receiver_id = resolve_receiver(to)
         if receiver_id == sender:
             raise_error(400, "agent_message_to_self", "自分のタブへは送れません")
-        if not _tab_reachable(receiver_id):
-            raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
-        await check(receiver_id, text)
-        said, left_out = await operator_said_for(sender, receiver_id) if operator_said else (None, None)
-        title = await sender_title(sender, receiver_id)
-        message = envelope(sender, text, said, title)
-    result = await _deliver_or_keep(receiver_id, message)
+    with delivering(message_id) as first:
+        if not first:
+            return {"ok": True, "duplicate": True, "to": receiver_id, "operator_said": False}
+        with failing_as(NOT_SENT_CODE, NOT_SENT_MESSAGE):
+            if not _tab_reachable(receiver_id):
+                raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
+            await check(receiver_id, text)
+            said, left_out = await operator_said_for(sender, receiver_id) if operator_said else (None, None)
+            title = await sender_title(sender, receiver_id)
+            message = envelope(sender, text, said, title)
+        result = await _deliver_or_keep(receiver_id, message)
+    _forget_if_not_delivered(message_id, result)
     logger.info("agent message sender=%s receiver=%s chars=%d operator_said=%s ok=%s kept=%s",
                 sender, receiver_id, len(text), said is not None, result.get("ok"), result.get("kept", False))
     if (hands_work or "").strip().lower() != "false":
@@ -643,21 +633,32 @@ async def post_relayed_agent_message(request: Request, body: dict = Body(...)) -
         from_title    (str): 送り主のタブの名前
         from_session  (str): 送り主のタブの id (= 相手の機械での id)
         text          (str): 本文
+        message_id    (str): 連絡の id (= 送り手の backend が付ける uuid4 の 32 桁。 無くてもよい: 古い backend の連絡)。
+                             同じ id を既に届けていたら、 打たずに `{"ok": true, "duplicate": true}` を返す。 届けている
+                             途中なら 409 `agent_message_in_flight` (= 送り手は預かりに残して次の回に送り直す)
     """
     peer_name, peer = _require_peer(request)
     to, title, session, text = (body.get(k) for k in ("to", "from_title", "from_session", "text"))
-    if not all(isinstance(v, str) and v.strip() for v in (to, title, session, text)):
+    message_id = body.get("message_id")
+    if not all(isinstance(v, str) and v.strip() for v in (to, title, session, text)) or not (
+            message_id is None or (isinstance(message_id, str) and MESSAGE_ID_RE.match(message_id))):
         raise_error(400, "agent_message_bad_relay", "相手の機械から届いた連絡の形が正しくありません")
     with failing_as(NOT_SENT_CODE, NOT_SENT_MESSAGE):
         receiver_id = resolve_receiver(to)
         if not allowed_for_peer(peer, receiver_id):
             raise_error(403, "agent_message_peer_not_allowed",
                         f"宛先のタブは {peer_name} の機械と連絡できません", peer=peer_name)
-        if not _tab_reachable(receiver_id):
-            raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
-        await check(receiver_id, text)
-        message = relayed_envelope(peer_name, title, session, text)
-    result = await _deliver_or_keep(receiver_id, message)
+    with delivering(message_id) as first:
+        if not first:
+            logger.info("agent message peer=%s message_id=%s was delivered already", peer_name, message_id)
+            return {"ok": True, "duplicate": True, "to": receiver_id, "operator_said": False}
+        with failing_as(NOT_SENT_CODE, NOT_SENT_MESSAGE):
+            if not _tab_reachable(receiver_id):
+                raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
+            await check(receiver_id, text)
+            message = relayed_envelope(peer_name, title, session, text)
+        result = await _deliver_or_keep(receiver_id, message)
+    _forget_if_not_delivered(message_id, result)
     logger.info("agent message peer=%s sender=%s receiver=%s chars=%d operator_said=False ok=%s kept=%s",
                 peer_name, session, receiver_id, len(text), result.get("ok"), result.get("kept", False))
     return {**result, "to": receiver_id, "operator_said": False}
@@ -699,11 +700,11 @@ async def get_peers(request: Request) -> dict:
         raise_error(403, "agent_message_local_only", "この口は同じ機械の中からだけ使えます")
     peers = []
     for name, peer in AGENT_MESSAGE_PEERS.items():
-        status, body = await call_peer(name, peer, PEER_TABS_PATH, timeout=PEER_LIST_TIMEOUT_SEC)
-        if status == 200 and isinstance(body.get("tabs"), list):
-            peers.append({"name": name, "tabs": body["tabs"], "error": None})
+        reply = await call_peer(name, peer, PEER_TABS_PATH, timeout=PEER_LIST_TIMEOUT_SEC)
+        if reply.status == 200 and isinstance(reply.body.get("tabs"), list):
+            peers.append({"name": name, "tabs": reply.body["tabs"], "error": None})
         else:
-            detail = body.get("detail") if isinstance(body.get("detail"), dict) else {}
+            detail = reply.body.get("detail") if isinstance(reply.body.get("detail"), dict) else {}
             peers.append({"name": name, "tabs": None,
-                          "error": detail.get("code") or ("unreachable" if status is None else f"http_{status}")})
+                          "error": detail.get("code") or ("unreachable" if reply.status is None else f"http_{reply.status}")})
     return {"peers": peers}

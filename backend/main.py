@@ -109,6 +109,8 @@ import backend.account_fallback as account_fallback  # noqa: E402
 import backend.account_hold as account_hold  # noqa: E402
 import backend.limit_resume as limit_resume  # noqa: E402
 import backend.child_watch.watch_patrol as child_watch  # noqa: E402
+import backend.peers as peers  # noqa: E402
+from backend.peers.seen_message_ids import forget_in_flight  # noqa: E402
 from backend.observability.loop_stall import loop_stall_watch  # noqa: E402
 import backend.terminal.session_resolver as session_resolver  # noqa: E402
 import backend.routes.rollover as rollover_routes  # noqa: E402
@@ -294,6 +296,15 @@ async def lifespan(app: FastAPI):
     # 起動する (= `backend/tier_tabs/tier_tabs.py`。 設定の無い agent には何もしない)。
     tier_tabs_task = asyncio.create_task(tier_tabs.tier_tabs_loop())
 
+    # 別の機械: 設定した相手が答えるかを見張り、 答えない間に預かった連絡を、 戻った回に届ける
+    # (= `backend/peers/`。 相手の設定が無くても、 預かったまま古くなった連絡の始末はする)。
+    # 届けている途中だった連絡の id は、 その届けごと process と一緒に消えたので忘れる。
+    try:
+        forget_in_flight()
+    except Exception:
+        logger.exception("forgetting the message ids in flight failed")
+    peer_task = asyncio.create_task(peers.peer_loop())
+
     # ページの origin: 設定した folder の HTML を、 sandbox を外して別の port から配る (= 設定が無ければ立てない)。
     page_server = _start_page_server()
 
@@ -332,10 +343,12 @@ async def lifespan(app: FastAPI):
     resume_task.cancel()
     child_watch_task.cancel()
     tier_tabs_task.cancel()
+    peer_task.cancel()
     prompt_detector_task.cancel()
     loop_stall_task.cancel()
     for _t in (blocker_monitor_task, uploads_gc_task, maintenance_task, rollover_task, sleep_task, fallback_task,
-               hold_task, resume_task, child_watch_task, tier_tabs_task, prompt_detector_task, loop_stall_task):
+               hold_task, resume_task, child_watch_task, tier_tabs_task, peer_task, prompt_detector_task,
+               loop_stall_task):
         try:
             await _t
         except (asyncio.CancelledError, Exception):
