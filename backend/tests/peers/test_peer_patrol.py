@@ -115,3 +115,27 @@ def test_the_interval_is_five_minutes_unless_a_test_shortens_it(monkeypatch, val
     else:
         monkeypatch.setenv("CPC_PEER_CHECK_INTERVAL_SEC", value)
     assert peer_patrol._interval_sec() == seconds
+
+
+def test_a_look_at_one_machine_that_fails_does_not_stop_the_look_at_another(home, far, monkeypatch, tmp_path, caplog):
+    import json
+    import backend._common.config as config_mod
+    (tmp_path / "two.json").write_text(json.dumps({"agent_message_peers": {
+        "home": {"url": "http://peer.test", "address": "100.64.0.2"},
+        "lab": {"url": "http://lab.test", "address": "100.64.0.3"}}}))
+    monkeypatch.setattr(config_mod, "CONFIG_PATH", tmp_path / "two.json")
+    config_mod.get_config.cache_clear()
+    looked: list[str] = []
+    real = peer_patrol.check_peer
+
+    async def check(name, peer):
+        looked.append(name)
+        if name == "home":
+            raise RuntimeError("boom")
+        await real(name, peer)
+
+    monkeypatch.setattr(peer_patrol, "check_peer", check)
+    far.default = TABS
+    run(peer_patrol.tick())
+    assert sorted(looked) == ["home", "lab"] and peer_health_store.get("lab")["ok"] is True
+    assert "peer home: the look failed" in caplog.text

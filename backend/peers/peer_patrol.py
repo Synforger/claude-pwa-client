@@ -43,7 +43,11 @@ async def tick() -> None:
     kept messages that waited too long."""
     from backend._common.config import AGENT_MESSAGE_PEERS  # noqa: PLC0415
     await outbox_flush.expire_old()
-    await asyncio.gather(*(check_peer(name, peer) for name, peer in AGENT_MESSAGE_PEERS.items()))
+    looked = await asyncio.gather(*(check_peer(name, peer) for name, peer in AGENT_MESSAGE_PEERS.items()),
+                                  return_exceptions=True)
+    for name, outcome in zip(AGENT_MESSAGE_PEERS, looked):
+        if isinstance(outcome, BaseException):
+            logger.error("peer %s: the look failed", name, exc_info=outcome)
 
 
 async def peer_loop(interval_sec: float | None = None) -> None:
