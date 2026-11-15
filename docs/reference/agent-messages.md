@@ -197,18 +197,31 @@ session) を受け取り、 見せてよい名前ごとに `<外向きの名前>
 
 ## 届かない時
 
+失敗には必ず code が付きます。 code は、 連絡が宛先に届いたかもしれないかを分けて言います。 何も打っていない失敗
+(`agent_message_receiver_not_ready`・`agent_message_not_sent` など) は、 そのまま送り直せます。 打った後で結果を確かめられ
+なかった失敗 (`agent_message_unconfirmed`) は、 届いているかもしれないので、 宛先の会話で確かめてから送り直します
+(= 確かめずに送ると 2 通届くことがあります)。 backend が答えを返せなかった時 (= 再起動の最中・時間切れ) は、 `tabs send` が
+同じ 2 つの code で出します。
+
 | 返ってくる code | 意味 |
 |---|---|
-| `agent_message_unknown_receiver` | その名前 / id のタブが無い |
+| `agent_message_unknown_receiver` | その名前 / id のタブが無い (= 閉じたタブの id も。 `tabs list` で今の持ち主を引いて送り直す) |
 | `agent_message_ambiguous_receiver` | 同じ名前のタブが複数ある。 返ってきた id のどれかを指定する |
+| `agent_message_to_self` | 宛先が送り主のタブ |
+| `agent_message_empty` | 本文が空 |
+| `agent_message_unknown_sender` | 送り主の id が backend のタブに無い |
 | `agent_message_receiver_not_running` | 宛先のタブで Claude が動いておらず、 起動もできない (= 起動ラッパを使わないエージェントで、 開き直す会話も無い。 上の「Claude が動いていないタブへ送った時」) |
-| `agent_message_receiver_not_ready` | 宛先の Claude が時間内に起動しなかった。 または宛先の会話がまだ始まっていないため、 検査できない (= 検査を設定している時のみ)。 もう一度送る |
+| `agent_message_receiver_not_ready` | 何も打っていない: 宛先の Claude が時間内に起動しなかった、 入力を受け付ける状態にならなかった、 または宛先の会話がまだ始まっていないため検査できない (= 検査を設定している時のみ)。 もう一度送る |
 | `agent_message_not_taken` | 起動した宛先の Claude が、 打った連絡を受け取らなかった (= 上の確かめと、 1 回だけの救済でも会話の記録に行が来なかった)。 もう一度送る |
 | `agent_message_refused` | 検査が連絡を通さなかった。 理由が `reason` に、 検査が「本文のどこが当たったか」 を出していればその行が `hits` に入っている |
+| `agent_message_not_sent` | 想定外のエラーが、 何かを打つ前に起きた (= 宛先には何も届いていない)。 もう一度送る。 繰り返す時は code と時刻を client の不具合として送る |
+| `agent_message_unconfirmed` | 打った後で、 届いたかを確かめられなかった (= 入力が途中で止まった、 打つ途中に想定外のエラーが起きた、 相手の機械を呼んだ後に答えが途切れた)。 届いているかもしれない。 宛先で確かめてから送り直す |
 | `agent_message_check_failed` | 検査を実行できなかった、 または時間内に終わらなかった |
 | `agent_message_local_only` | 別の機械から呼ばれた |
 | `agent_message_peer_not_allowed` | そのタブは、 その機械と連絡してよい account のタブではない |
 | `agent_message_peer_unreachable` | 相手の機械の backend に繋がらなかった |
+| `agent_message_peer_failed` | 相手の機械が、 code を付けずに失敗を返した。 届いたかもしれない (= 相手のタブで確かめてから送り直す) |
+| `agent_message_bad_relay` | (= 相手の機械へ返る) 預かった連絡の形が正しくない |
 | `agent_message_unknown_peer` | (= 相手の機械へ返る) 設定されていない接続元から連絡を預けようとした |
 
 ## 別の機械のタブへ送る (任意)

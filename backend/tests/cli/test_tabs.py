@@ -6,6 +6,7 @@
 import importlib.util
 import json
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -59,11 +60,13 @@ class Backend:
 
     def __init__(self):
         self.calls: list[dict] = []
-        self.answers: dict[str, int] = {}
+        self.answers: dict[str, object] = {}
         self.tabs: list[dict] = []
         self.local_tabs: list[dict] = []
         # 子のタブの id → 区切りから外している理由 (= `GET /sessions/{親}/children`)。 無い子は区切りに居る (= [])
         self.holds: dict[str, list[str] | None] = {}
+        # called when a message arrives, before the answer (= what a test looks at while the sender waits)
+        self.on_send = None
         backend = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -113,6 +116,14 @@ class Backend:
                         return self.reply(backend.answers["children"], {"detail": {"code": "child_session_limit", "message": "full"}})
                     return self.reply(200, {"id": "ses_new", "child": True, "parent_id": "ses_parent", "started": True})
                 if method == "POST" and self.path == "/agent-messages":
+                    if backend.on_send is not None:
+                        backend.on_send()
+                    if "send-raw" in backend.answers:       # (status, body) as it is, or None to drop the connection
+                        raw = backend.answers["send-raw"]
+                        if raw is None:
+                            self.close_connection = True
+                            return None
+                        return self.reply(*raw)
                     if backend.answers.get("send", 200) != 200:
                         return self.reply(backend.answers["send"], {"detail": {"code": "agent_message_refused", "message": "no"}})
                     return self.reply(200, {"ok": True, "to": form.get("to"), **backend.answers.get("send-body", {})})
@@ -446,6 +457,42 @@ def test_report_is_only_for_children_and_changes_the_note_only_when_it_arrives(f
     assert "- 状態: 完了" in note.read_text(encoding="utf-8")
 
 
+def test_a_report_marks_the_memo_before_it_is_sent_so_the_parent_s_next_work_is_not_overwritten(family, tmp_path):
+    result = tmp_path / "result.txt"
+    result.write_text("done\n", encoding="utf-8")
+    note = family.agent / "pages/ses_a/memo.md"
+    seen: list[str] = []
+
+    def parent_answers_at_once() -> None:
+        seen.append(note.read_text(encoding="utf-8"))
+        note.write_text(seen[0].replace("- 状態: 完了", "- 状態: 作業中"), encoding="utf-8")    # what the backend does
+    family.backend.on_send = parent_answers_at_once
+    assert family.run("report", "done", str(result), PWA_SID="ses_a", AGENT_CHILD="1", PWA_NOTE=str(note)) == 0
+    assert "- 状態: 完了" in seen[0]
+    assert "- 状態: 作業中" in note.read_text(encoding="utf-8")
+
+
+def test_a_report_that_was_not_sent_puts_the_state_back_unless_it_was_set_meanwhile(family, tmp_path):
+    result = tmp_path / "result.txt"
+    result.write_text("done\n", encoding="utf-8")
+    note = family.agent / "pages/ses_a/memo.md"
+    before = note.read_text(encoding="utf-8")
+    family.backend.answers["send"] = 403
+    assert family.run("report", "stuck", str(result), PWA_SID="ses_a", AGENT_CHILD="1", PWA_NOTE=str(note)) == 1
+    assert note.read_text(encoding="utf-8") == before
+
+    # a state set by someone else meanwhile is left alone
+    family.backend.on_send = lambda: note.write_text(before + "\n- 追記\n", encoding="utf-8")
+    assert family.run("report", "stuck", str(result), PWA_SID="ses_a", AGENT_CHILD="1", PWA_NOTE=str(note)) == 1
+    assert note.read_text(encoding="utf-8") == before + "\n- 追記\n"
+
+    # a line added to the memo meanwhile is kept when the state is put back
+    note.write_text(before, encoding="utf-8")
+    family.backend.on_send = lambda: note.write_text(note.read_text(encoding="utf-8") + "\n- 追記\n", encoding="utf-8")
+    assert family.run("report", "stuck", str(result), PWA_SID="ses_a", AGENT_CHILD="1", PWA_NOTE=str(note)) == 1
+    assert note.read_text(encoding="utf-8") == before + "\n- 追記\n"
+
+
 def test_a_child_started_before_memos_moved_reports_into_the_memo_children_reads(family, tmp_path):
     """A child started with the old `PWA_NOTE` (whose memo has since moved to `pages/`) still marks the memo that
     `children` and `close` read."""
@@ -669,6 +716,23 @@ def test_the_listing_tells_a_tab_put_to_sleep_from_one_that_never_started(tabs):
     lines = {line.split()[0]: line for line in tabs.out.splitlines() if line.strip()}
     assert lines["ses_nap"].split("  ")[3] == "眠り"
     assert lines["ses_new"].split("  ")[3] == "未起動"
+
+
+def test_the_listing_shows_the_account_a_sleeping_tab_wakes_on_beside_the_one_it_last_ran_on(tabs):
+    asleep = {"agent_id": "agent_a", "child": False, "parent_id": None, "tier": "projects/P"}
+    tabs.backend.tabs = [
+        {"id": "ses_parent", "title": "main", "agent_id": "agent_a", "child": False, "parent_id": None},
+        {**asleep, "id": "ses_back", "title": "back", "account_id": "personal", "account_on_wake": "work"},
+        {**asleep, "id": "ses_same", "title": "same", "account_id": "work", "account_on_wake": "work"},
+        {**asleep, "id": "ses_awake", "title": "awake", "account_id": "personal", "account_on_wake": None},
+        {**asleep, "id": "ses_old", "title": "old", "account_id": "personal"},
+    ]
+    assert tabs.run("list") == 0
+    cells = {line.split()[0]: line.split("  ")[2] for line in tabs.out.splitlines() if line.strip()}
+    assert cells["ses_back"] == "口座=work (眠り、最後は personal)"
+    assert cells["ses_same"] == "口座=work"                 # the same account: no bracket
+    assert cells["ses_awake"] == "口座=personal"
+    assert cells["ses_old"] == "口座=personal"              # a backend that does not say: as before
 
 
 # --- 外向きの名前 (= 番人が見せてよいと答えた、 伏せたタブの階層の名前) ---------------------------------------------
@@ -968,6 +1032,54 @@ def test_send_refuses_a_flag_it_does_not_know_or_one_given_twice(family, flags):
     body.write_text("x", encoding="utf-8")
     assert family.run("send", "ses_a", str(body), *flags) == 2
     assert family.backend.called("POST", "/agent-messages") == []
+
+
+# --- failures that carried no code --------------------------------------------------------------------------------
+
+
+def send_body(family) -> Path:
+    body = family.work / "body.md"
+    body.write_text("please look", encoding="utf-8")
+    return body
+
+
+@pytest.mark.parametrize("raw", [(500, {}), (502, {"detail": "bad gateway"}), (200, {"ok": False, "reason": "not_ready"}), None])
+def test_a_failure_the_backend_gave_no_code_for_says_the_message_may_have_arrived(family, raw):
+    family.backend.answers["send-raw"] = raw
+    assert family.run("send", "ses_a", str(send_body(family))) == 1
+    assert "届いたか確かめられていません [agent_message_unconfirmed]" in family.err
+    assert "もう一度送る前に" in family.err
+    assert "届いていません" not in family.err.replace("届いたか確かめられていません", "")
+
+
+def test_a_request_the_backend_turned_down_with_no_code_says_nothing_was_sent(family):
+    family.backend.answers["send-raw"] = (422, {"detail": [{"loc": ["body", "to"], "msg": "field required"}]})
+    assert family.run("send", "ses_a", str(send_body(family))) == 1
+    assert "届いていません [agent_message_not_sent]" in family.err and "何も送っていません" in family.err
+
+
+def test_a_backend_that_is_not_listening_says_nothing_was_sent(family):
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    closed_port = probe.getsockname()[1]
+    probe.close()
+    assert family.run("send", "ses_a", str(send_body(family)), PWA_PORT=str(closed_port)) == 1
+    assert "届いていません [agent_message_not_sent]" in family.err and "何も送っていません" in family.err
+
+
+def test_the_backend_s_own_code_is_printed_as_it_is(family):
+    family.backend.answers["send"] = 409
+    assert family.run("send", "ses_a", str(send_body(family))) == 1
+    assert "届いていません [agent_message_refused]: no" in family.err
+
+
+def test_a_report_the_backend_gave_no_code_for_is_not_a_bare_number(family):
+    family.backend.answers["send-raw"] = (500, {})
+    family.backend.tabs = [{"id": "ses_parent", "title": "main", "child": True, "parent_id": "ses_up"}]
+    report = family.work / "report.md"
+    report.write_text("done", encoding="utf-8")
+    assert family.run("report", "done", str(report), AGENT_CHILD="1") == 1
+    assert "[agent_message_unconfirmed]" in family.err and "[500]" not in family.err
 
 
 # --- ページの tailnet の URL -----------------------------------------------------------------------------
