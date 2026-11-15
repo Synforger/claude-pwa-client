@@ -7,6 +7,7 @@ import pytest
 from fastapi import HTTPException
 
 import backend.routes.agent_messages as am
+from backend.peers import peer_call
 from backend.tests.routes.test_agent_messages import (  # noqa: F401  (= fixtures of the tests of the same door)
     _peers, _send, client, tabs, typed,
 )
@@ -105,7 +106,7 @@ def test_a_call_to_another_machine_that_breaks_after_it_was_made_says_the_messag
 
     def broken(url, payload, timeout):
         raise ValueError("answer cut off")
-    monkeypatch.setattr(am, "_call_peer", broken)
+    monkeypatch.setattr(peer_call, "_call_peer", broken)
     r = _send(client, to="home:notes")
     assert (r.status_code, _detail(r)["code"]) == (500, "agent_message_unconfirmed")
 
@@ -113,7 +114,7 @@ def test_a_call_to_another_machine_that_breaks_after_it_was_made_says_the_messag
 def test_another_machine_s_failure_with_no_reason_is_not_said_to_be_a_plain_refusal(
         client, tabs, typed, monkeypatch, tmp_path):
     _peers(monkeypatch, tmp_path)
-    monkeypatch.setattr(am, "_call_peer", lambda url, payload, timeout: (500, {}))
+    monkeypatch.setattr(peer_call, "_call_peer", lambda url, payload, timeout: (500, {}))
     r = _send(client, to="home:notes")
     assert (r.status_code, _detail(r)["code"]) == (500, "agent_message_peer_failed")
     assert "届いたかもしれない" in _detail(r)["message"]

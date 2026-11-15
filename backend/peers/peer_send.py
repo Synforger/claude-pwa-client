@@ -80,5 +80,6 @@ def _raise_refusal(peer_name: str, reply: PeerReply) -> None:
     detail = reply.body.get("detail") if isinstance(reply.body.get("detail"), dict) else {}
     params = {k: v for k, v in (detail.get("params") or {}).items() if k not in ("status_code", "code", "message")}
     raise_error(reply.status if 400 <= reply.status < 600 else 502, detail.get("code") or "agent_message_peer_failed",
-                detail.get("message") or f"{peer_name} の機械が連絡を受け取りませんでした (HTTP {reply.status})",
+                detail.get("message") or f"{peer_name} の機械が理由を付けずに失敗を返しました (HTTP {reply.status})。 "
+                "届いたかもしれないので、 もう一度送る前に相手のタブで確かめてください",
                 **{**params, "peer": peer_name})
