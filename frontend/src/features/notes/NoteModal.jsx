@@ -23,6 +23,8 @@ import './NoteModal.css'
 // 見る時は markdown のファイルと同じ描き方 (= 見出し / 表 / コード。 書いてある path はタップで開く) で、
 // 長くても畳まず、 段落の改行と空白は書いたとおりに残す。 書く時はただのテキスト欄。
 // メモはそのタブの下書きで、 タブを消すと消える。
+// The version read (= the ETag of the answer) is sent back in `If-Match` on a save. When the file changed since (= an
+// agent wrote it), the backend refuses with 412, so an old copy never replaces the memo; the draft stays and a reopen is asked for.
 // 頭に、 そのタブのトップページへのリンクを固定で置く (= メモの本文とは別の行。 ページは backend が
 // タブの階層を記録した時に作るので、 メモを空にしても消えない)。 ページが無いタブでは出さない。
 export default function NoteModal() {
@@ -42,6 +44,8 @@ export default function NoteModal() {
   const [editText, setEditText] = useState('')
   const [saving, setSaving] = useState(false)
   const [resetConfirm, setResetConfirm] = useState(false)
+  // The version of the memo on screen (= what the draft started from). null = not read yet
+  const versionRef = useRef(null)
   // 見る時の字の大きさ (= 2 本の指 / Ctrl・⌘ + ホイール。 markdown のプレビューと同じ値)
   const bodyRef = useRef(null)
   const textRef = useRef(null)
@@ -55,8 +59,9 @@ export default function NoteModal() {
     if (!activeId || editMode) return undefined
     const controller = new AbortController()
     apiFetch(`/sessions/${encodeURIComponent(activeId)}/note`, { signal: controller.signal })
-      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(data => {
+      .then(r => (r.ok ? r.json().then(data => [data, r.headers.get('ETag')]) : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(([data, version]) => {
+        versionRef.current = version
         setContent(typeof data.content === 'string' ? data.content : '')
         setPage(typeof data.page === 'string' ? data.page : null)
         setError(null)
@@ -70,6 +75,7 @@ export default function NoteModal() {
   useEffect(() => {
     setContent(null)
     setPage(null)
+    versionRef.current = null
     setEditMode(false)
     setResetConfirm(false)
     setError(null)
@@ -81,17 +87,22 @@ export default function NoteModal() {
     try {
       const res = await apiFetch(`/sessions/${encodeURIComponent(activeId)}/note`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(versionRef.current ? { 'If-Match': versionRef.current } : {}),
+        },
         body: JSON.stringify({ content: text }),
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
-        throw new Error(translateHttpErrorDetail(d.detail, `HTTP ${res.status}`))
+        throw Object.assign(new Error(translateHttpErrorDetail(d.detail, `HTTP ${res.status}`)), { changed: res.status === 412 })
       }
+      versionRef.current = res.headers.get('ETag')
       setContent(text)
       setEditMode(false)
     } catch (e) {
-      setError(t('notes.save_error', { detail: e.message }))
+      // When it changed, the reason reads as the ask to reopen. editMode and editText are left alone (= the draft stays)
+      setError(e.changed ? e.message : t('notes.save_error', { detail: e.message }))
     } finally {
       setSaving(false)
     }

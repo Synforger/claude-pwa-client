@@ -198,6 +198,7 @@
   "format.network_error": "Network error (cannot reach the server)",
   "format.send_failed": "Send failed",
   "format.error_generic": "Error: {message}",
+  "backend.note_changed": "The notes changed. Reopen them and try again.",
   "backend.file_too_large": "File is too large (limit {limit})",
   "backend.invalid_agent_id": "agent_id is invalid",
   "backend.invalid_account_id": "account_id is invalid",

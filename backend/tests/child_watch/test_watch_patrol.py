@@ -20,40 +20,8 @@ from backend.child_watch.watch_envelope import child_stopped_envelope
 from backend.child_watch.watch_judgement import IDLE, LIMIT
 from backend.sleep.sleep_sensors import record_facts_of
 from backend.tests.async_run import run
+from backend.tests.child_watch.samples import answer_row
 from backend.tests.limit_samples import iso, limit_notice_row, limit_reset_rows, message_row, stopped_mid_turn
-
-
-def _answer(uuid: str, parent: str, at: float) -> dict:
-    return message_row(uuid, parent, "assistant", [{"type": "text", "text": "done"}], iso(at))
-
-
-@pytest.fixture
-def env(tmp_path, monkeypatch, isolated_state, agent_folder):
-    """A working child of a parent tab whose conversation ends in an answer 10 minutes ago, with its claude at a break."""
-    parent = register_session("agent_a", title="Parent")
-    child = register_session("agent_a", title="Build the parser", child=True, parent_id=parent.id)
-    now = time.time()
-    record = tmp_path / "child.jsonl"
-    record.write_text(json.dumps(message_row("u1", None, "user", "go", iso(now - 700))) + "\n"
-                      + json.dumps(_answer("a1", "u1", now - 600)) + "\n")
-    memo = agent_folder / "pages" / child.id / "memo.md"
-    memo.parent.mkdir(parents=True)
-    memo.write_text(f"# {child.title}\n\n- 親のタブ: {parent.id}\n- 状態: 作業中\n", encoding="utf-8")
-    env = SimpleNamespace(parent=parent, child=child, record=record, memo=memo, now=now, blocked_by=(), sent=[],
-                          deliver=True)
-    monkeypatch.setattr(sensors.jsonl_watcher, "get_jsonl_for", lambda _sid: record)
-
-    def _break(_sid):
-        facts = record_facts_of(record)
-        return TabBreak(facts.limit_stop, env.blocked_by, owed=facts.continuation_owed)
-    monkeypatch.setattr(sensors, "read_tab_break", _break)
-
-    async def _send(session_id, text):
-        env.sent.append((session_id, text))
-        return env.deliver
-    monkeypatch.setattr(patrol, "send_to_tab", _send)
-    monkeypatch.setattr(patrol, "_seen_at_break", {})
-    return env
 
 
 def _last_row_time(env) -> float:
@@ -108,7 +76,7 @@ def test_a_stop_is_told_once_across_a_restart_of_the_backend(env, monkeypatch):
 def test_a_child_that_works_on_and_stops_again_is_told_about_again(env):
     run(patrol.tick())
     run(patrol.tick())
-    _append(env, message_row("u2", "a1", "user", "go on", iso(env.now - 300)), _answer("a2", "u2", env.now - 200))
+    _append(env, message_row("u2", "a1", "user", "go on", iso(env.now - 300)), answer_row("a2", "u2", env.now - 200))
     assert run(patrol.tick()) == [] and run(patrol.tick()) == [env.child.id]
     assert len(env.sent) == 2 and env.child.stop_told_at == _last_row_time(env)
 
@@ -131,7 +99,7 @@ def test_a_continuation_still_owed_after_the_stop_was_answered_is_told_with_the_
     """An answer to a background notification ends the stop, but the continuation Claude Code booked stays owed."""
     notification = {"type": "user", "uuid": "t1", "parentUuid": "n1", "timestamp": iso(env.now - 200),
                     "origin": {"kind": "task-notification"}, "message": {"content": "<task-notification>x</task-notification>"}}
-    _append(env, limit_notice_row("n1", "a1", iso(env.now - 300)), notification, _answer("a2", "t1", env.now - 100))
+    _append(env, limit_notice_row("n1", "a1", iso(env.now - 300)), notification, answer_row("a2", "t1", env.now - 100))
     assert record_facts_of(env.record).limit_stop is None
     run(patrol.tick())
     assert run(patrol.tick()) == [env.child.id]
@@ -140,7 +108,7 @@ def test_a_continuation_still_owed_after_the_stop_was_answered_is_told_with_the_
 
 def test_a_continuation_settled_by_the_reset_leaves_a_plain_idle_stop(env):
     _append(env, limit_notice_row("n1", "a1", iso(env.now - 300)), *limit_reset_rows("n1", iso(env.now - 200)),
-            _answer("a2", "reset-prompt", env.now - 100))
+            answer_row("a2", "reset-prompt", env.now - 100))
     run(patrol.tick())
     assert run(patrol.tick()) == [env.child.id]
     assert env.sent[0][1] == child_stopped_envelope(env.child.id, "Build the parser", IDLE)
