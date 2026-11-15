@@ -262,3 +262,20 @@ def test_a_message_the_machine_refuses_when_sent_at_once_is_not_kept(client, mac
     r = _send(client, to="home:nobody")
     assert r.status_code == 404 and r.json()["detail"]["code"] == "agent_message_unknown_receiver"
     assert outbox_store.pending() == []
+
+
+def test_a_typing_that_answered_not_ok_does_not_use_the_id_up(machine, typed, monkeypatch):
+    # The typing into a running tab answers `ok: false` without raising; the same id must still go in on the next try.
+    far = TestClient(FastAPI(), client=(PEER_ADDRESS, 50000))
+    far.app.include_router(am.router)
+    body = {"to": "ses_receiver", "from_title": "tools", "from_session": "ses_far", "text": "retry me", "message_id": "d" * 32}
+    real = am._deliver_or_keep
+
+    async def not_typed(tab_id, text):
+        return {"ok": False, "reason": "send_failed"}
+    monkeypatch.setattr(am, "_deliver_or_keep", not_typed)
+    assert far.post(am.RELAYED_PATH, json=body).json()["ok"] is False
+    monkeypatch.setattr(am, "_deliver_or_keep", real)
+    answer = far.post(am.RELAYED_PATH, json=body).json()
+    assert answer["ok"] is True and "duplicate" not in answer
+    assert _to_receiver(typed) == ["retry me"]

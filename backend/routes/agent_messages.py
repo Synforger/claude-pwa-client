@@ -79,7 +79,7 @@ from backend.peers.peer_call import (  # noqa: F401 (= re-exported: the tests an
     RELAYED_PATH,
     call_peer,
 )
-from backend.peers.seen_message_ids import delivering
+from backend.peers.seen_message_ids import delivering, release
 from backend.terminal import input_ready
 from backend.terminal.first_message import LAUNCH_DISCOVER_SEC
 from backend.terminal.pty_discover import claude_in_pane, register_claude_when_ready
@@ -492,6 +492,13 @@ def refuse_untyped(result: dict) -> None:
     raise_error(500, UNCONFIRMED_CODE, UNCONFIRMED_MESSAGE)
 
 
+def _forget_if_not_delivered(message_id: str | None, result: dict) -> None:
+    """A typing that failed answers `ok: false` without raising, so `delivering` took the id for delivered: forget it,
+    or the sender's next try with the same id would be dropped as a duplicate and the message lost."""
+    if message_id is not None and not result.get("ok"):
+        release(message_id)
+
+
 async def _deliver_or_keep(tab_id: str, text: str) -> dict:
     """Deliver `text` (= a message in its envelope), or keep it without waking the tab when the account hold has the
     tab stopped and no account is clear for it to run on (`account_hold/hold_mail.py`): the hold hands it over once one
@@ -586,6 +593,7 @@ async def post_agent_message(
             title = await sender_title(sender, receiver_id)
             message = envelope(sender, text, said, title)
         result = await _deliver_or_keep(receiver_id, message)
+    _forget_if_not_delivered(message_id, result)
     logger.info("agent message sender=%s receiver=%s chars=%d operator_said=%s ok=%s kept=%s",
                 sender, receiver_id, len(text), said is not None, result.get("ok"), result.get("kept", False))
     if (hands_work or "").strip().lower() != "false":
@@ -650,6 +658,7 @@ async def post_relayed_agent_message(request: Request, body: dict = Body(...)) -
             await check(receiver_id, text)
             message = relayed_envelope(peer_name, title, session, text)
         result = await _deliver_or_keep(receiver_id, message)
+    _forget_if_not_delivered(message_id, result)
     logger.info("agent message peer=%s sender=%s receiver=%s chars=%d operator_said=False ok=%s kept=%s",
                 peer_name, session, receiver_id, len(text), result.get("ok"), result.get("kept", False))
     return {**result, "to": receiver_id, "operator_said": False}
