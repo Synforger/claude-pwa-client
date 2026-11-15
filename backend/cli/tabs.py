@@ -88,6 +88,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import NamedTuple
 
@@ -483,7 +484,8 @@ def send(to: str, file: Path, operator_said: bool = False, hands_work: bool = Tr
     receiver, refusal = outward_receiver(to)
     if refusal is not None:
         return not_delivered(*refusal)
-    form = {"to": receiver, "from": me, "text": text}
+    # one id per run: the receiving backend delivers a message with an id once, however many times it is handed over
+    form = {"to": receiver, "from": me, "text": text, "message_id": uuid.uuid4().hex}
     if operator_said:
         form["operator_said"] = "true"
     if not hands_work:
@@ -491,8 +493,12 @@ def send(to: str, file: Path, operator_said: bool = False, hands_work: bool = Tr
     status, body = call("/agent-messages", form)
     if status == 200 and isinstance(body, dict) and body.get("ok"):
         said = "操作者の発話つき" if body.get("operator_said") else "操作者の発話なし"
-        if body.get("kept"):
+        if body.get("outbox"):
+            print(f"預かりました: {body.get('to')} ({said}。 相手の機械が戻ったら届けます: {body.get('message')})")
+        elif body.get("kept"):
             print(f"預かりました: {body.get('to')} ({said}。 宛先は口座の線で止まっています。 動ける口座ができた時に届けます)")
+        elif body.get("duplicate"):
+            print(f"届きました: {body.get('to')} (同じ連絡が既に届いていたので、 打ち直していません)")
         else:
             print(f"届きました: {body.get('to')} ({said})")
         if operator_said and body.get("operator_said_left_out"):

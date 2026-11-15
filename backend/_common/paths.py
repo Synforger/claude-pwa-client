@@ -114,6 +114,11 @@ JSONL_BINDINGS_PATH = DATA_DIR / "jsonl_bindings.json"
 SESSION_HISTORY_PATH = DATA_DIR / "session_history.json"
 # agent_id → タブを立てたことのある階層 (= 閉じたタブを立て直さないための記録)。 書くのは backend/tier_tabs/record.py
 TIER_TABS_PATH = DATA_DIR / "tier_tabs.json"
+# Other machines (`agent_message_peers`): whether each answers, the messages kept for one that does not, and the ids of
+# the messages this machine took from them. Written by backend/peers/.
+PEER_HEALTH_PATH = DATA_DIR / "peer_health.json"
+PEER_OUTBOX_DIR = DATA_DIR / "peer_outbox"
+SEEN_MESSAGE_IDS_PATH = DATA_DIR / "seen_message_ids.json"
 VAPID_PATH = SECRETS_DIR / "vapid.json"
 
 # お気に入り: 1 行に 1 path のテキスト (= エージェントは 1 行足すだけで登録できる)

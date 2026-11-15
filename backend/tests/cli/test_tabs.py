@@ -6,6 +6,7 @@
 import importlib.util
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -904,6 +905,34 @@ def test_a_message_kept_for_a_stopped_tab_says_so_instead_of_delivered(world):
     world.tabs.backend.answers["send-body"] = {"kept": True}
     assert send(world.tabs, "ses_b") == 0
     assert "預かりました: ses_b" in world.tabs.out and "届きました" not in world.tabs.out
+
+
+def test_a_message_kept_for_a_machine_that_does_not_answer_says_so_with_the_reason(world):
+    world.put({"id": "ses_b", "title": "role-b", "tier_tab": "projects/B"})
+    world.tabs.backend.answers["send-body"] = {
+        "outbox": True, "reason": "peer_offline", "message": "home の機械は tailnet に出ていません。 眠っているか、 電源か網が落ちています"}
+    assert send(world.tabs, "ses_b") == 0
+    assert "預かりました: ses_b" in world.tabs.out
+    assert "相手の機械が戻ったら届けます: home の機械は tailnet に出ていません" in world.tabs.out
+    assert "届きました" not in world.tabs.out and "口座の線" not in world.tabs.out
+
+
+def test_a_message_the_other_machine_had_already_says_it_was_not_typed_again(world):
+    world.put({"id": "ses_b", "title": "role-b", "tier_tab": "projects/B"})
+    world.tabs.backend.answers["send-body"] = {"duplicate": True}
+    assert send(world.tabs, "ses_b") == 0
+    assert "届きました: ses_b" in world.tabs.out and "既に届いていた" in world.tabs.out
+
+
+def test_each_run_of_send_gives_the_message_a_new_id_of_32_hex_digits(world):
+    world.put({"id": "ses_b", "title": "role-b", "tier_tab": "projects/B"})
+    ids = []
+    for _ in range(2):
+        assert send(world.tabs, "ses_b") == 0
+        [call] = world.tabs.backend.called("POST", "/agent-messages")   # the log is emptied at each run
+        ids.append(call["form"]["message_id"])
+    first, second = ids
+    assert re.fullmatch(r"[0-9a-f]{32}", first) and first != second
 
 
 def test_an_outward_name_goes_to_the_only_tab_working_in_its_folder(world):

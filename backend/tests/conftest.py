@@ -119,6 +119,22 @@ _STATE_GLOBALS = (
 
 
 @pytest.fixture(autouse=True)
+def isolated_peer_files(monkeypatch, tmp_path):
+    """The records about other machines (`backend/peers/`) go to a folder of the test's own: a test that sends to a peer
+    must not leave a kept message or an id in the developer's data folder, nor ask the developer's tailnet."""
+    from types import SimpleNamespace
+
+    from backend.peers import outbox_store, peer_health, peer_health_store, seen_message_ids
+
+    # the tailnet is not asked: a test that wants an answer from it sets `peer_health.tailnet_peers` itself
+    monkeypatch.setattr(peer_health, "tailnet_peers",
+                        SimpleNamespace(peer_status=lambda address: {"online": None, "last_seen": None}))
+    monkeypatch.setattr(peer_health_store, "PEER_HEALTH_PATH", tmp_path / "peer_health.json")
+    monkeypatch.setattr(outbox_store, "PEER_OUTBOX_DIR", tmp_path / "peer_outbox")
+    monkeypatch.setattr(seen_message_ids, "SEEN_MESSAGE_IDS_PATH", tmp_path / "seen_message_ids.json")
+
+
+@pytest.fixture(autouse=True)
 def isolated_session_history(monkeypatch, tmp_path):
     """終わった会話の控え (= backend/jsonl/history.py) を test ごとの tmp に向ける。
 
