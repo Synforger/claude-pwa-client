@@ -8,6 +8,8 @@ person's prompt, or, when Claude was answering, the row of the text being queued
 break, and shows in the input box until then). When it does not come, the pane says why: the text still waits in the input (Enter was lost) or it is
 gone (it was typed too early). A text that waits gets Enter again every few seconds until it is taken (= a claude that has
 just read a long conversation on a busy machine drops keys for a while, sometimes for more than 20 seconds), and a text that is gone is typed once more; both stop after `RESCUE_SEC`.
+A text still waiting in the input when the rescue stops is cleared from it: the caller then tells the sender the message
+was not taken, and a text left there would go in with the next Enter, on top of the sender's second send.
 
 A launch still starting is waited for before anything is typed. Typing then would hand the text to the launch's held
 messages (`first_message.hold_while_launching`), and the rescue typing it again would hold it a second time.
@@ -101,7 +103,8 @@ async def deliver_to_woken(session_id: str, text: str) -> bool:
 
 async def _rescue(session_id: str, initial_pos: int, text: str) -> bool:
     """Put right a typed text whose row did not come: Enter while it waits in the input, one more typing once it is
-    gone, then wait `ENTER_AGAIN_SEC` for the row, until `RESCUE_SEC` has passed."""
+    gone, then wait `ENTER_AGAIN_SEC` for the row, until `RESCUE_SEC` has passed. A text that still waits then is
+    cleared from the input, so that the refusal the caller gives holds."""
     loop = asyncio.get_running_loop()
     deadline = loop.time() + RESCUE_SEC
     typed_again = False
@@ -116,4 +119,8 @@ async def _rescue(session_id: str, initial_pos: int, text: str) -> bool:
                 return False
         if await _taken(session_id, initial_pos, ENTER_AGAIN_SEC, text):
             return True
+    if text_waits_in_input(await asyncio.to_thread(pane_text, session_id), text):
+        logger.warning("receipt: the message was not taken in %.0fs, clearing it from the input session=%s",
+                       RESCUE_SEC, session_id)
+        tmux_send_keys(session_id, key="C-u")
     return False
