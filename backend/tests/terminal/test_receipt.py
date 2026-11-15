@@ -50,7 +50,7 @@ def test_the_pane_says_whether_the_text_waits_in_the_input(pane_text, waits):
 @pytest.fixture
 def typing(monkeypatch, pane):
     """The typing and the record: `taken` is the answers of the waits for the row, in order (the last one stays)."""
-    log = {"typed": 0, "enters": 0, "taken": [], "asked": [], "confirmed": False}
+    log = {"typed": 0, "enters": 0, "keys": [], "taken": [], "asked": [], "confirmed": False}
 
     async def pty_send(session_id, payload, key=None):
         log["typed"] += 1
@@ -63,6 +63,8 @@ def typing(monkeypatch, pane):
 
     def keys(session_id, text=None, key=None, enter=False):
         log["enters"] += 1 if enter and text is None else 0
+        if key is not None:
+            log["keys"].append(key)
         return True
     monkeypatch.setattr(receipt, "pty_send", pty_send)
     monkeypatch.setattr(receipt, "_taken", taken)
@@ -132,6 +134,25 @@ def test_a_text_left_in_the_input_is_given_up_after_the_rescue_time(typing, pane
 def test_a_text_that_is_gone_is_typed_once_more_and_never_a_third_time(typing, short_rescue):
     assert run(receipt.deliver_to_woken("ses_x", TEXT)) is False
     assert (typing["typed"], typing["enters"]) == (2, 0)
+
+
+def test_a_text_left_in_the_input_when_the_rescue_stops_is_cleared_so_the_refusal_holds(typing, pane, short_rescue):
+    # Left there, it would go in with the next Enter, on top of the message the sender sends again.
+    pane["screens"] = ["│ > [Pasted text #1 +4 lines]\n" + CLAUDE_SCREEN]
+    assert run(receipt.deliver_to_woken("ses_x", TEXT)) is False
+    assert typing["keys"] == ["C-u"]
+
+
+def test_a_text_that_is_gone_when_the_rescue_stops_leaves_the_input_alone(typing, short_rescue):
+    assert run(receipt.deliver_to_woken("ses_x", TEXT)) is False
+    assert typing["keys"] == []
+
+
+def test_a_text_taken_after_enters_is_not_cleared(typing, pane):
+    pane["screens"] = ["│ > Sent by the client (the operator did not type this):\n" + CLAUDE_SCREEN]
+    typing["taken"] = [False, False, True]
+    assert run(receipt.deliver_to_woken("ses_x", TEXT)) is True
+    assert typing["keys"] == []
 
 
 def test_a_launch_in_flight_is_waited_for_before_typing_so_the_text_is_not_held_twice(typing, monkeypatch):
