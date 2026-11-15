@@ -2,7 +2,14 @@
 (`child_watch/child_memo.py`)."""
 from __future__ import annotations
 
-from backend.child_watch.child_memo import save_memo_state, with_state, STATE_LINE, UNKNOWN, WORKING, memo_state
+import pytest
+
+import backend.child_watch.child_memo as child_memo
+from backend.child_watch.child_memo import (
+    SAVE_ATTEMPTS, STATE_LINE, STUCK, UNKNOWN, WORKING, memo_state, save_memo_state, with_state,
+)
+
+HANDOVER = "\n## 引き継ぎ\n\nwait for the parent's answer\n"
 
 
 def test_the_state_is_the_text_after_the_label_of_the_line(tmp_path):
@@ -40,3 +47,57 @@ def test_save_memo_state_writes_the_file(tmp_path):
     memo.write_text("# T\n\n- 状態: 詰まり\n", encoding="utf-8")
     save_memo_state(memo, WORKING)
     assert memo_state(memo) == WORKING
+
+
+class _WriterAfterRead:
+    """`save_memo_state`'s reads, with the memo's agent writing the memo right after each of the first `times`
+    first-of-a-pair reads (= between the read and the check that follows it)."""
+
+    def __init__(self, monkeypatch, memo, times, text):
+        self.memo, self.times, self.text, self.calls = memo, times, text, 0
+        self.real = child_memo._read_memo_bytes
+        monkeypatch.setattr(child_memo, "_read_memo_bytes", self.read)
+
+    def read(self, path):
+        seen = self.real(path)
+        self.calls += 1
+        if self.calls % 2 == 1 and self.calls // 2 < self.times:
+            self.memo.write_text(self.memo.read_text(encoding="utf-8") + self.text, encoding="utf-8")
+        return seen
+
+
+def test_save_memo_state_keeps_what_the_agent_wrote_while_the_state_was_being_set(tmp_path, monkeypatch):
+    memo = tmp_path / "memo.md"
+    memo.write_text("# T\n\n- 状態: 詰まり\n", encoding="utf-8")
+    writer = _WriterAfterRead(monkeypatch, memo, 1, HANDOVER)
+    save_memo_state(memo, WORKING)
+    assert memo.read_text(encoding="utf-8") == f"# T\n\n- 状態: 作業中\n{HANDOVER}"
+    assert writer.calls == 4                                              # read + check, then both again
+
+
+def test_save_memo_state_gives_up_without_writing_when_the_memo_never_holds_still(tmp_path, monkeypatch):
+    memo = tmp_path / "memo.md"
+    memo.write_text("# T\n\n- 状態: 詰まり\n", encoding="utf-8")
+    _WriterAfterRead(monkeypatch, memo, SAVE_ATTEMPTS + 1, "x")
+    with pytest.raises(OSError):
+        save_memo_state(memo, WORKING)
+    assert memo_state(memo) == STUCK and list(tmp_path.iterdir()) == [memo]
+
+
+def test_save_memo_state_leaves_a_memo_that_already_says_so_untouched(tmp_path):
+    memo = tmp_path / "memo.md"
+    memo.write_text("# T\n\n- 状態: 作業中\n", encoding="utf-8")
+    before = memo.stat().st_mtime_ns
+    save_memo_state(memo, WORKING)
+    assert memo.stat().st_mtime_ns == before
+
+
+def test_save_memo_state_writes_through_a_link_and_leaves_no_file_behind(tmp_path):
+    real = tmp_path / "notes" / "real.md"
+    real.parent.mkdir()
+    real.write_text("# T\n\n- 状態: 完了\n", encoding="utf-8")
+    link = tmp_path / "memo.md"
+    link.symlink_to(real)
+    save_memo_state(link, WORKING)
+    assert link.is_symlink() and memo_state(real) == WORKING
+    assert sorted(path.name for path in real.parent.iterdir()) == ["real.md"]
