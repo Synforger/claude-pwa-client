@@ -107,7 +107,7 @@ function saveReloadedTo(win, build) {
 }
 
 // この画面の入れ物 (= 古い build の報告を、 どの入れ物で起きたかで見分ける)。
-function containerOf(win) {
+export function containerOf(win) {
   if (win.Capacitor?.isNativePlatform?.()) return 'app'
   return win.matchMedia?.('(display-mode: standalone)')?.matches ? 'home-screen' : 'browser'
 }

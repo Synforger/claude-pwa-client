@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { httpClient } from '../../transport/http.ts'
+import { sendSwLog } from './swLog.js'
 
 // 画面が上へずれたまま残る件の戻し (= iPhone のホーム画面の PWA と iPhone の app の両方)。
 //
@@ -18,12 +18,8 @@ function editing() {
   return !!el && el !== document.body && !!el.matches?.(EDITABLE)
 }
 
-function report(payload) {
-  httpClient.apiFetch('/log/sw', { method: 'POST', jsonBody: payload }).catch(() => {})
-}
-
 // trigger = 何が確かめさせたか (= `viewport` / `visible`)。 戻したら true。
-export function settleViewport(trigger, send = report) {
+export function settleViewport(trigger, send = sendSwLog) {
   if (editing()) return false
   const scrollY = window.scrollY || document.documentElement.scrollTop || 0
   if (scrollY === 0) return false

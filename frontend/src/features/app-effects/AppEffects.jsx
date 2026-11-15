@@ -23,6 +23,7 @@ import { useNotificationClear } from '../push-notify/useNotificationClear.js'
 import { useDeepLink } from '../session-drawer/useDeepLink.js'
 import { usePushSubscription } from '../push-notify/usePushSubscription.js'
 import { useViewportSettle } from './useViewportSettle.js'
+import { useKeyboardLog } from './useKeyboardLog.js'
 import {
   subscribe as subscribeUi,
   getSnapshot as getUiSnapshot,
@@ -93,6 +94,9 @@ export default function AppEffects() {
 
   // キーボードが閉じた後に残った文書の送りを戻す (= 画面が上へずれたまま残る件、 戻した時は viewport:settle を記録へ)。
   useViewportSettle()
+
+  // Records the field that holds the keyboard (its attributes, whether it is shown) and whether a Japanese conversion started in it, to catch on a real device why the predictions go away.
+  useKeyboardLog()
 
   return null
 }
