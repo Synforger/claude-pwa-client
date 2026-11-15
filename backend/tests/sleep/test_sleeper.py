@@ -18,7 +18,7 @@ from backend.terminal import session_resolver
 
 READY = j.SleepFacts(
     claude_running=True, starting=False, turn_open=False, record_found=True, quiet_minutes=75.0, context_pct=22,
-    rollover_idle_pct=40, foreign_processes=(), record=RecordFacts(), on_voice_call=False, rolling_over=False,
+    rollover_idle_pct=40, foreign_processes=(), record=RecordFacts(), on_voice_call=False, rollover_asks=0,
 )
 
 
@@ -125,7 +125,7 @@ def test_a_claude_that_does_not_end_is_left_awake_and_its_terminal_stays(monkeyp
 
 @pytest.mark.parametrize("change", [
     {"turn_open": True}, {"quiet_minutes": 3.0}, {"foreign_processes": ("zsh",)},
-    {"record": RecordFacts(wakeup_pending=True)}, {"on_voice_call": True}, {"rolling_over": True},
+    {"record": RecordFacts(wakeup_pending=True)}, {"on_voice_call": True}, {"rollover_asks": 1},
 ])
 def test_a_condition_that_fails_at_the_last_look_stops_the_sleep(monkeypatch, isolated_state, tmp_path, change):
     claude = _claude()

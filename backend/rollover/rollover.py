@@ -24,17 +24,27 @@ backend の記憶には持たないので、 backend を再起動しても同じ
 作業 tree への commit と push を伴うことが多く、 同じ作業 tree を使う会話の締めが重なると互いの
 書きかけを巻き込む)。 同じ会話へは、 人がそのタブで最後に打ってから 1 度だけ頼む (= 人が打てば未依頼に戻る)。
 ただし戻っても、 前回頼んでから `REASK_AFTER_SECS` 秒が空くまでは頼み直さない。
+
+A tab still in a turn whose record has not moved for `sleep_judgement.STALL_MINUTES` (waiting for a permission, a
+tool that hangs) is not counted as closing, so it does not hold up the asks to other tabs. A tab that was asked and
+whose close stalled (= judged as the sleep judges a tab, nothing but the close itself and the rollover's line keeps it
+from a break after `STALL_MINUTES` of quiet) is asked once more. An ask lapses when the tab was asked twice and is
+quiet, or when a usage limit stopped it: the watch asks no more, and the sleep, the stop line and the fallback no
+longer count the tab as closing (`sleep_judgement.close_lapsed`). The count of asks stops at `ASKS_MAX`; at that
+count a message from another tab starts it over (= new work arrived).
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import threading
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import backend.jsonl.jsonl_watcher as jsonl_watcher
-from backend.jsonl.jsonl_predicates import CLIENT_OPENINGS, ROLLOVER_OPENING, unwrap_pasted
+from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENINGS, CLIENT_OPENINGS, ROLLOVER_OPENING, unwrap_pasted
 from backend.routes.agent_messages import entered_text, lines_from_the_end
 from backend.routes.overview import context_pct_of, is_busy
 from backend.routes.rollover import TAG, close_envelope
@@ -42,6 +52,9 @@ from backend._common.state import sessions_meta
 from backend.terminal.pty_discover import claude_in_pane
 from backend.terminal.routes import pty_send
 from backend.terminal.session_resolver import resolve_agent_cfg
+
+if TYPE_CHECKING:
+    from backend.sleep.sleep_judgement import SleepFacts
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +66,21 @@ TICK_SEC = 60.0
 # resets the "already asked" answer with every utterance, so without a gap each look would ask again.
 REASK_AFTER_SECS = 300.0
 
-# 記録ごとの「読んだ位置」 と「最後に端末から入った、 人の発話か締めを頼む発話」。 読み直しを省くためだけの
-# 物で、 無くなれば記録を末尾から読み直して同じ値になる。
-_seen: dict[str, tuple[int, str | None]] = {}
-# 締めを頼む発話を打ったが、 まだ記録に現れていない会話。 推論中の claude へ打った発話は積まれて、
-# 作業の合間に渡るまで記録に書かれない。 その間に次の見回りが同じ発話をもう 1 度打たないための物。
-_pending: set[str] = set()
+# How many times one conversation is asked to close before the ask lapses (= the first ask and one more).
+ASKS_MAX = 2
+
+# Per record: how far it was read and the count of asks up to there. Only a shortcut: without it the record is read
+# back from its end to the same value.
+_seen: dict[str, tuple[int, int]] = {}
+# Asks typed that have not reached the record yet. What is typed into a claude in a turn is queued and written only
+# when the turn takes it, so the next look must not type it again; an ask that never reaches the record (typed into a
+# menu) still counts, so it is not typed forever.
+_pending: dict[str, int] = {}
+# One reader of the counts at a time: the watch and the sleep, stop line and fallback patrols read them from their
+# threads, and two reading the same rows would take an ask that reached the record off `_pending` twice.
+_count_lock = threading.Lock()
+# The conversations whose lapse was logged (= once each; a restart of the backend forgets and logs once more).
+_lapse_logged: set[str] = set()
 # When each conversation was last asked to close (= wall-clock seconds). Kept in memory only: a restart
 # forgets it and may ask once more.
 _asked_at: dict[str, float] = {}
@@ -108,8 +130,9 @@ def due(cfg: dict, pct: int | None, idle_minutes: float, busy: bool) -> str | No
 
 
 def _decisive(raw: bytes) -> str | None:
-    """記録の 1 行が、 人の打った発話なら `operator`、 締めを頼む発話なら `close`。 どちらでもなければ None
-    (= 別のタブからの連絡と、 起動し直した会話・階層のタブの最初の発話は、 頼んだかどうかを変えない)。"""
+    """What one row of the record is to the count of asks: `operator` for the operator's words, `close` for an ask to
+    close, `message` for a message from another tab, and None for anything else (= the opening of a conversation that
+    rolled over or of a tier tab, and the client's notices, leave the count as it is)."""
     if b'"user"' not in raw and b"queued_command" not in raw:
         return None
     try:
@@ -122,7 +145,79 @@ def _decisive(raw: bytes) -> str | None:
     text = unwrap_pasted(text).lstrip()
     if text.startswith(ROLLOVER_OPENING):
         return "close" if f'<{TAG} phase="close"' in text else None
+    if text.startswith(AGENT_MESSAGE_OPENINGS):
+        return "message"
     return None if text.startswith(CLIENT_OPENINGS) else "operator"
+
+
+def fold_asks(asks: int, kind: str | None) -> int:
+    """The count of asks to close after one more row of the record (`kind` from `_decisive`): the operator's words
+    start it over, an ask adds one up to `ASKS_MAX`, and a message from another tab starts it over only once the ask
+    lapsed by count (= new work arrived, so the tab may be asked afresh; while the first ask is open a message is part
+    of the close)."""
+    if kind == "operator":
+        return 0
+    if kind == "close":
+        return min(asks + 1, ASKS_MAX)
+    if kind == "message" and asks >= ASKS_MAX:
+        return 0
+    return asks
+
+
+def _asks_from_the_end(record: Path) -> int:
+    """The count of asks, read back from the end of the record to the operator's last words."""
+    kinds: list[str] = []
+    for raw in lines_from_the_end(record):
+        kind = _decisive(raw)
+        if kind == "operator":
+            break
+        if kind is not None:
+            kinds.append(kind)
+    asks = 0
+    for kind in reversed(kinds):
+        asks = fold_asks(asks, kind)
+    return asks
+
+
+def close_requests(record: Path) -> int:
+    """How many times the conversation was asked to close since the operator last typed: the asks in its record and
+    the ones typed that have not reached it, up to `ASKS_MAX`. 0 = not asked."""
+    with _count_lock:
+        return _close_requests(record)
+
+
+def _close_requests(record: Path) -> int:
+    key = str(record)
+    try:
+        size = record.stat().st_size
+    except OSError:
+        return min(_pending.get(key, 0), ASKS_MAX)
+    offset, asks = _seen.get(key, (None, 0))
+    if offset is None or size < offset:
+        try:
+            asks = _asks_from_the_end(record)
+        except OSError:
+            return min(_pending.get(key, 0), ASKS_MAX)
+        if asks:
+            _pending.pop(key, None)       # the record answers: a typed ask cannot be told from one it shows
+        _seen[key] = (size, asks)
+    elif size > offset:
+        try:
+            with record.open("rb") as fh:
+                fh.seek(offset)
+                data = fh.read(size - offset)
+        except OSError:
+            return min(asks + _pending.get(key, 0), ASKS_MAX)
+        cut = data.rfind(b"\n") + 1      # 改行で終わっていない最後の行は書き込み途中
+        for raw in data[:cut].split(b"\n"):
+            kind = _decisive(raw)
+            if kind == "close" and _pending.get(key):
+                _pending[key] -= 1        # a typed ask reached the record, which counts it from here
+            elif kind == "operator":
+                _pending.pop(key, None)
+            asks = fold_asks(asks, kind)
+        _seen[key] = (offset + cut, asks)
+    return min(asks + _pending.get(key, 0), ASKS_MAX)
 
 
 def reask_allowed(last_asked_at: float | None, now: float) -> bool:
@@ -131,52 +226,61 @@ def reask_allowed(last_asked_at: float | None, now: float) -> bool:
 
 
 def asked(record: Path) -> bool:
-    """その会話に、 締めをもう頼んであるか (= 人が最後に打った発話より後に、 締めを頼む発話が在る)。"""
-    key = str(record)
-    try:
-        size = record.stat().st_size
-    except OSError:
-        return False
-    offset, kind = _seen.get(key, (None, None))
-    if offset is None or size < offset:
-        try:
-            kind = next((k for raw in lines_from_the_end(record) if (k := _decisive(raw))), None)
-        except OSError:
-            return key in _pending
-        _seen[key] = (size, kind)
-        if kind == "close":
-            _pending.discard(key)
-    elif size > offset:
-        try:
-            with record.open("rb") as fh:
-                fh.seek(offset)
-                data = fh.read(size - offset)
-        except OSError:
-            return kind == "close" or key in _pending
-        cut = data.rfind(b"\n") + 1      # 改行で終わっていない最後の行は書き込み途中
-        for raw in data[:cut].split(b"\n"):
-            found = _decisive(raw)
-            if found == "close":
-                _pending.discard(key)     # 打った発話が記録に現れた。 ここから先は記録が答える
-            kind = found or kind
-        _seen[key] = (offset + cut, kind)
-    return kind == "close" or key in _pending
+    """Whether the conversation was asked to close (= its count of asks is 1 or more)."""
+    return close_requests(record) > 0
+
+
+def _close_check(session_id: str) -> tuple[bool, bool, SleepFacts]:
+    """Whether the tab's close stalled (= asked, and nothing but the close itself keeps it from a break after
+    `STALL_MINUTES` of quiet) and whether its ask lapsed, read the way the sleep judgement reads a tab. Blocking.
+    → (stalled, lapsed, the facts read)."""
+    # Imported here: the sleep package reads this module.
+    from backend.sleep import sleep_judgement as judgement  # noqa: PLC0415
+    from backend.sleep import sleep_sensors  # noqa: PLC0415
+    left = judgement.LEFT_BY_A_STALLED_CLOSE
+    facts = sleep_sensors.gather(session_id, judgement.STALL_MINUTES, ignoring=left)
+    stalled = bool(facts.rollover_asks) and not judgement.judge(facts, judgement.STALL_MINUTES, ignoring=left)
+    return stalled, judgement.close_lapsed(facts), facts
+
+
+def _log_lapse(session_id: str, key: str, facts: SleepFacts) -> None:
+    if key in _lapse_logged:
+        return
+    _lapse_logged.add(key)
+    logger.info("rollover: lapsed session=%s asks=%s limit_stop=%s quiet_minutes=%s", session_id,
+                facts.rollover_asks, bool(facts.ends_in_limit_stop),
+                None if facts.quiet_minutes is None else int(facts.quiet_minutes))
+
+
+async def _ask(sid: str, key: str, reason: str, pct: int | None, idle_minutes: int, now: float, again: bool) -> None:
+    result = await pty_send(sid, {"text": close_envelope(sid, reason, pct, idle_minutes), "enter": True}, None)
+    if result.get("ok"):
+        with _count_lock:
+            _pending[key] = _pending.get(key, 0) + 1
+        _asked_at[key] = now
+    logger.info("rollover: asked session=%s reason=%s context_pct=%s idle_minutes=%d%s ok=%s",
+                sid, reason, pct, idle_minutes, " again=1" if again else "", result.get("ok"))
 
 
 async def tick() -> str | None:
-    """全部のタブを 1 回見回り、 頼むべきタブが在れば 1 つにだけ頼む。 → 頼んだタブの id (= 無ければ None)。"""
+    """Look over every tab once and ask one tab at most: a new ask first, else once more a tab whose close stalled.
+    → the id of the tab asked (None when none was)."""
+    # Imported here: the sleep package reads this module.
+    from backend.sleep.sleep_judgement import STALL_MINUTES  # noqa: PLC0415
     now = time.time()
     started = set(_started)
     _started.clear()
     records: set[str] = set()
     wanted: list[tuple[bool, float, str, str, int, str]] = []   # (静かでないか, −静かな分数, タブ, 理由, 割合, 記録)
+    stalled: list[tuple[float, str, int, str]] = []            # (- quiet minutes, tab, context %, record)
     closing = False
     for sid in list(sessions_meta):
         cfg = settings_for(sid)
         record = jsonl_watcher.get_jsonl_for(sid) if cfg is not None else None
         if record is None:
             continue
-        records.add(str(record))
+        key = str(record)
+        records.add(key)
         try:
             idle_minutes = (now - record.stat().st_mtime) / 60
         except OSError:
@@ -184,32 +288,41 @@ async def tick() -> str | None:
         busy = is_busy(sid) or sid in started
         pct = context_pct_of(sid)
         reason = due(cfg, pct, idle_minutes, busy)
-        if not busy and reason is None:
-            continue                # 手が空いていて条件も立っていない。 記録を読むまでもない
-        # 記録を読むのは別スレッドで (= 初めて見る記録は末尾から遡って読む。 その間、 他の処理を止めない)
-        was_asked = await asyncio.to_thread(asked, record)
-        if busy and was_asked:
+        # Read every tab, condition or not: a stalled close is looked at whatever the condition, and after a restart
+        # of the backend the asks are only in the record. In a thread: a record seen first is read back from its end,
+        # then only from where it stopped, and nothing else waits meanwhile.
+        asks = await asyncio.to_thread(close_requests, record)
+        if busy and asks and idle_minutes < STALL_MINUTES:
             closing = True          # 頼まれて締めへ向かっている
-        elif reason is not None and not was_asked:
-            wanted.append((reason != "idle", -idle_minutes, sid, reason, pct, str(record)))
-    for key in [k for k in _seen if k not in records]:
-        del _seen[key]
-    _pending.intersection_update(records)
-    for key in [k for k in _asked_at if k not in records]:
-        del _asked_at[key]
+        elif reason is not None and not asks:
+            wanted.append((reason != "idle", -idle_minutes, sid, reason, pct, key))
+        elif asks and not busy:
+            stalled.append((-idle_minutes, sid, pct, key))
+    for table in (_seen, _asked_at):
+        for key in [k for k in table if k not in records]:
+            del table[key]
+    for key in [k for k in _pending if k not in records]:
+        del _pending[key]
+    _lapse_logged.intersection_update(records)
     if closing:
         return None
     # 静かなタブを、 静かな時間の長い順に。 推論中のタブはその後。
     for _, minus_idle, sid, reason, pct, key in sorted(wanted):
         if not reask_allowed(_asked_at.get(key), now) or not claude_in_pane(sid):
             continue
-        idle_minutes = int(-minus_idle)
-        result = await pty_send(sid, {"text": close_envelope(sid, reason, pct, idle_minutes), "enter": True}, None)
-        if result.get("ok"):
-            _pending.add(key)
-            _asked_at[key] = now
-        logger.info("rollover: asked session=%s reason=%s context_pct=%s idle_minutes=%d ok=%s",
-                    sid, reason, pct, idle_minutes, result.get("ok"))
+        await _ask(sid, key, reason, pct, int(-minus_idle), now, again=False)
+        return sid
+    for minus_idle, sid, pct, key in sorted(stalled):
+        if not reask_allowed(_asked_at.get(key), now) or not claude_in_pane(sid):
+            continue
+        is_stalled, lapsed, facts = await asyncio.to_thread(_close_check, sid)
+        if lapsed:
+            _log_lapse(sid, key, facts)
+            continue
+        if not is_stalled or facts.rollover_asks != 1:
+            continue
+        # Asked again with its quiet minutes: the screen reads the reason as `idle` or `context` only
+        await _ask(sid, key, "idle", pct, int(facts.quiet_minutes or -minus_idle), now, again=True)
         return sid
     return None
 

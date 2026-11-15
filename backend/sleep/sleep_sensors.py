@@ -9,6 +9,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import threading
 import time
 from pathlib import Path
 
@@ -58,10 +59,18 @@ def claude_started_at(pid: int) -> float:
 # Per record: how far it was read and what the rows read so far left behind. Only a shortcut: a record read from
 # its start again gives the same facts, so a restart of the backend loses nothing.
 _scans: dict[str, tuple[int, RecordFacts]] = {}
+# The sleep, the account patrols (in their threads) and the rollover watch read the same records: one reads at a time,
+# or two would fold the same rows into the same facts twice.
+_scans_lock = threading.Lock()
 
 
 def record_facts_of(record: Path) -> RecordFacts:
     """The facts of a whole conversation record, reading only what was written since the last call."""
+    with _scans_lock:
+        return _record_facts_of(record)
+
+
+def _record_facts_of(record: Path) -> RecordFacts:
     key = str(record)
     offset, facts = _scans.get(key, (0, RecordFacts()))
     if record.stat().st_size < offset:
@@ -158,11 +167,11 @@ def _account_pending(session_id: str) -> bool:
 
 
 def gather(session_id: str, minutes: int, by_hand: bool = False, stopped_by_limit: bool = False,
-           reported: bool = False) -> SleepFacts:
+           reported: bool = False, ignoring: frozenset[str] = frozenset()) -> SleepFacts:
     """Read the facts about a tab, cheapest first, and stop at the first condition that fails. `minutes` is how long
     the tab must have been quiet; `by_hand` reads for a sleep its parent asked for, `stopped_by_limit` for a tab
     whose turn a usage limit stopped and `reported` for a child that reported its work done (= `judge`), so the facts
-    those leave out are read past."""
+    those leave out are read past, as are the conditions in `ignoring`."""
     pid = claude_pid_in_pane(session_id)
     facts = SleepFacts(claude_running=pid is not None)
     if pid is None:
@@ -170,7 +179,7 @@ def gather(session_id: str, minutes: int, by_hand: bool = False, stopped_by_limi
     facts = dataclasses.replace(facts, starting=not input_ready.is_ready(session_id), turn_open=_turn_open(session_id),
                                 on_voice_call=is_session_on_call(session_id),
                                 account_pending=_account_pending(session_id))
-    if judge(facts, minutes, by_hand, stopped_by_limit, reported):
+    if judge(facts, minutes, by_hand, stopped_by_limit, reported, ignoring):
         return facts
     record = jsonl_watcher.get_jsonl_for(session_id)
     try:
@@ -183,14 +192,15 @@ def gather(session_id: str, minutes: int, by_hand: bool = False, stopped_by_limi
         scanned, activity, started, quiet = None, None, 0.0, None
     facts = dataclasses.replace(facts, record_found=quiet is not None, quiet_minutes=quiet,
                                 answered_since_start=activity > started if activity is not None else None)
-    if judge(facts, minutes, by_hand, stopped_by_limit, reported) or record is None:
+    if judge(facts, minutes, by_hand, stopped_by_limit, reported, ignoring) or record is None:
         return facts
     facts = dataclasses.replace(facts, context_pct=context_pct_of(session_id),
                                 rollover_idle_pct=rollover_idle_pct(session_id),
-                                rolling_over=rollover.asked(record))
-    if judge(facts, minutes, by_hand, stopped_by_limit, reported):
+                                rollover_asks=rollover.close_requests(record),
+                                ends_in_limit_stop=scanned is not None and scanned.limit_stop is not None)
+    if judge(facts, minutes, by_hand, stopped_by_limit, reported, ignoring):
         return facts
     facts = dataclasses.replace(facts, record=scanned)
-    if judge(facts, minutes, by_hand, stopped_by_limit, reported):
+    if judge(facts, minutes, by_hand, stopped_by_limit, reported, ignoring):
         return facts
     return dataclasses.replace(facts, foreign_processes=foreign_processes(process_tree(pid)))

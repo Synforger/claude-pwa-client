@@ -93,7 +93,7 @@ prompt のキャッシュは口座ごとに持たれ、寿命は 60 分です。
 | 定期の予約 (`CronCreate`) が残っている | `cron_scheduled` |
 | 会話の最後が、結果のまだ無い道具の呼び出し (結果待ち) | `awaiting_tool_result` |
 | 声の通話中 | `voice_call` |
-| 自動の入れ替えの最中 | `rolling_over` |
+| 自動の入れ替えの最中 (頼みの期限切れは最中と数えない。[rollover.md](rollover.md#締めの手が止まった時)) | `rolling_over` |
 
 **ターンの途中で上限に当たって止まったタブは、止まったこと自体を区切りとして移します。** 会話の最後が、
 Claude Code が上限で止まった時に書く行 (誤りの行か知らせ。形は [上限が戻った時の続き](limit-resume.md#止まったタブ))
