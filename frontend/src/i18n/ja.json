@@ -198,6 +198,7 @@
   "format.network_error": "ネットワークエラー（サーバーに接続できません）",
   "format.send_failed": "送信失敗",
   "format.error_generic": "エラー: {message}",
+  "backend.note_changed": "メモが変わりました。開き直してください",
   "backend.file_too_large": "ファイルが大きすぎます（上限 {limit}）",
   "backend.invalid_agent_id": "agent_id が無効です",
   "backend.invalid_account_id": "account_id が無効です",

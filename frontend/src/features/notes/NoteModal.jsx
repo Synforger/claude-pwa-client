@@ -23,6 +23,8 @@ import './NoteModal.css'
 // 見る時は markdown のファイルと同じ描き方 (= 見出し / 表 / コード。 書いてある path はタップで開く) で、
 // 長くても畳まず、 段落の改行と空白は書いたとおりに残す。 書く時はただのテキスト欄。
 // メモはそのタブの下書きで、 タブを消すと消える。
+// 読んだ時の版 (= 応答の ETag) を覚え、 書く時に `If-Match` で返す。 読んでから file が変わっていたら (= エージェントが
+// 書いた) backend が 409 で断るので、 古い写しでメモを置き換えない。 断られた時は書きかけを残し、 開き直しを頼む。
 // 頭に、 そのタブのトップページへのリンクを固定で置く (= メモの本文とは別の行。 ページは backend が
 // タブの階層を記録した時に作るので、 メモを空にしても消えない)。 ページが無いタブでは出さない。
 export default function NoteModal() {
@@ -42,6 +44,8 @@ export default function NoteModal() {
   const [editText, setEditText] = useState('')
   const [saving, setSaving] = useState(false)
   const [resetConfirm, setResetConfirm] = useState(false)
+  // いま見ている (= 書く前の写しの元の) メモの版。 null = 読んでいない
+  const versionRef = useRef(null)
   // 見る時の字の大きさ (= 2 本の指 / Ctrl・⌘ + ホイール。 markdown のプレビューと同じ値)
   const bodyRef = useRef(null)
   const textRef = useRef(null)
@@ -55,8 +59,9 @@ export default function NoteModal() {
     if (!activeId || editMode) return undefined
     const controller = new AbortController()
     apiFetch(`/sessions/${encodeURIComponent(activeId)}/note`, { signal: controller.signal })
-      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(data => {
+      .then(r => (r.ok ? r.json().then(data => [data, r.headers.get('ETag')]) : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(([data, version]) => {
+        versionRef.current = version
         setContent(typeof data.content === 'string' ? data.content : '')
         setPage(typeof data.page === 'string' ? data.page : null)
         setError(null)
@@ -70,6 +75,7 @@ export default function NoteModal() {
   useEffect(() => {
     setContent(null)
     setPage(null)
+    versionRef.current = null
     setEditMode(false)
     setResetConfirm(false)
     setError(null)
@@ -81,17 +87,22 @@ export default function NoteModal() {
     try {
       const res = await apiFetch(`/sessions/${encodeURIComponent(activeId)}/note`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(versionRef.current ? { 'If-Match': versionRef.current } : {}),
+        },
         body: JSON.stringify({ content: text }),
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
-        throw new Error(translateHttpErrorDetail(d.detail, `HTTP ${res.status}`))
+        throw Object.assign(new Error(translateHttpErrorDetail(d.detail, `HTTP ${res.status}`)), { changed: res.status === 409 })
       }
+      versionRef.current = res.headers.get('ETag')
       setContent(text)
       setEditMode(false)
     } catch (e) {
-      setError(t('notes.save_error', { detail: e.message }))
+      // 変わっていた時は、 理由がそのまま「開き直してください」 になる。 editMode と editText には触れない (= 書きかけを残す)
+      setError(e.changed ? e.message : t('notes.save_error', { detail: e.message }))
     } finally {
       setSaving(false)
     }

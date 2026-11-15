@@ -120,6 +120,72 @@ def test_responses_match_the_contract(client, tabs):
     http.GetSessionsSidNoteResponse.model_validate(client.get(f"/sessions/{a.id}/note").json())
 
 
+# --- A write that carries the version it read ---
+
+def _write_as_the_agent(tab, text):
+    memo_path(tab.id).parent.mkdir(parents=True, exist_ok=True)
+    memo_path(tab.id).write_text(text, encoding="utf-8")
+
+
+def test_the_read_names_the_version_of_the_memo_and_a_write_that_carries_it_goes_through(client, tabs):
+    a, _ = tabs
+    _write_as_the_agent(a, "- 状態: 詰まり\n")
+    version = client.get(f"/sessions/{a.id}/note").headers["ETag"]
+    put = client.put(f"/sessions/{a.id}/note", json={"content": "mine"}, headers={"If-Match": version})
+    assert put.status_code == 200 and memo_path(a.id).read_text(encoding="utf-8") == "mine"
+
+
+def test_a_write_over_a_memo_the_agent_changed_since_the_read_is_refused_and_leaves_the_file(client, tabs):
+    a, _ = tabs
+    _write_as_the_agent(a, "- 状態: 作業中\n")
+    version = client.get(f"/sessions/{a.id}/note").headers["ETag"]
+    _write_as_the_agent(a, "- 状態: 詰まり\n\n## 引き継ぎ\n\nwait for the parent\n")
+    refused = client.put(f"/sessions/{a.id}/note", json={"content": "stale copy"}, headers={"If-Match": version})
+    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "note_changed"
+    assert "wait for the parent" in memo_path(a.id).read_text(encoding="utf-8")
+
+
+def test_the_version_a_write_answers_is_the_one_the_next_write_carries(client, tabs):
+    a, _ = tabs
+    first = client.put(f"/sessions/{a.id}/note", json={"content": "one"}, headers={"If-Match": client.get(f"/sessions/{a.id}/note").headers["ETag"]})
+    second = client.put(f"/sessions/{a.id}/note", json={"content": "two"}, headers={"If-Match": first.headers["ETag"]})
+    assert second.status_code == 200 and client.get(f"/sessions/{a.id}/note").headers["ETag"] == second.headers["ETag"]
+
+
+def test_a_memo_that_is_not_there_has_the_version_of_an_empty_one(client, tabs):
+    a, _ = tabs
+    version = client.get(f"/sessions/{a.id}/note").headers["ETag"]
+    assert client.put(f"/sessions/{a.id}/note", json={"content": ""}).headers["ETag"] == version
+    assert client.put(f"/sessions/{a.id}/note", json={"content": "x"}, headers={"If-Match": version}).status_code == 200
+    # The agent wrote the memo meanwhile: a screen that read it as empty must not replace it
+    _write_as_the_agent(a, "the agent's")
+    assert client.put(f"/sessions/{a.id}/note", json={"content": "y"}, headers={"If-Match": version}).status_code == 409
+
+
+def test_emptying_a_memo_is_refused_too_when_the_agent_changed_it(client, tabs):
+    a, _ = tabs
+    _write_as_the_agent(a, "old")
+    version = client.get(f"/sessions/{a.id}/note").headers["ETag"]
+    _write_as_the_agent(a, "new")
+    assert client.put(f"/sessions/{a.id}/note", json={"content": ""}, headers={"If-Match": version}).status_code == 409
+    assert memo_path(a.id).read_text(encoding="utf-8") == "new"
+
+
+def test_a_write_without_a_version_goes_through_as_before(client, tabs):
+    a, _ = tabs
+    _write_as_the_agent(a, "the agent's")
+    assert client.put(f"/sessions/{a.id}/note", json={"content": "mine"}).status_code == 200
+    assert memo_path(a.id).read_text(encoding="utf-8") == "mine"
+
+
+def test_a_memo_over_the_size_limit_can_still_be_replaced_by_a_write_that_carries_its_version(client, tabs):
+    a, _ = tabs
+    _write_as_the_agent(a, "x" * (FILE_SIZE_LIMIT + 1))
+    from backend.routes.notes import _memo_bytes, _version  # noqa: PLC0415
+    version = _version(_memo_bytes(memo_path(a.id)))
+    assert client.put(f"/sessions/{a.id}/note", json={"content": "short"}, headers={"If-Match": version}).status_code == 200
+
+
 @pytest.mark.parametrize("bad", ["", "../x", "a/b", "/abs"])
 def test_a_memo_file_refuses_what_is_not_an_id(tmp_path, bad):
     with pytest.raises(ValueError):

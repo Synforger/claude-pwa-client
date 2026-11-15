@@ -550,6 +550,7 @@ endpoints:
       - "トップページは backend が、 タブの階層を記録した時にエージェントの雛形から作る (= 在る物は上書きしない)"
       - "存在しないタブは 404"
       - "1MB 超は 413"
+      - "応答の ETag header がメモの版 (= 読んだ file の hash。 file が無いタブは空の file の版)"
     implementation: backend/routes/notes.py
 
   - method: PUT
@@ -572,6 +573,8 @@ endpoints:
       - "書くのはそのタブの file だけ (= 他のタブからは見えない)"
       - "content が空文字なら file ごと消す"
       - "存在しないタブは 404、 1MB 超は 413"
+      - "If-Match に GET で読んだ版を付けた時、 file がその後に変わっていれば 409 (note_changed) で書かない。 付けない時は無条件に書く"
+      - "応答の ETag header が書いた後の版"
       - "タブを消すと (= DELETE /sessions/{sid}) メモも消える"
     implementation: backend/routes/notes.py
 
