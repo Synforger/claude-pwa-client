@@ -32,6 +32,11 @@ from a break after `STALL_MINUTES` of quiet) is asked once more. An ask lapses w
 quiet, or when a usage limit stopped it: the watch asks no more, and the sleep, the stop line and the fallback no
 longer count the tab as closing (`sleep_judgement.close_lapsed`). The count of asks stops at `ASKS_MAX`; at that
 count a message from another tab starts it over (= new work arrived).
+
+A tab whose claude still runs a tool's shell (= a command its Bash or Monitor tool runs in the background) is not
+asked, whatever the reason, and the next tab in line is looked at instead: the conversation's end would stop those
+commands (`tool_shells`). The tab is looked at again on the next look, and its quiet time includes the records of its
+sub-agents, which a sub-agent running in the background keeps writing.
 """
 from __future__ import annotations
 
@@ -43,13 +48,16 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import psutil
+
 import backend.jsonl.jsonl_watcher as jsonl_watcher
 from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENINGS, CLIENT_OPENINGS, ROLLOVER_OPENING, unwrap_pasted
 from backend.routes.agent_messages import entered_text, lines_from_the_end
 from backend.routes.overview import context_pct_of, is_busy
 from backend.routes.rollover import TAG, close_envelope
 from backend._common.state import sessions_meta
-from backend.terminal.pty_discover import claude_in_pane
+from backend.rollover.tool_shells import ProcessRow, ToolShell, tool_shells
+from backend.terminal.pty_discover import claude_in_pane, claude_pid_in_pane
 from backend.terminal.routes import pty_send
 from backend.terminal.session_resolver import resolve_agent_cfg
 
@@ -84,6 +92,8 @@ _lapse_logged: set[str] = set()
 # When each conversation was last asked to close (= wall-clock seconds). Kept in memory only: a restart
 # forgets it and may ask once more.
 _asked_at: dict[str, float] = {}
+# Per record: the pids of the tools' shells the last ask held back for (= the log says so when they change).
+_held: dict[str, tuple[int, ...]] = {}
 # 推論を始めて、 まだ見回りが見ていないタブ。 hook が入れ、 推論が終われば (= `Stop` の hook) 抜く。
 _started: set[str] = set()
 # 推論を始めたタブが在る時に、 間隔を待たずに見回りを起こす合図 (= 見回りの loop が作る)。
@@ -243,6 +253,48 @@ def _close_check(session_id: str) -> tuple[bool, bool, SleepFacts]:
     return stalled, judgement.close_lapsed(facts), facts
 
 
+def last_written(record: Path) -> float:
+    """When the conversation last wrote (unix seconds): the newest modification time of its record and of the records
+    of its sub-agents (= the `subagents/` folder named like the record, next to it)."""
+    newest = record.stat().st_mtime
+    for path in record.with_suffix("").joinpath("subagents").rglob("*.jsonl"):
+        try:
+            newest = max(newest, path.stat().st_mtime)
+        except OSError:
+            continue
+    return newest
+
+
+def background_shells(session_id: str) -> list[ToolShell]:
+    """The tools' shells the tab's claude runs (= what the end of its conversation would stop). Blocking."""
+    pid = claude_pid_in_pane(session_id)
+    if pid is None:
+        return []
+    now = time.time()
+    rows: list[ProcessRow] = []
+    try:
+        children = psutil.Process(pid).children()
+    except psutil.Error:
+        return []
+    for child in children:
+        try:
+            rows.append(ProcessRow(pid=child.pid, parent_pid=pid, command_line=" ".join(child.cmdline()),
+                                   elapsed_seconds=now - child.create_time()))
+        except psutil.Error:
+            # benign: a child that ended while it was read runs nothing the end of the conversation could stop
+            continue
+    return tool_shells(rows, pid)
+
+
+def _log_held(session_id: str, key: str, reason: str, shells: list[ToolShell]) -> None:
+    pids = tuple(sorted(shell.pid for shell in shells))
+    if _held.get(key) == pids:
+        return
+    _held[key] = pids
+    logger.info("rollover: held session=%s reason=%s background=%s", session_id, reason,
+                ",".join(str(pid) for pid in pids))
+
+
 def _log_lapse(session_id: str, key: str, facts: SleepFacts) -> None:
     if key in _lapse_logged:
         return
@@ -282,7 +334,7 @@ async def tick() -> str | None:
         key = str(record)
         records.add(key)
         try:
-            idle_minutes = (now - record.stat().st_mtime) / 60
+            idle_minutes = (now - last_written(record)) / 60
         except OSError:
             continue
         busy = is_busy(sid) or sid in started
@@ -298,7 +350,7 @@ async def tick() -> str | None:
             wanted.append((reason != "idle", -idle_minutes, sid, reason, pct, key))
         elif asks and not busy:
             stalled.append((-idle_minutes, sid, pct, key))
-    for table in (_seen, _asked_at):
+    for table in (_seen, _asked_at, _held):
         for key in [k for k in table if k not in records]:
             del table[key]
     for key in [k for k in _pending if k not in records]:
@@ -310,6 +362,11 @@ async def tick() -> str | None:
     for _, minus_idle, sid, reason, pct, key in sorted(wanted):
         if not reask_allowed(_asked_at.get(key), now) or not claude_in_pane(sid):
             continue
+        shells = await asyncio.to_thread(background_shells, sid)
+        if shells:
+            _log_held(sid, key, reason, shells)
+            continue
+        _held.pop(key, None)
         await _ask(sid, key, reason, pct, int(-minus_idle), now, again=False)
         return sid
     for minus_idle, sid, pct, key in sorted(stalled):

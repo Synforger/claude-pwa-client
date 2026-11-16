@@ -26,7 +26,9 @@
                                  階層は --tier、 無ければ `AGENT_TIER`、 それも無い会話 (= 再開や fork で始まった
                                  会話) は、 一覧と同じにその会話の最初の発話から導く。
                                  子のタブ (= `AGENT_CHILD=1`) は journal の代わりに、 この会話がタブのメモに
-                                 `## 引き継ぎ` を書いた時だけ頼む
+                                 `## 引き継ぎ` を書いた時だけ頼む。
+                                 この会話の道具が裏で走らせている命令 (= Bash の run_in_background・Monitor) が在る間は
+                                 頼まない (= 会話の終わりで止まる)。 pid・経過・命令と次の手を出して止まる
     tabs    open <階層>          このエージェントの <階層> (= `normal` / `projects/<P>` / `projects/<P>/subprojects/<S>`、 `subprojects/<S>` は何段でも)
                                  のタブを一覧に置く (= 閉じた階層のタブを戻す時。 新しい階層のタブは、 設定で
                                  `tier_tabs` を入れたエージェントなら backend が自分で置く)。 claude は、 そのタブへ
@@ -96,6 +98,8 @@ from typing import NamedTuple
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from backend.child_watch.child_memo import (  # noqa: E402
     DONE, STATE_LINE as STATE, STUCK, UNKNOWN, WORKING, memo_state, save_memo_state)
+from backend.rollover.tool_shells import (  # noqa: E402
+    ProcessRow, ToolShell, elapsed_text, own_tool_shell, seconds_of_elapsed, tool_shells)
 
 HOME = Path.home()
 BASE = f"http://127.0.0.1:{os.environ.get('PWA_PORT', '8765')}"
@@ -859,6 +863,48 @@ def child_not_handed_over(record: Path) -> str | None:
     return None
 
 
+def process_table() -> list[ProcessRow]:
+    """この機械の process の表 (= `ps`。 機械の python3 に psutil は無い)。 読めなければ空。"""
+    try:
+        out = subprocess.run(["ps", "-A", "-ww", "-o", "pid=,ppid=,etime=,command="], capture_output=True,
+                             text=True, timeout=10, check=True).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    rows = []
+    for line in out.splitlines():
+        fields = line.split(None, 3)
+        if len(fields) == 4 and fields[0].isdigit() and fields[1].isdigit():
+            rows.append(ProcessRow(pid=int(fields[0]), parent_pid=int(fields[1]), command_line=fields[3],
+                                   elapsed_seconds=seconds_of_elapsed(fields[2])))
+    return rows
+
+
+def commands_ending_with_this_conversation() -> list[ToolShell]:
+    """この会話の道具が走らせている shell のうち、 この命令を打った shell を除いた物 (= 会話の終わりで止まる)。
+    Claude は、 Claude Code が道具の環境に入れる `CLAUDE_PID` で決める。 無い時 (= 道具の外から打った) は確かめない。"""
+    claude = os.environ.get("CLAUDE_PID", "")
+    if not claude.isdigit():
+        return []
+    rows = process_table()
+    mine = own_tool_shell(rows, os.getpid())
+    return tool_shells(rows, int(claude), leaving_out=mine.pid if mine else None)
+
+
+def background_refusal(running: list[ToolShell]) -> str:
+    """裏の命令が在るので起動し直さない、 と言う文 (= 止まる命令と次の手)。"""
+    lines = ["tabs: まだ起動し直せません: この会話の道具が裏で命令を走らせています。 会話が終わると Claude Code が止めます"]
+    lines += [f"  pid {shell.pid} ({elapsed_text(shell.elapsed_seconds)}): {shell.command}" for shell in running]
+    lines += [
+        "次のどれかの後に、 もう一度打ってください:",
+        "  - 終わるのを待つ (= run_in_background と Monitor の命令は、 終われば知らせが届く)",
+        "  - 止めてよければ、 KillShell (TaskStop) か `kill <pid>` で止める",
+        "  - 会話より長く走らせる命令は、 普通の Bash で `nohup <命令> > <log> 2>&1 &` として起こし直す (= 会話が終わっても残る)",
+        "待った後は、 引き継ぎ (= journal の `## 入れ替えの時点`、 子のタブはメモの `## 引き継ぎ`) を今に合わせて書き直し、"
+        " commit してから打つ",
+    ]
+    return "\n".join(lines)
+
+
 def rollover(mode: str, tier: str | None) -> int:
     """このタブの起動し直しを backend に頼む。 起動器が読む 2 行 (= 階層と、 続けるか待つか) を本文にして渡す。"""
     me = os.environ.get("PWA_SID")
@@ -877,6 +923,11 @@ def rollover(mode: str, tier: str | None) -> int:
     missing = not_handed_over()
     if missing:
         print(f"tabs: まだ起動し直せません: {missing}", file=sys.stderr)
+        return 1
+    # 会話の終わりで Claude Code が裏の命令を止めるので、 走っている間は頼まない
+    running = commands_ending_with_this_conversation()
+    if running:
+        print(background_refusal(running), file=sys.stderr)
         return 1
     status, body = call(f"/sessions/{urllib.parse.quote(me)}/rollover", {"text": f"tier={tier}\nmode={mode}\n"})
     if status == 202 and isinstance(body, dict) and body.get("rolling"):

@@ -20,6 +20,7 @@ from starlette.testclient import TestClient
 import backend._common.config as config_mod
 import backend.rollover.rollover as watch
 from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENING, ROLLOVER_OPENING, is_client_message
+from backend.rollover.tool_shells import ToolShell
 from backend.routes import rollover as ro
 from backend._common.state import SessionDef
 from backend.sleep import sleep_judgement as judgement
@@ -90,10 +91,10 @@ def _write(path: Path, *rows: dict) -> Path:
 
 @pytest.fixture(autouse=True)
 def _fresh_memory():
-    for memory in (watch._seen, watch._pending, watch._asked_at, watch._lapse_logged):
+    for memory in (watch._seen, watch._pending, watch._asked_at, watch._lapse_logged, watch._held):
         memory.clear()
     yield
-    for memory in (watch._seen, watch._pending, watch._asked_at, watch._lapse_logged):
+    for memory in (watch._seen, watch._pending, watch._asked_at, watch._lapse_logged, watch._held):
         memory.clear()
 
 
@@ -184,7 +185,7 @@ def test_the_messages_the_client_types_are_told_apart_from_the_operator_s():
 
 
 class Tabs:
-    """見回りが見る物を差し替える: 設定 / 記録 / 推論中か / 割合 / claude が居るか / 端末へ打つ。"""
+    """見回りが見る物を差し替える: 設定 / 記録 / 推論中か / 割合 / claude が居るか / 道具の shell / 端末へ打つ。"""
 
     def __init__(self, monkeypatch, tmp_path, state):
         self.tmp, self.state = tmp_path, state
@@ -196,6 +197,7 @@ class Tabs:
         self.sent: list[tuple[str, str]] = []
         self.close: dict[str, tuple[bool, bool, SleepFacts]] = {}
         self.checked: list[str] = []
+        self.shells: dict[str, list[ToolShell]] = {}
 
         def close_check(sid):
             self.checked.append(sid)
@@ -207,6 +209,7 @@ class Tabs:
         monkeypatch.setattr(watch, "is_busy", lambda sid: self.busy.get(sid, False))
         monkeypatch.setattr(watch, "context_pct_of", lambda sid: self.pct.get(sid, 0))
         monkeypatch.setattr(watch, "claude_in_pane", lambda sid: sid not in self.absent)
+        monkeypatch.setattr(watch, "background_shells", lambda sid: self.shells.get(sid, []))
 
         async def fake_send(sid, payload, idempotency_key=None):
             self.sent.append((sid, payload["text"]))
@@ -726,3 +729,67 @@ def test_a_stalled_close_is_judged_as_the_sleep_judges_a_tab(monkeypatch):
     monkeypatch.setattr(sensors, "gather", lambda *a, **k: SleepFacts(
         claude_running=True, quiet_minutes=40, rollover_asks=1, foreign_processes=("sleep",)))
     assert watch._close_check("ses_a")[0] is False             # a command runs in the back
+
+
+# --- a tab whose tools still run commands in the background -------------------------------------
+
+
+R94 = ToolShell(pid=4242, elapsed_seconds=7200.0, command="bash r94-full.sh > r94-summary.txt 2>&1")
+
+
+@pytest.mark.parametrize("pct, idle_minutes, busy", [(45, 82, False), (70, 0, True), (70, 5, False)])
+def test_a_tab_running_a_tool_s_command_is_not_asked_whatever_the_reason(tabs, pct, idle_minutes, busy):
+    """The end of the conversation would stop the command (idle as in 2026-11-16, and context too)."""
+    record = tabs.add("ses_a", pct=pct, idle_minutes=idle_minutes, busy=busy)
+    tabs.shells["ses_a"] = [R94]
+    assert tabs.tick() is None and tabs.sent == []
+    assert str(record) not in watch._asked_at                  # held, not asked: no gap starts
+    tabs.shells["ses_a"] = []
+    assert tabs.tick() == "ses_a"                              # the next look asks once the command is over
+
+
+def test_a_held_tab_first_in_line_does_not_hold_up_the_next(tabs):
+    tabs.add("ses_a", pct=45, idle_minutes=90)                 # the longest quiet: first in line
+    tabs.add("ses_b", pct=45, idle_minutes=51)
+    tabs.shells["ses_a"] = [R94]
+    assert tabs.tick() == "ses_b"
+    _write(tabs.records["ses_b"], _typed(tabs.sent[0][1]))
+    tabs.busy["ses_b"] = True                                  # ses_b is closing; a held tab does not count as closing
+    assert tabs.tick() is None
+    tabs.busy["ses_b"] = False
+    tabs.shells["ses_a"] = []
+    tabs.quiet_for("ses_b", 1)
+    assert tabs.tick() == "ses_a"
+
+
+def test_a_hold_is_logged_when_the_commands_change(tabs, caplog):
+    tabs.add("ses_a", pct=45, idle_minutes=60)
+    tabs.shells["ses_a"] = [R94]
+    with caplog.at_level("INFO", logger=watch.logger.name):
+        tabs.tick()
+        tabs.tick()
+        tabs.shells["ses_a"] = [R94, ToolShell(pid=4300, elapsed_seconds=5.0, command="sleep 9")]
+        tabs.tick()
+    assert caplog.text.count("rollover: held session=ses_a reason=idle background=4242\n") == 1
+    assert caplog.text.count("background=4242,4300") == 1
+
+
+def test_the_memory_of_a_hold_goes_with_its_record(tabs):
+    tabs.add("ses_a", pct=45, idle_minutes=60)
+    tabs.shells["ses_a"] = [R94]
+    tabs.tick()
+    assert watch._held
+    del tabs.records["ses_a"]
+    tabs.tick()
+    assert not watch._held
+
+
+def test_a_sub_agent_writing_in_the_background_keeps_the_conversation_from_being_quiet(tabs):
+    record = tabs.add("ses_a", pct=45, idle_minutes=82)
+    work = record.with_suffix("") / "subagents" / "agent-1.jsonl"
+    work.parent.mkdir(parents=True)
+    work.write_text("{}\n")                                   # written just now
+    assert tabs.tick() is None
+    at = time.time() - 60 * 60
+    os.utime(work, (at, at))
+    assert tabs.tick() == "ses_a"
