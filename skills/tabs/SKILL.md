@@ -276,6 +276,14 @@ handover note is written and committed, and for a child, that its memo's handove
 the missing step when it is not. It asks the backend to end this conversation and start the next one in the same
 tier, so run it last.
 
+Ending a conversation stops what its tools run in the background (a Bash call with `run_in_background`, a Monitor):
+Claude Code sends them SIGTERM as it exits. `tabs rollover` therefore refuses while such a command runs, and names
+each one (pid, how long it has run, the command). Wait for it to end (it reports when it does), or stop it if it may
+stop, then update the handover and run `tabs rollover` again. A command that must outlive the conversation (a test
+run of hours, a long build) is started from a plain Bash call as `nohup <command> > <log> 2>&1 &`: its call returns at
+once and the command survives the end of the conversation. The backend's watch does not ask a tab to close while its
+tools run such commands either.
+
 ## Finding a tab's conversation record
 
 A conversation is a `.jsonl` file under `~/.claude*/projects/<folder-hash>/<claude session id>.jsonl`. To find the

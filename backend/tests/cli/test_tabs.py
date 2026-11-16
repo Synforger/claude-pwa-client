@@ -556,6 +556,40 @@ def test_a_child_rolls_over_only_after_writing_what_the_next_conversation_contin
     assert "tier=normal" in call["form"]["text"]
 
 
+# claude の代わりの process: 道具の shell の形 (= Claude Code の shell の snapshot を読む) の子を 1 つ持つ
+FAKE_CLAUDE = """
+import subprocess, sys, time
+shell = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)",
+                          "/h/.claude/shell-snapshots/snapshot-zsh-1.sh", "eval 'bash r94-full.sh' < /dev/null"])
+print(shell.pid, flush=True)
+time.sleep(60)
+"""
+
+
+def test_a_conversation_whose_tools_still_run_commands_is_not_rolled_over(family):
+    """会話が終わると Claude Code が道具の裏の命令を止めるので、 走っている間は頼まない。"""
+    note = family.note("ses_c", "# C\n\n- 状態: 作業中\n\n## 渡された仕事\n\nx\n\n## 引き継ぎ\n\n- ここまで\n")
+    family.record.write_text("", encoding="utf-8")
+    family.used("Edit", note)
+    claude = subprocess.Popen([sys.executable, "-c", FAKE_CLAUDE], stdout=subprocess.PIPE, text=True)
+    try:
+        shell = int(claude.stdout.readline())
+        roll = lambda pid: family.run("rollover", "continue", PWA_SID="ses_c", AGENT_CHILD="1",  # noqa: E731
+                                      PWA_NOTE=str(note), CLAUDE_PID=str(pid))
+        assert roll(claude.pid) == 1
+        assert not family.backend.called("POST", "/sessions/ses_c/rollover")
+        assert "受け付けました" not in family.out
+        assert f"pid {shell} (" in family.err and "bash r94-full.sh" in family.err
+        assert "nohup <命令> > <log> 2>&1 &" in family.err and "KillShell" in family.err
+        # 道具の shell を持たない claude (= 裏の命令が終わった) なら頼む
+        roll(shell)
+        assert family.backend.called("POST", "/sessions/ses_c/rollover"), family.err
+    finally:
+        subprocess.run(["pkill", "-P", str(claude.pid)], check=False)
+        claude.kill()
+        claude.wait()
+
+
 def test_a_child_started_before_memos_moved_rolls_over_from_the_moved_memo(family):
     note = family.note("ses_c", "# C\n\n- 状態: 作業中\n\n## 渡された仕事\n\nx\n\n## 引き継ぎ\n\n- ここまで\n")
     stale = family.agent / "notes/ses_c.md"
