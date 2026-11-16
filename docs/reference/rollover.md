@@ -54,7 +54,7 @@ build が途中で止まります。
 - 見張りは、 Claude の下にそうした命令が残っているタブには、 どちらの条件でも頼みません。 次の見回りでまた見て、
   命令が終わっていれば頼みます。 待つ間は次のタブを見ます (= log の `rollover: held session=… background=<pid,…>`、
   命令の組が変わった時だけ)。 待つ間に context が埋まる時は、 Claude Code の自動の要約が受け持ちます
-- 見分けは、 Claude の直下の process のうち、 Claude Code の shell の snapshot (= `shell-snapshots/snapshot-`) を読む
+- 見分けは、 Claude の直下の process のうち、 Claude Code の shell の snapshot (= `~/.claude` の下の `shell-snapshots` の folder の file) を読む
   shell です。 MCP や言語の server、 hook、 Claude が答える間の `caffeinate` は数えません。 推論中は、 今の道具の
   呼び出しの shell も同じ形なので、 その呼び出しが終わるまで待ちます
 - 会話より長く走らせたい命令は、 普通の Bash で `nohup <命令> > <log> 2>&1 &` として起こします。 その呼び出しの
