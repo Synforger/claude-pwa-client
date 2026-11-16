@@ -314,26 +314,37 @@ export function useChatStream({
     } catch { /* 送信失敗は握りつぶす (= 次操作で復帰) */ }
   }, [])
 
-  // 送信 in-flight guard (= same-tick 二重発火保険)。
-  // 主 dedup は send_id (= Idempotency-Key) 経路が担う。 これは「同期連続 flush 中の
-  // 二重呼出」 を塞ぐ補助 lock。 finally で解放するので backend confirm 完了 (= 数百 ms〜4s)
-  // 後には次の send_id で通す (= continuous send / queue mode 意図を保持)。
-  const sendingRef = useRef({})
+  // Sends of one tab go to the backend one after another, in the order they were made. The bubble of each appears at
+  // once; only the POST waits for the earlier ones (which wait up to 4 s for the backend to see the text in the
+  // conversation), so the texts reach the conversation in order. A send made while an earlier one was in flight used
+  // to be dropped with the input already cleared, and the text was lost.
+  const sendChainRef = useRef({})
+  // The attachments an earlier send of the tab is still carrying (= cleared only when its upload ends): a later send
+  // made meanwhile does not send them again.
+  const carriedFilesRef = useRef({})
 
   // targetSid = 送り先のタブ (= 省くと今見ているタブ)。 声の会話は、 見ているタブが変わっても 🔊 のタブへ送る
   // (= features/voice/voice.js の setVoiceSender)。
   const sendMessage = useCallback(async (textOverride, targetSid) => {
     const to = targetSid || sid
     if (!to) return
-    if (sendingRef.current[to]) return
-    sendingRef.current[to] = true
+    const earlier = sendChainRef.current[to] || Promise.resolve()
+    let release
+    const done = new Promise(resolve => { release = resolve })
+    sendChainRef.current[to] = earlier.then(() => done)
+    let carrying = []
     try {
     // ChatInput が内部 state で打鍵を抱えるようになったので、 送信時には override (= 直近の
     // localText) を優先する。 タブ切替で flush 済の draft を後追い送信するケース等は引数なしで
     // 呼ばれて従来通り input dict を読む。
     const text = (typeof textOverride === 'string' ? textOverride : (input[to] || '')).trim()
-    const files = attachments[to] || []
+    const carried = carriedFilesRef.current[to] || []
+    const files = (attachments[to] || []).filter(f => !carried.includes(f))
     if (!text && files.length === 0) return
+    if (files.length > 0) {
+      carrying = files
+      carriedFilesRef.current[to] = [...carried, ...files]
+    }
     // 2026-07-02: 連続送信 (queue mode) 対応で loading 中 alert block を撤去。 busy 中でも POST
     // を通す。 tmux は keystroke を Claude の入力欄に積んで、 Claude Code v2 の queue mode が
     // 現 turn 完了後に順次処理する。 PWA 側に queue state 管理は持たない。
@@ -424,6 +435,7 @@ export function useChatStream({
       if (extraInput) setInput(prev => ({ ...prev, [to]: prev[to] || text }))
       try { onSendFailed?.(to, text) } catch { /* ignore consumer error */ }
     }
+    await earlier
     if (files.length > 0) {
       // multipart: backend がファイルを uploads/tmp に保存して path を本文に追記して
       // tmux に送る (= claude が Read tool で読む)。
@@ -492,7 +504,10 @@ export function useChatStream({
       }
     }
     } finally {
-      sendingRef.current[to] = false
+      if (carrying.length > 0) {
+        carriedFilesRef.current[to] = (carriedFilesRef.current[to] || []).filter(f => !carrying.includes(f))
+      }
+      release()
     }
   }, [sid, input, attachments, setInput, setMessages, clearAttachments, scrollToBottom, isAtBottomRef, setLoading, onSendFailed])
 
