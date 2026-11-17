@@ -27,7 +27,7 @@ pick up, a decision that affects it. Do not wait for the operator to carry it.
    ```
 
    One line per tab: id, tier, account, state, boundaries read, name. The account of a sleeping tab is the one it
-   runs on once woken, with the one it last ran on in brackets when they differ (`口座=work (眠り、最後は personal)`).
+   runs on once woken.
    A tab with no running Claude has the state
    `未起動` (a message starts it) or `起こせない` (it cannot be started). Tabs of another agent show `別の agent`
    instead of a tier. A tab that works in a boundary this tab does not know shows `別の境界` as its tier and

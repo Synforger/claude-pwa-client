@@ -31,19 +31,13 @@ export function accountChanges(sessions, payload) {
 }
 
 /** The account label of a row, null where no label shows (= with one account configured every row would say the same).
- *  A sleeping tab shows the account it runs on once woken, and the one it last ran on in brackets when the two differ.
+ *  A sleeping tab shows only the account it runs on once woken: the list already marks it asleep.
  *  @param {{account_id?: string|null, account_on_wake?: string|null}} session the row
  *  @param {Array<{id: string, display_name?: string}>} accounts the configured accounts
  *  @param {string|null} defaultAccountId the account a row with no `account_id` runs on
- *  @param {(key: string, params?: object) => string} t the translation function
  *  @returns {string|null} */
-export function accountLabelOf(session, accounts, defaultAccountId, t) {
+export function accountLabelOf(session, accounts, defaultAccountId) {
   if (accounts.length <= 1) return null
-  const nameOf = (id) => accounts.find((a) => a.id === id)?.display_name || id || null
-  const last = session.account_id || defaultAccountId
-  const onWake = session.account_on_wake
-  if (onWake && onWake !== last) {
-    return `${nameOf(onWake)} (${t('drawer.account.asleep_last', { account: nameOf(last) })})`
-  }
-  return nameOf(last)
+  const id = session.account_on_wake || session.account_id || defaultAccountId
+  return accounts.find((a) => a.id === id)?.display_name || id || null
 }

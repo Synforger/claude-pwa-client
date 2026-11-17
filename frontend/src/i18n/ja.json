@@ -101,7 +101,6 @@
   "drawer.account.load_failed": "アカウント一覧を取得できませんでした",
   "drawer.account.load_short": "取得中…",
   "drawer.account.retry": "再試行",
-  "drawer.account.asleep_last": "眠り、最後は {account}",
   "drawer.account.default_hint": "アカウント指定なしで作成 (= backend が default を選ぶ)",
   "drawer.account.default_button": "既定アカウントで作成",
   "drawer.notify.label": "通知",
