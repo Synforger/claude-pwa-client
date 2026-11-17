@@ -753,7 +753,7 @@ def test_the_listing_tells_a_tab_put_to_sleep_from_one_that_never_started(tabs):
     assert lines["ses_new"].split("  ")[3] == "未起動"
 
 
-def test_the_listing_shows_the_account_a_sleeping_tab_wakes_on_beside_the_one_it_last_ran_on(tabs):
+def test_the_listing_shows_only_the_account_a_sleeping_tab_wakes_on(tabs):
     asleep = {"agent_id": "agent_a", "child": False, "parent_id": None, "tier": "projects/P"}
     tabs.backend.tabs = [
         {"id": "ses_parent", "title": "main", "agent_id": "agent_a", "child": False, "parent_id": None},
@@ -764,8 +764,8 @@ def test_the_listing_shows_the_account_a_sleeping_tab_wakes_on_beside_the_one_it
     ]
     assert tabs.run("list") == 0
     cells = {line.split()[0]: line.split("  ")[2] for line in tabs.out.splitlines() if line.strip()}
-    assert cells["ses_back"] == "口座=work (眠り、最後は personal)"
-    assert cells["ses_same"] == "口座=work"                 # the same account: no bracket
+    assert cells["ses_back"] == "口座=work"                 # not the account it last ran on
+    assert cells["ses_same"] == "口座=work"
     assert cells["ses_awake"] == "口座=personal"
     assert cells["ses_old"] == "口座=personal"              # a backend that does not say: as before
 

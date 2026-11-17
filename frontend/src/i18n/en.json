@@ -101,7 +101,6 @@
   "drawer.account.load_failed": "Failed to load account list",
   "drawer.account.load_short": "Loading…",
   "drawer.account.retry": "Retry",
-  "drawer.account.asleep_last": "asleep, last on {account}",
   "drawer.account.default_hint": "Create without account selection (backend picks the default)",
   "drawer.account.default_button": "Create with default account",
   "drawer.notify.label": "Notifications",

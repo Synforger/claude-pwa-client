@@ -402,13 +402,9 @@ def send_failure(status: int, body: object) -> tuple[str, str]:
 
 
 def account_cell(tab: dict) -> str:
-    """The account of a listed tab. A sleeping tab shows the account it runs on once woken (= `account_on_wake`, which
-    the account fallback decides when it wakes the tab), and the one it last ran on only when the two differ."""
-    last = tab.get("account_id") or "personal"
-    on_wake = tab.get("account_on_wake")
-    if on_wake and on_wake != last:
-        return f"口座={on_wake} (眠り、最後は {last})"
-    return f"口座={last}"
+    """The account of a listed tab. A sleeping tab shows only the account it runs on once woken (= `account_on_wake`,
+    which the account fallback decides when it wakes the tab); its state cell already says it sleeps."""
+    return f"口座={tab.get('account_on_wake') or tab.get('account_id') or 'personal'}"
 
 
 def same_folder(left: Path | str | None, right: Path | str | None) -> bool:

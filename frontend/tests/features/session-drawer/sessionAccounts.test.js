@@ -64,29 +64,28 @@ describe('accountChanges for the account a sleeping tab wakes on', () => {
 
 describe('accountLabelOf', () => {
   const accounts = [{ id: 'personal', display_name: 'Personal' }, { id: 'work', display_name: 'Work' }]
-  const t = (key, params) => `${key}:${params.account}`
 
-  it('shows the account a sleeping tab wakes on, and the one it last ran on in brackets when they differ', () => {
-    const session = { account_id: 'personal', account_on_wake: 'work' }
-    expect(accountLabelOf(session, accounts, null, t)).toBe('Work (drawer.account.asleep_last:Personal)')
+  it('shows only the account a sleeping tab wakes on, not the one it last ran on', () => {
+    expect(accountLabelOf({ account_id: 'personal', account_on_wake: 'work' }, accounts, null)).toBe('Work')
+    expect(accountLabelOf({ account_id: 'work', account_on_wake: 'personal' }, accounts, null)).toBe('Personal')
   })
 
-  it('shows no brackets when it wakes on the account it last ran on, or when it is awake', () => {
-    expect(accountLabelOf({ account_id: 'work', account_on_wake: 'work' }, accounts, null, t)).toBe('Work')
-    expect(accountLabelOf({ account_id: 'work', account_on_wake: null }, accounts, null, t)).toBe('Work')
-    expect(accountLabelOf({ account_id: 'work' }, accounts, null, t)).toBe('Work')
+  it('shows the account it runs on when it wakes on the same one, or when it is awake', () => {
+    expect(accountLabelOf({ account_id: 'work', account_on_wake: 'work' }, accounts, null)).toBe('Work')
+    expect(accountLabelOf({ account_id: 'work', account_on_wake: null }, accounts, null)).toBe('Work')
+    expect(accountLabelOf({ account_id: 'work' }, accounts, null)).toBe('Work')
   })
 
   it('takes the default account for a row with no account', () => {
-    expect(accountLabelOf({}, accounts, 'personal', t)).toBe('Personal')
-    expect(accountLabelOf({ account_on_wake: 'work' }, accounts, 'personal', t)).toBe('Work (drawer.account.asleep_last:Personal)')
+    expect(accountLabelOf({}, accounts, 'personal')).toBe('Personal')
+    expect(accountLabelOf({ account_on_wake: 'work' }, accounts, 'personal')).toBe('Work')
   })
 
   it('shows no label with one account configured', () => {
-    expect(accountLabelOf({ account_id: 'personal', account_on_wake: 'work' }, [accounts[0]], null, t)).toBeNull()
+    expect(accountLabelOf({ account_id: 'personal', account_on_wake: 'work' }, [accounts[0]], null)).toBeNull()
   })
 
   it('falls back to the id of an account the list does not know', () => {
-    expect(accountLabelOf({ account_id: 'gone' }, accounts, null, t)).toBe('gone')
+    expect(accountLabelOf({ account_id: 'gone' }, accounts, null)).toBe('gone')
   })
 })

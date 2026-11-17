@@ -477,7 +477,7 @@ export default function SessionDrawer() {
             const effectiveAccount = s.account_id || defaultAccountId
             // No label with a single account (= every row would say the same). A sleeping tab shows the account it wakes on,
             // with the account it last ran on in brackets only when the two differ.
-            const accountLabel = accountLabelOf(s, accounts, defaultAccountId, t)
+            const accountLabel = accountLabelOf(s, accounts, defaultAccountId)
             // 移し先候補 = 今と違うアカウント。 1 つなら選択させず直接その名前のボタンを出す。
             const moveTargets = accounts.filter(a => a.id !== effectiveAccount)
             return (
