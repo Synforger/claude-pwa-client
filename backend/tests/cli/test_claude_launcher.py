@@ -14,7 +14,7 @@ ALIAS = ["--model", "opus", "--tools", "", "--strict-mcp-config"]
 @pytest.fixture
 def started(monkeypatch):
     lines: list[list[str]] = []
-    monkeypatch.setattr(claude_launcher.os, "execvp", lambda file, line: lines.append(line))
+    monkeypatch.setattr(claude_launcher.os, "execvpe", lambda file, line, environment: lines.append(line))
     monkeypatch.setattr(claude_launcher, "CLAUDE", "claude")
     return lines
 
@@ -49,3 +49,12 @@ def test_the_words_are_split_wherever_they_stand():
     assert words == claude_launcher.LaunchWords(["--model", "opus"], None, "abc")
     assert claude_launcher.parse(["--model", "opus"]).first_message_file is None
     assert claude_launcher.parse(["--first-message-file", "/tmp/x"]).first_message_file == Path("/tmp/x")
+
+
+def test_claude_starts_without_the_api_keys(monkeypatch):
+    environments: list[dict[str, str]] = []
+    monkeypatch.setattr(claude_launcher.os, "execvpe", lambda file, line, environment: environments.append(environment))
+    monkeypatch.setattr(claude_launcher.os, "environ", {"HOME": "/home/someone", "ANTHROPIC_API_KEY": "sk-one",
+                                                        "ANTHROPIC_AUTH_TOKEN": "token", "PWA_SID": "ses_head"})
+    claude_launcher.main(["--resume", "abc"])
+    assert environments == [{"HOME": "/home/someone", "PWA_SID": "ses_head"}]
