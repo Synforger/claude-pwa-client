@@ -54,6 +54,13 @@ build が途中で止まります。
 - 見張りは、 Claude の下にそうした命令が残っているタブには、 どちらの条件でも頼みません。 次の見回りでまた見て、
   命令が終わっていれば頼みます。 待つ間は次のタブを見ます (= log の `rollover: held session=… background=<pid,…>`、
   命令の組が変わった時だけ)。 待つ間に context が埋まる時は、 Claude Code の自動の要約が受け持ちます
+- working の割合 (`context`) を超えて待たせた会話には、 なぜ頼まないかを 1 回だけ知らせます。 1 行目は client の知らせの行で、
+  block は `<rollover-held reason="context" context_pct="…" line="…">`、 本文は命令ごとの pid・経過・命令の頭と、
+  会話より長く走らせる命令の起こし方です。 動いている Claude にだけ打ち、 眠ったタブは起こしません。 使用上限で止まった会話、
+  上限の後の続きがまだの会話、 口座の止める線や移しの頼みが立っているタブには、 外れるまで送りません (= log の
+  `rollover: told held …` と `rollover: notice deferred … reason=<limit|account|no_claude>`)。 1 つの会話に 1 回で、
+  backend を再起動しても、 記録に知らせが在れば送り直しません。 静かな時間 (`idle`) で待たせた会話と、 もう頼んだ会話
+  (= `tabs rollover` が命令を名指して断る) には送りません
 - 見分けは、 Claude の直下の process のうち、 Claude Code の shell の snapshot (= `~/.claude` の下の `shell-snapshots` の folder の file) を読む
   shell です。 MCP や言語の server、 hook、 Claude が答える間の `caffeinate` は数えません。 推論中は、 今の道具の
   呼び出しの shell も同じ形なので、 その呼び出しが終わるまで待ちます

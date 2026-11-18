@@ -8,7 +8,7 @@ import { formatToolResultContent, formatDuration, formatModelName, formatTokens 
 import { diffLines, compactDiff } from '../../_common/diff.js'
 import { apiFetch } from '../../_common/api.js'
 import { useT } from '../../i18n/t.js'
-import { parseAgentMessage, parseClientNotice, parseRollover, parseTabOpen } from './agentMessage.js'
+import { noticeLabel, parseAgentMessage, parseClientNotice, parseRollover, parseTabOpen } from './agentMessage.js'
 import './MessageItem.css'
 
 const RESULT_PREVIEW_CHARS = 800
@@ -588,12 +588,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
       ) : notice ? (
         <div className="relayed-block">
           <div className="relayed-from" data-testid="client-notice-label">
-            {notice.kind === 'account-move'
-              ? t('chat.notice_account_move', { from: notice.from ?? '?', to: notice.to ?? '?' })
-              : notice.kind === 'account-hold'
-                ? t(notice.phase === 'continue' ? 'chat.notice_account_hold_continue' : 'chat.notice_account_hold_stop',
-                  { account: notice.account ?? '?' })
-                : t('chat.notice_limit_resume', { account: notice.account ?? '?' })}
+            {noticeLabel(notice, t)}
           </div>
           <span className="bubble" data-testid="client-notice-body">
             <MessageRenderer text={notice.text} onOpenFile={onOpenFile} streaming={false} />

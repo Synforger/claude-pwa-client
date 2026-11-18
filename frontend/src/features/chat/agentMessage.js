@@ -88,15 +88,16 @@ export function parseTabOpen(text) {
   return { tier: line ? line.slice('tier='.length).trim() : null }
 }
 
-// backend が自分で書いて打つ連絡 (= 口座を移した時の続けての連絡、 上限が戻った時の連絡、 口座の止める線で止める連絡と続ける連絡)。 1 行目は backend の
+// backend が自分で書いて打つ連絡 (= 口座を移した時の続けての連絡、 上限が戻った時の連絡、 口座の止める線で止める連絡と続ける連絡、
+// 裏の命令で入れ替えを待たせた連絡、 報告せずに止まった子の連絡、 別の機械への預かりの連絡)。 1 行目は backend の
 // `jsonl/jsonl_predicates.py` と同じ文字列で、 backend の test が両者の一致を見ている。 連絡の種類は次の block が言う。
 export const CLIENT_NOTICE_OPENING = 'Sent by the client (the operator did not type this):'
 
-const NOTICE = /^<(account-move|account-hold|limit-resume)((?: [a-z_]+="[^"\n]*")*)>\n([\s\S]*)\n<\/\1>\s*$/
+const NOTICE = /^<(account-move|account-hold|limit-resume|rollover-held|child-stopped|peer-outbox)((?: [a-z_]+="[^"\n]*")*)>\n([\s\S]*)\n<\/\1>\s*$/
 
-/** client の連絡なら { kind, from, to, account, phase, text } (= `account-move` / `account-hold` / `limit-resume` /
- *  口座を移した連絡の移る前と後の口座 / 止める線の連絡と上限が戻った連絡の口座 / 止める線の連絡の `stop` か `continue`、
- *  無い欄は null / 本文)、 違えば null。 */
+/** client の連絡なら { kind, from, to, account, phase, title, contextPct, text } (= 連絡の種類 (block の名前) /
+ *  口座を移した連絡の移る前と後の口座、 別の機械への連絡の宛先 / 止める線の連絡と上限が戻った連絡の口座 / 止める線の連絡の
+ *  `stop` か `continue` / 止まった子の題 / 入れ替えを待たせた連絡の context の割合、 無い欄は null / 本文)、 違えば null。 */
 export function parseClientNotice(text) {
   if (typeof text !== 'string') return null
   const trimmed = text.trimStart()
@@ -109,7 +110,28 @@ export function parseClientNotice(text) {
     to: attribute(m[2], 'to'),
     account: attribute(m[2], 'account'),
     phase: attribute(m[2], 'phase'),
+    title: attribute(m[2], 'title'),
+    contextPct: attribute(m[2], 'context_pct'),
     text: m[3],
+  }
+}
+
+/** client の連絡の吹き出しの見出し (`notice` は `parseClientNotice` の答え、 `t` は翻訳の関数)。 */
+export function noticeLabel(notice, t) {
+  switch (notice.kind) {
+    case 'account-move':
+      return t('chat.notice_account_move', { from: notice.from ?? '?', to: notice.to ?? '?' })
+    case 'account-hold':
+      return t(notice.phase === 'continue' ? 'chat.notice_account_hold_continue' : 'chat.notice_account_hold_stop',
+        { account: notice.account ?? '?' })
+    case 'rollover-held':
+      return t('chat.notice_rollover_held', { pct: notice.contextPct ?? '?' })
+    case 'child-stopped':
+      return t('chat.notice_child_stopped', { title: notice.title ?? '?' })
+    case 'peer-outbox':
+      return t('chat.notice_peer_outbox', { to: notice.to ?? '?' })
+    default:
+      return t('chat.notice_limit_resume', { account: notice.account ?? '?' })
   }
 }
 
