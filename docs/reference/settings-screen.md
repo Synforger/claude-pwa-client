@@ -50,7 +50,7 @@
 - 線で止まっているタブが 1 つ以上ある口座には、その数と「全部続ける」が出ます。使用率が今日の線以上の間は押せず、横に
   「今 55% / 今日の線 47%」のように、線に届いている窓 (5 時間か 7 日) の使用率と線で理由が出ます。押した後は、何個のタブに続けてと頼んだかが出ます
 - 口座を固定しているタブは、一覧と「外す」が出ます。外した時の動きは、タブの ⋯ メニューの「口座の固定を外す」と同じです
-- **API wallets** (`api_accounts`, see [api-tabs.md](api-tabs.md)) are listed after the accounts, read-only: the wallet's name and this month's spend against its limit (`---` when its spend file has no figure for this month). A wallet is not an account: nothing is moved to it, no line applies to it, and `GET /settings` returns it under `api_accounts`, apart from `accounts`
+- **API の財布** (`api_accounts`、 [api-tabs.md](api-tabs.md)) は、 口座の後に読むだけの行で出ます。 財布の名前と、 今月の使った額 / 上限です (額の file に今月の値が無い時は `---`)。 財布は口座ではありません。 タブを移すことも、 線が掛かることも無く、 `GET /settings` は `accounts` とは別の `api_accounts` で返します
 
 ### タブの眠りと入れ替え
 
