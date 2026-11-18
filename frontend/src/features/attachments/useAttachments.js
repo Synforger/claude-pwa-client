@@ -1,6 +1,6 @@
-import { useRef, useEffect, useCallback, useSyncExternalStore } from 'react'
+import { useRef, useCallback, useSyncExternalStore } from 'react'
 import { SUPPORTED_IMAGE_TYPES } from '../../_common/constants.js'
-import { putImage } from './imageStore.js'
+import { putImage, peekImageURL, deleteImage } from './imageStore.js'
 import {
   subscribe as subscribeEphemeral,
   getSnapshot as getEphemeralSnapshot,
@@ -17,27 +17,11 @@ export function useAttachments(activeSession) {
   const ephem = useSyncExternalStore(subscribeEphemeral, getEphemeralSnapshot)
   const attachments = ephem.attachments
   const fileInputRef = useRef(null)
-  const attachmentsRef = useRef(attachments)
 
-  useEffect(() => { attachmentsRef.current = attachments }, [attachments])
-
-  // アンマウント時に未送信 BlobURL を解放 (全セッション分)。 store 自体は維持 (= 他 mount
-  // instance がいる可能性あり)、 BlobURL の release のみ実施。
-  useEffect(() => {
-    return () => {
-      const dict = attachmentsRef.current
-      for (const sid of Object.keys(dict)) {
-        for (const item of dict[sid] || []) {
-          if (item.url) URL.revokeObjectURL(item.url)
-        }
-      }
-    }
-  }, [])
-
-  // 画像は IndexedDB に永続化して imageId を attachment item に持たせる。 送信後の
-  // user bubble に imageRefs として保存しておくと、 ObjectURL が失効するアプリ再起動
-  // / リロード後でも IndexedDB から取り直して表示できる (= 旧 chat UI で「画像が ?
-  // 表示になる」 現象の根治)。 非画像 (= テキストファイル) は IndexedDB に入れない。
+  // An image is saved in IndexedDB (imageStore) and its item carries the imageId and the URL the store keeps for it:
+  // the bar here and the bubble sent from it show the same URL, which the store revokes when it deletes the image.
+  // The bubble keeps the imageId in imageRefs, so after a reload the image is read back from IndexedDB. A file that
+  // is not an image (text) is not saved there.
   const handleFileSelect = async (e) => {
     const sid = activeSession?.id
     if (!sid) return
@@ -53,11 +37,11 @@ export function useAttachments(activeSession) {
       const isImage = SUPPORTED_IMAGE_TYPES.includes(file.type)
       let imageId = null
       if (isImage) {
-        try { imageId = await putImage(file) } catch { /* 失敗時は imageRefs 無しで送る */ }
+        try { imageId = await putImage(file) } catch { /* sent without imageRefs, and shown without a preview */ }
       }
       newItems.push({
         file,
-        url: isImage ? URL.createObjectURL(file) : null,
+        url: imageId ? peekImageURL(imageId) : null,
         imageId,
       })
     }
@@ -68,7 +52,8 @@ export function useAttachments(activeSession) {
   const removeAttachment = (sid, index) => {
     const cur = [...(getEphemeralSnapshot().attachments[sid] || [])]
     const removed = cur.splice(index, 1)
-    if (removed[0]?.url) URL.revokeObjectURL(removed[0].url)
+    // An image taken back before it was sent has no bubble: it and its URL go now.
+    if (removed[0]?.imageId) deleteImage(removed[0].imageId).catch(() => {})
     storeSetAttachments(sid, cur)
   }
 

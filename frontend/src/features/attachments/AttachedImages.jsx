@@ -1,33 +1,26 @@
 import { memo, useEffect, useState } from 'react'
-import { getImageURL } from './imageStore.js'
+import { getImageURL, peekImageURL } from './imageStore.js'
 import './AttachedImages.css'
 
-// user メッセージの画像表示。 imageRefs (= IndexedDB の ID 配列) から URL を取り出し、
-// 表示中だけ ObjectURL を保持してアンマウント時に revoke する。
-// 後方互換: legacy data URL `imageUrls` も併せて受ける。
-// memo: 親 (MessageItem) は memo 済だが、 親の親 (Messages list / App) の何かが変わった時に
-// props 同一でも再 render が走り、 IndexedDB fetch + ObjectURL 再作成のループが起きる。
-// 添付画像があるメッセージで入力中にカクつく原因の一つだったので props 比較で間引く。
+// The images of a user message: shows each imageRefs entry (an IndexedDB image ID) by the one URL imageStore keeps for
+// it, the same URL on every mount. It never revokes a URL: imageStore does, when it deletes the image.
+// Back-compat: the legacy `imageUrls` (data URLs) are also accepted.
+// memo: the parent (MessageItem) is memoised, but something above it (the message list, App) re-renders it with the
+// same props, and typing in a conversation with attached images stuttered, so props are compared here.
 function AttachedImagesImpl({ imageRefs, imageUrls }) {
-  const [refUrls, setRefUrls] = useState(() => imageRefs?.map(() => null) || [])
+  // A URL already made is there on the first render, so a bubble that mounts again shows its image without the
+  // placeholder.
+  const [refUrls, setRefUrls] = useState(() => imageRefs?.map(peekImageURL) || [])
 
   useEffect(() => {
     if (!imageRefs || imageRefs.length === 0) return
     let cancelled = false
-    const created = []
     Promise.all(imageRefs.map(id => getImageURL(id).catch(() => null)))
       .then(urls => {
-        if (cancelled) {
-          urls.forEach(u => u && URL.revokeObjectURL(u))
-          return
-        }
-        urls.forEach(u => { if (u) created.push(u) })
-        setRefUrls(urls)
+        if (cancelled) return
+        setRefUrls(prev => (prev.length === urls.length && prev.every((url, i) => url === urls[i]) ? prev : urls))
       })
-    return () => {
-      cancelled = true
-      created.forEach(u => URL.revokeObjectURL(u))
-    }
+    return () => { cancelled = true }
   }, [imageRefs])
 
   // imageRefs (= IndexedDB key) が有る message は **そちらを真値**にする (= 一度

@@ -1,17 +1,26 @@
-// 添付画像を IndexedDB に Blob で保存して、 message には参照 ID だけ保持する。
-// data URL を localStorage に詰めると LZString 圧縮コストと quota 圧迫が大きくなるため、
-// blob 保管 + 都度 objectURL 化に切り替える。
+// Attached images: kept in IndexedDB as Blobs, so a message holds only an image ID. (A data URL in localStorage costs
+// LZString compression time and quota.)
 //
-// 設計:
 //   DB: cpc_images
-//   ObjectStore: images (key = imageId, value = { blob, mime, createdAt })
+//   ObjectStore: images (key = imageId,
+//     value = { blob, thumb?, thumbChecked, mime, size, createdAt })
+//   `blob` is the image as attached (scaled down when it is a very large photo). `thumb` is the small copy a bubble
+//   and the attachment bar show (imageResize.js); it is absent when the image is already that small.
 //
-//   - putImage(file): File → Blob で保存 → 生成した imageId を返す
-//   - getImageURL(id): blob を取り出して URL.createObjectURL で URL 化
-//     使い終わった URL は呼び出し側で revokeObjectURL する責任
-//   - deleteImage(id): 1 件削除
-//   - listImageIds(): 全 ID 列挙 (GC 用)
-//   - gcImages(activeIds): activeIds に無い ID を全削除
+//   - putImage(file): saves the image and its thumbnail, returns the imageId
+//   - getImageURL(id) / peekImageURL(id): the one URL an image is shown by
+//   - deleteImage(id): removes the record and the URL
+//   - listImageIds(): every ID (for the GC)
+//   - gcImages(activeIds): removes every ID not in activeIds
+//
+// The URL of an image: one per imageId, made once and handed out again by every call until the image is deleted, which
+// is the only time it is revoked. Chrome keeps a decoded copy of every picture it is shown by a blob URL, and it keeps
+// it after the URL is revoked and the <img> is gone, so a URL made again on each mount (a conversation switched to
+// and back) decodes the same picture again each time and the copies pile up in the renderer's native memory. One URL
+// per image is decoded once.
+
+import { decodeBitmap, drawToBlob, makeThumbnail, outputType } from './imageResize.js'
+import { fitScale } from './imageGeometry.js'
 
 const DB_NAME = 'cpc_images'
 const DB_VERSION = 1
@@ -58,24 +67,14 @@ function genImageId() {
 async function _downscaleIfLarge(file) {
   if (!file || !file.type || !file.type.startsWith('image/')) return file
   if (file.size <= DOWNSCALE_THRESHOLD) return file
-  if (typeof createImageBitmap === 'undefined' || typeof document === 'undefined') return file
-  let bmp
+  const bmp = await decodeBitmap(file)
+  if (!bmp) return file
   try {
-    bmp = await createImageBitmap(file)
-  } catch {
-    return file
-  }
-  try {
-    const scale = Math.min(1, MAX_DIM / Math.max(bmp.width, bmp.height))
+    const scale = fitScale(bmp.width, bmp.height, MAX_DIM)
     if (scale >= 1) return file // 既に十分小さい
     const w = Math.round(bmp.width * scale)
     const h = Math.round(bmp.height * scale)
-    const canvas = document.createElement('canvas')
-    canvas.width = w
-    canvas.height = h
-    canvas.getContext('2d').drawImage(bmp, 0, 0, w, h)
-    const outType = file.type === 'image/png' ? 'image/png' : 'image/jpeg'
-    const blob = await new Promise((res) => canvas.toBlob(res, outType, 0.85))
+    const blob = await drawToBlob(bmp, { x: 0, y: 0, width: bmp.width, height: bmp.height }, w, h, outputType(file))
     // 縮小したのに元より大きければ元を採用 (= まれだが理論上あり得る)
     if (blob && blob.size < file.size) return blob
     return file
@@ -131,37 +130,123 @@ async function _enforceCaps(db, newRec) {
   }
 }
 
-export async function putImage(file) {
-  const db = await openDB()
-  const id = genImageId()
-  const blob = await _downscaleIfLarge(file)
-  const record = {
-    blob,
-    mime: blob.type || file.type || 'application/octet-stream',
-    size: blob.size,
-    createdAt: Date.now(),
-  }
-  await new Promise((resolve, reject) => {
-    const req = txStore(db, 'readwrite').put(record, id)
-    req.onsuccess = () => resolve()
-    req.onerror = () => reject(req.error)
-  })
-  await _enforceCaps(db, { id, createdAt: record.createdAt, size: record.size }).catch(() => {})
-  return id
+// The URL of each image: the ready ones, and the ones being made (so two callers asking at once get one URL).
+const _urlByImageId = new Map() // imageId → URL
+const _urlLoadByImageId = new Map() // imageId → { promise } while its URL is being made
+
+function _registerURL(id, blob) {
+  const url = URL.createObjectURL(blob)
+  _urlByImageId.set(id, url)
+  return url
 }
 
-export async function getImageURL(id) {
-  const db = await openDB()
-  const rec = await new Promise((resolve, reject) => {
+// Drops the URL of an image for good, and abandons a URL still being made for it.
+function _forgetURL(id) {
+  _urlLoadByImageId.delete(id)
+  const url = _urlByImageId.get(id)
+  if (url) {
+    URL.revokeObjectURL(url)
+    _urlByImageId.delete(id)
+  }
+}
+
+function _readRecord(db, id) {
+  return new Promise((resolve, reject) => {
     const req = txStore(db, 'readonly').get(id)
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
   })
-  if (!rec || !rec.blob) return null
-  return URL.createObjectURL(rec.blob)
+}
+
+// Adds the thumbnail (or the note that there is none to make) to a record saved without one. Reads and writes in one
+// transaction, so an image deleted in between is not written back.
+async function _saveThumbnail(db, id, thumb) {
+  await new Promise((resolve, reject) => {
+    const store = txStore(db, 'readwrite')
+    const read = store.get(id)
+    read.onsuccess = () => {
+      const current = read.result
+      if (!current) { resolve(); return }
+      const size = (current.size || (current.blob ? current.blob.size : 0)) + (thumb ? thumb.size : 0)
+      const write = store.put({ ...current, ...(thumb ? { thumb } : {}), thumbChecked: true, size }, id)
+      write.onsuccess = () => resolve()
+      write.onerror = () => reject(write.error)
+    }
+    read.onerror = () => reject(read.error)
+  })
+  const entry = _capsCache && thumb ? _capsCache.recs.find(r => r.id === id) : null
+  if (entry) {
+    entry.size += thumb.size
+    _capsCache.total += thumb.size
+  }
+}
+
+// The URL's blob for a stored image: the thumbnail, made now for a record saved before thumbnails existed.
+async function _loadImageURL(id, load) {
+  try {
+    const db = await openDB()
+    const rec = await _readRecord(db, id)
+    if (!rec || !rec.blob) return null
+    let shown = rec.thumb || rec.blob
+    if (!rec.thumbChecked) {
+      const thumb = await makeThumbnail(rec.blob).catch(() => null)
+      await _saveThumbnail(db, id, thumb).catch(() => {})
+      shown = thumb || rec.blob
+    }
+    if (_urlLoadByImageId.get(id) !== load) return null // deleted while it was being made
+    return _registerURL(id, shown)
+  } finally {
+    if (_urlLoadByImageId.get(id) === load) _urlLoadByImageId.delete(id)
+  }
+}
+
+/** Saves an attached image with its thumbnail and returns its imageId; its URL is ready (peekImageURL) on return. */
+export async function putImage(file) {
+  const id = genImageId()
+  const blob = await _downscaleIfLarge(file)
+  const thumb = await makeThumbnail(blob).catch(() => null)
+  // An image that cannot be stored (IndexedDB unavailable) is still shown this session by its URL.
+  _registerURL(id, thumb || blob)
+  const record = {
+    blob,
+    ...(thumb ? { thumb } : {}),
+    thumbChecked: true,
+    mime: blob.type || file.type || 'application/octet-stream',
+    size: blob.size + (thumb ? thumb.size : 0),
+    createdAt: Date.now(),
+  }
+  try {
+    const db = await openDB()
+    await new Promise((resolve, reject) => {
+      const req = txStore(db, 'readwrite').put(record, id)
+      req.onsuccess = () => resolve()
+      req.onerror = () => reject(req.error)
+    })
+    await _enforceCaps(db, { id, createdAt: record.createdAt, size: record.size }).catch(() => {})
+  } catch { /* not stored: the image is gone after a reload */ }
+  return id
+}
+
+/** The URL of an image if it is ready, else null. Lets a bubble that mounts again show the image on its first render. */
+export function peekImageURL(id) {
+  return _urlByImageId.get(id) || null
+}
+
+/** The one URL an image is shown by (null when the image is not stored). The same URL on every call until deleteImage. */
+export function getImageURL(id) {
+  const ready = _urlByImageId.get(id)
+  if (ready) return Promise.resolve(ready)
+  let load = _urlLoadByImageId.get(id)
+  if (!load) {
+    load = {}
+    load.promise = _loadImageURL(id, load)
+    _urlLoadByImageId.set(id, load)
+  }
+  return load.promise
 }
 
 export async function deleteImage(id) {
+  _forgetURL(id)
   const db = await openDB()
   await new Promise((resolve, reject) => {
     const req = txStore(db, 'readwrite').delete(id)
