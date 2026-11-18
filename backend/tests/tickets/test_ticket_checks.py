@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from backend._common import paths
 from backend.tests.async_run import run
 from backend.tests.tickets.samples import ticket_env  # noqa: F401
+from backend.terminal.tab_memo import tier_folder
 from backend.tickets import ticket_checks, ticket_entry, ticket_file, ticket_index, ticket_places, ticket_service
 from backend.tickets.ticket_entry import Writer
 
@@ -139,7 +140,8 @@ def test_a_tab_that_has_not_read_the_boundary_cannot_add_ask_or_close(ticket_env
         assert _code(change) == "ticket_outside_place"
     assert [entry["kind"] for entry in ticket_file.read(ticket_env.tickets, ticket)] == ["opened"]
     run(ticket_service.add("ses_c", ticket, "this one may"))
-    assert ticket_env.guard.calls("covers")[0]["flags"] == {"--to": "conv-ses_b", "--covers-place": str(ticket_env.tickets)}
+    flags = ticket_env.guard.calls("covers")[0]["flags"]
+    assert flags == {"--to": "conv-ses_b", "--covers-place": str(ticket_env.tickets), "--folder": str(tier_folder("ses_b"))}
 
 
 def test_a_covers_check_that_cannot_run_is_a_failed_check_not_an_outside_place(ticket_env):

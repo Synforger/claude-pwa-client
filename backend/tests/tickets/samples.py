@@ -22,7 +22,7 @@ COMMANDS = {
     "place": ["--place-for", "{session}", "--typed-in", "{typed_in}"],
     "places": ["--places"],
     "write": ["--to-place", "{place}", "--text", "{text_file}", "--typed-in", "{typed_in}"],
-    "covers": ["--to", "{session}", "--covers-place", "{place}"],
+    "covers": ["--to", "{session}", "--covers-place", "{place}", "--folder", "{folder}"],
     "read": ["--to", "{session}", "--text", "{text_file}"],
 }
 TABS = {"ses_a": "client work", "ses_b": "notes", "ses_c": "slides"}

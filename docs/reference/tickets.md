@@ -89,7 +89,7 @@ id は `<機械の名前>-<YYMMDD>-<NN>` です (例: `home-261119-01`)。 NN �
 | `ticket_place_check` | 票を開く時 | `{session}`、 `{typed_in}` (操作者の発話が打たれた会話) | 0: 標準出力の 1 行目が、 票を置く folder の絶対 path。 1: 読んだ範囲が 1 つの置き場に収まらない (`ticket_place_split`)。 それ以外: `ticket_place_unknown` |
 | `ticket_places_check` | backend が最初に票に触れる時と、 索引に知らない置き場の鍵が出た時 | なし | 0: 標準出力の 1 行に 1 つ、 票を置く folder の絶対 path |
 | `ticket_write_check` | 票に件を足す前 | `{place}` (票の folder)、 `{text_file}`、 `{typed_in}` | 0: 足す。 1: 断る (標準エラーの最後の行が理由。 `ticket_refused`)。 それ以外: `ticket_check_failed` |
-| `ticket_covers_check` | 票に関わるタブ (書き足す・求める・閉じる・渡す側と渡される側) が置き場を読めるか | `{session}`、 `{place}` | 0: 関われる。 それ以外: `ticket_outside_place` |
+| `ticket_covers_check` | 票に関わるタブ (書き足す・求める・閉じる・渡す側と渡される側) が置き場を読めるか | `{session}`、 `{place}`、 `{folder}` (= タブの階層の folder) | 0: 関われる。 それ以外: `ticket_outside_place` |
 | `ticket_read_check` | `tabs ticket show` の 1 件ごと | `{session}` (読むタブ)、 `{text_file}` | 0: 見せる。 それ以外: その件は「読めない境界の書き足し」 の 1 行に置き換わる (題も同じ扱い) |
 
 `{text_file}` は、 判定する本文を書いた、 その run の間だけの file です。 `opened` の件は題と本文を続けた物です。

@@ -19,6 +19,7 @@ from backend._common import config as _config
 from backend._common import paths
 from backend._common.errors import raise_error
 from backend.terminal.runner import jsonl_path_for_session
+from backend.terminal.tab_memo import tier_folder
 from backend.tickets import guard_command, ticket_entry
 
 #: How many lines of one ticket are judged at the same time when it is read
@@ -84,7 +85,9 @@ async def check_covers(tab_id: str, place: Path) -> None:
     command = _config.TICKET_COVERS_CHECK
     if not command:
         return
-    result = await guard_command.run_command(command, {"session": session_of(tab_id), "place": str(place)})
+    # the tier's folder is where the tab works, which the guard counts with its marks (= boundaries read from there)
+    folder = str(tier_folder(tab_id))
+    result = await guard_command.run_command(command, {"session": session_of(tab_id), "place": str(place), "folder": folder})
     if result.status is None:
         raise_error(503, "ticket_check_failed", f"票の置き場の検査を実行できませんでした: {result.reason}")
     if result.status != 0:
