@@ -21,7 +21,8 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 
 from backend import api_tabs
 from backend._common import state
-from backend._common.config import AGENTS, get_config
+from backend._common import config as _config
+from backend._common.config import get_config
 from backend._common.errors import raise_error
 from backend._common.state import (
     SessionDef,
@@ -85,7 +86,8 @@ async def create_session(payload: dict = Body(...)):
     agent_id = payload.get("agent_id")
     title = payload.get("title")
     account_id = payload.get("account_id")
-    if not agent_id or agent_id not in AGENTS:
+    # Read the agents now, not a copy taken when this module was imported: the configuration can be read again since.
+    if not agent_id or agent_id not in _config.AGENTS:
         raise_error(400, "invalid_agent_id", "agent_id が無効です")
     if account_id is not None and account_id not in ACCOUNTS:
         raise_error(400, "invalid_account_id", "account_id が無効です")
