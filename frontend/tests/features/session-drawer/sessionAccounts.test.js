@@ -89,3 +89,12 @@ describe('accountLabelOf', () => {
     expect(accountLabelOf({ account_id: 'gone' }, accounts, null)).toBe('gone')
   })
 })
+
+describe('accountLabelOf — an API tab', () => {
+  const accounts = [{ id: 'personal', display_name: 'Personal' }, { id: 'company', display_name: 'Company' }]
+
+  it('shows no label however many accounts are configured: its account is a wallet, not an account of the list', () => {
+    expect(accountLabelOf({ id: 'api_support-bot', kind: 'api', account_id: 'api' }, accounts, 'personal')).toBeNull()
+    expect(accountLabelOf({ id: 'ses_a', account_id: 'company' }, accounts, 'personal')).toBe('Company')
+  })
+})

@@ -441,3 +441,14 @@ button:disabled {
   border-color: #e8b34b;
   box-shadow: 0 0 0 1px rgba(232, 179, 75, 0.35);
 }
+
+/* Where the input would be for an API tab (no Claude Code behind it, backend/api_tabs/): one line saying it is only shown. */
+.api-tab-note {
+  flex-shrink: 0;
+  padding: 12px calc(16px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+  border-top: 1px solid var(--border);
+  background: var(--bg2);
+  color: var(--text-dim);
+  font-size: 13px;
+  text-align: center;
+}

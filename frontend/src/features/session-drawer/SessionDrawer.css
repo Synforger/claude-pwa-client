@@ -324,6 +324,14 @@ span.drawer-item-fold {
   border-radius: 10px;
   white-space: nowrap;
 }
+/* How much of the context an API tab's conversation holds (backend/api_tabs/), at the end of its name. */
+.drawer-item-context {
+  flex: 0 0 auto;
+  color: var(--text-dim, #8a8f98);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 /* The folder of a tier (or of an agent): the whole row folds and unfolds what is below it. Its marker
    sits in the same column as the fold marker of a tab, so names line up. */
 .drawer-folder {

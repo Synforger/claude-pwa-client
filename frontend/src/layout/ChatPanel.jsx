@@ -44,6 +44,8 @@ import { sortByTs } from '../features/chat/sortByTs.js'
 import AttachmentsBar from '../features/chat/AttachmentsBar.jsx'
 import PlanApprovalBubble from '../features/plan-approval/PlanApprovalBubble.jsx'
 import { usePageExtensionOpen } from '../features/extensions/useExtensions.js'
+import { isApiTab } from '../_common/apiTab.js'
+import { useT } from '../i18n/t.js'
 
 // 起動時の初回 GC 遅延 (= localStorage 復元 + 初期 fetch の messages 確定を待つ)。
 const IMAGE_GC_INITIAL_MS = 5000
@@ -87,11 +89,15 @@ export default function ChatPanel({ sid }) {
     [sessions, sid],
   )
   const activeSid = activeSession?.id || null
+  const t = useT()
+  // An API tab (no Claude Code behind it, `backend/api_tabs/`) is only shown: no input, no terminal, no stop, no
+  // attachments, no fork, no plan approval. Its conversation is drawn as any other.
+  const isApi = isApiTab(activeSession)
 
-  // タブごとの表示モード ('chat' | 'terminal')。 hidden ラッパは viewMode 派生で gate する。
+  // タブごとの表示モード ('chat' | 'terminal')。 hidden ラッパは viewMode 派生で gate する。 API のタブに端末は無い。
   const activeViewMode = useMemo(
-    () => (activeSid ? (ui.viewModes[activeSid] || 'chat') : 'chat'),
-    [activeSid, ui.viewModes],
+    () => (activeSid && !isApi ? (ui.viewModes[activeSid] || 'chat') : 'chat'),
+    [activeSid, isApi, ui.viewModes],
   )
   const hidden = activeViewMode === 'terminal'
   // 頁として開く拡張が出ている間、 メッセージの一覧はその場所を譲る (= 入力欄は残る)。 一覧と自動
@@ -248,7 +254,7 @@ export default function ChatPanel({ sid }) {
     forkSession(activeSid, uuid)
   }, [activeSid, forkSession])
   const activeSubagentTool = status?.subagent?.last_tool || null
-  const runningSubagents = useRunningSubagents(activeSid)
+  const runningSubagents = useRunningSubagents(isApi ? null : activeSid)
 
   const sids = useMemo(() => sessions.map(s => s.id), [sessions])
   const currentAttachments = (activeSid && attachments[activeSid]) || EMPTY_ARR
@@ -340,7 +346,7 @@ export default function ChatPanel({ sid }) {
         activeSubagentTool={activeSubagentTool}
         runningSubagents={runningSubagents}
         onOpenSubagents={handleOpenSubagents}
-        onFork={activeSid ? handleFork : null}
+        onFork={activeSid && !isApi ? handleFork : null}
         showScrollBtn={showScrollBtn}
         hasNew={hasNew}
         scrollToBottom={scrollToBottom}
@@ -354,13 +360,16 @@ export default function ChatPanel({ sid }) {
 
       {/* tmux pane 入力待ち banner (= 2026-07-05 StatusBar chip から移設)。 待ち系
           state の時だけ出現、 excerpt + quick-reply button を入力欄の直上に出す。 */}
-      <PromptStateBanner sid={activeSid} />
+      <PromptStateBanner sid={isApi ? null : activeSid} />
 
-      <ActivityBar status={status} />
+      <ActivityBar status={isApi ? null : status} />
 
       {/* ChatInput は常時 mount。 terminal view では CSS hide で消すだけにする
           (= 2026-06-22)。 旧実装は条件レンダで unmount していたので、 chat → terminal →
           chat と戻ると ChatInput 内部 state (= localText) が消えて書きかけが失われていた。 */}
+      {isApi ? (
+        <div className="api-tab-note" role="note" data-testid="api-tab-readonly">{t('chat.api_tab_readonly')}</div>
+      ) : (
       <div style={{ display: activeViewMode === 'terminal' ? 'none' : undefined }}>
         {/* 2026-07-02: ⋯ メニュー Topbar 移設で、 hidden <input type="file"> を ChatPanel に
             引き上げ。 添付起動は Topbar → ephemeral(attachmentPickerBump) → ChatPanel effect が
@@ -390,11 +399,12 @@ export default function ChatPanel({ sid }) {
           answerMode={answerMode}
         />
       </div>
+      )}
 
       {/* ExitPlanMode 承認プロンプト。 topbar の 📑 ボタンタップで開く明示 open 制御
           (= setOverlay('planOpen', true))。 pending_plan が消えたら ChatPanel 内 effect が
           自動 close。 */}
-      {ui.overlays.planOpen && status?.pending_plan && (
+      {ui.overlays.planOpen && !isApi && status?.pending_plan && (
         <PlanApprovalBubble
           pendingPlan={status.pending_plan}
           onClose={() => setOverlay('planOpen', false)}

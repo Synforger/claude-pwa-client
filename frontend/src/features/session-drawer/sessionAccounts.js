@@ -7,6 +7,8 @@
 // them per tab, so a list that is already on screen follows an automatic move between accounts without being fetched
 // again. A tab the snapshot says nothing about keeps what its row says.
 
+import { isApiTab } from '../../_common/apiTab.js'
+
 const ACCOUNT_FIELDS = ['account_id', 'fallback_from', 'account_pinned', 'account_on_wake']
 
 // An unset field and a null one mean the same (= the tab has no such account); a flag that is unset is false.
@@ -31,13 +33,14 @@ export function accountChanges(sessions, payload) {
 }
 
 /** The account label of a row, null where no label shows (= with one account configured every row would say the same).
- *  A sleeping tab shows only the account it runs on once woken: the list already marks it asleep.
+ *  A sleeping tab shows only the account it runs on once woken: the list already marks it asleep. An API tab shows
+ *  none: its account is a wallet (not an account a tab is moved to), and its row shows no marks.
  *  @param {{account_id?: string|null, account_on_wake?: string|null}} session the row
  *  @param {Array<{id: string, display_name?: string}>} accounts the configured accounts
  *  @param {string|null} defaultAccountId the account a row with no `account_id` runs on
  *  @returns {string|null} */
 export function accountLabelOf(session, accounts, defaultAccountId) {
-  if (accounts.length <= 1) return null
+  if (accounts.length <= 1 || isApiTab(session)) return null
   const id = session.account_on_wake || session.account_id || defaultAccountId
   return accounts.find((a) => a.id === id)?.display_name || id || null
 }

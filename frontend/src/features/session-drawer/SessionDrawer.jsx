@@ -31,6 +31,7 @@ import {
 import { deriveSessionBadges } from '../push-notify/useSessionBadges.js'
 import { AccountPinMark, AccountPinMenuItem } from './AccountPin.jsx'
 import { accountLabelOf } from './sessionAccounts.js'
+import { formatContextTokens, isApiTab } from '../../_common/apiTab.js'
 import { loadFolded, toggleFolded } from './sessionTree.js'
 import { folderTree, loadFoldedFolders, toggleFoldedFolder } from './folderTree.js'
 import { sendTreeReport, treeReport } from './treeReport.js'
@@ -135,7 +136,8 @@ export default function SessionDrawer() {
   const [renameValue, setRenameValue] = useState('')
   const renameInputRef = useRef(null)
   const globalMenuRef = useRef(null)
-  const isLastSession = sessions.length <= 1
+  // The last Claude tab cannot be removed (an API tab is no tab to work in: it has no menu and is removed in the configuration)
+  const isLastSession = sessions.filter(s => !isApiTab(s)).length <= 1
   // 総合メニュー (= ⚙) に出す項目は、 設定を開く・文字の大きさ・言語で、 常にあるので ⚙ は常に表示される。
   const hasGlobalMenuItems = true
 
@@ -480,6 +482,11 @@ export default function SessionDrawer() {
             const accountLabel = accountLabelOf(s, accounts, defaultAccountId)
             // 移し先候補 = 今と違うアカウント。 1 つなら選択させず直接その名前のボタンを出す。
             const moveTargets = accounts.filter(a => a.id !== effectiveAccount)
+            // An API tab (no Claude Code behind it, `backend/api_tabs/`) shows its name and how much of the context its
+            // conversation holds, and nothing else: no marks of work, sleep, account or unread, and no menu (it is
+            // renamed and removed in the configuration).
+            const isApi = isApiTab(s)
+            const contextLabel = isApi ? formatContextTokens(s.context_tokens) : null
             return (
               <div
                 key={s.id}
@@ -524,15 +531,16 @@ export default function SessionDrawer() {
                       ? <span className="drawer-item-fork-mark" title={t('drawer.child')}>↳</span>
                       : <span className="drawer-item-fork-mark" title={t('drawer.fork')}>⑂</span>)}
                     <span className="drawer-item-title">{s.title}</span>
-                    {s.asleep && <span className="drawer-item-asleep" data-testid="session-asleep">💤</span>}
+                    {!isApi && s.asleep && <span className="drawer-item-asleep" data-testid="session-asleep">💤</span>}
                     {isFolded && <span className="drawer-item-hidden" title={t('drawer.hidden', { count: hidden })}>+{hidden}</span>}
                     <AccountPinMark session={s} accountCount={accounts.length} />
                     {accountLabel && <span className="drawer-item-account">{accountLabel}</span>}
+                    {contextLabel && <span className="drawer-item-context" data-testid="session-context">{contextLabel}</span>}
                     {badge && <span className={`tab-badge ${badge.kind}`}>{badge.label}</span>}
                   </button>
                 )}
 
-                {!isRenaming && (
+                {!isRenaming && !isApi && (
                   <button
                     className="drawer-item-menu"
                     onClick={(e) => {
@@ -553,7 +561,7 @@ export default function SessionDrawer() {
                   </button>
                 )}
 
-                {isMenuOpen && (
+                {isMenuOpen && !isApi && (
                   <div
                     className={`drawer-item-popup ${menuFlipUp ? 'flip-up' : ''}`}
                     onClick={e => e.stopPropagation()}

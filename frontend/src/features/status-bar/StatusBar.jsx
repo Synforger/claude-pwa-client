@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { pctClass, timeUntil, formatResetWeekdayTime } from '../../_common/format.js'
+import { API_KIND, formatContextTokens, formatSpend } from '../../_common/apiTab.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
 import { subscribe as subscribeSessions, getSnapshot as getSessionsSnapshot } from '../../state/sessions.js'
 import MoreMenu from './MoreMenu.jsx'
@@ -73,6 +74,12 @@ export default function StatusBar() {
   const status = useStatus(activeSession)
   const nowSec = useNowSec()
   const isOnline = useConnectionStatus()
+  const t = useT()
+  if (status?.kind === API_KIND) {
+    // An API tab (no Claude Code behind it): its own row, with only the context amount and its wallet's spend this
+    // month. No model, 5h, 7d or ctx % (those are a Claude tab's, and would read NaN%).
+    return <ApiStatusRow status={status} isOnline={isOnline} t={t} />
+  }
   if (!status) {
     return (
       <div className="statusbar">
@@ -106,6 +113,24 @@ export default function StatusBar() {
         <span className="dim">{sevenDayResetLabel}</span>
       </span>
       <span className={pctClass(status.ctx_pct)}>ctx {Math.round(status.ctx_pct || 0)}%</span>
+      <StatusBarEnd isOnline={isOnline} />
+    </div>
+  )
+}
+
+// The bar of an API tab: the context amount of its conversation, and the spend of its wallet this month (`---` while the
+// wallet has no figure: the file is missing, broken or of another month).
+function ApiStatusRow({ status, isOnline, t }) {
+  const context = formatContextTokens(status.context_tokens)
+  const spend = formatSpend(status.spend)
+  return (
+    <div className="statusbar" data-testid="status-bar">
+      <span className="pct" data-testid="status-bar-api-context">
+        {t('statusbar.api_context')} {context ?? <span className="dim">---</span>}
+      </span>
+      <span className="pct" data-testid="status-bar-api-spend">
+        {t('statusbar.api_spend')} {spend ?? <span className="dim">---</span>}
+      </span>
       <StatusBarEnd isOnline={isOnline} />
     </div>
   )

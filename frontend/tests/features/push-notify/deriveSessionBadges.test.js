@@ -64,3 +64,18 @@ describe('deriveSessionBadges — active タブの扱い', () => {
     expect(sessionBadges.b).toEqual({ kind: 'pending', label: '?' })
   })
 })
+
+// An API tab (no Claude Code behind it) shows no mark of work or unread, whatever the flags of its id say.
+describe('deriveSessionBadges — an API tab', () => {
+  it('has no badge when it is open, busy, waiting or unread, and adds nothing to the unread count', () => {
+    const { sessionBadges, unreadCount } = deriveSessionBadges({
+      sids: ['api_support-bot', 'api_other', 'ses_b'], activeSid: 'api_support-bot',
+      messages: {}, loading: { 'api_support-bot': true, api_other: true },
+      unreadDone: { api_other: true, ses_b: true }, waitingInput: { api_other: true },
+    })
+    expect(sessionBadges['api_support-bot']).toBeNull()
+    expect(sessionBadges.api_other).toBeNull()
+    expect(sessionBadges.ses_b).toEqual({ kind: 'new', label: '●' })
+    expect(unreadCount).toBe(1)
+  })
+})

@@ -11,6 +11,7 @@ import { refetchChat } from '../chat/useChatStream.js'
 import { subscribe as subscribeVoice, getSnapshot as getVoiceSnapshot } from '../../state/voice.js'
 import { hasAppCall, showCallPicture } from '../voice/voice.js'
 import { useOutsideClick } from '../../_common/useOutsideClick.js'
+import { isApiTab } from '../../_common/apiTab.js'
 import { useT } from '../../i18n/t.js'
 
 // ⋯ メニュー: ファイル添付 / ファイルツリー / ⌨↔💬 表示切替 / チャット再取得 / 通話の小窓 / セッション終了 の集約。
@@ -24,6 +25,11 @@ import { useT } from '../../i18n/t.js'
 export default function MoreMenu() {
   const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
   const activeSid = useSyncExternalStore(subscribeSessions, () => getSessionsSnapshot().activeId) || null
+  // The menu of a tab that has a Claude Code behind it: an API tab has none of what it holds (attach, tree, terminal, end)
+  const activeIsApi = useSyncExternalStore(subscribeSessions, () => {
+    const snapshot = getSessionsSnapshot()
+    return isApiTab(snapshot.sessions.find(s => s.id === snapshot.activeId))
+  })
   const activeViewMode = useMemo(
     () => (activeSid ? (ui.viewModes[activeSid] || 'chat') : 'chat'),
     [activeSid, ui.viewModes],
@@ -33,7 +39,7 @@ export default function MoreMenu() {
   }, [activeSid])
   // 通話の有無で「小窓で表示」 を出し分ける (= 声の store が変われば描き直す)
   useSyncExternalStore(subscribeVoice, getVoiceSnapshot)
-  if (!activeSid) return null
+  if (!activeSid || activeIsApi) return null
   return (
     <MoreMenuBody
       activeSid={activeSid}
