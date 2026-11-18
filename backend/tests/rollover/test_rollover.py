@@ -18,8 +18,9 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 import backend._common.config as config_mod
+import backend.rollover.held_notice as held_notice
 import backend.rollover.rollover as watch
-from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENING, ROLLOVER_OPENING, is_client_message
+from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENING, CLIENT_NOTICE_OPENING, ROLLOVER_OPENING, is_client_message
 from backend.rollover.tool_shells import ToolShell
 from backend.routes import rollover as ro
 from backend._common.state import SessionDef
@@ -91,10 +92,12 @@ def _write(path: Path, *rows: dict) -> Path:
 
 @pytest.fixture(autouse=True)
 def _fresh_memory():
-    for memory in (watch._seen, watch._pending, watch._asked_at, watch._lapse_logged, watch._held):
+    memories = (watch._seen, watch._pending, watch._asked_at, watch._lapse_logged, watch._held, held_notice._told,
+                held_notice._deferred)
+    for memory in memories:
         memory.clear()
     yield
-    for memory in (watch._seen, watch._pending, watch._asked_at, watch._lapse_logged, watch._held):
+    for memory in memories:
         memory.clear()
 
 
@@ -209,6 +212,7 @@ class Tabs:
         monkeypatch.setattr(watch, "is_busy", lambda sid: self.busy.get(sid, False))
         monkeypatch.setattr(watch, "context_pct_of", lambda sid: self.pct.get(sid, 0))
         monkeypatch.setattr(watch, "claude_in_pane", lambda sid: sid not in self.absent)
+        monkeypatch.setattr(held_notice, "claude_in_pane", lambda sid: sid not in self.absent)
         monkeypatch.setattr(watch, "background_shells", lambda sid: self.shells.get(sid, []))
 
         async def fake_send(sid, payload, idempotency_key=None):
@@ -216,6 +220,14 @@ class Tabs:
             return {"ok": True}
 
         monkeypatch.setattr(watch, "pty_send", fake_send)
+        monkeypatch.setattr(held_notice, "pty_send", fake_send)
+
+    def asks(self) -> list[tuple[str, str]]:
+        """What was typed to close a conversation (= not the client's notices)."""
+        return [(sid, text) for sid, text in self.sent if text.startswith(ROLLOVER_OPENING)]
+
+    def notices(self) -> list[tuple[str, str]]:
+        return [(sid, text) for sid, text in self.sent if text.startswith(CLIENT_NOTICE_OPENING)]
 
     def add(self, sid: str, pct: int, idle_minutes: float = 0, busy: bool = False) -> Path:
         self.state.sessions_meta[sid] = SessionDef(id=sid, agent_id="agent_a", title=sid, created_at=0)
@@ -742,10 +754,11 @@ def test_a_tab_running_a_tool_s_command_is_not_asked_whatever_the_reason(tabs, p
     """The end of the conversation would stop the command (idle as in 2026-11-16, and context too)."""
     record = tabs.add("ses_a", pct=pct, idle_minutes=idle_minutes, busy=busy)
     tabs.shells["ses_a"] = [R94]
-    assert tabs.tick() is None and tabs.sent == []
+    assert tabs.tick() is None and tabs.asks() == []
     assert str(record) not in watch._asked_at                  # held, not asked: no gap starts
     tabs.shells["ses_a"] = []
     assert tabs.tick() == "ses_a"                              # the next look asks once the command is over
+    assert len(tabs.asks()) == 1
 
 
 def test_a_held_tab_first_in_line_does_not_hold_up_the_next(tabs):
@@ -793,3 +806,122 @@ def test_a_sub_agent_writing_in_the_background_keeps_the_conversation_from_being
     at = time.time() - 60 * 60
     os.utime(work, (at, at))
     assert tabs.tick() == "ses_a"
+
+
+# --- telling a conversation held back past its working line -------------------------------------
+
+
+def test_a_conversation_held_back_past_its_working_line_is_told_once(tabs, caplog):
+    tabs.add("ses_a", pct=67, busy=True)
+    tabs.shells["ses_a"] = [R94]
+    with caplog.at_level("INFO", logger=held_notice.logger.name):
+        assert tabs.tick() is None
+        tabs.tick()
+    (sid, text), = tabs.notices()
+    assert sid == "ses_a" and tabs.asks() == []
+    assert '<rollover-held reason="context" context_pct="67" line="60">' in text and "pid 4242" in text
+    assert "rollover: told held session=ses_a context_pct=67 background=4242 ok=True" in caplog.text
+    tabs.shells["ses_a"] = [ToolShell(pid=4300, elapsed_seconds=5.0, command="sleep 9")]
+    tabs.tick()
+    assert len(tabs.notices()) == 1                            # other commands, the same conversation: told already
+
+
+def test_a_quiet_conversation_under_the_working_line_is_not_told(tabs):
+    tabs.add("ses_a", pct=45, idle_minutes=82)                 # idle: the context does not grow
+    tabs.shells["ses_a"] = [R94]
+    tabs.tick()
+    assert tabs.sent == []
+
+
+def test_a_conversation_asked_already_is_not_told(tabs):
+    record = tabs.add("ses_a", pct=67, busy=True)
+    _write(record, _typed(CLOSE))                              # its `tabs rollover` names the commands itself
+    tabs.shells["ses_a"] = [R94]
+    tabs.tick()
+    assert tabs.notices() == []
+
+
+def test_the_next_conversation_of_the_tab_may_be_told_again(tabs):
+    tabs.add("ses_a", pct=67, busy=True)
+    tabs.shells["ses_a"] = [R94]
+    tabs.tick()
+    tabs.records["ses_a"] = _write(tabs.tmp / "ses_a-next.jsonl", _typed(START))
+    tabs.tick()
+    assert len(tabs.notices()) == 2
+    assert set(held_notice._told) == {str(tabs.records["ses_a"])}  # the gone record's memory went with it
+
+
+def test_a_notice_typed_counts_as_told_even_when_the_tab_did_not_take_it(tabs, monkeypatch):
+    tabs.add("ses_a", pct=67, busy=True)
+    tabs.shells["ses_a"] = [R94]
+    typed: list[str] = []
+
+    async def failing_send(sid, payload, idempotency_key=None):
+        typed.append(sid)
+        return {"ok": False}
+
+    monkeypatch.setattr(held_notice, "pty_send", failing_send)
+    tabs.tick()
+    tabs.tick()
+    assert typed == ["ses_a"]
+
+
+def test_a_notice_in_the_record_is_not_typed_again_after_a_restart(tabs):
+    record = tabs.add("ses_a", pct=67, busy=True)
+    tabs.shells["ses_a"] = [R94]
+    _write(record, _queued(held_notice.held_envelope("context", 64, 60, [R94])), _tool())
+    tabs.tick()
+    assert tabs.notices() == []
+
+
+def test_the_notice_s_words_quoted_by_the_conversation_do_not_count_as_told(tabs):
+    record = tabs.add("ses_a", pct=67, busy=True)
+    _write(record, {"type": "assistant", "message": {"content": [{"type": "text", "text": "<rollover-held reason=x>"}]}})
+    tabs.shells["ses_a"] = [R94]
+    tabs.tick()
+    assert len(tabs.notices()) == 1
+
+
+@pytest.mark.parametrize("why_not", [held_notice.LIMIT, held_notice.ACCOUNT])
+def test_a_tab_stopped_by_a_limit_or_an_account_is_told_once_that_is_over(tabs, monkeypatch, caplog, why_not):
+    tabs.add("ses_a", pct=67, busy=True)
+    tabs.shells["ses_a"] = [R94]
+    blocking = {"ses_a": why_not}
+    monkeypatch.setattr(held_notice, "blocker", lambda sid, record: blocking.get(sid))
+    with caplog.at_level("INFO", logger=held_notice.logger.name):
+        tabs.tick()
+        tabs.tick()
+    assert tabs.notices() == []
+    assert caplog.text.count(f"rollover: notice deferred session=ses_a reason={why_not}\n") == 1
+    blocking.clear()
+    tabs.tick()
+    assert len(tabs.notices()) == 1
+
+
+def test_a_tab_the_account_hold_or_fallback_asked_is_not_told(tabs):
+    record = tabs.add("ses_a", pct=67, busy=True)
+    for flag in ("pause_asked_at", "hold_asked_at"):
+        setattr(tabs.state.sessions_meta["ses_a"], flag, 1.0)
+        assert held_notice.blocker("ses_a", record) == held_notice.ACCOUNT
+        setattr(tabs.state.sessions_meta["ses_a"], flag, None)
+    tabs.state.sessions_meta["ses_a"].owes_carry_on = True
+    assert held_notice.blocker("ses_a", record) == held_notice.ACCOUNT
+    tabs.state.sessions_meta["ses_a"].owes_carry_on = False
+    assert held_notice.blocker("ses_a", record) is None
+
+
+def test_a_conversation_is_told_while_another_tab_is_closing(tabs):
+    _asked_once(tabs, "ses_b", quiet=1, pct=70)
+    tabs.busy["ses_b"] = True                                  # ses_b is closing: no ask goes out
+    tabs.add("ses_a", pct=67, busy=True)
+    tabs.shells["ses_a"] = [R94]
+    assert tabs.tick() is None
+    assert [sid for sid, _ in tabs.notices()] == ["ses_a"]
+
+
+def test_a_tab_without_a_running_claude_is_not_told(tabs):
+    tabs.add("ses_a", pct=67, busy=True)
+    tabs.shells["ses_a"] = [R94]
+    tabs.absent.add("ses_a")
+    tabs.tick()
+    assert tabs.sent == []

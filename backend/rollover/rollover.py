@@ -36,7 +36,8 @@ count a message from another tab starts it over (= new work arrived).
 A tab whose claude still runs a tool's shell (= a command its Bash or Monitor tool runs in the background) is not
 asked, whatever the reason, and the next tab in line is looked at instead: the conversation's end would stop those
 commands (`tool_shells`). The tab is looked at again on the next look, and its quiet time includes the records of its
-sub-agents, which a sub-agent running in the background keeps writing.
+sub-agents, which a sub-agent running in the background keeps writing. A conversation held back that way past its
+working line is told once why (`held_notice.py`), whether or not another tab is closing.
 """
 from __future__ import annotations
 
@@ -56,6 +57,7 @@ from backend.routes.agent_messages import entered_text, lines_from_the_end
 from backend.routes.overview import context_pct_of, is_busy
 from backend.routes.rollover import TAG, close_envelope
 from backend._common.state import sessions_meta
+from backend.rollover import held_notice
 from backend.rollover.tool_shells import ProcessRow, ToolShell, tool_shells
 from backend.terminal.pty_discover import claude_in_pane, claude_pid_in_pane
 from backend.terminal.routes import pty_send
@@ -314,6 +316,25 @@ async def _ask(sid: str, key: str, reason: str, pct: int | None, idle_minutes: i
                 sid, reason, pct, idle_minutes, " again=1" if again else "", result.get("ok"))
 
 
+async def _tell_the_held(wanted: list[tuple[bool, float, str, str, int, str]]) -> dict[str, list[ToolShell]]:
+    """Tell each conversation past its working line that its tools' commands hold back, once.
+    → the shells read, by tab (= the asks that follow read them from here)."""
+    shells_of: dict[str, list[ToolShell]] = {}
+    for _, _, sid, reason, pct, key in wanted:
+        if reason != "context" or not claude_in_pane(sid):
+            continue
+        record = Path(key)
+        if await asyncio.to_thread(held_notice.was_told, key, record):
+            continue
+        shells = shells_of[sid] = await asyncio.to_thread(background_shells, sid)
+        if not shells:
+            continue
+        why_not = await asyncio.to_thread(held_notice.blocker, sid, record)
+        line = _number((settings_for(sid) or {}).get("working"), "context_pct")
+        await held_notice.tell(sid, key, reason, pct, line, shells, why_not)
+    return shells_of
+
+
 async def tick() -> str | None:
     """Look over every tab once and ask one tab at most: a new ask first, else once more a tab whose close stalled.
     → the id of the tab asked (None when none was)."""
@@ -356,13 +377,15 @@ async def tick() -> str | None:
     for key in [k for k in _pending if k not in records]:
         del _pending[key]
     _lapse_logged.intersection_update(records)
+    held_notice.forget(records)
+    shells_of = await _tell_the_held(wanted)
     if closing:
         return None
     # 静かなタブを、 静かな時間の長い順に。 推論中のタブはその後。
     for _, minus_idle, sid, reason, pct, key in sorted(wanted):
         if not reask_allowed(_asked_at.get(key), now) or not claude_in_pane(sid):
             continue
-        shells = await asyncio.to_thread(background_shells, sid)
+        shells = shells_of[sid] if sid in shells_of else await asyncio.to_thread(background_shells, sid)
         if shells:
             _log_held(sid, key, reason, shells)
             continue

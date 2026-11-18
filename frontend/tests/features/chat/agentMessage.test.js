@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   AGENT_MESSAGE_OPENING, AGENT_MESSAGE_REMOTE_OPENING, CLIENT_NOTICE_OPENING, ROLLOVER_OPENING, TAB_OPEN_OPENING,
-  isClientMessage, parseAgentMessage, parseClientNotice, parseRollover, parseTabOpen,
+  isClientMessage, noticeLabel, parseAgentMessage, parseClientNotice, parseRollover, parseTabOpen,
 } from '../../../src/features/chat/agentMessage.js'
 
 const wrap = (body, from = 'tools', session = 'ses_sender') =>
@@ -130,13 +130,13 @@ describe('parseClientNotice', () => {
 
   it('reads the accounts out of the notice sent after a move', () => {
     expect(parseClientNotice(moved)).toEqual({
-      kind: 'account-move', from: 'work', to: 'personal', account: null, phase: null, text: 'A usage limit stopped this session.',
+      kind: 'account-move', from: 'work', to: 'personal', account: null, phase: null, title: null, contextPct: null, text: 'A usage limit stopped this session.',
     })
   })
 
   it('reads the account out of the notice sent after a limit ended', () => {
     expect(parseClientNotice(resumed)).toEqual({
-      kind: 'limit-resume', from: null, to: null, account: 'personal', phase: null, text: 'The usage limit has ended.',
+      kind: 'limit-resume', from: null, to: null, account: 'personal', phase: null, title: null, contextPct: null, text: 'The usage limit has ended.',
     })
   })
 
@@ -144,7 +144,7 @@ describe('parseClientNotice', () => {
     const stop = `${CLIENT_NOTICE_OPENING}\n<account-hold phase="stop" account="personal">\n止めます\n</account-hold>`
     const carry = `${CLIENT_NOTICE_OPENING}\n<account-hold phase="continue" account="personal">\n続けます\n</account-hold>`
     expect(parseClientNotice(stop)).toEqual({
-      kind: 'account-hold', from: null, to: null, account: 'personal', phase: 'stop', text: '止めます',
+      kind: 'account-hold', from: null, to: null, account: 'personal', phase: 'stop', title: null, contextPct: null, text: '止めます',
     })
     expect(parseClientNotice(carry)).toMatchObject({ kind: 'account-hold', phase: 'continue' })
     expect(isClientMessage(stop)).toBe(true)
@@ -160,5 +160,31 @@ describe('parseClientNotice', () => {
   it('is a message of the client, not of the operator', () => {
     expect(isClientMessage(moved)).toBe(true)
     expect(isClientMessage(resumed)).toBe(true)
+  })
+
+  const held = `${CLIENT_NOTICE_OPENING}\n<rollover-held reason="context" context_pct="67" line="60">\n- pid 4242, running 1h48m: bash r94.sh\n</rollover-held>`
+  const stopped = `${CLIENT_NOTICE_OPENING}\n<child-stopped child="ses_c" title="build the parser" reason="idle">\nThis child is waiting.\n</child-stopped>`
+  const outbox = `${CLIENT_NOTICE_OPENING}\n<peer-outbox event="delivered" to="home:ses_b">\nDelivered.\n</peer-outbox>`
+
+  it('reads the notices of a held rollover, a stopped child and a message kept for another machine', () => {
+    expect(parseClientNotice(held)).toMatchObject({ kind: 'rollover-held', contextPct: '67', text: '- pid 4242, running 1h48m: bash r94.sh' })
+    expect(parseClientNotice(stopped)).toMatchObject({ kind: 'child-stopped', title: 'build the parser', text: 'This child is waiting.' })
+    expect(parseClientNotice(outbox)).toMatchObject({ kind: 'peer-outbox', to: 'home:ses_b' })
+    for (const text of [held, stopped, outbox]) expect(isClientMessage(text)).toBe(true)
+  })
+})
+
+describe('noticeLabel', () => {
+  const t = (key, params) => `${key} ${JSON.stringify(params)}`
+  const label = (text) => noticeLabel(parseClientNotice(`${CLIENT_NOTICE_OPENING}\n${text}`), t)
+
+  it('names each kind of notice with its own words', () => {
+    expect(label('<account-move from="work" to="personal">\nx\n</account-move>')).toBe('chat.notice_account_move {"from":"work","to":"personal"}')
+    expect(label('<account-hold phase="continue" account="work">\nx\n</account-hold>')).toBe('chat.notice_account_hold_continue {"account":"work"}')
+    expect(label('<account-hold phase="stop" account="work">\nx\n</account-hold>')).toBe('chat.notice_account_hold_stop {"account":"work"}')
+    expect(label('<limit-resume account="work">\nx\n</limit-resume>')).toBe('chat.notice_limit_resume {"account":"work"}')
+    expect(label('<rollover-held reason="context" context_pct="67">\nx\n</rollover-held>')).toBe('chat.notice_rollover_held {"pct":"67"}')
+    expect(label('<child-stopped child="ses_c" title="parser">\nx\n</child-stopped>')).toBe('chat.notice_child_stopped {"title":"parser"}')
+    expect(label('<peer-outbox event="expired" to="home:ses_b">\nx\n</peer-outbox>')).toBe('chat.notice_peer_outbox {"to":"home:ses_b"}')
   })
 })
