@@ -57,13 +57,14 @@ def this_months(spend: Spend | None, now: datetime) -> Spend | None:
     return spend if spend is not None and spend.month == now.strftime("%Y-%m") else None
 
 
-def file_signature(path: Path) -> tuple[int, int] | None:
-    """(modified time in ns, size) of `path`, None when it cannot be seen: what tells that a small file changed."""
+def file_signature(path: Path) -> tuple[int, int, int] | None:
+    """(inode, modified time in ns, size) of `path`, None when it cannot be seen: what tells that a small file changed.
+    The inode tells a file renamed over the old one even when its size and time come out the same."""
     try:
         stat = os.stat(path)
     except OSError:
         return None
-    return stat.st_mtime_ns, stat.st_size
+    return stat.st_ino, stat.st_mtime_ns, stat.st_size
 
 
 def read_spend_file(path: Path) -> Spend:

@@ -18,7 +18,7 @@ import './SettingsScreen.css'
 // タブごとの設定 (= 口座の固定・通知・名前) は会話の一覧の ⋯ メニューに残る。
 export default function SettingsScreen() {
   const t = useT()
-  const { view, loadedAt, error, save, continueTabs, reload } = useSettings()
+  const { view, loadedAt, error, save, saveApiSource, continueTabs, reload } = useSettings()
   // 保存していない変更がある card (= 変えたままの card の名前の集まり)。 1 つでも在る間は、 閉じる前に訊く。
   const dirty = useRef(new Set())
   const [askDiscard, setAskDiscard] = useState(false)
@@ -50,7 +50,10 @@ export default function SettingsScreen() {
             {!view && !error && <span className="settings-dim">{t('settings.loading')}</span>}
             {view && (
               <>
-                <AccountsSection view={view} nowSeconds={loadedAt} onSave={save} onContinue={continueTabs} onUnpin={unpin} />
+                <AccountsSection
+                  view={view} nowSeconds={loadedAt} onSave={save} onSaveApiSource={saveApiSource}
+                  onContinue={continueTabs} onUnpin={unpin}
+                />
                 <AgentsSection view={view} onSave={save} />
                 <NotificationSection view={view} onSave={save} />
                 <MachineSection view={view} />

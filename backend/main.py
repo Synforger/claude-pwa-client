@@ -294,9 +294,11 @@ async def lifespan(app: FastAPI):
     # 起動する (= `backend/tier_tabs/tier_tabs.py`。 設定の無い agent には何もしない)。
     tier_tabs_task = asyncio.create_task(tier_tabs.tier_tabs_loop())
 
-    # API tabs: follow the record files of `api_tabs` and the spend files of `api_accounts`, and stream the rows added to
-    # the screens that subscribed (= `backend/api_tabs/`; its table is not the Claude tabs' table, so no other patrol
-    # reaches it; nothing happens when the configuration declares none).
+    # API tabs: follow the record files of `api_tabs`, the tab list files of `api_tab_sources` and the spend files of
+    # `api_accounts`, and stream the rows added to the screens that subscribed (= `backend/api_tabs/`; its table is not
+    # the Claude tabs' table, so no other patrol reaches it; nothing happens when the configuration declares none). The
+    # sources are read once here, so that the first list already has their tabs.
+    api_tabs.sources.look(api_tabs.current_table().source_paths())
     api_tabs.current_table()
     api_tabs_task = asyncio.create_task(api_tabs.api_tab_stream_loop())
 

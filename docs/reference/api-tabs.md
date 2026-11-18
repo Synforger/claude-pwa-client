@@ -80,6 +80,74 @@ counts as no figure, never as zero. A file that is missing, cannot be read or is
 (shown as `---`), and one line is written to the log for each reason (at most once an hour):
 `api account: <name> spend unreadable: <reason>`. The top bar of an API tab shows the wallet's spend this month.
 
+## Tabs a program lists (`api_tab_sources`)
+
+A program that runs several conversations (one per chat group, say) can list its tabs in a file of its own instead of
+you adding a row to `api_tabs` for each. Declare the file, and the program's settings file if the settings screen should
+change its settings:
+
+```json
+"api_tab_sources": {
+  "line-group": {
+    "tabs": "/path/to/state/line-group/tabs.json",
+    "agent_id": "agent_a",
+    "account": "api",
+    "settings": "/path/to/config/line-group/settings.json"
+  }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| name (the key) | `[a-z0-9-]+` |
+| `tabs` | Absolute path of the tab list file the program writes |
+| `agent_id` | An agent of `agents`: where the tabs sit in the list |
+| `account` | The wallet the tabs name (`api` when left out) |
+| `settings` | Absolute path of the program's settings file, which the settings screen writes (optional) |
+
+Both paths come only from the client's configuration. The program's files never decide what the client writes, and a
+record the program names is shown only when it is inside the folder of the tab list file (links resolved), so the
+program cannot make the client show another conversation.
+
+### The tab list file
+
+The program rewrites the whole file each time (a temporary file in the same folder, then a rename): after every answer
+and every rollover.
+
+```json
+{"updated_at": "2026-11-18T22:30:00+09:00", "context_window": 100000,
+ "settings_fields": [{"key": "monthly_budget_usd", "label": "Monthly budget", "unit": "USD", "min": 1, "max": 1000, "step": 1, "default": 100}],
+ "tabs": [{"name": "g-c4c7", "title": "Trip", "record": "/path/to/state/line-group/conversations/g-c4c7.jsonl",
+           "context_tokens": 4821, "spend": {"month": "2026-11", "spent": 0.012, "limit": 50, "currency": "USD"}}]}
+```
+
+- `tabs`: one row per tab, in the order the list shows them. `name` is `[a-z0-9-]`, 64 characters at most (the tab's id
+  is `api_<name>`); `record` is the absolute path of the tab's record file, in the shape of [the record file](#the-record-file);
+  `title` is the name the list shows (the name when left out)
+- `context_tokens`: how much of the context the conversation holds, as the program counts it (it decides when to roll
+  over, so it is the one to say the amount right after a rollover). `null` or missing means no amount. Unlike a tab of
+  `api_tabs`, the client never counts it from the record
+- `context_window`: the size of the window the program uses now, a positive whole number. With it the list and the top
+  bar show the context in percent (`42%`, coloured like a Claude tab's `ctx`); without it they show the amount
+- `spend`: this month's spend of the tab, in the shape of [the spend file](#the-spend-file) (`updated_at` may be left
+  out). The top bar of the tab shows it as the tab's own; the settings screen still shows the wallet's whole spend
+- `settings_fields`: the settings the settings screen may change. Each has `key` (`[a-z0-9_]+`), `label`, `unit`
+  (optional), `min`, `max`, `default` (`min <= default <= max`) and `step` (optional, positive)
+- A row whose name or record is wrong is left out; a figure of the wrong type counts as none. Other fields are not read
+- A row whose id is already a tab (a row of `api_tabs`, or an earlier source) is left out
+- The file is read when it changes (its inode, size or time). A missing file lists no tab. A file that cannot be read,
+  is larger than 1 MB, or is not this shape keeps the tabs read last, and the settings screen says why
+
+### The program's settings file
+
+The settings screen shows the fields of `settings_fields` with the values of the settings file (the default where the
+file has none) and writes them with `PUT /settings/api-sources/<name>`. Only the keys sent change; every other key
+keeps its value and place. A value must be a finite number in `min`..`max` on the grid of `step` from `min`, or the
+whole request is refused (`400`, `settings_rejected`). A field whose `min` and `step` are whole numbers is written as a
+whole number. The file is replaced in one step, keeps its mode (a new file is `0644`), and is never written over when
+it is not a JSON object (`500`, `settings_not_written`). The program reads the file itself; a tab shows a new window or
+limit once the program has written its tab list again.
+
 ## How the client follows the record
 
 Every 0.5 seconds the client looks at each record. Rows appended since the last look reach screens that have the tab
@@ -91,9 +159,11 @@ open within a moment (the context amount in the list follows too).
   history again
 - The screen reads the history through the usual window (the latest rows), so the size of the file does not slow it down
 
-Log lines: `api tab: loaded <id> record=<path> exists=<bool>` at load, `api tab: skipped <name>: <reason>` for a row that
-was not read, and `api tab: <id> line <n> skipped: <reason>` for a row of a record that is not JSON (the same reason at
-most once a minute).
+Log lines: `api tab: loaded <id> record=<path> exists=<bool>` when a tab comes (at load, or when a source lists it),
+`api tab: removed <id>` when a source stops listing it, `api tab: skipped <name>: <reason>` for a row that was not read,
+`api tab: <id> line <n> skipped: <reason>` for a row of a record that is not JSON (the same reason at most once a
+minute), and `api source: <name> tabs unreadable: <reason>` / `api source: <name> row <n> skipped: <reason>` for a tab
+list file (the same reason at most once an hour).
 
 ## What an API tab does not take part in
 
@@ -105,6 +175,7 @@ most once a minute).
 | `tabs list` | Shows it with the state `API` and the tier `-` |
 | iPhone widgets and Siri | The tab is not offered as a destination |
 
-The row of an API tab in `GET /sessions` and the overview has `kind: "api"` and `context_tokens`; the status channel
-gives it a row of its own kind (`kind`, `context_tokens`, `spend`) and none of a Claude tab's 5h / 7d / context figures
-(see `contracts/schema/http-endpoints.yaml`).
+The row of an API tab in `GET /sessions` and the overview has `kind: "api"`, `context_tokens` and `context_window`
+(the overview also its `title`, which a source may change); the status channel gives it a row of its own kind (`kind`,
+`context_tokens`, `context_window`, `spend`, and `spend_scope`: `tab` for a source's tab, `wallet` for a tab of
+`api_tabs`) and none of a Claude tab's 5h / 7d / context figures (see `contracts/schema/http-endpoints.yaml`).

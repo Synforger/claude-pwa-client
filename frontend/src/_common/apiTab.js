@@ -31,6 +31,28 @@ export function formatContextTokens(tokens) {
   return `${(tokens / 1000).toFixed(1)}k`
 }
 
+/** How much of the context window the conversation holds, in whole percent (= the same rounding as a Claude tab's
+ *  `ctx`). Nothing when the amount or the window is not known (= a tab declared in `api_tabs`, whose program does not
+ *  say its window, shows `formatContextTokens` instead).
+ *  @param {number|null|undefined} tokens
+ *  @param {number|null|undefined} window
+ *  @returns {number|null} */
+export function contextPercent(tokens, window) {
+  if (formatContextTokens(tokens) === null) return null
+  if (typeof window !== 'number' || !Number.isFinite(window) || window <= 0) return null
+  return Math.round((tokens / window) * 100)
+}
+
+/** The context as the list and the bar show it: `42%` when the window is known, else the amount (`12.3k`), else
+ *  nothing (never 0).
+ *  @param {number|null|undefined} tokens
+ *  @param {number|null|undefined} window
+ *  @returns {string|null} */
+export function formatContext(tokens, window) {
+  const percent = contextPercent(tokens, window)
+  return percent === null ? formatContextTokens(tokens) : `${percent}%`
+}
+
 /** An amount of a wallet in its currency, without a currency sign that could be wrong for it: `1,234 JPY`.
  *  @param {number} amount
  *  @param {string} currency

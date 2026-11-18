@@ -94,24 +94,27 @@ class Changes:
     unreadable: str | None = None
 
 
-def look_at_record(path: Path, offset: int | None, was_present: bool) -> Changes:
+def look_at_record(path: Path, offset: int | None, was_present: bool, *, count_tokens: bool = True) -> Changes:
     """Look at `path`, given the position read to last time (None = this is the first look since the backend started).
 
     First look: start from the end of the whole rows, so that a restart does not stream the whole record again; a file
     that is not there yet is read from 0 when it appears. Later: the new whole rows from `offset`; a file shorter than
-    `offset`, or gone, rewinds to 0."""
+    `offset`, or gone, rewinds to 0. Without `count_tokens` (= a tab whose program says its context amount) the file's
+    end is never read again to count it."""
+    def counted() -> int | None:
+        return last_context_tokens(path) if count_tokens else None
+
     try:
         size = path.stat().st_size
         if offset is None:
-            return Changes(present=True, offset=end_of_complete_lines(path), scanned=True,
-                           scanned_tokens=last_context_tokens(path))
+            return Changes(present=True, offset=end_of_complete_lines(path), scanned=True, scanned_tokens=counted())
         if not was_present:
             offset = 0
         rewound = size < offset
         if rewound:
             offset = 0
         rows, new_offset = read_complete_lines_with_pos(path, offset)
-        scanned_tokens = last_context_tokens(path) if rewound else None
+        scanned_tokens = counted() if rewound else None
     except FileNotFoundError:
         return Changes(present=False, offset=0, rewound=was_present, scanned=True)
     except OSError as error:

@@ -25,7 +25,8 @@ class GetSessionsResponseItem(BaseModel):
     asleep: Optional[bool] = None  # true while the tab's claude is put to sleep (= it starts again in the same conversation when the tab is opened or written to)
     account_on_wake: Optional[str] = None  # for a sleeping tab, the account it runs on once it is woken (= what the account fallback decides when it wakes it, which can differ from account_id); null for a tab that is awake
     kind: Optional[Literal["api"]] = None  # api = a tab with no Claude Code whose conversation a program outside the client writes to a record file and the client only shows (id api_<name>, account_id = its wallet, tier null, never asleep). A Claude tab's row has no kind
-    context_tokens: Optional[int] = None  # API tabs only: how much of the context the conversation holds (= input_tokens + cache_read_input_tokens + cache_creation_input_tokens of the last answer that carries a usage); null until there is such an answer, never 0
+    context_tokens: Optional[int] = None  # API tabs only: how much of the context the conversation holds. A tab of api_tabs counts it from its record (= input_tokens + cache_read_input_tokens + cache_creation_input_tokens of the last answer that carries a usage); a tab an api_tab_sources file lists has the amount its program wrote (0 right after the program rolled the conversation over). null when there is none, never 0 for none
+    context_window: Optional[int] = None  # API tabs only: the size of the context window the tab's program says (api_tab_sources); null for a tab of api_tabs, or when the program says none
 
 
 class GetSessionsOverviewResponse(BaseModel):
@@ -125,6 +126,7 @@ class GetSettingsResponse(BaseModel):
     machine: dict[str, Any]  # version / backend_started_at / loop_stall ({ stood_still_sec, back_at } か null)
     limits: dict[str, Any]  # weekdays / line_pct_min / line_pct_max / ahead_pct_min / ahead_pct_max / context_pct_min / context_pct_max / minutes_min
     api_accounts: Optional[list[dict[str, Any]]] = None  # the API wallets (= the setting api_accounts), read-only. They are not accounts: tabs are never moved to one, stopped by one or continued on one
+    api_sources: Optional[list[dict[str, Any]]] = None  # the programs that list API tabs (= the setting api_tab_sources) with the settings each lets the screen change, in the order of the setting
 
 
 class PutSettingsRequest(BaseModel):
@@ -135,6 +137,18 @@ class PutSettingsRequest(BaseModel):
 
 class PutSettingsResponse(BaseModel):
     """PUT /settings response"""
+    model_config = ConfigDict(extra="forbid")
+    pass
+
+
+class PutSettingsApiSourcesSourceRequest(BaseModel):
+    """PUT /settings/api-sources/{source} request body"""
+    model_config = ConfigDict(extra="forbid")
+    values: dict[str, Any]  # key → number, for the keys to change only
+
+
+class PutSettingsApiSourcesSourceResponse(BaseModel):
+    """PUT /settings/api-sources/{source} response"""
     model_config = ConfigDict(extra="forbid")
     pass
 

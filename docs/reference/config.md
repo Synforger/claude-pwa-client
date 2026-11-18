@@ -219,6 +219,20 @@ file に書き、 client はそれを見せるだけ。 `api_accounts` は、 �
 名前は `[a-z0-9-]+`、 `agent_id` は設定にある agent、 `record` は絶対 path。 どれかを外れた行は読まず、 理由を log に
 出す。 記録と額の file の契約は [api-tabs.md](api-tabs.md)。
 
+### `api_tab_sources` (任意)
+
+program がタブの一覧を自分の file に書き、 client がその行を API のタブとして並べる (= グループごとに 1 本など、 タブ
+が増えるたびに `api_tabs` へ行を足さない)。 client が読むタブの一覧の file と、 設定の画面が書く program の設定の file
+を宣言する。 どちらの path も、 program の file からではなく、 ここからだけ取る。
+
+```json
+"api_tab_sources": {"line-group": {"tabs": "/path/to/tabs.json", "agent_id": "agent_a", "account": "api", "settings": "/path/to/settings.json"}}
+```
+
+名前は `[a-z0-9-]+`、 `tabs` は絶対 path、 `agent_id` は設定にある agent、 `account` は省くと `api`、 `settings` は
+省いてよい絶対 path (= 省くと設定の画面に欄を出さない)。 外れた宣言は読まず、 理由を log に出す。 タブの一覧の file の
+契約と、 設定の画面からの書き方は [api-tabs.md](api-tabs.md)。
+
 ### `extensions` (任意)
 
 上部バー右端の 🧩 から開く拡張 (= 別アプリを iframe で嵌める口) の一覧。 省略時は拡張なし。

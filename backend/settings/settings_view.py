@@ -1,5 +1,5 @@
 """What the settings screen shows: the usage and the lines of each account, the API wallets and what they spent this
-month, the tabs the account hold stopped, the tabs pinned to an account, the sleep and rollover of each agent, the
+month, the settings of the programs that list API tabs, the tabs the account hold stopped, the tabs pinned to an account, the sleep and rollover of each agent, the
 notification title, the child limit and the facts about the machine that runs the backend. Reads the settings and the
 state; changes nothing.
 
@@ -127,6 +127,8 @@ def build_view(now: float | None = None) -> dict:
         "accounts": [_account_view(name, entry, rows, now) for name, entry in config.ACCOUNTS.items()],
         # The API wallets sit beside the accounts, never among them: nothing is routed to a wallet (= `backend/api_tabs/`).
         "api_accounts": api_tabs.wallet_views(),
+        # The settings of the programs that list API tabs: the fields each program declared (`backend/api_tabs/`).
+        "api_sources": api_tabs.source_views(),
         "agents": [_agent_view(agent_id, entry) for agent_id, entry in config.AGENTS.items()],
         "child_sessions_max": config.CHILD_SESSIONS_MAX,
         "notification_title": config.NOTIFICATION_TITLE_DEFAULT,

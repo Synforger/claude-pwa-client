@@ -66,6 +66,9 @@ const API_TABS = process.env.CPC_E2E_API_TABS === '1'
 const API_DIR = resolve(RUNTIME, 'api')
 const API_RECORD = resolve(API_DIR, 'support-bot.jsonl')
 const API_SPEND = resolve(API_DIR, 'spend.json')
+const API_SOURCE_DIR = resolve(RUNTIME, 'api-source')
+const API_SOURCE_TABS = resolve(API_SOURCE_DIR, 'tabs.json')
+const API_SOURCE_SETTINGS = resolve(RUNTIME, 'api-source-config', 'settings.json')
 if (API_TABS) {
   mkdirSync(API_DIR, { recursive: true })
   const at = new Date()
@@ -80,6 +83,28 @@ if (API_TABS) {
   ].join('\n') + '\n')
   const month = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}`
   writeFileSync(API_SPEND, JSON.stringify({ month, spent: 123, limit: 1000, currency: 'JPY', updated_at: at.toISOString() }))
+  // A program that lists its own tabs (`api_tab_sources`): one tab whose amount the program says (42,000 of a window of
+  // 100,000), its own spend, and two settings the settings screen may change. The settings file is not there yet.
+  mkdirSync(resolve(API_SOURCE_DIR, 'conversations'), { recursive: true })
+  mkdirSync(dirname(API_SOURCE_SETTINGS), { recursive: true })
+  writeFileSync(resolve(API_SOURCE_DIR, 'conversations', 'g-trip.jsonl'), [
+    row('user', 'src-u1', { role: 'user', content: 'Where shall we stay?' }),
+    row('assistant', 'src-a1', {
+      id: 'msg_src_a1', role: 'assistant', model: 'claude-haiku-5-5', stop_reason: 'end_turn',
+      content: [{ type: 'text', text: 'Three inns near the station.' }],
+      usage: { input_tokens: 999, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 8 },
+    }),
+  ].join('\n') + '\n')
+  writeFileSync(API_SOURCE_TABS, JSON.stringify({
+    updated_at: at.toISOString(),
+    context_window: 100000,
+    settings_fields: [
+      { key: 'monthly_budget_usd', label: 'Monthly budget', unit: 'USD', min: 1, max: 1000, step: 1, default: 100 },
+      { key: 'rollover_percent', label: 'Rollover at', unit: '%', min: 10, max: 95, step: 1, default: 60 },
+    ],
+    tabs: [{ name: 'g-trip', title: 'Trip group', record: resolve(API_SOURCE_DIR, 'conversations', 'g-trip.jsonl'),
+      context_tokens: 42000, spend: { month, spent: 0.5, limit: 50, currency: 'USD' } }],
+  }))
 }
 
 const config = {
@@ -134,6 +159,8 @@ const config = {
   ...(API_TABS ? {
     api_accounts: { api: { display_name: 'API', spend: API_SPEND } },
     api_tabs: { 'support-bot': { title: 'Support bot', agent_id: 'agent_e2e', account: 'api', record: API_RECORD } },
+    api_tab_sources: { 'line-group': { tabs: API_SOURCE_TABS, agent_id: 'agent_e2e', account: 'api',
+      settings: API_SOURCE_SETTINGS } },
   } : {}),
   // The other machines this backend may message (= `agent_message_peers`), as JSON: {"<name>": {"url", "address"}}.
   // `address` is where the other backend's calls come from: 127.0.0.1 when both run on this machine.
