@@ -31,6 +31,7 @@ import { useAutoScroll } from '../features/chat/useAutoScroll.js'
 import { useChatStream } from '../features/chat/useChatStream.js'
 import { useAttachments } from '../features/attachments/useAttachments.js'
 import { gcImages } from '../features/attachments/imageStore.js'
+import { DISPLAY_LIMIT } from '../_common/displayLimit.js'
 import { useStatus } from '../features/status-bar/useStatus.js'
 import { useSessionBadges } from '../features/push-notify/useSessionBadges.js'
 import { useRunningSubagents } from '../features/chat/useRunningSubagents.js'
@@ -66,9 +67,6 @@ function collectActiveImageIds(msgDict) {
 // ChatInput.currentAttachments の安定 sentinel。 attachments[sid] が空の時に毎 render で
 // 新しい `[]` を作ると ChatInput が memo を抜けるので、 共通参照を返す。
 const EMPTY_ARR = []
-
-// 一度に DOM に載せる message 数の上限 (= 巨大 session の render 負荷抑制)。
-const DISPLAY_LIMIT = 100
 
 // 表示 window の先頭 index。 過去閲覧中 (= scrolledUp) に新着で総数が増えても、 凍結した
 // frozenStart を使い続けることで「今読んでいる上方の DOM が slice から抜けて内容が上に

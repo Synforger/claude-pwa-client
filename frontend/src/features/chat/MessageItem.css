@@ -12,6 +12,9 @@
 .messages {
   height: 100%;
   overflow-y: auto;
+  /* Chrome's scroll anchoring moves scrollTop when the oldest message leaves the top of the full list; the
+     stick-to-bottom check (stickToBottom.js) reads that move as the user scrolling up and freezes the window. */
+  overflow-anchor: none;
   padding: 12px 6px;
   -webkit-overflow-scrolling: touch;
   scroll-behavior: smooth;
