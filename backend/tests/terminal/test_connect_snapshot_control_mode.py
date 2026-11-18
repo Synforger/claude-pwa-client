@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from starlette.websockets import WebSocketState
 
+import backend._common.config as config_mod
 import backend.terminal.connect_snapshot as cs
 from backend.terminal import runner
 
@@ -51,7 +52,7 @@ def private_tmux(monkeypatch, tmp_path):
     program.write_text(PROGRAM, encoding="utf-8")
     monkeypatch.delenv("TMUX", raising=False)
     monkeypatch.setattr(runner, "TMUX_SOCKET_NAME", socket_name)
-    monkeypatch.setattr(runner, "CLAUDE_PATH", "claude")
+    monkeypatch.setattr(config_mod, "CLAUDE_PATH", "claude")
     monkeypatch.setattr(runner, "PTY_INITIAL_ARGV", [sys.executable, str(program)])
     monkeypatch.setattr(runner, "tmux_session_env_args", lambda session_id, extra_env: [])
     yield socket_name

@@ -64,8 +64,6 @@ def configured(monkeypatch, tmp_path, isolated_state, agent) -> None:
     path.write_text(json.dumps({"uploads_tmp": str(tmp_path / "uploads"), "agents": agents}))
     monkeypatch.setattr(config_mod, "CONFIG_PATH", path)
     config_mod.get_config.cache_clear()
-    # the session resolver holds the agents it read when it was imported
-    monkeypatch.setattr(session_resolver, "AGENTS", agents)
     monkeypatch.setattr(record, "TIER_TABS_PATH", tmp_path / "data" / "tier_tabs.json")
 
 

@@ -11,6 +11,7 @@ import pytest
 from fastapi import HTTPException, UploadFile
 from starlette.datastructures import Headers
 
+import backend._common.config as config_mod
 import backend.terminal.chat_content as cc
 
 
@@ -38,7 +39,7 @@ def _upload(name: str, data: bytes, content_type: str = "text/plain") -> UploadF
 
 
 def test_save_to_tmp_accepts_small_file(tmp_path, monkeypatch):
-    monkeypatch.setattr(cc, "UPLOADS_TMP", tmp_path / "tmp")
+    monkeypatch.setattr(config_mod, "UPLOADS_TMP", tmp_path / "tmp")
     monkeypatch.setattr(cc, "session_tmp_files", {})
     files = [_upload("a.txt", b"hello", "text/plain")]
     saved = _run(cc.save_to_tmp(files, "ses_x"))
@@ -48,7 +49,7 @@ def test_save_to_tmp_accepts_small_file(tmp_path, monkeypatch):
 
 def test_save_to_tmp_rejects_oversize_file(tmp_path, monkeypatch):
     """1 MiB を超える file は入口で 413 拒否、 disk write 無し。"""
-    monkeypatch.setattr(cc, "UPLOADS_TMP", tmp_path / "tmp")
+    monkeypatch.setattr(config_mod, "UPLOADS_TMP", tmp_path / "tmp")
     monkeypatch.setattr(cc, "session_tmp_files", {})
     big = b"x" * (cc.FILE_SIZE_LIMIT + 1)
     files = [_upload("big.bin", big, "application/octet-stream")]
@@ -63,7 +64,7 @@ def test_save_to_tmp_rejects_oversize_file(tmp_path, monkeypatch):
 
 def test_save_to_tmp_zero_size_is_skipped(tmp_path, monkeypatch):
     """size=0 (= 空アップロード) は skip して例外無し (= 旧挙動と同じ)。"""
-    monkeypatch.setattr(cc, "UPLOADS_TMP", tmp_path / "tmp")
+    monkeypatch.setattr(config_mod, "UPLOADS_TMP", tmp_path / "tmp")
     monkeypatch.setattr(cc, "session_tmp_files", {})
     files = [_upload("empty.txt", b"", "text/plain")]
     saved = _run(cc.save_to_tmp(files, "ses_x"))
@@ -74,7 +75,7 @@ def test_save_to_tmp_size_none_still_uploads(tmp_path, monkeypatch):
     """size=None (= iOS Safari 等 multipart の Content-Length を per-part で送らない client)
     でも upload を成立させる。 旧実装は `if not f.size: continue` で silent skip しており、
     画像が「成功した風」 で消える事故の原因だった (= 2026-06-22 fix)。"""
-    monkeypatch.setattr(cc, "UPLOADS_TMP", tmp_path / "tmp")
+    monkeypatch.setattr(config_mod, "UPLOADS_TMP", tmp_path / "tmp")
     monkeypatch.setattr(cc, "session_tmp_files", {})
     data = b"\x89PNG\r\n\x1a\n" + b"x" * 1000  # PNG っぽいダミー
     headers = Headers({"content-type": "image/png"})
@@ -87,7 +88,7 @@ def test_save_to_tmp_size_none_still_uploads(tmp_path, monkeypatch):
 
 def test_save_to_tmp_size_none_oversize_caught_after_read(tmp_path, monkeypatch):
     """size=None かつ実バイト数が limit 超え = read 後 check で 413。"""
-    monkeypatch.setattr(cc, "UPLOADS_TMP", tmp_path / "tmp")
+    monkeypatch.setattr(config_mod, "UPLOADS_TMP", tmp_path / "tmp")
     monkeypatch.setattr(cc, "session_tmp_files", {})
     big = b"x" * (cc.FILE_SIZE_LIMIT + 1)
     headers = Headers({"content-type": "application/octet-stream"})

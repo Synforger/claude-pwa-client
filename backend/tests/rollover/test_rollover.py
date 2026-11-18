@@ -427,7 +427,7 @@ def test_tabs_without_a_condition_or_a_running_claude_are_not_asked(tabs):
 def test_the_condition_comes_from_the_agent_s_settings(monkeypatch, isolated_state):
     import backend.terminal.session_resolver as resolver
     # agent の設定は backend の起動時に 1 度読まれる (= 読んだ側の物を差し替える)
-    monkeypatch.setattr(resolver, "AGENTS", {"agent_a": {"cwd": "/x", "rollover": SETTINGS}, "agent_b": {"cwd": "/y"}})
+    monkeypatch.setattr(config_mod, "AGENTS", {"agent_a": {"cwd": "/x", "rollover": SETTINGS}, "agent_b": {"cwd": "/y"}})
     for sid, agent in (("ses_a", "agent_a"), ("ses_b", "agent_b")):
         isolated_state.sessions_meta[sid] = SessionDef(id=sid, agent_id=agent, title=sid, created_at=0)
     assert watch.settings_for("ses_a") == SETTINGS

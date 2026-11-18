@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+import backend._common.config as config_mod
 import backend.routes.hooks as hooks_router
 import backend.jsonl.jsonl_watcher as jsonl_watcher
 
@@ -31,7 +32,7 @@ def fake_agents(monkeypatch, tmp_path):
     cwd_path = tmp_path / "project"
     cwd_path.mkdir()
     fake = {"primary": {"cwd": str(cwd_path)}, "default": {"cwd": str(tmp_path / "other")}}
-    monkeypatch.setattr(hooks_router, "AGENTS", fake)
+    monkeypatch.setattr(config_mod, "AGENTS", fake)
     return {"cwd": str(cwd_path), "id": "primary"}
 
 

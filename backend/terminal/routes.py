@@ -32,7 +32,7 @@ from fastapi import APIRouter, Body, File, Form, Header, HTTPException, UploadFi
 from starlette.websockets import WebSocketState
 
 from backend.terminal.chat_content import save_to_tmp
-from backend._common.config import AGENTS, CLAUDE_PATH  # noqa: F401  (CLAUDE_PATH は tests monkeypatch 用 re-export)
+from backend._common import config as _config
 
 from backend.terminal.runner import (
     PtySession,
@@ -118,7 +118,7 @@ def _note_queue_on_unconfirmed(
 async def pty_socket(ws: WebSocket, session_id: str) -> None:
     await ws.accept()
     # 未知 session_id を弾く (= 任意 sid で backend cwd の zsh を起こさない)。
-    if session_id not in AGENTS and session_id not in sessions_meta:
+    if session_id not in _config.AGENTS and session_id not in sessions_meta:
         await ws.send_text(json.dumps({"type": "error", "message": "unknown session"}))
         await ws.close(code=4004, reason="unknown session")
         return
@@ -392,7 +392,7 @@ def _require_session(session_id: str) -> None:
     AGENTS の直リンク or sessions_meta 登録のどちらかに居ることを要求。 これがないと
     tailnet 内の誰でも適当な session_id を投げて backend 自身の cwd で zsh を起こせる。
     """
-    if session_id in AGENTS:
+    if session_id in _config.AGENTS:
         return
     if session_id in sessions_meta:
         return

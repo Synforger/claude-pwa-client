@@ -26,7 +26,6 @@ from typing import Awaitable, Callable, Optional
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
-from backend._common.config import AGENTS
 from backend.speech.speech import VOICE_INPUT_MARK, VOICE_OPEN_CONTEXT
 from backend.push.push import broadcast_push, notification_title_for
 import backend.jsonl.jsonl_watcher as jsonl_watcher  # backend-F-40: 旧版は関数内 import で循環回避

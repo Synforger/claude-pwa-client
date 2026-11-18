@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from backend._common.config import AGENTS
+from backend._common import config as _config
 
 router = APIRouter()
 
@@ -18,7 +18,7 @@ def list_agents():
     """セッション作成時の選択肢として agent 種別一覧を返す。"""
     return [
         {"id": name, "display_name": cfg.get("display_name", name.upper())}
-        for name, cfg in AGENTS.items()
+        for name, cfg in _config.AGENTS.items()
     ]
 
 

@@ -11,6 +11,7 @@ import stat
 
 import pytest
 
+import backend._common.config as config_mod
 from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENINGS, ROLLOVER_OPENING
 
 import backend.terminal.first_message as fm
@@ -28,7 +29,7 @@ def _run(coro):
 
 @pytest.fixture
 def launcher_agent(monkeypatch):
-    monkeypatch.setattr(sr, "CLAUDE_PATH", "/usr/local/bin/claude")
+    monkeypatch.setattr(config_mod, "CLAUDE_PATH", "/usr/local/bin/claude")
     monkeypatch.setattr(sr, "resolve_agent_cfg", lambda _sid: dict(LAUNCHER))
     monkeypatch.setattr(sr, "last_resumable_claude_sid", lambda _sid: None)
 
@@ -54,7 +55,7 @@ def test_a_fork_resumes_through_the_launcher(launcher_agent, isolated_state):
 
 
 def test_without_launcher_the_alias_and_claude_resume_stay(monkeypatch):
-    monkeypatch.setattr(sr, "CLAUDE_PATH", "/usr/local/bin/claude")
+    monkeypatch.setattr(config_mod, "CLAUDE_PATH", "/usr/local/bin/claude")
     monkeypatch.setattr(sr, "resolve_agent_cfg", lambda _sid: {"launch_alias": "agent_a"})
     monkeypatch.setattr(sr, "last_resumable_claude_sid", lambda _sid: None)
     assert not sr.uses_launcher("ses_x")
