@@ -38,6 +38,8 @@
                                  聞かれる設定 (= `"ask": true`) のエージェントのタブ <to> へ <file> の文を打ち、 そのターンの最後の
                                  答えを標準出力に出す (= タブの外の program からも打てる)。 --fresh は先に /clear を打つ。
                                  待つのは既定 180 秒で、 過ぎたらそのターンを止める
+    tabs    ticket <new|show|add|ask|close|pass> ...
+                                 requests that cross tabs, kept as one ticket each that tabs only add to (usage: `backend/cli/ticket.py`)
     tabs    page-url <file>      ページの origin (= client の設定の `page_origin`) の folder の中の <file> を、 操作者の端末で
                                  開ける tailnet の URL にして出す (= `tailscale serve` がページの port を出している口から組む)。
                                  folder の外の file・serve が無い時は、 理由を出して止まる。 操作者へページを渡す時の URL はこれ
@@ -105,6 +107,7 @@ from backend.child_watch.child_memo import (  # noqa: E402
 from backend.rollover.tool_shells import (  # noqa: E402
     ProcessRow, ToolShell, elapsed_text, own_tool_shell, seconds_of_elapsed, tool_shells)
 from backend.cli import ask as ask_command  # noqa: E402
+from backend.cli import ticket as ticket_command  # noqa: E402
 
 HOME = Path.home()
 BASE = f"http://127.0.0.1:{os.environ.get('PWA_PORT', '8765')}"
@@ -976,6 +979,8 @@ def main(argv: list[str]) -> int:
         return close_child(argv[1], force=len(argv) == 3)
     if argv[:1] == ["ask"]:
         return ask_command.run(argv[1:], call)
+    if argv[:1] == ["ticket"]:
+        return ticket_command.run(argv[1:], call)
     if len(argv) == 2 and argv[0] == "page-url":
         return page_url(Path(argv[1]))
     if len(argv) == 2 and argv[0] == "sleep":

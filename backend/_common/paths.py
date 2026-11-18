@@ -28,6 +28,7 @@
 │   ├── backups/           (更新前の控え。 backend は書かず、 更新の手順が置く)
 │   ├── notes/<tab id>.md  (where earlier versions kept memos; moved to `<tier folder>/pages/<tab id>/memo.md` at startup)
 │   ├── page-store/        (ページの保存箱)
+│   ├── tickets/           (境界の外の、 タブを渡る頼みの票。 `index.json` が全部の票の置き場を引く)
 │   └── uploads/           (添付の一時置き場。 `config.json` の `uploads_tmp` が決めた時はそちら)
 ├── cache/claude-pwa-client/
 │   └── document-cache/    (資料を頁の画像に変えた物の控え)
@@ -50,6 +51,7 @@
 ├── favorites.txt
 ├── notes/<tab id>.md      (where earlier versions kept memos; moved at startup)
 ├── page-store/
+├── tickets/
 ├── document-cache/
 ├── backups/
 └── uploads/tmp/
@@ -130,6 +132,9 @@ LEGACY_NOTES_DIR = _user_path("state", "notes", "notes")
 PAGE_STORE_DIR = _user_path("state", "page-store", "page-store")
 # 添付の一時置き場の既定 (= `config.json` の `uploads_tmp` が在ればそちら)
 UPLOADS_TMP_DIR = _user_path("state", "uploads", "uploads/tmp")
+# Where the tickets of the requests between tabs are kept when no boundary holds them (`backend/tickets/`, written by the
+# backend alone). `index.json` here finds the place of every ticket, the ones inside a boundary too.
+TICKETS_DIR = _user_path("state", "tickets", "tickets")
 # 更新前の控えの置き場 (= backend は書かない。 更新の手順が置く)
 BACKUPS_DIR = _user_path("state", "backups", "backups")
 # 資料 (= pdf・Office・tif) を頁の画像に変えた物の控えの既定 (= `config.json` の `documents.cache_dir` が在ればそちら)

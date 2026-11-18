@@ -114,6 +114,7 @@ import backend.terminal.session_resolver as session_resolver  # noqa: E402
 import backend.routes.rollover as rollover_routes  # noqa: E402
 import backend.routes.settings as settings_routes  # noqa: E402
 import backend.routes.subagents as subagents_routes  # noqa: E402
+import backend.routes.tickets as tickets_routes  # noqa: E402
 import backend.routes.tier_tabs as tier_tabs_routes  # noqa: E402
 import backend.tier_tabs.tier_tabs as tier_tabs  # noqa: E402
 import backend.routes.unified_stream as unified_stream_routes  # noqa: E402
@@ -423,6 +424,7 @@ app.include_router(rollover_routes.router)
 app.include_router(settings_routes.router)
 app.include_router(push.router)
 app.include_router(subagents_routes.router)
+app.include_router(tickets_routes.router)
 app.include_router(tier_tabs_routes.router)
 app.include_router(unified_stream_routes.router)
 app.include_router(voice_routes.router)

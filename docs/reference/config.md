@@ -135,7 +135,7 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 |---|---|---|
 | `config` | `<根>/config/claude-pwa-client/` | `config.json`、 `favorites.txt` (⭐) |
 | `secrets` | `<根>/secrets/claude-pwa-client/` | `vapid.json` |
-| `state` | `<根>/state/claude-pwa-client/` | `data/`、 `logs/`、 `page-store/`、 `uploads/`、 `backups/` (= タブのメモはエージェントの folder の中。 [data-schemas.md](data-schemas.md)) |
+| `state` | `<根>/state/claude-pwa-client/` | `data/`、 `logs/`、 `page-store/`、 `tickets/`、 `uploads/`、 `backups/` (= タブのメモはエージェントの folder の中。 [data-schemas.md](data-schemas.md)) |
 | `cache` | `<根>/cache/claude-pwa-client/` | `document-cache/` |
 
 `config.json` の `rate_limits_log` を書いていない時の既定は `<根>/state/statusline/rate-limits.jsonl` です。
@@ -162,6 +162,11 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   同じ節を参照
 - `agent_message_sender_check` (任意): 連絡の封筒に送り主のタブ名を出してよいかを決めるコマンド
   (= 語のリスト)。 同じ節を参照
+- `machine_name` (任意): この機械の名前 (= 文字列)。 [票](tickets.md) の id の頭に付きます (`<機械の名前>-<YYMMDD>-<NN>`)。
+  書かない時は host 名の最初の `.` までです
+- `ticket_place_check` / `ticket_places_check` / `ticket_write_check` / `ticket_covers_check` / `ticket_read_check` (任意):
+  票を読み書きできるタブを絞る検査コマンド (= それぞれ語のリスト)。 書かない鍵の検査はしません。 語・終了 code・使える
+  `{名前}` は [tickets.md](tickets.md) の「検査コマンドを設定する」 を参照
 - `child_sessions_max` (任意): 1 つのタブが同時に持てる子のタブの数 (= 0 以上の整数。 書かない時と `null` は上限なし)。
   詳細: [child-sessions.md](child-sessions.md)
 - `rate_limits_log`: 使用率 (5h / 7d / context) を記録する JSONL の path。 **このファイルを
