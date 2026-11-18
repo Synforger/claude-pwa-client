@@ -68,12 +68,17 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
     (= `claude "<本文>"`。 打鍵ではなく引数なので複数行も崩れない)
   - 会話の再開 (= backend 再起動跨ぎの自動再開 / フォーク / 別アカウントでの継続) は
     `claude --resume <id>` ではなく `<launch_alias> --resume <id>` を入力する
+  - 起動の script を持たないエージェントは、 repo の `bin/claude-launcher <claude へ渡す引数>` を `launch_alias` に
+    書けます。 上の 2 つの言葉を受け、 書いた引数を新しい会話にも開き直す会話にも付けて `claude` を起動します
 - `child_agent` (任意): このエージェントのタブが子のタブを立てる時に使うエージェントの key。
   書いていなければ、 子も同じエージェントで立つ。 詳細: [child-sessions.md](child-sessions.md)
 - `tier_tabs` (任意、 既定 `false`): `true` の時、 backend がこのエージェントの階層 (= `cwd` の folder と、 その下の
   `projects/<P>`・`projects/<P>/subprojects/<S>`・その下の `subprojects/` の何段でも) ごとにタブを一覧に置く。 置いたタブは、 最初の発話が届いた時に
   その階層で Claude を起動する。 `launcher: true` が要る。
   詳細: [tier-tabs.md](tier-tabs.md)
+- `ask` (任意、 既定 `false`): `true` の時、 同じ機械の program がこのエージェントのタブに文を打ち、 その
+  ターンの答えを受け取れる (= `tabs ask`)。 program の言語 model として置くタブ用で、 道具を持たせない形で
+  起動する。 詳細: [ask.md](ask.md)
 - `rollover` (任意): context が決めた割合に届いた会話を締めさせて、 同じタブで新しい会話を起動し直す
   条件。 書いていないエージェントでは何も起きない。 項目と流れは [rollover.md](rollover.md)
 - `sleep` (任意): 使っていない間だけ、 そのエージェントのタブの Claude を終わらせてメモリを返し、 触られた時と

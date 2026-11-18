@@ -458,6 +458,20 @@ class PostAgentMessagesResponse(BaseModel):
     kept: Optional[bool] = None  # 宛先が口座の止める線で止まっていて動ける口座が無いので、 起こさずに預かったか (= 動ける口座ができた時に届く)
 
 
+class PostSessionsSessionIdAskRequest(BaseModel):
+    """POST /sessions/{session_id}/ask request body"""
+    model_config = ConfigDict(extra="forbid")
+    pass
+
+
+class PostSessionsSessionIdAskResponse(BaseModel):
+    """POST /sessions/{session_id}/ask response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    id: str  # the asked tab's id
+    answer: str  # the last answer of the turn (= last_assistant_message of the Stop hook)
+
+
 class PostAgentMessagesRelayedRequest(BaseModel):
     """POST /agent-messages/relayed request body"""
     model_config = ConfigDict(extra="forbid")

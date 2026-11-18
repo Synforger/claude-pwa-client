@@ -1,0 +1,5 @@
+#!/bin/sh
+# claude-launcher: an agent's `launch_alias` when it has no launch script of its own (= keeps the alias's arguments
+# on every start, the reopened ones too). What it does is in backend/cli/claude_launcher.py.
+here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+exec python3 "$here/../backend/cli/claude_launcher.py" "$@"

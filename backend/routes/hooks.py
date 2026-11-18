@@ -26,6 +26,7 @@ from typing import Awaitable, Callable, Optional
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
+from backend.ask import turn_waiters
 from backend.speech.speech import VOICE_INPUT_MARK, VOICE_OPEN_CONTEXT
 from backend.push.push import broadcast_push, notification_title_for
 import backend.jsonl.jsonl_watcher as jsonl_watcher  # backend-F-40: 旧版は関数内 import で循環回避
@@ -285,6 +286,8 @@ async def _handle_session_start(ctx: HookContext) -> dict:
     # claude 本体が起動を通知した = このタブへの打鍵を解禁する。 restart 直後の窓で
     # 送信を待たせている側がここで起きる (= `backend/terminal/input_ready.py`)。
     input_ready.mark_ready(ctx.pwa_sid_hdr)
+    # An ask that cleared the conversation types its text once the new one is open (`backend/ask/`).
+    turn_waiters.conversation_opened(ctx.pwa_sid_hdr)
     # A conversation was just opened in the tab (= also `/resume` inside a running claude, which starts no process):
     # its quiet time starts over, or an old conversation reopened by hand would be put to sleep within a minute.
     note_woken(ctx.pwa_sid_hdr)
@@ -311,6 +314,8 @@ async def _handle_stop(ctx: HookContext) -> dict:
     # turn 完了の即時化 (= backend-F-12)。 mutate 経路は session_status 1 本に絞る。
     assert ctx.pwa_session_id is not None  # dispatcher が解決済
     _apply_immediate_stop(ctx.pwa_session_id)
+    # An ask waiting on this tab takes the turn's last answer as it is (= before the push's checks).
+    turn_waiters.turn_ended(ctx.pwa_session_id, body_raw)
     rollover.turn_ended(ctx.pwa_session_id)
     # 設定した言語でない地の文は、 画面と同じく通知にも出さない (= 言い直させる hook が在れば、
     # 言い直した返事の turn 完了で改めて届く)。

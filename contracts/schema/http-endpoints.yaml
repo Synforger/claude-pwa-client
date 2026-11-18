@@ -1049,6 +1049,29 @@ endpoints:
     implementation: backend/routes/agent_messages.py
 
   - method: POST
+    path: /sessions/{session_id}/ask
+    description: "a program on this machine types a text into a tab whose agent has ask: true, and gets the last answer of that turn (= multipart / urlencoded form; the path takes the tab's id or name)"
+    request_body:
+      type: object
+      description: "form: text (= what is typed) + fresh (= true types /clear first) + timeout_sec (= the wait for the answer after the typing, default 180, at most 3600)"
+    response:
+      type: object
+      properties:
+        ok:     { type: boolean }
+        id:     { type: string, description: "the asked tab's id" }
+        answer: { type: string, description: "the last answer of the turn (= last_assistant_message of the Stop hook)" }
+      required: [ok, id, answer]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "only a tab whose agent has ask: true is typed into; any other is 403 ask_not_allowed, and nothing is typed"
+      - "one ask at a time per tab (= 409 ask_in_progress); a tab in the middle of a turn is 409 ask_tab_busy, and nothing is typed"
+      - "the text goes in as plain input, with no envelope; a sleeping tab or one with no claude is started first, as a message would start it"
+      - "a turn that has not ended within timeout_sec of the typing is stopped with Escape and answered 504 ask_timeout"
+      - "a failure carries an ask_* code in detail.code (= ask_not_ready: nothing was asked; ask_unconfirmed: the text may have been typed)"
+    implementation: backend/routes/ask.py
+
+  - method: POST
     path: /agent-messages/relayed
     description: "別の機械の backend が、 自分のタブから預かった連絡をこの機械のタブへ届ける (= json)"
     request_body:
