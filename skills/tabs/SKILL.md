@@ -178,6 +178,21 @@ tabs open <tier>
 It refuses when that tier already has a tab, or when the agent has no folder for it. See
 `docs/reference/tier-tabs.md`.
 
+## Asking a tab set up for a program: `tabs ask`
+
+A program on this machine can use a Claude Code tab as its model:
+
+```
+tabs ask <tab id or name> <text file> [--fresh] [--timeout <seconds>]
+```
+
+It types the text into the tab and prints the last answer of that turn on stdout. `--fresh` types `/clear` first, so
+the turn sees none of the earlier asks; `--timeout` (default 180 seconds) stops a turn that has not ended. It needs no
+`PWA_SID`, so a program outside every tab runs it as a subprocess. Only tabs whose agent has `"ask": true` take it:
+the text arrives as plain input, the way the operator's own words do, so the tabs agents work in refuse it
+(`ask_not_allowed`). Such an agent runs without tools in an empty folder. To talk to a colleague's tab, use
+`tabs send`, not this. Codes and setup: `docs/reference/ask.md`.
+
 ## Handing the operator a page: `tabs page-url`
 
 A page in the folder of the client's `page_origin` opens on the operator's devices only through the tailnet, not

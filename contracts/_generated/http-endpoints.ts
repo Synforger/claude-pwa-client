@@ -519,6 +519,18 @@ export interface PostAgentMessagesResponse {
   kept?: boolean
 }
 
+/** POST /sessions/{session_id}/ask request body */
+export type PostSessionsSessionIdAskRequest = Record<string, unknown>
+
+/** POST /sessions/{session_id}/ask response */
+export interface PostSessionsSessionIdAskResponse {
+  ok: boolean
+  /** the asked tab's id */
+  id: string
+  /** the last answer of the turn (= last_assistant_message of the Stop hook) */
+  answer: string
+}
+
 /** POST /agent-messages/relayed request body */
 export interface PostAgentMessagesRelayedRequest {
   /** 宛先のタブの id か名前 (= この機械のタブ) */

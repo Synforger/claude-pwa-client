@@ -34,6 +34,10 @@
                                  `tier_tabs` を入れたエージェントなら backend が自分で置く)。 claude は、 そのタブへ
                                  最初の発話 (= 人の送信か `tabs send`) が届いた時に、 その階層で起動する。
                                  その階層のタブが既にあれば止まる
+    tabs    ask <to> <file> [--fresh] [--timeout <秒>]
+                                 聞かれる設定 (= `"ask": true`) のエージェントのタブ <to> へ <file> の文を打ち、 そのターンの最後の
+                                 答えを標準出力に出す (= タブの外の program からも打てる)。 --fresh は先に /clear を打つ。
+                                 待つのは既定 180 秒で、 過ぎたらそのターンを止める
     tabs    page-url <file>      ページの origin (= client の設定の `page_origin`) の folder の中の <file> を、 操作者の端末で
                                  開ける tailnet の URL にして出す (= `tailscale serve` がページの port を出している口から組む)。
                                  folder の外の file・serve が無い時は、 理由を出して止まる。 操作者へページを渡す時の URL はこれ
@@ -100,6 +104,7 @@ from backend.child_watch.child_memo import (  # noqa: E402
     DONE, STATE_LINE as STATE, STUCK, UNKNOWN, WORKING, memo_state, save_memo_state)
 from backend.rollover.tool_shells import (  # noqa: E402
     ProcessRow, ToolShell, elapsed_text, own_tool_shell, seconds_of_elapsed, tool_shells)
+from backend.cli import ask as ask_command  # noqa: E402
 
 HOME = Path.home()
 BASE = f"http://127.0.0.1:{os.environ.get('PWA_PORT', '8765')}"
@@ -151,12 +156,13 @@ def launcher():
     return module
 
 
-def call(path: str, form: dict | None = None, method: str | None = None) -> tuple[int, object]:
+def call(path: str, form: dict | None = None, method: str | None = None,
+         timeout: float = TIMEOUT_SEC) -> tuple[int, object]:
     """backend を 1 回呼ぶ。 → (HTTP の status、 JSON の中身)。 繋がらなければ status 0。"""
     data = urllib.parse.urlencode(form).encode() if form is not None else None
     try:
         request = urllib.request.Request(BASE + path, data=data, method=method)
-        with urllib.request.urlopen(request, timeout=TIMEOUT_SEC) as r:
+        with urllib.request.urlopen(request, timeout=timeout) as r:
             return r.status, json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
         try:
@@ -968,6 +974,8 @@ def main(argv: list[str]) -> int:
         return report(argv[1], Path(argv[2]))
     if len(argv) in (2, 3) and argv[0] == "close" and argv[2:] in ([], ["--force"]):
         return close_child(argv[1], force=len(argv) == 3)
+    if argv[:1] == ["ask"]:
+        return ask_command.run(argv[1:], call)
     if len(argv) == 2 and argv[0] == "page-url":
         return page_url(Path(argv[1]))
     if len(argv) == 2 and argv[0] == "sleep":
