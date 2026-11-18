@@ -1072,6 +1072,164 @@ endpoints:
     implementation: backend/routes/ask.py
 
   - method: POST
+    path: /tickets
+    description: "a tab opens a ticket, the one file that a request crossing tabs is kept in (= multipart / urlencoded form)"
+    request_body:
+      type: object
+      description: "form: from (= the opening tab's id) + title + text + operator_said (= true puts the operator's last words in that tab into the ticket, as the conversation's record has them)"
+    response:
+      type: object
+      properties:
+        ok:            { type: boolean }
+        id:            { type: string, description: "<machine>-<YYMMDD>-<NN>" }
+        place_outside: { type: boolean, description: "true when the ticket is kept outside every boundary of the guard" }
+        operator_said: { type: boolean, description: "whether the operator's words went in as the second line" }
+        operator_said_left_out: { type: string, description: "why the words asked for did not go in (= no_operator_words)" }
+      required: [ok, id, place_outside, operator_said]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "the place of the ticket is decided once, when it opens, by the guard's ticket_place_check (= none configured: the place outside every boundary); it is never moved"
+      - "the first lines are judged by ticket_write_check before anything is written; a refusal is 403 ticket_refused, a check that cannot run 503 ticket_check_failed"
+      - "a place that does not fit one folder is 409 ticket_place_split and an undecidable one 503 ticket_place_unknown; nothing is written"
+      - "the operator's words come from the tab's conversation record, never from the form"
+      - "index.json holds each ticket's place key, holder, opener, state and what it wants, and no title, text or folder path"
+    implementation: backend/routes/tickets.py
+
+  - method: POST
+    path: /tickets/{ticket}/entries
+    description: "a tab adds what it did to a ticket (= form: from, text); the holder does not change"
+    request_body:
+      type: object
+      description: "form: from (= the writing tab's id) + text"
+    response:
+      type: object
+      properties:
+        ok:     { type: boolean }
+        id:     { type: string }
+        status: { type: string, description: "open, waiting-operator or closed" }
+      required: [ok, id, status]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "a tab that has not read the whole boundary of the ticket's place is refused with 403 ticket_outside_place (ticket_covers_check)"
+      - "the text is judged by ticket_write_check; lines are only ever added, and two added at once do not mix"
+      - "a closed ticket takes no line (409 ticket_closed); an id that is not in the index is 404 ticket_unknown; an empty text is 400 ticket_empty"
+    implementation: backend/routes/tickets.py
+
+  - method: POST
+    path: /tickets/{ticket}/asks
+    description: "a tab puts a ticket in front of the operator (= form: from, kind, text, recommend)"
+    request_body:
+      type: object
+      description: "form: from + kind (= decide, mac or report) + text + recommend (optional; the operator may take it as it stands)"
+    response:
+      type: object
+      properties:
+        ok:     { type: boolean }
+        id:     { type: string }
+        status: { type: string, description: "waiting-operator" }
+      required: [ok, id, status]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "the ticket waits for the operator from here (waiting-operator) and the index says what it wants"
+      - "an unknown kind is 400 ticket_bad_kind; the same refusals as an entry apply"
+    implementation: backend/routes/tickets.py
+
+  - method: POST
+    path: /tickets/{ticket}/close
+    description: "a tab closes a ticket (= form: from, text optional); the ticket stays as the record of the request"
+    request_body:
+      type: object
+      description: "form: from + text (optional last word)"
+    response:
+      type: object
+      properties:
+        ok:     { type: boolean }
+        id:     { type: string }
+        status: { type: string, description: "closed" }
+      required: [ok, id, status]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "a closed ticket is not closed again (409 ticket_closed); the same refusals as an entry apply"
+    implementation: backend/routes/tickets.py
+
+  - method: POST
+    path: /tickets/{ticket}/pass
+    description: "a tab hands a ticket to another tab on this machine (= form: from, to = the tab's id or name): the holder moves and the tab is told in one line"
+    request_body:
+      type: object
+      description: "form: from + to"
+    response:
+      type: object
+      properties:
+        ok:   { type: boolean }
+        id:   { type: string }
+        to:   { type: string, description: "the receiving tab's id" }
+        kept: { type: boolean, description: "the tab is stopped by the account hold, so the line is kept and delivered once an account is clear" }
+      required: [ok, id, to]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "both tabs must have read the ticket's place's boundary (403 ticket_outside_place)"
+      - "a ticket waiting for the operator is not handed over (409 ticket_waiting_operator); a tab on another machine is 501 ticket_peer_not_yet"
+      - "the tab is told through the way messages between tabs go (= the usual envelope, with the ticket's id as an attribute of its tag, the usual first line); the ticket changes only after that delivery"
+    implementation: backend/routes/tickets.py
+
+  - method: GET
+    path: /tickets/{ticket}
+    description: "the ticket as the tab reader may read it (= query: reader = the reading tab's id): every line by time"
+    request_query:
+      reader: { type: string, description: "the reading tab's id" }
+    response:
+      type: object
+      properties:
+        ok:            { type: boolean }
+        id:            { type: string }
+        status:        { type: string }
+        wants:         { type: string, nullable: true, description: "decide, mac or report; null when the ticket asks nothing of the operator" }
+        holder:        { type: string, description: "the tab that holds the ticket" }
+        opener:        { type: string, description: "the tab that asked first" }
+        place_outside: { type: boolean }
+        entries:       { type: array, items: { type: object }, description: "the lines; one the reader may not read is {kind, at, hidden: true, text} (= ticket_read_check)" }
+      required: [ok, id, status, holder, opener, entries]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "each line is judged for the reader by ticket_read_check; a line not let through, or a check that does not run, shows only its kind and time"
+    implementation: backend/routes/tickets.py
+
+  - method: GET
+    path: /tickets
+    description: "every ticket with its title and state, for the operator's screen"
+    response:
+      type: object
+      properties:
+        ok:      { type: boolean }
+        tickets:
+          type: array
+          items:
+            type: object
+            properties:
+              id:            { type: string }
+              title:         { type: string, nullable: true, description: "read from the ticket's place; null when the place is not known" }
+              opened_at:     { type: string, nullable: true }
+              status:        { type: string }
+              wants:         { type: string, nullable: true }
+              holder:        { type: string }
+              opener:        { type: string }
+              place_outside: { type: boolean }
+            required: [id, status, holder, opener, place_outside]
+      required: [ok, tickets]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "read by the operator, who reads everything, so no line is judged"
+    implementation: backend/routes/tickets.py
+
+  - method: POST
     path: /agent-messages/relayed
     description: "別の機械の backend が、 自分のタブから預かった連絡をこの機械のタブへ届ける (= json)"
     request_body:

@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import socket
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -350,6 +351,11 @@ def validate_runtime_paths() -> None:
         logger.warning("runtime check: %s", problem)
 
 
+# The configuration keys that hold the guard's commands for the tickets (`backend/tickets/ticket_checks.py`).
+TICKET_CHECK_KEYS = ("TICKET_PLACE_CHECK", "TICKET_PLACES_CHECK", "TICKET_WRITE_CHECK", "TICKET_COVERS_CHECK",
+                     "TICKET_READ_CHECK")
+
+
 # --- 旧 module-level 定数の遅延配信 (PEP 562) ---
 # 旧来の定数名を `__getattr__` で、 読まれた時に config を引いて返す。 読むたびに作るので、
 # 使う側は `_config.AGENTS` のように使う所で読む (= 頭で import すると写しになる)。 lookup ごとに
@@ -369,6 +375,13 @@ def __getattr__(name: str) -> Any:  # noqa: PLR0911
     if name in ("AGENT_MESSAGE_CHECK", "AGENT_MESSAGE_OPERATOR_CHECK", "AGENT_MESSAGE_SENDER_CHECK", "LINEAGE_HOOK"):
         check = cfg.get(name.lower())
         return check if isinstance(check, list) and all(isinstance(w, str) for w in check) else []
+    if name in TICKET_CHECK_KEYS:
+        check = cfg.get(name.lower())
+        return check if isinstance(check, list) and all(isinstance(w, str) for w in check) else []
+    if name == "MACHINE_NAME":
+        # The name the ids of the tickets this machine opens begin with (`backend/tickets/`).
+        named = cfg.get("machine_name")
+        return named.strip() if isinstance(named, str) and named.strip() else socket.gethostname().split(".")[0]
     if name == "AGENT_MESSAGE_PEERS":
         return _agent_message_peers(cfg.get("agent_message_peers"))
     if name == "CHILD_SESSIONS_MAX":

@@ -531,6 +531,100 @@ export interface PostSessionsSessionIdAskResponse {
   answer: string
 }
 
+/** POST /tickets request body */
+export type PostTicketsRequest = Record<string, unknown>
+
+/** POST /tickets response */
+export interface PostTicketsResponse {
+  ok: boolean
+  /** <machine>-<YYMMDD>-<NN> */
+  id: string
+  /** true when the ticket is kept outside every boundary of the guard */
+  place_outside: boolean
+  /** whether the operator's words went in as the second line */
+  operator_said: boolean
+  /** why the words asked for did not go in (= no_operator_words) */
+  operator_said_left_out?: string
+}
+
+/** POST /tickets/{ticket}/entries request body */
+export type PostTicketsTicketEntriesRequest = Record<string, unknown>
+
+/** POST /tickets/{ticket}/entries response */
+export interface PostTicketsTicketEntriesResponse {
+  ok: boolean
+  id: string
+  /** open, waiting-operator or closed */
+  status: string
+}
+
+/** POST /tickets/{ticket}/asks request body */
+export type PostTicketsTicketAsksRequest = Record<string, unknown>
+
+/** POST /tickets/{ticket}/asks response */
+export interface PostTicketsTicketAsksResponse {
+  ok: boolean
+  id: string
+  /** waiting-operator */
+  status: string
+}
+
+/** POST /tickets/{ticket}/close request body */
+export type PostTicketsTicketCloseRequest = Record<string, unknown>
+
+/** POST /tickets/{ticket}/close response */
+export interface PostTicketsTicketCloseResponse {
+  ok: boolean
+  id: string
+  /** closed */
+  status: string
+}
+
+/** POST /tickets/{ticket}/pass request body */
+export type PostTicketsTicketPassRequest = Record<string, unknown>
+
+/** POST /tickets/{ticket}/pass response */
+export interface PostTicketsTicketPassResponse {
+  ok: boolean
+  id: string
+  /** the receiving tab's id */
+  to: string
+  /** the tab is stopped by the account hold, so the line is kept and delivered once an account is clear */
+  kept?: boolean
+}
+
+/** GET /tickets/{ticket} response */
+export interface GetTicketsTicketResponse {
+  ok: boolean
+  id: string
+  status: string
+  /** decide, mac or report; null when the ticket asks nothing of the operator */
+  wants?: string | null
+  /** the tab that holds the ticket */
+  holder: string
+  /** the tab that asked first */
+  opener: string
+  place_outside?: boolean
+  /** the lines; one the reader may not read is {kind, at, hidden: true, text} (= ticket_read_check) */
+  entries: (Record<string, unknown>)[]
+}
+
+/** GET /tickets response */
+export interface GetTicketsResponse {
+  ok: boolean
+  tickets: ({
+      id: string
+      /** read from the ticket's place; null when the place is not known */
+      title?: string | null
+      opened_at?: string | null
+      status: string
+      wants?: string | null
+      holder: string
+      opener: string
+      place_outside: boolean
+    })[]
+}
+
 /** POST /agent-messages/relayed request body */
 export interface PostAgentMessagesRelayedRequest {
   /** 宛先のタブの id か名前 (= この機械のタブ) */

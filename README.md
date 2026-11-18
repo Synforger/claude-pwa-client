@@ -46,6 +46,7 @@ A PWA client for operating [Claude Code](https://docs.claude.com/en/docs/claude-
 
 - **Desktop screen sharing**: mirror the host desktop inside the PWA and control it by touch, via [Sunshine](https://github.com/LizardByte/Sunshine) + [moonlight-web-stream](https://github.com/MrCreativ3001/moonlight-web-stream). See [docs/setup/path-b-screenshare.md](docs/setup/path-b-screenshare.md)
 - **A tab as a program's model**: a program on the same Mac types a text into a tab set up for it and gets the turn's last answer back with `tabs ask`, optionally in a fresh conversation each time. Only agents marked `ask` take it, and they run without tools (see [docs/reference/ask.md](docs/reference/ask.md))
+- **Requests between tabs kept as tickets**: when one tab asks another to do something, the request lives in one append-only ticket file instead of being rewritten at every hand-over, so the last tab reads the first tab's own words. Tabs add to a ticket, ask the operator through it, close it, or pass it on with `tabs ticket` (one line tells the receiving tab); only the backend writes the files, and optional check commands decide which tabs may read and write them (see [docs/reference/tickets.md](docs/reference/tickets.md))
 - **Extensions**: open your own web app from the 🧩 in the top bar as a band above the chat, served from a separate process through Tailscale Serve. The chat input stays usable, and collapsing the band keeps the app running. See [docs/setup/extensions.md](docs/setup/extensions.md)
 
 ## Architecture
@@ -86,6 +87,7 @@ This repository is designed for a personal host machine exposed only inside a Ta
 - **`/hooks/event` accepts localhost only**: claude CLI hooks are loopback by design
 - **Tabs start without `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`**: claude would use such a key instead of the account it is logged in to, so the backend leaves them out of every tab's environment and of the tmux server's, and `bin/claude-launcher` leaves them out once more
 - **`/sessions/{id}/ask` types only into tabs of agents marked `ask`**: it is plain input, as the operator's own words are, so the tabs agents work in never take it; it accepts localhost only
+- **`/tickets` doors answer localhost only, and only the backend writes ticket files**: tabs reach them through `tabs ticket`, and optional check commands decide which tabs may read and write each ticket (see [docs/reference/tickets.md](docs/reference/tickets.md))
 - **Markdown URLs pass through react-markdown's standard sanitizer**: dangerous schemes like `javascript:` / `data:` are blocked (only the internal `cpc-file://` and `slack://`, which hands the link to the Slack app, are passed through)
 - **Web Push subscriptions / VAPID keys are stored as JSON under `backend/secrets/` / `backend/data/`** (gitignored; see `docs/reference/data-schemas.md`)
 

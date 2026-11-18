@@ -472,6 +472,99 @@ class PostSessionsSessionIdAskResponse(BaseModel):
     answer: str  # the last answer of the turn (= last_assistant_message of the Stop hook)
 
 
+class PostTicketsRequest(BaseModel):
+    """POST /tickets request body"""
+    model_config = ConfigDict(extra="forbid")
+    pass
+
+
+class PostTicketsResponse(BaseModel):
+    """POST /tickets response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    id: str  # <machine>-<YYMMDD>-<NN>
+    place_outside: bool  # true when the ticket is kept outside every boundary of the guard
+    operator_said: bool  # whether the operator's words went in as the second line
+    operator_said_left_out: Optional[str] = None  # why the words asked for did not go in (= no_operator_words)
+
+
+class PostTicketsTicketEntriesRequest(BaseModel):
+    """POST /tickets/{ticket}/entries request body"""
+    model_config = ConfigDict(extra="forbid")
+    pass
+
+
+class PostTicketsTicketEntriesResponse(BaseModel):
+    """POST /tickets/{ticket}/entries response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    id: str
+    status: str  # open, waiting-operator or closed
+
+
+class PostTicketsTicketAsksRequest(BaseModel):
+    """POST /tickets/{ticket}/asks request body"""
+    model_config = ConfigDict(extra="forbid")
+    pass
+
+
+class PostTicketsTicketAsksResponse(BaseModel):
+    """POST /tickets/{ticket}/asks response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    id: str
+    status: str  # waiting-operator
+
+
+class PostTicketsTicketCloseRequest(BaseModel):
+    """POST /tickets/{ticket}/close request body"""
+    model_config = ConfigDict(extra="forbid")
+    pass
+
+
+class PostTicketsTicketCloseResponse(BaseModel):
+    """POST /tickets/{ticket}/close response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    id: str
+    status: str  # closed
+
+
+class PostTicketsTicketPassRequest(BaseModel):
+    """POST /tickets/{ticket}/pass request body"""
+    model_config = ConfigDict(extra="forbid")
+    pass
+
+
+class PostTicketsTicketPassResponse(BaseModel):
+    """POST /tickets/{ticket}/pass response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    id: str
+    to: str  # the receiving tab's id
+    kept: Optional[bool] = None  # the tab is stopped by the account hold, so the line is kept and delivered once an account is clear
+
+
+class GetTicketsTicketResponse(BaseModel):
+    """GET /tickets/{ticket} response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    id: str
+    status: str
+    wants: Optional[str] = None  # decide, mac or report; null when the ticket asks nothing of the operator
+    holder: str  # the tab that holds the ticket
+    opener: str  # the tab that asked first
+    place_outside: Optional[bool] = None
+    entries: list[dict[str, Any]]  # the lines; one the reader may not read is {kind, at, hidden: true, text} (= ticket_read_check)
+
+
+class GetTicketsResponse(BaseModel):
+    """GET /tickets response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    tickets: list[dict[str, Any]]
+
+
 class PostAgentMessagesRelayedRequest(BaseModel):
     """POST /agent-messages/relayed request body"""
     model_config = ConfigDict(extra="forbid")

@@ -193,6 +193,34 @@ the text arrives as plain input, the way the operator's own words do, so the tab
 (`ask_not_allowed`). Such an agent runs without tools in an empty folder. To talk to a colleague's tab, use
 `tabs send`, not this. Codes and setup: `docs/reference/ask.md`.
 
+## Requests that cross tabs: `tabs ticket`
+
+A request that one tab asks of another is kept as one **ticket**, a file that tabs only add to. Handing a request on by
+rewriting it in every message shrinks it to a line by the fourth tab; a ticket keeps the first tab's own words (and, with
+`--operator-said`, the operator's), and the message between tabs is one line: "ticket `<id>` is yours now".
+
+```
+tabs ticket new <title> <body file> [--operator-said]     open a ticket; prints its id
+tabs ticket show <id>                                     read all of it, by time
+tabs ticket add <id> <file>                               add what you did (nothing is removed or reworded)
+tabs ticket ask <id> --kind decide|mac|report <file> [--recommend <file>]
+                                                          put the ticket in front of the operator
+tabs ticket close <id> [<file>]                           close it (it stays; nothing can be added after)
+tabs ticket pass <id> <tab id or name>                    move the ticket to that tab and tell it in one line
+```
+
+- Use a ticket for a request (something another tab is to do). A note that needs no reply stays a `tabs send` message.
+- On receiving "ticket `<id>` was passed to you", read it with `tabs ticket show <id>`, do the work, add what you did, and
+  pass it on or close it. Do not copy the request into your own message: the next tab reads the ticket.
+- `--operator-said` on `new` puts the operator's last words in this tab into the ticket, read by the backend from the
+  conversation record; use it only when those words are what the request came from, as with `tabs send --operator-said`.
+- `ask` marks the ticket as waiting for the operator (`decide` = a decision, `mac` = something only done at the Mac, `report`
+  = a report); a ticket waiting for the operator cannot be passed. The recommendation, when given, is what the operator may
+  take as it stands.
+- A failure prints `tabs: <what failed> [<code>]: <reason>`. Codes (`ticket_unknown`, `ticket_closed`, `ticket_waiting_operator`,
+  `ticket_refused`, `ticket_outside_place`, ...) and the optional check commands that limit who may read and write a ticket:
+  `docs/reference/tickets.md`.
+
 ## Handing the operator a page: `tabs page-url`
 
 A page in the folder of the client's `page_origin` opens on the operator's devices only through the tailnet, not
