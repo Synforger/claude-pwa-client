@@ -17,7 +17,7 @@ describe('表示 window は時系列で切る', () => {
   const state = [...recentFromCache, ...ancientFromGet]  // 計 140 件
 
   it('配列位置で切ると最近のメッセージが消える (= 修正前の挙動を明示)', () => {
-    const start = displayWindowStart(state.length, null, LIMIT)
+    const start = displayWindowStart(state, null, LIMIT)
     const shown = state.slice(start)
     const shownRecent = shown.filter(m => m.id.startsWith('recent-')).length
     expect(shownRecent).toBe(0)  // 直近 30 件が全部消える = 中抜け
@@ -25,7 +25,7 @@ describe('表示 window は時系列で切る', () => {
 
   it('時系列に並べてから切れば最近のメッセージが必ず残る (= 修正後)', () => {
     const ordered = sortByTs(state)
-    const start = displayWindowStart(ordered.length, null, LIMIT)
+    const start = displayWindowStart(ordered, null, LIMIT)
     const shown = ordered.slice(start)
     // 直近 30 件は 1 件も落ちない
     expect(shown.filter(m => m.id.startsWith('recent-'))).toHaveLength(30)
@@ -36,8 +36,8 @@ describe('表示 window は時系列で切る', () => {
 
   it('溢れる時に落ちるのは常に最古のものだけ (= 中抜けしない)', () => {
     const ordered = sortByTs(state)
-    const shown = ordered.slice(displayWindowStart(ordered.length, null, LIMIT))
-    const dropped = ordered.slice(0, displayWindowStart(ordered.length, null, LIMIT))
+    const shown = ordered.slice(displayWindowStart(ordered, null, LIMIT))
+    const dropped = ordered.slice(0, displayWindowStart(ordered, null, LIMIT))
     const newestDropped = Math.max(...dropped.map(m => m.ts))
     const oldestShown = Math.min(...shown.map(m => m.ts))
     expect(newestDropped).toBeLessThan(oldestShown)  // 境界より新しいものは必ず表示される

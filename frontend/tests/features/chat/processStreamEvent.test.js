@@ -207,7 +207,7 @@ describe('extractAskAnswer (= AskUserQuestion tool_result の包装剥がし)', 
 // ---------------------------------------------------------------------------
 
 import { getSnapshot as getPromptSnapshot, clearPromptState } from '../../../src/state/promptState.js'
-import { MAX_MESSAGES } from '../../../src/_common/constants.js'
+import { MAX_MESSAGES, TOOL_RESULT_PREVIEW_CHARS } from '../../../src/_common/constants.js'
 
 describe('processStreamEvent — system カード族', () => {
   it.each([
@@ -225,16 +225,12 @@ describe('processStreamEvent — system カード族', () => {
     expect(bubbles[0].uuid).toBe(event.uuid)
   })
 
-  it('MAX_MESSAGES 到達時は先頭を捨てて末尾に積む (= 総数維持)', () => {
-    const full = Array.from({ length: MAX_MESSAGES }, (_, i) => ({
-      id: `m${i}`, role: 'agent', text: String(i),
-    }))
+  it('a full list is not cut here (the number of messages a conversation keeps is held by clampMessages.js)', () => {
+    const full = Array.from({ length: MAX_MESSAGES }, (_, i) => ({ id: `m${i}`, role: 'agent', text: String(i) }))
     const { deps, get } = makeStatefulDeps({ s1: full })
     processStreamEvent(deps, 's1', { type: 'system_note', uuid: 'u-trim', note: 'x' })
-    const arr = get().s1
-    expect(arr).toHaveLength(MAX_MESSAGES)
-    expect(arr[0].id).toBe('m1')            // 先頭 1 件が落ちた
-    expect(arr.at(-1).kind).toBe('system_note')
+    expect(get().s1).toHaveLength(MAX_MESSAGES + 1)
+    expect(get().s1.at(-1).kind).toBe('system_note')
   })
 })
 
@@ -325,6 +321,54 @@ describe('processStreamEvent — tool_result 紐付け', () => {
     const content = [{ type: 'text', text: 'plain' }]
     processStreamEvent(deps, 's1', toolResultEvent('t1', content))
     expect(get().s1[0].tools[0].result.content).toBe(content)
+  })
+
+  // The live stream delivers a result whole. The history GET cuts it to TOOL_RESULT_PREVIEW_CHARS (the backend), so a
+  // conversation received live is cut the same way: it is the same size in memory, and the same when drawn.
+  describe('a result longer than TOOL_RESULT_PREVIEW_CHARS', () => {
+    const withTool = () => ({ s1: [{ id: 'a1', role: 'agent', text: '', tools: [{ id: 't1', name: 'Bash' }] }] })
+
+    it('a string is cut, and its length before the cut is kept in full_chars', () => {
+      const { deps, get } = makeStatefulDeps(withTool())
+      processStreamEvent(deps, 's1', toolResultEvent('t1', 'x'.repeat(TOOL_RESULT_PREVIEW_CHARS * 3)))
+      const result = get().s1[0].tools[0].result
+      expect(result.content).toHaveLength(TOOL_RESULT_PREVIEW_CHARS)
+      expect(result.full_chars).toBe(TOOL_RESULT_PREVIEW_CHARS * 3)
+    })
+
+    it('text blocks share the budget and a block that is not text is kept (images lose their body as before)', () => {
+      const { deps, get } = makeStatefulDeps(withTool())
+      const half = TOOL_RESULT_PREVIEW_CHARS * 0.75
+      processStreamEvent(deps, 's1', toolResultEvent('t1', [
+        { type: 'text', text: 'a'.repeat(half) },
+        { type: 'image', source: { type: 'base64', data: 'A'.repeat(4096) } },
+        { type: 'text', text: 'b'.repeat(half) },
+      ]))
+      const result = get().s1[0].tools[0].result
+      expect(result.content).toEqual([
+        { type: 'text', text: 'a'.repeat(half) },
+        { type: 'image' },
+        { type: 'text', text: 'b'.repeat(TOOL_RESULT_PREVIEW_CHARS - half) },
+      ])
+      expect(result.full_chars).toBe(half * 2)
+    })
+
+    it('a result within the limit keeps its content reference and gets no full_chars', () => {
+      const { deps, get } = makeStatefulDeps(withTool())
+      const content = 'y'.repeat(TOOL_RESULT_PREVIEW_CHARS)
+      processStreamEvent(deps, 's1', toolResultEvent('t1', content))
+      const result = get().s1[0].tools[0].result
+      expect(result.content).toBe(content)
+      expect('full_chars' in result).toBe(false)
+    })
+
+    it('a length the backend already recorded is kept', () => {
+      const { deps, get } = makeStatefulDeps(withTool())
+      const event = toolResultEvent('t1', 'z'.repeat(TOOL_RESULT_PREVIEW_CHARS))
+      event.message.content[0].full_chars = 384_200
+      processStreamEvent(deps, 's1', event)
+      expect(get().s1[0].tools[0].result.full_chars).toBe(384_200)
+    })
   })
 })
 

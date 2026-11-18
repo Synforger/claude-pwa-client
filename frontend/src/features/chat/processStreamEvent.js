@@ -1,7 +1,7 @@
 import { generateId } from '../../_common/id.js'
 import { formatTool } from '../../_common/format.js'
-import { stripToolResultImages } from '../../_common/toolResult.js'
-import { MAX_MESSAGES } from '../../_common/constants.js'
+import { stripToolResultImages, capToolResultText } from '../../_common/toolResult.js'
+import { TOOL_RESULT_PREVIEW_CHARS } from '../../_common/constants.js'
 import { getEntry as getMessageEntry } from '../../core/messageRegistry.js'
 import { ingestPromptStateEvent } from '../../state/promptState.js'
 
@@ -22,8 +22,8 @@ import { ingestPromptStateEvent } from '../../state/promptState.js'
 // 旧実装は 6 ブロック (compact / api_error / hook_error / system_note / attachment / task) で
 // `cancelAndFlush → uuid 既知判定 → setMessages` のパターンを手書き重複していた。 ここに集約。
 //
-// F-08: 過去は `[...arr, X].slice(-MAX)` を毎回呼んでいたので、 大半のケース (= arr.length <
-// MAX) でも新配列を 2 度作っていた。 必要時のみ先頭を捨てる形に変更。 上限到達後の挙動は同一。
+// The number of messages a conversation keeps is held at one place, where `useChatStorage` hands out
+// `setMessages` (= clampMessages.js), so an append here does not cut.
 // AskUserQuestion の tool_result から回答本文だけを抜く。 harness は回答を
 // `Your questions have been answered: "<質問全文>"="<回答>". You can now continue ...`
 // の包装で返すため、 生のまま selectedAnswer に入れると chat の Q&A ログに質問が
@@ -63,15 +63,7 @@ function appendSystemMessage(setMessages, sid, kind, extra) {
     // carry が最新位置に置く。
     const ts = typeof extra.ts === 'number' ? extra.ts : prevTs
     const msg = { id: generateId(), role: 'system', kind, uuid, ...extra, ...(ts != null ? { ts } : {}) }
-    let next
-    if (arr.length >= MAX_MESSAGES) {
-      // 上限到達: 先頭を 1 件落として末尾に新規。 1 回の slice + push で済ませる。
-      next = arr.slice(arr.length - MAX_MESSAGES + 1)
-      next.push(msg)
-    } else {
-      next = [...arr, msg]
-    }
-    return { ...prev, [sid]: next }
+    return { ...prev, [sid]: [...arr, msg] }
   })
 }
 
@@ -307,14 +299,17 @@ export function processStreamEvent(deps, sid, event) {
           // full_chars は履歴 GET が本文を preview に切り詰めた時だけ付く元の文字数
           // (= backend の TOOL_RESULT_PREVIEW_CHARS、 2026-07-27 転送量削減)。 表示は元々
           // 冒頭 800 文字だけなので中身は同一に見えるが、 文字数ラベルだけは元の値が要る。
+          // The live stream delivers a result whole, so cutting it is up to the side that receives it: the image
+          // bodies and the text beyond TOOL_RESULT_PREVIEW_CHARS, as the history GET does (backend/jsonl/routes.py).
+          // A length the backend already recorded (`full_chars`) is kept.
+          const { content, fullChars: cutFrom } = capToolResultText(stripToolResultImages(r.content), TOOL_RESULT_PREVIEW_CHARS)
+          const fullChars = typeof r.full_chars === 'number' ? r.full_chars : cutFrom
           return {
             ...t,
             result: {
-              // ライブ SSE は無改変で届く契約なので、 画像本体を落とすのは受け取った側の責務。
-              // 履歴 GET は backend が同じ縮小を掛け済み (= _common/toolResult.js の説明参照)。
-              content: stripToolResultImages(r.content),
+              content,
               is_error: !!r.is_error,
-              ...(typeof r.full_chars === 'number' ? { full_chars: r.full_chars } : {}),
+              ...(fullChars != null ? { full_chars: fullChars } : {}),
             },
           }
         })

@@ -1,11 +1,12 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import LZString from 'lz-string'
-import { LEGACY_AGENT_TO_SESSION, LS_MESSAGES, LS_INPUT, MAX_MESSAGES } from '../../_common/constants.js'
+import { LEGACY_AGENT_TO_SESSION, LS_MESSAGES, LS_INPUT, MAX_MESSAGES, TOOL_RESULT_DISPLAY_CHARS } from '../../_common/constants.js'
 import { generateId } from '../../_common/id.js'
-import { stripMessageToolResultImages } from '../../_common/toolResult.js'
+import { stripMessageToolResultImages, capMessageToolResults } from '../../_common/toolResult.js'
 import { setMessagesFor, removeMessagesFor } from '../../state/messages.js'
 import { currentDraft } from './draftSource.js'
 import { chatTransport } from '../../transport/select.ts'
+import { clampMessageDict } from './clampMessages.js'
 
 const { compressToUTF16, decompressFromUTF16 } = LZString
 
@@ -102,7 +103,10 @@ export function toStorableForm(m) {
   // tool_result の画像本体は表示に使われないので保存形から落とす (= _common/toolResult.js)。
   // 受信経路 (processStreamEvent) でも落としているが、 ここを通すことで **修正前に受信して
   // state に載ったままの巨大メッセージ**も次の save で軽い形に置き換わる。
-  return stripMessageToolResultImages(settled)
+  // A tool result is saved only as far as the screen draws it (TOOL_RESULT_DISPLAY_CHARS, with its full length in
+  // `full_chars`): the saved form is restored to be drawn again, and the history GET holds the rest. A result is
+  // up to a megabyte, and each save sends up to MAX_MESSAGES messages to the compression worker.
+  return capMessageToolResults(stripMessageToolResultImages(settled), TOOL_RESULT_DISPLAY_CHARS, { plain: true })
 }
 
 // 会話 1 本を永続化形へ射影する (= localStorage へ書く配列の唯一の作り手)。
@@ -176,7 +180,7 @@ function pruneOldSessions(arr, knownEndCount) {
 // セッションが動的に増減するため、 dict は lazy init: 知らない session_id にアクセス
 // した側 (useChatStream など) は空配列 / 空文字列を期待してよい。
 export function useChatStorage(sessions) {
-  const [messages, setMessages] = useState(() => {
+  const [messages, setMessagesState] = useState(() => {
     const cleanArr = (arr) => arr
       .map(toStorableForm)
       .filter(Boolean)
@@ -225,6 +229,12 @@ export function useChatStorage(sessions) {
     } catch { /* ignored */ }
     return result
   })
+
+  // The setter every caller gets. Whatever it is asked to store, a conversation never holds more than
+  // MAX_MESSAGES (clampMessages.js): the lists stay bounded however many paths add to them.
+  const setMessages = useCallback((update) => {
+    setMessagesState(prev => clampMessageDict(prev, typeof update === 'function' ? update(prev) : update))
+  }, [])
 
   const [input, setInput] = useState(() => {
     try {
@@ -292,7 +302,7 @@ export function useChatStorage(sessions) {
         }
       } catch { /* localStorage 不能環境 */ }
     }
-  }, [sessions])
+  }, [sessions, setMessages])
 
   const msgSaveTimer = useRef(null)
   const inputSaveTimer = useRef(null)

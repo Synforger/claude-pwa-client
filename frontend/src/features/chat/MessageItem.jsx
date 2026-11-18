@@ -7,11 +7,10 @@ import { getEntry as getMessageEntry } from '../../core/messageRegistry.js'
 import { formatToolResultContent, formatDuration, formatModelName, formatTokens } from '../../_common/format.js'
 import { diffLines, compactDiff } from '../../_common/diff.js'
 import { apiFetch } from '../../_common/api.js'
+import { TOOL_RESULT_DISPLAY_CHARS } from '../../_common/constants.js'
 import { useT } from '../../i18n/t.js'
 import { noticeLabel, parseAgentMessage, parseClientNotice, parseRollover, parseTabOpen } from './agentMessage.js'
 import './MessageItem.css'
-
-const RESULT_PREVIEW_CHARS = 800
 
 // 🧩 タップ時に「どこを開くか」 のスコープ記述子を作る。
 //   - Task     : input.description が subagent meta.description と一致 → その agent transcript
@@ -461,7 +460,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
                 const resultChars = typeof tool.result?.full_chars === 'number'
                   ? tool.result.full_chars
                   : (resultText?.length ?? 0)
-                const truncated = resultText && (resultChars > RESULT_PREVIEW_CHARS)
+                const truncated = resultText && (resultChars > TOOL_RESULT_DISPLAY_CHARS)
                 const hasDiff = !!tool.diffInput
                 // Read はパスが summary に出てるので input の echo は冗長。tool-input-full は描画しない
                 const showInputFull = !hasDiff && tool.name !== 'Read' && tool.shortLabel && tool.shortLabel !== tool.label
@@ -515,7 +514,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
                           <pre className="tool-input-full">{tool.label}</pre>
                         )}
                         {showResult && (() => {
-                          const shown = truncated ? resultText.slice(0, RESULT_PREVIEW_CHARS) + t('message.tool.result_truncated_suffix') : resultText
+                          const shown = truncated ? resultText.slice(0, TOOL_RESULT_DISPLAY_CHARS) + t('message.tool.result_truncated_suffix') : resultText
                           const errorClass = tool.result.is_error ? 'is-error' : ''
                           if ((tool.name === 'Grep' || tool.name === 'Glob') && !tool.result.is_error) {
                             return <LinkifiedResult text={shown} onOpenFile={onOpenFile} errorClass={errorClass} />

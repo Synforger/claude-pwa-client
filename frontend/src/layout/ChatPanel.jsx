@@ -31,6 +31,7 @@ import { useAutoScroll } from '../features/chat/useAutoScroll.js'
 import { useChatStream } from '../features/chat/useChatStream.js'
 import { useAttachments } from '../features/attachments/useAttachments.js'
 import { gcImages } from '../features/attachments/imageStore.js'
+import { DISPLAY_LIMIT } from '../_common/displayLimit.js'
 import { useStatus } from '../features/status-bar/useStatus.js'
 import { useSessionBadges } from '../features/push-notify/useSessionBadges.js'
 import { useRunningSubagents } from '../features/chat/useRunningSubagents.js'
@@ -67,17 +68,24 @@ function collectActiveImageIds(msgDict) {
 // 新しい `[]` を作ると ChatInput が memo を抜けるので、 共通参照を返す。
 const EMPTY_ARR = []
 
-// 一度に DOM に載せる message 数の上限 (= 巨大 session の render 負荷抑制)。
-const DISPLAY_LIMIT = 100
+// The key a message is known by in the list: its id, else its uuid.
+export function messageKey(message) {
+  return message?.id ?? message?.uuid ?? null
+}
 
-// 表示 window の先頭 index。 過去閲覧中 (= scrolledUp) に新着で総数が増えても、 凍結した
-// frozenStart を使い続けることで「今読んでいる上方の DOM が slice から抜けて内容が上に
-// ジャンプする」 のを防ぐ (= 凍結中は window が末尾方向へだけ伸びる)。 pure 関数に
-// 切り出しているのは契約 test 用。
-export function displayWindowStart(totalLen, frozenStart, limit = DISPLAY_LIMIT) {
-  const tail = Math.max(0, totalLen - limit)
-  if (frozenStart === null || frozenStart === undefined) return tail
-  return Math.min(frozenStart, tail)
+// Where the chat window starts in `ordered` (= the messages in the order they are drawn). At the bottom
+// (`frozenFirstKey` null) it is the last `limit` messages. While the user reads above the bottom the window is
+// frozen so that what is being read does not shift: it starts at the message that was its first when it froze,
+// wherever that message is now, and so only grows toward the newest. The conversation is held at MAX_MESSAGES
+// (clampMessages.js), so a message is dropped off the top as new ones come: remembering the message and not its
+// number keeps the start on the same bubble. When that message itself has been dropped the window starts at the
+// oldest one that is left. Pure, for the contract test.
+export function displayWindowStart(ordered, frozenFirstKey, limit = DISPLAY_LIMIT) {
+  const tail = Math.max(0, ordered.length - limit)
+  if (frozenFirstKey === null || frozenFirstKey === undefined) return tail
+  const at = ordered.findIndex(message => messageKey(message) === frozenFirstKey)
+  if (at < 0) return 0
+  return Math.min(at, tail)
 }
 
 export default function ChatPanel({ sid }) {
@@ -270,18 +278,21 @@ export default function ChatPanel({ sid }) {
   // 凍結しないと、 新着で総数が DISPLAY_LIMIT を超えた瞬間に slice(-LIMIT) の先頭 (= 今
   // 読んでいる上方) の DOM が削られて表示位置が上にジャンプする。 底へ戻ったら解除して
   // 通常の末尾 window に収束 (= 凍結中に伸びた DOM も回収)。
+  // What is remembered is the key of the window's first message (displayWindowStart), not its number.
   const scrolledUp = ui.scroll.showScrollBtn
-  const [frozenStart, setFrozenStart] = useState(null)
-  const activeMsgsLen = (activeMsgs || []).length
+  const [frozenFirstKey, setFrozenFirstKey] = useState(null)
   useEffect(() => {
     if (!activeSid || !scrolledUp) {
-      setFrozenStart(null)
+      setFrozenFirstKey(null)
       return
     }
-    // 凍結は最初の 1 回だけ確定 (= 以後の新着で動かさない)。 activeMsgsLen が deps に
-    // 居ても prev 保持で再計算しない。
-    setFrozenStart(prev => (prev !== null ? prev : Math.max(0, activeMsgsLen - DISPLAY_LIMIT)))
-  }, [activeSid, scrolledUp, activeMsgsLen])
+    // Fixed at the first change only (= later messages do not move it); the updater does not look at the list again.
+    setFrozenFirstKey(prev => {
+      if (prev !== null) return prev
+      const ordered = sortByTs(activeMsgs || [])
+      return messageKey(ordered[displayWindowStart(ordered, null)])
+    })
+  }, [activeSid, scrolledUp, activeMsgs])
 
   const displayMessages = useMemo(() => {
     if (!activeSid) return []
@@ -293,7 +304,7 @@ export default function ChatPanel({ sid }) {
     // されない」 の直接原因。 state には居るのに描画されない、 を実機で確認)。
     // ソートしてから採れば「時間の最新 N 件」 になり、 中抜けが原理的に起きない。
     const allMsgs = sortByTs(activeMsgs || [])
-    const start = displayWindowStart(allMsgs.length, scrolledUp ? frozenStart : null)
+    const start = displayWindowStart(allMsgs, scrolledUp ? frozenFirstKey : null)
     const msgs = start > 0 ? allMsgs.slice(start) : allMsgs
     // Phase 2 (= 2026-07-06): 旧 pending_question 合成 bubble は退役。 質問の真値は
     // SSE `ask_user_question` event → messages の askUserQuestion field、 ライブ回答 UI は
@@ -307,7 +318,7 @@ export default function ChatPanel({ sid }) {
     return (loading[activeSid] && !liveTail && !answerMode)
       ? [...msgs, { id: '__loading__', role: '__loading__' }]
       : msgs
-  }, [activeMsgs, loading, activeSid, answerMode, scrolledUp, frozenStart])
+  }, [activeMsgs, loading, activeSid, answerMode, scrolledUp, frozenFirstKey])
 
   // W2 Phase F-4 残 (= 2026-06-29): handleEndSession は features/dialogs/ConfirmEndDialog.jsx に
   // 物理移送、 ChatPanel からは参照ゼロ化。 confirmEnd / confirmStop ダイアログ本体も同様に
