@@ -31,7 +31,7 @@ import {
 import { deriveSessionBadges } from '../push-notify/useSessionBadges.js'
 import { AccountPinMark, AccountPinMenuItem } from './AccountPin.jsx'
 import { accountLabelOf } from './sessionAccounts.js'
-import { formatContextTokens, isApiTab } from '../../_common/apiTab.js'
+import { formatContext, isApiTab } from '../../_common/apiTab.js'
 import { loadFolded, toggleFolded } from './sessionTree.js'
 import { folderTree, loadFoldedFolders, toggleFoldedFolder } from './folderTree.js'
 import { sendTreeReport, treeReport } from './treeReport.js'
@@ -483,10 +483,10 @@ export default function SessionDrawer() {
             // 移し先候補 = 今と違うアカウント。 1 つなら選択させず直接その名前のボタンを出す。
             const moveTargets = accounts.filter(a => a.id !== effectiveAccount)
             // An API tab (no Claude Code behind it, `backend/api_tabs/`) shows its name and how much of the context its
-            // conversation holds, and nothing else: no marks of work, sleep, account or unread, and no menu (it is
+            // conversation holds (in percent when its program says the window's size), and nothing else: no marks of work, sleep, account or unread, and no menu (it is
             // renamed and removed in the configuration).
             const isApi = isApiTab(s)
-            const contextLabel = isApi ? formatContextTokens(s.context_tokens) : null
+            const contextLabel = isApi ? formatContext(s.context_tokens, s.context_window) : null
             return (
               <div
                 key={s.id}

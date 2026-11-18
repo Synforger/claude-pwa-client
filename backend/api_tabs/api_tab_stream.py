@@ -5,9 +5,14 @@ subscribers as the same events a Claude tab's rows become, with the tab's id in 
 instead of reading files themselves: the context amount of each tab (computed from the rows it reads) and the reading of
 each wallet's spend file; when one of them changes, the overview is announced again.
 
+Every look starts with the tab list files of the `api_tab_sources` (`api_tab_sources.py`): the tabs they list join the
+table before the records are looked at, and a change of their figures announces the overview again. A source's tab has
+its context amount from its source, so its record is never counted.
+
 Where it starts: at the backend's start a record is followed from the end of its whole rows (a restart does not stream
 the whole conversation again); a record that appears later is followed from 0; a record that got shorter, or vanished,
-is followed from 0 again and a `history_refetch` is sent, so that the screen fetches the history again.
+is followed from 0 again and a `history_refetch` is sent, so that the screen fetches the history again. A tab whose
+source names another record file is followed from that file's end, as at the start.
 Runs as one task of the backend (`api_tab_stream_loop`). Read by `api_tab_rows.py`.
 """
 from __future__ import annotations
@@ -20,6 +25,7 @@ from datetime import datetime
 from backend._common.state import jsonl_event_broadcaster, sessions_overview
 from backend.api_tabs.api_spend import Spend, file_signature, read_spend_file, this_months
 from backend.api_tabs.api_tab_record import Changes, line_number_at, look_at_record
+from backend.api_tabs.api_tab_sources import sources
 from backend.api_tabs.api_tab_table import ApiAccount, ApiTab, ApiTabTable, current_table
 from backend.api_tabs.context_tokens import context_tokens_of_row
 from backend.api_tabs.log_throttle import LogThrottle
@@ -49,9 +55,10 @@ def _look_at_spend(wallet: ApiAccount) -> tuple[Spend | None, str | None]:
 def _look_at_everything(
     tabs: list[tuple[ApiTab, int | None, bool]],
     wallets: list[tuple[ApiAccount, object]],
-) -> tuple[list[tuple[ApiTab, Changes]], list[tuple[ApiAccount, tuple[int, int] | None, Spend | None, str | None]]]:
+) -> tuple[list[tuple[ApiTab, Changes]], list[tuple[ApiAccount, tuple[int, int, int] | None, Spend | None, str | None]]]:
     """One blocking look at every record and every spend file whose signature changed (done in a worker thread)."""
-    changes = [(tab, look_at_record(tab.record, offset, present)) for tab, offset, present in tabs]
+    changes = [(tab, look_at_record(tab.record, offset, present, count_tokens=tab.source is None))
+               for tab, offset, present in tabs]
     spends = []
     for wallet, previous in wallets:
         assert wallet.spend is not None
@@ -68,9 +75,10 @@ class ApiTabStream:
 
     def __init__(self) -> None:
         self._offsets: dict[str, int | None] = {}
+        self._records: dict[str, object] = {}
         self._present: dict[str, bool] = {}
         self._tokens: dict[str, int | None] = {}
-        self._spend_signatures: dict[str, tuple[int, int] | None] = {}
+        self._spend_signatures: dict[str, tuple[int, int, int] | None] = {}
         self._spends: dict[str, Spend | None] = {}
         self._spend_reasons: dict[str, str | None] = {}
         self._table: ApiTabTable | None = None
@@ -78,7 +86,8 @@ class ApiTabStream:
         self._spend_log = LogThrottle(SPEND_LOG_INTERVAL_SEC)
 
     def context_tokens(self, tab_id: str) -> int | None:
-        """The context amount of the tab's last answer (None until a row with a `usage` was read)."""
+        """The context amount of the tab's last answer (None until a row with a `usage` was read). Counted for the tabs
+        of `api_tabs` only: a source's tab has its amount from the source (`api_tab_rows.py`)."""
         return self._tokens.get(tab_id)
 
     def spend(self, account: str, now: datetime) -> Spend | None:
@@ -86,18 +95,22 @@ class ApiTabStream:
         return this_months(self._spends.get(account), now)
 
     async def poll(self) -> None:
-        """Look at every record and spend file once, and publish what is new."""
-        table = current_table()
+        """Look at every source, record and spend file once, and publish what is new."""
+        paths = current_table().source_paths()
+        changed = await asyncio.to_thread(sources.look, paths) if paths else sources.look({})  # {}: forgets, reads nothing
+        table = current_table()                                         # with the tabs the sources list now
         if table is not self._table:
             self._forget_removed(table)
             self._table = table
-            sessions_overview.notify()
+            changed = True
+        self._forget_moved_records(table)
         tabs = [(tab, self._offsets.get(tab.id), self._present.get(tab.id, False)) for tab in table.tabs]
         wallets = [(wallet, self._spend_signatures_of(wallet)) for wallet in table.accounts if wallet.spend is not None]
-        if not tabs and not wallets:
-            return                                                      # nothing declared: no thread is woken every half second
+        if not tabs and not wallets:                                    # nothing to look at: no thread is woken for it
+            if changed:
+                sessions_overview.notify()
+            return
         changes, spends = await asyncio.to_thread(_look_at_everything, tabs, wallets)
-        changed = False
         for tab, found in changes:
             changed = self._apply_tab(tab, found) or changed
         for wallet, signature, spend, reason in spends:
@@ -127,11 +140,20 @@ class ApiTabStream:
     def _forget_removed(self, table: ApiTabTable) -> None:
         """Drop what is kept for tabs and wallets the configuration no longer declares."""
         for sid in [sid for sid in self._offsets if table.tab(sid) is None]:
-            for kept in (self._offsets, self._present, self._tokens):
+            for kept in (self._offsets, self._records, self._present, self._tokens):
                 kept.pop(sid, None)
         for name in [name for name in self._spend_signatures if table.account(name) is None]:
             for kept in (self._spend_signatures, self._spends, self._spend_reasons):
                 kept.pop(name, None)
+
+    def _forget_moved_records(self, table: ApiTabTable) -> None:
+        """Forget the position of a tab whose record is now another file, so that the new file is followed from its end
+        (= the first look at it), never from the old file's position."""
+        for tab in table.tabs:
+            if self._records.get(tab.id, tab.record) != tab.record:
+                for kept in (self._offsets, self._present, self._tokens):
+                    kept.pop(tab.id, None)
+            self._records[tab.id] = tab.record
 
     def _apply_tab(self, tab: ApiTab, found: Changes) -> bool:
         """Take one look at a record: publish its new rows and keep the position. True when the context amount changed."""
@@ -146,6 +168,8 @@ class ApiTabStream:
         tokens = found.scanned_tokens if found.scanned else previous
         for raw, end in found.rows:
             tokens = self._publish_row(tab, raw, end, tokens)
+        if tab.source is not None:
+            tokens = None                                               # the source says the amount, not the record
         self._tokens[sid] = tokens
         return tokens != previous
 
@@ -171,7 +195,7 @@ class ApiTabStream:
             number = 0
         logger.warning("api tab: %s line %d skipped: %s", tab.id, number, reason)
 
-    def _apply_spend(self, wallet: ApiAccount, signature: tuple[int, int] | None, spend: Spend | None,
+    def _apply_spend(self, wallet: ApiAccount, signature: tuple[int, int, int] | None, spend: Spend | None,
                      reason: str | None) -> bool:
         """Keep one new look at a wallet's spend file. True when the figure the screens show changed."""
         previous = self._spends.get(wallet.name)

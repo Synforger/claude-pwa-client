@@ -114,7 +114,7 @@ def api_env(tmp_path, monkeypatch):
     its spend file under it), read by the backend, with a stream that has looked at nothing yet. → the paths and the id."""
     from types import SimpleNamespace  # noqa: PLC0415
 
-    from backend.api_tabs import api_tab_table, stream  # noqa: PLC0415
+    from backend.api_tabs import api_tab_table, sources, stream  # noqa: PLC0415
     from backend.tests.api_tabs.samples import TAB_ID, write_config  # noqa: PLC0415
 
     record = tmp_path / "conversations" / "support-bot.jsonl"
@@ -128,11 +128,13 @@ def api_env(tmp_path, monkeypatch):
                  api_tabs={"support-bot": {"title": "Support bot", "agent_id": "agent_a", "account": "api",
                                          "record": str(record)}})
     stream.__init__()                                   # a stream that has looked at nothing yet
-    api_tab_table._loaded_from = None
+    sources.__init__()                                  # and no source file read yet
+    api_tab_table._loaded = (None, -1, api_tab_table.ApiTabTable([], [], []))
     yield env
     _config_mod.get_config.cache_clear()
     stream.__init__()
-    api_tab_table._loaded_from = None
+    sources.__init__()
+    api_tab_table._loaded = (None, -1, api_tab_table.ApiTabTable([], [], []))
 
 
 # state.py の module-level に存在する dict 群。

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { pctClass, timeUntil, formatResetWeekdayTime } from '../../_common/format.js'
-import { API_KIND, formatContextTokens, formatSpend } from '../../_common/apiTab.js'
+import { API_KIND, contextPercent, formatContext, formatSpend } from '../../_common/apiTab.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
 import { subscribe as subscribeSessions, getSnapshot as getSessionsSnapshot } from '../../state/sessions.js'
 import MoreMenu from './MoreMenu.jsx'
@@ -118,18 +118,20 @@ export default function StatusBar() {
   )
 }
 
-// The bar of an API tab: the context amount of its conversation, and the spend of its wallet this month (`---` while the
-// wallet has no figure: the file is missing, broken or of another month).
+// The bar of an API tab: the context of its conversation (in percent, coloured like a Claude tab's `ctx`, when its program
+// says the window's size; else the amount), and its spend this month (`---` while there is no figure: the file is
+// missing, broken or of another month). The spend is the tab's own when its program lists it, else its wallet's.
 function ApiStatusRow({ status, isOnline, t }) {
-  const context = formatContextTokens(status.context_tokens)
+  const context = formatContext(status.context_tokens, status.context_window)
+  const percent = contextPercent(status.context_tokens, status.context_window)
   const spend = formatSpend(status.spend)
   return (
     <div className="statusbar" data-testid="status-bar">
-      <span className="pct" data-testid="status-bar-api-context">
+      <span className={percent === null ? 'pct' : pctClass(percent)} data-testid="status-bar-api-context">
         {t('statusbar.api_context')} {context ?? <span className="dim">---</span>}
       </span>
       <span className="pct" data-testid="status-bar-api-spend">
-        {t('statusbar.api_spend')} {spend ?? <span className="dim">---</span>}
+        {t(status.spend_scope === 'tab' ? 'statusbar.api_spend_tab' : 'statusbar.api_spend')} {spend ?? <span className="dim">---</span>}
       </span>
       <StatusBarEnd isOnline={isOnline} />
     </div>

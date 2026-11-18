@@ -40,7 +40,8 @@ endpoints:
           asleep:      { type: boolean, description: "true while the tab's claude is put to sleep (= it starts again in the same conversation when the tab is opened or written to)" }
           account_on_wake: { type: string, nullable: true, description: "for a sleeping tab, the account it runs on once it is woken (= what the account fallback decides when it wakes it, which can differ from account_id); null for a tab that is awake" }
           kind:        { type: string, enum: [api], description: "api = a tab with no Claude Code whose conversation a program outside the client writes to a record file and the client only shows (id api_<name>, account_id = its wallet, tier null, never asleep). A Claude tab's row has no kind" }
-          context_tokens: { type: integer, nullable: true, description: "API tabs only: how much of the context the conversation holds (= input_tokens + cache_read_input_tokens + cache_creation_input_tokens of the last answer that carries a usage); null until there is such an answer, never 0" }
+          context_tokens: { type: integer, nullable: true, description: "API tabs only: how much of the context the conversation holds. A tab of api_tabs counts it from its record (= input_tokens + cache_read_input_tokens + cache_creation_input_tokens of the last answer that carries a usage); a tab an api_tab_sources file lists has the amount its program wrote (0 right after the program rolled the conversation over). null when there is none, never 0 for none" }
+          context_window: { type: integer, nullable: true, description: "API tabs only: the size of the context window the tab's program says (api_tab_sources); null for a tab of api_tabs, or when the program says none" }
         required: [sid, title, agent_id]
     response_kind: json
     auth: tailnet
@@ -54,7 +55,7 @@ endpoints:
     description: "全セッションの作業中 / 最後に見た時刻 / 入力待ち / 階層 / 眠り / 口座を 1 回で返す (= stream の overview と同じ中身)"
     response:
       type: object
-      description: "sid → { busy, last_seen_at, waiting_input, tier, asleep, account_id, fallback_from, account_pinned, account_on_wake }。 the rows of the API tabs (= the same ids as GET /sessions) have the same keys plus kind (= api) and context_tokens, and busy, waiting_input and asleep are always false"
+      description: "sid → { busy, last_seen_at, waiting_input, tier, asleep, account_id, fallback_from, account_pinned, account_on_wake }。 the rows of the API tabs (= the same ids as GET /sessions) have the same keys plus kind (= api), title, context_tokens and context_window, and busy, waiting_input and asleep are always false"
     response_kind: json
     auth: tailnet
     invariants:
@@ -302,6 +303,19 @@ endpoints:
               display_name: { type: string }
               spend:        { type: object, nullable: true, description: "this month's spend (= month / spent / limit / currency / updated_at); null when the spend file is missing, unreadable or of another month (never 0)" }
             required: [id, display_name, spend]
+        api_sources:
+          type: array
+          description: "the programs that list API tabs (= the setting api_tab_sources) with the settings each lets the screen change, in the order of the setting"
+          items:
+            type: object
+            properties:
+              id:      { type: string, description: "the source's name in api_tab_sources" }
+              fields:  { type: array, description: "the fields the program declared (settings_fields of its tab list file): key / label / unit (or null) / min / max / step (or null) / default. Empty when the source declares no settings file" }
+              values:  { type: object, description: "key → the value now: the settings file's own when it is a number, else the field's default" }
+              problem: { type: string, nullable: true, enum: [no_settings, no_fields, settings_unreadable], description: "why the source offers nothing to change (null when it does): no settings file declared / no field declared by the program yet / a settings file the screen cannot read" }
+              reason:  { type: string, nullable: true, description: "with settings_unreadable: why the file cannot be read" }
+              tabs_unreadable: { type: string, nullable: true, description: "why the tab list file could not be read the last time it changed (the tabs it listed last are shown); null when it was read or is missing" }
+            required: [id, fields, values, problem, reason, tabs_unreadable]
       required: [accounts, agents, child_sessions_max, notification_title, machine, limits]
     response_kind: json
     auth: tailnet
@@ -325,6 +339,27 @@ endpoints:
       - "config.json の他の欄は、 値も並びも字下げも変えない (= 一時 file に書いてから置き換える)"
       - "書いた後に設定を読み直し、 次の見回りから新しい値で動く"
       - "config.json を読めない・書けない時は 500 (code = settings_not_written)"
+    implementation: backend/routes/settings.py
+
+  - method: PUT
+    path: /settings/api-sources/{source}
+    description: "set values of a program that lists API tabs, in the settings file the setting api_tab_sources.<source>.settings names, within the fields the program declared"
+    request_body:
+      type: object
+      properties:
+        values: { type: object, description: "key → number, for the keys to change only" }
+      required: [values]
+    response:
+      type: object
+      description: "the same as GET /settings after the change"
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "404 (code = api_source_unknown) when api_tab_sources has no such source"
+      - "400 (code = settings_rejected, params.reasons one line per value) when the source declares no settings file, or a key is not a declared field, a value is not a finite number (true / false are not numbers), is outside min..max, or is off the grid of step from min; nothing is written"
+      - "only the keys sent change: every other key keeps its value and place, and a field whose min and step are whole numbers is written as a whole number"
+      - "the file is replaced in one step (a temporary file in the same folder, then a rename); a link is followed and the file it points to is replaced; the mode of the file is kept, and a new file is 0644"
+      - "500 (code = settings_not_written) when the file is not a JSON object (it is not written over) or cannot be read or written"
     implementation: backend/routes/settings.py
 
   - method: GET

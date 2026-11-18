@@ -1,8 +1,9 @@
 // 設定の画面の値を持つ hook: 開いた時に読み、 変えた時と続けた時に読み直す。
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { continueAccount, fetchSettings, updateSettings } from './settingsApi.js'
+import { continueAccount, fetchSettings, updateApiSourceSettings, updateSettings } from './settingsApi.js'
 
-/** → { view, loadedAt, error, save(patch), continueTabs(account), reload() }。 view = null の間は読み込み中。
+/** → { view, loadedAt, error, save(patch), saveApiSource(source, values), continueTabs(account), reload() }。
+ *  view = null の間は読み込み中。
  *  loadedAt = view を受け取った時刻 (epoch 秒。 戻る時刻が過ぎたかと今日の曜日を、 描くたびに時計を読まずに決める)。 */
 export function useSettings() {
   const [view, setView] = useState(null)
@@ -38,6 +39,16 @@ export function useSettings() {
     return result
   }, [])
 
+  /** API のタブを並べるプログラムの設定を書く。 → { ok, reasons }。 通れば画面の値を新しい値にする。 */
+  const saveApiSource = useCallback(async (source, values) => {
+    const result = await updateApiSourceSettings(source, values)
+    if (result.ok) {
+      setView(result.view)
+      setLoadedAt(Date.now() / 1000)
+    }
+    return result
+  }, [])
+
   /** その口座の止まったタブを続ける。 → continueAccount の答え。 続けたら読み直す。 */
   const continueTabs = useCallback(async (account) => {
     const result = await continueAccount(account)
@@ -45,5 +56,5 @@ export function useSettings() {
     return result
   }, [reload])
 
-  return { view, loadedAt, error, save, continueTabs, reload }
+  return { view, loadedAt, error, save, saveApiSource, continueTabs, reload }
 }

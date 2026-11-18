@@ -1,4 +1,5 @@
-// 設定の画面が backend に頼む 3 つの口 (= GET /settings、 PUT /settings、 POST /accounts/{口座}/continue)。
+// 設定の画面が backend に頼む 4 つの口 (= GET /settings、 PUT /settings、 PUT /settings/api-sources/{元}、
+// POST /accounts/{口座}/continue)。
 // 失敗は例外にせず { ok: false, status, reasons } で返す (= 画面が欄の下に理由を出す)。
 import { apiFetch } from '../../_common/api.js'
 import { reasonsOf } from './settingsDraft.js'
@@ -24,6 +25,18 @@ export async function updateSettings(patch) {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
+  })
+  const body = await bodyOf(response)
+  if (response.ok) return { ok: true, view: body }
+  return { ok: false, status: response.status, reasons: reasonsOf(body) }
+}
+
+/** API のタブを並べるプログラムの設定を書く (= そのプログラムが宣言した欄だけ)。 → { ok: true, view } か { ok: false, status, reasons }。 */
+export async function updateApiSourceSettings(source, values) {
+  const response = await apiFetch(`/settings/api-sources/${encodeURIComponent(source)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values }),
   })
   const body = await bodyOf(response)
   if (response.ok) return { ok: true, view: body }

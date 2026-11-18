@@ -22,8 +22,10 @@ export interface GetSessionsResponseItem {
   account_on_wake?: string | null
   /** api = a tab with no Claude Code whose conversation a program outside the client writes to a record file and the client only shows (id api_<name>, account_id = its wallet, tier null, never asleep). A Claude tab's row has no kind */
   kind?: "api"
-  /** API tabs only: how much of the context the conversation holds (= input_tokens + cache_read_input_tokens + cache_creation_input_tokens of the last answer that carries a usage); null until there is such an answer, never 0 */
+  /** API tabs only: how much of the context the conversation holds. A tab of api_tabs counts it from its record (= input_tokens + cache_read_input_tokens + cache_creation_input_tokens of the last answer that carries a usage); a tab an api_tab_sources file lists has the amount its program wrote (0 right after the program rolled the conversation over). null when there is none, never 0 for none */
   context_tokens?: number | null
+  /** API tabs only: the size of the context window the tab's program says (api_tab_sources); null for a tab of api_tabs, or when the program says none */
+  context_window?: number | null
 }
 
 export type GetSessionsResponse = GetSessionsResponseItem[]
@@ -162,6 +164,21 @@ export interface GetSettingsResponse {
       /** this month's spend (= month / spent / limit / currency / updated_at); null when the spend file is missing, unreadable or of another month (never 0) */
       spend?: Record<string, unknown> | null
     })[]
+  /** the programs that list API tabs (= the setting api_tab_sources) with the settings each lets the screen change, in the order of the setting */
+  api_sources?: ({
+      /** the source's name in api_tab_sources */
+      id: string
+      /** the fields the program declared (settings_fields of its tab list file): key / label / unit (or null) / min / max / step (or null) / default. Empty when the source declares no settings file */
+      fields: unknown[]
+      /** key → the value now: the settings file's own when it is a number, else the field's default */
+      values: Record<string, unknown>
+      /** why the source offers nothing to change (null when it does): no settings file declared / no field declared by the program yet / a settings file the screen cannot read */
+      problem?: "no_settings" | "no_fields" | "settings_unreadable" | null
+      /** with settings_unreadable: why the file cannot be read */
+      reason?: string | null
+      /** why the tab list file could not be read the last time it changed (the tabs it listed last are shown); null when it was read or is missing */
+      tabs_unreadable?: string | null
+    })[]
 }
 
 /** PUT /settings request body */
@@ -169,6 +186,15 @@ export type PutSettingsRequest = Record<string, unknown>
 
 /** PUT /settings response */
 export type PutSettingsResponse = Record<string, unknown>
+
+/** PUT /settings/api-sources/{source} request body */
+export interface PutSettingsApiSourcesSourceRequest {
+  /** key → number, for the keys to change only */
+  values: Record<string, unknown>
+}
+
+/** PUT /settings/api-sources/{source} response */
+export type PutSettingsApiSourcesSourceResponse = Record<string, unknown>
 
 /** GET /extensions response[i] */
 export interface GetExtensionsResponseItem {

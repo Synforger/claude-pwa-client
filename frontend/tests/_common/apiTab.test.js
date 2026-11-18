@@ -1,6 +1,8 @@
 // API tabs (`src/_common/apiTab.js`): how the screen tells one, and how the context amount and the spend read.
 import { describe, it, expect } from 'vitest'
-import { API_KIND, formatContextTokens, formatMoney, formatSpend, isApiTab, isApiTabId } from '../../src/_common/apiTab.js'
+import {
+  API_KIND, contextPercent, formatContext, formatContextTokens, formatMoney, formatSpend, isApiTab, isApiTabId,
+} from '../../src/_common/apiTab.js'
 
 describe('isApiTab / isApiTabId', () => {
   it('tells an API tab by the kind of its row, and a Claude tab (which has no kind) is not one', () => {
@@ -47,5 +49,24 @@ describe('formatSpend / formatMoney', () => {
   it('keeps cents only for an amount that has them', () => {
     expect(formatMoney(1234, 'JPY')).toBe('1,234 JPY')
     expect(formatMoney(1234.5, 'USD')).toBe('1,234.50 USD')
+  })
+})
+
+describe('contextPercent / formatContext', () => {
+  it('reads the share of the window in whole percent when the program says the window', () => {
+    expect(contextPercent(42000, 100000)).toBe(42)
+    expect(contextPercent(0, 100000)).toBe(0)
+    expect(contextPercent(59600, 100000)).toBe(60)
+    expect(formatContext(42000, 100000)).toBe('42%')
+    expect(formatContext(0, 100000)).toBe('0%')
+  })
+
+  it('falls back to the amount when the window is not known, and shows nothing without an amount (never 0)', () => {
+    expect(contextPercent(12300, null)).toBe(null)
+    expect(formatContext(12300, null)).toBe('12.3k')
+    expect(formatContext(12300, 0)).toBe('12.3k')
+    expect(formatContext(12300, undefined)).toBe('12.3k')
+    expect(formatContext(null, 100000)).toBe(null)
+    expect(formatContext(undefined, undefined)).toBe(null)
   })
 })
