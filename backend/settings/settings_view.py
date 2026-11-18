@@ -1,6 +1,7 @@
-"""What the settings screen shows: the usage and the lines of each account, the tabs the account hold stopped, the tabs
-pinned to an account, the sleep and rollover of each agent, the notification title, the child limit and the facts about
-the machine that runs the backend. Reads the settings and the state; changes nothing.
+"""What the settings screen shows: the usage and the lines of each account, the API wallets and what they spent this
+month, the tabs the account hold stopped, the tabs pinned to an account, the sleep and rollover of each agent, the
+notification title, the child limit and the facts about the machine that runs the backend. Reads the settings and the
+state; changes nothing.
 
 Used by `routes/settings.py`.
 """
@@ -12,6 +13,7 @@ import tomllib
 from pathlib import Path
 
 import backend._common.config as config
+from backend import api_tabs
 from backend._common import state
 from backend._common.paths import LOGS_DIR, REPO_ROOT
 from backend.account_fallback import fallback_settings
@@ -123,6 +125,8 @@ def build_view(now: float | None = None) -> dict:
     rows = read_all_rate_limits_tail()
     return {
         "accounts": [_account_view(name, entry, rows, now) for name, entry in config.ACCOUNTS.items()],
+        # The API wallets sit beside the accounts, never among them: nothing is routed to a wallet (= `backend/api_tabs/`).
+        "api_accounts": api_tabs.wallet_views(),
         "agents": [_agent_view(agent_id, entry) for agent_id, entry in config.AGENTS.items()],
         "child_sessions_max": config.CHILD_SESSIONS_MAX,
         "notification_title": config.NOTIFICATION_TITLE_DEFAULT,

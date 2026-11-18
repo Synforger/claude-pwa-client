@@ -107,6 +107,7 @@ import backend.rollover.rollover as rollover  # noqa: E402
 import backend.sleep as sleep  # noqa: E402
 import backend.account_fallback as account_fallback  # noqa: E402
 import backend.account_hold as account_hold  # noqa: E402
+import backend.api_tabs as api_tabs  # noqa: E402
 import backend.limit_resume as limit_resume  # noqa: E402
 import backend.child_watch.watch_patrol as child_watch  # noqa: E402
 import backend.peers as peers  # noqa: E402
@@ -296,6 +297,12 @@ async def lifespan(app: FastAPI):
     # 起動する (= `backend/tier_tabs/tier_tabs.py`。 設定の無い agent には何もしない)。
     tier_tabs_task = asyncio.create_task(tier_tabs.tier_tabs_loop())
 
+    # API tabs: follow the record files of `api_tabs` and the spend files of `api_accounts`, and stream the rows added to
+    # the screens that subscribed (= `backend/api_tabs/`; its table is not the Claude tabs' table, so no other patrol
+    # reaches it; nothing happens when the configuration declares none).
+    api_tabs.current_table()
+    api_tabs_task = asyncio.create_task(api_tabs.api_tab_stream_loop())
+
     # 別の機械: 設定した相手が答えるかを見張り、 答えない間に預かった連絡を、 戻った回に届ける
     # (= `backend/peers/`。 相手の設定が無くても、 預かったまま古くなった連絡の始末はする)。
     # 届けている途中だった連絡の id は、 その届けごと process と一緒に消えたので忘れる。
@@ -343,11 +350,12 @@ async def lifespan(app: FastAPI):
     resume_task.cancel()
     child_watch_task.cancel()
     tier_tabs_task.cancel()
+    api_tabs_task.cancel()
     peer_task.cancel()
     prompt_detector_task.cancel()
     loop_stall_task.cancel()
     for _t in (blocker_monitor_task, uploads_gc_task, maintenance_task, rollover_task, sleep_task, fallback_task,
-               hold_task, resume_task, child_watch_task, tier_tabs_task, peer_task, prompt_detector_task,
+               hold_task, resume_task, child_watch_task, tier_tabs_task, api_tabs_task, peer_task, prompt_detector_task,
                loop_stall_task):
         try:
             await _t

@@ -24,6 +24,7 @@ from pathlib import Path
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
+from backend import api_tabs
 from backend.jsonl import chain
 from backend.jsonl import history as session_history
 from backend.jsonl.events import jsonl_line_to_events
@@ -241,7 +242,9 @@ def get_chat_history(
     読むのはタブの記録を古い順につないだ物で、 pos はその通しの位置 (= backend/jsonl/chain.py)。 今の
     会話が短ければ、 窓に前の会話の末尾も入る (= 入れ替えの後も、 それまでの会話がタブに残る)。
     """
-    segs = chain.segments(session_id, _latest_jsonl(session_id))
+    segs = api_tabs.record_segments(session_id)
+    if segs is None:
+        segs = chain.segments(session_id, _latest_jsonl(session_id))
     if since is not None:
         window = chain.read_window(segs, since, INITIAL_REPLAY_LINES, HISTORY_CATCH_UP_LINES)
         pairs, end_pos, reached = window.lines, window.end, window.reached

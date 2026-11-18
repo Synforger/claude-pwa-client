@@ -108,6 +108,33 @@ def a_tab(isolated_state, agent_folder, monkeypatch):
     return isolated_state.register_session("agent_a", title="A")
 
 
+@pytest.fixture
+def api_env(tmp_path, monkeypatch):
+    """A configuration that declares one API tab (`support-bot`, its record under the test's folder) and one wallet (`api`,
+    its spend file under it), read by the backend, with a stream that has looked at nothing yet. → the paths and the id."""
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    from backend.api_tabs import api_tab_table, stream  # noqa: PLC0415
+    from backend.tests.api_tabs.samples import TAB_ID, write_config  # noqa: PLC0415
+
+    record = tmp_path / "conversations" / "support-bot.jsonl"
+    record.parent.mkdir()
+    spend = tmp_path / "spend.json"
+    config_path = tmp_path / "api-config.json"
+    monkeypatch.setattr(_config_mod, "CONFIG_PATH", config_path)
+    env = SimpleNamespace(record=record, spend=spend, config_path=config_path, tab_id=TAB_ID)
+    write_config(env,
+                 api_accounts={"api": {"display_name": "API", "spend": str(spend)}},
+                 api_tabs={"support-bot": {"title": "Support bot", "agent_id": "agent_a", "account": "api",
+                                         "record": str(record)}})
+    stream.__init__()                                   # a stream that has looked at nothing yet
+    api_tab_table._loaded_from = None
+    yield env
+    _config_mod.get_config.cache_clear()
+    stream.__init__()
+    api_tab_table._loaded_from = None
+
+
 # state.py の module-level に存在する dict 群。
 _STATE_GLOBALS = (
     "agent_status",

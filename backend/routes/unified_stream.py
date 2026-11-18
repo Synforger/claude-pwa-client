@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from backend import api_tabs
 from backend.jsonl import chain
 from backend.jsonl.events import jsonl_line_to_events
 from backend.jsonl.routes import (
@@ -130,6 +131,9 @@ def _warm_ptys(sids: list[str]) -> None:
     購読 (= 先に始めて在る) が拾う。 接続が切れても起動は最後まで走らせる (= タブを開いた
     事実は変わらない)。
     """
+    # Only a Claude tab has a terminal to start: an API tab's id (= subscribed like any other) has none, and
+    # `ensure_pty_session_for` would otherwise start one in the backend's own folder.
+    sids = [sid for sid in sids if sid in sessions_meta]
     if not sids:
         return
 
@@ -161,8 +165,10 @@ def _replay_frames(sid: str, start: int | None) -> list[dict]:
     (= history_refetch) を先頭に 1 つ載せる。 start が無い購読は窓が届いたかを測れないので印を載せない。
     """
     frames: list[dict] = []
-    window = chain.read_window(
-        chain.segments(sid, _latest_jsonl(sid)), start, INITIAL_REPLAY_LINES, HISTORY_CATCH_UP_LINES)
+    segments = api_tabs.record_segments(sid)
+    if segments is None:
+        segments = chain.segments(sid, _latest_jsonl(sid))
+    window = chain.read_window(segments, start, INITIAL_REPLAY_LINES, HISTORY_CATCH_UP_LINES)
     if start is not None and not window.reached:
         frames.append({"ch": "jsonl", "pos": None, "ev": _inject_envelope({"type": "history_refetch"}, sid)})
     language = session_language(sid)
@@ -390,7 +396,7 @@ async def stream_unified(request: Request):
     view = (request.query_params.get("view") or "").strip() or None
 
     conn = UnifiedConn(conn_id=conn_id)
-    known = set(sessions_meta.keys())
+    known = set(sessions_meta.keys()) | set(api_tabs.current_table().ids())
     conn.jsonl_sids = {sid for sid in offsets if sid in known}
     conn.initial_offsets = {sid: offsets.get(sid) for sid in conn.jsonl_sids}
     return StreamingResponse(
@@ -418,7 +424,7 @@ async def stream_unified_control(conn_id: str, body: dict):
 
     if op == "jsonl":
         entries = body.get("sids") or []
-        known = set(sessions_meta.keys())
+        known = set(sessions_meta.keys()) | set(api_tabs.current_table().ids())
         new_set: set[str] = set()
         froms: dict[str, int | None] = {}
         for e in entries:

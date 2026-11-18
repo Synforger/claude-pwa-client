@@ -223,7 +223,11 @@ async def ensure_pty_session_for(session_id: str, *, prefer_fresh: bool = False)
     `resolve_launch_alias` の docstring 参照。
     """
     meta = sessions_meta.get(session_id)
-    if _wake_hook is not None and meta is not None and meta.sleeping_claude_sid() is not None:
+    if meta is None:
+        # Not a tab of the client's (an API tab has no terminal, and an unknown id has nothing to start): no cwd to
+        # start in, and it must never fall back to the backend's own folder.
+        return
+    if _wake_hook is not None and meta.sleeping_claude_sid() is not None:
         # before the lock: the hook may move the tab, which starts it again through this function
         try:
             await _wake_hook(session_id)

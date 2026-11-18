@@ -62,6 +62,9 @@ def test_ensure_pty_session_for_serializes_concurrent_spawn(monkeypatch, isolate
     が先行の完了を待たせてから existing 確認に入るので 2 回目の spawn は起きない。"""
     import asyncio  # noqa: PLC0415
 
+    from backend._common.state import SessionDef, sessions_meta  # noqa: PLC0415
+    # A tab of the client's: `ensure_pty_session_for` returns at once for an id that is not one.
+    sessions_meta["ses_race"] = SessionDef(id="ses_race", agent_id="agent_a", title="race", created_at=0)
     spawn_calls: list[str] = []
 
     class _FakeSession:
