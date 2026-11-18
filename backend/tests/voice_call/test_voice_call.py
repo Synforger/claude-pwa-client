@@ -948,6 +948,32 @@ async def _reading(text: str) -> str:
     return READINGS.get(text, "")
 
 
+def test_a_long_turn_heard_after_a_cut_reply_is_not_lost_when_the_next_starts_during_the_own_voice_check():
+    # 返事を止めた後の発話は、 送る前に自分の声かを読みで確かめる (= engine を待つ)。 その待ちの間に続きを話し
+    # 始めると、 まとめ役の割り込みが処理を打ち切り、 長い発話が送る列に積まれる前に消えていた (= 続きの短い
+    # 切れ端だけが届いた)
+    pytest.importorskip("pipecat")
+    import time
+
+    from pipecat.frames.frames import (BotStartedSpeakingFrame, BotStoppedSpeakingFrame, InterruptionFrame,
+                                       UserStartedSpeakingFrame)
+    from pipecat.tests.utils import SleepFrame, run_test
+
+    async def slow_reading(text: str) -> str:
+        await asyncio.sleep(0.3)
+        return READINGS.get(text, "")
+
+    later = int(time.time() * 1000) + 60_000
+    events = [_reply("r1", "3 つの箱の結果を表に出した。\nseed 9 が当たり。", later)]
+    frames = [SleepFrame(sleep=0.2), BotStartedSpeakingFrame(), InterruptionFrame(), BotStoppedSpeakingFrame(),
+              _said("長く話した一つ目の発話です。"), SleepFrame(sleep=0.1),
+              UserStartedSpeakingFrame(), InterruptionFrame(), SleepFrame(sleep=0.05),
+              _said("はいって感じ。"), SleepFrame(sleep=0.8)]
+    sent: list[str] = []
+    asyncio.run(run_test(_bridge(sent, events, reading=slow_reading), frames_to_send=frames))
+    assert "".join(sent) == "長く話した一つ目の発話です。はいって感じ。"
+
+
 def test_its_own_voice_written_differently_from_how_it_sounds_is_seen_by_its_reading():
     pytest.importorskip("pipecat")
     sent, said = _cut_reply("シード", finished_first=True, reading=_reading)
