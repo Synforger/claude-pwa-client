@@ -115,7 +115,8 @@ async function _loadCapsCache(db) {
 // in-memory cache で上限内なら全件カーソル走査をスキップする (= putImage 毎の数十ms ブロック対策)。
 async function _enforceCaps(db, newRec) {
   const cache = await _loadCapsCache(db)
-  if (newRec) {
+  // The first call of a session loads every record, the one just saved included, so it is already counted then.
+  if (newRec && !cache.recs.some(r => r.id === newRec.id)) {
     cache.recs.push(newRec)
     cache.count += 1
     cache.total += newRec.size

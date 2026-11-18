@@ -209,6 +209,20 @@ describe('deleteImage', () => {
 })
 
 describe('the limits and the GC', () => {
+  it('counts the first image of a session once, so a hundred images are all kept', async () => {
+    const records = installFakeIndexedDB()
+    let now = 1_000
+    vi.spyOn(Date, 'now').mockImplementation(() => (now += 1))
+    const { store } = await loadStore()
+
+    const ids = []
+    for (let i = 0; i < 100; i++) ids.push(await store.putImage(imageBlob(`image ${i}`)))
+
+    expect(records.size).toBe(100)
+    expect(revokeObjectURL).not.toHaveBeenCalled()
+    expect(store.peekImageURL(ids[0])).not.toBeNull()
+  })
+
   it('revokes the URL of the oldest image when a 101st image retires it', async () => {
     const records = installFakeIndexedDB()
     let now = 1_000
