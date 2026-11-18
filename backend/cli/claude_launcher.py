@@ -4,14 +4,21 @@ with every other argument it was given. `bin/claude-launcher` runs it.
 With `"launcher": true`, the client types `<launch_alias> --first-message-file <file>` to start a new conversation and
 `<launch_alias> --resume <id>` to reopen one (`docs/reference/config.md`). A plain `claude …` alias cannot take the
 first, and the client reopens such a tab with a bare `claude --resume <id>`, which drops the alias's arguments
-(`--model`, `--tools`, …). Written as the alias, this launcher keeps them on every start.
+(`--model`, `--tools`, …). Written as the alias, this launcher keeps them on every start. It also starts claude without
+the Anthropic API keys (`backend/terminal/tab_environment.py`), which the shell of the tab may have added after the
+backend took them out, so that claude runs on the account it is logged in to.
 """
 from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import NamedTuple
+
+# the variables to leave out are the backend's (= standard library only); read from the repository root
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from backend.terminal.tab_environment import API_KEY_VARIABLES  # noqa: E402
 
 CLAUDE = os.environ.get("CLAUDE_LAUNCHER_CLAUDE", "claude")
 FIRST_MESSAGE_OPTION = "--first-message-file"
@@ -64,8 +71,13 @@ def main(argv: list[str]) -> int:
             return 1
         words.first_message_file.unlink(missing_ok=True)
     line = command(words, first_message)
-    os.execvp(line[0], line)
+    os.execvpe(line[0], line, launch_environment(os.environ))
     return 1
+
+
+def launch_environment(environ: Mapping[str, str]) -> dict[str, str]:
+    """The environment claude starts with: `environ` without the API keys."""
+    return {name: value for name, value in environ.items() if name not in API_KEY_VARIABLES}
 
 
 if __name__ == "__main__":

@@ -25,6 +25,11 @@ def test_the_python_environment_of_the_backend_is_left_out():
     assert tab["PATH"] == "/opt/homebrew/bin:/usr/bin:/bin"
 
 
+def test_the_api_keys_are_left_out():
+    tab = tab_environment({**BACKEND, "ANTHROPIC_API_KEY": "sk-one", "ANTHROPIC_AUTH_TOKEN": "token"})
+    assert "ANTHROPIC_API_KEY" not in tab and "ANTHROPIC_AUTH_TOKEN" not in tab
+
+
 def test_everything_else_is_passed_as_it_is():
     tab = tab_environment(BACKEND)
     assert tab["HOME"] == "/home/someone"
@@ -82,6 +87,13 @@ def test_the_server_loses_the_python_environment_and_gets_the_path_without_it(mo
         ["set-environment", "-g", "-u", "VIRTUAL_ENV"],
         ["set-environment", "-g", "PATH", "/opt/homebrew/bin:/usr/bin:/bin"],
     ]
+
+
+def test_the_server_loses_an_api_key_it_was_started_with(monkeypatch):
+    server = _Server(_listed({"HOME": "/home/someone", "ANTHROPIC_API_KEY": "sk-one"}))
+    monkeypatch.setattr(runner.subprocess, "run", server)
+    runner.clean_server_environment()
+    assert server.sent() == [["set-environment", "-g", "-u", "ANTHROPIC_API_KEY"]]
 
 
 def test_a_clean_server_is_not_touched(monkeypatch):
