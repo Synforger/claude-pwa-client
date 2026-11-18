@@ -10,6 +10,15 @@ export const API_BASE =
 export const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 export const MAX_MESSAGES = 200
 
+// How much of a tool result the screen draws (= the rest is shown as "truncated"). What is kept for
+// storage (the saved form of a message) is cut to this length too: it is only restored to be drawn again.
+export const TOOL_RESULT_DISPLAY_CHARS = 800
+
+// How much of a tool result a message keeps in memory. It is the length the backend cuts the history to
+// (TOOL_RESULT_PREVIEW_CHARS in backend/jsonl/routes.py; tests/_common/toolResultLimit.test.js keeps the
+// two equal), wider than the drawn length so the drawn text does not change when ANSI codes are stripped.
+export const TOOL_RESULT_PREVIEW_CHARS = 2000
+
 // 「このイベントは、いま画面に居る未確定バブルより過去のものか」 を判定する許容差
 // (= 2026-07-26 replay 食い潰し根治)。
 //

@@ -1,5 +1,4 @@
 import { generateId } from '../../_common/id.js'
-import { MAX_MESSAGES } from '../../_common/constants.js'
 import { isStaleFor } from './replayGuard.js'
 import { isClientMessage } from './agentMessage.js'
 import { hideVoiceInputMark } from '../voice/inputMark.js'
@@ -144,7 +143,7 @@ function _append(cur, text, eventUuid, eventSendId, eventTs) {
       ...(eventSendId ? { send_id: eventSendId } : {}),
       ...(eventTs != null ? { ts: eventTs } : {}),
     },
-  ].slice(-MAX_MESSAGES)
+  ]
 }
 
 // 楽観 bubble を実 bubble に置換する。 添付ありは元 text を保持する

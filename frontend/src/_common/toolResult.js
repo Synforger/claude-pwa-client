@@ -1,3 +1,5 @@
+import { stripAnsi } from './format.js'
+
 // tool_result 本文から表示に使われないデータを落とすための純関数群。
 //
 // backend は履歴 GET (= /jsonl/history) で同じ縮小を掛けている
@@ -43,6 +45,61 @@ export function stripMessageToolResultImages(msg) {
     if (next === content) return tool
     mutated = true
     return { ...tool, result: { ...tool.result, content: next } }
+  })
+  return mutated ? { ...msg, tools } : msg
+}
+
+/**
+ * Cuts the text of a tool_result's content to `limit` characters, the way the backend cuts the history
+ * (`_shrink_tool_results` in backend/jsonl/routes.py): a string is cut as it is; in a block list the text blocks
+ * share the budget in order and every other block is kept. `plain` strips ANSI codes first (the screen strips
+ * them too), so the kept text is what is drawn.
+ * Returns `{ content, fullChars }`. `fullChars` is the length before the cut, and null when nothing was cut. The
+ * same `content` reference comes back when nothing was cut.
+ */
+export function capToolResultText(content, limit, { plain = false } = {}) {
+  if (typeof content === 'string') {
+    const text = plain ? stripAnsi(content) : content
+    if (text.length <= limit) return { content: text === content ? content : text, fullChars: null }
+    return { content: text.slice(0, limit), fullChars: text.length }
+  }
+  if (!Array.isArray(content)) return { content, fullChars: null }
+  let total = 0
+  let budget = limit
+  let changed = false
+  const kept = content.map(block => {
+    if (!block || typeof block.text !== 'string') return block
+    const text = plain ? stripAnsi(block.text) : block.text
+    total += text.length
+    if (budget <= 0) { changed = true; return null }
+    const piece = text.length > budget ? text.slice(0, budget) : text
+    budget -= piece.length
+    if (piece === block.text) return block
+    changed = true
+    return { ...block, text: piece }
+  }).filter(block => block !== null)
+  if (!changed) return { content, fullChars: null }
+  return { content: kept, fullChars: total > limit ? total : null }
+}
+
+/**
+ * Cuts the text of every tool result of a message to `limit` characters and records the length before the cut in
+ * `result.full_chars` (the screen draws that number as the size of the result). A length a result already carries
+ * (the backend cut it first) is kept when it is the larger. The same message reference comes back when nothing
+ * changes.
+ */
+export function capMessageToolResults(msg, limit, options) {
+  if (!msg || !Array.isArray(msg.tools) || msg.tools.length === 0) return msg
+  let mutated = false
+  const tools = msg.tools.map(tool => {
+    const result = tool?.result
+    if (!result || result.content == null) return tool
+    const { content, fullChars } = capToolResultText(result.content, limit, options)
+    if (content === result.content) return tool
+    mutated = true
+    const known = typeof result.full_chars === 'number' ? result.full_chars : 0
+    const full = Math.max(known, fullChars ?? 0)
+    return { ...tool, result: { ...result, content, ...(full > 0 ? { full_chars: full } : {}) } }
   })
   return mutated ? { ...msg, tools } : msg
 }

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { TOOL_RESULT_DISPLAY_CHARS } from '../../../src/_common/constants.js'
 import { isPersistableMessage, isStorablePersistedMessage, toStorableForm, toStorableArray, persistSig } from '../../../src/features/chat/useChatStorage.js'
 
 // 2026-06-24 server-of-truth 純化: localStorage 永続化境界の唯一の真値となる純関数 test。
@@ -98,6 +99,20 @@ describe('toStorableForm (永続化 projection)', () => {
     expect(stored).not.toBeNull()
     expect('streaming' in stored).toBe(false)
     expect(stored.text).toBe('explaining')
+  })
+
+  it('a tool result is saved only as far as the screen draws it, with its length in full_chars', () => {
+    const agent = { id: 'a1', uuid: 'a1', role: 'agent', text: 'ran', tools: [{ id: 't1', name: 'Bash', result: { content: 'x'.repeat(TOOL_RESULT_DISPLAY_CHARS * 5), is_error: false } }] }
+    const stored = toStorableForm(agent)
+    expect(stored.tools[0].result.content).toHaveLength(TOOL_RESULT_DISPLAY_CHARS)
+    expect(stored.tools[0].result.full_chars).toBe(TOOL_RESULT_DISPLAY_CHARS * 5)
+    expect(stored.tools[0].name).toBe('Bash')
+    expect(agent.tools[0].result.content).toHaveLength(TOOL_RESULT_DISPLAY_CHARS * 5)   // the message in memory is not changed
+  })
+
+  it('a result within the drawn length is saved as it is', () => {
+    const agent = { id: 'a1', uuid: 'a1', role: 'agent', text: 'ran', tools: [{ id: 't1', result: { content: 'short', is_error: false } }] }
+    expect(toStorableForm(agent)).toBe(agent)
   })
 
   it('確定 agent / system はそのまま通す', () => {

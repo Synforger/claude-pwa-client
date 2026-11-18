@@ -117,3 +117,68 @@ describe('toStorableForm', () => {
     expect(stored.tools[0].result.content).toEqual([{ type: 'image' }])
   })
 })
+
+// A tool result is cut to a length the caller chooses, the way the backend cuts the history GET
+// (`_shrink_tool_results` in backend/jsonl/routes.py).
+import { capToolResultText, capMessageToolResults } from '../../src/_common/toolResult.js'
+
+describe('capToolResultText', () => {
+  it('a string within the limit comes back as it is, without a length before the cut', () => {
+    const content = 'short'
+    expect(capToolResultText(content, 10)).toEqual({ content: 'short', fullChars: null })
+    expect(capToolResultText(content, 10).content).toBe(content)
+  })
+
+  it('a longer string is cut to the limit and its length is returned', () => {
+    expect(capToolResultText('abcdefghij', 4)).toEqual({ content: 'abcd', fullChars: 10 })
+  })
+
+  it('text blocks share the budget in order; a block past the budget is dropped, others are kept', () => {
+    const image = { type: 'image' }
+    const out = capToolResultText([{ type: 'text', text: 'aaaa' }, image, { type: 'text', text: 'bbbb' }, { type: 'text', text: 'cc' }], 6)
+    expect(out.content).toEqual([{ type: 'text', text: 'aaaa' }, image, { type: 'text', text: 'bb' }])
+    expect(out.content[1]).toBe(image)
+    expect(out.fullChars).toBe(10)
+  })
+
+  it('a block list within the limit keeps its reference', () => {
+    const content = [{ type: 'text', text: 'abc' }]
+    const out = capToolResultText(content, 10)
+    expect(out.content).toBe(content)
+    expect(out.fullChars).toBeNull()
+  })
+
+  it('plain strips ANSI codes first, so the limit counts what is drawn', () => {
+    const colored = `\x1b[31m${'r'.repeat(6)}\x1b[0m`
+    expect(capToolResultText(colored, 4, { plain: true })).toEqual({ content: 'rrrr', fullChars: 6 })
+    expect(capToolResultText(colored, 4)).toEqual({ content: colored.slice(0, 4), fullChars: colored.length })
+  })
+
+  it('what is not a string or a list (null, undefined) is returned as it is', () => {
+    expect(capToolResultText(null, 5)).toEqual({ content: null, fullChars: null })
+    expect(capToolResultText(undefined, 5)).toEqual({ content: undefined, fullChars: null })
+  })
+})
+
+describe('capMessageToolResults', () => {
+  const message = (content, extra = {}) => ({ id: 'a1', role: 'agent', tools: [{ id: 't1', result: { content, is_error: false, ...extra } }] })
+
+  it('a result longer than the limit is cut and its length goes to full_chars', () => {
+    const out = capMessageToolResults(message('x'.repeat(50)), 10)
+    expect(out.tools[0].result.content).toBe('x'.repeat(10))
+    expect(out.tools[0].result.full_chars).toBe(50)
+    expect(out.tools[0].result.is_error).toBe(false)
+  })
+
+  it('a length the result already carries is kept when it is the larger', () => {
+    expect(capMessageToolResults(message('x'.repeat(50), { full_chars: 9000 }), 10).tools[0].result.full_chars).toBe(9000)
+  })
+
+  it('the same message comes back when nothing is cut, and a message without tools is not touched', () => {
+    const short = message('abc')
+    expect(capMessageToolResults(short, 10)).toBe(short)
+    const plain = { id: 'a2', role: 'agent', text: 'hi' }
+    expect(capMessageToolResults(plain, 10)).toBe(plain)
+    expect(capMessageToolResults(null, 10)).toBeNull()
+  })
+})
