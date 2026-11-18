@@ -162,6 +162,7 @@ def test_a_change_of_figures_only_tells_the_overview_but_does_not_build_the_tabl
     _write_tabs(source_env, _row("g-a", source_env.folder, tokens=100))
     _poll()
     table = current_table()
+    caplog.clear()                                  # the records of the first build are not this test's question
     with caplog.at_level(logging.INFO, logger="backend.api_tabs.api_tab_table"):
         _write_tabs(source_env, _row("g-a", source_env.folder, tokens=0, spent=0.02))   # a rollover: the amount is 0
         assert _poll_wakes_the_overview()
@@ -174,6 +175,7 @@ def test_a_change_of_figures_only_tells_the_overview_but_does_not_build_the_tabl
 def test_only_the_tabs_that_came_are_written_to_the_log_when_the_table_is_built_again(source_env, caplog):
     _write_tabs(source_env, _row("g-a", source_env.folder))
     _poll()
+    caplog.clear()                                  # the records of the first build are not this test's question
     with caplog.at_level(logging.INFO, logger="backend.api_tabs.api_tab_table"):
         _write_tabs(source_env, _row("g-a", source_env.folder), _row("g-b", source_env.folder))
         _poll()
