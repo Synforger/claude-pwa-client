@@ -24,9 +24,10 @@ async function answers(baseURL) {
 }
 
 // One backend of a pair. `peers` is the other machine: {name, port}. `checkIntervalSec` is how often its watch looks
-// at that machine (= five minutes in production).
+// at that machine (= five minutes in production). `extraEnv` is added to what `run-backend.mjs` is started with (= a
+// scenario that needs a backend of its own, such as one with an API tab, uses this class with no peers).
 export class PeerBackend {
-  constructor({ name, port, peers, checkIntervalSec }) {
+  constructor({ name, port, peers = [], checkIntervalSec = 30, extraEnv = {} }) {
     this.name = name
     this.port = port
     this.baseURL = `http://127.0.0.1:${port}`
@@ -35,6 +36,7 @@ export class PeerBackend {
     this.peers = Object.fromEntries(
       peers.map((peer) => [peer.name, { url: `http://127.0.0.1:${peer.port}`, address: '127.0.0.1' }]))
     this.checkIntervalSec = checkIntervalSec
+    this.extraEnv = extraEnv
     this.child = null
     this.api = null
   }
@@ -49,6 +51,7 @@ export class PeerBackend {
         CPC_E2E_PEERS: JSON.stringify(this.peers),
         CPC_TMUX_SOCKET: `cpc-e2e-${this.port}`,
         CPC_PEER_CHECK_INTERVAL_SEC: String(this.checkIntervalSec),
+        ...this.extraEnv,
       },
       stdio: ['ignore', 'inherit', 'inherit'],
     })

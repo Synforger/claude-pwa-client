@@ -23,7 +23,7 @@ endpoints:
 
   - method: GET
     path: /sessions
-    description: "セッション一覧取得"
+    description: "セッション一覧取得 (= the Claude tabs, then the API tabs: tabs with no Claude Code, backend/api_tabs/)"
     response:
       type: array
       items:
@@ -39,6 +39,8 @@ endpoints:
           tier_tab:    { type: string, nullable: true, description: "the tier a tier tab was placed for (= its new conversations start in it); null for other tabs" }
           asleep:      { type: boolean, description: "true while the tab's claude is put to sleep (= it starts again in the same conversation when the tab is opened or written to)" }
           account_on_wake: { type: string, nullable: true, description: "for a sleeping tab, the account it runs on once it is woken (= what the account fallback decides when it wakes it, which can differ from account_id); null for a tab that is awake" }
+          kind:        { type: string, enum: [api], description: "api = a tab with no Claude Code whose conversation a program outside the client writes to a record file and the client only shows (id api_<name>, account_id = its wallet, tier null, never asleep). A Claude tab's row has no kind" }
+          context_tokens: { type: integer, nullable: true, description: "API tabs only: how much of the context the conversation holds (= input_tokens + cache_read_input_tokens + cache_creation_input_tokens of the last answer that carries a usage); null until there is such an answer, never 0" }
         required: [sid, title, agent_id]
     response_kind: json
     auth: tailnet
@@ -52,11 +54,12 @@ endpoints:
     description: "全セッションの作業中 / 最後に見た時刻 / 入力待ち / 階層 / 眠り / 口座を 1 回で返す (= stream の overview と同じ中身)"
     response:
       type: object
-      description: "sid → { busy, last_seen_at, waiting_input, tier, asleep, account_id, fallback_from, account_pinned, account_on_wake }"
+      description: "sid → { busy, last_seen_at, waiting_input, tier, asleep, account_id, fallback_from, account_pinned, account_on_wake }。 the rows of the API tabs (= the same ids as GET /sessions) have the same keys plus kind (= api) and context_tokens, and busy, waiting_input and asleep are always false"
     response_kind: json
     auth: tailnet
     invariants:
       - "中身は /stream/unified の overview channel と同じ builder (= _build_sessions_overview)"
+      - "the ids of the API tabs come from the same table as GET /sessions (backend/api_tabs/); if the two disagreed the screen would fetch the list again for ever"
     implementation: backend/routes/overview.py
 
   - method: POST
@@ -195,6 +198,7 @@ endpoints:
     invariants:
       - "/views/ws 接続中なら冪等、 接続なしでも seen 記録"
       - "未読カウンタを 0 にリセット"
+      - "an API tab's id is accepted too (= the screen calls this each time it opens a tab); an unknown id is 404"
     implementation: backend/routes/sessions.py
 
   - method: GET
@@ -288,6 +292,16 @@ endpoints:
         notification_title:   { type: string }
         machine:              { type: object, description: "version / backend_started_at / loop_stall ({ stood_still_sec, back_at } か null)" }
         limits:               { type: object, description: "weekdays / line_pct_min / line_pct_max / ahead_pct_min / ahead_pct_max / context_pct_min / context_pct_max / minutes_min" }
+        api_accounts:
+          type: array
+          description: "the API wallets (= the setting api_accounts), read-only. They are not accounts: tabs are never moved to one, stopped by one or continued on one"
+          items:
+            type: object
+            properties:
+              id:           { type: string }
+              display_name: { type: string }
+              spend:        { type: object, nullable: true, description: "this month's spend (= month / spent / limit / currency / updated_at); null when the spend file is missing, unreadable or of another month (never 0)" }
+            required: [id, display_name, spend]
       required: [accounts, agents, child_sessions_max, notification_title, machine, limits]
     response_kind: json
     auth: tailnet
@@ -996,6 +1010,7 @@ endpoints:
       - "送り主のタブで最後に端末から入った発話が人の物なら <operator-said> として封筒に入れる (= agent_message_operator_check が 0 以外なら入れずに届ける)"
       - "宛先が <相手の名前>:<タブ> で、 その名前が config の agent_message_peers に在れば、 検査 (= 宛先の名前をそのまま渡す) を通してから相手の backend へ渡す。 人の発話は、 頼まれても付けない"
       - "相手の設定に accounts が在れば、 その account のタブからだけ送れる"
+      - "a receiver that is an API tab (= its id or title is in the table of backend/api_tabs/) is not delivered to: 409 agent_message_api_tab (= no Claude Code would read it)"
     implementation: backend/routes/agent_messages.py
 
   - method: POST
@@ -1026,6 +1041,7 @@ endpoints:
       - "届ける前に、 この機械の agent_message_check を本文に掛ける"
       - "封筒の 1 行目は別の機械からの連絡に固有の文で、 <operator-said> は入れない (= 相手が何を送ってきても)"
       - "相手の設定に accounts が在れば、 その account のタブへだけ届ける"
+      - "a receiver that is an API tab is refused with 409 agent_message_api_tab, the same branch as a send from this machine"
     implementation: backend/routes/agent_messages.py
 
   - method: GET
@@ -1272,7 +1288,9 @@ endpoints:
     auth: tailnet
     invariants:
       - "frame は data 行 JSON の channel envelope: {ch: sys|jsonl|status|overview|subagents, ...}"
-      - "jsonl channel は query `jsonl=sid:off,...` / control op で購読宣言した sid のみ配信 (= fan-out 遮断)"
+      - "jsonl channel は query `jsonl=sid:off,...` / control op で購読宣言した sid のみ配信 (= fan-out 遮断)。 the sids that can be subscribed are the Claude tabs and the API tabs (= the table of backend/api_tabs/)"
+      - "the status channel is sid → row. A Claude tab's row has model / ctx_pct / 5h / 7d and the rest. An API tab's row is of another kind and holds only { kind: api, context_tokens, spend } (= spend is its wallet's spend this month, null when there is no figure), never a Claude row with empty fields, so the bar draws no 5h, 7d or NaN%"
+      - "an API tab's events (jsonl channel) and its context_tokens (overview) follow the rows appended to its record file, looked at every 0.5 s. Rows already there when the backend started are not streamed; a file that appears later is read from 0; a file that got shorter, or vanished, is read from 0 again and history_refetch is sent"
       - "jsonl frame = {ch, pos, ev}。 ev は sse-events.yaml の event そのまま (= schema 変更なし)、 pos は行末実 byte 位置 (= null は ephemeral)"
       - "接続時 warmup (= PTY ensure) + replay は購読 sid のみ (= 全 sid sweep なし)"
       - "replay の offset は GET /jsonl/history の since と同じ窓で読む。 offset の直後の行から欠けずに流せなかった時は、 その sid の frame の先頭に history_refetch event を 1 つ載せる (= offset を持たない購読には載せない)"

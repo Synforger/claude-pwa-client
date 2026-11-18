@@ -320,6 +320,20 @@ def hidden_name(outward: dict[str, str], folder: Path | None) -> str:
     return name or f"({HIDDEN}のタブ)"
 
 
+#: The `kind` the backend gives the rows of API tabs (= tabs with no Claude Code, `backend/api_tabs/`).
+API_KIND = "api"
+#: The state and the tier cells of an API tab: it has no Claude to be awake or asleep, and no tier.
+API_STATE = "API"
+API_TIER = "-"
+
+
+def api_tab_line(tab: dict) -> str:
+    """The line of an API tab in the list. Nothing is hidden or asked of the guard: its name is its title and no
+    conversation of Claude's holds a boundary."""
+    cells = [tab["id"], API_TIER, account_cell(tab), API_STATE, "境界=なし", tab.get("title") or ""]
+    return "  ".join(cells).rstrip()
+
+
 def listing() -> int:
     status, tabs = call("/sessions")
     if status != 200 or not isinstance(tabs, list):
@@ -333,6 +347,9 @@ def listing() -> int:
     mine = (live.get(me) or {}).get("sessionId")
     outward = viewer_outward_names(launch, mine)
     for tab in tabs:
+        if tab.get("kind") == API_KIND:
+            print(api_tab_line(tab))
+            continue
         claude, answer = live.get(tab["id"]), asleep.get(tab["id"]) or {}
         place = place_of(launch, tab, claude, my_agent, answer)
         # このタブが知らない境界で働くタブ (と、 階層の分からないこのエージェントのタブ) は、 階層と名前を伏せる

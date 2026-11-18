@@ -508,7 +508,11 @@ def get_session(session_id: str) -> SessionState | None:
 
 
 def session_language(session_id: str) -> str:
-    """そのタブの口座の Claude Code の設定の `language` (= 返事の地の文を畳むかの判定に使う。 無ければ空)。"""
+    """そのタブの口座の Claude Code の設定の `language` (= 返事の地の文を畳むかの判定に使う。 無ければ空)。
+    An API tab has no language setting, so its answer is always empty (= prose is never folded)."""
+    from backend.api_tabs.api_tab_table import is_api_tab  # noqa: PLC0415 (= the package imports this module)
+    if is_api_tab(session_id):
+        return ""
     meta = sessions_meta.get(session_id)
     return configured_language(_config.projects_dir_for_account(meta.account_id if meta else None).parent)
 

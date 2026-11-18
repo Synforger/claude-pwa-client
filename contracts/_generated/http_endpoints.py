@@ -24,6 +24,8 @@ class GetSessionsResponseItem(BaseModel):
     tier_tab: Optional[str] = None  # the tier a tier tab was placed for (= its new conversations start in it); null for other tabs
     asleep: Optional[bool] = None  # true while the tab's claude is put to sleep (= it starts again in the same conversation when the tab is opened or written to)
     account_on_wake: Optional[str] = None  # for a sleeping tab, the account it runs on once it is woken (= what the account fallback decides when it wakes it, which can differ from account_id); null for a tab that is awake
+    kind: Optional[Literal["api"]] = None  # api = a tab with no Claude Code whose conversation a program outside the client writes to a record file and the client only shows (id api_<name>, account_id = its wallet, tier null, never asleep). A Claude tab's row has no kind
+    context_tokens: Optional[int] = None  # API tabs only: how much of the context the conversation holds (= input_tokens + cache_read_input_tokens + cache_creation_input_tokens of the last answer that carries a usage); null until there is such an answer, never 0
 
 
 class GetSessionsOverviewResponse(BaseModel):
@@ -122,6 +124,7 @@ class GetSettingsResponse(BaseModel):
     notification_title: str
     machine: dict[str, Any]  # version / backend_started_at / loop_stall ({ stood_still_sec, back_at } か null)
     limits: dict[str, Any]  # weekdays / line_pct_min / line_pct_max / ahead_pct_min / ahead_pct_max / context_pct_min / context_pct_max / minutes_min
+    api_accounts: Optional[list[dict[str, Any]]] = None  # the API wallets (= the setting api_accounts), read-only. They are not accounts: tabs are never moved to one, stopped by one or continued on one
 
 
 class PutSettingsRequest(BaseModel):

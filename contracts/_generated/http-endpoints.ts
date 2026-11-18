@@ -20,6 +20,10 @@ export interface GetSessionsResponseItem {
   asleep?: boolean
   /** for a sleeping tab, the account it runs on once it is woken (= what the account fallback decides when it wakes it, which can differ from account_id); null for a tab that is awake */
   account_on_wake?: string | null
+  /** api = a tab with no Claude Code whose conversation a program outside the client writes to a record file and the client only shows (id api_<name>, account_id = its wallet, tier null, never asleep). A Claude tab's row has no kind */
+  kind?: "api"
+  /** API tabs only: how much of the context the conversation holds (= input_tokens + cache_read_input_tokens + cache_creation_input_tokens of the last answer that carries a usage); null until there is such an answer, never 0 */
+  context_tokens?: number | null
 }
 
 export type GetSessionsResponse = GetSessionsResponseItem[]
@@ -151,6 +155,13 @@ export interface GetSettingsResponse {
   machine: Record<string, unknown>
   /** weekdays / line_pct_min / line_pct_max / ahead_pct_min / ahead_pct_max / context_pct_min / context_pct_max / minutes_min */
   limits: Record<string, unknown>
+  /** the API wallets (= the setting api_accounts), read-only. They are not accounts: tabs are never moved to one, stopped by one or continued on one */
+  api_accounts?: ({
+      id: string
+      display_name: string
+      /** this month's spend (= month / spent / limit / currency / updated_at); null when the spend file is missing, unreadable or of another month (never 0) */
+      spend?: Record<string, unknown> | null
+    })[]
 }
 
 /** PUT /settings request body */

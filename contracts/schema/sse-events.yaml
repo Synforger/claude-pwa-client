@@ -15,6 +15,13 @@
 #   - backend SSE pump で必ず `event.corr_id = current_corr_id()` を付与
 #   - frontend ↔ backend log 結合のため全 event に強制
 #
+# API tabs (= tabs with no Claude Code, backend/api_tabs/):
+#   - the rows of their record (JSONL) become the same events as a Claude tab's rows, with sid api_<name>; the contract
+#     for the shape of a row is docs/reference/api-tabs.md
+#   - in the status channel (= the snapshot of every sid that the top bar reads; it is not an event) an API tab's row
+#     is only { kind: "api", context_tokens, spend }: a row of its own kind, not a Claude tab's row (= model / ctx_pct /
+#     5h / 7d ...) with fields added
+#
 # sid 必須化 (= /jsonl/stream/all envelope):
 #   - /jsonl/stream/all は複数 session の event を 1 接続に多重化するため event に sid 付与必須
 #   - /jsonl/stream/{sid} (= 1 session 専用) でも統一性のため backend 側で付与する
@@ -423,8 +430,9 @@ events:
     invariants:
       - "その sid の流し直しの frame の先頭に 1 つだけ載る (= 後ろに続く frame は届いた分の行)"
       - "client が位置を持たずに購読した時 (= 窓が届いたかを測れない時) は載せない"
+      - "API のタブでは、 記録の file が縮んだ・消えた時にも、 流れの側から 1 つ送る (= 画面は履歴を取り直す)"
       - "chat 履歴には積まない (= 画面の cache の取り直しの合図だけ)"
-    trigger: "backend/routes/unified_stream.py の流し直しが、 client の位置の直後の行から欠けずに返せなかった時"
+    trigger: "backend/routes/unified_stream.py の流し直しが、 client の位置の直後の行から欠けずに返せなかった時。 API のタブでは backend/api_tabs/api_tab_stream.py が記録の file の縮みを見つけた時"
     consumer: "useChatStream (= その sid の cache を捨てて GET /jsonl/history を取り直す)"
     render_target: "skip"
 

@@ -59,6 +59,29 @@ const E2E_JA_CLAUDE_DIR = resolve(RUNTIME, '.claude-ja')
 mkdirSync(E2E_JA_CLAUDE_DIR, { recursive: true })
 writeFileSync(resolve(E2E_JA_CLAUDE_DIR, 'settings.json'), JSON.stringify({ language: '日本語' }))
 
+// An API tab (`CPC_E2E_API_TABS=1`): a tab with no Claude Code whose conversation a program writes to a record file, and
+// the wallet it spends from. The record starts with one answer that carries a `usage` (= 12,300 tokens of context) and
+// the wallet with this month's spend, so a scenario sees both on the screen without writing anything first.
+const API_TABS = process.env.CPC_E2E_API_TABS === '1'
+const API_DIR = resolve(RUNTIME, 'api')
+const API_RECORD = resolve(API_DIR, 'support-bot.jsonl')
+const API_SPEND = resolve(API_DIR, 'spend.json')
+if (API_TABS) {
+  mkdirSync(API_DIR, { recursive: true })
+  const at = new Date()
+  const row = (type, uuid, message) => JSON.stringify({ type, uuid, timestamp: at.toISOString(), message })
+  writeFileSync(API_RECORD, [
+    row('user', 'api-u1', { role: 'user', content: 'How long is the return window?' }),
+    row('assistant', 'api-a1', {
+      id: 'msg_api_a1', role: 'assistant', model: 'claude-sonnet-5-5', stop_reason: 'end_turn',
+      content: [{ type: 'text', text: 'Thirty days from delivery.' }],
+      usage: { input_tokens: 300, cache_read_input_tokens: 12000, cache_creation_input_tokens: 0, output_tokens: 8 },
+    }),
+  ].join('\n') + '\n')
+  const month = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}`
+  writeFileSync(API_SPEND, JSON.stringify({ month, spent: 123, limit: 1000, currency: 'JPY', updated_at: at.toISOString() }))
+}
+
 const config = {
   agents: {
     agent_e2e: {
@@ -108,6 +131,10 @@ const config = {
   page_origin: { folder: PAGE_ORIGIN_DIR, port: PAGE_ORIGIN_PORT },
   claude_path: '/usr/bin/true',
   cors_allow_origins: ['*'],
+  ...(API_TABS ? {
+    api_accounts: { api: { display_name: 'API', spend: API_SPEND } },
+    api_tabs: { 'support-bot': { title: 'Support bot', agent_id: 'agent_e2e', account: 'api', record: API_RECORD } },
+  } : {}),
   // The other machines this backend may message (= `agent_message_peers`), as JSON: {"<name>": {"url", "address"}}.
   // `address` is where the other backend's calls come from: 127.0.0.1 when both run on this machine.
   ...(process.env.CPC_E2E_PEERS ? { agent_message_peers: JSON.parse(process.env.CPC_E2E_PEERS) } : {}),

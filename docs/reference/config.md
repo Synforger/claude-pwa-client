@@ -204,6 +204,21 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   CORS は不要)。 Vite dev server からアクセスする場合は `["http://localhost:5173"]` 等を
   設定する
 
+### `api_tabs` と `api_accounts` (任意)
+
+`api_tabs` は、 Claude Code の居ないタブを宣言する。 client の外の program が Messages API を呼んで会話を記録の
+file に書き、 client はそれを見せるだけ。 `api_accounts` は、 そのタブが使う財布を宣言する (= 読むだけで、 口座では
+ない。 タブを移す先にならない)。 どちらも設定の画面からは変えない。 file が真値で、 backend の起動か設定の読み直しで
+効く。
+
+```json
+"api_accounts": {"api": {"display_name": "API", "spend": "/path/to/spend.json"}},
+"api_tabs": {"support-bot": {"title": "Support bot", "agent_id": "agent_a", "account": "api", "record": "/path/to/main.jsonl"}}
+```
+
+名前は `[a-z0-9-]+`、 `agent_id` は設定にある agent、 `record` は絶対 path。 どれかを外れた行は読まず、 理由を log に
+出す。 記録と額の file の契約は [api-tabs.md](api-tabs.md)。
+
 ### `extensions` (任意)
 
 上部バー右端の 🧩 から開く拡張 (= 別アプリを iframe で嵌める口) の一覧。 省略時は拡張なし。

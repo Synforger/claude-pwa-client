@@ -753,6 +753,19 @@ def test_the_listing_tells_a_tab_put_to_sleep_from_one_that_never_started(tabs):
     assert lines["ses_new"].split("  ")[3] == "未起動"
 
 
+def test_the_listing_shows_an_api_tab_with_the_state_api_no_tier_and_its_name_as_it_is(tabs):
+    tabs.backend.tabs = [
+        {"id": "ses_parent", "title": "main", "agent_id": "agent_a", "child": False, "parent_id": None},
+        {"id": "api_support-bot", "title": "Support bot", "agent_id": "agent_a", "kind": "api", "account_id": "api",
+         "child": False, "parent_id": None, "tier": None, "asleep": False, "context_tokens": 12300},
+    ]
+    assert tabs.run("list") == 0
+    lines = {line.split()[0]: line for line in tabs.out.splitlines() if line.strip()}
+    # no tier means no hiding of its name, and no "cannot be woken": it has no Claude to wake
+    assert lines["api_support-bot"].split("  ") == ["api_support-bot", "-", "口座=api", "API", "境界=なし", "Support bot"]
+    assert tabs.backend.called("GET", "/agent-messages/local-tabs")          # the list of the other tabs is read as before
+
+
 def test_the_listing_shows_only_the_account_a_sleeping_tab_wakes_on(tabs):
     asleep = {"agent_id": "agent_a", "child": False, "parent_id": None, "tier": "projects/P"}
     tabs.backend.tabs = [

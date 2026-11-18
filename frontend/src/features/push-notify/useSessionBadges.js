@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import { apiFetch } from '../../_common/api.js'
 import { lsGet, lsSetDebounced } from '../../_common/storage.js'
+import { isApiTabId } from '../../_common/apiTab.js'
 import {
   subscribe as subscribeSessions,
   getSnapshot as getSessionsSnapshot,
@@ -65,6 +66,8 @@ export function deriveSessionBadges({ sids, activeSid, messages, loading, unread
   const badges = {}
   let count = 0
   for (const sid of sids) {
+    // An API tab shows no marks of work or unread (its row shows only the context amount): never busy, never waiting
+    if (isApiTabId(sid)) { badges[sid] = null; continue }
     // 開いているタブは「画面を見れば分かる」 ものを一覧に出さない (= 未読 / 質問待ち)。
     // 推論中だけは例外で残す: 一覧は「今どのタブが動いているか」 の一覧でもあり、 開いた瞬間に
     // 印が消えると走っているかどうかが読めなくなる。

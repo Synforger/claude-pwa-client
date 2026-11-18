@@ -68,6 +68,7 @@ from backend.jsonl.jsonl_predicates import (
     queued_prompt_text,
     unwrap_pasted,
 )
+from backend import api_tabs
 from backend._common.errors import raise_error
 from backend.child_watch.child_work import hand_work
 from backend._common.state import sessions_meta
@@ -145,13 +146,19 @@ def failing_as(code: str, message: str) -> Iterator[None]:
 
 
 def resolve_receiver(to: str) -> str:
-    """宛先 (= タブの id か、 タブの名前) をタブの id にする。"""
+    """宛先 (= タブの id か、 タブの名前) をタブの id にする。
+    An API tab (`backend/api_tabs/`) has no Claude Code to read the message, so it is refused with
+    `agent_message_api_tab`; the local send and the relay from another machine both pass here."""
     to = to.strip()
     if to in sessions_meta:
         return to
     named = [m.id for m in sessions_meta.values() if m.title == to]
     if len(named) == 1:
         return named[0]
+    if not named and (api_tab := api_tabs.current_table().find(to)) is not None:
+        # An API tab has no Claude Code that could read the message: say so, instead of `unknown_receiver`.
+        raise_error(409, "agent_message_api_tab",
+                    f"宛先は API のタブで、 Claude が居ないので連絡を読む者がいません: {api_tab.id}", to=to, id=api_tab.id)
     if not named:
         raise_error(404, "agent_message_unknown_receiver", f"宛先のタブが見つかりません: {to}", to=to)
     raise_error(409, "agent_message_ambiguous_receiver",

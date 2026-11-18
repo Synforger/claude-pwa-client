@@ -26,6 +26,7 @@ import { overviewSse } from '../../transport/select.ts'
 import { getSnapshot, patchSession, setSessionTiers, setWaitingInputMap } from '../../state/sessions.js'
 import { accountChanges } from './sessionAccounts.js'
 import { asleepChanges } from './sessionAsleep.js'
+import { contextChanges } from './sessionContext.js'
 import { reconcileSessionIds } from './useSessions.js'
 
 export function useSessionsOverview({ setLoading, optimisticRef, onPayloadRef }) {
@@ -48,6 +49,7 @@ export function useSessionsOverview({ setLoading, optimisticRef, onPayloadRef })
         setSessionTiers(payload)
         for (const [sid, asleep] of asleepChanges(getSnapshot().sessions, payload)) patchSession(sid, { asleep })
         for (const [sid, patch] of accountChanges(getSnapshot().sessions, payload)) patchSession(sid, patch)
+        for (const [sid, amount] of contextChanges(getSnapshot().sessions, payload)) patchSession(sid, { context_tokens: amount })
         // snapshot は backend の全部のタブを持つ: 手元の一覧と食い違えば取り直す (= タブの増減)
         reconcileSessionIds(Object.keys(payload))
       }

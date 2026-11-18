@@ -19,6 +19,7 @@ import {
 } from '../../state/sessions.js'
 import { useT } from '../../i18n/t.js'
 import { useStatus } from '../status-bar/useStatus.js'
+import { isApiTab } from '../../_common/apiTab.js'
 import { useMoonlightAvailable } from '../screenshare/useMoonlightAvailable.js'
 import ExtensionMenu from '../extensions/ExtensionMenu.jsx'
 
@@ -32,6 +33,8 @@ export default function Topbar() {
     [sessionsState.sessions, sessionsState.activeId],
   )
   const activeSid = activeSession?.id || null
+  // An API tab has no Claude Code: no notes, no sub-agents, no plan approval (and no terminal to come back from)
+  const claudeSid = isApiTab(activeSession) ? null : activeSid
   const activeViewMode = useMemo(
     () => (activeSid ? (ui.viewModes[activeSid] || 'chat') : 'chat'),
     [activeSid, ui.viewModes],
@@ -78,7 +81,7 @@ export default function Topbar() {
           ⭐
         </button>
       )}
-      {activeViewMode === 'chat' && activeSid && (
+      {activeViewMode === 'chat' && claudeSid && (
         <button
           className="topbar-icon-btn"
           onClick={() => setOverlay('notes', true)}
@@ -89,7 +92,7 @@ export default function Topbar() {
           📋
         </button>
       )}
-      {activeViewMode === 'chat' && activeSid && (
+      {activeViewMode === 'chat' && claudeSid && (
         <button
           className="topbar-icon-btn"
           onClick={() => { setOverlay('subagentsFocus', null); setOverlay('subagents', true) }}
@@ -103,7 +106,7 @@ export default function Topbar() {
       {/* ExitPlanMode 承認待ち: 🤖 の隣に常駐する 📑 ボタン。 pending_plan がある時のみ表示、
           脈動ドットで承認待ちを示し、 タップで PlanApprovalBubble (= ChatPanel 内) を開く
           (= ui.overlays.planOpen 経由)。 */}
-      {activeViewMode === 'chat' && activeSid && status?.pending_plan && (
+      {activeViewMode === 'chat' && claudeSid && status?.pending_plan && (
         <button
           className="topbar-icon-btn topbar-plan-btn"
           onClick={() => setOverlay('planOpen', true)}

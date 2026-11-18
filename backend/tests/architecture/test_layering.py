@@ -4,8 +4,10 @@
 
     L0: _common / _internal / observability / _generated / documents / push / speech / usage / fork / page_url
         + jsonl の共有部品 (jsonl_tail / jsonl_predicates / jsonl_watcher)
+        + api_tabs の表・額・文脈の量 (api_tab_table / api_spend / context_tokens / log_throttle)
     L1: terminal   (= tmux / PTY の入力口。 L0 のみ import 可)
     L2: jsonl      (= JSONL tail → SSE の出力口。 L0 / L1 を import 可)
+        + api_tabs の記録・流れ・行 (= Claude Code の居ないタブの記録を jsonl と同じ形で流す。 jsonl を読む)
     L3: routes / maintenance / rollover / sleep / accounts / account_fallback / account_hold / settings / limit_resume / peers / child_watch / fork.lineage / main / cli / voice_call / device  (= orchestrator。 全層 import 可)
 
 歴史: jsonl ↔ terminal が相互 import で双方向結合し、 同じ状態を両側から書く構造が
@@ -37,6 +39,11 @@ LEVELS: dict[str, int] = {
     "usage": 0,
     "fork": 0,
     "page_url": 0,
+    "api_tabs.api_tab_table": 0,
+    "api_tabs.api_spend": 0,
+    "api_tabs.context_tokens": 0,
+    "api_tabs.log_throttle": 0,
+    "api_tabs": 2,
     "fork.lineage": 3,
     "jsonl.jsonl_tail": 0,
     "jsonl.jsonl_predicates": 0,

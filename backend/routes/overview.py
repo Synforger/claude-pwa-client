@@ -27,6 +27,7 @@ from fastapi.responses import StreamingResponse
 from backend.usage.usage import latest_from_tail, read_all_rate_limits_tail
 from backend.terminal.tab_tier import tab_tier
 import backend.jsonl.jsonl_watcher as jsonl_watcher
+from backend import api_tabs
 from backend._common import state
 from backend._common.state import (
     agent_status,
@@ -146,6 +147,9 @@ def _build_all_status() -> dict:
             "account_id": acct,
             "backend_start_time": backend_start_time,
         }
+    # An API tab has a row of its own kind (= the context amount and its wallet's spend), not a Claude row with empty
+    # fields: the bar shows no 5h / 7d / ctx for it. They are added after the Claude tabs, whose ids never start `api_`.
+    out.update(api_tabs.status_rows())
     return out
 
 
@@ -192,6 +196,7 @@ def _build_sessions_overview() -> dict:
             # shows beside the one it last ran on.
             "account_on_wake": on_wake.get(sid),
         }
+    out.update(api_tabs.overview_rows())
     return out
 
 
@@ -217,6 +222,8 @@ def _mark_user_stopped(session_id: str) -> bool:
 @router.get("/sessions/overview")
 def get_sessions_overview() -> dict:
     """全 session の busy + last_seen_at + waiting_input + tier + asleep + 口座の 4 欄を 1 回で返す (= stream の overview と同じ中身)。
+    The API tabs' rows (`backend/api_tabs/`) have the same keys (busy and waiting_input are always false) plus
+    `context_tokens`.
 
     stream を張らずに今の状態だけ見たい側 (= iPhone のウィジェット) が引く。"""
     return _build_sessions_overview()
@@ -230,7 +237,7 @@ def mark_session_seen(session_id: str) -> dict:
     session_last_seen_at[sid] を now で更新して sessions_overview.notify() で broadcast。
     他端末はこの時刻と自分が見た最後のメッセージ timestamp を比較して、 last_seen_at が
     新しければ赤丸を消す。"""
-    if session_id not in sessions_meta:
+    if session_id not in sessions_meta and not api_tabs.is_api_tab(session_id):
         raise HTTPException(status_code=404, detail="Unknown session")
     session_last_seen_at[session_id] = time.time()
     sessions_overview.notify()
