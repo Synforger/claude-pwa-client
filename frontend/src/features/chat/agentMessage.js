@@ -16,10 +16,12 @@ const OPERATOR_SAID = /^<operator-said>\n([\s\S]*?)\n<\/operator-said>\n?/
 // backend は中身の側の「封筒のタグと同じ形」 を &lt; に替えて届ける。 表示では元に戻す。
 const restore = (text) => text.replace(/&lt;(\/?)(agent-message|operator-said|session-rollover)/g, '<$1$2')
 
-const ENVELOPE = /^<agent-message from="([^"\n]*)" session="([^"\n]*)">\n([\s\S]*)\n<\/agent-message>\s*$/
+// 票を渡す 1 行 (= backend の `tickets/ticket_pass.py`) は、 タグに `ticket="<id>"` を 1 つ足して届く。
+const ENVELOPE = /^<agent-message from="([^"\n]*)" session="([^"\n]*)"(?: ticket="([^"\n]*)")?>\n([\s\S]*)\n<\/agent-message>\s*$/
 
-/** 封筒の付いた発話なら { from, session, text, operatorSaid, remote } (= 送り主のタブ名 / タブ id /
- *  本文 / 送り主のタブで人が打った発話、 無ければ null / 別の機械から届いたか)、 違えば null。 */
+/** 封筒の付いた発話なら { from, session, text, operatorSaid, remote, ticket } (= 送り主のタブ名 / タブ id /
+ *  本文 / 送り主のタブで人が打った発話、 無ければ null / 別の機械から届いたか / 渡された票の id、 無ければ null)、
+ *  違えば null。 */
 export function parseAgentMessage(text) {
   if (typeof text !== 'string') return null
   // 端末への貼り付けを claude が包んで記録した分は、 backend が外してから渡す (= jsonl/events.py)。
@@ -30,9 +32,12 @@ export function parseAgentMessage(text) {
   if (!m) return null
   const remote = opening === AGENT_MESSAGE_REMOTE_OPENING
   // 人の発話は機械を跨がない。 別の機械からの封筒に同じ形の物が在っても、 本文として出す。
-  const said = remote ? null : OPERATOR_SAID.exec(m[3])
-  const body = said ? m[3].slice(said[0].length) : m[3]
-  return { from: m[1], session: m[2], text: restore(body), operatorSaid: said ? restore(said[1]) : null, remote }
+  const said = remote ? null : OPERATOR_SAID.exec(m[4])
+  const body = said ? m[4].slice(said[0].length) : m[4]
+  return {
+    from: m[1], session: m[2], text: restore(body), operatorSaid: said ? restore(said[1]) : null, remote,
+    ticket: m[3] ?? null,
+  }
 }
 
 // 自動の入れ替え (= 会話を締めて、 同じタブで新しい会話を起動し直す) で backend が打つ発話。 締めを頼む発話
