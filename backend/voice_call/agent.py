@@ -216,11 +216,15 @@ class AgentBridge(FrameProcessor):
         text = "".join(t for t in texts if t).strip()
         if not text:
             return
+        # 自分の声かの確かめ (= 読みを engine に訊く) を待つより前に、 送る列へ積む。 待つ間に人が続きを話し始めると、
+        # 発話のまとめ役の割り込みがこの処理を打ち切る。 積む前に打ち切られると、 聞き取れた発話がそのまま消える
+        # (= 長く話した後の短い切れ端だけが届く)。 打ち切られた時は、 列に残った発話が次の発話とつながって送られる
+        self._pending.append(text)
         if await self._is_own_voice(text):
+            self._pending.pop()
             await self._say_again(len(text))
             return
         self._cut = []
-        self._pending.append(text)
         self._said_at = time.monotonic()
         # 人が話し終えた時点で、 前の turn の返事の続きは言わない (= 送る前の待ちの間に届いた物も)
         self._awaiting_turn = True
