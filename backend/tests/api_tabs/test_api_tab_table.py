@@ -75,6 +75,7 @@ def test_loading_writes_one_line_for_each_tab_and_wallet(api_env, caplog):
 
 def test_the_table_is_read_again_only_when_the_configuration_was_read_again(api_env, caplog):
     first = current_table()
+    caplog.clear()                                                          # the lines of the first load are not the question
     with caplog.at_level(logging.INFO, logger=LOGGER):
         assert current_table() is first and caplog.records == []          # the same configuration: nothing is parsed
     write_config(api_env, api_tabs={})

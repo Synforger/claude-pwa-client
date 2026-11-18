@@ -159,7 +159,7 @@ def test_a_row_that_is_not_json_is_skipped_and_written_to_the_log_once_a_minute(
             jsonl_event_broadcaster.unsubscribe("all", queue)
 
     assert asyncio.run(scenario()) == ["u1"]                                # the bad rows cost the good one nothing
-    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("api tab:")]
+    lines = [r.getMessage() for r in caplog.records if " skipped: " in r.getMessage()]
     assert len(lines) == 1 and lines[0].startswith(f"api tab: {TAB_ID} line 2 skipped: not JSON")
 
 

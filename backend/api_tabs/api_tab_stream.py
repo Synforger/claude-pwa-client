@@ -94,6 +94,8 @@ class ApiTabStream:
             sessions_overview.notify()
         tabs = [(tab, self._offsets.get(tab.id), self._present.get(tab.id, False)) for tab in table.tabs]
         wallets = [(wallet, self._spend_signatures_of(wallet)) for wallet in table.accounts if wallet.spend is not None]
+        if not tabs and not wallets:
+            return                                                      # nothing declared: no thread is woken every half second
         changes, spends = await asyncio.to_thread(_look_at_everything, tabs, wallets)
         changed = False
         for tab, found in changes:
