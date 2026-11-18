@@ -51,14 +51,20 @@ import { useT } from '../i18n/t.js'
 // 起動時の初回 GC 遅延 (= localStorage 復元 + 初期 fetch の messages 確定を待つ)。
 const IMAGE_GC_INITIAL_MS = 5000
 
-// messages dict から全 imageRefs を抽出するヘルパ (= IndexedDB GC で active 集合作成に使う)。
-function collectActiveImageIds(msgDict) {
+// The image ids the IndexedDB GC must keep: those of every message, and those waiting in an attachment bar to be
+// sent (held by no message yet, but not orphans).
+function collectActiveImageIds(msgDict, attachmentDict) {
   const active = new Set()
   for (const sid of Object.keys(msgDict)) {
     for (const m of msgDict[sid] || []) {
       if (m.imageRefs && Array.isArray(m.imageRefs)) {
         for (const id of m.imageRefs) active.add(id)
       }
+    }
+  }
+  for (const sid of Object.keys(attachmentDict || {})) {
+    for (const item of attachmentDict[sid] || []) {
+      if (item.imageId) active.add(item.imageId)
     }
   }
   return active
@@ -328,9 +334,11 @@ export default function ChatPanel({ sid }) {
   // dep は [] でよい (= 起動時 1 回しか走らせない、 起動から 5 秒待って messages 確定後に実行)。
   const messagesRefForGc = useRef(messages)
   useEffect(() => { messagesRefForGc.current = messages }, [messages])
+  const attachmentsRefForGc = useRef(attachments)
+  useEffect(() => { attachmentsRefForGc.current = attachments }, [attachments])
   useEffect(() => {
     const id = setTimeout(() => {
-      gcImages([...collectActiveImageIds(messagesRefForGc.current)]).catch(() => {})
+      gcImages([...collectActiveImageIds(messagesRefForGc.current, attachmentsRefForGc.current)]).catch(() => {})
     }, IMAGE_GC_INITIAL_MS)
     return () => clearTimeout(id)
   }, [])
