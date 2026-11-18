@@ -11,6 +11,7 @@ import sys
 
 import pytest
 
+import backend._common.config as config_mod
 from backend.sleep import sleep_judgement as j
 from backend.sleep import sleeper
 from backend.sleep.record_facts import RecordFacts
@@ -82,7 +83,7 @@ def test_the_next_start_of_a_sleeping_tab_reopens_the_same_conversation(monkeypa
     claude = _claude()
     world = World(monkeypatch, isolated_state, tmp_path, claude)
     _run(sleeper.put_to_sleep(world.meta.id, 60))
-    monkeypatch.setattr(session_resolver, "CLAUDE_PATH", "/usr/local/bin/claude")
+    monkeypatch.setattr(config_mod, "CLAUDE_PATH", "/usr/local/bin/claude")
     monkeypatch.setattr(session_resolver, "resolve_agent_cfg", lambda _sid: {"launch_alias": "agent_a"})
     # whatever the bindings say (= gone, or another conversation), the saved id is the one that is opened
     monkeypatch.setattr(session_resolver, "last_resumable_claude_sid", lambda _sid: None)
@@ -164,7 +165,7 @@ def test_a_tab_that_moved_to_another_account_does_not_reopen_the_old_conversatio
     _run(sleeper.put_to_sleep(world.meta.id, 60))
     world.meta.account_id = "company"
     world.meta.resume_session_id = "moved-lineage"
-    monkeypatch.setattr(session_resolver, "CLAUDE_PATH", "/usr/local/bin/claude")
+    monkeypatch.setattr(config_mod, "CLAUDE_PATH", "/usr/local/bin/claude")
     monkeypatch.setattr(session_resolver, "resolve_agent_cfg", lambda _sid: {"launch_alias": "agent_a"})
     assert session_resolver.resolve_launch_alias(world.meta.id) == "/usr/local/bin/claude --resume moved-lineage"
     claude.stdout.close()

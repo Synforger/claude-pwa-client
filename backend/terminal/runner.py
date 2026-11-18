@@ -49,7 +49,7 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from backend._common.config import CLAUDE_PATH
+from backend._common import config as _config
 from backend._common.paths import FAVORITES_PATH, PLATFORM_ROOT
 from backend.terminal import input_ready
 from backend.terminal.tab_memo import memo_path
@@ -286,7 +286,7 @@ async def spawn_pty_session(
             "PTY runner must not route claude through any proxy. "
             "Unset and restart backend."
         )
-    if not CLAUDE_PATH:
+    if not _config.CLAUDE_PATH:
         # PTY 自体は zsh で動かせるが、 ユーザの wrapper 関数が最終的に呼ぶ claude path
         # はここで検証。 未設定なら設定漏れとして失敗させる。
         raise RuntimeError("CLAUDE_PATH is empty; set `claude_path` in backend/config.json")

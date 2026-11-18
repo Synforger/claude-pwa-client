@@ -14,7 +14,8 @@ from typing import NamedTuple
 
 from fastapi import HTTPException
 
-from backend._common.config import AGENTS, cwd_to_project_dir, default_account_id
+from backend._common import config as _config
+from backend._common.config import cwd_to_project_dir, default_account_id
 from backend._common.errors import raise_error
 from backend._common.state import atomic_write_text, sessions_meta
 from backend.fork.fork import (
@@ -165,7 +166,7 @@ def write_lineage(session_id: str, from_uuid: str | None, target_account_id: str
     current_account = parent.account_id or default_account_id()
     moving = bool(target_account_id) and target_account_id != current_account
     if moving:
-        cwd = (AGENTS.get(parent.agent_id) or {}).get("cwd")
+        cwd = (_config.AGENTS.get(parent.agent_id) or {}).get("cwd")
         if not cwd:
             raise_error(400, "cwd_unresolved", "この会話の作業ディレクトリが解決できません")
         dest_dir = cwd_to_project_dir(cwd, account_id=target_account_id)

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi import HTTPException, UploadFile
 
-from backend._common.config import UPLOADS_TMP
+from backend._common import config as _config
 from backend._common.state import session_tmp_files
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,8 @@ async def save_to_tmp(files: list[UploadFile], session_id: str) -> list[dict]:
     で check する (= 旧実装は `if not f.size: continue` で size 不明の upload を silent skip
     していた = 画像が「成功した風」 で消える原因、 2026-06-22 fix)。
     """
-    UPLOADS_TMP.mkdir(parents=True, exist_ok=True)
+    uploads_dir = _config.UPLOADS_TMP
+    uploads_dir.mkdir(parents=True, exist_ok=True)
     saved = []
     for f in files:
         # 事前 size がわかる時のみ早期 reject (= 大物 multipart で disk / mem を食い止める)。
@@ -52,7 +53,7 @@ async def save_to_tmp(files: list[UploadFile], session_id: str) -> list[dict]:
                 detail=f"file too large: {f.filename!r} {len(data)} bytes (limit {FILE_SIZE_LIMIT})",
             )
         ext = Path(f.filename or "file").suffix or ""
-        dest = UPLOADS_TMP / f"{uuid.uuid4().hex}{ext}"
+        dest = uploads_dir / f"{uuid.uuid4().hex}{ext}"
         dest.write_bytes(data)
         session_tmp_files.setdefault(session_id, []).append(dest)
         saved.append({

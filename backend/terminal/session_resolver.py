@@ -23,7 +23,7 @@ import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from backend._common.config import AGENTS, CLAUDE_PATH
+from backend._common import config as _config
 from backend.terminal.runner import has_tmux_session, pty_sessions, spawn_pty_session
 from backend._common.state import sessions_meta
 
@@ -36,12 +36,12 @@ AUTORESUME_MAX_AGE_DAYS = 30
 
 def resolve_agent_cfg(session_id: str) -> dict | None:
     """session_id から AGENTS の cfg dict を解決する (= cwd と launch_alias の共通解決)。"""
-    cfg = AGENTS.get(session_id)
+    cfg = _config.AGENTS.get(session_id)
     if cfg:
         return cfg
     meta = sessions_meta.get(session_id)
     if meta is not None:
-        return AGENTS.get(meta.agent_id)
+        return _config.AGENTS.get(meta.agent_id)
     return None
 
 
@@ -96,10 +96,10 @@ def _resume_command(session_id: str, claude_sid: str) -> str | None:
     """会話 `claude_sid` を開き直すコマンド。 launcher は自分で置き場を探して開く。"""
     if uses_launcher(session_id):
         return f"{(resolve_agent_cfg(session_id) or {})['launch_alias']} --resume {shlex.quote(claude_sid)}"
-    if not CLAUDE_PATH:
+    if not _config.CLAUDE_PATH:
         logger.error("resume spawn needs claude_path but it is empty session=%s", session_id)
         return None
-    return f"{shlex.quote(CLAUDE_PATH)} --resume {shlex.quote(claude_sid)}"
+    return f"{shlex.quote(_config.CLAUDE_PATH)} --resume {shlex.quote(claude_sid)}"
 
 
 def resume_command_for(session_id: str) -> str | None:
@@ -149,7 +149,7 @@ def resolve_launch_alias(session_id: str, *, prefer_fresh: bool = False) -> str 
     launcher = uses_launcher(session_id)
     if not prefer_fresh:
         autoresume_id = last_resumable_claude_sid(session_id)
-        if autoresume_id and alias and (CLAUDE_PATH or launcher):
+        if autoresume_id and alias and (_config.CLAUDE_PATH or launcher):
             return _resume_command(session_id, autoresume_id)
     return None if launcher else alias
 

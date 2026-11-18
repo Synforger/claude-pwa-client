@@ -10,6 +10,7 @@ import os
 
 import pytest
 
+import backend._common.config as config_mod
 import backend.terminal.runner as pty_runner
 
 
@@ -46,7 +47,7 @@ def test_spawn_rejects_anthropic_base_url(restore_env):
 def test_spawn_rejects_empty_claude_path(monkeypatch, restore_env):
     """CLAUDE_PATH が空文字 / None だと spawn 拒否。"""
     os.environ.pop("ANTHROPIC_BASE_URL", None)
-    monkeypatch.setattr(pty_runner, "CLAUDE_PATH", "")
+    monkeypatch.setattr(config_mod, "CLAUDE_PATH", "")
     with pytest.raises(RuntimeError, match="CLAUDE_PATH"):
         asyncio.run(pty_runner.spawn_pty_session("test-rejects-empty-path"))
 
@@ -344,7 +345,7 @@ def test_spawn_cat_roundtrip(restore_env, restore_pty_sessions, monkeypatch):
     # spawn は PTY_INITIAL_ARGV で起動するので、 ここを `/bin/cat` 1 個に差替えて
     # echo 子プロセスを試す。 CLAUDE_PATH は validation 用に残ってるので空でない値を入れる。
     monkeypatch.setattr(pty_runner, "PTY_INITIAL_ARGV", ["/bin/cat"])
-    monkeypatch.setattr(pty_runner, "CLAUDE_PATH", "/bin/true")
+    monkeypatch.setattr(config_mod, "CLAUDE_PATH", "/bin/true")
     monkeypatch.setattr(pty_runner, "USE_TMUX_WRAP", False)
 
     async def scenario() -> None:

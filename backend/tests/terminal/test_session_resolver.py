@@ -5,6 +5,7 @@ restart 経路から autoresume を skip して通常 alias 直行する分岐 (
 """
 from __future__ import annotations
 
+import backend._common.config as config_mod
 from backend.terminal import session_resolver
 
 
@@ -14,7 +15,7 @@ def test_resolve_launch_alias_prefer_fresh_skips_autoresume(monkeypatch, isolate
     restart 直後の `claude --resume <直前 sid>` 重複起動 race (= rc=0 即 exit) を回避する
     分岐の core 動作。
     """
-    monkeypatch.setattr(session_resolver, "CLAUDE_PATH", "/usr/local/bin/claude")
+    monkeypatch.setattr(config_mod, "CLAUDE_PATH", "/usr/local/bin/claude")
     monkeypatch.setattr(session_resolver, "resolve_agent_cfg",
                         lambda _sid: {"launch_alias": "agent_a", "cwd": "/tmp"})
     monkeypatch.setattr(session_resolver, "last_resumable_claude_sid",
@@ -32,7 +33,7 @@ def test_resolve_launch_alias_prefer_fresh_keeps_fork_resume(monkeypatch, isolat
     fork のセマンティクスは「意図的に親文脈を引き継ぐ」 なので prefer_fresh で剥がれてはいけない。
     """
     from backend._common.state import register_session, sessions_meta  # noqa: PLC0415
-    monkeypatch.setattr(session_resolver, "CLAUDE_PATH", "/usr/local/bin/claude")
+    monkeypatch.setattr(config_mod, "CLAUDE_PATH", "/usr/local/bin/claude")
     monkeypatch.setattr(session_resolver, "resolve_agent_cfg",
                         lambda _sid: {"launch_alias": "agent_a", "cwd": "/tmp"})
     parent = register_session("agent_a", "parent")

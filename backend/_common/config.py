@@ -8,8 +8,11 @@ config.json の I/O は **module import 時に走らせない** 設計に統一�
 
 - `get_config()` が唯一の読み手。 `@lru_cache` で 1 process 1 回だけ I/O。
 - 旧来の module-level 定数 (`AGENTS` / `CORS_ALLOW_ORIGINS` / ...) は
-  PEP 562 の `__getattr__` で **遅延で配信**する。 既存 consumer は
-  `from backend._common.config import AGENTS` の書き方を変えなくて良い。
+  PEP 562 の `__getattr__` で **読むたびに作って配信**する。 使う側は
+  `from backend._common import config as _config` を頭に置き、 使う所で `_config.AGENTS` と読む。
+  `from backend._common.config import AGENTS` と頭で書くと、 import の時に 1 回だけ値を束ねた写しになり、
+  設定を読み直しても (test が設定を差し替えても) その module だけ古い値を見続ける
+  (= `tests/architecture/test_config_read_at_use.py` が赤にする)。
   test 側は `monkeypatch.setattr(backend._common.config, "CONFIG_PATH", ...)` +
   `get_config.cache_clear()` で挙動を差し替えられる (= 旧設計では import
   時点で値が固まっていて差し替え不能だった)。
@@ -348,9 +351,9 @@ def validate_runtime_paths() -> None:
 
 
 # --- 旧 module-level 定数の遅延配信 (PEP 562) ---
-# 既存 consumer (= `from backend._common.config import AGENTS` 等) を変えないために
-# `__getattr__` で必要時に config を引いて返す。 lookup ごとに get_config() を
-# 呼ぶが、 内側で lru_cache されているので I/O は 1 回。
+# 旧来の定数名を `__getattr__` で、 読まれた時に config を引いて返す。 読むたびに作るので、
+# 使う側は `_config.AGENTS` のように使う所で読む (= 頭で import すると写しになる)。 lookup ごとに
+# get_config() を呼ぶが、 内側で lru_cache されているので I/O は 1 回。
 def __getattr__(name: str) -> Any:  # noqa: PLR0911
     cfg = get_config()
     if name == "AGENTS":

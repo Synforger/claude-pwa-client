@@ -17,7 +17,6 @@ from backend.settings import settings_store
 from backend.settings.settings_fields import Rejected
 from backend.settings.settings_store import update_settings
 from backend.sleep.sleep_settings import rollover_idle_pct, sleep_minutes
-from backend.terminal import session_resolver
 from backend.tests.settings.conftest import SETTINGS
 
 
@@ -91,11 +90,8 @@ def test_the_lines_of_the_fallback_and_of_the_hold_are_read_again(config_file):
     assert fallback_settings.read_rules()["work"].at_pct == 85
 
 
-def test_the_sleep_and_the_rollover_of_an_agent_are_read_again_by_the_code_that_binds_the_agents_at_import(
-        config_file, monkeypatch):
-    """`terminal/session_resolver.py` holds `AGENTS` from the moment it was imported (= bound here to the dict of this
-    test's configuration, as it is bound to the running client's); it must see the new values."""
-    monkeypatch.setattr(session_resolver, "AGENTS", config.AGENTS)
+def test_the_sleep_and_the_rollover_of_an_agent_are_read_again_by_the_code_that_resolves_the_agents(config_file):
+    """`terminal/session_resolver.py` reads `AGENTS` when it resolves a tab's agent; it must see the new values."""
     tab = register_session("agent_a", "T")
     assert sleep_minutes(tab.id) == 60 and rollover_idle_pct(tab.id) == 40
     update_settings({"agents": {"agent_a": {"sleep": {"minutes": 20}, "rollover": {"idle": {"context_pct": 30}}}}})

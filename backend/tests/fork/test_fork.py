@@ -10,6 +10,7 @@ import json
 
 import pytest
 
+import backend._common.config as config_mod
 from backend.fork.fork import build_forked_lineage_lazy, is_clean_fork_point
 from backend.fork.lineage import write_lineage
 from backend.jsonl import resolver as jsonl_resolver
@@ -314,7 +315,7 @@ def _setup_account_move(tmp_path, monkeypatch, isolated_state, source_lines=SAMP
         "work": {"display_name": "Work", "env": {"CLAUDE_CONFIG_DIR": str(tmp_path / "work")}},
     }
     monkeypatch.setattr(sessions_mod, "get_config", lambda: {"accounts": accounts})
-    monkeypatch.setattr(lineage_mod, "AGENTS", {tab.agent_id: {"cwd": "/work/cwd"}})
+    monkeypatch.setattr(config_mod, "AGENTS", {tab.agent_id: {"cwd": "/work/cwd"}})
     monkeypatch.setattr(
         lineage_mod, "cwd_to_project_dir",
         lambda cwd, account_id=None: work_dir if account_id == "work" else src.parent,
@@ -667,7 +668,6 @@ def test_delete_normal_session_does_not_touch_jsonl(tmp_path, monkeypatch, isola
 def test_restart_fork_session_promotes_to_normal_tab(tmp_path, monkeypatch, isolated_state):
     import backend.routes.chat as chat_routes  # noqa: PLC0415
     import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
-    import backend._common.config as config_mod  # noqa: PLC0415
     from backend.jsonl import chain, history  # noqa: PLC0415
     chat_routes, parent, _src = _setup_fork_env(tmp_path, monkeypatch, isolated_state)
     monkeypatch.setattr(jsonl_watcher, "_cwd_to_project_dir", lambda cwd, account_id=None: tmp_path)

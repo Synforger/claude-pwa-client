@@ -75,12 +75,8 @@ logger = logging.getLogger(__name__)
 # いたが、 backend._common.paths / backend._common.state / backend._common.* の依存方向が確定した
 # 現在は不要。 起動 path で動的解決する import が残ると静的解析 (= unused/
 # unresolved warn) のノイズになる。
-from backend._common.config import (  # noqa: E402
-    CORS_ALLOW_ORIGINS,
-    UPLOADS_TMP,
-    page_origin,
-    validate_runtime_paths,
-)
+from backend._common import config as _config  # noqa: E402
+from backend._common.config import page_origin, validate_runtime_paths  # noqa: E402
 from backend._common.paths import LEGACY_NOTES_DIR  # noqa: E402
 from backend._common.state import sessions_meta  # noqa: E402
 
@@ -140,10 +136,11 @@ def _truncate_if_oversized(path: Path, max_bytes: int) -> None:
 def _prune_uploads_tmp(max_age_sec: float = 24 * 3600) -> None:
     """uploads/tmp の古い添付ファイルを掃除する。 セッション削除時にも消えるが、
     削除しない運用 + 無停止 backend だと溜まるので定期 + 起動時に sweep する。"""
-    if not UPLOADS_TMP.exists():
+    uploads_dir = _config.UPLOADS_TMP
+    if not uploads_dir.exists():
         return
     cutoff = time.time() - max_age_sec
-    for f in UPLOADS_TMP.iterdir():
+    for f in uploads_dir.iterdir():
         try:
             if f.is_file() and f.stat().st_mtime < cutoff:
                 f.unlink(missing_ok=True)
@@ -389,10 +386,10 @@ _install_compression(app)
 
 # frontend は backend で配信される設計なので、 通常運用では同一オリジン = CORS 不要。
 # config に明示指定があった時だけ middleware を有効化 (= dev で vite から叩く等)。
-if CORS_ALLOW_ORIGINS:
+if _config.CORS_ALLOW_ORIGINS:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=CORS_ALLOW_ORIGINS,
+        allow_origins=_config.CORS_ALLOW_ORIGINS,
         allow_methods=["*"],
         allow_headers=["*"],
     )
