@@ -6,6 +6,7 @@ the ticket's lock. Handing a ticket to another tab is `ticket_pass.py`. Called b
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,6 +21,8 @@ from backend.terminal.runner import jsonl_path_for_session
 from backend.tickets import ticket_checks, ticket_entry, ticket_file, ticket_id, ticket_index, ticket_places
 from backend.tickets.ticket_entry import Writer
 from backend.tickets.ticket_index import CLOSED, OPEN, WAITING_OPERATOR, IndexRow
+
+logger = logging.getLogger(__name__)
 
 #: Why the operator's words did not go into a ticket that asked for them (= the answer's `operator_said_left_out`)
 NO_OPERATOR_WORDS = "no_operator_words"
@@ -157,8 +160,9 @@ async def list_tickets() -> dict:
             folder = await ticket_places.folder_for(row.place_key)
             first = next(iter(await asyncio.to_thread(ticket_file.read, folder, ticket)), {})
             title, opened_at = first.get("title"), first.get("at")
-        except HTTPException:
-            pass
+        except HTTPException as error:
+            # the list still shows the ticket, without its title, when its place cannot be found now
+            logger.info("ticket %s listed without its title: %s", ticket, error.detail)
         summaries.append({"id": ticket, "title": title, "opened_at": opened_at, "status": row.status, "wants": row.wants,
                           "holder": row.holder, "opener": row.opener,
                           "place_outside": row.place_key == ticket_places.outside_key()})
