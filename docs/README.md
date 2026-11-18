@@ -30,6 +30,7 @@ claude-pwa-client を **インストールして使うため**の文書です。
 | 長くなった会話を自動で締めて、 新しい会話に入れ替えたい | [reference/rollover.md](reference/rollover.md) |
 | タブの中の Claude に、 仕事を渡す別のタブを立てさせたい | [reference/child-sessions.md](reference/child-sessions.md) |
 | エージェントの階層ごとのタブを、 最初から一覧に並べておきたい | [reference/tier-tabs.md](reference/tier-tabs.md) |
+| Show a conversation that a program writes through the Messages API (no Claude Code) as a tab | [reference/api-tabs.md](reference/api-tabs.md) |
 | エージェントと声で会話したい / 返事を声にしたい | [reference/voice.md](reference/voice.md) |
 | Mac のエージェントに iPhone の中を読ませたい / iPhone で操作させたい | [reference/device-ops.md](reference/device-ops.md) |
 

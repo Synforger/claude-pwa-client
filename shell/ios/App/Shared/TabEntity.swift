@@ -27,6 +27,9 @@ struct TabQuery: EntityQuery {
         let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] ?? []
         return rows.compactMap { row in
             guard let id = row["id"] as? String else { return nil }
+            // An API tab (a conversation the client only shows, `kind: "api"`) takes no message: choosing it to send to
+            // would end in a 404, so it is not offered.
+            if row["kind"] as? String == "api" { return nil }
             return TabEntity(id: id, title: row["title"] as? String ?? id)
         }
     }

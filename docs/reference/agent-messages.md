@@ -208,6 +208,7 @@ session) を受け取り、 見せてよい名前ごとに `<外向きの名前>
 |---|---|
 | `agent_message_unknown_receiver` | その名前 / id のタブが無い (= 閉じたタブの id も。 `tabs list` で今の持ち主を引いて送り直す) |
 | `agent_message_ambiguous_receiver` | 同じ名前のタブが複数ある。 返ってきた id のどれかを指定する |
+| `agent_message_api_tab` | The receiver is an API tab (a tab with no Claude Code, [api-tabs.md](api-tabs.md)); nobody would read the message. Both a send from this machine and one relayed from another machine are refused (409) |
 | `agent_message_to_self` | 宛先が送り主のタブ |
 | `agent_message_empty` | 本文が空 |
 | `agent_message_unknown_sender` | 送り主の id が backend のタブに無い |
