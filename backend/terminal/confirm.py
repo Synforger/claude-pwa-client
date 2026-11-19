@@ -8,6 +8,8 @@ pty_routes.py に同居していたが、 純粋な「JSONL カウント + wait�
     2. tmux send-keys が成功したら _confirm_after_send を呼ぶ
     3. initial_pos から差分行だけ tail (= read_complete_lines) で読み、 該当 user 行が +1 されるか
        を 4s 監視 → 結果を confirmed として返すだけ (= 観測専用)
+    4. slash command は、 待つ間にタブの記録が別の file に替わったら、 新しい file を頭から数える
+       (= `/clear` は新しい会話を開き、 その `<command-name>` 行は新しい記録の方に書かれる)
 
 救済 Enter は退役 (= 2026-07-05): 生 PTY 直 write 時代の paste/Enter 競合対策だったが、
 control mode + send-keys -H 移行後の実発生が確認できず、 一方で /model 等の picker を
@@ -20,10 +22,13 @@ import asyncio
 import json
 import logging
 import re
+from collections.abc import Callable
+from pathlib import Path
 
 from backend.jsonl.jsonl_predicates import INTERRUPT_USER_RE, unwrap_pasted
 from backend.jsonl.jsonl_predicates import is_user_prompt as _is_user_prompt_pred
 from backend.jsonl.jsonl_tail import read_complete_lines
+from backend.terminal.runner import jsonl_path_for_session
 
 logger = logging.getLogger(__name__)
 
@@ -122,16 +127,21 @@ def _count_interrupts(path, from_pos: int = 0) -> tuple[int, int]:
     return (_count_in_lines(lines, _is_interrupt_line), end_pos)
 
 
-async def _wait_count_added(counter, path, initial_pos: int, timeout: float) -> bool:
+async def _wait_count_added(counter, path, initial_pos: int, timeout: float, *,
+                            follow: Callable[[], Path | None] | None = None) -> bool:
     """counter(path, pos) -> (new_count, new_pos) が new_count > 0 を返すまで wait。
 
     initial_pos = 呼出時点のファイルサイズ (= initial_count 取得済の境界)。 以降は new_pos を
-    引き継いで差分だけ読む (= 全読みなし)。"""
+    引き継いで差分だけ読む (= 全読みなし)。 `follow` は今のタブの記録を返す関数で、 それが `path` と
+    別の file になったら、 以降はその file を頭から数える。"""
     poll = 0.1
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     pos = initial_pos
     while loop.time() < deadline:
+        current = follow() if follow is not None else None
+        if current is not None and current != path:
+            path, pos = current, 0
         n, pos = counter(path, pos)
         if n > 0:
             return True
@@ -194,8 +204,9 @@ async def _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slas
     は command 完了行が書かれない)。 介入 (= 再送 / 救済キー) はしない。
     """
     counter = _count_command_lines if is_slash else _count_user_prompts
+    follow = (lambda: jsonl_path_for_session(session_id)) if is_slash else None
     if await _wait_count_added(
-        counter, jsonl_path, initial_pos, timeout=CONFIRM_TIMEOUT_SEC
+        counter, jsonl_path, initial_pos, timeout=CONFIRM_TIMEOUT_SEC, follow=follow
     ):
         return {"ok": True, "confirmed": True}
     logger.info(
