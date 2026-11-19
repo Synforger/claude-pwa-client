@@ -10,7 +10,15 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from backend.fork.fork import is_limit_stop_row
-from backend.jsonl.jsonl_predicates import is_sidechain, is_user_prompt, queued_prompt_text
+from backend.jsonl.jsonl_predicates import (
+    blocks_text,
+    is_api_error_resume,
+    is_continuable_error_row,
+    is_meta,
+    is_sidechain,
+    is_user_prompt,
+    queued_prompt_text,
+)
 
 SCHEDULE_WAKEUP = "ScheduleWakeup"
 # The notices Claude Code writes as `system` rows (subtype `informational`) when a usage limit stops it and when the
@@ -32,6 +40,18 @@ class LimitStop:
     at: float
 
 
+@dataclass(frozen=True)
+class ErrorStop:
+    """A turn that a passing API error ended (`jsonl_predicates.is_continuable_error_row`): the uuid and time (unix
+    seconds) of the error row, its `error`, its cause (`apiError`, else `streamCutCause`, else empty) and the first line
+    of its words."""
+    uuid: str
+    at: float
+    error: str
+    cause: str
+    words: str
+
+
 @dataclass
 class RecordFacts:
     """The state the rows read so far leave behind.
@@ -48,6 +68,15 @@ class RecordFacts:
                           has lost it. It is settled by Claude Code's notice that the limit is over, a person's
                           prompt, or a message typed into the terminal; answers to background notifications in
                           between leave it owed
+    error_stop:           the passing API error the conversation ends in, None when it does not (= any row of the
+                          conversation after it, a prompt, an answer, a tool result, a hidden row or the mark of an
+                          interruption, forgets it)
+    error_streak:         how many turns in a row, counted back from the end, the client's message to carry on after
+                          an API error (`backend/error_resume/`) started and a passing API error ended. A turn that
+                          anything else started sets it back to 0. The answer a turn wrote before its error does not:
+                          a reply cut off mid-way always writes its first part before the error, so a fault that keeps
+                          cutting replies would otherwise never be counted
+    error_turn_open:      the turn going on was started by that message and has not ended in an error yet
     last_row_at:          the time (unix seconds) of the newest row that carries one, None when no row does. This is
                           when the conversation last did anything: a running claude also rewrites its record without
                           adding a row, so the file's modification time says nothing about the conversation
@@ -58,6 +87,9 @@ class RecordFacts:
     last_row_at: float | None = None
     limit_stop: LimitStop | None = None
     continuation_owed: LimitStop | None = None
+    error_stop: ErrorStop | None = None
+    error_streak: int = 0
+    error_turn_open: bool = False
 
     @property
     def stopped_by_limit(self) -> bool:
@@ -118,6 +150,38 @@ def _open_limit_stop(facts: RecordFacts, row: dict, stamp: float | None) -> None
         facts.continuation_owed = stop
 
 
+def _error_stop_of(row: dict, stamp: float | None) -> ErrorStop:
+    """The stop a passing API error row opens."""
+    cause = row.get("apiError") or row.get("streamCutCause") or ""
+    words = blocks_text((row.get("message") or {}).get("content")).strip().splitlines()
+    return ErrorStop(uuid=str(row.get("uuid") or ""), at=stamp if stamp is not None else 0.0,
+                     error=str(row.get("error") or ""), cause=str(cause), words=words[0] if words else "")
+
+
+def _start_turn(facts: RecordFacts, text: str | None) -> None:
+    """Note a prompt that starts a turn: the client's message to carry on after an API error keeps the streak and opens
+    its turn, any other prompt sets the streak back."""
+    facts.error_stop = None
+    if is_api_error_resume(text):
+        facts.error_turn_open = True
+    else:
+        facts.error_streak = 0
+        facts.error_turn_open = False
+
+
+def _prompt_text(row: dict) -> str | None:
+    """The words of a user row that starts a turn someone gave (a prompt typed into the terminal, or the mark of an
+    interruption); None for a tool result and a hidden row, which go on with the turn, and for a prompt Claude Code
+    makes itself (a background task's notification), which gives no new work."""
+    origin = row.get("origin")
+    if is_meta(row) or isinstance(origin, dict) and origin.get("kind") != "human":
+        return None
+    content = (row.get("message") or {}).get("content")
+    if isinstance(content, list) and any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content):
+        return None
+    return blocks_text(content)
+
+
 def fold_row(facts: RecordFacts, row: object) -> None:
     """Take one row of the record into `facts`. Every row with a time moves `last_row_at`; past that, rows of a
     sub-agent and rows that are not messages change nothing.
@@ -140,12 +204,19 @@ def fold_row(facts: RecordFacts, row: object) -> None:
             facts.continuation_owed = None
         return
     if kind == "attachment":
-        if queued_prompt_text(row) is not None:
+        queued = queued_prompt_text(row)
+        if queued is not None:
+            _start_turn(facts, queued)
             facts.wakeup_pending = False
             facts.limit_stop = None
             facts.continuation_owed = None
         return
     if kind == "user":
+        prompt = _prompt_text(row)
+        if prompt is None:
+            facts.error_stop = None
+        else:
+            _start_turn(facts, prompt)
         facts.awaiting_tool_result = False
         facts.limit_stop = None
         if settles_a_limit_stop(row):
@@ -155,7 +226,18 @@ def fold_row(facts: RecordFacts, row: object) -> None:
         return
     if kind != "assistant":
         return
+    if is_continuable_error_row(row):
+        facts.awaiting_tool_result = False
+        facts.limit_stop = None
+        facts.error_stop = _error_stop_of(row, stamp)
+        if facts.error_turn_open:
+            facts.error_streak += 1
+            facts.error_turn_open = False
+        return
+    facts.error_stop = None
     if is_limit_stop_row(row):
+        facts.error_turn_open = False
+        facts.error_streak = 0
         facts.awaiting_tool_result = False
         _open_limit_stop(facts, row, stamp)
         return

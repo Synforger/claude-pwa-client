@@ -66,8 +66,10 @@ AGENT_MESSAGE_TAG = "agent-message"
 OPERATOR_SAID_TAG = "operator-said"
 # 票への人の答えを持つタブへ届ける封筒のタグ (= 1 行目は `CLIENT_NOTICE_OPENING`)。
 TICKET_ANSWER_TAG = "ticket-answer"
+# The tag of the client's message that asks a tab to carry on after an API error ended its turn (`backend/error_resume/`).
+API_ERROR_RESUME_TAG = "api-error-resume"
 # 封筒のタグと同じ形の文字列を、 中身の側から書けなくする (= 本文で封筒を閉じる / 人の発話を装う / 票の答えを装う)。
-_TAG_LIKE = re.compile(rf"<(/?)({AGENT_MESSAGE_TAG}|{OPERATOR_SAID_TAG}|{TICKET_ANSWER_TAG})")
+_TAG_LIKE = re.compile(rf"<(/?)({AGENT_MESSAGE_TAG}|{OPERATOR_SAID_TAG}|{TICKET_ANSWER_TAG}|{API_ERROR_RESUME_TAG})")
 
 
 def _plain(text: str) -> str:
@@ -144,6 +146,45 @@ def ticket_answer_envelope(ticket: str, answer: str, *, closed: bool = False) ->
 def is_client_message(text) -> bool:
     """端末から入ったが人が打っていない発話か (= 別のタブからの連絡、 自動の入れ替えの発話、 階層のタブの最初の発話)。"""
     return isinstance(text, str) and unwrap_pasted(text).lstrip().startswith(CLIENT_OPENINGS)
+
+
+def plain_text(text: str) -> str:
+    """`text` with anything that looks like one of the client's envelope tags made harmless, for a text the client did
+    not write (an answer, an error's words) that goes inside an envelope."""
+    return _plain(text)
+
+
+def plain_attr(value: str) -> str:
+    """`value` made safe for an attribute of an envelope tag (no quote, no line break, no envelope tag)."""
+    return _attr(value)
+
+
+def is_api_error_resume(text) -> bool:
+    """Whether a prompt is the client's message that asks the tab to carry on after an API error (`backend/error_resume/`)."""
+    return is_client_message(text) and f"<{API_ERROR_RESUME_TAG}" in unwrap_pasted(text)
+
+
+# The `apiError` of a `server_error` that comes from the setup of the network (a certificate, a gateway), which a
+# message to carry on meets again.
+_SETUP_FAULT_PREFIX = "tls_"
+_SETUP_FAULTS = frozenset({"gateway_content_type"})
+
+
+def is_continuable_error_row(line: dict) -> bool:
+    """Whether `line` is what Claude Code writes when a passing fault ended the turn, so that a message to carry on can
+    succeed: an assistant error message (`isApiErrorMessage`) whose `error` is `server_error` (a connection lost, a
+    reply cut off, a time-out, a 5xx, the API at capacity), save the faults of the network's setup, or a 429 that Claude
+    Code marks as passing (`apiErrorIsTransient`). A usage limit (`fork.is_limit_stop_row`) and the errors a message
+    to carry on meets again (a bad request, the sign-in, the model, the output limit) are not."""
+    if line.get("type") != "assistant" or line.get("isApiErrorMessage") is not True or is_sidechain(line):
+        return False
+    error = line.get("error")
+    if error == "rate_limit":
+        return line.get("apiErrorIsTransient") is True
+    if error != "server_error":
+        return False
+    cause = line.get("apiError")
+    return not (isinstance(cause, str) and (cause.startswith(_SETUP_FAULT_PREFIX) or cause in _SETUP_FAULTS))
 
 
 def is_human_origin(origin) -> bool:

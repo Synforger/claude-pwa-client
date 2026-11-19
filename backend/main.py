@@ -106,6 +106,7 @@ import backend.account_fallback as account_fallback  # noqa: E402
 import backend.account_hold as account_hold  # noqa: E402
 import backend.api_tabs as api_tabs  # noqa: E402
 import backend.limit_resume as limit_resume  # noqa: E402
+import backend.error_resume.error_patrol as error_resume  # noqa: E402
 import backend.child_watch.watch_patrol as child_watch  # noqa: E402
 import backend.engine_wake.wake_patrol as engine_wake  # noqa: E402
 import backend.peers as peers  # noqa: E402
@@ -293,6 +294,10 @@ async def lifespan(app: FastAPI):
     # 上限が戻った時の続き: 上限で止まったタブに、 戻ったら続けての連絡を 1 通送る (= `backend/limit_resume/`)。
     resume_task = asyncio.create_task(limit_resume.resume_loop())
 
+    # API の誤りで切れたターンの続き: 一時の誤りでターンが終わったタブに、 続けての連絡を送る。 続かなければ親か操作者へ
+    # 1 回知らせる (= `backend/error_resume/`)。
+    error_resume_task = asyncio.create_task(error_resume.resume_loop())
+
     # 止まった子: 報告せずに入力待ちで止まった子のタブがあれば、 親のタブへ 1 通知らせる (= `backend/child_watch/`)。
     child_watch_task = asyncio.create_task(child_watch.watch_loop())
 
@@ -364,6 +369,7 @@ async def lifespan(app: FastAPI):
     fallback_task.cancel()
     hold_task.cancel()
     resume_task.cancel()
+    error_resume_task.cancel()
     child_watch_task.cancel()
     answer_task.cancel()
     ticket_return_task.cancel()
@@ -375,7 +381,7 @@ async def lifespan(app: FastAPI):
     prompt_detector_task.cancel()
     loop_stall_task.cancel()
     for _t in (blocker_monitor_task, uploads_gc_task, maintenance_task, rollover_task, sleep_task, fallback_task,
-               hold_task, resume_task, child_watch_task, answer_task, ticket_return_task, ticket_peer_count_task, engine_wake_task, tier_tabs_task, api_tabs_task, peer_task, prompt_detector_task,
+               hold_task, resume_task, error_resume_task, child_watch_task, answer_task, ticket_return_task, ticket_peer_count_task, engine_wake_task, tier_tabs_task, api_tabs_task, peer_task, prompt_detector_task,
                loop_stall_task):
         try:
             await _t
