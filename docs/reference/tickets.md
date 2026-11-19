@@ -17,7 +17,7 @@ tabs ticket add <id> <file>                             # やったことを書�
 tabs ticket ask <id> --kind decide|mac|report <file> [--recommend <file>]
                                                         # 票を操作者の前に出す
 tabs ticket close <id> [<file>]                         # 票を閉じる (= 残る。 閉じた後は書き足せない)
-tabs ticket pass <id> <宛先のタブの id か名前>           # 票の持ち主を移し、 宛先に 1 行で知らせる
+tabs ticket pass <id> <宛先>                            # 票の持ち主を移し、 宛先に 1 行で知らせる (= タブの id か名前、 別の機械は <機械>:<タブ>)
 ```
 
 - 送り主は、 打ったタブ自身です (`PWA_SID`。 [tabs](../../skills/tabs/SKILL.md) と同じ)。 タブの外では動きません
@@ -25,7 +25,8 @@ tabs ticket pass <id> <宛先のタブの id か名前>           # 票の持ち
   会話の記録から取って、 票の 2 行目に入れます。 タブが書いた文は、 操作者の言葉としては入りません。 今の作業を
   始めたのが操作者の発話でない時は入らず、 そう伝えます (= 票は開きます)
 - `ask`: `decide` は決めてほしい事、 `mac` は Mac の前でしかできない事、 `report` は報告です。 `--recommend` の
-  file には、 操作者がそのまま取れる推奨を書きます。 `ask` した票は操作者の返事を待つ状態 (`waiting-operator`) になります
+  file には、 操作者がそのまま取れる推奨を書きます。 `ask` した票は操作者の返事を待つ状態 (`waiting-operator`) になります。 `ask` できるのは票の家の機械のタブだけです
+  ([2 台の機械にまたがる票](#2-台の機械にまたがる票))
 - `pass`: 持ち主を宛先へ移し、 宛先に 「票 `<id>` を渡されました。 `tabs ticket show <id>` で読んでください」 の
   1 行を [タブどうしの連絡](agent-messages.md) と同じ道で届けます (= Claude の居ないタブは起こします)。
   届ける前に失敗した時、 票は変わりません。 操作者の返事を待っている票と、 閉じた票は渡せません。 操作者の答えが
@@ -48,7 +49,12 @@ tabs ticket pass <id> <宛先のタブの id か名前>           # 票の持ち
 | `ticket_answer_pending` | 操作者の答えが、 まだ持ち主に届いていません。 届いてから渡します |
 | `ticket_bad_kind` | `--kind` が `decide` / `mac` / `report` ではありません |
 | `ticket_to_self` | 自分のタブへは渡せません |
-| `ticket_peer_not_yet` | 別の機械のタブへは、 まだ渡せません |
+| `ticket_ask_elsewhere` | 票の家が別の機械です。 操作者に訊けるのは家の機械のタブだけです。 票を家のタブへ渡すか、 この機械で票を開いて訊きます |
+| `ticket_inside_boundary` | その票は境界の中にあり、 別の機械のタブは関われません |
+| `ticket_to_third_machine` | 票は、 その 2 台の機械のタブの間でだけ渡せます |
+| `ticket_peer_down` | 票の家の機械が答えません。 何も預かっていないので、 家が戻ってから打ち直します。 理由に「済んでいるかもしれません」とあれば、 先に `show` で確かめます |
+| `ticket_peer_failed` | 票の家の機械が、 code の無い失敗を返しました。 `show` で確かめてから打ち直します |
+| `ticket_bad_relay` | 別の機械から届いた操作の形が正しくありません (= 2 台の client の版が違う時に出ます) |
 | `ticket_unknown_sender` | このタブの id (`PWA_SID`) が backend のタブにありません |
 | `ticket_local_only` | 別の機械から呼ばれました |
 | `ticket_refused` | 検査コマンドが、 その本文を票に足すことを断りました。 理由に従って書き直してください |
@@ -184,6 +190,33 @@ backend を打った直後に落とすと、 起動の時の入れ直しで同�
 
 - `ticket answer: id=… asked_at=… holder=… result=typed|kept|unconfirmed|refused|waiting|retry …` (`refused` と `unconfirmed` は WARNING)
 - `ticket returned: id=… from=… to=…`
+- `ticket relay: op=… id=… to=<機械> result=ok|down|refused` (= この機械のタブの操作を、 票の家へ運んだ時)
+- `ticket relayed in: op=… id=… from=<機械>:<タブ>` (= 別の機械のタブの操作を、 家として受けた時)
+
+## 2 台の機械にまたがる票
+
+backend を 2 台で動かし、 [別の機械のタブへ送る](agent-messages.md#別の機械のタブへ送る-任意) 設定がある時、 票は 2 台の
+タブの間でも使えます。
+
+- **家の機械**: 票を開いた機械です。 票の id は家の機械の名前 (`machine_name`) で始まり、 票の file と一覧の行は家に
+  だけあります。 家でない機械のタブの `add`・`close`・`show`・`pass` は、 その機械の backend が家へ運び、 家が行います。
+  運ぶ前に、 この機械の検査が本文を「機械を出る連絡」として見ます
+- **名前を揃える**: 家を id から引くので、 両方の機械で、 `machine_name` と、 相手の設定の `agent_message_peers` での
+  呼び名を同じにします (例: 自宅の `machine_name` が `home` なら、 会社の設定でも自宅を `home` と呼ぶ)
+- **預かりません**: 家が答えない時は `ticket_peer_down` で返します。 連絡と違い、 後で届ける形はありません。 家の今
+  (閉じた・返事待ち) を見ずに積んだ操作は、 届いた時に断られるためです
+- **操作者に訊くのは家の機械のタブだけ** (`ticket_ask_elsewhere`)。 操作者の返事を待つ票は渡せないので、 操作者が
+  答える時、 票を持つタブはいつも家の機械に居ます。 操作者の答えは機械を渡りません
+- **操作者の言葉は家から出ません**: 別の機械のタブが `show` で読むと、 `operator` と `answered` の行は種類と時刻だけに
+  なります。 ほかの行は、 どの境界も読んでいない相手への連絡として検査されます
+- **境界の中の票は家から出ません**: 別の機械のタブは関われず (`ticket_inside_boundary`)、 別の機械へ返す一覧にも
+  載りません。 境界の外の票も、 別の機械へ返す一覧には題を出しません
+- **渡すのはいつも家**: 家が確かめ、 宛先のタブが居る機械が名前を id にして知らせの 1 行を打ち、 届いてから家が
+  持ち主を書きます。 別の機械からの知らせは、 1 行目が別の機械からの連絡の物になります
+- **持ち主の戻り**: 持つタブが別の機械のタブの時は、 その機械が一覧の口に答え、 その一覧に無い時だけ閉じられたと
+  みなします。 答えない間は戻しません
+- 運ぶ口は全部 `/agent-messages/tickets/…` の下にあり、 設定した相手の機械からだけ呼べます (契約は
+  `contracts/schema/http-endpoints.yaml`)
 
 ## 設定
 

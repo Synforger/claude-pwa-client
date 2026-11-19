@@ -1137,6 +1137,7 @@ endpoints:
       - "a tab that has not read the whole boundary of the ticket's place is refused with 403 ticket_outside_place (ticket_covers_check)"
       - "the text is judged by ticket_write_check; lines are only ever added, and two added at once do not mix"
       - "a closed ticket takes no line (409 ticket_closed); an id that is not in the index is 404 ticket_unknown; an empty text is 400 ticket_empty"
+      - "a ticket kept on the other machine (= the machine at the head of its id) is carried there: the text is judged as a message to <machine>:<ticket id> and sent to that machine's /agent-messages/tickets/{ticket}/entries; its answer or refusal comes back as it was, a machine that does not answer is 503 ticket_peer_down and nothing is kept; a machine that is not configured is 404 ticket_unknown"
     implementation: backend/routes/tickets.py
 
   - method: POST
@@ -1157,6 +1158,7 @@ endpoints:
     invariants:
       - "the ticket waits for the operator from here (waiting-operator) and the index says what it wants"
       - "an unknown kind is 400 ticket_bad_kind; the same refusals as an entry apply"
+      - "a ticket kept on the other machine is refused with 409 ticket_ask_elsewhere (= only a tab of the machine that keeps the ticket asks the operator)"
     implementation: backend/routes/tickets.py
 
   - method: POST
@@ -1203,11 +1205,12 @@ endpoints:
     auth: localhost
     invariants:
       - "a closed ticket is not closed again (409 ticket_closed); the same refusals as an entry apply"
+      - "a ticket kept on the other machine is carried there as an entry is (/agent-messages/tickets/{ticket}/close)"
     implementation: backend/routes/tickets.py
 
   - method: POST
     path: /tickets/{ticket}/pass
-    description: "a tab hands a ticket to another tab on this machine (= form: from, to = the tab's id or name): the holder moves and the tab is told in one line"
+    description: "a tab hands a ticket to another tab (= form: from, to = the tab's id or name, or <machine>:<tab> on the other machine): the holder moves and the tab is told in one line"
     request_body:
       type: object
       description: "form: from + to"
@@ -1223,7 +1226,8 @@ endpoints:
     auth: localhost
     invariants:
       - "both tabs must have read the ticket's place's boundary (403 ticket_outside_place)"
-      - "a ticket waiting for the operator is not handed over (409 ticket_waiting_operator); a tab on another machine is 501 ticket_peer_not_yet"
+      - "a ticket waiting for the operator is not handed over (409 ticket_waiting_operator), nor while the operator's answer has not reached its holder (409 ticket_answer_pending)"
+      - "to is a tab of this machine, or <machine>:<tab> for a tab of the other machine; the machine that keeps the ticket always does the pass, whichever machines the two tabs are on (= this door carries it there for a ticket of the other machine), and a ticket inside a boundary is not passed to or from the other machine (403 ticket_inside_boundary)"
       - "the tab is told through the way messages between tabs go (= the usual envelope, with the ticket's id as an attribute of its tag, the usual first line); the ticket changes only after that delivery"
     implementation: backend/routes/tickets.py
 
@@ -1248,6 +1252,7 @@ endpoints:
     auth: localhost
     invariants:
       - "each line is judged for the reader by ticket_read_check; a line not let through, or a check that does not run, shows only its kind and time"
+      - "a ticket kept on the other machine is read there (/agent-messages/tickets/{ticket}): the answer names its tabs as this machine reads them and has no word of the operator's own"
     implementation: backend/routes/tickets.py
 
   - method: GET
@@ -1276,6 +1281,151 @@ endpoints:
     auth: localhost
     invariants:
       - "read by the operator, who reads everything, so no line is judged"
+    implementation: backend/routes/tickets.py
+
+  - method: POST
+    path: /agent-messages/tickets/{ticket}/entries
+    description: "the other machine's tab adds a line to a ticket kept here (= json)"
+    request_body:
+      type: object
+      properties:
+        from_session: { type: string, description: "the tab's id on the other machine" }
+        from_title: { type: string, description: "the tab's name" }
+        text: { type: string, description: "the line" }
+      required: [from_session, from_title, text]
+    response:
+      type: object
+      properties:
+        ok:     { type: boolean }
+        id:     { type: string }
+        status: { type: string }
+      required: [ok, id, status]
+    response_kind: json
+    auth: peer
+    invariants:
+      - "answered only to the configured other machine's address (403 agent_message_unknown_peer); a ticket kept inside a boundary is 403 ticket_inside_boundary and an id that is not here is 404 ticket_unknown"
+      - "the line is written as <machine>:<tab> / <title> @<machine> with no tier, and judged by ticket_write_check as the addition of a reader that has read no boundary"
+      - "a closed ticket is 409 ticket_closed; a body that cannot be read is 400 ticket_bad_relay"
+    implementation: backend/routes/tickets.py
+
+  - method: POST
+    path: /agent-messages/tickets/{ticket}/close
+    description: "the other machine's tab closes a ticket kept here (= json; text may be empty)"
+    request_body:
+      type: object
+      properties:
+        from_session: { type: string, description: "the tab's id on the other machine" }
+        from_title: { type: string, description: "the tab's name" }
+        text: { type: string, description: "the last word, which may be empty" }
+      required: [from_session, from_title, text]
+    response:
+      type: object
+      properties:
+        ok:     { type: boolean }
+        id:     { type: string }
+        status: { type: string, description: "closed" }
+      required: [ok, id, status]
+    response_kind: json
+    auth: peer
+    invariants:
+      - "answered only to the configured other machine's address (403 agent_message_unknown_peer); a ticket kept inside a boundary is 403 ticket_inside_boundary and an id that is not here is 404 ticket_unknown"
+      - "a last word is judged like an added line; an empty one is not judged"
+    implementation: backend/routes/tickets.py
+
+  - method: POST
+    path: /agent-messages/tickets/{ticket}/pass
+    description: "the other machine's tab hands a ticket kept here to a tab (= json): this machine does the pass"
+    request_body:
+      type: object
+      properties:
+        from_session: { type: string, description: "the tab's id on the other machine" }
+        from_title: { type: string, description: "the tab's name" }
+        to_machine: { type: string, description: "the machine the receiving tab is on" }
+        to: { type: string, description: "the receiving tab's id or name on that machine" }
+      required: [from_session, from_title, to_machine, to]
+    response:
+      type: object
+      properties:
+        ok:   { type: boolean }
+        id:   { type: string }
+        to:   { type: string, description: "the holder as the other machine reads it" }
+        kept: { type: boolean }
+      required: [ok, id, to]
+    response_kind: json
+    auth: peer
+    invariants:
+      - "answered only to the configured other machine's address (403 agent_message_unknown_peer); a ticket kept inside a boundary is 403 ticket_inside_boundary and an id that is not here is 404 ticket_unknown"
+      - "to_machine is this machine or the caller's; a third machine is 409 ticket_to_third_machine"
+      - "the receiving tab is told first (typed here, or by the other machine through /notify, which turns the name into an id), and the line and the holder are written after: a tab that cannot be told leaves the ticket as it was"
+      - "a ticket waiting for the operator or for its answer is refused as for a tab of this machine"
+    implementation: backend/routes/tickets.py
+
+  - method: POST
+    path: /agent-messages/tickets/{ticket}/notify
+    description: "the machine that keeps a ticket asks this one to tell a tab here the ticket was handed to it (= json)"
+    request_body:
+      type: object
+      properties:
+        to: { type: string, description: "the tab's id or name on this machine" }
+        from_machine: { type: string, description: "the machine the handing tab is on (= this one or the caller)" }
+        from_session: { type: string, description: "the handing tab's id" }
+        from_title: { type: string, description: "the handing tab's name" }
+      required: [to, from_machine, from_session, from_title]
+    response:
+      type: object
+      properties:
+        ok:   { type: boolean }
+        to:   { type: string, description: "the tab's id here" }
+        kept: { type: boolean }
+      required: [ok, to]
+    response_kind: json
+    auth: peer
+    invariants:
+      - "answered only to the configured other machine's address (403 agent_message_unknown_peer)"
+      - "the name is turned into an id here; the line goes through this machine's agent_message_check and the peer's accounts like any message from the other machine, with the other machine's first line"
+      - "a sender on a third machine is 409 ticket_to_third_machine"
+    implementation: backend/routes/tickets.py
+
+  - method: GET
+    path: /agent-messages/tickets/{ticket}
+    description: "the ticket kept here as the other machine's tab may read it (= query: reader)"
+    request_query:
+      reader: { type: string, description: "the reading tab's id on the other machine" }
+    response:
+      type: object
+      properties:
+        ok:     { type: boolean }
+        id:     { type: string }
+        status: { type: string }
+        wants:  { type: string, nullable: true }
+        home:   { type: string, description: "the machine that keeps the ticket" }
+        holder: { type: string }
+        opener: { type: string }
+        entries: { type: array, items: { type: object } }
+      required: [ok, id, status, holder, opener, entries]
+    response_kind: json
+    auth: peer
+    invariants:
+      - "answered only to the configured other machine's address (403 agent_message_unknown_peer); a ticket kept inside a boundary is 403 ticket_inside_boundary and an id that is not here is 404 ticket_unknown"
+      - "each line is judged for <machine>:<reader> by ticket_read_check; a line of the operator's own words (operator, answered) is given as its kind and time only"
+      - "the tabs are named as the other machine reads them (its own tabs bare, this machine's as <machine>:<id>)"
+    implementation: backend/routes/tickets.py
+
+  - method: GET
+    path: /agent-messages/tickets
+    description: "the tickets kept here outside every boundary, for the other machine's screen"
+    response:
+      type: object
+      properties:
+        ok:      { type: boolean }
+        home:    { type: string }
+        tickets: { type: array, items: { type: object } }
+      required: [ok, home, tickets]
+    response_kind: json
+    auth: peer
+    invariants:
+      - "answered only to the configured other machine's address (403 agent_message_unknown_peer)"
+      - "a ticket inside a boundary is not named at all, and no title is given (= a title is content)"
     implementation: backend/routes/tickets.py
 
   - method: POST

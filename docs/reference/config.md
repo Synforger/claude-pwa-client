@@ -163,7 +163,8 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 - `agent_message_sender_check` (任意): 連絡の封筒に送り主のタブ名を出してよいかを決めるコマンド
   (= 語のリスト)。 同じ節を参照
 - `machine_name` (任意): この機械の名前 (= 文字列)。 [票](tickets.md) の id の頭に付きます (`<機械の名前>-<YYMMDD>-<NN>`)。
-  書かない時は host 名の最初の `.` までです
+  書かない時は host 名の最初の `.` までです。 票を 2 台で使う時は、 相手の機械の `agent_message_peers` での呼び名と同じにします
+  ([2 台の機械にまたがる票](tickets.md#2-台の機械にまたがる票))
 - `ticket_place_check` / `ticket_places_check` / `ticket_write_check` / `ticket_covers_check` / `ticket_read_check` (任意):
   票を読み書きできるタブを絞る検査コマンド (= それぞれ語のリスト)。 書かない鍵の検査はしません。 語・終了 code・使える
   `{名前}` は [tickets.md](tickets.md) の「検査コマンドを設定する」 を参照
