@@ -649,6 +649,102 @@ export interface GetTicketsResponse {
     })[]
 }
 
+/** POST /agent-messages/tickets/{ticket}/entries request body */
+export interface PostAgentMessagesTicketsTicketEntriesRequest {
+  /** the tab's id on the other machine */
+  from_session: string
+  /** the tab's name */
+  from_title: string
+  /** the line */
+  text: string
+}
+
+/** POST /agent-messages/tickets/{ticket}/entries response */
+export interface PostAgentMessagesTicketsTicketEntriesResponse {
+  ok: boolean
+  id: string
+  status: string
+}
+
+/** POST /agent-messages/tickets/{ticket}/close request body */
+export interface PostAgentMessagesTicketsTicketCloseRequest {
+  /** the tab's id on the other machine */
+  from_session: string
+  /** the tab's name */
+  from_title: string
+  /** the last word, which may be empty */
+  text: string
+}
+
+/** POST /agent-messages/tickets/{ticket}/close response */
+export interface PostAgentMessagesTicketsTicketCloseResponse {
+  ok: boolean
+  id: string
+  /** closed */
+  status: string
+}
+
+/** POST /agent-messages/tickets/{ticket}/pass request body */
+export interface PostAgentMessagesTicketsTicketPassRequest {
+  /** the tab's id on the other machine */
+  from_session: string
+  /** the tab's name */
+  from_title: string
+  /** the machine the receiving tab is on */
+  to_machine: string
+  /** the receiving tab's id or name on that machine */
+  to: string
+}
+
+/** POST /agent-messages/tickets/{ticket}/pass response */
+export interface PostAgentMessagesTicketsTicketPassResponse {
+  ok: boolean
+  id: string
+  /** the holder as the other machine reads it */
+  to: string
+  kept?: boolean
+}
+
+/** POST /agent-messages/tickets/{ticket}/notify request body */
+export interface PostAgentMessagesTicketsTicketNotifyRequest {
+  /** the tab's id or name on this machine */
+  to: string
+  /** the machine the handing tab is on (= this one or the caller) */
+  from_machine: string
+  /** the handing tab's id */
+  from_session: string
+  /** the handing tab's name */
+  from_title: string
+}
+
+/** POST /agent-messages/tickets/{ticket}/notify response */
+export interface PostAgentMessagesTicketsTicketNotifyResponse {
+  ok: boolean
+  /** the tab's id here */
+  to: string
+  kept?: boolean
+}
+
+/** GET /agent-messages/tickets/{ticket} response */
+export interface GetAgentMessagesTicketsTicketResponse {
+  ok: boolean
+  id: string
+  status: string
+  wants?: string | null
+  /** the machine that keeps the ticket */
+  home?: string
+  holder: string
+  opener: string
+  entries: (Record<string, unknown>)[]
+}
+
+/** GET /agent-messages/tickets response */
+export interface GetAgentMessagesTicketsResponse {
+  ok: boolean
+  home: string
+  tickets: (Record<string, unknown>)[]
+}
+
 /** POST /agent-messages/relayed request body */
 export interface PostAgentMessagesRelayedRequest {
   /** 宛先のタブの id か名前 (= この機械のタブ) */

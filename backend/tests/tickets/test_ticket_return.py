@@ -2,6 +2,8 @@
 when that tab is gone too; and what is never touched."""
 from __future__ import annotations
 
+import pytest
+
 from backend._common.state import SessionDef
 from backend.tests.async_run import run
 from backend.tests.tickets.samples import delivery_env, refusal, waiting_ticket  # noqa: F401
@@ -69,9 +71,43 @@ def test_a_closed_ticket_is_not_looked_at(delivery_env):
     assert run(ticket_return.tick()) == [] and ticket_index.get(ticket).holder == "ses_b"
 
 
-def test_a_holder_on_another_machine_is_not_judged_here(delivery_env):
+def test_a_holder_on_a_machine_that_is_not_configured_is_taken_to_be_there(delivery_env):
     ticket = _open_held_by(delivery_env, holder="office:ses_x")
     assert run(ticket_return.tick()) == [] and ticket_index.get(ticket).holder == "office:ses_x"
+
+
+@pytest.mark.parametrize("listed", [True, None])
+def test_a_holder_on_the_other_machine_stays_unless_that_machine_answers_and_does_not_list_it(delivery_env, monkeypatch, listed):
+    ticket = _open_held_by(delivery_env, holder="company:ses_x")
+    monkeypatch.setattr(ticket_return.ticket_relay, "holder_listed", _listing(listed))
+    assert run(ticket_return.tick()) == [] and ticket_index.get(ticket).holder == "company:ses_x"
+    assert delivery_env.typed == []
+
+
+def test_a_holder_on_the_other_machine_that_its_machine_no_longer_lists_goes_back_to_the_tab_that_asked_first(delivery_env, monkeypatch):
+    ticket = _open_held_by(delivery_env, holder="company:ses_x")
+    monkeypatch.setattr(ticket_return.ticket_relay, "holder_listed", _listing(False))
+    assert run(ticket_return.tick()) == [ticket] and ticket_index.get(ticket).holder == "ses_a"
+    [line] = _returned_lines(delivery_env, ticket)
+    assert (line["from"], line["to"]) == ("company:ses_x", "ses_a")
+    assert [tab for tab, _ in delivery_env.typed] == ["ses_a"]
+
+
+def test_a_holder_on_the_other_machine_is_looked_up_only_when_the_ticket_is_held_there(delivery_env, monkeypatch):
+    asked = []
+    monkeypatch.setattr(ticket_return.ticket_relay, "holder_listed", _listing(False, asked))
+    _open_held_by(delivery_env, holder="ses_b")
+    run(ticket_return.tick())
+    assert asked == []
+
+
+def _listing(answer, asked=None):
+    async def holder_listed(holder):
+        if asked is not None:
+            asked.append(holder)
+        return answer
+
+    return holder_listed
 
 
 def test_the_ticket_does_not_move_when_the_tab_cannot_be_told(delivery_env):

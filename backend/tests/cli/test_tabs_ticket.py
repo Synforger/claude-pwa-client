@@ -84,8 +84,36 @@ def test_ask_sends_the_recommendation_from_its_file(tab, tmp_path):
 def test_pass_waits_as_long_as_a_message_that_wakes_a_tab_and_prints_who_has_it(tab, capsys):
     calls = _Calls(body={"ok": True, "id": "home-261119-01", "to": "ses_b"})
     assert ticket.run(["pass", "home-261119-01", "client work"], calls) == 0
-    assert calls.made == [("/tickets/home-261119-01/pass", {"from": "ses_a", "to": "client work"}, None, ticket.PASS_TIMEOUT_SEC)]
+    assert calls.made == [("/tickets/home-261119-01/pass", {"from": "ses_a", "to": "client work"}, None, ticket.LONG_TIMEOUT_SEC)]
     assert capsys.readouterr().out == "渡しました: home-261119-01 → ses_b\n"
+
+
+def test_a_ticket_of_the_other_machine_is_used_with_the_same_commands_to_this_machines_backend(tab, tmp_path, capsys):
+    calls = _Calls(body={"ok": True, "id": "company-261119-03", "status": "open", "to": "company:ses_x"})
+    note = _file(tmp_path, "n.txt", "did it")
+    assert ticket.run(["add", "company-261119-03", note], calls) == 0
+    assert ticket.run(["close", "company-261119-03", note], calls) == 0
+    assert ticket.run(["pass", "company-261119-03", "company:notes"], calls) == 0
+    assert [(path, timeout) for path, _form, _method, timeout in calls.made] == [
+        ("/tickets/company-261119-03/entries", ticket.LONG_TIMEOUT_SEC), ("/tickets/company-261119-03/close", ticket.LONG_TIMEOUT_SEC),
+        ("/tickets/company-261119-03/pass", ticket.LONG_TIMEOUT_SEC)]
+    assert calls.made[2][1] == {"from": "ses_a", "to": "company:notes"}
+    assert "渡しました: company-261119-03 → company:ses_x" in capsys.readouterr().out
+
+
+def test_show_of_a_ticket_of_the_other_machine_says_whose_it_is(tab, capsys):
+    body = {"ok": True, "id": "company-261119-03", "status": "open", "home": "company", "holder": "company:ses_x", "entries": []}
+    assert ticket.run(["show", "company-261119-03"], _Calls(body=body)) == 0
+    assert capsys.readouterr().out.splitlines()[0] == "票 company-261119-03 (open) (company の機械の票) 持ち主: company:ses_x"
+
+
+@pytest.mark.parametrize("word, code", [("ask", "ticket_ask_elsewhere"), ("add", "ticket_peer_down"), ("pass", "ticket_inside_boundary")])
+def test_what_the_other_machines_ticket_refuses_is_printed_with_its_code(tab, tmp_path, capsys, word, code):
+    refused = _Calls(status=409, body={"detail": {"code": code, "message": "the reason"}})
+    words = {"ask": ["ask", "company-261119-03", "--kind", "decide", _file(tmp_path, "q.txt", "x")],
+             "add": ["add", "company-261119-03", _file(tmp_path, "a.txt", "x")], "pass": ["pass", "company-261119-03", "ses_b"]}[word]
+    assert ticket.run(words, refused) == 1
+    assert f"[{code}]: the reason" in capsys.readouterr().err
 
 
 def test_pass_says_when_the_line_is_kept_for_a_stopped_tab(tab, capsys):

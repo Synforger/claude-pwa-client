@@ -587,6 +587,94 @@ class GetTicketsResponse(BaseModel):
     tickets: list[dict[str, Any]]
 
 
+class PostAgentMessagesTicketsTicketEntriesRequest(BaseModel):
+    """POST /agent-messages/tickets/{ticket}/entries request body"""
+    model_config = ConfigDict(extra="forbid")
+    from_session: str  # the tab's id on the other machine
+    from_title: str  # the tab's name
+    text: str  # the line
+
+
+class PostAgentMessagesTicketsTicketEntriesResponse(BaseModel):
+    """POST /agent-messages/tickets/{ticket}/entries response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    id: str
+    status: str
+
+
+class PostAgentMessagesTicketsTicketCloseRequest(BaseModel):
+    """POST /agent-messages/tickets/{ticket}/close request body"""
+    model_config = ConfigDict(extra="forbid")
+    from_session: str  # the tab's id on the other machine
+    from_title: str  # the tab's name
+    text: str  # the last word, which may be empty
+
+
+class PostAgentMessagesTicketsTicketCloseResponse(BaseModel):
+    """POST /agent-messages/tickets/{ticket}/close response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    id: str
+    status: str  # closed
+
+
+class PostAgentMessagesTicketsTicketPassRequest(BaseModel):
+    """POST /agent-messages/tickets/{ticket}/pass request body"""
+    model_config = ConfigDict(extra="forbid")
+    from_session: str  # the tab's id on the other machine
+    from_title: str  # the tab's name
+    to_machine: str  # the machine the receiving tab is on
+    to: str  # the receiving tab's id or name on that machine
+
+
+class PostAgentMessagesTicketsTicketPassResponse(BaseModel):
+    """POST /agent-messages/tickets/{ticket}/pass response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    id: str
+    to: str  # the holder as the other machine reads it
+    kept: Optional[bool] = None
+
+
+class PostAgentMessagesTicketsTicketNotifyRequest(BaseModel):
+    """POST /agent-messages/tickets/{ticket}/notify request body"""
+    model_config = ConfigDict(extra="forbid")
+    to: str  # the tab's id or name on this machine
+    from_machine: str  # the machine the handing tab is on (= this one or the caller)
+    from_session: str  # the handing tab's id
+    from_title: str  # the handing tab's name
+
+
+class PostAgentMessagesTicketsTicketNotifyResponse(BaseModel):
+    """POST /agent-messages/tickets/{ticket}/notify response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    to: str  # the tab's id here
+    kept: Optional[bool] = None
+
+
+class GetAgentMessagesTicketsTicketResponse(BaseModel):
+    """GET /agent-messages/tickets/{ticket} response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    id: str
+    status: str
+    wants: Optional[str] = None
+    home: Optional[str] = None  # the machine that keeps the ticket
+    holder: str
+    opener: str
+    entries: list[dict[str, Any]]
+
+
+class GetAgentMessagesTicketsResponse(BaseModel):
+    """GET /agent-messages/tickets response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    home: str
+    tickets: list[dict[str, Any]]
+
+
 class PostAgentMessagesRelayedRequest(BaseModel):
     """POST /agent-messages/relayed request body"""
     model_config = ConfigDict(extra="forbid")

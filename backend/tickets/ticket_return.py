@@ -1,8 +1,9 @@
 """Give a ticket back when the tab that holds it is gone. Every `RETURN_PATROL_SEC`, and before an answer is delivered, a
-ticket that is not closed is looked at: when its holder is not a tab of this machine any more, it goes back to the tab that
-asked first (which is told in one line), and when that tab is gone too, it is held by nobody (= the operator's screen
-chooses the tab to give it to). A holder on another machine is not judged here. The judgement is
-`answer_judgement.return_step`; called by `answer_delivery.py` and started from `backend/main.py`.
+ticket that is not closed is looked at: when its holder is not a tab any more, it goes back to the tab that asked first (which
+is told in one line), and when that tab is gone too, it is held by nobody (= the operator's screen chooses the tab to give it
+to). A holder on the other machine is looked up in that machine's list of tabs, and given up only when the machine answers
+and the tab is not on it. The judgement is `answer_judgement.return_step`; called by `answer_delivery.py` and started from
+`backend/main.py`.
 """
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ from fastapi import HTTPException
 from backend._common.errors import raise_error
 from backend._common.state import sessions_meta
 from backend.routes.agent_messages import deliver_or_keep, hand_over_work
-from backend.tickets import answer_judgement, ticket_entry, ticket_index, ticket_places, ticket_service
+from backend.tickets import answer_judgement, ticket_entry, ticket_index, ticket_places, ticket_relay, ticket_service
 from backend.tickets.answer_judgement import CLEAR_HOLDER, RETURN_TO_OPENER, HolderFacts
 from backend.tickets.return_envelope import returned_envelope
 from backend.tickets.ticket_index import CLOSED, IndexRow
@@ -26,9 +27,13 @@ logger = logging.getLogger(__name__)
 RETURN_PATROL_SEC = 60.0
 
 
-def _facts_of(row: IndexRow) -> HolderFacts:
-    return HolderFacts(holder=row.holder, holder_is_remote=":" in row.holder, holder_here=row.holder in sessions_meta,
-                       opener_here=row.opener in sessions_meta)
+async def _facts_of(row: IndexRow) -> HolderFacts:
+    """What is known of the holder: for a tab of this machine its own table, for a tab of the other machine that machine's
+    list of tabs (asked only for such a holder)."""
+    remote = ":" in row.holder
+    listed = await ticket_relay.holder_listed(row.holder) if remote else None
+    return HolderFacts(holder=row.holder, holder_is_remote=remote, holder_here=row.holder in sessions_meta,
+                       opener_here=row.opener in sessions_meta, holder_listed=listed)
 
 
 def _still_held_by(holder: str) -> Callable[[IndexRow], None]:
@@ -65,7 +70,7 @@ async def return_if_gone(ticket: str) -> bool:
     row = ticket_index.get(ticket)
     if row is None or row.status == CLOSED:
         return False
-    step = answer_judgement.return_step(_facts_of(row))
+    step = answer_judgement.return_step(await _facts_of(row))
     if step == answer_judgement.STAY:
         return False
     target = row.opener if step == RETURN_TO_OPENER else ""

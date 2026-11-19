@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,9 +17,10 @@ from fastapi import HTTPException
 import backend._common.config as config_mod
 from backend._common import paths
 from backend._common.state import SessionDef, sessions_meta
+from backend.peers import peer_call
 from backend.tests.async_run import run
-from backend.tickets import (answer_delivery, answer_queue, ticket_answer, ticket_checks, ticket_file, ticket_index,
-                             ticket_places, ticket_return, ticket_service)
+from backend.tickets import (answer_delivery, answer_queue, relay_home, ticket_answer, ticket_checks, ticket_file, ticket_index,
+                             ticket_pass, ticket_places, ticket_relay, ticket_return, ticket_service)
 from backend.tickets.answer_queue import AnswerKey
 
 FAKE_GUARD = Path(__file__).with_name("fake_guard.py")
@@ -47,6 +49,7 @@ class Guard:
     def __init__(self, monkeypatch, tmp_path: Path) -> None:
         self._monkeypatch, self._tmp = monkeypatch, tmp_path
         self.rules_file, self.log_file = tmp_path / "rules.json", tmp_path / "guard.log"
+        self.base: dict = {}                       # what the configuration holds besides the guard's commands
         self.rules: dict = {"log": str(self.log_file)}
         self.rules_file.write_text(json.dumps(self.rules))
 
@@ -55,7 +58,7 @@ class Guard:
         self.answer(**answers)
         keys = {f"ticket_{mode}_check": [sys.executable, str(FAKE_GUARD), mode, str(self.rules_file), *COMMANDS[mode]]
                 for mode in modes}
-        write_config(self._monkeypatch, self._tmp, **keys)
+        write_config(self._monkeypatch, self._tmp, **self.base, **keys)
 
     def answer(self, **answers: dict) -> None:
         self.rules.update(answers)
@@ -79,7 +82,9 @@ def ticket_env(isolated_state, tmp_path, monkeypatch):
     write_config(monkeypatch, tmp_path, machine_name="home")
     for tab, title in TABS.items():
         isolated_state.sessions_meta[tab] = SessionDef(id=tab, agent_id="agent_a", title=title, created_at=0, tier="projects/AP")
-    yield SimpleNamespace(root=tmp_path, guard=Guard(monkeypatch, tmp_path), tickets=tmp_path / "state" / "tickets")
+    guard = Guard(monkeypatch, tmp_path)
+    guard.base = {"machine_name": "home"}
+    yield SimpleNamespace(root=tmp_path, guard=guard, tickets=tmp_path / "state" / "tickets")
     ticket_places.forget_all()
 
 
@@ -149,3 +154,60 @@ def answered_ticket(env, *, text: str = "Take B", holder: str = "ses_a") -> Answ
 
 def queued() -> list[AnswerKey]:
     return answer_queue.keys()
+
+
+PEER_ADDRESS = "203.0.113.9"
+PEER_URL = "http://peer.test"
+
+
+@pytest.fixture
+def relay_env(ticket_env, monkeypatch):
+    """Two machines, seen from one of them: `ticket_env`, and the other machine's backend replaced by `peer_says` (= what each
+    path ending answers: `(status, body)`, or an exception that the call raises), with every call recorded in `carried` as
+    `(url, payload)`. What was typed into which tab of this machine is in `typed`. `configure(own, peer)` names this
+    machine and the other (`accounts` limits the peer's tabs, `values` are more configuration)."""
+    env = SimpleNamespace(**vars(ticket_env), carried=[], peer_says={}, typed=[], handed=[])
+
+    def configure(own: str = "home", peer: str = "company", *, accounts=None, **values) -> None:
+        entry = {"url": PEER_URL, "address": PEER_ADDRESS, **({"accounts": accounts} if accounts is not None else {})}
+        env.guard.base = {"machine_name": own, "agent_message_peers": {peer: entry}, **values}
+        write_config(monkeypatch, env.root, **env.guard.base)
+
+    def call_peer(url, payload, timeout):
+        env.carried.append((url, payload))
+        for ending, answer in env.peer_says.items():
+            if url.split("?")[0].endswith(ending):
+                if isinstance(answer, BaseException):
+                    raise answer
+                return answer
+        return 200, {"ok": True}
+
+    async def deliver_or_keep(tab_id, text):
+        env.typed.append((tab_id, text))
+        return {"ok": True}
+
+    async def hand_over_work(sender, receiver):
+        env.handed.append((sender, receiver))
+
+    async def record_reply(name, peer, reply):
+        return None
+
+    env.configure = configure
+    env.down = urllib.error.URLError("no route")
+    monkeypatch.setattr(peer_call, "_call_peer", call_peer)
+    monkeypatch.setattr(ticket_relay.peer_health, "record_reply", record_reply)
+    for module in (ticket_pass, relay_home):
+        monkeypatch.setattr(module, "deliver_or_keep", deliver_or_keep)
+        monkeypatch.setattr(module, "tab_reachable", lambda tab_id: True)
+    monkeypatch.setattr(ticket_pass, "hand_over_work", hand_over_work)
+    monkeypatch.setattr(ticket_checks, "session_of", lambda tab: f"conv-{tab}")
+    configure()
+    return env
+
+
+def outside_ticket(*, title: str = "Title", holder: str | None = None) -> str:
+    """A ticket opened by `ses_a` on this machine (outside every boundary), held by `holder` when given."""
+    ticket = run(ticket_service.open_ticket("ses_a", title, "Request", operator_said=False))["id"]
+    if holder is not None:
+        ticket_index.put(ticket, ticket_index.get(ticket)._replace(holder=holder))
+    return ticket

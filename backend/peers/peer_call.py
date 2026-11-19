@@ -1,7 +1,7 @@
 """One call to another machine's backend (`agent_message_peers`), and what came back.
 
-Used by `routes/agent_messages.py` (the tab list and a message handed over directly), `peer_patrol.py` (the watch) and
-`outbox_flush.py` (a kept message sent again).
+Used by `routes/agent_messages.py` (the tab list and a message handed over directly), `peer_patrol.py` (the watch),
+`outbox_flush.py` (a kept message sent again) and `backend/tickets/ticket_relay.py` (a ticket's commands).
 """
 from __future__ import annotations
 
@@ -30,6 +30,8 @@ CONNECT_TIMEOUT_SEC = PEER_LIST_TIMEOUT_SEC
 # The paths the backends call on each other (= accepted only from a configured machine's address).
 RELAYED_PATH = "/agent-messages/relayed"
 PEER_TABS_PATH = "/agent-messages/tabs"
+# The doors a ticket's commands cross by (`<path>/<ticket id>/<command>`, and the list at the path itself).
+TICKETS_PATH = "/agent-messages/tickets"
 
 
 @dataclass(frozen=True)
