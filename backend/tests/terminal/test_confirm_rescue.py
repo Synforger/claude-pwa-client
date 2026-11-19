@@ -30,7 +30,7 @@ def confirm_env(monkeypatch, tmp_path):
 
 
 def test_confirmed_true_when_prompt_appears(monkeypatch, confirm_env):
-    async def _confirms(counter, path, initial_pos, timeout):
+    async def _confirms(counter, path, initial_pos, timeout, **_):
         return True
 
     monkeypatch.setattr(confirm_mod, "_wait_count_added", _confirms)
@@ -43,7 +43,7 @@ def test_no_intervention_on_timeout(monkeypatch, confirm_env):
 
     confirm module は tmux 送信系を import していないこと自体も契約
     (= 誤って復活させたら import が生えて目に見える)。"""
-    async def _never(counter, path, initial_pos, timeout):
+    async def _never(counter, path, initial_pos, timeout, **_):
         return False
 
     monkeypatch.setattr(confirm_mod, "_wait_count_added", _never)
