@@ -80,31 +80,46 @@ LEFT_BY_A_LIMIT_STOP = frozenset({TURN_OPEN, AWAITING_TOOL_RESULT, STARTING})
 # commands of that answer. A sleep asked for by hand waits for these, and answers with the others at once.
 PASSING = frozenset({STARTING, TURN_OPEN, PROCESSES_RUNNING, AWAITING_TOOL_RESULT})
 
-# Language tools that stay under a claude whether or not it works. Matched against the name of a process and the
-# names in its command line (= a tool run by node shows as `node`, with its own name in the arguments). Nothing
-# below such a tool is looked at.
-LANGUAGE_TOOLS = frozenset({
-    "clangd", "pyright-langserver", "typescript-language-server", "gopls", "rust-analyzer", "sourcekit-lsp",
-})
+# The shells Claude runs its commands in (= its Bash tool and Monitor run `<shell> -c source <snapshot> && eval …`),
+# and its hooks. Matched against a process's own name only, whole: an argument named `sh` or a server named
+# `bash-language-server` is not a shell.
+SHELLS = frozenset({"zsh", "bash", "sh", "dash", "ksh", "fish"})
+# What Claude runs while it answers (and for up to five minutes after).
+ANSWERING = "caffeinate"
+# The name of a process that could not be read.
+UNREADABLE = "?"
 
 
 @dataclass(frozen=True)
 class ProcessNode:
-    """One process under a claude: the names it goes by, and its children."""
+    """One process under a claude: the names it goes by (its own first, then those of its first arguments), and its
+    children."""
     names: tuple[str, ...]
     children: tuple["ProcessNode", ...] = ()
 
 
 def foreign_processes(nodes: tuple[ProcessNode, ...]) -> tuple[str, ...]:
-    """The names of the processes that are not language tools, without looking below a language tool. `caffeinate`
-    (= claude runs it while it answers) and every command claude started are among them."""
+    """The names of the processes right under a claude that show it at work: a shell (= a command it runs, or a hook)
+    with everything under it, `caffeinate` (= it answers), and a process whose name could not be read. Any other
+    process right under a claude is a server it keeps whether or not it works (= an MCP server, a language tool), and
+    neither it nor anything under it is looked at."""
     found: list[str] = []
     for node in nodes:
-        if LANGUAGE_TOOLS.intersection(node.names):
-            continue
-        found.append(node.names[0] if node.names else "?")
-        found.extend(foreign_processes(node.children))
+        own = node.names[0] if node.names else UNREADABLE
+        if own in SHELLS:
+            found.append(own)
+            found.extend(_all_names(node.children))
+        elif own in (ANSWERING, UNREADABLE):
+            found.append(own)
     return tuple(found)
+
+
+def _all_names(nodes: tuple[ProcessNode, ...]) -> list[str]:
+    names: list[str] = []
+    for node in nodes:
+        names.append(node.names[0] if node.names else UNREADABLE)
+        names.extend(_all_names(node.children))
+    return names
 
 
 @dataclass(frozen=True)

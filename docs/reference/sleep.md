@@ -46,7 +46,7 @@
 | そのタブの会話の記録が見つかる | `no_record` |
 | 会話の記録と、その会話の子の Agent の記録 (記録と同じ名前の folder の `subagents/`) のどちらにも、`minutes` 分のあいだ新しい行が無い。行の新しさは、行が持つ時刻 (`timestamp`) で測る | `not_quiet` |
 | コンテキストの割合が、そのエージェントの `rollover.idle.context_pct` 未満 (入れ替えの設定が無いエージェントは、この条件を見ない) | `context_at_rollover_line` |
-| Claude のプロセスの下に、言語の道具以外のプロセスが 1 つも無い | `processes_running` |
+| Claude のすぐ下に、命令を走らせている shell も `caffeinate` も無い | `processes_running` |
 | 最後の発話より後に `ScheduleWakeup` で起きる予約をしていない | `wakeup_scheduled` |
 | 会話の中で `CronCreate` で作った定期実行が、`CronDelete` で消されずに残っていない | `cron_scheduled` |
 | 会話の最後の行が、結果のまだ無い道具の呼び出しではない (人の答えや許可を待っていない) | `awaiting_tool_result` |
@@ -58,9 +58,14 @@
 - コンテキストの割合は、画面の上部に出ている値と、自動の入れ替えが使う値と同じです。`rollover.idle.context_pct`
   を超えたタブは、眠らせずに入れ替えが引き受けます。入れ替えの頼みが期限切れになったタブは、引き受ける物が
   無いので、線の上でも眠ります
-- 言語の道具は、作業していなくても Claude の下に居続けるので数えません: `clangd`・`pyright-langserver`・
-  `typescript-language-server`・`gopls`・`rust-analyzer`・`sourcekit-lsp`。それ以外のプロセスは作業の印です。
-  返事を作っている間に居る `caffeinate` も、走っているコマンドも含みます
+- 作業の印と数えるのは、Claude のすぐ下のプロセスのうち、次の 3 つだけです
+  - shell (`zsh`・`bash`・`sh`・`dash`・`ksh`・`fish`) とその下の全部。Claude が走らせるコマンド (前でも裏でも、
+    Monitor も) と hook は shell の中で動きます
+  - `caffeinate`。返事を作っている間と、その後の最大 5 分居ます
+  - 名前の読めないプロセス
+- それ以外のプロセス (MCP の server や言語の道具など、作業していなくても Claude の下に居続ける物) は、その下も
+  含めて数えません。shell かどうかはプロセス自身の名前だけで見ます (引数の名前や、`bash-language-server` の
+  ような名前の一部では見ません)
 - 口座の振り分けは眠ったタブを見ないので、頼みや借りのあるタブを眠らせると、その頼みが宙に浮きます。そのタブは
   振り分けが片付けるまで起きています。振り分けが自分でタブを止める時と、親の `tabs sleep` は、この条件を見ません
 - `ScheduleWakeup` の予約と `CronCreate` の定期実行は、Claude が終わると消えます。眠らせると予約した作業が
