@@ -188,10 +188,11 @@ def test_a_server_kept_under_the_claude_is_not_work(tmp_path):
 
 
 def test_a_command_run_in_a_shell_is_work():
-    child = subprocess.Popen(["/bin/zsh", "-c", "sleep 30 && true"])
+    child = subprocess.Popen(["/bin/sh", "-c", "sleep 30 && true"])     # a list, as Claude's Bash tool runs: the shell stays
     try:
-        tree = _tree_with("zsh")
-        assert tree and j.foreign_processes(tree) == ("zsh", "sleep")
+        tree = _tree_with("sh")
+        work = j.foreign_processes(tree)                    # /bin/sh is bash on macOS and dash on Linux
+        assert tree and work[0] in j.SHELLS and work[1:] == ("sleep",)
     finally:
         child.kill()
         child.wait()
