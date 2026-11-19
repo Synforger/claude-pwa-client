@@ -69,6 +69,16 @@ describe('MessageItem render smoke', () => {
     setOverlay('ticket', null)
   })
 
+  it('the notice that a ticket came back shows as one line that opens the ticket screen', () => {
+    const text = `${CLIENT_NOTICE_OPENING}\n<ticket-returned ticket="home-261119-04">\nthe tab that held it was closed\n</ticket-returned>`
+    const { getByTestId } = render(<MessageItem {...baseProps} msg={{ id: 'u5', role: 'user', text }} />)
+    const link = getByTestId('ticket-answer-link')
+    expect(link.textContent).toContain('home-261119-04')
+    fireEvent.click(link)
+    expect(getUiSnapshot().overlays.ticket).toBe('home-261119-04')
+    setOverlay('ticket', null)
+  })
+
   it('a relayed message shows what the operator said above its body', () => {
     const text = `${AGENT_MESSAGE_OPENING}\n<agent-message from="tools" session="ses_sender">\n<operator-said>\nhave the owner fix it\n</operator-said>\na title that wraps overlaps\n</agent-message>`
     const { container, getByTestId } = render(

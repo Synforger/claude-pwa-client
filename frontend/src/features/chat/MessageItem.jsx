@@ -592,7 +592,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
           <div className="relayed-from" data-testid="tab-open-label">{t('chat.tab_open')}</div>
           <span className="bubble" data-testid="tab-open-body">{tabOpen.tier ?? '?'}</span>
         </div>
-      ) : notice && notice.kind === 'ticket-answer' && notice.ticket ? (
+      ) : notice && (notice.kind === 'ticket-answer' || notice.kind === 'ticket-returned') && notice.ticket ? (
         <div className="relayed-block">
           <button type="button" className="relayed-ticket-link" onClick={() => setOverlay('ticket', notice.ticket)} data-testid="ticket-answer-link">
             {noticeLabel(notice, t)}
