@@ -118,6 +118,8 @@ import backend.routes.subagents as subagents_routes  # noqa: E402
 import backend.routes.tickets as tickets_routes  # noqa: E402
 import backend.routes.tier_tabs as tier_tabs_routes  # noqa: E402
 import backend.tier_tabs.tier_tabs as tier_tabs  # noqa: E402
+import backend.tickets.answer_delivery as answer_delivery  # noqa: E402
+import backend.tickets.ticket_return as ticket_return  # noqa: E402
 import backend.routes.unified_stream as unified_stream_routes  # noqa: E402
 import backend.routes.voice as voice_routes  # noqa: E402
 import backend.routes.voice_call as voice_call_routes  # noqa: E402
@@ -293,6 +295,11 @@ async def lifespan(app: FastAPI):
     # 止まった子: 報告せずに入力待ちで止まった子のタブがあれば、 親のタブへ 1 通知らせる (= `backend/child_watch/`)。
     child_watch_task = asyncio.create_task(child_watch.watch_loop())
 
+    # 頼みの票: 操作者の答えを、 票を持つタブへ届くまで見回って届ける (= `backend/tickets/answer_delivery.py`)。 持つタブが閉じられた票は、
+    # 最初に頼んだタブへ戻す (= `backend/tickets/ticket_return.py`)。 票が無ければ何もしない。
+    answer_task = asyncio.create_task(answer_delivery.patrol_loop())
+    ticket_return_task = asyncio.create_task(ticket_return.return_loop())
+
     # 声の engine: 設定に `voice.engine_service` を書いた agent の engine を、 声が開いたら起こし、 使わなくなったら
     # 止める (= `backend/engine_wake/`。 設定の無い engine は常駐に任せる)。
     engine_wake_task = asyncio.create_task(engine_wake.wake_loop())
@@ -355,6 +362,8 @@ async def lifespan(app: FastAPI):
     hold_task.cancel()
     resume_task.cancel()
     child_watch_task.cancel()
+    answer_task.cancel()
+    ticket_return_task.cancel()
     engine_wake_task.cancel()
     tier_tabs_task.cancel()
     api_tabs_task.cancel()
@@ -362,7 +371,7 @@ async def lifespan(app: FastAPI):
     prompt_detector_task.cancel()
     loop_stall_task.cancel()
     for _t in (blocker_monitor_task, uploads_gc_task, maintenance_task, rollover_task, sleep_task, fallback_task,
-               hold_task, resume_task, child_watch_task, engine_wake_task, tier_tabs_task, api_tabs_task, peer_task, prompt_detector_task,
+               hold_task, resume_task, child_watch_task, answer_task, ticket_return_task, engine_wake_task, tier_tabs_task, api_tabs_task, peer_task, prompt_detector_task,
                loop_stall_task):
         try:
             await _t

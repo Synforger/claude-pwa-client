@@ -1160,6 +1160,33 @@ endpoints:
     implementation: backend/routes/tickets.py
 
   - method: POST
+    path: /tickets/{ticket}/answer
+    description: "the operator's answer to a ticket that waits for it (= json: asked_at, and text or recommend), called by the operator's screen"
+    request_body:
+      type: object
+      properties:
+        asked_at:  { type: string, description: "the `at` of the `asked` line the screen was showing" }
+        text:      { type: string, description: "the operator's words (= not read when recommend is true)" }
+        recommend: { type: boolean, description: "true takes the recommendation of that `asked` line as the answer" }
+      required: [asked_at]
+    response:
+      type: object
+      properties:
+        ok:     { type: boolean }
+        id:     { type: string }
+        queued: { type: boolean, description: "true: the answer is written and waits for the tab that holds the ticket" }
+      required: [ok, id, queued]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "the guard's destinations block this door for the tabs (= local:<port>/tickets/*/answer*), so only the operator's screen reaches it"
+      - "the ticket must wait for the operator (409 ticket_not_waiting), asked_at must be the `at` of its last `asked` line (409 ticket_ask_changed), a tab must hold it (409 ticket_no_holder), a recommendation must be there when recommend is true (409 ticket_no_recommend), an empty text is 400 ticket_empty and a body without asked_at 400 ticket_bad_answer"
+      - "the `answered` line and the row (open, wants nothing) are written together under the ticket's lock, then the answer is queued (answer-queue.json, key = ticket id + asked_at) and delivered in the background"
+      - "the answer is not judged by the guard (= the operator's own words); the holder only has to have read the ticket's boundary"
+      - "an answer is typed only while the holder's claude is not working and the conversation was not asked to close; a ticket cannot be handed over (409 ticket_answer_pending) until the answer has reached its holder"
+    implementation: backend/routes/tickets.py
+
+  - method: POST
     path: /tickets/{ticket}/close
     description: "a tab closes a ticket (= form: from, text optional); the ticket stays as the record of the request"
     request_body:

@@ -64,8 +64,10 @@ AGENT_MESSAGE_OPENINGS = (AGENT_MESSAGE_OPENING, AGENT_MESSAGE_REMOTE_OPENING)
 # 連絡の封筒のタグと、 送り主のタブで人が最後に打った発話を入れる場所 (= backend だけが書く)。
 AGENT_MESSAGE_TAG = "agent-message"
 OPERATOR_SAID_TAG = "operator-said"
-# 封筒のタグと同じ形の文字列を、 中身の側から書けなくする (= 本文で封筒を閉じる / 人の発話を装う)。
-_TAG_LIKE = re.compile(rf"<(/?)({AGENT_MESSAGE_TAG}|{OPERATOR_SAID_TAG})")
+# 票への人の答えを持つタブへ届ける封筒のタグ (= 1 行目は `CLIENT_NOTICE_OPENING`)。
+TICKET_ANSWER_TAG = "ticket-answer"
+# 封筒のタグと同じ形の文字列を、 中身の側から書けなくする (= 本文で封筒を閉じる / 人の発話を装う / 票の答えを装う)。
+_TAG_LIKE = re.compile(rf"<(/?)({AGENT_MESSAGE_TAG}|{OPERATOR_SAID_TAG}|{TICKET_ANSWER_TAG})")
 
 
 def _plain(text: str) -> str:
@@ -125,6 +127,18 @@ TAB_OPEN_OPENING = "Tab opened by the client for its tier (the operator did not 
 CLIENT_NOTICE_OPENING = "Sent by the client (the operator did not type this):"
 # 端末から入るが、 人が打っていない発話の 1 行目の全部。
 CLIENT_OPENINGS = (*AGENT_MESSAGE_OPENINGS, ROLLOVER_OPENING, TAB_OPEN_OPENING, CLIENT_NOTICE_OPENING)
+
+
+def ticket_answer_envelope(ticket: str, answer: str, *, closed: bool = False) -> str:
+    """票 `ticket` への人の答えを、 その票を持つタブへ届ける封筒。 1 行目は backend の知らせの物なので、 受けたタブの
+    `last_operator_text` は拾わず、 `--operator-said` で先へ運べない (= 先へ運ぶのは票で行う)。 `closed` の時は、
+    答えが届くまでに票が閉じたことを 1 行で言う。 `answer` の中の封筒に似た文字列は潰す。"""
+    sentence = f"票 {ticket} への操作者の答えです。 全体は `tabs ticket show {ticket}`"
+    if closed:
+        sentence += "。 票は閉じています"
+    return (f'{CLIENT_NOTICE_OPENING}\n<{TICKET_ANSWER_TAG} ticket="{_attr(ticket)}">\n'
+            f"<{OPERATOR_SAID_TAG}>\n{_plain(answer)}\n</{OPERATOR_SAID_TAG}>\n"
+            f"{sentence}\n</{TICKET_ANSWER_TAG}>")
 
 
 def is_client_message(text) -> bool:

@@ -269,13 +269,13 @@ def test_a_typing_that_answered_not_ok_does_not_use_the_id_up(machine, typed, mo
     far = TestClient(FastAPI(), client=(PEER_ADDRESS, 50000))
     far.app.include_router(am.router)
     body = {"to": "ses_receiver", "from_title": "tools", "from_session": "ses_far", "text": "retry me", "message_id": "d" * 32}
-    real = am._deliver_or_keep
+    real = am.deliver_or_keep
 
     async def not_typed(tab_id, text):
         return {"ok": False, "reason": "send_failed"}
-    monkeypatch.setattr(am, "_deliver_or_keep", not_typed)
+    monkeypatch.setattr(am, "deliver_or_keep", not_typed)
     assert far.post(am.RELAYED_PATH, json=body).json()["ok"] is False
-    monkeypatch.setattr(am, "_deliver_or_keep", real)
+    monkeypatch.setattr(am, "deliver_or_keep", real)
     answer = far.post(am.RELAYED_PATH, json=body).json()
     assert answer["ok"] is True and "duplicate" not in answer
     assert _to_receiver(typed) == ["retry me"]
@@ -286,12 +286,12 @@ def test_a_message_that_may_have_arrived_is_not_typed_again_with_the_same_id(mac
     far = TestClient(FastAPI(), client=(PEER_ADDRESS, 50000))
     far.app.include_router(am.router)
     body = {"to": "ses_receiver", "from_title": "tools", "from_session": "ses_far", "text": "maybe in", "message_id": "e" * 32}
-    real = am._deliver_or_keep
+    real = am.deliver_or_keep
 
     async def stopped_part_way(tab_id, text):
         am.raise_error(500, am.UNCONFIRMED_CODE, am.UNCONFIRMED_MESSAGE)
-    monkeypatch.setattr(am, "_deliver_or_keep", stopped_part_way)
+    monkeypatch.setattr(am, "deliver_or_keep", stopped_part_way)
     assert far.post(am.RELAYED_PATH, json=body).json()["detail"]["code"] == am.UNCONFIRMED_CODE
-    monkeypatch.setattr(am, "_deliver_or_keep", real)
+    monkeypatch.setattr(am, "deliver_or_keep", real)
     assert far.post(am.RELAYED_PATH, json=body).json()["duplicate"] is True
     assert _to_receiver(typed) == []

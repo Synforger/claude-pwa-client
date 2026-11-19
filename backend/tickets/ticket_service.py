@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -49,19 +50,34 @@ def row_of(ticket: str, *, open_only: bool = False) -> IndexRow:
     return row
 
 
-def write_entry(ticket: str, folder: Path, entry: dict, change: dict | None = None, *, must_be_open: bool = False) -> IndexRow:
+def write_entry(ticket: str, folder: Path, entry: dict, change: dict | None = None, *, must_be_open: bool = False,
+                check: Callable[[IndexRow], None] | None = None, after: Callable[[], None] | None = None) -> IndexRow:
     """Add a line and, with it, change the ticket's row (`change` = fields of `IndexRow`). A ticket that closed since the
     caller looked is refused here, which is the check that counts (= the lock is held). `must_be_open` refuses a ticket
-    that waits for the operator as well. → the row after the change."""
+    that waits for the operator as well. `check` sees the row under the lock and raises to refuse the change, and `after`
+    runs under the lock once the line and the row are written (= what must not be seen half done by another change).
+    → the row after the change."""
     with ticket_file.lock_for(ticket), ticket_index.locked():
         row = row_of(ticket, open_only=True)
         if must_be_open and row.status == WAITING_OPERATOR:
             raise_error(409, "ticket_waiting_operator", f"その票は操作者の返事を待っています。 渡せません: {ticket}", id=ticket)
+        if check is not None:
+            check(row)
         ticket_file.append(folder, ticket, entry)
         if change:
             row = row._replace(**change)
             ticket_index.put(ticket, row)
+        if after is not None:
+            after()
         return row
+
+
+def record(ticket: str, folder: Path, entry: dict) -> None:
+    """Add a line the client writes about what happened to the ticket (= `answered` is written by `write_entry`; this is
+    for `delivered`). It changes no row and is let onto a closed ticket, since the operator's answer reaches the holder
+    of a ticket that closed meanwhile."""
+    with ticket_file.lock_for(ticket):
+        ticket_file.append(folder, ticket, entry)
 
 
 def _create(folder: Path, opener: str, entries: list[dict]) -> str:

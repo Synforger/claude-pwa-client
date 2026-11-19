@@ -129,13 +129,10 @@ def test_no_door_answers_a_call_from_another_machine(ticket_env):
     calls = [remote.post("/tickets", data={"from": "ses_a", "title": "t", "text": "x"}),
              remote.post("/tickets/home-261119-01/entries", data={"from": "ses_a", "text": "x"}),
              remote.post("/tickets/home-261119-01/asks", data={"from": "ses_a", "kind": "mac", "text": "x"}),
+             remote.post("/tickets/home-261119-01/answer", json={"asked_at": "x", "text": "x"}),
              remote.post("/tickets/home-261119-01/close", data={"from": "ses_a"}),
              remote.post("/tickets/home-261119-01/pass", data={"from": "ses_a", "to": "ses_b"}),
              remote.get("/tickets/home-261119-01", params={"reader": "ses_a"}), remote.get("/tickets")]
-    assert [_error(call) for call in calls] == [(403, "ticket_local_only")] * 7
+    assert [_error(call) for call in calls] == [(403, "ticket_local_only")] * 8
     assert ticket_index.rows() == {}
 
-
-def test_no_door_is_the_answer_path_that_the_guard_keeps_for_the_operator(client):
-    paths = {route.path for route in ticket_routes.router.routes}
-    assert not any(path.endswith("/answer") for path in paths)

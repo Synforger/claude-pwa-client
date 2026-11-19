@@ -118,6 +118,32 @@ def test_endpoint_stop_event_holds_prose_not_in_the_configured_language(fake_age
     assert len(captured_pushes) == 1
 
 
+def test_endpoint_stop_event_delivers_the_answers_waiting_for_the_tab_even_when_the_push_is_held(
+        fake_agents, fake_bindings, captured_pushes, monkeypatch):
+    """The end of a turn is when an answer of the operator's that waited for the tab is typed (= in the background)."""
+    import threading
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    fake_bindings("primary", "claude-internal-uuid")
+    monkeypatch.setattr(hooks_router, "session_language", lambda sid: "日本語")
+    stopped, seen = [], threading.Event()
+
+    async def on_stop(tab_id):
+        stopped.append(tab_id)
+        seen.set()
+
+    monkeypatch.setattr(hooks_router.answer_delivery, "on_stop", on_stop)
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    english = "The fix is ready. The only thing left before I merge and deploy it is the GitHub check, which has not finished yet."
+    payload = {"hook_event_name": "Stop", "session_id": "claude-internal-uuid", "cwd": fake_agents["cwd"],
+               "last_assistant_message": english}
+    assert TestClient(app).post("/hooks/event", json=payload).json()["held"] == "foreign_prose"
+    assert seen.wait(timeout=5) and stopped == ["primary"]
+
+
 def test_endpoint_notification_event_pushes_message(fake_agents, fake_bindings, captured_pushes):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient

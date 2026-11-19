@@ -28,7 +28,8 @@ tabs ticket pass <id> <宛先のタブの id か名前>           # 票の持ち
   file には、 操作者がそのまま取れる推奨を書きます。 `ask` した票は操作者の返事を待つ状態 (`waiting-operator`) になります
 - `pass`: 持ち主を宛先へ移し、 宛先に 「票 `<id>` を渡されました。 `tabs ticket show <id>` で読んでください」 の
   1 行を [タブどうしの連絡](agent-messages.md) と同じ道で届けます (= Claude の居ないタブは起こします)。
-  届ける前に失敗した時、 票は変わりません。 操作者の返事を待っている票と、 閉じた票は渡せません
+  届ける前に失敗した時、 票は変わりません。 操作者の返事を待っている票と、 閉じた票は渡せません。 操作者の答えが
+  持ち主に届くまでも渡せません (= 宛先が途中で変わらないようにするため。 [操作者の答えを届ける](#操作者の答えを届ける))
 - 票の本文を、 連絡の 1 行に写して回さないでください。 宛先は `show` で読みます
 
 失敗した時は、 標準エラーに `tabs: <見出し> [<code>]: <理由>` を出して 1 で終わります。
@@ -38,7 +39,13 @@ tabs ticket pass <id> <宛先のタブの id か名前>           # 票の持ち
 | `ticket_unknown` | その id の票がありません。 id を確かめてください |
 | `ticket_closed` | 票は閉じていて、 書き足せません |
 | `ticket_waiting_operator` | 票は操作者の返事を待っていて、 渡せません |
-| `ticket_empty` | 題・本文・宛先が空です |
+| `ticket_empty` | 題・本文・宛先・答えが空です |
+| `ticket_not_waiting` | 票は操作者の返事を待っていません (= 答えの口) |
+| `ticket_ask_changed` | 答えた問いが、 最後の問いではなくなっています (= 画面が見ている間に別の `ask` が足されました。 見直してから答えます) |
+| `ticket_no_holder` | 票を持つタブがありません (= 持っていたタブも、 最初に頼んだタブも閉じられました) |
+| `ticket_no_recommend` | 最後の問いに推奨がありません (= 推奨では答えられません) |
+| `ticket_bad_answer` | 答えの形が正しくありません (= `asked_at` が無い、 `text` が文字列でない) |
+| `ticket_answer_pending` | 操作者の答えが、 まだ持ち主に届いていません。 届いてから渡します |
 | `ticket_bad_kind` | `--kind` が `decide` / `mac` / `report` ではありません |
 | `ticket_to_self` | 自分のタブへは渡せません |
 | `ticket_peer_not_yet` | 別の機械のタブへは、 まだ渡せません |
@@ -58,13 +65,16 @@ tabs ticket pass <id> <宛先のタブの id か名前>           # 票の持ち
 
 | 欄 | 中身 |
 |---|---|
-| `kind` | `opened` (最初の頼み) / `operator` (操作者の原文) / `added` / `asked` / `passed` / `closed` |
+| `kind` | `opened` (最初の頼み) / `operator` (操作者の原文) / `added` / `asked` / `passed` / `closed` / `answered` / `delivered` / `returned` (最後の 3 つは backend が書く。 `tab`・`tab_title`・`tier` は空) |
 | `at` | 時刻 (ISO、 UTC) |
 | `tab` / `tab_title` / `tier` | 書いたタブの id・名前・階層 |
 | `text` | 本文 |
 | `title` | `opened` だけ |
 | `ask_kind` / `recommend` | `asked` だけ (`recommend` は任意) |
-| `to` | `passed` だけ (渡した先のタブの id) |
+| `to` | `passed` (渡した先のタブの id)・`delivered` (答えを打った先)・`returned` (戻した先。 戻す先が無ければ空) |
+| `asked_at` / `recommended` | `answered` だけ (答えた問いの `at` と、 推奨で答えたか) |
+| `asked_at` / `result` | `delivered` だけ (どの問いへの答えか、 `typed` / `kept` / `unconfirmed` / `refused`) |
+| `from` | `returned` だけ (持っていたタブの id) |
 | `typed_in` | `operator` だけ (その言葉が打たれたタブの id) |
 
 id は `<機械の名前>-<YYMMDD>-<NN>` です (例: `home-261119-01`)。 NN は機械と日ごとに 01 から数えます。 機械の名前は
@@ -105,6 +115,75 @@ id は `<機械の名前>-<YYMMDD>-<NN>` です (例: `home-261119-01`)。 NN �
 - `pass` は、 渡す側と渡される側の両方が `ticket_covers_check` を通ります
 - `show` の件は、 読むタブに対して 1 件ずつ `ticket_read_check` を通ります。 止まった件は
   `{"kind": ..., "at": ..., "hidden": true, "text": "読めない境界の書き足し"}` だけになり、 誰が書いたかも出ません
+
+## 操作者の答えを届ける
+
+操作者は、 `ask` された票 (`waiting-operator`) に、 自分の画面から答えます。 答えは、 その票を持つタブへ届くまで
+backend が預かります。 `tabs` の命令にはなく、 タブは答えの口を呼べません (= 検査の `destinations` が止めます)。
+
+### 答えの口
+
+`POST /tickets/<id>/answer`。 本文は JSON で、 `{"asked_at": "<画面が見ていた問いの at>", "text": "<答え>"}` か
+`{"asked_at": …, "recommend": true}` (= その問いの推奨をそのまま答えにする。 この時 `text` は読みません)。
+`asked_at` は、 答える問い (= その票の最後の `asked` の件) の `at` です。 同じ機械の中からだけ呼べます。
+
+次の順に確かめて、 どれかに当たれば断ります (code は上の表)。 票が無い (`404 ticket_unknown`) → 操作者の返事を待っていない
+(`409 ticket_not_waiting`) → `asked_at` が最後の問いのものでない (`409 ticket_ask_changed`) → 持つタブが空
+(`409 ticket_no_holder`) → `recommend` なのに推奨が無い (`409 ticket_no_recommend`)。 文が空 (`400 ticket_empty`) と、
+形が読めない (`400 ticket_bad_answer`) は、 票を見る前に断ります。
+
+通ると、 票の file に `answered` の件を足し、 索引の状態を `open` に戻します (= 1 つの lock の中で一緒に)。 続けて答えを
+**答えの列** (`<置き場の根>/state/claude-pwa-client/tickets/answer-queue.json`) に足し、 裏で届け始めます。 返事は
+`{"ok": true, "id": …, "queued": true}` です。 列の 1 件は `(票の id, asked_at)` だけで、 文は持ちません (= 文は票の
+`answered` の件から読みます)。 同じ鍵は 2 件になりません。 答えは操作者自身の言葉なので、 検査コマンドの
+`ticket_write_check` には掛けません。 届ける時に、 持つタブが票の置き場の境界を読んでいるか (`ticket_covers_check`) だけを確かめます。
+
+### 届け方
+
+届けるのは次の 3 つのどれかが引き金です。 どれも同じ判定を、 答え 1 件ごとの lock の中で行い、 「打つ → 結果を見る →
+列から消す」 の順に進みます (= 同時に 3 つ来ても 1 回しか打ちません)。
+
+- 答えを列に足した時
+- 持つタブの turn が終わった時 (`Stop` の hook)
+- 5 秒ごとの見回り (backend の起動から 30 秒は見ません)
+
+宛先は、 届ける時の索引の持ち主です。 封筒の 1 行目は backend の知らせの物 (`Sent by the client (the operator did not
+type this):`) で、 `<ticket-answer ticket="<id>">` の中に `<operator-said>` で答えの文が入ります。 1 行目が知らせの物なので、
+受けたタブが `tabs send --operator-said` で先へ運ぶことはできません。 先へ運ぶ時は票に書きます。
+
+| 持つタブと票の今 | 手 | 列 |
+|---|---|---|
+| この機械に居て、 推論中でなく、 締めを頼まれていない | 打つ (眠っていれば起こす。 口座の線で止まっていれば、 起こさず預かる)。 `delivered` の件 (`typed` / `kept`) を足す | 消す |
+| 推論中、 または締め (自動の入れ替え) を頼まれた会話 | 打たない (Claude Code の待ち行列にも入れない) | 残す。 入れ替えの後の会話か、 turn の終わりで打つ |
+| 人が Stop を押して止めた | 推論中ではないので、 上の 1 行目 | 消す |
+| 打つ前に断られた (宛先で claude が動かない・起動しない・想定外の失敗) | 何も届いていない | 残す。 打ち直す間を 5 秒から倍にして、 5 分で止める |
+| 打った後に届いたか分からない (`agent_message_unconfirmed` / `agent_message_not_taken`) | 打ち直さない。 `delivered` の件 (`unconfirmed`) | 消す |
+| 検査が動かない (`ticket_check_failed`)・置き場が見つからない (`ticket_place_unknown`) | 打たない | 残す (上と同じ間で打ち直す) |
+| 持つタブが置き場の境界を読んでいない | 打たない。 `delivered` の件 (`refused`)。 log に WARNING | 消す |
+| 持つタブが閉じられた | 下の「持ち主の戻り」 で戻してから、 この表を引き直す | 残す |
+| 持つタブが空・持つタブが別の機械 | 打たない | 残す |
+| 票が閉じている | 打つ (答えは消さない)。 封筒に 「票は閉じています」 の 1 文が付く。 持つタブが閉じられていれば `refused` | 消す |
+| 索引に票の行が無い | 打たない。 log に WARNING | 消す |
+
+backend を打った直後に落とすと、 起動の時の入れ直しで同じ答えが 2 回打たれることがあります。 打つ前に消すと答えが消えるので、
+2 回の方を受け入れています。 起動の入れ直しは、 票の file の `answered` の件のうち、 `delivered` の件が無いものを列に戻します。
+
+### 持ち主の戻り
+
+60 秒ごとの見回りと、 答えを届ける前に、 閉じていない票の持つタブが生きているか見ます。
+
+| 持つタブ | 最初に頼んだタブ | 手 |
+|---|---|---|
+| この機械に居る | — | なし |
+| 居ない (別の機械のタブは、 ここでは見ません) | 居る | 持ち主を最初に頼んだタブへ戻す。 `returned` の件 (`from` / `to`) を足し、 そのタブへ 「票 `<id>` を持っていたタブが閉じられたので、 あなたに戻りました」 の 1 行を送る。 子のタブなら、 子のメモを `作業中` に戻す |
+| 居ない | 居ない | 持ち主を空にする (`returned` の件の `to` は空)。 答えの口は `ticket_no_holder` で断る |
+
+知らせが届かなければ票は動かず、 次の見回りでやり直します。 操作者の返事を待つ票が戻っても、 状態は待ちのままです。
+
+### backend の log
+
+- `ticket answer: id=… asked_at=… holder=… result=typed|kept|unconfirmed|refused|waiting|retry …` (`refused` と `unconfirmed` は WARNING)
+- `ticket returned: id=… from=… to=…`
 
 ## 設定
 
