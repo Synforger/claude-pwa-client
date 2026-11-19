@@ -152,6 +152,16 @@ describe('the notice that an answer was delivered for a ticket', () => {
   })
 })
 
+describe('the notice that a ticket came back to the tab that asked first', () => {
+  const text = `${CLIENT_NOTICE_OPENING}\n<ticket-returned ticket="home-261119-04">\n票 home-261119-04 を持っていたタブが閉じられたので、 あなたに戻りました\n</ticket-returned>`
+
+  it('is read as a notice of its own kind with the ticket, labelled with its id', () => {
+    expect(parseClientNotice(text)).toMatchObject({ kind: 'ticket-returned', ticket: 'home-261119-04' })
+    const t = (key, params) => `${key}:${params.id}`
+    expect(noticeLabel(parseClientNotice(text), t)).toBe('chat.notice_ticket_returned:home-261119-04')
+  })
+})
+
 describe('parseClientNotice', () => {
   const moved = `${CLIENT_NOTICE_OPENING}\n<account-move from="work" to="personal" reason="limit">\nA usage limit stopped this session.\n</account-move>`
   const resumed = `${CLIENT_NOTICE_OPENING}\n<limit-resume account="personal">\nThe usage limit has ended.\n</limit-resume>`

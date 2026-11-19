@@ -358,6 +358,7 @@
   "drawer.tickets": "票の一覧",
   "chat.ticket_handed": "票 {id} を渡されました ▸",
   "chat.notice_ticket_answer": "票 {id} に答えを届けました ▸",
+  "chat.notice_ticket_returned": "票 {id} があなたに戻りました ▸",
   "tickets.title": "票",
   "tickets.empty": "票はありません",
   "tickets.group_attention": "見てほしい",
