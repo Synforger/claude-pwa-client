@@ -112,6 +112,8 @@ PWA がチャットを表示し通知を出すには、 claude の hook が back
 - 同じ時に `PWA_FAVORITES` (= お気に入りの file の path) と `PWA_NOTE` (= そのタブのメモの file の path) も
   注入する。 エージェントは、 お気に入りの file に 1 行足すだけで path を登録でき、 メモの file に書けば
   📋 のメモに出る (= 形式は [data-schemas.md](../reference/data-schemas.md))。
+  子のタブ ([child-sessions.md](../reference/child-sessions.md)) には `AGENT_CHILD=1` も注入する (= `tabs report` は
+  これで子と知る。 どの agent で立った子でも付く)。
   注入は、 タブの tmux session が新しく作られる時だけ (= 動いているタブには、 次に起動し直した時から入る)
 - ターミナルから直接起動した claude は `PWA_SID` を持たないので backend 側で無視される (= 無害)。
   同じ settings を全 claude セッションで共有して問題ない

@@ -50,6 +50,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from backend._common import config as _config
+from backend._common import state
 from backend._common.paths import FAVORITES_PATH, PLATFORM_ROOT
 from backend.terminal import input_ready
 from backend.terminal.tab_memo import memo_path
@@ -110,7 +111,7 @@ _TMUX_NAME_SAFE = re.compile(r"[^A-Za-z0-9_-]")
 
 
 # backend がタブごとに決めて渡す環境変数 (= agent cfg の `env` では上書きさせない)
-_SESSION_ENV_RESERVED = frozenset({"PWA_SID", "PWA_FAVORITES", "PWA_NOTE", "AGENT_PLATFORM_ROOT"})
+_SESSION_ENV_RESERVED = frozenset({"PWA_SID", "PWA_FAVORITES", "PWA_NOTE", "AGENT_PLATFORM_ROOT", "AGENT_CHILD"})
 
 
 def tmux_session_env_args(session_id: str, extra_env: dict | None) -> list[str]:
@@ -123,6 +124,8 @@ def tmux_session_env_args(session_id: str, extra_env: dict | None) -> list[str]:
       folder's `pages/<tab id>/memo.md`.
     - `AGENT_PLATFORM_ROOT` = 器の根 (= backend が渡された時だけ。 タブの中の claude と hook が根を知る。
       tmux の session は backend の環境をそのまま受け継ぐとは限らない)
+    - `AGENT_CHILD=1` = 子のタブの時だけ (= `tabs report` はこれで子と知る。 子かどうかはタブの記録が決め、
+      どの agent で立ったか・起動の命令が何かに依らない)
     - agent cfg の `env`
     """
     args = [
@@ -132,6 +135,9 @@ def tmux_session_env_args(session_id: str, extra_env: dict | None) -> list[str]:
     ]
     if PLATFORM_ROOT is not None:
         args.extend(["-e", f"AGENT_PLATFORM_ROOT={PLATFORM_ROOT}"])
+    meta = state.sessions_meta.get(session_id)
+    if meta is not None and meta.child:
+        args.extend(["-e", "AGENT_CHILD=1"])
     for k, v in (extra_env or {}).items():
         if v is None or k in _SESSION_ENV_RESERVED:
             continue
