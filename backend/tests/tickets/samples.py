@@ -110,6 +110,7 @@ def delivery_env(ticket_env, monkeypatch):
     monkeypatch.setattr(answer_delivery, "deliver_or_keep", deliver_or_keep)
     monkeypatch.setattr(ticket_return, "deliver_or_keep", deliver_or_keep)
     monkeypatch.setattr(ticket_return, "hand_over_work", hand_over_work)
+    monkeypatch.setattr(answer_delivery, "hand_over_work", hand_over_work)
     monkeypatch.setattr(answer_delivery, "tab_reachable", lambda tab_id: tab_id not in env.unreachable)
     monkeypatch.setattr(answer_delivery, "is_busy", lambda tab_id: tab_id in env.busy)
     monkeypatch.setattr(answer_delivery, "jsonl_path_for_session", lambda tab_id: Path(f"/records/{tab_id}.jsonl"))

@@ -29,6 +29,18 @@ def test_an_idle_holder_is_typed_the_answer_in_the_clients_envelope_and_the_queu
     assert (line["asked_at"], line["result"], line["to"], line["tab"]) == (key.asked_at, "typed", "ses_a", "")
 
 
+def test_a_child_that_holds_the_ticket_holds_work_again_once_the_answer_is_typed(delivery_env):
+    delivery_env.tabs["ses_a"].parent_id = "ses_b"
+    key = answered_ticket(delivery_env)
+    run(answer_delivery.deliver(key))
+    assert delivery_env.handed == [("ses_b", "ses_a")]
+
+
+def test_a_holder_that_is_no_child_has_no_memo_set_back(delivery_env):
+    run(answer_delivery.deliver(answered_ticket(delivery_env)))
+    assert delivery_env.handed == []
+
+
 def test_a_working_holder_is_not_typed_to_and_the_stop_of_its_turn_types_the_answer(delivery_env):
     key = answered_ticket(delivery_env)
     delivery_env.busy.add("ses_a")

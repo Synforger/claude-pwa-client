@@ -16,7 +16,7 @@ from fastapi import HTTPException
 from backend._common.state import sessions_meta
 from backend.jsonl.jsonl_predicates import ticket_answer_envelope
 from backend.rollover import rollover
-from backend.routes.agent_messages import deliver_or_keep, tab_reachable
+from backend.routes.agent_messages import deliver_or_keep, hand_over_work, tab_reachable
 from backend.routes.overview import is_busy
 from backend.terminal.runner import jsonl_path_for_session
 from backend.tickets import answer_judgement, answer_queue, ticket_checks, ticket_entry, ticket_file, ticket_index
@@ -127,6 +127,11 @@ async def _type_answer(key: AnswerKey, row: IndexRow) -> None:
     result = await deliver_or_keep(row.holder, ticket_answer_envelope(key.ticket, text, closed=row.status == CLOSED))
     outcome = KEPT if result.get("kept") else (TYPED if result.get("ok") else answer_judgement.UNCONFIRMED)
     await _record(key, row, outcome)
+    # The answer is work for the holder: a child that reported (= it waited for the operator) holds work again, the same
+    # as when its parent hands it more.
+    parent = sessions_meta[row.holder].parent_id if row.holder in sessions_meta else None
+    if parent:
+        await hand_over_work(parent, row.holder)
     _finish(key)
     _log(logging.WARNING if outcome == answer_judgement.UNCONFIRMED else logging.INFO, key, row.holder, outcome)
 
