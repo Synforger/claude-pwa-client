@@ -31,12 +31,32 @@ tabs ask <タブの id か名前> <文の file> [--fresh] [--timeout <秒>]
 | `ask_unknown_tab` / `ask_ambiguous_tab` | その id か名前のタブが無い / 同じ名前が 2 つ以上あります。 id で指してください |
 | `ask_in_progress` | そのタブには別の問いの答えを待っています。 1 つのタブに聞けるのは 1 度に 1 つです |
 | `ask_tab_busy` | タブが別の仕事の途中です。 何も打っていません |
-| `ask_held` | タブが口座の止める線で止まっていて、 動ける口座がありません ([account-hold.md](account-hold.md)) |
+| `ask_held` | 口座が使えません。 `detail.params.reason` が `account_hold` なら、 タブが口座の止める線で止まっていて動ける口座が無く、 何も打っていません ([account-hold.md](account-hold.md))。 `limit_stop` なら、 打った問いのターンが使用量の上限で終わりました (下の「使用量の上限に当たった時」)。 どちらも、 口座が戻るまで聞くのを止めてください |
 | `ask_not_ready` | タブの Claude が起動しない、 入力を受けない、 `/clear` の後に新しい会話が開かない。 何も聞いていないので、 聞き直してください |
 | `ask_timeout` | 待つ秒数の間に答えが終わりませんでした。 そのターンは止めてあります |
 | `ask_empty` / `ask_bad_timeout` | 文が空 / 待つ秒数が 0 以下か 3600 を超えています |
 | `ask_unconfirmed` | 文は打ったかもしれませんが、 答えを受け取れませんでした。 聞き直す前にタブの会話を確かめてください |
 | `ask_not_sent` | backend に繋がりませんでした。 何も聞いていません |
+
+## 使用量の上限に当たった時
+
+タブの口座が使用量の上限 (5 時間や週の枠) に当たると、 Claude Code はそのターンを答えずに終え、 枠が戻った時に
+自分で続ける予約をします。 このターンには `Stop` の hook が来ないので、 backend は待つ間にタブの会話の記録を
+1 秒ごとに見て、 上限で終わった行が出たら待つ秒数を待たずに `ask_held` で返します。
+
+- `detail.params` は `reason: "limit_stop"`・`limit_message` (Claude Code の文そのまま。 例えば
+  `You've hit your 5-hour limit · resets 8:30am (Asia/Tokyo)`)・`continuation_cancelled` です。 理由の文にも
+  `limit_message` が入るので、 `tabs ask` の 1 行で戻りの時刻が読めます
+- 返す前に、 Claude Code の予約を Escape で取り消します。 取り消さないと、 枠が戻った時にタブが前の問いに
+  自分で答え始め、 次の問いと重なります。 `continuation_cancelled` は、 取り消せた時 `true`、 2 回押しても
+  取り消しの記録が出ない時 `false`、 予約が無かった時 `null` です
+- 打った問いはタブの会話に残っています。 聞き直す時は `--fresh` を付けてください
+- 一時的な混み合い (Claude Code が自分でやり直す 429) では返さず、 そのまま答えを待ちます。 上限以外の API の
+  誤りでターンが終わった時は、 今は `ask_timeout` になります
+
+聞かれる用のタブには、 client が自分で書く連絡 (口座の移しと止める線の頼みと続け、 [上限明けの続け](limit-resume.md)、
+子の止まりの知らせ) を打ちません。 聞き直すのは program の側の仕事で、 終わった問いへの「続けて」は次の問いの
+答えを取り合うためです。
 
 ## 口
 

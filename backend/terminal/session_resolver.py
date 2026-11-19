@@ -8,6 +8,7 @@
     resolve_launch_alias(session_id)   — 初回 zsh prompt に送る起動コマンド (alias or claude --resume)
     resolve_autoresume_fallback(sid)   — autoresume が即 exit した時 watchdog が打ち直す通常 alias
     uses_launcher(session_id)          — agent の launch_alias が launcher (= 最初の発話と再開を受け取る) か
+    takes_asks(session_id)             — agent が program に聞かれる設定 (= `"ask": true`) か
     first_message_command(sid, path)   — launcher に最初の発話を渡して起動するコマンド
 
 launcher (= agent cfg `launcher: true`) の agent は、 新しい会話を最初の発話が来るまで起動しない
@@ -82,6 +83,12 @@ def uses_launcher(session_id: str) -> bool:
     `--resume <id>` で受け取る起動 wrapper)。"""
     cfg = resolve_agent_cfg(session_id) or {}
     return bool(cfg.get("launcher")) and bool(cfg.get("launch_alias"))
+
+
+def takes_asks(session_id: str) -> bool:
+    """Whether the tab's agent is set up for a program to ask (= `"ask": true`): `tabs ask` types into it, and the
+    client's own messages to tabs are not typed into it, since the program asks again itself."""
+    return (resolve_agent_cfg(session_id) or {}).get("ask") is True
 
 
 def first_message_command(session_id: str, message_file: Path) -> str | None:

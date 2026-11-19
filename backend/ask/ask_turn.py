@@ -4,11 +4,15 @@ An ask is a program's question to a Claude Code tab it uses as its model. The te
 envelope, unlike a message from another tab), and the answer is what the `Stop` hook says the turn ended with. Plain
 input is what the operator's own words look like, so only an agent with `"ask": true` in the client's configuration
 takes asks: a tab set up for a program, not one an agent works in.
+
+A turn that hits a usage limit ends without a `Stop`: the record is watched for it (`limit_watch.py`), and the ask
+answers `ask_held` at once instead of waiting out its time.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -16,12 +20,12 @@ from fastapi import HTTPException
 
 from backend._common.errors import raise_error
 from backend.account_hold import hold_mail
-from backend.ask import turn_waiters
+from backend.ask import limit_watch, turn_waiters
 from backend.routes.agent_messages import deliver_message, resolve_receiver, wake_tab
 from backend.routes.overview import is_busy
 from backend.terminal.pty_discover import claude_in_pane
 from backend.terminal.routes import pty_send
-from backend.terminal.session_resolver import resolve_agent_cfg
+from backend.terminal.session_resolver import takes_asks
 
 logger = logging.getLogger(__name__)
 
@@ -44,16 +48,12 @@ _DELIVERY_CODES: dict[str, tuple[int, str]] = {
 }
 
 
-def takes_asks(session_id: str) -> bool:
-    """Whether the tab's agent is set up to take asks (= `"ask": true`)."""
-    return (resolve_agent_cfg(session_id) or {}).get("ask") is True
-
-
 async def ask(to: str, text: str, *, fresh: bool = False, timeout_sec: float = DEFAULT_TIMEOUT_SEC) -> dict:
     """Ask the tab `to` (= its id or name) `text` and wait for the turn's last answer.
 
     `fresh` types `/clear` first, so the turn sees nothing of the asks before it. A turn that has not ended within
-    `timeout_sec` of the typing is stopped (= Escape), so that the tab is free for the next ask.
+    `timeout_sec` of the typing is stopped (= Escape), so that the tab is free for the next ask. A turn that a usage
+    limit ended answers `ask_held` with the limit's text; its question stays in the conversation.
     → `{"ok": True, "id": <tab id>, "answer": <text>}`; failures are HTTP errors with an `ask_*` code."""
     with _as_ask_error():
         session_id = resolve_receiver(to)
@@ -73,7 +73,8 @@ async def ask(to: str, text: str, *, fresh: bool = False, timeout_sec: float = D
 
 async def _ask(session_id: str, text: str, waiter: turn_waiters.TurnWaiter, *, fresh: bool, timeout_sec: float) -> str:
     if await asyncio.to_thread(hold_mail.must_keep, session_id):
-        raise_error(409, "ask_held", "このタブは口座の止める線で止まっていて、 動ける口座がありません。 何も聞いていません", id=session_id)
+        raise_error(409, "ask_held", "このタブは口座の止める線で止まっていて、 動ける口座がありません。 何も聞いていません",
+                    id=session_id, reason="account_hold")
     with _as_ask_error():
         woke = await wake_tab(session_id)
     if is_busy(session_id):
@@ -82,21 +83,48 @@ async def _ask(session_id: str, text: str, waiter: turn_waiters.TurnWaiter, *, f
     cleared = fresh and claude_in_pane(session_id)
     if cleared:
         await _clear(session_id, waiter)
+    since = await asyncio.to_thread(limit_watch.mark, session_id)
     answer = turn_waiters.expect_answer(waiter)
     with _as_ask_error():
         await deliver_message(session_id, text, woke and not cleared)
     logger.info("ask: typed %d chars into session=%s fresh=%s; waiting up to %.0fs", len(text), session_id, cleared,
                 timeout_sec)
+    limit = asyncio.ensure_future(limit_watch.wait_for_limit(session_id, since))
     try:
-        return await asyncio.wait_for(asyncio.shield(answer), timeout_sec)
-    except asyncio.TimeoutError:
-        stopped = (await pty_send(session_id, {"key": "Escape"}, None)).get("ok")
-        logger.warning("ask: no answer within %.0fs in session=%s; turn stopped=%s", timeout_sec, session_id, stopped)
-        raise_error(504, "ask_timeout",
-                    f"{timeout_sec:.0f} 秒以内に答えが終わりませんでした。 "
-                    + ("そのターンは止めました" if stopped else "そのターンを止められませんでした"),
-                    id=session_id)
-        raise AssertionError("unreachable") from None
+        done, _ = await asyncio.wait({answer, limit}, timeout=timeout_sec, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        limit.cancel()
+    if limit in done:
+        await _held_by_limit(session_id, since, limit.result())
+    if answer in done:
+        end = await limit_watch.settled_turn(session_id, since)
+        if end.limit_message is not None:
+            await _held_by_limit(session_id, since, end.limit_message)
+        return answer.result()
+    stopped = await _press_escape(session_id)
+    logger.warning("ask: no answer within %.0fs in session=%s; turn stopped=%s", timeout_sec, session_id, stopped)
+    raise_error(504, "ask_timeout",
+                f"{timeout_sec:.0f} 秒以内に答えが終わりませんでした。 "
+                + ("そのターンは止めました" if stopped else "そのターンを止められませんでした"),
+                id=session_id)
+    raise AssertionError("unreachable")
+
+
+async def _held_by_limit(session_id: str, since: limit_watch.RecordMark, limit_message: str) -> None:
+    """Answer the ask whose turn a usage limit ended, after cancelling the continuation Claude Code booked (= the
+    program asks again; the tab carrying on by itself at the reset would take that ask's `Stop`). Always raises."""
+    cancelled = await limit_watch.cancel_continuation(session_id, since, lambda: _press_escape(session_id))
+    logger.warning("ask: usage limit in session=%s after %.1fs; continuation cancelled=%s", session_id,
+                   time.time() - since.typed_at, cancelled)
+    raise_error(409, "ask_held",
+                f"このタブの口座が使用量の上限に当たり、 ターンは答えずに終わりました ({limit_message})。 "
+                "問いは会話に残っています。 上限が戻ってから --fresh で聞き直してください",
+                id=session_id, reason="limit_stop", limit_message=limit_message, continuation_cancelled=cancelled)
+
+
+async def _press_escape(session_id: str) -> bool:
+    """Press Escape in the tab. → whether the key went in."""
+    return bool((await pty_send(session_id, {"key": "Escape"}, None)).get("ok"))
 
 
 async def _clear(session_id: str, waiter: turn_waiters.TurnWaiter) -> None:
