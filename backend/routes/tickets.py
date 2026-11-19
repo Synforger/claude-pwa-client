@@ -1,15 +1,15 @@
 """The doors of the tickets, the requests that cross tabs (`docs/reference/tickets.md`): open one, add to it, ask the
-operator through it, close it, hand it to another tab, read it, list them. The work is `backend/tickets/`; this file reads
+operator through it, answer for the operator, close it, hand it to another tab, read it, list them. The work is `backend/tickets/`; this file reads
 the forms and checks the values. `tabs ticket` calls them. All of them answer calls from this machine only.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Body, Form, Request
 
 from backend._common.errors import raise_error
 from backend._common.state import sessions_meta
 from backend.routes.agent_messages import LOCAL_CLIENTS
-from backend.tickets import ticket_entry, ticket_id, ticket_pass, ticket_service
+from backend.tickets import ticket_answer, ticket_entry, ticket_id, ticket_pass, ticket_service
 
 router = APIRouter()
 
@@ -76,6 +76,20 @@ async def post_ask(
         raise_error(400, "ticket_bad_kind", f"求める物は {', '.join(ticket_entry.ASK_KINDS)} のどれかで書いてください", kind=kind)
     return await ticket_service.ask(_known_tab(sender), _known_ticket(ticket), kind, _not_empty(text, "本文"),
                                     recommend if recommend and recommend.strip() else None)
+
+
+@router.post("/tickets/{ticket}/answer")
+async def post_answer(request: Request, ticket: str, body: dict = Body(...)) -> dict:
+    """The operator's answer to the ticket that waits for it (= called by the operator's screen; the guard's `destinations`
+    block it for the tabs). json: `asked_at` (= the `at` of the `asked` line the screen was showing) and `text`, or
+    `recommend: true` for the recommendation of that line (= `text` is not read then).
+    → `{ok, id, queued}`: the answer is written and waits for the tab that holds the ticket."""
+    _from_this_machine(request)
+    asked_at, text, recommend = body.get("asked_at"), body.get("text", ""), body.get("recommend", False) is True
+    if not isinstance(asked_at, str) or not asked_at.strip() or not isinstance(text, str):
+        raise_error(400, "ticket_bad_answer", "答えは asked_at (= 見ていた問いの時刻) と、 text か recommend: true で送ってください")
+    return await ticket_answer.answer(_known_ticket(ticket), asked_at, text if recommend else _not_empty(text, "答え"),
+                                      recommend)
 
 
 @router.post("/tickets/{ticket}/close")

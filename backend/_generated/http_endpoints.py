@@ -522,6 +522,22 @@ class PostTicketsTicketAsksResponse(BaseModel):
     status: str  # waiting-operator
 
 
+class PostTicketsTicketAnswerRequest(BaseModel):
+    """POST /tickets/{ticket}/answer request body"""
+    model_config = ConfigDict(extra="forbid")
+    asked_at: str  # the `at` of the `asked` line the screen was showing
+    text: Optional[str] = None  # the operator's words (= not read when recommend is true)
+    recommend: Optional[bool] = None  # true takes the recommendation of that `asked` line as the answer
+
+
+class PostTicketsTicketAnswerResponse(BaseModel):
+    """POST /tickets/{ticket}/answer response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    id: str
+    queued: bool  # true: the answer is written and waits for the tab that holds the ticket
+
+
 class PostTicketsTicketCloseRequest(BaseModel):
     """POST /tickets/{ticket}/close request body"""
     model_config = ConfigDict(extra="forbid")

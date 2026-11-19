@@ -8,8 +8,9 @@ from fastapi import HTTPException
 
 from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENING
 from backend.tests.async_run import run
-from backend.tests.tickets.samples import ticket_env  # noqa: F401
-from backend.tickets import ticket_file, ticket_index, ticket_pass, ticket_service
+from backend.tests.tickets.samples import asked_at_of, ticket_env  # noqa: F401
+from backend.tickets import (answer_delivery, answer_queue, ticket_answer, ticket_file, ticket_index, ticket_pass,
+                             ticket_service)
 
 
 @pytest.fixture
@@ -162,3 +163,34 @@ def test_the_envelope_is_rejected_when_the_message_doors_form_changes(ticket_env
     with pytest.raises(ValueError):
         ticket_pass.notice_envelope("ses_a", "client work", "home-261119-01")
     assert re.fullmatch(r"票 \S+ を渡されました。.*", ticket_pass.notice_text("home-261119-01"))
+
+
+def _answered(ticket_env, monkeypatch) -> tuple[str, answer_queue.AnswerKey]:
+    """A ticket the operator answered, its answer still in the queue (= its delivery is not started)."""
+    monkeypatch.setattr(answer_delivery, "start_delivery", lambda key: None)
+    ticket = _ticket()
+    run(ticket_service.ask("ses_a", ticket, "decide", "A or B?", "A"))
+    asked_at = asked_at_of(ticket_env.tickets, ticket)
+    run(ticket_answer.answer(ticket, asked_at, "Take B", False))
+    return ticket, answer_queue.AnswerKey(ticket, asked_at)
+
+
+def test_a_ticket_is_not_handed_over_until_the_operators_answer_has_reached_its_holder(ticket_env, delivered, monkeypatch):
+    ticket, key = _answered(ticket_env, monkeypatch)
+    assert _code(ticket_pass.pass_ticket("ses_a", ticket, "ses_b")) == "ticket_answer_pending"
+    assert delivered == [] and ticket_index.get(ticket).holder == "ses_a"
+    answer_queue.remove(key)
+    assert run(ticket_pass.pass_ticket("ses_a", ticket, "ses_b"))["to"] == "ses_b"
+
+
+def test_an_answer_that_is_queued_while_the_tab_is_told_stops_the_ticket_from_moving(ticket_env, monkeypatch):
+    ticket = _ticket()
+
+    async def answer_arrives_meanwhile(tab_id, text):
+        answer_queue.add(answer_queue.AnswerKey(ticket, "2026-11-19T00:00:00.000+00:00"))
+        return {"ok": True}
+
+    monkeypatch.setattr(ticket_pass, "deliver_or_keep", answer_arrives_meanwhile)
+    monkeypatch.setattr(ticket_pass, "tab_reachable", lambda tab_id: True)
+    assert _code(ticket_pass.pass_ticket("ses_a", ticket, "ses_b")) == "ticket_answer_pending"
+    assert ticket_index.get(ticket).holder == "ses_a"

@@ -13,6 +13,11 @@ ADDED = "added"
 ASKED = "asked"
 PASSED = "passed"
 CLOSED = "closed"
+#: What the client writes about a ticket (= no tab wrote it, so its `tab`, `tab_title` and `tier` are empty): the operator's
+#: answer to one `asked` line, that answer reaching the holder, and the holder going back to the tab that asked first
+ANSWERED = "answered"
+DELIVERED = "delivered"
+RETURNED = "returned"
 #: What `tabs ticket ask --kind` takes: a decision from the operator, something only the operator at the Mac can do, a report
 ASK_KINDS = ("decide", "mac", "report")
 #: What a reader sees instead of a line it may not read (= the line's own kind is kept; nothing else of it is)
@@ -28,10 +33,15 @@ class Writer(NamedTuple):
     tier: str
 
 
-def make_entry(kind: str, writer: Writer, text: str, *, at: str, **extra: str) -> dict:
+#: The writer of a line the client itself writes
+CLIENT_WRITER = Writer("", "", "")
+
+
+def make_entry(kind: str, writer: Writer, text: str, *, at: str, **extra: str | bool) -> dict:
     """A line of `kind` written by `writer` at `at` (= an ISO time in UTC, so that lines sort by their time).
-    `extra` carries what only some kinds have: `title` (opened), `ask_kind` and `recommend` (asked), `to` (passed),
-    `typed_in` (operator)."""
+    `extra` carries what only some kinds have: `title` (opened), `ask_kind` and `recommend` (asked), `to` (passed,
+    delivered, returned), `typed_in` (operator), `asked_at` and `recommended` (answered), `asked_at` and `result`
+    (delivered), `from` (returned)."""
     return {"kind": kind, "at": at, "tab": writer.tab, "tab_title": writer.tab_title, "tier": writer.tier, "text": text,
             **extra}
 

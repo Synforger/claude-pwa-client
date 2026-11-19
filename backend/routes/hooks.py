@@ -38,6 +38,7 @@ from backend._common.state import is_voice_open, session_language, sessions_meta
 from backend.terminal import input_ready, pty_discover
 from backend.sleep.sleep_sensors import note_woken
 import backend.rollover.rollover as rollover
+from backend.tickets import answer_delivery
 
 # backend-F-40 注記: jsonl_watcher は hooks を import しない (= confirm_bind → _save_bindings
 # のみ、 hook 経路と無関係) ので module-level import で循環しない。 旧版は防御的に関数内
@@ -317,6 +318,9 @@ async def _handle_stop(ctx: HookContext) -> dict:
     # An ask waiting on this tab takes the turn's last answer as it is (= before the push's checks).
     turn_waiters.turn_ended(ctx.pwa_session_id, body_raw)
     rollover.turn_ended(ctx.pwa_session_id)
+    # The tab is at a break: an answer of the operator's that waited for this tab is typed now (= in the background, so the
+    # hook is not kept waiting).
+    asyncio.create_task(answer_delivery.on_stop(ctx.pwa_session_id))
     # 設定した言語でない地の文は、 画面と同じく通知にも出さない (= 言い直させる hook が在れば、
     # 言い直した返事の turn 完了で改めて届く)。
     if foreign_prose(body_raw, session_language(ctx.pwa_session_id)):

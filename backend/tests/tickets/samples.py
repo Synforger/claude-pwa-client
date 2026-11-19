@@ -4,17 +4,22 @@ commands replaced by `fake_guard.py`. A test file takes the fixtures with
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 
 import backend._common.config as config_mod
 from backend._common import paths
-from backend._common.state import SessionDef
-from backend.tickets import ticket_checks, ticket_places, ticket_service
+from backend._common.state import SessionDef, sessions_meta
+from backend.tests.async_run import run
+from backend.tickets import (answer_delivery, answer_queue, ticket_answer, ticket_checks, ticket_file, ticket_index,
+                             ticket_places, ticket_return, ticket_service)
+from backend.tickets.answer_queue import AnswerKey
 
 FAKE_GUARD = Path(__file__).with_name("fake_guard.py")
 #: The words of each of the guard's commands, as the configuration lists them (= the flags the guard's note names)
@@ -76,3 +81,70 @@ def ticket_env(isolated_state, tmp_path, monkeypatch):
         isolated_state.sessions_meta[tab] = SessionDef(id=tab, agent_id="agent_a", title=title, created_at=0, tier="projects/AP")
     yield SimpleNamespace(root=tmp_path, guard=Guard(monkeypatch, tmp_path), tickets=tmp_path / "state" / "tickets")
     ticket_places.forget_all()
+
+
+def refusal(status: int, code: str) -> HTTPException:
+    """The error a door of the backend raises."""
+    return HTTPException(status, detail={"code": code, "message": code})
+
+
+@pytest.fixture
+def delivery_env(ticket_env, monkeypatch):
+    """`ticket_env` and stand-ins for the claude of each tab: what was typed into which tab (`typed`), which tabs are working
+    (`busy`), were asked to close (`close_asked`), cannot be reached (`unreachable`) or are stopped by the account hold
+    (`kept`), what typing into a tab fails with (`fail`), the clock of the delivery in seconds (`clock`), the answers
+    started in the background (`started`), the children whose memo was set back to working (`handed`) and the tabs of the backend (`tabs`, to close one)."""
+    env = SimpleNamespace(**vars(ticket_env), typed=[], busy=set(), close_asked=set(), unreachable=set(), kept=set(), fail={},
+                          clock=[1000.0], started=[], handed=[], tabs=sessions_meta)
+
+    async def deliver_or_keep(tab_id, text):
+        await asyncio.sleep(0)
+        if tab_id in env.fail:
+            raise env.fail[tab_id]
+        env.typed.append((tab_id, text))
+        return {"ok": True, "kept": True} if tab_id in env.kept else {"ok": True}
+
+    async def hand_over_work(sender, receiver):
+        env.handed.append((sender, receiver))
+
+    monkeypatch.setattr(answer_delivery, "deliver_or_keep", deliver_or_keep)
+    monkeypatch.setattr(ticket_return, "deliver_or_keep", deliver_or_keep)
+    monkeypatch.setattr(ticket_return, "hand_over_work", hand_over_work)
+    monkeypatch.setattr(answer_delivery, "tab_reachable", lambda tab_id: tab_id not in env.unreachable)
+    monkeypatch.setattr(answer_delivery, "is_busy", lambda tab_id: tab_id in env.busy)
+    monkeypatch.setattr(answer_delivery, "jsonl_path_for_session", lambda tab_id: Path(f"/records/{tab_id}.jsonl"))
+    monkeypatch.setattr(answer_delivery.rollover, "asked", lambda record: record.stem in env.close_asked)
+    monkeypatch.setattr(answer_delivery, "time", SimpleNamespace(monotonic=lambda: env.clock[0]))
+    monkeypatch.setattr(answer_delivery, "start_delivery", env.started.append)
+    for state in (answer_delivery._locks, answer_delivery._retry_after, answer_delivery._last_waiting):
+        state.clear()
+    monkeypatch.setattr(answer_delivery, "_quiet_until", 0.0)
+    yield env
+    for state in (answer_delivery._locks, answer_delivery._retry_after, answer_delivery._last_waiting):
+        state.clear()
+
+
+def waiting_ticket(*, recommend: str | None = "A", holder: str = "ses_a") -> str:
+    """A ticket opened by `ses_a`, held by `holder` and waiting for the operator's answer to a question."""
+    ticket = run(ticket_service.open_ticket("ses_a", "Title", "Request", operator_said=False))["id"]
+    if holder != "ses_a":
+        ticket_index.put(ticket, ticket_index.get(ticket)._replace(holder=holder))
+    run(ticket_service.ask("ses_a", ticket, "decide", "A or B?", recommend))
+    return ticket
+
+
+def asked_at_of(folder: Path, ticket: str) -> str:
+    """The time of the last `asked` line of the ticket (= what the screen sends back with the answer)."""
+    return [entry for entry in ticket_file.read(folder, ticket) if entry["kind"] == "asked"][-1]["at"]
+
+
+def answered_ticket(env, *, text: str = "Take B", holder: str = "ses_a") -> AnswerKey:
+    """A ticket held by `holder` that the operator answered with `text`: its answer is in the queue, not yet delivered."""
+    ticket = waiting_ticket(holder=holder)
+    asked_at = asked_at_of(env.tickets, ticket)
+    run(ticket_answer.answer(ticket, asked_at, text, False))
+    return AnswerKey(ticket, asked_at)
+
+
+def queued() -> list[AnswerKey]:
+    return answer_queue.keys()

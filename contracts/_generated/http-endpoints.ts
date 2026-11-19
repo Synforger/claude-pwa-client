@@ -575,6 +575,24 @@ export interface PostTicketsTicketAsksResponse {
   status: string
 }
 
+/** POST /tickets/{ticket}/answer request body */
+export interface PostTicketsTicketAnswerRequest {
+  /** the `at` of the `asked` line the screen was showing */
+  asked_at: string
+  /** the operator's words (= not read when recommend is true) */
+  text?: string
+  /** true takes the recommendation of that `asked` line as the answer */
+  recommend?: boolean
+}
+
+/** POST /tickets/{ticket}/answer response */
+export interface PostTicketsTicketAnswerResponse {
+  ok: boolean
+  id: string
+  /** true: the answer is written and waits for the tab that holds the ticket */
+  queued: boolean
+}
+
 /** POST /tickets/{ticket}/close request body */
 export type PostTicketsTicketCloseRequest = Record<string, unknown>
 
