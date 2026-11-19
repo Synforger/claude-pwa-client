@@ -168,6 +168,7 @@ uv sync --extra voice-call
 | `conversation` (任意) | 話して送る会話の間の取り方。 [下の表](#会話の間の取り方) |
 | `compressor` (任意) | 文ごとの音に掛けるコンプレッサー。 [下の表](#音の強弱を均す) |
 | `tuning` (任意) | 声の調整の file の path。 [調整の file](#調整の-file) |
+| `engine_service` (任意) | 音声合成の engine を、 使う時だけ起こす。 [下の節](#engine-を使う時だけ起こす) |
 
 `listen` の項目:
 
@@ -250,6 +251,34 @@ curl -s http://127.0.0.1:50021/speakers
   backend の再起動は要りません
 - file が無い / JSON として読めない / 書けない項目がある / 値の形が違う時は、 設定の値のまま動き、 理由を
   [`GET /sessions/<タブの id>/voice`](#声を持つタブか訊く) の `tuning_error` に返します (= backend の log にも 1 行出る)
+
+### engine を使う時だけ起こす
+
+音声合成の engine は、 起こしておくだけでメモリを使います (= AivisSpeech で約 900MB)。 `engine_service` を書くと、
+backend が engine を使う時だけ起こし、 使わなくなったら止めます。 macOS の launchd の常駐として載せた engine に使います。
+
+```json
+"engine_service": { "label": "com.example.voice-engine", "idle_minutes": 10 }
+```
+
+| 項目 | 中身 |
+|---|---|
+| `label` | engine の常駐の名前 (= launchd の label) |
+| `idle_minutes` (任意) | 使わなくなってから止めるまでの分。 既定は 10 |
+
+- 起こすのは、 どれかの画面でそのエージェントのタブの 🔊 か 🎙 が入った時と、 iPhone の app の通話がつながった時
+  です。 backend は 5 秒ごとに見て、 起こしてから 1 文を声にして声のモデルを読ませます
+- 止まっている時に声にする文が来たら、 その場で起こしてから声にします (= 最大 30 秒待ち、 起きなければ
+  `voice_engine_unreachable`)。 起こしている間、 その文は遅れます
+- 止めるのは、 そのエンジンを使う声がどこにも開いておらず、 最後に使ってから `idle_minutes` たった時です。
+  backend を起動した直後は止めません
+- 常駐は、 launchd が自分では起動せず、 落ちても起こし直さない形 (= plist の `RunAtLoad` と `KeepAlive` が偽)
+  で載せてください。 起こし直す形のままだと、 止めても launchd が立て直します。 backend は、 止めた engine が
+  起こしていないのに戻ったのを見ると、 その後は止めません (= backend の log に 1 行出ます)
+- 同じ engine を指すエージェントが複数あれば、 1 つの engine として扱います (= `label` は先に読んだエージェント
+  の物、 `idle_minutes` は長い方)。 形の違う `engine_service` は扱わず、 backend の log に 1 行出ます
+- 調整の file には書けません
+- 記録は backend の log の `engine wake:` の行です (= `started` / `stopped` / `could not start`)
 
 ### 聞き取りの engine を起動する
 

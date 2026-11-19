@@ -67,6 +67,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, Response
 
 import backend._common.config as _config
+import backend.engine_wake.wake_patrol as engine_wake
 from backend.speech.compressor import CompressorError, compress, compressor_settings
 from backend.speech.speech import MARK_NAME, MUTE_MARK, mark_values, speakable, utterances
 from backend._common.errors import raise_error
@@ -448,6 +449,8 @@ async def synthesize(session_id: str, text: str, mark: str | None = None,
         logger.info("voice: session=%s mark values not used: %s", session_id, ", ".join(dropped))
     values = {**settings["marks"].get(name, {}), **added}
     speaker = values.pop("speaker", settings["speaker"])
+    # 使う時だけ起こす engine (= `voice.engine_service`) が止まっていれば、 起こしてから頼む。 `ms=` は起きた後から
+    await engine_wake.ensure_awake(settings["engine"])
     started = time.monotonic()
     asked = urllib.parse.urlencode({"speaker": speaker, "text": text}, quote_via=urllib.parse.quote)
     kind, raw = await _engine("audio_query", f"{settings['engine']}/audio_query?{asked}", None)
