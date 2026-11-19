@@ -164,18 +164,34 @@ def test_a_process_that_is_gone_has_no_tree():
     assert sensors.process_tree(2 ** 22 + 12345) == ()
 
 
-def test_a_tool_started_by_node_is_known_by_its_arguments(tmp_path):
-    script = tmp_path / "pyright-langserver"
+def _tree_with(name: str) -> tuple:
+    """The nodes right under this process whose names hold `name`, waiting until the process shows."""
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        tree = tuple(node for node in sensors.process_tree(os.getpid()) if name in node.names)
+        if tree:
+            return tree
+        time.sleep(0.05)
+    return ()
+
+
+def test_a_server_kept_under_the_claude_is_not_work(tmp_path):
+    script = tmp_path / "reaper-mcp"
     script.write_text("import time; time.sleep(30)\n")
     child = subprocess.Popen([sys.executable, str(script)])
     try:
-        deadline = time.time() + 5
-        while time.time() < deadline:
-            tree = [node for node in sensors.process_tree(os.getpid()) if "pyright-langserver" in node.names]
-            if tree:
-                break
-            time.sleep(0.05)
-        assert tree and j.foreign_processes(tuple(tree)) == ()
+        tree = _tree_with("reaper-mcp")
+        assert tree and j.foreign_processes(tree) == ()
+    finally:
+        child.kill()
+        child.wait()
+
+
+def test_a_command_run_in_a_shell_is_work():
+    child = subprocess.Popen(["/bin/zsh", "-c", "sleep 30 && true"])
+    try:
+        tree = _tree_with("zsh")
+        assert tree and j.foreign_processes(tree) == ("zsh", "sleep")
     finally:
         child.kill()
         child.wait()
@@ -223,6 +239,19 @@ def test_a_tab_that_may_sleep_has_all_its_facts_read(monkeypatch, tmp_path):
     assert calls[-1] == "tree"
 
 
+def test_a_tab_whose_claude_keeps_only_servers_is_at_a_break_for_the_watch(monkeypatch, tmp_path):
+    # the break the child watch and the account fallback read (= a sleep by hand): MCP servers do not hold it off
+    servers = (j.ProcessNode(names=("Python", "reaper-mcp")), j.ProcessNode(names=("node", "index.js")))
+    _stand_in(monkeypatch, tmp_path, tree=servers)
+    assert j.judge(sensors.gather("ses_x", 0, by_hand=True), 0, by_hand=True) == ()
+
+
+def test_a_command_under_the_claude_holds_off_the_break(monkeypatch, tmp_path):
+    command = (j.ProcessNode(names=("zsh", "source"), children=(j.ProcessNode(names=("sleep",)),)),)
+    _stand_in(monkeypatch, tmp_path, tree=command)
+    assert j.judge(sensors.gather("ses_x", 0, by_hand=True), 0, by_hand=True) == (j.PROCESSES_RUNNING,)
+
+
 def test_a_tab_without_a_claude_costs_one_process_lookup(monkeypatch, tmp_path):
     calls = _stand_in(monkeypatch, tmp_path, pid=None)
     assert sensors.gather("ses_x", 60) == j.SleepFacts(claude_running=False)
@@ -254,7 +283,7 @@ def test_a_tab_that_is_not_quiet_is_not_read_for_processes(monkeypatch, tmp_path
 
 
 def test_a_tab_with_a_command_running_is_left_awake(monkeypatch, tmp_path):
-    _stand_in(monkeypatch, tmp_path, tree=(j.ProcessNode(names=("python3",)),))
+    _stand_in(monkeypatch, tmp_path, tree=(j.ProcessNode(names=("zsh",), children=(j.ProcessNode(names=("python3",)),)),))
     assert j.judge(sensors.gather("ses_x", 60), 60) == (j.PROCESSES_RUNNING,)
 
 
@@ -274,7 +303,7 @@ def test_a_tab_still_starting_is_left_awake(monkeypatch, tmp_path):
 
 
 def test_a_tab_a_limit_stopped_is_read_past_its_open_turn_to_the_processes_under_it(monkeypatch, tmp_path):
-    calls = _stand_in(monkeypatch, tmp_path, busy=True, ready=False, tree=(j.ProcessNode(names=("sleep",)),))
+    calls = _stand_in(monkeypatch, tmp_path, busy=True, ready=False, tree=(j.ProcessNode(names=("zsh",), children=(j.ProcessNode(names=("sleep",)),)),))
     facts = sensors.gather("ses_x", 0, by_hand=True, stopped_by_limit=True)
     assert "record" in calls and calls[-1] == "tree"
     assert j.judge(facts, 0, by_hand=True, stopped_by_limit=True) == (j.PROCESSES_RUNNING,)

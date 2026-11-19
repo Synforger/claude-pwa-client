@@ -66,22 +66,25 @@ def _node(*names: str, children: tuple = ()) -> j.ProcessNode:
     return j.ProcessNode(names=names, children=children)
 
 
-@pytest.mark.parametrize("tool", sorted(j.LANGUAGE_TOOLS))
-def test_a_language_tool_does_not_count_as_work(tool):
-    assert j.foreign_processes((_node(tool),)) == ()
+@pytest.mark.parametrize("server", [("clangd",), ("node", "typescript-language-server"), ("node", "index.js"),
+                                    ("Python", "reaper-mcp"), ("bash-language-server",), ("node", "sh")])
+def test_a_server_claude_keeps_does_not_count_as_work(server):
+    assert j.foreign_processes((_node(*server),)) == ()
 
 
-def test_a_language_tool_run_by_node_is_known_by_its_arguments():
-    assert j.foreign_processes((_node("node", "typescript-language-server"),)) == ()
-
-
-def test_nothing_below_a_language_tool_is_looked_at():
+def test_nothing_below_a_server_is_looked_at():
     tsserver = _node("node", "tsserver.js")
     assert j.foreign_processes((_node("node", "typescript-language-server", children=(tsserver,)),)) == ()
 
 
-def test_caffeinate_and_commands_count_as_work():
-    tree = (_node("caffeinate"), _node("zsh", children=(_node("python3"),)), _node("clangd"))
+@pytest.mark.parametrize("shell", sorted(j.SHELLS))
+def test_a_shell_and_what_runs_under_it_count_as_work(shell):
+    tree = (_node(shell, "source", children=(_node("python3", children=(_node("node"),)),)),)
+    assert j.foreign_processes(tree) == (shell, "python3", "node")
+
+
+def test_caffeinate_and_commands_count_as_work_and_servers_do_not():
+    tree = (_node("caffeinate"), _node("zsh", children=(_node("python3"),)), _node("clangd"), _node("node", "mcp.js"))
     assert j.foreign_processes(tree) == ("caffeinate", "zsh", "python3")
 
 

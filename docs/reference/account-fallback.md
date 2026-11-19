@@ -88,7 +88,7 @@ prompt のキャッシュは口座ごとに持たれ、寿命は 60 分です。
 | Claude が起動の途中 | `starting` |
 | Claude が返事を作っている、または積まれた発話がある | `turn_open` |
 | 会話の記録が見つからない | `no_record` |
-| Claude のプロセスの下に、言語の道具以外のプロセスがある (裏のコマンド) | `processes_running` |
+| Claude のすぐ下に、コマンドを走らせている shell か `caffeinate` がある ([sleep.md](sleep.md)) | `processes_running` |
 | 起こす予約 (`ScheduleWakeup`) が残っている | `wakeup_scheduled` |
 | 定期の予約 (`CronCreate`) が残っている | `cron_scheduled` |
 | 会話の最後が、結果のまだ無い道具の呼び出し (結果待ち) | `awaiting_tool_result` |
