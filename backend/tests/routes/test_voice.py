@@ -707,3 +707,27 @@ def test_words_heard_while_speaking_stop_the_turn_only_from_the_holder(client, t
     assert (r.status_code, _code(r)) == (409, "voice_conversation_elsewhere")
     assert _code(client.post("/sessions/ses_plain/voice/interruption")) == "voice_not_enabled"
     assert stopped == ["ses_listen"]
+
+
+# --- 使う時だけ起こす engine -------------------------------------------------------
+
+@pytest.fixture
+def woken(monkeypatch) -> list[str]:
+    """`engine_wake.ensure_awake` に渡った engine の URL の記録 (= 起こす口は差し替える)。"""
+    asked: list[str] = []
+
+    async def ensure_awake(url: str) -> None:
+        asked.append(url)
+
+    monkeypatch.setattr(voice.engine_wake, "ensure_awake", ensure_awake)
+    return asked
+
+
+def test_a_sentence_to_say_wakes_its_engine_before_asking_it(client, tabs, engine, woken):
+    assert client.post("/sessions/ses_voice/voice/synthesis", json={"text": "できたよ。"}).status_code == 200
+    assert woken == ["http://127.0.0.1:10101"] and len(engine) == 2
+
+
+def test_a_reading_does_not_wake_the_engine(client, tabs, engine, woken):
+    client.post("/sessions/ses_voice/voice/reading", json={"text": "できたよ。"})
+    assert woken == []

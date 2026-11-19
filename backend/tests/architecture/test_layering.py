@@ -65,6 +65,7 @@ LEVELS: dict[str, int] = {
     "limit_resume": 3,
     "peers": 3,
     "child_watch": 3,
+    "engine_wake": 3,
     "tier_tabs": 3,
     "main": 3,
     "cli": 3,

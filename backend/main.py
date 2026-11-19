@@ -107,6 +107,7 @@ import backend.account_hold as account_hold  # noqa: E402
 import backend.api_tabs as api_tabs  # noqa: E402
 import backend.limit_resume as limit_resume  # noqa: E402
 import backend.child_watch.watch_patrol as child_watch  # noqa: E402
+import backend.engine_wake.wake_patrol as engine_wake  # noqa: E402
 import backend.peers as peers  # noqa: E402
 from backend.peers.seen_message_ids import forget_in_flight  # noqa: E402
 from backend.observability.loop_stall import loop_stall_watch  # noqa: E402
@@ -292,6 +293,10 @@ async def lifespan(app: FastAPI):
     # 止まった子: 報告せずに入力待ちで止まった子のタブがあれば、 親のタブへ 1 通知らせる (= `backend/child_watch/`)。
     child_watch_task = asyncio.create_task(child_watch.watch_loop())
 
+    # 声の engine: 設定に `voice.engine_service` を書いた agent の engine を、 声が開いたら起こし、 使わなくなったら
+    # 止める (= `backend/engine_wake/`。 設定の無い engine は常駐に任せる)。
+    engine_wake_task = asyncio.create_task(engine_wake.wake_loop())
+
     # 階層のタブ: `tier_tabs: true` の agent の folder を見回り、 まだタブを立てたことの無い階層にタブを立てて
     # 起動する (= `backend/tier_tabs/tier_tabs.py`。 設定の無い agent には何もしない)。
     tier_tabs_task = asyncio.create_task(tier_tabs.tier_tabs_loop())
@@ -350,13 +355,14 @@ async def lifespan(app: FastAPI):
     hold_task.cancel()
     resume_task.cancel()
     child_watch_task.cancel()
+    engine_wake_task.cancel()
     tier_tabs_task.cancel()
     api_tabs_task.cancel()
     peer_task.cancel()
     prompt_detector_task.cancel()
     loop_stall_task.cancel()
     for _t in (blocker_monitor_task, uploads_gc_task, maintenance_task, rollover_task, sleep_task, fallback_task,
-               hold_task, resume_task, child_watch_task, tier_tabs_task, api_tabs_task, peer_task, prompt_detector_task,
+               hold_task, resume_task, child_watch_task, engine_wake_task, tier_tabs_task, api_tabs_task, peer_task, prompt_detector_task,
                loop_stall_task):
         try:
             await _t
