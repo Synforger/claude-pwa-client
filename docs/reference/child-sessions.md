@@ -57,6 +57,10 @@ Message from another session, relayed by the client (the operator did not type t
 
 子用のエージェントは、 画面の「新しい会話」 の一覧にも並びます。
 
+子のタブには、 どのエージェントで立っても、 backend が環境変数 `AGENT_CHILD=1` を渡します。 子の側の
+`tabs report` はこれで子と知るので、 `child_agent` を設定しなくても報告できます。 子用のエージェントは、
+起動の仕方を変えたい時だけ設定します。 エージェントの `env` に `AGENT_CHILD` を書いても、 子でないタブには渡りません。
+
 ## 数の上限
 
 1 つのタブが同時に持てる子の数に、既定の上限はありません。仕事の分け方で数を決めます。止まった子は、client の見張りが

@@ -147,3 +147,14 @@ def test_session_env_keeps_the_agent_env_but_not_over_the_reserved_names(a_tab):
     # backend が決める変数の後ろに、 agent cfg の分だけが続く
     assert args[-2:] == ["-e", "CLAUDE_CONFIG_DIR=/x"]
     assert not any(a in ("PWA_SID=spoof", "PWA_FAVORITES=/spoof") or a.startswith("SKIPPED=") for a in args)
+
+
+def test_session_env_marks_a_child_tab_whatever_agent_it_runs(a_tab):
+    a_tab.child = True
+    args = tmux_session_env_args(a_tab.id, None)
+    assert "AGENT_CHILD=1" in args and args[args.index("AGENT_CHILD=1") - 1] == "-e"
+
+
+def test_session_env_does_not_mark_a_tab_that_is_no_child_even_when_its_agent_says_so(a_tab):
+    args = tmux_session_env_args(a_tab.id, {"AGENT_CHILD": "1"})
+    assert not any(a.startswith("AGENT_CHILD=") for a in args)
