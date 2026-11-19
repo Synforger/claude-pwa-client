@@ -778,6 +778,26 @@ endpoints:
       - "タブが無ければ 404 voice_unknown_session"
     implementation: backend/routes/voice.py
 
+  - method: GET
+    path: /sessions/{sid}/voice/engine
+    description: "そのタブの声の engine の今。 画面が、 使う時だけ起こす engine (= voice.engine_service) の起き切るまでを 🔊 に出すために読む"
+    response:
+      type: object
+      properties:
+        engine:
+          type: string
+          nullable: true
+          enum: [ready, waking, asleep, failed]
+          description: "ready = 繋がる / waking = 起こしている途中 / asleep = 繋がらない・止めている途中 / failed = 起こすのに失敗し、 次に試すまでの間。 使う時だけ起こす engine でなければ null"
+      required: [engine]
+    response_kind: json
+    auth: tailnet
+    invariants:
+      - "agent の設定に voice.engine_service が無いタブは engine=null (= エラーにしない)"
+      - "口は調整の file も engine も読まない。 backend が最後に見た値を返す (= まだ見ていない engine だけ、 1 度繋いで覚える)"
+      - "タブが無ければ 404 voice_unknown_session"
+    implementation: backend/routes/voice.py
+
   - method: POST
     path: /sessions/{sid}/voice/utterances
     description: "agent の返事の文を、 声にする文の並びにする (= コード・表・path・URL を飛ばし、 文に切り、 文頭の印を剥がす)"

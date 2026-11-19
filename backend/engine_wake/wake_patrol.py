@@ -20,7 +20,9 @@ from dataclasses import dataclass, field
 from backend._common import config
 from backend._common.state import calls_by_conn, voices_by_conn
 from backend.engine_wake import engine_service
-from backend.engine_wake.wake_judgement import STOP, WAKE, EngineService, engine_services, next_step
+from backend.engine_wake.wake_judgement import (
+    RESTING, STARTING, STOP, WAKE, EngineService, engine_services, engine_state, next_step,
+)
 from backend.terminal.session_resolver import resolve_agent_cfg
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,8 @@ class _Engine:
     failure: str = ""
     rested: bool = False        # put to rest by the patrol and not woken since
     kept_alive: bool = False    # came back by itself after a rest: its service restarts it, so it is not rested again
+    phase: str | None = None    # STARTING / RESTING while a wake or a rest is under way
+    up: bool | None = None      # it took a connection when last looked at; None = not looked at yet
 
 
 _engines: dict[str, _Engine] = {}
@@ -68,6 +72,21 @@ async def ensure_awake(url: str) -> None:
     await _wake(service, engine, reason="use", warm=False)
 
 
+async def engine_state_of(session_id: str) -> str | None:
+    """What a screen is told of the engine the tab's agent speaks with (`wake_judgement.engine_state`); None when the
+    engine is not handled here. An engine not looked at yet (= right after the backend's start) is looked at once."""
+    voice = (resolve_agent_cfg(session_id) or {}).get("voice")
+    url = voice.get("engine") if isinstance(voice, dict) else None
+    service = _services().get(url.rstrip("/")) if isinstance(url, str) else None
+    if service is None:
+        return None
+    engine = _engine_of(service.url)
+    if engine.up is None and not engine.lock.locked():
+        engine.up = await asyncio.to_thread(engine_service.answers, service.url)
+    return engine_state(phase=engine.phase, up=bool(engine.up),
+                        waiting_to_retry=engine.failed_at is not None and time.time() - engine.failed_at < RETRY_SEC)
+
+
 async def look() -> None:
     """Look at every engine once: wake the ones a voice uses, put to rest the ones no voice has used for their idle
     time."""
@@ -80,6 +99,8 @@ async def look() -> None:
             engine.last_used = now
         busy = engine.lock.locked()
         answers = False if busy else await asyncio.to_thread(engine_service.answers, url)
+        if not busy:
+            engine.up = answers
         if answers and engine.rested and not engine.kept_alive:
             engine.kept_alive = True
             logger.warning("engine wake: label=%s came back by itself after a rest; its service keeps it alive, so it "
@@ -117,35 +138,55 @@ async def _wake(service: EngineService, engine: _Engine, *, reason: str, warm: b
     """Start the engine's service and wait until it takes connections. → whether it does."""
     async with engine.lock:
         if await asyncio.to_thread(engine_service.answers, service.url):
+            engine.up = True
             return True
-        started = time.monotonic()
-        failure = await asyncio.to_thread(engine_service.start, service.label)
-        if not failure and not await _until(service.url, up=True, timeout_sec=WAKE_TIMEOUT_SEC):
-            failure = f"it did not take connections within {WAKE_TIMEOUT_SEC:.0f}s"
-        if failure:
-            engine.failed_at = time.time()
-            if failure != engine.failure:
-                logger.warning("engine wake: could not start label=%s: %s", service.label, failure)
-            engine.failure = failure
-            return False
-        warmed = warm and await asyncio.to_thread(engine_service.warm, service.url, service.speaker)
-        engine.failed_at, engine.failure, engine.last_used, engine.rested = None, "", time.time(), False
-        logger.info("engine wake: started label=%s reason=%s took=%.1fs warmed=%s", service.label, reason,
-                    time.monotonic() - started, warmed)
-        return True
+        engine.phase = STARTING
+        try:
+            return await _start(service, engine, reason=reason, warm=warm)
+        finally:
+            engine.phase = None
+
+
+async def _start(service: EngineService, engine: _Engine, *, reason: str, warm: bool) -> bool:
+    """The body of a wake, under the engine's lock."""
+    started = time.monotonic()
+    failure = await asyncio.to_thread(engine_service.start, service.label)
+    if not failure and not await _until(service.url, up=True, timeout_sec=WAKE_TIMEOUT_SEC):
+        failure = f"it did not take connections within {WAKE_TIMEOUT_SEC:.0f}s"
+    if failure:
+        engine.failed_at, engine.up = time.time(), False
+        if failure != engine.failure:
+            logger.warning("engine wake: could not start label=%s: %s", service.label, failure)
+        engine.failure = failure
+        return False
+    warmed = warm and await asyncio.to_thread(engine_service.warm, service.url, service.speaker)
+    engine.failed_at, engine.failure, engine.last_used, engine.rested = None, "", time.time(), False
+    engine.up = True
+    logger.info("engine wake: started label=%s reason=%s took=%.1fs warmed=%s", service.label, reason,
+                time.monotonic() - started, warmed)
+    return True
 
 
 async def _stop(service: EngineService, engine: _Engine) -> None:
     """Stop the engine's service and wait until it refuses connections."""
     async with engine.lock:
-        quiet_minutes = (time.time() - engine.last_used) / 60
-        failure = await asyncio.to_thread(engine_service.stop, service.label)
-        if failure:
-            logger.warning("engine wake: could not stop label=%s: %s", service.label, failure)
-            return
-        down = await _until(service.url, up=False, timeout_sec=STOP_TIMEOUT_SEC)
-        engine.rested = True
-        logger.info("engine wake: stopped label=%s idle_min=%.0f down=%s", service.label, quiet_minutes, down)
+        engine.phase = RESTING
+        try:
+            await _rest(service, engine)
+        finally:
+            engine.phase = None
+
+
+async def _rest(service: EngineService, engine: _Engine) -> None:
+    """The body of a rest, under the engine's lock."""
+    quiet_minutes = (time.time() - engine.last_used) / 60
+    failure = await asyncio.to_thread(engine_service.stop, service.label)
+    if failure:
+        logger.warning("engine wake: could not stop label=%s: %s", service.label, failure)
+        return
+    down = await _until(service.url, up=False, timeout_sec=STOP_TIMEOUT_SEC)
+    engine.rested, engine.up = True, not down
+    logger.info("engine wake: stopped label=%s idle_min=%.0f down=%s", service.label, quiet_minutes, down)
 
 
 async def _until(url: str, *, up: bool, timeout_sec: float) -> bool:

@@ -326,6 +326,12 @@ class GetSessionsSidVoiceResponse(BaseModel):
     tuning_error: str  # 調整の file (= voice.tuning) を使えない理由 (= 使えている / 書いていなければ空文字)
 
 
+class GetSessionsSidVoiceEngineResponse(BaseModel):
+    """GET /sessions/{sid}/voice/engine response"""
+    model_config = ConfigDict(extra="forbid")
+    engine: Optional[Literal["ready", "waking", "asleep", "failed"]] = None  # ready = 繋がる / waking = 起こしている途中 / asleep = 繋がらない・止めている途中 / failed = 起こすのに失敗し、 次に試すまでの間。 使う時だけ起こす engine でなければ null
+
+
 class PostSessionsSidVoiceUtterancesRequest(BaseModel):
     """POST /sessions/{sid}/voice/utterances request body"""
     model_config = ConfigDict(extra="forbid")

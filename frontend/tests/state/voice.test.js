@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
   getSnapshot, subscribe, setVoiceAvailable, setVoiceMarks, setVoiceOn, setVoiceError, setVoiceListen, setVoiceTurn, setVoicePhase,
-  setVoiceSpeaking, setVoiceConversation, setVoiceQuiet,
+  setVoiceSpeaking, setVoiceConversation, setVoiceQuiet, setVoiceEngine,
   _resetForTest,
 } from '../../src/state/voice.js'
 
@@ -10,7 +10,7 @@ describe('state/voice', () => {
 
   it('starts with no tab known to have a voice, none on, and no error', () => {
     expect(getSnapshot()).toEqual({ available: {}, marks: {}, on: {}, error: {}, listen: {}, turn: {}, phase: {}, speaking: {}, conversation: {},
-      quiet: {} })
+      quiet: {}, engine: {} })
   })
 
   it('keeps what is set per tab', () => {
@@ -25,10 +25,11 @@ describe('state/voice', () => {
     setVoiceSpeaking('a', true)
     setVoiceConversation('a', { pause_ms: 700 })
     setVoiceQuiet('a', true)
+    setVoiceEngine('a', 'waking')
     expect(getSnapshot()).toEqual({
       available: { a: true, b: false }, marks: { a: ['calm', 'happy'] }, on: { a: true }, error: { a: 'engine down' },
       listen: { a: true }, turn: { a: true }, phase: { a: 'talking' }, speaking: { a: true },
-      conversation: { a: { pause_ms: 700 } }, quiet: { a: true } })
+      conversation: { a: { pause_ms: 700 } }, quiet: { a: true }, engine: { a: 'waking' } })
   })
 
   it('keeps only true flags, and only the known phases of a conversation', () => {
@@ -44,6 +45,13 @@ describe('state/voice', () => {
     expect(getSnapshot().conversation).toEqual({})
     setVoiceQuiet('a', true); setVoiceQuiet('a', false); setVoiceQuiet('b', 0)
     expect(getSnapshot().quiet).toEqual({})
+  })
+
+  it('keeps only the known states of the speech engine, and drops it on null', () => {
+    setVoiceEngine('a', 'ready'); setVoiceEngine('b', 'booting')
+    expect(getSnapshot().engine).toEqual({ a: 'ready' })
+    setVoiceEngine('a', null)
+    expect(getSnapshot().engine).toEqual({})
   })
 
   it('drops the entry when the voice is turned off or the error is cleared', () => {

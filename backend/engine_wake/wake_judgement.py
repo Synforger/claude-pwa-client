@@ -16,6 +16,15 @@ WAKE = "wake"
 STOP = "stop"
 LEAVE = "leave"
 
+# What a screen is told of an engine (= `GET /sessions/{id}/voice/engine`)
+READY = "ready"
+WAKING = "waking"
+ASLEEP = "asleep"
+FAILED = "failed"
+# What the engine is being put through right now
+STARTING = "starting"
+RESTING = "resting"
+
 
 @dataclass(frozen=True)
 class EngineService:
@@ -68,6 +77,19 @@ def next_step(*, voice_open: bool, answers: bool, busy: bool, waiting_to_retry: 
     if answers and quiet_minutes >= idle_minutes and not kept_alive:
         return STOP
     return LEAVE
+
+
+def engine_state(*, phase: str | None, up: bool, waiting_to_retry: bool) -> str:
+    """What a screen is told of a handled engine. `phase`: it is being started or put to rest (None = neither); `up`:
+    it took a connection when last looked at (= by the patrol, a wake or a rest); `waiting_to_retry`: a wake failed a
+    short while ago."""
+    if phase == STARTING:
+        return WAKING
+    if phase == RESTING:
+        return ASLEEP
+    if waiting_to_retry:
+        return FAILED
+    return READY if up else ASLEEP
 
 
 def _problem(voice: dict) -> str:

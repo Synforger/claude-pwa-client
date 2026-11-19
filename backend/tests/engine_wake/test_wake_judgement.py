@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import pytest
 
-from backend.engine_wake.wake_judgement import LEAVE, STOP, WAKE, engine_services, next_step
+from backend.engine_wake.wake_judgement import (
+    ASLEEP, FAILED, LEAVE, READY, RESTING, STARTING, STOP, WAKE, WAKING, engine_services, engine_state, next_step,
+)
 
 URL = "http://127.0.0.1:10101"
 
@@ -65,3 +67,14 @@ def _step(**facts) -> str:
 ])
 def test_what_a_look_does(facts, step):
     assert _step(**facts) == step
+
+
+@pytest.mark.parametrize(("facts", "state"), [
+    ({"phase": None, "up": True, "waiting_to_retry": False}, READY),
+    ({"phase": None, "up": False, "waiting_to_retry": False}, ASLEEP),
+    ({"phase": STARTING, "up": False, "waiting_to_retry": True}, WAKING),
+    ({"phase": RESTING, "up": True, "waiting_to_retry": False}, ASLEEP),
+    ({"phase": None, "up": False, "waiting_to_retry": True}, FAILED),
+])
+def test_what_a_screen_is_told_of_an_engine(facts, state):
+    assert engine_state(**facts) == state

@@ -279,6 +279,8 @@ backend が engine を使う時だけ起こし、 使わなくなったら止め
   の物、 `idle_minutes` は長い方)。 形の違う `engine_service` は扱わず、 backend の log に 1 行出ます
 - 調整の file には書けません
 - 記録は backend の log の `engine wake:` の行です (= `started` / `stopped` / `could not start`)
+- 🔊 が入っている間、 画面は engine の今を読み、 起き切るまで 🔊 を薄く点滅させます。 起こせなかった時は
+  🔊 が赤の枠になり、 理由がボタンの上に出ます。 読む口は [下の節](#声の-engine-の今を訊く)
 
 ### 聞き取りの engine を起動する
 
@@ -470,6 +472,30 @@ curl -s http://127.0.0.1:8765/sessions/<タブの id>/voice
 - 声を持たないエージェントのタブは
   `{"enabled": false, "marks": [], "default": "", "listen": false, "turn": false, "conversation": null, "tuning_error": ""}`
   を返します
+
+### 声の engine の今を訊く
+
+```sh
+curl -s http://127.0.0.1:8765/sessions/<タブの id>/voice/engine
+```
+
+```json
+{ "engine": "waking" }
+```
+
+| `engine` | 中身 |
+|---|---|
+| `ready` | engine に繋がる |
+| `waking` | 起こしている途中 |
+| `asleep` | 繋がらない (= 止まっている・止めている途中) |
+| `failed` | 起こすのに失敗し、 次に試すまでの間 |
+| `null` | そのエージェントは `engine_service` を持たない |
+
+- [使う時だけ起こす](#engine-を使う時だけ起こす) engine の起き切るまでを画面が 🔊 に出すための、 軽い口です。
+  調整の file も engine も読まず、 backend が最後に見た値を返します (= まだ見ていない engine だけ、 1 度繋いで覚えます)
+- 画面は 🔊 が入っている間だけ、 起き切るまで 2 秒ごと、 起きている間は 15 秒ごとに読みます。 画面が裏に
+  回っている間は読みません
+- タブが無ければ 404 の `voice_unknown_session` です
 
 ### 返事の文を、 声にする文の並びにする
 
