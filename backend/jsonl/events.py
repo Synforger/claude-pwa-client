@@ -20,6 +20,7 @@ JSONL と旧 SDK-SSE event はほぼ同型 (= message.role + content[] + tool_re
 """
 from __future__ import annotations
 
+import hashlib
 import re
 
 # harness 内部表現 / interrupt marker の判定 regex は行レベル純粋プリミティブとして
@@ -69,6 +70,14 @@ def parse_task_notification(text: str) -> dict | None:
         "summary": summary,
         "exitCode": exit_code,
     }
+
+
+def task_notification_key(text: str, task: dict) -> str:
+    """The one key of a `<task-notification>`, the same from both rows Claude Code writes for it (= the queueing
+    `queue-operation` row and the `user` row of the turn it starts): its task id and a hash of its whole text. A task
+    that notifies several times (= a Monitor) gets a key per notice, since the texts differ."""
+    digest = hashlib.sha1(text.strip().encode("utf-8")).hexdigest()[:16]
+    return f"task-notification-{task.get('taskId') or 'none'}-{digest}"
 
 
 def jsonl_line_to_events(line: dict, language: str | None = None) -> list[dict]:
@@ -176,7 +185,8 @@ def _attachment_events(line: dict) -> list[dict]:
 def _queue_operation_events(line: dict) -> list[dict]:
     """`queue-operation` の enqueue 行は内容に `<task-notification>` を含むことがある
     (= ScheduleWakeup / Cron / Monitor 等の完了通知)。 これは既存 user 行経由でも来るが、
-    Fable 5 で queue-operation 経由のみで来るケースがあるので拾う。
+    Fable 5 で queue-operation 経由のみで来るケースがあるので拾う。 両方の行が在る時に画面のカードが
+    1 枚になるよう、 uuid は行の物でなく知らせの鍵 (`task_notification_key`) にする。
     """
     if line.get("operation") != "enqueue":
         return []
@@ -184,11 +194,7 @@ def _queue_operation_events(line: dict) -> list[dict]:
     task = parse_task_notification(content) if isinstance(content, str) else None
     if task is None:
         return []
-    return [{
-        "type": "task_notification",
-        "uuid": line.get("uuid") or f"queue-op-{line.get('timestamp')}",
-        **task,
-    }]
+    return [{"type": "task_notification", "uuid": task_notification_key(content, task), "ts": _ts_ms(line), **task}]
 
 
 def subagent_line_to_events(line: dict) -> list[dict]:
@@ -348,7 +354,8 @@ def _user_events(line: dict) -> list[dict]:
         # background task の完了通知は専用 system カードに変換 (= user バブルにしない)
         task = parse_task_notification(text)
         if task is not None:
-            return [{"type": "task_notification", "uuid": line.get("uuid"), "ts": _ts_ms(line), **task}]
+            return [{"type": "task_notification", "uuid": task_notification_key(text, task), "ts": _ts_ms(line),
+                     **task}]
         # claude TUI の slash command / stdout 内部表現は user 発話ではないので chat には出さない
         if HARNESS_XML_RE.match(text):
             return []

@@ -291,10 +291,31 @@ def test_task_notification_emits_system_event_not_user():
     assert len(events) == 1
     ev = events[0]
     assert ev["type"] == "task_notification"
-    assert ev["uuid"] == "u-task"
+    assert ev["uuid"].startswith("task-notification-b4aaezg2d-")
     assert ev["status"] == "completed"
     assert ev["exitCode"] == 0
     assert ev["outputFile"].endswith("b4aaezg2d.output")
+
+
+def test_the_two_rows_of_one_notice_give_one_card():
+    # 意図: Claude Code は 1 つの知らせを queue-operation の行と user の行の 2 本で書く。 画面は同じ uuid の
+    # カードを 2 度積まないので、 2 本から同じ uuid が出れば 1 枚になる
+    queued = {"type": "queue-operation", "operation": "enqueue", "timestamp": "2026-11-19T01:00:00.000Z",
+              "content": _TASK_NOTE_TEXT}
+    started = {"type": "user", "uuid": "u-task", "timestamp": "2026-11-19T01:00:00.400Z",
+               "origin": {"kind": "task-notification"}, "message": {"role": "user", "content": _TASK_NOTE_TEXT}}
+    (from_queue,), (from_user,) = jsonl_line_to_events(queued), jsonl_line_to_events(started)
+    assert from_queue["type"] == from_user["type"] == "task_notification"
+    assert from_queue["uuid"] == from_user["uuid"]
+    assert isinstance(from_queue["ts"], int)
+
+
+def test_two_notices_of_one_task_stay_two_cards():
+    # 意図: 何度も知らせる task (= Monitor) は、 task id が同じでも文が違えば別のカード
+    other = _TASK_NOTE_TEXT.replace("completed (exit code 0)", "line 2")
+    first = jsonl_line_to_events({"type": "user", "message": {"role": "user", "content": _TASK_NOTE_TEXT}})[0]
+    second = jsonl_line_to_events({"type": "user", "message": {"role": "user", "content": other}})[0]
+    assert first["uuid"] != second["uuid"]
 
 
 def test_task_notification_failure_exit_code():

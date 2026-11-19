@@ -98,6 +98,7 @@ export interface AskUserQuestionEvent {
 export interface TaskNotificationEvent {
   type: "task_notification"
   sid: string
+  /** the notice's key (= task id + hash of its text), the same from the queue-operation row and the user row Claude Code writes for one notice, so that the screen shows it once */
   uuid: string
   corr_id: string
   taskId: string
