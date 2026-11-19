@@ -1068,6 +1068,8 @@ endpoints:
       - "one ask at a time per tab (= 409 ask_in_progress); a tab in the middle of a turn is 409 ask_tab_busy, and nothing is typed"
       - "the text goes in as plain input, with no envelope; a sleeping tab or one with no claude is started first, as a message would start it"
       - "a turn that has not ended within timeout_sec of the typing is stopped with Escape and answered 504 ask_timeout"
+      - "409 ask_held carries detail.params.reason: account_hold (= the account line holds the sleeping tab; nothing was typed) or limit_stop (= the turn ended in a usage limit, answered as soon as the record shows it, with limit_message and continuation_cancelled; the question stays in the conversation)"
+      - "at a usage limit the continuation Claude Code booked is cancelled with Escape before the answer, so that the tab does not carry on by itself at the reset"
       - "a failure carries an ask_* code in detail.code (= ask_not_ready: nothing was asked; ask_unconfirmed: the text may have been typed)"
     implementation: backend/routes/ask.py
 
