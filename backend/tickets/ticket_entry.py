@@ -14,10 +14,12 @@ ASKED = "asked"
 PASSED = "passed"
 CLOSED = "closed"
 #: What the client writes about a ticket (= no tab wrote it, so its `tab`, `tab_title` and `tier` are empty): the operator's
-#: answer to one `asked` line, that answer reaching the holder, and the holder going back to the tab that asked first
+#: answer to one `asked` line, that answer reaching the holder, the holder going back to the tab that asked first, and the
+#: operator having looked at an answer that did not arrive
 ANSWERED = "answered"
 DELIVERED = "delivered"
 RETURNED = "returned"
+SEEN = "seen"
 #: What `tabs ticket ask --kind` takes: a decision from the operator, something only the operator at the Mac can do, a report
 ASK_KINDS = ("decide", "mac", "report")
 #: What a reader sees instead of a line it may not read (= the line's own kind is kept; nothing else of it is)

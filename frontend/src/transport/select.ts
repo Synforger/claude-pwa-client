@@ -13,6 +13,7 @@ import {
   unifiedOverviewSse,
   unifiedStatusSse,
   unifiedSubagentsSse,
+  unifiedTicketsSse,
   unifiedTransport,
   unifiedViews,
 } from './unified.ts'
@@ -23,6 +24,7 @@ export const chatTransport = unifiedJsonl
 export const statusSse = unifiedStatusSse
 export const overviewSse = unifiedOverviewSse
 export const subagentsStreamSse = unifiedSubagentsSse
+export const ticketsSse = unifiedTicketsSse
 export const viewsChannel = unifiedViews
 
 /** lifecycle.ts の fg/bg bump 用 (= 1 接続 bump で全 channel 蘇生)。 */

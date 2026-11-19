@@ -13,6 +13,7 @@ function openAt(search) {
 
 afterEach(() => {
   setOverlay('previewPath', null)
+  setOverlay('ticket', null)
   openAt('')
 })
 
@@ -22,6 +23,15 @@ describe('useDeepLink', () => {
     const setActiveId = vi.fn()
     renderHook(() => useDeepLink(setActiveId))
     expect(getSnapshot().overlays.previewPath).toBe('~/notes/memo.md')
+    expect(setActiveId).not.toHaveBeenCalled()
+    expect(window.location.search).toBe('')
+  })
+
+  it('opens the ticket screen of ?ticket= (= a notification of a ticket), and removes the mark from the URL', () => {
+    openAt('?ticket=home-261119-01')
+    const setActiveId = vi.fn()
+    renderHook(() => useDeepLink(setActiveId))
+    expect(getSnapshot().overlays.ticket).toBe('home-261119-01')
     expect(setActiveId).not.toHaveBeenCalled()
     expect(window.location.search).toBe('')
   })

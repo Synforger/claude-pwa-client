@@ -1,4 +1,4 @@
-// UI 局所 state (= state-trace.md § 5)。 overlay 11 個 + scroll 4 ref + keyboard 5 modifier +
+// UI 局所 state (= state-trace.md § 5)。 overlay 13 個 + scroll 4 ref + keyboard 5 modifier +
 // viewModes + desktopOpen + extensionOpen + planOpen + storageWarnDismissed。 localStorage 永続化対象は viewModes
 // と unread 関連、 残りは ephemeral と同じく非永続。
 
@@ -11,6 +11,8 @@ const INITIAL = {
     favs: false,
     notes: false,
     settings: false,
+    tickets: false,       // 票の一覧 (= 📌 から開く引き出し)
+    ticket: null,         // 開いている票の id (= 票の画面。 null で閉じる)
     subagents: false,
     subagentsFocus: null,
     previewPath: null,

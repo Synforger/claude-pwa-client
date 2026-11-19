@@ -14,7 +14,7 @@ const OPENINGS = [AGENT_MESSAGE_OPENING, AGENT_MESSAGE_REMOTE_OPENING]
 // 送り主のタブで人が最後に打った発話。 backend が封筒の先頭に入れる (= 在る時だけ)。
 const OPERATOR_SAID = /^<operator-said>\n([\s\S]*?)\n<\/operator-said>\n?/
 // backend は中身の側の「封筒のタグと同じ形」 を &lt; に替えて届ける。 表示では元に戻す。
-const restore = (text) => text.replace(/&lt;(\/?)(agent-message|operator-said|session-rollover)/g, '<$1$2')
+const restore = (text) => text.replace(/&lt;(\/?)(agent-message|operator-said|session-rollover|ticket-answer)/g, '<$1$2')
 
 // 票を渡す 1 行 (= backend の `tickets/ticket_pass.py`) は、 タグに `ticket="<id>"` を 1 つ足して届く。
 const ENVELOPE = /^<agent-message from="([^"\n]*)" session="([^"\n]*)"(?: ticket="([^"\n]*)")?>\n([\s\S]*)\n<\/agent-message>\s*$/
@@ -94,15 +94,15 @@ export function parseTabOpen(text) {
 }
 
 // backend が自分で書いて打つ連絡 (= 口座を移した時の続けての連絡、 上限が戻った時の連絡、 口座の止める線で止める連絡と続ける連絡、
-// 裏の命令で入れ替えを待たせた連絡、 報告せずに止まった子の連絡、 別の機械への預かりの連絡)。 1 行目は backend の
+// 裏の命令で入れ替えを待たせた連絡、 報告せずに止まった子の連絡、 別の機械への預かりの連絡、 操作者の答えを票を持つタブへ届けた連絡)。 1 行目は backend の
 // `jsonl/jsonl_predicates.py` と同じ文字列で、 backend の test が両者の一致を見ている。 連絡の種類は次の block が言う。
 export const CLIENT_NOTICE_OPENING = 'Sent by the client (the operator did not type this):'
 
-const NOTICE = /^<(account-move|account-hold|limit-resume|rollover-held|child-stopped|peer-outbox)((?: [a-z_]+="[^"\n]*")*)>\n([\s\S]*)\n<\/\1>\s*$/
+const NOTICE = /^<(account-move|account-hold|limit-resume|rollover-held|child-stopped|peer-outbox|ticket-answer)((?: [a-z_]+="[^"\n]*")*)>\n([\s\S]*)\n<\/\1>\s*$/
 
-/** client の連絡なら { kind, from, to, account, phase, title, contextPct, text } (= 連絡の種類 (block の名前) /
+/** client の連絡なら { kind, from, to, account, phase, title, contextPct, ticket, text } (= 連絡の種類 (block の名前) /
  *  口座を移した連絡の移る前と後の口座、 別の機械への連絡の宛先 / 止める線の連絡と上限が戻った連絡の口座 / 止める線の連絡の
- *  `stop` か `continue` / 止まった子の題 / 入れ替えを待たせた連絡の context の割合、 無い欄は null / 本文)、 違えば null。 */
+ *  `stop` か `continue` / 止まった子の題 / 入れ替えを待たせた連絡の context の割合 / 答えを届けた票の id (= `ticket-answer`)、 無い欄は null / 本文)、 違えば null。 */
 export function parseClientNotice(text) {
   if (typeof text !== 'string') return null
   const trimmed = text.trimStart()
@@ -117,6 +117,7 @@ export function parseClientNotice(text) {
     phase: attribute(m[2], 'phase'),
     title: attribute(m[2], 'title'),
     contextPct: attribute(m[2], 'context_pct'),
+    ticket: attribute(m[2], 'ticket'),
     text: m[3],
   }
 }
@@ -135,6 +136,8 @@ export function noticeLabel(notice, t) {
       return t('chat.notice_child_stopped', { title: notice.title ?? '?' })
     case 'peer-outbox':
       return t('chat.notice_peer_outbox', { to: notice.to ?? '?' })
+    case 'ticket-answer':
+      return t('chat.notice_ticket_answer', { id: notice.ticket ?? '?' })
     default:
       return t('chat.notice_limit_resume', { account: notice.account ?? '?' })
   }

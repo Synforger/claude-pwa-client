@@ -22,11 +22,15 @@ import { useStatus } from '../status-bar/useStatus.js'
 import { isApiTab } from '../../_common/apiTab.js'
 import { useMoonlightAvailable } from '../screenshare/useMoonlightAvailable.js'
 import ExtensionMenu from '../extensions/ExtensionMenu.jsx'
+import { subscribe as subscribeTickets, getSnapshot as getTicketsSnapshot } from '../../state/tickets.js'
+import { attentionCount } from '../tickets/ticketGroups.js'
 
 export default function Topbar() {
   const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
   const sessionsState = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
   const t = useT()
+  // 「見てほしい」 票の数 (= 📌。 0 なら出さない)
+  const ticketsToLookAt = attentionCount(useSyncExternalStore(subscribeTickets, getTicketsSnapshot).tickets)
 
   const activeSession = useMemo(
     () => sessionsState.sessions.find(s => s.id === sessionsState.activeId) || null,
@@ -70,6 +74,17 @@ export default function Topbar() {
       {/* topbar 右側のアイコン群。 並びは左→右で ⭐ お気に入り → 📋 メモ →
           🤖 サブエージェント → (📑 plan 承認、 条件付き) → (🔊 声、 声を持つ agent のタブだけ) →
           🖥 モニター → 🧩 拡張。 */}
+      {ticketsToLookAt > 0 && (
+        <button
+          className="topbar-icon-btn"
+          onClick={() => setOverlay('tickets', true)}
+          aria-label={t('topbar.tickets_label', { count: ticketsToLookAt })}
+          title={t('topbar.tickets')}
+          data-testid="tickets-open-button"
+        >
+          📌<span className="topbar-tickets-count" data-testid="tickets-count">{ticketsToLookAt}</span>
+        </button>
+      )}
       {activeViewMode === 'chat' && activeSid && (
         <button
           className="topbar-icon-btn"

@@ -19,7 +19,8 @@ from backend._common.errors import raise_error
 from backend._common.state import sessions_meta
 from backend.routes.agent_messages import last_operator_text
 from backend.terminal.runner import jsonl_path_for_session
-from backend.tickets import ticket_checks, ticket_entry, ticket_file, ticket_id, ticket_index, ticket_places
+from backend.tickets import (ticket_checks, ticket_entry, ticket_file, ticket_id, ticket_index, ticket_notify, ticket_places,
+                             ticket_view, ticket_wake)
 from backend.tickets.ticket_entry import Writer
 from backend.tickets.ticket_index import CLOSED, OPEN, WAITING_OPERATOR, IndexRow
 
@@ -69,7 +70,8 @@ def write_entry(ticket: str, folder: Path, entry: dict, change: dict | None = No
             ticket_index.put(ticket, row)
         if after is not None:
             after()
-        return row
+    ticket_wake.wake()
+    return row
 
 
 def record(ticket: str, folder: Path, entry: dict) -> None:
@@ -78,6 +80,7 @@ def record(ticket: str, folder: Path, entry: dict) -> None:
     of a ticket that closed meanwhile."""
     with ticket_file.lock_for(ticket):
         ticket_file.append(folder, ticket, entry)
+    ticket_wake.wake()
 
 
 def _create(folder: Path, opener: str, entries: list[dict]) -> str:
@@ -94,6 +97,7 @@ def _create(folder: Path, opener: str, entries: list[dict]) -> str:
                 break
             number += 1
         ticket_index.put(candidate, IndexRow(key, opener, opener, OPEN, None))
+    ticket_wake.wake()
     return candidate
 
 
@@ -137,14 +141,23 @@ async def add(sender: str, ticket: str, text: str) -> dict:
     return {"ok": True, "id": ticket, "status": row.status}
 
 
+def _refuse_unless_holder(sender: str, row: IndexRow) -> None:
+    if row.holder != sender:
+        raise_error(409, "ticket_not_holder", "この票を今持っているタブだけが、 操作者に訊けます")
+
+
 async def ask(sender: str, ticket: str, kind: str, text: str, recommend: str | None) -> dict:
     """Put the ticket in front of the operator: a `kind` (= one of `ticket_entry.ASK_KINDS`) of request, with the
-    recommendation the operator may take as it stands. The ticket waits for the operator from here (`waiting-operator`)."""
-    _row, folder = await _prepare(sender, ticket, f"{text}\n\n{recommend}" if recommend else text)
+    recommendation the operator may take as it stands. The ticket waits for the operator from here (`waiting-operator`).
+    Only the tab that holds the ticket may ask (`ticket_not_holder`): the operator's answer goes to the holder, so another
+    tab's question would put the answer where nobody reads it. The operator's devices are told once it is asked."""
+    row, folder = await _prepare(sender, ticket, f"{text}\n\n{recommend}" if recommend else text)
+    _refuse_unless_holder(sender, row)
     extra = {"ask_kind": kind, **({"recommend": recommend} if recommend else {})}
     row = await asyncio.to_thread(
         write_entry, ticket, folder, ticket_entry.make_entry(ticket_entry.ASKED, writer_of(sender), text, at=now(), **extra),
-        {"status": WAITING_OPERATOR, "wants": kind})
+        {"status": WAITING_OPERATOR, "wants": kind}, check=lambda current: _refuse_unless_holder(sender, current))
+    ticket_notify.schedule(ticket, ticket_view.ATTENTION_WAITING)
     return {"ok": True, "id": ticket, "status": row.status}
 
 
@@ -168,18 +181,23 @@ async def show(reader: str, ticket: str) -> dict:
 
 async def list_tickets() -> dict:
     """Every ticket with its title, for the operator's screen (= read by the operator, who reads everything, so no line is
-    judged). A ticket whose place is not known has no title."""
+    judged). A ticket whose place is not known has no title. Each one carries what the screen sorts it by: the answers still on
+    their way (`answer_pending`), the time of its last line (`last_at`), how its last delivery ended (`last_delivery`) and
+    why it wants a look (`attention`, `ticket_view.attention`)."""
     summaries = []
     for ticket, row in ticket_index.rows().items():
-        title, opened_at = None, None
+        entries: list[dict] = []
         try:
             folder = await ticket_places.folder_for(row.place_key)
-            first = next(iter(await asyncio.to_thread(ticket_file.read, folder, ticket)), {})
-            title, opened_at = first.get("title"), first.get("at")
+            entries = await asyncio.to_thread(ticket_file.read, folder, ticket)
         except HTTPException as error:
             # the list still shows the ticket, without its title, when its place cannot be found now
             logger.info("ticket %s listed without its title: %s", ticket, error.detail)
-        summaries.append({"id": ticket, "title": title, "opened_at": opened_at, "status": row.status, "wants": row.wants,
-                          "holder": row.holder, "opener": row.opener,
-                          "place_outside": row.place_key == ticket_places.outside_key()})
+        first = entries[0] if entries else {}
+        delivery = ticket_view.last_delivery(entries)
+        summaries.append({"id": ticket, "title": first.get("title"), "opened_at": first.get("at"), "status": row.status,
+                          "wants": row.wants, "holder": row.holder, "opener": row.opener,
+                          "place_outside": row.place_key == ticket_places.outside_key(),
+                          "answer_pending": ticket_view.answer_pending(entries), "last_at": ticket_view.last_at(entries),
+                          "last_delivery": delivery, "attention": ticket_view.attention(row.status, row.holder, delivery)})
     return {"ok": True, "tickets": sorted(summaries, key=lambda s: (s["opened_at"] or "", s["id"]), reverse=True)}

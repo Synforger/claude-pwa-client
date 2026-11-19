@@ -49,6 +49,8 @@ import {
   setLang,
 } from '../../state/locale.js'
 import { useT } from '../../i18n/t.js'
+import { subscribe as subscribeTickets, getSnapshot as getTicketsSnapshot } from '../../state/tickets.js'
+import { heldByTab } from '../tickets/ticketGroups.js'
 import { runningBuildId } from '../../_common/appUpdate.js'
 import './SessionDrawer.css'
 
@@ -69,6 +71,9 @@ const MENU_FLIP_UP_THRESHOLD_PX = 140
 export default function SessionDrawer() {
   // store 直接 subscribe (= sessions list / activeId / agents / sessionActivity / unreadDone)
   const sessionsSnap = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
+  // タブごとに、 そのタブが今持つ票の題を 1 行出す
+  const { tickets } = useSyncExternalStore(subscribeTickets, getTicketsSnapshot)
+  const heldTickets = useMemo(() => heldByTab(tickets), [tickets])
   const messages = useSyncExternalStore(subscribeMessages, getMessagesSnapshot)
   const ephem = useSyncExternalStore(subscribeEphemeral, getEphemeralSnapshot)
   // メモと markdown のプレビューの字の大きさ (= 本文の上のピンチと同じ 1 つの値)
@@ -379,6 +384,9 @@ export default function SessionDrawer() {
         </div>
 
         <div className="drawer-create">
+          <button className="drawer-tickets" onClick={() => { setOverlay('tickets', true); onClose() }} data-testid="drawer-tickets-open">
+            📌 {t('drawer.tickets')}
+          </button>
           {!agentPicker ? (
             <button className="drawer-new" onClick={() => setAgentPicker(true)} data-testid="new-session-button">
               {t('drawer.new_conversation')}
@@ -623,6 +631,16 @@ export default function SessionDrawer() {
                       {isLastSession ? t('drawer.delete_last') : t('drawer.delete')}
                     </button>
                   </div>
+                )}
+                {!isRenaming && heldTickets[s.id] && (
+                  <button
+                    type="button"
+                    className="drawer-item-ticket"
+                    onClick={() => { setOverlay('ticket', heldTickets[s.id][0].id); onClose() }}
+                    data-testid="session-held-ticket"
+                  >
+                    📌 {heldTickets[s.id].map(ticket => ticket.label).join(' / ')}
+                  </button>
                 )}
               </div>
             )

@@ -28,6 +28,7 @@ frame 形式 (= data 行 JSON、 SSE id 行は使わない。 offset は frame �
     {"ch":"status","data":{<sid>: {...}}}
     {"ch":"overview","data":{<sid>: {...}}}
     {"ch":"subagents","sid":"<sid>","data":{"subagents":[...],"workflows":[...]}}
+    {"ch":"tickets","data":{"tickets":[...],"peers":{<machine>: {"waiting":N} | {"unreadable":true}}}}   # 頼みの票 (backend/tickets/ticket_feed.py)
 """
 from __future__ import annotations
 
@@ -50,6 +51,7 @@ from backend.jsonl.routes import (
     _parse_all_from,
 )
 from backend.observability.metrics import metrics
+from backend.tickets import ticket_feed, ticket_wake
 from backend.routes.overview import (
     _build_all_status,
     _build_sessions_overview,
@@ -271,6 +273,19 @@ async def _status_pump(
         sessions_overview.unsubscribe(ev)
 
 
+async def _tickets_pump(conn: UnifiedConn, ev: asyncio.Event, last: str) -> None:
+    """tickets channel: 票の file / 索引の変化と、 もう 1 台の数の変化 (= `ticket_wake.wake`) で起きて、 変わった時だけ
+    票の全体の絵を流す。 ev は generator 側が初期 snapshot 構築**前**に購読済みで、 解除も generator が持つ
+    (= _status_pump と同じ形)。 last は初期 snapshot の serialized 形。"""
+    while True:
+        await ev.wait()
+        ev.clear()
+        payload = json.dumps(await ticket_feed.snapshot(), ensure_ascii=False)
+        if payload != last:
+            last = payload
+            await conn.queue.put({"ch": "tickets", "data": json.loads(payload)})
+
+
 async def _jsonl_pump(conn: UnifiedConn, q: asyncio.Queue) -> None:
     """jsonl channel: broadcaster "all" の購読 q から、 conn の購読 sid だけ通す (= fan-out 遮断)。
 
@@ -299,6 +314,7 @@ async def _unified_gen(conn: UnifiedConn, initial_view: str | None):
     status_ev: asyncio.Event | None = None
     status_pump_started = False
     jsonl_q: asyncio.Queue | None = None
+    tickets_ev: asyncio.Event | None = None
     try:
         yield _frame({"ch": "sys", "type": "hello", "conn": conn.conn_id})
 
@@ -310,6 +326,7 @@ async def _unified_gen(conn: UnifiedConn, initial_view: str | None):
         status_ev = sessions_overview.subscribe()
         jsonl_q = jsonl_event_broadcaster.subscribe(ALL_SUBSCRIBER_KEY)
         pumps.append(asyncio.create_task(_jsonl_pump(conn, jsonl_q)))
+        tickets_ev = ticket_wake.subscribe()
 
         # 2) warmup + replay は購読 sid のみ (= 旧 /all の全 sid sweep を廃止)。
         #    warmup (= 端末の起動の保証) は背景で走らせ、 replay を待たせない
@@ -330,6 +347,11 @@ async def _unified_gen(conn: UnifiedConn, initial_view: str | None):
         pumps.append(
             asyncio.create_task(_status_pump(conn, status_ev, initial_status, initial_overview)))
         status_pump_started = True
+
+        # 3b) 票の絵: 接続した時に今の 1 枚、 その後は変化の時だけ (= 購読は上で済み、 隙間の変化は ev に残る)
+        initial_tickets = json.dumps(await ticket_feed.snapshot(), ensure_ascii=False)
+        yield _frame({"ch": "tickets", "data": json.loads(initial_tickets)})
+        pumps.append(asyncio.create_task(_tickets_pump(conn, tickets_ev, initial_tickets)))
 
         # 4) 配信 loop (= queue 排出 + keep-alive + pump 死活監視)
         while True:
@@ -363,6 +385,8 @@ async def _unified_gen(conn: UnifiedConn, initial_view: str | None):
             sessions_overview.unsubscribe(status_ev)
         if jsonl_q is not None:
             jsonl_event_broadcaster.unsubscribe(ALL_SUBSCRIBER_KEY, jsonl_q)
+        if tickets_ev is not None:
+            ticket_wake.unsubscribe(tickets_ev)
         _stop_subagents_watcher(conn)
         # 再接続で同 conn_id が新 generator に置き換わっている場合は一切消さない
         # (= 旧接続の遅れた後始末が新接続の view 登録を消すと、 「見てるのに通知が鳴る」

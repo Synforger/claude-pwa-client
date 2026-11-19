@@ -49,9 +49,16 @@ class Party(NamedTuple):
     title: str = ""
 
 
-def notice_text(ticket: str) -> str:
-    """The one line a tab gets when a ticket is handed to it."""
-    return f"票 {ticket} を渡されました。 `tabs ticket show {ticket}` で読んでください"
+#: The name a tab sees as the sender of the line when the operator hands it a ticket from the screen
+OPERATOR_NAME = "operator"
+#: Who hands a ticket when the operator does it from the screen (= no tab; the client writes the `passed` line)
+OPERATOR_PARTY = Party(None, "", OPERATOR_NAME)
+
+
+def notice_text(ticket: str, *, by_operator: bool = False) -> str:
+    """The one line a tab gets when a ticket is handed to it (= by another tab, or by the operator from the screen)."""
+    who = "操作者から" if by_operator else ""
+    return f"票 {ticket} を{who}渡されました。 `tabs ticket show {ticket}` で読んでください"
 
 
 def _with_ticket(message: str, ticket: str) -> str:
@@ -63,9 +70,10 @@ def _with_ticket(message: str, ticket: str) -> str:
     return f'{opening}\n{tag[:-1]} ticket="{ticket}">\n{body}'
 
 
-def notice_envelope(sender: str, title: str, ticket: str) -> str:
-    """The envelope of the line for a tab of this machine, from a tab of this machine."""
-    message = envelope(sender, notice_text(ticket), None, title)
+def notice_envelope(sender: str, title: str, ticket: str, *, by_operator: bool = False) -> str:
+    """The envelope of the line for a tab of this machine, from a tab of this machine (`sender` is empty and `title` the
+    operator's name when the operator hands it from the screen)."""
+    message = envelope(sender, notice_text(ticket, by_operator=by_operator), None, title)
     if message.split("\n", 1)[0] != OPENING:
         raise ValueError("the envelope of a message has changed its form")
     return _with_ticket(message, ticket)
@@ -109,10 +117,14 @@ async def pass_from_peer(peer_name: str, session: str, title: str, ticket: str, 
     return {**answer, "to": relay_judgement.seen_from(answer["to"], _config.MACHINE_NAME, peer_name)}
 
 
-async def hand_over(ticket: str, sender: Party, receiver: Party) -> dict:
+async def hand_over(ticket: str, sender: Party, receiver: Party, *, by_operator: bool = False) -> dict:
     """Hand `ticket` from `sender` to `receiver` (= either may be on the other machine). The ticket must be kept outside
     every boundary when either is (`ticket_inside_boundary`): what is judged for a tab that has read no boundary is all that
-    crosses. → `{"ok", "id", "to", "kept"?}`, `to` being the holder as the index writes it."""
+    crosses. `by_operator` is the operator handing a ticket no tab holds, from the screen (`ticket_operator.py`): `sender` is
+    `OPERATOR_PARTY` (a tab of this machine with no id), the client writes the line, and a ticket that waits for the operator,
+    or whose answer is still on its way, is let through (= it is the way such a ticket gets a holder; the answer goes to the
+    new one). The receiver still must have read the place's boundary, and is still told before anything is written.
+    → `{"ok", "id", "to", "kept"?}`, `to` being the holder as the index writes it."""
     if sender.machine == receiver.machine and receiver.tab == sender.tab:
         raise_error(400, "ticket_to_self", "自分のタブへは票を渡せません")
     receiver_id = None
@@ -122,38 +134,47 @@ async def hand_over(ticket: str, sender: Party, receiver: Party) -> dict:
             if sender.machine is None and receiver_id == sender.tab:
                 raise_error(400, "ticket_to_self", "自分のタブへは票を渡せません")
     row = ticket_service.row_of(ticket, open_only=True)
-    if row.status == WAITING_OPERATOR:
+    if row.status == WAITING_OPERATOR and not by_operator:
         raise_error(409, "ticket_waiting_operator", f"その票は操作者の返事を待っています。 渡せません: {ticket}", id=ticket)
-    _refuse_while_answer_is_coming(ticket)
+    if not by_operator:
+        _refuse_while_answer_is_coming(ticket)
     if (sender.machine or receiver.machine) is not None and row.place_key != ticket_places.outside_key():
         raise_error(403, "ticket_inside_boundary", "その票は境界の中にあり、 別の機械のタブへは渡せません", id=ticket)
     folder = await ticket_places.folder_for(row.place_key)
-    if sender.machine is None:
+    if sender.machine is None and not by_operator:
         await ticket_checks.check_covers(sender.tab, folder)
     if receiver_id is not None:
         await ticket_checks.check_covers(receiver_id, folder)
-    holder, kept = await _tell(ticket, sender, receiver, receiver_id)
-    writer = (ticket_service.writer_of(sender.tab) if sender.machine is None
-              else ticket_entry.Writer(*relay_judgement.writer_name(sender.machine, sender.tab, sender.title), ""))
+    holder, kept = await _tell(ticket, sender, receiver, receiver_id, by_operator=by_operator)
+    if by_operator:
+        writer = ticket_entry.CLIENT_WRITER
+    elif sender.machine is None:
+        writer = ticket_service.writer_of(sender.tab)
+    else:
+        writer = ticket_entry.Writer(*relay_judgement.writer_name(sender.machine, sender.tab, sender.title), "")
     entry = ticket_entry.make_entry(ticket_entry.PASSED, writer, "", at=ticket_service.now(), to=holder)
-    await asyncio.to_thread(ticket_service.write_entry, ticket, folder, entry, {"holder": holder}, must_be_open=True,
-                            check=lambda _row: _refuse_while_answer_is_coming(ticket))
+    await asyncio.to_thread(ticket_service.write_entry, ticket, folder, entry, {"holder": holder},
+                            must_be_open=not by_operator,
+                            check=None if by_operator else (lambda _row: _refuse_while_answer_is_coming(ticket)))
     logger.info("ticket %s passed from=%s to=%s kept=%s", ticket, relay_judgement.tab_of(sender.machine, sender.tab), holder, kept)
-    if sender.machine is None and receiver_id is not None:
+    if sender.machine is None and receiver_id is not None and not by_operator:
         await hand_over_work(sender.tab, receiver_id)
     answer = {"ok": True, "id": ticket, "to": holder}
     return {**answer, "kept": True} if kept else answer
 
 
-async def _tell(ticket: str, sender: Party, receiver: Party, receiver_id: str | None) -> tuple[str, bool]:
+async def _tell(ticket: str, sender: Party, receiver: Party, receiver_id: str | None, *,
+                by_operator: bool = False) -> tuple[str, bool]:
     """Have the receiver told in one line. → (the holder as the index writes it, whether the line was kept for a tab the
     account hold stopped). Nothing is changed by this: a failure leaves the ticket as it was."""
     if receiver_id is not None:
         with failing_as(NOT_SENT_CODE, NOT_SENT_MESSAGE):
             if not tab_reachable(receiver_id):
                 raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
-            await check(receiver_id, notice_text(ticket))
-            if sender.machine is None:
+            await check(receiver_id, notice_text(ticket, by_operator=by_operator))
+            if by_operator:
+                message = notice_envelope("", OPERATOR_NAME, ticket, by_operator=True)
+            elif sender.machine is None:
                 message = notice_envelope(sender.tab, await sender_title(sender.tab, receiver_id), ticket)
             else:
                 message = relayed_notice_envelope(sender.machine, sender.title, sender.tab, ticket)

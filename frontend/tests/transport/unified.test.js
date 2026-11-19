@@ -111,6 +111,22 @@ describe('unified transport', () => {
     u1(); u2()
   })
 
+  it('tickets channel: 絵を handler に渡し、 遅参 subscriber に最後の 1 枚を即渡し、 外すと接続を閉じる', async () => {
+    const { unifiedTicketsSse } = await freshTransport()
+    const seen = []
+    const u1 = unifiedTicketsSse.subscribe(d => seen.push(d))
+    const es = FakeEventSource.instances.at(-1)
+    es.open()
+    es.emit({ ch: 'tickets', data: { tickets: [{ id: 'home-261119-01' }], peers: {} } })
+    es.emit({ ch: 'tickets', data: { tickets: [], peers: { company: { waiting: 1 } } } })
+    expect(seen).toHaveLength(2)
+    const late = []
+    const u2 = unifiedTicketsSse.subscribe(d => late.push(d))
+    expect(late).toEqual([{ tickets: [], peers: { company: { waiting: 1 } } }])
+    u1(); u2()
+    expect(es.readyState).toBe(2)
+  })
+
   it('遅参 subscriber に直近 payload を即再配布 (= #184 規約)', async () => {
     const { unifiedStatusSse, unifiedOverviewSse } = await freshTransport()
     const u1 = unifiedStatusSse.subscribe(() => {})

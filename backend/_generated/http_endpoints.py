@@ -538,6 +538,45 @@ class PostTicketsTicketAnswerResponse(BaseModel):
     queued: bool  # true: the answer is written and waits for the tab that holds the ticket
 
 
+class GetTicketsTicketAnswerResponse(BaseModel):
+    """GET /tickets/{ticket}/answer response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    id: str
+    status: str
+    wants: Optional[str] = None
+    holder: str
+    opener: str
+    place_outside: bool
+    entries: list[dict[str, Any]]  # every line by time, the operator's own words and the client's `answered` / `delivered` / `returned` / `seen` lines in them
+    answer_pending: list[str]  # the `asked_at` of every answer given that has no `delivered` line yet
+    last_delivery: Optional[dict[str, Any]] = None  # {result, followed}: how the last delivery ended, and whether any line came after it
+    attention: Optional[str] = None  # why the ticket wants a look: waiting, delivery or no_holder; null when it does not
+
+
+class PostTicketsTicketAnswerHolderRequest(BaseModel):
+    """POST /tickets/{ticket}/answer/holder request body"""
+    model_config = ConfigDict(extra="forbid")
+    to: str  # the id of the tab of this machine that takes the ticket
+
+
+class PostTicketsTicketAnswerHolderResponse(BaseModel):
+    """POST /tickets/{ticket}/answer/holder response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    id: str
+    to: str
+    kept: Optional[bool] = None  # true when the tab's line was kept because the account hold stopped it
+
+
+class PostTicketsTicketAnswerSeenResponse(BaseModel):
+    """POST /tickets/{ticket}/answer/seen response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    id: str
+    written: bool  # false when there was nothing to look at (= the screen was old)
+
+
 class PostTicketsTicketCloseRequest(BaseModel):
     """POST /tickets/{ticket}/close request body"""
     model_config = ConfigDict(extra="forbid")
