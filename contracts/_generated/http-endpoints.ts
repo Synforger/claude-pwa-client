@@ -389,6 +389,12 @@ export interface GetSessionsSidVoiceResponse {
   tuning_error: string
 }
 
+/** GET /sessions/{sid}/voice/engine response */
+export interface GetSessionsSidVoiceEngineResponse {
+  /** ready = 繋がる / waking = 起こしている途中 / asleep = 繋がらない・止めている途中 / failed = 起こすのに失敗し、 次に試すまでの間。 使う時だけ起こす engine でなければ null */
+  engine?: "ready" | "waking" | "asleep" | "failed" | null
+}
+
 /** POST /sessions/{sid}/voice/utterances request body */
 export interface PostSessionsSidVoiceUtterancesRequest {
   /** agent の返事の文 (= markdown のまま) */

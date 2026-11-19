@@ -731,3 +731,13 @@ def test_a_sentence_to_say_wakes_its_engine_before_asking_it(client, tabs, engin
 def test_a_reading_does_not_wake_the_engine(client, tabs, engine, woken):
     client.post("/sessions/ses_voice/voice/reading", json={"text": "できたよ。"})
     assert woken == []
+
+
+def test_the_engine_door_tells_what_the_patrol_says(client, tabs, monkeypatch):
+    async def state_of(session_id: str):
+        return {"ses_voice": "waking"}.get(session_id)
+
+    monkeypatch.setattr(voice.engine_wake, "engine_state_of", state_of)
+    assert client.get("/sessions/ses_voice/voice/engine").json() == {"engine": "waking"}
+    assert client.get("/sessions/ses_plain/voice/engine").json() == {"engine": None}
+    assert _code(client.get("/sessions/ses_gone/voice/engine")) == "voice_unknown_session"

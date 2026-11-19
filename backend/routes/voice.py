@@ -389,6 +389,16 @@ async def get_voice(session_id: str) -> dict:
             "conversation": settings["conversation"], "tuning_error": settings["tuning_error"]}
 
 
+@router.get("/sessions/{session_id}/voice/engine")
+async def get_voice_engine(session_id: str) -> dict:
+    """そのタブの声の engine の今 (= `ready` / `waking` / `asleep` / `failed`。 使う時だけ起こす engine でなければ
+    null)。 画面が engine の起き切るまでを 🔊 に出すために、 数秒ごとに読む軽い口 (= 調整の file も engine も読まない。
+    backend の起動の直後に 1 度だけ engine に繋ぐ)。"""
+    if session_id not in sessions_meta:
+        raise_error(404, "voice_unknown_session", f"タブが見つかりません: {session_id}", session=session_id)
+    return {"engine": await engine_wake.engine_state_of(session_id)}
+
+
 @router.post("/sessions/{session_id}/voice/utterances")
 async def post_utterances(request: Request, session_id: str) -> dict:
     """返事の文を、 声にする文の並びにして返す (= 声にする物が無ければ空の並び)。

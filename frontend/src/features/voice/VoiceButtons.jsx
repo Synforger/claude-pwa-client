@@ -8,7 +8,8 @@
 // 🔊 にできるのは 1 つのタブだけで、 別のタブを見ている間も、 そのタブの会話は続く (= 返事を鳴らし、 話した文は
 // そのタブへ送る)。 別のタブで 🔊 にすると、 前のタブの会話は閉じる。
 //
-// 色と動きで今を見せる: 🔊 は鳴らせる (= 青の枠) / 鳴っている (= 青の枠が脈打つ)。 🎙 は聞いている (= 緑の枠) /
+// 色と動きで今を見せる: 🔊 は鳴らせる (= 青の枠) / 鳴っている (= 青の枠が脈打つ) / 声の engine を起こしている
+// (= 薄い点滅。 起き切るまで。 起こせなければ赤の枠と理由)。 🎙 は聞いている (= 緑の枠) /
 // 人が話している (= 枠が脈打つ) / 言い終えを見ている・文字にしている (= 薄い点滅) / 閉じている (= 斜線)。
 // 失敗の理由はボタンの上に出る。
 
@@ -17,12 +18,20 @@ import { subscribe, getSnapshot } from '../../state/voice.js'
 import { useT } from '../../i18n/t.js'
 import { subscribe as onVolume, getSnapshot as volumeOf, VOLUME_MAX } from '../../state/voiceVolume.js'
 import { toggleVoice, toggleMic, refreshVoiceAvailable, changeVolume } from './voice.js'
+import { watchEngine } from './engineWatch.js'
 import './VoiceButtons.css'
 
 // 🔊 をこの長さ押し続けると、 声の大きさのつまみが出る (= iOS の長押しのメニューより先に出す)
 const LONG_PRESS_MS = 450
 // つまみを閉じるために 🔊 を押した時、 その押下の click とみなす間 (= 押してから click が届くまでの時間の上限)
 const CLOSING_CLICK_MS = 1000
+
+// 🔊 の今。 切 > 声の engine を起こしている (= 起き切るまで) > 鳴っている > 入
+export function speakerState({ speaking, replying, engine }) {
+  if (!speaking) return 'off'
+  if (engine === 'asleep' || engine === 'waking') return 'waking'
+  return replying ? 'replying' : 'on'
+}
 
 export default function VoiceButtons({ sid }) {
   const voice = useSyncExternalStore(subscribe, getSnapshot)
@@ -53,13 +62,17 @@ export default function VoiceButtons({ sid }) {
 
   useEffect(() => { if (sid) refreshVoiceAvailable(sid) }, [sid])
 
+  const speaking = !!(sid && voice.available[sid] && voice.on[sid] && !voice.quiet[sid])
+  // 🔊 が入っている間だけ、 使う時だけ起こす engine の今を読み直す (= 切った時・タブが替わった時・外れた時に止める)
+  useEffect(() => (speaking ? watchEngine(sid) : undefined), [sid, speaking])
+
   if (!sid || !voice.available[sid]) return null
-  const on = !!voice.on[sid]
-  const speaking = on && !voice.quiet[sid]
-  const voiceState = !speaking ? 'off' : voice.speaking[sid] ? 'replying' : 'on'
+  const engine = voice.engine[sid] || null
+  const voiceState = speakerState({ speaking, replying: !!voice.speaking[sid], engine })
   // マイクが開いているかは、 会話の今 (= phase) が在るかで決まる
   const micState = voice.phase[sid] || 'muted'
-  const error = voice.error[sid] || ''
+  // 鳴らせなかった理由が先。 無ければ、 engine を起こせなかった事
+  const error = voice.error[sid] || (speaking && engine === 'failed' ? t('chat.voice_engine_failed') : '')
   return (
     <span className="voice-buttons">
       {voice.listen[sid] && (

@@ -24,6 +24,8 @@
   "chat.voice_off": "Hear the replies",
   "chat.voice_on": "Replies are spoken (tap to stop the voice; with the microphone also off, the conversation ends)",
   "chat.voice_replying": "The reply is playing",
+  "chat.voice_waking": "Waking the voice engine (the blinking stops once it is up)",
+  "chat.voice_engine_failed": "The voice engine could not be woken. It will be tried again shortly",
   "chat.mic_muted": "The microphone is off (press to just speak and send)",
   "chat.mic_starting": "Getting ready to listen",
   "chat.mic_listening": "Listening (press to turn the microphone off)",

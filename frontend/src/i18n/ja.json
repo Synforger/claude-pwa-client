@@ -24,6 +24,8 @@
   "chat.voice_off": "返事を声で聞く",
   "chat.voice_on": "返事を声で鳴らしています (= 押すと声を止めます。 マイクも閉じていれば会話を終えます)",
   "chat.voice_replying": "返事を鳴らしています",
+  "chat.voice_waking": "声の engine を起こしています (= 起き切ると点滅が止まります)",
+  "chat.voice_engine_failed": "声の engine を起こせませんでした。 少しして、 もう一度起こします",
   "chat.mic_muted": "マイクは閉じています (= 押すと、 話すだけで送れます)",
   "chat.mic_starting": "聞く準備をしています",
   "chat.mic_listening": "聞いています (= 押すとマイクを閉じます)",

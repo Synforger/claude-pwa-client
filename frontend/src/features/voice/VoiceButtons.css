@@ -28,6 +28,12 @@
 .voice-toggle.replying {
   animation: voice-replying 1s ease-in-out infinite;
 }
+/* 声の engine を起こしている: 🎙 の読み込みと同じ薄い点滅 (= 起き切るまで) */
+.voice-toggle.waking {
+  background: #1f2d3d;
+  border-color: #58a6ff;
+  animation: voice-waiting 1.4s ease-in-out infinite;
+}
 .voice-toggle.failed {
   border-color: #e06c75;
 }
@@ -71,7 +77,10 @@
   50% { opacity: 0.55; }
 }
 @media (prefers-reduced-motion: reduce) {
+  /* 点滅の代わりに枠を点線にする (= 動かさずに、 起こしている途中だと分かる) */
+  .voice-toggle.waking { border-style: dashed; }
   .voice-toggle.replying,
+  .voice-toggle.waking,
   .voice-mic.talking,
   .voice-mic.starting,
   .voice-mic.judging,

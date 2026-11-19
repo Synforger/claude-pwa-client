@@ -187,3 +187,48 @@ def test_an_engine_the_patrol_woke_after_a_rest_is_not_taken_as_kept_alive(engin
     _look(engine)                                                        # woken by the patrol
     _look(engine)
     assert engine.calls == [("stop", LABEL), ("start", LABEL)] and not patrol._engines[URL].kept_alive
+
+
+def _state() -> str | None:
+    return run(patrol.engine_state_of("ses_v"))
+
+
+def test_a_tab_whose_engine_is_not_handled_is_told_none(engine):
+    assert run(patrol.engine_state_of("ses_other")) is None
+
+
+def test_an_engine_not_looked_at_yet_is_looked_at_once(engine, monkeypatch):
+    engine.up = True
+    assert _state() == "ready"
+    engine.up = False                                                    # not looked at again: the remembered value
+    assert _state() == "ready"
+
+
+def test_the_state_follows_a_wake_and_a_rest(engine, monkeypatch):
+    seen = []
+
+    async def watch():
+        engine.loop_of[0] = asyncio.get_running_loop()
+        service, state = patrol._services()[URL], patrol._engine_of(URL)
+        state.up = False
+        waking = asyncio.create_task(patrol._wake(service, state, reason="voice_open", warm=True))
+        await asyncio.sleep(0.01)
+        seen.append(await patrol.engine_state_of("ses_v"))
+        await waking
+        seen.append(await patrol.engine_state_of("ses_v"))
+        resting = asyncio.create_task(patrol._stop(service, state))
+        await asyncio.sleep(0)
+        seen.append(await patrol.engine_state_of("ses_v"))
+        await resting
+        seen.append(await patrol.engine_state_of("ses_v"))
+    run(watch())
+    assert seen == ["waking", "ready", "asleep", "asleep"]
+
+
+def test_a_failed_wake_is_told_until_the_retry(engine):
+    engine.start_failure = "Could not find service"
+    patrol.voices_by_conn["conn"] = {"ses_v"}
+    _look(engine)
+    assert _state() == "failed"
+    patrol._engines[URL].failed_at -= patrol.RETRY_SEC
+    assert _state() == "asleep"

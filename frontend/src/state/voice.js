@@ -12,12 +12,18 @@
 //   speaking:  返事を鳴らしている (= 次の文の合成を待つ間も含む) か
 //   conversation: 会話の間の取り方 (= 同じ GET の写し。 声を持たなければ無い)
 //   quiet:     会話の間、 agent の返事を声にしない (= 入力欄の声の入 / 切のボタン。 マイクと文字はそのまま)
+//   engine:    使う時だけ起こす声の engine の今 (= ENGINE_STATES のどれか。 🔊 が入っている間だけ engineWatch が
+//              写す。 扱わない engine と、 🔊 が切れている間は無い)
 
 import { createStore } from './_store.js'
 
 const INITIAL = {
   available: {}, marks: {}, on: {}, error: {}, listen: {}, turn: {}, phase: {}, speaking: {}, conversation: {}, quiet: {},
+  engine: {},
 }
+
+// 声の engine の今: 'ready' 繋がる / 'waking' 起こしている / 'asleep' 繋がらない / 'failed' 起こせなかった
+export const ENGINE_STATES = ['ready', 'waking', 'asleep', 'failed']
 
 // 会話の段: 'starting' 部品を読み込んでいる / 'listening' 聞いている / 'talking' 人が話している /
 //           'judging' 言い終えたかを見ている / 'hearing' 話した音を文字にしている
@@ -57,6 +63,7 @@ export function setVoiceTurn(sid, judges) { setFor('turn', sid, judges === true 
 export function setVoicePhase(sid, phase) { setFor('phase', sid, PHASES.includes(phase) ? phase : null) }
 export function setVoiceSpeaking(sid, speaking) { setFor('speaking', sid, speaking ? true : null) }
 export function setVoiceQuiet(sid, quiet) { setFor('quiet', sid, quiet ? true : null) }
+export function setVoiceEngine(sid, state) { setFor('engine', sid, ENGINE_STATES.includes(state) ? state : null) }
 export function setVoiceConversation(sid, settings) {
   setFor('conversation', sid, settings && typeof settings === 'object' ? settings : null)
 }
