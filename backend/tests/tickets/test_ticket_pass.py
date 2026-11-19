@@ -80,13 +80,6 @@ def test_a_closed_ticket_is_not_handed_over(ticket_env, delivered):
     assert delivered == []
 
 
-def test_a_tab_on_another_machine_is_not_taken_yet(ticket_env, delivered, monkeypatch):
-    monkeypatch.setattr(ticket_pass, "split_peer", lambda to: ("office", "notes"))
-    ticket = _ticket()
-    assert _code(ticket_pass.pass_ticket("ses_a", ticket, "office:notes")) == "ticket_peer_not_yet"
-    assert delivered == [] and ticket_index.get(ticket).holder == "ses_a"
-
-
 def test_a_ticket_is_not_handed_to_the_tab_that_hands_it(ticket_env, delivered):
     assert _code(ticket_pass.pass_ticket("ses_a", _ticket(), "ses_a")) == "ticket_to_self"
 

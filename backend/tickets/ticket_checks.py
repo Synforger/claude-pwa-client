@@ -98,10 +98,15 @@ async def check_covers(tab_id: str, place: Path) -> None:
 async def filter_for_reader(reader_tab: str, entries: list[dict]) -> list[dict]:
     """The lines as `reader_tab` may see them: each line the guard does not let it read is replaced by
     `ticket_entry.hidden` (= a failed or missing run counts as not allowed)."""
+    return await filter_for_session(session_of(reader_tab), entries)
+
+
+async def filter_for_session(session: str, entries: list[dict]) -> list[dict]:
+    """The lines as the reader whose session is `session` may see them (= for a tab of another machine, the name
+    `<machine>:<tab>`, which is no conversation of this one and so has read nothing of it)."""
     command = _config.TICKET_READ_CHECK
     if not command:
         return entries
-    session = session_of(reader_tab)
     gate = asyncio.Semaphore(READ_PARALLEL)
 
     async def judge(entry: dict) -> dict:

@@ -58,12 +58,14 @@ class AnswerFacts(NamedTuple):
 
 
 class HolderFacts(NamedTuple):
-    """What is known when the holder of an open ticket is looked at."""
+    """What is known when the holder of an open ticket is looked at. `holder_listed` is for a holder on the other machine:
+    True or False when that machine answered with its list of tabs, None when it did not (or is not in the configuration)."""
 
     holder: str
     holder_is_remote: bool
     holder_here: bool
     opener_here: bool
+    holder_listed: bool | None = None
 
 
 def next_step(facts: AnswerFacts) -> str:
@@ -101,8 +103,11 @@ def retry_after_sec(previous_sec: float | None) -> float:
 
 def return_step(facts: HolderFacts) -> str:
     """What to do with the holder of an open ticket: leave it, give the ticket back to the tab that asked first, or hold
-    it with no tab (= neither is here). A holder on another machine is left as it is: only the tabs of this machine are
-    judged here."""
-    if not facts.holder or facts.holder_is_remote or facts.holder_here:
+    it with no tab (= neither is here). A holder on the other machine is gone only when that machine answered and its list
+    does not have the tab (= a machine that does not answer, or is not configured, is taken to still have it)."""
+    if not facts.holder:
+        return STAY
+    gone = facts.holder_listed is False if facts.holder_is_remote else not facts.holder_here
+    if not gone:
         return STAY
     return RETURN_TO_OPENER if facts.opener_here else CLEAR_HOLDER

@@ -11,8 +11,12 @@
                                 waits for the operator from here (waiting-operator)
     tabs ticket close <id> [<file>]
                                 close the ticket (= it stays; nothing can be added after). <file> is the last word
-    tabs ticket pass <id> <tab>   move the ticket to that tab (= its id or name) and tell it in one line. A ticket waiting for the
-                                operator, and a tab on another machine, are refused
+    tabs ticket pass <id> <tab>   move the ticket to that tab (= its id or name; `<machine>:<tab>` for a tab of the other machine)
+                                and tell it in one line. A ticket waiting for the operator is refused
+
+A ticket kept on the other machine (= the machine named at the head of its id) is used with the same commands: this machine's
+backend carries `show`, `add`, `close` and `pass` to it. `ask` is refused there (`ticket_ask_elsewhere`), and a machine that
+does not answer is `ticket_peer_down` (= nothing was done; try again when it is back).
 
 `tabs.py` reads the command word and hands the rest here with its way of calling the backend. The sender is the tab's
 `PWA_SID`. A failure goes to stderr as `tabs: <heading> [<code>]: <reason>` and the command ends with 1.
@@ -25,8 +29,11 @@ import urllib.parse
 from collections.abc import Callable
 from pathlib import Path
 
-#: What the call waits for a `pass`: waking a sleeping tab and starting its claude take up to about two minutes
-PASS_TIMEOUT_SEC = 300.0
+#: What the call waits for a command that may be carried to the other machine, or wakes a tab: the backend judges the text,
+#: waits for the other machine's own check, and waking a sleeping tab and starting its claude take up to about two minutes
+LONG_TIMEOUT_SEC = 300.0
+#: The words whose call waits that long
+LONG_WORDS = ("add", "close", "pass")
 NOT_SENT_CODE = "ticket_not_sent"
 UNCONFIRMED_CODE = "ticket_unconfirmed"
 KINDS = ("decide", "mac", "report")
@@ -67,7 +74,7 @@ def run(argv: list[str], call: Call) -> int:
     if method == "GET":
         status, body = call(f"{path}?reader={urllib.parse.quote(sender, safe='')}", None, "GET")
     else:
-        timeout = PASS_TIMEOUT_SEC if word == "pass" else None
+        timeout = LONG_TIMEOUT_SEC if word in LONG_WORDS else None
         status, body = call(path, {"from": sender, **form}, **({"timeout": timeout} if timeout else {}))
     if status == 200 and isinstance(body, dict) and body.get("ok"):
         print(_shown(word, body))
@@ -129,7 +136,8 @@ def _shown(word: str, body: dict) -> str:
 
 def _ticket_text(body: dict) -> str:
     wants = f" / 求める物: {body['wants']}" if body.get("wants") else ""
-    lines = [f"票 {body.get('id')} ({body.get('status')}{wants}) 持ち主: {body.get('holder')}", ""]
+    home = f" ({body['home']} の機械の票)" if body.get("home") else ""
+    lines = [f"票 {body.get('id')} ({body.get('status')}{wants}){home} 持ち主: {body.get('holder')}", ""]
     for entry in body.get("entries") or []:
         if entry.get("hidden"):
             lines += [f"--- {entry.get('at')} {entry.get('text')}", ""]

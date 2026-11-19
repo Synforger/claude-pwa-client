@@ -618,7 +618,7 @@ async def hand_over_work(sender: str, receiver_id: str) -> None:
         logger.exception("agent message: the child's memo could not be set back to working child=%s", receiver_id)
 
 
-def _require_peer(request: Request) -> tuple[str, dict]:
+def require_peer(request: Request) -> tuple[str, dict]:
     caller = peer_of_caller(request)
     if caller is None:
         logger.warning("agent message rejected: client=%s is not a configured peer",
@@ -644,7 +644,7 @@ async def post_relayed_agent_message(request: Request, body: dict = Body(...)) -
                              同じ id を既に届けていたら、 打たずに `{"ok": true, "duplicate": true}` を返す。 届けている
                              途中なら 409 `agent_message_in_flight` (= 送り手は預かりに残して次の回に送り直す)
     """
-    peer_name, peer = _require_peer(request)
+    peer_name, peer = require_peer(request)
     to, title, session, text = (body.get(k) for k in ("to", "from_title", "from_session", "text"))
     message_id = body.get("message_id")
     if not all(isinstance(v, str) and v.strip() for v in (to, title, session, text)) or not (
@@ -674,7 +674,7 @@ async def post_relayed_agent_message(request: Request, body: dict = Body(...)) -
 @router.get(PEER_TABS_PATH)
 async def get_tabs_for_peer(request: Request) -> dict:
     """相手の機械へ、 連絡を受けられるこの機械のタブの一覧を返す (= その相手と連絡してよいタブだけ)。"""
-    _peer_name, peer = _require_peer(request)
+    _peer_name, peer = require_peer(request)
     return {"tabs": [{"id": m.id, "title": m.title, "running": tab_reachable(m.id)}
                      for m in sessions_meta.values() if allowed_for_peer(peer, m.id)]}
 

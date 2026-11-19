@@ -23,6 +23,8 @@ ASK_KINDS = ("decide", "mac", "report")
 #: What a reader sees instead of a line it may not read (= the line's own kind is kept; nothing else of it is)
 HIDDEN = "hidden"
 HIDDEN_TEXT = "読めない境界の書き足し"
+#: What a reader on another machine sees instead of the operator's own words: the line's kind and time are kept
+WITHHELD_TEXT = "操作者の言葉は、 この機械の外へは出しません"
 
 
 class Writer(NamedTuple):
@@ -75,3 +77,8 @@ def judged_text(entry: dict) -> str:
 def hidden(entry: dict) -> dict:
     """The line a reader that may not read `entry` is given in its place."""
     return {"kind": entry.get("kind", HIDDEN), "at": entry.get("at", ""), HIDDEN: True, "text": HIDDEN_TEXT}
+
+
+def withheld(entry: dict) -> dict:
+    """The line given to another machine in place of a line of the operator's own words."""
+    return {"kind": entry.get("kind", HIDDEN), "at": entry.get("at", ""), HIDDEN: True, "text": WITHHELD_TEXT}
