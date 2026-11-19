@@ -20,7 +20,7 @@ import time
 
 from backend.jsonl.jsonl_tail import parse_jsonl_timestamp
 from backend.push.push import broadcast_push, notification_title_for
-from backend.jsonl.events import parse_task_notification
+from backend.jsonl.events import parse_task_notification, task_notification_key
 
 
 # 推論が止まる原因として通知すべき stop_reason → ユーザ向けラベル。 旧 SDK 経路で
@@ -50,6 +50,9 @@ def is_fresh_line(line: dict) -> bool:
 # Agent / Workflow の完了系 summary だけ push 対象にする (= harness 文言 prefix、
 # frontend classifyTaskNotification と同族の判定)。 Monitor / Background command は除外。
 _AGENT_NOTIF_RE = re.compile(r'^(?:Agent|Workflow) [\\]?"')
+# The keys of the completions already pushed: Claude Code writes one notice in two rows (= queue-operation and user)
+_PUSHED_KEYS_MAX = 200
+_pushed_keys: dict[str, None] = {}
 
 
 def _maybe_push_agent_completion(session_id: str, line: dict) -> bool:
@@ -75,6 +78,12 @@ def _maybe_push_agent_completion(session_id: str, line: dict) -> bool:
         return False
     if not is_fresh_line(line):
         return False
+    key = f"{session_id}:{task_notification_key(text, task)}"
+    if key in _pushed_keys:
+        return True
+    _pushed_keys[key] = None
+    while len(_pushed_keys) > _PUSHED_KEYS_MAX:
+        del _pushed_keys[next(iter(_pushed_keys))]
     title = notification_title_for(session_id)
     asyncio.create_task(broadcast_push(f"🤖 {summary}", title, session_id))
     return True

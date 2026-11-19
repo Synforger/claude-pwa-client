@@ -166,7 +166,7 @@ events:
     required: [uuid, taskId, status, corr_id, sid]
     properties:
       sid:         { type: string }
-      uuid:        { type: string }
+      uuid:        { type: string, description: "the notice's key (= task id + hash of its text), the same from the queue-operation row and the user row Claude Code writes for one notice, so that the screen shows it once" }
       corr_id:     { type: string }
       taskId:      { type: string }
       toolUseId:   { type: string }

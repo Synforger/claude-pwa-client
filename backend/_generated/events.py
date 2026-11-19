@@ -80,7 +80,7 @@ class TaskNotificationEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["task_notification"]
     sid: str
-    uuid: str
+    uuid: str  # the notice's key (= task id + hash of its text), the same from the queue-operation row and the user row Claude Code writes for one notice, so that the screen shows it once
     corr_id: str
     taskId: str
     toolUseId: Optional[str] = None
