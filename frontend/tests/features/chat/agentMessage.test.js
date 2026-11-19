@@ -132,19 +132,39 @@ describe('parseTabOpen', () => {
   })
 })
 
+describe('the notice that an answer was delivered for a ticket', () => {
+  const text = `${CLIENT_NOTICE_OPENING}\n<ticket-answer ticket="home-261119-01">\n<operator-said>\nTake B\n</operator-said>\n票 home-261119-01 への操作者の答えです。\n</ticket-answer>`
+
+  it('is read as a notice of its own kind with the ticket, and is a message the operator did not type', () => {
+    const notice = parseClientNotice(text)
+    expect(notice).toMatchObject({ kind: 'ticket-answer', ticket: 'home-261119-01' })
+    expect(isClientMessage(text)).toBe(true)
+  })
+
+  it('is labelled with the ticket\'s id', () => {
+    const t = (key, params) => `${key}:${params.id}`
+    expect(noticeLabel(parseClientNotice(text), t)).toBe('chat.notice_ticket_answer:home-261119-01')
+  })
+
+  it('puts back an envelope-like tag that was made harmless inside it', () => {
+    const relayed = `${AGENT_MESSAGE_OPENING}\n<agent-message from="a" session="s">\nsee &lt;ticket-answer ticket="x"> here\n</agent-message>`
+    expect(parseAgentMessage(relayed).text).toContain('<ticket-answer ticket="x">')
+  })
+})
+
 describe('parseClientNotice', () => {
   const moved = `${CLIENT_NOTICE_OPENING}\n<account-move from="work" to="personal" reason="limit">\nA usage limit stopped this session.\n</account-move>`
   const resumed = `${CLIENT_NOTICE_OPENING}\n<limit-resume account="personal">\nThe usage limit has ended.\n</limit-resume>`
 
   it('reads the accounts out of the notice sent after a move', () => {
     expect(parseClientNotice(moved)).toEqual({
-      kind: 'account-move', from: 'work', to: 'personal', account: null, phase: null, title: null, contextPct: null, text: 'A usage limit stopped this session.',
+      kind: 'account-move', from: 'work', to: 'personal', account: null, phase: null, title: null, contextPct: null, ticket: null, text: 'A usage limit stopped this session.',
     })
   })
 
   it('reads the account out of the notice sent after a limit ended', () => {
     expect(parseClientNotice(resumed)).toEqual({
-      kind: 'limit-resume', from: null, to: null, account: 'personal', phase: null, title: null, contextPct: null, text: 'The usage limit has ended.',
+      kind: 'limit-resume', from: null, to: null, account: 'personal', phase: null, title: null, contextPct: null, ticket: null, text: 'The usage limit has ended.',
     })
   })
 
@@ -152,7 +172,7 @@ describe('parseClientNotice', () => {
     const stop = `${CLIENT_NOTICE_OPENING}\n<account-hold phase="stop" account="personal">\n止めます\n</account-hold>`
     const carry = `${CLIENT_NOTICE_OPENING}\n<account-hold phase="continue" account="personal">\n続けます\n</account-hold>`
     expect(parseClientNotice(stop)).toEqual({
-      kind: 'account-hold', from: null, to: null, account: 'personal', phase: 'stop', title: null, contextPct: null, text: '止めます',
+      kind: 'account-hold', from: null, to: null, account: 'personal', phase: 'stop', title: null, contextPct: null, ticket: null, text: '止めます',
     })
     expect(parseClientNotice(carry)).toMatchObject({ kind: 'account-hold', phase: 'continue' })
     expect(isClientMessage(stop)).toBe(true)

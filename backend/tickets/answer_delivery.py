@@ -20,7 +20,7 @@ from backend.routes.agent_messages import deliver_or_keep, hand_over_work, tab_r
 from backend.routes.overview import is_busy
 from backend.terminal.runner import jsonl_path_for_session
 from backend.tickets import answer_judgement, answer_queue, ticket_checks, ticket_entry, ticket_file, ticket_index
-from backend.tickets import ticket_places, ticket_return, ticket_service
+from backend.tickets import ticket_notify, ticket_places, ticket_return, ticket_service, ticket_view
 from backend.tickets.answer_judgement import AnswerFacts
 from backend.tickets.answer_queue import AnswerKey
 from backend.tickets.ticket_index import CLOSED, IndexRow
@@ -96,6 +96,10 @@ async def _record(key: AnswerKey, row: IndexRow, result: str) -> None:
         await asyncio.to_thread(ticket_service.record, key.ticket, folder, entry)
     except Exception:
         logger.exception("ticket answer: the delivered line of id=%s asked_at=%s could not be written", key.ticket, key.asked_at)
+        return
+    if result in (answer_judgement.REFUSED, answer_judgement.UNCONFIRMED):
+        # the answer did not arrive, or may not have: the operator's devices are told, and the ticket wants a look
+        ticket_notify.schedule(key.ticket, ticket_view.ATTENTION_DELIVERY, result=result)
 
 
 def _answered_text(entries: list[dict], asked_at: str) -> tuple[str | None, bool]:

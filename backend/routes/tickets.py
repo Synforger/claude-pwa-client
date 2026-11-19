@@ -14,7 +14,8 @@ from fastapi import APIRouter, Body, Form, Request
 from backend._common.errors import raise_error
 from backend._common.state import sessions_meta
 from backend.routes.agent_messages import LOCAL_CLIENTS, require_peer
-from backend.tickets import relay_home, ticket_answer, ticket_entry, ticket_id, ticket_pass, ticket_relay, ticket_service
+from backend.tickets import (relay_home, ticket_answer, ticket_entry, ticket_id, ticket_operator, ticket_pass, ticket_relay,
+                             ticket_service)
 
 router = APIRouter()
 
@@ -104,6 +105,39 @@ async def post_answer(request: Request, ticket: str, body: dict = Body(...)) -> 
                                       recommend)
 
 
+def _kept_here(ticket: str) -> str:
+    """The operator's doors work on a ticket kept on this machine (= the other machine's ticket is read on its own screen)."""
+    if (home := ticket_relay.home_of(_known_ticket(ticket))) is not None:
+        raise_error(409, "ticket_elsewhere", f"この票は {home.name} の機械にあります。 その機械の画面で読んで答えてください",
+                    id=ticket, peer=home.name)
+    return ticket
+
+
+@router.get("/tickets/{ticket}/answer")
+async def get_ticket_for_operator(request: Request, ticket: str) -> dict:
+    """The ticket as the operator reads it, every line and nothing judged (= called by the operator's screen; the guard's
+    `destinations` block this door for the tabs, as the one that answers)."""
+    _from_this_machine(request)
+    return await ticket_operator.read(_kept_here(ticket))
+
+
+@router.post("/tickets/{ticket}/answer/holder")
+async def post_holder(request: Request, ticket: str, body: dict = Body(...)) -> dict:
+    """The operator hands a ticket no tab holds to a tab. json: `to` (= the tab's id). → `{ok, id, to, kept?}`."""
+    _from_this_machine(request)
+    to = body.get("to")
+    if not isinstance(to, str) or not to.strip():
+        raise_error(400, "ticket_empty", "渡す先のタブが空です")
+    return await ticket_operator.hand_to(_kept_here(ticket), to.strip())
+
+
+@router.post("/tickets/{ticket}/answer/seen")
+async def post_seen(request: Request, ticket: str) -> dict:
+    """The operator looked at an answer that did not arrive (or may not have): it stops wanting a look. → `{ok, id, written}`."""
+    _from_this_machine(request)
+    return await ticket_operator.seen(_kept_here(ticket))
+
+
 @router.post("/tickets/{ticket}/close")
 async def post_close(request: Request, ticket: str, sender: str = Form(..., alias="from"), text: str = Form("")) -> dict:
     """Close the ticket. form: from, text (optional, the last word)."""
@@ -137,7 +171,8 @@ async def get_ticket(request: Request, ticket: str, reader: str) -> dict:
 
 @router.get("/tickets")
 async def get_tickets(request: Request) -> dict:
-    """Every ticket with its title and state, for the operator's screen."""
+    """Every ticket with its title and state, for the operator's screen (= the `tickets` channel of the unified stream carries
+    the same list)."""
     _from_this_machine(request)
     return await ticket_service.list_tickets()
 

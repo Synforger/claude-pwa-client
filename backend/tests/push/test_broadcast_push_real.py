@@ -111,3 +111,29 @@ def test_broadcast_skipped_for_a_tab_whose_notifications_are_off(monkeypatch):
     _run(push_mod.broadcast_push("done", session_id="ses_on"))
     assert len(sent) == 1
     assert push_mod.unread_count == 1
+
+
+def test_a_ticket_push_carries_the_ticket_and_its_tag_and_adds_nothing_to_the_unread_count(monkeypatch):
+    """票の通知: payload に ticket と札、 未読の数は足さず payload にも載せない。"""
+    import json
+
+    payloads: list[dict] = []
+    _setup(monkeypatch, [{"endpoint": "a"}], [])
+    monkeypatch.setattr(push_mod, "webpush", lambda subscription_info, data, **kwargs: payloads.append(json.loads(data)))
+    monkeypatch.setattr(state_mod, "views_by_conn", {})
+    monkeypatch.setattr(push_mod, "calls_by_conn", {})
+    _run(push_mod.broadcast_push("Waiting for your decision", "📌 A very long ticket title that does not fit", None,
+                                 ticket="home-261119-01", tag="ticket-home-261119-01"))
+    [payload] = payloads
+    assert payload["ticket"] == "home-261119-01" and payload["tag"] == "ticket-home-261119-01"
+    assert "unread_count" not in payload and "sid" not in payload
+    assert len(payload["title"]) <= 32
+    assert push_mod.unread_count == 0
+
+
+def test_a_ticket_push_is_not_sent_while_a_voice_call_is_connected(monkeypatch):
+    sent: list = []
+    _setup(monkeypatch, [{"endpoint": "a"}], sent)
+    monkeypatch.setattr(push_mod, "calls_by_conn", {"conn": "ses_x"})
+    _run(push_mod.broadcast_push("x", "y", None, ticket="home-261119-01"))
+    assert sent == [] and push_mod.unread_count == 0

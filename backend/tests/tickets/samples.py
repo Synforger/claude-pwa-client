@@ -133,9 +133,9 @@ def delivery_env(ticket_env, monkeypatch):
 def waiting_ticket(*, recommend: str | None = "A", holder: str = "ses_a") -> str:
     """A ticket opened by `ses_a`, held by `holder` and waiting for the operator's answer to a question."""
     ticket = run(ticket_service.open_ticket("ses_a", "Title", "Request", operator_said=False))["id"]
+    run(ticket_service.ask("ses_a", ticket, "decide", "A or B?", recommend))
     if holder != "ses_a":
         ticket_index.put(ticket, ticket_index.get(ticket)._replace(holder=holder))
-    run(ticket_service.ask("ses_a", ticket, "decide", "A or B?", recommend))
     return ticket
 
 

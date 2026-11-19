@@ -720,3 +720,34 @@ def test_a_slow_replay_does_not_stall_the_event_loop(unified_env, monkeypatch):
         return ticks
 
     assert _run(run()) >= 10            # 0.4 s at one tick per 0.02 s: the loop was free while the record was read
+
+
+def test_tickets_channel_gives_one_picture_on_connect_and_another_only_when_it_changed(unified_env, monkeypatch):
+    """tickets channel: 接続した時に今の 1 枚、 その後は票の変化 (= ticket_wake) で、 絵が変わった時だけ流す。"""
+    from backend.tickets import ticket_feed, ticket_wake
+
+    state, sid_a, _sid_b, _ensured = unified_env
+    pictures = [{"tickets": [{"id": "home-261119-01"}], "peers": {}}]
+
+    async def snapshot():
+        return pictures[-1]
+
+    monkeypatch.setattr(ticket_feed, "snapshot", snapshot)
+
+    async def run():
+        conn = _mk_conn({sid_a: None})
+        gen = us._unified_gen(conn, initial_view=None)
+        _frame, first = await _read_until(gen, lambda p: p.get("ch") == "tickets")
+        assert first["data"] == pictures[0]
+        # the same picture: the screens are woken and nothing is sent
+        ticket_wake.wake()
+        await asyncio.sleep(0.05)
+        assert conn.queue.empty()
+        pictures.append({"tickets": [{"id": "home-261119-01"}, {"id": "home-261119-02"}], "peers": {"company": {"waiting": 1}}})
+        ticket_wake.wake()
+        _frame, second = await _read_until(gen, lambda p: p.get("ch") == "tickets")
+        assert second["data"] == pictures[1]
+        await gen.aclose()
+        assert ticket_wake._events == set()
+
+    _run(run())

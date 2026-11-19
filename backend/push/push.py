@@ -32,6 +32,7 @@ from backend._common.state import (
     NOTIFY_MODES,
     NotifyMode,
     atomic_write_text,
+    calls_by_conn,
     is_session_on_call,
     is_session_viewed,
     sessions_meta,
@@ -205,6 +206,9 @@ async def broadcast_push(
     message: str,
     title: str | None = None,
     session_id: str | None = None,
+    *,
+    ticket: str | None = None,
+    tag: str | None = None,
 ) -> None:
     """登録済みの全 Web Push サブスクリプションに通知を送る + 未読カウンタ +1。
 
@@ -213,6 +217,11 @@ async def broadcast_push(
 
     session_id を渡すと payload に sid + URL を含める。 通知タップ時に SW が
     chat の該当セッションを開く。
+
+    `ticket` (= 票の id) を渡すと、 頼みの票についての通知になる (= `backend/tickets/ticket_notify.py`): payload に
+    `ticket` と、 同じ票の通知をまとめる札 `tag` を載せ、 タップで SW が票の画面を開く。 タブの通知ではないので、
+    タブの「見ている / 通話 / 通知モード」 の門は見ず、 声の通話がどこかでつながっている間は送らない。 未読の数には
+    足さない (= 数は残る 📌 が持つ)。
     """
     metrics.inc("push.broadcast")
     global unread_count
@@ -220,6 +229,8 @@ async def broadcast_push(
     # 該当 session を見ている WebSocket 接続 (/views/ws) があれば送信を完全スキップ。
     # backend 権威の即時判定なので SW 側 silent + auto-close より早く止まる。
     # 接続切断で自動的に「見てない」 扱いになるので stale 永久抑制も起きない。
+    if ticket is not None and calls_by_conn:
+        return
     if is_session_viewed(session_id):
         return
     # 該当 session に iPhone の app の通話がつながっていれば送らない (= 返事は声で聞いている。 他のタブへの
@@ -232,13 +243,16 @@ async def broadcast_push(
         return
 
     body_clean = sanitize_notif_body(message)
-    notif_title = title or _config.NOTIFICATION_TITLE_DEFAULT
+    notif_title = (_trim_title(title) if ticket is not None else title) or _config.NOTIFICATION_TITLE_DEFAULT
 
     # 未読カウンタを +1 して payload に載せる (= sw.js が setAppBadge に使う、 端末側で
     # 再 fetch せずに badge 更新できる)。 sync handler との race を避けるため lock 配下で atomic に。
-    with _unread_count_lock:
-        unread_count += 1
-        snapshot_count = unread_count
+    # 票の通知は数に足さず、 payload にも数を載せない (= sw は数があるときだけ badge を替える)。
+    snapshot_count = None
+    if ticket is None:
+        with _unread_count_lock:
+            unread_count += 1
+            snapshot_count = unread_count
 
     if not _HAS_WEBPUSH or not vapid_config or not subscriptions:
         return
@@ -250,8 +264,12 @@ async def broadcast_push(
     payload_dict = {
         "title": notif_title,
         "body": body_clean,
-        "unread_count": snapshot_count,
     }
+    if snapshot_count is not None:
+        payload_dict["unread_count"] = snapshot_count
+    if ticket is not None:
+        payload_dict["ticket"] = ticket
+        payload_dict["tag"] = tag or f"ticket-{ticket}"
     if session_id:
         payload_dict["sid"] = session_id
         # url は SW 側で `/?ses=<sid>` を組み立てる (= 2 経路統一、 payload 軽量化)

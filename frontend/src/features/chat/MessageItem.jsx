@@ -9,6 +9,7 @@ import { diffLines, compactDiff } from '../../_common/diff.js'
 import { apiFetch } from '../../_common/api.js'
 import { TOOL_RESULT_DISPLAY_CHARS } from '../../_common/constants.js'
 import { useT } from '../../i18n/t.js'
+import { setOverlay } from '../../state/ui.js'
 import { noticeLabel, parseAgentMessage, parseClientNotice, parseRollover, parseTabOpen } from './agentMessage.js'
 import './MessageItem.css'
 
@@ -555,6 +556,12 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
       ) : relayed ? (
         <div className="relayed-block">
           <div className="relayed-from" data-testid="relayed-from">{t('chat.relayed_from', { name: relayed.from })}</div>
+          {relayed.ticket ? (
+            // 票を渡す連絡は、 本文が決まった 1 行なので、 押すと票の画面が開く 1 行にする
+            <button type="button" className="relayed-ticket-link" onClick={() => setOverlay('ticket', relayed.ticket)} data-testid="relayed-ticket-link">
+              {t('chat.ticket_handed', { id: relayed.ticket })}
+            </button>
+          ) : (
           <span className="bubble">
             {relayed.operatorSaid && (
               <blockquote className="relayed-operator" data-testid="relayed-operator">
@@ -564,6 +571,7 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
             )}
             <MessageRenderer text={relayed.text} onOpenFile={onOpenFile} streaming={false} />
           </span>
+          )}
         </div>
       ) : rollover ? (
         <div className="relayed-block">
@@ -583,6 +591,12 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
         <div className="relayed-block">
           <div className="relayed-from" data-testid="tab-open-label">{t('chat.tab_open')}</div>
           <span className="bubble" data-testid="tab-open-body">{tabOpen.tier ?? '?'}</span>
+        </div>
+      ) : notice && notice.kind === 'ticket-answer' && notice.ticket ? (
+        <div className="relayed-block">
+          <button type="button" className="relayed-ticket-link" onClick={() => setOverlay('ticket', notice.ticket)} data-testid="ticket-answer-link">
+            {noticeLabel(notice, t)}
+          </button>
         </div>
       ) : notice ? (
         <div className="relayed-block">

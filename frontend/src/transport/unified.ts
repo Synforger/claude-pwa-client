@@ -59,8 +59,10 @@ class UnifiedTransport {
   private statusHandlers = new Set<Handler>()
   private overviewHandlers = new Set<Handler>()
   private subagentsHandlers = new Map<string, Set<Handler>>()
+  private ticketsHandlers = new Set<Handler>()
   private lastStatus: unknown
   private lastOverview: unknown
+  private lastTickets: unknown
   private lastSubagents = new Map<string, unknown>()
 
   // --- offsets (= in-memory は毎 frame 前進 / 永続化は useChatStorage のメッセージ保存に結合) ---
@@ -74,7 +76,7 @@ class UnifiedTransport {
 
   private hasSubscribers(): boolean {
     return this.jsonlHandlers.size > 0 || this.statusHandlers.size > 0
-      || this.overviewHandlers.size > 0 || this.subagentsHandlers.size > 0
+      || this.overviewHandlers.size > 0 || this.subagentsHandlers.size > 0 || this.ticketsHandlers.size > 0
   }
 
   private ensureStarted(): void {
@@ -204,6 +206,13 @@ class UnifiedTransport {
       this.lastOverview = frame.data
       for (const h of this.overviewHandlers) {
         try { h(frame.data) } catch (e) { console.warn('[unified] overview handler threw', e) }
+      }
+      return
+    }
+    if (ch === 'tickets') {
+      this.lastTickets = frame.data
+      for (const h of this.ticketsHandlers) {
+        try { h(frame.data) } catch (e) { console.warn('[unified] tickets handler threw', e) }
       }
       return
     }
@@ -356,6 +365,19 @@ class UnifiedTransport {
     }
   }
 
+  /** 頼みの票の絵 (= `{tickets, peers}`)。 接続した時に今の 1 枚が届き、 遅れて購読した側へは最後の 1 枚を渡す。 */
+  subscribeTickets(handler: Handler): () => void {
+    this.ticketsHandlers.add(handler)
+    this.ensureStarted()
+    if (this.lastTickets !== undefined) {
+      try { handler(this.lastTickets) } catch (e) { console.warn('[unified] tickets late-replay threw', e) }
+    }
+    return () => {
+      this.ticketsHandlers.delete(handler)
+      if (!this.hasSubscribers()) this.stop()
+    }
+  }
+
   subscribeSubagents(sid: string, handler: Handler): () => void {
     let set = this.subagentsHandlers.get(sid)
     if (!set) { set = new Set(); this.subagentsHandlers.set(sid, set) }
@@ -464,6 +486,11 @@ export const unifiedOverviewSse = {
   bumpReconnect: () => unifiedTransport.bumpReconnect(),
   get state() { return unifiedTransport.state },
   get hasSubscribers() { return true },
+}
+
+/** tickets channel subscriber。 */
+export const unifiedTicketsSse = {
+  subscribe: (h: Handler) => unifiedTransport.subscribeTickets(h),
 }
 
 /** per-sid subagents channel subscriber。 */

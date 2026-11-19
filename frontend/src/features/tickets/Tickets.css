@@ -1,0 +1,57 @@
+/* 票の一覧と票の画面。 枠は _common/Modal.css (= ファイルプレビューと同じ物) を使い、 ここは差分だけ。 */
+.ticket-heading { font-size: 13px; color: var(--text); }
+/* 票の画面は一覧の上に重ねる (= 一覧から開いても、 閉じれば一覧へ戻る) */
+.ticket-overlay { z-index: 60; }
+
+.ticket-list { display: flex; flex-direction: column; gap: 14px; }
+.ticket-group { display: flex; flex-direction: column; gap: 6px; }
+.ticket-group-title { font-size: 12px; color: var(--dim, #8a8f98); letter-spacing: .02em; }
+.ticket-group-toggle { background: none; border: none; padding: 0; text-align: left; cursor: pointer; }
+.ticket-row {
+  display: flex; flex-direction: column; gap: 3px; align-items: flex-start;
+  width: 100%; padding: 10px 12px; text-align: left; cursor: pointer;
+  background: var(--surface, #1e2127); color: var(--text); border: 1px solid var(--border, #333); border-radius: 8px;
+}
+.ticket-row-title { font-size: 14px; overflow-wrap: anywhere; }
+.ticket-row-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--dim, #8a8f98); }
+.ticket-row-wants { color: var(--accent); }
+.ticket-row-problem { font-size: 12px; color: #e5534b; }
+.ticket-peer { font-size: 12px; color: var(--dim, #8a8f98); padding-top: 4px; border-top: 1px solid var(--border, #333); }
+
+.ticket-body { display: flex; flex-direction: column; gap: 12px; }
+/* 操作者の原文は一番上に固定で、 下の件が流れても見えている */
+.ticket-original {
+  position: sticky; top: 0; z-index: 1; margin: 0; padding: 10px 12px;
+  background: var(--bg, #14161a); border: 2px solid var(--accent); border-radius: 8px;
+}
+.ticket-original-label { display: block; font-size: 11px; color: var(--accent); margin-bottom: 4px; }
+.ticket-original-text, .ticket-entry-text, .ticket-entry-title, .ticket-question-text, .ticket-draft-previous-text {
+  white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5;
+}
+.ticket-entries { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.ticket-entry { padding-left: 10px; border-left: 2px solid var(--border, #333); }
+.ticket-entry-head { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: 12px; color: var(--dim, #8a8f98); margin-bottom: 2px; }
+.ticket-entry-kind { color: var(--text); font-weight: 600; }
+.ticket-entry-title { font-weight: 600; }
+.ticket-entry-recommend, .ticket-question-recommend { font-size: 13px; margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ticket-entry-recommend-label { color: var(--accent); }
+
+.ticket-lower {
+  border-top: 1px solid var(--border, #333); padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+  display: flex; flex-direction: column; gap: 10px;
+  /* 下の欄が長くなっても、 上の件が読める高さを残す */
+  max-height: 50%; overflow-y: auto; flex: 0 0 auto;
+}
+.ticket-lower-block { display: flex; flex-direction: column; gap: 8px; }
+.ticket-lower-title { font-size: 13px; font-weight: 600; }
+.ticket-problem-title, .ticket-error { color: #e5534b; }
+.ticket-error { font-size: 13px; overflow-wrap: anywhere; }
+.ticket-handover, .ticket-answer-buttons { display: flex; gap: 8px; align-items: center; }
+.ticket-handover select { flex: 1; min-width: 0; padding: 8px; background: var(--surface, #1e2127); color: var(--text); border: 1px solid var(--border, #333); border-radius: 6px; }
+.ticket-answer-buttons { justify-content: flex-end; }
+.ticket-answer-field { width: 100%; box-sizing: border-box; padding: 8px; font-size: 14px; resize: vertical; background: var(--surface, #1e2127); color: var(--text); border: 1px solid var(--border, #333); border-radius: 6px; }
+.ticket-button { padding: 8px 14px; font-size: 14px; cursor: pointer; background: var(--surface, #1e2127); color: var(--text); border: 1px solid var(--border, #333); border-radius: 6px; }
+.ticket-button:disabled { opacity: .5; cursor: default; }
+.ticket-button-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.ticket-draft-previous { padding: 8px 10px; border: 1px dashed var(--border, #333); border-radius: 6px; display: flex; flex-direction: column; gap: 6px; }
+.ticket-delivering-list { margin: 0; padding-left: 18px; font-size: 13px; }

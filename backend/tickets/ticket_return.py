@@ -16,7 +16,8 @@ from fastapi import HTTPException
 from backend._common.errors import raise_error
 from backend._common.state import sessions_meta
 from backend.routes.agent_messages import deliver_or_keep, hand_over_work
-from backend.tickets import answer_judgement, ticket_entry, ticket_index, ticket_places, ticket_relay, ticket_service
+from backend.tickets import (answer_judgement, ticket_entry, ticket_index, ticket_notify, ticket_places, ticket_relay,
+                             ticket_service, ticket_view)
 from backend.tickets.answer_judgement import CLEAR_HOLDER, RETURN_TO_OPENER, HolderFacts
 from backend.tickets.return_envelope import returned_envelope
 from backend.tickets.ticket_index import CLOSED, IndexRow
@@ -90,6 +91,7 @@ async def return_if_gone(ticket: str) -> bool:
         await _hand_work_to_child(target)
     elif step == CLEAR_HOLDER:
         logger.warning("ticket returned: id=%s has no tab to go back to (holder and opener are both closed)", ticket)
+        ticket_notify.schedule(ticket, ticket_view.ATTENTION_NO_HOLDER)
     return True
 
 

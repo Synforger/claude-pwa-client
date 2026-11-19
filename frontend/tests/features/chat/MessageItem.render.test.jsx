@@ -10,7 +10,8 @@
 // 方針: 表示内容の細かい assert はしない (= 文言変更で壊れる脆い test にしない)。
 // 「throw せず render できる + 代表要素が存在する」 の 2 点だけ見る。
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, cleanup } from '@testing-library/react'
+import { render, cleanup, fireEvent } from '@testing-library/react'
+import { getSnapshot as getUiSnapshot, setOverlay } from '../../../src/state/ui.js'
 import MessageItem from '../../../src/features/chat/MessageItem.jsx'
 import { AGENT_MESSAGE_OPENING, CLIENT_NOTICE_OPENING, ROLLOVER_OPENING, TAB_OPEN_OPENING } from '../../../src/features/chat/agentMessage.js'
 
@@ -43,6 +44,29 @@ describe('MessageItem render smoke', () => {
     expect(container.textContent).toContain('the build drops the last row')
     expect(container.textContent).not.toContain('agent-message')
     expect(container.querySelector('.message.user.relayed')).not.toBeNull()
+  })
+
+  it('a ticket handed over shows as one line that opens the ticket screen, not as its body', () => {
+    const text = `${AGENT_MESSAGE_OPENING}\n<agent-message from="tools" session="ses_sender" ticket="home-261119-01">\n票 home-261119-01 を渡されました。\n</agent-message>`
+    const { getByTestId, container } = render(<MessageItem {...baseProps} msg={{ id: 'u3', role: 'user', text }} />)
+    expect(getByTestId('relayed-from').textContent).toContain('tools')
+    const link = getByTestId('relayed-ticket-link')
+    expect(link.textContent).toContain('home-261119-01')
+    expect(container.querySelector('.bubble')).toBeNull()
+    fireEvent.click(link)
+    expect(getUiSnapshot().overlays.ticket).toBe('home-261119-01')
+    setOverlay('ticket', null)
+  })
+
+  it('the notice that an answer reached the holder shows as one line that opens the ticket screen', () => {
+    const text = `${CLIENT_NOTICE_OPENING}\n<ticket-answer ticket="home-261119-02">\n<operator-said>\nTake B\n</operator-said>\nsentence\n</ticket-answer>`
+    const { getByTestId, container } = render(<MessageItem {...baseProps} msg={{ id: 'u4', role: 'user', text }} />)
+    const link = getByTestId('ticket-answer-link')
+    expect(link.textContent).toContain('home-261119-02')
+    expect(container.textContent).not.toContain('Take B')
+    fireEvent.click(link)
+    expect(getUiSnapshot().overlays.ticket).toBe('home-261119-02')
+    setOverlay('ticket', null)
   })
 
   it('a relayed message shows what the operator said above its body', () => {

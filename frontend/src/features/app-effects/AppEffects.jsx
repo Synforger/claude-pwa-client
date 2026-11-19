@@ -24,6 +24,7 @@ import { useDeepLink } from '../session-drawer/useDeepLink.js'
 import { usePushSubscription } from '../push-notify/usePushSubscription.js'
 import { useViewportSettle } from './useViewportSettle.js'
 import { useKeyboardLog } from './useKeyboardLog.js'
+import { useTicketsChannel } from '../tickets/useTicketsChannel.js'
 import {
   subscribe as subscribeUi,
   getSnapshot as getUiSnapshot,
@@ -47,6 +48,7 @@ export default function AppEffects() {
   const { sessions, activeId, setActiveId } = useSessions()
   const activeSid = sessions.find(s => s.id === activeId)?.id || null
   const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
+  const openTicket = typeof ui.overlays.ticket === 'string' ? ui.overlays.ticket : null
 
   // viewModes を localStorage に書き戻す (= 旧 useViewMode の `useEffect(() => lsSet(KEY, viewModes))`
   // と同等)。 hydrate は module load 時に済ませているので、 ここは write 専任。
@@ -65,6 +67,8 @@ export default function AppEffects() {
   useReadOnSessionOpen(activeSid)
   useDeepLink(setActiveId)
   useNotificationClear()
+  // 頼みの票の絵 (= 統合 stream の `tickets` channel) を受ける。 📌・票の一覧・タブの一覧が読む
+  useTicketsChannel()
 
   // Phase J-5 (= ADR-026 follow-up): 旧 AppShell 由来の inline `URL ?ses= 直読み + setActiveId`
   // useEffect は useDeepLink(setActiveId) と完全に同じロジック (= URL parse → setActiveId →
@@ -80,12 +84,14 @@ export default function AppEffects() {
       ctrl.postMessage({
         type: 'active-session',
         sid: document.visibilityState === 'visible' ? (activeSid || null) : null,
+        // 票の画面を開いている間は、 その票の通知を音なしにするため (= sw.js)
+        ticket: document.visibilityState === 'visible' ? (openTicket || null) : null,
       })
     }
     post()
     document.addEventListener('visibilitychange', post)
     return () => document.removeEventListener('visibilitychange', post)
-  }, [activeSid])
+  }, [activeSid, openTicket])
 
   // Web Push 購読状態 (= 環境制約・トグル・連打防止) は state/push.js singleton store + 専用 hook に集約。
   // mountEffects:true で副作用 listener (= visibility / interval / SW broken) の hub を本 instance に集約

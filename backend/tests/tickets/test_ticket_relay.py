@@ -91,6 +91,22 @@ def test_ask_is_refused_for_a_ticket_of_the_other_machine_and_nothing_is_carried
     assert company.carried == []
 
 
+def test_the_operators_doors_are_refused_for_a_ticket_of_the_other_machine_and_nothing_is_carried(company, client):
+    """The operator reads and answers a ticket on the screen of the machine that keeps it, so the doors of the screen work
+    on this machine's tickets only."""
+    for answer in (client.get(f"/tickets/{REMOTE}/answer"),
+                   client.post(f"/tickets/{REMOTE}/answer/holder", json={"to": "ses_b"}),
+                   client.post(f"/tickets/{REMOTE}/answer/seen")):
+        assert _error(answer) == (409, "ticket_elsewhere")
+    assert answer.json()["detail"]["params"]["peer"] == "home"
+    assert company.carried == []
+
+
+def test_a_holder_to_hand_to_must_be_given_as_a_non_empty_text(company, client):
+    for body in ({}, {"to": "  "}, {"to": 3}):
+        assert _error(client.post("/tickets/company-261119-01/answer/holder", json=body)) == (400, "ticket_empty")
+
+
 def test_a_machine_that_does_not_answer_is_503_and_nothing_is_kept(company, client):
     company.peer_says["/entries"] = company.down
     answer = client.post(f"/tickets/{REMOTE}/entries", data={"from": "ses_a", "text": "I did it"})

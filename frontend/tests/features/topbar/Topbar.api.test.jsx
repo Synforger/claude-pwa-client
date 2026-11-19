@@ -3,7 +3,7 @@
 // The top bar of an API tab (no Claude Code behind it): no notes, no sub-agents, no plan approval. A Claude tab's bar
 // keeps them.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, cleanup } from '@testing-library/react'
+import { render, cleanup, fireEvent, act } from '@testing-library/react'
 
 const mockStatus = vi.fn()
 vi.mock('../../../src/features/status-bar/useStatus.js', () => ({ useStatus: (...a) => mockStatus(...a) }))
@@ -12,6 +12,8 @@ vi.mock('../../../src/features/extensions/ExtensionMenu.jsx', () => ({ default: 
 
 import Topbar from '../../../src/features/topbar/Topbar.jsx'
 import { setSessions, setActiveId } from '../../../src/state/sessions.js'
+import { applyTicketsSnapshot } from '../../../src/state/tickets.js'
+import { getSnapshot as getUiSnapshot, setOverlay } from '../../../src/state/ui.js'
 
 const CLAUDE = { id: 'ses_claude', agent_id: 'agent_a', title: 'Desk', created_at: 2 }
 const API = { id: 'api_support-bot', agent_id: 'agent_a', title: 'Support bot', created_at: 0, kind: 'api' }
@@ -42,5 +44,39 @@ describe('Topbar', () => {
     expect(queryByTestId('subagents-open-button')).toBeNull()
     expect(queryByTestId('plan-approval-open-button')).toBeNull()
     expect(container.querySelector('.topbar-title').textContent).toBe('Support bot')
+  })
+})
+
+
+describe('Topbar tickets', () => {
+  const row = (id, attention) => ({ id, title: id, status: 'open', holder: 'ses_claude', opener: 'ses_claude', attention })
+
+  afterEach(() => {
+    act(() => { applyTicketsSnapshot({ tickets: [], peers: {} }); setOverlay('tickets', false) })
+  })
+
+  it('shows no pin while no ticket wants a look', () => {
+    setActiveId('ses_claude')
+    act(() => applyTicketsSnapshot({ tickets: [row('a', null)], peers: {} }))
+    const { queryByTestId } = render(<Topbar />)
+    expect(queryByTestId('tickets-open-button')).toBeNull()
+  })
+
+  it('shows the pin with the number of tickets that want a look, and opens the list by it, whichever tab is open', () => {
+    setActiveId('api_support-bot')
+    act(() => applyTicketsSnapshot({ tickets: [row('a', 'waiting'), row('b', 'delivery'), row('c', null)], peers: {} }))
+    const { getByTestId } = render(<Topbar />)
+    expect(getByTestId('tickets-count').textContent).toBe('2')
+    fireEvent.click(getByTestId('tickets-open-button'))
+    expect(getUiSnapshot().overlays.tickets).toBe(true)
+  })
+
+  it('takes the pin away when the last ticket that wanted a look is settled', () => {
+    setActiveId('ses_claude')
+    act(() => applyTicketsSnapshot({ tickets: [row('a', 'waiting')], peers: {} }))
+    const { queryByTestId } = render(<Topbar />)
+    expect(queryByTestId('tickets-open-button')).not.toBeNull()
+    act(() => applyTicketsSnapshot({ tickets: [row('a', null)], peers: {} }))
+    expect(queryByTestId('tickets-open-button')).toBeNull()
   })
 })

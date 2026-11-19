@@ -46,7 +46,7 @@ function loadSw({ replacing = false, screens = [] } = {}) {
     console,
   }
   vm.runInNewContext(SW_SOURCE, context)
-  return { listeners, puts, fetched, delays, logs }
+  return { listeners, puts, fetched, delays, logs, context }
 }
 
 // fetch listener に 1 件流し、 respondWith された応答の処理 (= cache 保存) が終わるまで待つ。
@@ -208,5 +208,68 @@ describe('sw.js moves the screens that cannot move themselves, when a new worker
     const sw = loadSw({ replacing: true, screens: [slow] })
     await install(sw)
     await activate(sw)
+  })
+})
+
+
+// Push and click of a ticket's notification: it carries the ticket, is silent on the screen that has that ticket open,
+// and opens the ticket screen (not a tab) when it is pressed.
+describe('sw.js ticket notifications', () => {
+  function pushEvent(payload) {
+    let work = null
+    return { data: { json: () => payload }, waitUntil: (p) => { work = p }, done: () => work }
+  }
+  it('carries the ticket and the tag of the push into the notification, and shows it with a sound when no screen has it open', async () => {
+    const shown = []
+    const sw = loadSw({ screens: [] })
+    const context = sw.context
+    context.self.registration.showNotification = (title, options) => { shown.push({ title, options }); return Promise.resolve() }
+    context.self.registration.getNotifications = () => Promise.resolve([])
+    const event = pushEvent({ title: '📌 Fix it', body: 'Waiting for your decision', ticket: 'home-261119-01', tag: 'ticket-home-261119-01' })
+    sw.listeners.push(event)
+    await event.done()
+    expect(shown).toHaveLength(1)
+    expect(shown[0].options.tag).toBe('ticket-home-261119-01')
+    expect(shown[0].options.data.ticket).toBe('home-261119-01')
+    expect(shown[0].options.silent).toBe(false)
+  })
+
+  it('makes the notification silent on the screen that has that ticket open and is in front', async () => {
+    const shown = []
+    const front = { id: 'c1', focused: true, url: `${ORIGIN}/`, postMessage: () => {} }
+    const sw = loadSw({ screens: [front] })
+    sw.context.self.registration.showNotification = (title, options) => { shown.push(options); return Promise.resolve() }
+    sw.context.self.registration.getNotifications = () => Promise.resolve([])
+    sw.listeners.message({ data: { type: 'active-session', sid: 'ses_a', ticket: 'home-261119-01' }, source: { id: 'c1' } })
+    const event = pushEvent({ title: '📌 Fix it', body: 'x', ticket: 'home-261119-01', tag: 'ticket-home-261119-01' })
+    sw.listeners.push(event)
+    await event.done()
+    expect(shown[0].silent).toBe(true)
+  })
+
+  it('opens the ticket screen of a screen that is running, and does not switch its tab', async () => {
+    const posted = []
+    const running = { id: 'c1', focus: () => Promise.resolve(), postMessage: (m) => posted.push(m) }
+    const sw = loadSw({ screens: [running] })
+    let work = null
+    sw.listeners.notificationclick({
+      notification: { close: () => {}, data: { sid: null, ticket: 'home-261119-01', url: '/' } },
+      waitUntil: (p) => { work = p },
+    })
+    await work
+    expect(posted).toEqual([{ type: 'open-ticket', ticket: 'home-261119-01' }])
+  })
+
+  it('starts the app at the ticket when none is running', async () => {
+    const opened = []
+    const sw = loadSw({ screens: [] })
+    sw.context.self.clients.openWindow = (url) => { opened.push(url); return Promise.resolve() }
+    let work = null
+    sw.listeners.notificationclick({
+      notification: { close: () => {}, data: { sid: null, ticket: 'home-261119-01', url: '/' } },
+      waitUntil: (p) => { work = p },
+    })
+    await work
+    expect(opened).toEqual(['/?ticket=home-261119-01'])
   })
 })

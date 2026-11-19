@@ -237,6 +237,8 @@ export default function ChatPanel({ sid }) {
         fetchLatest()
       } else if (d?.type === 'open-session' && d.sid) {
         setActiveId(d.sid)
+      } else if (d?.type === 'open-ticket' && d.ticket) {
+        setOverlay('ticket', d.ticket)
       }
     }
     navigator.serviceWorker.addEventListener('message', onMessage)

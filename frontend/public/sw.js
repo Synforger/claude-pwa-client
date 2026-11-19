@@ -157,7 +157,7 @@ const clientActive = {}
 self.addEventListener('message', (event) => {
   const d = event.data
   if (d && d.type === 'active-session' && event.source && event.source.id) {
-    clientActive[event.source.id] = { sid: d.sid || null }
+    clientActive[event.source.id] = { sid: d.sid || null, ticket: d.ticket || null }
   }
   if (d && d.type === SELF_UPDATING_MESSAGE && event.source && event.source.id) {
     selfUpdating.add(event.source.id)
@@ -201,7 +201,8 @@ self.addEventListener('push', (event) => {
     renotify: true,
     // sid (session id) と url 両方持たせる: notificationclick で sid → activeSid 切替、
     // url は新規ウィンドウ open 時の deep link fallback。
-    data: { sid: data.sid || null, url: data.url || '/' },
+    // ticket = 頼みの票の通知 (= 票の id)。 タップで票の画面を開く
+    data: { sid: data.sid || null, ticket: data.ticket || null, url: data.url || '/' },
   }
   // ホーム画面アプリアイコンの未読バッジを更新 (Badging API、 iOS 16.4+ PWA 対応)
   // payload に unread_count が載ってるので fetch 不要 = 完全終了状態でも省電力で更新
@@ -229,6 +230,10 @@ self.addEventListener('push', (event) => {
         const focused = !!c.focused
         if (focused) focusedCount++
         if (data.sid && focused && active && active.sid === data.sid) {
+          isSelfViewing = true
+        }
+        // 票の画面を開いている端末は、 その票の通知を音なしにする
+        if (data.ticket && focused && active && active.ticket === data.ticket) {
           isSelfViewing = true
         }
         try { c.postMessage({ type: 'push-received', sid: data.sid || null }) } catch { /* ignore */ }
@@ -309,16 +314,23 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   const data = event.notification.data || {}
   const sid = data.sid || null
+  const ticket = data.ticket || null
   // 経路は 2 つだけ:
   //   (a) ホット = PWA が起動中: matchAll で controlled client 取得 → 全員に postMessage、
   //       1 つを focus でフォアに引き上げる。 SW と App は controllerchange で version 整合済。
   //   (b) コールド = PWA 完全終了: openWindow('/?ses=<sid>') で新規起動、 App.jsx は起動時に
   //       URL param を読んで activeId を反映する。 cold start の唯一の経路なので汚さではなく仕様。
-  const targetUrl = sid ? `/?ses=${encodeURIComponent(sid)}` : '/'
+  //   票の通知 (= payload の ticket) は、 タブでなく票の画面を開く (= open-ticket / /?ticket=<id>)。
+  const targetUrl = ticket ? `/?ticket=${encodeURIComponent(ticket)}`
+    : (sid ? `/?ses=${encodeURIComponent(sid)}` : '/')
   event.waitUntil((async () => {
     const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
     if (allClients.length > 0) {
-      if (sid) {
+      if (ticket) {
+        for (const client of allClients) {
+          try { client.postMessage({ type: 'open-ticket', ticket }) } catch { /* ignore */ }
+        }
+      } else if (sid) {
         for (const client of allClients) {
           try { client.postMessage({ type: 'open-session', sid }) } catch { /* ignore */ }
         }
