@@ -54,6 +54,11 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   `claude` 起動時に自動ロードされる
 - `model`: 既定モデル (`Opus` / `Sonnet` / `Haiku` 等)
 - `display_name` (任意): UI に表示するエージェント名。 未指定時はキー名がそのまま使われる
+- `list_folder` (任意): 画面の会話の一覧で、 このエージェントのタブを並べる folder。 `<エージェントの key>/<folder>/...`
+  の形で書き、 タブは自分のエージェントの folder ではなく、 名指したエージェントの folder の下のその folder に並ぶ
+  (例: `"agent_a/Game/Heads"` は、 `agent_a` のプロジェクト `Game` の folder の中の `Heads`)。 1 つのプロジェクトのために
+  エージェントを何本も分けた時に、 そのタブをプロジェクトの folder 1 つで畳めるようにする。 folder が 1 段も無い値・
+  空の段を持つ値は使わず、 自分の folder に並べる
 - `launch_alias` (任意): タブを新規作成した際に tmux pane へ自動入力する文字列。
   `~/.zshrc` 等に `alias agent_a='cd /path/to/agent_a && claude'` のような起動ラッパを
   定義しておくと、 タブを開いた直後に claude TUI まで自動で立ち上がる。 未指定の場合は

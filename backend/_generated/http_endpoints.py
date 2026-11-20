@@ -99,6 +99,7 @@ class GetAgentsResponseItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str
     display_name: str
+    list_folder: Optional[str] = None
 
 
 class GetAccountsResponseItem(BaseModel):

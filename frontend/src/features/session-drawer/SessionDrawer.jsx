@@ -464,7 +464,7 @@ export default function SessionDrawer() {
                   key={`folder:${row.key}`}
                   className="drawer-folder"
                   style={row.depth > 0 ? { paddingLeft: `${row.depth * 16}px` } : undefined}
-                  onClick={() => setFoldedFolders(prev => toggleFoldedFolder(prev, row.key, sessions))}
+                  onClick={() => setFoldedFolders(prev => toggleFoldedFolder(prev, row.key, sessions, agents))}
                   aria-expanded={!row.folded}
                   title={row.folded ? t('drawer.unfold') : t('drawer.fold')}
                   data-testid="session-folder"

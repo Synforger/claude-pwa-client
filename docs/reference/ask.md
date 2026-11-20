@@ -164,6 +164,9 @@ tabs ask <タブ> q3.txt --resume 7565f8b3-… --fork     # その会話の枝�
   `--tools` などが外れます)。 `launcher: true` と組で使います
 - 自動の入れ替え (`rollover`) は置きません。 入れ替えは、 エージェントに締めの手順を回させる仕組みです。
   会話を軽く保つのは `--fresh` です
+- 役ごとに前置きや model を分けてエージェントを何本も置くと、 一覧にはエージェントごとの folder が並びます。
+  使う program のプロジェクトの folder にまとめる時は、 どのエージェントにも同じ `list_folder` を書きます
+  ([config.md](config.md))
 
 タブはこのエージェントで普通に立てます (= 画面の新しいタブ、 か `POST /sessions`)。 立てた直後のタブには
 Claude が居らず、 最初の問いが Claude を起動します。 新しい folder で初めて起動する時は、 Claude Code が
