@@ -1,6 +1,8 @@
 """The guard's five commands as the tickets use them: 0, 1, 2 and no key, for the place, the write, the covers and the read."""
 from __future__ import annotations
 
+import sys
+
 import pytest
 from fastapi import HTTPException
 
@@ -189,3 +191,40 @@ def test_the_listing_judges_no_line(ticket_env):
     ticket_env.guard.use("read", read={"status": 1})
     assert run(ticket_service.list_tickets())["tickets"][0]["title"] == "Title"
     assert ticket_env.guard.calls() == []
+
+
+# --- a judgement left out on a machine whose messages the guard judges ------------------------------------------------
+
+
+def _guarded_without(env, *modes: str) -> None:
+    """The guard judges the messages, and of the tickets' judgements only `modes`."""
+    env.guard.base = {**env.guard.base, "agent_message_check": ["peers.py", "--to", "{session}"]}
+    env.guard.use(*modes, place={"stdout": str(env.tickets)})
+
+
+def test_a_ticket_is_not_opened_unjudged_where_the_guard_judges_the_messages(ticket_env):
+    _guarded_without(ticket_env)
+    assert _code(ticket_service.open_ticket("ses_a", "t", "x", operator_said=False)) == "ticket_check_missing"
+    assert ticket_index.rows() == {}
+
+
+def test_a_line_is_not_added_unjudged_where_the_guard_judges_the_messages(ticket_env):
+    ticket = _open()["id"]
+    _guarded_without(ticket_env, "place", "places", "covers", "read")
+    assert _code(ticket_service.add("ses_a", ticket, "more")) == "ticket_check_missing"
+
+
+def test_a_ticket_is_not_shown_unjudged_where_the_guard_judges_the_messages(ticket_env):
+    ticket = _open()["id"]
+    _guarded_without(ticket_env, "place", "places", "write", "covers")
+    assert _code(ticket_service.show("ses_a", ticket)) == "ticket_check_missing"
+
+
+def test_the_place_command_may_name_the_folder_of_the_opening_tabs_tier(ticket_env):
+    from backend.tests.tickets.samples import COMMANDS, FAKE_GUARD, write_config  # noqa: PLC0415
+    ticket_env.guard.answer(place={"stdout": str(ticket_env.tickets)})
+    command = [sys.executable, str(FAKE_GUARD), "place", str(ticket_env.guard.rules_file), *COMMANDS["place"],
+               "--folder", "{folder}"]
+    write_config(ticket_env.guard._monkeypatch, ticket_env.root, ticket_place_check=command)
+    _open()
+    assert ticket_env.guard.calls("place")[-1]["flags"]["--folder"] == str(tier_folder("ses_a"))

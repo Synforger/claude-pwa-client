@@ -30,3 +30,14 @@ def test_a_machine_name_that_is_not_a_name_falls_back_to_the_host(ticket_env, va
     import socket  # noqa: PLC0415
     write_config(ticket_env.guard._monkeypatch, ticket_env.root, machine_name=value)
     assert config_mod.MACHINE_NAME == socket.gethostname().split(".")[0]
+
+
+def test_on_a_machine_whose_messages_the_guard_judges_every_ticket_key_left_out_is_named(ticket_env):
+    write_config(ticket_env.guard._monkeypatch, ticket_env.root, agent_message_check=["peers.py"],
+                 ticket_write_check=["peers.py"])
+    assert config_mod.missing_ticket_checks() == [
+        "ticket_place_check", "ticket_places_check", "ticket_covers_check", "ticket_read_check"]
+
+
+def test_without_the_message_judgement_no_ticket_key_counts_as_missing(ticket_env):
+    assert config_mod.missing_ticket_checks() == []

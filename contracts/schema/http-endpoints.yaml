@@ -1111,7 +1111,8 @@ endpoints:
     response_kind: json
     auth: localhost
     invariants:
-      - "the place of the ticket is decided once, when it opens, by the guard's ticket_place_check (= none configured: the place outside every boundary); it is never moved"
+      - "the place of the ticket is decided once, when it opens, by the guard's ticket_place_check (= none configured: the place outside every boundary); it moves only when the backend starts, from the place outside every boundary to its opener's place, if its lines may not stay outside (= written before the checks were configured)"
+      - "on a machine with agent_message_check, a ticket check left out of the configuration is 503 ticket_check_missing, never no check"
       - "the first lines are judged by ticket_write_check before anything is written; a refusal is 403 ticket_refused, a check that cannot run 503 ticket_check_failed"
       - "a place that does not fit one folder is 409 ticket_place_split and an undecidable one 503 ticket_place_unknown; nothing is written"
       - "the operator's words come from the tab's conversation record, never from the form"

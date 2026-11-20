@@ -122,6 +122,7 @@ import backend.tier_tabs.tier_tabs as tier_tabs  # noqa: E402
 import backend.tickets.answer_delivery as answer_delivery  # noqa: E402
 import backend.tickets.ticket_peer_count as ticket_peer_count  # noqa: E402
 import backend.tickets.ticket_return as ticket_return  # noqa: E402
+import backend.tickets.ticket_relocate as ticket_relocate  # noqa: E402
 import backend.routes.unified_stream as unified_stream_routes  # noqa: E402
 import backend.routes.voice as voice_routes  # noqa: E402
 import backend.routes.voice_call as voice_call_routes  # noqa: E402
@@ -203,6 +204,13 @@ async def _uploads_tmp_gc_loop(interval_sec: float = 3600.0) -> None:
             _prune_uploads_tmp()
         except Exception:
             logger.exception("uploads tmp gc failed")
+
+
+async def _relocate_tickets() -> None:
+    try:
+        await ticket_relocate.relocate_outside_tickets()
+    except Exception:
+        logger.exception("ticket relocate failed")
 
 
 @asynccontextmanager
@@ -305,6 +313,9 @@ async def lifespan(app: FastAPI):
     # 最初に頼んだタブへ戻す (= `backend/tickets/ticket_return.py`)。 票が無ければ何もしない。
     answer_task = asyncio.create_task(answer_delivery.patrol_loop())
     ticket_return_task = asyncio.create_task(ticket_return.return_loop())
+    # 票の判定が無いうちに境界の外の置き場へ書かれ、 そこに置けない中身を持つ票を、 開いたタブの置き場へ 1 回だけ移す
+    # (= `backend/tickets/ticket_relocate.py`)。 移せない票は log に名前を出して残す。
+    ticket_relocate_task = asyncio.create_task(_relocate_tickets())
     # もう 1 台の機械が操作者の答えを待つ票の数を読む (= 画面の一覧の最後の 1 行。 `backend/tickets/ticket_peer_count.py`)
     ticket_peer_count_task = asyncio.create_task(ticket_peer_count.count_loop())
 
@@ -373,6 +384,7 @@ async def lifespan(app: FastAPI):
     child_watch_task.cancel()
     answer_task.cancel()
     ticket_return_task.cancel()
+    ticket_relocate_task.cancel()
     ticket_peer_count_task.cancel()
     engine_wake_task.cancel()
     tier_tabs_task.cancel()
@@ -381,7 +393,7 @@ async def lifespan(app: FastAPI):
     prompt_detector_task.cancel()
     loop_stall_task.cancel()
     for _t in (blocker_monitor_task, uploads_gc_task, maintenance_task, rollover_task, sleep_task, fallback_task,
-               hold_task, resume_task, error_resume_task, child_watch_task, answer_task, ticket_return_task, ticket_peer_count_task, engine_wake_task, tier_tabs_task, api_tabs_task, peer_task, prompt_detector_task,
+               hold_task, resume_task, error_resume_task, child_watch_task, answer_task, ticket_return_task, ticket_relocate_task, ticket_peer_count_task, engine_wake_task, tier_tabs_task, api_tabs_task, peer_task, prompt_detector_task,
                loop_stall_task):
         try:
             await _t
