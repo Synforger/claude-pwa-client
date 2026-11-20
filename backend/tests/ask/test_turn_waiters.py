@@ -62,3 +62,25 @@ def test_the_stop_hook_hands_its_last_message_to_the_waiting_ask(fake_agents, fa
             assert (await client.post("/hooks/event", json=payload)).status_code == 200
         return await asyncio.wait_for(answer, 1)
     assert run(scenario()) == "The tavern is quiet."
+
+
+def test_a_conversation_is_waited_for_among_the_openings_after_the_typing():
+    async def scenario() -> list[bool]:
+        waiter = turn_waiters.start_waiting("ses_a")
+        turn_waiters.conversation_opened("ses_a", "from-the-start")           # before the typing: not this one
+        after = len(waiter.openings)
+        asyncio.get_running_loop().call_later(0.02, turn_waiters.conversation_opened, "ses_a", "other")
+        asyncio.get_running_loop().call_later(0.04, turn_waiters.conversation_opened, "ses_a", "wanted")
+        return [await waiter.wait_opening(0, lambda opened: opened == "from-the-start", 1),
+                await waiter.wait_opening(after, lambda opened: opened == "wanted", 1),
+                await waiter.wait_opening(after, lambda opened: opened == "never", 0.05),
+                await waiter.wait_opening(len(waiter.openings), lambda opened: True, 0.05)]
+    assert run(scenario()) == [True, True, False, False]
+
+
+def test_an_opening_the_hook_sent_without_an_id_is_one_that_accept_is_given_none_for():
+    async def scenario() -> bool:
+        waiter = turn_waiters.start_waiting("ses_a")
+        asyncio.get_running_loop().call_soon(turn_waiters.conversation_opened, "ses_a")
+        return await waiter.wait_opening(0, lambda opened: opened is None, 1)
+    assert run(scenario()) is True

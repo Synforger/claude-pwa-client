@@ -183,7 +183,7 @@ It refuses when that tier already has a tab, or when the agent has no folder for
 A program on this machine can use a Claude Code tab as its model:
 
 ```
-tabs ask <tab id or name> <text file> [--fresh] [--timeout <seconds>]
+tabs ask <tab id or name> <text file> [--fresh | --resume <conversation id> [--fork]] [--stream | --json] [--timeout <seconds>]
 ```
 
 It types the text into the tab and prints the last answer of that turn on stdout. `--fresh` types `/clear` first, so
@@ -192,6 +192,12 @@ the turn sees none of the earlier asks; `--timeout` (default 180 seconds) stops 
 the text arrives as plain input, the way the operator's own words do, so the tabs agents work in refuse it
 (`ask_not_allowed`). Such an agent runs without tools in an empty folder. To talk to a colleague's tab, use
 `tabs send`, not this. Codes and setup: `docs/reference/ask.md`.
+
+`--stream` prints one JSON line at a time: `partial` (the answer so far, read off the screen while the turn runs; only a
+first look, not exactly the final text), then `final` (the real answer and the conversation's id) or `error`. `--json`
+prints `{"answer": ..., "session": ...}`, the id of the conversation that answered. `--resume <id>` opens that earlier
+conversation before asking, and `--fork` with it asks in a branch of it (the conversation it came from stays as it was);
+it cannot go with `--fresh` (`ask_bad_args`), and a conversation that does not open is `ask_not_ready`.
 
 ## Requests that cross tabs: `tabs ticket`
 

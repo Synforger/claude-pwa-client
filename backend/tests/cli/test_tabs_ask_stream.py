@@ -150,3 +150,17 @@ def test_a_line_is_printed_before_the_next_one_comes(question):
             process.stdout.close()
     finally:
         backend.close()
+
+
+def test_the_stream_asks_for_the_conversation_to_open_first(question):
+    backend = _StreamingBackend([FINAL])
+    try:
+        for released in backend.released:
+            released.set()
+        saved = "7565f8b3-672d-46fe-8ad7-7f22afeae9d5"
+        assert ask.run(["ses_head", str(question), "--stream", "--resume", saved, "--fork"],
+                       lambda *a, **k: (0, {}), backend.url) == 0
+    finally:
+        backend.close()
+    form = backend.asked[0][1]
+    assert (form["stream"], form["resume"], form["fork"]) == ("true", saved, "true")

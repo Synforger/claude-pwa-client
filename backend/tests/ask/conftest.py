@@ -20,7 +20,8 @@ def head(monkeypatch):
     Escape is pressed (= what Claude Code writes to the record then)."""
     tab = SimpleNamespace(typed=[], keys=[], config={"ask": True}, running=True, busy=False, held=False, woke=False,
                           answer="the answer", answers=True, opens=True, stray_stop_on_clear=True, delivery_error=None,
-                          record=None, after_typing=None, after_escape=None)
+                          record=None, after_typing=None, after_escape=None, claude_session=None, opened_as=None,
+                          branch_id="branch-uuid")
 
     def resolve(to: str) -> str:
         if to in (TAB, NAME):
@@ -38,7 +39,7 @@ def head(monkeypatch):
         if tab.after_typing is not None:
             tab.after_typing()
         if tab.answers:
-            asyncio.get_running_loop().call_soon(turn_waiters.turn_ended, session_id, tab.answer)
+            asyncio.get_running_loop().call_soon(turn_waiters.turn_ended, session_id, tab.answer, tab.claude_session)
         return {"ok": True}
 
     async def send(session_id: str, payload: dict, idempotency_key) -> dict:
@@ -47,12 +48,18 @@ def head(monkeypatch):
             if tab.after_escape is not None:
                 tab.after_escape()
             return {"ok": True}
-        tab.typed.append((payload["text"], None))
+        text = payload["text"]
+        tab.typed.append((text, None))
         loop = asyncio.get_running_loop()
-        if tab.stray_stop_on_clear:
+        if text == "/clear" and tab.stray_stop_on_clear:
             loop.call_soon(turn_waiters.turn_ended, session_id, "a stop that is not the answer")
         if tab.opens:
-            loop.call_soon(turn_waiters.conversation_opened, session_id)
+            if text == "/clear":
+                loop.call_soon(turn_waiters.conversation_opened, session_id)
+            elif text.startswith("/resume "):
+                loop.call_soon(turn_waiters.conversation_opened, session_id, tab.opened_as or text.split()[1])
+            elif text == "/branch":
+                loop.call_soon(turn_waiters.conversation_opened, session_id, tab.branch_id)
         return {"ok": True}
 
     monkeypatch.setattr(ask_turn, "resolve_receiver", resolve)

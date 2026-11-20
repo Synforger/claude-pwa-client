@@ -8,6 +8,10 @@ takes asks: a tab set up for a program, not one an agent works in.
 A turn that hits a usage limit ends without a `Stop`: the record is watched for it (`limit_watch.py`), and the ask
 answers `ask_held` at once instead of waiting out its time.
 
+An ask can first open another conversation in the tab: `resume` types `/resume <id>` and waits for that conversation's
+`SessionStart`, `fork` then types `/branch` and waits for the new conversation's (= the question goes into a branch,
+and the conversation it came from stays as it was).
+
 `ask_stream` is the same ask that also hands on the answer while the turn runs: what Claude Code has drawn of it on the
 screen (`screen_watch.py`), then the `Stop` hook's answer. It fails before the typing as `ask` does, and after it as an
 event of the stream.
@@ -17,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import contextmanager
 from typing import NamedTuple
 
@@ -25,6 +29,7 @@ from fastapi import HTTPException
 
 from backend._common.errors import raise_error
 from backend.account_hold import hold_mail
+import backend.jsonl.jsonl_watcher as jsonl_watcher
 from backend.ask import limit_watch, screen_watch, turn_waiters
 from backend.routes.agent_messages import deliver_message, resolve_receiver, wake_tab
 from backend.routes.overview import is_busy
@@ -39,6 +44,10 @@ MAX_TIMEOUT_SEC = 3600.0
 #: How long a `/clear` gets to open the new conversation (= the `SessionStart` hook comes within a second or two)
 CLEAR_WAIT_SEC = 30.0
 CLEAR_COMMAND = "/clear"
+#: How long a `/resume` or a `/branch` gets to open its conversation (= measured at about one and about four seconds)
+RESUME_WAIT_SEC = 30.0
+RESUME_COMMAND = "/resume"
+BRANCH_COMMAND = "/branch"
 
 #: The failures of the delivery shared with the messages between tabs (`routes/agent_messages.py`), as the asker's
 #: codes. Any other code of that door means the text may have been typed: `ask_unconfirmed`.
@@ -62,22 +71,26 @@ class _Turn(NamedTuple):
     since: limit_watch.RecordMark
 
 
-async def ask(to: str, text: str, *, fresh: bool = False, timeout_sec: float = DEFAULT_TIMEOUT_SEC) -> dict:
+async def ask(to: str, text: str, *, fresh: bool = False, resume: str | None = None, fork: bool = False,
+              timeout_sec: float = DEFAULT_TIMEOUT_SEC) -> dict:
     """Ask the tab `to` (= its id or name) `text` and wait for the turn's last answer.
 
-    `fresh` types `/clear` first, so the turn sees nothing of the asks before it. A turn that has not ended within
+    `fresh` types `/clear` first, so the turn sees nothing of the asks before it. `resume` (a Claude Code conversation's
+    id) opens that conversation first, and `fork` with it opens a branch of it, so the turn goes on in the branch. The
+    caller has checked that they are not asked for together with `fresh` (= `routes/ask.py`). A turn that has not ended within
     `timeout_sec` of the typing is stopped (= Escape), so that the tab is free for the next ask. A turn that a usage
     limit ended answers `ask_held` with the limit's text; its question stays in the conversation.
-    → `{"ok": True, "id": <tab id>, "answer": <text>}`; failures are HTTP errors with an `ask_*` code."""
-    turn = await _start(to, text, fresh=fresh)
+    → `{"ok": True, "id": <tab id>, "answer": <text>, "session": <the id of the conversation the turn was in, or None>}`;
+    failures are HTTP errors with an `ask_*` code."""
+    turn = await _start(to, text, fresh=fresh, resume=resume, fork=fork)
     try:
         answer = await _wait(turn, timeout_sec)
     finally:
         turn_waiters.stop_waiting(turn.session_id, turn.waiter)
-    return {"ok": True, "id": turn.session_id, "answer": answer}
+    return {"ok": True, "id": turn.session_id, "answer": answer, "session": turn.waiter.claude_session_id}
 
 
-async def ask_stream(to: str, text: str, *, fresh: bool = False,
+async def ask_stream(to: str, text: str, *, fresh: bool = False, resume: str | None = None, fork: bool = False,
                      timeout_sec: float = DEFAULT_TIMEOUT_SEC) -> AsyncIterator[dict]:
     """Ask as `ask` does, and give the events of the turn as it runs. Everything up to the typing is done when this
     returns, and fails as an HTTP error as in `ask`; the iterator then yields
@@ -87,7 +100,7 @@ async def ask_stream(to: str, text: str, *, fresh: bool = False,
       or `{"type": "error", "code": "ask_*", "message": ...}` (= the failures `ask` raises after the typing).
 
     The tab's wait ends with the turn (= its answer, its failure or its time), whether the iterator is read or not."""
-    turn = await _start(to, text, fresh=fresh)
+    turn = await _start(to, text, fresh=fresh, resume=resume, fork=fork)
     partials: asyncio.Queue[str] = asyncio.Queue()
     watching = asyncio.ensure_future(screen_watch.watch(turn.session_id, turn.text, partials.put_nowait))
     waiting = asyncio.ensure_future(_wait(turn, timeout_sec))
@@ -95,7 +108,7 @@ async def ask_stream(to: str, text: str, *, fresh: bool = False,
     return _events(turn, partials, waiting)
 
 
-async def _start(to: str, text: str, *, fresh: bool) -> _Turn:
+async def _start(to: str, text: str, *, fresh: bool, resume: str | None, fork: bool) -> _Turn:
     """Everything an ask does up to the typing. → the turn, whose wait the caller ends; a failure ends it here."""
     with _as_ask_error():
         session_id = resolve_receiver(to)
@@ -107,13 +120,14 @@ async def _start(to: str, text: str, *, fresh: bool) -> _Turn:
         raise_error(409, "ask_in_progress", f"このタブには別の問いの答えを待っています。 答えが返ってから聞いてください: {session_id}",
                     id=session_id)
     try:
-        return await _type_text(session_id, text, waiter, fresh=fresh)
+        return await _type_text(session_id, text, waiter, fresh=fresh, resume=resume, fork=fork)
     except BaseException:
         turn_waiters.stop_waiting(session_id, waiter)
         raise
 
 
-async def _type_text(session_id: str, text: str, waiter: turn_waiters.TurnWaiter, *, fresh: bool) -> _Turn:
+async def _type_text(session_id: str, text: str, waiter: turn_waiters.TurnWaiter, *, fresh: bool, resume: str | None,
+                     fork: bool) -> _Turn:
     if await asyncio.to_thread(hold_mail.must_keep, session_id):
         raise_error(409, "ask_held", "このタブは口座の止める線で止まっていて、 動ける口座がありません。 何も聞いていません",
                     id=session_id, reason="account_hold")
@@ -124,12 +138,15 @@ async def _type_text(session_id: str, text: str, waiter: turn_waiters.TurnWaiter
     # A tab with no claude yet starts a new conversation with the text itself: there is nothing to clear.
     cleared = fresh and claude_in_pane(session_id)
     if cleared:
-        await _clear(session_id, waiter)
+        await _open_conversation(session_id, waiter, CLEAR_COMMAND, lambda opened: True, CLEAR_WAIT_SEC)
+    if resume is not None:
+        await _open_resumed(session_id, waiter, resume, fork)
     since = await asyncio.to_thread(limit_watch.mark, session_id)
     answer = turn_waiters.expect_answer(waiter)
     with _as_ask_error():
         await deliver_message(session_id, text, woke and not cleared)
-    logger.info("ask: typed %d chars into session=%s fresh=%s", len(text), session_id, cleared)
+    logger.info("ask: typed %d chars into session=%s fresh=%s resume=%s fork=%s", len(text), session_id, cleared, resume,
+                fork)
     return _Turn(session_id, text, waiter, answer, since)
 
 
@@ -216,18 +233,43 @@ async def _press_escape(session_id: str) -> bool:
     return bool((await pty_send(session_id, {"key": "Escape"}, None)).get("ok"))
 
 
-async def _clear(session_id: str, waiter: turn_waiters.TurnWaiter) -> None:
-    """Type `/clear` and wait for the new conversation to open (= its `SessionStart` hook)."""
-    result = await pty_send(session_id, {"text": CLEAR_COMMAND, "enter": True}, None)
+async def _open_resumed(session_id: str, waiter: turn_waiters.TurnWaiter, resume: str, fork: bool) -> None:
+    """Open the conversation `resume` in the tab, and with `fork` a branch of it: type `/resume <id>` (not when the tab is
+    in that conversation already: Claude Code has nothing to open then) and `/branch`, each waiting for the `SessionStart`
+    of the conversation it opens. A conversation that does not open ends the ask: nothing was asked."""
+    if not claude_in_pane(session_id):
+        raise_error(409, "ask_not_ready", "このタブには Claude が居ないので、 会話を開けません。 何も聞いていません。 "
+                    "--resume を付けずに 1 度聞いて Claude を起動してから聞き直してください", id=session_id)
+    if _conversation_of(session_id) != resume:
+        await _open_conversation(session_id, waiter, f"{RESUME_COMMAND} {resume}", lambda opened: opened == resume,
+                                 RESUME_WAIT_SEC, escape=True)
+    if fork:
+        await _open_conversation(session_id, waiter, BRANCH_COMMAND, lambda opened: opened not in (None, resume),
+                                 RESUME_WAIT_SEC, escape=True)
+
+
+def _conversation_of(session_id: str) -> str | None:
+    """The id of the conversation the tab is in (= the record the tab's last hook said it writes)."""
+    record = jsonl_watcher.get_jsonl_for(session_id)
+    return record.stem if record is not None else None
+
+
+async def _open_conversation(session_id: str, waiter: turn_waiters.TurnWaiter, command: str,
+                             accept: Callable[[str | None], bool], wait_sec: float, *, escape: bool = False) -> None:
+    """Type `command` and wait for the `SessionStart` of the conversation it opens (= the id `accept` takes). When none
+    opens, `escape` presses Escape once, so that the search a `/resume` of an unknown id leaves open does not stay on the
+    tab's screen. Failures are `ask_not_ready`."""
+    after = len(waiter.openings)
+    result = await pty_send(session_id, {"text": command, "enter": True}, None)
     if not result.get("ok"):
-        raise_error(409, "ask_not_ready", "会話を新しくする /clear を打てませんでした。 何も聞いていません。 もう一度聞いてください",
+        raise_error(409, "ask_not_ready", f"{command.split()[0]} を打てませんでした。 何も聞いていません。 もう一度聞いてください",
                     id=session_id)
-    try:
-        await asyncio.wait_for(waiter.opened.wait(), CLEAR_WAIT_SEC)
-    except asyncio.TimeoutError:
+    if not await waiter.wait_opening(after, accept, wait_sec):
+        if escape:
+            await _press_escape(session_id)
         raise_error(409, "ask_not_ready",
-                    f"/clear の後、 {CLEAR_WAIT_SEC:.0f} 秒以内に新しい会話が開きませんでした。 何も聞いていません。 もう一度聞いてください",
-                    id=session_id)
+                    f"{command.split()[0]} の後、 {wait_sec:.0f} 秒以内に会話が開きませんでした。 何も聞いていません。 "
+                    "もう一度聞いてください", id=session_id, command=command)
 
 
 @contextmanager

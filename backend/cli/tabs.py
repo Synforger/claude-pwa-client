@@ -34,10 +34,12 @@
                                  `tier_tabs` を入れたエージェントなら backend が自分で置く)。 claude は、 そのタブへ
                                  最初の発話 (= 人の送信か `tabs send`) が届いた時に、 その階層で起動する。
                                  その階層のタブが既にあれば止まる
-    tabs    ask <to> <file> [--fresh] [--stream] [--timeout <秒>]
+    tabs    ask <to> <file> [--fresh | --resume <会話の id> [--fork]] [--stream | --json] [--timeout <秒>]
                                  聞かれる設定 (= `"ask": true`) のエージェントのタブ <to> へ <file> の文を打ち、 そのターンの最後の
                                  答えを標準出力に出す (= タブの外の program からも打てる)。 --fresh は先に /clear を打つ。
-                                 --stream は 1 行 1 JSON で出す (= 画面に出た答えの途中 `partial`、 最後に `final` か `error`)。
+                                 --stream は 1 行 1 JSON (= 答えの途中 `partial`、 最後に `final` か `error`)、 --json は
+                                 `{"answer":…,"session":…}` (= 答えとその会話の id)。 --resume は先にその会話を開き、 --fork は
+                                 続けてその枝に聞く (= 元の会話は残る。 --fresh とは一緒に使えない)。
                                  待つのは既定 180 秒で、 過ぎたらそのターンを止める
     tabs    ticket <new|show|add|ask|close|pass> ...
                                  requests that cross tabs, kept as one ticket each that tabs only add to (usage: `backend/cli/ticket.py`)

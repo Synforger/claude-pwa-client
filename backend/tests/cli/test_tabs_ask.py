@@ -16,6 +16,7 @@ from backend.cli import ask
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 TABS = REPO_ROOT / "backend" / "cli" / "tabs.py"
+SAVED = "7565f8b3-672d-46fe-8ad7-7f22afeae9d5"
 BASE_URL = "http://127.0.0.1:1"                    # nothing listens: the tests of one answer never call it
 
 
@@ -26,6 +27,15 @@ BASE_URL = "http://127.0.0.1:1"                    # nothing listens: the tests 
     (["ses_head", "q.txt", "--stream"], ask.AskArguments("ses_head", Path("q.txt"), False, 180.0, True)),
     (["ses_head", "q.txt", "--stream", "--fresh"], ask.AskArguments("ses_head", Path("q.txt"), True, 180.0, True)),
     (["ses_head", "q.txt", "--stream", "--stream"], None),
+    (["ses_head", "q.txt", "--json"], ask.AskArguments("ses_head", Path("q.txt"), False, 180.0, False, True)),
+    (["ses_head", "q.txt", "--resume", SAVED], ask.AskArguments("ses_head", Path("q.txt"), False, 180.0, False, False, SAVED)),
+    (["ses_head", "q.txt", "--fork", "--resume", SAVED, "--json"],
+     ask.AskArguments("ses_head", Path("q.txt"), False, 180.0, False, True, SAVED, True)),
+    (["ses_head", "q.txt", "--resume", SAVED, "--fresh"], None),
+    (["ses_head", "q.txt", "--fork"], None),
+    (["ses_head", "q.txt", "--resume"], None),
+    (["ses_head", "q.txt", "--resume", "--fork"], None),
+    (["ses_head", "q.txt", "--resume", SAVED, "--resume", SAVED], None),
     (["ses_head"], None),
     (["ses_head", "q.txt", "--fresh", "--fresh"], None),
     (["ses_head", "q.txt", "--timeout"], None),
@@ -51,6 +61,21 @@ def test_the_answer_goes_to_stdout_and_the_call_waits_beyond_the_turn(tmp_path, 
     assert path == "/sessions/Talemate%20%E3%81%AE%E9%A0%AD/ask"
     assert form == {"text": "Describe the tavern.", "fresh": "true", "timeout_sec": "60.0"}
     assert timeout == 60 + ask.WAKE_MARGIN_SEC
+
+
+def test_json_prints_the_answer_with_its_conversation_and_resume_goes_to_the_backend(tmp_path, capsys):
+    question = tmp_path / "q.txt"
+    question.write_text("Where did we leave off?", encoding="utf-8")
+    forms = []
+
+    def call(path, form, method=None, timeout=0.0):
+        forms.append(form)
+        return 200, {"ok": True, "id": "ses_head", "answer": "At the 港", "session": "branch-uuid"}
+    assert ask.run(["ses_head", str(question), "--json", "--resume", SAVED, "--fork"], call, BASE_URL) == 0
+    assert json.loads(capsys.readouterr().out) == {"answer": "At the 港", "session": "branch-uuid"}
+    assert forms[0]["resume"] == SAVED and forms[0]["fork"] == "true" and forms[0]["fresh"] == "false"
+    assert ask.run(["ses_head", str(question), "--json"], call, BASE_URL) == 0
+    assert "resume" not in forms[1]                              # no opening asked: the form is the old one
 
 
 @pytest.mark.parametrize(("status", "body", "code"), [
