@@ -142,3 +142,16 @@ def test_an_earlier_placeholder_alone_gives_no_answer_rather_than_the_earlier_on
 
 def test_without_the_screen_read_before_the_typing_a_folded_question_gives_no_answer():
     assert answer_from_screen(_folded(screen("finished")), LONG_QUESTION, WIDTH) is None
+
+
+def test_the_echo_of_a_typed_question_drawn_with_a_no_break_space_is_found():
+    nbsp = "\n".join(line.replace("❯ ", "❯ ", 1) if line.startswith("❯ 霧の港町") else line
+                     for line in screen("finished").splitlines())
+    text = answer_from_screen(nbsp, LONG_QUESTION, WIDTH)
+    assert text is not None and text.startswith(PROSE_START)
+
+
+def test_a_placeholder_echo_drawn_with_a_no_break_space_is_found():
+    folded = _folded(screen("finished")).replace("❯ [Pasted text", "❯ [Pasted text")
+    text = answer_from_screen(folded, LONG_QUESTION, WIDTH, pasted_before={})
+    assert text is not None and text.startswith(PROSE_START)
