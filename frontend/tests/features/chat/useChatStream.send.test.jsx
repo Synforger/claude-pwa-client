@@ -102,3 +102,39 @@ describe('sends made one after another', () => {
     expect(clearAttachments).toHaveBeenCalledWith(SID)
   })
 })
+
+describe('a send marked "Not delivered" leaves a line in the record', () => {
+  beforeEach(() => { apiFetch.mockReset() })
+
+  const logged = () => apiFetch.mock.calls.filter(([path]) => path === '/log/sw').map(([, options]) => options.jsonBody)
+
+  it('says the error when the POST itself failed (= the screen gave up waiting)', async () => {
+    apiFetch.mockImplementation((path) => {
+      if (path === `/pty/${SID}/send`) return Promise.reject(Object.assign(new Error('signal is aborted'), { name: 'AbortError' }))
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+    const { view } = mountTab()
+    await act(async () => { await view.result.current.sendMessage('届いた?') })
+    expect(view.result.current.messages.find(m => m.role === 'user').sendFailed).toBe(true)
+    const [line] = logged()
+    expect(line).toMatchObject({ stage: 'send:failed', sid: SID, path: 'text', status: null, error: 'AbortError: signal is aborted', textLen: 4 })
+    expect(typeof line.elapsedMs).toBe('number')
+  })
+
+  it("says the status and the backend's reason when the backend answered that it did not type", async () => {
+    apiFetch.mockImplementation((path) => {
+      if (path === `/pty/${SID}/send`) return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: false, reason: 'not_ready' }) })
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+    const { view } = mountTab()
+    await act(async () => { await view.result.current.sendMessage('まだ?') })
+    expect(logged()).toEqual([expect.objectContaining({ path: 'text', status: 200, error: null, reason: 'not_ready' })])
+  })
+
+  it('writes nothing when the send went through', async () => {
+    apiFetch.mockImplementation(() => Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) }))
+    const { view } = mountTab()
+    await act(async () => { await view.result.current.sendMessage('ok') })
+    expect(logged()).toEqual([])
+  })
+})
