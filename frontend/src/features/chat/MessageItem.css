@@ -108,6 +108,8 @@
    class `relayed` は人の発話と見分ける印で、 試験と保存が使う。 */
 .message.user.relayed {
   flex-direction: column;
+  /* 折り返す flex だと、 1 行の列の幅が中身 (= 折り返さない長い 1 行) の幅になって右端を越え、 ellipsis が効かない */
+  flex-wrap: nowrap;
   align-items: stretch;
   justify-content: flex-start;
   margin: 2px 0;
@@ -364,17 +366,27 @@
   margin-right: 2px;
 }
 
-.tool-block[open] > summary .tool-marker::before {
+/* 開いた時の印: 道具の行と、 折りたたむ system のカードは、 静的な ▸ を隠して ::before の ▾ に替える。
+   封筒の行 (EnvelopeLine) は印の字を自分で替えるので、 ここには入れない */
+:is(.tool-block, .message.attachment-card details, .message.system-note-card details, .message.hook-error-card details)[open] > summary .tool-marker::before {
   content: '▾';
 }
 
-.tool-block[open] > summary .tool-marker {
+:is(.tool-block, .message.attachment-card details, .message.system-note-card details, .message.hook-error-card details)[open] > summary .tool-marker {
   /* Hide the static ▸ when open (::before replaces it) */
   font-size: 0;
 }
 
-.tool-block[open] > summary .tool-marker::before {
+:is(.tool-block, .message.attachment-card details, .message.system-note-card details, .message.hook-error-card details)[open] > summary .tool-marker::before {
   font-size: 11px;
+}
+
+/* 折りたたむ system のカードと封筒の行は、 印の幅を揃えて行頭の字の位置を合わせる (↗ も収まる幅) */
+.message.attachment-card .tool-marker,
+.message.system-note-card .tool-marker,
+.message.hook-error-card .tool-marker,
+.envelope-head .tool-marker {
+  width: 14px;
 }
 
 .tool-meta {

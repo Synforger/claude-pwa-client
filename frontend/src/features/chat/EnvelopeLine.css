@@ -11,9 +11,8 @@
   padding: 1px 0;
   user-select: none;
 }
-/* 印 (▸ ▾ ↗ ·) は幅を固定して、 開閉で見出しの位置が動かないようにする */
-.envelope-head .tool-marker {
-  width: 14px;
+.envelope-line {
+  min-width: 0;
 }
 .envelope-line > .envelope-head {
   cursor: pointer;
