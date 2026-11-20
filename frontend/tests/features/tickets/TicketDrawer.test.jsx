@@ -60,7 +60,26 @@ it('says how many tickets the other machine has waiting, and that a machine that
   act(() => applyTicketsSnapshot({ tickets: [], peers: { company: { waiting: 2 }, away: { unreadable: true } } }))
   render(<TicketDrawer />)
   const lines = screen.getAllByTestId('ticket-peer').map((el) => el.textContent)
-  expect(lines).toEqual(['away: cannot be read', 'Answer on the screen of company: 2 (tickets outside every boundary only)'])
+  expect(lines).toEqual(['away: cannot be read', 'Tickets waiting for an answer on company: 2 (answer on the screen of company)'])
+})
+
+it('shows no line for a machine that has no ticket waiting', () => {
+  act(() => applyTicketsSnapshot({ tickets: [], peers: { company: { waiting: 0 } } }))
+  render(<TicketDrawer />)
+  expect(screen.queryAllByTestId('ticket-peer')).toEqual([])
+})
+
+it('counts in the title of the closed group only the closed tickets it shows', () => {
+  const longAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+  act(() => applyTicketsSnapshot({
+    tickets: [row('home-1', { status: 'closed' }), row('home-2', { status: 'closed', last_at: longAgo })],
+    peers: {},
+  }))
+  render(<TicketDrawer />)
+  expect(screen.getByTestId('ticket-group-toggle').textContent).toContain('(1)')
+  fireEvent.click(screen.getByTestId('ticket-group-toggle'))
+  expect(screen.getByTestId('ticket-group-closed').textContent).toContain('T home-1')
+  expect(screen.getByTestId('ticket-group-closed').textContent).not.toContain('T home-2')
 })
 
 it('says there is no ticket once the first picture came and it is empty', () => {

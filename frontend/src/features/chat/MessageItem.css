@@ -103,66 +103,17 @@
   border-bottom-right-radius: 4px;
 }
 
-/* 別のタブの claude から届いた連絡: 入力の側 (= 右) に置き、 人の発話と色で分ける */
-.relayed-block {
-  display: flex;
+/* client の封筒の発話 (別のタブからの連絡・自動の入れ替え・階層のタブの最初の発話・client の知らせ): 人の発話の
+   吹き出しにせず、 道具の行 / system の知らせと同じ左寄せ・幅いっぱいの 1 行にする (= 1 行の見た目は EnvelopeLine.css)。
+   class `relayed` は人の発話と見分ける印で、 試験と保存が使う。 */
+.message.user.relayed {
   flex-direction: column;
-  align-items: flex-end;
-  max-width: 80%;
-}
-.relayed-block .bubble { max-width: 100%; }
-.relayed-ticket-link {
-  align-self: flex-end;
-  padding: 8px 12px;
-  background: var(--bg3);
-  color: var(--accent);
-  border: 1px solid var(--border, #333);
-  border-radius: 10px;
-  font-size: 14px;
-  text-align: left;
-  cursor: pointer;
-}
-.relayed-from {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-bottom: 2px;
-}
-/* 別のタブからの伝言の畳んだ 1 行: 送り主 + 本文の頭 + 開閉の印。 1 行に収まらない分は ellipsis で切る */
-.relayed-toggle {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  max-width: 100%;
-  min-width: 0;
-  padding: 2px 0;
-  background: none;
-  border: none;
-  color: var(--text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.relayed-toggle .relayed-from {
-  flex: none;
-  margin-bottom: 0;
-}
-.relayed-head {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14px;
-}
-.relayed-mark {
-  flex: none;
-  font-size: 12px;
-  color: var(--text-dim);
-}
-.message.user.relayed .bubble {
-  background: var(--bg3);
-  color: var(--text);
-  border: 1px solid var(--accent);
+  /* 折り返す flex だと、 1 行の列の幅が中身 (= 折り返さない長い 1 行) の幅になって右端を越え、 ellipsis が効かない */
+  flex-wrap: nowrap;
+  align-items: stretch;
+  justify-content: flex-start;
+  margin: 2px 0;
+  padding: 0 2px;
 }
 /* 送り主のタブで人が打った発話: 連絡の本文の上に、 引用として置く */
 .relayed-operator {
@@ -275,11 +226,15 @@
   cursor: pointer;
   user-select: none;
 }
-.attachment-body {
+/* 折りたたみカードの中身の箱。 EnvelopeLine の開いた中身 (.envelope-body) も同じ箱に入れる */
+.attachment-body,
+.envelope-body {
   margin: 6px 0 0;
   padding: 6px 8px;
   background: var(--bg1, var(--bg3));
   border-radius: 4px;
+}
+.attachment-body {
   font-family: Menlo, monospace;
   font-size: 11px;
   white-space: pre-wrap;
@@ -411,17 +366,27 @@
   margin-right: 2px;
 }
 
-.tool-block[open] > summary .tool-marker::before {
+/* 開いた時の印: 道具の行と、 折りたたむ system のカードは、 静的な ▸ を隠して ::before の ▾ に替える。
+   封筒の行 (EnvelopeLine) は印の字を自分で替えるので、 ここには入れない */
+:is(.tool-block, .message.attachment-card details, .message.system-note-card details, .message.hook-error-card details)[open] > summary .tool-marker::before {
   content: '▾';
 }
 
-.tool-block[open] > summary .tool-marker {
+:is(.tool-block, .message.attachment-card details, .message.system-note-card details, .message.hook-error-card details)[open] > summary .tool-marker {
   /* Hide the static ▸ when open (::before replaces it) */
   font-size: 0;
 }
 
-.tool-block[open] > summary .tool-marker::before {
+:is(.tool-block, .message.attachment-card details, .message.system-note-card details, .message.hook-error-card details)[open] > summary .tool-marker::before {
   font-size: 11px;
+}
+
+/* 折りたたむ system のカードと封筒の行は、 印の幅を揃えて行頭の字の位置を合わせる (↗ も収まる幅) */
+.message.attachment-card .tool-marker,
+.message.system-note-card .tool-marker,
+.message.hook-error-card .tool-marker,
+.envelope-head .tool-marker {
+  width: 14px;
 }
 
 .tool-meta {

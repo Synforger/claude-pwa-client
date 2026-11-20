@@ -108,6 +108,7 @@ describe('MessageItem render smoke', () => {
       <MessageItem {...baseProps} msg={{ id: 'u5', role: 'user', text }} />,
     )
     expect(getByTestId('rollover-label').textContent).toBeTruthy()
+    fireEvent.click(getByTestId('rollover-label'))
     expect(getByTestId('rollover-body').textContent).toContain('62')
     expect(container.textContent).not.toContain('session-rollover')
     expect(container.querySelector('.message.user.relayed')).not.toBeNull()
@@ -115,9 +116,11 @@ describe('MessageItem render smoke', () => {
 
   it('the first message of a session started by a rollover shows what it was handed', () => {
     const text = `${ROLLOVER_OPENING}\n<session-rollover phase="start">\ncarry on with the build\n</session-rollover>`
-    const { container, getByTestId } = render(
+    const { container, getByTestId, queryByTestId } = render(
       <MessageItem {...baseProps} msg={{ id: 'u6', role: 'user', text }} />,
     )
+    expect(queryByTestId('rollover-body')).toBeNull()
+    fireEvent.click(getByTestId('rollover-label'))
     expect(getByTestId('rollover-body').textContent).toContain('carry on with the build')
     expect(container.textContent).not.toContain('session-rollover')
     expect(container.querySelector('.message.user.relayed')).not.toBeNull()
@@ -295,6 +298,7 @@ describe('進行中かは表示位置から導出する', () => {
     )
     expect(getByTestId('client-notice-label').textContent).toMatch(/work/)
     expect(getByTestId('client-notice-label').textContent).toMatch(/personal/)
+    fireEvent.click(getByTestId('client-notice-label'))
     expect(getByTestId('client-notice-body').textContent).toContain('A usage limit stopped this session.')
     expect(container.textContent).not.toContain('<account-move')
     expect(container.firstChild.className).toContain('relayed')
@@ -308,6 +312,7 @@ describe('進行中かは表示位置から導出する', () => {
         <MessageItem {...baseProps} msg={{ id: `h-${phase}`, role: 'user', text }} />,
       )
       labels.push(getByTestId('client-notice-label').textContent)
+      fireEvent.click(getByTestId('client-notice-label'))
       expect(getByTestId('client-notice-body').textContent).toContain(`body ${phase}`)
       expect(container.textContent).not.toContain('<account-hold')
       unmount()
