@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import {
-  agoOf, attentionCount, groupTickets, heldByTab, holderOf, peerLines, ticketLabel,
+  CLOSED_SHOWN_DAYS, agoOf, attentionCount, groupTickets, heldByTab, holderOf, peerLines, ticketLabel,
 } from '../../../src/features/tickets/ticketGroups.js'
 
 const ticket = (id, extra = {}) => ({ id, title: `T ${id}`, status: 'open', holder: 'ses_a', attention: null, last_at: '2026-11-19T10:00:00.000+00:00', ...extra })
+
+const NOW = Date.parse('2026-11-19T12:00:00.000Z')
 
 describe('groupTickets', () => {
   it('puts a ticket that wants a look first, whatever its state, and keeps the closed ones apart', () => {
@@ -12,7 +14,7 @@ describe('groupTickets', () => {
       ticket('b', { status: 'waiting-operator', attention: 'waiting' }),
       ticket('c', { status: 'closed' }),
       ticket('d', { status: 'closed', attention: 'delivery' }),
-    ])
+    ], NOW)
     expect(groups.attention.map((t) => t.id)).toEqual(['b', 'd'])
     expect(groups.running.map((t) => t.id)).toEqual(['a'])
     expect(groups.closed.map((t) => t.id)).toEqual(['c'])
@@ -23,8 +25,42 @@ describe('groupTickets', () => {
       ticket('old-wait', { attention: 'waiting', last_at: '2026-11-19T08:00:00.000+00:00' }),
       ticket('lost', { attention: 'delivery', last_at: '2026-11-19T12:00:00.000+00:00' }),
       ticket('new-wait', { attention: 'waiting', last_at: '2026-11-19T11:00:00.000+00:00' }),
-    ])
+    ], NOW)
     expect(groups.attention.map((t) => t.id)).toEqual(['new-wait', 'old-wait', 'lost'])
+  })
+
+  describe('the closed tickets shown', () => {
+    const sevenDaysAgo = NOW - CLOSED_SHOWN_DAYS * 24 * 60 * 60 * 1000
+    const closedAt = (id, ms, extra = {}) => ticket(id, { status: 'closed', last_at: new Date(ms).toISOString(), ...extra })
+
+    it('keeps the ones whose last entry is within 7 days, up to the boundary, and leaves out the older ones', () => {
+      const groups = groupTickets([
+        closedAt('just-inside', sevenDaysAgo + 1),
+        closedAt('on-the-line', sevenDaysAgo),
+        closedAt('just-outside', sevenDaysAgo - 1),
+        closedAt('long-ago', NOW - 90 * 24 * 60 * 60 * 1000),
+      ], NOW)
+      expect(groups.closed.map((t) => t.id)).toEqual(['just-inside', 'on-the-line'])
+    })
+
+    it('judges a ticket with no last entry by the time it was opened', () => {
+      const groups = groupTickets([
+        ticket('opened-lately', { status: 'closed', last_at: null, opened_at: new Date(NOW - 60_000).toISOString() }),
+        ticket('opened-long-ago', { status: 'closed', last_at: '', opened_at: new Date(sevenDaysAgo - 1).toISOString() }),
+      ], NOW)
+      expect(groups.closed.map((t) => t.id)).toEqual(['opened-lately'])
+    })
+
+    it('leaves out a closed ticket whose time cannot be read, and does not touch the others', () => {
+      const groups = groupTickets([
+        ticket('no-time', { status: 'closed', last_at: null, opened_at: null }),
+        ticket('open-old', { last_at: '2020-01-01T00:00:00.000+00:00' }),
+        ticket('wants-a-look', { status: 'closed', attention: 'delivery', last_at: '2020-01-01T00:00:00.000+00:00' }),
+      ], NOW)
+      expect(groups.closed).toEqual([])
+      expect(groups.running.map((t) => t.id)).toEqual(['open-old'])
+      expect(groups.attention.map((t) => t.id)).toEqual(['wants-a-look'])
+    })
   })
 
   it('counts the tickets that want a look', () => {
@@ -78,5 +114,11 @@ describe('peerLines', () => {
       { machine: 'away', waiting: null }, { machine: 'company', waiting: 2 },
     ])
     expect(peerLines({})).toEqual([])
+  })
+
+  it('leaves out a machine with no ticket waiting, but not one that cannot be read', () => {
+    expect(peerLines({ company: { waiting: 0 }, home: {}, away: { unreadable: true }, far: { waiting: 1 } })).toEqual([
+      { machine: 'away', waiting: null }, { machine: 'far', waiting: 1 },
+    ])
   })
 })

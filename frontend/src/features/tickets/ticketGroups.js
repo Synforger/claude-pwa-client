@@ -9,6 +9,9 @@ const CLOSED = 'closed'
 const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS
 const DAY_MS = 24 * HOUR_MS
+/** 閉じた票を一覧に出す期間 (= 最後の件がこれより古い閉じた票は出さない。 記録は消えない)。 */
+export const CLOSED_SHOWN_DAYS = 7
+const CLOSED_SHOWN_MS = CLOSED_SHOWN_DAYS * DAY_MS
 
 const lastAtOf = (ticket) => ticket.last_at || ticket.opened_at || ''
 
@@ -17,13 +20,20 @@ export function attentionCount(tickets) {
   return tickets.filter((ticket) => ticket.attention != null).length
 }
 
-/** 票を 3 段に分ける。 「見てほしい」 は返事待ちを先に、 どの段も最後の件が新しい順。 */
-export function groupTickets(tickets) {
+// 閉じた票を出すか: 最後の件 (無ければ開いた時刻) が `nowMs` から 7 日以内。 時刻が読めない票は出さない。
+function isRecentlyClosed(ticket, nowMs) {
+  const at = Date.parse(lastAtOf(ticket))
+  return Number.isFinite(at) && nowMs - at <= CLOSED_SHOWN_MS
+}
+
+/** 票を 3 段に分ける (`nowMs` は今の時刻)。 閉じた票は 7 日以内の物だけを出す。 「見てほしい」 は返事待ちを先に、 どの段も最後の件が新しい順。 */
+export function groupTickets(tickets, nowMs) {
   const groups = { attention: [], running: [], closed: [] }
   for (const ticket of tickets) {
     if (ticket.attention != null) groups.attention.push(ticket)
-    else if (ticket.status === CLOSED) groups.closed.push(ticket)
-    else groups.running.push(ticket)
+    else if (ticket.status === CLOSED) {
+      if (isRecentlyClosed(ticket, nowMs)) groups.closed.push(ticket)
+    } else groups.running.push(ticket)
   }
   const newestFirst = (a, b) => lastAtOf(b).localeCompare(lastAtOf(a)) || b.id.localeCompare(a.id)
   groups.attention.sort((a, b) => (Number(b.attention === WAITING) - Number(a.attention === WAITING)) || newestFirst(a, b))
@@ -64,10 +74,10 @@ export function heldByTab(tickets) {
   return held
 }
 
-/** 一覧の最後の 1 行の材料: 機械ごとに、 操作者の答えを待つ票の数 (`waiting`)、 読めない時は null。 */
+/** 一覧の最後の行の材料: 機械ごとに、 操作者の答えを待つ票の数 (`waiting`)、 読めない時は null。 待つ票が 0 の機械は出さない。 */
 export function peerLines(peers) {
   return Object.keys(peers).sort().map((machine) => ({
     machine,
     waiting: peers[machine]?.unreadable ? null : (peers[machine]?.waiting ?? 0),
-  }))
+  })).filter((line) => line.waiting !== 0)
 }

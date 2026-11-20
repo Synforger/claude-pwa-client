@@ -374,7 +374,7 @@
   "tickets.ago_hours": "{count} h ago",
   "tickets.ago_days": "{count} d ago",
   "tickets.row_delivery": "Answer did not arrive",
-  "tickets.peer_waiting": "Answer on the screen of {machine}: {count} (tickets outside every boundary only)",
+  "tickets.peer_waiting": "Tickets waiting for an answer on {machine}: {count} (answer on the screen of {machine})",
   "tickets.peer_unreadable": "{machine}: cannot be read",
   "ticket.loading": "Loading…",
   "ticket.load_error": "The ticket could not be read",

@@ -49,7 +49,7 @@ export default function TicketDrawer() {
   const { sessions } = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
   const [closedOpen, setClosedOpen] = useState(false)
   const now = useNow()
-  const groups = useMemo(() => groupTickets(tickets), [tickets])
+  const groups = useMemo(() => groupTickets(tickets, now), [tickets, now])
   const tabNames = useMemo(() => Object.fromEntries(sessions.map((s) => [s.id, s.title])), [sessions])
   const lines = peerLines(peers)
   const onClose = () => setOverlay('tickets', false)
