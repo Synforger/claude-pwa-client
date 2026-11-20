@@ -1,8 +1,10 @@
 // Posts one sent message to the backend's send door, and posts it again when the request itself failed before an answer
 // came (the network dropped it, or the wait ran out). A screen that comes back to the front sends on a connection iOS
 // closed while it was behind, and that first request fails before it reaches the backend; posting it again a moment
-// later goes through. The same `Idempotency-Key` goes with every try, so the backend types a message at most once and
-// answers a repeat with `deduped`. An HTTP answer, whatever its status, is returned as it is: only a request that got
+// later goes through. A request can also reach the backend and be typed while iOS cuts off only its answer, when the
+// app goes behind right after sending; the repeat then comes once the app is in front again, however late. The same
+// `Idempotency-Key` goes with every try, and the backend remembers typed keys without a time limit
+// (`backend/terminal/send_dedup.py`), so it types a message at most once and answers a repeat with `deduped`. An HTTP answer, whatever its status, is returned as it is: only a request that got
 // no answer is tried again. Called by `useChatStream` for the text and the attachment doors.
 import { apiFetch } from '../../_common/api.js'
 

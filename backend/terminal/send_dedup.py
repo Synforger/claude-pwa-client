@@ -1,27 +1,34 @@
-"""送信の identity (= `Idempotency-Key` HTTP header) を全経路で扱う module。
+"""The identity of one send (the `Idempotency-Key` HTTP header), for every door that types a message.
 
-責務:
-    1. dedup 判定 (= `check_and_mark`): 同一 (sid, send_id) の 2 発目 POST を tmux 打鍵前に drop
-    2. JSONL uuid 対応付け (= `bind_jsonl_uuid`): JSONL tail が新 user 行を検出した時、
-       その sid の「未 mapping 最古 send_id」 に uuid を焼く (= text 一致は使わず時刻順先勝ち)
-    3. 逆引き (= `send_id_for_uuid`): SSE `user_message` event publisher が jsonl_uuid から
-       送信元 send_id を引いて event に載せる
+What it does:
+    1. Dedup (`check_and_mark`): a second POST of the same (sid, send_id) is dropped before tmux is typed into.
+    2. Binding to the conversation record (`bind_jsonl_uuid`): when the JSONL tail finds a new user row, its uuid is
+       given to the oldest send of that sid that has none yet (first come by time, never by matching the text).
+    3. Reverse lookup (`send_id_for_uuid`): the SSE `user_message` publisher finds the send_id of a jsonl uuid and
+       puts it on the event.
 
-設計:
-    - inmemory LRU、 TTL 60s、 memory bounded (= 最大 512 entry)
-    - process restart で消える = 揮発、 restart 直後の client retry は dedup 抜ける
-      (frontend `reconcileUserMessage` の近傍 fallback で救う二層構造)
-    - text 一致は使わない (= 「時刻順に最古の未 mapping」 で先勝ち) ので同一 text 連投でも
-      対応付けが決定的
+Called by the send doors of `backend/terminal/routes.py` and by the JSONL publisher.
+
+Two memories, both in process memory and lost on a restart:
+    - The keys already typed (dedup). They are dropped only by count, oldest first, never by age. The screen posts a
+      send again when its request got no answer (`frontend/src/features/chat/postSend.js`), and that request may have
+      been typed before iOS cut the answer off while the app was behind. The repeat comes only when the app is in
+      front again, after any length of time, so a memory that expires lets the repeat be typed a second time.
+    - The candidates for binding: kept 60 s and at most 512, so a send that was typed but never became a user row
+      does not take a later row's uuid.
+A retry right after a restart is not deduped; `reconcileUserMessage` on the screen still pairs its bubble.
 """
 from __future__ import annotations
 
 import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 
 _MAX_ENTRIES = 512
 _TTL_SEC = 60.0
+# Two short strings per key: the full memory stays under 1 MB.
+_MAX_SEEN = 4096
 
 
 @dataclass
@@ -31,20 +38,29 @@ class _Entry:
 
 
 class SendDedup:
-    def __init__(self, max_entries: int = _MAX_ENTRIES, ttl_sec: float = _TTL_SEC) -> None:
+    def __init__(
+        self, max_entries: int = _MAX_ENTRIES, ttl_sec: float = _TTL_SEC, *, max_seen: int = _MAX_SEEN
+    ) -> None:
         self._entries: dict[tuple[str, str], _Entry] = {}
+        self._seen: OrderedDict[tuple[str, str], None] = OrderedDict()
         self._max = max_entries
         self._ttl = ttl_sec
+        self._max_seen = max_seen
         self._lock = threading.Lock()
 
     def check_and_mark(self, sid: str, send_id: str) -> bool:
-        """(sid, send_id) が既登録なら True (= 2 発目、 tmux 打鍵 skip)、
-        新規なら登録して False を返す。"""
+        """Whether (sid, send_id) was typed already: True for a repeat (skip typing), else record it and return False.
+
+        A repeat is caught however long after the first one it comes, until the key is pushed out by count.
+        """
         with self._lock:
-            self._purge_expired_locked()
             key = (sid, send_id)
-            if key in self._entries:
+            if key in self._seen:
                 return True
+            self._seen[key] = None
+            while len(self._seen) > self._max_seen:
+                self._seen.popitem(last=False)
+            self._purge_expired_locked()
             self._enforce_max_locked()
             self._entries[key] = _Entry(sent_at=time.monotonic())
             return False
@@ -94,6 +110,7 @@ class SendDedup:
         """test 用: 全 entry を消す。"""
         with self._lock:
             self._entries.clear()
+            self._seen.clear()
 
 
 send_dedup = SendDedup()

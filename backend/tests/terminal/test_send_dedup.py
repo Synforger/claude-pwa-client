@@ -81,26 +81,43 @@ def test_send_id_for_uuid_returns_none_for_unknown_uuid():
     assert d.send_id_for_uuid("sid_a", "u-missing") is None
 
 
-def test_ttl_expiry_purges_entries():
-    """TTL 経過後の entry は check / bind で見えない。"""
+def test_repeat_long_after_the_first_is_still_dropped():
+    """A repeat that comes after the binding window (the app was behind with the answer cut off) is not typed again."""
     d = SendDedup(ttl_sec=0.05)
     d.check_and_mark("sid_a", "s1")
     time.sleep(0.1)
-    # TTL 超えた entry は purge されるので 2 発目 s1 が「新規」 として通る
-    assert d.check_and_mark("sid_a", "s1") is False
+    assert d.check_and_mark("sid_a", "s1") is True
 
 
-def test_max_entries_evicts_oldest():
-    """entry 上限超過時、 最古から evict される (memory bounded)。"""
-    d = SendDedup(max_entries=3)
+def test_binding_candidate_expires_after_ttl():
+    """A send that never became a user row stops being a binding candidate once its window ends."""
+    d = SendDedup(ttl_sec=0.05)
     d.check_and_mark("sid_a", "s1")
-    time.sleep(0.005)
-    d.check_and_mark("sid_a", "s2")
-    time.sleep(0.005)
-    d.check_and_mark("sid_a", "s3")
-    time.sleep(0.005)
-    d.check_and_mark("sid_a", "s4")  # ← s1 が evict される想定
-    # s1 は evict されたので dedup が抜ける (= 「新規」 として通る)
+    time.sleep(0.1)
+    assert d.bind_jsonl_uuid("sid_a", "u1") is None
+
+
+def test_max_entries_bounds_binding_candidates_only():
+    """Over the candidate limit the oldest candidate goes, but its key is still remembered for dedup."""
+    d = SendDedup(max_entries=3)
+    for send_id in ("s1", "s2", "s3", "s4"):
+        d.check_and_mark("sid_a", send_id)
+        time.sleep(0.005)
+    assert d.bind_jsonl_uuid("sid_a", "u1") == "s2"
+    assert d.check_and_mark("sid_a", "s1") is True
+
+
+def test_max_seen_drops_the_oldest_key():
+    """The dedup memory is bounded by count: past the limit the oldest key is forgotten."""
+    d = SendDedup(max_seen=3)
+    for send_id in ("s1", "s2", "s3", "s4"):
+        d.check_and_mark("sid_a", send_id)
     assert d.check_and_mark("sid_a", "s1") is False
-    # 直近 3 発の s2/s3/s4 は残っているので dedup 継続
     assert d.check_and_mark("sid_a", "s4") is True
+
+
+def test_reset_forgets_typed_keys():
+    d = SendDedup()
+    d.check_and_mark("sid_a", "s1")
+    d.reset()
+    assert d.check_and_mark("sid_a", "s1") is False
