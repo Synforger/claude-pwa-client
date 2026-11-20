@@ -121,6 +121,9 @@ TIER_TABS_PATH = DATA_DIR / "tier_tabs.json"
 PEER_HEALTH_PATH = DATA_DIR / "peer_health.json"
 PEER_OUTBOX_DIR = DATA_DIR / "peer_outbox"
 SEEN_MESSAGE_IDS_PATH = DATA_DIR / "seen_message_ids.json"
+# The send keys (`Idempotency-Key`) the backend typed, one `<sid>\t<key>` per line, so that a send posted again after a
+# restart is not typed a second time. Written by backend/terminal/sent_keys_store.py.
+SENT_KEYS_PATH = DATA_DIR / "sent_keys.txt"
 VAPID_PATH = SECRETS_DIR / "vapid.json"
 
 # お気に入り: 1 行に 1 path のテキスト (= エージェントは 1 行足すだけで登録できる)
