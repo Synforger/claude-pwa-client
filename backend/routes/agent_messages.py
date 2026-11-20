@@ -55,6 +55,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Body, Form, HTTPException, Request
 
+from backend._common.local_door import require_this_machine
 from backend.jsonl.jsonl_predicates import (
     AGENT_MESSAGE_OPENING as OPENING,
     AGENT_MESSAGE_OPENINGS,
@@ -101,8 +102,6 @@ router = APIRouter()
 # core/jsonl_predicates.py に置く。
 # 記録を末尾から読む時の 1 回分。 1 行がこれより長くても読める (= 足りなければ前へ継ぎ足す)。
 _TAIL_CHUNK = 256 * 1024
-# この口を叩けるのは同じ機械の中だけ (= タブの中の claude)。 "testclient" は starlette TestClient の host。
-LOCAL_CLIENTS = ("127.0.0.1", "::1", "localhost", "testclient")
 # 検査コマンドを待つ上限。 外の検査が自分で持つ上限より長く取る (= 先に切ると理由が失われる)。
 CHECK_TIMEOUT_SEC = 200.0
 # 検査が「どこが当たったか」 として出した行のうち、 送り主へ返す数と 1 行の長さ
@@ -578,10 +577,7 @@ async def post_agent_message(
                               来たら、 打たずに `{"ok": true, "duplicate": true}` を返す (= `peers/seen_message_ids.py`)。
                               別の機械宛ての連絡には使わない (= 送り手の backend が自分で付ける)
     """
-    client_host = request.client.host if request.client else None
-    if client_host not in LOCAL_CLIENTS:
-        logger.warning("agent message rejected: non-local client=%s", client_host)
-        raise_error(403, "agent_message_local_only", "この口は同じ機械の中からだけ使えます")
+    require_this_machine(request, "agent_message_local_only")
     if sender not in sessions_meta:
         raise_error(400, "agent_message_unknown_sender", f"送り主のタブが見つかりません: {sender}", sender=sender)
     if not text.strip():
@@ -691,9 +687,7 @@ async def get_local_tabs(request: Request) -> dict:
     """Whether each tab of this machine takes a message, the conversation it last ran, and whether it was put to sleep
     (= `backend/sleep/`), for `tabs list` (= a tab with no claude is not in Claude Code's own records). Callable only
     from this machine."""
-    client_host = request.client.host if request.client else None
-    if client_host not in LOCAL_CLIENTS:
-        raise_error(403, "agent_message_local_only", "この口は同じ機械の中からだけ使えます")
+    require_this_machine(request, "agent_message_local_only")
     tabs = []
     for tab_id in list(sessions_meta):
         record = jsonl_path_for_session(tab_id)
@@ -709,9 +703,7 @@ async def get_peers(request: Request) -> dict:
     繋がらない相手は `tabs` が null で、 `error` に理由が入る。
     """
     from backend._common.config import AGENT_MESSAGE_PEERS  # noqa: PLC0415
-    client_host = request.client.host if request.client else None
-    if client_host not in LOCAL_CLIENTS:
-        raise_error(403, "agent_message_local_only", "この口は同じ機械の中からだけ使えます")
+    require_this_machine(request, "agent_message_local_only")
     peers = []
     for name, peer in AGENT_MESSAGE_PEERS.items():
         reply = await call_peer(name, peer, PEER_TABS_PATH, timeout=PEER_LIST_TIMEOUT_SEC)

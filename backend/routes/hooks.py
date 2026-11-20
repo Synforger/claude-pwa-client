@@ -26,6 +26,7 @@ from typing import Awaitable, Callable, Optional
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
+from backend._common.local_door import from_this_machine
 from backend.ask import turn_waiters
 from backend.speech.speech import VOICE_INPUT_MARK, VOICE_OPEN_CONTEXT
 from backend.push.push import broadcast_push, notification_title_for
@@ -121,13 +122,14 @@ async def _hooks_event(request: Request) -> dict:
 
     セキュリティ: 本 endpoint は claude CLI の `~/.claude/settings.json` hook が
     `http://localhost:8765/hooks/event` を叩く前提。 tailnet 経由で偽 hook を投げると
-    JSONL bind を任意ファイルに書き換えられる経路があるため、 接続元を localhost に限定。
+    JSONL bind を任意ファイルに書き換えられる経路があるため、 この機械の program からだけ受ける
+    (= `tailscale serve` が流した要求は断る)。
     """
-    client_host = request.client.host if request.client else None
-    # "testclient" は starlette TestClient のデフォルト host (= 単体テスト用、 外部から
-    # この値で到達するクライアントは存在しない)。 production の安全性には影響しない。
-    if client_host not in ("127.0.0.1", "::1", "localhost", "testclient"):
-        logger.warning("hooks/event rejected: non-local client=%s", client_host)
+    # The address alone is not enough: `tailscale serve` hands tailnet requests on from localhost
+    # (`_common.local_door`).
+    if not from_this_machine(request):
+        logger.warning("hooks/event rejected: client=%s forwarded=%s",
+                       request.client.host if request.client else None, request.headers.get("x-forwarded-for"))
         raise HTTPException(status_code=403, detail="hooks accepted only from localhost")
     try:
         payload = await request.json()

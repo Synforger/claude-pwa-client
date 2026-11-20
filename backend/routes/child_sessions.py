@@ -32,9 +32,10 @@ import logging
 
 from fastapi import APIRouter, Form, Request
 
+from backend._common.local_door import require_this_machine
 from backend._common.errors import raise_error
 from backend.account_fallback.fallback_sensors import read_tab_break
-from backend.routes.agent_messages import LOCAL_CLIENTS, envelope, judge
+from backend.routes.agent_messages import envelope, judge
 from backend._common.state import register_session, sessions_meta
 from backend.sleep.sleeper import sleep_now
 from backend.terminal.routes import pty_send
@@ -70,10 +71,7 @@ async def post_child_session(
     子のタブは親と同じ口座で動く。
     """
     from backend._common.config import AGENT_MESSAGE_CHECK, AGENTS, CHILD_SESSIONS_MAX  # noqa: PLC0415
-    client_host = request.client.host if request.client else None
-    if client_host not in LOCAL_CLIENTS:
-        logger.warning("child session rejected: non-local client=%s", client_host)
-        raise_error(403, "child_session_local_only", "この口は同じ機械の中からだけ使えます")
+    require_this_machine(request, "child_session_local_only")
     parent = sessions_meta.get(session_id)
     if parent is None:
         raise_error(404, "child_session_unknown_parent", f"親のタブが見つかりません: {session_id}", session=session_id)
@@ -117,9 +115,7 @@ async def get_children(request: Request, session_id: str) -> dict:
     account). → `{"children": [{"id": …, "blocked_by": [...] | null}]}`; an empty list = the child is at a break (its
     claude waits for input with nothing running), null = the child is asleep. `tabs children` reads it, so that a
     child waiting for a command it started in the background is not shown as stopped."""
-    client_host = request.client.host if request.client else None
-    if client_host not in LOCAL_CLIENTS:
-        raise_error(403, "child_session_local_only", "この口は同じ機械の中からだけ使えます")
+    require_this_machine(request, "child_session_local_only")
     if session_id not in sessions_meta:
         raise_error(404, "session_not_found", f"タブが見つかりません: {session_id}", session=session_id)
 
@@ -139,10 +135,7 @@ async def post_child_sleep(request: Request, session_id: str, child_id: str) -> 
     子が答えを書き終える間と、 その答えのコマンドが走る間は、 最大 60 秒待つ (= `sleeper.PASSING_WAIT_SEC`)。
     ほかの理由 (= 起こしの予約・声の通話・入れ替えの最中など) で眠らせられない時は 409 で、 理由を `reasons` に返す。
     """
-    client_host = request.client.host if request.client else None
-    if client_host not in LOCAL_CLIENTS:
-        logger.warning("child sleep rejected: non-local client=%s", client_host)
-        raise_error(403, "child_session_local_only", "この口は同じ機械の中からだけ使えます")
+    require_this_machine(request, "child_session_local_only")
     if child_id not in children_of(session_id):
         raise_error(404, "child_session_not_a_child", f"{child_id} は {session_id} の子のタブではありません",
                     session=session_id, child=child_id)
