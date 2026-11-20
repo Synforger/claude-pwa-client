@@ -110,3 +110,35 @@ def test_a_question_asked_again_has_no_answer_until_its_own_answer_is_drawn():
 
 def test_the_width_of_a_wide_character_is_two():
     assert display_width("港a") == 3
+
+
+def _folded(text: str, number: str = "1") -> str:
+    """The screen as Claude Code draws it when it folds the long question into a pasted-text placeholder."""
+    lines = text.splitlines()
+    index = next(i for i, line in enumerate(lines) if line.startswith("❯ 霧の港町"))
+    lines[index] = f"❯ [Pasted text #{number} +434 lines]"
+    while index + 1 < len(lines) and lines[index + 1].startswith("  ") and not lines[index + 1].startswith("  ⎿"):
+        del lines[index + 1]                                # the echo's own wrapped lines go with it
+    return "\n".join(lines)
+
+
+def test_a_question_folded_into_a_placeholder_is_found_by_the_new_placeholder():
+    folded = _folded(screen("finished"))
+    text = answer_from_screen(folded, LONG_QUESTION, WIDTH, pasted_before={})
+    assert text is not None and text.startswith(PROSE_START)
+
+
+def test_a_placeholder_number_seen_again_after_a_cleared_conversation_is_the_new_one():
+    earlier = "❯ [Pasted text #1 +500 lines]\n⏺ 前の問いの答え。\n\n✻ Brewed for 9s · done\n"
+    folded = earlier + _folded(screen("finished"))
+    text = answer_from_screen(folded, LONG_QUESTION, WIDTH, pasted_before={"1": 1})
+    assert text is not None and text.startswith(PROSE_START)
+
+
+def test_an_earlier_placeholder_alone_gives_no_answer_rather_than_the_earlier_one():
+    earlier = "❯ [Pasted text #1 +500 lines]\n⏺ 前の問いの答え。\n\n✻ Brewed for 9s · done\n❯ \n"
+    assert answer_from_screen(earlier, LONG_QUESTION, WIDTH, pasted_before={"1": 1}) is None
+
+
+def test_without_the_screen_read_before_the_typing_a_folded_question_gives_no_answer():
+    assert answer_from_screen(_folded(screen("finished")), LONG_QUESTION, WIDTH) is None

@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import Counter
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import contextmanager
 from typing import NamedTuple
@@ -69,6 +70,7 @@ class _Turn(NamedTuple):
     waiter: turn_waiters.TurnWaiter
     answer: asyncio.Future[str]
     since: limit_watch.RecordMark
+    pasted_before: Counter[str] | None = None
 
 
 async def ask(to: str, text: str, *, fresh: bool = False, resume: str | None = None, fork: bool = False,
@@ -100,16 +102,18 @@ async def ask_stream(to: str, text: str, *, fresh: bool = False, resume: str | N
       or `{"type": "error", "code": "ask_*", "message": ...}` (= the failures `ask` raises after the typing).
 
     The tab's wait ends with the turn (= its answer, its failure or its time), whether the iterator is read or not."""
-    turn = await _start(to, text, fresh=fresh, resume=resume, fork=fork)
+    turn = await _start(to, text, fresh=fresh, resume=resume, fork=fork, read_screen=True)
     partials: asyncio.Queue[str] = asyncio.Queue()
-    watching = asyncio.ensure_future(screen_watch.watch(turn.session_id, turn.text, partials.put_nowait))
+    watching = asyncio.ensure_future(screen_watch.watch(turn.session_id, turn.text, partials.put_nowait,
+                                                        turn.pasted_before))
     waiting = asyncio.ensure_future(_wait(turn, timeout_sec))
     waiting.add_done_callback(lambda done: _release(turn, done, watching))
     return _events(turn, partials, waiting)
 
 
-async def _start(to: str, text: str, *, fresh: bool, resume: str | None, fork: bool) -> _Turn:
-    """Everything an ask does up to the typing. → the turn, whose wait the caller ends; a failure ends it here."""
+async def _start(to: str, text: str, *, fresh: bool, resume: str | None, fork: bool, read_screen: bool = False) -> _Turn:
+    """Everything an ask does up to the typing; `read_screen` notes the placeholders on the screen right before it (=
+    for `ask_stream`). → the turn, whose wait the caller ends; a failure ends it here."""
     with _as_ask_error():
         session_id = resolve_receiver(to)
     if not takes_asks(session_id):
@@ -120,14 +124,15 @@ async def _start(to: str, text: str, *, fresh: bool, resume: str | None, fork: b
         raise_error(409, "ask_in_progress", f"このタブには別の問いの答えを待っています。 答えが返ってから聞いてください: {session_id}",
                     id=session_id)
     try:
-        return await _type_text(session_id, text, waiter, fresh=fresh, resume=resume, fork=fork)
+        return await _type_text(session_id, text, waiter, fresh=fresh, resume=resume, fork=fork,
+                                read_screen=read_screen)
     except BaseException:
         turn_waiters.stop_waiting(session_id, waiter)
         raise
 
 
 async def _type_text(session_id: str, text: str, waiter: turn_waiters.TurnWaiter, *, fresh: bool, resume: str | None,
-                     fork: bool) -> _Turn:
+                     fork: bool, read_screen: bool = False) -> _Turn:
     if await asyncio.to_thread(hold_mail.must_keep, session_id):
         raise_error(409, "ask_held", "このタブは口座の止める線で止まっていて、 動ける口座がありません。 何も聞いていません",
                     id=session_id, reason="account_hold")
@@ -142,12 +147,13 @@ async def _type_text(session_id: str, text: str, waiter: turn_waiters.TurnWaiter
     if resume is not None:
         await _open_resumed(session_id, waiter, resume, fork)
     since = await asyncio.to_thread(limit_watch.mark, session_id)
+    pasted_before = await asyncio.to_thread(screen_watch.read_pasted_counts, session_id) if read_screen else None
     answer = turn_waiters.expect_answer(waiter)
     with _as_ask_error():
         await deliver_message(session_id, text, woke and not cleared)
     logger.info("ask: typed %d chars into session=%s fresh=%s resume=%s fork=%s", len(text), session_id, cleared, resume,
                 fork)
-    return _Turn(session_id, text, waiter, answer, since)
+    return _Turn(session_id, text, waiter, answer, since, pasted_before)
 
 
 async def _wait(turn: _Turn, timeout_sec: float) -> str:
