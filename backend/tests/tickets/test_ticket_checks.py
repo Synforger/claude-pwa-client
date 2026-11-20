@@ -1,6 +1,8 @@
 """The guard's five commands as the tickets use them: 0, 1, 2 and no key, for the place, the write, the covers and the read."""
 from __future__ import annotations
 
+import sys
+
 import pytest
 from fastapi import HTTPException
 
@@ -216,3 +218,13 @@ def test_a_ticket_is_not_shown_unjudged_where_the_guard_judges_the_messages(tick
     ticket = _open()["id"]
     _guarded_without(ticket_env, "place", "places", "write", "covers")
     assert _code(ticket_service.show("ses_a", ticket)) == "ticket_check_missing"
+
+
+def test_the_place_command_may_name_the_folder_of_the_opening_tabs_tier(ticket_env):
+    from backend.tests.tickets.samples import COMMANDS, FAKE_GUARD, write_config  # noqa: PLC0415
+    ticket_env.guard.answer(place={"stdout": str(ticket_env.tickets)})
+    command = [sys.executable, str(FAKE_GUARD), "place", str(ticket_env.guard.rules_file), *COMMANDS["place"],
+               "--folder", "{folder}"]
+    write_config(ticket_env.guard._monkeypatch, ticket_env.root, ticket_place_check=command)
+    _open()
+    assert ticket_env.guard.calls("place")[-1]["flags"]["--folder"] == str(tier_folder("ses_a"))

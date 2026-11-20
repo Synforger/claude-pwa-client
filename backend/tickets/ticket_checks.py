@@ -55,7 +55,9 @@ async def decide_place(tab_id: str, typed_in_tab: str | None = None) -> Path:
     command = _command("TICKET_PLACE_CHECK")
     if not command:
         return paths.TICKETS_DIR
-    names = {"session": session_of(tab_id), "typed_in": session_of(typed_in_tab) if typed_in_tab else ""}
+    # the tier's folder is where the tab works, which the guard counts as read even before the conversation read anything
+    names = {"session": session_of(tab_id), "typed_in": session_of(typed_in_tab) if typed_in_tab else "",
+             "folder": str(tier_folder(tab_id))}
     result = await guard_command.run_command(command, names)
     if result.status == 1:
         raise_error(409, "ticket_place_split",
