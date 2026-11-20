@@ -86,6 +86,18 @@ def _stub_config(monkeypatch, tmp_path_factory):
     config_mod.get_config.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def _isolated_sent_keys(monkeypatch, tmp_path_factory):
+    """The backend's dedup keeps typed send keys in a file under the data folder: point it at a folder of the test."""
+    from backend.terminal import send_dedup as send_dedup_mod
+    from backend.terminal import sent_keys_store
+
+    monkeypatch.setattr(sent_keys_store, "SENT_KEYS_PATH", tmp_path_factory.mktemp("sent_keys") / "sent_keys.txt")
+    send_dedup_mod.send_dedup.reset()
+    yield
+    send_dedup_mod.send_dedup.reset()
+
+
 @pytest.fixture
 def agent_folder(monkeypatch, tmp_path):
     """The folder of `agent_a` (= the agent every test tab runs), under the test's own tmp folder."""

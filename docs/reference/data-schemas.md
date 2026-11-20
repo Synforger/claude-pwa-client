@@ -17,6 +17,7 @@ backend が runtime に持つ JSON ファイルの schema を一括宣言する�
 | `backend/config.json` | YES (= 個人 cwd / launch_alias / accounts) | 復元可能だが手作業 |
 | `backend/data/peer_outbox/<id>.json` | YES (= 別の機械に届けられずに預かっている連絡、 1 通 1 file) | 復元不可 (= 失うと、 その連絡は送り直されない。 送り主の会話にしか残らない) |
 | `backend/data/seen_message_ids.json` | 推奨 (= 別の機械から受け取った連絡の id、 96 時間) | 失うと、 その間に同じ id で送り直された連絡が重なって届く |
+| `backend/data/sent_keys.txt` | 推奨 (= 画面が送信に付けた key、 新しい方から 4096 件) | 失うと、 再起動の前に打った送信を画面が後から送り直した時に、 もう一度打たれる |
 | `backend/data/peer_health.json` | 不要 (= 別の機械の見張りの最後の結果) | 次の見回り (5 分ごと) で書き直される |
 
 backup 先 = 同 PC の別 path (= `$AGENT_PLATFORM_ROOT/state/claude-pwa-client/backups/` 等)、 backend dir 直下に置くと service 自身が誤読する事故源 (= 同 dir 内に `session_meta.json.<suffix>` 等の別名 backup を置くと service 起動時に snapshot として誤読されるパターンが存在する)。

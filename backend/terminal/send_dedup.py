@@ -9,14 +9,15 @@ What it does:
 
 Called by the send doors of `backend/terminal/routes.py` and by the JSONL publisher.
 
-Two memories, both in process memory and lost on a restart:
-    - The keys already typed (dedup). They are dropped only by count, oldest first, never by age. The screen posts a
-      send again when its request got no answer (`frontend/src/features/chat/postSend.js`), and that request may have
-      been typed before iOS cut the answer off while the app was behind. The repeat comes only when the app is in
-      front again, after any length of time, so a memory that expires lets the repeat be typed a second time.
-    - The candidates for binding: kept 60 s and at most 512, so a send that was typed but never became a user row
-      does not take a later row's uuid.
-A retry right after a restart is not deduped; `reconcileUserMessage` on the screen still pairs its bubble.
+Two memories:
+    - The keys already typed (dedup). They are dropped only by count, oldest first, never by age, and the backend's
+      own instance keeps them in a file too (`sent_keys_store.py`), read back after a restart. The screen posts a send
+      again when its request got no answer (`frontend/src/features/chat/postSend.js`), and that request may have been
+      typed before iOS cut the answer off while the app was behind. The repeat comes only when the app is in front
+      again, after any length of time and across a restart of the backend, so a memory that expires or lives only in
+      the process lets the repeat be typed a second time.
+    - The candidates for binding, in process memory: kept 60 s and at most 512, so a send that was typed but never
+      became a user row does not take a later row's uuid.
 """
 from __future__ import annotations
 
@@ -24,6 +25,8 @@ import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
+
+from backend.terminal import sent_keys_store
 
 _MAX_ENTRIES = 512
 _TTL_SEC = 60.0
@@ -39,27 +42,36 @@ class _Entry:
 
 class SendDedup:
     def __init__(
-        self, max_entries: int = _MAX_ENTRIES, ttl_sec: float = _TTL_SEC, *, max_seen: int = _MAX_SEEN
+        self,
+        max_entries: int = _MAX_ENTRIES,
+        ttl_sec: float = _TTL_SEC,
+        *,
+        max_seen: int = _MAX_SEEN,
+        is_stored: bool = False,
     ) -> None:
         self._entries: dict[tuple[str, str], _Entry] = {}
         self._seen: OrderedDict[tuple[str, str], None] = OrderedDict()
         self._max = max_entries
         self._ttl = ttl_sec
         self._max_seen = max_seen
+        self._is_stored = is_stored
+        self._is_loaded = not is_stored
+        self._stored_count = 0
         self._lock = threading.Lock()
 
     def check_and_mark(self, sid: str, send_id: str) -> bool:
         """Whether (sid, send_id) was typed already: True for a repeat (skip typing), else record it and return False.
 
-        A repeat is caught however long after the first one it comes, until the key is pushed out by count.
+        A repeat is caught however long after the first one it comes, until the key is pushed out by count; with
+        `is_stored`, also after the backend restarted.
         """
         with self._lock:
+            self._load_locked()
             key = (sid, send_id)
             if key in self._seen:
                 return True
-            self._seen[key] = None
-            while len(self._seen) > self._max_seen:
-                self._seen.popitem(last=False)
+            self._remember_locked(key)
+            self._store_locked(key)
             self._purge_expired_locked()
             self._enforce_max_locked()
             self._entries[key] = _Entry(sent_at=time.monotonic())
@@ -107,10 +119,40 @@ class SendDedup:
             del self._entries[oldest_key]
 
     def reset(self) -> None:
-        """test 用: 全 entry を消す。"""
+        """test 用: 全 entry を消す (= 保存した key も)。"""
         with self._lock:
             self._entries.clear()
             self._seen.clear()
+            self._is_loaded = True
+            if self._is_stored:
+                sent_keys_store.save([])
+                self._stored_count = 0
+
+    def _load_locked(self) -> None:
+        """The first judgement after a start reads the keys typed before it."""
+        if self._is_loaded:
+            return
+        self._is_loaded = True
+        stored = sent_keys_store.load()
+        self._stored_count = len(stored)
+        for key in stored:
+            self._remember_locked(key)
+
+    def _remember_locked(self, key: tuple[str, str]) -> None:
+        self._seen[key] = None
+        self._seen.move_to_end(key)
+        while len(self._seen) > self._max_seen:
+            self._seen.popitem(last=False)
+
+    def _store_locked(self, key: tuple[str, str]) -> None:
+        """Add the key to the file; once the file holds twice the remembered count, write only the remembered keys."""
+        if not self._is_stored or not sent_keys_store.can_store(*key):
+            return
+        sent_keys_store.append(*key)
+        self._stored_count += 1
+        if self._stored_count > 2 * self._max_seen:
+            sent_keys_store.save(list(self._seen))
+            self._stored_count = len(self._seen)
 
 
-send_dedup = SendDedup()
+send_dedup = SendDedup(is_stored=True)

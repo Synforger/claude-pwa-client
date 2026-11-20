@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import time
 
+from backend.terminal import sent_keys_store
 from backend.terminal.send_dedup import SendDedup
 
 
@@ -121,3 +122,39 @@ def test_reset_forgets_typed_keys():
     d.check_and_mark("sid_a", "s1")
     d.reset()
     assert d.check_and_mark("sid_a", "s1") is False
+
+
+def test_stored_keys_survive_a_restart():
+    """A send typed before the backend restarted is not typed again when the screen posts it after the restart."""
+    SendDedup(is_stored=True).check_and_mark("sid_a", "s1")
+    after_restart = SendDedup(is_stored=True)
+    assert after_restart.check_and_mark("sid_a", "s1") is True
+    assert after_restart.check_and_mark("sid_a", "s2") is False
+
+
+def test_an_unstored_instance_writes_no_file():
+    SendDedup().check_and_mark("sid_a", "s1")
+    assert sent_keys_store.load() == []
+
+
+def test_stored_file_is_written_again_with_the_remembered_keys_only():
+    """The file grows to twice the remembered count, then keeps only what is remembered, newest kept."""
+    d = SendDedup(is_stored=True, max_seen=2)
+    for send_id in ("s1", "s2", "s3", "s4", "s5"):
+        d.check_and_mark("sid_a", send_id)
+    assert len(sent_keys_store.SENT_KEYS_PATH.read_text(encoding="utf-8").splitlines()) <= 4
+    after_restart = SendDedup(is_stored=True, max_seen=2)
+    assert after_restart.check_and_mark("sid_a", "s5") is True
+    assert after_restart.check_and_mark("sid_a", "s1") is False
+
+
+def test_unreadable_stored_file_starts_empty():
+    sent_keys_store.SENT_KEYS_PATH.write_bytes(b"\xff\xfe broken")
+    assert SendDedup(is_stored=True).check_and_mark("sid_a", "s1") is False
+
+
+def test_key_that_does_not_fit_a_line_is_remembered_in_memory_only():
+    d = SendDedup(is_stored=True)
+    d.check_and_mark("sid_a", "bad\tkey")
+    assert d.check_and_mark("sid_a", "bad\tkey") is True
+    assert "bad" not in sent_keys_store.SENT_KEYS_PATH.read_text(encoding="utf-8")
