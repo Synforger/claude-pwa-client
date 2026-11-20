@@ -69,6 +69,20 @@ loop stall: the event loop stood still 42s; the stacks are in <log folder>/loop-
 書かれた thread があれば、 それは GIL を握ったまま他の thread を全部止めていた呼び出し。 その stack を添えて issue
 を出す。 機械そのものが重いだけなら、 macOS の log (`log show`) は同じ時刻にも出続けている。
 
+## 送った発話に「⚠ Not delivered to claude」 が付く
+
+画面がその発話を「届かなかった」 と決めた印で、 文は入力欄に戻る。 画面は印を付けるたびに、 なぜそう決めたかを
+`backend.error.log` に `sw-log` の 1 行で残す。
+
+```
+sw-log: {"stage": "send:failed", "sid": "ses_…", "path": "text", "status": null, "error": "AbortError: …", "reason": null, "elapsedMs": 10012, …}
+```
+
+- `path`: `text` (文だけの送信)・`files` (添付つきの送信)・`held` (起動を待つ間に預けた文が、 起動の後に入らなかった)
+- `status` と `error`: 送信の HTTP の答えの番号か、 答えが来なかった時の誤り。 `AbortError` で `elapsedMs` が 10 秒前後
+  なら、 画面が答えを待ちきれずに諦めた (= backend の access log には、 同じ送信が後から 200 で残り、 文は届いていることがある)
+- `reason`: backend が打たなかった理由 (`not_ready` = Claude が起動を知らせないまま時間切れ、 など)
+
 ## SW (Service Worker) 登録が失効した / 通知が来なくなった
 
 PWA の Service Worker が古い世代のまま居座って Web Push を受け取らなくなる場合がある:

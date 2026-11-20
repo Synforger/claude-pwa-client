@@ -6,6 +6,7 @@ import { processStreamEvent } from './processStreamEvent.js'
 import { observeVoiceEvent, subscribeVoice, voiceOnSids } from '../voice/index.js'
 import { reconcileUserMessage } from './reconcileUserMessage.js'
 import { failUserBubble } from './failUserBubble.js'
+import { logSendFailed } from './sendFailedLog.js'
 import { fetchHistory, ingestHistory, removeSavedMessages } from './historyCatchUp.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
 import { chatTransport } from '../../transport/select.ts'
@@ -185,6 +186,7 @@ export function useChatStream({
           queueMicrotask(() => {
             setInput(cur => ({ ...cur, [curSid]: cur[curSid] || failed.text }))
             try { onSendFailed?.(curSid, failed.text) } catch { /* ignore consumer error */ }
+            logSendFailed(curSid, { path: 'held', send_id: event.send_id, textLen: failed.text.length })
           })
           return { ...prev, [curSid]: failed.next }
         })
@@ -425,7 +427,10 @@ export function useChatStream({
     // ok:True なら SSE 経由の reconcile を信じる (= 旧 SEND_TIMEOUT 15s timer は backend 確認と
     // 二重で session-end 直後の SSE publish race を踏むと誤発火する false positive 経路だった、
     // 2026-06-30 撤去)。
-    const failBubble = (extraInput) => {
+    const startedAt = Date.now()
+    // why = what the send answered (path, HTTP status or error, backend reason); written with the time it took
+    const failBubble = (extraInput, why) => {
+      logSendFailed(to, { ...why, send_id, textLen: text.length, files: files.length, elapsedMs: Date.now() - startedAt })
       setMessages(prev => {
         const failed = failUserBubble(prev[to] || [], m => m.id === optimisticUserId)
         return failed ? { ...prev, [to]: failed.next } : prev
@@ -478,7 +483,7 @@ export function useChatStream({
         // 旧実装は alert だけで楽観 user bubble + 空 streaming agent bubble + loading=true が
         // 残ったまま → 「…」 永続表示 + 送信ボタン無効化 stuck で reload しないと回復不能だった。
         // 共通 failBubble へ集約 (= 2026-06-24)。
-        failBubble(true)
+        failBubble(true, { path: 'files', reason: uploadErrDetail })
         alert(tRaw('alert.attach_failed', { detail: uploadErrDetail }))
       }
     } else {
@@ -486,21 +491,25 @@ export function useChatStream({
       // なければ 1 回自動再送 → さらに 1.5s 待つ → ok/ng を返す。 ng (= claude TUI に届かなかった)
       // 時は input に text を戻して再送可能にし、 楽観 user bubble に「届かなかった」 マークを付ける。
       let result
+      let status = null
+      let error = null
       try {
         const r = await apiFetch(`/pty/${encodeURIComponent(to)}/send`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Idempotency-Key': send_id },
           body: JSON.stringify({ text, enter: true }),
         })
+        status = r ? r.status : null
         result = r ? await r.json().catch(() => ({ ok: false })) : { ok: false }
-      } catch {
+      } catch (e) {
+        error = `${e?.name || 'Error'}: ${e?.message || String(e)}`
         result = { ok: false }
       }
       if (!result.ok) {
         // HTTP 即時 fail = 共通 failBubble へ集約 (= 2026-06-24)。
         // 旧来の setInput 経路は failBubble 内に内包済 (= F-36 ChatInput.localText の onSendFailed
         // callback も同関数内で呼ぶ)。
-        failBubble(true)
+        failBubble(true, { path: 'text', status, error, reason: result.reason || null })
       }
     }
     } finally {
