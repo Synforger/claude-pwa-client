@@ -9,6 +9,12 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 
 const apiFetch = vi.fn()
 vi.mock('../../../src/_common/api.js', () => ({ apiFetch: (...args) => apiFetch(...args) }))
+vi.mock('../../../src/transport/http.ts', () => ({ apiFetch: (...args) => apiFetch(...args) }))
+// no real waits between the tries of a send
+vi.mock('../../../src/features/chat/postSend.js', async (importOriginal) => {
+  const real = await importOriginal()
+  return { ...real, postSend: (path, options, opts = {}) => real.postSend(path, options, { ...opts, waits: [0, 0] }) }
+})
 vi.mock('../../../src/transport/select.ts', () => ({
   chatTransport: {
     subscribe: () => () => {},
@@ -117,8 +123,37 @@ describe('a send marked "Not delivered" leaves a line in the record', () => {
     await act(async () => { await view.result.current.sendMessage('届いた?') })
     expect(view.result.current.messages.find(m => m.role === 'user').sendFailed).toBe(true)
     const [line] = logged()
-    expect(line).toMatchObject({ stage: 'send:failed', sid: SID, path: 'text', status: null, error: 'AbortError: signal is aborted', textLen: 4 })
+    expect(line).toMatchObject({ stage: 'send:failed', sid: SID, path: 'text', status: null, error: 'AbortError: signal is aborted', textLen: 4, tries: 3 })
     expect(typeof line.elapsedMs).toBe('number')
+  })
+
+  it('posts again with the same key when the first try got no answer, and the bubble stays delivered', async () => {
+    const sends = []
+    apiFetch.mockImplementation((path, options) => {
+      if (path !== `/pty/${SID}/send`) return Promise.resolve({ ok: true, json: async () => ({}) })
+      sends.push(options)
+      if (sends.length === 1) return Promise.reject(new TypeError('Load failed'))   // the connection iOS closed behind
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true, confirmed: true }) })
+    })
+    const { view } = mountTab()
+    await act(async () => { await view.result.current.sendMessage('戻ってすぐ') })
+    expect(sends).toHaveLength(2)
+    expect(sends.map(o => o.headers['Idempotency-Key'])).toEqual([sends[0].headers['Idempotency-Key'], sends[0].headers['Idempotency-Key']])
+    expect(view.result.current.messages.find(m => m.role === 'user').sendFailed).toBeFalsy()
+    expect(logged()).toEqual([])
+  })
+
+  it('does not post again when the backend answered, even with ok false', async () => {
+    let posts = 0
+    apiFetch.mockImplementation((path) => {
+      if (path !== `/pty/${SID}/send`) return Promise.resolve({ ok: true, json: async () => ({}) })
+      posts += 1
+      return Promise.resolve({ ok: false, status: 404, json: async () => ({ detail: 'gone' }) })
+    })
+    const { view } = mountTab()
+    await act(async () => { await view.result.current.sendMessage('閉じたタブ') })
+    expect(posts).toBe(1)
+    expect(logged()).toEqual([expect.objectContaining({ path: 'text', status: 404, tries: 1 })])
   })
 
   it("says the status and the backend's reason when the backend answered that it did not type", async () => {

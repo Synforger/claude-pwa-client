@@ -7,6 +7,7 @@ import { observeVoiceEvent, subscribeVoice, voiceOnSids } from '../voice/index.j
 import { reconcileUserMessage } from './reconcileUserMessage.js'
 import { failUserBubble } from './failUserBubble.js'
 import { logSendFailed } from './sendFailedLog.js'
+import { postSend } from './postSend.js'
 import { fetchHistory, ingestHistory, removeSavedMessages } from './historyCatchUp.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
 import { chatTransport } from '../../transport/select.ts'
@@ -451,12 +452,12 @@ export function useChatStream({
       }
       let uploadOk = true
       let uploadErrDetail = ''
+      let tries = 0
       try {
-        const r = await apiFetch(`/pty/${encodeURIComponent(to)}/send-with-files`, {
-          method: 'POST',
+        const r = await postSend(`/pty/${encodeURIComponent(to)}/send-with-files`, {
           headers: { 'Idempotency-Key': send_id },
           body: form,
-        })
+        }, { onTry: n => { tries = n } })
         if (!r || !r.ok) {
           uploadOk = false
           uploadErrDetail = `HTTP ${r?.status ?? '???'}`
@@ -483,7 +484,7 @@ export function useChatStream({
         // 旧実装は alert だけで楽観 user bubble + 空 streaming agent bubble + loading=true が
         // 残ったまま → 「…」 永続表示 + 送信ボタン無効化 stuck で reload しないと回復不能だった。
         // 共通 failBubble へ集約 (= 2026-06-24)。
-        failBubble(true, { path: 'files', reason: uploadErrDetail })
+        failBubble(true, { path: 'files', reason: uploadErrDetail, tries })
         alert(tRaw('alert.attach_failed', { detail: uploadErrDetail }))
       }
     } else {
@@ -493,12 +494,12 @@ export function useChatStream({
       let result
       let status = null
       let error = null
+      let tries = 0
       try {
-        const r = await apiFetch(`/pty/${encodeURIComponent(to)}/send`, {
-          method: 'POST',
+        const r = await postSend(`/pty/${encodeURIComponent(to)}/send`, {
           headers: { 'Content-Type': 'application/json', 'Idempotency-Key': send_id },
           body: JSON.stringify({ text, enter: true }),
-        })
+        }, { onTry: n => { tries = n } })
         status = r ? r.status : null
         result = r ? await r.json().catch(() => ({ ok: false })) : { ok: false }
       } catch (e) {
@@ -509,7 +510,7 @@ export function useChatStream({
         // HTTP 即時 fail = 共通 failBubble へ集約 (= 2026-06-24)。
         // 旧来の setInput 経路は failBubble 内に内包済 (= F-36 ChatInput.localText の onSendFailed
         // callback も同関数内で呼ぶ)。
-        failBubble(true, { path: 'text', status, error, reason: result.reason || null })
+        failBubble(true, { path: 'text', status, error, reason: result.reason || null, tries })
       }
     }
     } finally {
