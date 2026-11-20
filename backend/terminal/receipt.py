@@ -14,6 +14,12 @@ was not taken, and a text left there would go in with the next Enter, on top of 
 A launch still starting is waited for before anything is typed. Typing then would hand the text to the launch's held
 messages (`first_message.hold_while_launching`), and the rescue typing it again would hold it a second time.
 
+A tab with no claude at all is started by the typing itself (`first_message.launch_with_first_message`): the text goes
+to the launch, as its first message or held to be typed once the claude is up, and `pty_send` answers `launched`. From
+then on the launch owns the text and this module only watches the record for it (`_taken_by_launch`): the record of a
+conversation that has not begun shows nothing yet, and a rescue that read that as "gone" typed the text a second time,
+which the new conversation got twice.
+
 Used by `routes/agent_messages.py` for a tab it had to wake (`deliver_to_woken`, `wait_for_claude_screen`). A tab that
 was already running keeps the plain `pty_send`: its answer in the middle of a turn writes no row, so no row proves
 nothing there.
@@ -22,10 +28,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 
 from backend.terminal import input_ready
 from backend.terminal.ansi_text import strip_ansi
-from backend.terminal.confirm import CONFIRM_TIMEOUT_SEC, wait_taken_row
+from backend.terminal.confirm import CONFIRM_TIMEOUT_SEC, wait_taken_row, wait_text_row
 from backend.terminal.prompt_detector import claude_tui_owns_screen
 from backend.terminal.routes import pty_send
 from backend.terminal.runner import capture_pane_ansi_tail, jsonl_path_for_session, tmux_send_keys
@@ -71,8 +78,8 @@ def text_waits_in_input(pane: str, text: str) -> bool:
 
 
 async def _taken(session_id: str, initial_pos: int, timeout: float, text: str) -> bool:
-    path = jsonl_path_for_session(session_id)
-    return path is not None and await wait_taken_row(path, initial_pos, timeout, text)
+    return await wait_taken_row(jsonl_path_for_session(session_id), initial_pos, timeout, text,
+                                follow=lambda: jsonl_path_for_session(session_id))
 
 
 def _record_end(session_id: str) -> int:
@@ -86,19 +93,36 @@ def _record_end(session_id: str) -> int:
 async def deliver_to_woken(session_id: str, text: str) -> bool:
     """Type `text` into a tab that was just started and make sure it was taken. True when the record shows the message
     (maybe after the rescue: Enter again while the text waits in the input, typing it once more when it is gone); False
-    when it did not within `RESCUE_SEC`, or the launch in flight was given up, which is for the caller to refuse."""
+    when it did not within `RESCUE_SEC`, or the launch in flight was given up, which is for the caller to refuse. A text
+    that the typing handed to a launch is not typed again (`_taken_by_launch`)."""
     if input_ready.launching(session_id):
         if not await input_ready.wait_launched(session_id):
             logger.warning("receipt: the launch was given up before the message could be typed session=%s", session_id)
             return False
         await wait_for_claude_screen(session_id)
+    record = jsonl_path_for_session(session_id)
     initial_pos = _record_end(session_id)
     result = await pty_send(session_id, {"text": text, "enter": True}, None)
     if not result.get("ok"):
         return False
+    if result.get("launched"):
+        return await _taken_by_launch(session_id, record, initial_pos, text)
     if result.get("confirmed") or await _taken(session_id, initial_pos, TAKEN_WAIT_SEC - CONFIRM_TIMEOUT_SEC, text):
         return True
     return await _rescue(session_id, initial_pos, text)
+
+
+async def _taken_by_launch(session_id: str, record: Path | None, initial_pos: int, text: str) -> bool:
+    """Watch for `text`, which the typing handed to the tab's launch (= its first message, or held to be typed once the
+    claude is up: both are the launch's to type, and a second typing would deliver it twice). True when the record shows
+    the text itself (= not the envelope a tier tab starts with); False when the launch was given up, or the text did not
+    come within the screen wait and the rescue the held message gets. `record` and `initial_pos` are where the tab's
+    record stood before the typing (= None while the conversation has not begun)."""
+    if not await input_ready.wait_launched(session_id):
+        logger.warning("receipt: the launch was given up before the message was taken session=%s", session_id)
+        return False
+    return await wait_text_row(record, initial_pos, SCREEN_WAIT_SEC + RESCUE_SEC, text,
+                               follow=lambda: jsonl_path_for_session(session_id))
 
 
 async def _rescue(session_id: str, initial_pos: int, text: str) -> bool:

@@ -6,7 +6,7 @@ import pytest
 
 import backend.routes.agent_messages as am
 from backend.tests.routes.test_agent_messages import (  # noqa: F401  (= fixtures of the tests of the same door)
-    _send, client, no_tmux, started, tabs, typed,
+    _send, client, keys, no_tmux, started, tabs, typed,
 )
 
 
@@ -22,8 +22,59 @@ def test_a_started_claude_is_typed_to_only_once_its_screen_is_claudes(client, ta
         return True
     monkeypatch.setattr(am, "wait_for_claude_screen", screen)
     monkeypatch.setattr(am.input_ready, "wait_ready", _ready)
+    monkeypatch.setattr(am.input_ready, "launching", lambda session_id: True)    # what the start typed leaves behind
     assert _send(client, to="ses_idle").status_code == 200
     assert looked_when_typed == [0] and len(typed) == 1               # the look came before anything was typed
+
+
+@pytest.fixture
+def screen_looks(monkeypatch) -> list[str]:
+    """The tabs whose pane was looked at for Claude's screen."""
+    looked: list[str] = []
+
+    async def screen(session_id):
+        looked.append(session_id)
+        return True
+    monkeypatch.setattr(am, "wait_for_claude_screen", screen)
+    return looked
+
+
+def test_a_new_conversation_is_not_waited_for_a_screen_that_the_pane_does_not_have(client, tabs, typed, started,
+                                                                                    screen_looks, monkeypatch):
+    # The pane holds a shell and nothing is started: the message's own typing starts the claude, so a wait for Claude's
+    # screen would only run out its 20 seconds.
+    monkeypatch.setattr(am, "uses_launcher", lambda sid: True)
+    assert _send(client, to="ses_idle").status_code == 200
+    assert screen_looks == [] and typed[0][0] == "ses_idle"
+
+
+def test_a_new_conversation_is_still_checked_for_receipt(client, tabs, typed, started, screen_looks, monkeypatch):
+    monkeypatch.setattr(am, "uses_launcher", lambda sid: True)
+    delivered: list[str] = []
+
+    async def taken(session_id, text):
+        delivered.append(session_id)
+        return True
+    monkeypatch.setattr(am, "deliver_to_woken", taken)
+    assert _send(client, to="ses_idle").status_code == 200
+    assert delivered == ["ses_idle"]
+
+
+def test_a_reopened_conversation_is_waited_for_its_screen(client, tabs, typed, started, keys, screen_looks, monkeypatch):
+    monkeypatch.setattr(am, "uses_launcher", lambda sid: False)
+    monkeypatch.setattr(am, "resume_command_for", lambda sid: "main --resume abc")
+    try:
+        assert _send(client, to="ses_idle").status_code == 200
+    finally:
+        am.input_ready.forget("ses_idle")
+    assert screen_looks == ["ses_idle"]
+
+
+def test_a_start_the_screen_made_is_waited_for_its_screen(client, tabs, typed, started, no_tmux, screen_looks, monkeypatch):
+    monkeypatch.setattr(am.input_ready, "wait_ready", _ready)
+    monkeypatch.setattr(am.input_ready, "launching", lambda session_id: True)
+    assert _send(client, to="ses_idle").status_code == 200
+    assert screen_looks == ["ses_idle"]
 
 
 def test_a_screen_that_is_never_recognised_is_typed_to_and_checked_for_receipt(client, tabs, typed, started, no_tmux,
