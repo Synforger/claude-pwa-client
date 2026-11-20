@@ -12,8 +12,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, Form, Request
 
+from backend._common.local_door import require_this_machine
 from backend._common.errors import raise_error
-from backend.routes.agent_messages import LOCAL_CLIENTS
 from backend.terminal.tier import parse_tier
 from backend.tier_tabs.tier_tabs import agent_for_folder, folder_tiers, place_tab, tab_of
 
@@ -29,10 +29,7 @@ async def post_tier_tab(request: Request, agent_dir: str = Form(...), tier: str 
         agent_dir (str): the agent's folder (= the `cwd` of one agent in `config.json`)
         tier      (str): `normal`, `projects/<P>` or `projects/<P>/subprojects/<S>`, with `subprojects/<S>` repeated at any depth (= a folder of that agent)
     """
-    client_host = request.client.host if request.client else None
-    if client_host not in LOCAL_CLIENTS:
-        logger.warning("tier tab rejected: non-local client=%s", client_host)
-        raise_error(403, "tier_tab_local_only", "この口は同じ機械の中からだけ使えます")
+    require_this_machine(request, "tier_tab_local_only")
     agent_id = agent_for_folder(Path(agent_dir))
     if agent_id is None:
         raise_error(400, "tier_tab_unknown_agent", f"この folder のエージェントが設定にありません: {agent_dir}",

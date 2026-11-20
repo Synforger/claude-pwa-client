@@ -11,9 +11,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Body, Form, Request
 
+from backend._common.local_door import LOCAL_ONLY_MESSAGE, from_this_machine_or_its_screen, require_this_machine
 from backend._common.errors import raise_error
 from backend._common.state import sessions_meta
-from backend.routes.agent_messages import LOCAL_CLIENTS, require_peer
+from backend.routes.agent_messages import require_peer
 from backend.tickets import (relay_home, ticket_answer, ticket_entry, ticket_id, ticket_operator, ticket_pass, ticket_relay,
                              ticket_service)
 
@@ -21,9 +22,13 @@ router = APIRouter()
 
 
 def _from_this_machine(request: Request) -> None:
-    client_host = request.client.host if request.client else None
-    if client_host not in LOCAL_CLIENTS:
-        raise_error(403, "ticket_local_only", "この口は同じ機械の中からだけ使えます")
+    require_this_machine(request, "ticket_local_only")
+
+
+def _from_the_operators_screen(request: Request) -> None:
+    """For the doors the operator's screen answers a ticket through: it reaches them through `tailscale serve`."""
+    if not from_this_machine_or_its_screen(request):
+        raise_error(403, "ticket_local_only", LOCAL_ONLY_MESSAGE)
 
 
 def _known_tab(tab_id: str) -> str:
@@ -97,7 +102,7 @@ async def post_answer(request: Request, ticket: str, body: dict = Body(...)) -> 
     block it for the tabs). json: `asked_at` (= the `at` of the `asked` line the screen was showing) and `text`, or
     `recommend: true` for the recommendation of that line (= `text` is not read then).
     → `{ok, id, queued}`: the answer is written and waits for the tab that holds the ticket."""
-    _from_this_machine(request)
+    _from_the_operators_screen(request)
     asked_at, text, recommend = body.get("asked_at"), body.get("text", ""), body.get("recommend", False) is True
     if not isinstance(asked_at, str) or not asked_at.strip() or not isinstance(text, str):
         raise_error(400, "ticket_bad_answer", "答えは asked_at (= 見ていた問いの時刻) と、 text か recommend: true で送ってください")
@@ -117,14 +122,14 @@ def _kept_here(ticket: str) -> str:
 async def get_ticket_for_operator(request: Request, ticket: str) -> dict:
     """The ticket as the operator reads it, every line and nothing judged (= called by the operator's screen; the guard's
     `destinations` block this door for the tabs, as the one that answers)."""
-    _from_this_machine(request)
+    _from_the_operators_screen(request)
     return await ticket_operator.read(_kept_here(ticket))
 
 
 @router.post("/tickets/{ticket}/answer/holder")
 async def post_holder(request: Request, ticket: str, body: dict = Body(...)) -> dict:
     """The operator hands a ticket no tab holds to a tab. json: `to` (= the tab's id). → `{ok, id, to, kept?}`."""
-    _from_this_machine(request)
+    _from_the_operators_screen(request)
     to = body.get("to")
     if not isinstance(to, str) or not to.strip():
         raise_error(400, "ticket_empty", "渡す先のタブが空です")
@@ -134,7 +139,7 @@ async def post_holder(request: Request, ticket: str, body: dict = Body(...)) -> 
 @router.post("/tickets/{ticket}/answer/seen")
 async def post_seen(request: Request, ticket: str) -> dict:
     """The operator looked at an answer that did not arrive (or may not have): it stops wanting a look. → `{ok, id, written}`."""
-    _from_this_machine(request)
+    _from_the_operators_screen(request)
     return await ticket_operator.seen(_kept_here(ticket))
 
 

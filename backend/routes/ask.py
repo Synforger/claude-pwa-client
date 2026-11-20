@@ -11,9 +11,9 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import StreamingResponse
 
+from backend._common.local_door import require_this_machine
 from backend._common.errors import raise_error
 from backend.ask import ask_turn
-from backend.routes.agent_messages import LOCAL_CLIENTS
 
 router = APIRouter()
 
@@ -35,9 +35,7 @@ async def post_ask(
     """Type `text` into the tab (= its id or name) and answer with the last answer of that turn. With `stream` the
     answer is a stream of JSON lines: the answer so far each time it changes, then the end (= `ask_turn.ask_stream`).
     With `resume` (a conversation's id) the tab opens that conversation first, and with `fork` a branch of it."""
-    client_host = request.client.host if request.client else None
-    if client_host not in LOCAL_CLIENTS:
-        raise_error(403, "ask_local_only", "この口は同じ機械の中からだけ使えます")
+    require_this_machine(request, "ask_local_only")
     if not text.strip():
         raise_error(400, "ask_empty", "聞く文が空です")
     if not 0 < timeout_sec <= ask_turn.MAX_TIMEOUT_SEC:

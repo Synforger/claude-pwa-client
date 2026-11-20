@@ -28,10 +28,11 @@ import re
 
 from fastapi import APIRouter, Form, HTTPException, Request
 
+from backend._common.local_door import require_this_machine
 from backend.jsonl.jsonl_predicates import ROLLOVER_OPENING as OPENING
 from backend._common.errors import raise_error
 from backend.jsonl import history as session_history
-from backend.routes.agent_messages import LOCAL_CLIENTS, judge
+from backend.routes.agent_messages import judge
 from backend._common.state import sessions_meta
 from backend.terminal.routes import pty_send
 from backend.terminal.runner import jsonl_path_for_session
@@ -125,10 +126,7 @@ async def post_rollover(request: Request, session_id: str, text: str = Form(...)
     form:
         text (str): 新しい会話の最初の発話に入れる本文 (= 次の会話が何から始めるか)
     """
-    client_host = request.client.host if request.client else None
-    if client_host not in LOCAL_CLIENTS:
-        logger.warning("rollover rejected: non-local client=%s", client_host)
-        raise_error(403, "rollover_local_only", "この口は同じ機械の中からだけ使えます")
+    require_this_machine(request, "rollover_local_only")
     if session_id not in sessions_meta:
         raise_error(404, "rollover_unknown_session", f"タブが見つかりません: {session_id}", session=session_id)
     if not text.strip():

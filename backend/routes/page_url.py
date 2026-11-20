@@ -13,13 +13,13 @@ from pathlib import Path
 
 from fastapi import APIRouter, Query, Request
 
+from backend._common.local_door import require_this_machine
 from backend._common.config import page_origin
 from backend._common.errors import raise_error
 from backend.page_url.page_url import page_url, path_in_origin
 from backend.page_url.page_url_refusal import PageUrlRefusal
 from backend.page_url.tailnet import serve_status
 from backend.routes import files as files_routes
-from backend.routes.agent_messages import LOCAL_CLIENTS
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -39,10 +39,7 @@ async def get_page_url(request: Request, path: str = Query(...)) -> dict:
     query:
         path (str): an absolute path (= `~` allowed) of a file inside the page origin's folder
     """
-    client_host = request.client.host if request.client else None
-    if client_host not in LOCAL_CLIENTS:
-        logger.warning("page url rejected: non-local client=%s", client_host)
-        raise_error(403, "page_url_local_only", "この口は同じ機械の中からだけ使えます")
+    require_this_machine(request, "page_url_local_only")
     origin = page_origin()
     if origin is None:
         raise_error(409, "page_origin_unset", "client の設定に page_origin がありません (= ページを配る folder と port)")
