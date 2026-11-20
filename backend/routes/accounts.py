@@ -15,11 +15,17 @@ router = APIRouter()
 
 @router.get("/agents")
 def list_agents():
-    """セッション作成時の選択肢として agent 種別一覧を返す。"""
-    return [
-        {"id": name, "display_name": cfg.get("display_name", name.upper())}
-        for name, cfg in _config.AGENTS.items()
-    ]
+    """セッション作成時の選択肢として agent 種別一覧を返す。 `list_folder` は、 一覧でそのエージェントのタブを並べる
+    folder (= `<agent の id>/<folder>/...`) で、 書いてあるエージェントにだけ付く。"""
+    return [_agent_view(name, cfg) for name, cfg in _config.AGENTS.items()]
+
+
+def _agent_view(name: str, cfg: dict) -> dict:
+    view = {"id": name, "display_name": cfg.get("display_name", name.upper())}
+    folder = cfg.get("list_folder")
+    if isinstance(folder, str) and folder.strip():
+        view["list_folder"] = folder.strip()
+    return view
 
 
 @router.get("/accounts")

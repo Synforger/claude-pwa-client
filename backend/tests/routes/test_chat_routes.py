@@ -182,6 +182,29 @@ def test_accounts_endpoint_marks_the_default(tmp_path, monkeypatch):
     assert [(a["id"], a["is_default"]) for a in out] == [("personal", True), ("work", False)]
 
 
+def test_agents_endpoint_carries_the_list_folder_only_where_one_is_written(tmp_path, monkeypatch):
+    """/agents は、 一覧でタブを並べる folder (`list_folder`) を、 書いてあるエージェントにだけ付ける。 空や文字列で
+    ない値は付けない (= 画面は自分の folder に並べる)。"""
+    import json  # noqa: PLC0415
+    import backend._common.config as config_mod  # noqa: PLC0415
+    import backend.routes.accounts as accounts_mod  # noqa: PLC0415
+    cfg = tmp_path / "agents-config.json"
+    cfg.write_text(json.dumps({"agents": {
+        "main": {"display_name": "Main"},
+        "head": {"display_name": "Head", "list_folder": " main/Game/Heads "},
+        "blank": {"list_folder": "  "},
+        "odd": {"list_folder": ["main", "Game"]},
+    }}), encoding="utf-8")
+    monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg)
+    config_mod.get_config.cache_clear()
+    assert accounts_mod.list_agents() == [
+        {"id": "main", "display_name": "Main"},
+        {"id": "head", "display_name": "Head", "list_folder": "main/Game/Heads"},
+        {"id": "blank", "display_name": "BLANK"},
+        {"id": "odd", "display_name": "ODD"},
+    ]
+
+
 # --- backend-F-44: demote_fork_to_normal helper ---
 def test_demote_fork_to_normal_clears_resume_id_and_keeps_record(tmp_path, monkeypatch, isolated_state):
     """fork タブの resume_session_id を落とし、 会話の記録は残す。"""

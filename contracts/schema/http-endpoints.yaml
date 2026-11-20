@@ -212,12 +212,14 @@ endpoints:
         properties:
           id:           { type: string }
           display_name: { type: string }
+          list_folder:  { type: string }
         required: [id, display_name]
     response_kind: json
     auth: tailnet
     invariants:
       - "config.json の agents キーから配信"
       - "順序は config 定義順を保持"
+      - "list_folder (= the folder of the list the agent's tabs sit in, `<agent id>/<folder>/...`) only when configured"
     implementation: backend/routes/accounts.py
 
   - method: GET

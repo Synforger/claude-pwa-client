@@ -92,6 +92,45 @@ describe('folderTree', () => {
     expect(open.find(r => r.key === 'main/Platform').badge).toBeNull()
   })
 
+  it('puts the tabs of an agent with list_folder in that folder, under the agent the folder names', () => {
+    const agents = [...AGENTS, { id: 'head', display_name: 'Head', list_folder: 'main/Platform/Heads' }]
+    const tabs = [tab('h1', 'normal', { agent: 'head' }), tab('ap', Platform), tab('h2', null, { agent: 'head' })]
+    // one agent folder only: the head tabs sit in main's folders, so the list holds main alone
+    expect(shape(folderTree(tabs, { agents }))).toEqual([
+      ['folder', 'main/Platform', 0, false, 3],
+      ['ap', 1, false],
+      ['folder', 'main/Platform/Heads', 1, false, 2],
+      ['h1', 2, false],
+      ['h2', 2, false],
+    ])
+    // folding the project folds the heads with it
+    expect(shape(folderTree(tabs, { agents, foldedFolders: new Set(['main/Platform']) }))).toEqual([
+      ['folder', 'main/Platform', 0, true, 3],
+    ])
+  })
+
+  it('shows the agent folder list_folder names even when that agent has no tab of its own', () => {
+    const agents = [...AGENTS, { id: 'head', display_name: 'Head', list_folder: 'helper/Heads' }]
+    const tabs = [tab('top', 'normal'), tab('h1', 'normal', { agent: 'head' })]
+    const rows = folderTree(tabs, { agents })
+    expect(shape(rows)).toEqual([
+      ['folder', 'main', 0, false, 1],
+      ['top', 1, false],
+      ['folder', 'helper', 0, false, 1],
+      ['folder', 'helper/Heads', 1, false, 1],
+      ['h1', 2, false],
+    ])
+    expect(rows.find(r => r.key === 'helper').name).toBe('Helper')
+  })
+
+  it('keeps an agent in its own folder when its list_folder is not a usable path', () => {
+    for (const listFolder of ['', 'main', 'main//Heads', ' / ', 42]) {
+      const agents = [...AGENTS, { id: 'head', display_name: 'Head', list_folder: listFolder }]
+      const rows = folderTree([tab('top', 'normal'), tab('h1', 'normal', { agent: 'head' })], { agents })
+      expect(rows.filter(r => r.kind === 'folder').map(r => r.key)).toEqual(['main', 'head'])
+    }
+  })
+
   it('folds a parent tab inside a folder as before', () => {
     const rows = folderTree(ONE_AGENT, { agents: AGENTS, foldedSessions: new Set(['client']) })
     const client = rows.find(r => r.session?.id === 'client')
@@ -113,6 +152,14 @@ describe('folded folders are kept per device', () => {
     const tabs = [tab('helper-top', 'normal', { agent: 'helper' }), ...ONE_AGENT]
     const next = toggleFoldedFolder(new Set(['main/Platform', 'main/Gone']), 'main', tabs)
     expect([...next].sort()).toEqual(['main', 'main/Platform'])
+  })
+
+  it('keeps the fold of a folder only list_folder makes', () => {
+    const agents = [...AGENTS, { id: 'head', display_name: 'Head', list_folder: 'main/Platform/Heads' }]
+    const tabs = [tab('h1', 'normal', { agent: 'head' })]
+    expect([...toggleFoldedFolder(new Set(), 'main/Platform/Heads', tabs, agents)]).toEqual(['main/Platform/Heads'])
+    // without the agents the folder is not known, so the fold is dropped as a folder no tab is in
+    expect([...toggleFoldedFolder(new Set(), 'main/Platform/Heads', tabs)]).toEqual([])
   })
 
   it('reads a broken saved value as nothing folded', () => {

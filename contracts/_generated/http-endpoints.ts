@@ -95,6 +95,7 @@ export interface GetSessionsSidHistoryResponse {
 export interface GetAgentsResponseItem {
   id: string
   display_name: string
+  list_folder?: string
 }
 
 export type GetAgentsResponse = GetAgentsResponseItem[]
