@@ -127,6 +127,38 @@
   color: var(--text-dim);
   margin-bottom: 2px;
 }
+/* 別のタブからの伝言の畳んだ 1 行: 送り主 + 本文の頭 + 開閉の印。 1 行に収まらない分は ellipsis で切る */
+.relayed-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.relayed-toggle .relayed-from {
+  flex: none;
+  margin-bottom: 0;
+}
+.relayed-head {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+.relayed-mark {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-dim);
+}
 .message.user.relayed .bubble {
   background: var(--bg3);
   color: var(--text);
