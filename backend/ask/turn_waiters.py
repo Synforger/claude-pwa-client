@@ -36,6 +36,7 @@ class TurnWaiter:
             try:
                 await asyncio.wait_for(self._opened.wait(), remaining)
             except asyncio.TimeoutError:
+                # benign: the time is up; the loop looks at the openings once more and answers False.
                 pass
 
     def note_opening(self, claude_session_id: str | None) -> None:
