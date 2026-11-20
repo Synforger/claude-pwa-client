@@ -313,6 +313,38 @@ function MetaLine({ meta, streaming, trailing }) {
   )
 }
 
+// 別のタブから届いた伝言 (= 票でない物) の吹き出し。 既定は「送り主 + 本文の頭の 1 行」 だけに畳み、
+// 1 行を押すと操作者の発話の引用と本文が開く。 開閉はこの吹き出しの中だけで持ち、 保存しない。
+function firstFilledLine(text) {
+  const line = text.split('\n').find((l) => l.trim() !== '')
+  return line ? line.trim() : ''
+}
+
+function FoldedRelayed({ relayed, onOpenFile }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relayed-block">
+      <button type="button" className="relayed-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)} data-testid="relayed-toggle">
+        <span className="relayed-from" data-testid="relayed-from">{t('chat.relayed_from', { name: relayed.from })}</span>
+        {!open && <span className="relayed-head" data-testid="relayed-head">{firstFilledLine(relayed.text)}</span>}
+        <span className="relayed-mark" aria-hidden="true">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <span className="bubble">
+          {relayed.operatorSaid && (
+            <blockquote className="relayed-operator" data-testid="relayed-operator">
+              <span className="relayed-operator-label">{t('chat.relayed_operator_said')}</span>
+              {relayed.operatorSaid}
+            </blockquote>
+          )}
+          <MessageRenderer text={relayed.text} onOpenFile={onOpenFile} streaming={false} />
+        </span>
+      )}
+    </div>
+  )
+}
+
 const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentTool, runningSubagents, onOpenSubagents, onFork, isLast, voiceMarks }) {
   // 表示する文。 agent の文からは言い方の印を (= 声を持つ agent のタブだけ)、 人の文からは声で聞いている印を
   // 外す (= 印が付くのは 🔊 を持つタブだけ。 印の一覧を書かない声の設定でも外れるよう、 一覧には頼らない)。
@@ -553,26 +585,16 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
           <StopReasonChip meta={msg.meta} streaming={live} />
           <MetaLine meta={msg.meta} streaming={live} trailing={agentForkBtn} />
         </div>
-      ) : relayed ? (
+      ) : relayed && relayed.ticket ? (
         <div className="relayed-block">
           <div className="relayed-from" data-testid="relayed-from">{t('chat.relayed_from', { name: relayed.from })}</div>
-          {relayed.ticket ? (
-            // 票を渡す連絡は、 本文が決まった 1 行なので、 押すと票の画面が開く 1 行にする
-            <button type="button" className="relayed-ticket-link" onClick={() => setOverlay('ticket', relayed.ticket)} data-testid="relayed-ticket-link">
-              {t('chat.ticket_handed', { id: relayed.ticket })}
-            </button>
-          ) : (
-          <span className="bubble">
-            {relayed.operatorSaid && (
-              <blockquote className="relayed-operator" data-testid="relayed-operator">
-                <span className="relayed-operator-label">{t('chat.relayed_operator_said')}</span>
-                {relayed.operatorSaid}
-              </blockquote>
-            )}
-            <MessageRenderer text={relayed.text} onOpenFile={onOpenFile} streaming={false} />
-          </span>
-          )}
+          {/* 票を渡す連絡は、 本文が決まった 1 行なので、 押すと票の画面が開く 1 行にする (= 畳まない) */}
+          <button type="button" className="relayed-ticket-link" onClick={() => setOverlay('ticket', relayed.ticket)} data-testid="relayed-ticket-link">
+            {t('chat.ticket_handed', { id: relayed.ticket })}
+          </button>
         </div>
+      ) : relayed ? (
+        <FoldedRelayed relayed={relayed} onOpenFile={onOpenFile} />
       ) : rollover ? (
         <div className="relayed-block">
           <div className="relayed-from" data-testid="rollover-label">

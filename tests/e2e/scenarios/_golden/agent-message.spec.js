@@ -11,6 +11,15 @@ import { seedSession, appendEvent } from '../../helpers/fixture.js'
 import { openClient } from '../../helpers/pwa.js'
 
 const BODY = 'The page builder drops the last row when a title wraps.\nSee page 3 of the sample deck.'
+const BODY_HEAD = 'The page builder drops the last row when a title wraps.'
+const BODY_REST = 'See page 3 of the sample deck.'
+
+// 伝言の吹き出しは既定で畳まれている。 まだ畳まれていれば 1 行を押して開く。
+async function unfold(relayed) {
+  const toggle = relayed.locator('[data-testid=relayed-toggle]')
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+}
 
 test.describe('golden: agent-message', () => {
   test('a message from another tab shows who sent it, apart from the operator\'s own', async ({ page, request }, testInfo) => {
@@ -74,6 +83,8 @@ test.describe('golden: agent-message', () => {
     expect((await res.json()).operator_said).toBe(true)
     await expect(relayed).toHaveCount(2, { timeout: 20_000 })
     const asked = relayed.filter({ hasText: 'The page builder drops the last row' })
+    await expect(operatorWords).toHaveCount(0)   // folded: the quote shows only once opened
+    await unfold(asked)
     await expect(asked.locator('[data-testid=relayed-operator]')).toContainText('have the owner of the tool fix the wrapped title')
     await expect(asked).not.toContainText('operator-said')
     await expect(operatorWords).toHaveCount(1)
@@ -130,6 +141,67 @@ test.describe('golden: agent-message', () => {
     // Both come back from the record: a reload does not lose them, nor show them twice.
     await page.reload()
     await bothShown()
+  })
+
+  test('a message from another tab is folded to one line and opens on a tap', async ({ page, request }, testInfo) => {
+    const sender = await seedSession(request, 'e2e-tab-a')
+    const receiver = await seedSession(request, 'e2e-tab-b')
+    await openClient(page, { sid: receiver.sid })
+
+    // A message with a blank line before its text: the folded line shows the first filled line.
+    const res = await request.post('/agent-messages', {
+      form: { to: 'tab B', from: sender.sid, text: `\n${BODY}` },
+    })
+    expect(res.ok()).toBeTruthy()
+    const relayed = page.locator('[data-testid=message-bubble-user].relayed')
+    await expect(relayed).toHaveCount(1, { timeout: 20_000 })
+    const toggle = relayed.locator('[data-testid=relayed-toggle]')
+
+    // Folded by default: who sent it and the head of the text, nothing more.
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await expect(relayed.locator('[data-testid=relayed-from]')).toContainText('tab A')
+    await expect(relayed.locator('[data-testid=relayed-head]')).toHaveText(BODY_HEAD)
+    await expect(relayed).not.toContainText(BODY_REST)
+    await expect(relayed.locator('[data-testid=relayed-operator]')).toHaveCount(0)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.screenshot({ path: testInfo.outputPath('agent-message-folded.png') })
+
+    // A tap opens it: the text in full. (The operator's quote opening is checked in the operator-said test.)
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await expect(relayed).toContainText(BODY_REST)
+    await expect(relayed.locator('[data-testid=relayed-head]')).toHaveCount(0)
+    await expect(relayed.locator('[data-testid=relayed-from]')).toContainText('tab A')
+    await page.screenshot({ path: testInfo.outputPath('agent-message-unfolded.png') })
+
+    // A second tap folds it again.
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await expect(relayed).not.toContainText(BODY_REST)
+  })
+
+  test('a ticket handed to the tab stays one line and is not folded', async ({ page, request }) => {
+    const receiver = await seedSession(request, 'e2e-tab-b')
+    await openClient(page, { sid: receiver.sid })
+
+    // The line the backend writes when it hands a ticket on: the envelope carries ticket="<id>".
+    const envelope = [
+      'Message from another session, relayed by the client (the operator did not type this):',
+      '<agent-message from="tab A" session="ses_far" ticket="tk-fold-1">',
+      'ticket tk-fold-1 is yours now',
+      '</agent-message>',
+    ].join('\n')
+    appendEvent(receiver.jsonl_path, {
+      type: 'attachment',
+      uuid: 'e2e-queued-ticket',
+      isSidechain: false,
+      timestamp: new Date().toISOString(),
+      attachment: { type: 'queued_command', prompt: envelope, commandMode: 'prompt', origin: { kind: 'human' }, humanTurn: true },
+    })
+    const relayed = page.locator('[data-testid=message-bubble-user].relayed')
+    await expect(relayed).toHaveCount(1, { timeout: 20_000 })
+    await expect(relayed.locator('[data-testid=relayed-ticket-link]')).toContainText('tk-fold-1')
+    await expect(relayed.locator('[data-testid=relayed-toggle]')).toHaveCount(0)
   })
 
   test('a title no tab carries is refused, and nothing arrives', async ({ page, request }) => {
