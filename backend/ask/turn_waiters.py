@@ -1,22 +1,47 @@
 """The waits of the asks in flight: one per tab, ended by that tab's hooks.
 
 `ask_turn.ask` starts a wait before it types into the tab; the `Stop` hook hands over the turn's last answer and the
-`SessionStart` hook says a cleared conversation has opened (`routes/hooks.py` calls in here). A hook of a tab with no
-ask in flight changes nothing.
+`SessionStart` hook says a conversation has opened (= after `/clear`, `/resume` or `/branch`; `routes/hooks.py` calls
+in here). A hook of a tab with no ask in flight changes nothing.
 """
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 
 
 class TurnWaiter:
-    """One ask's wait on its tab: the answer of the turn it typed (and the conversation it was in), and the opening of
-    the conversation it cleared."""
+    """One ask's wait on its tab: the answer of the turn it typed (and the conversation it was in), and the
+    conversations that opened while it waited (= each `SessionStart`, with the conversation's id when the hook had one)."""
 
     def __init__(self) -> None:
         self.answer: asyncio.Future[str] | None = None
         self.claude_session_id: str | None = None
-        self.opened = asyncio.Event()
+        self.openings: list[str | None] = []
+        self._opened = asyncio.Event()
+
+    async def wait_opening(self, after: int, accept: Callable[[str | None], bool], timeout_sec: float) -> bool:
+        """Wait for a conversation to open that `accept` takes (= it is given the id, or None when the hook sent none),
+        among the openings after the first `after` ones. → whether one did within `timeout_sec`. `after` is
+        `len(openings)` taken right before the typing that should open the conversation."""
+        deadline = asyncio.get_running_loop().time() + timeout_sec
+        while True:
+            for opened in self.openings[after:]:
+                if accept(opened):
+                    return True
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                return False
+            self._opened.clear()
+            try:
+                await asyncio.wait_for(self._opened.wait(), remaining)
+            except asyncio.TimeoutError:
+                # benign: the time is up; the loop looks at the openings once more and answers False.
+                pass
+
+    def note_opening(self, claude_session_id: str | None) -> None:
+        self.openings.append(claude_session_id)
+        self._opened.set()
 
 
 _waiters: dict[str, TurnWaiter] = {}
@@ -53,8 +78,9 @@ def turn_ended(session_id: str, text: str, claude_session_id: str | None = None)
         waiter.answer.set_result(text)
 
 
-def conversation_opened(session_id: str) -> None:
-    """A conversation opened in the tab (= the `SessionStart` hook, also after `/clear`)."""
+def conversation_opened(session_id: str, claude_session_id: str | None = None) -> None:
+    """A conversation opened in the tab (= the `SessionStart` hook: also after `/clear`, `/resume` and `/branch`).
+    `claude_session_id` is the opened conversation's id (= the hook's `session_id`)."""
     waiter = _waiters.get(session_id)
     if waiter is not None:
-        waiter.opened.set()
+        waiter.note_opening(claude_session_id)

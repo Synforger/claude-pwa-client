@@ -20,7 +20,7 @@ def _refusal(coroutine) -> tuple[int, str]:
 
 
 def test_the_answer_is_the_last_answer_of_the_turn_the_text_started(head):
-    assert run(ask_turn.ask(NAME, "Describe the tavern.")) == {"ok": True, "id": TAB, "answer": "the answer"}
+    assert run(ask_turn.ask(NAME, "Describe the tavern.")) == {"ok": True, "id": TAB, "answer": "the answer", "session": None}
     assert head.typed == [("Describe the tavern.", False)]
     assert turn_waiters._waiters == {}                                   # the wait ends with the ask
 

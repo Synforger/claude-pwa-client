@@ -10,13 +10,18 @@
 ## 聞く
 
 ```sh
-tabs ask <タブの id か名前> <文の file> [--fresh] [--stream] [--timeout <秒>]
+tabs ask <タブの id か名前> <文の file> [--fresh | --resume <会話の id> [--fork]] [--stream | --json] [--timeout <秒>]
 ```
 
 - 答えを標準出力に出して 0 で終わります。 答えは、 そのターンで Claude が最後に書いた文です
 - `--fresh`: 文を打つ前に `/clear` を打ち、 前の問いを何も見ない新しい会話で答えさせます。 タブの id は
   変わりません。 毎回の文に全部の文脈を入れて送る program は、 これを付けると会話が溜まって重くなりません
 - `--stream`: 答えを 1 行 1 JSON で、 来た順に出します (= 下の「答えを途中から受け取る」)
+- `--json`: 答えの文の代わりに `{"answer":"<文>","session":"<Claude の会話の id>"}` を 1 行で出します
+  (= 続きを聞く時に、 どの会話の答えかを持ち帰れます。 取れなかった時の `session` は `null`)。 `--stream` では
+  最後の `final` の行が同じ `session` を持つので、 付けても変わりません
+- `--resume <会話の id> [--fork]`: 問いを打つ前に、 その会話を開きます (= 下の「会話を続ける・戻す」)。
+  `--fresh` とは一緒に使えません
 - `--timeout`: 文を打ってから答えが終わるまで待つ秒数です。 既定は 180 秒、 上限は 3600 秒です。 過ぎると
   そのターンを止め (= Escape)、 次の問いを受けられる状態に戻します
 - 眠っているタブと、 まだ Claude の居ないタブは、 [タブどうしの連絡](agent-messages.md) と同じに起こしてから
@@ -33,9 +38,10 @@ tabs ask <タブの id か名前> <文の file> [--fresh] [--stream] [--timeout 
 | `ask_in_progress` | そのタブには別の問いの答えを待っています。 1 つのタブに聞けるのは 1 度に 1 つです |
 | `ask_tab_busy` | タブが別の仕事の途中です。 何も打っていません |
 | `ask_held` | 口座が使えません。 `detail.params.reason` が `account_hold` なら、 タブが口座の止める線で止まっていて動ける口座が無く、 何も打っていません ([account-hold.md](account-hold.md))。 `limit_stop` なら、 打った問いのターンが使用量の上限で終わりました (下の「使用量の上限に当たった時」)。 どちらも、 口座が戻るまで聞くのを止めてください |
-| `ask_not_ready` | タブの Claude が起動しない、 入力を受けない、 `/clear` の後に新しい会話が開かない。 何も聞いていないので、 聞き直してください |
+| `ask_not_ready` | タブの Claude が起動しない、 入力を受けない、 `/clear` `/resume` `/branch` の後に会話が開かない (= `--resume` の id の会話が無い時も)。 `--resume` は Claude の居ないタブには使えません。 何も聞いていないので、 聞き直してください |
 | `ask_timeout` | 待つ秒数の間に答えが終わりませんでした。 そのターンは止めてあります |
 | `ask_empty` / `ask_bad_timeout` | 文が空 / 待つ秒数が 0 以下か 3600 を超えています |
+| `ask_bad_args` | `--fresh` と `--resume` を一緒に付けた、 `--fork` だけを付けた、 `--resume` の値が会話の id (= uuid の形) でない。 何も打っていません |
 | `ask_unconfirmed` | 文は打ったかもしれませんが、 答えを受け取れませんでした。 聞き直す前にタブの会話を確かめてください |
 | `ask_not_sent` | backend に繋がりませんでした。 何も聞いていません |
 
@@ -74,6 +80,27 @@ tabs ask <タブの id か名前> <文の file> [--fresh] [--stream] [--timeout 
 
 画面は端末の履歴も含めて読みます (最後の 400 行)。 同じ問いが履歴に何度も残っていても、 最後の問いの後ろの答えを取ります。
 
+## 会話を続ける・戻す (`--resume`・`--fork`)
+
+聞かれるタブの会話は、 `--fresh` を付けない限り、 前の問いの続きになります。 前の会話へ戻ったり、 ある所から枝分かれ
+させたりする時に使います。 会話の id は、 `--json` の `session` (= 答えを書いた会話) か、 `--stream` の `final` の
+`session` で受け取ります。
+
+```sh
+tabs ask <タブ> q.txt --json                          # {"answer":"…","session":"7565f8b3-…"}
+tabs ask <タブ> q2.txt --resume 7565f8b3-… --json     # その会話を開いて聞く。 その会話はそのまま続く
+tabs ask <タブ> q3.txt --resume 7565f8b3-… --fork     # その会話の枝に聞く。 元の会話は問いの前のまま残る
+```
+
+- `--resume <id>`: 問いを打つ前に `/resume <id>` を打ち、 その id の会話が開いたことを知らせる `SessionStart` の hook を
+  待ちます (= 確かめの窓は出ず、 約 1 秒)。 そのタブがもうその会話に居る時は、 何も打ちません
+- `--fork`: `--resume` の後に `/branch` を打ち、 新しい会話 (= 新しい id) が開くのを待ちます (= 約 4 秒)。 問いはその
+  枝に入り、 答えの `session` も枝の id です。 `--resume` で開いた元の会話は残り、 枝への問いは入りません
+- 会話が開かなかった時 (= id の会話が無い、 30 秒以内に hook が来ない) は、 Escape を 1 回だけ押して (= `/resume` の
+  検索の窓が開いたままタブに残らないように) `ask_not_ready` で終わります。 問いは打っていません
+- 開いた後の問いは、 次の問いからも同じ会話の続きです。 別の問いで元へ戻る時は、 もう一度 `--resume` を付けます
+- Claude の居ないタブには使えません (`ask_not_ready`)。 まず `--resume` なしで 1 度聞いて、 Claude を起動してください
+
 ## 使用量の上限に当たった時
 
 タブの口座が使用量の上限 (5 時間や週の枠) に当たると、 Claude Code はそのターンを答えずに終え、 枠が戻った時に
@@ -97,7 +124,8 @@ tabs ask <タブの id か名前> <文の file> [--fresh] [--stream] [--timeout 
 ## 口
 
 `tabs ask` が呼ぶのは backend の `POST /sessions/{タブの id か名前}/ask` で、 form で `text`・`fresh`
-(`true` / `false`)・`timeout_sec`・`stream` (`true` / `false`) を受けます。 答えは `{"ok": true, "id": "<タブの id>", "answer": "<文>"}`
+(`true` / `false`)・`resume` (会話の id)・`fork` (`true` / `false`)・`timeout_sec`・`stream` (`true` / `false`) を受けます。
+答えは `{"ok": true, "id": "<タブの id>", "answer": "<文>", "session": "<会話の id>"}`
 で、 失敗は上の code を `detail.code` に持つ HTTP の誤りです。 `stream=true` の時は、 打つところまでは同じ
 (= 失敗は HTTP の誤り) で、 そのあとの答えは NDJSON (= 1 行 1 JSON) の流れ (= 上の `partial` `final` `error` の行) です。
 同じ機械の中からだけ呼べます。

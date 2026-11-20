@@ -287,8 +287,8 @@ async def _handle_session_start(ctx: HookContext) -> dict:
     # claude 本体が起動を通知した = このタブへの打鍵を解禁する。 restart 直後の窓で
     # 送信を待たせている側がここで起きる (= `backend/terminal/input_ready.py`)。
     input_ready.mark_ready(ctx.pwa_sid_hdr)
-    # An ask that cleared the conversation types its text once the new one is open (`backend/ask/`).
-    turn_waiters.conversation_opened(ctx.pwa_sid_hdr)
+    # An ask that cleared, resumed or branched the conversation types its text once the new one is open (`backend/ask/`).
+    turn_waiters.conversation_opened(ctx.pwa_sid_hdr, ctx.claude_sid)
     # A conversation was just opened in the tab (= also `/resume` inside a running claude, which starts no process):
     # its quiet time starts over, or an old conversation reopened by hand would be put to sleep within a minute.
     note_woken(ctx.pwa_sid_hdr)

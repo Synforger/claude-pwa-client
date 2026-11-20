@@ -3,7 +3,9 @@
 `tabs.py` reads the command word and hands the rest here with its way of calling the backend. It needs no `PWA_SID`,
 so a program outside every tab (= a subprocess of it) can run it. The door is `POST /sessions/{tab}/ask`
 (`backend/routes/ask.py`). With `--stream` the door answers a line of JSON at a time, and each line is printed as it
-arrives (= the answer so far while the turn runs, then the end).
+arrives (= the answer so far while the turn runs, then the end); with `--json` the answer is printed as
+`{"answer": ..., "session": ...}` (= the id of the conversation it was given in); `--resume` opens an earlier
+conversation first (and `--fork` a branch of it).
 """
 from __future__ import annotations
 
@@ -22,7 +24,9 @@ DEFAULT_TIMEOUT_SEC = 180.0
 WAKE_MARGIN_SEC = 300.0
 NOT_SENT_CODE = "ask_not_sent"
 UNCONFIRMED_CODE = "ask_unconfirmed"
-USAGE = "tabs ask <タブの id か名前> <文の file> [--fresh] [--stream] [--timeout <秒>]"
+USAGE = ("tabs ask <タブの id か名前> <文の file> [--fresh | --resume <会話の id> [--fork]] [--stream | --json] "
+         "[--timeout <秒>]")
+FLAGS = ("--fresh", "--stream", "--json", "--fork")
 
 #: The backend's call: (path, form, method, timeout) → (HTTP status, JSON body); status 0 when nothing answered
 Call = Callable[..., tuple[int, object]]
@@ -34,19 +38,25 @@ class AskArguments(NamedTuple):
     is_fresh: bool
     timeout_sec: float
     is_stream: bool = False
+    is_json: bool = False
+    resume: str | None = None
+    is_fork: bool = False
 
 
 def parse(argv: list[str]) -> AskArguments | None:
-    """The words after `ask`. → None when they are not `<tab> <file> [--fresh] [--stream] [--timeout <seconds>]`."""
+    """The words after `ask`. → None when they are not `<tab> <file>` with the options of `USAGE`: `--fork` needs
+    `--resume`, and `--fresh` and `--resume` are not asked together."""
     if len(argv) < 2:
         return None
     to, file, rest = argv[0], Path(argv[1]), argv[2:]
-    is_fresh, is_stream, timeout_sec = False, False, DEFAULT_TIMEOUT_SEC
+    flags: set[str] = set()
+    resume, timeout_sec = None, DEFAULT_TIMEOUT_SEC
     while rest:
-        if rest[0] == "--fresh" and not is_fresh:
-            is_fresh, rest = True, rest[1:]
-        elif rest[0] == "--stream" and not is_stream:
-            is_stream, rest = True, rest[1:]
+        if rest[0] in FLAGS and rest[0] not in flags:
+            flags.add(rest[0])
+            rest = rest[1:]
+        elif rest[0] == "--resume" and resume is None and len(rest) >= 2 and not rest[1].startswith("-"):
+            resume, rest = rest[1], rest[2:]
         elif rest[0] == "--timeout" and len(rest) >= 2:
             try:
                 timeout_sec = float(rest[1])
@@ -55,7 +65,10 @@ def parse(argv: list[str]) -> AskArguments | None:
             rest = rest[2:]
         else:
             return None
-    return AskArguments(to, file, is_fresh, timeout_sec, is_stream) if timeout_sec > 0 else None
+    if timeout_sec <= 0 or ("--fork" in flags and resume is None) or ("--fresh" in flags and resume is not None):
+        return None
+    return AskArguments(to, file, "--fresh" in flags, timeout_sec, "--stream" in flags, "--json" in flags, resume,
+                        "--fork" in flags)
 
 
 def run(argv: list[str], call: Call, base_url: str) -> int:
@@ -71,13 +84,16 @@ def run(argv: list[str], call: Call, base_url: str) -> int:
         print(f"tabs: {arguments.file} を読めません: {error}", file=sys.stderr)
         return 1
     form = {"text": text, "fresh": "true" if arguments.is_fresh else "false", "timeout_sec": str(arguments.timeout_sec)}
+    if arguments.resume is not None:
+        form.update({"resume": arguments.resume, "fork": "true" if arguments.is_fork else "false"})
     path = f"/sessions/{urllib.parse.quote(arguments.to, safe='')}/ask"
     timeout_sec = arguments.timeout_sec + WAKE_MARGIN_SEC
     if arguments.is_stream:
         return run_stream(base_url + path, {**form, "stream": "true"}, timeout_sec)
     status, body = call(path, form, timeout=timeout_sec)
     if status == 200 and isinstance(body, dict) and body.get("ok") and isinstance(body.get("answer"), str):
-        print(body["answer"])
+        print(json.dumps({"answer": body["answer"], "session": body.get("session")}, ensure_ascii=False)
+              if arguments.is_json else body["answer"])
         return 0
     code, message = failure(status, body)
     print(f"tabs: 答えを受け取れませんでした [{code}]: {message}", file=sys.stderr)
