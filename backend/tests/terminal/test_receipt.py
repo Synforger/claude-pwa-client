@@ -209,3 +209,51 @@ def test_a_message_queued_while_claude_answers_is_taken_without_an_enter(monkeyp
     pane["screens"] = ["│ > Sent by the client (the operator did not type this):\n" + CLAUDE_SCREEN]
     assert run(receipt.deliver_to_woken("ses_x", TEXT)) is True
     assert log["enters"] == 0
+
+
+@pytest.fixture
+def launched(typing, monkeypatch):
+    """The typing started the tab's claude (= `pty_send` answers `launched`): the launch has the text. `seen` is what
+    the wait for the text's row answers."""
+    log = {"watched": [], "seen": True}
+
+    async def pty_send(session_id, payload, key=None):
+        typing["typed"] += 1
+        return {"ok": True, "launched": True}
+
+    async def wait_text_row(path, initial_pos, timeout, text, *, follow):
+        log["watched"].append((path, initial_pos, timeout))
+        return log["seen"]
+
+    async def announced(_sid):
+        return True
+    monkeypatch.setattr(receipt, "pty_send", pty_send)
+    monkeypatch.setattr(receipt, "wait_text_row", wait_text_row)
+    monkeypatch.setattr(receipt.input_ready, "wait_launched", announced)
+    return log
+
+
+def test_a_text_handed_to_a_launch_is_watched_for_and_never_typed_again(typing, launched):
+    # The record of a conversation that has not begun shows nothing yet: that is not a text that is gone.
+    assert run(receipt.deliver_to_woken("ses_x", TEXT)) is True
+    assert (typing["typed"], typing["enters"], typing["asked"]) == (1, 0, [])
+    assert len(launched["watched"]) == 1
+
+
+def test_a_text_handed_to_a_launch_that_does_not_show_is_refused_without_a_second_typing(typing, launched, short_rescue):
+    launched["seen"] = False
+    assert run(receipt.deliver_to_woken("ses_x", TEXT)) is False
+    assert (typing["typed"], typing["enters"], typing["keys"]) == (1, 0, [])
+
+
+def test_a_text_handed_to_a_launch_that_is_given_up_is_refused(typing, launched, monkeypatch):
+    async def given_up(_sid):
+        return False
+    monkeypatch.setattr(receipt.input_ready, "wait_launched", given_up)
+    assert run(receipt.deliver_to_woken("ses_x", TEXT)) is False
+    assert (typing["typed"], launched["watched"]) == (1, [])
+
+
+def test_the_watch_for_a_launched_text_lasts_as_long_as_the_held_message_gets(typing, launched):
+    run(receipt.deliver_to_woken("ses_x", TEXT))
+    assert launched["watched"][0][2] == receipt.SCREEN_WAIT_SEC + receipt.RESCUE_SEC

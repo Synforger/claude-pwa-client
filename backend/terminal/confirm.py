@@ -25,7 +25,7 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 
-from backend.jsonl.jsonl_predicates import INTERRUPT_USER_RE, unwrap_pasted
+from backend.jsonl.jsonl_predicates import INTERRUPT_USER_RE, blocks_text, is_meta, is_sidechain, unwrap_pasted
 from backend.jsonl.jsonl_predicates import is_user_prompt as _is_user_prompt_pred
 from backend.jsonl.jsonl_tail import read_complete_lines
 from backend.terminal.runner import jsonl_path_for_session
@@ -166,6 +166,8 @@ def _taken_counter(text: str):
     head = _flat(text)[:TAKEN_HEAD_CHARS]
 
     def count(path, from_pos: int = 0) -> tuple[int, int]:
+        if path is None:
+            return (0, from_pos)
         try:
             lines, end_pos = read_complete_lines(path, from_pos)
         except OSError:
@@ -181,11 +183,49 @@ def _taken_counter(text: str):
     return count
 
 
-async def wait_taken_row(path, initial_pos: int, timeout: float, text: str) -> bool:
+def _is_text_row(d: dict, head: str) -> bool:
+    """A row of a prompt, of any kind, that begins with `head`."""
+    return (d.get("type") == "user" and not is_sidechain(d) and not is_meta(d)
+            and _flat(blocks_text((d.get("message") or {}).get("content"))).startswith(head))
+
+
+def _text_row_counter(text: str):
+    """A counter of the rows that are `text` itself: a prompt row that begins with it, or the queueing of it."""
+    head = _flat(text)[:TAKEN_HEAD_CHARS]
+
+    def count(path, from_pos: int = 0) -> tuple[int, int]:
+        if path is None or not head:
+            return (0, from_pos)
+        try:
+            lines, end_pos = read_complete_lines(path, from_pos)
+        except OSError:
+            return (0, from_pos)
+        found = 0
+        for raw in lines:
+            try:
+                d = json.loads(raw)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            found += isinstance(d, dict) and (_is_text_row(d, head) or _is_queued_text(d, head))
+        return (found, end_pos)
+    return count
+
+
+async def wait_taken_row(path, initial_pos: int, timeout: float, text: str, *,
+                         follow: Callable[[], Path | None] | None = None) -> bool:
     """Wait until the record shows that `text`, typed when the record was `initial_pos` long, was taken: a row of a
     person's prompt, or the row of `text` being queued because Claude was answering. True when one is written within
-    `timeout` seconds."""
-    return await _wait_count_added(_taken_counter(text), path, initial_pos, timeout=timeout)
+    `timeout` seconds. `path` may be None while the tab's record is not bound yet: `follow` (= the tab's record now)
+    is then what is read, from its start."""
+    return await _wait_count_added(_taken_counter(text), path, initial_pos, timeout=timeout, follow=follow)
+
+
+async def wait_text_row(path, initial_pos: int, timeout: float, text: str, *,
+                        follow: Callable[[], Path | None]) -> bool:
+    """Wait until the record holds a row of `text` itself, written after `initial_pos` of `path` (= None while the
+    record is not bound; `follow` is then read from its start). Unlike `wait_taken_row`, another prompt does not count:
+    a conversation started by an envelope holds the envelope's row before the text's."""
+    return await _wait_count_added(_text_row_counter(text), path, initial_pos, timeout=timeout, follow=follow)
 
 
 def _delivery_counter(text: str):
