@@ -81,11 +81,6 @@ export function ApiErrorCard({ msg }) {
   )
 }
 
-// 折りたたむカードの行頭の印 (▸)。 開いた時の ▾ への切り替えは CSS (`details[open] > summary .tool-marker`) が行う。
-function FoldMarker() {
-  return <span className="tool-marker" aria-hidden="true">▸</span>
-}
-
 function attachmentShort(sub, a) {
   switch (sub) {
     case 'edited_text_file':       return `📎 edited file  ${a.filename || ''}`
@@ -107,7 +102,7 @@ export function AttachmentCard({ msg }) {
   return (
     <div className="message system attachment-card">
       <details>
-        <summary><span className="tool-line tool-attach"><FoldMarker />{short}</span></summary>
+        <summary><span className="tool-line tool-attach">{short}</span></summary>
         <pre className="attachment-body">{body}</pre>
       </details>
     </div>
@@ -120,7 +115,7 @@ export function HookErrorCard({ msg }) {
   return (
     <div className="message system hook-error-card">
       <details>
-        <summary><span className="tool-line tool-hook-error"><FoldMarker />{short}</span></summary>
+        <summary><span className="tool-line tool-hook-error">{short}</span></summary>
         {msg.command && <pre className="hook-error-block"><b>command:</b> {msg.command}</pre>}
         {msg.stderr && <pre className="hook-error-block"><b>stderr:</b> {msg.stderr}</pre>}
         {msg.stdout && <pre className="hook-error-block"><b>stdout:</b> {msg.stdout}</pre>}
@@ -138,7 +133,7 @@ export function SystemNoteCard({ msg }) {
   return (
     <div className="message system system-note-card">
       <details>
-        <summary><span className="tool-line tool-system-note"><FoldMarker />{short}</span></summary>
+        <summary><span className="tool-line tool-system-note">{short}</span></summary>
         <pre className="attachment-body">{msg.content || '(empty)'}</pre>
       </details>
     </div>
