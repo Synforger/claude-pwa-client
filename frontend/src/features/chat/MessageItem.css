@@ -226,13 +226,20 @@
   cursor: pointer;
   user-select: none;
 }
-/* 折りたたみカードの中身の箱。 EnvelopeLine の開いた中身 (.envelope-body) も同じ箱に入れる */
+/* 折りたたみカードの中身の箱。 EnvelopeLine の開いた中身 (.envelope-body) も同じ箱に入れる。
+   道具の行の中身 (.tool-result-text) と同じ形 (= 字下げ・左の線・薄い色) で、 背景の黒から分ける */
 .attachment-body,
 .envelope-body {
-  margin: 6px 0 0;
-  padding: 6px 8px;
-  background: var(--bg1, var(--bg3));
-  border-radius: 4px;
+  margin: 4px 0 6px 12px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border-left: 2px solid var(--border);
+  border-radius: 0 4px 4px 0;
+}
+/* 別のタブや client から届いた物の中身は、 届いた物の色 (= アクセント) の線と色にする */
+.envelope-body {
+  background: rgba(124, 111, 255, 0.16);
+  border-left-color: var(--accent);
 }
 .attachment-body {
   font-family: Menlo, monospace;
