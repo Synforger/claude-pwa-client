@@ -7,6 +7,10 @@ no judgement, as with `agent_message_check`):
 - `ticket_covers_check`: whether a tab may read what is kept in a place (= may take part in its tickets)
 - `ticket_read_check`: whether a tab may read one line of a ticket
 
+On a machine whose messages the guard judges (`agent_message_check`), a key left out is not "no judgement": what it
+guards is refused (`ticket_check_missing`), since a ticket would otherwise carry, unjudged and outside every boundary,
+what a message could not.
+
 A session is told to the guard as the tab's Claude conversation (the name of its record), as a message is; a tab with no
 conversation yet is a `tier-tab:<id>` that has read nothing. Called by `ticket_service.py` and `ticket_places.py`.
 """
@@ -26,6 +30,16 @@ from backend.tickets import guard_command, ticket_entry
 READ_PARALLEL = 8
 
 
+def _command(key: str) -> list[str]:
+    """The guard's command of a judgement (`key` is one of `TICKET_CHECK_KEYS`), or empty for no judgement.
+    `ticket_check_missing` when it is left out on a machine whose messages the guard judges."""
+    command = getattr(_config, key)
+    if not command and _config.AGENT_MESSAGE_CHECK:
+        raise_error(503, "ticket_check_missing",
+                    f"番人が連絡を判定する機械で、 票の検査コマンド `{key.lower()}` が設定にありません。 設定に書くまで票は扱えません")
+    return command
+
+
 def session_of(tab_id: str) -> str:
     """The tab's conversation as the guard knows it."""
     record = jsonl_path_for_session(tab_id)
@@ -38,7 +52,7 @@ async def decide_place(tab_id: str, typed_in_tab: str | None = None) -> Path:
 
     The command prints the folder on its first line. Exit 1 means what the tab has read does not fit one place
     (`ticket_place_split`); any other failure, and a line that is not the path of a folder, is `ticket_place_unknown`."""
-    command = _config.TICKET_PLACE_CHECK
+    command = _command("TICKET_PLACE_CHECK")
     if not command:
         return paths.TICKETS_DIR
     names = {"session": session_of(tab_id), "typed_in": session_of(typed_in_tab) if typed_in_tab else ""}
@@ -55,7 +69,7 @@ async def decide_place(tab_id: str, typed_in_tab: str | None = None) -> Path:
 async def list_places() -> list[Path]:
     """Every folder the guard says a ticket may be kept in. Empty without the command or when it fails (= the places
     already known stay known)."""
-    command = _config.TICKET_PLACES_CHECK
+    command = _command("TICKET_PLACES_CHECK")
     if not command:
         return []
     result = await guard_command.run_command(command, {})
@@ -67,7 +81,7 @@ async def list_places() -> list[Path]:
 async def check_write(place: Path, text: str, typed_in_tab: str | None = None) -> None:
     """Judge a text before it is added to the ticket kept in `place` (= as a message to a reader that has read the whole
     place). Exit 1 refuses it with the reason; any other failure is `ticket_check_failed`."""
-    command = _config.TICKET_WRITE_CHECK
+    command = _command("TICKET_WRITE_CHECK")
     if not command:
         return
     names = {"place": str(place), "typed_in": session_of(typed_in_tab) if typed_in_tab else ""}
@@ -82,7 +96,7 @@ async def check_write(place: Path, text: str, typed_in_tab: str | None = None) -
 async def check_covers(tab_id: str, place: Path) -> None:
     """Make sure the tab has read the place's whole boundary, which is what lets it take part in the tickets kept there
     (`ticket_outside_place` otherwise)."""
-    command = _config.TICKET_COVERS_CHECK
+    command = _command("TICKET_COVERS_CHECK")
     if not command:
         return
     # the tier's folder is where the tab works, which the guard counts with its marks (= boundaries read from there)
@@ -104,7 +118,7 @@ async def filter_for_reader(reader_tab: str, entries: list[dict]) -> list[dict]:
 async def filter_for_session(session: str, entries: list[dict]) -> list[dict]:
     """The lines as the reader whose session is `session` may see them (= for a tab of another machine, the name
     `<machine>:<tab>`, which is no conversation of this one and so has read nothing of it)."""
-    command = _config.TICKET_READ_CHECK
+    command = _command("TICKET_READ_CHECK")
     if not command:
         return entries
     gate = asyncio.Semaphore(READ_PARALLEL)

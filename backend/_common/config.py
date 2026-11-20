@@ -349,11 +349,29 @@ def validate_runtime_paths() -> None:
         )
     for problem in _scan_extensions()[1] + _scan_page_origin()[1] + _scan_documents()[1]:
         logger.warning("runtime check: %s", problem)
+    missing = missing_ticket_checks()
+    if missing:
+        logger.warning("runtime check: the guard judges messages but not tickets; tickets are refused until these keys "
+                       "are set: %s", ", ".join(missing))
 
 
 # The configuration keys that hold the guard's commands for the tickets (`backend/tickets/ticket_checks.py`).
 TICKET_CHECK_KEYS = ("TICKET_PLACE_CHECK", "TICKET_PLACES_CHECK", "TICKET_WRITE_CHECK", "TICKET_COVERS_CHECK",
                      "TICKET_READ_CHECK")
+
+
+def _words(value: object) -> list[str]:
+    """A command as the configuration gives it: a list of words, or no command (= empty) for anything else."""
+    return value if isinstance(value, list) and all(isinstance(word, str) for word in value) else []
+
+
+def missing_ticket_checks() -> list[str]:
+    """The keys of the tickets' judgements that are left out on a machine whose messages the guard judges
+    (`agent_message_check`). Empty on a machine without it, where the tickets go unjudged as messages do."""
+    cfg = get_config()
+    if not _words(cfg.get("agent_message_check")):
+        return []
+    return [key.lower() for key in TICKET_CHECK_KEYS if not _words(cfg.get(key.lower()))]
 
 
 # --- 旧 module-level 定数の遅延配信 (PEP 562) ---
@@ -372,12 +390,9 @@ def __getattr__(name: str) -> Any:  # noqa: PLR0911
         return Path(cfg.get("uploads_tmp", str(UPLOADS_TMP_DIR))).expanduser()
     if name == "CLAUDE_PATH":
         return cfg.get("claude_path")
-    if name in ("AGENT_MESSAGE_CHECK", "AGENT_MESSAGE_OPERATOR_CHECK", "AGENT_MESSAGE_SENDER_CHECK", "LINEAGE_HOOK"):
-        check = cfg.get(name.lower())
-        return check if isinstance(check, list) and all(isinstance(w, str) for w in check) else []
-    if name in TICKET_CHECK_KEYS:
-        check = cfg.get(name.lower())
-        return check if isinstance(check, list) and all(isinstance(w, str) for w in check) else []
+    if name in ("AGENT_MESSAGE_CHECK", "AGENT_MESSAGE_OPERATOR_CHECK", "AGENT_MESSAGE_SENDER_CHECK", "LINEAGE_HOOK",
+                *TICKET_CHECK_KEYS):
+        return _words(cfg.get(name.lower()))
     if name == "MACHINE_NAME":
         # The name the ids of the tickets this machine opens begin with (`backend/tickets/`).
         named = cfg.get("machine_name")

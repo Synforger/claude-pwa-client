@@ -1,6 +1,7 @@
 """A stand-in for the guard's commands, run by the tickets' tests as a subprocess: `fake_guard.py <mode> <rules file> <the
 words the backend passed>`. What it answers comes from the rules file (`rules[<mode>]`: `status`, `stdout`, `stderr`,
-`refuse_containing` = a text that makes it exit 1, `refuse_sessions` = sessions whose `--to` makes it exit 1). Every
+`refuse_containing` = a text that makes it exit 1, `refuse_at` = {place: text} that makes it exit 1 for that `--to-place`
+only, `refuse_sessions` = sessions whose `--to` makes it exit 1). Every
 call is logged to `rules["log"]` as one JSON line with the flags it got."""
 import json
 import sys
@@ -25,6 +26,8 @@ with open(rules["log"], "a", encoding="utf-8") as log:
     log.write(json.dumps({"mode": mode, "flags": flags, "text": text}) + "\n")
 status = rule.get("status", 0)
 if rule.get("refuse_containing") and rule["refuse_containing"] in text:
+    status = 1
+if rule.get("refuse_at", {}).get(flags.get("--to-place"), "\0") in text:
     status = 1
 if flags.get("--to") in rule.get("refuse_sessions", []):
     status = 1

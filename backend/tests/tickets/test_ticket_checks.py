@@ -189,3 +189,30 @@ def test_the_listing_judges_no_line(ticket_env):
     ticket_env.guard.use("read", read={"status": 1})
     assert run(ticket_service.list_tickets())["tickets"][0]["title"] == "Title"
     assert ticket_env.guard.calls() == []
+
+
+# --- a judgement left out on a machine whose messages the guard judges ------------------------------------------------
+
+
+def _guarded_without(env, *modes: str) -> None:
+    """The guard judges the messages, and of the tickets' judgements only `modes`."""
+    env.guard.base = {**env.guard.base, "agent_message_check": ["peers.py", "--to", "{session}"]}
+    env.guard.use(*modes, place={"stdout": str(env.tickets)})
+
+
+def test_a_ticket_is_not_opened_unjudged_where_the_guard_judges_the_messages(ticket_env):
+    _guarded_without(ticket_env)
+    assert _code(ticket_service.open_ticket("ses_a", "t", "x", operator_said=False)) == "ticket_check_missing"
+    assert ticket_index.rows() == {}
+
+
+def test_a_line_is_not_added_unjudged_where_the_guard_judges_the_messages(ticket_env):
+    ticket = _open()["id"]
+    _guarded_without(ticket_env, "place", "places", "covers", "read")
+    assert _code(ticket_service.add("ses_a", ticket, "more")) == "ticket_check_missing"
+
+
+def test_a_ticket_is_not_shown_unjudged_where_the_guard_judges_the_messages(ticket_env):
+    ticket = _open()["id"]
+    _guarded_without(ticket_env, "place", "places", "write", "covers")
+    assert _code(ticket_service.show("ses_a", ticket)) == "ticket_check_missing"

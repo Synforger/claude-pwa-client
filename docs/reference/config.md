@@ -165,8 +165,10 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 - `machine_name` (任意): この機械の名前 (= 文字列)。 [票](tickets.md) の id の頭に付きます (`<機械の名前>-<YYMMDD>-<NN>`)。
   書かない時は host 名の最初の `.` までです。 票を 2 台で使う時は、 相手の機械の `agent_message_peers` での呼び名と同じにします
   ([2 台の機械にまたがる票](tickets.md#2-台の機械にまたがる票))
-- `ticket_place_check` / `ticket_places_check` / `ticket_write_check` / `ticket_covers_check` / `ticket_read_check` (任意):
-  票を読み書きできるタブを絞る検査コマンド (= それぞれ語のリスト)。 書かない鍵の検査はしません。 語・終了 code・使える
+- `ticket_place_check` / `ticket_places_check` / `ticket_write_check` / `ticket_covers_check` / `ticket_read_check`
+  (`agent_message_check` がある時は 5 つとも必須、 無い時は任意): 票を読み書きできるタブを絞る検査コマンド
+  (= それぞれ語のリスト)。 `agent_message_check` の無い機械では、 書かない鍵の検査はしません。 ある機械では、
+  欠けた鍵の段を `ticket_check_missing` で断ります。 語・終了 code・使える
   `{名前}` は [tickets.md](tickets.md) の「検査コマンドを設定する」 を参照
 - `child_sessions_max` (任意): 1 つのタブが同時に持てる子のタブの数 (= 0 以上の整数。 書かない時と `null` は上限なし)。
   詳細: [child-sessions.md](child-sessions.md)
