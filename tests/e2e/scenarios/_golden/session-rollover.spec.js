@@ -45,16 +45,21 @@ test.describe('golden: session-rollover', () => {
     const labels = page.locator('[data-testid=rollover-label]')
     const bodies = page.locator('[data-testid=rollover-body]')
     await expect(labels).toHaveCount(1, { timeout: 20_000 })
+    // 1 行に畳まれていて、 押すと中身が開く (= 開くまで中身は無い)。
+    await expect(bodies).toHaveCount(0)
+    await labels.nth(0).click()
     await expect(bodies.nth(0)).toContainText('62')
     expect((await send(closeMessage(tab.sid, 'idle', 45, 51,
       'Context is at 45% and this session has been quiet for 51 minutes.'))).ok()).toBeTruthy()
     await expect(labels).toHaveCount(2, { timeout: 20_000 })
+    await labels.nth(1).click()
     await expect(bodies.nth(1)).toContainText('45')
     await expect(bodies.nth(1)).toContainText('51')
 
     // The session started in its place opens with what the old one handed over.
     expect((await send(startMessage('tier=normal\nmode=continue'))).ok()).toBeTruthy()
     await expect(labels).toHaveCount(3, { timeout: 20_000 })
+    await labels.nth(2).click()
     await expect(bodies.nth(2)).toContainText('mode=continue')
 
     // None of them shows its envelope, and none is taken for the operator's own.

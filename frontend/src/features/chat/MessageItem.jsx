@@ -11,6 +11,7 @@ import { TOOL_RESULT_DISPLAY_CHARS } from '../../_common/constants.js'
 import { useT } from '../../i18n/t.js'
 import { setOverlay } from '../../state/ui.js'
 import { noticeLabel, parseAgentMessage, parseClientNotice, parseRollover, parseTabOpen } from './agentMessage.js'
+import { EnvelopeLine, firstFilledLine } from './EnvelopeLine.jsx'
 import './MessageItem.css'
 
 // 🧩 タップ時に「どこを開くか」 のスコープ記述子を作る。
@@ -313,38 +314,6 @@ function MetaLine({ meta, streaming, trailing }) {
   )
 }
 
-// 別のタブから届いた伝言 (= 票でない物) の吹き出し。 既定は「送り主 + 本文の頭の 1 行」 だけに畳み、
-// 1 行を押すと操作者の発話の引用と本文が開く。 開閉はこの吹き出しの中だけで持ち、 保存しない。
-function firstFilledLine(text) {
-  const line = text.split('\n').find((l) => l.trim() !== '')
-  return line ? line.trim() : ''
-}
-
-function FoldedRelayed({ relayed, onOpenFile }) {
-  const t = useT()
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="relayed-block">
-      <button type="button" className="relayed-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)} data-testid="relayed-toggle">
-        <span className="relayed-from" data-testid="relayed-from">{t('chat.relayed_from', { name: relayed.from })}</span>
-        {!open && <span className="relayed-head" data-testid="relayed-head">{firstFilledLine(relayed.text)}</span>}
-        <span className="relayed-mark" aria-hidden="true">{open ? '▾' : '▸'}</span>
-      </button>
-      {open && (
-        <span className="bubble">
-          {relayed.operatorSaid && (
-            <blockquote className="relayed-operator" data-testid="relayed-operator">
-              <span className="relayed-operator-label">{t('chat.relayed_operator_said')}</span>
-              {relayed.operatorSaid}
-            </blockquote>
-          )}
-          <MessageRenderer text={relayed.text} onOpenFile={onOpenFile} streaming={false} />
-        </span>
-      )}
-    </div>
-  )
-}
-
 const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentTool, runningSubagents, onOpenSubagents, onFork, isLast, voiceMarks }) {
   // 表示する文。 agent の文からは言い方の印を (= 声を持つ agent のタブだけ)、 人の文からは声で聞いている印を
   // 外す (= 印が付くのは 🔊 を持つタブだけ。 印の一覧を書かない声の設定でも外れるよう、 一覧には頼らない)。
@@ -586,49 +555,70 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
           <MetaLine meta={msg.meta} streaming={live} trailing={agentForkBtn} />
         </div>
       ) : relayed && relayed.ticket ? (
-        <div className="relayed-block">
-          <div className="relayed-from" data-testid="relayed-from">{t('chat.relayed_from', { name: relayed.from })}</div>
-          {/* 票を渡す連絡は、 本文が決まった 1 行なので、 押すと票の画面が開く 1 行にする (= 畳まない) */}
-          <button type="button" className="relayed-ticket-link" onClick={() => setOverlay('ticket', relayed.ticket)} data-testid="relayed-ticket-link">
-            {t('chat.ticket_handed', { id: relayed.ticket })}
-          </button>
-        </div>
+        // 票を渡す連絡は、 本文が決まった 1 行なので、 開く中身は無く、 押すと票の画面が開く
+        <EnvelopeLine
+          icon="📌"
+          label={t('chat.ticket_handed', { id: relayed.ticket, name: relayed.from })}
+          labelTestId="relayed-from"
+          onOpen={() => setOverlay('ticket', relayed.ticket)}
+          openTestId="relayed-ticket-link"
+        />
       ) : relayed ? (
-        <FoldedRelayed relayed={relayed} onOpenFile={onOpenFile} />
+        <EnvelopeLine
+          icon="✉"
+          label={t('chat.relayed_from', { name: relayed.from })}
+          labelTestId="relayed-from"
+          tail={firstFilledLine(relayed.text)}
+          tailTestId="relayed-head"
+          toggleTestId="relayed-toggle"
+          body={(
+            <>
+              {relayed.operatorSaid && (
+                <blockquote className="relayed-operator" data-testid="relayed-operator">
+                  <span className="relayed-operator-label">{t('chat.relayed_operator_said')}</span>
+                  {relayed.operatorSaid}
+                </blockquote>
+              )}
+              <MessageRenderer text={relayed.text} onOpenFile={onOpenFile} streaming={false} />
+            </>
+          )}
+        />
       ) : rollover ? (
-        <div className="relayed-block">
-          <div className="relayed-from" data-testid="rollover-label">
-            {t(rollover.phase === 'close' ? 'chat.rollover_close' : 'chat.rollover_start')}
-          </div>
-          <span className="bubble" data-testid="rollover-body">
-            {rollover.phase === 'close' ? (
-              t(rollover.reason === 'idle' ? 'chat.rollover_reason_idle' : 'chat.rollover_reason_context',
-                { pct: rollover.contextPct ?? '?', minutes: rollover.idleMinutes ?? '?' })
-            ) : (
-              <MessageRenderer text={rollover.text} onOpenFile={onOpenFile} streaming={false} />
-            )}
-          </span>
-        </div>
+        <EnvelopeLine
+          icon="⟳"
+          label={t(rollover.phase === 'close' ? 'chat.rollover_close' : 'chat.rollover_start')}
+          labelTestId="rollover-label"
+          bodyTestId="rollover-body"
+          body={rollover.phase === 'close' ? (
+            t(rollover.reason === 'idle' ? 'chat.rollover_reason_idle' : 'chat.rollover_reason_context',
+              { pct: rollover.contextPct ?? '?', minutes: rollover.idleMinutes ?? '?' })
+          ) : (
+            <MessageRenderer text={rollover.text} onOpenFile={onOpenFile} streaming={false} />
+          )}
+        />
       ) : tabOpen ? (
-        <div className="relayed-block">
-          <div className="relayed-from" data-testid="tab-open-label">{t('chat.tab_open')}</div>
-          <span className="bubble" data-testid="tab-open-body">{tabOpen.tier ?? '?'}</span>
-        </div>
+        <EnvelopeLine
+          label={t('chat.tab_open')}
+          labelTestId="tab-open-label"
+          tail={tabOpen.tier ?? '?'}
+          tailTestId="tab-open-body"
+          tailSeparator=": "
+        />
       ) : notice && (notice.kind === 'ticket-answer' || notice.kind === 'ticket-returned') && notice.ticket ? (
-        <div className="relayed-block">
-          <button type="button" className="relayed-ticket-link" onClick={() => setOverlay('ticket', notice.ticket)} data-testid="ticket-answer-link">
-            {noticeLabel(notice, t)}
-          </button>
-        </div>
+        <EnvelopeLine
+          icon="ℹ"
+          label={noticeLabel(notice, t)}
+          onOpen={() => setOverlay('ticket', notice.ticket)}
+          openTestId="ticket-answer-link"
+        />
       ) : notice ? (
-        <div className="relayed-block">
-          <div className="relayed-from" data-testid="client-notice-label">
-            {noticeLabel(notice, t)}
-          </div>
-          <span className="bubble" data-testid="client-notice-body">
-            <MessageRenderer text={notice.text} onOpenFile={onOpenFile} streaming={false} />
-          </span>
-        </div>
+        <EnvelopeLine
+          icon="ℹ"
+          label={noticeLabel(notice, t)}
+          labelTestId="client-notice-label"
+          bodyTestId="client-notice-body"
+          body={<MessageRenderer text={notice.text} onOpenFile={onOpenFile} streaming={false} />}
+        />
       ) : (
         <span className="bubble">
           <MessageRenderer text={shownText} onOpenFile={onOpenFile} streaming={live} />
