@@ -316,7 +316,7 @@ async def _handle_stop(ctx: HookContext) -> dict:
     assert ctx.pwa_session_id is not None  # dispatcher が解決済
     _apply_immediate_stop(ctx.pwa_session_id)
     # An ask waiting on this tab takes the turn's last answer as it is (= before the push's checks).
-    turn_waiters.turn_ended(ctx.pwa_session_id, body_raw)
+    turn_waiters.turn_ended(ctx.pwa_session_id, body_raw, ctx.claude_sid)
     rollover.turn_ended(ctx.pwa_session_id)
     # The tab is at a break: an answer of the operator's that waited for this tab is typed now (= in the background, so the
     # hook is not kept waiting).

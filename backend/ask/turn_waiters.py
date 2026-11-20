@@ -10,10 +10,12 @@ import asyncio
 
 
 class TurnWaiter:
-    """One ask's wait on its tab: the answer of the turn it typed, and the opening of the conversation it cleared."""
+    """One ask's wait on its tab: the answer of the turn it typed (and the conversation it was in), and the opening of
+    the conversation it cleared."""
 
     def __init__(self) -> None:
         self.answer: asyncio.Future[str] | None = None
+        self.claude_session_id: str | None = None
         self.opened = asyncio.Event()
 
 
@@ -42,10 +44,12 @@ def stop_waiting(session_id: str, waiter: TurnWaiter) -> None:
         del _waiters[session_id]
 
 
-def turn_ended(session_id: str, text: str) -> None:
-    """The tab's turn ended with `text` as its last answer (= the `Stop` hook)."""
+def turn_ended(session_id: str, text: str, claude_session_id: str | None = None) -> None:
+    """The tab's turn ended with `text` as its last answer (= the `Stop` hook). `claude_session_id` is the id of the
+    Claude Code conversation the turn was in (= the hook's `session_id`), kept on the wait for the ask to hand on."""
     waiter = _waiters.get(session_id)
     if waiter is not None and waiter.answer is not None and not waiter.answer.done():
+        waiter.claude_session_id = claude_session_id
         waiter.answer.set_result(text)
 
 
