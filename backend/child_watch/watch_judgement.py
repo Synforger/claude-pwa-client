@@ -14,6 +14,9 @@ from backend.child_watch.child_memo import WORKING
 # Why the child stopped (= the `reason` of the message to the parent, and of the log line).
 LIMIT = "limit"
 IDLE = "idle"
+# The error resume (`backend/error_resume/`) gave up carrying the child on after a passing API error. Only the error
+# resume tells this one.
+API_ERROR = "api_error"
 
 
 def is_watched(*, child: bool, parent_known: bool, asleep: bool, memo_state: str) -> bool:

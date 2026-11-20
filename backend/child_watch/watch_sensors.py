@@ -6,13 +6,16 @@ judgement asked by hand, with a usage-limit stop taken into account, and the con
 a limit (`TabBreak.owed`). A child that answers, runs a command, waits for a tool, has a wake-up or a cron job
 scheduled, is on a call or is rolling over is not at a break.
 
+A child whose turn a passing API error ended is the error resume's (`error_resume.error_sensors.holds`) while it carries
+the child on, and after it gave up, when it told the parent itself.
+
 Used by `watch_patrol.py`.
 """
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
-from pathlib import Path
 
 import backend.jsonl.jsonl_watcher as jsonl_watcher
 from backend._common.state import SessionDef, sessions_meta
@@ -20,6 +23,7 @@ from backend.account_fallback.fallback_sensors import read_tab_break
 from backend.child_watch.child_memo import memo_state
 from backend.child_watch.child_work import memo_of
 from backend.child_watch.watch_judgement import is_watched, stop_reason
+from backend.error_resume.error_sensors import holds, look_at_tab
 from backend.sleep.sleep_sensors import record_facts_of
 
 logger = logging.getLogger(__name__)
@@ -55,5 +59,7 @@ def look_at_child(meta: SessionDef) -> ChildLook | None:
         return None
     if facts.last_row_at is None:
         return None
+    if facts.error_stop is not None and holds(meta, look_at_tab(meta, time.time())):
+        return None             # the error resume carries it on, or told the parent itself
     return ChildLook(mark=facts.last_row_at, reason=stop_reason(limit_stop=taken.stop is not None,
                                                                   continuation_owed=taken.owed is not None))

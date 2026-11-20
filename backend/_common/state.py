@@ -113,6 +113,29 @@ class SleepMark:
                    account_id=account_id if isinstance(account_id, str) else None)
 
 
+@dataclass(frozen=True)
+class ErrorResumeMark:
+    """The client's message to carry on after an API error (`backend/error_resume/`) sent to a tab: the uuid of the error
+    row it answered, when it was sent (epoch seconds) and how many times it was sent for that row."""
+    stop: str
+    sent_at: float
+    sent_count: int = 1
+
+    def to_dict(self) -> dict:
+        return {"stop": self.stop, "sent_at": self.sent_at, "sent_count": self.sent_count}
+
+    @classmethod
+    def from_dict(cls, raw: object) -> "ErrorResumeMark | None":
+        """The mark stored in `session_meta.json`, None when the entry holds none or a malformed one."""
+        if not isinstance(raw, dict):
+            return None
+        stop, sent_at, sent_count = raw.get("stop"), _optional_number(raw.get("sent_at")), raw.get("sent_count")
+        if not (isinstance(stop, str) and stop and sent_at is not None):
+            return None
+        return cls(stop=stop, sent_at=sent_at,
+                   sent_count=sent_count if isinstance(sent_count, int) and sent_count > 0 else 1)
+
+
 @dataclass
 class SessionDef:
     id: str
@@ -152,6 +175,12 @@ class SessionDef:
     # The uuid of the usage-limit stop that the client already answered with a message to carry on
     # (`backend/limit_resume/`), so that the same stop is never answered twice, nor after a restart.
     limit_resumed: str | None = None
+    # The client's message to carry on after an API error that was sent to this tab (`backend/error_resume/`), so that
+    # the same error is answered once, nor again after a restart, unless the message never reached the tab.
+    error_resumed: ErrorResumeMark | None = None
+    # The uuid of the API error row the client gave up on after carrying the tab on in vain (`backend/error_resume/`),
+    # so that it is told about once.
+    error_gave_up: str | None = None
     # The operator keeps this tab on its own account: the account fallback never moves it, and brings it back at the
     # next break when it runs elsewhere. A child tab starts with its parent's mark.
     account_pinned: bool = False
@@ -209,6 +238,8 @@ class SessionDef:
             "fallback_from": self.fallback_from,
             "fallback_copy": self.fallback_copy,
             "limit_resumed": self.limit_resumed,
+            "error_resumed": self.error_resumed.to_dict() if self.error_resumed is not None else None,
+            "error_gave_up": self.error_gave_up,
             "account_pinned": self.account_pinned,
             "pause_asked_at": self.pause_asked_at,
             "held_at": self.held_at,
@@ -287,6 +318,8 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
                 fallback_from=_optional_str(entry.get("fallback_from")),
                 fallback_copy=_optional_str(entry.get("fallback_copy")),
                 limit_resumed=_optional_str(entry.get("limit_resumed")),
+                error_resumed=ErrorResumeMark.from_dict(entry.get("error_resumed")),
+                error_gave_up=_optional_str(entry.get("error_gave_up")),
                 account_pinned=entry.get("account_pinned") is True,
                 pause_asked_at=_optional_number(entry.get("pause_asked_at")),
                 held_at=_optional_number(entry.get("held_at")),

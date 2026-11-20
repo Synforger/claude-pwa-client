@@ -10,5 +10,5 @@
 >Automatic session rollover, sent by the client (the operator did not type this):
 # The first message of a tab opened for its tier
 >Tab opened by the client for its tier (the operator did not type this):
-# The client's own notices (after an account move, after a usage limit ended)
+# The client's own notices (after an account move, after a usage limit ended, after an API error ended a turn)
 >Sent by the client (the operator did not type this):

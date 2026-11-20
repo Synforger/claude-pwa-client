@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from backend._common.state import save_sessions_meta, sessions_meta
+from backend._common.state import SessionDef, save_sessions_meta, sessions_meta
 from backend.accounts.client_message import send_to_tab
 from backend.accounts.tab_claim import claimed
 from backend.child_watch.watch_envelope import child_stopped_envelope
@@ -50,16 +50,25 @@ async def _look(session_id: str) -> bool:
     _seen_at_break[session_id] = look.mark
     if not should_tell(mark=look.mark, previous=previous, told=meta.stop_told_at):
         return False
+    return await tell_parent(meta, look.mark, look.reason)
+
+
+async def tell_parent(meta: SessionDef, mark: float, reason: str) -> bool:
+    """Tell the parent of the child `meta` that it stopped at the stop whose last row is at `mark`, for `reason`, unless
+    that stop was told already. True when the message was sent or kept for the parent. The error resume tells a parent
+    through this too, so that the watch does not tell the same stop again."""
+    if meta.parent_id is None or meta.stop_told_at == mark:
+        return False
     with claimed(meta.parent_id) as mine:
         if not mine:
             return False
-        before, meta.stop_told_at = meta.stop_told_at, look.mark     # before sending: a restart must not send it twice
+        before, meta.stop_told_at = meta.stop_told_at, mark     # before sending: a restart must not send it twice
         save_sessions_meta()
-        sent = await _send_or_keep(meta.parent_id, child_stopped_envelope(session_id, meta.title, look.reason))
+        sent = await _send_or_keep(meta.parent_id, child_stopped_envelope(meta.id, meta.title, reason))
         if not sent:
-            meta.stop_told_at = before                              # nothing arrived; the next look tries again
+            meta.stop_told_at = before                          # nothing arrived; the next look tries again
             save_sessions_meta()
-        logger.info("child watch: session=%s parent=%s reason=%s sent=%s", session_id, meta.parent_id, look.reason, sent)
+        logger.info("child watch: session=%s parent=%s reason=%s sent=%s", meta.id, meta.parent_id, reason, sent)
         return sent
 
 

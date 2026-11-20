@@ -44,6 +44,8 @@ backup 先 = 同 PC の別 path (= `$AGENT_PLATFORM_ROOT/state/claude-pwa-client
 | `tier` | str? | NO | そのタブの Claude が最後に起動した階層 (= エージェントのプロセスが持つ環境変数 `AGENT_TIER` の値)。 まだ Claude を見ていないタブは null |
 | `fallback_from` | str? | NO | [口座の逃げ先](account-fallback.md) で別の口座へ移っている間だけ値を持つ、 タブの本来の口座 (= `account_id` は今動いている口座)。 戻すと null |
 | `fallback_copy` | str? | NO | 上の移し替えで、 client が逃げ先の口座の projects folder に書いた会話の記録の path。 戻す時に client が消す。 `fallback_from` と一緒に null になる |
+| `error_resumed` | object? | NO | [API の誤りで切れたターンの続き](error-resume.md) で、 続けての連絡を送った誤りの行の uuid (`stop`)・送り終えた時刻 (`sent_at`、 epoch 秒)・同じ行に送った回数 (`sent_count`)。 まだ送っていないタブは null |
+| `error_gave_up` | str? | NO | 同じ仕組みが諦めて親か操作者に知らせた誤りの行の uuid (= 2 回は知らせない)。 諦めたことの無いタブは null |
 | `limit_resumed` | str? | NO | [上限が戻った時の続き](limit-resume.md) で、 続けての連絡を送った止まりの行の uuid (= 同じ止まりに 2 通目を送らない)。 まだ送っていないタブは null |
 | `account_pinned` | bool | NO (default `false`) | 要のタブの印。 true のタブは [口座の逃げ先](account-fallback.md) が移さず、 逃げ先で動いていれば次の区切りで戻す。 子のタブは立てた時に親の印を継ぐ |
 | `pause_asked_at` | float? | NO | [口座の逃げ先](account-fallback.md) が、返事を作り続けているタブに区切りを頼んだ時刻 (= epoch 秒)。 この「線を超えている間」に 2 通目を送らないための印で、 backend を再起動しても残る。 口座が線を下回った時、 タブを移した時、 固定した時に null |
