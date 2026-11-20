@@ -25,7 +25,9 @@ from collections import Counter
 from collections.abc import Mapping
 
 ANSWER_MARK = "⏺"
-QUESTION_MARK = "❯ "
+QUESTION_MARK = "❯"
+#: What follows the prompt mark: a space, or a no-break space (= Claude Code draws the echo of a typed question so)
+_PROMPT_SPACES = (" ", "\u00a0")
 NOTE_MARK = "⎿"
 INDENT = "  "
 #: How many characters of the question's first line tell its echo from the other lines of the screen
@@ -47,7 +49,7 @@ def pasted_counts(screen: str) -> Counter[str]:
     """How many echoes of each pasted-text placeholder (= `❯ [Pasted text #N …]`, by its number) `screen` shows."""
     counts: Counter[str] = Counter()
     for line in screen.splitlines():
-        if line.startswith(QUESTION_MARK):
+        if _is_prompt(line):
             counts.update(_PASTED_ECHO.findall(line))
     return counts
 
@@ -80,6 +82,11 @@ def answer_from_screen(screen: str, question: str, pane_width: int,
     return _join_lines(_answer_lines(lines, start), pane_width)
 
 
+def _is_prompt(line: str) -> bool:
+    """Whether `line` is a prompt line of Claude Code (= the echo of a question, or the input box)."""
+    return line.startswith(QUESTION_MARK) and line[len(QUESTION_MARK):len(QUESTION_MARK) + 1] in _PROMPT_SPACES
+
+
 def _question_key(question: str) -> str:
     """The first characters of the question's first line, without spaces (= Claude Code may draw a typed space again)."""
     for line in question.splitlines():
@@ -89,7 +96,7 @@ def _question_key(question: str) -> str:
 
 
 def _echoes(line: str, key: str) -> bool:
-    return line.startswith(QUESTION_MARK) and "".join(line[len(QUESTION_MARK):].split()).startswith(key)
+    return _is_prompt(line) and "".join(line[len(QUESTION_MARK) + 1:].split()).startswith(key)
 
 
 def _new_pasted_echoes(lines: list[str], pasted_before: Mapping[str, int]) -> list[int]:
@@ -98,7 +105,7 @@ def _new_pasted_echoes(lines: list[str], pasted_before: Mapping[str, int]) -> li
     scrolled off the read lines meanwhile, when nothing is taken rather than an earlier answer."""
     counts = pasted_counts("\n".join(lines))
     for index in range(len(lines) - 1, -1, -1):
-        if not lines[index].startswith(QUESTION_MARK):
+        if not _is_prompt(lines[index]):
             continue
         numbers = _PASTED_ECHO.findall(lines[index])
         if numbers:
@@ -111,7 +118,7 @@ def _answer_start(lines: list[str], echo: int) -> int | None:
     for index in range(echo + 1, len(lines)):
         if lines[index].startswith(ANSWER_MARK):
             return index
-        if lines[index].startswith(QUESTION_MARK):
+        if _is_prompt(lines[index]):
             return None
     return None
 
