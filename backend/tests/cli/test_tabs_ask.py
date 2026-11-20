@@ -16,12 +16,16 @@ from backend.cli import ask
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 TABS = REPO_ROOT / "backend" / "cli" / "tabs.py"
+BASE_URL = "http://127.0.0.1:1"                    # nothing listens: the tests of one answer never call it
 
 
 @pytest.mark.parametrize(("argv", "expected"), [
     (["ses_head", "q.txt"], ask.AskArguments("ses_head", Path("q.txt"), False, 180.0)),
     (["ses_head", "q.txt", "--fresh"], ask.AskArguments("ses_head", Path("q.txt"), True, 180.0)),
     (["ses_head", "q.txt", "--timeout", "30", "--fresh"], ask.AskArguments("ses_head", Path("q.txt"), True, 30.0)),
+    (["ses_head", "q.txt", "--stream"], ask.AskArguments("ses_head", Path("q.txt"), False, 180.0, True)),
+    (["ses_head", "q.txt", "--stream", "--fresh"], ask.AskArguments("ses_head", Path("q.txt"), True, 180.0, True)),
+    (["ses_head", "q.txt", "--stream", "--stream"], None),
     (["ses_head"], None),
     (["ses_head", "q.txt", "--fresh", "--fresh"], None),
     (["ses_head", "q.txt", "--timeout"], None),
@@ -41,7 +45,7 @@ def test_the_answer_goes_to_stdout_and_the_call_waits_beyond_the_turn(tmp_path, 
     def call(path, form, method=None, timeout=0.0):
         calls.append((path, form, timeout))
         return 200, {"ok": True, "id": "ses_head", "answer": "The tavern is quiet."}
-    assert ask.run(["Talemate の頭", str(question), "--fresh", "--timeout", "60"], call) == 0
+    assert ask.run(["Talemate の頭", str(question), "--fresh", "--timeout", "60"], call, BASE_URL) == 0
     assert capsys.readouterr().out == "The tavern is quiet.\n"
     path, form, timeout = calls[0]
     assert path == "/sessions/Talemate%20%E3%81%AE%E9%A0%AD/ask"
@@ -58,7 +62,7 @@ def test_the_answer_goes_to_stdout_and_the_call_waits_beyond_the_turn(tmp_path, 
 def test_a_failure_names_its_code_on_stderr(tmp_path, capsys, status, body, code):
     question = tmp_path / "q.txt"
     question.write_text("hello", encoding="utf-8")
-    assert ask.run(["ses_head", str(question)], lambda *a, **k: (status, body)) == 1
+    assert ask.run(["ses_head", str(question)], lambda *a, **k: (status, body), BASE_URL) == 1
     captured = capsys.readouterr()
     assert captured.out == "" and f"[{code}]" in captured.err
 
