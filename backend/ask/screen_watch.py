@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import Counter
 from collections.abc import Callable
 from typing import NamedTuple
 
-from backend.ask.screen_answer import answer_from_screen
+from backend.ask.screen_answer import answer_from_screen, pasted_counts
 from backend.terminal import runner
 
 logger = logging.getLogger(__name__)
@@ -48,14 +49,25 @@ def read_screen(session_id: str) -> PaneScreen | None:
         return None
 
 
-async def watch(session_id: str, question: str, emit: Callable[[str], None]) -> None:
+def read_pasted_counts(session_id: str) -> Counter[str] | None:
+    """The pasted-text placeholders the tab's screen shows now (`screen_answer.pasted_counts`), read right before an
+    ask types, so that the echo of its own placeholder can be told from earlier ones. Blocking. → None when the screen
+    could not be read (= a folded question then gets no partial answer)."""
+    screen = read_screen(session_id)
+    return pasted_counts(screen.text) if screen is not None else None
+
+
+async def watch(session_id: str, question: str, emit: Callable[[str], None],
+                pasted_before: Counter[str] | None = None) -> None:
     """Read the tab's screen every `POLL_SEC` and call `emit` with the answer to `question` each time it is different
-    from the last one handed on. Runs until cancelled; a failed read or an answer not on the screen yet emits nothing."""
+    from the last one handed on. `pasted_before` is `read_pasted_counts` taken right before the typing. Runs until
+    cancelled; a failed read or an answer not on the screen yet emits nothing."""
     last: str | None = None
     try:
         while True:
             screen = await asyncio.to_thread(read_screen, session_id)
-            text = answer_from_screen(screen.text, question, screen.width) if screen is not None else None
+            text = (answer_from_screen(screen.text, question, screen.width, pasted_before)
+                    if screen is not None else None)
             if text and text != last:
                 last = text
                 emit(text)

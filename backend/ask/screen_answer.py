@@ -19,7 +19,10 @@ The shape of the screen (measured in a real tab, `docs/reference/ask.md`):
 """
 from __future__ import annotations
 
+import re
 import unicodedata
+from collections import Counter
+from collections.abc import Mapping
 
 ANSWER_MARK = "⏺"
 QUESTION_MARK = "❯ "
@@ -31,6 +34,8 @@ QUESTION_KEY_CHARS = 10
 #: left over is one column at most, a wide character not fitting, and the margin covers a few columns more.
 WRAP_MARGIN_COLUMNS = 4
 _WIDE_KINDS = "WF"
+#: The echo of a question Claude Code folded into a placeholder (= a long or many-line text it was pasted as)
+_PASTED_ECHO = re.compile(r"\[Pasted text #(\d+)")
 
 
 def display_width(text: str) -> int:
@@ -38,11 +43,23 @@ def display_width(text: str) -> int:
     return sum(2 if unicodedata.east_asian_width(char) in _WIDE_KINDS else 1 for char in text)
 
 
-def answer_from_screen(screen: str, question: str, pane_width: int) -> str | None:
+def pasted_counts(screen: str) -> Counter[str]:
+    """How many echoes of each pasted-text placeholder (= `❯ [Pasted text #N …]`, by its number) `screen` shows."""
+    counts: Counter[str] = Counter()
+    for line in screen.splitlines():
+        if line.startswith(QUESTION_MARK):
+            counts.update(_PASTED_ECHO.findall(line))
+    return counts
+
+
+def answer_from_screen(screen: str, question: str, pane_width: int,
+                       pasted_before: Mapping[str, int] | None = None) -> str | None:
     """The answer to `question` as far as `screen` shows it, with the lines Claude Code cut joined again.
 
     `screen` is the pane with its scrollback (= `capture-pane -p -J -S -`), `pane_width` its columns. The answer starts
-    at the first `⏺` line after the last line that echoes the question's first line, and ends before the spinner, a
+    at the first `⏺` line after the last line that echoes the question: its first line, or, for a question Claude Code
+    folded into a `[Pasted text #N …]` placeholder, the last placeholder echo that the screen read right before the
+    typing (`pasted_counts`, given as `pasted_before`) had fewer of. It ends before the spinner, a
     `⎿` note or the rule under it. A line of the pane's width (minus `WRAP_MARGIN_COLUMNS`) continues in the next one;
     any other line ends a line of the answer, and a blank line a paragraph (= `\\n\\n`). The fence of a ```json block
     is not on the screen, so it is not in the text either.
@@ -53,9 +70,11 @@ def answer_from_screen(screen: str, question: str, pane_width: int) -> str | Non
         return None
     lines = screen.splitlines()
     echoes = [index for index, line in enumerate(lines) if _echoes(line, key)]
+    if pasted_before is not None:
+        echoes += _new_pasted_echoes(lines, pasted_before)
     if not echoes:
         return None
-    start = _answer_start(lines, echoes[-1])
+    start = _answer_start(lines, max(echoes))
     if start is None:
         return None
     return _join_lines(_answer_lines(lines, start), pane_width)
@@ -71,6 +90,20 @@ def _question_key(question: str) -> str:
 
 def _echoes(line: str, key: str) -> bool:
     return line.startswith(QUESTION_MARK) and "".join(line[len(QUESTION_MARK):].split()).startswith(key)
+
+
+def _new_pasted_echoes(lines: list[str], pasted_before: Mapping[str, int]) -> list[int]:
+    """The index of the last placeholder echo whose number shows more often than before the typing (= the new one is the
+    question's; an echo of an earlier ask was there already). Empty when there is none: no new placeholder, or old ones
+    scrolled off the read lines meanwhile, when nothing is taken rather than an earlier answer."""
+    counts = pasted_counts("\n".join(lines))
+    for index in range(len(lines) - 1, -1, -1):
+        if not lines[index].startswith(QUESTION_MARK):
+            continue
+        numbers = _PASTED_ECHO.findall(lines[index])
+        if numbers:
+            return [index] if counts[numbers[-1]] > pasted_before.get(numbers[-1], 0) else []
+    return []
 
 
 def _answer_start(lines: list[str], echo: int) -> int | None:
