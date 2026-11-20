@@ -440,12 +440,14 @@ def _reopens_in_its_shell(tab_id: str) -> bool:
 async def wake_tab(tab_id: str) -> bool:
     """Start the tab's claude the way the operator's action would, and wait until it takes input. The sender learns
     here when it did not start, and nothing is typed into a pane that is not listening. A new conversation is left to
-    the first message (`pty_send`), which starts it with the message. → True when this started the claude (= the
-    message is then typed by `deliver_message`, which makes sure it was taken); False when it was running already.
+    the first message (`pty_send`), which starts it with the message: nothing is started here and no screen is waited
+    for, since the pane holds a shell. → True when the tab had no claude running (= the message is then typed by
+    `deliver_message`, which makes sure it was taken); False when it was running already.
 
-    A claude that was started is also waited for until its pane shows Claude's screen: its hooks say it is ready before
-    it has read the conversation and drawn the input, and what is typed in between is lost. A tab that is being put to
-    sleep is waited for first: what is typed while its claude ends is lost, so the message goes to the sleeping tab."""
+    A claude that was started or reopened is also waited for until its pane shows Claude's screen: its hooks say it is
+    ready before it has read the conversation and drawn the input, and what is typed in between is lost. A tab that is
+    being put to sleep is waited for first: what is typed while its claude ends is lost, so the message goes to the
+    sleeping tab."""
     # Imported here: the sleep package reads the rollover, which reads this module.
     from backend.sleep.sleeper import wait_until_asleep  # noqa: PLC0415
     await wait_until_asleep(tab_id)
@@ -454,6 +456,7 @@ async def wake_tab(tab_id: str) -> bool:
     # A launch still starting is waited for, not typed a second time (= `input_ready.launching`).
     shell_left = has_tmux_session(tab_id) and input_ready.is_ready(tab_id) and not input_ready.launching(tab_id)
     await ensure_pty_session_for(tab_id)
+    reopened = False
     if shell_left and _reopens_in_its_shell(tab_id) and (command := resume_command_for(tab_id)) is not None:
         input_ready.mark_starting(tab_id)
         if not (tmux_send_keys(tab_id, key="C-u") and tmux_send_keys(tab_id, text=command, enter=True)):
@@ -461,9 +464,13 @@ async def wake_tab(tab_id: str) -> bool:
             raise_error(409, "agent_message_receiver_not_ready", "宛先の claude を起動できませんでした。 もう一度送ってください")
         logger.info("agent message: reopened the last conversation in the shell session=%s", tab_id)
         asyncio.create_task(register_claude_when_ready(tab_id, max_wait=LAUNCH_DISCOVER_SEC))
+        reopened = True
+    starting = reopened or input_ready.launching(tab_id)
     if not await input_ready.wait_ready(tab_id, LAUNCH_DISCOVER_SEC):
         raise_error(409, "agent_message_receiver_not_ready",
                     f"宛先の claude が {LAUNCH_DISCOVER_SEC:.0f} 秒以内に起動しませんでした。 もう一度送ってください")
+    if not starting and not claude_in_pane(tab_id):
+        return True  # nothing started: the pane holds a shell, and the message's own typing starts the conversation
     if not await wait_for_claude_screen(tab_id):
         # The screen is recognised by Claude's status bar, which not every installation shows: typing anyway is safe,
         # since what is typed to a woken tab is checked for receipt and put right once (`deliver_to_woken`).
