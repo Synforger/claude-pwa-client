@@ -53,7 +53,7 @@ async function closeAll(request, tickets) {
 
 async function ask(request, id, sender) {
   const res = await request.post(`/tickets/${id}/asks`, {
-    form: { from: sender, kind: 'decide', text: 'One line or two?', recommend: 'One line' },
+    form: { from: sender, kind: 'decide', text: 'One line or two?\n\n- `one line`: shorter title\n- `two lines`: keeps every word', recommend: 'One line' },
   })
   expect(res.ok()).toBeTruthy()
 }
@@ -99,6 +99,7 @@ test.describe('golden: tickets', () => {
     await expect(asked).toContainText('One line or two?')          // the question and the recommendation, once, among the lines
     await expect(asked).toContainText('One line')
     await expect(page.locator('[data-testid=ticket-answer-box]')).not.toContainText('One line or two?')
+    await expect(asked.locator('li')).toHaveCount(2)                 // drawn as Markdown, the way the chat draws it
     const opened = page.locator('[data-testid=ticket-entry][data-kind=opened]')
     await expect(opened).toContainText('<b>of</b>')            // plain text: the markup is shown, not drawn
     await expect(opened.locator('b')).toHaveCount(0)
