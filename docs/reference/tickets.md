@@ -6,14 +6,15 @@
 タブどうしの連絡は「票 `<id>` を渡されました」 の 1 行で済みます。
 
 票は backend だけが書きます。 タブは `tabs ticket` を打つだけで、 file には触りません。 同じ機械の中の
-タブだけが使えます (別の機械のタブへは、 まだ渡せません)。
+タブだけが使えます (別の機械のタブとの間は [2 台の機械にまたがる票](#2-台の機械にまたがる票))。
 
 ## 使う
 
 ```sh
-tabs ticket new <題> <本文の file> [--operator-said]   # 票を開き、 id を出す
+tabs ticket new <題> <本文の file> [--operator-said] [--due YYYY-MM-DD]   # 票を開き、 id を出す
 tabs ticket show <id>                                   # 票を全部、 時刻の順に読む
-tabs ticket add <id> <file>                             # やったことを書き足す
+tabs ticket mine [--json] [--unsettled]                 # このタブが持つ、 閉じていない票を読む
+tabs ticket add <id> <file> [--waiting] [--due YYYY-MM-DD]   # やったことを書き足す
 tabs ticket ask <id> --kind decide|mac|report <file> [--recommend <file>]
                                                         # 票を操作者の前に出す
 tabs ticket close <id> [<file>]                         # 票を閉じる (= 残る。 閉じた後は書き足せない)
@@ -24,6 +25,9 @@ tabs ticket pass <id> <宛先>                            # 票の持ち主を�
 - `new --operator-said`: 頼みが操作者の言葉から出た時に付けます。 そのタブで操作者が最後に打った発話を、 backend が
   会話の記録から取って、 票の 2 行目に入れます。 タブが書いた文は、 操作者の言葉としては入りません。 今の作業を
   始めたのが操作者の発話でない時は入らず、 そう伝えます (= 票は開きます)
+- `new --due` / `add --due`: 票の期限の日です (`YYYY-MM-DD`。 実在する日だけ。 `ticket_bad_due`)。 後から `add --due` で替えられます。 期限を過ぎた票と近い票には[印](#票の状態と見直しの印)が付きます
+- `add --waiting`: 票を「待ち」 (`waiting`) にします。 本文に、 何を待っているかを書きます。 印を付けない `add` は、 待ちの票を動いている状態 (`open`) に戻します
+- `mine`: このタブが今持っている、 閉じていない票を 1 枚 1 行で出します ([持っている票を読む](#持っている票を読む-tabs-ticket-mine))
 - `ask`: `decide` は決めてほしい事、 `mac` は Mac の前でしかできない事、 `report` は報告です。 `--recommend` の
   file には、 操作者がそのまま取れる推奨を書きます。 `ask` した票は操作者の返事を待つ状態 (`waiting-operator`) になります。 `ask` できるのは票の家の機械のタブで、 かつ **その票を今持っているタブ** だけです (`ticket_not_holder`。 答えは持つタブへ届くので、 別のタブが訊くと答えが読まれません)
   ([2 台の機械にまたがる票](#2-台の機械にまたがる票))
@@ -48,6 +52,8 @@ tabs ticket pass <id> <宛先>                            # 票の持ち主を�
 | `ticket_bad_answer` | 答えの形が正しくありません (= `asked_at` が無い、 `text` が文字列でない) |
 | `ticket_answer_pending` | 操作者の答えが、 まだ持ち主に届いていません。 届いてから渡します |
 | `ticket_bad_kind` | `--kind` が `decide` / `mac` / `report` ではありません |
+| `ticket_bad_due` | `--due` が `YYYY-MM-DD` の実在する日ではありません |
+| `ticket_bad_since` | `GET /tickets/held` の `since` が ISO の時刻ではありません (= `mine` は自分で付けるので、 口を直に打った時だけ出ます) |
 | `ticket_to_self` | 自分のタブへは渡せません |
 | `ticket_ask_elsewhere` | 票の家が別の機械です。 操作者に訊けるのは家の機械のタブだけです。 票を家のタブへ渡すか、 この機械で票を開いて訊きます |
 | `ticket_not_holder` | 票を今持っているタブではないので、 操作者に訊けません (= `ask` は持つタブだけ。 持つタブに頼むか、 票を渡してもらいます) |
@@ -80,6 +86,7 @@ tabs ticket pass <id> <宛先>                            # 票の持ち主を�
 | `tab` / `tab_title` / `tier` | 書いたタブの id・名前・階層 |
 | `text` | 本文 |
 | `title` | `opened` だけ |
+| `waiting` / `due` | 付けた時だけ (`added` の `--waiting` と `--due`、 `opened` の `--due`) |
 | `ask_kind` / `recommend` | `asked` だけ (`recommend` は任意) |
 | `to` | `passed` (渡した先のタブの id)・`delivered` (答えを打った先)・`returned` (戻した先。 戻す先が無ければ空) |
 | `asked_at` / `recommended` | `answered` だけ (答えた問いの `at` と、 推奨で答えたか) |
@@ -94,8 +101,67 @@ id は `<機械の名前>-<YYMMDD>-<NN>` です (例: `home-261119-01`)。 NN �
 
 置き場は、 票を開く時に 1 つに決まり、 後から動きません。 検査コマンドの設定が無い時は、 すべての票が
 `<根>/state/claude-pwa-client/tickets/` (根を渡さない時は `~/.claude-pwa-client/tickets/`) に置かれます。
-そこにある `index.json` は、 全部の票の **置き場の鍵・今の持ち主・最初に頼んだタブ・状態・求める物** だけを持ちます
-(題と本文は入れません)。 状態は `open` / `waiting-operator` / `closed` です。
+そこにある `index.json` は、 全部の票の **置き場の鍵・今の持ち主・最初に頼んだタブ・状態・求める物・出どころ・期限** だけを持ちます
+(題と本文は入れません)。 状態は `open` (動いている) / `waiting` (待ち) / `waiting-operator` (操作者の返事待ち) / `closed` です。
+出どころ (`origin`) は、 `new --operator-said` で操作者の言葉が実際に 2 行目に入った時だけ `operator`、 ほかは `self` で、
+開く時に決まり後から替わりません。 期限 (`due`) は `YYYY-MM-DD` か無しです。 `origin` と `due` が無い古い行は、
+`self` と無しとして読みます。
+
+## 票の状態と見直しの印
+
+状態は、 起きた事で次のように移ります。 次の状態は、 票の鍵を持っている間に、 その時の行から決めます (= 読んだ後に別の `ask` が入っても、
+返事待ちは消えません)。
+
+| 今 | 起きた事 | 次 |
+|---|---|---|
+| `open` か `waiting` | `add` (印なし) | `open` |
+| `open` か `waiting` | `add --waiting` | `waiting` |
+| `open` か `waiting` | `ask` | `waiting-operator` |
+| `waiting-operator` | 操作者の答え | `open` |
+| `waiting-operator` | `add` (印あり・なし、 `--due` だけも) | `waiting-operator` のまま (`--due` は期限だけ替える) |
+| `waiting-operator` | `ask` (訊き直し) | `waiting-operator` (求める物だけ替わる) |
+| `open` か `waiting` | `pass` | `open` (渡された側が動く) |
+| `waiting-operator` | `pass` | 断る (`ticket_waiting_operator`) |
+| `waiting-operator` を含む、 閉じていない | `close` | `closed` |
+
+別の機械のタブが家の票へ書く `add` も同じ表です (`--waiting` と `--due` は、 家の機械が読める版なら運ばれます)。
+
+票には、 見直した方がよい時に付く印があります。 当たる印を全部、 次の順で並べて返します (画面は先頭の 1 つを出します)。
+
+| 印 | 付く時 |
+|---|---|
+| `overdue` | 期限が今日より前 |
+| `due_soon` | 期限が今日から 2 日以内 |
+| `waiting_stale` | `waiting` で、 タブの最後の行が 5 日以上前 |
+| `idle` | `open` で、 タブの最後の行が 14 日以上前 |
+
+- `waiting-operator` には `overdue` と `due_soon` だけ付き、 `closed` には付きません
+- 「最後の行」 は、 タブが書いた行の時刻です。 backend が書く行 (操作者の答え・届けた記録など) は数えません。 期限は、 backend の機械の日付で比べます
+- 「待っている出来事が起きた」 は機械では判定しません。 `waiting` の票の本文を読んで、 持つタブが見直します
+
+## 持っている票を読む (`tabs ticket mine`)
+
+```sh
+tabs ticket mine [--json] [--unsettled]
+```
+
+このタブが今持っている、 閉じていない票を、 動いている票 (`open`・`waiting-operator`) は 1 枚 1 行で、 待ちの票は
+「待ち N 枚: <id> …」 の 1 行で出します。 行は `id  状態  出どころ  [印 期限 <日>]  題 — 次の 1 手` です。
+
+- 出どころは、 `操作者` (操作者の言葉が入って開いた票)・`別のタブ` (持つタブと違うタブが開いた票。 渡された票と、 別の機械の票)・`自分` です
+- 次の 1 手は、 タブが書いた最後の行 (本文のある物) の本文の 1 行目です。 題と同じく、 このタブが読める物だけが出ます (読めない題は
+  「(題を読めません)」、 読めない行は読めない行だと言う文になります)
+- 別の機械が持つ票で、 持ち主がこのタブの物も一緒に出ます。 その機械が答えない時は、 「<機械> の機械が答えません」 の行を足し、 残りは出します
+- `--json` は、 backend が返した物をそのまま出します (`GET /tickets/held`。 欄は `contracts/schema/http-endpoints.yaml`)
+- `--unsettled`: **このタブの今の会話がまだ書き足していない、 動いている票** (`open`。 会話の記録の最初の行の時刻から、 そのタブ自身が行を書いていない票)
+  のうち、 そのタブが書ける置き場の票を並べて、 1 で終わります。 無ければ何も出さず 0 で、 見られなかった時は 3 で終わります。
+  渡されたばかりの票は、 受け取った事を 1 行書くまで数えます。 書けない置き場の票は数えません (= 起動し直しが行き止まりにならないように)
+
+`tabs rollover` は、 journal の確かめの前に同じ検査をし、 当たれば票の id と題を出して起動し直しを頼みません。 票ごとに、
+どこまで進んだかを `add` で書く (待つなら `--waiting`)・`pass` で渡す・`close` で閉じる、 のどれかをしてから打ち直します。
+票を見られなかった時 (backend が答えない・口が無い版) は、 そう言って先へ進みます。
+
+口は `GET /tickets/held?tab=<id>[&since=<ISO の時刻>]` で、 この機械の program だけが呼べます。 欄ごとの意味は契約にあります。
 
 ## 検査コマンドを設定する
 
@@ -257,7 +323,7 @@ backend を打った直後に落とすと、 起動の時の入れ直しで同�
 ### 統合 stream の `tickets` channel
 
 画面は `/stream/unified` の `tickets` channel で票を受けます。 中身は `{tickets, peers}` で、 `tickets` はこの機械の票
-(`GET /tickets` と同じ欄に `answer_pending`・`last_at`・`last_delivery`・`attention` を足した物)、 `peers` は、 もう 1 台の機械ごとの
+(`GET /tickets` と同じ欄に `answer_pending`・`last_at`・`last_delivery`・`attention`・`origin`・`due`・`marks` を足した物。 `status` には `waiting` も出ます)、 `peers` は、 もう 1 台の機械ごとの
 `{waiting: N}` (その機械で操作者の答えを待つ票の数。 60 秒ごとに相手の一覧から読む) か `{unreadable: true}` です。 接続した時に今の 1 枚、
 その後は票の file か索引・もう 1 台の数が変わった時に、 絵が変わっていれば 1 枚流します。
 

@@ -90,12 +90,14 @@ def _sender_fields(sender: str) -> dict:
     return {"from_session": sender, "from_title": sessions_meta[sender].title}
 
 
-async def add(home: Home, sender: str, ticket: str, text: str) -> dict:
-    """`tabs ticket add` for a ticket kept on `home`. → `{ok, id, status}` as the home machine answers."""
+async def add(home: Home, sender: str, ticket: str, text: str, *, waiting: bool = False, due: str | None = None) -> dict:
+    """`tabs ticket add` for a ticket kept on `home`, with `waiting` and `due` as the home machine reads them (= left out of the
+    call when not given, so a home machine that does not know them still takes the line). → `{ok, id, status}` as it answers."""
     _may_talk_to(home, sender)
     await _judged(home, ticket, text)
+    extra = {**({"waiting": True} if waiting else {}), **({"due": due} if due else {})}
     return await _carry("add", home.name, home.peer, f"{TICKETS_PATH}/{ticket}/entries",
-                        {**_sender_fields(sender), "text": text}, ticket)
+                        {**_sender_fields(sender), "text": text, **extra}, ticket)
 
 
 async def close(home: Home, sender: str, ticket: str, text: str) -> dict:

@@ -25,7 +25,8 @@ from backend.routes.agent_messages import (
     resolve_receiver,
     tab_reachable,
 )
-from backend.tickets import relay_judgement, ticket_checks, ticket_entry, ticket_file, ticket_index, ticket_places, ticket_service
+from backend.tickets import (relay_judgement, ticket_checks, ticket_entry, ticket_file, ticket_index, ticket_places,
+                             ticket_service, ticket_state)
 from backend.tickets.ticket_entry import Writer
 from backend.tickets.ticket_pass import notice_text, relayed_notice_envelope
 from backend.tickets.ticket_index import CLOSED, IndexRow
@@ -49,14 +50,18 @@ def _writer(peer_name: str, session: str, title: str) -> Writer:
     return Writer(tab, tab_title, "")
 
 
-async def add(peer_name: str, ticket: str, session: str, title: str, text: str) -> dict:
-    """The other machine's tab `session` (named `title`) adds `text` to the ticket. The text is judged as the addition of a
-    reader that has read no boundary. → `{ok, id, status}`."""
+async def add(peer_name: str, ticket: str, session: str, title: str, text: str, *, waiting: bool = False,
+              due: str | None = None) -> dict:
+    """The other machine's tab `session` (named `title`) adds `text` to the ticket, which `waiting` sets aside and `due` gives a
+    day (`ticket_state.after_add`, as for a tab here). The text is judged as the addition of a reader that has read no
+    boundary. → `{ok, id, status}`."""
     row = _given_row(ticket, open_only=True)
     folder = await ticket_places.folder_for(row.place_key)
     await ticket_checks.check_write(folder, text)
-    entry = ticket_entry.make_entry(ticket_entry.ADDED, _writer(peer_name, session, title), text, at=ticket_service.now())
-    row = await asyncio.to_thread(ticket_service.write_entry, ticket, folder, entry)
+    extra = {**({"waiting": True} if waiting else {}), **({"due": due} if due else {})}
+    entry = ticket_entry.make_entry(ticket_entry.ADDED, _writer(peer_name, session, title), text, at=ticket_service.now(), **extra)
+    row = await asyncio.to_thread(ticket_service.write_entry, ticket, folder, entry,
+                                  ticket_state.after_add(waiting=waiting, due=due))
     logger.info("ticket relayed in: op=add id=%s from=%s:%s", ticket, peer_name, session)
     return {"ok": True, "id": ticket, "status": row.status}
 
@@ -98,8 +103,8 @@ async def show(peer_name: str, ticket: str, reader: str) -> dict:
 
 
 async def list_tickets(peer_name: str) -> dict:
-    """The tickets kept outside every boundary, for the other machine's screen: their id, state, who holds and asked first and
-    when they were opened. No title (= a title is content, and the lines are read through `show`); a ticket inside a boundary
+    """The tickets kept outside every boundary, for the other machine's screen and its tabs' lists: their id, state, who holds and
+    asked first, when they were opened, where they came from (`origin`) and their due day. No title (= a title is content, and the lines are read through `show`); a ticket inside a boundary
     is not named at all."""
     own = _config.MACHINE_NAME
     tickets = []
@@ -109,7 +114,7 @@ async def list_tickets(peer_name: str) -> dict:
         first = next(iter(await asyncio.to_thread(ticket_file.read, paths.TICKETS_DIR, ticket)), {})
         tickets.append({"id": ticket, "opened_at": first.get("at"), "status": row.status, "wants": row.wants,
                         "holder": relay_judgement.seen_from(row.holder, own, peer_name),
-                        "opener": relay_judgement.seen_from(row.opener, own, peer_name)})
+                        "opener": relay_judgement.seen_from(row.opener, own, peer_name), "origin": row.origin, "due": row.due})
     logger.info("ticket relayed in: op=list id=- from=%s", peer_name)
     return {"ok": True, "home": own, "tickets": sorted(tickets, key=lambda item: (item["opened_at"] or "", item["id"]), reverse=True)}
 

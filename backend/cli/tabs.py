@@ -21,7 +21,7 @@
     tabs    rollover <continue|wait> [--tier <階層>]
                                  このタブを終了して起動し直す (= 自動の入れ替え。 締めを終えた最後の 1 手)。
                                  この会話が Write / Edit で書いた journal に `## 入れ替えの時点` が在り、 commit が
-                                 済んでいる時だけ頼む (= 欠けていれば、 欠けた段を名指して止まる。 push は見ない)。
+                                 済んでいる時だけ頼む (= 欠けていれば、 欠けた段を名指して止まる。 push は見ない)。 先に票も見る (= `ticket mine --unsettled`)。
                                  continue は起動の後に引き継いだ作業を続け、 wait はブリーフィングで待つ。
                                  階層は --tier、 無ければ `AGENT_TIER`、 それも無い会話 (= 再開や fork で始まった
                                  会話) は、 一覧と同じにその会話の最初の発話から導く。
@@ -38,7 +38,7 @@
                                  (= タブの外の program からも打てる。 使い方: `backend/cli/ask.py`)
     tabs    capacity [--json]    この機械が今どれだけ持ち、 あとどれだけ立てられるか (= 子の上限・タブ・Claude 1 本の
                                  メモリ・機械のメモリ・口座の使用量。 素の値だけで線は引かない。 使い方: `backend/cli/capacity.py`)
-    tabs    ticket <new|show|add|ask|close|pass> ...
+    tabs    ticket <new|show|mine|add|ask|close|pass> ...
                                  requests that cross tabs, kept as one ticket each that tabs only add to (usage: `backend/cli/ticket.py`)
     tabs    page-url <file>      ページの origin (= client の設定の `page_origin`) の folder の中の <file> を、 操作者の端末で
                                  開ける tailnet の URL にして出す (= `tailscale serve` がページの port を出している口から組む)。
@@ -535,15 +535,16 @@ def send(to: str, file: Path, operator_said: bool = False, hands_work: bool = Tr
     return not_delivered(*send_failure(status, body))
 
 
+def own_record() -> Path | None:
+    """この会話の記録 (= `CLAUDE_CODE_SESSION_ID` の `.jsonl`)。 見つからなければ None。"""
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    return next(iter(HOME.glob(f".claude*/projects/*/{session}.jsonl")), None) if session else None
+
+
 def own_tier() -> str | None:
     """この会話の階層を、 一覧と同じ決め方で導く (= 会話の最初の発話から)。 会話の記録が見つからなければ None。"""
-    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    if not session:
-        return None
-    launch = launcher()
-    for record in HOME.glob(f".claude*/projects/*/{session}.jsonl"):
-        return launch.tier_of(launch.first_message(record.parents[2], session))[0]
-    return None
+    record = own_record()
+    return launcher().tier_of(launcher().first_message(record.parents[2], record.stem))[0] if record else None
 
 
 # --- 子のタブ ----------------------------------------------------------------------
@@ -847,8 +848,7 @@ def not_handed_over() -> str | None:
     push は次の会話の締めが運ぶ。 push の失敗や push 先の無い repo で起動し直しを止めると、 60% を超えた会話が
     人の手を待って動かなくなる。
     """
-    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    record = next(iter(HOME.glob(f".claude*/projects/*/{session}.jsonl")), None) if session else None
+    record = own_record()
     if record is None:
         return "この会話の記録が見つかりません (= CLAUDE_CODE_SESSION_ID)。 締めが済んだかを確かめられません"
     if os.environ.get("AGENT_CHILD"):
@@ -942,8 +942,8 @@ def rollover(mode: str, tier: str | None) -> int:
     if launcher().tier_folder(tier) is None:
         print(f"tabs: 階層が見つかりません: {tier} (= normal / projects/<P> / projects/<P>/subprojects/<S>、 subprojects/<S> は何段でも)", file=sys.stderr)
         return 1
-    # 終了された後では書けないので、 締め (= journal と commit) が済んだかを先に見る
-    missing = not_handed_over()
+    # 終了された後では書けないので、 票 (= 書き足していない動いている票) と締め (= journal と commit) が済んだかを先に見る
+    missing = ticket_command.unsettled_refusal(call, own_record()) or not_handed_over()
     if missing:
         print(f"tabs: まだ起動し直せません: {missing}", file=sys.stderr)
         return 1
@@ -983,7 +983,7 @@ def main(argv: list[str]) -> int:
     if argv[:1] == ["capacity"]:
         return capacity_command.run(argv[1:], call)
     if argv[:1] == ["ticket"]:
-        return ticket_command.run(argv[1:], call, outward_receiver)
+        return ticket_command.run(argv[1:], call, outward_receiver, own_record)
     if len(argv) == 2 and argv[0] == "page-url":
         return page_url(Path(argv[1]))
     if len(argv) == 2 and argv[0] == "sleep":

@@ -519,7 +519,7 @@ class PostTicketsTicketEntriesResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ok: bool
     id: str
-    status: str  # open, waiting-operator or closed
+    status: str  # open, waiting, waiting-operator or closed
 
 
 class PostTicketsTicketAsksRequest(BaseModel):
@@ -620,6 +620,15 @@ class PostTicketsTicketPassResponse(BaseModel):
     kept: Optional[bool] = None  # the tab is stopped by the account hold, so the line is kept and delivered once an account is clear
 
 
+class GetTicketsHeldResponse(BaseModel):
+    """GET /tickets/held response"""
+    model_config = ConfigDict(extra="forbid")
+    ok: bool
+    tab: str
+    tickets: list[dict[str, Any]]
+    peer_unreachable: list[str]  # the machines that did not answer; their tickets are left out
+
+
 class GetTicketsTicketResponse(BaseModel):
     """GET /tickets/{ticket} response"""
     model_config = ConfigDict(extra="forbid")
@@ -646,6 +655,8 @@ class PostAgentMessagesTicketsTicketEntriesRequest(BaseModel):
     from_session: str  # the tab's id on the other machine
     from_title: str  # the tab's name
     text: str  # the line
+    waiting: Optional[bool] = None  # true sets the ticket aside (optional)
+    due: Optional[str] = None  # YYYY-MM-DD (optional)
 
 
 class PostAgentMessagesTicketsTicketEntriesResponse(BaseModel):

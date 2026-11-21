@@ -1132,7 +1132,7 @@ endpoints:
     description: "a tab opens a ticket, the one file that a request crossing tabs is kept in (= multipart / urlencoded form)"
     request_body:
       type: object
-      description: "form: from (= the opening tab's id) + title + text + operator_said (= true puts the operator's last words in that tab into the ticket, as the conversation's record has them)"
+      description: "form: from (= the opening tab's id) + title + text + operator_said (= true puts the operator's last words in that tab into the ticket, as the conversation's record has them) + due (= YYYY-MM-DD, optional)"
     response:
       type: object
       properties:
@@ -1150,29 +1150,31 @@ endpoints:
       - "the first lines are judged by ticket_write_check before anything is written; a refusal is 403 ticket_refused, a check that cannot run 503 ticket_check_failed"
       - "a place that does not fit one folder is 409 ticket_place_split and an undecidable one 503 ticket_place_unknown; nothing is written"
       - "the operator's words come from the tab's conversation record, never from the form"
-      - "index.json holds each ticket's place key, holder, opener, state and what it wants, and no title, text or folder path"
+      - "the ticket's origin is `operator` only when the operator's words went in as the second line, else `self`; it is set here and never changes. due is a day that exists, in the form YYYY-MM-DD, else 400 ticket_bad_due"
+      - "index.json holds each ticket's place key, holder, opener, state, what it wants, its origin and its due day, and no title, text or folder path"
     implementation: backend/routes/tickets.py
 
   - method: POST
     path: /tickets/{ticket}/entries
-    description: "a tab adds what it did to a ticket (= form: from, text); the holder does not change"
+    description: "a tab adds what it did to a ticket (= form: from, text, waiting, due); the holder does not change"
     request_body:
       type: object
-      description: "form: from (= the writing tab's id) + text"
+      description: "form: from (= the writing tab's id) + text + waiting (= true sets the ticket aside; the text says what it waits for) + due (= YYYY-MM-DD, optional)"
     response:
       type: object
       properties:
         ok:     { type: boolean }
         id:     { type: string }
-        status: { type: string, description: "open, waiting-operator or closed" }
+        status: { type: string, description: "open, waiting, waiting-operator or closed" }
       required: [ok, id, status]
     response_kind: json
     auth: localhost
     invariants:
       - "a tab that has not read the whole boundary of the ticket's place is refused with 403 ticket_outside_place (ticket_covers_check)"
       - "the text is judged by ticket_write_check; lines are only ever added, and two added at once do not mix"
+      - "the state follows what was added, worked out from the row under the ticket's lock: a line with waiting makes it `waiting`, a plain line makes an open or waiting ticket `open`, a ticket that waits for the operator stays so (only due changes); due sets the due day when given and is 400 ticket_bad_due when it is not a day"
       - "a closed ticket takes no line (409 ticket_closed); an id that is not in the index is 404 ticket_unknown; an empty text is 400 ticket_empty"
-      - "a ticket kept on the other machine (= the machine at the head of its id) is carried there: the text is judged as a message to <machine>:<ticket id> and sent to that machine's /agent-messages/tickets/{ticket}/entries; its answer or refusal comes back as it was, a machine that does not answer is 503 ticket_peer_down and nothing is kept; a machine that is not configured is 404 ticket_unknown"
+      - "a ticket kept on the other machine (= the machine at the head of its id) is carried there: the text is judged as a message to <machine>:<ticket id> and sent to that machine's /agent-messages/tickets/{ticket}/entries, with waiting and due when given; its answer or refusal comes back as it was, a machine that does not answer is 503 ticket_peer_down and nothing is kept; a machine that is not configured is 404 ticket_unknown"
     implementation: backend/routes/tickets.py
 
   - method: POST
@@ -1332,6 +1334,45 @@ endpoints:
       - "a ticket waiting for the operator is not handed over (409 ticket_waiting_operator), nor while the operator's answer has not reached its holder (409 ticket_answer_pending)"
       - "to is a tab of this machine, or <machine>:<tab> for a tab of the other machine; the machine that keeps the ticket always does the pass, whichever machines the two tabs are on (= this door carries it there for a ticket of the other machine), and a ticket inside a boundary is not passed to or from the other machine (403 ticket_inside_boundary)"
       - "the tab is told through the way messages between tabs go (= the usual envelope, with the ticket's id as an attribute of its tag, the usual first line); the ticket changes only after that delivery"
+      - "a waiting ticket is `open` again once it is handed on (= the tab it goes to acts on it); the holder and the state change together under the ticket's lock"
+    implementation: backend/routes/tickets.py
+
+  - method: GET
+    path: /tickets/held
+    description: "the tickets a tab holds that are not closed, with what the tab may read of each (= query: tab, since), for `tabs ticket mine`"
+    request_query:
+      tab:   { type: string, description: "the tab's id" }
+      since: { type: string, description: "an ISO time (optional): the start of the tab's conversation; a line the tab itself wrote at or after it counts as written" }
+    response:
+      type: object
+      properties:
+        ok:   { type: boolean }
+        tab:  { type: string }
+        tickets:
+          type: array
+          items:
+            type: object
+            properties:
+              id:      { type: string }
+              title:   { type: string, nullable: true, description: "what the tab may read of the first line; null when it may not or the place is not known" }
+              status:  { type: string, description: "open, waiting or waiting-operator" }
+              source:  { type: string, description: "operator (= the operator's words went in when it opened), tab (= another tab than the holder opened it) or self" }
+              due:     { type: string, nullable: true, description: "YYYY-MM-DD" }
+              marks:   { type: array, items: { type: string }, description: "overdue, due_soon, waiting_stale, idle, in that order" }
+              next:    { type: string, description: "the first line of the text of the last line a tab wrote that has text, as the tab may read it" }
+              last_at: { type: string, description: "the time of the last line a tab wrote (the client's lines do not count)" }
+              written_since: { type: boolean, nullable: true, description: "whether the tab itself wrote a line at or after since; null without since" }
+              writable: { type: boolean, description: "whether the tab has read the ticket's place's boundary (ticket_covers_check)" }
+            required: [id, status, source, marks, next, last_at, writable]
+        peer_unreachable: { type: array, items: { type: string }, description: "the machines that did not answer; their tickets are left out" }
+      required: [ok, tab, tickets, peer_unreachable]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "a tab's tickets are the ones the index names it holder of, and the other machine's tickets whose holder is the tab as that machine's list names it; a closed ticket is not listed"
+      - "the title and the next step are judged by ticket_read_check for the tab, as `show` judges a line: a line the tab may not read gives no title and no next step"
+      - "a machine that does not answer is named in peer_unreachable and does not stop the list; a tab that is not known is 400 ticket_unknown_sender and a since that is not a time 400 ticket_bad_since"
+      - "declared before /tickets/{ticket}, which would take `held` for an id"
     implementation: backend/routes/tickets.py
 
   - method: GET
@@ -1373,11 +1414,14 @@ endpoints:
               id:            { type: string }
               title:         { type: string, nullable: true, description: "read from the ticket's place; null when the place is not known" }
               opened_at:     { type: string, nullable: true }
-              status:        { type: string }
+              status:        { type: string, description: "open, waiting, waiting-operator or closed" }
               wants:         { type: string, nullable: true }
               holder:        { type: string }
               opener:        { type: string }
               place_outside: { type: boolean }
+              origin:        { type: string, description: "operator (= the operator's words went in when it opened) or self" }
+              due:           { type: string, nullable: true, description: "YYYY-MM-DD" }
+              marks:         { type: array, items: { type: string }, description: "overdue, due_soon, waiting_stale, idle, in that order (= none for a closed ticket)" }
               answer_pending: { type: array, items: { type: string }, description: "the `asked_at` of every answer given that has no `delivered` line yet" }
               last_at:       { type: string, description: "the time of the last line" }
               last_delivery: { type: object, nullable: true, description: "{result, followed}: how the last delivery ended, and whether any line came after it" }
@@ -1399,6 +1443,8 @@ endpoints:
         from_session: { type: string, description: "the tab's id on the other machine" }
         from_title: { type: string, description: "the tab's name" }
         text: { type: string, description: "the line" }
+        waiting: { type: boolean, description: "true sets the ticket aside (optional)" }
+        due: { type: string, description: "YYYY-MM-DD (optional)" }
       required: [from_session, from_title, text]
     response:
       type: object
@@ -1520,7 +1566,7 @@ endpoints:
 
   - method: GET
     path: /agent-messages/tickets
-    description: "the tickets kept here outside every boundary, for the other machine's screen"
+    description: "the tickets kept here outside every boundary, for the other machine's screen and its tabs' lists (= each with its id, state, holder, opener, origin and due day)"
     response:
       type: object
       properties:
@@ -1810,7 +1856,7 @@ endpoints:
     auth: tailnet
     invariants:
       - "frame は data 行 JSON の channel envelope: {ch: sys|jsonl|status|overview|subagents|tickets, ...}"
-      - "the tickets channel is `{ch: tickets, data: {tickets, peers}}`: `tickets` is this machine's tickets as GET /tickets lists them (= with answer_pending, last_at, last_delivery and attention), `peers` is each other machine's `{waiting: N}` (= its tickets waiting for the operator, read every 60 s; only the ones kept outside every boundary) or `{unreadable: true}`. One is sent when the connection opens, and another each time a ticket's file or row changed or a count changed, and only when the picture differs"
+      - "the tickets channel is `{ch: tickets, data: {tickets, peers}}`: `tickets` is this machine's tickets as GET /tickets lists them (= with answer_pending, last_at, last_delivery, attention, origin, due and marks), `peers` is each other machine's `{waiting: N}` (= its tickets waiting for the operator, read every 60 s; only the ones kept outside every boundary) or `{unreadable: true}`. One is sent when the connection opens, and another each time a ticket's file or row changed or a count changed, and only when the picture differs"
       - "jsonl channel は query `jsonl=sid:off,...` / control op で購読宣言した sid のみ配信 (= fan-out 遮断)。 the sids that can be subscribed are the Claude tabs and the API tabs (= the table of backend/api_tabs/)"
       - "the status channel is sid → row. A Claude tab's row has model / ctx_pct / 5h / 7d and the rest. An API tab's row is of another kind and holds only { kind: api, context_tokens, spend } (= spend is its wallet's spend this month, null when there is no figure), never a Claude row with empty fields, so the bar draws no 5h, 7d or NaN%"
       - "an API tab's events (jsonl channel) and its context_tokens (overview) follow the rows appended to its record file, looked at every 0.5 s. Rows already there when the backend started are not streamed; a file that appears later is read from 0; a file that got shorter, or vanished, is read from 0 again and history_refetch is sent"

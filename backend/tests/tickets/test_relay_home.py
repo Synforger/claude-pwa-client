@@ -58,6 +58,22 @@ def test_a_tab_of_the_other_machine_adds_a_line_written_with_its_machine_and_no_
     assert ticket_index.get(ticket).holder == "ses_a"
 
 
+def test_a_line_of_the_other_machine_sets_a_ticket_aside_and_a_plain_one_puts_it_back_to_open(home):
+    ticket = outside_ticket()
+    assert run(relay_home.add("company", ticket, "ses_x", "notes", "waits", waiting=True, due="2026-12-01"))["status"] == "waiting"
+    row = ticket_index.get(ticket)
+    assert (row.status, row.due) == ("waiting", "2026-12-01")
+    assert run(relay_home.add("company", ticket, "ses_x", "notes", "went on"))["status"] == "open"
+    assert ticket_index.get(ticket).due == "2026-12-01"
+
+
+def test_the_list_for_the_other_machine_gives_the_origin_and_the_due_day(home):
+    ticket = outside_ticket()
+    ticket_index.put(ticket, ticket_index.get(ticket)._replace(origin="operator", due="2026-12-01"))
+    [item] = run(relay_home.list_tickets("company"))["tickets"]
+    assert (item["origin"], item["due"]) == ("operator", "2026-12-01")
+
+
 def test_the_added_text_is_judged_as_a_reader_that_has_read_no_boundary_and_a_refusal_writes_nothing(home):
     ticket = outside_ticket()
     home.guard.use("write", write={"refuse_containing": "secret"})
@@ -135,7 +151,7 @@ def test_the_list_has_only_the_tickets_outside_every_boundary_and_no_title(home)
     _inside_boundary(inside)
     answer = run(relay_home.list_tickets("company"))
     assert [item["id"] for item in answer["tickets"]] == [outside]
-    assert set(answer["tickets"][0]) == {"id", "opened_at", "status", "wants", "holder", "opener"}
+    assert set(answer["tickets"][0]) == {"id", "opened_at", "status", "wants", "holder", "opener", "origin", "due"}
     assert "Plain" not in str(answer) and inside not in str(answer) and "Inside title" not in str(answer)
     assert answer["tickets"][0]["holder"] == "home:ses_a"
 
@@ -299,3 +315,13 @@ def test_a_form_of_the_other_machine_that_cannot_be_read_is_400(home, door, body
 def test_a_ticket_that_is_not_here_is_404_through_the_doors(home, door):
     assert _error(door.get("/agent-messages/tickets/home-261119-77", params={"reader": "s"})) == (404, "ticket_unknown")
     assert _error(door.get("/agent-messages/tickets/not-an-id", params={"reader": "s"})) == (404, "ticket_unknown")
+
+
+def test_the_door_takes_the_waiting_mark_and_the_due_day_and_refuses_a_form_that_is_not_one(home, door):
+    ticket = outside_ticket()
+    body = {"from_session": "ses_x", "from_title": "notes", "text": "waits"}
+    assert door.post(f"/agent-messages/tickets/{ticket}/entries", json={**body, "waiting": True, "due": "2026-12-01"}).json()[
+        "status"] == "waiting"
+    assert ticket_index.get(ticket).due == "2026-12-01"
+    assert _error(door.post(f"/agent-messages/tickets/{ticket}/entries", json={**body, "due": 20261201})) == (400, "ticket_bad_relay")
+    assert _error(door.post(f"/agent-messages/tickets/{ticket}/entries", json={**body, "due": "soon"})) == (400, "ticket_bad_due")

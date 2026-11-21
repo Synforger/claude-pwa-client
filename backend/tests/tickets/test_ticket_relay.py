@@ -61,6 +61,13 @@ def test_add_carries_the_text_and_the_tab_to_the_home_and_gives_its_answer_back(
                                 {"from_session": "ses_a", "from_title": "client work", "text": "I did it"})]
 
 
+def test_add_carries_the_waiting_mark_and_the_due_day_only_when_they_are_given(company, client):
+    client.post(f"/tickets/{REMOTE}/entries", data={"from": "ses_a", "text": "waits", "waiting": "true", "due": "2026-12-01"})
+    client.post(f"/tickets/{REMOTE}/entries", data={"from": "ses_a", "text": "plain"})
+    [(_url, marked), (_other, plain)] = company.carried
+    assert (marked["waiting"], marked["due"]) == (True, "2026-12-01") and "waiting" not in plain and "due" not in plain
+
+
 def test_close_carries_the_last_word_and_may_have_none(company, client):
     client.post(f"/tickets/{REMOTE}/close", data={"from": "ses_a", "text": "done"})
     client.post(f"/tickets/{REMOTE}/close", data={"from": "ses_a"})
