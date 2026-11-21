@@ -136,3 +136,14 @@ def test_no_door_answers_a_call_from_another_machine(ticket_env):
     assert [_error(call) for call in calls] == [(403, "ticket_local_only")] * 8
     assert ticket_index.rows() == {}
 
+
+
+def test_the_operators_phone_reads_a_ticket_through_tailscale_serve_and_the_tabs_doors_stay_shut(client):
+    # uvicorn shows the phone's tailnet address (the X-Forwarded-For serve writes) in place of this machine's own
+    ticket = _open(client)
+    phone = TestClient(client.app, client=("100.126.219.24", 0), headers={"X-Forwarded-Host": "machine.tailnet.example"})
+    read = phone.get(f"/tickets/{ticket}/answer")
+    assert read.status_code == 200 and read.json()["id"] == ticket
+    assert _error(phone.post("/tickets", data={"from": "ses_a", "title": "t", "text": "x"})) == (403, "ticket_local_only")
+    funnel = TestClient(client.app, client=("203.0.113.9", 0), headers={"X-Forwarded-Host": "machine.tailnet.example"})
+    assert _error(funnel.get(f"/tickets/{ticket}/answer")) == (403, "ticket_local_only")

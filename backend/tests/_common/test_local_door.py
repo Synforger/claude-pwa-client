@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 import backend.routes.ask as ask_routes
 import backend.routes.hooks as hooks_routes
-from backend._common.local_door import from_this_machine, require_this_machine
+from backend._common.local_door import from_this_machine, from_this_machine_or_its_screen, require_this_machine
 
 SERVED = {"X-Forwarded-Host": "machine.tailnet.example", "X-Forwarded-For": "100.64.0.7"}
 
@@ -79,3 +79,15 @@ def test_the_operators_answer_doors_take_the_screen_through_tailscale_serve(isol
         detail = response.json().get("detail")
         code = detail.get("code") if isinstance(detail, dict) else None
         assert code != "ticket_local_only"
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "100.126.219.24", "100.64.0.1", "100.127.255.254", "fd7a:115c:a1e0::1"])
+def test_the_operators_screen_reaches_its_doors_from_the_tailnet(host):
+    # uvicorn shows the address serve names in X-Forwarded-For (the phone's) in place of this machine's own
+    assert from_this_machine_or_its_screen(_request(host, {"X-Forwarded-Host": "machine.tailnet.example"}))
+
+
+@pytest.mark.parametrize("host", ["203.0.113.9", "100.128.0.1", "192.168.1.5", "testclient-not-an-address", None])
+def test_a_public_or_other_address_does_not_reach_the_screens_doors(host):
+    # a Funnel request shows the public address of its sender
+    assert not from_this_machine_or_its_screen(_request(host))
