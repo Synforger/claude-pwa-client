@@ -155,8 +155,10 @@ open within a moment (the context amount in the list follows too).
 
 - When the backend starts it follows a record from the end of its whole rows, so a restart does not stream the whole
   conversation again. A record that appears later is followed from its first row
-- When the file gets shorter (or vanishes) the client follows it from the start again and tells the screens to fetch the
-  history again
+- When the file gets shorter, is replaced by another file (a program that starts a new conversation renames a new file
+  over the path), or vanishes, the client follows it from the start again and tells the screens to fetch the history
+  again. A replacement is recognised by the file itself, not its size, so one that has already grown past the old
+  position is still read from its first row
 - The screen reads the history through the usual window (the latest rows), so the size of the file does not slow it down
 
 Log lines: `api tab: loaded <id> record=<path> exists=<bool>` when a tab comes (at load, or when a source lists it),
