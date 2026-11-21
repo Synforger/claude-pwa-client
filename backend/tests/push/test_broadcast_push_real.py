@@ -122,7 +122,7 @@ def test_a_ticket_push_carries_the_ticket_and_its_tag_and_adds_nothing_to_the_un
     monkeypatch.setattr(push_mod, "webpush", lambda subscription_info, data, **kwargs: payloads.append(json.loads(data)))
     monkeypatch.setattr(state_mod, "views_by_conn", {})
     monkeypatch.setattr(push_mod, "calls_by_conn", {})
-    _run(push_mod.broadcast_push("Waiting for your decision", "📌 A very long ticket title that does not fit", None,
+    _run(push_mod.broadcast_push("Waiting for your decision", "🎫 A very long ticket title that does not fit", None,
                                  ticket="home-261119-01", tag="ticket-home-261119-01"))
     [payload] = payloads
     assert payload["ticket"] == "home-261119-01" and payload["tag"] == "ticket-home-261119-01"

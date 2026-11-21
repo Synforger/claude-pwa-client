@@ -221,7 +221,7 @@ async def broadcast_push(
     `ticket` (= 票の id) を渡すと、 頼みの票についての通知になる (= `backend/tickets/ticket_notify.py`): payload に
     `ticket` と、 同じ票の通知をまとめる札 `tag` を載せ、 タップで SW が票の画面を開く。 タブの通知ではないので、
     タブの「見ている / 通話 / 通知モード」 の門は見ず、 声の通話がどこかでつながっている間は送らない。 未読の数には
-    足さない (= 数は残る 📌 が持つ)。
+    足さない (= 数は残る 🎫 が持つ)。
     """
     metrics.inc("push.broadcast")
     global unread_count

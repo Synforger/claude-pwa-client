@@ -20,7 +20,7 @@ const CLOSED_SHOWN_MS = CLOSED_SHOWN_DAYS * DAY_MS
 
 const lastAtOf = (ticket) => ticket.last_at || ticket.opened_at || ''
 
-/** 「見てほしい」 票の数 (= 📌 の数)。 */
+/** 「見てほしい」 票の数 (= 🎫 の数)。 */
 export function attentionCount(tickets) {
   return tickets.filter((ticket) => ticket.attention != null).length
 }

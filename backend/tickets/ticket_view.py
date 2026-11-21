@@ -64,14 +64,14 @@ _BODY_BY_RESULT = {"refused": "Your answer was not delivered", "unconfirmed": "C
 _BODY_NO_HOLDER = "No tab holds this ticket"
 _BODY_FALLBACK = "Waiting for you"
 #: The mark in front of a notification's title
-PIN = "📌"
+TICKET_MARK = "🎫"
 
 
 def notice_of(ticket: str, title: str | None, reason: str, *, wants: str | None = None, result: str | None = None) -> tuple[str, str]:
     """The title and the words of the notification that a ticket wants a look. `title` is None for a ticket kept inside a
     boundary: its title is content, so only its id is shown. `wants` says what it asks (`reason` = `ATTENTION_WAITING`),
     `result` how the last delivery ended (`ATTENTION_DELIVERY`)."""
-    heading = f"{PIN} {title}" if title else f"{PIN} Ticket {ticket}"
+    heading = f"{TICKET_MARK} {title}" if title else f"{TICKET_MARK} Ticket {ticket}"
     if reason == ATTENTION_WAITING:
         return heading, _BODY_BY_WANTS.get(wants or "", _BODY_FALLBACK)
     if reason == ATTENTION_DELIVERY:

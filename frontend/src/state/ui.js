@@ -11,7 +11,7 @@ const INITIAL = {
     favs: false,
     notes: false,
     settings: false,
-    tickets: false,       // 票の一覧 (= 📌 から開く引き出し)
+    tickets: false,       // 票の一覧 (= 🎫 から開く引き出し)
     ticket: null,         // 開いている票の id (= 票の画面。 null で閉じる)
     previewPath: null,
     treeOpen: null,

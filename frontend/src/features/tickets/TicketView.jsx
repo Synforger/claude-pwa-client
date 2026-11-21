@@ -12,7 +12,7 @@ import TicketLower from './TicketLower.jsx'
 import { factsOf, ticketLabel } from './ticketGroups.js'
 import { useTicketDetail } from './useTicketDetail.js'
 
-// 票の画面 (= 📌 の一覧・チャットの 1 行・通知から開く)。 頭に状態・出どころ・期限を出し、 その下に操作者の原文を枠で囲んで固定し、 下に件を時刻の順に出し、
+// 票の画面 (= 🎫 の一覧・チャットの 1 行・通知から開く)。 頭に状態・出どころ・期限を出し、 その下に操作者の原文を枠で囲んで固定し、 下に件を時刻の順に出し、
 // 一番下の欄は票の今で変わる (= TicketLower)。 別の機械の票は開かない (= 一覧の数だけ。 backend が `ticket_elsewhere` で断る)。
 
 // The head line of the ticket screen: its state, who asked for it (only when it is the operator) and the due date (when there is one).
@@ -47,7 +47,7 @@ export default function TicketView() {
     <div className="modal-overlay modal-overlay-preview ticket-overlay" onClick={onClose} data-testid="ticket-view">
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <span className="modal-path ticket-heading" data-testid="ticket-heading">📌 {heading}</span>
+          <span className="modal-path ticket-heading" data-testid="ticket-heading">🎫 {heading}</span>
           <div className="modal-actions">
             <button className="modal-close" onClick={onClose} aria-label={t('common.close')} data-testid="ticket-close">✕</button>
           </div>

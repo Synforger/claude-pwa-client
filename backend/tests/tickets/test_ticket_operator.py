@@ -151,7 +151,7 @@ def test_asking_tells_the_operators_devices_with_the_ticket_title(ticket_env, pu
         return ticket
 
     ticket = run(scenario())
-    assert pushed == [("Waiting for your decision", "📌 Fix the title", ticket, f"ticket-{ticket}")]
+    assert pushed == [("Waiting for your decision", "🎫 Fix the title", ticket, f"ticket-{ticket}")]
 
 
 def test_a_ticket_kept_inside_a_boundary_is_notified_by_its_id_only(ticket_env, pushed, monkeypatch):
@@ -159,7 +159,7 @@ def test_a_ticket_kept_inside_a_boundary_is_notified_by_its_id_only(ticket_env, 
     inside = ticket_index.get(ticket)._replace(place_key="inside")
     ticket_index.put(ticket, inside)
     run(ticket_notify.notify(ticket, "no_holder"))
-    assert pushed == [("No tab holds this ticket", f"📌 Ticket {ticket}", ticket, f"ticket-{ticket}")]
+    assert pushed == [("No tab holds this ticket", f"🎫 Ticket {ticket}", ticket, f"ticket-{ticket}")]
 
 
 def test_a_failing_push_does_not_fail_the_notification(ticket_env, monkeypatch):

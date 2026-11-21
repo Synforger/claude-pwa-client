@@ -225,7 +225,7 @@ describe('sw.js ticket notifications', () => {
     const context = sw.context
     context.self.registration.showNotification = (title, options) => { shown.push({ title, options }); return Promise.resolve() }
     context.self.registration.getNotifications = () => Promise.resolve([])
-    const event = pushEvent({ title: '📌 Fix it', body: 'Waiting for your decision', ticket: 'home-261119-01', tag: 'ticket-home-261119-01' })
+    const event = pushEvent({ title: '🎫 Fix it', body: 'Waiting for your decision', ticket: 'home-261119-01', tag: 'ticket-home-261119-01' })
     sw.listeners.push(event)
     await event.done()
     expect(shown).toHaveLength(1)
@@ -241,7 +241,7 @@ describe('sw.js ticket notifications', () => {
     sw.context.self.registration.showNotification = (title, options) => { shown.push(options); return Promise.resolve() }
     sw.context.self.registration.getNotifications = () => Promise.resolve([])
     sw.listeners.message({ data: { type: 'active-session', sid: 'ses_a', ticket: 'home-261119-01' }, source: { id: 'c1' } })
-    const event = pushEvent({ title: '📌 Fix it', body: 'x', ticket: 'home-261119-01', tag: 'ticket-home-261119-01' })
+    const event = pushEvent({ title: '🎫 Fix it', body: 'x', ticket: 'home-261119-01', tag: 'ticket-home-261119-01' })
     sw.listeners.push(event)
     await event.done()
     expect(shown[0].silent).toBe(true)
