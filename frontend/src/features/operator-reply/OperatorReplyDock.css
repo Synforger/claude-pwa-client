@@ -96,3 +96,13 @@
   max-width: 100%;
   padding: 0;
 }
+/* 入れ替えの前の最後の答え: 新しい会話の答えの下に、 罫で分けて並べる */
+.operator-reply-before {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.operator-reply-before .operator-reply-head {
+  padding: 0 0 6px;
+  border-bottom: none;
+}

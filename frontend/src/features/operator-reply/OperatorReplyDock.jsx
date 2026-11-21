@@ -51,7 +51,7 @@ export default function OperatorReplyDock() {
   useEffect(() => { setOpen(false) }, [activeSid])
 
   if (!found || !chatShown) return null
-  const { prompt, reply, ongoing } = found
+  const { prompt, reply, ongoing, before } = found
   const rollover = parseRollover(prompt.text)
   const promptLine = rollover ? t('chat.rollover_start') : firstLine(hideVoiceInputMark(prompt.text))
   const promptClock = clockOf(prompt.ts)
@@ -87,6 +87,22 @@ export default function OperatorReplyDock() {
                 streaming={ongoing}
               />
             </div>
+            {/* 入れ替えの後: 前の会話の最後の答えも、 書き直させずにここに残す */}
+            {before && (
+              <div className="operator-reply-before" data-testid="operator-reply-before">
+                <div className="operator-reply-head">
+                  <span className="operator-reply-title">{t('operator_reply.before_rollover')}</span>
+                  <span className="operator-reply-prompt">{firstLine(hideVoiceInputMark(before.prompt.text))}</span>
+                  {clockOf(before.prompt.ts) && <span className="operator-reply-clock">{clockOf(before.prompt.ts)}</span>}
+                </div>
+                <div className="bubble operator-reply-bubble">
+                  <MessageRenderer
+                    text={hideMarks(before.reply.text, voiceMarks)}
+                    onOpenFile={(path) => openLinkedPath(path, { onLeave: () => setOpen(false) })}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
