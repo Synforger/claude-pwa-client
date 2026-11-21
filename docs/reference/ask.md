@@ -180,7 +180,7 @@ folder を信頼するかを訊くので、 一度だけ画面で答えてくだ
 ```
 # 立てる: 題と folder を付ける (folder は <エージェントの key>/<folder>/... の形)
 curl -X POST http://127.0.0.1:<port>/sessions -H 'Content-Type: application/json' \
-  -d '{"agent_id": "<聞かれるエージェント>", "title": "<世界> の語り手", "list_folder": "<agent>/<プロジェクト>/<世界>"}'
+  -d '{"agent_id": "<聞かれるエージェント>", "title": "語り手", "list_folder": "<agent>/<プロジェクト>/<世界>"}'
 
 # 付け替える・題を変える (list_folder を null か "" にすると、 エージェントの folder に戻る)
 curl -X PATCH http://127.0.0.1:<port>/sessions/<タブの id> -H 'Content-Type: application/json' \
@@ -190,6 +190,8 @@ curl -X PATCH http://127.0.0.1:<port>/sessions/<タブの id> -H 'Content-Type: 
 curl -X DELETE http://127.0.0.1:<port>/sessions/<タブの id>
 ```
 
+- 題は役の名前だけにします。 一覧は folder で分かれるので、 世界やプロジェクトの名前を題の頭に付けると、
+  同じ名前が folder と題に 2 回並びます
 - 答えは、 そのタブの行 (`id`・`title`・`list_folder` を持つ) です。 形の違う `list_folder` は
   `400 invalid_list_folder` で、 タブは作られず、 付け替えでは題も変わりません
 - `list_folder` はタブと一緒に保存され、 backend を再起動しても残ります
