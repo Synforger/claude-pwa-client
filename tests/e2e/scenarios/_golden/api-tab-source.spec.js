@@ -14,7 +14,6 @@ const PORT = 18871
 const SOURCE_SID = 'api_g-trip'
 
 test.describe('golden: api-tab-source', () => {
-  test.setTimeout(120_000)
   let backend
 
   test.beforeAll(async () => {

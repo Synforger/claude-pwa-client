@@ -1277,12 +1277,15 @@ def test_a_long_silence_going_out_is_not_sent_and_the_next_sound_keeps_its_time(
 def test_the_answer_asks_the_phone_for_dtx_and_stays_a_valid_answer():
     # 意図: aiortc の本物の答えの Opus に usedtx=1 が付き、 書き足した答えも相手が読める
     pytest.importorskip("pipecat")
-    from aiortc import RTCPeerConnection, RTCSessionDescription
+    from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
 
     from backend.voice_call.worker import ask_for_dtx
 
     async def negotiate():
-        phone, mac = RTCPeerConnection(), RTCPeerConnection()
+        # 外の STUN を引かない (= aiortc は既定で Google の STUN に問い合わせ、 接続 1 本ごとに最大 5 秒待つ)。
+        # 試すのは答えの SDP の書き足しだけで、 手元の候補で足りる。
+        no_stun = RTCConfiguration(iceServers=[])
+        phone, mac = RTCPeerConnection(no_stun), RTCPeerConnection(no_stun)
         phone.addTransceiver("audio", direction="sendrecv")
         await phone.setLocalDescription(await phone.createOffer())
         await mac.setRemoteDescription(phone.localDescription)

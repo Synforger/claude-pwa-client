@@ -23,7 +23,6 @@ const outboxFiles = (backend) => {
 const healthOf = (backend, name) => JSON.parse(readFileSync(resolve(backend.dataDir, 'peer_health.json'), 'utf-8'))[name]
 
 test.describe('golden: agent-message to a machine that is down', () => {
-  test.setTimeout(240_000)
   let a
   let b
 

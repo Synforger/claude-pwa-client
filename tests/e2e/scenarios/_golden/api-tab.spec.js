@@ -14,7 +14,6 @@ const PORT = 18870
 const API_SID = 'api_support-bot'
 
 test.describe('golden: api-tab', () => {
-  test.setTimeout(120_000)
   let backend
 
   test.beforeAll(async () => {

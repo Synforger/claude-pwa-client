@@ -28,10 +28,27 @@ const messageRow = (index, stamp) => ({
   timestamp: new Date(stamp).toISOString(),
 })
 
-test.describe('regression: reading position holds', () => {
-  test.setTimeout(120_000)
+// Reads up four steps of 500 px, the way each screen does it. A computer turns the mouse wheel. A phone has no wheel
+// (mobile WebKit refuses one), so a finger touches the list first and then the list moves: the touch is what tells the
+// screen the person took over from the pull to the bottom.
+async function readUp(page, isMobile) {
+  if (!isMobile) await page.locator('.messages').hover()
+  for (let i = 0; i < 4; i++) {
+    if (isMobile) {
+      await page.evaluate(() => {
+        const list = document.querySelector('.messages')
+        list.dispatchEvent(new TouchEvent('touchstart', { bubbles: true }))
+        list.scrollBy(0, -500)
+      })
+    } else {
+      await page.mouse.wheel(0, -500)
+    }
+    await page.waitForTimeout(150)
+  }
+}
 
-  test('a bubble read above the bottom stays put while new messages come to a full conversation', async ({ page, request }) => {
+test.describe('regression: reading position holds', () => {
+  test('a bubble read above the bottom stays put while new messages come to a full conversation', async ({ page, request, isMobile }) => {
     const start = Date.now() - 3_600_000
     const seeded = await request.post('/debug/e2e/seed', {
       data: {
@@ -43,14 +60,15 @@ test.describe('regression: reading position holds', () => {
     const { jsonl_path: jsonlPath } = await seeded.json()
     await openClient(page, { sid: SID })
 
-    // The bubble across the middle of the list, and where it is on screen.
+    // The bubble across the middle of the list, and where it is on screen. When the middle falls in the gap between two
+    // bubbles, the one just below it.
     const reading = () => page.evaluate(() => {
       const list = document.querySelector('.messages')
       const box = list.getBoundingClientRect()
       const middle = box.top + box.height / 2
       for (const bubble of list.children) {
         const rect = bubble.getBoundingClientRect()
-        if (rect.top <= middle && rect.bottom > middle) {
+        if (rect.bottom > middle) {
           return { uuid: bubble.getAttribute('data-cpc-uuid'), offset: Math.round(rect.top - box.top), bubbles: list.children.length, arrowShown: !!document.querySelector('.scroll-btn') }
         }
       }
@@ -63,8 +81,7 @@ test.describe('regression: reading position holds', () => {
     }, uuid)
 
     // Scroll up to read: the ↓ button shows and the window freezes.
-    await page.locator('.messages').hover()
-    for (let i = 0; i < 4; i++) { await page.mouse.wheel(0, -500); await page.waitForTimeout(150) }
+    await readUp(page, isMobile)
     await expect(page.locator('.scroll-btn')).toBeVisible({ timeout: 5_000 })
     await page.waitForTimeout(1000)                      // the scroll is animated
     const before = await reading()
