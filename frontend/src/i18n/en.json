@@ -347,6 +347,7 @@
   "chat.notice_ticket_answer": "Answer delivered for ticket {id} ▸",
   "chat.notice_ticket_returned": "Ticket {id} came back to you ▸",
   "tickets.title": "Tickets",
+  "tickets.title_of_tab": "Tickets of {tab}",
   "tickets.empty": "No tickets",
   "tickets.group_attention": "Wants a look",
   "tickets.group_running": "In progress",

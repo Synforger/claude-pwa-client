@@ -155,3 +155,14 @@ it('draws the next step as plain text, never as markup', () => {
   expect(next.textContent).toBe('Fix <b>it</b>')
   expect(next.querySelector('b')).toBeNull()
 })
+
+it('opened from a tab\'s line, lists only the tickets that tab holds, under the tab\'s name, without the other machine', () => {
+  act(() => {
+    applyTicketsSnapshot({ tickets: [row('home-1'), row('home-2', { holder: 'ses_b' })], peers: { company: { waiting: 2 } } })
+    setOverlay('tickets', 'ses_a')
+  })
+  render(<TicketDrawer />)
+  expect(screen.getAllByTestId('ticket-row').map((r) => r.dataset.ticket)).toEqual(['home-1'])
+  expect(screen.getByTestId('ticket-drawer-heading').textContent).toContain('client work')
+  expect(screen.queryByTestId('ticket-peer')).toBeNull()
+})

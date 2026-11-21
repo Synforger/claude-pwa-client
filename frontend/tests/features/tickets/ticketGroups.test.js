@@ -216,3 +216,20 @@ describe('peerLines', () => {
     ])
   })
 })
+
+
+describe('needsOperator and attentionCount', () => {
+  const t = (id, extra = {}) => ({ id, status: 'open', holder: 'ses_a', attention: null, marks: [], ...extra })
+  it('counts what the operator acts on: an answer awaited, no holder, a delivery problem, a due day past', () => {
+    expect(attentionCount([
+      t('a', { attention: 'waiting', status: 'waiting-operator' }), t('b', { attention: 'no_holder', holder: '' }),
+      t('c', { attention: 'delivery' }), t('d', { marks: ['overdue'] }),
+    ])).toBe(4)
+  })
+  it('leaves out the tickets tabs pass between them, moving or waiting, also when due soon or quiet', () => {
+    expect(attentionCount([t('a'), t('b', { status: 'waiting' }), t('c', { marks: ['due_soon'] }), t('d', { marks: ['idle'] })])).toBe(0)
+  })
+  it('puts an overdue ticket in the first group', () => {
+    expect(groupTickets([t('d', { marks: ['overdue'] })], Date.parse('2026-11-21T00:00:00Z')).attention.map((x) => x.id)).toEqual(['d'])
+  })
+})
