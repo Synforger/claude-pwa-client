@@ -40,7 +40,7 @@ import { useDockedDrawer } from '../features/session-drawer/useDockedDrawer.js'
 import { useAppBarHeight } from './useAppBarHeight.js'
 import './App.css'
 
-// タブの一覧が開いているか。 ui の store 全体は購読せず真偽だけを取る (= キーボードの状態などの変化で全体を描き直さない)
+// Whether the tab list is open. Only this boolean is subscribed, not the whole ui store, so a change such as the keyboard's does not redraw everything.
 const getDrawerOpen = () => !!getUiSnapshot().overlays.drawer
 
 export default function Layout() {
@@ -49,7 +49,7 @@ export default function Layout() {
   // xterm.js lifecycle 保持)。
   const sessions = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
   const activeSid = sessions.activeId
-  // PC の広い画面でタブの一覧が開いている間は、 帯より下の本文を一覧の幅だけ右へ寄せる (= 帯は全幅のまま)
+  // While the tab list is open on a wide screen, push everything under the bar right by its width (the bar stays full width)
   const docked = useDockedDrawer()
   const drawerOpen = useSyncExternalStore(subscribeUi, getDrawerOpen)
   const drawerDocked = docked && drawerOpen
@@ -58,13 +58,12 @@ export default function Layout() {
   useAppBarHeight(appRef, barRef)
   return (
     <div className={`app${drawerDocked ? ' drawer-docked' : ''}`} ref={appRef}>
-      {/* 帯を包む要素 (= 高さを測って、 左に置いたままの一覧の top に渡す)。 StatusBar が最上位 (= UI 不変保証 § 9-3)。
-          Phase J-7 で復元、 StatusBar 自身が props 自己解決して Layout から直接配置できる単体 component 化。 */}
+      {/* Wraps the bar: its height is measured and handed to the docked list as its top. StatusBar stays the topmost part. */}
       <div className="app-bar" ref={barRef}>
         <StatusBar />
       </div>
-      {/* 帯より下の本文。 一覧が左に居る時はここだけが右へ寄る。 並びは旧 AppShell.jsx と一致:
-          StorageWarningHost、 Topbar、 ... 。 画面全体に重なる部品 (= OverlayHost) と副作用は外に置く。 */}
+      {/* Everything under the bar; only this moves right while the list is docked. Parts that cover the whole screen
+          (OverlayHost) and the effects stay outside. */}
       <div className="app-main">
         <StorageWarningHost />
         <Topbar />

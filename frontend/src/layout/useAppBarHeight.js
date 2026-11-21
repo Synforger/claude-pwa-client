@@ -1,6 +1,6 @@
-// 一番上の帯 (= StatusBar) を包む要素の高さを測り、 CSS 変数 --app-bar-h として host に渡す。
-// 左に置いたままのタブの一覧が、 帯の下から始まるために使う (= 帯の高さは文字の大きさや折り返しで変わるので決め打ちしない)。
-// React の state には入れない: 帯の大きさが変わるたびに Layout 全体を描き直さないため、 style へ直に書く。
+// Measures the element that wraps the bar at the top (StatusBar) and gives its height to the host as the CSS variable --app-bar-h.
+// The docked tab list starts below it; the height is measured, not fixed, because text size and wrapping change it.
+// It is written straight to the style, not into React state, so a change of the bar's size does not redraw all of Layout.
 
 import { useLayoutEffect } from 'react'
 

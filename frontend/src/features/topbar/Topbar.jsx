@@ -31,7 +31,7 @@ export default function Topbar() {
   const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
   const sessionsState = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
   const t = useT()
-  // PC の広い画面ではタブの一覧が左に置いたままになるので、 ☰ は開け閉めの切り替え (= 狭い画面は今まで通り開くだけ)
+  // The list stays on the left of a wide screen, so ☰ toggles it there; on any other screen it only opens it, as before
   const docked = useDockedDrawer()
   // 「見てほしい」 票の数 (= ☰ の数字の印。 0 なら出さない)
   const ticketsToLookAt = attentionCount(useSyncExternalStore(subscribeTickets, getTicketsSnapshot).tickets)

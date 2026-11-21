@@ -8,7 +8,7 @@
 //   - useNotificationClear() (= 通知クリア)
 //   - SW への active-session post (= visibility 連動 + activeSid 変化)
 //   - usePushSubscription() (= Web Push 購読状態管理)
-//   - タブの一覧の開け閉め (= 起動で覚えた値を入れ、 画面の幅が変わった時に決め直す。 PC の広い画面では左に置いたまま)
+//   - open / shut of the tab list (starts from what the machine remembered, decided again when the window changes size)
 //
 // hydrate (= module load 時の lsGet → state/ui.hydrate({viewModes})) も本 file の module-level で行う
 // (= 旧 AppShell.jsx の module-level hydrate と同方針、 first render で ui.viewModes が即座に正しい値
@@ -47,8 +47,8 @@ try {
   if (persisted && typeof persisted === 'object') hydrateUi({ viewModes: persisted })
 } catch { /* hydrate 失敗は viewModes={} で起動して継続 (= 旧 hook の try/lsGet と同方針) */ }
 
-// PC の広い画面では、 タブの一覧を覚えた開け閉めで始める。 viewModes と同じく module load で入れておくと、
-// 最初の描画から本文が一覧の幅だけ寄った形で出る (= 開いた後に本文がずれない)。
+// Start the tab list as the machine remembered it. Done at module load like viewModes, so the first paint already has
+// the body pushed aside and nothing shifts after the list opens.
 restoreDrawerOpen()
 
 export default function AppEffects() {
@@ -74,7 +74,7 @@ export default function AppEffects() {
   useReadOnSessionOpen(activeSid)
   useDeepLink(setActiveId)
   useNotificationClear()
-  // 画面の幅が変わった時に、 タブの一覧の開け閉めを決め直す (= 狭くなれば閉じ、 広くなれば覚えた値で開け閉めする)
+  // Decide the tab list's open / shut again when the window changes size (shut when narrow, as remembered when wide)
   useDockedDrawerRestore()
   // 頼みの票の絵 (= 統合 stream の `tickets` channel) を受ける。 🎫・票の一覧・タブの一覧が読む
   useTicketsChannel()

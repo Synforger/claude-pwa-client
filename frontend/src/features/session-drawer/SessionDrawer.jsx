@@ -86,7 +86,7 @@ export default function SessionDrawer() {
   // ただし内部 effect (= popup 閉じる等) は本来の open prop と同じ意味付けで使うため、 別名で持つ。
   const uiSnap = useSyncExternalStore(subscribeUi, getUiSnapshot)
   const open = !!uiSnap.overlays.drawer
-  // PC の広い画面では一覧を左に置いたままにする: 幕を出さず、 タブを選んでも閉じない (= 閉じるのは ✕ と ☰ だけ)
+  // On a wide screen with a mouse the list stays on the left: no curtain, and it stays after a tab is chosen (only ✕ and ☰ shut it)
   const docked = useDockedDrawer()
   const currentLang = useSyncExternalStore(subscribeLocale, getLocaleSnapshot).lang
   const t = useT()
@@ -120,7 +120,7 @@ export default function SessionDrawer() {
 
   // 各種 callback (= 旧 AppShell からの props を内蔵化)
   const onClose = useCallback(() => setDrawerOpen(false, { docked }), [docked])
-  // タブを選ぶ・作る・票や設定を開く操作の後の閉じ方。 重ねる形は閉じ、 左に置いたままの形は開けておく
+  // What follows choosing or making a tab, or opening tickets or settings: the overlay form shuts, the docked form stays open
   const closeAfterAction = useCallback(() => { if (!docked) onClose() }, [docked, onClose])
   const onSelect = useCallback((sid) => {
     storeSetActiveId(sid)

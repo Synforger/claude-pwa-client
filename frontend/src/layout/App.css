@@ -1,5 +1,5 @@
 .app {
-  /* PC の広い画面で、 左に置いたままのタブの一覧の幅 (= 本文はこの幅だけ右へ寄る。 一覧も同じ値を読む) */
+  /* Width of the tab list kept on the left of a wide screen: the body is pushed right by it, and the list reads the same value */
   --docked-drawer-w: 320px;
   display: flex;
   flex-direction: column;
@@ -7,12 +7,12 @@
   background: var(--bg);
 }
 
-/* 一番上の帯。 高さは useAppBarHeight が測って --app-bar-h に出す (= 一覧が帯の下から始まる) */
+/* The bar at the top. useAppBarHeight measures it into --app-bar-h, which is where the docked list starts. */
 .app-bar {
   flex-shrink: 0;
 }
 
-/* 帯より下の本文 (= 縦に積む流れは今まで .app が持っていた形のまま) */
+/* Everything under the bar, stacked top to bottom as .app used to do. */
 .app-main {
   display: flex;
   flex-direction: column;

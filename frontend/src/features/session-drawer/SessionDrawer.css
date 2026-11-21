@@ -33,9 +33,9 @@
 .drawer.open {
   transform: translateX(0);
 }
-/* PC の広い画面で左に置いたままにする形 (= Layout が帯の高さ --app-bar-h と一覧の幅 --docked-drawer-w を渡す)。
-   帯の下から画面の下までで、 本文は Layout が同じ幅だけ右へ寄せるので何も覆わない。 ファイルツリー (= 40)・
-   プレビュー (= 50)・モーダル (= 100) の全画面の幕は、 重ねる形と同じくこの上を通る。 */
+/* The form kept on the left of a wide screen (Layout gives the bar height --app-bar-h and the width --docked-drawer-w).
+   It runs from under the status bar to the bottom, and Layout pushes the body right by the same width, so it covers
+   nothing. The full-screen curtains (file tree 40, preview 50, modal 100) pass over it, as over the overlay form. */
 .drawer.docked {
   top: var(--app-bar-h);
   width: var(--docked-drawer-w);

@@ -1,7 +1,7 @@
-// タブの一覧を左に置いたままにできる画面 (= PC の広い画面) かどうかを matchMedia で読む。
-// useDockedDrawer (= 画面の変化を追う hook) と dockedDrawerOpen (= 起動の復元) が呼ぶ。
+// Reads with matchMedia whether the screen can keep the tab list on the left (a wide screen with a mouse).
+// Called by useDockedDrawer (follows the window) and dockedDrawerOpen (the restore at start).
 
-// 幅が足りて、 マウスが在る画面。 iPad やスマホは重ねる形のまま (= hover と pointer で外す)。
+// Wide enough and with a mouse; hover and pointer leave out phones and tablets, which keep the overlay form.
 export const DOCKED_SCREEN_QUERY = '(min-width: 1024px) and (hover: hover) and (pointer: fine)'
 
 function mediaQueryList() {
@@ -13,7 +13,7 @@ export function isDockedScreen() {
   return mediaQueryList()?.matches === true
 }
 
-// 画面が広くなる・狭くなる時に listener を呼ぶ。 返す関数で外す。
+// Calls the listener when the screen turns wide or narrow; the returned function removes it.
 export function subscribeDockedScreen(listener) {
   const list = mediaQueryList()
   if (!list) return () => {}
