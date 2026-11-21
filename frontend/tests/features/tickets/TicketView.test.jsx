@@ -217,3 +217,15 @@ it('draws the head from a row of an older backend that has none of the new field
   expect((await screen.findByTestId('ticket-status')).textContent).toBe('In progress')
   expect(screen.queryByTestId('ticket-origin')).toBeNull()
 })
+
+it('draws the lines and the recommendation as Markdown, the way the chat does', async () => {
+  const listed = detail()
+  listed.entries[2] = { ...listed.entries[2], text: 'Remove them?\n\n- `build (3.10, src)`\n- `build (3.13, flat)`', recommend: '**Remove** them' }
+  serve(() => ({ body: listed }))
+  render(<TicketView />)
+  await screen.findByTestId('ticket-answer-box')
+  const asked = screen.getAllByTestId('ticket-entry').find((e) => e.dataset.kind === 'asked')
+  expect([...asked.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['build (3.10, src)', 'build (3.13, flat)'])
+  expect(asked.querySelector('li code')).not.toBeNull()
+  expect(asked.querySelector('.ticket-entry-recommend strong').textContent).toBe('Remove')
+})

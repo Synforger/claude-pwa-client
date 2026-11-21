@@ -1,8 +1,14 @@
 import { useT } from '../../i18n/t.js'
+import { setOverlay } from '../../state/ui.js'
+import MessageRenderer from '../chat/MessageRenderer.jsx'
+import { openLinkedPath } from '../file-preview/openPath.js'
 import { holderOf } from './ticketGroups.js'
 
-// 票の件を時刻の順に並べる。 本文は素の文字で出す (= Markdown にもリンクにも画像にもしない。 タブが書いた文が別の物に
-// 見えないように)。 操作者の原文 (= `operator` の件) は上に固定で出すので、 ここでは並べない。
+// 票の件を時刻の順に並べる。 本文と推奨は、 タブがチャットに書く文と同じ描き方 (= Markdown。 HTML は描かずに字のまま)
+// で、 メモと同じく書いた改行を残して出す。 操作者の原文 (= `operator` の件) は上に固定で出すので、 ここでは並べない。
+
+// 本文の中の path は、 チャットと同じ開き方で開く (= 開いたら票の画面を閉じる)
+const openFile = (path) => openLinkedPath(path, { onLeave: () => setOverlay('ticket', null) })
 
 const KINDS = ['opened', 'operator', 'added', 'asked', 'passed', 'closed', 'answered', 'delivered', 'returned', 'seen']
 
@@ -58,10 +64,17 @@ export default function TicketEntries({ entries, tabNames }) {
               <span className="ticket-entry-time">{timeOf(entry.at)}</span>
             </div>
             {entry.title && <div className="ticket-entry-title">{entry.title}</div>}
-            {entry.text && <div className="ticket-entry-text">{entry.text}</div>}
+            {entry.text && (
+              <div className="ticket-entry-text md-preview">
+                <MessageRenderer text={entry.text} onOpenFile={openFile} asWritten />
+              </div>
+            )}
             {entry.recommend && (
               <div className="ticket-entry-recommend">
-                <span className="ticket-entry-recommend-label">{t('ticket.recommend')}</span> {entry.recommend}
+                <span className="ticket-entry-recommend-label">{t('ticket.recommend')}</span>
+                <div className="md-preview">
+                  <MessageRenderer text={entry.recommend} onOpenFile={openFile} asWritten />
+                </div>
               </div>
             )}
           </li>

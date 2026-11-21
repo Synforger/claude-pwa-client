@@ -2,6 +2,9 @@
 .ticket-heading { font-size: 13px; color: var(--text); }
 /* 票の画面は一覧の上に重ねる (= 一覧から開いても、 閉じれば一覧へ戻る) */
 .ticket-overlay { z-index: 60; }
+/* 票の画面は下の端まで広げ、 チャットの入力欄 (= z-index 60) を覆う。 答えを書く欄は票の画面の下の欄の 1 つだけにする
+   (= 入力欄が 2 つ並ぶと、 どちらに書けば票の答えになるか分からない) */
+.ticket-overlay.modal-overlay-preview { bottom: 0; z-index: 61; }
 
 .ticket-list { display: flex; flex-direction: column; gap: 14px; }
 .ticket-group { display: flex; flex-direction: column; gap: 6px; }
@@ -30,7 +33,7 @@
   background: var(--bg, #14161a); border: 2px solid var(--accent); border-radius: 8px;
 }
 .ticket-original-label { display: block; font-size: 11px; color: var(--accent); margin-bottom: 4px; }
-.ticket-original-text, .ticket-entry-text, .ticket-entry-title, .ticket-draft-previous-text {
+.ticket-original-text, .ticket-entry-title, .ticket-draft-previous-text {
   white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5;
 }
 .ticket-entries { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
@@ -38,6 +41,7 @@
 .ticket-entry-head { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: 12px; color: var(--dim, #8a8f98); margin-bottom: 2px; }
 .ticket-entry-kind { color: var(--text); font-weight: 600; }
 .ticket-entry-title { font-weight: 600; }
+.ticket-entry-text { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
 .ticket-entry-recommend { font-size: 13px; margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ticket-entry-recommend-label { color: var(--accent); }
 
