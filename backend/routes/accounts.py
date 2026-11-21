@@ -9,6 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from backend._common import config as _config
+from backend._common.list_folder import parse_list_folder
 
 router = APIRouter()
 
@@ -22,9 +23,9 @@ def list_agents():
 
 def _agent_view(name: str, cfg: dict) -> dict:
     view = {"id": name, "display_name": cfg.get("display_name", name.upper())}
-    folder = cfg.get("list_folder")
-    if isinstance(folder, str) and folder.strip():
-        view["list_folder"] = folder.strip()
+    folder = parse_list_folder(cfg.get("list_folder"))
+    if folder is not None:
+        view["list_folder"] = folder
     return view
 
 

@@ -171,3 +171,27 @@ tabs ask <タブ> q3.txt --resume 7565f8b3-… --fork     # その会話の枝�
 タブはこのエージェントで普通に立てます (= 画面の新しいタブ、 か `POST /sessions`)。 立てた直後のタブには
 Claude が居らず、 最初の問いが Claude を起動します。 新しい folder で初めて起動する時は、 Claude Code が
 folder を信頼するかを訊くので、 一度だけ画面で答えてください。
+
+### program がタブを立てて片付ける
+
+同じ役のエージェントを、 いくつもの仕事 (例えばゲームの世界ごと) で使う時は、 タブごとに一覧の folder を
+渡します。 エージェントの `list_folder` より、 タブの `list_folder` が先に効きます。 どれもこの機械の中から打ちます。
+
+```
+# 立てる: 題と folder を付ける (folder は <エージェントの key>/<folder>/... の形)
+curl -X POST http://127.0.0.1:<port>/sessions -H 'Content-Type: application/json' \
+  -d '{"agent_id": "<聞かれるエージェント>", "title": "<世界> の語り手", "list_folder": "<agent>/<プロジェクト>/<世界>"}'
+
+# 付け替える・題を変える (list_folder を null か "" にすると、 エージェントの folder に戻る)
+curl -X PATCH http://127.0.0.1:<port>/sessions/<タブの id> -H 'Content-Type: application/json' \
+  -d '{"title": "<新しい題>", "list_folder": "<agent>/<プロジェクト>/<別の世界>"}'
+
+# 片付ける: タブとその Claude を消す
+curl -X DELETE http://127.0.0.1:<port>/sessions/<タブの id>
+```
+
+- 答えは、 そのタブの行 (`id`・`title`・`list_folder` を持つ) です。 形の違う `list_folder` は
+  `400 invalid_list_folder` で、 タブは作られず、 付け替えでは題も変わりません
+- `list_folder` はタブと一緒に保存され、 backend を再起動しても残ります
+- 使わないタブを眠らせるのは、 エージェントの `sleep` (= 聞かれない時間の後に眠る) です。 眠ったタブは、
+  次の問いで同じ会話のまま起きます

@@ -4,8 +4,9 @@
 // would be nothing to open. Inside a folder, its tabs come first (forks and child tabs under their parent, see
 // `sessionTree`), then its subfolders by name. A folded folder hides everything below it and carries the
 // most urgent badge of what it hides. An agent with `list_folder` (`<agent id>/<folder>/...`) puts its tabs in that
-// folder instead of its own, so the tabs of several agents that serve one project fold together. Called by the
-// drawer; which folders are folded is kept per device.
+// folder instead of its own, so the tabs of several agents that serve one project fold together; a tab with its own
+// `list_folder` (set by whoever made it) goes there ahead of its agent's, so tabs of one agent can sit in different
+// folders. Called by the drawer; which folders are folded is kept per device.
 
 import { lsGet, lsSet } from '../../_common/storage.js'
 import { sessionTree } from './sessionTree.js'
@@ -36,17 +37,18 @@ function topParent(s, byId) {
   return top
 }
 
-// The names of `list_folder` (`<agent id>/<folder>/...`), or none when the agent has no usable one
-export function listFolder(agent) {
-  if (typeof agent?.list_folder !== 'string') return []
-  const names = agent.list_folder.split('/').map(name => name.trim())
+// The names of `list_folder` (`<agent id>/<folder>/...`) of an agent or a tab, or none when it has no usable one
+export function listFolder(owner) {
+  if (typeof owner?.list_folder !== 'string') return []
+  const names = owner.list_folder.split('/').map(name => name.trim())
   return names.length >= 2 && names.every(Boolean) ? names : []
 }
 
 // Where `placed` (= the top of its line of parents) sits: the agent whose folder holds it, and the folders below
-// that agent's folder (its `list_folder`, then the project of its tier)
+// that agent's folder (the tab's own `list_folder`, else its agent's, then the project of its tier)
 function placement(placed, agentsById) {
-  const [agentKey, ...folders] = listFolder(agentsById.get(placed.agent_id))
+  const own = listFolder(placed)
+  const [agentKey, ...folders] = own.length ? own : listFolder(agentsById.get(placed.agent_id))
   if (agentKey) return { agentKey, folders: [...folders, ...tierFolders(placed.tier)] }
   return { agentKey: placed.agent_id || '', folders: tierFolders(placed.tier) }
 }

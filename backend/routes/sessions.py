@@ -4,7 +4,7 @@ crosscut-F-04)。
 責務:
 - GET    /sessions                        : list
 - POST   /sessions                        : 作成
-- PATCH  /sessions/{sid}                  : title / notify_mode / account_pinned 変更
+- PATCH  /sessions/{sid}                  : title / notify_mode / account_pinned / list_folder 変更
 - POST   /sessions/{sid}/fork             : フォーク (= jsonl 鎖を新 claude_sid で書き出し)
 - POST   /sessions/{sid}/restart          : claude プロセス kill + spawn (= 文脈リセット)
 - POST   /sessions/{sid}/account          : 同じタブのまま口座を移して会話を続ける
@@ -24,6 +24,7 @@ from backend._common import state
 from backend._common import config as _config
 from backend._common.config import get_config
 from backend._common.errors import raise_error
+from backend._common.list_folder import parse_list_folder
 from backend._common.state import (
     SessionDef,
     register_session,
@@ -31,6 +32,7 @@ from backend._common.state import (
     sessions_meta,
     sessions_overview,
     set_account_pinned,
+    set_list_folder,
     set_notify_mode,
     session_tmp_files,
     stream_states,
@@ -58,6 +60,17 @@ def require_session(session_id: str) -> str:
     if session_id not in sessions_meta:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
     return session_id
+
+
+def _requested_list_folder(value: object) -> str | None:
+    """The folder of the list a request puts a tab in. → None for none (`null` or empty); 400 `invalid_list_folder` for a
+    value that is not `<agent id>/<folder>/...`."""
+    if value is None or value == "":
+        return None
+    folder = parse_list_folder(value)
+    if folder is None:
+        raise_error(400, "invalid_list_folder", "list_folder は <エージェントの key>/<folder>/... の形で書く")
+    return folder
 
 
 def session_row(meta: SessionDef) -> dict:
@@ -91,7 +104,8 @@ async def create_session(payload: dict = Body(...)):
         raise_error(400, "invalid_agent_id", "agent_id が無効です")
     if account_id is not None and account_id not in ACCOUNTS:
         raise_error(400, "invalid_account_id", "account_id が無効です")
-    meta = register_session(agent_id, title, account_id=account_id)
+    list_folder = _requested_list_folder(payload.get("list_folder"))
+    meta = register_session(agent_id, title, account_id=account_id, list_folder=list_folder)
     # 新規タブ作成時点で PTY spawn + launch_alias 投入を完了させる。 既存挙動 (=
     # /jsonl/stream/all 接続の起動 sweep) は接続時点の sessions_meta snapshot しか
     # 見ないので、 接続継続中に新 sid を追加しても ensure を踏まず、 「ターミナル
@@ -111,6 +125,8 @@ def patch_session(session_id: str, payload: dict = Body(...), _: str = Depends(r
     title = payload.get("title")
     notify_mode = payload.get("notify_mode")
     account_pinned = payload.get("account_pinned")
+    # Checked before anything changes, so that a bad folder leaves the tab as it was.
+    list_folder = _requested_list_folder(payload["list_folder"]) if "list_folder" in payload else None
     touched = False
     if isinstance(title, str) and title.strip():
         rename_session(session_id, title.strip())
@@ -124,8 +140,11 @@ def patch_session(session_id: str, payload: dict = Body(...), _: str = Depends(r
             raise_error(400, "invalid_account_pinned", "account_pinned は true / false")
         set_account_pinned(session_id, account_pinned)
         touched = True
+    if "list_folder" in payload:
+        set_list_folder(session_id, list_folder)
+        touched = True
     if not touched:
-        raise_error(400, "title_or_notify_required", "title / notify_mode / account_pinned のどれかが必要")
+        raise_error(400, "title_or_notify_required", "title / notify_mode / account_pinned / list_folder のどれかが必要")
     return session_row(sessions_meta[session_id])
 
 

@@ -22,6 +22,7 @@ class GetSessionsResponseItem(BaseModel):
     created_at: Optional[str] = None
     tier: Optional[str] = None  # the tier the tab's agent started in (= its AGENT_TIER), else the tier a tier tab was placed for; null when not known
     tier_tab: Optional[str] = None  # the tier a tier tab was placed for (= its new conversations start in it); null for other tabs
+    list_folder: Optional[str] = None  # the folder of the list this tab goes in (<agent id>/<folder>/...), ahead of its agent's list_folder; null for a tab placed by its agent
     asleep: Optional[bool] = None  # true while the tab's claude is put to sleep (= it starts again in the same conversation when the tab is opened or written to)
     account_on_wake: Optional[str] = None  # for a sleeping tab, the account it runs on once it is woken (= what the account fallback decides when it wakes it, which can differ from account_id); null for a tab that is awake
     kind: Optional[Literal["api"]] = None  # api = a tab with no Claude Code whose conversation a program outside the client writes to a record file and the client only shows (id api_<name>, account_id = its wallet, tier null, never asleep). A Claude tab's row has no kind
@@ -41,6 +42,7 @@ class PostSessionsRequest(BaseModel):
     agent_id: str
     title: Optional[str] = None
     account_id: Optional[str] = None
+    list_folder: Optional[str] = None  # the folder of the list the tab goes in (<agent id>/<folder>/...); none = placed by its agent
 
 
 class PostSessionsResponse(BaseModel):
@@ -54,6 +56,8 @@ class PatchSessionsSidRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: Optional[str] = None
     notify_mode: Optional[str] = None  # always / mentions / never
+    account_pinned: Optional[bool] = None
+    list_folder: Optional[str] = None  # the folder of the list the tab goes in (<agent id>/<folder>/...); null or empty = placed by its agent again
 
 
 class PostSessionsSidForkRequest(BaseModel):
