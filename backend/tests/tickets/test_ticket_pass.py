@@ -52,7 +52,7 @@ def test_the_tab_is_told_in_one_line_with_the_ticket_in_the_tag_of_the_usual_env
     opening, tag, body, closing = message.split("\n")
     assert tab == "ses_b" and opening == AGENT_MESSAGE_OPENING
     assert tag == f'<agent-message from="client work" session="ses_a" ticket="{ticket}">'
-    assert body == f"票 {ticket} を渡されました。 `tabs ticket show {ticket}` で読んでください"
+    assert body == f"票 {ticket} を渡されました。 `tabs ticket show {ticket} --since-mine` で読んでください"
     assert closing == "</agent-message>"
 
 

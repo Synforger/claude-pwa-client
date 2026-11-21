@@ -58,7 +58,7 @@ OPERATOR_PARTY = Party(None, "", OPERATOR_NAME)
 def notice_text(ticket: str, *, by_operator: bool = False) -> str:
     """The one line a tab gets when a ticket is handed to it (= by another tab, or by the operator from the screen)."""
     who = "操作者から" if by_operator else ""
-    return f"票 {ticket} を{who}渡されました。 `tabs ticket show {ticket}` で読んでください"
+    return f"票 {ticket} を{who}渡されました。 `tabs ticket show {ticket} --since-mine` で読んでください"
 
 
 def _with_ticket(message: str, ticket: str) -> str:

@@ -12,7 +12,7 @@
 
 ```sh
 tabs ticket new <題> <本文の file> [--operator-said] [--due YYYY-MM-DD]   # 票を開き、 id を出す
-tabs ticket show <id>                                   # 票を全部、 時刻の順に読む
+tabs ticket show <id> [--since-mine]                    # 票を全部、 時刻の順に読む (--since-mine: このタブが書いた件までを省く)
 tabs ticket mine [--json] [--unsettled]                 # このタブが持つ、 閉じていない票を読む
 tabs ticket add <id> <file> [--waiting] [--due YYYY-MM-DD]   # やったことを書き足す
 tabs ticket ask <id> --kind decide|mac|report <file> [--recommend <file>]
@@ -27,11 +27,14 @@ tabs ticket pass <id> <宛先>                            # 票の持ち主を�
   始めたのが操作者の発話でない時は入らず、 そう伝えます (= 票は開きます)
 - `new --due` / `add --due`: 票の期限の日です (`YYYY-MM-DD`。 実在する日だけ。 `ticket_bad_due`)。 後から `add --due` で替えられます。 期限を過ぎた票と近い票には[印](#票の状態と見直しの印)が付きます
 - `add --waiting`: 票を「待ち」 (`waiting`) にします。 本文に、 何を待っているかを書きます。 印を付けない `add` は、 待ちの票を動いている状態 (`open`) に戻します
+- `show --since-mine`: このタブが最後に書いた件までを省き、 その後の件だけを出します。 最初の件 (= 頼み) と操作者の原文は
+  毎回付け、 省いた件の数を 1 行で言います。 このタブが一度も書いていない票は全部を出します。 渡されるたびに長い票を
+  頭から読み直さないための形です
 - `mine`: このタブが今持っている、 閉じていない票を 1 枚 1 行で出します ([持っている票を読む](#持っている票を読む-tabs-ticket-mine))
 - `ask`: `decide` は決めてほしい事、 `mac` は Mac の前でしかできない事、 `report` は報告です。 `--recommend` の
   file には、 操作者がそのまま取れる推奨を書きます。 `ask` した票は操作者の返事を待つ状態 (`waiting-operator`) になります。 `ask` できるのは票の家の機械のタブで、 かつ **その票を今持っているタブ** だけです (`ticket_not_holder`。 答えは持つタブへ届くので、 別のタブが訊くと答えが読まれません)
   ([2 台の機械にまたがる票](#2-台の機械にまたがる票))
-- `pass`: 持ち主を宛先へ移し、 宛先に 「票 `<id>` を渡されました。 `tabs ticket show <id>` で読んでください」 の
+- `pass`: 持ち主を宛先へ移し、 宛先に 「票 `<id>` を渡されました。 `tabs ticket show <id> --since-mine` で読んでください」 の
   1 行を [タブどうしの連絡](agent-messages.md) と同じ道で届けます (= Claude の居ないタブは起こします)。
   届ける前に失敗した時、 票は変わりません。 操作者の返事を待っている票と、 閉じた票は渡せません。 操作者の答えが
   持ち主に届くまでも渡せません (= 宛先が途中で変わらないようにするため。 [操作者の答えを届ける](#操作者の答えを届ける))
