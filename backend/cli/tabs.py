@@ -34,13 +34,10 @@
                                  `tier_tabs` を入れたエージェントなら backend が自分で置く)。 claude は、 そのタブへ
                                  最初の発話 (= 人の送信か `tabs send`) が届いた時に、 その階層で起動する。
                                  その階層のタブが既にあれば止まる
-    tabs    ask <to> <file> [--fresh | --resume <会話の id> [--fork]] [--stream | --json] [--timeout <秒>]
-                                 聞かれる設定 (= `"ask": true`) のエージェントのタブ <to> へ <file> の文を打ち、 そのターンの最後の
-                                 答えを標準出力に出す (= タブの外の program からも打てる)。 --fresh は先に /clear を打つ。
-                                 --stream は 1 行 1 JSON (= 答えの途中 `partial`、 最後に `final` か `error`)、 --json は
-                                 `{"answer":…,"session":…}` (= 答えとその会話の id)。 --resume は先にその会話を開き、 --fork は
-                                 続けてその枝に聞く (= 元の会話は残る。 --fresh とは一緒に使えない)。
-                                 待つのは既定 180 秒で、 過ぎたらそのターンを止める
+    tabs    ask <to> <file> ...  聞かれる設定 (= `"ask": true`) のエージェントのタブに文を打ち、 そのターンの最後の答えを出す
+                                 (= タブの外の program からも打てる。 使い方: `backend/cli/ask.py`)
+    tabs    capacity [--json]    この機械が今どれだけ持ち、 あとどれだけ立てられるか (= 子の上限・タブ・Claude 1 本の
+                                 メモリ・機械のメモリ・口座の使用量。 素の値だけで線は引かない。 使い方: `backend/cli/capacity.py`)
     tabs    ticket <new|show|add|ask|close|pass> ...
                                  requests that cross tabs, kept as one ticket each that tabs only add to (usage: `backend/cli/ticket.py`)
     tabs    page-url <file>      ページの origin (= client の設定の `page_origin`) の folder の中の <file> を、 操作者の端末で
@@ -110,6 +107,7 @@ from backend.child_watch.child_memo import (  # noqa: E402
 from backend.rollover.tool_shells import (  # noqa: E402
     ProcessRow, ToolShell, elapsed_text, own_tool_shell, seconds_of_elapsed, tool_shells)
 from backend.cli import ask as ask_command  # noqa: E402
+from backend.cli import capacity as capacity_command  # noqa: E402
 from backend.cli import ticket as ticket_command  # noqa: E402
 
 HOME = Path.home()
@@ -982,6 +980,8 @@ def main(argv: list[str]) -> int:
         return close_child(argv[1], force=len(argv) == 3)
     if argv[:1] == ["ask"]:
         return ask_command.run(argv[1:], call, BASE)
+    if argv[:1] == ["capacity"]:
+        return capacity_command.run(argv[1:], call)
     if argv[:1] == ["ticket"]:
         return ticket_command.run(argv[1:], call)
     if len(argv) == 2 and argv[0] == "page-url":

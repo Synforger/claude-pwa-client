@@ -251,6 +251,8 @@ tabs new <title> <task file>      open a child; the task becomes its first messa
 tabs children [--summary]         list the children this tab opened (id, memo state, what its Claude is doing, title)
 tabs close <child id> [--force]   close a child and clear its memo and untouched top page; a child still working needs --force
 tabs sleep <child id>             put a child's Claude to sleep now; a message wakes it in the same conversation
+tabs capacity [--json]            how much this machine holds now: the child limit, the claudes and their memory, the
+                                  machine's memory and each account's usage (plain numbers; no line is drawn)
 ```
 
 The child starts in the same tier as the parent. A child cannot open children (`tabs new` refuses); work that
@@ -259,6 +261,8 @@ should be split further goes into its report. `tabs new` also writes the task in
 limit on the number of children by default: split the work by what does not overlap and open one child per piece. Close
 the ones that have reported. A positive `child_sessions_max` in the client's configuration stops `tabs new` at that
 number.
+Read `tabs capacity` before opening several children at once: it shows how many more claudes the free memory holds
+and how much of each account is used, and the children share the parent's account.
 A child that has reported but will take the next piece of the same work can wait asleep instead of closed: `tabs
 sleep <child id>` ends its Claude and frees its memory at once, without the quiet minutes of the sleep patrol, and
 the next `tabs send` to it reopens the same conversation. A message the parent delivers to a child that has reported

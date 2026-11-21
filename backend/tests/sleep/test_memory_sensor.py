@@ -19,7 +19,7 @@ Swapouts:                                 99.
 def _darwin(monkeypatch):
     monkeypatch.setattr(m.sys, "platform", "darwin")
     monkeypatch.setattr(m, "_last_swapins", None)
-    monkeypatch.setattr(m, "_read_level", lambda: 2)
+    monkeypatch.setattr(m, "read_level", lambda: 2)
 
 
 def _vm_stat(monkeypatch, *outputs: str) -> None:

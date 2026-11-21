@@ -69,6 +69,21 @@ Message from another session, relayed by the client (the operator did not type t
 子は同じアカウントの使用量を分け合うので、一斉に立てた子の使用量が親のタブまで利用の制限に掛けることがあります。
 閉じた子は数から外れます。
 
+### 立てる前に、この機械の今を見る (`tabs capacity`)
+
+```sh
+tabs capacity          # 人とエージェントが読む行
+tabs capacity --json   # 口 `GET /capacity` の答えのまま
+```
+
+子の上限の設定 (書いていなければ「上限なし」) とこのタブの子の数、タブの数 (Claude が動いている・眠り・Claude なし)、
+動いている Claude 1 本の実メモリ (`footprint <pid>` が出す値と同じ物理の使用量。中央・最小・最大)、機械のメモリ
+(空き・全体・OS のメモリの判定・swap)、空きに中央の Claude があと何本入るか、口座ごとの 5 時間と 7 日の使用量と
+その口座で動いている Claude の数を出します。
+
+出すのは素の値だけで、client は線を引きません。立てるかどうかは、これを読んだエージェントが決めます。
+口はこの機械の program だけが使え、`tailscale serve` を通った要求は `403` (`capacity_local_only`) で断ります。
+
 ## 閉じる
 
 普通のタブと同じ `DELETE /sessions/<子のタブの id>` です。 画面の一覧の ⋯ からも閉じられます。

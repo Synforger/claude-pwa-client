@@ -118,6 +118,31 @@ export interface PostAccountsAccountContinueResponse {
   failed: string[]
 }
 
+/** GET /capacity response */
+export interface GetCapacityResponse {
+  /** this machine's name (= machine_name of the settings, else the host name) */
+  machine: string
+  /** the child tabs one tab may hold at once. null = no limit */
+  child_sessions_max?: number | null
+  /** the child tabs the asking tab holds now. null when no session was given */
+  children_of_caller?: number | null
+  /** total / with_claude (a claude runs in the pane) / asleep (the sleep patrol stopped it) / without_claude (neither) / children */
+  tabs: Record<string, unknown>
+  /** the physical footprint of each running claude in megabytes (= what `footprint <pid>` prints): count / median / min / max / total. null when none could be read */
+  claude_mb?: Record<string, unknown> | null
+  /** total_mb / available_mb (what a new program gets without swapping) / pressure_level (the operating system's: 1 normal, 2 warning, 4 critical, or null) / swap_used_mb */
+  memory: Record<string, unknown>
+  /** available_mb divided by the median footprint, rounded down. null without a footprint */
+  claudes_fitting_available?: number | null
+  accounts: ({
+      id: string
+      /** five_hour_pct / five_hour_resets_at / seven_day_pct / seven_day_resets_at (epoch seconds). null when no usage line was written for the account */
+      usage?: Record<string, unknown> | null
+      /** the tabs on this account whose claude runs */
+      tabs_with_claude: number
+    })[]
+}
+
 /** GET /settings response */
 export interface GetSettingsResponse {
   accounts: ({

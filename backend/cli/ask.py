@@ -1,5 +1,13 @@
 """`tabs ask`: ask a tab set up for a program (= its agent has `"ask": true`) and print the last answer of the turn.
 
+    tabs ask <to> <file> [--fresh | --resume <conversation id> [--fork]] [--stream | --json] [--timeout <seconds>]
+                                type the text of <file> into the tab <to> and print the last answer of that turn.
+                                --fresh types /clear first. --stream prints one JSON per line (= `partial` while the answer
+                                is written, then `final` or `error`); --json prints `{"answer": ..., "session": ...}` (= the
+                                answer and the id of its conversation). --resume opens that conversation first, and --fork
+                                asks a branch of it (= the conversation itself stays; not with --fresh). It waits 180
+                                seconds by default and stops the turn after that
+
 `tabs.py` reads the command word and hands the rest here with its way of calling the backend. It needs no `PWA_SID`,
 so a program outside every tab (= a subprocess of it) can run it. The door is `POST /sessions/{tab}/ask`
 (`backend/routes/ask.py`). With `--stream` the door answers a line of JSON at a time, and each line is printed as it
