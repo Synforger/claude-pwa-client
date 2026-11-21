@@ -192,7 +192,9 @@ async def list_tickets() -> dict:
     judged). A ticket whose place is not known has no title. Each one carries what the screen sorts it by: the answers still on
     their way (`answer_pending`), the time of its last line (`last_at`), how its last delivery ended (`last_delivery`) and
     why it wants a look (`attention`, `ticket_view.attention`), and what the operator reads of it: where it came from
-    (`origin`), the day it is due (`due`) and the marks that say it needs another look (`marks`, `ticket_view.marks`)."""
+    (`origin`), the day it is due (`due`), the marks that say it needs another look (`marks`, `ticket_view.marks`) and the next
+    step a tab last wrote (`next`, the first line of its last line: what `held` shows, so a ticket need not be opened to see
+    what its tab is doing)."""
     summaries = []
     today, moment = datetime.now().date(), datetime.now(timezone.utc)
     for ticket, row in ticket_index.rows().items():
@@ -205,11 +207,13 @@ async def list_tickets() -> dict:
             logger.info("ticket %s listed without its title: %s", ticket, error.detail)
         first = entries[0] if entries else {}
         delivery = ticket_view.last_delivery(entries)
+        latest = ticket_view.latest_tab_line(entries)
         summaries.append({"id": ticket, "title": first.get("title"), "opened_at": first.get("at"), "status": row.status,
                           "wants": row.wants, "holder": row.holder, "opener": row.opener,
                           "place_outside": row.place_key == ticket_places.outside_key(),
                           "answer_pending": ticket_view.answer_pending(entries), "last_at": ticket_view.last_at(entries),
                           "last_delivery": delivery, "attention": ticket_view.attention(row.status, row.holder, delivery),
                           "origin": row.origin, "due": row.due,
-                          "marks": ticket_view.marks(row.status, row.due, ticket_view.last_tab_time(entries), today, moment)})
+                          "marks": ticket_view.marks(row.status, row.due, ticket_view.last_tab_time(entries), today, moment),
+                          "next": ticket_view.first_line(latest.get("text")) if latest is not None else ""})
     return {"ok": True, "tickets": sorted(summaries, key=lambda s: (s["opened_at"] or "", s["id"]), reverse=True)}

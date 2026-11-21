@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 //
-// 票の画面: 一番上に操作者の原文、 下に件、 一番下の欄は票の今で変わる。 答える・渡す・確かめた の操作と、 下書きの扱い。
+// 票の画面: 頭に状態・出どころ・期限、 その下に操作者の原文、 下に件、 一番下の欄は票の今で変わる。 答える・渡す・確かめた の操作と、 下書きの扱い。
 import { it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, cleanup, fireEvent, screen, waitFor, act } from '@testing-library/react'
 import TicketView from '../../../src/features/tickets/TicketView.jsx'
 import { setOverlay } from '../../../src/state/ui.js'
-import { setAnswerDraft } from '../../../src/state/tickets.js'
+import { applyTicketsSnapshot, setAnswerDraft } from '../../../src/state/tickets.js'
 import * as sessions from '../../../src/state/sessions.js'
 
 const ID = 'home-261119-01'
@@ -43,7 +43,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  act(() => setOverlay('ticket', null))
+  act(() => { setOverlay('ticket', null); applyTicketsSnapshot({ tickets: [], peers: {} }) })
   cleanup()
   vi.restoreAllMocks()
 })
@@ -170,4 +170,45 @@ it('shows what the backend refused with when the ticket is on the other machine'
   serve(() => refusal(409, 'ticket_elsewhere'))
   render(<TicketView />)
   expect((await screen.findByTestId('ticket-load-error')).textContent.length).toBeGreaterThan(0)
+})
+
+const summaryRow = (extra = {}) => ({ id: ID, title: 'Fix the title', status: 'open', holder: 'ses_a', attention: null, origin: 'self', due: null, marks: [], ...extra })
+
+it.each([
+  ['open', 'In progress'],
+  ['waiting', 'Waiting'],
+  ['waiting-operator', 'Waiting for an answer'],
+  ['closed', 'Closed'],
+])('names the state %s at the head of the screen as "%s"', async (status, shown) => {
+  serve(() => ({ body: detail({ status }) }))
+  act(() => applyTicketsSnapshot({ tickets: [summaryRow({ status })], peers: {} }))
+  render(<TicketView />)
+  expect((await screen.findByTestId('ticket-status')).textContent).toBe(shown)
+})
+
+it('says the operator asked for it, and the due date, at the head of the screen', async () => {
+  serve(() => ({ body: detail() }))
+  act(() => applyTicketsSnapshot({ tickets: [summaryRow({ origin: 'operator', due: '2026-11-24' })], peers: {} }))
+  render(<TicketView />)
+  expect((await screen.findByTestId('ticket-origin')).textContent).toBe("Operator's request")
+  expect(screen.getByTestId('ticket-due').textContent).toBe('Due 2026-11-24')
+})
+
+it('shows no origin when the ticket was opened by a tab itself, and no due date when there is none', async () => {
+  serve(() => ({ body: detail() }))
+  act(() => applyTicketsSnapshot({ tickets: [summaryRow()], peers: {} }))
+  render(<TicketView />)
+  await screen.findByTestId('ticket-status')
+  expect(screen.queryByTestId('ticket-origin')).toBeNull()
+  expect(screen.queryByTestId('ticket-due')).toBeNull()
+})
+
+it('draws the head from a row of an older backend that has none of the new fields', async () => {
+  serve(() => ({ body: detail() }))
+  const old = summaryRow()
+  for (const field of ['origin', 'due', 'marks']) delete old[field]
+  act(() => applyTicketsSnapshot({ tickets: [old], peers: {} }))
+  render(<TicketView />)
+  expect((await screen.findByTestId('ticket-status')).textContent).toBe('In progress')
+  expect(screen.queryByTestId('ticket-origin')).toBeNull()
 })

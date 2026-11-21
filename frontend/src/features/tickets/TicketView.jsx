@@ -9,11 +9,22 @@ import '../../_common/Modal.css'
 import './Tickets.css'
 import TicketEntries from './TicketEntries.jsx'
 import TicketLower from './TicketLower.jsx'
-import { ticketLabel } from './ticketGroups.js'
+import { factsOf, ticketLabel } from './ticketGroups.js'
 import { useTicketDetail } from './useTicketDetail.js'
 
-// 票の画面 (= 📌 の一覧・チャットの 1 行・通知から開く)。 一番上に操作者の原文を枠で囲んで固定し、 下に件を時刻の順に出し、
+// 票の画面 (= 📌 の一覧・チャットの 1 行・通知から開く)。 頭に状態・出どころ・期限を出し、 その下に操作者の原文を枠で囲んで固定し、 下に件を時刻の順に出し、
 // 一番下の欄は票の今で変わる (= TicketLower)。 別の機械の票は開かない (= 一覧の数だけ。 backend が `ticket_elsewhere` で断る)。
+
+// The head line of the ticket screen: its state, who asked for it (only when it is the operator) and the due date (when there is one).
+function TicketFacts({ facts, t }) {
+  return (
+    <div className="ticket-facts" data-testid="ticket-facts">
+      <span className="ticket-fact-status" data-testid="ticket-status">{t(`ticket.status_${facts.status}`)}</span>
+      {facts.fromOperator && <span className="ticket-fact-origin" data-testid="ticket-origin">{t('ticket.origin_operator')}</span>}
+      {facts.due && <span data-testid="ticket-due">{t('tickets.due', { date: facts.due })}</span>}
+    </div>
+  )
+}
 
 export default function TicketView() {
   const t = useT()
@@ -44,6 +55,7 @@ export default function TicketView() {
         <div className="modal-body ticket-body">
           {error && <span className="error" data-testid="ticket-load-error">{error.message || t('ticket.load_error')}</span>}
           {!detail && !error && <span className="dim">{t('ticket.loading')}</span>}
+          {summary && <TicketFacts facts={factsOf(summary)} t={t} />}
           {operatorLine && (
             <blockquote className="ticket-original" data-testid="ticket-original">
               <span className="ticket-original-label">{t('ticket.original')}</span>

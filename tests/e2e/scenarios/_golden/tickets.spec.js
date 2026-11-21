@@ -3,6 +3,10 @@
 // screen pins the operator's original words and draws the lines as plain text; answering it moves the ticket out of the
 // first group; and a ticket handed over reaches the chat as one line that opens the ticket.
 //
+// The waiting group, the due dates and the marks come from tickets made through the doors (`due` when a ticket opens or is added to,
+// `waiting` on an added line): the backend works the marks out. The marks that need days of silence (`waiting_stale`, `idle`)
+// are drawn in the unit tests; the operator's origin needs the operator's words from a tab's record, so it is there too.
+//
 // The e2e backend has no Claude process: the tickets are made through the backend's own doors (= what `tabs ticket` calls),
 // and the answer is written and queued as it is in production. Whether the answer then reaches a tab is not what is
 // looked at here (= backend/tests/tickets).
@@ -20,11 +24,31 @@ async function openTicketList(page) {
 const TITLE = 'Fix the wrapped title'
 const REQUEST = 'The title wraps on page 3 <b>of</b> the sample deck.\nPlease keep it on one line.'
 
-async function openTicket(request, sender) {
-  const opened = await request.post('/tickets', { form: { from: sender, title: TITLE, text: REQUEST } })
+async function openTicket(request, sender, { title = TITLE, due = '' } = {}) {
+  const opened = await request.post('/tickets', { form: { from: sender, title, text: REQUEST, due } })
   expect(opened.ok()).toBeTruthy()
   const { id } = await opened.json()
   return id
+}
+
+// A day as the backend writes it (YYYY-MM-DD, the day of this machine), `days` from today.
+function dayFromToday(days) {
+  const day = new Date()
+  day.setDate(day.getDate() + days)
+  return [day.getFullYear(), String(day.getMonth() + 1).padStart(2, '0'), String(day.getDate()).padStart(2, '0')].join('-')
+}
+
+async function setAside(request, id, sender, text = 'Waiting for the sample deck') {
+  const res = await request.post(`/tickets/${id}/entries`, { form: { from: sender, text, waiting: true } })
+  expect(res.ok()).toBeTruthy()
+}
+
+// Close the tickets a scenario made, so the next project run on this backend starts with nothing that wants a look.
+async function closeAll(request, tickets) {
+  for (const [id, sender] of tickets) {
+    const res = await request.post(`/tickets/${id}/close`, { form: { from: sender, text: 'Done' } })
+    expect(res.ok()).toBeTruthy()
+  }
 }
 
 async function ask(request, id, sender) {
@@ -96,14 +120,18 @@ test.describe('golden: tickets', () => {
     const tab = await seedSession(request, 'e2e-tab-a')
     await openClient(page, { sid: tab.sid })
     const id = await openTicket(request, tab.sid)
-    await ask(request, id, tab.sid)
-    await page.goto(`/?ses=${encodeURIComponent(tab.sid)}&ticket=${encodeURIComponent(id)}`, { waitUntil: 'domcontentloaded' })
-    const field = page.locator('[data-testid=ticket-answer-field]')
-    await field.fill('Let me think about it')
-    await page.locator('[data-testid=ticket-close]').click()
-    await openTicketList(page)
-    await page.locator(`[data-testid=ticket-row][data-ticket="${id}"]`).click()
-    await expect(field).toHaveValue('Let me think about it')
+    try {
+      await ask(request, id, tab.sid)
+      await page.goto(`/?ses=${encodeURIComponent(tab.sid)}&ticket=${encodeURIComponent(id)}`, { waitUntil: 'domcontentloaded' })
+      const field = page.locator('[data-testid=ticket-answer-field]')
+      await field.fill('Let me think about it')
+      await page.locator('[data-testid=ticket-close]').click()
+      await openTicketList(page)
+      await page.locator(`[data-testid=ticket-row][data-ticket="${id}"]`).click()
+      await expect(field).toHaveValue('Let me think about it')
+    } finally {
+      await closeAll(request, [[id, tab.sid]])   // it still waits for the operator's answer, which the next project's first scenario must not see
+    }
   })
 
   test('a ticket handed to a tab shows in its chat as one line that opens the ticket', async ({ page, request }, testInfo) => {
@@ -121,5 +149,90 @@ test.describe('golden: tickets', () => {
 
     await link.click()
     await expect(page.locator('[data-testid=ticket-heading]')).toContainText(TITLE)
+  })
+
+  test('the list has the waiting group, a mark and a due date on the rows, and the tab list shows the pause sign', async ({ page, request }, testInfo) => {
+    const tab = await seedSession(request, 'e2e-tab-a')
+    // One tab holds one ticket each, so each line under a tab reads whole (a line is cut at the width of the list).
+    const holders = { run: await seedSession(request, 'e2e-send-empty'), wait: await seedSession(request, 'e2e-reconcile-empty'), plain: await seedSession(request, 'e2e-chat-basic') }
+    const run = `Due soon ${Date.now()}`, wait = `Set aside ${Date.now()}`, plain = `Plain wait ${Date.now()}`, late = `Late ask ${Date.now()}`, done = `Done ${Date.now()}`
+
+    const overdueId = await openTicket(request, tab.sid, { title: late, due: dayFromToday(-2) })
+    await ask(request, overdueId, tab.sid)
+    const dueSoonId = await openTicket(request, holders.run.sid, { title: run, due: dayFromToday(1) })
+    const waitId = await openTicket(request, holders.wait.sid, { title: wait, due: dayFromToday(1) })
+    await setAside(request, waitId, holders.wait.sid)
+    const plainId = await openTicket(request, holders.plain.sid, { title: plain })
+    await setAside(request, plainId, holders.plain.sid)
+    const doneId = await openTicket(request, tab.sid, { title: done })
+    await closeAll(request, [[doneId, tab.sid]])
+
+    const made = [[overdueId, tab.sid], [dueSoonId, holders.run.sid], [waitId, holders.wait.sid], [plainId, holders.plain.sid]]
+    try {
+      await openClient(page, { sid: tab.sid })
+      await page.locator('[data-testid=drawer-toggle]').click()
+      const heldOf = (holder) => page.locator(`[data-cpc-sid="${holder.sid}"] [data-testid=session-held-ticket]`)
+      await expect(heldOf(holders.wait)).toHaveText(`📌 ⏸ ⏰ ${wait}`, { timeout: 20_000 })
+      await expect(heldOf(holders.plain)).toHaveText(`📌 ⏸ ${plain}`)
+      await expect(heldOf(holders.run)).toHaveText(`📌 ⏰ ${run}`)
+      await page.screenshot({ path: testInfo.outputPath('tickets-held-lines.png') })
+      await page.setViewportSize({ width: 390, height: 844 })
+      await expect(heldOf(holders.wait)).toBeVisible()
+      await page.screenshot({ path: testInfo.outputPath('tickets-held-lines-narrow.png') })
+      await page.setViewportSize({ width: 1280, height: 800 })
+
+      await page.locator('[data-testid=drawer-tickets-open]').click()
+      const groups = page.locator('[data-testid^=ticket-group-]:not([data-testid=ticket-group-toggle])')
+      await expect(groups).toHaveCount(4)
+      expect(await groups.evaluateAll((els) => els.map((el) => el.dataset.testid)))
+        .toEqual(['ticket-group-attention', 'ticket-group-running', 'ticket-group-waiting', 'ticket-group-closed'])
+
+      const rowOf = (group, id) => page.locator(`[data-testid=ticket-group-${group}] [data-ticket="${id}"]`)
+      const waiting = page.locator('[data-testid=ticket-group-waiting]')
+      await expect(rowOf('waiting', waitId)).toContainText(wait)
+      await expect(rowOf('waiting', waitId).locator('[data-testid=ticket-row-mark]')).toHaveText('⏰')
+      await expect(rowOf('waiting', waitId).locator('[data-testid=ticket-row-due]')).toHaveText(`Due ${dayFromToday(1)}`)
+      await expect(rowOf('waiting', plainId)).toContainText(plain)
+      await expect(rowOf('waiting', plainId).locator('[data-testid=ticket-row-mark]')).toHaveCount(0)
+      await expect(rowOf('waiting', plainId).locator('[data-testid=ticket-row-due]')).toHaveCount(0)
+      await expect(rowOf('attention', overdueId).locator('[data-testid=ticket-row-mark]')).toHaveText('⚠\uFE0F')
+      await expect(rowOf('attention', overdueId).locator('[data-testid=ticket-row-due]')).toHaveText(`Due ${dayFromToday(-2)}`)
+      await expect(rowOf('running', dueSoonId).locator('[data-testid=ticket-row-mark]')).toHaveText('⏰')
+      // Under each title: the first line of what its tab wrote last, as plain text.
+      await expect(rowOf('waiting', waitId).locator('[data-testid=ticket-row-next]')).toHaveText('Waiting for the sample deck')
+      await expect(rowOf('attention', overdueId).locator('[data-testid=ticket-row-next]')).toHaveText('One line or two?')
+      await expect(rowOf('running', dueSoonId).locator('[data-testid=ticket-row-next]')).toHaveText('The title wraps on page 3 <b>of</b> the sample deck.')
+      await expect(rowOf('running', dueSoonId).locator('[data-testid=ticket-row-next] b')).toHaveCount(0)
+      await page.locator('[data-testid=ticket-group-toggle]').click()
+      await expect(rowOf('closed', doneId)).toContainText(done)
+      await page.screenshot({ path: testInfo.outputPath('tickets-groups.png') })
+      await page.setViewportSize({ width: 390, height: 844 })
+      await expect(waiting).toBeVisible()
+      await page.screenshot({ path: testInfo.outputPath('tickets-groups-narrow.png') })
+    } finally {
+      await closeAll(request, made)
+    }
+  })
+
+  test('the head of the ticket screen has the state and the due date, and no origin for a ticket a tab opened itself', async ({ page, request }, testInfo) => {
+    const tab = await seedSession(request, 'e2e-tab-a')
+    const id = await openTicket(request, tab.sid, { title: `Head ${Date.now()}`, due: dayFromToday(5) })
+    try {
+      const open = async () => page.goto(`/?ses=${encodeURIComponent(tab.sid)}&ticket=${encodeURIComponent(id)}`, { waitUntil: 'domcontentloaded' })
+      await open()
+      await expect(page.locator('[data-testid=ticket-status]')).toHaveText('In progress')
+      await expect(page.locator('[data-testid=ticket-due]')).toHaveText(`Due ${dayFromToday(5)}`)
+      await expect(page.locator('[data-testid=ticket-origin]')).toHaveCount(0)
+      await page.screenshot({ path: testInfo.outputPath('tickets-screen-head.png') })
+      await page.setViewportSize({ width: 390, height: 844 })
+      await expect(page.locator('[data-testid=ticket-facts]')).toBeVisible()
+      await page.screenshot({ path: testInfo.outputPath('tickets-screen-head-narrow.png') })
+
+      await setAside(request, id, tab.sid)
+      await open()
+      await expect(page.locator('[data-testid=ticket-status]')).toHaveText('Waiting')
+    } finally {
+      await closeAll(request, [[id, tab.sid]])
+    }
   })
 })

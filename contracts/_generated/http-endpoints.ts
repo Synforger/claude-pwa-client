@@ -757,6 +757,8 @@ export interface GetTicketsResponse {
       due?: string | null
       /** overdue, due_soon, waiting_stale, idle, in that order (= none for a closed ticket) */
       marks?: string[]
+      /** the first line of the last line a tab wrote (= not a line the client wrote, nor the operator's words); empty when there is none */
+      next?: string
       /** the `asked_at` of every answer given that has no `delivered` line yet */
       answer_pending?: string[]
       /** the time of the last line */

@@ -1428,6 +1428,7 @@ endpoints:
               origin:        { type: string, description: "operator (= the operator's words went in when it opened) or self" }
               due:           { type: string, nullable: true, description: "YYYY-MM-DD" }
               marks:         { type: array, items: { type: string }, description: "overdue, due_soon, waiting_stale, idle, in that order (= none for a closed ticket)" }
+              next:          { type: string, description: "the first line of the last line a tab wrote (= not a line the client wrote, nor the operator's words); empty when there is none" }
               answer_pending: { type: array, items: { type: string }, description: "the `asked_at` of every answer given that has no `delivered` line yet" }
               last_at:       { type: string, description: "the time of the last line" }
               last_delivery: { type: object, nullable: true, description: "{result, followed}: how the last delivery ended, and whether any line came after it" }

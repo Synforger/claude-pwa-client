@@ -50,7 +50,7 @@ import {
 } from '../../state/locale.js'
 import { useT } from '../../i18n/t.js'
 import { subscribe as subscribeTickets, getSnapshot as getTicketsSnapshot } from '../../state/tickets.js'
-import { attentionCount, heldByTab } from '../tickets/ticketGroups.js'
+import { attentionCount, heldByTab, heldText } from '../tickets/ticketGroups.js'
 import { runningBuildId } from '../../_common/appUpdate.js'
 import './SessionDrawer.css'
 
@@ -648,7 +648,7 @@ export default function SessionDrawer() {
                     onClick={() => { setOverlay('ticket', heldTickets[s.id][0].id); onClose() }}
                     data-testid="session-held-ticket"
                   >
-                    📌 {heldTickets[s.id].map(ticket => ticket.label).join(' / ')}
+                    📌 {heldTickets[s.id].map(heldText).join(' / ')}
                   </button>
                 )}
               </div>
