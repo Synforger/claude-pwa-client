@@ -260,11 +260,18 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
 async def move_session_account(session_id: str, payload: dict = Body(...), _: str = Depends(require_session)):
     """Move a tab to another account in place: the same tab, with the same name, continues its conversation under
     `account_id`. The conversation up to its latest clean point is written into that account's projects folder,
-    the tab's claude is stopped, and the tab starts again resuming it there."""
+    the tab's claude is stopped, and the tab starts again resuming it there. The tab is pinned to the account the
+    operator chose (`account_pinned`), so that the account fallback does not move it off again; the operator takes the
+    pin off. The tab is claimed for the move: while the account fallback or the limit resume works on it, this is
+    refused with 409 `account_busy`, and the operator tries again."""
     account_id = payload.get("account_id")
     if not isinstance(account_id, str) or account_id not in (get_config().get("accounts") or {}):
         raise_error(400, "unknown_account", "そのアカウントは設定にありません")
-    return session_row(await move_tab_account(session_id, account_id))
+    with claimed(session_id) as mine:
+        if not mine:
+            raise_error(409, "account_busy", "このタブは今、 口座の見回りが手を掛けています。 少し待ってからもう一度")
+        meta = await move_tab_account(session_id, account_id, pin=True)
+    return session_row(meta)
 
 
 @router.delete("/sessions/{session_id}")
