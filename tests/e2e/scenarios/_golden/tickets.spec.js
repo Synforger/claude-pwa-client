@@ -184,6 +184,13 @@ test.describe('golden: tickets', () => {
       await page.screenshot({ path: testInfo.outputPath('tickets-held-lines-narrow.png') })
       await page.setViewportSize({ width: 1280, height: 800 })
 
+      // A tab's line opens the list of only the tickets that tab holds
+      await heldOf(holders.wait).click()
+      await expect(page.locator('[data-testid=ticket-row]')).toHaveCount(1)
+      await expect(page.locator(`[data-testid=ticket-row][data-ticket="${waitId}"]`)).toHaveCount(1)
+      await page.locator('[data-testid=ticket-drawer-close]').click()
+      await page.locator('[data-testid=drawer-toggle]').click()
+
       await page.locator('[data-testid=drawer-tickets-open]').click()
       const groups = page.locator('[data-testid^=ticket-group-]:not([data-testid=ticket-group-toggle])')
       await expect(groups).toHaveCount(4)

@@ -8,7 +8,7 @@ import '../../_common/Modal.css'
 import './Tickets.css'
 import { GROUPS, agoOf, groupTickets, holderOf, markOf, peerLines, ticketLabel } from './ticketGroups.js'
 
-// 票の一覧 (= 会話の一覧のいちばん上の 🎫 の行から開く)。 「見てほしい」「動いている」「待ち」「閉じた」 (畳む) の 4 段で、 行を押すと票の画面が開く。
+// 票の一覧 (= 会話の一覧のいちばん上の 🎫 の行から開く。 タブの行の票の行から開いた時は、 そのタブが持つ票だけ)。 「見てほしい」「動いている」「待ち」「閉じた」 (畳む) の 4 段で、 行を押すと票の画面が開く。
 // A row shows the next step its tab last wrote (when there is one), the due date (when there is one) and the first mark as one character.
 // 一番下に、 もう 1 台の機械で操作者の答えを待つ票の数 (= その機械の画面で答える)。
 
@@ -50,23 +50,29 @@ function Row({ ticket, tabNames, now, t }) {
 
 export default function TicketDrawer() {
   const t = useT()
-  const { tickets, peers, loaded } = useSyncExternalStore(subscribeTickets, getTicketsSnapshot)
+  const { tickets: allTickets, peers, loaded } = useSyncExternalStore(subscribeTickets, getTicketsSnapshot)
   const { sessions } = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
+  const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
+  // 値がタブの id なら、 そのタブが持つ票だけ (= タブの行から開いた時)。 true なら全部
+  const holderTab = typeof ui.overlays.tickets === 'string' ? ui.overlays.tickets : null
+  const tickets = useMemo(() => (holderTab ? allTickets.filter((ticket) => ticket.holder === holderTab) : allTickets), [allTickets, holderTab])
   const [closedOpen, setClosedOpen] = useState(false)
   const now = useNow()
   const groups = useMemo(() => groupTickets(tickets, now), [tickets, now])
   const tabNames = useMemo(() => Object.fromEntries(sessions.map((s) => [s.id, s.title])), [sessions])
-  const lines = peerLines(peers)
+  const lines = holderTab ? [] : peerLines(peers)
   const onClose = () => setOverlay('tickets', false)
   // 票の画面が上に開いている間は、 Esc はそちらだけを閉じる
-  const ticketOpen = !!useSyncExternalStore(subscribeUi, getUiSnapshot).overlays.ticket
+  const ticketOpen = !!ui.overlays.ticket
   useEscape(onClose, { enabled: !ticketOpen })
 
   return (
     <div className="modal-overlay modal-overlay-preview" onClick={onClose} data-testid="ticket-drawer">
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <span className="modal-path ticket-heading">🎫 {t('tickets.title')}</span>
+          <span className="modal-path ticket-heading" data-testid="ticket-drawer-heading">
+            🎫 {holderTab ? t('tickets.title_of_tab', { tab: tabNames[holderTab] || holderTab }) : t('tickets.title')}
+          </span>
           <div className="modal-actions">
             <button className="modal-close" onClick={onClose} aria-label={t('common.close')} data-testid="ticket-drawer-close">✕</button>
           </div>

@@ -347,6 +347,7 @@
   "chat.notice_ticket_answer": "票 {id} に答えを届けました ▸",
   "chat.notice_ticket_returned": "票 {id} があなたに戻りました ▸",
   "tickets.title": "票",
+  "tickets.title_of_tab": "{tab} の票",
   "tickets.empty": "票はありません",
   "tickets.group_attention": "見てほしい",
   "tickets.group_running": "動いている",

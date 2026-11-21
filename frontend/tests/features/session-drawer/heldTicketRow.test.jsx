@@ -65,3 +65,15 @@ describe('the held tickets line of a tab', () => {
     expect(container.querySelector('[data-testid="session-held-ticket"]')).toBeNull()
   })
 })
+
+
+describe('pressing the held tickets line', () => {
+  it('opens the list of the tickets this tab holds', async () => {
+    const { getSnapshot } = await import('../../../src/state/ui.js')
+    act(() => applyTicketsSnapshot({ tickets: [row('a'), row('b')], peers: {} }))
+    const { findByTestId } = render(<SessionDrawer />)
+    ;(await findByTestId('session-held-ticket')).click()
+    expect(getSnapshot().overlays.tickets).toBe('ses_desk')
+    expect(getSnapshot().overlays.ticket).toBeFalsy()
+  })
+})

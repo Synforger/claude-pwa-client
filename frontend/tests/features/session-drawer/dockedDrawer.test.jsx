@@ -71,7 +71,8 @@ describe('the tab list kept on the left (a wide screen with a mouse)', () => {
     fireEvent.click(getByTestId('drawer-tickets-open'))
     expect(getUiSnapshot().overlays.tickets).toBe(true)
     fireEvent.click(getByTestId('session-held-ticket'))
-    expect(getUiSnapshot().overlays.ticket).toBe('t1')
+    // a tab's line opens the list of the tickets that tab holds
+    expect(typeof getUiSnapshot().overlays.tickets).toBe('string')
     fireEvent.click(getByTestId('drawer-settings'))
     fireEvent.click(getByTestId('open-settings'))
     expect(getUiSnapshot().overlays.settings).toBe(true)

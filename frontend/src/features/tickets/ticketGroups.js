@@ -20,9 +20,15 @@ const CLOSED_SHOWN_MS = CLOSED_SHOWN_DAYS * DAY_MS
 
 const lastAtOf = (ticket) => ticket.last_at || ticket.opened_at || ''
 
-/** 「見てほしい」 票の数 (= 🎫 の数)。 */
+/** 操作者が動く票か: 答えを待つ・届かなかった答え・持つタブが無い (= backend の `attention`) か、 期限を過ぎた。
+ * タブどうしの頼みで動いている票は入らない (= そのタブの行から見る)。 */
+export function needsOperator(ticket) {
+  return ticket.attention != null || (Array.isArray(ticket.marks) && ticket.marks.includes('overdue'))
+}
+
+/** 「見てほしい」 票の数 (= ☰ と一覧の頭の 🎫 の数)。 操作者が動く票だけを数える。 */
 export function attentionCount(tickets) {
-  return tickets.filter((ticket) => ticket.attention != null).length
+  return tickets.filter(needsOperator).length
 }
 
 // 閉じた票を出すか: 最後の件 (無ければ開いた時刻) が `nowMs` から 7 日以内。 時刻が読めない票は出さない。
@@ -35,7 +41,7 @@ function isRecentlyClosed(ticket, nowMs) {
 export function groupTickets(tickets, nowMs) {
   const groups = { attention: [], running: [], waiting: [], closed: [] }
   for (const ticket of tickets) {
-    if (ticket.attention != null) groups.attention.push(ticket)
+    if (needsOperator(ticket)) groups.attention.push(ticket)
     else if (ticket.status === CLOSED) {
       if (isRecentlyClosed(ticket, nowMs)) groups.closed.push(ticket)
     } else if (ticket.status === STATUS_WAITING) groups.waiting.push(ticket)

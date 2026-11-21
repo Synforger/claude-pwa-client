@@ -651,7 +651,7 @@ export default function SessionDrawer() {
                   <button
                     type="button"
                     className="drawer-item-ticket"
-                    onClick={() => { setOverlay('ticket', heldTickets[s.id][0].id); closeAfterAction() }}
+                    onClick={() => { setOverlay('tickets', s.id); closeAfterAction() }}
                     data-testid="session-held-ticket"
                   >
                     🎫 {heldTickets[s.id].map(heldText).join(' / ')}
