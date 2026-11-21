@@ -28,4 +28,6 @@ PWA を**使うだけ**なら読む必要はありません。 [../README.md](..
 
 `task ci` が使う依存 (= backend の Python と、 `frontend/` ・ `contracts/` の pnpm) は `task setup` が全部入れる。 macOS では `task test` が `engines/apple-speech/` も build して部品のテストを回す (= Swift の compiler が要る。 他の OS では飛ばす)。 e2e (= `e2e/` で `npm ci` → `npm test`) は `task ci` に入っていないので、 画面や送受信の経路を変えた時は別に回す。
 
+試験は 1 本ごとに時間の上限を持ち、 越えた 1 本はその場で落ちて、 全体を待たせ続けない。 上限は普段の一番遅い 1 本の 3 倍で、 pytest は `pytest.ini` の `timeout`、 vitest は `frontend/vitest.config.js` の `testTimeout`、 e2e は `tests/e2e/playwright.config.js` の `timeout`。 毎回の出力の末尾には遅い所が名前と時間つきで並ぶ (= pytest と vitest は遅い 10 本、 e2e は遅い file 10 本。 vitest の一覧は `frontend/testing/slowestTests.js` が足し、 エージェントが流して通った試験が伏せられる時も出る)。 一番遅い 1 本が変わったら、 その出力で測り直して値を直す。 `engines/apple-speech/` の部品のテストは待つ処理の無い 1 本の実行 file なので、 どちらも持たない。
+
 意図的に gate を回避したい時は `--no-verify`。 偽陽性は `.tooling/local-ci/audit-w2-residue-allowlist.txt` に追記。

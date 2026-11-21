@@ -48,8 +48,6 @@ async function readUp(page, isMobile) {
 }
 
 test.describe('regression: reading position holds', () => {
-  test.setTimeout(120_000)
-
   test('a bubble read above the bottom stays put while new messages come to a full conversation', async ({ page, request, isMobile }) => {
     const start = Date.now() - 3_600_000
     const seeded = await request.post('/debug/e2e/seed', {

@@ -14,6 +14,10 @@ export default defineConfig({
   // (= a true bug stays red on both attempts).
   retries: 1,
   workers: 1,
+  // A scenario that runs past this fails instead of holding the whole run. Three times the slowest scenario of a normal
+  // run: 32.1 s (stream-keeps-window) on 2026-11-21. Measure again with the slow files this prints when it changes.
+  timeout: 100_000,
+  reportSlowTests: { max: 10, threshold: 0 },
   reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
 
   globalSetup: './helpers/global-setup.js',

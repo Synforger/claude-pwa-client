@@ -45,8 +45,6 @@ function turnEvents(turn) {
 }
 
 test.describe('regression: stream keeps the chat window', () => {
-  test.setTimeout(180_000)
-
   test('streaming into the open tab at the bottom keeps the list at DISPLAY_LIMIT with no ↓ button', async ({ page, request }) => {
     const seeded = await request.post('/debug/e2e/seed', {
       data: {
