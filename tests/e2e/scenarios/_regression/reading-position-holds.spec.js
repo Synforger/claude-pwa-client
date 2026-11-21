@@ -62,14 +62,15 @@ test.describe('regression: reading position holds', () => {
     const { jsonl_path: jsonlPath } = await seeded.json()
     await openClient(page, { sid: SID })
 
-    // The bubble across the middle of the list, and where it is on screen.
+    // The bubble across the middle of the list, and where it is on screen. When the middle falls in the gap between two
+    // bubbles, the one just below it.
     const reading = () => page.evaluate(() => {
       const list = document.querySelector('.messages')
       const box = list.getBoundingClientRect()
       const middle = box.top + box.height / 2
       for (const bubble of list.children) {
         const rect = bubble.getBoundingClientRect()
-        if (rect.top <= middle && rect.bottom > middle) {
+        if (rect.bottom > middle) {
           return { uuid: bubble.getAttribute('data-cpc-uuid'), offset: Math.round(rect.top - box.top), bubbles: list.children.length, arrowShown: !!document.querySelector('.scroll-btn') }
         }
       }
