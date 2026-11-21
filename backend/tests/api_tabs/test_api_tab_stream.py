@@ -112,6 +112,26 @@ def test_a_record_that_got_shorter_sends_history_refetch_and_is_followed_from_ze
     assert events[0]["sid"] == TAB_ID and events[0]["corr_id"] and events[1]["uuid"] == "u9"
 
 
+def test_a_record_replaced_by_a_longer_file_sends_history_refetch_and_is_followed_from_zero(api_env):
+    append(api_env.record, user_row("u1", "one"))
+
+    async def scenario():
+        queue = jsonl_event_broadcaster.subscribe("all")
+        try:
+            await stream.poll()
+            fresh = api_env.record.with_name("fresh.jsonl")
+            append(fresh, user_row("n1", "a new conversation"), user_row("n2", "already longer than the old one"))
+            fresh.replace(api_env.record)
+            await stream.poll()
+            return _drain(queue)
+        finally:
+            jsonl_event_broadcaster.unsubscribe("all", queue)
+
+    events = [event for event, _pos in asyncio.run(scenario())]
+    assert [event["type"] for event in events] == ["history_refetch", "user_message", "user_message"]
+    assert [event["uuid"] for event in events[1:]] == ["n1", "n2"]
+
+
 def test_the_context_amount_is_kept_from_the_rows_read_and_a_change_wakes_the_overview(api_env):
     async def scenario():
         woken = sessions_overview.subscribe()

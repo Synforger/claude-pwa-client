@@ -64,6 +64,20 @@ def test_a_record_that_got_shorter_rewinds_and_a_vanished_one_too(api_env):
     assert (gone.present, gone.offset, gone.rewound) == (False, 0, True)
 
 
+def test_another_file_renamed_over_the_record_rewinds_even_when_it_is_already_longer(api_env):
+    append(api_env.record, user_row("u1", "old"))
+    start = look_at_record(api_env.record, None, False)
+    fresh = api_env.record.with_name("fresh.jsonl")
+    append(fresh, user_row("n1", "a new conversation"), user_row("n2", "that grew past the old position"))
+    fresh.replace(api_env.record)
+    assert api_env.record.stat().st_size > start.offset
+    found = look_at_record(api_env.record, start.offset, True, identity=start.identity)
+    assert found.rewound and found.scanned and ['"n1"' in raw for raw, _end in found.rows] == [True, False]
+    assert found.identity != start.identity
+    again = look_at_record(api_env.record, found.offset, True, identity=found.identity)
+    assert (again.rewound, again.rows) == (False, [])
+
+
 def test_the_number_of_a_row_is_counted_from_the_file(api_env):
     append(api_env.record, user_row("u1", "one"), user_row("u2", "two"), user_row("u3", "three"))
     rows = look_at_record(api_env.record, 0, True).rows

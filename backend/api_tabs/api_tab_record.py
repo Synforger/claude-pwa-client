@@ -80,13 +80,15 @@ def last_context_tokens(path: Path) -> int | None:
 class Changes:
     """What one look at a record found.
 
-    `present` is whether the file exists; `offset` the position to read from next time; `rows` the new whole rows with
-    the position at the end of each; `rewound` that the file got shorter than the last position (or vanished), so that
-    the screen must fetch its history again; `scanned_tokens` the context amount found by reading the file's end again
-    (only meaningful when `scanned` is true: at the first look and after a rewind); `unreadable` why the file could not
-    be read (None when it could)."""
+    `present` is whether the file exists; `offset` the position to read from next time; `identity` which file it was
+    (`st_dev`, `st_ino`; None when it is not there), to hand back at the next look; `rows` the new whole rows with the
+    position at the end of each; `rewound` that the file got shorter than the last position, was replaced by another
+    file, or vanished, so that the screen must fetch its history again; `scanned_tokens` the context amount found by
+    reading the file's end again (only meaningful when `scanned` is true: at the first look and after a rewind);
+    `unreadable` why the file could not be read (None when it could)."""
     present: bool
     offset: int
+    identity: tuple[int, int] | None = None
     rows: list[tuple[str, int]] = field(default_factory=list)
     rewound: bool = False
     scanned: bool = False
@@ -94,23 +96,29 @@ class Changes:
     unreadable: str | None = None
 
 
-def look_at_record(path: Path, offset: int | None, was_present: bool, *, count_tokens: bool = True) -> Changes:
-    """Look at `path`, given the position read to last time (None = this is the first look since the backend started).
+def look_at_record(path: Path, offset: int | None, was_present: bool, *, identity: tuple[int, int] | None = None,
+                   count_tokens: bool = True) -> Changes:
+    """Look at `path`, given the position read to last time (None = this is the first look since the backend started)
+    and the `identity` the last look returned.
 
     First look: start from the end of the whole rows, so that a restart does not stream the whole record again; a file
     that is not there yet is read from 0 when it appears. Later: the new whole rows from `offset`; a file shorter than
-    `offset`, or gone, rewinds to 0. Without `count_tokens` (= a tab whose program says its context amount) the file's
-    end is never read again to count it."""
+    `offset`, another file renamed over it (= a program that starts a new conversation in the same path), or a file
+    gone, rewinds to 0. A replacement that has already grown past `offset` is caught by its identity, not its size.
+    Without `count_tokens` (= a tab whose program says its context amount) the file's end is never read again to count
+    it."""
     def counted() -> int | None:
         return last_context_tokens(path) if count_tokens else None
 
     try:
-        size = path.stat().st_size
+        stat = path.stat()
+        now = (stat.st_dev, stat.st_ino)
         if offset is None:
-            return Changes(present=True, offset=end_of_complete_lines(path), scanned=True, scanned_tokens=counted())
+            return Changes(present=True, offset=end_of_complete_lines(path), identity=now, scanned=True,
+                           scanned_tokens=counted())
         if not was_present:
             offset = 0
-        rewound = size < offset
+        rewound = stat.st_size < offset or (identity is not None and identity != now)
         if rewound:
             offset = 0
         rows, new_offset = read_complete_lines_with_pos(path, offset)
@@ -118,8 +126,8 @@ def look_at_record(path: Path, offset: int | None, was_present: bool, *, count_t
     except FileNotFoundError:
         return Changes(present=False, offset=0, rewound=was_present, scanned=True)
     except OSError as error:
-        return Changes(present=was_present, offset=offset or 0, unreadable=str(error))
-    return Changes(present=True, offset=new_offset, rows=rows, rewound=rewound, scanned=rewound,
+        return Changes(present=was_present, offset=offset or 0, identity=identity, unreadable=str(error))
+    return Changes(present=True, offset=new_offset, identity=now, rows=rows, rewound=rewound, scanned=rewound,
                    scanned_tokens=scanned_tokens)
 
 

@@ -53,12 +53,12 @@ def _look_at_spend(wallet: ApiAccount) -> tuple[Spend | None, str | None]:
 
 
 def _look_at_everything(
-    tabs: list[tuple[ApiTab, int | None, bool]],
+    tabs: list[tuple[ApiTab, int | None, bool, tuple[int, int] | None]],
     wallets: list[tuple[ApiAccount, object]],
 ) -> tuple[list[tuple[ApiTab, Changes]], list[tuple[ApiAccount, tuple[int, int, int] | None, Spend | None, str | None]]]:
     """One blocking look at every record and every spend file whose signature changed (done in a worker thread)."""
-    changes = [(tab, look_at_record(tab.record, offset, present, count_tokens=tab.source is None))
-               for tab, offset, present in tabs]
+    changes = [(tab, look_at_record(tab.record, offset, present, identity=identity, count_tokens=tab.source is None))
+               for tab, offset, present, identity in tabs]
     spends = []
     for wallet, previous in wallets:
         assert wallet.spend is not None
@@ -77,6 +77,7 @@ class ApiTabStream:
         self._offsets: dict[str, int | None] = {}
         self._records: dict[str, object] = {}
         self._present: dict[str, bool] = {}
+        self._identities: dict[str, tuple[int, int] | None] = {}
         self._tokens: dict[str, int | None] = {}
         self._spend_signatures: dict[str, tuple[int, int, int] | None] = {}
         self._spends: dict[str, Spend | None] = {}
@@ -104,7 +105,8 @@ class ApiTabStream:
             self._table = table
             changed = True
         self._forget_moved_records(table)
-        tabs = [(tab, self._offsets.get(tab.id), self._present.get(tab.id, False)) for tab in table.tabs]
+        tabs = [(tab, self._offsets.get(tab.id), self._present.get(tab.id, False), self._identities.get(tab.id))
+                for tab in table.tabs]
         wallets = [(wallet, self._spend_signatures_of(wallet)) for wallet in table.accounts if wallet.spend is not None]
         if not tabs and not wallets:                                    # nothing to look at: no thread is woken for it
             if changed:
@@ -140,7 +142,7 @@ class ApiTabStream:
     def _forget_removed(self, table: ApiTabTable) -> None:
         """Drop what is kept for tabs and wallets the configuration no longer declares."""
         for sid in [sid for sid in self._offsets if table.tab(sid) is None]:
-            for kept in (self._offsets, self._records, self._present, self._tokens):
+            for kept in (self._offsets, self._records, self._present, self._identities, self._tokens):
                 kept.pop(sid, None)
         for name in [name for name in self._spend_signatures if table.account(name) is None]:
             for kept in (self._spend_signatures, self._spends, self._spend_reasons):
@@ -151,7 +153,7 @@ class ApiTabStream:
         (= the first look at it), never from the old file's position."""
         for tab in table.tabs:
             if self._records.get(tab.id, tab.record) != tab.record:
-                for kept in (self._offsets, self._present, self._tokens):
+                for kept in (self._offsets, self._present, self._identities, self._tokens):
                     kept.pop(tab.id, None)
             self._records[tab.id] = tab.record
 
@@ -161,6 +163,7 @@ class ApiTabStream:
         previous = self._tokens.get(sid)
         self._offsets[sid] = found.offset
         self._present[sid] = found.present
+        self._identities[sid] = found.identity
         if found.unreadable is not None and self._row_log.allows(sid, found.unreadable):
             logger.warning("api tab: %s line 0 skipped: record unreadable: %s", sid, found.unreadable)
         if found.rewound:
