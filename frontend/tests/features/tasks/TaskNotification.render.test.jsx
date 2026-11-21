@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 //
 // TaskNotification の render smoke (= inline 展開導入 2026-07-05)。
-// bash / monitor / unknown 型はカード直下 inline 展開、 agent 型は SubagentsModal 経路
-// (= overlay set のみ、 body は開かない) の分岐を実 render で確認する。
+// どの型もタップでカード直下に inline 展開する (= bash / monitor / agent / unknown)。 実 render で確認する。
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, cleanup, fireEvent } from '@testing-library/react'
 
@@ -14,7 +13,6 @@ vi.mock('../../../src/_common/api.js', () => ({
 }))
 
 import TaskNotification from '../../../src/features/tasks/TaskNotification.jsx'
-import { getSnapshot as getUiSnapshot } from '../../../src/state/ui.js'
 
 afterEach(cleanup)
 
@@ -39,11 +37,10 @@ describe('TaskNotification render smoke', () => {
     expect(queryByTestId('task-note-body')).toBeNull()
   })
 
-  it('agent 型: タップは overlay (SubagentsModal) を立てて inline body は開かない', () => {
-    const { container, queryByTestId } = render(<TaskNotification msg={agentMsg} />)
+  it('agent 型: bash 型と同じく、 タップでカード直下に inline body が開く', async () => {
+    const { container, findByTestId } = render(<TaskNotification msg={agentMsg} />)
     fireEvent.click(container.querySelector('.task-note-head'))
-    expect(queryByTestId('task-note-body')).toBeNull()
-    expect(getUiSnapshot().overlays.subagents).toBe(true)
+    expect(await findByTestId('task-note-body')).toBeTruthy()
   })
 
   it('outputFile なし: ボタン disabled、 タップ不能', () => {

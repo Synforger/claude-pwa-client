@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
-// The top bar of an API tab (no Claude Code behind it): no notes, no sub-agents, no plan approval. A Claude tab's bar
-// keeps them.
+// The top bar of an API tab (no Claude Code behind it): no notes, no plan approval. A Claude tab's bar keeps them.
+// The top bar has no pin and no robot: the tickets that want a look are a number on the menu button.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, cleanup, fireEvent, act } from '@testing-library/react'
 
@@ -29,19 +29,19 @@ afterEach(() => {
 })
 
 describe('Topbar', () => {
-  it('shows the notes, sub-agents and plan-approval buttons of a Claude tab', () => {
+  it('shows the notes and plan-approval buttons of a Claude tab, and neither the pin nor the robot', () => {
     setActiveId('ses_claude')
     const { queryByTestId } = render(<Topbar />)
     expect(queryByTestId('notes-open-button')).not.toBeNull()
-    expect(queryByTestId('subagents-open-button')).not.toBeNull()
     expect(queryByTestId('plan-approval-open-button')).not.toBeNull()
+    expect(queryByTestId('tickets-open-button')).toBeNull()
+    expect(queryByTestId('subagents-open-button')).toBeNull()
   })
 
   it('shows none of them for an API tab, and still its name', () => {
     setActiveId('api_support-bot')
     const { queryByTestId, container } = render(<Topbar />)
     expect(queryByTestId('notes-open-button')).toBeNull()
-    expect(queryByTestId('subagents-open-button')).toBeNull()
     expect(queryByTestId('plan-approval-open-button')).toBeNull()
     expect(container.querySelector('.topbar-title').textContent).toBe('Support bot')
   })
@@ -52,31 +52,38 @@ describe('Topbar tickets', () => {
   const row = (id, attention) => ({ id, title: id, status: 'open', holder: 'ses_claude', opener: 'ses_claude', attention })
 
   afterEach(() => {
-    act(() => { applyTicketsSnapshot({ tickets: [], peers: {} }); setOverlay('tickets', false) })
+    act(() => { applyTicketsSnapshot({ tickets: [], peers: {} }); setOverlay('drawer', false) })
   })
 
-  it('shows no pin while no ticket wants a look', () => {
+  it('shows no number on the menu button while no ticket wants a look', () => {
     setActiveId('ses_claude')
     act(() => applyTicketsSnapshot({ tickets: [row('a', null)], peers: {} }))
     const { queryByTestId } = render(<Topbar />)
-    expect(queryByTestId('tickets-open-button')).toBeNull()
+    expect(queryByTestId('tickets-count')).toBeNull()
   })
 
-  it('shows the pin with the number of tickets that want a look, and opens the list by it, whichever tab is open', () => {
+  it('shows the number of tickets that want a look on the menu button, whichever tab is open', () => {
     setActiveId('api_support-bot')
     act(() => applyTicketsSnapshot({ tickets: [row('a', 'waiting'), row('b', 'delivery'), row('c', null)], peers: {} }))
     const { getByTestId } = render(<Topbar />)
     expect(getByTestId('tickets-count').textContent).toBe('2')
-    fireEvent.click(getByTestId('tickets-open-button'))
-    expect(getUiSnapshot().overlays.tickets).toBe(true)
+    expect(getByTestId('drawer-toggle').contains(getByTestId('tickets-count'))).toBe(true)
   })
 
-  it('takes the pin away when the last ticket that wanted a look is settled', () => {
+  it('opens the tab list by the menu button, number or not', () => {
+    setActiveId('ses_claude')
+    act(() => applyTicketsSnapshot({ tickets: [row('a', 'waiting')], peers: {} }))
+    const { getByTestId } = render(<Topbar />)
+    fireEvent.click(getByTestId('drawer-toggle'))
+    expect(getUiSnapshot().overlays.drawer).toBe(true)
+  })
+
+  it('takes the number away when the last ticket that wanted a look is settled', () => {
     setActiveId('ses_claude')
     act(() => applyTicketsSnapshot({ tickets: [row('a', 'waiting')], peers: {} }))
     const { queryByTestId } = render(<Topbar />)
-    expect(queryByTestId('tickets-open-button')).not.toBeNull()
+    expect(queryByTestId('tickets-count')).not.toBeNull()
     act(() => applyTicketsSnapshot({ tickets: [row('a', null)], peers: {} }))
-    expect(queryByTestId('tickets-open-button')).toBeNull()
+    expect(queryByTestId('tickets-count')).toBeNull()
   })
 })

@@ -1,5 +1,5 @@
 /* background task 完了通知カード: 会話の邪魔をしない中央寄せの控えめなカード。
-   タップで SubagentsModal を outputFile 起点で開く (= inline body なし)。 */
+   タップでカード直下に outputFile の中身を inline 展開する。 */
 .message.system.task-note {
   justify-content: center;
   margin: 10px 0;

@@ -29,7 +29,7 @@ export default function Topbar() {
   const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
   const sessionsState = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
   const t = useT()
-  // 「見てほしい」 票の数 (= 📌。 0 なら出さない)
+  // 「見てほしい」 票の数 (= ☰ の数字の印。 0 なら出さない)
   const ticketsToLookAt = attentionCount(useSyncExternalStore(subscribeTickets, getTicketsSnapshot).tickets)
 
   const activeSession = useMemo(
@@ -37,7 +37,7 @@ export default function Topbar() {
     [sessionsState.sessions, sessionsState.activeId],
   )
   const activeSid = activeSession?.id || null
-  // An API tab has no Claude Code: no notes, no sub-agents, no plan approval (and no terminal to come back from)
+  // An API tab has no Claude Code: no notes, no plan approval (and no terminal to come back from)
   const claudeSid = isApiTab(activeSession) ? null : activeSid
   const activeViewMode = useMemo(
     () => (activeSid ? (ui.viewModes[activeSid] || 'chat') : 'chat'),
@@ -57,6 +57,15 @@ export default function Topbar() {
     <header className="topbar">
       <button className="hamburger" onClick={() => setOverlay('drawer', true)} aria-label={t('topbar.drawer_toggle')} data-testid="drawer-toggle">
         ☰
+        {ticketsToLookAt > 0 && (
+          <span
+            className="topbar-tickets-count"
+            title={t('topbar.tickets_label', { count: ticketsToLookAt })}
+            data-testid="tickets-count"
+          >
+            {ticketsToLookAt}
+          </span>
+        )}
       </button>
       <span className="topbar-title">{activeSession?.title || t('topbar.no_session')}</span>
       {/* terminal モード時の chat 復帰ボタン: ⋯メニュー経由が hit test 等で詰まっても
@@ -72,19 +81,8 @@ export default function Topbar() {
         </button>
       )}
       {/* topbar 右側のアイコン群。 並びは左→右で ⭐ お気に入り → 📋 メモ →
-          🤖 サブエージェント → (📑 plan 承認、 条件付き) → (🔊 声、 声を持つ agent のタブだけ) →
-          🖥 モニター → 🧩 拡張。 */}
-      {ticketsToLookAt > 0 && (
-        <button
-          className="topbar-icon-btn"
-          onClick={() => setOverlay('tickets', true)}
-          aria-label={t('topbar.tickets_label', { count: ticketsToLookAt })}
-          title={t('topbar.tickets')}
-          data-testid="tickets-open-button"
-        >
-          📌<span className="topbar-tickets-count" data-testid="tickets-count">{ticketsToLookAt}</span>
-        </button>
-      )}
+          (📑 plan 承認、 条件付き) → (🔊 声、 声を持つ agent のタブだけ) →
+          🖥 モニター → 🧩 拡張。 票の数は ☰ の印で、 票の一覧は一覧の先頭の行から開く。 */}
       {activeViewMode === 'chat' && activeSid && (
         <button
           className="topbar-icon-btn"
@@ -107,18 +105,7 @@ export default function Topbar() {
           📋
         </button>
       )}
-      {activeViewMode === 'chat' && claudeSid && (
-        <button
-          className="topbar-icon-btn"
-          onClick={() => { setOverlay('subagentsFocus', null); setOverlay('subagents', true) }}
-          aria-label={t('topbar.subagents_label')}
-          title={t('topbar.subagents')}
-          data-testid="subagents-open-button"
-        >
-          🤖
-        </button>
-      )}
-      {/* ExitPlanMode 承認待ち: 🤖 の隣に常駐する 📑 ボタン。 pending_plan がある時のみ表示、
+      {/* ExitPlanMode 承認待ち: 📋 の隣に常駐する 📑 ボタン。 pending_plan がある時のみ表示、
           脈動ドットで承認待ちを示し、 タップで PlanApprovalBubble (= ChatPanel 内) を開く
           (= ui.overlays.planOpen 経由)。 */}
       {activeViewMode === 'chat' && claudeSid && status?.pending_plan && (

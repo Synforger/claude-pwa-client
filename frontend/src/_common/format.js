@@ -33,9 +33,6 @@ export function formatTool(block) {
     label: out.label ?? '',
     shortLabel: out.shortLabel ?? '',
     diffInput: out.diffInput ?? null,
-    // Task / Agent の description は subagent の meta.description と一致するので、 🧩
-    // スコープ表示の引き当てキーとして保持する (= タップで該当 agent の transcript に直行)。
-    subagentDescription: out.subagentDescription ?? null,
   }
 }
 

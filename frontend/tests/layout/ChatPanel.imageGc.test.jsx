@@ -38,7 +38,6 @@ vi.mock('../../src/features/push-notify/useSessionBadges.js', () => ({
   useSessionBadges: () => ({ unreadCount: 0, onOverviewPayload: () => {} }),
 }))
 vi.mock('../../src/features/push-notify/badge.js', () => ({ setBadge: () => {} }))
-vi.mock('../../src/features/chat/useRunningSubagents.js', () => ({ useRunningSubagents: () => new Set() }))
 vi.mock('../../src/features/tasks/ActivityBar.jsx', () => ({ default: () => null }))
 vi.mock('../../src/features/status-bar/PromptStateBanner.jsx', () => ({ PromptStateBanner: () => null }))
 vi.mock('../../src/features/chat/ChatInput.jsx', () => ({ default: () => <div data-testid="chat-input" /> }))

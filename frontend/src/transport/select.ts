@@ -12,7 +12,6 @@ import {
   unifiedJsonl,
   unifiedOverviewSse,
   unifiedStatusSse,
-  unifiedSubagentsSse,
   unifiedTicketsSse,
   unifiedTransport,
   unifiedViews,
@@ -23,7 +22,6 @@ export const chatTransport = unifiedJsonl
 
 export const statusSse = unifiedStatusSse
 export const overviewSse = unifiedOverviewSse
-export const subagentsStreamSse = unifiedSubagentsSse
 export const ticketsSse = unifiedTicketsSse
 export const viewsChannel = unifiedViews
 

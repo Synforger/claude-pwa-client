@@ -153,18 +153,6 @@
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
 }
-.drawer-tickets {
-  width: 100%;
-  margin-bottom: 8px;
-  padding: 8px 12px;
-  background: none;
-  color: var(--text);
-  border: 1px solid var(--border, #333);
-  border-radius: 8px;
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-}
 /* そのタブが今持つ票の題 (= 項目の下の段に 1 行) */
 .drawer-item-ticket {
   flex: 0 0 100%;

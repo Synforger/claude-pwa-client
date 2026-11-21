@@ -13,22 +13,6 @@ import { setOverlay } from '../../state/ui.js'
 import { noticeLabel, parseAgentMessage, parseClientNotice, parseRollover, parseTabOpen } from './agentMessage.js'
 import './MessageItem.css'
 
-// 🧩 タップ時に「どこを開くか」 のスコープ記述子を作る。
-//   - Task     : input.description が subagent meta.description と一致 → その agent transcript
-//   - Workflow : tool_result の "Task ID: <taskId>" が manifest.taskId と一致 → その run
-// 引き当てキーが取れなければ null (= パネルをスコープ無しで開く)。
-function subagentFocus(t) {
-  if (t.name === 'Task' && t.subagentDescription) {
-    return { kind: 'agentDesc', value: t.subagentDescription }
-  }
-  if (t.name === 'Workflow' && t.result) {
-    const text = formatToolResultContent(t.result.content) || ''
-    const m = text.match(/Task ID:\s*(\S+)/)
-    if (m) return { kind: 'workflowTaskId', value: m[1] }
-  }
-  return null
-}
-
 // Grep / Glob の結果本文をパスリンク化する。
 // Grep content mode: "path:line:content" / files_with_matches: "path"
 // Glob: "path" (絶対 or 相対)
@@ -346,7 +330,7 @@ function FoldedRelayed({ relayed, onOpenFile }) {
   )
 }
 
-const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentTool, runningSubagents, onOpenSubagents, onFork, isLast, voiceMarks }) {
+const MessageItem = memo(function MessageItem({ msg, onOpenFile, onFork, isLast, voiceMarks }) {
   // 表示する文。 agent の文からは言い方の印を (= 声を持つ agent のタブだけ)、 人の文からは声で聞いている印を
   // 外す (= 印が付くのは 🔊 を持つタブだけ。 印の一覧を書かない声の設定でも外れるよう、 一覧には頼らない)。
   // 記録とコピーの文は msg.text のまま。
@@ -519,26 +503,6 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
                       {resultText && showResult && (
                         <span className="tool-meta"> · {t('tool.chars', { n: resultChars })}</span>
                       )}
-                      {/* Task tool が進行中 (= result 未受信) でかつ status.subagent が active なら、
-                          subagent 内で今動いてる sub-tool 名を inline 併記する。 これで「Task が
-                          何をやってるか」 が普通の tool 行として観察可能 (= ActivityBar 撤去の代替)。 */}
-                      {tool.name === 'Task' && !tool.result && activeSubagentTool && (
-                        <span className="tool-meta"> · ↳ {activeSubagentTool}</span>
-                      )}
-                      {/* Task / Workflow は子エージェントを生やす。 タイムライン上のこの地点から
-                          🧩 (= サブエージェント一覧) へ飛べるようにする (= 「どこで分岐したか」 を
-                          残しつつ、 中身は専用パネルで深掘り)。 details の開閉とは別操作にするため
-                          preventDefault + stopPropagation。 */}
-                      {(tool.name === 'Task' || tool.name === 'Workflow') && onOpenSubagents && (
-                        <button
-                          type="button"
-                          className="tool-open-subagents"
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpenSubagents(subagentFocus(t)) }}
-                          title={t('message.tool.open_subagents')}
-                        >
-                          🤖{(!tool.result || (runningSubagents && t.subagentDescription && runningSubagents.has(t.subagentDescription))) && <span className="tool-running-dot" />}
-                        </button>
-                      )}
                     </summary>
                     {hasMore && (
                       <div className="tool-body">
@@ -647,17 +611,12 @@ const MessageItem = memo(function MessageItem({ msg, onOpenFile, activeSubagentT
 }, areEqual)
 
 // custom equality (= 2026-06-23 perf sweep)。 default shallow と同等の比較を明示し、
-// 将来 props 追加時の memo skip 漏れを抑える。 activeSubagentTool は subagent ライブ表示で
-// streaming 中ですら ほぼ不変 (= tool 切替時のみ変化) なので、 ここで早期 skip すれば
-// MessageRenderer の markdown 再 parse を全件抑えられる。 msg 参照 + callback 参照 + 軸 props
-// のみ比較。 onFork は activeSid 切替時にしか変わらないので参照比較で十分。
+// 将来 props 追加時の memo skip 漏れを抑える。 msg 参照 + callback 参照 + 軸 props のみ比較すれば、
+// MessageRenderer の markdown 再 parse を全件抑えられる。 onFork は activeSid 切替時にしか変わらないので参照比較で十分。
 function areEqual(prev, next) {
   return (
     prev.msg === next.msg
     && prev.onOpenFile === next.onOpenFile
-    && prev.activeSubagentTool === next.activeSubagentTool
-    && prev.runningSubagents === next.runningSubagents
-    && prev.onOpenSubagents === next.onOpenSubagents
     && prev.onFork === next.onFork
     && prev.voiceMarks === next.voiceMarks
     // isLast は「進行中か」 の導出元。 落とすと、 新しい bubble が来て末尾でなく

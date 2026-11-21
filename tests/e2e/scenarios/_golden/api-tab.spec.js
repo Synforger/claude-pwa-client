@@ -37,7 +37,6 @@ test.describe('golden: api-tab', () => {
     await expect(page.locator('[data-testid=chat-input]')).toHaveCount(0)
     await expect(page.locator('[data-testid=more-menu-toggle]')).toHaveCount(0)
     await expect(page.locator('[data-testid=notes-open-button]')).toHaveCount(0)
-    await expect(page.locator('[data-testid=subagents-open-button]')).toHaveCount(0)
 
     // The top bar shows the context amount (300 + 12,000 + 0 tokens) and the wallet's spend this month, and no 5h / 7d.
     await expect(page.locator('[data-testid=status-bar-api-context]')).toContainText('12.3k')

@@ -13,8 +13,6 @@ const INITIAL = {
     settings: false,
     tickets: false,       // 票の一覧 (= 📌 から開く引き出し)
     ticket: null,         // 開いている票の id (= 票の画面。 null で閉じる)
-    subagents: false,
-    subagentsFocus: null,
     previewPath: null,
     treeOpen: null,
     confirmEnd: false,

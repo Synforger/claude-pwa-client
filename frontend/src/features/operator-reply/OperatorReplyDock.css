@@ -1,0 +1,98 @@
+/* 右上の引き出し (🔖)。 帯のすぐ下、 画面の右端に置き、 チャットの左側は覆わない。
+   Layout の高さ 0 の置き場 (.operator-reply-anchor) が帯の直下に在り、 中身はそこから下へはみ出して右に寄る
+   (= 絶対配置を使わず、 つまみと引き出しは grid の同じ 1 マスに重ねる)。 */
+.operator-reply-anchor {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  height: 0;
+  flex-shrink: 0;
+  z-index: 15;
+}
+.operator-reply {
+  display: grid;
+}
+.operator-reply > * {
+  grid-area: 1 / 1;
+}
+.operator-reply-knob {
+  justify-self: end;
+  align-self: start;
+  z-index: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-right: none;
+  border-radius: 0 0 0 8px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+.operator-reply-knob:hover {
+  background: var(--bg3);
+}
+/* 前に開いた時より新しい答えが来ている印 */
+.operator-reply-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 2px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: top;
+}
+.operator-reply-panel {
+  box-sizing: border-box;
+  width: clamp(280px, 50vw, 640px);
+  max-height: 50vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-right: none;
+  border-radius: 0 0 0 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+/* つまみが見出しの右端に重なるので、 その分を空ける */
+.operator-reply-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 40px 6px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.operator-reply-title {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: var(--text);
+}
+.operator-reply-writing {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+.operator-reply-prompt {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.operator-reply-clock {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+.operator-reply-body {
+  overflow-y: auto;
+  padding: 10px 12px;
+}
+/* 吹き出しと同じ markdown の見た目を使い、 枠・余白・幅は引き出しに任せる */
+.operator-reply-bubble {
+  max-width: 100%;
+  padding: 0;
+}

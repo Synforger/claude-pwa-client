@@ -8,7 +8,7 @@ import '../../_common/Modal.css'
 import './Tickets.css'
 import { agoOf, groupTickets, holderOf, peerLines, ticketLabel } from './ticketGroups.js'
 
-// 票の一覧 (= 📌 から開く)。 「見てほしい」「動いている」「閉じた」 (畳む) の 3 段で、 行を押すと票の画面が開く。
+// 票の一覧 (= 会話の一覧のいちばん上の 📌 の行から開く)。 「見てほしい」「動いている」「閉じた」 (畳む) の 3 段で、 行を押すと票の画面が開く。
 // 一番下に、 もう 1 台の機械で操作者の答えを待つ票の数 (= その機械の画面で答える)。
 
 const NOW_TICK_MS = 30_000

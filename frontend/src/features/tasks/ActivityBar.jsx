@@ -24,8 +24,7 @@ function ActivityBar({ status }) {
 
   if (!status) return null
 
-  // subagent (= Task tool 進行中) は MessageItem の Task tool に inline 表示するので
-  // ActivityBar には出さない (= 2026-05-17 改修)。 ここは plan_mode + todos のみ担当。
+  // subagent (= Task tool 進行中) は ActivityBar には出さない。 ここは plan_mode + todos のみ担当。
   const { plan_mode } = status
   const hasLine = plan_mode
   const hasTodos = hasTodosRaw && !(allDone && hideDone)

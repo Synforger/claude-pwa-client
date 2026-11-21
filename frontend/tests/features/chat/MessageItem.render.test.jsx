@@ -22,8 +22,6 @@ const baseProps = {
   onOpenFile: noop,
   onAnswer: noop,
   apiKeySource: null,
-  activeSubagentTool: null,
-  onOpenSubagents: noop,
   onFork: null,
 }
 

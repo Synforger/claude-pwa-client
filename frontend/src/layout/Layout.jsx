@@ -13,7 +13,6 @@ import '../features/file-tree/index.js'
 import '../features/ask-user-question/index.js'
 import '../features/plan-approval/index.js'
 import '../features/screenshare/index.js'
-import '../features/subagents/index.js'
 import '../features/tasks/index.js'
 import '../features/notes/index.js'
 import '../features/tickets/index.js'
@@ -31,6 +30,7 @@ import ChatPanel from './ChatPanel.jsx'
 import TerminalPane from './TerminalPane.jsx'
 import OverlayHost from './OverlayHost.jsx'
 import Topbar from '../features/topbar/Topbar.jsx'
+import OperatorReplyDock from '../features/operator-reply/OperatorReplyDock.jsx'
 import ExtensionHost from '../features/extensions/ExtensionHost.jsx'
 import StatusBar from '../features/status-bar/StatusBar.jsx'
 import StorageWarningHost from '../features/status-bar/StorageWarningHost.jsx'
@@ -51,6 +51,10 @@ export default function Layout() {
       <StatusBar />
       <StorageWarningHost />
       <Topbar />
+      {/* 帯のすぐ下、 画面の右端の引き出し (= 最後の答え)。 置き場は高さ 0 で、 チャットの場所を取らない */}
+      <div className="operator-reply-anchor">
+        <OperatorReplyDock />
+      </div>
       <ExtensionHost />
       <TerminalPane sid={activeSid} />
       <ChatPanel sid={activeSid} />
