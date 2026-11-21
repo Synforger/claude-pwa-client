@@ -50,9 +50,9 @@ def test_a_ticket_wants_a_look_for_the_first_reason_that_fits(status, holder, de
 
 def test_a_ticket_kept_inside_a_boundary_is_named_by_its_id_only():
     assert ticket_view.notice_of("home-261119-01", None, "waiting", wants="decide") == (
-        "📌 Ticket home-261119-01", "Waiting for your decision")
+        "🎫 Ticket home-261119-01", "Waiting for your decision")
     assert ticket_view.notice_of("home-261119-01", "Fix the title", "waiting", wants="mac") == (
-        "📌 Fix the title", "Needs you at the Mac")
+        "🎫 Fix the title", "Needs you at the Mac")
 
 
 def test_the_words_of_a_notification_follow_the_reason():

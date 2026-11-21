@@ -67,7 +67,7 @@ export default function AppEffects() {
   useReadOnSessionOpen(activeSid)
   useDeepLink(setActiveId)
   useNotificationClear()
-  // 頼みの票の絵 (= 統合 stream の `tickets` channel) を受ける。 📌・票の一覧・タブの一覧が読む
+  // 頼みの票の絵 (= 統合 stream の `tickets` channel) を受ける。 🎫・票の一覧・タブの一覧が読む
   useTicketsChannel()
 
   // Phase J-5 (= ADR-026 follow-up): 旧 AppShell 由来の inline `URL ?ses= 直読み + setActiveId`

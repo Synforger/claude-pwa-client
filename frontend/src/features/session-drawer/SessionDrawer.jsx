@@ -459,7 +459,7 @@ export default function SessionDrawer() {
             onClick={() => { setOverlay('tickets', true); onClose() }}
             data-testid="drawer-tickets-open"
           >
-            <span className="drawer-item-fold" aria-hidden="true">📌</span>
+            <span className="drawer-item-fold" aria-hidden="true">🎫</span>
             <span className="drawer-folder-name">{t('drawer.tickets')}</span>
             {ticketsToAnswer > 0 && <span className="drawer-item-hidden">{ticketsToAnswer}</span>}
           </button>
@@ -648,7 +648,7 @@ export default function SessionDrawer() {
                     onClick={() => { setOverlay('ticket', heldTickets[s.id][0].id); onClose() }}
                     data-testid="session-held-ticket"
                   >
-                    📌 {heldTickets[s.id].map(heldText).join(' / ')}
+                    🎫 {heldTickets[s.id].map(heldText).join(' / ')}
                   </button>
                 )}
               </div>

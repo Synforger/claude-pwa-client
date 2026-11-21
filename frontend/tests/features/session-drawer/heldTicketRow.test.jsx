@@ -39,23 +39,23 @@ async function heldLine(tickets) {
 
 describe('the held tickets line of a tab', () => {
   it('is the pin and the title for a ticket that moves and has no mark', async () => {
-    expect(await heldLine([row('a')])).toBe('📌 T a')
+    expect(await heldLine([row('a')])).toBe('🎫 T a')
   })
 
   it('puts the pause sign before the title of a waiting ticket', async () => {
-    expect(await heldLine([row('a', { status: 'waiting' })])).toBe('📌 ⏸ T a')
+    expect(await heldLine([row('a', { status: 'waiting' })])).toBe('🎫 ⏸ T a')
   })
 
   it('puts the first mark as one character before the title', async () => {
-    expect(await heldLine([row('a', { marks: ['overdue', 'idle'] })])).toBe('📌 ⚠\uFE0F T a')
+    expect(await heldLine([row('a', { marks: ['overdue', 'idle'] })])).toBe('🎫 ⚠\uFE0F T a')
   })
 
   it('puts the mark of a ticket that is due soon the same way', async () => {
-    expect(await heldLine([row('b', { marks: ['due_soon'] })])).toBe('📌 ⏰ T b')
+    expect(await heldLine([row('b', { marks: ['due_soon'] })])).toBe('🎫 ⏰ T b')
   })
 
   it('marks each ticket on its own when the tab holds several', async () => {
-    expect(await heldLine([row('a', { status: 'waiting', marks: ['waiting_stale'] }), row('b')])).toBe('📌 ⏸ 💤 T a / T b')
+    expect(await heldLine([row('a', { status: 'waiting', marks: ['waiting_stale'] }), row('b')])).toBe('🎫 ⏸ 💤 T a / T b')
   })
 
   it('shows no line for a closed ticket', async () => {
