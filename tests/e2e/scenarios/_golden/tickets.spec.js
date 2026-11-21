@@ -95,8 +95,10 @@ test.describe('golden: tickets', () => {
 
     await group.locator(`[data-ticket="${id}"]`).click()
     await expect(page.locator('[data-testid=ticket-heading]')).toContainText(TITLE)
-    await expect(page.locator('[data-testid=ticket-question]')).toContainText('One line or two?')
-    await expect(page.locator('[data-testid=ticket-recommend]')).toContainText('One line')
+    const asked = page.locator('[data-testid=ticket-entry][data-kind=asked]')
+    await expect(asked).toContainText('One line or two?')          // the question and the recommendation, once, among the lines
+    await expect(asked).toContainText('One line')
+    await expect(page.locator('[data-testid=ticket-answer-box]')).not.toContainText('One line or two?')
     const opened = page.locator('[data-testid=ticket-entry][data-kind=opened]')
     await expect(opened).toContainText('<b>of</b>')            // plain text: the markup is shown, not drawn
     await expect(opened.locator('b')).toHaveCount(0)
