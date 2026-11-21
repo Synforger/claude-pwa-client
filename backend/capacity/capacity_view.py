@@ -23,7 +23,8 @@ def build_view(*, machine: str, child_sessions_max: int | None, caller: str | No
         "tabs": {
             "total": len(tabs),
             "with_claude": sum(1 for tab in tabs if tab.has_claude),
-            "asleep": sum(1 for tab in tabs if tab.asleep),
+            # a tab being put to sleep or woken has the mark and a running claude: it counts as running, so the three add up
+            "asleep": sum(1 for tab in tabs if tab.asleep and not tab.has_claude),
             "without_claude": sum(1 for tab in tabs if not tab.has_claude and not tab.asleep),
             "children": sum(1 for tab in tabs if tab.child),
         },

@@ -126,7 +126,7 @@ export interface GetCapacityResponse {
   child_sessions_max?: number | null
   /** the child tabs the asking tab holds now. null when no session was given */
   children_of_caller?: number | null
-  /** total / with_claude (a claude runs in the pane) / asleep (the sleep patrol stopped it) / without_claude (neither) / children */
+  /** total / with_claude (a claude runs in the pane) / asleep (the sleep patrol stopped it and no claude runs) / without_claude (neither) / children */
   tabs: Record<string, unknown>
   /** the physical footprint of each running claude in megabytes (= what `footprint <pid>` prints): count / median / min / max / total. null when none could be read */
   claude_mb?: Record<string, unknown> | null

@@ -123,7 +123,7 @@ class GetCapacityResponse(BaseModel):
     machine: str  # this machine's name (= machine_name of the settings, else the host name)
     child_sessions_max: Optional[int] = None  # the child tabs one tab may hold at once. null = no limit
     children_of_caller: Optional[int] = None  # the child tabs the asking tab holds now. null when no session was given
-    tabs: dict[str, Any]  # total / with_claude (a claude runs in the pane) / asleep (the sleep patrol stopped it) / without_claude (neither) / children
+    tabs: dict[str, Any]  # total / with_claude (a claude runs in the pane) / asleep (the sleep patrol stopped it and no claude runs) / without_claude (neither) / children
     claude_mb: Optional[dict[str, Any]] = None  # the physical footprint of each running claude in megabytes (= what `footprint <pid>` prints): count / median / min / max / total. null when none could be read
     memory: dict[str, Any]  # total_mb / available_mb (what a new program gets without swapping) / pressure_level (the operating system's: 1 normal, 2 warning, 4 critical, or null) / swap_used_mb
     claudes_fitting_available: Optional[int] = None  # available_mb divided by the median footprint, rounded down. null without a footprint
