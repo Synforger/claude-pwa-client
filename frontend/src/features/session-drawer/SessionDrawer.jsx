@@ -50,7 +50,7 @@ import {
 } from '../../state/locale.js'
 import { useT } from '../../i18n/t.js'
 import { subscribe as subscribeTickets, getSnapshot as getTicketsSnapshot } from '../../state/tickets.js'
-import { heldByTab } from '../tickets/ticketGroups.js'
+import { attentionCount, heldByTab } from '../tickets/ticketGroups.js'
 import { runningBuildId } from '../../_common/appUpdate.js'
 import './SessionDrawer.css'
 
@@ -74,6 +74,8 @@ export default function SessionDrawer() {
   // タブごとに、 そのタブが今持つ票の題を 1 行出す
   const { tickets } = useSyncExternalStore(subscribeTickets, getTicketsSnapshot)
   const heldTickets = useMemo(() => heldByTab(tickets), [tickets])
+  // 列の先頭の「票」 の行に出す、 操作者 が答える票の数
+  const ticketsToAnswer = attentionCount(tickets)
   const messages = useSyncExternalStore(subscribeMessages, getMessagesSnapshot)
   const ephem = useSyncExternalStore(subscribeEphemeral, getEphemeralSnapshot)
   // メモと markdown のプレビューの字の大きさ (= 本文の上のピンチと同じ 1 つの値)
@@ -384,9 +386,6 @@ export default function SessionDrawer() {
         </div>
 
         <div className="drawer-create">
-          <button className="drawer-tickets" onClick={() => { setOverlay('tickets', true); onClose() }} data-testid="drawer-tickets-open">
-            📌 {t('drawer.tickets')}
-          </button>
           {!agentPicker ? (
             <button className="drawer-new" onClick={() => setAgentPicker(true)} data-testid="new-session-button">
               {t('drawer.new_conversation')}
@@ -454,6 +453,16 @@ export default function SessionDrawer() {
         </div>
 
         <div className="drawer-list">
+          {/* 票の一覧の入口。 タブの列の先頭に、 列の folder の行と同じ形で置く */}
+          <button
+            className="drawer-folder"
+            onClick={() => { setOverlay('tickets', true); onClose() }}
+            data-testid="drawer-tickets-open"
+          >
+            <span className="drawer-item-fold" aria-hidden="true">📌</span>
+            <span className="drawer-folder-name">{t('drawer.tickets')}</span>
+            {ticketsToAnswer > 0 && <span className="drawer-item-hidden">{ticketsToAnswer}</span>}
+          </button>
           {sessions.length === 0 && (
             <div className="drawer-empty">{t('drawer.empty')}</div>
           )}

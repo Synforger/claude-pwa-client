@@ -1,7 +1,7 @@
 /**
  * クリック・タップが ref 要素の外側で発生したら onOutside を呼ぶ hook (= F-29 集約)。
  *
- * 5 component (= SessionDrawer / SubagentsModal / StatusBar 等) で手書き重複していた
+ * 複数の component (= SessionDrawer / StatusBar 等) で手書き重複していた
  *   useEffect(() => {
  *     const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose() }
  *     document.addEventListener('mousedown', handler)

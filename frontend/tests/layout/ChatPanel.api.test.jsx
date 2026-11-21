@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, cleanup } from '@testing-library/react'
 
-const seen = { messageList: null, runningSubagentsFor: undefined, activityStatus: undefined, bannerSid: undefined }
+const seen = { messageList: null, activityStatus: undefined, bannerSid: undefined }
 
 vi.mock('../../src/features/session-drawer/useSessions.js', async () => {
   const sessions = await import('../../src/state/sessions.js')
@@ -36,9 +36,6 @@ vi.mock('../../src/features/push-notify/useSessionBadges.js', () => ({
   useSessionBadges: () => ({ unreadCount: 0, onOverviewPayload: () => {} }),
 }))
 vi.mock('../../src/features/push-notify/badge.js', () => ({ setBadge: () => {} }))
-vi.mock('../../src/features/chat/useRunningSubagents.js', () => ({
-  useRunningSubagents: (sid) => { seen.runningSubagentsFor = sid; return new Set() },
-}))
 vi.mock('../../src/features/tasks/ActivityBar.jsx', () => ({
   default: ({ status }) => { seen.activityStatus = status; return null },
 }))
@@ -65,7 +62,7 @@ const API = { id: 'api_support-bot', agent_id: 'agent_a', title: 'Support bot', 
 beforeEach(() => {
   setSessions([CLAUDE, API])
   setOverlay('planOpen', true)
-  Object.assign(seen, { messageList: null, runningSubagentsFor: undefined, activityStatus: undefined, bannerSid: undefined })
+  Object.assign(seen, { messageList: null, activityStatus: undefined, bannerSid: undefined })
 })
 afterEach(() => {
   cleanup()
@@ -89,10 +86,9 @@ describe('ChatPanel of an API tab', () => {
     expect(document.querySelector('input[type="file"]')).toBeNull()
   })
 
-  it('gives the conversation no fork, and asks nothing of a Claude Code (sub-agents, prompt state, activity)', () => {
+  it('gives the conversation no fork, and asks nothing of a Claude Code (prompt state, activity)', () => {
     render(<ChatPanel sid="api_support-bot" />)
     expect(seen.messageList.onFork).toBeNull()
-    expect(seen.runningSubagentsFor).toBeNull()
     expect(seen.bannerSid).toBeNull()
     expect(seen.activityStatus).toBeNull()
   })
@@ -104,7 +100,6 @@ describe('ChatPanel of a Claude tab', () => {
     expect(queryByTestId('chat-input')).not.toBeNull()
     expect(queryByTestId('api-tab-readonly')).toBeNull()
     expect(typeof seen.messageList.onFork).toBe('function')
-    expect(seen.runningSubagentsFor).toBe('ses_claude')
     expect(seen.bannerSid).toBe('ses_claude')
   })
 })

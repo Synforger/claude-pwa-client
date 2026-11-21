@@ -19,9 +19,6 @@ export default function MessageList({
   viewMode,
   displayMessages,
   onOpenFile,
-  activeSubagentTool,
-  runningSubagents,
-  onOpenSubagents,
   onFork,
   showScrollBtn,
   hasNew,
@@ -52,9 +49,6 @@ export default function MessageList({
             key={msg.id}
             msg={msg}
             onOpenFile={onOpenFile}
-            activeSubagentTool={activeSubagentTool}
-            runningSubagents={runningSubagents}
-            onOpenSubagents={onOpenSubagents}
             onFork={onFork}
             voiceMarks={voiceMarks}
             // 「進行中の bubble か」 は msg.streaming 単体では決まらない (= tool を呼んだ

@@ -18,7 +18,6 @@ const REQUIRED = [
   'file-tree',
   'file-preview',
   'notes',
-  'subagents',
   'plan-approval',
   'ask-user-question',
   'push-notify',

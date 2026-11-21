@@ -16,8 +16,7 @@ const noopDispatch = () => null
 registerStream('task_notification', { dispatch: noopDispatch })
 
 // background task (= Monitor / バックグラウンド Bash) の完了通知。 中央寄せ system カード。
-// 展開時の transcript / raw 取得は TaskNotification 内で outputFile を起点に行う (= /task-transcript
-// を先に叩き、 subagent jsonl 実体なら構造化描画、 それ以外は /task-output raw に fallback)。
+// 展開時の中身は TaskNotification 内で outputFile を起点に /task-output で raw 取得する。
 registerMessage('task', {
   dispatch: noopDispatch,
   fromEvent: (event) => ({

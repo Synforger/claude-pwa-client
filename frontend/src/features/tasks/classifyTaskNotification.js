@@ -5,7 +5,7 @@
 //   - Monitor event: \"...\"                             → monitor
 //   - それ以外                                            → unknown (raw output 表示に fallback)
 //
-// 型に応じて card icon + click 時に開く modal を変える。 判別は summary の先頭パターンだけ見るので
+// 型に応じて card icon を変える。 判別は summary の先頭パターンだけ見るので
 // 安定 (= 本文中に "Agent \"" が偶然登場しても命中しない、 命名スキーマは harness 固有)。
 
 const AGENT_RE = /^Agent [\\]?"/

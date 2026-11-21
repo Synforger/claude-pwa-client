@@ -311,8 +311,7 @@ button:disabled {
 .plan-approval-close:hover {
   color: var(--text);
 }
-/* topbar 📑 ボタンの脈動ドット (= 承認待ちを明示)。 MessageItem.css の tool-running-dot
-   と同じ脈動だが、 サイズと位置を topbar アイコンに合わせて右上に重ねる。 */
+/* topbar 📑 ボタンの脈動ドット (= 承認待ちを明示)。 サイズと位置を topbar アイコンに合わせて右上に重ねる。 */
 .topbar-plan-btn {
   position: relative;
 }
@@ -331,7 +330,7 @@ button:disabled {
   0%, 100% { opacity: 0.35; }
   50% { opacity: 1; }
 }
-/* topbar 📌 ボタンの数 (= 「見てほしい」 票の件数。 絵文字の右に並べる) */
+/* topbar ☰ ボタンの数 (= 「見てほしい」 票の件数。 ☰ の右に並べる) */
 .topbar-tickets-count {
   margin-left: 4px;
   padding: 0 5px;

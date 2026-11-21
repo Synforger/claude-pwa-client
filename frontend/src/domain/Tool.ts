@@ -30,10 +30,3 @@ const FS_TOOL_NAMES = new Set(['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 
 export function isFileSystemTool(tool: ToolUse): boolean {
   return FS_TOOL_NAMES.has(tool.name)
 }
-
-/** Workflow / Task / SubAgent 系 (= 🤖 chip で SubAgent panel に飛ぶ判定)。 */
-const SUBAGENT_TOOL_NAMES = new Set(['Task', 'Workflow', 'Agent'])
-
-export function isSubagentTool(tool: ToolUse): boolean {
-  return SUBAGENT_TOOL_NAMES.has(tool.name)
-}
