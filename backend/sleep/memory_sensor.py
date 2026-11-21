@@ -7,7 +7,7 @@ The level is the one Activity Monitor's memory pressure shows (macOS `kern.memor
 since on macOS it counts every page-in (files included), not swap. On another system nothing is read, and the machine
 counts as not short of memory.
 
-Used by `sleep_patrol.py`.
+Used by `sleep_patrol.py`, and `read_level` by `capacity/capacity_sensors.py`.
 """
 from __future__ import annotations
 
@@ -55,10 +55,12 @@ def read_memory() -> MemoryFacts:
     if swapins is not None and _last_swapins is not None and swapins[0] >= _last_swapins:
         since = (swapins[0] - _last_swapins) * swapins[1] / (1024 * 1024)
     _last_swapins = swapins[0] if swapins is not None else None
-    return MemoryFacts(level=_read_level(), swapins_mb=since, swap_used_mb=psutil.swap_memory().used / (1024 * 1024))
+    return MemoryFacts(level=read_level(), swapins_mb=since, swap_used_mb=psutil.swap_memory().used / (1024 * 1024))
 
 
-def _read_level() -> int | None:
+def read_level() -> int | None:
+    """The operating system's memory pressure level (1 normal, 2 warning, 4 critical), or `None` when it cannot be read.
+    A system call; reads no state, so any caller may use it (`read_memory` keeps the swap-ins between its calls)."""
     try:
         libc = ctypes.CDLL(ctypes.util.find_library("c"))
         value = ctypes.c_int(0)

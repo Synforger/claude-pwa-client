@@ -258,6 +258,38 @@ endpoints:
     implementation: backend/routes/account_hold.py
 
   - method: GET
+    path: /capacity
+    description: "how much this machine holds now and how much room is left, as plain numbers (= `tabs capacity`). Only a program on this machine may ask"
+    request_query:
+      session: { type: string, nullable: true, description: "the tab that asks (optional); its child tabs are counted in children_of_caller" }
+    response:
+      type: object
+      properties:
+        machine:            { type: string, description: "this machine's name (= machine_name of the settings, else the host name)" }
+        child_sessions_max: { type: integer, nullable: true, description: "the child tabs one tab may hold at once. null = no limit" }
+        children_of_caller: { type: integer, nullable: true, description: "the child tabs the asking tab holds now. null when no session was given" }
+        tabs:               { type: object, description: "total / with_claude (a claude runs in the pane) / asleep (the sleep patrol stopped it) / without_claude (neither) / children" }
+        claude_mb:          { type: object, nullable: true, description: "the physical footprint of each running claude in megabytes (= what `footprint <pid>` prints): count / median / min / max / total. null when none could be read" }
+        memory:             { type: object, description: "total_mb / available_mb (what a new program gets without swapping) / pressure_level (the operating system's: 1 normal, 2 warning, 4 critical, or null) / swap_used_mb" }
+        claudes_fitting_available: { type: integer, nullable: true, description: "available_mb divided by the median footprint, rounded down. null without a footprint" }
+        accounts:
+          type: array
+          items:
+            type: object
+            properties:
+              id:               { type: string }
+              usage:            { type: object, nullable: true, description: "five_hour_pct / five_hour_resets_at / seven_day_pct / seven_day_resets_at (epoch seconds). null when no usage line was written for the account" }
+              tabs_with_claude: { type: integer, description: "the tabs on this account whose claude runs" }
+            required: [id, usage, tabs_with_claude]
+      required: [machine, child_sessions_max, children_of_caller, tabs, claude_mb, memory, claudes_fitting_available, accounts]
+    response_kind: json
+    auth: localhost
+    invariants:
+      - "draws no line and decides no limit: the only limit is child_sessions_max, as the operator wrote it"
+      - "a request handed on by tailscale serve is 403 (code = capacity_local_only)"
+    implementation: backend/routes/capacity.py
+
+  - method: GET
     path: /settings
     description: "設定の画面が出す値 (= 口座の使用率と線、 止まったタブの数、 エージェントごとの眠りと入れ替え、 通知の題、 子の上限、 この機械の状態)"
     response:

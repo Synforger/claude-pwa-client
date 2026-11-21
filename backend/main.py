@@ -92,6 +92,7 @@ import backend.routes.agent_messages as agent_messages_routes  # noqa: E402
 import backend.routes.ask as ask_routes  # noqa: E402
 import backend.routes.chat as chat_routes  # noqa: E402
 import backend.routes.child_sessions as child_sessions_routes  # noqa: E402
+import backend.routes.capacity as capacity_routes  # noqa: E402
 import backend.routes.device as device_routes  # noqa: E402
 import backend.routes.extensions as extensions_routes  # noqa: E402
 import backend.routes.favorites as favorites_routes  # noqa: E402
@@ -447,6 +448,7 @@ app.include_router(agent_messages_routes.router)
 app.include_router(ask_routes.router)
 app.include_router(chat_routes.router)
 app.include_router(child_sessions_routes.router)
+app.include_router(capacity_routes.router)
 app.include_router(device_routes.router)
 app.include_router(extensions_routes.router)
 app.include_router(favorites_routes.router)
