@@ -1620,7 +1620,7 @@ endpoints:
 
   - method: GET
     path: /agent-messages/tabs
-    description: "相手の機械へ、 連絡を受けられるこの機械のタブの一覧を返す"
+    description: "相手の機械へ、 連絡してよいこの機械のタブの一覧を返す (= 眠っているタブ・claude の居ないタブも、 状態を決める欄つきで)"
     response:
       type: object
       properties:
@@ -1632,6 +1632,8 @@ endpoints:
               id:      { type: string }
               title:   { type: string }
               running: { type: boolean, description: "そのタブへ連絡が届くか (= claude が動いているか、 連絡で起動できる)" }
+              status:  { type: string, nullable: true, description: "動いている claude の状態 (= Claude Code の記録の status)。 居なければ null。 相手の tabs list の状態の欄になる" }
+              asleep:  { type: boolean, description: "眠らせてあるか (= backend/sleep/)。 claude が居ない時の状態の欄が `眠り` になる" }
             required: [id, title, running]
       required: [tabs]
     response_kind: json
@@ -1665,7 +1667,7 @@ endpoints:
 
   - method: GET
     path: /agent-messages/peers
-    description: "設定された相手の機械と、 そこで連絡を受けられるタブの一覧"
+    description: "設定された相手の機械と、 そこで連絡してよいタブの一覧 (= 眠っているタブ・claude の居ないタブも、 状態を決める欄つきで)"
     response:
       type: object
       properties:

@@ -70,6 +70,7 @@ from backend.jsonl.jsonl_predicates import (
     unwrap_pasted,
 )
 from backend import api_tabs
+from backend.cli.claude_sessions import running_claudes, status_of
 from backend._common.errors import raise_error
 from backend.child_watch.child_work import hand_work
 from backend._common.state import sessions_meta
@@ -676,9 +677,13 @@ async def post_relayed_agent_message(request: Request, body: dict = Body(...)) -
 
 @router.get(PEER_TABS_PATH)
 async def get_tabs_for_peer(request: Request) -> dict:
-    """相手の機械へ、 連絡を受けられるこの機械のタブの一覧を返す (= その相手と連絡してよいタブだけ)。"""
+    """相手の機械へ、 この機械のタブの一覧を返す (= その相手と連絡してよいタブだけ。 眠っているタブ・claude の居ないタブも
+    含める)。 `running` は連絡が届くか、 `status` は動いている claude の状態 (= 居なければ null)、 `asleep` は眠らせて
+    あるか。 `status` と `asleep` で、 相手の `tabs list` はこの機械の `tabs list` と同じ状態の語を出す。"""
     _peer_name, peer = require_peer(request)
-    return {"tabs": [{"id": m.id, "title": m.title, "running": tab_reachable(m.id)}
+    claudes = await asyncio.to_thread(running_claudes)
+    return {"tabs": [{"id": m.id, "title": m.title, "running": tab_reachable(m.id),
+                      "status": status_of(claudes.get(m.id)), "asleep": m.sleep is not None}
                      for m in sessions_meta.values() if allowed_for_peer(peer, m.id)]}
 
 

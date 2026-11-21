@@ -18,7 +18,7 @@ from starlette.testclient import TestClient
 import backend._common.config as config_mod
 from backend.peers import outbox_store, peer_call
 from backend.routes import agent_messages as am
-from backend._common.state import SessionDef
+from backend._common.state import SessionDef, SleepMark
 
 
 @pytest.fixture
@@ -793,12 +793,27 @@ def test_another_machine_sees_only_the_tabs_it_may_message(tabs, typed, work_tab
     r = _from_peer().get(am.PEER_TABS_PATH)
     assert r.status_code == 200
     assert r.json() == {"tabs": [
-        {"id": "ses_sender", "title": "tools", "running": True},
-        {"id": "ses_receiver", "title": "client work", "running": True},
-        {"id": "ses_idle", "title": "notes", "running": False},
+        {"id": "ses_sender", "title": "tools", "running": True, "status": None, "asleep": False},
+        {"id": "ses_receiver", "title": "client work", "running": True, "status": None, "asleep": False},
+        {"id": "ses_idle", "title": "notes", "running": False, "status": None, "asleep": False},
     ]}  # work のタブ (= client desk) は名前も出ない
     assert _from_peer("100.64.0.9").get(am.PEER_TABS_PATH).json()["detail"]["code"] == "agent_message_unknown_peer"
     assert _from_peer("127.0.0.1").get(am.PEER_TABS_PATH).json()["detail"]["code"] == "agent_message_unknown_peer"
+
+
+def test_another_machine_is_told_which_tabs_sleep_and_what_each_running_claude_is_doing(tabs, typed, monkeypatch, tmp_path):
+    """眠っているタブ・claude の居ないタブも一覧に載り、 相手が `tabs list` に同じ状態の語を出せる (= 動いている claude の
+    状態、 眠らせてある、 連絡で起動できるか)。"""
+    _peers(monkeypatch, tmp_path)
+    tabs["ses_receiver"].sleep = SleepMark(claude_sid="conv-1", record="/none", slept_at=1)
+    monkeypatch.setattr(am, "claude_in_pane", lambda sid: sid == "ses_sender")
+    monkeypatch.setattr(am, "resume_command_for", lambda sid: "claude --resume conv-1" if sid == "ses_receiver" else None)
+    monkeypatch.setattr(am, "running_claudes", lambda: {"ses_sender": {"status": "busy"}})
+    rows = {tab["id"]: tab for tab in _from_peer().get(am.PEER_TABS_PATH).json()["tabs"]}
+    assert (rows["ses_sender"]["status"], rows["ses_sender"]["asleep"]) == ("busy", False)
+    assert (rows["ses_receiver"]["status"], rows["ses_receiver"]["asleep"]) == (None, True)
+    assert rows["ses_receiver"]["running"] is True       # 眠っていても、 連絡が起こして届ける
+    assert (rows["ses_idle"]["status"], rows["ses_idle"]["running"]) == (None, False)
 
 
 def test_the_tabs_of_each_peer_are_listed_for_a_caller_on_this_machine(client, tabs, monkeypatch, tmp_path):

@@ -64,6 +64,8 @@ class Backend:
         self.answers: dict[str, object] = {}
         self.tabs: list[dict] = []
         self.local_tabs: list[dict] = []
+        # `GET /agent-messages/peers` の `peers` (= None なら、 その口を持たない古い backend の 404)
+        self.peers: list[dict] | None = None
         # 子のタブの id → 区切りから外している理由 (= `GET /sessions/{親}/children`)。 無い子は区切りに居る (= [])
         self.holds: dict[str, list[str] | None] = {}
         # called when a message arrives, before the answer (= what a test looks at while the sender waits)
@@ -104,6 +106,8 @@ class Backend:
                     return self.reply(*backend.answers.get("held", (404, {})))
                 if method == "GET" and self.path == "/agent-messages/local-tabs":
                     return self.reply(200, {"tabs": backend.local_tabs})
+                if method == "GET" and self.path == "/agent-messages/peers" and backend.peers is not None:
+                    return self.reply(200, {"peers": backend.peers})
                 if method == "POST" and self.path == "/tier-tabs":
                     if backend.answers.get("tier-tabs", 200) != 200:
                         return self.reply(backend.answers["tier-tabs"], {"detail": {"code": "tier_tab_exists", "message": "has one"}})
@@ -782,6 +786,19 @@ def test_the_listing_tells_a_tab_put_to_sleep_from_one_that_never_started(tabs):
     lines = {line.split()[0]: line for line in tabs.out.splitlines() if line.strip()}
     assert lines["ses_nap"].split("  ")[3] == "眠り"
     assert lines["ses_new"].split("  ")[3] == "未起動"
+
+
+def test_the_listing_shows_the_tabs_of_another_machine_with_their_state_whether_or_not_claude_runs(tabs):
+    tabs.backend.tabs = [{"id": "ses_parent", "title": "main", "agent_id": "agent_a", "child": False, "parent_id": None}]
+    tabs.backend.peers = [{"name": "company", "error": None, "tabs": [
+        {"id": "ses_busy", "title": "builder", "running": True, "status": "busy", "asleep": False},
+        {"id": "ses_nap", "title": "番人", "running": True, "status": None, "asleep": True},
+        {"id": "ses_new", "title": "fresh", "running": True, "status": None, "asleep": False},
+        {"id": "ses_dead", "title": "stuck", "running": False, "status": None, "asleep": False}]}]
+    assert tabs.run("list") == 0
+    other = [line.split("  ") for line in tabs.out.splitlines() if line.startswith("company:")]
+    assert other == [["company:ses_busy", "別の機械", "busy", "builder"], ["company:ses_nap", "別の機械", "眠り", "番人"],
+                     ["company:ses_new", "別の機械", "未起動", "fresh"], ["company:ses_dead", "別の機械", "起こせない", "stuck"]]
 
 
 def test_the_listing_shows_an_api_tab_with_the_state_api_no_tier_and_its_name_as_it_is(tabs):
