@@ -11,7 +11,8 @@
                                 waits for the operator from here (waiting-operator)
     tabs ticket close <id> [<file>]
                                 close the ticket (= it stays; nothing can be added after). <file> is the last word
-    tabs ticket pass <id> <tab>   move the ticket to that tab (= its id or name; `<machine>:<tab>` for a tab of the other machine)
+    tabs ticket pass <id> <tab>   move the ticket to that tab (= its id, the outward name `tabs list` shows, or its name, found as
+                                `tabs send` finds them; `<machine>:<tab>` for a tab of the other machine)
                                 and tell it in one line. A ticket waiting for the operator is refused
 
 A ticket kept on the other machine (= the machine named at the head of its id) is used with the same commands: this machine's
@@ -51,10 +52,15 @@ HEADINGS = {"new": "票を開けませんでした", "show": "票を読めませ
 
 #: The backend's call: (path, form, method, timeout) → (HTTP status, JSON body); status 0 when nothing answered
 Call = Callable[..., tuple[int, object]]
+#: How `tabs send` finds a receiver: the receiver as written → (the tab id to send to, or the receiver as it was for the
+#: backend to find; a refusal as (code, reason) or None)
+Resolve = Callable[[str], tuple[str, tuple[str, str] | None]]
 
 
-def run(argv: list[str], call: Call) -> int:
-    """Run `tabs ticket <word> ...`. → 0, or 1 on a failure, or 2 when the words are not one of the forms above."""
+def run(argv: list[str], call: Call, resolve: Resolve | None = None) -> int:
+    """Run `tabs ticket <word> ...`. → 0, or 1 on a failure, or 2 when the words are not one of the forms above.
+    `resolve` turns the receiver of `pass` into a tab id the way `tabs send` does (= an outward name is found here, since
+    the backend knows the tabs' names but not which names this tab may see)."""
     word, rest = (argv[0], argv[1:]) if argv else ("", [])
     plan = _plan(word, rest)
     if plan is None:
@@ -71,6 +77,12 @@ def run(argv: list[str], call: Call) -> int:
         print(f"tabs: {error.filename} を読めません: {error.strerror}", file=sys.stderr)
         return 1
     form = {**form, **texts}
+    if word == "pass" and resolve is not None:
+        receiver, refusal = resolve(form["to"])
+        if refusal is not None:
+            print(f"tabs: {HEADINGS[word]} [{refusal[0]}]: {refusal[1]}", file=sys.stderr)
+            return 1
+        form = {**form, "to": receiver}
     if method == "GET":
         status, body = call(f"{path}?reader={urllib.parse.quote(sender, safe='')}", None, "GET")
     else:

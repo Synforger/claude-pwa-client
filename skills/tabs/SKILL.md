@@ -212,7 +212,8 @@ tabs ticket add <id> <file>                               add what you did (noth
 tabs ticket ask <id> --kind decide|mac|report <file> [--recommend <file>]
                                                           put the ticket in front of the operator
 tabs ticket close <id> [<file>]                           close it (it stays; nothing can be added after)
-tabs ticket pass <id> <tab id or name>                    move the ticket to that tab and tell it in one line
+tabs ticket pass <id> <tab id or name>                    move the ticket to that tab and tell it in one line (the receiver is
+                                                         found as `tabs send` finds it: id, outward name, then name)
 ```
 
 - Use a ticket for a request (something another tab is to do). A note that needs no reply stays a `tabs send` message.
