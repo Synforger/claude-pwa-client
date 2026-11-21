@@ -37,6 +37,7 @@ endpoints:
           created_at:  { type: string }
           tier:        { type: string, nullable: true, description: "the tier the tab's agent started in (= its AGENT_TIER), else the tier a tier tab was placed for; null when not known" }
           tier_tab:    { type: string, nullable: true, description: "the tier a tier tab was placed for (= its new conversations start in it); null for other tabs" }
+          list_folder: { type: string, nullable: true, description: "the folder of the list this tab goes in (<agent id>/<folder>/...), ahead of its agent's list_folder; null for a tab placed by its agent" }
           asleep:      { type: boolean, description: "true while the tab's claude is put to sleep (= it starts again in the same conversation when the tab is opened or written to)" }
           account_on_wake: { type: string, nullable: true, description: "for a sleeping tab, the account it runs on once it is woken (= what the account fallback decides when it wakes it, which can differ from account_id); null for a tab that is awake" }
           kind:        { type: string, enum: [api], description: "api = a tab with no Claude Code whose conversation a program outside the client writes to a record file and the client only shows (id api_<name>, account_id = its wallet, tier null, never asleep). A Claude tab's row has no kind" }
@@ -73,6 +74,7 @@ endpoints:
         agent_id:   { type: string }
         title:      { type: string }
         account_id: { type: string, nullable: true }
+        list_folder: { type: string, nullable: true, description: "the folder of the list the tab goes in (<agent id>/<folder>/...); none = placed by its agent" }
     response:
       type: object
       properties:
@@ -83,20 +85,24 @@ endpoints:
     invariants:
       - "sid は server 採番 (= UUID v4)"
       - "agent_id 不正は 400"
+      - "list_folder の形が違えば 400 invalid_list_folder (= <agent id>/<folder>/...)"
     implementation: backend/routes/sessions.py
 
   - method: PATCH
     path: /sessions/{sid}
-    description: "title / notify_mode 更新"
+    description: "title / notify_mode / account_pinned / list_folder 更新"
     request_body:
       type: object
       properties:
         title:       { type: string }
         notify_mode: { type: string, description: "always / mentions / never" }
+        account_pinned: { type: boolean }
+        list_folder: { type: string, nullable: true, description: "the folder of the list the tab goes in (<agent id>/<folder>/...); null or empty = placed by its agent again" }
     response_kind: json
     auth: tailnet
     invariants:
-      - "title と notify_mode のみ更新可、 他 field は無視"
+      - "title / notify_mode / account_pinned / list_folder のみ更新可、 他 field は無視"
+      - "list_folder の形が違えば 400 invalid_list_folder で、 ほかの欄も変えない"
       - "存在しない sid は 404"
     implementation: backend/routes/sessions.py
 

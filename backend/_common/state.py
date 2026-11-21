@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 import backend._common.config as _config
+from backend._common.list_folder import parse_list_folder
 from backend._common.prose_language import configured_language
 
 
@@ -213,6 +214,10 @@ class SessionDef:
     # told about (`backend/child_watch/`), so that the same stop is never told twice, nor after a restart. A child that
     # works on and stops again has a later last row, and is told about again.
     stop_told_at: float | None = None
+    # The folder of the conversation list this tab goes in (`<agent id>/<folder>/...`, `_common/list_folder.py`), ahead
+    # of its agent's `list_folder`. Set by the program or tab that made it, so that tabs of one agent can sit in different
+    # folders (one per world of a game, say). None for a tab placed by its agent.
+    list_folder: str | None = None
 
     def sleeping_claude_sid(self) -> str | None:
         """The conversation a sleeping tab reopens, None for a tab that is not asleep or whose account changed since
@@ -248,6 +253,7 @@ class SessionDef:
             "owes_carry_on": self.owes_carry_on,
             "top_page_sha": self.top_page_sha,
             "stop_told_at": self.stop_told_at,
+            "list_folder": self.list_folder,
         }
 
 
@@ -328,6 +334,7 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
                 owes_carry_on=entry.get("owes_carry_on") is True,
                 top_page_sha=_optional_str(entry.get("top_page_sha")),
                 stop_told_at=_optional_number(entry.get("stop_told_at")),
+                list_folder=parse_list_folder(entry.get("list_folder")),
             )
     else:
         # 初期化: agent ごと 1 セッションを生成する
@@ -774,6 +781,7 @@ def register_session(
     tier: str | None = None,
     account_pinned: bool = False,
     fallback_from: str | None = None,
+    list_folder: str | None = None,
 ) -> SessionDef:
     """新規セッションを登録して全状態 dict を初期化する。 永続化まで行う。
 
@@ -782,6 +790,7 @@ def register_session(
     tier_tab は階層のタブとして置くタブにだけ渡す (= 新しい会話をその階層で起動する)。
     tier は、 claude が起動する前から決まっている階層 (= 子のタブは親の階層で起動する)。
     account_pinned / fallback_from は子のタブが親から継ぐ物 (= 口座の固定の印と、 親が逃げ先で動いている時の本来の口座)。
+    list_folder は、 一覧でこのタブを並べる folder (= 確かめ済みの値。 `_common/list_folder.py`)。
     account_id は config.json accounts の key (= 個人 / 会社 OAuth の選択)。 None は
     personal 相当 (= 通常 ~/.claude/) として扱う。
     sid が指定された場合は新規生成せずその値で登録する (= ADR-020 e2e seed が
@@ -798,7 +807,7 @@ def register_session(
         id=sid, agent_id=agent_id, title=title, created_at=int(time.time()),
         parent_id=parent_id, resume_session_id=resume_session_id,
         account_id=account_id, child=child, tier_tab=tier_tab, tier=tier,
-        account_pinned=account_pinned, fallback_from=fallback_from,
+        account_pinned=account_pinned, fallback_from=fallback_from, list_folder=list_folder,
     )
     if child:
         # 子のタブは親が仕事を渡すために立てる物で、 進みは親への報告で届く。 通知は切って立てる (= 画面の ⚙ で入れ直せる)
@@ -856,6 +865,18 @@ def set_account_pinned(session_id: str, pinned: bool) -> bool:
     if meta is None:
         return False
     meta.account_pinned = pinned
+    save_sessions_meta()
+    sessions_overview.notify()
+    return True
+
+
+def set_list_folder(session_id: str, list_folder: str | None) -> bool:
+    """The folder of the list the tab goes in (a checked value, `_common/list_folder.py`), None to place it by its agent
+    again; kept with the tab. → False when there is no such tab."""
+    meta = sessions_meta.get(session_id)
+    if meta is None:
+        return False
+    meta.list_folder = list_folder
     save_sessions_meta()
     sessions_overview.notify()
     return True

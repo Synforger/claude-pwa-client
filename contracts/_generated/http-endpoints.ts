@@ -16,6 +16,8 @@ export interface GetSessionsResponseItem {
   tier?: string | null
   /** the tier a tier tab was placed for (= its new conversations start in it); null for other tabs */
   tier_tab?: string | null
+  /** the folder of the list this tab goes in (<agent id>/<folder>/...), ahead of its agent's list_folder; null for a tab placed by its agent */
+  list_folder?: string | null
   /** true while the tab's claude is put to sleep (= it starts again in the same conversation when the tab is opened or written to) */
   asleep?: boolean
   /** for a sleeping tab, the account it runs on once it is woken (= what the account fallback decides when it wakes it, which can differ from account_id); null for a tab that is awake */
@@ -38,6 +40,8 @@ export interface PostSessionsRequest {
   agent_id: string
   title?: string
   account_id?: string | null
+  /** the folder of the list the tab goes in (<agent id>/<folder>/...); none = placed by its agent */
+  list_folder?: string | null
 }
 
 /** POST /sessions response */
@@ -50,6 +54,9 @@ export interface PatchSessionsSidRequest {
   title?: string
   /** always / mentions / never */
   notify_mode?: string
+  account_pinned?: boolean
+  /** the folder of the list the tab goes in (<agent id>/<folder>/...); null or empty = placed by its agent again */
+  list_folder?: string | null
 }
 
 /** POST /sessions/{sid}/fork request body */

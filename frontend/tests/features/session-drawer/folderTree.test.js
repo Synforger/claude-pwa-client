@@ -123,6 +123,26 @@ describe('folderTree', () => {
     expect(rows.find(r => r.key === 'helper').name).toBe('Helper')
   })
 
+  it('puts a tab with its own list_folder there, ahead of its agent\'s, so tabs of one agent split into folders', () => {
+    const agents = [...AGENTS, { id: 'head', display_name: 'Head', list_folder: 'main/Game/Heads' }]
+    const tabs = [
+      { ...tab('narrator', null, { agent: 'head' }), list_folder: 'main/Game/World A' },
+      { ...tab('judge', null, { agent: 'head' }), list_folder: 'main/Game/Measure' },
+      tab('old', null, { agent: 'head' }),
+      { ...tab('bad', null, { agent: 'head' }), list_folder: 'main' },
+    ]
+    expect(shape(folderTree(tabs, { agents }))).toEqual([
+      ['folder', 'main/Game', 0, false, 4],
+      ['folder', 'main/Game/Heads', 1, false, 2],
+      ['old', 2, false],
+      ['bad', 2, false],
+      ['folder', 'main/Game/Measure', 1, false, 1],
+      ['judge', 2, false],
+      ['folder', 'main/Game/World A', 1, false, 1],
+      ['narrator', 2, false],
+    ])
+  })
+
   it('keeps an agent in its own folder when its list_folder is not a usable path', () => {
     for (const listFolder of ['', 'main', 'main//Heads', ' / ', 42]) {
       const agents = [...AGENTS, { id: 'head', display_name: 'Head', list_folder: listFolder }]
