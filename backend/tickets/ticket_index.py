@@ -16,20 +16,28 @@ from backend._common import paths
 
 INDEX_NAME = "index.json"
 OPEN = "open"
+#: A ticket its holder set aside until something else happens (= `tabs ticket add --waiting`); the text says what it waits for
+WAITING = "waiting"
 WAITING_OPERATOR = "waiting-operator"
 CLOSED = "closed"
+#: Where a ticket came from: the operator's own words went into it when it opened (`new --operator-said`), or not
+ORIGIN_OPERATOR = "operator"
+ORIGIN_SELF = "self"
 _lock = threading.RLock()
 
 
 class IndexRow(NamedTuple):
     """What the index knows of one ticket. `wants` is what the ticket asks of the operator (= `decide`, `mac`, `report`)
-    or None."""
+    or None; `origin` is `ORIGIN_OPERATOR` or `ORIGIN_SELF` (set once, when the ticket opens); `due` is a `YYYY-MM-DD` day or
+    None. A row written before `origin` and `due` existed is read with their defaults."""
 
     place_key: str
     holder: str
     opener: str
     status: str
     wants: str | None
+    origin: str = ORIGIN_SELF
+    due: str | None = None
 
     def to_json(self) -> dict:
         return self._asdict()
@@ -40,9 +48,9 @@ class IndexRow(NamedTuple):
         if not isinstance(raw, dict) or not all(isinstance(raw.get(name), str) for name in
                                                 ("place_key", "holder", "opener", "status")):
             return None
-        wants = raw.get("wants")
-        return IndexRow(raw["place_key"], raw["holder"], raw["opener"], raw["status"],
-                        wants if isinstance(wants, str) else None)
+        wants, origin, due = raw.get("wants"), raw.get("origin"), raw.get("due")
+        return IndexRow(raw["place_key"], raw["holder"], raw["opener"], raw["status"], wants if isinstance(wants, str) else None,
+                        ORIGIN_OPERATOR if origin == ORIGIN_OPERATOR else ORIGIN_SELF, due if isinstance(due, str) else None)
 
 
 def index_path() -> Path:

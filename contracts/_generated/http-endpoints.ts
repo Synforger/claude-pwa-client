@@ -593,7 +593,7 @@ export type PostTicketsTicketEntriesRequest = Record<string, unknown>
 export interface PostTicketsTicketEntriesResponse {
   ok: boolean
   id: string
-  /** open, waiting-operator or closed */
+  /** open, waiting, waiting-operator or closed */
   status: string
 }
 
@@ -692,6 +692,35 @@ export interface PostTicketsTicketPassResponse {
   kept?: boolean
 }
 
+/** GET /tickets/held response */
+export interface GetTicketsHeldResponse {
+  ok: boolean
+  tab: string
+  tickets: ({
+      id: string
+      /** what the tab may read of the first line; null when it may not or the place is not known */
+      title?: string | null
+      /** open, waiting or waiting-operator */
+      status: string
+      /** operator (= the operator's words went in when it opened), tab (= another tab than the holder opened it) or self */
+      source: string
+      /** YYYY-MM-DD */
+      due?: string | null
+      /** overdue, due_soon, waiting_stale, idle, in that order */
+      marks: string[]
+      /** the first line of the text of the last line a tab wrote that has text, as the tab may read it */
+      next: string
+      /** the time of the last line a tab wrote (the client's lines do not count) */
+      last_at: string
+      /** whether the tab itself wrote a line at or after since; null without since */
+      written_since?: boolean | null
+      /** whether the tab has read the ticket's place's boundary (ticket_covers_check) */
+      writable: boolean
+    })[]
+  /** the machines that did not answer; their tickets are left out */
+  peer_unreachable: string[]
+}
+
 /** GET /tickets/{ticket} response */
 export interface GetTicketsTicketResponse {
   ok: boolean
@@ -716,11 +745,18 @@ export interface GetTicketsResponse {
       /** read from the ticket's place; null when the place is not known */
       title?: string | null
       opened_at?: string | null
+      /** open, waiting, waiting-operator or closed */
       status: string
       wants?: string | null
       holder: string
       opener: string
       place_outside: boolean
+      /** operator (= the operator's words went in when it opened) or self */
+      origin?: string
+      /** YYYY-MM-DD */
+      due?: string | null
+      /** overdue, due_soon, waiting_stale, idle, in that order (= none for a closed ticket) */
+      marks?: string[]
       /** the `asked_at` of every answer given that has no `delivered` line yet */
       answer_pending?: string[]
       /** the time of the last line */
@@ -740,6 +776,10 @@ export interface PostAgentMessagesTicketsTicketEntriesRequest {
   from_title: string
   /** the line */
   text: string
+  /** true sets the ticket aside (optional) */
+  waiting?: boolean
+  /** YYYY-MM-DD (optional) */
+  due?: string
 }
 
 /** POST /agent-messages/tickets/{ticket}/entries response */

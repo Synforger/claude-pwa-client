@@ -100,6 +100,8 @@ class Backend:
                         return self.reply(backend.answers["page-url"], {"detail": {
                             "code": "page_not_on_tailnet", "message": "not served"}})
                     return self.reply(200, {"url": "https://mac.tailnet.ts.net:8776/agent/page.html"})
+                if method == "GET" and self.path.startswith("/tickets/held?"):
+                    return self.reply(*backend.answers.get("held", (404, {})))
                 if method == "GET" and self.path == "/agent-messages/local-tabs":
                     return self.reply(200, {"tabs": backend.local_tabs})
                 if method == "POST" and self.path == "/tier-tabs":
@@ -659,6 +661,35 @@ def test_a_journal_in_a_repo_without_a_remote_needs_only_the_commit(tabs):
     assert run() == 1 and "まだ起動し直せません" not in tabs.err and "起動し直せません" in tabs.err
     git(local, "remote", "add", "origin", str(tabs.work / "remote.git"))
     assert run() == 1 and "まだ起動し直せません" not in tabs.err and "起動し直せません" in tabs.err
+
+
+def held_ticket(ticket: str, **fields) -> dict:
+    return {"id": ticket, "title": "Move the title", "status": "open", "source": "self", "due": None, "marks": [], "next": "",
+            "last_at": "2026-11-21T01:30:00.000+00:00", "written_since": False, "writable": True, **fields}
+
+
+def test_a_conversation_with_an_open_ticket_it_has_not_written_to_is_not_rolled_over(tabs):
+    tabs.record.write_text(json.dumps({"type": "user", "timestamp": "2026-11-21T01:00:00.000Z"}) + "\n", encoding="utf-8")
+    tabs.backend.answers["held"] = (200, {"ok": True, "tab": "ses_parent", "peer_unreachable": [], "tickets": [
+        held_ticket("home-261121-01"), held_ticket("home-261121-02", written_since=True)]})
+    run = lambda: tabs.run("rollover", "continue", "--tier", "normal")  # noqa: E731
+
+    assert run() == 1 and "まだ起動し直せません" in tabs.err
+    assert "home-261121-01  Move the title" in tabs.err and "home-261121-02" not in tabs.err
+    assert "journal" not in tabs.err                        # the tickets are looked at before the journal
+    assert [c["path"] for c in tabs.backend.calls if c["path"].startswith("/tickets/held")] == [
+        "/tickets/held?tab=ses_parent&since=2026-11-21T01%3A00%3A00.000Z"]
+    assert not tabs.backend.called("POST", "/sessions/ses_parent/rollover")
+
+    tabs.backend.answers["held"] = (200, {"ok": True, "tab": "ses_parent", "peer_unreachable": [], "tickets": [
+        held_ticket("home-261121-01", written_since=True)]})
+    assert run() == 1 and "home-261121-01" not in tabs.err and "journal をまだ書いていない" in tabs.err
+
+
+def test_a_rollover_goes_on_to_the_journal_when_the_backend_cannot_say_which_tickets_the_tab_holds(tabs):
+    tabs.record.write_text(json.dumps({"type": "user", "timestamp": "2026-11-21T01:00:00.000Z"}) + "\n", encoding="utf-8")
+    assert tabs.run("rollover", "continue", "--tier", "normal") == 1
+    assert "票を確かめられませんでした" in tabs.err and "journal をまだ書いていない" in tabs.err
 
 
 # --- 一覧の伏せ方 -----------------------------------------------------------------------

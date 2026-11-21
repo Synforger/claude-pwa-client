@@ -33,7 +33,7 @@ from backend.routes.agent_messages import (
     tab_reachable,
 )
 from backend.tickets import (answer_queue, relay_judgement, ticket_checks, ticket_entry, ticket_places, ticket_relay,
-                             ticket_service)
+                             ticket_service, ticket_state)
 from backend.tickets.ticket_index import WAITING_OPERATOR
 
 logger = logging.getLogger(__name__)
@@ -153,7 +153,7 @@ async def hand_over(ticket: str, sender: Party, receiver: Party, *, by_operator:
     else:
         writer = ticket_entry.Writer(*relay_judgement.writer_name(sender.machine, sender.tab, sender.title), "")
     entry = ticket_entry.make_entry(ticket_entry.PASSED, writer, "", at=ticket_service.now(), to=holder)
-    await asyncio.to_thread(ticket_service.write_entry, ticket, folder, entry, {"holder": holder},
+    await asyncio.to_thread(ticket_service.write_entry, ticket, folder, entry, ticket_state.after_pass(holder),
                             must_be_open=not by_operator,
                             check=None if by_operator else (lambda _row: _refuse_while_answer_is_coming(ticket)))
     logger.info("ticket %s passed from=%s to=%s kept=%s", ticket, relay_judgement.tab_of(sender.machine, sender.tab), holder, kept)

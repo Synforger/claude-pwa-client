@@ -47,12 +47,44 @@ def test_the_machine_name_comes_from_the_configuration_and_else_from_the_host(ti
     assert config_mod.MACHINE_NAME == socket.gethostname().split(".")[0]
 
 
-def test_the_index_holds_the_place_the_holder_the_opener_the_state_and_what_is_wanted_and_no_title_or_text(ticket_env):
+def test_the_index_holds_the_place_the_holder_the_opener_the_state_what_is_wanted_the_origin_and_the_due_day_and_no_title_or_text(
+        ticket_env):
     ticket = _open(title="A secret title", text="A secret body")["id"]
     raw = (ticket_env.tickets / "index.json").read_text(encoding="utf-8")
     assert "secret" not in raw and str(ticket_env.tickets) not in raw
     assert json.loads(raw) == {ticket: {"place_key": ticket_places.outside_key(), "holder": "ses_a", "opener": "ses_a",
-                                        "status": "open", "wants": None}}
+                                        "status": "open", "wants": None, "origin": "self", "due": None}}
+
+
+def test_a_ticket_opened_with_a_due_day_keeps_it_in_its_row_and_its_first_line(ticket_env):
+    ticket = run(ticket_service.open_ticket("ses_a", "Title", "Request", operator_said=False, due="2026-12-01"))["id"]
+    assert ticket_index.get(ticket).due == "2026-12-01"
+    assert ticket_file.read(ticket_env.tickets, ticket)[0]["due"] == "2026-12-01"
+
+
+def test_the_origin_is_the_operator_only_when_the_operator_words_went_in(ticket_env, monkeypatch):
+    said = _open(operator_said=True)["id"]
+    assert ticket_index.get(said).origin == "operator"
+    monkeypatch.setattr(ticket_service, "last_operator_text", lambda record: None)
+    left_out = _open(operator_said=True)["id"]
+    plain = _open()["id"]
+    assert [ticket_index.get(ticket).origin for ticket in (left_out, plain)] == ["self", "self"]
+
+
+def test_a_row_written_before_origin_and_due_existed_is_read_with_their_defaults(ticket_env):
+    ticket_env.tickets.mkdir(parents=True)
+    (ticket_env.tickets / "index.json").write_text(json.dumps({"home-261101-01": {
+        "place_key": "k", "holder": "ses_a", "opener": "ses_a", "status": "open", "wants": None}}), encoding="utf-8")
+    assert ticket_index.get("home-261101-01") == ticket_index.IndexRow("k", "ses_a", "ses_a", "open", None, "self", None)
+
+
+def test_an_origin_or_a_due_day_of_a_form_that_is_not_one_is_read_as_the_default(ticket_env):
+    ticket_env.tickets.mkdir(parents=True)
+    (ticket_env.tickets / "index.json").write_text(json.dumps({"home-261101-01": {
+        "place_key": "k", "holder": "ses_a", "opener": "ses_a", "status": "open", "wants": None, "origin": 7, "due": 20261201}}),
+        encoding="utf-8")
+    row = ticket_index.get("home-261101-01")
+    assert (row.origin, row.due) == ("self", None)
 
 
 def test_the_operator_words_are_the_second_line_as_the_record_has_them(ticket_env):

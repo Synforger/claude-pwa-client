@@ -1,5 +1,5 @@
 """The doors of the tickets, the requests that cross tabs (`docs/reference/tickets.md`): open one, add to it, ask the operator
-through it, answer for the operator, close it, hand it to another tab, read it, list them. The work is `backend/tickets/`; this
+through it, answer for the operator, close it, hand it to another tab, read it, list them, and list what a tab holds. The work is `backend/tickets/`; this
 file reads the forms and checks the values. `tabs ticket` calls them, and they answer calls from this machine only.
 
 A ticket kept on the other machine (= the machine named in its id) is carried there: the same doors send `add`, `close`, `show`
@@ -15,8 +15,8 @@ from backend._common.local_door import LOCAL_ONLY_MESSAGE, from_this_machine_or_
 from backend._common.errors import raise_error
 from backend._common.state import sessions_meta
 from backend.routes.agent_messages import require_peer
-from backend.tickets import (relay_home, ticket_answer, ticket_entry, ticket_id, ticket_operator, ticket_pass, ticket_relay,
-                             ticket_service)
+from backend.tickets import (relay_home, ticket_answer, ticket_entry, ticket_held, ticket_id, ticket_operator, ticket_pass,
+                             ticket_relay, ticket_service, ticket_state, ticket_view)
 
 router = APIRouter()
 
@@ -43,6 +43,15 @@ def _known_ticket(ticket: str) -> str:
     return ticket
 
 
+def _due(text: str | None) -> str | None:
+    """A due day as written (`YYYY-MM-DD`), None when none was given. `ticket_bad_due` when it is not a day."""
+    if text is None or not text.strip():
+        return None
+    if (day := ticket_state.parse_due(text)) is None:
+        raise_error(400, "ticket_bad_due", f"期限は YYYY-MM-DD の日付で書いてください: {text}")
+    return day
+
+
 def _not_empty(text: str, what: str) -> str:
     if not text.strip():
         raise_error(400, "ticket_empty", f"{what}が空です")
@@ -56,23 +65,26 @@ async def post_ticket(
     title: str = Form(""),
     text: str = Form(""),
     operator_said: bool = Form(False),
+    due: str = Form(""),
 ) -> dict:
     """Open a ticket. form: from (= the opening tab's id), title, text, operator_said (= true puts the operator's last words
-    in that tab into the ticket, as the conversation's record has them).
+    in that tab into the ticket, as the conversation's record has them), due (= `YYYY-MM-DD`, optional).
     → `{ok, id, place_outside, operator_said}` and `operator_said_left_out` when the words could not go in."""
     _from_this_machine(request)
     return await ticket_service.open_ticket(_known_tab(sender), _not_empty(title, "題"), _not_empty(text, "本文"),
-                                            operator_said=operator_said)
+                                            operator_said=operator_said, due=_due(due))
 
 
 @router.post("/tickets/{ticket}/entries")
-async def post_entry(request: Request, ticket: str, sender: str = Form(..., alias="from"), text: str = Form("")) -> dict:
-    """Add what the tab `from` did to the ticket."""
+async def post_entry(request: Request, ticket: str, sender: str = Form(..., alias="from"), text: str = Form(""),
+                     waiting: bool = Form(False), due: str = Form("")) -> dict:
+    """Add what the tab `from` did to the ticket. form: from, text, waiting (= true sets the ticket aside; the text says what it
+    waits for), due (= `YYYY-MM-DD`, optional)."""
     _from_this_machine(request)
-    tab, known = _known_tab(sender), _known_ticket(ticket)
+    tab, known, day = _known_tab(sender), _known_ticket(ticket), _due(due)
     if (home := ticket_relay.home_of(known)) is not None:
-        return await ticket_relay.add(home, tab, known, _not_empty(text, "本文"))
-    return await ticket_service.add(tab, known, _not_empty(text, "本文"))
+        return await ticket_relay.add(home, tab, known, _not_empty(text, "本文"), waiting=waiting, due=day)
+    return await ticket_service.add(tab, known, _not_empty(text, "本文"), waiting=waiting, due=day)
 
 
 @router.post("/tickets/{ticket}/asks")
@@ -164,6 +176,17 @@ async def post_pass(request: Request, ticket: str, sender: str = Form(..., alias
     return await ticket_pass.pass_ticket(tab, known, _not_empty(to, "宛先"))
 
 
+@router.get("/tickets/held")
+async def get_held(request: Request, tab: str, since: str | None = None) -> dict:
+    """The tickets the tab `tab` holds that are not closed (`tabs ticket mine`), each with what the tab may read of it, its marks
+    and whether the tab has written since `since` (= an ISO time; the start of the tab's conversation for `--unsettled`).
+    Declared before `/tickets/{ticket}`, which would take `held` for an id."""
+    _from_this_machine(request)
+    if since is not None and ticket_view.parse_time(since) is None:
+        raise_error(400, "ticket_bad_since", f"since は ISO の時刻で書いてください: {since}")
+    return await ticket_held.held_by(_known_tab(tab), since)
+
+
 @router.get("/tickets/{ticket}")
 async def get_ticket(request: Request, ticket: str, reader: str) -> dict:
     """The ticket as the tab `reader` may read it, every line by time (`tabs ticket show`)."""
@@ -194,10 +217,15 @@ def _relay_text(body: dict, name: str, *, may_be_empty: bool = False) -> str:
 
 @router.post("/agent-messages/tickets/{ticket}/entries")
 async def post_relayed_entry(request: Request, ticket: str, body: dict = Body(...)) -> dict:
-    """The other machine's tab adds a line to a ticket kept here (= json: from_session, from_title, text)."""
+    """The other machine's tab adds a line to a ticket kept here (= json: from_session, from_title, text, and `waiting` and `due`
+    when given)."""
     peer_name, _peer = require_peer(request)
+    due = body.get("due")
+    if due is not None and not isinstance(due, str):
+        raise_error(400, "ticket_bad_relay", "別の機械から届いた票の操作の形が正しくありません", field="due")
     return await relay_home.add(peer_name, _known_ticket(ticket), _relay_text(body, "from_session"),
-                                _relay_text(body, "from_title"), _relay_text(body, "text"))
+                                _relay_text(body, "from_title"), _relay_text(body, "text"), waiting=body.get("waiting") is True,
+                                due=_due(due))
 
 
 @router.post("/agent-messages/tickets/{ticket}/close")

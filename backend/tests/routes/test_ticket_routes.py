@@ -93,6 +93,9 @@ def test_the_listing_gives_the_titles(client):
     ("/tickets/home-261119-01/pass", {"from": "ses_a"}, (400, "ticket_empty")),
     ("/tickets", {"from": "ses_a", "title": "t"}, (400, "ticket_empty")),
     ("/tickets/home-261119-01/asks", {"from": "ses_a", "text": "x"}, (400, "ticket_bad_kind")),
+    ("/tickets", {"from": "ses_a", "title": "t", "text": "x", "due": "tomorrow"}, (400, "ticket_bad_due")),
+    ("/tickets", {"from": "ses_a", "title": "t", "text": "x", "due": "2026-02-30"}, (400, "ticket_bad_due")),
+    ("/tickets/home-261119-01/entries", {"from": "ses_a", "text": "x", "due": "2026-13-01"}, (400, "ticket_bad_due")),
 ])
 def test_a_bad_form_is_refused_with_its_code_before_anything_is_written(client, ticket_env, path, form, expected):
     assert _error(client.post(path, data=form)) == expected
@@ -132,8 +135,9 @@ def test_no_door_answers_a_call_from_another_machine(ticket_env):
              remote.post("/tickets/home-261119-01/answer", json={"asked_at": "x", "text": "x"}),
              remote.post("/tickets/home-261119-01/close", data={"from": "ses_a"}),
              remote.post("/tickets/home-261119-01/pass", data={"from": "ses_a", "to": "ses_b"}),
-             remote.get("/tickets/home-261119-01", params={"reader": "ses_a"}), remote.get("/tickets")]
-    assert [_error(call) for call in calls] == [(403, "ticket_local_only")] * 8
+             remote.get("/tickets/home-261119-01", params={"reader": "ses_a"}), remote.get("/tickets"),
+             remote.get("/tickets/held", params={"tab": "ses_a"})]
+    assert [_error(call) for call in calls] == [(403, "ticket_local_only")] * 9
     assert ticket_index.rows() == {}
 
 
@@ -147,3 +151,50 @@ def test_the_operators_phone_reads_a_ticket_through_tailscale_serve_and_the_tabs
     assert _error(phone.post("/tickets", data={"from": "ses_a", "title": "t", "text": "x"})) == (403, "ticket_local_only")
     funnel = TestClient(client.app, client=("203.0.113.9", 0), headers={"X-Forwarded-Host": "machine.tailnet.example"})
     assert _error(funnel.get(f"/tickets/{ticket}/answer")) == (403, "ticket_local_only")
+
+
+def test_a_ticket_is_opened_with_a_due_day_and_an_entry_can_set_the_ticket_aside_with_one(client):
+    ticket = _open(client, due="2026-12-01")
+    assert ticket_index.get(ticket).due == "2026-12-01"
+    waiting = client.post(f"/tickets/{ticket}/entries", data={"from": "ses_a", "text": "waits for the review", "waiting": "true",
+                                                              "due": "2026-12-05"})
+    assert waiting.json() == {"ok": True, "id": ticket, "status": "waiting"}
+    assert (ticket_index.get(ticket).status, ticket_index.get(ticket).due) == ("waiting", "2026-12-05")
+    assert client.post(f"/tickets/{ticket}/entries", data={"from": "ses_a", "text": "went on"}).json()["status"] == "open"
+
+
+def test_the_listing_gives_the_origin_the_due_day_and_the_marks_of_each_ticket(client):
+    _open(client, title="Late", due="2000-01-01")
+    _open(client, title="Plain")
+    listed = {row["title"]: row for row in client.get("/tickets").json()["tickets"]}
+    assert [(listed[title]["origin"], listed[title]["due"], listed[title]["marks"]) for title in ("Late", "Plain")] == [
+        ("self", "2000-01-01", ["overdue"]), ("self", None, [])]
+
+
+def test_the_listing_gives_a_ticket_that_waits_with_its_state_and_no_mark_for_a_closed_one(client):
+    waiting, closed = _open(client, title="Waits", due="2000-01-01"), _open(client, title="Closed", due="2000-01-01")
+    client.post(f"/tickets/{waiting}/entries", data={"from": "ses_a", "text": "waits", "waiting": "true"})
+    client.post(f"/tickets/{closed}/close", data={"from": "ses_a"})
+    listed = {row["title"]: row for row in client.get("/tickets").json()["tickets"]}
+    assert (listed["Waits"]["status"], listed["Waits"]["marks"]) == ("waiting", ["overdue"])
+    assert (listed["Closed"]["status"], listed["Closed"]["marks"]) == ("closed", [])
+
+
+def test_the_tickets_a_tab_holds_are_read_at_held_and_not_taken_for_a_ticket_called_held(client):
+    ticket = _open(client)
+    answer = client.get("/tickets/held", params={"tab": "ses_a", "since": "2000-01-01T00:00:00Z"})
+    assert answer.status_code == 200
+    body = answer.json()
+    assert (body["ok"], body["tab"], body["peer_unreachable"]) == (True, "ses_a", [])
+    assert [(item["id"], item["status"], item["written_since"]) for item in body["tickets"]] == [(ticket, "open", True)]
+
+
+def test_held_without_since_leaves_written_since_null(client):
+    _open(client)
+    assert client.get("/tickets/held", params={"tab": "ses_a"}).json()["tickets"][0]["written_since"] is None
+
+
+def test_held_refuses_a_tab_that_is_not_one_and_a_time_that_is_not_one(client):
+    assert _error(client.get("/tickets/held", params={"tab": "nobody"})) == (400, "ticket_unknown_sender")
+    assert _error(client.get("/tickets/held", params={"tab": "ses_a", "since": "yesterday"})) == (400, "ticket_bad_since")
+    assert client.get("/tickets/held").status_code == 422
