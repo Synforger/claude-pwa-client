@@ -24,6 +24,13 @@ def test_tabs_are_counted_by_whether_a_claude_runs_or_sleeps():
     assert view(tabs)["tabs"] == {"total": 4, "with_claude": 2, "asleep": 1, "without_claude": 1, "children": 1}
 
 
+def test_a_tab_marked_asleep_whose_claude_still_runs_is_counted_once_as_running():
+    tabs = [tab("a", claude_mb=200.0, asleep=True), tab("b", asleep=True), tab("c")]
+    counted = view(tabs)["tabs"]
+    assert counted == {"total": 3, "with_claude": 1, "asleep": 1, "without_claude": 1, "children": 0}
+    assert counted["with_claude"] + counted["asleep"] + counted["without_claude"] == counted["total"]
+
+
 def test_the_footprints_and_how_many_more_fit_are_plain_numbers():
     answer = view([tab("a", claude_mb=200.0), tab("b", claude_mb=300.0), tab("c", claude_mb=250.0)])
     assert answer["claude_mb"] == {"count": 3, "median": 250.0, "min": 200.0, "max": 300.0, "total": 750.0}

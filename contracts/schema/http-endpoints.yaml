@@ -268,7 +268,7 @@ endpoints:
         machine:            { type: string, description: "this machine's name (= machine_name of the settings, else the host name)" }
         child_sessions_max: { type: integer, nullable: true, description: "the child tabs one tab may hold at once. null = no limit" }
         children_of_caller: { type: integer, nullable: true, description: "the child tabs the asking tab holds now. null when no session was given" }
-        tabs:               { type: object, description: "total / with_claude (a claude runs in the pane) / asleep (the sleep patrol stopped it) / without_claude (neither) / children" }
+        tabs:               { type: object, description: "total / with_claude (a claude runs in the pane) / asleep (the sleep patrol stopped it and no claude runs) / without_claude (neither) / children" }
         claude_mb:          { type: object, nullable: true, description: "the physical footprint of each running claude in megabytes (= what `footprint <pid>` prints): count / median / min / max / total. null when none could be read" }
         memory:             { type: object, description: "total_mb / available_mb (what a new program gets without swapping) / pressure_level (the operating system's: 1 normal, 2 warning, 4 critical, or null) / swap_used_mb" }
         claudes_fitting_available: { type: integer, nullable: true, description: "available_mb divided by the median footprint, rounded down. null without a footprint" }
