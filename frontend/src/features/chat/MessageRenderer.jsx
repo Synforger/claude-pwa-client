@@ -6,6 +6,7 @@ import { visit } from 'unist-util-visit'
 import { useThrottledStreamingText } from './useThrottledStreamingText.js'
 import { apiUrl } from '../../_common/api.js'
 import { isHomeScreenWebApp, openInBrowser } from '../../_common/externalBrowser.js'
+import { onScreenHost } from '../../_common/localUrl.js'
 import './MessageRenderer.css'
 
 const PATH_RE = /(?<![(`])(~\/[^\s`"')\]]+|\/Users\/[^\s`"')\]]+)/g
@@ -342,7 +343,12 @@ function MarkdownImage({ src, alt, onOpenFile }) {
 // inline で毎 render 新 object を作ると全 chunk が memo 貫通して再パースされる)。
 function buildComponents(onOpenFile) {
   return {
-    a({ href, children }) {
+    a({ href: written, children: writtenChildren }) {
+      // A link to this machine's own address opens on the screen's device by the tailnet name (= _common/localUrl.js).
+      // The text of an autolink is the URL itself, so it changes with it.
+      const href = onScreenHost(written, typeof window === 'undefined' ? null : window.location)
+      const children = href === written ? writtenChildren
+        : (Array.isArray(writtenChildren) ? writtenChildren : [writtenChildren]).map((child) => (child === written ? href : child))
       if (href?.startsWith('cpc-file://')) {
         let path
         try { path = decodeURIComponent(href.slice('cpc-file://'.length)) } catch { path = href.slice('cpc-file://'.length) }
