@@ -8,6 +8,7 @@ import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { test, expect } from '@playwright/test'
 import { PeerBackend } from '../../helpers/peer-backends.js'
+import { keepDrawerOverlaid } from '../../helpers/pwa.js'
 
 const PORT = 18871
 const SOURCE_SID = 'api_g-trip'
@@ -34,6 +35,7 @@ test.describe('golden: api-tab-source', () => {
   }
 
   test('shows the context in percent and the tab spend, follows the rewritten list, and writes the settings', async ({ page }) => {
+    await keepDrawerOverlaid(page)
     await page.goto(`${backend.baseURL}/?ses=${SOURCE_SID}`, { waitUntil: 'domcontentloaded' })
     await expect(page.getByText('Three inns near the station.')).toBeVisible({ timeout: 20_000 })
 

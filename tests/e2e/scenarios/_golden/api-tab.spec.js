@@ -8,6 +8,7 @@ import { appendFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { test, expect } from '@playwright/test'
 import { PeerBackend } from '../../helpers/peer-backends.js'
+import { keepDrawerOverlaid } from '../../helpers/pwa.js'
 
 const PORT = 18870
 const API_SID = 'api_support-bot'
@@ -26,6 +27,7 @@ test.describe('golden: api-tab', () => {
   })
 
   test('shows the conversation and the context amount, offers nothing that needs a Claude Code, and follows the record', async ({ page }) => {
+    await keepDrawerOverlaid(page)
     await page.goto(`${backend.baseURL}/?ses=${API_SID}`, { waitUntil: 'domcontentloaded' })
 
     // The conversation is drawn as any other: the question and the answer of the record.

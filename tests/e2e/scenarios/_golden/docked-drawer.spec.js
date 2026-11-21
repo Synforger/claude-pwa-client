@@ -36,7 +36,7 @@ test.describe('golden: docked tab list', () => {
 
   test('starts open, and the body starts where the list ends while the status bar stays full width', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'chromium-desktop', DESKTOP_ONLY)
-    await openClient(page, { sid: SID, drawerDefault: true })
+    await openClient(page, { sid: SID, docked: true })
 
     const drawer = page.locator('[data-testid=session-drawer]')
     await expect(drawer).toBeVisible()
@@ -65,7 +65,7 @@ test.describe('golden: docked tab list', () => {
 
   test('stays open after a tab is chosen and after a tab is made', async ({ page, request }, testInfo) => {
     test.skip(testInfo.project.name !== 'chromium-desktop', DESKTOP_ONLY)
-    await openClient(page, { sid: SID, drawerDefault: true })
+    await openClient(page, { sid: SID, docked: true })
     const drawer = page.locator('[data-testid=session-drawer]')
     await expect(drawer).toBeVisible()
 
@@ -90,7 +90,7 @@ test.describe('golden: docked tab list', () => {
 
   test('☰ and ✕ shut it, ☰ opens it, and the machine remembers each over a reload', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'chromium-desktop', DESKTOP_ONLY)
-    await openClient(page, { sid: SID, drawerDefault: true })
+    await openClient(page, { sid: SID, docked: true })
     const drawer = page.locator('[data-testid=session-drawer]')
     const toggle = page.locator('[data-testid=drawer-toggle]')
     await expect(drawer).toBeVisible()
@@ -121,7 +121,7 @@ test.describe('golden: docked tab list', () => {
 
   test('shuts when the window turns narrow, opens again when it turns wide, and writes nothing meanwhile', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'chromium-desktop', DESKTOP_ONLY)
-    await openClient(page, { sid: SID, drawerDefault: true })
+    await openClient(page, { sid: SID, docked: true })
     const drawer = page.locator('[data-testid=session-drawer]')
     await expect(drawer).toBeVisible()
 
@@ -138,7 +138,7 @@ test.describe('golden: docked tab list', () => {
 
   test('the terminal fits the width that is left of the list', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'chromium-desktop', DESKTOP_ONLY)
-    await openClient(page, { sid: SID, drawerDefault: true })
+    await openClient(page, { sid: SID, docked: true })
     const drawer = page.locator('[data-testid=session-drawer]')
     await expect(drawer).toBeVisible()
 
@@ -168,7 +168,7 @@ test.describe('golden: docked tab list', () => {
 
   test('on a phone the list stays laid over the screen: shut at the start, a curtain, shut after a tab is chosen', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'webkit-mobile', 'the phone project')
-    await openClient(page, { sid: SID, drawerDefault: true })
+    await openClient(page, { sid: SID, docked: true })
     const drawer = page.locator('[data-testid=session-drawer]')
     await expect(drawer).toHaveCount(0)
     expect(Math.abs((await box(page.locator('header.topbar'))).x)).toBeLessThanOrEqual(EDGE_TOLERANCE_PX)
