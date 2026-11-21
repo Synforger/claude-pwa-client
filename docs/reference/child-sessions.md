@@ -43,6 +43,20 @@ Message from another session, relayed by the client (the operator did not type t
 エージェントに `launcher: true` を設定している場合は、 この発話が起動ラッパに `--first-message-file` で
 渡ります ([config.md](config.md) の `agents`)。
 
+`tabs new` で立てると、 本文の頭に `<child-start>` の塊が付きます。 1 行目が親の階層 (`tier=`) で、 `tabs new` に
+`--model <名前>`・`--effort <段>` を付けた時は `model=`・`effort=` の行が続きます。 塊を読むのは起動ラッパで、
+どの値を採るかはエージェントの側が決めます (client は値の一覧を持たず、 英数字と `. _ -` の 1 語でない値だけを断ります)。
+
+```
+<child-start>
+tier=projects/AP
+model=haiku
+effort=low
+</child-start>
+
+渡す仕事
+```
+
 ## 子のタブだけ起動の仕方を変える
 
 子用のエージェントを別に設定し、 親のエージェントの `child_agent` にその key を書きます。 例えば起動ラッパに

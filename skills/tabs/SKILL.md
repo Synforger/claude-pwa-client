@@ -267,6 +267,7 @@ running when the parent restarts. Use `tabs` from the parent:
 
 ```
 tabs new <title> <task file>      open a child; the task becomes its first message
+         [--model <name>] [--effort <level>]   the child's model and effort (the agent's launch script takes only values it allows)
 tabs children [--summary]         list the children this tab opened (id, memo state, what its Claude is doing, title)
 tabs close <child id> [--force]   close a child and clear its memo and untouched top page; a child still working needs --force
 tabs sleep <child id>             put a child's Claude to sleep now; a message wakes it in the same conversation
