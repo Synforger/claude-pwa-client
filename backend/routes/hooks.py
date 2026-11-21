@@ -37,6 +37,8 @@ from backend.jsonl.session_status import (
 from backend._common.prose_language import foreign_prose
 from backend._common.state import is_voice_open, session_language, sessions_meta
 from backend.terminal import input_ready, pty_discover
+from backend.terminal.pty_discover import runs_inside_another_claude
+from backend.cli.claude_sessions import pid_of_conversation
 from backend.sleep.sleep_sensors import note_woken
 import backend.rollover.rollover as rollover
 from backend.tickets import answer_delivery
@@ -108,6 +110,13 @@ async def hooks_event(request: Request) -> dict | PlainTextResponse:
     return result
 
 
+def _started_inside_the_tabs_claude(claude_sid: str | None) -> bool:
+    """Whether the claude of `claude_sid` runs under another claude. False when its record or process cannot be read
+    (= it is bound, as before)."""
+    pid = pid_of_conversation(claude_sid) if claude_sid else None
+    return pid is not None and runs_inside_another_claude(pid)
+
+
 async def _hooks_event(request: Request) -> dict:
     """claude CLI が hook で叩いてくる JSON を受けて Web Push に変換する。
 
@@ -157,6 +166,12 @@ async def _hooks_event(request: Request) -> dict:
     # (= Desktop App 公式と PWA の取り違えを構造的に不可能にする)。
     bound_path = None
     if pwa_sid_hdr and transcript and pwa_sid_hdr in sessions_meta:
+        if await asyncio.to_thread(_started_inside_the_tabs_claude, claude_sid):
+            # A claude a tool of the tab's own claude started (= `claude -p` in a Bash call) carries the tab's PWA_SID
+            # too. It is not the tab's conversation: binding it would put the tab on that conversation.
+            logger.info("hooks/event from a claude inside the tab's claude, not bound: event=%s pwa_sid=%s claude_sid=%s cwd=%s",
+                        event, pwa_sid_hdr, claude_sid, cwd)
+            return {"ok": True, "ignored": "inside_another_claude"}
         bound_path = jsonl_watcher.confirm_bind(pwa_sid_hdr, claude_sid or "", transcript)
 
     # SessionStart: PWA タブ起動時に発火する確定 binding 経路。 PWA spawn 時に tmux
