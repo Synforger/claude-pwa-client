@@ -33,6 +33,17 @@
 .drawer.open {
   transform: translateX(0);
 }
+/* The form kept on the left of a wide screen (Layout gives the bar height --app-bar-h and the width --docked-drawer-w).
+   It runs from under the status bar to the bottom, and Layout pushes the body right by the same width, so it covers
+   nothing. The full-screen curtains (file tree 40, preview 50, modal 100) pass over it, as over the overlay form. */
+.drawer.docked {
+  top: var(--app-bar-h);
+  width: var(--docked-drawer-w);
+  z-index: 30;
+  transform: none;
+  transition: none;
+  padding-top: 0;
+}
 .drawer-header {
   display: flex;
   align-items: center;

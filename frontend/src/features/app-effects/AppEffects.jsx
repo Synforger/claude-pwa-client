@@ -8,6 +8,7 @@
 //   - useNotificationClear() (= 通知クリア)
 //   - SW への active-session post (= visibility 連動 + activeSid 変化)
 //   - usePushSubscription() (= Web Push 購読状態管理)
+//   - open / shut of the tab list (starts from what the machine remembered, decided again when the window changes size)
 //
 // hydrate (= module load 時の lsGet → state/ui.hydrate({viewModes})) も本 file の module-level で行う
 // (= 旧 AppShell.jsx の module-level hydrate と同方針、 first render で ui.viewModes が即座に正しい値
@@ -21,6 +22,8 @@ import { useSessions } from '../session-drawer/useSessions.js'
 import { useReadOnSessionOpen } from '../push-notify/useReadOnSessionOpen.js'
 import { useNotificationClear } from '../push-notify/useNotificationClear.js'
 import { useDeepLink } from '../session-drawer/useDeepLink.js'
+import { useDockedDrawerRestore } from '../session-drawer/useDockedDrawer.js'
+import { restoreDrawerOpen } from '../session-drawer/dockedDrawerOpen.js'
 import { usePushSubscription } from '../push-notify/usePushSubscription.js'
 import { useViewportSettle } from './useViewportSettle.js'
 import { useKeyboardLog } from './useKeyboardLog.js'
@@ -43,6 +46,10 @@ try {
   const persisted = lsGet(VIEW_MODES_LS_KEY)
   if (persisted && typeof persisted === 'object') hydrateUi({ viewModes: persisted })
 } catch { /* hydrate 失敗は viewModes={} で起動して継続 (= 旧 hook の try/lsGet と同方針) */ }
+
+// Start the tab list as the machine remembered it. Done at module load like viewModes, so the first paint already has
+// the body pushed aside and nothing shifts after the list opens.
+restoreDrawerOpen()
 
 export default function AppEffects() {
   const { sessions, activeId, setActiveId } = useSessions()
@@ -67,6 +74,8 @@ export default function AppEffects() {
   useReadOnSessionOpen(activeSid)
   useDeepLink(setActiveId)
   useNotificationClear()
+  // Decide the tab list's open / shut again when the window changes size (shut when narrow, as remembered when wide)
+  useDockedDrawerRestore()
   // 頼みの票の絵 (= 統合 stream の `tickets` channel) を受ける。 🎫・票の一覧・タブの一覧が読む
   useTicketsChannel()
 

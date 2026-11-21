@@ -1,8 +1,27 @@
 .app {
+  /* Width of the tab list kept on the left of a wide screen: the body is pushed right by it, and the list reads the same value */
+  --docked-drawer-w: 320px;
   display: flex;
   flex-direction: column;
   height: 100dvh;
   background: var(--bg);
+}
+
+/* The bar at the top. useAppBarHeight measures it into --app-bar-h, which is where the docked list starts. */
+.app-bar {
+  flex-shrink: 0;
+}
+
+/* Everything under the bar, stacked top to bottom as .app used to do. */
+.app-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.app.drawer-docked .app-main {
+  margin-left: var(--docked-drawer-w);
 }
 
 /* トップバー (ハンバーガー + 現在のセッション名) */
