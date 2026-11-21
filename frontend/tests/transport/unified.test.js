@@ -3,7 +3,7 @@
 // 統合 transport (= unified.ts) の unit test (= 2026-07-14 電力効率工事)。
 //
 // 担保する不変条件:
-// 1. channel 振分 (= jsonl / status / overview / subagents) + 遅参 subscriber への
+// 1. channel 振分 (= jsonl / status / overview / tickets) + 遅参 subscriber への
 //    直近 payload 再配布 (= #184 と同規約)
 // 2. jsonl frame の pos で offsets が前進し、 永続化は debounce + flush 経路
 // 3. 購読 sid 差替 / view / stop が control POST になる + 404 で張り直し
@@ -177,19 +177,17 @@ describe('unified transport', () => {
     unsub()
   })
 
-  it('hello frame で desired state (= jsonl / view / subagents) を全部再主張する', async () => {
-    const { unifiedTransport, unifiedJsonl, unifiedSubagentsSse } = await freshTransport()
+  it('hello frame で desired state (= jsonl / view) を全部再主張する', async () => {
+    const { unifiedTransport, unifiedJsonl } = await freshTransport()
     unifiedTransport.setActiveSid('ses_a')
     const u1 = unifiedJsonl.subscribe(() => {})
-    const u2 = unifiedSubagentsSse.subscribe('ses_a', () => {})
     const es = FakeEventSource.instances.at(-1)
     es.open()
     es.emit({ ch: 'sys', type: 'hello', conn: 'c' })
     await vi.advanceTimersByTimeAsync(10)
     const ops = apiCalls.list.map(([, opts]) => opts.jsonBody.op)
     expect(ops).toContain('view')
-    expect(ops).toContain('subagents')
-    u1(); u2()
+    u1()
   })
 
   it('接続確立前の setSubscribedSids は hello 再主張で購読が成立する (= 2026-07-15 レース根治)', async () => {
@@ -243,22 +241,6 @@ describe('unified transport', () => {
     expect(seen).toEqual([{ type: 'history_refetch', sid: 'ses_a', corr_id: 'c' }])
     expect(unifiedJsonl.getOffset('ses_a')).toBeNull()
     u1()
-  })
-
-  it('subagents channel は sid 別に振分けられ、 遅参にも再配布', async () => {
-    const { unifiedSubagentsSse, unifiedJsonl } = await freshTransport()
-    const seen = []
-    const keep = unifiedJsonl.subscribe(() => {})  // 接続維持用
-    const u1 = unifiedSubagentsSse.subscribe('ses_a', d => seen.push(d))
-    const es = FakeEventSource.instances.at(-1)
-    es.open()
-    es.emit({ ch: 'subagents', sid: 'ses_a', data: { subagents: [1] } })
-    es.emit({ ch: 'subagents', sid: 'ses_other', data: { subagents: [9] } })
-    expect(seen).toHaveLength(1)
-    const late = []
-    const u2 = unifiedSubagentsSse.subscribe('ses_a', d => late.push(d))
-    expect(late[0].subagents).toEqual([1])
-    u1(); u2(); keep()
   })
 
   it('suspendView は view null を keepalive で送り、 desired は保持 → hello 再主張で復元', async () => {

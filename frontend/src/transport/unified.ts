@@ -50,7 +50,6 @@ class UnifiedTransport {
   // --- desired state (= 再接続時に query / hello 後 control で必ず再主張する) ---
   private jsonlSids = new Set<string>()
   private viewSid: string | null = null
-  private subagentsSid: string | null = null
   // この画面で会話 (= 🔊 か 🎙) を開いている sid (= backend が声で聞いている印を付ける判定に使う)
   private voiceSids: string[] = []
 
@@ -58,12 +57,10 @@ class UnifiedTransport {
   private jsonlHandlers = new Set<Handler>()
   private statusHandlers = new Set<Handler>()
   private overviewHandlers = new Set<Handler>()
-  private subagentsHandlers = new Map<string, Set<Handler>>()
   private ticketsHandlers = new Set<Handler>()
   private lastStatus: unknown
   private lastOverview: unknown
   private lastTickets: unknown
-  private lastSubagents = new Map<string, unknown>()
 
   // --- offsets (= in-memory は毎 frame 前進 / 永続化は useChatStorage のメッセージ保存に結合) ---
   private offsets: Record<string, number> = loadOffsets()
@@ -76,7 +73,7 @@ class UnifiedTransport {
 
   private hasSubscribers(): boolean {
     return this.jsonlHandlers.size > 0 || this.statusHandlers.size > 0
-      || this.overviewHandlers.size > 0 || this.subagentsHandlers.size > 0 || this.ticketsHandlers.size > 0
+      || this.overviewHandlers.size > 0 || this.ticketsHandlers.size > 0
   }
 
   private ensureStarted(): void {
@@ -216,17 +213,6 @@ class UnifiedTransport {
       }
       return
     }
-    if (ch === 'subagents') {
-      const sid = frame.sid
-      if (typeof sid !== 'string') return
-      this.lastSubagents.set(sid, frame.data)
-      const set = this.subagentsHandlers.get(sid)
-      if (set) {
-        for (const h of set) {
-          try { h(frame.data) } catch (e) { console.warn('[unified] subagents handler threw', e) }
-        }
-      }
-    }
   }
 
   private onHello(): void {
@@ -237,7 +223,6 @@ class UnifiedTransport {
     // access log で確認) はこの再主張だけが購読を成立させる。
     this.assertJsonlSubs()
     if (this.viewSid) this.control({ op: 'view', sid: this.viewSid })
-    if (this.subagentsSid) this.control({ op: 'subagents', sid: this.subagentsSid })
     if (this.voiceSids.length > 0) this.control({ op: 'voice', sids: this.voiceSids })
   }
 
@@ -378,36 +363,6 @@ class UnifiedTransport {
     }
   }
 
-  subscribeSubagents(sid: string, handler: Handler): () => void {
-    let set = this.subagentsHandlers.get(sid)
-    if (!set) { set = new Set(); this.subagentsHandlers.set(sid, set) }
-    set.add(handler)
-    this.ensureStarted()
-    if (this.subagentsSid !== sid) {
-      this.subagentsSid = sid
-      if (this.es && this.state === 'open') this.control({ op: 'subagents', sid })
-    }
-    const last = this.lastSubagents.get(sid)
-    if (last !== undefined) {
-      try { handler(last) } catch (e) { console.warn('[unified] subagents late-replay threw', e) }
-    }
-    return () => {
-      const cur = this.subagentsHandlers.get(sid)
-      if (cur) {
-        cur.delete(handler)
-        if (cur.size === 0) {
-          this.subagentsHandlers.delete(sid)
-          this.lastSubagents.delete(sid)
-          if (this.subagentsSid === sid) {
-            this.subagentsSid = null
-            if (this.es) this.control({ op: 'subagents', sid: null })
-          }
-        }
-      }
-      if (!this.hasSubscribers()) this.stop()
-    }
-  }
-
   setActiveSid(sid: string | null): void {
     if (this.viewSid === sid) return
     this.viewSid = sid
@@ -491,11 +446,6 @@ export const unifiedOverviewSse = {
 /** tickets channel subscriber。 */
 export const unifiedTicketsSse = {
   subscribe: (h: Handler) => unifiedTransport.subscribeTickets(h),
-}
-
-/** per-sid subagents channel subscriber。 */
-export const unifiedSubagentsSse = {
-  subscribe: (sid: string, h: Handler) => unifiedTransport.subscribeSubagents(sid, h),
 }
 
 /** ws-views (ViewsTransport) 互換。 start/stop は共有接続の lifecycle に吸収済 = no-op。 */
