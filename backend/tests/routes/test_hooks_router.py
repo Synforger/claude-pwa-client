@@ -473,3 +473,50 @@ def test_session_start_starts_the_tab_s_quiet_time_over(fake_bindings, captured_
     before = time.time()
     assert TestClient(app).post("/hooks/event", json=payload, headers={"X-PWA-SID": "ses_tab"}).status_code == 200
     assert sensors._woken_at["ses_tab"] >= before
+
+
+@pytest.mark.parametrize("event", ["SessionStart", "Stop"])
+def test_a_claude_started_inside_the_tabs_claude_does_not_take_the_tab(fake_bindings, captured_pushes, monkeypatch, tmp_path,
+                                                                         event):
+    """A `claude` a tool of the tab's claude starts (= `claude -p` in a Bash call) inherits the tab's PWA_SID. Its hooks
+    must not bind the tab to its conversation: the tab would go on with that conversation (and its tier) instead.
+
+    ⚠ It did on 2026-11-21: four `claude` runs inside a tab took its binding, and a move of its account then carried the
+    probe's conversation."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(jsonl_watcher, "_PERSIST_PATH", tmp_path / "bindings.json")
+    monkeypatch.setattr(hooks_router, "sessions_meta", {"ses_tab": object()})
+    own = fake_bindings("ses_tab", "claude-own")
+    monkeypatch.setattr(hooks_router, "pid_of_conversation", {"claude-inner": 4242, "claude-own": 4141}.get)
+    monkeypatch.setattr(hooks_router, "runs_inside_another_claude", lambda pid: pid == 4242)
+    inner = tmp_path / "claude-inner.jsonl"
+    inner.write_text("{}\n")
+
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    client = TestClient(app)
+    payload = {"hook_event_name": event, "session_id": "claude-inner", "transcript_path": str(inner), "source": "startup"}
+    response = client.post("/hooks/event", json=payload, headers={"X-PWA-SID": "ses_tab"})
+    assert response.status_code == 200 and response.json()["ignored"] == "inside_another_claude"
+    assert jsonl_watcher.get_jsonl_for("ses_tab") == own
+
+
+def test_the_tabs_own_claude_and_one_whose_record_is_not_found_still_bind(fake_bindings, captured_pushes, monkeypatch, tmp_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(jsonl_watcher, "_PERSIST_PATH", tmp_path / "bindings.json")
+    monkeypatch.setattr(hooks_router, "sessions_meta", {"ses_tab": object()})
+    monkeypatch.setattr(hooks_router, "pid_of_conversation", {"claude-own": 4141}.get)
+    monkeypatch.setattr(hooks_router, "runs_inside_another_claude", lambda pid: False)
+    app = FastAPI()
+    app.include_router(hooks_router.router)
+    client = TestClient(app)
+    for sid in ("claude-own", "claude-unknown"):
+        transcript = tmp_path / f"{sid}.jsonl"
+        transcript.write_text("{}\n")
+        client.post("/hooks/event", json={"hook_event_name": "Stop", "session_id": sid, "transcript_path": str(transcript)},
+                    headers={"X-PWA-SID": "ses_tab"})
+        assert jsonl_watcher.get_jsonl_for("ses_tab") == transcript

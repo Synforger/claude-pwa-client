@@ -106,6 +106,16 @@ def _is_claude(proc: psutil.Process) -> bool:
     return bool(argv) and Path(argv[0]).name == "claude"
 
 
+def runs_inside_another_claude(pid: int) -> bool:
+    """Whether the process `pid` was started under another claude (= by a tool of the tab's own claude, which passes its
+    environment, the tab's `PWA_SID` included, on to it). The tab's own claude has no claude above it: the pane starts it."""
+    try:
+        parents = psutil.Process(pid).parents()
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return False
+    return any(_is_claude(parent) for parent in parents)
+
+
 def _find_claude_descendant_info(
     root_pid: int, max_depth: int = 6,
 ) -> tuple[int, float, str] | None:
