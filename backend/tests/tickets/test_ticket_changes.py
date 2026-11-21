@@ -107,6 +107,21 @@ def test_listing_gives_each_ticket_with_the_title_read_from_its_place_newest_fir
         (second, "Second title", "ses_b", "open"), (first, "Title", "ses_a", "open")]
 
 
+def test_listing_gives_the_first_line_of_the_last_line_a_tab_wrote_as_the_next_step(ticket_env):
+    ticket = _ticket()
+    assert run(ticket_service.list_tickets())["tickets"][0]["next"] == "Request"   # the opening line, until the tab writes another
+    run(ticket_service.add("ses_a", ticket, "Waiting for the sample deck\nthe second line is not shown", waiting=True))
+    ticket_service.write_entry(ticket, ticket_env.tickets, ticket_entry.make_entry(
+        ticket_entry.ADDED, ticket_entry.CLIENT_WRITER, "written by the client", at="9999"))
+    [listed] = run(ticket_service.list_tickets())["tickets"]
+    assert listed["next"] == "Waiting for the sample deck"   # neither the client's line nor the second line
+
+
+def test_listing_gives_an_empty_next_step_for_a_ticket_whose_place_is_not_known(ticket_env):
+    ticket_index.put("home-261119-08", ticket_index.IndexRow("0123456789abcdef", "ses_a", "ses_a", "open", None))
+    assert [row["next"] for row in run(ticket_service.list_tickets())["tickets"]] == [""]
+
+
 def test_a_ticket_whose_place_is_not_known_is_listed_without_a_title(ticket_env):
     ticket_index.put("home-261119-07", ticket_index.IndexRow("0123456789abcdef", "ses_a", "ses_a", "open", None))
     listed = run(ticket_service.list_tickets())["tickets"]

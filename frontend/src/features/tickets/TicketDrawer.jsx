@@ -9,7 +9,7 @@ import './Tickets.css'
 import { GROUPS, agoOf, groupTickets, holderOf, markOf, peerLines, ticketLabel } from './ticketGroups.js'
 
 // 票の一覧 (= 会話の一覧のいちばん上の 📌 の行から開く)。 「見てほしい」「動いている」「待ち」「閉じた」 (畳む) の 4 段で、 行を押すと票の画面が開く。
-// A row shows the due date (when there is one) and the first mark as one character.
+// A row shows the next step its tab last wrote (when there is one), the due date (when there is one) and the first mark as one character.
 // 一番下に、 もう 1 台の機械で操作者の答えを待つ票の数 (= その機械の画面で答える)。
 
 const NOW_TICK_MS = 30_000
@@ -35,6 +35,7 @@ function Row({ ticket, tabNames, now, t }) {
   return (
     <button type="button" className="ticket-row" onClick={() => setOverlay('ticket', ticket.id)} data-testid="ticket-row" data-ticket={ticket.id}>
       <span className="ticket-row-title">{ticketLabel(ticket)}</span>
+      {ticket.next && <span className="ticket-row-next" data-testid="ticket-row-next">{ticket.next}</span>}
       <span className="ticket-row-meta">
         {mark && <span className="ticket-row-mark" title={t(`tickets.mark_${mark.key}`)} aria-label={t(`tickets.mark_${mark.key}`)} data-testid="ticket-row-mark" data-mark={mark.key}>{mark.glyph}</span>}
         {wants && <span className="ticket-row-wants">{wants}</span>}

@@ -10,7 +10,7 @@ import * as sessions from '../../../src/state/sessions.js'
 
 const row = (id, extra = {}) => ({
   id, title: `T ${id}`, status: 'open', wants: null, holder: 'ses_a', attention: null,
-  last_at: new Date(Date.now() - 5 * 60_000).toISOString(), opened_at: null, origin: 'self', due: null, marks: [], ...extra,
+  last_at: new Date(Date.now() - 5 * 60_000).toISOString(), opened_at: null, origin: 'self', due: null, marks: [], next: '', ...extra,
 })
 
 beforeEach(() => {
@@ -126,10 +126,32 @@ it('shows the due date of a row, and the first mark as one character with its na
 
 it('draws a row of an older backend, with none of the new fields, without a mark or a due date', () => {
   const old = row('home-1')
-  for (const field of ['origin', 'due', 'marks']) delete old[field]
+  for (const field of ['origin', 'due', 'marks', 'next']) delete old[field]
   act(() => applyTicketsSnapshot({ tickets: [old], peers: {} }))
   render(<TicketDrawer />)
   expect(screen.getByTestId('ticket-row').textContent).toContain('T home-1')
   expect(screen.queryByTestId('ticket-row-mark')).toBeNull()
   expect(screen.queryByTestId('ticket-row-due')).toBeNull()
+  expect(screen.queryByTestId('ticket-row-next')).toBeNull()
+})
+
+it('shows the next step its tab wrote under the title of a row, and nothing under a row that has none', () => {
+  act(() => applyTicketsSnapshot({
+    tickets: [row('home-1', { next: 'Waiting for the sample deck' }), row('home-2', { next: '' })],
+    peers: {},
+  }))
+  render(<TicketDrawer />)
+  const rowOf = (id) => document.querySelector(`[data-ticket="${id}"]`)
+  const next = rowOf('home-1').querySelector('[data-testid=ticket-row-next]')
+  expect(next.textContent).toBe('Waiting for the sample deck')
+  expect(next.previousElementSibling.className).toContain('ticket-row-title')
+  expect(rowOf('home-2').querySelector('[data-testid=ticket-row-next]')).toBeNull()
+})
+
+it('draws the next step as plain text, never as markup', () => {
+  act(() => applyTicketsSnapshot({ tickets: [row('home-1', { next: 'Fix <b>it</b>' })], peers: {} }))
+  render(<TicketDrawer />)
+  const next = screen.getByTestId('ticket-row-next')
+  expect(next.textContent).toBe('Fix <b>it</b>')
+  expect(next.querySelector('b')).toBeNull()
 })

@@ -13,6 +13,7 @@
   background: var(--surface, #1e2127); color: var(--text); border: 1px solid var(--border, #333); border-radius: 8px;
 }
 .ticket-row-title { font-size: 14px; overflow-wrap: anywhere; }
+.ticket-row-next { max-width: 100%; font-size: 12px; color: var(--dim, #8a8f98); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ticket-row-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--dim, #8a8f98); }
 .ticket-row-wants { color: var(--accent); }
 .ticket-row-problem { font-size: 12px; color: #e5534b; }
