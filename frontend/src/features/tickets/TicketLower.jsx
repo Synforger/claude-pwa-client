@@ -5,22 +5,10 @@ import { fetchTicket, postAnswer, postHolder, postSeen } from './ticketApi.js'
 import { answerLanded, draftState, lowerArea } from './ticketLower.js'
 
 // 票の画面の下の欄 (= 何を出すかは ticketLower.js の表)。 答える・渡す・確かめた の 3 つの操作を持ち、 どれも済んだら票を読み直す。
+// 問いと推奨は上の件の並び (= 「訊いた」 の件) に出ているので、 ここには答えの欄と操作だけを置く (= 同じ問いを 2 度出さない)。
 
 const ERROR_CHANGED = 'ticket_ask_changed'
 const ERROR_NOT_WAITING = 'ticket_not_waiting'
-
-function Question({ asked, t }) {
-  return (
-    <div className="ticket-question" data-testid="ticket-question">
-      <div className="ticket-question-text">{asked.text}</div>
-      {asked.recommend && (
-        <div className="ticket-question-recommend" data-testid="ticket-recommend">
-          <span className="ticket-entry-recommend-label">{t('ticket.recommend')}</span> {asked.recommend}
-        </div>
-      )}
-    </div>
-  )
-}
 
 export default function TicketLower({ ticketId, detail, candidates, reload }) {
   const t = useT()
@@ -82,7 +70,6 @@ export default function TicketLower({ ticketId, detail, candidates, reload }) {
     parts.push(
       <section key="holder" className="ticket-lower-block" data-testid="ticket-no-holder">
         <div className="ticket-lower-title">{t('ticket.no_holder')}</div>
-        {area.askedWithoutHolder && <Question asked={area.askedWithoutHolder} t={t} />}
         <div className="ticket-handover">
           <select value={holderId} onChange={(e) => setHolderId(e.target.value)} disabled={busy} aria-label={t('ticket.pick_holder')} data-testid="ticket-holder-select">
             <option value="">{t('ticket.pick_holder')}</option>
@@ -98,7 +85,6 @@ export default function TicketLower({ ticketId, detail, candidates, reload }) {
   if (area.asked) {
     parts.push(
       <section key="answer" className="ticket-lower-block" data-testid="ticket-answer-box">
-        <Question asked={area.asked} t={t} />
         {draftKind === 'previous' && (
           <div className="ticket-draft-previous" data-testid="ticket-draft-previous">
             <div className="ticket-lower-title">{t('ticket.draft_previous')}</div>

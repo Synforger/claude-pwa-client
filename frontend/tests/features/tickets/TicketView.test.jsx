@@ -60,11 +60,16 @@ it('pins the operator\'s original words on top and draws the lines as plain text
   expect(entries[0].querySelector('b')).toBeNull()
 })
 
-it('shows the question, the recommendation, and answers with the recommendation', async () => {
+it('shows the question and the recommendation once, among the lines, and answers with the recommendation below', async () => {
   serve((path, method) => (method === 'POST' ? { body: { ok: true, id: ID, queued: true } } : { body: detail() }))
   render(<TicketView />)
-  expect((await screen.findByTestId('ticket-question')).textContent).toContain('A or B?')
-  expect(screen.getByTestId('ticket-recommend').textContent).toContain('A')
+  const box = await screen.findByTestId('ticket-answer-box')
+  const asked = screen.getAllByTestId('ticket-entry').find((e) => e.dataset.kind === 'asked')
+  expect(asked.textContent).toContain('A or B?')
+  expect(asked.textContent).toContain('A')
+  // the box below holds only the field and the buttons: the question is not written a second time
+  expect(screen.getAllByText('A or B?')).toHaveLength(1)
+  expect(box.textContent).not.toContain('A or B?')
   fireEvent.click(screen.getByTestId('ticket-answer-recommend'))
   await waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true))
   expect(calls.find((c) => c.method === 'POST')).toEqual({
@@ -110,7 +115,7 @@ it('reads the ticket again when the question changed under the screen, and keeps
   fireEvent.click(screen.getByTestId('ticket-answer-send'))
   const previous = await screen.findByTestId('ticket-draft-previous')
   expect(previous.textContent).toContain('Take B')
-  expect(screen.getByTestId('ticket-question').textContent).toContain('Or C?')
+  await waitFor(() => expect(screen.getAllByTestId('ticket-entry').at(-1).textContent).toContain('Or C?'))
   expect(screen.getByTestId('ticket-answer-field').value).toBe('')
 })
 
