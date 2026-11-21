@@ -55,6 +55,7 @@ backup 先 = 同 PC の別 path (= `$AGENT_PLATFORM_ROOT/state/claude-pwa-client
 | `top_page_sha` | str? | NO | 子のタブのトップページ (= `pages/<子の id>/index.html`) を client が雛形から書いた時の、書いた中身の指紋 (= sha256 の 16 進、 目次の部品などを読む 1 行だけの行を除いた中身で取る)。 閉じる時の片付けが、 ページの今の中身をこれと比べる。 子でないタブと、 指紋を残す前に立てた子は null |
 | `stop_told_at` | float? | NO | 子のタブが報告せずに止まったことを親に知らせた時の、 その子の会話の記録の最後の行の時刻 (= epoch 秒)。 [止まった子の見回り](child-sessions.md#止まった子の見回り) が、 同じ止まりに 2 通目を送らないための印。 まだ知らせていない子と、 子でないタブは null |
 | `list_folder` | str? | NO | 画面の会話の一覧でこのタブを並べる folder (= `<エージェントの key>/<folder>/...`)。 エージェントの `list_folder` より先に効く。 `POST /sessions` か `PATCH /sessions/<id>` で付ける。 エージェントの folder に並ぶタブは null |
+| `child_settings` | object | NO | 子のタブに親が `tabs new` で選んだ値 (= `model`・`effort` の文字列。 子の最初の発話の `<child-start>` の塊から読む)。 [自動の入れ替え](rollover.md#新しい会話の最初の発話) が、 子の次の会話の封筒に同じ行を書く。 子でないタブと、 選ばれなかった子は `{}` |
 
 `GET /sessions` の各行の **`tier`** は、 この物の `tier` です。 無ければ `tier_tab`、 どちらも無ければ `null` を返します (= 画面の一覧は、 タブをこの階層の folder に入れます)。
 `tier` は backend が Claude のプロセスを見つけた時に読み、 変わっていれば保存するので、 backend や機械を再起動して Claude が居ない間も残ります。

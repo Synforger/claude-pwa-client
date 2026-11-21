@@ -338,3 +338,17 @@ def test_the_children_of_an_unknown_tab_or_from_another_machine_are_refused(fami
         assert client.get("/sessions/ses_nobody/children").status_code == 404
     with _client("100.64.0.9") as client:
         assert client.get("/sessions/ses_p/children").status_code == 403
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("<child-start>\ntier=normal\nmodel=haiku\neffort=low\n</child-start>\n\nbuild it",
+     {"model": "haiku", "effort": "low"}),
+    ("<child-start>\ntier=normal\n</child-start>\n\nbuild it", {}),
+    ("build it\n<child-start>\nmodel=opus\n</child-start>", {}),          # 頭に無い塊は親の選びではない
+])
+def test_a_child_keeps_the_model_and_the_effort_its_parent_chose(opened, isolated_state, text, expected):
+    """入れ替えで起き直した子も同じ値で起動するよう、 最初の発話の塊の値をタブの記録に覚える。"""
+    with _client() as client:
+        sid = client.post("/sessions/ses_p/children", data={"agent_id": "agent_sub", "text": text}).json()["id"]
+    assert isolated_state.sessions_meta[sid].child_settings == expected
+    assert isolated_state._load_sessions_meta()[sid].child_settings == expected

@@ -5,7 +5,11 @@
 The block names the child's tier, and, when given, the model and the effort the parent chose for it, one `key=value`
 line each. The agent's launch script reads the block and takes only the values its own settings allow (falling back to
 its default otherwise), so the client keeps no list of names: it only refuses a value that could break the block (= a
-word of letters, digits, `.`, `_` and `-`). Pure: no file, no call. Used by `tabs.py`.
+word of letters, digits, `.`, `_` and `-`).
+
+The backend reads the chosen settings back from the block when it opens the child (`routes/child_sessions.py`), keeps
+them on the tab's record, and writes the same lines into the envelope of the child's rollover (`routes/rollover.py`),
+so that a child started again keeps what its parent chose. Pure: no file, no call. Used by `tabs.py` and those two.
 """
 from __future__ import annotations
 
@@ -17,6 +21,8 @@ from typing import NamedTuple
 OPTIONS = {"--model": "model", "--effort": "effort"}
 #: What a value may be: one word that cannot end the block's line or open another
 VALUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+#: The block at the head of a child's first message, and what is inside it
+BLOCK = re.compile(r"<child-start>\n(.*?)\n</child-start>", re.S)
 
 
 class NewChild(NamedTuple):
@@ -43,7 +49,25 @@ def parse_new(words: list[str]) -> NewChild | str | None:
     return NewChild(words[0], Path(words[1]), settings)
 
 
+def settings_lines(settings: dict[str, str]) -> list[str]:
+    """The `key=value` lines of the chosen settings, in a fixed order (= model, then effort). A value that is not one
+    word is left out, so that a stored value can never break the block or the envelope it is written into."""
+    return [f"{key}={settings[key]}" for key in OPTIONS.values()
+            if isinstance(settings.get(key), str) and VALUE.match(settings[key])]
+
+
 def child_start_text(tier: str, settings: dict[str, str], task: str) -> str:
     """The child's first message: the block (tier first, then the chosen settings in a fixed order) and the task."""
-    lines = [f"tier={tier}", *(f"{key}={settings[key]}" for key in OPTIONS.values() if key in settings)]
+    lines = [f"tier={tier}", *settings_lines(settings)]
     return "<child-start>\n" + "\n".join(lines) + "\n</child-start>\n\n" + task
+
+
+def read_settings(text: str) -> dict[str, str]:
+    """The settings the block at the head of `text` carries (= what `child_start_text` wrote). Empty when `text` does
+    not start with the block; a line of another key, or with a value that is not one word, is left out."""
+    found = BLOCK.match(text.lstrip())
+    if found is None:
+        return {}
+    pairs = (line.partition("=") for line in found.group(1).splitlines())
+    keys = set(OPTIONS.values())
+    return {key: value for key, sep, value in pairs if sep and key in keys and VALUE.match(value)}
