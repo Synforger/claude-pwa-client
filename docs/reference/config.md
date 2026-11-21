@@ -212,6 +212,9 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
     `https://<tailnet の名前>[:<口の port>]/<folder の中の path>` を組む (= 口は `GET /page-url?path=<絶対 path>`、
     同じ機械の中からだけ)。 folder の外の file・page_origin が無い・待ち受けが開いていない・serve がその port を
     出していない時は、 URL を作らずに理由を返す
+  - **チャットの localhost のリンク**: 返事に `http://localhost:<port>/…` や `http://127.0.0.1:<port>/…` のリンクが書かれていても、
+    画面を別の端末 (= tailnet の名前) で開いている時は、 画面がリンクを `<画面の scheme>://<画面の host>:<port>/…` に置き換えて
+    開く (= 上と同じく、 serve が同じ番号を出している前提)。 画面をその機械の上 (= `localhost`) で開いている時は書いたまま
   - **保存箱**: `localStorage` はブラウザごと (= 同じ端末でもブラウザと app で別々) なので、 どこで開いても同じ物を
     読ませたいページは、 その port の `/.store/<folder の中のページの path>` へ読み書きする
     - `GET` → 置いた JSON (= まだ無ければ `null`) と、 その `ETag`
