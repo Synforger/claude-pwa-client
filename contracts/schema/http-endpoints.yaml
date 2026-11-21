@@ -145,9 +145,11 @@ endpoints:
     auth: tailnet
     invariants:
       - "未知の account_id は 400"
-      - "今の口座 (= account_id 無しは既定の口座) と同じなら何もしない"
+      - "今の口座 (= account_id 無しは既定の口座) と同じなら会話には触らず、 タブの本来の口座を選んだ口座にして (= fallback_from を消す) 固定を付ける"
       - "会話は末尾の切れ目まで移し先の projects dir に書き、 タブの account_id と resume_session_id をそれに揃えてから同じタブを立て直す"
-      - "切れ目がまだ無ければ 400 で、 タブには触らない"
+      - "移したタブには account_pinned を付ける (= 口座の見回りが移し直さない。 外すのは PATCH /sessions/{sid} の account_pinned)。 付けるのは account_id を書く同じ手順の中で、 見回りの移しでは付けない"
+      - "切れ目がまだ無ければ 400 で、 タブには触らない (= 固定も付かない)"
+      - "口座の見回りか上限明けの続けが同じタブに手を掛けている間は 409 (code = account_busy) で、 タブには触らない"
     implementation: backend/routes/sessions.py
 
   - method: POST

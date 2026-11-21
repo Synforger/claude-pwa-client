@@ -78,3 +78,19 @@ def test_the_account_shown_is_the_account_the_tab_wakes_on(env, five):
     shown = patrol.accounts_on_wake(_read(env))[env.tab.id]
     run(patrol.move_before_wake(env.tab.id))
     assert env.tab.account_id == shown
+
+
+def test_a_sleeping_tab_moved_by_hand_to_an_account_at_its_line_is_shown_on_that_account(env):
+    import backend.routes.sessions as sessions_mod  # noqa: PLC0415
+    env.tab.account_id = "personal"
+    run(sessions_mod.move_session_account(env.tab.id, {"account_id": "work"}))
+    _asleep(env)
+    env.rows = [usage_row(five=100)]
+    assert patrol.accounts_on_wake(_read(env)) == {env.tab.id: "work"}
+
+
+def test_a_sleeping_tab_the_fallback_moved_is_not_held_there_by_the_move(env):
+    env.tab.account_id, env.tab.fallback_from = "personal", "work"
+    _asleep(env)
+    env.rows = [usage_row(five=100)]
+    assert patrol.accounts_on_wake(_read(env)) == {env.tab.id: "personal"}
