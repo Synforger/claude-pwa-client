@@ -116,6 +116,40 @@ def test_what_the_other_machines_ticket_refuses_is_printed_with_its_code(tab, tm
     assert f"[{code}]: the reason" in capsys.readouterr().err
 
 
+def test_pass_finds_an_outward_name_the_way_send_does(tab, capsys):
+    calls = _Calls(body={"ok": True, "id": "company-261121-11", "to": "ses_0365e1ffdd91"})
+    resolved = []
+
+    def resolve(to):
+        resolved.append(to)
+        return ("ses_0365e1ffdd91", None) if to == "まとめの階層" else (to, None)
+
+    assert ticket.run(["pass", "company-261121-11", "まとめの階層"], calls, resolve) == 0
+    assert resolved == ["まとめの階層"]
+    assert calls.made[0][1] == {"from": "ses_a", "to": "ses_0365e1ffdd91"}
+
+
+def test_pass_stops_before_the_backend_when_the_name_cannot_be_found(tab, capsys):
+    calls = _Calls()
+
+    def resolve(to):
+        return "", ("agent_message_ambiguous_receiver", "id で指定してください: ses_x, ses_y")
+
+    assert ticket.run(["pass", "company-261121-11", "まとめの階層"], calls, resolve) == 1
+    assert calls.made == []
+    assert "票を渡せませんでした [agent_message_ambiguous_receiver]: id で指定してください" in capsys.readouterr().err
+
+
+def test_only_pass_resolves_a_receiver(tab, tmp_path):
+    calls = _Calls()
+    note = _file(tmp_path, "n.txt", "did it")
+
+    def resolve(to):
+        raise AssertionError("only pass names a receiver")
+
+    assert ticket.run(["add", "home-261119-01", note], calls, resolve) == 0
+
+
 def test_pass_says_when_the_line_is_kept_for_a_stopped_tab(tab, capsys):
     ticket.run(["pass", "home-261119-01", "ses_b"], _Calls(body={"ok": True, "id": "x", "to": "ses_b", "kept": True}))
     assert "口座の線で止まっています" in capsys.readouterr().out

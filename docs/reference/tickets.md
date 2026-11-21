@@ -17,7 +17,7 @@ tabs ticket add <id> <file>                             # やったことを書�
 tabs ticket ask <id> --kind decide|mac|report <file> [--recommend <file>]
                                                         # 票を操作者の前に出す
 tabs ticket close <id> [<file>]                         # 票を閉じる (= 残る。 閉じた後は書き足せない)
-tabs ticket pass <id> <宛先>                            # 票の持ち主を移し、 宛先に 1 行で知らせる (= タブの id か名前、 別の機械は <機械>:<タブ>)
+tabs ticket pass <id> <宛先>                            # 票の持ち主を移し、 宛先に 1 行で知らせる (= タブの id・外向きの名前・名前を `tabs send` と同じ順で引く。 別の機械は <機械>:<タブ>)
 ```
 
 - 送り主は、 打ったタブ自身です (`PWA_SID`。 [tabs](../../skills/tabs/SKILL.md) と同じ)。 タブの外では動きません

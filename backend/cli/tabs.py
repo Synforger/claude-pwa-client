@@ -983,7 +983,7 @@ def main(argv: list[str]) -> int:
     if argv[:1] == ["capacity"]:
         return capacity_command.run(argv[1:], call)
     if argv[:1] == ["ticket"]:
-        return ticket_command.run(argv[1:], call)
+        return ticket_command.run(argv[1:], call, outward_receiver)
     if len(argv) == 2 and argv[0] == "page-url":
         return page_url(Path(argv[1]))
     if len(argv) == 2 and argv[0] == "sleep":
