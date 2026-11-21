@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  CLOSED_SHOWN_DAYS, agoOf, attentionCount, groupTickets, heldByTab, holderOf, peerLines, ticketLabel,
+  CLOSED_SHOWN_DAYS, GROUPS, agoOf, attentionCount, factsOf, groupTickets, heldByTab, heldText, holderOf, markOf, peerLines, ticketLabel,
 } from '../../../src/features/tickets/ticketGroups.js'
 
 const ticket = (id, extra = {}) => ({ id, title: `T ${id}`, status: 'open', holder: 'ses_a', attention: null, last_at: '2026-11-19T10:00:00.000+00:00', ...extra })
@@ -18,6 +18,31 @@ describe('groupTickets', () => {
     expect(groups.attention.map((t) => t.id)).toEqual(['b', 'd'])
     expect(groups.running.map((t) => t.id)).toEqual(['a'])
     expect(groups.closed.map((t) => t.id)).toEqual(['c'])
+  })
+
+  it('has the four groups in the order the list shows them', () => {
+    expect(GROUPS).toEqual(['attention', 'running', 'waiting', 'closed'])
+    expect(Object.keys(groupTickets([], NOW))).toEqual(GROUPS)
+  })
+
+  it('puts a waiting ticket in its own group, and keeps a waiting ticket that wants a look in the first group', () => {
+    const groups = groupTickets([
+      ticket('run'),
+      ticket('wait', { status: 'waiting' }),
+      ticket('lost-holder', { status: 'waiting', holder: '', attention: 'no_holder' }),
+      ticket('asked', { status: 'waiting-operator', attention: 'waiting' }),
+    ], NOW)
+    expect(groups.waiting.map((t) => t.id)).toEqual(['wait'])
+    expect(groups.running.map((t) => t.id)).toEqual(['run'])
+    expect(groups.attention.map((t) => t.id)).toEqual(['asked', 'lost-holder'])
+  })
+
+  it('sorts the waiting group the newest first, like the others', () => {
+    const groups = groupTickets([
+      ticket('old', { status: 'waiting', last_at: '2026-11-19T08:00:00.000+00:00' }),
+      ticket('new', { status: 'waiting', last_at: '2026-11-19T11:00:00.000+00:00' }),
+    ], NOW)
+    expect(groups.waiting.map((t) => t.id)).toEqual(['new', 'old'])
   })
 
   it('puts the ones that wait for the answer before the ones whose answer did not arrive, then the newest first', () => {
@@ -84,6 +109,49 @@ describe('agoOf', () => {
   })
 })
 
+describe('markOf', () => {
+  it.each([
+    [['overdue'], 'overdue', '⚠\uFE0F'],
+    [['due_soon'], 'due_soon', '⏰'],
+    [['waiting_stale'], 'waiting_stale', '💤'],
+    [['idle'], 'idle', '💤'],
+  ])('%j is one character', (marks, key, glyph) => {
+    expect(markOf({ marks })).toEqual({ key, glyph })
+  })
+
+  it('takes the first of the marks, which come in the order of priority', () => {
+    expect(markOf({ marks: ['overdue', 'idle'] })).toEqual({ key: 'overdue', glyph: '⚠\uFE0F' })
+    expect(markOf({ marks: ['due_soon', 'waiting_stale'] })).toEqual({ key: 'due_soon', glyph: '⏰' })
+  })
+
+  it('skips a mark this screen does not know, and gives nothing for no marks or a row without the field', () => {
+    expect(markOf({ marks: ['from_the_future', 'idle'] })).toEqual({ key: 'idle', glyph: '💤' })
+    expect(markOf({ marks: ['from_the_future'] })).toBeNull()
+    expect(markOf({ marks: [] })).toBeNull()
+    expect(markOf({})).toBeNull()
+    expect(markOf({ marks: null })).toBeNull()
+  })
+})
+
+describe('factsOf', () => {
+  it('names the state with the key the i18n uses, for every state', () => {
+    expect(['open', 'waiting', 'waiting-operator', 'closed'].map((status) => factsOf({ status }).status))
+      .toEqual(['open', 'waiting', 'waiting_operator', 'closed'])
+  })
+
+  it('says the operator asked for it only when the origin is the operator', () => {
+    expect(factsOf({ status: 'open', origin: 'operator' }).fromOperator).toBe(true)
+    expect(factsOf({ status: 'open', origin: 'self' }).fromOperator).toBe(false)
+    expect(factsOf({ status: 'open' }).fromOperator).toBe(false)
+  })
+
+  it('gives the due date, or null when there is none or the row has no such field', () => {
+    expect(factsOf({ status: 'open', due: '2026-11-24' }).due).toBe('2026-11-24')
+    expect(factsOf({ status: 'open', due: null }).due).toBeNull()
+    expect(factsOf({ status: 'open' }).due).toBeNull()
+  })
+})
+
 describe('holderOf and heldByTab', () => {
   it('tells no holder, a tab of the other machine and a tab of this one apart', () => {
     expect(holderOf('')).toEqual({ kind: 'none' })
@@ -99,12 +167,38 @@ describe('holderOf and heldByTab', () => {
       ticket('d', { holder: 'company:ses_a' }),
       ticket('e', { holder: '' }),
     ])
-    expect(held).toEqual({ ses_a: [{ id: 'a', label: 'T a' }, { id: 'b', label: 'b' }] })
+    expect(held).toEqual({ ses_a: [
+      { id: 'a', label: 'T a', waiting: false, glyph: null },
+      { id: 'b', label: 'b', waiting: false, glyph: null },
+    ] })
+  })
+
+  it('marks a held ticket that waits, and carries the first mark as one character', () => {
+    const held = heldByTab([
+      ticket('w', { status: 'waiting' }),
+      ticket('m', { marks: ['overdue', 'idle'] }),
+      ticket('both', { status: 'waiting', marks: ['waiting_stale'] }),
+    ])
+    expect(held.ses_a.map((item) => [item.id, item.waiting, item.glyph])).toEqual([
+      ['w', true, null], ['m', false, '⚠\uFE0F'], ['both', true, '💤'],
+    ])
   })
 
   it('names a ticket by its title, or by its id when the title cannot be read', () => {
     expect(ticketLabel({ id: 'x', title: 'Fix it' })).toBe('Fix it')
     expect(ticketLabel({ id: 'x', title: null })).toBe('x')
+  })
+})
+
+describe('heldText', () => {
+  it('is the title alone for a ticket that moves and has no mark', () => {
+    expect(heldText({ label: 'Fix it', waiting: false, glyph: null })).toBe('Fix it')
+  })
+
+  it('puts the pause sign before the title of a waiting ticket, and the mark before the title too', () => {
+    expect(heldText({ label: 'Fix it', waiting: true, glyph: null })).toBe('⏸ Fix it')
+    expect(heldText({ label: 'Fix it', waiting: false, glyph: '⏰' })).toBe('⏰ Fix it')
+    expect(heldText({ label: 'Fix it', waiting: true, glyph: '💤' })).toBe('⏸ 💤 Fix it')
   })
 })
 

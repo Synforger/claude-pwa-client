@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// 票の一覧: 3 段 (閉じたは畳む)、 行は題・求める物・持つタブ・経過、 一番下にもう 1 台の数。
+// 票の一覧: 4 段 (閉じたは畳む)、 行は題・求める物・持つタブ・経過・期限・印の 1 字、 一番下にもう 1 台の数。
 import { it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, cleanup, fireEvent, screen, act } from '@testing-library/react'
 import TicketDrawer from '../../../src/features/tickets/TicketDrawer.jsx'
@@ -10,7 +10,7 @@ import * as sessions from '../../../src/state/sessions.js'
 
 const row = (id, extra = {}) => ({
   id, title: `T ${id}`, status: 'open', wants: null, holder: 'ses_a', attention: null,
-  last_at: new Date(Date.now() - 5 * 60_000).toISOString(), opened_at: null, ...extra,
+  last_at: new Date(Date.now() - 5 * 60_000).toISOString(), opened_at: null, origin: 'self', due: null, marks: [], ...extra,
 })
 
 beforeEach(() => {
@@ -86,4 +86,50 @@ it('says there is no ticket once the first picture came and it is empty', () => 
   act(() => applyTicketsSnapshot({ tickets: [], peers: {} }))
   render(<TicketDrawer />)
   expect(screen.getByText('No tickets')).toBeTruthy()
+})
+
+it('shows the waiting group between the running and the closed one, and does not fold it', () => {
+  act(() => applyTicketsSnapshot({
+    tickets: [row('home-1'), row('home-2', { status: 'waiting' }), row('home-3', { status: 'closed' })],
+    peers: {},
+  }))
+  render(<TicketDrawer />)
+  const order = screen.getAllByTestId(/^ticket-group-(attention|running|waiting|closed)$/).map((el) => el.dataset.testid)
+  expect(order).toEqual(['ticket-group-running', 'ticket-group-waiting', 'ticket-group-closed'])
+  const waiting = screen.getByTestId('ticket-group-waiting')
+  expect(waiting.textContent).toContain('Waiting (1)')
+  expect(waiting.textContent).toContain('T home-2')
+  expect(screen.getByTestId('ticket-group-running').textContent).not.toContain('T home-2')
+})
+
+it('shows the due date of a row, and the first mark as one character with its name', () => {
+  act(() => applyTicketsSnapshot({
+    tickets: [
+      row('home-1', { due: '2026-11-18', marks: ['overdue', 'idle'] }),
+      row('home-2', { status: 'waiting', marks: ['waiting_stale'] }),
+      row('home-3', { due: '2026-11-30' }),
+    ],
+    peers: {},
+  }))
+  render(<TicketDrawer />)
+  const rowOf = (id) => document.querySelector(`[data-ticket="${id}"]`)
+  const overdue = rowOf('home-1')
+  expect(overdue.querySelector('[data-testid=ticket-row-mark]').textContent).toBe('⚠\uFE0F')
+  expect(overdue.querySelector('[data-testid=ticket-row-mark]').getAttribute('aria-label')).toBe('Overdue')
+  expect(overdue.querySelectorAll('[data-testid=ticket-row-mark]')).toHaveLength(1)
+  expect(overdue.querySelector('[data-testid=ticket-row-due]').textContent).toBe('Due 2026-11-18')
+  expect(rowOf('home-2').querySelector('[data-testid=ticket-row-mark]').textContent).toBe('💤')
+  expect(rowOf('home-2').querySelector('[data-testid=ticket-row-due]')).toBeNull()
+  expect(rowOf('home-3').querySelector('[data-testid=ticket-row-mark]')).toBeNull()
+  expect(rowOf('home-3').querySelector('[data-testid=ticket-row-due]').textContent).toBe('Due 2026-11-30')
+})
+
+it('draws a row of an older backend, with none of the new fields, without a mark or a due date', () => {
+  const old = row('home-1')
+  for (const field of ['origin', 'due', 'marks']) delete old[field]
+  act(() => applyTicketsSnapshot({ tickets: [old], peers: {} }))
+  render(<TicketDrawer />)
+  expect(screen.getByTestId('ticket-row').textContent).toContain('T home-1')
+  expect(screen.queryByTestId('ticket-row-mark')).toBeNull()
+  expect(screen.queryByTestId('ticket-row-due')).toBeNull()
 })

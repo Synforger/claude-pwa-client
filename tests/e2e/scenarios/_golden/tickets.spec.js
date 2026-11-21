@@ -3,6 +3,9 @@
 // screen pins the operator's original words and draws the lines as plain text; answering it moves the ticket out of the
 // first group; and a ticket handed over reaches the chat as one line that opens the ticket.
 //
+// The waiting group, the marks and the due dates are drawn from sample rows put into the stream (helpers/sample-tickets.js):
+// the backend's doors do not make a waiting ticket yet.
+//
 // The e2e backend has no Claude process: the tickets are made through the backend's own doors (= what `tabs ticket` calls),
 // and the answer is written and queued as it is in production. Whether the answer then reaches a tab is not what is
 // looked at here (= backend/tests/tickets).
@@ -10,6 +13,7 @@
 import { test, expect } from '@playwright/test'
 import { seedSession } from '../../helpers/fixture.js'
 import { openClient } from '../../helpers/pwa.js'
+import { sampleTickets } from '../../helpers/sample-tickets.js'
 
 // The list of tickets opens from the first row of the tab list (the menu button holds only the number).
 async function openTicketList(page) {
@@ -121,5 +125,71 @@ test.describe('golden: tickets', () => {
 
     await link.click()
     await expect(page.locator('[data-testid=ticket-heading]')).toContainText(TITLE)
+  })
+
+  test('the list has the waiting group, a mark and a due date on the rows, and the tab list shows the pause sign', async ({ page, request }, testInfo) => {
+    const tab = await seedSession(request, 'e2e-tab-a')
+    // One tab holds one sample ticket each, so each line under a tab reads whole (a line is cut at the width of the list).
+    const holders = { run: await seedSession(request, 'e2e-send-empty'), wait: await seedSession(request, 'e2e-reconcile-empty'), plain: await seedSession(request, 'e2e-chat-basic') }
+    const at = new Date(Date.now() - 3 * 60_000).toISOString()
+    const sample = (id, extra) => ({
+      id, title: `Sample ${id}`, status: 'open', wants: null, holder: tab.sid, attention: null, last_at: at, opened_at: at,
+      origin: 'self', due: null, marks: [], ...extra,
+    })
+    await sampleTickets(page, { rows: [
+      sample('sample-ask', { status: 'waiting-operator', wants: 'decide', attention: 'waiting', origin: 'operator', due: '2026-11-18', marks: ['overdue'] }),
+      sample('sample-run', { holder: holders.run.sid, due: '2026-11-23', marks: ['due_soon'] }),
+      sample('sample-wait', { holder: holders.wait.sid, status: 'waiting', marks: ['waiting_stale'] }),
+      sample('sample-wait-plain', { holder: holders.plain.sid, status: 'waiting' }),
+      sample('sample-done', { status: 'closed' }),
+    ] })
+    await openClient(page, { sid: tab.sid })
+
+    await page.locator('[data-testid=drawer-toggle]').click()
+    const heldOf = (holder) => page.locator(`[data-cpc-sid="${holder.sid}"] [data-testid=session-held-ticket]`)
+    await expect(heldOf(holders.wait)).toHaveText('📌 ⏸ 💤 Sample sample-wait')
+    await expect(heldOf(holders.plain)).toHaveText('📌 ⏸ Sample sample-wait-plain')
+    await expect(heldOf(holders.run)).toHaveText('📌 ⏰ Sample sample-run')
+    const held = heldOf(holders.wait)
+    await page.screenshot({ path: testInfo.outputPath('tickets-held-lines.png') })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(held).toBeVisible()
+    await page.screenshot({ path: testInfo.outputPath('tickets-held-lines-narrow.png') })
+    await page.setViewportSize({ width: 1280, height: 800 })
+
+    await page.locator('[data-testid=drawer-tickets-open]').click()
+    const groups = page.locator('[data-testid^=ticket-group-]:not([data-testid=ticket-group-toggle])')
+    await expect(groups).toHaveCount(4)
+    const order = await groups.evaluateAll((els) => els.map((el) => el.dataset.testid))
+    expect(order).toEqual(['ticket-group-attention', 'ticket-group-running', 'ticket-group-waiting', 'ticket-group-closed'])
+
+    const waiting = page.locator('[data-testid=ticket-group-waiting]')
+    await expect(waiting).toContainText('Waiting (2)')
+    await expect(waiting.locator('[data-ticket=sample-wait] [data-testid=ticket-row-mark]')).toHaveText('💤')
+    await expect(waiting.locator('[data-ticket=sample-wait-plain] [data-testid=ticket-row-mark]')).toHaveCount(0)
+    const asked = page.locator('[data-testid=ticket-group-attention] [data-ticket=sample-ask]')
+    await expect(asked.locator('[data-testid=ticket-row-mark]')).toHaveText('⚠\uFE0F')
+    await expect(asked.locator('[data-testid=ticket-row-due]')).toHaveText('Due 2026-11-18')
+    await expect(page.locator('[data-testid=ticket-group-running] [data-ticket=sample-run] [data-testid=ticket-row-mark]')).toHaveText('⏰')
+    await page.locator('[data-testid=ticket-group-toggle]').click()
+    await expect(page.locator('[data-testid=ticket-group-closed]')).toContainText('Sample sample-done')
+    await page.screenshot({ path: testInfo.outputPath('tickets-groups.png') })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(waiting).toBeVisible()
+    await page.screenshot({ path: testInfo.outputPath('tickets-groups-narrow.png') })
+  })
+
+  test('the head of the ticket screen has the state, who asked for it and the due date', async ({ page, request }, testInfo) => {
+    const tab = await seedSession(request, 'e2e-tab-a')
+    const id = await openTicket(request, tab.sid)
+    await sampleTickets(page, { overrides: { [id]: { origin: 'operator', due: '2026-11-24', marks: ['due_soon'] } } })
+    await page.goto(`/?ses=${encodeURIComponent(tab.sid)}&ticket=${encodeURIComponent(id)}`, { waitUntil: 'domcontentloaded' })
+    await expect(page.locator('[data-testid=ticket-status]')).toHaveText('In progress')
+    await expect(page.locator('[data-testid=ticket-origin]')).toHaveText("Operator's request")
+    await expect(page.locator('[data-testid=ticket-due]')).toHaveText('Due 2026-11-24')
+    await page.screenshot({ path: testInfo.outputPath('tickets-screen-head.png') })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(page.locator('[data-testid=ticket-facts]')).toBeVisible()
+    await page.screenshot({ path: testInfo.outputPath('tickets-screen-head-narrow.png') })
   })
 })

@@ -1,11 +1,16 @@
 // 票の一覧の分け方と、 一覧・タブの一覧が出す短い文字を作る純関数 (= 画面にも通信にも触れない)。
-// 一覧の材料は backend の `tickets` channel の行で、 「見てほしい」 かは行の `attention` が持つ (= backend の判定が真値)。
+// 一覧の材料は backend の `tickets` channel の行で、 「見てほしい」 かは行の `attention`、 印は行の `marks` が持つ (= backend の判定が真値)。
 
 /** 一覧の段。 上から出す順。 */
-export const GROUPS = ['attention', 'running', 'closed']
+export const GROUPS = ['attention', 'running', 'waiting', 'closed']
 
-const WAITING = 'waiting'
+const ATTENTION_WAITING = 'waiting'
+const STATUS_WAITING = 'waiting'
 const CLOSED = 'closed'
+// The one character a row shows for a mark. `marks` arrives in the order of priority and the first known one is shown.
+// The warning sign carries U+FE0F so it is drawn as an emoji, like the others (without it it is drawn small and pale).
+const MARK_GLYPHS = { overdue: '⚠\uFE0F', due_soon: '⏰', waiting_stale: '💤', idle: '💤' }
+const HELD_WAITING_GLYPH = '⏸'
 const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS
 const DAY_MS = 24 * HOUR_MS
@@ -26,20 +31,26 @@ function isRecentlyClosed(ticket, nowMs) {
   return Number.isFinite(at) && nowMs - at <= CLOSED_SHOWN_MS
 }
 
-/** 票を 3 段に分ける (`nowMs` は今の時刻)。 閉じた票は 7 日以内の物だけを出す。 「見てほしい」 は返事待ちを先に、 どの段も最後の件が新しい順。 */
+/** Sorts the tickets into the four groups (`nowMs` is now). A `waiting` ticket goes to the waiting group; a closed ticket shows only within 7 days. In every group the newest comes first, and in the first group the ones that wait for the operator's answer come before the others. */
 export function groupTickets(tickets, nowMs) {
-  const groups = { attention: [], running: [], closed: [] }
+  const groups = { attention: [], running: [], waiting: [], closed: [] }
   for (const ticket of tickets) {
     if (ticket.attention != null) groups.attention.push(ticket)
     else if (ticket.status === CLOSED) {
       if (isRecentlyClosed(ticket, nowMs)) groups.closed.push(ticket)
-    } else groups.running.push(ticket)
+    } else if (ticket.status === STATUS_WAITING) groups.waiting.push(ticket)
+    else groups.running.push(ticket)
   }
   const newestFirst = (a, b) => lastAtOf(b).localeCompare(lastAtOf(a)) || b.id.localeCompare(a.id)
-  groups.attention.sort((a, b) => (Number(b.attention === WAITING) - Number(a.attention === WAITING)) || newestFirst(a, b))
-  groups.running.sort(newestFirst)
-  groups.closed.sort(newestFirst)
+  groups.attention.sort((a, b) => (Number(b.attention === ATTENTION_WAITING) - Number(a.attention === ATTENTION_WAITING)) || newestFirst(a, b))
+  for (const group of ['running', 'waiting', 'closed']) groups[group].sort(newestFirst)
   return groups
+}
+
+/** The mark a row shows: the first known one of `marks` as `{ key, glyph }` (`key` is the end of its i18n key), or null when there is none. */
+export function markOf(ticket) {
+  const key = (Array.isArray(ticket.marks) ? ticket.marks : []).find((mark) => Object.hasOwn(MARK_GLYPHS, mark))
+  return key ? { key, glyph: MARK_GLYPHS[key] } : null
 }
 
 /** 最後の件からの経過を `{ unit, count }` で返す (= unit は i18n の key の後ろ)。 時刻が読めなければ null。 */
@@ -64,14 +75,24 @@ export function holderOf(holder) {
 /** 票の呼び名 (= 題。 題が読めない票は id)。 */
 export const ticketLabel = (ticket) => ticket.title || ticket.id
 
-/** タブごとの、 そのタブが今持つ票 (= 閉じた票は持つとは言わない)。 `{ [タブの id]: [{ id, label }] }`。 */
+/** The open tickets each tab holds (a closed ticket is not held): `{ [tab id]: [{ id, label, waiting, glyph }] }`, `glyph` being the mark's character or null. */
 export function heldByTab(tickets) {
   const held = {}
   for (const ticket of tickets) {
     if (ticket.status === CLOSED || !ticket.holder || holderOf(ticket.holder).kind !== 'tab') continue
-    ;(held[ticket.holder] ||= []).push({ id: ticket.id, label: ticketLabel(ticket) })
+    ;(held[ticket.holder] ||= []).push({ id: ticket.id, label: ticketLabel(ticket), waiting: ticket.status === STATUS_WAITING, glyph: markOf(ticket)?.glyph ?? null })
   }
   return held
+}
+
+/** The text of one held ticket on the line under a tab: a pause sign before the title when it waits, then the mark's character when it has one. */
+export function heldText({ label, waiting, glyph }) {
+  return [waiting ? HELD_WAITING_GLYPH : null, glyph, label].filter(Boolean).join(' ')
+}
+
+/** What the head of the ticket screen shows: the state (the end of its i18n key), whether the operator asked for it, and the due date (null when none). */
+export function factsOf(ticket) {
+  return { status: String(ticket.status || '').replaceAll('-', '_'), fromOperator: ticket.origin === 'operator', due: ticket.due || null }
 }
 
 /** 一覧の最後の行の材料: 機械ごとに、 操作者の答えを待つ票の数 (`waiting`)、 読めない時は null。 待つ票が 0 の機械は出さない。 */
