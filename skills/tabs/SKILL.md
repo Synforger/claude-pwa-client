@@ -275,6 +275,9 @@ tabs capacity [--json]            how much this machine holds now: the child lim
                                   machine's memory and each account's usage (plain numbers; no line is drawn)
 ```
 
+**Name the child by its work alone** (`tabs new "<what it does>" …`). The list shows a child under its parent and in its
+parent's folder, so a prefix of the tier, the project or the parent's name only repeats what the list already shows.
+
 The child starts in the same tier as the parent. A child cannot open children (`tabs new` refuses); work that
 should be split further goes into its report. `tabs new` also writes the task into the child's memo
 (`pages/<child id>/memo.md` in the tier folder) so the child can read it again after it restarts. There is no
