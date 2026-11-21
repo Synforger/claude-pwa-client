@@ -322,6 +322,21 @@ def test_new_opens_a_child_and_keeps_the_task_in_its_note(tabs, tmp_path):
     assert "- 状態: 作業中" in note and "- 親のタブ: ses_parent" in note and "parser を直して" in note and "\n## 引き継ぎ" in note
 
 
+def test_new_writes_the_model_and_the_effort_the_parent_chose(tabs, tmp_path):
+    task = tmp_path / "task.txt"
+    task.write_text("read the design\n", encoding="utf-8")
+    assert tabs.run("new", "SUB: reader", str(task), "--model", "haiku", "--effort", "low") == 0
+    [call] = tabs.backend.called("POST", "/sessions/ses_parent/children")
+    assert call["form"]["text"].startswith("<child-start>\ntier=normal\nmodel=haiku\neffort=low\n</child-start>\n\nread the design")
+
+
+def test_new_refuses_a_value_that_could_break_the_block(tabs, tmp_path):
+    task = tmp_path / "task.txt"
+    task.write_text("x\n", encoding="utf-8")
+    assert tabs.run("new", "SUB", str(task), "--model", "a b") == 1
+    assert "--model" in tabs.err and tabs.backend.called("POST", "/sessions/ses_parent/children") == []
+
+
 def test_a_child_does_not_open_a_child(tabs, tmp_path):
     task = tmp_path / "task.txt"
     task.write_text("x", encoding="utf-8")

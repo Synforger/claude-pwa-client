@@ -46,8 +46,9 @@
                                  folder の外の file・serve が無い時は、 理由を出して止まる。 操作者へページを渡す時の URL はこれ
 
     子のタブ (= このタブが仕事を渡すために立てるタブ。 手順は skill `child-tab`):
-    tabs    new <題> <本文の file>
-                                 子のタブを立て、 本文を最初の発話として渡す。 子はこのタブと同じ階層で起動し、
+    tabs    new <題> <本文の file> [--model <名前>] [--effort <段>]
+                                 子のタブを立て、 本文を最初の発話として渡す (= --model・--effort は子の model と effort。
+                                 起動の script がエージェントの設定に在る値だけを採る。 使い方: `backend/cli/child_start.py`)。 子はこのタブと同じ階層で起動し、
                                  このタブの id を親として覚える。 渡した本文は子のタブのメモ (= 階層の
                                  `pages/<子の id>/memo.md`) にも残る (= 子が入れ替わった後に読み直す)。 子のタブからは立てられない
     tabs    children [--summary] このタブが立てた子の一覧 (= id / メモの状態 / claude の欄 / 題)。 claude の欄は
@@ -109,6 +110,7 @@ from backend.rollover.tool_shells import (  # noqa: E402
     ProcessRow, ToolShell, elapsed_text, own_tool_shell, seconds_of_elapsed, tool_shells)
 from backend.cli import ask as ask_command  # noqa: E402
 from backend.cli import capacity as capacity_command  # noqa: E402
+from backend.cli import child_start  # noqa: E402
 from backend.cli import ticket as ticket_command  # noqa: E402
 from backend.cli.peer_tab_lines import peer_tab_lines  # noqa: E402
 from backend.cli.claude_sessions import running_claudes as running, status_of  # noqa: E402
@@ -583,7 +585,7 @@ def page_url(file: Path) -> int:
     return 0
 
 
-def new_child(title: str, file: Path) -> int:
+def new_child(title: str, file: Path, settings: dict[str, str] | None = None) -> int:
     """子のタブを立て、 本文を最初の発話として渡す。 子はこのタブと同じ階層で起動する (= 本文の検査は、 子が
     このタブと同じ境界を読む前提で通る。 違う階層に立てると、 このタブだけが読んだ物が子へ通る)。"""
     me = os.environ.get("PWA_SID")
@@ -600,7 +602,7 @@ def new_child(title: str, file: Path) -> int:
         return fail(f"{file} を読めません: {error}")
     if not task:
         return fail(f"{file} が空です")
-    text = f"<child-start>\ntier={tier}\n</child-start>\n\n{task}"
+    text = child_start.child_start_text(tier, settings or {}, task)
     status, body = call(f"/sessions/{urllib.parse.quote(me)}/children", {"text": text, "title": title})
     if status != 200 or not isinstance(body, dict) or not body.get("id"):
         return fail(f"子のタブを立てられません {refused(status, body)}")
@@ -944,8 +946,8 @@ def main(argv: list[str]) -> int:
         return listing()
     if len(argv) == 2 and argv[0] == "open":
         return open_tier(argv[1])
-    if len(argv) == 3 and argv[0] == "new":
-        return new_child(argv[1], Path(argv[2]))
+    if argv[:1] == ["new"] and (asked := child_start.parse_new(argv[1:])) is not None:
+        return fail(asked) if isinstance(asked, str) else new_child(*asked)
     if argv[:1] == ["children"] and argv[1:] in ([], ["--summary"]):
         return children(summary=len(argv) == 2)
     if len(argv) == 3 and argv[0] == "report" and argv[1] in STATES:
