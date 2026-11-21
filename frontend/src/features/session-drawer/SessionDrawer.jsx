@@ -30,6 +30,8 @@ import {
 } from './useSessions.js'
 import { deriveSessionBadges } from '../push-notify/useSessionBadges.js'
 import { AccountPinMark, AccountPinMenuItem } from './AccountPin.jsx'
+import { useDockedDrawer } from './useDockedDrawer.js'
+import { setDrawerOpen } from './dockedDrawerOpen.js'
 import { accountLabelOf } from './sessionAccounts.js'
 import { formatContext, isApiTab } from '../../_common/apiTab.js'
 import { loadFolded, toggleFolded } from './sessionTree.js'
@@ -84,6 +86,8 @@ export default function SessionDrawer() {
   // ただし内部 effect (= popup 閉じる等) は本来の open prop と同じ意味付けで使うため、 別名で持つ。
   const uiSnap = useSyncExternalStore(subscribeUi, getUiSnapshot)
   const open = !!uiSnap.overlays.drawer
+  // PC の広い画面では一覧を左に置いたままにする: 幕を出さず、 タブを選んでも閉じない (= 閉じるのは ✕ と ☰ だけ)
+  const docked = useDockedDrawer()
   const currentLang = useSyncExternalStore(subscribeLocale, getLocaleSnapshot).lang
   const t = useT()
 
@@ -115,7 +119,9 @@ export default function SessionDrawer() {
   )
 
   // 各種 callback (= 旧 AppShell からの props を内蔵化)
-  const onClose = useCallback(() => setOverlay('drawer', false), [])
+  const onClose = useCallback(() => setDrawerOpen(false, { docked }), [docked])
+  // タブを選ぶ・作る・票や設定を開く操作の後の閉じ方。 重ねる形は閉じ、 左に置いたままの形は開けておく
+  const closeAfterAction = useCallback(() => { if (!docked) onClose() }, [docked, onClose])
   const onSelect = useCallback((sid) => {
     storeSetActiveId(sid)
     // markAsSeen 等価 (= 旧 selectSession の即時赤丸消し、 AppShell useSessionBadges の
@@ -231,7 +237,7 @@ export default function SessionDrawer() {
     setAgentPicker(false)
     setPickedAgent(null)
     onCreate(agentId, accountId)
-    onClose()
+    closeAfterAction()
   }
   // picker 画面に進んだ後 (= loading 中にタップした) で accounts fetch が完了し、 候補が
   // 0/1 件だった場合は account 選択を出さず自動で作成する (= race 救済)。 候補が複数なら
@@ -246,7 +252,7 @@ export default function SessionDrawer() {
   const handleSelect = (sid) => {
     if (renameFor) return // リネーム中は切替させない
     onSelect(sid)
-    onClose()
+    closeAfterAction()
   }
 
   const startRename = (sid, currentTitle) => {
@@ -299,8 +305,8 @@ export default function SessionDrawer() {
 
   return (
     <>
-      {open && <div className="drawer-overlay" onClick={onClose} />}
-      <aside className={`drawer ${open ? 'open' : ''}`} data-testid="session-drawer">
+      {open && !docked && <div className="drawer-overlay" onClick={onClose} />}
+      <aside className={`drawer ${open ? 'open' : ''}${docked ? ' docked' : ''}`} data-testid="session-drawer">
         <div className="drawer-header">
           <span className="drawer-title">{t('drawer.title')}</span>
           <div className="drawer-header-actions" ref={globalMenuRef}>
@@ -316,12 +322,12 @@ export default function SessionDrawer() {
                 {'\u2699\uFE0E'}
               </button>
             )}
-            <button className="drawer-close" onClick={onClose} aria-label={t('drawer.close')}>×</button>
+            <button className="drawer-close" onClick={onClose} aria-label={t('drawer.close')} data-testid="drawer-close">×</button>
             {globalMenuOpen && hasGlobalMenuItems && (
               <div className="drawer-global-popup" onClick={e => e.stopPropagation()}>
                 {/* 設定の画面 (= 口座の線・眠りと入れ替え・通知・アプリの更新と backend の再起動) を開く */}
                 <button
-                  onClick={() => { setGlobalMenuOpen(false); setOverlay('drawer', false); setOverlay('settings', true) }}
+                  onClick={() => { setGlobalMenuOpen(false); closeAfterAction(); setOverlay('settings', true) }}
                   data-testid="open-settings"
                 >
                   {t('drawer.menu.settings')}
@@ -456,7 +462,7 @@ export default function SessionDrawer() {
           {/* 票の一覧の入口。 タブの列の先頭に、 列の folder の行と同じ形で置く */}
           <button
             className="drawer-folder"
-            onClick={() => { setOverlay('tickets', true); onClose() }}
+            onClick={() => { setOverlay('tickets', true); closeAfterAction() }}
             data-testid="drawer-tickets-open"
           >
             <span className="drawer-item-fold" aria-hidden="true">🎫</span>
@@ -645,7 +651,7 @@ export default function SessionDrawer() {
                   <button
                     type="button"
                     className="drawer-item-ticket"
-                    onClick={() => { setOverlay('ticket', heldTickets[s.id][0].id); onClose() }}
+                    onClick={() => { setOverlay('ticket', heldTickets[s.id][0].id); closeAfterAction() }}
                     data-testid="session-held-ticket"
                   >
                     🎫 {heldTickets[s.id].map(heldText).join(' / ')}

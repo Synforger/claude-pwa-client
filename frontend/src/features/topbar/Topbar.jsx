@@ -24,11 +24,15 @@ import { useMoonlightAvailable } from '../screenshare/useMoonlightAvailable.js'
 import ExtensionMenu from '../extensions/ExtensionMenu.jsx'
 import { subscribe as subscribeTickets, getSnapshot as getTicketsSnapshot } from '../../state/tickets.js'
 import { attentionCount } from '../tickets/ticketGroups.js'
+import { useDockedDrawer } from '../session-drawer/useDockedDrawer.js'
+import { setDrawerOpen } from '../session-drawer/dockedDrawerOpen.js'
 
 export default function Topbar() {
   const ui = useSyncExternalStore(subscribeUi, getUiSnapshot)
   const sessionsState = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
   const t = useT()
+  // PC の広い画面ではタブの一覧が左に置いたままになるので、 ☰ は開け閉めの切り替え (= 狭い画面は今まで通り開くだけ)
+  const docked = useDockedDrawer()
   // 「見てほしい」 票の数 (= ☰ の数字の印。 0 なら出さない)
   const ticketsToLookAt = attentionCount(useSyncExternalStore(subscribeTickets, getTicketsSnapshot).tickets)
 
@@ -55,7 +59,7 @@ export default function Topbar() {
 
   return (
     <header className="topbar">
-      <button className="hamburger" onClick={() => setOverlay('drawer', true)} aria-label={t('topbar.drawer_toggle')} data-testid="drawer-toggle">
+      <button className="hamburger" onClick={() => setDrawerOpen(docked ? !ui.overlays.drawer : true, { docked })} aria-label={t('topbar.drawer_toggle')} data-testid="drawer-toggle">
         ☰
         {ticketsToLookAt > 0 && (
           <span

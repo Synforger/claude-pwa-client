@@ -1,8 +1,27 @@
 .app {
+  /* PC の広い画面で、 左に置いたままのタブの一覧の幅 (= 本文はこの幅だけ右へ寄る。 一覧も同じ値を読む) */
+  --docked-drawer-w: 320px;
   display: flex;
   flex-direction: column;
   height: 100dvh;
   background: var(--bg);
+}
+
+/* 一番上の帯。 高さは useAppBarHeight が測って --app-bar-h に出す (= 一覧が帯の下から始まる) */
+.app-bar {
+  flex-shrink: 0;
+}
+
+/* 帯より下の本文 (= 縦に積む流れは今まで .app が持っていた形のまま) */
+.app-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.app.drawer-docked .app-main {
+  margin-left: var(--docked-drawer-w);
 }
 
 /* トップバー (ハンバーガー + 現在のセッション名) */

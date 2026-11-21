@@ -33,6 +33,17 @@
 .drawer.open {
   transform: translateX(0);
 }
+/* PC の広い画面で左に置いたままにする形 (= Layout が帯の高さ --app-bar-h と一覧の幅 --docked-drawer-w を渡す)。
+   帯の下から画面の下までで、 本文は Layout が同じ幅だけ右へ寄せるので何も覆わない。 ファイルツリー (= 40)・
+   プレビュー (= 50)・モーダル (= 100) の全画面の幕は、 重ねる形と同じくこの上を通る。 */
+.drawer.docked {
+  top: var(--app-bar-h);
+  width: var(--docked-drawer-w);
+  z-index: 30;
+  transform: none;
+  transition: none;
+  padding-top: 0;
+}
 .drawer-header {
   display: flex;
   align-items: center;

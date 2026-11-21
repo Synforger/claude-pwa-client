@@ -26,7 +26,7 @@ W2 architecture overhaul (= 2026-06-29 着地) で frontend `state/` は **7 領
 |---|---|---|
 | `frontend/src/features/chat/` | messages / ephemeral / sessions (activeId) | chat 本文の組み立て + 送信 + 停止、 SSE event を messages に流す |
 | `frontend/src/features/chat/useChatStream.js` | sessions (activeId) + 自前 useRef (= optimisticRef) | `/jsonl/stream/{sid}` SSE 接続 + `endSession` (= restart) 経路 |
-| `frontend/src/features/session-drawer/` | sessions + ui (overlays.drawer) | タブ一覧 / 切替 / 削除 / fork、 ☰ ボタンで開閉 |
+| `frontend/src/features/session-drawer/` | sessions + ui (overlays.drawer) | タブ一覧 / 切替 / 削除 / fork、 ☰ ボタンで開閉。 PC の広い画面 (= 幅 1024px 以上でマウスがある) では左に置いたままにし、 帯より下の本文をその幅だけ右へ寄せる。 開け閉めは `localStorage` の `cpc_drawer_docked` に機械ごとに覚える (= 無ければ開く) |
 | `frontend/src/features/status-bar/useStatus.js` | sessions (status[sid]) | StatusBar (モデル / 残予算 / 5h/7d/ctx) の描画、 `/sessions/status/stream` SSE 由来 |
 | `frontend/src/features/topbar/` | sessions (activeSession) + ui (viewModes[sid] / overlays) | header の各種アイコン (= ⭐ / 📋 / 💬 toggle 等) と、 ☰ に付く「見てほしい」 票の数 |
 | `frontend/src/features/operator-reply/` | sessions (activeId) + messages + ui (viewModes[sid]) | 帯の下の右端の 🔖。 見ているタブの会話の並びから、 操作者に返した最後の答え (= 操作者の発話か自動の入れ替えの起動で始まったターンの最後の agent の文) を選んで引き出しに出す。 backend には何も足さない。 開いて見た答えの印は localStorage |

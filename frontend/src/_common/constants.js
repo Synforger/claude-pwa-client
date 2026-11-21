@@ -42,6 +42,7 @@ export const LS_MESSAGES = 'cpc_messages'              // {session_id: [...]} (L
 export const LS_MESSAGES_V2_PREFIX = `${LS_MESSAGES}_v2_`  // sid 別に 1 key ずつ保存する形の key の接頭辞
 export const LS_INPUT = 'cpc_input'                    // {session_id: 入力中文字列}
 export const LS_SESSION_ACTIVITY = 'cpc_session_activity'  // {session_id: {length, ts}} ドロワー並び順用
+export const LS_DRAWER_DOCKED = 'cpc_drawer_docked'    // PC の広い画面でタブの一覧を開いたままにするか (真偽。無ければ開く)
 // 旧キー (マイグレーション用)
 export const LS_LEGACY_ACTIVE_AGENT = 'cpc_active_agent'
 
