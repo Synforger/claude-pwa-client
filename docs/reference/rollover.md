@@ -186,6 +186,19 @@ Automatic session rollover, sent by the client (the operator did not type this):
 エージェントに `launcher: true` を設定している場合は、 この発話が起動ラッパに
 `--first-message-file` で渡ります ([config.md](config.md) の `agents`)。
 
+[子のタブ](child-sessions.md) に親が `tabs new --model --effort` で値を選んでいた時は、 本文の後ろに同じ
+`model=`・`effort=` の行が付きます (選ばれなかった物は付きません)。 子の最初の発話の `<child-start>` の塊は
+入れ替えの後の会話には無いので、 起動ラッパはこの行から同じ値を読みます。 本文の後ろに置くので、 本文が同じ鍵の行を
+書いていても、 後の行を採る読み方なら親の選びが勝ちます。
+
+```
+<session-rollover phase="start">
+口に渡された本文
+model=haiku
+effort=low
+</session-rollover>
+```
+
 ## 人の発話との見分け
 
 2 つの発話は、 人が画面から送る発話と同じ道 (= Claude の入力欄) で届くので、 会話の記録では人の発話と

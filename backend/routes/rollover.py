@@ -18,6 +18,11 @@
 タブが居る境界は、 そのタブの前の会話が読んだ所)。 どれも止めたら、 今の会話の理由で断る。 記録が 1 つも
 見つからない時だけ、 「どの会話でもない宛先」 の名前で通す (= 何も読んでいない相手。 別の機械への連絡と同じ扱い)。
 
+子のタブは、 親が `tabs new` で選んだ model と effort (= タブの記録の `child_settings`) を、 封筒の本文の後ろに
+`model=`・`effort=` の行で足す。 起動の script は子の最初の発話の塊からそれを読むが、 入れ替えの後の最初の発話は
+封筒だけなので、 足さないと起き直した子は既定で起動する。 本文の後ろに置くのは、 起動の script が同じ鍵の後の行を
+採るため (= 締める会話が本文に同じ鍵を書いても、 親の選びが勝つ)。
+
 口は 202 を返してから終了に入る。 叩いた道具は終了されるタブの中で動いていて、 終了と一緒に落ちる。
 """
 from __future__ import annotations
@@ -29,6 +34,7 @@ import re
 from fastapi import APIRouter, Form, HTTPException, Request
 
 from backend._common.local_door import require_this_machine
+from backend.cli.child_start import settings_lines
 from backend.jsonl.jsonl_predicates import ROLLOVER_OPENING as OPENING
 from backend._common.errors import raise_error
 from backend.jsonl import history as session_history
@@ -68,9 +74,11 @@ def close_envelope(session_id: str, reason: str, context_pct: int, idle_minutes:
     )
 
 
-def start_envelope(text: str) -> str:
-    """起動し直した会話の最初の発話。 本文は前の会話が渡した物。"""
-    return f'{OPENING}\n<{TAG} phase="start">\n{_plain(text)}\n</{TAG}>'
+def start_envelope(text: str, settings: dict[str, str] | None = None) -> str:
+    """起動し直した会話の最初の発話。 本文は前の会話が渡した物。 settings は子のタブの model と effort
+    (= 本文の後ろに 1 行ずつ足す。 無ければ足さない)。"""
+    body = "\n".join([_plain(text), *settings_lines(settings or {})])
+    return f'{OPENING}\n<{TAG} phase="start">\n{body}\n</{TAG}>'
 
 
 async def _roll(session_id: str, first: str) -> None:
@@ -134,7 +142,9 @@ async def post_rollover(request: Request, session_id: str, text: str = Form(...)
     from backend._common.config import AGENT_MESSAGE_CHECK  # noqa: PLC0415
     if AGENT_MESSAGE_CHECK:
         await _judge_as_the_tab(session_id, text)
-    task = asyncio.create_task(_roll(session_id, start_envelope(text)))
+    meta = sessions_meta.get(session_id)       # 検査を待つ間に閉じられたタブは、 子の値を持たない物として包む
+    settings = meta.child_settings if meta is not None and meta.child else None
+    task = asyncio.create_task(_roll(session_id, start_envelope(text, settings)))
     _rolling.add(task)
     task.add_done_callback(_rolling.discard)
     logger.info("rollover accepted session=%s chars=%d", session_id, len(text))

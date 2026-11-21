@@ -475,6 +475,23 @@ def test_a_session_asks_for_its_own_rollover_and_is_answered_before_it_is_ended(
     assert rolled == [("ses_a", f'{ROLLOVER_OPENING}\n<session-rollover phase="start">\ntier=normal\nmode=continue\n</session-rollover>')]
 
 
+@pytest.mark.parametrize("child, settings, tail", [
+    (True, {"model": "haiku", "effort": "low"}, "\nmodel=haiku\neffort=low"),
+    (True, {"effort": "low"}, "\neffort=low"),
+    (True, {}, ""),
+    (False, {"model": "haiku"}, ""),            # 子でないタブは値を持っていても足さない
+])
+def test_a_child_starts_again_with_the_model_and_the_effort_its_parent_chose(rolled, isolated_state, child, settings,
+                                                                              tail):
+    """起動の script は同じ鍵の後の行を採るので、 子の値は本文の後ろに置き、 本文が書いた同じ鍵より勝たせる。"""
+    meta = isolated_state.sessions_meta["ses_a"]
+    meta.child, meta.child_settings = child, settings
+    with _client() as client:
+        client.post("/sessions/ses_a/rollover", data={"text": "tier=normal\nmode=continue"})
+    assert rolled == [("ses_a", f'{ROLLOVER_OPENING}\n<session-rollover phase="start">\ntier=normal\nmode=continue'
+                                f'{tail}\n</session-rollover>')]
+
+
 @pytest.mark.parametrize("sid, text, status, code", [
     ("ses_gone", "x", 404, "rollover_unknown_session"),
     ("ses_a", "  \n", 400, "rollover_empty"),

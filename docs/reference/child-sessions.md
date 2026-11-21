@@ -46,6 +46,8 @@ Message from another session, relayed by the client (the operator did not type t
 `tabs new` で立てると、 本文の頭に `<child-start>` の塊が付きます。 1 行目が親の階層 (`tier=`) で、 `tabs new` に
 `--model <名前>`・`--effort <段>` を付けた時は `model=`・`effort=` の行が続きます。 塊を読むのは起動ラッパで、
 どの値を採るかはエージェントの側が決めます (client は値の一覧を持たず、 英数字と `. _ -` の 1 語でない値だけを断ります)。
+backend は子を立てる時に塊の `model=`・`effort=` をタブの記録 (`child_settings`) に覚え、 子が
+[自動の入れ替え](rollover.md#新しい会話の最初の発話) で起き直す時の封筒に同じ行を書きます。
 
 ```
 <child-start>

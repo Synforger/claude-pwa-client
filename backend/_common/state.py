@@ -218,6 +218,11 @@ class SessionDef:
     # of its agent's `list_folder`. Set by the program or tab that made it, so that tabs of one agent can sit in different
     # folders (one per world of a game, say). None for a tab placed by its agent.
     list_folder: str | None = None
+    # For a child tab: the settings its parent chose for it in `tabs new` (`model`, `effort`; `cli/child_start.py`),
+    # read from the `<child-start>` block of its first message. The rollover writes them into the envelope of the
+    # child's next conversation, so that it starts again with them. Empty for a tab that is not a child, and for a
+    # child that was given none.
+    child_settings: dict[str, str] = field(default_factory=dict)
 
     def sleeping_claude_sid(self) -> str | None:
         """The conversation a sleeping tab reopens, None for a tab that is not asleep or whose account changed since
@@ -254,6 +259,7 @@ class SessionDef:
             "top_page_sha": self.top_page_sha,
             "stop_told_at": self.stop_told_at,
             "list_folder": self.list_folder,
+            "child_settings": dict(self.child_settings),
         }
 
 
@@ -265,6 +271,13 @@ def _optional_str(value: object) -> str | None:
 def _texts(value: object) -> list[str]:
     """Stored texts, empty when the entry holds none or something else (= a non-text item is left out)."""
     return [item for item in value if isinstance(item, str) and item] if isinstance(value, list) else []
+
+
+def _text_map(value: object) -> dict[str, str]:
+    """A stored map of texts, empty when the entry holds none or something else (= a non-text pair is left out)."""
+    if not isinstance(value, dict):
+        return {}
+    return {key: item for key, item in value.items() if isinstance(key, str) and isinstance(item, str) and item}
 
 
 def _optional_number(value: object) -> float | None:
@@ -335,6 +348,7 @@ def _load_sessions_meta() -> dict[str, SessionDef]:
                 top_page_sha=_optional_str(entry.get("top_page_sha")),
                 stop_told_at=_optional_number(entry.get("stop_told_at")),
                 list_folder=parse_list_folder(entry.get("list_folder")),
+                child_settings=_text_map(entry.get("child_settings")),
             )
     else:
         # 初期化: agent ごと 1 セッションを生成する
@@ -782,6 +796,7 @@ def register_session(
     account_pinned: bool = False,
     fallback_from: str | None = None,
     list_folder: str | None = None,
+    child_settings: dict[str, str] | None = None,
 ) -> SessionDef:
     """新規セッションを登録して全状態 dict を初期化する。 永続化まで行う。
 
@@ -791,6 +806,7 @@ def register_session(
     tier は、 claude が起動する前から決まっている階層 (= 子のタブは親の階層で起動する)。
     account_pinned / fallback_from は子のタブが親から継ぐ物 (= 口座の固定の印と、 親が逃げ先で動いている時の本来の口座)。
     list_folder は、 一覧でこのタブを並べる folder (= 確かめ済みの値。 `_common/list_folder.py`)。
+    child_settings は、 親が子のタブに選んだ model と effort (= 子の最初の発話の `<child-start>` の塊から読んだ物)。
     account_id は config.json accounts の key (= 個人 / 会社 OAuth の選択)。 None は
     personal 相当 (= 通常 ~/.claude/) として扱う。
     sid が指定された場合は新規生成せずその値で登録する (= ADR-020 e2e seed が
@@ -808,6 +824,7 @@ def register_session(
         parent_id=parent_id, resume_session_id=resume_session_id,
         account_id=account_id, child=child, tier_tab=tier_tab, tier=tier,
         account_pinned=account_pinned, fallback_from=fallback_from, list_folder=list_folder,
+        child_settings=dict(child_settings or {}),
     )
     if child:
         # 子のタブは親が仕事を渡すために立てる物で、 進みは親への報告で届く。 通知は切って立てる (= 画面の ⚙ で入れ直せる)

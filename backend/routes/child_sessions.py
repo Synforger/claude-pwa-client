@@ -35,6 +35,7 @@ from fastapi import APIRouter, Form, Request
 from backend._common.local_door import require_this_machine
 from backend._common.errors import raise_error
 from backend.account_fallback.fallback_sensors import read_tab_break
+from backend.cli.child_start import read_settings
 from backend.routes.agent_messages import envelope, judge
 from backend._common.state import register_session, sessions_meta
 from backend.sleep.sleeper import sleep_now
@@ -68,7 +69,8 @@ async def post_child_session(
         text     (str): 子のタブの最初の発話に入れる本文 (= 渡す仕事)
         title    (str): 子のタブの名前 (= 省くと agent の既定の名前)
 
-    子のタブは親と同じ口座で動く。
+    子のタブは親と同じ口座で動く。 本文の頭の `<child-start>` の塊に親が選んだ model と effort が在れば、
+    タブの記録に覚える (= 入れ替えで起き直した子も同じ値で起動する。 `routes/rollover.py`)。
     """
     from backend._common.config import AGENT_MESSAGE_CHECK, AGENTS, CHILD_SESSIONS_MAX  # noqa: PLC0415
     require_this_machine(request, "child_session_local_only")
@@ -95,7 +97,8 @@ async def post_child_session(
     # before its claude reports it, and a message that wakes it later starts it there.
     meta = register_session(agent_id, (title or "").strip() or None, parent_id=session_id,
                             account_id=parent.account_id, child=True, tier=tab_tier(session_id),
-                            account_pinned=parent.account_pinned, fallback_from=parent.fallback_from)
+                            account_pinned=parent.account_pinned, fallback_from=parent.fallback_from,
+                            child_settings=read_settings(text))
     try:
         await ensure_pty_session_for(meta.id)
     except Exception:
