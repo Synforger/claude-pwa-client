@@ -425,5 +425,6 @@
   "backend.ticket_unknown": "That ticket was not found",
   "operator_reply.knob": "Open the last answer",
   "operator_reply.title": "Last answer",
-  "operator_reply.still_writing": "still writing"
+  "operator_reply.still_writing": "still writing",
+  "operator_reply.before_rollover": "The last answer before the rollover"
 }

@@ -13,7 +13,7 @@ import OperatorReplyDock from '../../../src/features/operator-reply/OperatorRepl
 import { setSessions, setActiveId } from '../../../src/state/sessions.js'
 import { setMessagesFor, removeMessagesFor } from '../../../src/state/messages.js'
 import { setViewMode } from '../../../src/state/ui.js'
-import { AGENT_MESSAGE_OPENING } from '../../../src/features/chat/agentMessage.js'
+import { AGENT_MESSAGE_OPENING, ROLLOVER_OPENING } from '../../../src/features/chat/agentMessage.js'
 
 const store = new Map()
 globalThis.localStorage = {
@@ -110,6 +110,16 @@ describe('OperatorReplyDock', () => {
     act(() => setMessagesFor(SID, [user('u1', 'q', 1000), agent('a1', 'half and the rest', 2000)]))
     expect(getByTestId('renderer').textContent).toBe('half and the rest')
     expect(document.querySelector('[data-testid=operator-reply-writing]')).toBeNull()
+  })
+
+  it('shows the last answer before a rollover under the new session\'s report', () => {
+    const start = `${ROLLOVER_OPENING}\n<session-rollover phase="start">\ntier=normal\n</session-rollover>`
+    act(() => setMessagesFor(SID, [user('u1', 'fix it?', 1000), agent('a1', 'fixed in #12', 2000),
+      user('u2', start, 3000), agent('a2', 'good evening, carrying on', 4000)]))
+    const { getByTestId, getAllByTestId } = render(<OperatorReplyDock />)
+    fireEvent.click(getByTestId('operator-reply-knob'))
+    expect(getAllByTestId('renderer').map((r) => r.textContent)).toEqual(['good evening, carrying on', 'fixed in #12'])
+    expect(getByTestId('operator-reply-before').textContent).toContain('fix it?')
   })
 
   it('is not shown over a terminal view', () => {

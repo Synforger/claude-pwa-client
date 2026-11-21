@@ -29,7 +29,7 @@ W2 architecture overhaul (= 2026-06-29 着地) で frontend `state/` は **7 領
 | `frontend/src/features/session-drawer/` | sessions + ui (overlays.drawer) | タブ一覧 / 切替 / 削除 / fork、 ☰ ボタンで開閉。 PC の広い画面 (= 幅 1024px 以上でマウスがある) では左に置いたままにし、 帯より下の本文をその幅だけ右へ寄せる。 開け閉めは `localStorage` の `cpc_drawer_docked` に機械ごとに覚える (= 無ければ開く) |
 | `frontend/src/features/status-bar/useStatus.js` | sessions (status[sid]) | StatusBar (モデル / 残予算 / 5h/7d/ctx) の描画、 `/sessions/status/stream` SSE 由来 |
 | `frontend/src/features/topbar/` | sessions (activeSession) + ui (viewModes[sid] / overlays) | header の各種アイコン (= ⭐ / 📋 / 💬 toggle 等) と、 ☰ に付く「見てほしい」 票の数 |
-| `frontend/src/features/operator-reply/` | sessions (activeId) + messages + ui (viewModes[sid]) | 帯の下の右端の 🔖。 見ているタブの会話の並びから、 操作者に返した最後の答え (= 操作者の発話か自動の入れ替えの起動で始まったターンの最後の agent の文) を選んで引き出しに出す。 backend には何も足さない。 開いて見た答えの印は localStorage |
+| `frontend/src/features/operator-reply/` | sessions (activeId) + messages + ui (viewModes[sid]) | 帯の下の右端の 🔖。 見ているタブの会話の並びから、 操作者に返した最後の答え (= 操作者の発話か自動の入れ替えの起動で始まったターンの最後の agent の文) を選んで引き出しに出す。 最後の答えが入れ替えの起動のターンの物の時は、 その前の操作者の発話のターンの答えも下に並べる (= 新しい会話に前の答えを書き直させない)。 backend には何も足さない。 開いて見た答えの印は localStorage |
 | `frontend/src/features/chat/MessageList.jsx` | voice (marks[activeId]) | 声を持つ agent のタブで、 吹き出しの表示から言い方の印を外す |
 | `frontend/src/features/voice/` | voice | 上部の 🔊 (= `VoiceToggle.jsx`)。 チャットの event の受け口から届いた event のうち、 新しく届いた返事を文ごとに音にして鳴らす |
 | `frontend/src/features/push-notify/` | push + ui (overlays.notifyMode) | Web Push 購読 / 解除、 通知 mode 切替 |

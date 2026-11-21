@@ -81,6 +81,28 @@ describe('lastOperatorReply', () => {
     ))
     expect(found.reply.uuid).toBe('a2')
     expect(found.prompt.text).toContain('phase="start"')
+    // the operator's last answer before the rollover is kept too, so the new session need not write it again
+    expect(found.before.reply.uuid).toBe('a1')
+    expect(found.before.prompt.uuid).toBe('u1')
+  })
+
+  it('has nothing before when the last answer is to the operator\'s own words', () => {
+    const found = lastOperatorReply(convo(
+      rollover('u1', 'start'), agent('a1', 'briefing'),
+      operator('u2'), agent('a2', 'the answer'),
+    ))
+    expect(found.reply.uuid).toBe('a2')
+    expect(found.before).toBeNull()
+  })
+
+  it('keeps the answer before the last of several rollovers', () => {
+    const found = lastOperatorReply(convo(
+      operator('u1'), agent('a1', 'the operator answer'),
+      rollover('u2', 'start'), agent('a2', 'first briefing'),
+      rollover('u3', 'start'), agent('a3', 'second briefing'),
+    ))
+    expect(found.reply.uuid).toBe('a3')
+    expect(found.before.reply.uuid).toBe('a1')
   })
 
   it('does not start an answer from the first row of a tier tab', () => {
