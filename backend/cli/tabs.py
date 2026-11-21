@@ -8,7 +8,8 @@
                                  (= 設定の `sleep`) は「眠り」 で、 連絡が同じ会話で起こす。 起動できないタブは「起こせない」。
                                  このタブが知らない境界のタブは、 階層が「別の境界」 で、 名前の欄は `(別の境界のタブ)`。
                                  番人がそのタブの階層に外へ見せてよい名前があると答えた時 (= `--roles`) は、 名前の欄に
-                                 その外向きの名前が出る。 別の機械のタブは、 末尾に `<相手の名前>:<id>` の形で並ぶ
+                                 その外向きの名前が出る。 別の機械のタブは、 末尾に `<相手の名前>:<id>  別の機械  <状態>  <名前>` の形で、
+                                 眠っているタブ・claude の居ないタブも含めて並ぶ (= 状態の語はこの機械のタブと同じ)
     tabs    send <to> <file>     <file> の中身を <to> へ送る。 <to> は、 タブの id > 外向きの名前 > タブの名前 の順に解く
                                  (= 外向きの名前は、 その名前の階層で働くタブへ。 複数ならその階層に置かれたタブ、 無ければ子でない
                                  ただ 1 つのタブ、 決まらなければ id を並べて断る)。
@@ -109,6 +110,9 @@ from backend.rollover.tool_shells import (  # noqa: E402
 from backend.cli import ask as ask_command  # noqa: E402
 from backend.cli import capacity as capacity_command  # noqa: E402
 from backend.cli import ticket as ticket_command  # noqa: E402
+from backend.cli.peer_tab_lines import peer_tab_lines  # noqa: E402
+from backend.cli.claude_sessions import running_claudes as running, status_of  # noqa: E402
+from backend.cli.tab_state import state_word  # noqa: E402
 
 HOME = Path.home()
 BASE = f"http://127.0.0.1:{os.environ.get('PWA_PORT', '8765')}"
@@ -177,28 +181,6 @@ def call(path: str, form: dict | None = None, method: str | None = None,
         cause = error.reason if isinstance(error, urllib.error.URLError) else error
         return 0, {"detail": {"message": f"backend に繋がりません ({BASE}): {error}",
                               "may_have_arrived": isinstance(cause, MAY_HAVE_ARRIVED)}}
-
-
-def alive(pid) -> bool:
-    try:
-        os.kill(int(pid), 0)
-    except (OSError, TypeError, ValueError):
-        return False
-    return True
-
-
-def running() -> dict[str, dict]:
-    """タブの id → そのタブで動いている claude (= Claude Code が口座ごとに置く記録から)。"""
-    found = {}
-    for path in HOME.glob(".claude*/sessions/*.json"):
-        try:
-            row = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        tab = str(row.get("tmux") or "").split(":")[0].removeprefix("pwa-")
-        if tab and row.get("sessionId") and alive(row.get("pid")):
-            found[tab] = {**row, "account_dir": path.parents[1]}
-    return found
 
 
 def read_areas(session: str) -> int:
@@ -365,8 +347,7 @@ def listing() -> int:
         # このタブが知らない境界で働くタブ (と、 階層の分からないこのエージェントのタブ) は、 階層と名前を伏せる
         # (= 宛先は id で指す)。 伏せたタブが外向きの名前の folder で働いていれば、 名前の欄にその名前を出す
         shown = place.tier is not None and ((claude is not None and tab["id"] == me) or visible(mine, place))
-        state = (str(claude.get("status") or "?") if claude is not None
-                 else "眠り" if answer.get("asleep") else "未起動" if answer.get("reachable") else "起こせない")
+        state = state_word(status_of(claude), asleep=bool(answer.get("asleep")), reachable=bool(answer.get("reachable")))
         cells = [
             tab["id"],
             place.tier if shown else HIDDEN,
@@ -386,16 +367,9 @@ def listing() -> int:
 def others() -> None:
     """別の機械のタブを並べる (= 相手が設定されていない backend、 その口を持たない古い backend では何も出さない)。"""
     status, body = call("/agent-messages/peers")
-    if status != 200 or not isinstance(body, dict):
-        return
-    for peer in body.get("peers") or []:
-        name = peer.get("name")
-        if peer.get("tabs") is None:
-            print(f"{name}:  別の機械  一覧を取れません ({peer.get('error')})")
-            continue
-        for tab in peer["tabs"]:
-            if tab.get("running"):      # claude が動いていないタブへは届かない
-                print("  ".join([f"{name}:{tab.get('id')}", "別の機械", tab.get("title") or ""]).rstrip())
+    if status == 200 and isinstance(body, dict):
+        for line in peer_tab_lines(body.get("peers") or []):
+            print(line)
 
 
 def not_delivered_headline(code: str) -> str:

@@ -899,6 +899,10 @@ export interface GetAgentMessagesTabsResponse {
       title: string
       /** そのタブへ連絡が届くか (= claude が動いているか、 連絡で起動できる) */
       running: boolean
+      /** 動いている claude の状態 (= Claude Code の記録の status)。 居なければ null。 相手の tabs list の状態の欄になる */
+      status?: string | null
+      /** 眠らせてあるか (= backend/sleep/)。 claude が居ない時の状態の欄が `眠り` になる */
+      asleep?: boolean
     })[]
 }
 

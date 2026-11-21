@@ -130,8 +130,11 @@ labelled `From <tab name>`. The envelope carries the sender's tab name and `sess
 
 ### Tabs on other machines
 
-`tabs list` ends with lines `<machine>:<id>  別の機械  <tab name>` for the machines configured in the client's
-`agent_message_peers`. Address them as `<machine>:<id>` (or `<machine>:<tab name>`) in the same `tabs send`.
+`tabs list` ends with lines `<machine>:<id>  別の機械  <state>  <tab name>` for the machines configured in the client's
+`agent_message_peers`. Every tab of the other machine that you may message is listed, whether or not a Claude runs in it,
+and the state is the same word as for a tab of this machine (what the running Claude is doing, `眠り`, `未起動` or
+`起こせない`). A line from a machine that does not answer is `<machine>:  別の機械  一覧を取れません (<reason>)`.
+Address them as `<machine>:<id>` (or `<machine>:<tab name>`) in the same `tabs send`.
 Such notes go through the guard as if the sender had read no protected material, and never carry
 `--operator-said`. Use `tabs send` for them and not a direct call to the other backend. Extra codes:
 `agent_message_peer_not_allowed` (this tab or the receiver is not on an account allowed to talk to that machine) and
