@@ -426,3 +426,30 @@ def test_the_real_command_reaches_the_backend_through_tabs(tmp_path):
     assert misused.returncode == 2 and "tabs ticket new" in misused.stderr
     assert backend.calls == [("POST", "/tickets", {"from": "ses_a", "title": "Move it", "text": "Please move it."}),
                              ("GET", "/tickets/home-261119-01?reader=ses_a", {"reader": "ses_a"})]
+
+
+def _long_ticket() -> dict:
+    """A ticket this tab (ses_a) wrote to twice, with lines of other tabs before and after."""
+    line = lambda kind, at, tab, text: {"kind": kind, "at": at, "tab": tab, "tab_title": tab, "tier": "", "text": text}  # noqa: E731
+    return {"ok": True, "id": "home-261121-07", "status": "open", "holder": "ses_a", "entries": [
+        line("opened", "t1", "ses_b", "The request"), {"kind": "operator", "at": "t1", "text": "please"},
+        line("passed", "t2", "ses_b", ""), line("added", "t3", "ses_a", "mine 1"), line("added", "t4", "ses_c", "theirs 1"),
+        line("added", "t5", "ses_a", "mine 2"), line("added", "t6", "ses_c", "theirs 2"), line("passed", "t7", "ses_c", "")]}
+
+
+def test_show_since_mine_keeps_the_request_the_operator_and_what_came_after_this_tab_s_last_line(tab, capsys):
+    calls = _Calls(body=_long_ticket())
+    assert ticket.run(["show", "home-261121-07", "--since-mine"], calls) == 0
+    assert calls.made == [("/tickets/home-261121-07?reader=ses_a", None, "GET", None)]
+    out = capsys.readouterr().out
+    assert [line.split()[1] for line in out.splitlines() if line.startswith("--- ")] == ["t1", "t1", "t6", "t7"]
+    assert "The request" in out and "please" in out and "theirs 2" in out
+    assert "mine 2" not in out and "theirs 1" not in out
+    assert "4 件は省いています" in out
+
+
+def test_show_since_mine_of_a_ticket_this_tab_never_wrote_to_is_all_of_it(tab, capsys, monkeypatch):
+    monkeypatch.setenv("PWA_SID", "ses_new")
+    assert ticket.run(["show", "home-261121-07", "--since-mine"], _Calls(body=_long_ticket())) == 0
+    out = capsys.readouterr().out
+    assert len([line for line in out.splitlines() if line.startswith("--- ")]) == 8 and "省いています" not in out

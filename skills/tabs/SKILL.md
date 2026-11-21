@@ -211,7 +211,7 @@ rewriting it in every message shrinks it to a line by the fourth tab; a ticket k
 ```
 tabs ticket new <title> <body file> [--operator-said] [--due YYYY-MM-DD]
                                                           open a ticket; prints its id
-tabs ticket show <id>                                     read all of it, by time
+tabs ticket show <id> [--since-mine]                      read all of it, by time (--since-mine: only what came after this tab's last line)
 tabs ticket mine [--json] [--unsettled]                   the tickets this tab holds that are not closed
 tabs ticket add <id> <file> [--waiting] [--due YYYY-MM-DD]
                                                           add what you did (nothing is removed or reworded)
@@ -223,7 +223,8 @@ tabs ticket pass <id> <tab id or name>                    move the ticket to tha
 ```
 
 - Use a ticket for a request (something another tab is to do). A note that needs no reply stays a `tabs send` message.
-- On receiving "ticket `<id>` was passed to you", read it with `tabs ticket show <id>`, do the work, add what you did, and
+- On receiving "ticket `<id>` was passed to you", read it with `tabs ticket show <id> --since-mine` (what this tab wrote and
+  what came before it is left out, the request and the operator's words kept; a ticket this tab never wrote to comes whole), do the work, add what you did, and
   pass it on or close it. Do not copy the request into your own message: the next tab reads the ticket.
 - `--operator-said` on `new` puts the operator's last words in this tab into the ticket, read by the backend from the
   conversation record; use it only when those words are what the request came from, as with `tabs send --operator-said`.

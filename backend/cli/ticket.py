@@ -4,7 +4,11 @@
                                 open a ticket and print its id. --operator-said puts the operator's last words in this tab
                                 into the ticket (= read from the conversation record; only when the request came from them),
                                 and the ticket then comes from the operator. --due is the day it is due
-    tabs ticket show <id>       read the whole ticket by time; a line the guard does not let this tab read is one line saying so
+    tabs ticket show <id> [--since-mine]
+                                read the whole ticket by time; a line the guard does not let this tab read is one line saying so.
+                                --since-mine leaves out what this tab already wrote and what came before it (= only the lines
+                                after this tab's last line, with the first line (the request) and the operator's words always
+                                kept), and says how many it left out. A tab that never wrote to the ticket gets all of it
     tabs ticket mine [--json] [--unsettled]
                                 the tickets this tab holds that are not closed, one line each (id, state, where it came from,
                                 marks, title, next step), the waiting ones counted on one line, and a machine that did not answer
@@ -54,6 +58,10 @@ UNSETTLED_NOT_LOOKED = 3
 #: A ticket's state that is set aside (= `mine` counts these on one line) and the one `--unsettled` looks for
 WAITING = "waiting"
 OPEN = "open"
+#: The switch of `show` that leaves out what this tab already wrote and what came before it
+SINCE_MINE = "--since-mine"
+#: The lines `--since-mine` always keeps: the request and the operator's words
+ALWAYS_SHOWN = ("opened", "operator")
 #: How `mine` names where a ticket came from, by the backend's `source`
 SOURCES = {"operator": "操作者", "tab": "別のタブ", "self": "自分"}
 NOT_SENT_CODE = "ticket_not_sent"
@@ -61,7 +69,7 @@ UNCONFIRMED_CODE = "ticket_unconfirmed"
 KINDS = ("decide", "mac", "report")
 USAGE = (
     "tabs ticket new <題> <本文の file> [--operator-said] [--due YYYY-MM-DD]\n"
-    "       tabs ticket show <id>\n"
+    "       tabs ticket show <id> [--since-mine]\n"
     "       tabs ticket mine [--json] [--unsettled]\n"
     "       tabs ticket add <id> <file> [--waiting] [--due YYYY-MM-DD]\n"
     "       tabs ticket ask <id> --kind decide|mac|report <file> [--recommend <file>]\n"
@@ -88,6 +96,8 @@ def run(argv: list[str], call: Call, resolve: Resolve | None = None, find_record
     word, rest = (argv[0], argv[1:]) if argv else ("", [])
     if word == "mine":
         return _mine(rest, call, find_record)
+    since_mine = word == "show" and SINCE_MINE in rest
+    rest = [w for w in rest if w != SINCE_MINE] if since_mine else rest
     plan = _plan(word, rest)
     if plan is None:
         print(f"使い方: {USAGE}", file=sys.stderr)
@@ -115,7 +125,7 @@ def run(argv: list[str], call: Call, resolve: Resolve | None = None, find_record
         timeout = LONG_TIMEOUT_SEC if word in LONG_WORDS else None
         status, body = call(path, {"from": sender, **form}, **({"timeout": timeout} if timeout else {}))
     if status == 200 and isinstance(body, dict) and body.get("ok"):
-        print(_shown(word, body))
+        print(_shown(word, since_mine_of(body, sender) if since_mine else body))
         return 0
     code, message = failure(status, body)
     print(f"tabs: {HEADINGS[word]} [{code}]: {message}", file=sys.stderr)
@@ -298,10 +308,23 @@ def _shown(word: str, body: dict) -> str:
     return f"{body.get('id')} ({body.get('status')})"
 
 
+def since_mine_of(body: dict, me: str) -> dict:
+    """The ticket with the lines up to this tab's last one left out, the request and the operator's words kept, and the
+    number left out in `left_out`. Unchanged when this tab wrote no line."""
+    entries = body.get("entries") or []
+    last = max((index for index, entry in enumerate(entries) if entry.get("tab") == me), default=None)
+    if last is None:
+        return body
+    kept = [entry for index, entry in enumerate(entries) if index > last or entry.get("kind") in ALWAYS_SHOWN]
+    return {**body, "entries": kept, "left_out": len(entries) - len(kept)}
+
+
 def _ticket_text(body: dict) -> str:
     wants = f" / 求める物: {body['wants']}" if body.get("wants") else ""
     home = f" ({body['home']} の機械の票)" if body.get("home") else ""
     lines = [f"票 {body.get('id')} ({body.get('status')}{wants}){home} 持ち主: {body.get('holder')}", ""]
+    if body.get("left_out"):
+        lines += [f"(このタブが最後に書いた件までの {body['left_out']} 件は省いています。 全部は {SINCE_MINE} を外して読む)", ""]
     for entry in body.get("entries") or []:
         if entry.get("hidden"):
             lines += [f"--- {entry.get('at')} {entry.get('text')}", ""]
