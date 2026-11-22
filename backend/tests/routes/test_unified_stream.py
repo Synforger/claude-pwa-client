@@ -751,3 +751,28 @@ def test_tickets_channel_gives_one_picture_on_connect_and_another_only_when_it_c
         assert ticket_wake._events == set()
 
     _run(run())
+
+
+@pytest.mark.parametrize("opened_before_the_stop", [True, False])
+def test_a_stream_ends_by_itself_when_the_process_stops(unified_env, opened_before_the_stop):
+    conn = us.UnifiedConn(conn_id="stopping")
+
+    async def scenario():
+        stream = us._unified_gen(conn, None)
+        if not opened_before_the_stop:
+            us.end_streams()
+        await stream.__anext__()
+        if opened_before_the_stop:
+            us.end_streams()
+
+        async def rest():
+            async for _frame in stream:
+                pass
+
+        await asyncio.wait_for(rest(), timeout=2)
+
+    try:
+        _run(scenario())
+    finally:
+        us.accept_streams()
+    assert "stopping" not in us._conns
