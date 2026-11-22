@@ -124,6 +124,9 @@ test.describe('golden: permission-window', () => {
   test('the tab\'s row in the list is marked while its window is open', async ({ page, request }) => {
     await inject(request, { number: 8, input: { command: 'ls' } })
     await expect(openButton(page)).toBeVisible({ timeout: 15_000 })
+    // The detector looks at the pane about once a second, and its look must not take the injected window away
+    await page.waitForTimeout(3000)
+    await expect(openButton(page)).toBeVisible()
     await page.locator('[data-testid=drawer-toggle]').click()
     await expect(page.locator('[data-testid=session-drawer]')).toBeVisible()
     await expect(page.locator(`[data-testid=session-list-item][data-cpc-sid="${SID}"] [data-testid=session-permission-window]`)).toBeVisible()

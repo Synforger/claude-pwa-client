@@ -411,3 +411,14 @@ def test_g7_the_mark_of_a_typed_answer_is_made_before_the_rest_of_the_bookkeepin
     assert state.situation(SID, reading).answerable
     state.mark_answer_typed(SID, reading.fingerprint)
     assert state.situation(SID, reading).answerable is False and state.current_window(SID) is window
+
+
+def test_an_injected_view_outlives_a_look_and_is_no_window_to_a_judgement(monkeypatch):
+    status = {"pending_permission": None}
+    monkeypatch.setitem(state.agent_status, "ses_injected", status)
+    state.inject_view("ses_injected", {"number": 8})
+    state.note_screen("ses_injected", read_screen("$ ls"))
+    assert status["pending_permission"] == {"number": 8}
+    assert not state.is_open("ses_injected") and state.current_window("ses_injected") is None
+    state.inject_view("ses_injected", None)
+    assert status["pending_permission"] is None

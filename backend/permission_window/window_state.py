@@ -70,6 +70,7 @@ class _TabWindows:
     answered_print: str | None = None
     choice_hook: str | None = None
     turn_count: int = 0
+    injected: dict | None = None
 
 
 _tabs: dict[str, _TabWindows] = {}
@@ -156,6 +157,8 @@ def _answerable(tab: _TabWindows, window: Window | None, reading: ScreenReading,
 def _view(session_id: str) -> dict | None:
     """What the screen is told (= the contract's `pending_permission`)."""
     tab = _tabs.get(session_id)
+    if tab is not None and tab.injected is not None:
+        return tab.injected
     window = current_window(session_id)
     if tab is None or window is None or not _permission_on_screen(tab):
         return None
@@ -179,6 +182,13 @@ def _publish(session_id: str) -> None:
     if state is not None:
         state.status_event.set()
     sessions_overview.notify()
+
+
+def inject_view(session_id: str, view: dict | None) -> None:
+    """For the end-to-end tests' door (`routes/debug_e2e.py`) only: what the screen is told until it is injected again or
+    cleared with None, whatever the looks at the pane say. It is shown and nothing else: no judgement and no key reads it."""
+    _tab(session_id).injected = view
+    _publish(session_id)
 
 
 def _tie(tab: _TabWindows, window: Window, calls: dict[str, window_table.RecordedCall]) -> bool:
