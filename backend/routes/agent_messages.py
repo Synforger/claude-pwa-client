@@ -36,6 +36,10 @@ backend が「人がこう打った」 と言ってきても、 こちらには�
 書いていなければ検査なしで届ける。 人の発話を付けてよいかは `agent_message_operator_check` が別に決める
 (= 0 以外なら発話を付けずに本文だけ届ける)。
 
+backend が止まる合図を受けた時 (= `_internal/stop_signal.py`)、 届ける途中の連絡はその場で終わり、 送り主へは、 何も打つ前なら
+`agent_message_not_sent`、 打った後なら `agent_message_unconfirmed` が返る (= `params.reason` は `backend_stopping`)。 止まる猶予
+(= 数秒) を越えて待つと切られ、 送り主は理由の無い切断しか受け取れない。
+
 親が自分の子へ届けた連絡は、 送り主が仕事を渡さない連絡と言わない限り (= `hands_work`)、 子への次の仕事として数える: 報告済み (= `完了` / `詰まり`) の子のメモの状態の行を
 `作業中` に戻す (= `child_watch/child_work.py`)。 そうしないと、 次の仕事の途中で止まった子を、 止まった子の見回り
 も `tabs children` も 「仕事の無い子」 と見る。
@@ -52,10 +56,12 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import NoReturn
 
 from fastapi import APIRouter, Body, Form, HTTPException, Query, Request
 
 from backend._common.local_door import require_this_machine
+from backend._internal.stop_signal import BackendStopping, until_stop
 from backend.jsonl.jsonl_predicates import (
     AGENT_MESSAGE_OPENING as OPENING,
     AGENT_MESSAGE_OPENINGS,
@@ -86,7 +92,7 @@ from backend.peers.seen_message_ids import delivering, release
 from backend.terminal import input_ready
 from backend.terminal.first_message import LAUNCH_DISCOVER_SEC
 from backend.terminal.pty_discover import claude_in_pane, register_claude_when_ready
-from backend.terminal.receipt import SCREEN_WAIT_SEC, deliver_to_woken, wait_for_claude_screen
+from backend.terminal.receipt import SCREEN_WAIT_SEC, StoppedBeforeTyping, deliver_to_woken, wait_for_claude_screen
 from backend.terminal.routes import pty_send
 from backend.terminal.runner import has_tmux_session, jsonl_path_for_session, tmux_send_keys
 from backend.terminal.session_resolver import (
@@ -127,12 +133,30 @@ UNCONFIRMED_CODE = "agent_message_unconfirmed"
 UNCONFIRMED_MESSAGE = ("宛先の端末へ打った後で、 届いたかを確かめられませんでした。 届いているかもしれません。 もう一度送る前に、 "
                        "宛先の会話に届いているかを確かめてください (= 2 通届くのを避けるため)。 繰り返す時は、 この code と時刻を "
                        "client のタブへ不具合として送ってください")
+# The answers for a stop of the backend (= `params.reason` says so). The responses get 3 seconds to end when the process
+# stops, and a message waits for minutes, so the stop ends the wait and the sender is told which of the two is true.
+STOPPING_REASON = "backend_stopping"
+NOT_SENT_BY_STOP_MESSAGE = ("backend が止まる所です。 宛先には何も届いていません。 backend が起動し直してから、 もう一度送ってください")
+UNCONFIRMED_BY_STOP_MESSAGE = ("backend が止まる所なので、 宛先に届いたかを待てません。 届いているかもしれません。 もう一度送る前に、 "
+                               "宛先の会話に届いているかを確かめてください (= 2 通届くのを避けるため)")
+
+
+def refuse_by_stop(code: str) -> NoReturn:
+    """Refuse a message that the stop of the backend ended: `code` is `NOT_SENT_CODE` when nothing was typed, and anything
+    else (= `UNCONFIRMED_CODE`) when the text may have been."""
+    logger.info("agent message: the backend is stopping; answered %s", code)
+    if code == NOT_SENT_CODE:
+        raise_error(503, NOT_SENT_CODE, NOT_SENT_BY_STOP_MESSAGE, reason=STOPPING_REASON)
+    raise_error(500, UNCONFIRMED_CODE, UNCONFIRMED_BY_STOP_MESSAGE, reason=STOPPING_REASON)
+    raise AssertionError("unreachable")
 
 
 @contextmanager
 def failing_as(code: str, message: str) -> Iterator[None]:
     """Turn what the door did not foresee (an exception, or an HTTP error that carries no code) into `code`, so the
-    sender is told what happened and what to do next, not a bare 500. Errors that already carry a code pass through."""
+    sender is told what happened and what to do next, not a bare 500. Errors that already carry a code pass through.
+    A stop of the backend is not unforeseen: it is `code` as well, with the words of the stop (`refuse_by_stop`), except
+    that one that came before the text was typed (`StoppedBeforeTyping`) is `NOT_SENT_CODE` whatever `code` is."""
     try:
         yield
     except HTTPException as error:
@@ -140,6 +164,10 @@ def failing_as(code: str, message: str) -> Iterator[None]:
             raise
         logger.warning("agent message: an error with no code became %s: %s %s", code, error.status_code, error.detail)
         raise_error(500, code, message)
+    except StoppedBeforeTyping:
+        refuse_by_stop(NOT_SENT_CODE)
+    except BackendStopping:
+        refuse_by_stop(code)
     except Exception:
         logger.exception("agent message: an unexpected error became %s", code)
         raise_error(500, code, message)
@@ -277,8 +305,11 @@ async def _run_check(command: list[str], text: str, names: dict[str, str]) -> tu
             word = word.replace("{" + name + "}", value)
         argv.append(os.path.expanduser(word))
     try:
-        done = await asyncio.to_thread(subprocess.run, argv, capture_output=True, text=True,
-                                       timeout=CHECK_TIMEOUT_SEC)
+        done = await until_stop(asyncio.to_thread(subprocess.run, argv, capture_output=True, text=True,
+                                                  timeout=CHECK_TIMEOUT_SEC))
+    except BackendStopping:
+        # The check goes on in its thread and its answer is not read: nothing is delivered on one that did not finish.
+        return None, "the backend is stopping", []
     except subprocess.TimeoutExpired:
         return None, "the check did not finish in time", []
     except OSError as error:
@@ -458,7 +489,14 @@ async def wake_tab(tab_id: str) -> bool:
     A claude that was started or reopened is also waited for until its pane shows Claude's screen: its hooks say it is
     ready before it has read the conversation and drawn the input, and what is typed in between is lost. A tab that is
     being put to sleep is waited for first: what is typed while its claude ends is lost, so the message goes to the
-    sleeping tab."""
+    sleeping tab.
+
+    A stop of the backend ends the wait with `BackendStopping`: nothing of the message was typed."""
+    return await until_stop(_wake(tab_id))
+
+
+async def _wake(tab_id: str) -> bool:
+    """The work of `wake_tab`, which it ends at a stop of the backend."""
     # Imported here: the sleep package reads the rollover, which reads this module.
     from backend.sleep.sleeper import wait_until_asleep  # noqa: PLC0415
     await wait_until_asleep(tab_id)
@@ -495,7 +533,10 @@ async def deliver_message(tab_id: str, text: str, woke: bool) -> dict:
     (`woke`) is only said to have taken it when its record shows the message (after one rescue, see
     `terminal/receipt.py`); otherwise 409 `agent_message_not_taken`. A tab that was running already gets the plain
     `pty_send`, whose answer is that of the typing: an answer that says it did not type is refused with the code that
-    tells the sender whether the message may have arrived (`refuse_untyped`)."""
+    tells the sender whether the message may have arrived (`refuse_untyped`).
+
+    A stop of the backend ends the waits for the record (`terminal/receipt.py`): `BackendStopping` when the text may have
+    been typed, `StoppedBeforeTyping` when it was not."""
     if not woke:
         result = await pty_send(tab_id, {"text": text, "enter": True}, None)
         if not result.get("ok"):
@@ -557,8 +598,8 @@ async def send_to_peer(peer_name: str, tab: str, sender: str, text: str) -> dict
         await judge(name, text, name)
     # From the call on, the other machine may have delivered the message whatever happens to the answer.
     with failing_as(UNCONFIRMED_CODE, UNCONFIRMED_MESSAGE):
-        answer = await peer_send.send(peer_name, peer, tab=tab, sender=sender, title=sessions_meta[sender].title,
-                                      text=text)
+        answer = await until_stop(peer_send.send(peer_name, peer, tab=tab, sender=sender,
+                                                 title=sessions_meta[sender].title, text=text))
     logger.info("agent message sender=%s receiver=%s chars=%d operator_said=False ok=%s outbox=%s",
                 sender, name, len(text), answer.get("ok"), answer.get("outbox", False))
     return answer

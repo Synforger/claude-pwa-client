@@ -40,6 +40,7 @@ import uuid
 from pathlib import Path
 
 from backend._common import child_role
+from backend._internal.stop_signal import BackendStopping, until_stop
 from backend._common.state import SessionDef, jsonl_event_broadcaster, sessions_meta
 from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENINGS, ROLLOVER_OPENING, unwrap_pasted
 from backend.terminal import input_ready
@@ -93,6 +94,15 @@ def _message_file(session_id: str, text: str) -> Path:
     return path
 
 
+async def _typeable(session_id: str) -> bool:
+    """Whether the tab's pane takes keys within `INPUT_READY_TIMEOUT_SEC`. False too when the backend stops first, which
+    leaves nothing typed (= the launch fails as it does when the pane does not come up)."""
+    try:
+        return await until_stop(wait_until_typeable(session_id, input_ready.INPUT_READY_TIMEOUT_SEC))
+    except BackendStopping:
+        return False
+
+
 async def launch_with_first_message(session_id: str, text: str, send_id: str | None = None) -> dict | None:
     """claude がまだ居ない launcher の pane なら、 text を最初の発話として起動して結果を返す。
     対象外 (= launcher でない / 起動中 / 既に claude が居る) は None (= 呼び手は通常の送信へ)。
@@ -117,7 +127,7 @@ async def launch_with_first_message(session_id: str, text: str, send_id: str | N
     input_ready.mark_starting(session_id)
     # 立て直した直後の pane (= 自動の入れ替え) は、 tmux が session を作り終えるまで打鍵を受けない。
     # 入力行に残った打ちかけ (= 前の失敗の残り) を消してから打つ。
-    ok = (await wait_until_typeable(session_id, input_ready.INPUT_READY_TIMEOUT_SEC)
+    ok = (await _typeable(session_id)
           and tmux_send_keys(session_id, key="C-u") and tmux_send_keys(session_id, text=command, enter=True))
     if not ok:
         input_ready.mark_ready(session_id)
@@ -153,7 +163,7 @@ async def _reopen_then_send(session_id: str, text: str, send_id: str | None) -> 
     command = resume_command_for(session_id)
     input_ready.mark_starting(session_id)
     ok = (command is not None
-          and await wait_until_typeable(session_id, input_ready.INPUT_READY_TIMEOUT_SEC)
+          and await _typeable(session_id)
           and tmux_send_keys(session_id, key="C-u") and tmux_send_keys(session_id, text=command, enter=True))
     if not ok:
         input_ready.mark_ready(session_id)
