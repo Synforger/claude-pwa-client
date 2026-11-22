@@ -55,7 +55,7 @@ def list_row(tab: ApiTab, now: datetime) -> dict:
     """The tab as `GET /sessions` lists it: a Claude tab's row shape with neutral values, the wallet as its account, and
     its context amount and window."""
     definition = SessionDef(id=tab.id, agent_id=tab.agent_id, title=tab.title, created_at=0, notify_mode="off",
-                            account_id=tab.account)
+                            account_id=tab.account, list_folder=tab.list_folder)
     figures = figures_of(tab, now)
     return {**definition.to_dict(), "kind": API_KIND, "tier": None, "account_on_wake": None,
             "context_tokens": figures.context_tokens, "context_window": figures.context_window}

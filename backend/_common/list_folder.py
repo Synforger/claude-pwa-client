@@ -1,8 +1,8 @@
 """The folder of the conversation list a tab goes in (`<agent id>/<folder>/...`), as an agent's setting or a tab's own.
 
-Read by the agents view (`routes/accounts.py`), the stored tab definition (`_common/state.py`) and the doors that set a
-tab's folder (`routes/sessions.py`). The screen places tabs by the same shape
-(`frontend/src/features/session-drawer/folderTree.js`).
+Read by the agents view (`routes/accounts.py`), the table of API tabs (`api_tabs/api_tab_table.py`), the stored tab
+definition (`_common/state.py`) and the doors that set a tab's folder (`routes/sessions.py`). The screen places tabs by
+the same shape (`frontend/src/features/session-drawer/folderTree.js`).
 """
 from __future__ import annotations
 
