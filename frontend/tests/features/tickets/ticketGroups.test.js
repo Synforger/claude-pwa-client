@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  CLOSED_SHOWN_DAYS, GROUPS, agoOf, attentionCount, attentionCounts, factsOf, groupTickets, holderOf, markOf, peerLines, ticketLabel, ticketSections,
+  CLOSED_SHOWN_DAYS, GROUPS, agoOf, attentionCount, attentionCounts, factsOf, groupTickets, holderOf, markOf, peerLines, ticketLabel,
 } from '../../../src/features/tickets/ticketGroups.js'
 
 const ticket = (id, extra = {}) => ({ id, title: `T ${id}`, status: 'open', holder: 'ses_a', attention: null, last_at: '2026-11-19T10:00:00.000+00:00', ...extra })
@@ -165,21 +165,9 @@ describe('holderOf and ticketLabel', () => {
   })
 })
 
-describe('ticketSections and attentionCounts', () => {
-  const now = Date.parse('2026-11-22T10:00:00Z')
+describe('attentionCounts', () => {
   const t = (id, holder, extra = {}) => ({ id, title: id, status: 'open', holder, attention: null, marks: [], last_at: '2026-11-22T09:00:00Z', ...extra })
   const all = [t('mine', 'ses_a'), t('quiet', 'ses_b'), t('asks', 'ses_c', { attention: 'waiting' }), t('done', 'ses_a', { status: 'closed' })]
-  it('gives each ticket once: this tab, the other holders with the ones to look at first, the closed', () => {
-    const { own, others, closed } = ticketSections(all, 'ses_a', now)
-    expect(own.running.map((x) => x.id)).toEqual(['mine'])
-    expect(others.map((x) => x.holder)).toEqual(['ses_c', 'ses_b'])
-    expect(closed.map((x) => x.id)).toEqual(['done'])
-  })
-  it('has no own section without a tab, and loses no ticket', () => {
-    const { own, others } = ticketSections(all, null, now)
-    expect(own).toBeNull()
-    expect(others).toHaveLength(3)
-  })
   it('counts only what the operator acts on, for this tab and for all', () => {
     expect(attentionCounts(all, 'ses_a')).toEqual({ own: 0, total: 1 })
     expect(attentionCounts(all, 'ses_c')).toEqual({ own: 1, total: 1 })

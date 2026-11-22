@@ -66,14 +66,32 @@ describe('the tab list kept on the left (a wide screen with a mouse)', () => {
     expect(drawerOpen()).toBe(true)
   })
 
-  it('carries no mark of a ticket', () => {
-    const { container } = mount(true)
-    expect(container.textContent).not.toContain('🎫')
+  it('has the tickets on its first row, and no mark of a ticket on a tab', () => {
+    const { getByTestId, container } = mount(true)
+    expect(container.querySelector('.drawer-list').firstElementChild).toBe(getByTestId('drawer-tickets-open'))
+    expect(container.textContent.split('🎫')).toHaveLength(2)   // the row's, and no other
     expect(container.textContent).not.toContain(HELD.title)
   })
 
-  it('stays open after the settings is opened', () => {
+  it('counts on that row the tickets of all tabs that want a look, and no number while none does', () => {
     const { getByTestId } = mount(true)
+    const count = () => getByTestId('drawer-tickets-open').querySelector('.drawer-item-hidden')
+    expect(count()).toBeNull()
+    act(() => applyTicketsSnapshot({ tickets: [
+      HELD, { ...HELD, id: 't2', attention: 'waiting' }, { ...HELD, id: 't3', holder: 'ses_other', marks: ['overdue'] },
+    ], peers: {} }))
+    expect(count().textContent).toBe('2')
+  })
+
+  it('has that row also when there is no tab', () => {
+    setSessions([])
+    expect(mount(true).getByTestId('drawer-tickets-open')).toBeTruthy()
+  })
+
+  it('stays open after the list of tickets or the settings is opened', () => {
+    const { getByTestId } = mount(true)
+    fireEvent.click(getByTestId('drawer-tickets-open'))
+    expect(getUiSnapshot().overlays.tickets).toBe(true)
     fireEvent.click(getByTestId('drawer-settings'))
     fireEvent.click(getByTestId('open-settings'))
     expect(getUiSnapshot().overlays.settings).toBe(true)
@@ -101,8 +119,9 @@ describe('the tab list laid over the screen (a narrow screen, or a touch screen)
     expect(drawerOpen()).toBe(false)
   })
 
-  it('shuts after the settings are opened', () => {
+  it('shuts after the tickets or the settings are opened', () => {
     for (const open of [
+      (view) => fireEvent.click(view.getByTestId('drawer-tickets-open')),
       (view) => { fireEvent.click(view.getByTestId('drawer-settings')); fireEvent.click(view.getByTestId('open-settings')) },
     ]) {
       const view = mount(false)
