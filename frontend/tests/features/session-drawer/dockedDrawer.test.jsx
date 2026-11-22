@@ -66,13 +66,14 @@ describe('the tab list kept on the left (a wide screen with a mouse)', () => {
     expect(drawerOpen()).toBe(true)
   })
 
-  it('stays open after the list of tickets, a held ticket or the settings is opened', () => {
+  it('carries no mark of a ticket', () => {
+    const { container } = mount(true)
+    expect(container.textContent).not.toContain('🎫')
+    expect(container.textContent).not.toContain(HELD.title)
+  })
+
+  it('stays open after the settings is opened', () => {
     const { getByTestId } = mount(true)
-    fireEvent.click(getByTestId('drawer-tickets-open'))
-    expect(getUiSnapshot().overlays.tickets).toBe(true)
-    fireEvent.click(getByTestId('session-held-ticket'))
-    // a tab's line opens the list of the tickets that tab holds
-    expect(typeof getUiSnapshot().overlays.tickets).toBe('string')
     fireEvent.click(getByTestId('drawer-settings'))
     fireEvent.click(getByTestId('open-settings'))
     expect(getUiSnapshot().overlays.settings).toBe(true)
@@ -100,10 +101,8 @@ describe('the tab list laid over the screen (a narrow screen, or a touch screen)
     expect(drawerOpen()).toBe(false)
   })
 
-  it('shuts after the tickets, a held ticket or the settings are opened', () => {
+  it('shuts after the settings are opened', () => {
     for (const open of [
-      (view) => fireEvent.click(view.getByTestId('drawer-tickets-open')),
-      (view) => fireEvent.click(view.getByTestId('session-held-ticket')),
       (view) => { fireEvent.click(view.getByTestId('drawer-settings')); fireEvent.click(view.getByTestId('open-settings')) },
     ]) {
       const view = mount(false)

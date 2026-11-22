@@ -110,3 +110,10 @@ export function hydrate(partial) {
   if (!partial || typeof partial !== 'object') return
   store.setState(prev => ({ ...prev, ...partial }))
 }
+
+// The operator chose a tab to look at: it becomes the active one and its unread dot goes at once
+// (= ahead of the 150 ms debounce of useSessionBadges).
+export function selectTab(sid) {
+  setActiveId(sid)
+  if (getSnapshot().unreadDone[sid]) clearUnreadDone(sid)
+}

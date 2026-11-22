@@ -23,7 +23,7 @@ import { isApiTab } from '../../_common/apiTab.js'
 import { useMoonlightAvailable } from '../screenshare/useMoonlightAvailable.js'
 import ExtensionMenu from '../extensions/ExtensionMenu.jsx'
 import { subscribe as subscribeTickets, getSnapshot as getTicketsSnapshot } from '../../state/tickets.js'
-import { attentionCount } from '../tickets/ticketGroups.js'
+import { attentionCounts } from '../tickets/ticketGroups.js'
 import { useDockedDrawer } from '../session-drawer/useDockedDrawer.js'
 import { setDrawerOpen } from '../session-drawer/dockedDrawerOpen.js'
 
@@ -33,8 +33,7 @@ export default function Topbar() {
   const t = useT()
   // The list stays on the left of a wide screen, so ☰ toggles it there; on any other screen it only opens it, as before
   const docked = useDockedDrawer()
-  // 「見てほしい」 票の数 (= ☰ の数字の印。 0 なら出さない)
-  const ticketsToLookAt = attentionCount(useSyncExternalStore(subscribeTickets, getTicketsSnapshot).tickets)
+  const { tickets } = useSyncExternalStore(subscribeTickets, getTicketsSnapshot)
 
   const activeSession = useMemo(
     () => sessionsState.sessions.find(s => s.id === sessionsState.activeId) || null,
@@ -43,6 +42,8 @@ export default function Topbar() {
   const activeSid = activeSession?.id || null
   // An API tab has no Claude Code: no notes, no plan approval (and no terminal to come back from)
   const claudeSid = isApiTab(activeSession) ? null : activeSid
+  // 🎫 の数 = このタブ / 全体 (= 操作者が動く票だけ。 全体が 0 なら数は出さない)
+  const ticketCounts = useMemo(() => attentionCounts(tickets, activeSid), [tickets, activeSid])
   const activeViewMode = useMemo(
     () => (activeSid ? (ui.viewModes[activeSid] || 'chat') : 'chat'),
     [activeSid, ui.viewModes],
@@ -61,15 +62,6 @@ export default function Topbar() {
     <header className="topbar">
       <button className="hamburger" onClick={() => setDrawerOpen(docked ? !ui.overlays.drawer : true, { docked })} aria-label={t('topbar.drawer_toggle')} data-testid="drawer-toggle">
         ☰
-        {ticketsToLookAt > 0 && (
-          <span
-            className="topbar-tickets-count"
-            title={t('topbar.tickets_label', { count: ticketsToLookAt })}
-            data-testid="tickets-count"
-          >
-            {ticketsToLookAt}
-          </span>
-        )}
       </button>
       <span className="topbar-title">{activeSession?.title || t('topbar.no_session')}</span>
       {/* terminal モード時の chat 復帰ボタン: ⋯メニュー経由が hit test 等で詰まっても
@@ -84,9 +76,10 @@ export default function Topbar() {
           💬
         </button>
       )}
-      {/* topbar 右側のアイコン群。 並びは左→右で ⭐ お気に入り → 📋 メモ →
+      {/* topbar 右側のアイコン群。 並びは左→右で ⭐ お気に入り → 🎫 票 → 📋 メモ →
           (📑 plan 承認、 条件付き) → (🔊 声、 声を持つ agent のタブだけ) →
-          🖥 モニター → 🧩 拡張。 票の数は ☰ の印で、 票の一覧は一覧の先頭の行から開く。 */}
+          🖥 モニター → 🧩 拡張。 🎫 は ⭐ の右で、
+          票の一覧の入口はここだけなので、 タブが無い時も端末の表示の時も出す。 */}
       {activeViewMode === 'chat' && activeSid && (
         <button
           className="topbar-icon-btn"
@@ -98,6 +91,20 @@ export default function Topbar() {
           ⭐
         </button>
       )}
+      <button
+        className="topbar-icon-btn topbar-tickets-btn"
+        onClick={() => setOverlay('tickets', true)}
+        aria-label={t('topbar.tickets_label', ticketCounts)}
+        title={t('topbar.tickets_label', ticketCounts)}
+        data-testid="tickets-open-button"
+      >
+        🎫
+        {ticketCounts.total > 0 && (
+          <span className="topbar-tickets-count" data-testid="tickets-count">
+            {activeSid ? `${ticketCounts.own} / ${ticketCounts.total}` : ticketCounts.total}
+          </span>
+        )}
+      </button>
       {activeViewMode === 'chat' && claudeSid && (
         <button
           className="topbar-icon-btn"
