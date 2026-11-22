@@ -246,6 +246,8 @@ async def ensure_pty_session_for(session_id: str, *, prefer_fresh: bool = False)
         except Exception:
             logger.exception("wake hook failed session=%s; the tab wakes where it slept", session_id)
     async with spawn_lock(session_id):
+        if session_id not in sessions_meta:
+            return  # closed while the lock was waited for
         existing = pty_sessions.get(session_id)
         if existing is not None and not existing.exit_event.is_set():
             return
