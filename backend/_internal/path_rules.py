@@ -1,6 +1,6 @@
-"""The table of paths that `/file` never reads or writes, and the one function that matches it.
+"""The table of paths that `/file` never reads or writes, the table of those it only reads, and how they are matched.
 
-A path is matched twice with the same table: by its spelling, and by the name the file system itself reports for it.
+A path is matched twice with each table: by its spelling, and by the name the file system itself reports for it.
 Both are normalised the same way before matching.
 
 Used by `backend/routes/files.py` (every route resolves its path through it) and
@@ -50,6 +50,22 @@ _DENY_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Read as any file and never written: the screen's editor opens none of them. A name with no extension counts, but for
+# those the editor knows by the whole name (`FilePreviewModal.jsx`).
+_NO_EXTENSION = (
+    r"(?!(?:dockerfile|containerfile|makefile|gnumakefile|cmakelists|rakefile|gemfile|procfile)$)"
+    r"[^/.]+(?:\.\d+)*"
+)
+_READ_ONLY_NAMES = (
+    r"\.(?:zlogin|zlogout|bash_login|bash_logout|login|logout|cshrc|tcshrc|xonshrc)(?:\.zwc)?",
+    r"\.config/xonsh/rc\.xsh",
+    r"Library/LaunchAgents/[^/]+\.plist",
+    r"(?:[^/]*\.git(?:/modules(?:/[^/]+){1,8})?|\.config/git|\.claude[^/]*)/hooks/(?:[^/]+/)*" + _NO_EXTENSION,
+    r"(?:\.githooks|\.git-hooks|\.husky)/(?:[^/]+/)*" + _NO_EXTENSION,
+    r"(?:\.?bin|sbin|condabin|shims)/" + _NO_EXTENSION,
+)
+_READ_ONLY_RE = re.compile(r"(?:^|/)(?:" + "|".join(_READ_ONLY_NAMES) + r")$", re.IGNORECASE)
+
 
 def _normalize(text: str) -> str:
     return unicodedata.normalize("NFD", unicodedata.normalize("NFD", text).casefold())
@@ -87,7 +103,20 @@ def _filesystem_name(path: Path) -> str | None:
 
 def is_denied(path: Path) -> bool:
     """Whether `/file` must refuse this resolved path, by its spelling or by the file system's name for it."""
-    if _DENY_RE.search(_normalize(str(path))):
+    return _matches(path, _DENY_RE)
+
+
+def is_write_denied(path: Path) -> bool:
+    """Whether `/file` must refuse to write this resolved path: what it refuses altogether, and what it only reads."""
+    return _matches(path, _DENY_RE, _READ_ONLY_RE)
+
+
+def _matches(path: Path, *tables: re.Pattern[str]) -> bool:
+    spelling = _normalize(str(path))
+    if any(table.search(spelling) for table in tables):
         return True
     reported = _filesystem_name(path)
-    return reported is not None and bool(_DENY_RE.search(_normalize(reported)))
+    if reported is None:
+        return False
+    name = _normalize(reported)
+    return any(table.search(name) for table in tables)
