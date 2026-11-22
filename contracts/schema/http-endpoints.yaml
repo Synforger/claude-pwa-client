@@ -56,7 +56,7 @@ endpoints:
     description: "全セッションの作業中 / 最後に見た時刻 / 入力待ち / 階層 / 眠り / 口座を 1 回で返す (= stream の overview と同じ中身)"
     response:
       type: object
-      description: "sid → { busy, last_seen_at, waiting_input, tier, asleep, account_id, fallback_from, account_pinned, account_on_wake }。 the rows of the API tabs (= the same ids as GET /sessions) have the same keys plus kind (= api), title, context_tokens and context_window, and busy, waiting_input and asleep are always false"
+      description: "sid → { busy, last_seen_at, waiting_input, tier, asleep, title, account_id, fallback_from, account_pinned, account_on_wake }。 the rows of the API tabs (= the same ids as GET /sessions) have the same keys plus kind (= api), context_tokens and context_window, and busy, waiting_input and asleep are always false"
     response_kind: json
     auth: tailnet
     invariants:

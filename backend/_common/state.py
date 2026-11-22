@@ -852,6 +852,7 @@ def rename_session(session_id: str, title: str) -> bool:
         return False
     sessions_meta[session_id].title = title
     save_sessions_meta()
+    sessions_overview.notify()
     return True
 
 
