@@ -183,6 +183,7 @@ async def show(reader: str, ticket: str) -> dict:
     row = row_of(ticket)
     folder = await ticket_places.folder_for(row.place_key)
     entries = await ticket_checks.filter_for_reader(reader, await asyncio.to_thread(ticket_file.read, folder, ticket))
+    entries = await ticket_checks.hide_writers(ticket_checks.session_of(reader), entries)
     return {"ok": True, "id": ticket, "status": row.status, "wants": row.wants, "holder": row.holder,
             "opener": row.opener, "place_outside": row.place_key == ticket_places.outside_key(), "entries": entries}
 

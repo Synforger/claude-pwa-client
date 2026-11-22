@@ -5,7 +5,7 @@ no judgement, as with `agent_message_check`):
 - `ticket_places_check`: every folder a ticket may be kept in
 - `ticket_write_check`: whether a text may be added to the ticket kept in a place
 - `ticket_covers_check`: whether a tab may read what is kept in a place (= may take part in its tickets)
-- `ticket_read_check`: whether a tab may read one line of a ticket
+- `ticket_read_check`: whether a tab may read one line of a ticket, and the name and tier of the tab that wrote it
 
 On a machine whose messages the guard judges (`agent_message_check`), a key left out is not "no judgement": what it
 guards is refused (`ticket_check_missing`), since a ticket would otherwise carry, unjudged and outside every boundary,
@@ -22,6 +22,7 @@ from pathlib import Path
 from backend._common import config as _config
 from backend._common import paths
 from backend._common.errors import raise_error
+from backend.routes.agent_messages import HIDDEN_SENDER
 from backend.terminal.runner import jsonl_path_for_session
 from backend.terminal.tab_memo import tier_folder
 from backend.tickets import guard_command, ticket_entry
@@ -131,3 +132,22 @@ async def filter_for_session(session: str, entries: list[dict]) -> list[dict]:
         return entry if result.status == 0 else ticket_entry.hidden(entry)
 
     return list(await asyncio.gather(*(judge(entry) for entry in entries)))
+
+
+async def hide_writers(session: str, entries: list[dict]) -> list[dict]:
+    """The lines with each writer the reader `session` may not know named as a message's envelope names such a sender
+    (`HIDDEN_SENDER`, no tier). A name and a tier are judged as the reading of a text is, once for each writer (= a
+    failed run hides them). For the doors that show who wrote a line."""
+    command = _command("TICKET_READ_CHECK")
+    if not command:
+        return entries
+    gate = asyncio.Semaphore(READ_PARALLEL)
+    writers = sorted({text for entry in entries if (text := ticket_entry.writer_text(entry))})
+
+    async def may_know(writer: str) -> bool:
+        async with gate:
+            return (await guard_command.run_command(command, {"session": session}, writer)).status == 0
+
+    known = dict(zip(writers, await asyncio.gather(*(may_know(writer) for writer in writers))))
+    return [entry if known.get(ticket_entry.writer_text(entry), True) else ticket_entry.without_writer(entry, HIDDEN_SENDER)
+            for entry in entries]

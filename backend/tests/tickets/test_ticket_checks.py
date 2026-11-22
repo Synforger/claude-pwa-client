@@ -186,6 +186,26 @@ def test_without_the_read_key_every_line_is_shown(ticket_env):
     assert run(ticket_service.show("ses_c", ticket))["entries"][0]["text"] == "Request"
 
 
+def test_a_writer_the_reader_may_not_know_is_not_named_while_its_line_is_shown(ticket_env):
+    ticket = _open()["id"]
+    run(ticket_service.add("ses_b", ticket, "a plain line"))
+    run(ticket_service.add("ses_b", ticket, "one more"))
+    ticket_env.guard.use("read", read={"refuse_containing": "notes"})
+    shown = run(ticket_service.show("ses_c", ticket))["entries"]
+    assert [entry["text"] for entry in shown] == ["Request", "a plain line", "one more"]
+    assert [(entry["tab"], entry["tab_title"]) for entry in shown] == [
+        ("ses_a", "client work"), ("ses_b", "別の境界のタブ"), ("ses_b", "別の境界のタブ")]
+    assert [bool(entry["tier"]) for entry in shown] == [True, False, False]
+    assert [call["text"].split("\n")[0] for call in ticket_env.guard.calls("read")].count("notes") == 1
+
+
+def test_a_writers_tier_alone_hides_the_writer(ticket_env):
+    ticket = _open()["id"]
+    ticket_env.guard.use("read", read={"refuse_containing": "projects/AP"})
+    first = run(ticket_service.show("ses_c", ticket))["entries"][0]
+    assert (first["tab_title"], first["tier"], first["text"]) == ("別の境界のタブ", "", "Request")
+
+
 def test_the_listing_judges_no_line(ticket_env):
     _open()
     ticket_env.guard.use("read", read={"status": 1})

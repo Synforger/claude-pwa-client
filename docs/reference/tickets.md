@@ -183,7 +183,7 @@ tabs ticket mine [--json] [--unsettled]
 | `ticket_places_check` | backend が最初に票に触れる時と、 索引に知らない置き場の鍵が出た時 | なし | 0: 標準出力の 1 行に 1 つ、 票を置く folder の絶対 path |
 | `ticket_write_check` | 票に件を足す前 | `{place}` (票の folder)、 `{text_file}`、 `{typed_in}` | 0: 足す。 1: 断る (標準エラーの最後の行が理由。 `ticket_refused`)。 それ以外: `ticket_check_failed` |
 | `ticket_covers_check` | 票に関わるタブ (書き足す・求める・閉じる・渡す側と渡される側) が置き場を読めるか | `{session}`、 `{place}`、 `{folder}` (= タブの階層の folder) | 0: 関われる。 それ以外: `ticket_outside_place` |
-| `ticket_read_check` | `tabs ticket show` の 1 件ごと | `{session}` (読むタブ)、 `{text_file}` | 0: 見せる。 それ以外: その件は「読めない境界の書き足し」 の 1 行に置き換わる (題も同じ扱い) |
+| `ticket_read_check` | `tabs ticket show` の 1 件ごと | `{session}` (読むタブ)、 `{text_file}` | 0: 見せる。 それ以外: その件は「読めない境界の書き足し」 の 1 行に置き換わる (題も同じ扱い)。 書いたタブの名前と階層も同じコマンドで判定する (下) |
 
 `{text_file}` は、 判定する本文を書いた、 その run の間だけの file です。 `opened` の件は題と本文を続けた物です。
 
@@ -207,6 +207,8 @@ tabs ticket mine [--json] [--unsettled]
 - `pass` は、 渡す側と渡される側の両方が `ticket_covers_check` を通ります
 - `show` の件は、 読むタブに対して 1 件ずつ `ticket_read_check` を通ります。 止まった件は
   `{"kind": ..., "at": ..., "hidden": true, "text": "読めない境界の書き足し"}` だけになり、 誰が書いたかも出ません
+- `show` は、 件を書いたタブの名前と階層も、 書き手ごとに 1 回 `ticket_read_check` へ通します (= 本文とは別に)。 止まった
+  書き手は、 名前が「別の境界のタブ」 になり、 階層は出ません。 タブの id は出ます。 操作者の画面は全部を出します
 
 ## 操作者の答えを届ける
 

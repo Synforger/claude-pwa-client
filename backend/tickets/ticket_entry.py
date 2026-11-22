@@ -76,6 +76,17 @@ def judged_text(entry: dict) -> str:
     return f"{title}\n\n{entry.get('text', '')}" if isinstance(title, str) and title else str(entry.get("text", ""))
 
 
+def writer_text(entry: dict) -> str:
+    """What the guard is shown of who wrote a line: the tab's name and tier, which say where it works. Empty when the
+    line names nobody."""
+    return "\n".join(str(entry[key]) for key in ("tab_title", "tier") if entry.get(key))
+
+
+def without_writer(entry: dict, name: str) -> dict:
+    """The line as a reader that may not know where its writer works is given it: `name` for the tab's name, and no tier."""
+    return {**entry, "tab_title": name, "tier": ""}
+
+
 def hidden(entry: dict) -> dict:
     """The line a reader that may not read `entry` is given in its place."""
     return {"kind": entry.get("kind", HIDDEN), "at": entry.get("at", ""), HIDDEN: True, "text": HIDDEN_TEXT}

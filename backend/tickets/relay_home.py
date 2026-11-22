@@ -93,7 +93,8 @@ async def show(peer_name: str, ticket: str, reader: str) -> dict:
     folder = await ticket_places.folder_for(row.place_key)
     entries = await asyncio.to_thread(ticket_file.read, folder, ticket)
     given = [ticket_entry.withheld(entry) if entry.get("kind") in relay_judgement.OPERATOR_KINDS else entry for entry in entries]
-    judged = await ticket_checks.filter_for_session(f"{peer_name}:{reader}", given)
+    session = f"{peer_name}:{reader}"
+    judged = await ticket_checks.hide_writers(session, await ticket_checks.filter_for_session(session, given))
     own = _config.MACHINE_NAME
     logger.info("ticket relayed in: op=show id=%s from=%s:%s", ticket, peer_name, reader)
     return {"ok": True, "id": ticket, "status": row.status, "wants": row.wants, "home": own,
