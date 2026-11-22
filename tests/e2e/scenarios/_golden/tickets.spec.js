@@ -65,7 +65,7 @@ test.describe('golden: tickets', () => {
     const id = await openTicket(request, tab.sid)
     await expect(page.locator('[data-testid=tickets-count]')).toHaveCount(0)   // open and held: nothing to look at
     await ask(request, id, tab.sid)
-    await expect(page.locator('[data-testid=tickets-count]')).toHaveText('1 / 1', { timeout: 20_000 })
+    await expect(page.locator('[data-testid=tickets-count]')).toHaveText('1/1', { timeout: 20_000 })
     await page.screenshot({ path: testInfo.outputPath('tickets-count.png') })
     const bandWide = page.viewportSize()
     await page.setViewportSize({ width: 390, height: 844 })
@@ -160,7 +160,7 @@ test.describe('golden: tickets', () => {
     const made = [[overdueId, tab.sid], [dueSoonId, holders.run.sid], [waitId, holders.wait.sid], [plainId, holders.plain.sid]]
     try {
       await openClient(page, { sid: tab.sid })
-      await expect(page.locator('[data-testid=tickets-count]')).toHaveText('1 / 1', { timeout: 20_000 })
+      await expect(page.locator('[data-testid=tickets-count]')).toHaveText('1/1', { timeout: 20_000 })
       await openTicketList(page)
       await expect(page.locator(`[data-testid=ticket-section-own] [data-ticket="${overdueId}"]`)).toHaveCount(1)
       const heldBy = (holder) => page.locator(`[data-testid=ticket-holder][data-holder="${holder.sid}"]`)
@@ -193,7 +193,7 @@ test.describe('golden: tickets', () => {
       // A tab's heading goes to that tab, and 🎫 then counts for it
       await heldBy(holders.run).locator('[data-testid=ticket-holder-open]').click()
       await expect(page.locator('[data-testid=ticket-drawer]')).toHaveCount(0)
-      await expect(page.locator('[data-testid=tickets-count]')).toHaveText('0 / 1')
+      await expect(page.locator('[data-testid=tickets-count]')).toHaveText('0/1')
       await page.screenshot({ path: testInfo.outputPath('tickets-other-tab-narrow.png') })
     } finally {
       await closeAll(request, made)

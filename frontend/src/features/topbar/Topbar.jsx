@@ -101,7 +101,7 @@ export default function Topbar() {
         🎫
         {ticketCounts.total > 0 && (
           <span className="topbar-tickets-count" data-testid="tickets-count">
-            {activeSid ? `${ticketCounts.own} / ${ticketCounts.total}` : ticketCounts.total}
+            {activeSid ? `${ticketCounts.own}/${ticketCounts.total}` : ticketCounts.total}
           </span>
         )}
       </button>

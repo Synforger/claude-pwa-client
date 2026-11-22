@@ -66,11 +66,11 @@ describe('Topbar tickets', () => {
     setActiveId('api_support-bot')
     act(() => applyTicketsSnapshot({ tickets: [row('a', 'waiting'), row('b', 'delivery'), row('c', null)], peers: {} }))
     const { getByTestId } = render(<Topbar />)
-    expect(getByTestId('tickets-count').textContent).toBe('0 / 2')
+    expect(getByTestId('tickets-count').textContent).toBe('0/2')
     expect(getByTestId('favorites-open-button').nextElementSibling).toBe(getByTestId('tickets-open-button'))
     expect(getByTestId('drawer-toggle').textContent).toBe('☰')
     act(() => setActiveId('ses_claude'))
-    expect(getByTestId('tickets-count').textContent).toBe('2 / 2')
+    expect(getByTestId('tickets-count').textContent).toBe('2/2')
   })
 
   it('opens the list of tickets', () => {
