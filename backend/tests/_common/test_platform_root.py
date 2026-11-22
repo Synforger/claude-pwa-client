@@ -1,7 +1,7 @@
 """器の根 (`AGENT_PLATFORM_ROOT`) の置き場の決め方。
 
 paths は import 時に決まるので、 どの確認も別 process で行う。 根を渡さない確認は repo の写し (paths.py と
-config.py だけの作り物の repo) を使う (= 本物の repo に data/ や logs/ を作らない)。
+config.py と、 config が読む部品だけの作り物の repo) を使う (= 本物の repo に data/ や logs/ を作らない)。
 """
 import json
 import os
@@ -32,11 +32,12 @@ print(json.dumps({
 
 @pytest.fixture
 def sandbox(tmp_path):
-    """paths.py と config.py だけを写した作り物の repo と、 作り物の HOME。"""
+    """paths.py と config.py と config が読む部品だけを写した作り物の repo と、 作り物の HOME。"""
     repo, home = tmp_path / "repo", tmp_path / "home"
     (repo / "backend" / "_common").mkdir(parents=True)
     home.mkdir()
-    for name in ("__init__.py", "_common/__init__.py", "_common/paths.py", "_common/config.py"):
+    for name in ("__init__.py", "_common/__init__.py", "_common/paths.py", "_common/page_folders.py",
+                 "_common/config.py"):
         shutil.copy(REPO_ROOT / "backend" / name, repo / "backend" / name)
     return repo.resolve(), home.resolve()
 

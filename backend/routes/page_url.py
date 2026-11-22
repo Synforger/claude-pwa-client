@@ -14,7 +14,7 @@ from pathlib import Path
 from fastapi import APIRouter, Query, Request
 
 from backend._common.local_door import require_this_machine
-from backend._common.config import page_origin
+from backend._common.config import page_folders, page_origin
 from backend._common.errors import raise_error
 from backend.page_url.page_url import page_url, path_in_origin
 from backend.page_url.page_url_refusal import PageUrlRefusal
@@ -54,7 +54,7 @@ async def get_page_url(request: Request, path: str = Query(...)) -> dict:
     folder, port = origin
     try:
         # the file's own fault is told before the tailnet's (= tailscale is asked only for a file it could serve)
-        path_in_origin(file, folder)
+        path_in_origin(file, folder, folders=page_folders())
         url = page_url(file, folder, port, await asyncio.to_thread(serve_status))
     except PageUrlRefusal as refusal:
         raise_error(REFUSAL_STATUS[refusal.code], refusal.code, refusal.message)
