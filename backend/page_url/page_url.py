@@ -46,7 +46,7 @@ def tailnet_base(serve_status: dict, port: int) -> str:
 
     When several listeners do, the one on the same port number is taken, else the lowest port.
     """
-    listeners = sorted(_listeners_of(serve_status, port), key=lambda found: (found[2] != port, found[2]))
+    listeners = sorted(listeners_of(serve_status, port), key=lambda found: (found[2] != port, found[2]))
     if not listeners:
         raise PageUrlRefusal("page_not_on_tailnet",
                              f"tailscale serve がページの port ({port}) を tailnet に出していません "
@@ -56,7 +56,7 @@ def tailnet_base(serve_status: dict, port: int) -> str:
     return f"{scheme}://{host}{shown_port}"
 
 
-def _listeners_of(serve_status: dict, port: int) -> list[tuple[str, str, int]]:
+def listeners_of(serve_status: dict, port: int) -> list[tuple[str, str, int]]:
     """Every (scheme, host, listening port) whose root handler proxies to the local `port`."""
     tcp = serve_status.get("TCP") if isinstance(serve_status.get("TCP"), dict) else {}
     web = serve_status.get("Web") if isinstance(serve_status.get("Web"), dict) else {}

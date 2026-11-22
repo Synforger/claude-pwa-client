@@ -358,6 +358,7 @@ async def lifespan(app: FastAPI):
     # 止まった backend の報告: event loop が止まったら全 thread の stack を log の folder に書く
     # (= `backend/observability/loop_stall.py`)。
     loop_stall_task = asyncio.create_task(loop_stall_watch(LOG_DIR))
+    served_names_task = asyncio.create_task(_served_names.refresh_loop())
 
     # tmux server 強靭化 (= exit-empty off + 番兵 session)。 起動直後に一度固定して
     # おくことで、 最初の PTY spawn を待たずに「session 全滅 → server 死 → 次の attach
@@ -403,9 +404,10 @@ async def lifespan(app: FastAPI):
     peer_task.cancel()
     prompt_detector_task.cancel()
     loop_stall_task.cancel()
+    served_names_task.cancel()
     for _t in (blocker_monitor_task, uploads_gc_task, maintenance_task, rollover_task, sleep_task, fallback_task,
                hold_task, resume_task, error_resume_task, child_watch_task, answer_task, ticket_return_task, ticket_relocate_task, ticket_peer_count_task, engine_wake_task, tier_tabs_task, api_tabs_task, peer_task, prompt_detector_task,
-               loop_stall_task):
+               loop_stall_task, served_names_task):
         try:
             await _t
         except (asyncio.CancelledError, Exception):
@@ -450,8 +452,11 @@ if _config.CORS_ALLOW_ORIGINS:
 # middleware and sees every request, a CORS preflight included.
 from backend.observability.request_origin import APP_NAME_MAIN, APP_NAME_PAGE  # noqa: E402
 from backend.observability.request_origin import install as _install_request_origin  # noqa: E402
-_install_request_origin(app, app_name=APP_NAME_MAIN)
-_install_request_origin(files_routes.page_app, app_name=APP_NAME_PAGE)
+from backend.observability.served_names import ServedNames  # noqa: E402
+_served_names = ServedNames()
+_install_request_origin(app, app_name=APP_NAME_MAIN, names=_served_names,
+                        extra_origins=lambda: tuple(_config.CORS_ALLOW_ORIGINS or ()))
+_install_request_origin(files_routes.page_app, app_name=APP_NAME_PAGE, names=_served_names)
 
 @app.get("/healthz", include_in_schema=False)
 async def healthz() -> dict:
