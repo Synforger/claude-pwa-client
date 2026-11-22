@@ -209,3 +209,79 @@ def test_the_rules_refuse_the_related_names(path):
 ], ids=lambda _: "path")
 def test_the_rules_pass_the_ordinary_names(path):
     assert not is_denied(Path(path))
+
+
+@pytest.mark.parametrize("path", [
+    "/home/u/.zlogin",
+    "/home/u/.ZLogout",
+    "/home/u/dots/.bash_login",
+    "/home/u/.bash_logout",
+    "/home/u/.tcshrc",
+    "/home/u/.cshrc",
+    "/home/u/.login",
+    "/home/u/.xonshrc",
+    "/home/u/.config/xonsh/rc.xsh",
+    "/home/u/.zlogin.zwc",
+    "/home/u/Library/LaunchAgents/com.example.sample.plist",
+    "/home/u/repo/.git/hooks/pre-commit",
+    "/home/u/repo.git/hooks/update",
+    "/home/u/repo/.git/modules/sub/hooks/post-checkout",
+    "/home/u/repo/.githooks/pre-push",
+    "/home/u/repo/.githooks/lib/shared",
+    "/home/u/.git-hooks/pre-commit",
+    "/home/u/.config/git/hooks/pre-commit",
+    "/home/u/repo/.husky/pre-commit",
+    "/home/u/repo/.claude/hooks/check",
+    "/home/u/.local/bin/sample",
+    "/home/u/bin/sample",
+    "/home/u/app/node_modules/.bin/sample",
+    "/home/u/envs/x/bin/python3.11",
+    "/home/u/.local/share/mise/shims/sample",
+], ids=lambda _: "path")
+def test_the_write_rules_refuse_their_names(path):
+    assert path_rules.is_write_denied(Path(path))
+    assert not is_denied(Path(path))    # reading them is as before
+
+
+@pytest.mark.parametrize("path", [
+    "/home/u/notes/memo.md",
+    "/home/u/app/login.py",
+    "/home/u/app/logins",
+    "/home/u/app/hooks/useThing.js",
+    "/home/u/app/src/hooks/README",
+    "/home/u/repo/.githooks/check.sh",
+    "/home/u/repo/.claude/hooks/check.py",
+    "/home/u/repo/bin/run.sh",
+    "/home/u/app/cabin/notes",
+    "/home/u/Documents/com.example.sample.plist",
+    "/home/u/.gitconfig",
+    "/home/u/.tmux.conf",
+    "/home/u/.config/fish/config.fish",
+    "/home/u/.claude/settings.json",
+    "/home/u/repo/Makefile",
+    "/home/u/repo/bin/Makefile",
+], ids=lambda _: "path")
+def test_the_write_rules_pass_the_other_names(path):
+    assert not path_rules.is_write_denied(Path(path))
+
+
+def test_the_write_rules_hold_what_the_rules_refuse():
+    assert path_rules.is_write_denied(Path("/home/u/.zshrc"))
+
+
+def test_the_file_route_refuses_only_the_write_of_those_names(client, tmp_path):
+    target = tmp_path / "bin" / "sample"
+    target.parent.mkdir()
+    target.write_text("as before\n")
+    assert client.get("/file", params={"path": str(target)}).status_code == 200
+    res = client.put("/file", json={"path": str(target), "content": "x"})
+    assert res.status_code == 403
+    assert target.read_text() == "as before\n"
+
+
+@pytest.mark.skipif(not ON_MACOS, reason="the file system's own name is read on macOS")
+def test_the_write_rules_follow_the_file_system_s_name(tmp_path):
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin" / "sample").write_text("x")
+    (tmp_path / "tools").symlink_to(tmp_path / "bin")
+    assert path_rules.is_write_denied(tmp_path / "tools" / "sample")
