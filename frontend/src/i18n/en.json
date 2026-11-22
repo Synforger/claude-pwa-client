@@ -439,7 +439,7 @@
   "permission_window.position": "{index} / {count}",
   "permission_window.allow": "Allow",
   "permission_window.deny": "Deny",
-  "permission_window.rewritten": "The guard rewrote it",
+  "permission_window.rewritten": "A hook rewrote the input",
   "permission_window.input_running": "Input that runs",
   "permission_window.input_original": "Original input",
   "permission_window.no_input": "(no input)",

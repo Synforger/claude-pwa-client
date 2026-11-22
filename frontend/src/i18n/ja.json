@@ -439,7 +439,7 @@
   "permission_window.position": "{index} / {count}",
   "permission_window.allow": "許す",
   "permission_window.deny": "断る",
-  "permission_window.rewritten": "番人が書き換えた",
+  "permission_window.rewritten": "hook が入力を書き換えました",
   "permission_window.input_running": "走る入力",
   "permission_window.input_original": "元の入力",
   "permission_window.no_input": "(入力なし)",
