@@ -83,11 +83,11 @@ def _context_tokens(raw: object) -> int | None:
 
 
 def _spend(raw: object) -> Spend | None:
-    """The row's spend, None when it has none or it is not the shape of a spend file."""
+    """The row's spend, None when it has none or it is not the shape of a spend file. Its `limit` may be left out."""
     if not isinstance(raw, dict):
         return None
     try:
-        return parse_spend(json.dumps(raw))
+        return parse_spend(json.dumps(raw), is_limit_optional=True)
     except ValueError:
         return None
 

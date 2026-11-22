@@ -40,7 +40,13 @@ test.describe('golden: api-tab-source', () => {
 
     // The amount is the program's (42,000), never the record's (999), and reads in percent of the window.
     await expect(page.locator('[data-testid=status-bar-api-context]')).toContainText('42%')
-    await expect(page.locator('[data-testid=status-bar-api-spend]')).toContainText('0.5 / 50 USD')
+    await expect(page.locator('[data-testid=status-bar-api-spend]')).toContainText('0.5 USD')
+    const shared = page.locator('[data-testid=status-bar-api-wallet]')
+    await expect(shared).toContainText('123 / 1,000 JPY')
+    // Nothing of the bar may be pushed off the screen, on a phone either.
+    const end = await page.locator('[data-testid=status-bar] > :last-child').boundingBox()
+    expect(end.x + end.width).toBeLessThanOrEqual(page.viewportSize().width)
+    await page.screenshot({ path: test.info().outputPath('bar-shared-wallet.png') })
     await page.locator('[data-testid=drawer-toggle]').click()
     const row = page.locator(`[data-cpc-sid=${SOURCE_SID}]`)
     await expect(row.locator('.drawer-item-title')).toHaveText('Trip group')

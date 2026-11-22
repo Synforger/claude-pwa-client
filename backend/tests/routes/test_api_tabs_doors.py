@@ -79,7 +79,7 @@ def test_the_status_channel_gives_an_api_row_of_its_own_kind_and_leaves_the_clau
     append(api_env.record, assistant_row("a1", "m1", "hi", usage={"input_tokens": 40}))
     asyncio.run(stream.poll())
     status = overview._build_all_status()
-    assert set(status[TAB_ID]) == {"kind", "context_tokens", "context_window", "spend", "spend_scope"}  # no 5h, 7d or ctx: no NaN%
+    assert set(status[TAB_ID]) == {"kind", "context_tokens", "context_window", "spend", "spend_scope", "wallet_spend"}  # no 5h, 7d or ctx: no NaN%
     assert (status[TAB_ID]["kind"], status[TAB_ID]["context_tokens"], status[TAB_ID]["spend"]["spent"]) == ("api", 40, 7)
     assert "kind" not in status[claude.id] and "ctx_pct" in status[claude.id] and "five_hour_pct" in status[claude.id]
 

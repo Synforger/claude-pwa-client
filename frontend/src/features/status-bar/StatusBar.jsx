@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { isWindowCurrent } from '../../_common/usageWindow.js'
 import { pctClass, timeUntil, formatResetWeekdayTime } from '../../_common/format.js'
-import { API_KIND, contextPercent, formatContext, formatSpend } from '../../_common/apiTab.js'
+import { API_KIND, contextPercent, formatContext, formatSpend, formatSpent } from '../../_common/apiTab.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
 import { subscribe as subscribeSessions, getSnapshot as getSessionsSnapshot } from '../../state/sessions.js'
 import MoreMenu from './MoreMenu.jsx'
@@ -126,15 +126,23 @@ export default function StatusBar() {
 function ApiStatusRow({ status, isOnline, t }) {
   const context = formatContext(status.context_tokens, status.context_window)
   const percent = contextPercent(status.context_tokens, status.context_window)
-  const spend = formatSpend(status.spend)
+  const isTabSpend = status.spend_scope === 'tab'
+  // The limit belongs to the wallet the tabs share, so a tab's own amount never stands against one.
+  const spend = isTabSpend ? formatSpent(status.spend) : formatSpend(status.spend)
+  const walletSpend = isTabSpend ? formatSpend(status.wallet_spend) : null
   return (
     <div className="statusbar" data-testid="status-bar">
       <span className={percent === null ? 'pct' : pctClass(percent)} data-testid="status-bar-api-context">
         {t('statusbar.api_context')} {context ?? <span className="dim">---</span>}
       </span>
       <span className="pct" data-testid="status-bar-api-spend">
-        {t(status.spend_scope === 'tab' ? 'statusbar.api_spend_tab' : 'statusbar.api_spend')} {spend ?? <span className="dim">---</span>}
+        {t(isTabSpend ? 'statusbar.api_spend_tab' : 'statusbar.api_spend')} {spend ?? <span className="dim">---</span>}
       </span>
+      {walletSpend && (
+        <span className="pct" data-testid="status-bar-api-wallet">
+          {t('statusbar.api_wallet')} {walletSpend}
+        </span>
+      )}
       <StatusBarEnd isOnline={isOnline} />
     </div>
   )

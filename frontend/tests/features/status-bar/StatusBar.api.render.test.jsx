@@ -48,3 +48,24 @@ it('leaves a Claude tab\'s bar as it was', () => {
   expect(queryByTestId('status-bar-api-context')).toBeNull()
   expect(container.textContent).toContain('5h 40%')
 })
+
+it('shows a tab\'s own amount without a limit, next to the limit the tabs share', () => {
+  mockStatus.mockReturnValue(apiRow({
+    spend_scope: 'tab',
+    spend: { month: '2026-11', spent: 0.5, limit: 50, currency: 'USD' },
+    wallet_spend: { month: '2026-11', spent: 12, limit: 200, currency: 'USD' },
+  }))
+  const { getByTestId } = render(<StatusBar />)
+  expect(getByTestId('status-bar-api-spend').textContent).toContain('0.5 USD')
+  expect(getByTestId('status-bar-api-spend').textContent).not.toContain('50')
+  expect(getByTestId('status-bar-api-wallet').textContent).toContain('12 / 200 USD')
+})
+
+it('shows a tab\'s amount that has no limit, and no shared line while the wallet has no figure', () => {
+  mockStatus.mockReturnValue(apiRow({
+    spend_scope: 'tab', spend: { month: '2026-11', spent: 0.5, limit: null, currency: 'USD' }, wallet_spend: null,
+  }))
+  const { getByTestId, queryByTestId } = render(<StatusBar />)
+  expect(getByTestId('status-bar-api-spend').textContent).toContain('0.5 USD')
+  expect(queryByTestId('status-bar-api-wallet')).toBeNull()
+})

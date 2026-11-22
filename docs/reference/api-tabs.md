@@ -134,7 +134,8 @@ and every rollover.
 - `context_window`: the size of the window the program uses now, a positive whole number. With it the list and the top
   bar show the context in percent (`42%`, coloured like a Claude tab's `ctx`); without it they show the amount
 - `spend`: this month's spend of the tab, in the shape of [the spend file](#the-spend-file) (`updated_at` may be left
-  out). The top bar of the tab shows it as the tab's own; the settings screen still shows the wallet's whole spend
+  out, and so may `limit`: the tabs share their wallet's limit). The top bar of the tab shows the amount as the tab's
+  own, without a limit, and next to it the wallet's spend against the shared limit (the settings screen shows that too)
 - `settings_fields`: the settings the settings screen may change. Each has `key` (`[a-z0-9_]+`), `label`, `unit`
   (optional), `min`, `max`, `default` (`min <= default <= max`) and `step` (optional, positive)
 - A row whose name or record is wrong is left out; a figure of the wrong type counts as none. Other fields are not read
@@ -183,5 +184,5 @@ list file (the same reason at most once an hour).
 
 The row of an API tab in `GET /sessions` and the overview has `kind: "api"`, `context_tokens` and `context_window`
 (the overview also its `title`, which a source may change); the status channel gives it a row of its own kind (`kind`,
-`context_tokens`, `context_window`, `spend`, and `spend_scope`: `tab` for a source's tab, `wallet` for a tab of
-`api_tabs`) and none of a Claude tab's 5h / 7d / context figures (see `contracts/schema/http-endpoints.yaml`).
+`context_tokens`, `context_window`, `spend`, `spend_scope`: `tab` for a source's tab, `wallet` for a tab of
+`api_tabs`, and `wallet_spend`: the spend of the wallet the tab names) and none of a Claude tab's 5h / 7d / context figures (see `contracts/schema/http-endpoints.yaml`).

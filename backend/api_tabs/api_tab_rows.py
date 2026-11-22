@@ -28,23 +28,26 @@ SPEND_OF_WALLET = "wallet"
 
 @dataclass(frozen=True)
 class TabFigures:
-    """What a row shows of a tab now: the context amount, the size of the window (None when not known) and the spend
-    this month with whose it is."""
+    """What a row shows of a tab now: the context amount, the size of the window (None when not known), the spend
+    this month with whose it is, and the spend of the wallet the tab shares."""
     context_tokens: int | None
     context_window: int | None
     spend: Spend | None
     spend_scope: str
+    wallet_spend: Spend | None
 
 
 def figures_of(tab: ApiTab, now: datetime) -> TabFigures:
     """The figures of `tab`: from its source when a source lists it (= the source's own count, which is 0 right after it
     rolled the conversation over), else counted from its record, with its wallet's spend."""
+    wallet_spend = stream.spend(tab.account, now)
     if tab.source is None:
-        return TabFigures(stream.context_tokens(tab.id), None, stream.spend(tab.account, now), SPEND_OF_WALLET)
+        return TabFigures(stream.context_tokens(tab.id), None, wallet_spend, SPEND_OF_WALLET, wallet_spend)
     listed = sources.figures(tab.source, tab.name)
     return TabFigures(context_tokens=None if listed is None else listed.context_tokens,
                       context_window=sources.context_window(tab.source),
-                      spend=None if listed is None else this_months(listed.spend, now), spend_scope=SPEND_OF_TAB)
+                      spend=None if listed is None else this_months(listed.spend, now), spend_scope=SPEND_OF_TAB,
+                      wallet_spend=wallet_spend)
 
 
 def _now() -> datetime:
@@ -83,12 +86,13 @@ def overview_row(tab: ApiTab, now: datetime) -> dict:
 
 
 def status_row(tab: ApiTab, now: datetime) -> dict:
-    """The tab in the status channel: only its context amount and window, and its spend this month (None when there is
-    no figure) with whose it is. It is a row of its own kind, never a Claude row with empty fields, so the bar cannot
-    show a `NaN%`."""
+    """The tab in the status channel: only its context amount and window, its spend this month (None when there is
+    no figure) with whose it is, and its wallet's spend (= the limit the tabs share). It is a row of its own kind, never
+    a Claude row with empty fields, so the bar cannot show a `NaN%`."""
     figures = figures_of(tab, now)
     return {"kind": API_KIND, "context_tokens": figures.context_tokens, "context_window": figures.context_window,
-            "spend": None if figures.spend is None else figures.spend.to_dict(), "spend_scope": figures.spend_scope}
+            "spend": None if figures.spend is None else figures.spend.to_dict(), "spend_scope": figures.spend_scope,
+            "wallet_spend": None if figures.wallet_spend is None else figures.wallet_spend.to_dict()}
 
 
 def list_rows(now: datetime | None = None) -> list[dict]:

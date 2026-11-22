@@ -315,3 +315,21 @@ def test_threads_that_ask_at_once_after_a_change_get_one_table(source_env):
         thread.join()
     assert len({id(table) for table in tables}) == 1
     assert api_tab_table._loaded[2] is tables[0]
+
+
+def test_a_tab_may_leave_the_limit_out_and_shows_the_limit_of_the_wallet_it_shares(source_env):
+    row = _row("g-a", source_env.folder, spent=0.19)
+    del row["spend"]["limit"]
+    _write_tabs(source_env, row)
+    source_env.spend.write_text(json.dumps({"month": "2026-11", "spent": 12, "limit": 200, "currency": "USD"}))
+    _poll()
+    shown = status_rows(NOW)["api_g-a"]
+    assert (shown["spend"]["spent"], shown["spend"]["limit"]) == (0.19, None)
+    assert (shown["wallet_spend"]["spent"], shown["wallet_spend"]["limit"]) == (12, 200)
+
+
+def test_a_wallets_file_still_needs_its_limit(source_env):
+    _write_tabs(source_env, _row("g-a", source_env.folder))
+    source_env.spend.write_text(json.dumps({"month": "2026-11", "spent": 12, "currency": "USD"}))
+    _poll()
+    assert status_rows(NOW)["api_g-a"]["wallet_spend"] is None
