@@ -4,20 +4,7 @@ import {
   getSnapshot as getUiSnapshot,
   setScroll,
 } from '../../state/ui.js'
-import { nextStuck, AT_BOTTOM_THRESHOLD_PX, SCROLL_SETTLE_MS } from './stickToBottom.js'
-
-// 最下端へ一瞬で飛ぶ。 `.messages` は CSS で scroll-behavior: smooth なので、 scrollTop への代入は
-// アニメーションになる。 アニメーションの目標は開始時点の最下端に固定され、 途中で中身が伸びると
-// 手前で止まり、 送り直すと iOS Safari は途中で打ち切ったり少し戻ったりする (= 2026-09-23 の実機
-// 計測で iPhone だけ 100-1,500px 手前に止まっていた)。 自前の追従は behavior: 'instant' で飛ぶ
-// (= 指のスクロールには影響しない)。
-function jumpToBottom(el) {
-  if (typeof el.scrollTo === 'function') {
-    el.scrollTo({ top: el.scrollHeight, behavior: 'instant' })
-  } else {
-    el.scrollTop = el.scrollHeight
-  }
-}
+import { nextStuck, jumpToBottom, AT_BOTTOM_THRESHOLD_PX, SCROLL_SETTLE_MS } from './stickToBottom.js'
 
 // 通常 column (古い→新しい が DOM 上→下) で、 JS で底辺へ scroll する古典構成。
 //
