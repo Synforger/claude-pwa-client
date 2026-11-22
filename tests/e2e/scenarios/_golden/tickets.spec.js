@@ -1,5 +1,5 @@
-// Golden path: a request one tab keeps as a ticket shows on the operator's screen. 🎫 beside ⭐ counts the tickets
-// that want a look (this tab / all) and opens the list; the list names each one's request, what it asks, who holds it and how long ago it moved; the ticket
+// Golden path: a request one tab keeps as a ticket shows on the operator's screen. The first row of the tab list and 🎫
+// beside ⭐ count the tickets that want a look and open the list; the list names each one's request, what it asks, who holds it and how long ago it moved; the ticket
 // screen pins the operator's original words and draws the lines as plain text; answering it moves the ticket out of the
 // first group; and a ticket handed over reaches the chat as one line that opens the ticket.
 //
@@ -73,12 +73,20 @@ test.describe('golden: tickets', () => {
     await page.screenshot({ path: testInfo.outputPath('tickets-count-narrow.png') })
     await page.setViewportSize(bandWide)
 
-    await openTicketList(page)
+    // The first row of the tab list has the number too, at both widths; it opens the list.
+    await page.locator('[data-testid=drawer-toggle]').click()
+    const listRow = page.locator('[data-testid=drawer-tickets-open]')
+    await expect(listRow).toContainText('1')
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(listRow).toBeInViewport()
+    await page.screenshot({ path: testInfo.outputPath('tickets-drawer-row-narrow.png'), animations: 'disabled' })
+    await page.setViewportSize(bandWide)
+    await listRow.click()
     const group = page.locator('[data-testid=ticket-group-attention]')
     await expect(group).toContainText(TITLE)
     await expect(group.locator(`[data-ticket="${id}"]`)).toHaveCount(1)
     await expect(group).toContainText('Decide')
-    await expect(page.locator('[data-testid=ticket-section-own]')).toContainText(TITLE)   // the open tab holds it
+    await expect(group).toContainText('tab A')   // the row names the tab that holds it
     await page.screenshot({ path: testInfo.outputPath('tickets-list.png') })
 
     await group.locator(`[data-ticket="${id}"]`).click()
@@ -141,9 +149,9 @@ test.describe('golden: tickets', () => {
     await expect(page.locator('[data-testid=ticket-heading]')).toContainText(TITLE)
   })
 
-  test('the list has the waiting group, a mark and a due date on the rows, and each other tab has its heading', async ({ page, request }, testInfo) => {
+  test('the list has the waiting group, a mark and a due date on the rows, and opens from the first row of the tab list', async ({ page, request }, testInfo) => {
     const tab = await seedSession(request, 'e2e-tab-a')
-    // One tab holds one ticket each, so each has its heading in the list.
+    // One tab holds one ticket each: the list must not split them by tab.
     const holders = { run: await seedSession(request, 'e2e-send-empty'), wait: await seedSession(request, 'e2e-reconcile-empty'), plain: await seedSession(request, 'e2e-chat-basic') }
     const run = `Due soon ${Date.now()}`, wait = `Set aside ${Date.now()}`, plain = `Plain wait ${Date.now()}`, late = `Late ask ${Date.now()}`, done = `Done ${Date.now()}`
 
@@ -159,16 +167,24 @@ test.describe('golden: tickets', () => {
 
     const made = [[overdueId, tab.sid], [dueSoonId, holders.run.sid], [waitId, holders.wait.sid], [plainId, holders.plain.sid]]
     try {
-      await openClient(page, { sid: tab.sid })
+      // On the desktop the tab list is kept on the left and stays; on the phone it is laid over and shuts.
+      const docked = testInfo.project.name === 'chromium-desktop'
+      await openClient(page, { sid: tab.sid, docked })
       await expect(page.locator('[data-testid=tickets-count]')).toHaveText('1/1', { timeout: 20_000 })
-      await openTicketList(page)
-      await expect(page.locator(`[data-testid=ticket-section-own] [data-ticket="${overdueId}"]`)).toHaveCount(1)
-      const heldBy = (holder) => page.locator(`[data-testid=ticket-holder][data-holder="${holder.sid}"]`)
-      await expect(heldBy(holders.wait)).toContainText(wait)
-      await expect(heldBy(holders.run)).toContainText(run)
-      await expect(page.locator(`[data-testid=ticket-row][data-ticket="${overdueId}"]`)).toHaveCount(1)   // never twice
+      if (!docked) await page.locator('[data-testid=drawer-toggle]').click()
+      const listRow = page.locator('[data-testid=drawer-tickets-open]')
+      await expect(listRow).toContainText('1')
+      await page.screenshot({ path: testInfo.outputPath('tickets-drawer-row.png'), animations: 'disabled' })
+      await listRow.click()
+      await expect(page.locator(`[data-testid=ticket-row][data-ticket="${overdueId}"]`)).toHaveCount(1)
+      const groups = page.locator('[data-testid^=ticket-group-]:not([data-testid=ticket-group-toggle])')
+      await expect(groups).toHaveCount(4)
+      expect(await groups.evaluateAll((els) => els.map((el) => el.dataset.testid)))
+        .toEqual(['ticket-group-attention', 'ticket-group-running', 'ticket-group-waiting', 'ticket-group-closed'])
       const rowOf = (group, id) => page.locator(`[data-testid=ticket-group-${group}] [data-ticket="${id}"]`)
-      const waiting = heldBy(holders.wait).locator('[data-testid=ticket-group-waiting]')
+      const waiting = page.locator('[data-testid=ticket-group-waiting]')
+      await expect(page.locator('[data-testid=ticket-group-attention]')).toBeInViewport()   // what waits for the operator is at the top
+      await page.screenshot({ path: testInfo.outputPath('tickets-list-top.png'), animations: 'disabled' })
       await expect(rowOf('waiting', waitId)).toContainText(wait)
       await expect(rowOf('waiting', waitId).locator('[data-testid=ticket-row-mark]')).toHaveText('⏰')
       await expect(rowOf('waiting', waitId).locator('[data-testid=ticket-row-due]')).toHaveText(`Due ${dayFromToday(1)}`)
@@ -189,12 +205,6 @@ test.describe('golden: tickets', () => {
       await page.setViewportSize({ width: 390, height: 844 })
       await expect(waiting).toBeVisible()
       await page.screenshot({ path: testInfo.outputPath('tickets-groups-narrow.png') })
-
-      // A tab's heading goes to that tab, and 🎫 then counts for it
-      await heldBy(holders.run).locator('[data-testid=ticket-holder-open]').click()
-      await expect(page.locator('[data-testid=ticket-drawer]')).toHaveCount(0)
-      await expect(page.locator('[data-testid=tickets-count]')).toHaveText('0/1')
-      await page.screenshot({ path: testInfo.outputPath('tickets-other-tab-narrow.png') })
     } finally {
       await closeAll(request, made)
     }

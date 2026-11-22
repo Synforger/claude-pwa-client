@@ -50,6 +50,8 @@ import {
   setLang,
 } from '../../state/locale.js'
 import { useT } from '../../i18n/t.js'
+import { subscribe as subscribeTickets, getSnapshot as getTicketsSnapshot } from '../../state/tickets.js'
+import { attentionCount } from '../tickets/ticketGroups.js'
 import { runningBuildId } from '../../_common/appUpdate.js'
 import './SessionDrawer.css'
 
@@ -70,6 +72,9 @@ const MENU_FLIP_UP_THRESHOLD_PX = 140
 export default function SessionDrawer() {
   // store 直接 subscribe (= sessions list / activeId / agents / sessionActivity / unreadDone)
   const sessionsSnap = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
+  const { tickets } = useSyncExternalStore(subscribeTickets, getTicketsSnapshot)
+  // 列の先頭の「票」 の行に出す、 操作者が動く票の数 (= 全部のタブの分)
+  const ticketsToLookAt = attentionCount(tickets)
   const messages = useSyncExternalStore(subscribeMessages, getMessagesSnapshot)
   const ephem = useSyncExternalStore(subscribeEphemeral, getEphemeralSnapshot)
   // メモと markdown のプレビューの字の大きさ (= 本文の上のピンチと同じ 1 つの値)
@@ -112,7 +117,7 @@ export default function SessionDrawer() {
 
   // 各種 callback (= 旧 AppShell からの props を内蔵化)
   const onClose = useCallback(() => setDrawerOpen(false, { docked }), [docked])
-  // What follows choosing or making a tab, or opening settings: the overlay form shuts, the docked form stays open
+  // What follows choosing or making a tab, or opening tickets or settings: the overlay form shuts, the docked form stays open
   const closeAfterAction = useCallback(() => { if (!docked) onClose() }, [docked, onClose])
   const onSelect = selectTab
   const onCreate = useCallback((agentId, accountId) => createSession(agentId, accountId), [])
@@ -445,6 +450,16 @@ export default function SessionDrawer() {
         </div>
 
         <div className="drawer-list">
+          {/* 票の一覧の入口。 タブの列の先頭に、 列の folder の行と同じ形で置く */}
+          <button
+            className="drawer-folder"
+            onClick={() => { setOverlay('tickets', true); closeAfterAction() }}
+            data-testid="drawer-tickets-open"
+          >
+            <span className="drawer-item-fold" aria-hidden="true">🎫</span>
+            <span className="drawer-folder-name">{t('drawer.tickets')}</span>
+            {ticketsToLookAt > 0 && <span className="drawer-item-hidden">{ticketsToLookAt}</span>}
+          </button>
           {sessions.length === 0 && (
             <div className="drawer-empty">{t('drawer.empty')}</div>
           )}
