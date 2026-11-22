@@ -203,8 +203,8 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   `<同じ host>:<port>/<folder の中の path>` が開き、 ページが `localStorage` に残した物は次に開いた時も残る
   (= `/file/view` は sandbox でページの origin を毎回作り直すので、 何も残らない)。 folder の中のページは 1 つの origin を
   共有する。 backend の口にもほかの host にも通信できない所は `/file/view` と同じ。 ページが fetch できるのは、 その port の
-  保存箱 (= 下) と、 ページの folder とその下の file だけ (= 横の目次が、 同じ folder のトップページを読んで全部のページを
-  並べられる。 隣の folder のページは読めない)。 ページが上の画面 (= 枠に嵌めて開いた時の、
+  保存箱 (= 下) と、 ページの folder とその下の file と、 `pages/<タブ>/` の枝の folder に在るページではそのタブの
+  `index.html` だけ (= 横の目次が、 タブのトップページを読んで全部のページを並べられる。 隣の folder のページは読めない)。 ページが上の画面 (= 枠に嵌めて開いた時の、
   枠の外の画面) を別の頁へ移すこと (= `target="_top"`・`top.location`) は封じる (= 閉じる ✕ で必ず元の画面へ戻れるように)。
   それ以外 (= スクリプト・フォーム・ポップアップ・ダイアログ・ダウンロード) は使える。 backend は `127.0.0.1:<port>` で待ち受けるので、
   Tailscale 越しに使う時は同じ番号を tailnet に出す (= `tailscale serve --bg --https=<port> http://127.0.0.1:<port>`)。

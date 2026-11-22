@@ -530,6 +530,24 @@ def test_a_page_reads_only_its_own_folder_and_the_header_stays_ascii(tmp_path, m
     assert top.status_code == 200 and top.text == "<!doctype html><p>top</p>"
 
 
+@pytest.mark.parametrize("rel, top", [
+    ("階層 A/pages/tab/model/guide.html", "%E9%9A%8E%E5%B1%A4%20A/pages/tab/index.html"),
+    ("outer/pages/tab/pages/inner/a/b/guide.html", "outer/pages/tab/pages/inner/index.html"),
+    ("階層 A/pages/tab/guide.html", None),
+    ("階層 A/pages/guide.html", None),
+    ("deck/branch/guide.html", None),
+])
+def test_a_page_in_a_branch_folder_also_reads_the_top_page_of_its_tab_and_only_that_file(tmp_path, monkeypatch, rel, top):
+    # 意図: 枝の folder のページの横の目次が、 タブのトップページの一覧を読める。 広げるのはその 1 file だけ
+    page = tmp_path / "pages" / rel
+    page.parent.mkdir(parents=True)
+    page.write_text("<!doctype html><p>guide</p>")
+    client, _ = _page_client(tmp_path, monkeypatch, tmp_path / "pages")
+    csp = client.get(f"/{rel}").headers["content-security-policy"]
+    connect = next(part.split()[1:] for part in csp.split("; ") if part.startswith("connect-src "))
+    assert connect[2:] == ([] if top is None else [f"http://testserver:{_PAGE_PORT}/{top}"])
+
+
 def test_page_origin_keeps_the_folder_and_deny_list_boundaries(tmp_path, monkeypatch):
     _site(tmp_path)
     (tmp_path / "outside.html").write_text("<p>x</p>")
