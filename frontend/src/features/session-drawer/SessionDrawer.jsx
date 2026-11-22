@@ -52,6 +52,7 @@ import {
 import { useT } from '../../i18n/t.js'
 import { subscribe as subscribeTickets, getSnapshot as getTicketsSnapshot } from '../../state/tickets.js'
 import { attentionCount } from '../tickets/ticketGroups.js'
+import { useOpenPermissionWindows } from '../permission-window/useOpenPermissionWindows.js'
 import { runningBuildId } from '../../_common/appUpdate.js'
 import './SessionDrawer.css'
 
@@ -75,6 +76,8 @@ export default function SessionDrawer() {
   const { tickets } = useSyncExternalStore(subscribeTickets, getTicketsSnapshot)
   // 列の先頭の「票」 の行に出す、 操作者が動く票の数 (= 全部のタブの分)
   const ticketsToLookAt = attentionCount(tickets)
+  // 承認の窓が開いているタブ (= 行に 🔐 を出す)
+  const permissionWindowSids = useOpenPermissionWindows()
   const messages = useSyncExternalStore(subscribeMessages, getMessagesSnapshot)
   const ephem = useSyncExternalStore(subscribeEphemeral, getEphemeralSnapshot)
   // メモと markdown のプレビューの字の大きさ (= 本文の上のピンチと同じ 1 つの値)
@@ -545,6 +548,9 @@ export default function SessionDrawer() {
                       : <span className="drawer-item-fork-mark" title={t('drawer.fork')}>⑂</span>)}
                     <span className="drawer-item-title">{s.title}</span>
                     {!isApi && s.asleep && <span className="drawer-item-asleep" data-testid="session-asleep">💤</span>}
+                    {!isApi && permissionWindowSids.has(s.id) && (
+                      <span className="drawer-item-permission" data-testid="session-permission-window" title={t('drawer.permission_window')}>🔐</span>
+                    )}
                     {isFolded && <span className="drawer-item-hidden" title={t('drawer.hidden', { count: hidden })}>+{hidden}</span>}
                     <AccountPinMark session={s} accountCount={accounts.length} />
                     {accountLabel && <span className="drawer-item-account">{accountLabel}</span>}

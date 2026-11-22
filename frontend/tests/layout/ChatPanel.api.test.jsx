@@ -2,7 +2,7 @@
 //
 // The conversation of an API tab (no Claude Code behind it) is drawn as any other, but the place of the input holds one
 // line saying it is only shown, and nothing that needs a Claude Code is offered: no input, no stop, no attachment, no
-// fork, no sub-agents, no plan approval. A Claude tab's panel keeps its input. The parts that read the backend are
+// fork, no sub-agents, no plan approval, no permission window. A Claude tab's panel keeps its input. The parts that read the backend are
 // replaced; what is checked is which parts the panel mounts.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, cleanup } from '@testing-library/react'
@@ -31,7 +31,7 @@ vi.mock('../../src/features/attachments/useAttachments.js', () => ({
     removeAttachment: () => {}, clearAttachments: () => {} }),
 }))
 vi.mock('../../src/features/attachments/imageStore.js', () => ({ gcImages: () => Promise.resolve() }))
-vi.mock('../../src/features/status-bar/useStatus.js', () => ({ useStatus: () => ({ pending_plan: { plan: 'x' } }) }))
+vi.mock('../../src/features/status-bar/useStatus.js', () => ({ useStatus: () => ({ pending_plan: { plan: 'x' }, pending_permission: { number: 1 } }) }))
 vi.mock('../../src/features/push-notify/useSessionBadges.js', () => ({
   useSessionBadges: () => ({ unreadCount: 0, onOverviewPayload: () => {} }),
 }))
@@ -48,6 +48,9 @@ vi.mock('../../src/features/chat/MessageList.jsx', () => ({
 }))
 vi.mock('../../src/features/chat/AttachmentsBar.jsx', () => ({ default: () => <div data-testid="attachments-bar" /> }))
 vi.mock('../../src/features/plan-approval/PlanApprovalBubble.jsx', () => ({ default: () => <div data-testid="plan-bubble" /> }))
+vi.mock('../../src/features/permission-window/PermissionWindowDialog.jsx', () => ({
+  default: ({ sid }) => <div data-testid="permission-dialog" data-sid={sid} />,
+}))
 vi.mock('../../src/features/extensions/useExtensions.js', () => ({ usePageExtensionOpen: () => false }))
 vi.mock('../../src/features/voice/index.js', () => ({ setVoiceSender: () => {}, adoptAppCall: () => {} }))
 vi.mock('../../src/features/file-preview/openPath.js', () => ({ openLinkedPath: () => {} }))
@@ -62,12 +65,14 @@ const API = { id: 'api_support-bot', agent_id: 'agent_a', title: 'Support bot', 
 beforeEach(() => {
   setSessions([CLAUDE, API])
   setOverlay('planOpen', true)
+  setOverlay('permissionOpen', true)
   Object.assign(seen, { messageList: null, activityStatus: undefined, bannerSid: undefined })
 })
 afterEach(() => {
   cleanup()
   setSessions([])
   setOverlay('planOpen', false)
+  setOverlay('permissionOpen', false)
 })
 
 describe('ChatPanel of an API tab', () => {
@@ -79,10 +84,11 @@ describe('ChatPanel of an API tab', () => {
     expect(queryByTestId('api-tab-readonly').textContent).not.toMatch(/^chat\./)      // a real wording, not the key
   })
 
-  it('offers no input, no stop, no attachment, no plan approval', () => {
+  it('offers no input, no stop, no attachment, no plan approval, no permission window', () => {
     const { queryByTestId } = render(<ChatPanel sid="api_support-bot" />)
     expect(queryByTestId('chat-input')).toBeNull()
     expect(queryByTestId('plan-bubble')).toBeNull()
+    expect(queryByTestId('permission-dialog')).toBeNull()
     expect(document.querySelector('input[type="file"]')).toBeNull()
   })
 
@@ -95,6 +101,11 @@ describe('ChatPanel of an API tab', () => {
 })
 
 describe('ChatPanel of a Claude tab', () => {
+  it('mounts the permission window of its own tab when one is open', () => {
+    const { getByTestId } = render(<ChatPanel sid="ses_claude" />)
+    expect(getByTestId('permission-dialog').getAttribute('data-sid')).toBe('ses_claude')
+  })
+
   it('keeps the input and its fork, and shows no line about API tabs', () => {
     const { queryByTestId } = render(<ChatPanel sid="ses_claude" />)
     expect(queryByTestId('chat-input')).not.toBeNull()

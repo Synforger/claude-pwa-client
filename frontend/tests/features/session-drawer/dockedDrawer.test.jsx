@@ -13,6 +13,8 @@ vi.mock('../../../src/_common/api.js', () => ({
   }),
 }))
 
+vi.mock('../../../src/features/permission-window/useOpenPermissionWindows.js', () => ({ useOpenPermissionWindows: () => new Set() }))
+
 import SessionDrawer from '../../../src/features/session-drawer/SessionDrawer.jsx'
 import { useDockedDrawerRestore } from '../../../src/features/session-drawer/useDockedDrawer.js'
 import { setSessions, setActiveId, getSnapshot as getSessionsSnapshot } from '../../../src/state/sessions.js'

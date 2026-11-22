@@ -1,9 +1,10 @@
 // Golden path: the topbar in its most crowded form still fits a phone. Every button it can show is there at once:
-// ⭐, 🎫 with its number, 📋, 📑 (a plan waits for approval), 🖥 (screen sharing is set up) and 🧩. The rightmost button
-// must stay on the screen at 375 and 390 px, the widths of the phones the screen is used on.
+// ⭐, 🎫 with its number, 📋, 📑 (a plan waits for approval), 🔐 (a permission window is open), 🖥 (screen sharing is
+// set up) and 🧩. The rightmost button must stay on the screen at 375 and 390 px, the widths of the phones the screen
+// is used on.
 //
-// The plan is put into the tab's status through the e2e door, screen sharing through the e2e localStorage switch, and the
-// number through a ticket that asks the operator.
+// The plan and the permission window are put into the tab's status through the e2e doors, screen sharing through the
+// e2e localStorage switch, and the number through a ticket that asks the operator.
 
 import { test, expect } from '@playwright/test'
 import { seedSession } from '../../helpers/fixture.js'
@@ -29,8 +30,13 @@ test.describe('golden: topbar', () => {
         data: { plan: 'do step A', tool_use_id: 'tool_plan_topbar', choices: [{ key: '1', label: 'auto-accept' }] },
       })
       expect(plan.status()).toBe(200)
+      const permission = await request.post(`/debug/e2e/inject-pending-permission/${SID}`, {
+        data: { number: 1, input: { command: 'ls' } },
+      })
+      expect(permission.status()).toBe(200)
 
       await expect(page.locator('[data-testid=plan-approval-open-button]')).toBeVisible({ timeout: 15_000 })
+      await expect(page.locator('[data-testid=permission-window-open-button]')).toBeVisible()
       await expect(page.locator('[data-testid=screenshare-toggle]')).toBeVisible()
       await expect(page.locator('[data-testid=tickets-count]')).toHaveText('1/1', { timeout: 20_000 })
 
@@ -46,6 +52,7 @@ test.describe('golden: topbar', () => {
     } finally {
       const closed = await request.post(`/tickets/${id}/close`, { form: { from: SID, text: 'Done' } })
       expect(closed.ok()).toBeTruthy()   // it waits for the operator, which the next scenario must not see
+      await seedSession(request, 'e2e-chat-golden')   // seeding the tab again drops the plan and the window it was given
     }
   })
 })

@@ -221,6 +221,39 @@ async def post_e2e_inject_pending_plan(
     return {"ok": True}
 
 
+class PendingPermissionInjectRequest(BaseModel):
+    """`agent_status.pending_permission` as the status stream carries it (the backend and the screen agree on this shape)."""
+    number: int = Field(1)
+    tool_use_id: str | None = Field("toolu_e2e_permission")
+    tool_name: str = Field("Bash")
+    input: Any = Field(default_factory=lambda: {"command": "echo e2e"})
+    record_input: Any = Field(None)
+    index: int = Field(1)
+    count: int = Field(1)
+    opened_at: float = Field(1_700_000_000)
+
+
+@router.post("/e2e/inject-pending-permission/{session_id}")
+async def post_e2e_inject_pending_permission(
+    request: Request,
+    session_id: str,
+    body: PendingPermissionInjectRequest,
+) -> dict:
+    """Open a permission window on a tab: write pending_permission straight into agent_status[sid].
+
+    Same path as the plan injection above: the status stream delivers it on its next tick. Posting again replaces
+    the window (a new number, another position); seeding the tab again clears it.
+    """
+    _ensure_localhost(request)
+    _ensure_e2e_enabled()
+    from backend._common.state import agent_status, sessions_overview
+    if session_id not in agent_status:
+        raise HTTPException(status_code=409, detail="no session")
+    agent_status[session_id]["pending_permission"] = body.model_dump()
+    sessions_overview.notify()
+    return {"ok": True}
+
+
 class PtyWriteRequest(BaseModel):
     bytes_b64: str = Field(..., description="base64-encoded bytes to enqueue on the WS output side")
 

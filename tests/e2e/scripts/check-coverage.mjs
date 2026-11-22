@@ -19,6 +19,7 @@ const REQUIRED = [
   'file-preview',
   'notes',
   'plan-approval',
+  'permission-window',
   'ask-user-question',
   'push-notify',
   'attachments',

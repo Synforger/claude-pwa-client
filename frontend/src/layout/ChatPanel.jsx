@@ -43,6 +43,7 @@ import MessageList from '../features/chat/MessageList.jsx'
 import { sortByTs } from '../features/chat/sortByTs.js'
 import AttachmentsBar from '../features/chat/AttachmentsBar.jsx'
 import PlanApprovalBubble from '../features/plan-approval/PlanApprovalBubble.jsx'
+import PermissionWindowDialog from '../features/permission-window/PermissionWindowDialog.jsx'
 import { usePageExtensionOpen } from '../features/extensions/useExtensions.js'
 import { isApiTab } from '../_common/apiTab.js'
 import { useT } from '../i18n/t.js'
@@ -167,6 +168,11 @@ export default function ChatPanel({ sid }) {
   useEffect(() => {
     if (!status?.pending_plan && ui.overlays.planOpen) setOverlay('planOpen', false)
   }, [status?.pending_plan, ui.overlays.planOpen])
+
+  // The permission window's dialog closes by itself when the window is gone, as the plan's does.
+  useEffect(() => {
+    if (!status?.pending_permission && ui.overlays.permissionOpen) setOverlay('permissionOpen', false)
+  }, [status?.pending_permission, ui.overlays.permissionOpen])
 
   // Topbar ⋯ メニューの「ファイル添付」 が bump した時 hidden <input type="file"> を発火する。
   // Topbar は fileInputRef を持たない (= 疎結合)、 ephemeral の counter 変化を検知して click。
@@ -428,6 +434,15 @@ export default function ChatPanel({ sid }) {
             }).catch(() => {})
             setOverlay('planOpen', false)
           }}
+        />
+      )}
+
+      {/* Claude Code の承認の窓。 topbar の 🔐 ボタンで開き、 窓が消えたら上の effect が閉じる。 */}
+      {ui.overlays.permissionOpen && !isApi && status?.pending_permission && (
+        <PermissionWindowDialog
+          sid={activeSid}
+          pending={status.pending_permission}
+          onClose={() => setOverlay('permissionOpen', false)}
         />
       )}
 

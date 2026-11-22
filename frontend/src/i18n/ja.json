@@ -431,5 +431,17 @@
   "operator_reply.knob": "最後の答えを開く",
   "operator_reply.title": "最後の答え",
   "operator_reply.still_writing": "書いている途中",
-  "operator_reply.before_rollover": "入れ替えの前の最後の答え"
+  "operator_reply.before_rollover": "入れ替えの前の最後の答え",
+  "topbar.permission_window": "承認の窓",
+  "topbar.permission_window_label": "承認の窓が開いています",
+  "drawer.permission_window": "承認の窓が開いています",
+  "permission_window.title": "承認待ち",
+  "permission_window.position": "{index} / {count}",
+  "permission_window.allow": "許す",
+  "permission_window.deny": "断る",
+  "permission_window.rewritten": "番人が書き換えた",
+  "permission_window.input_running": "走る入力",
+  "permission_window.input_original": "元の入力",
+  "permission_window.no_input": "(入力なし)",
+  "permission_window.send_failed": "答えを送れませんでした。 もう一度押してください"
 }
