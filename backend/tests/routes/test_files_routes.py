@@ -414,9 +414,10 @@ def _with_config(monkeypatch, cfg):
     config_mod.get_config.cache_clear()
 
 
-def _with_page_origin(monkeypatch, folder, port=_PAGE_PORT, listening=True):
+def _with_page_origin(monkeypatch, folder, port=_PAGE_PORT, listening=True, folders=None):
     import backend.routes.files as files_mod  # noqa: PLC0415
-    _with_config(monkeypatch, {"page_origin": {"folder": str(folder), "port": port}})
+    listed = {} if folders is None else {"folders": folders}
+    _with_config(monkeypatch, {"page_origin": {"folder": str(folder), "port": port, **listed}})
     monkeypatch.setattr(files_mod, "page_listening", listening)
 
 
@@ -577,6 +578,8 @@ def test_page_origin_serves_nothing_without_the_setting(tmp_path, monkeypatch):
     ({"folder": "~", "port": True}, "port must be a port number"),
     ({"folder": "~", "port": 70000}, "port must be a port number"),
     ({"folder": "/no/such/folder", "port": 8799}, "is not a directory"),
+    ({"folder": "~", "port": 8799, "folders": "pages"}, "folders must be a list"),
+    ({"folder": "~", "port": 8799, "folders": ["../pages"]}, "is not a folder"),
 ])
 def test_page_origin_setting_mistakes_are_reported_and_ignored(monkeypatch, raw, problem):
     import backend._common.config as config_mod  # noqa: PLC0415
@@ -594,6 +597,43 @@ def test_page_origin_setting_resolves_the_folder(tmp_path, monkeypatch):
     assert config_mod.page_origin() == ((tmp_path / "real").resolve(), _PAGE_PORT)
     _with_config(monkeypatch, {})
     assert config_mod.page_origin() is None
+
+
+def test_page_origin_serves_only_the_listed_folders(tmp_path, monkeypatch):
+    agent = tmp_path / "pages" / "agent"
+    for rel in ("pages/tab/index.html", "rules/index.html"):
+        (agent / rel).parent.mkdir(parents=True)
+        (agent / rel).write_text("<p>x</p>")
+    (agent / "pages" / "tab" / "away.html").symlink_to(agent / "rules" / "index.html")
+    client, _ = _page_client(tmp_path, monkeypatch, tmp_path / "pages")
+    _with_page_origin(monkeypatch, tmp_path / "pages", folders=["*/pages"])
+    assert client.get("/agent/pages/tab/index.html").status_code == 200
+    assert client.get("/agent/rules/index.html").status_code == 403
+    assert client.get("/agent/pages/%2E%2E/rules/index.html").status_code == 403
+    assert client.get("/agent/pages/tab/away.html").status_code == 403   # a link is judged by where it ends
+    json_body = {"content": b"{}", "headers": {"content-type": "application/json"}}
+    assert client.put("/.store/agent/pages/tab/index.html", **json_body).status_code == 204
+    assert client.get("/.store/agent/rules/index.html").status_code == 403
+    assert client.put("/.store/agent/rules/index.html", **json_body).status_code == 403
+
+
+def test_file_open_keeps_a_page_outside_the_list_on_the_sandboxed_view(tmp_path, monkeypatch):
+    client, _ = _raw_client(tmp_path, monkeypatch)
+    site = _site(tmp_path)
+    page = str(site / "index.html")
+    _with_page_origin(monkeypatch, tmp_path / "pages", folders=["other"])
+    res = client.get("/file/open", params={"path": page}, follow_redirects=False)
+    assert res.headers["location"] == "view/" + page.lstrip("/")
+    _with_page_origin(monkeypatch, tmp_path / "pages", folders=["deck"])
+    res = client.get("/file/open", params={"path": page}, follow_redirects=False)
+    assert res.headers["location"] == f"http://testserver:{_PAGE_PORT}/deck/index.html"
+
+
+def test_page_origin_with_a_mistaken_list_serves_nothing(tmp_path, monkeypatch):
+    _site(tmp_path)
+    client, _ = _page_client(tmp_path, monkeypatch, tmp_path / "pages")
+    _with_page_origin(monkeypatch, tmp_path / "pages", folders="deck")
+    assert client.get("/deck/index.html").status_code == 404
 
 
 # --- 保存箱 (= ページの origin の `/.store/<ページの path>`) ---

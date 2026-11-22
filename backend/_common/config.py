@@ -30,6 +30,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from backend._common.page_folders import folder_list_problem
 from backend._common.paths import CONFIG_PATH, DOCUMENT_CACHE_DIR, RATE_LIMITS_LOG_DEFAULT, UPLOADS_TMP_DIR
 
 logger = logging.getLogger(__name__)
@@ -306,6 +307,9 @@ def _scan_page_origin() -> tuple[tuple[Path, int] | None, list[str]]:
         problems.append("config.page_origin.folder must be a path")
     if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
         problems.append(f"config.page_origin.port must be a port number, got {port!r}")
+    listed_problem = folder_list_problem(raw.get("folders"))
+    if listed_problem:
+        problems.append(listed_problem)
     if problems:
         return None, problems
     path = Path(folder).expanduser().resolve()
@@ -317,6 +321,15 @@ def _scan_page_origin() -> tuple[tuple[Path, int] | None, list[str]]:
 def page_origin() -> tuple[Path, int] | None:
     """sandbox を外して配る folder と、 それを配る port (= 書いていなければ None)。"""
     return _scan_page_origin()[0]
+
+
+def page_folders() -> tuple[str, ...] | None:
+    """page_origin の folder の中で配る folder の一覧 (= None は folder の全部)。 一覧の書き損じは page_origin ごと
+    None になり、 何も配らない。"""
+    if page_origin() is None:
+        return None
+    listed = get_config()["page_origin"].get("folders")
+    return None if listed is None else tuple(listed)
 
 
 # --- 資料 (= pdf・Office・tif を頁の画像に変えた物の控え) ---
