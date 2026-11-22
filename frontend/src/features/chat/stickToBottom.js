@@ -1,4 +1,4 @@
-// チャットが最下端に「張り付いている」 かの判定 (= use-stick-to-bottom と同じ決まり)。
+// チャットと票の画面が最下端に「張り付いている」 かの判定 (= use-stick-to-bottom と同じ決まり)。
 //
 // 張り付きが外れるのは、 ユーザが上へスクロールした時だけ (= scrollTop が前回より減った)。
 // 最下端からの距離では外さない: 最下端へ送った直後に中身が伸びる (= Markdown / コードの色付け /
@@ -25,4 +25,17 @@ export function nextStuck({ stuck, prevTop, top, scrollHeight, clientHeight, set
   // 1px 未満の揺れ (= 小数 scrollTop の丸め) は上スクロールとみなさない。
   if (top < prevTop - 1) return settling ? stuck : false
   return stuck
+}
+
+// 最下端へ一瞬で飛ぶ。 `.messages` は CSS で scroll-behavior: smooth なので、 scrollTop への代入は
+// アニメーションになる。 アニメーションの目標は開始時点の最下端に固定され、 途中で中身が伸びると
+// 手前で止まり、 送り直すと iOS Safari は途中で打ち切ったり少し戻ったりする (= 2026-09-23 の実機
+// 計測で iPhone だけ 100-1,500px 手前に止まっていた)。 自前の追従は behavior: 'instant' で飛ぶ
+// (= 指のスクロールには影響しない)。 票の画面も同じ飛び方を使う。
+export function jumpToBottom(el) {
+  if (typeof el.scrollTo === 'function') {
+    el.scrollTo({ top: el.scrollHeight, behavior: 'instant' })
+  } else {
+    el.scrollTop = el.scrollHeight
+  }
 }

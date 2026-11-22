@@ -7,6 +7,9 @@
 // `waiting` on an added line): the backend works the marks out. The marks that need days of silence (`waiting_stale`, `idle`)
 // are drawn in the unit tests; the operator's origin needs the operator's words from a tab's record, so it is there too.
 //
+// The ticket screen opens on the newest line (what the tab wrote last and the question it asks), follows a line that arrives while it is
+// open, and does not pull the screen back down while the operator has scrolled up to read the past (the same rule as the chat's).
+//
 // The e2e backend has no Claude process: the tickets are made through the backend's own doors (= what `tabs ticket` calls),
 // and the answer is written and queued as it is in production. Whether the answer then reaches a tab is not what is
 // looked at here (= backend/tests/tickets).
@@ -47,6 +50,23 @@ async function closeAll(request, tickets) {
     const res = await request.post(`/tickets/${id}/close`, { form: { from: sender, text: 'Done' } })
     expect(res.ok()).toBeTruthy()
   }
+}
+
+// `count` plain lines a tab wrote to a ticket, oldest first.
+async function addLines(request, id, sender, count) {
+  for (let number = 1; number <= count; number += 1) {
+    const res = await request.post(`/tickets/${id}/entries`, { form: { from: sender, text: `Progress line ${number}` } })
+    expect(res.ok()).toBeTruthy()
+  }
+}
+
+// Where the ticket screen's scroll box is: how far it is from its bottom, in px.
+const distanceFromBottom = (page) => page.locator('.ticket-body').evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)
+
+async function openTicketScreen(page, sid, id) {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(`/?ses=${encodeURIComponent(sid)}&ticket=${encodeURIComponent(id)}`, { waitUntil: 'domcontentloaded' })
+  await expect(page.locator('[data-testid=ticket-heading]')).toBeVisible()
 }
 
 async function ask(request, id, sender) {
@@ -227,6 +247,58 @@ test.describe('golden: tickets', () => {
       await setAside(request, id, tab.sid)
       await open()
       await expect(page.locator('[data-testid=ticket-status]')).toHaveText('Waiting')
+    } finally {
+      await closeAll(request, [[id, tab.sid]])
+    }
+  })
+
+  test('the ticket screen opens on the newest line, follows a new one, and stays put while the past is being read', async ({ page, request }, testInfo) => {
+    const tab = await seedSession(request, 'e2e-tab-a')
+    const id = await openTicket(request, tab.sid, { title: `Long ${Date.now()}` })
+    try {
+      await addLines(request, id, tab.sid, 16)
+      await ask(request, id, tab.sid)
+      await openTicketScreen(page, tab.sid, id)
+
+      // Opened on the newest: the question and the box that answers it are in view, the request at the top is not.
+      const asked = page.locator('[data-testid=ticket-entry][data-kind=asked]')
+      await expect(asked).toBeInViewport()
+      await expect(page.locator('[data-testid=ticket-answer-box]')).toBeInViewport()
+      await expect(page.locator('[data-testid=ticket-entry][data-kind=opened]')).not.toBeInViewport()
+      expect(await distanceFromBottom(page)).toBeLessThanOrEqual(1)
+      await page.screenshot({ path: testInfo.outputPath('ticket-long-opened-narrow.png'), animations: 'disabled' })
+
+      // A line that arrives while it is open: the screen goes with it.
+      await addLines(request, id, tab.sid, 1)
+      await expect(page.locator('[data-testid=ticket-entry]').last()).toContainText('Progress line 1', { timeout: 20_000 })
+      await expect(page.locator('[data-testid=ticket-entry]').last()).toBeInViewport()
+      expect(await distanceFromBottom(page)).toBeLessThanOrEqual(1)
+
+      // Scrolled up to read the past: the next line does not pull it back.
+      await page.locator('.ticket-body').evaluate((el) => { el.scrollTop = 0 })
+      await expect.poll(() => page.locator('.ticket-body').evaluate((el) => el.scrollTop)).toBe(0)
+      await page.screenshot({ path: testInfo.outputPath('ticket-long-reading-the-past-narrow.png'), animations: 'disabled' })
+      await request.post(`/tickets/${id}/entries`, { form: { from: tab.sid, text: 'Arrived while reading' } })
+      await expect(page.locator('[data-testid=ticket-entry]').last()).toContainText('Arrived while reading', { timeout: 20_000 })
+      await page.waitForTimeout(500)
+      expect(await page.locator('.ticket-body').evaluate((el) => el.scrollTop)).toBe(0)
+    } finally {
+      await closeAll(request, [[id, tab.sid]])
+    }
+  })
+
+  test('a short ticket opens whole, from its request to its question', async ({ page, request }, testInfo) => {
+    const tab = await seedSession(request, 'e2e-tab-a')
+    const id = await openTicket(request, tab.sid, { title: `Short ${Date.now()}` })
+    try {
+      await addLines(request, id, tab.sid, 1)
+      await ask(request, id, tab.sid)
+      await openTicketScreen(page, tab.sid, id)
+      await expect(page.locator('[data-testid=ticket-entry][data-kind=opened]')).toBeInViewport()
+      await expect(page.locator('[data-testid=ticket-entry][data-kind=asked]')).toBeInViewport()
+      await expect(page.locator('[data-testid=ticket-answer-box]')).toBeInViewport()
+      expect(await page.locator('.ticket-body').evaluate((el) => el.scrollTop)).toBe(0)
+      await page.screenshot({ path: testInfo.outputPath('ticket-short-opened-narrow.png'), animations: 'disabled' })
     } finally {
       await closeAll(request, [[id, tab.sid]])
     }
