@@ -151,6 +151,7 @@ export function useChatStream({
   // 届かなかった時に、 古い cache と窓の間の穴を残さないため (= historyCatchUp.js)。
   const dropSidCache = useCallback((targetSid) => {
     buffer.resetBuf(targetSid)
+    chatTransport.forgetConfirmed(targetSid)
     setMessages(prev => ({ ...prev, [targetSid]: [] }))
     removeSavedMessages(targetSid)
   }, [setMessages]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -254,6 +255,11 @@ export function useChatStream({
   // stream replay とも重複せず、 MessageList の ts ソートで時系列に並ぶ。 捨てなかった時は offset を前進させない
   // (= 永続 offset は useChatStorage のメッセージ保存に結合したまま、 = 描画・永続化した位置)。
   //
+  // 取り込み終えた位置は confirmed として memory にだけ残す。 stream の流し直しはその後ろから始まり (= GET と
+  // 同じ行を 2 回運ばない)、 この画面で同じタブを次に開く時の GET は `after` でその後ろだけを取る。 stream の frame
+  // では進めないので、 見ている間に届き損ねた行が在っても次の GET が埋める。 画面が立ち直った時の表示は
+  // localStorage から来る (= 末尾の書きかけが無い) ので、 mount で全部忘れて直近 N 行から取り直す。
+  //
   // 購読宣言 (= setSubscribedSids) は unified の電力設計: 宣言した sid だけ wire に乗る
   // (2026-07-14)。 legacy は no-op (= 全 sid 配信)。
   //
@@ -265,6 +271,7 @@ export function useChatStream({
     const { shown, voice } = subscribedRef.current
     chatTransport.setSubscribedSids([...new Set([...(shown ? [shown] : []), ...voice])])
   }, [])
+  useEffect(() => { chatTransport.forgetConfirmed() }, [])
   const voiceSids = useSyncExternalStore(subscribeVoice, voiceOnSids)
   useEffect(() => {
     subscribedRef.current.voice = voiceSids ? voiceSids.split(' ') : []
@@ -276,17 +283,19 @@ export function useChatStream({
     let cancelled = false
     ;(async () => {
       const since = chatTransport.getOffset(sid)
-      const data = await fetchHistory(sid, since)  // 取れない時は stream の replay が埋める
+      const after = chatTransport.getConfirmed(sid)
+      const data = await fetchHistory(sid, since, after)  // 取れない時は stream の replay が埋める
       if (data && !cancelled) {
         const dropped = ingestHistory(data, {
           sid,
           dropCache: dropSidCache,
           // 画面の位置が無い時は、 cache と窓の間に穴があるかが分からないので捨てない (= cache に重ねる)
-          dropWhenNotReached: since !== null,
+          dropWhenNotReached: since !== null || after !== null,
           ingest: ev => handleEventRef.current?.(sid, ev, true),
           isCancelled: () => cancelled,
         })
         if (dropped && !cancelled) chatTransport.advanceOffset(sid, data.pos)
+        if (!cancelled) chatTransport.confirmHistory(sid, data.pos)
       }
       if (!cancelled) { subscribedRef.current.shown = sid; declareSubscribed() }
     })()
@@ -300,6 +309,7 @@ export function useChatStream({
   // ただし activeSid の useStreamBuffer の表示 buffer は新しいタブ用に初期化する。
   useEffect(() => {
     if (!sid) return undefined
+    buffer.cancelAndFlush(sid)  // what waited to be drawn is drawn, not thrown away: no GET brings it again
     buffer.resetBuf(sid)
     return () => {
       buffer.cancelAndFlush(sid)

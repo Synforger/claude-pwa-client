@@ -64,6 +64,11 @@ class UnifiedTransport {
 
   // --- offsets (= in-memory は毎 frame 前進 / 永続化は useChatStorage のメッセージ保存に結合) ---
   private offsets: Record<string, number> = loadOffsets()
+  // sid → how far the history GET brought the tab, in this screen's memory only. Unlike the offsets (= advanced by
+  // frames, which can arrive ahead of a replay) it says that everything before it reached the messages in memory, so
+  // neither the stream nor the next GET brings those lines again. Never saved: after a reload the messages come from
+  // storage, which lacks the message that was still streaming.
+  private confirmed: Record<string, number> = {}
 
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private livenessTimer: ReturnType<typeof setInterval> | null = null
@@ -84,8 +89,10 @@ class UnifiedTransport {
   private buildUrl(): string {
     const parts: string[] = [`conn=${encodeURIComponent(this.connId)}`]
     const subs = Array.from(this.jsonlSids)
-      .map(sid => `${sid}:${Math.floor(this.offsets[sid] ?? -1) >= 0 ? Math.floor(this.offsets[sid]) : ''}`)
-      .map(s => s.endsWith(':') ? s.slice(0, -1) : s)
+      .map(sid => {
+        const from = this.replayFrom(sid)
+        return from === null || from < 0 ? sid : `${sid}:${from}`
+      })
     if (subs.length > 0) parts.push(`jsonl=${encodeURIComponent(subs.join(','))}`)
     if (this.viewSid) parts.push(`view=${encodeURIComponent(this.viewSid)}`)
     return `${API_BASE}/stream/unified?${parts.join('&')}`
@@ -262,6 +269,30 @@ class UnifiedTransport {
     return Number.isFinite(offset) ? Math.floor(offset) : null
   }
 
+  /** Where the stream's replay of a tab starts: the further of the offset and what the history GET brought. */
+  private replayFrom(sid: string): number | null {
+    const offset = this.getOffset(sid)
+    const confirmed = this.getConfirmed(sid)
+    if (offset === null) return confirmed
+    return confirmed === null ? offset : Math.max(offset, confirmed)
+  }
+
+  /** How far the history GET brought the tab on this screen, or null. */
+  getConfirmed(sid: string): number | null {
+    return this.confirmed[sid] ?? null
+  }
+
+  /** The history GET was taken in up to `pos`. */
+  confirmHistory(sid: string, pos: number): void {
+    if (Number.isFinite(pos) && pos >= 0) this.confirmed[sid] = Math.floor(pos)
+  }
+
+  /** The tab's messages in memory are no longer what the GET brought; without `sid`, those of every tab. */
+  forgetConfirmed(sid?: string): void {
+    if (sid === undefined) this.confirmed = {}
+    else delete this.confirmed[sid]
+  }
+
   /** GET で権威スナップショットを取り込んだ後、 offset をそこまで前進させる (= 単調)。
    *  以降 stream の replay 起点がそこになり、 stream は差分だけを流す。 */
   advanceOffset(sid: string, pos: number): void {
@@ -270,6 +301,7 @@ class UnifiedTransport {
 
   resetOffset(sid: string): void {
     delete this.offsets[sid]
+    this.forgetConfirmed(sid)
     this.flushOffsets()
   }
 
@@ -307,7 +339,7 @@ class UnifiedTransport {
         op: 'jsonl',
         sids: desired.map(sid => ({
           sid,
-          from: Number.isFinite(this.offsets[sid]) ? Math.floor(this.offsets[sid]) : null,
+          from: this.replayFrom(sid),
         })),
       },
     }).then(async res => {
@@ -418,6 +450,9 @@ export const unifiedJsonl = {
   flushOffsets: () => unifiedTransport.flushOffsets(),
   resetOffset: (sid: string) => unifiedTransport.resetOffset(sid),
   getOffset: (sid: string) => unifiedTransport.getOffset(sid),
+  getConfirmed: (sid: string) => unifiedTransport.getConfirmed(sid),
+  confirmHistory: (sid: string, pos: number) => unifiedTransport.confirmHistory(sid, pos),
+  forgetConfirmed: (sid?: string) => unifiedTransport.forgetConfirmed(sid),
   advanceOffset: (sid: string, pos: number) => unifiedTransport.advanceOffset(sid, pos),
   setSubscribedSids: (sids: string[]) => unifiedTransport.setJsonlSids(sids),
   setVoiceSids: (sids: string[]) => unifiedTransport.setVoiceSids(sids),

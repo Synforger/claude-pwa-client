@@ -122,6 +122,19 @@ def test_connect_replays_only_subscribed_sid_with_pos(unified_env):
     _run(run())
 
 
+def test_a_replay_carries_tool_results_as_the_history_does(unified_env, tmp_path):
+    _state, sid_a, _sid_b, _ensured = unified_env
+    with (tmp_path / f"{sid_a}.jsonl").open("a") as record:
+        record.write(json.dumps({"type": "user", "uuid": "r1", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "t1", "content": "x" * 9000},
+            {"type": "tool_result", "tool_use_id": "t2", "content": [
+                {"type": "image", "source": {"type": "base64", "data": "B" * 9000}}]}]}}) + "\n")
+    blocks = [block for frame in us._replay_frames(sid_a, 0) if frame["ev"].get("type") == "user"
+              for block in frame["ev"]["message"]["content"]]
+    assert len(blocks[0]["content"]) == 2000 and blocks[0]["full_chars"] == 9000
+    assert blocks[1]["content"] == [{"type": "image"}]
+
+
 def test_live_filter_only_subscribed_sid(unified_env):
     state, sid_a, sid_b, ensured = unified_env
 
