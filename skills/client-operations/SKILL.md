@@ -100,11 +100,15 @@ Persistent files cannot be recovered once lost. Protect them at two points: befo
 Before a kill, restart, move or path switch, copy the service's whole persistent area to a path **outside** the
 service's folder (a copy inside gets read by the service as a snapshot).
 
-- Take `state/<tool>/`, `config/<tool>/` and `secrets/<tool>/` of the platform root entirely, and any `config*.json`,
+- Take `state/<tool>/` and `config/<tool>/` of the platform root entirely, and any `config*.json`,
   `sessions*.json`, `*.db`, `*.sqlite` inside the repo (ignored by git or not). The client's
   `$AGENT_PLATFORM_ROOT/state/claude-pwa-client/backups/` is where updates put their copies.
+- Do not copy keys when the operation does not write them (a restart does not): note a checksum of each file under
+  `secrets/<tool>/` before, and see that it is the same after. Copy them only when the operation writes, moves or
+  deletes them, to a folder only the user can read (700, files 600), and remove that copy as soon as the checks after
+  the start have passed. A copy kept after that is one more place the keys can leak from.
 - **List the folder with `find -type f` before deciding what to copy.** A backup of the two or three files you know
-  misses the ones you did not know existed (a key, the tab list).
+  misses the ones you did not know existed (the tab list, say). A key found that way follows the line on keys.
 - Look at the copy with `ls -la`: no zero-byte files, no empty folders.
 - Without a backup, kill/restart/delete only after the operator said a backup is not needed.
 - If the operator says it might break or lose data ("is this safe?"), take the backup **first** and explain after.
