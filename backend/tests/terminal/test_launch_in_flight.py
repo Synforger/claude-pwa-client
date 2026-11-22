@@ -87,7 +87,7 @@ def pane(monkeypatch):
         keys.append(text or key)
         return True
 
-    async def fake_deliver(_sid, text):
+    async def fake_deliver(_sid, text, **_):
         delivered.append(text)
         return True
 
@@ -170,7 +170,7 @@ def test_a_launch_given_up_sends_its_held_messages_again(pane, monkeypatch):
     _, delivered = pane
     resent: list[str] = []
 
-    async def fake_send(_sid, payload, _key=None):
+    async def fake_send(_sid, payload, _key=None, **_):
         resent.append(payload["text"])
         return {"ok": True}
     monkeypatch.setattr(routes, "pty_send", fake_send)
@@ -200,7 +200,7 @@ def published(monkeypatch):
 def test_a_held_message_from_the_screen_that_is_not_taken_is_told_back(pane, published, monkeypatch):
     # Intent: the send answered "held" at once, so the screen showed the bubble as sent. When the message does not get
     # in, the screen is told by the send's id, and its bubble says it was not delivered.
-    async def not_taken(_sid, _text):
+    async def not_taken(_sid, _text, **_):
         return False
     monkeypatch.setattr(receipt, "deliver_to_woken", not_taken)
     input_ready.mark_starting(SID)
@@ -227,7 +227,7 @@ def test_a_held_message_that_is_taken_tells_the_screen_nothing(pane, published):
 
 
 def test_a_held_message_whose_resend_fails_after_a_launch_given_up_is_told_back(pane, published, monkeypatch):
-    async def failed_send(_sid, payload, _key=None):
+    async def failed_send(_sid, payload, _key=None, **_):
         return {"ok": False, "reason": "not_ready"}
     input_ready.mark_starting(SID)
 

@@ -82,6 +82,7 @@ from backend._common.errors import raise_error
 from backend.child_watch.child_work import hand_work
 from backend._common.state import sessions_meta
 from backend.peers import peer_send
+from backend.permission_window import window_hold
 from backend.peers.peer_call import (  # noqa: F401 (= re-exported: the tests and the other routes read them here)
     PEER_LIST_TIMEOUT_SEC,
     PEER_TABS_PATH,
@@ -94,7 +95,7 @@ from backend.terminal import input_ready
 from backend.terminal.first_message import LAUNCH_DISCOVER_SEC
 from backend.terminal.pane_order import deciding_launch, in_typing_order
 from backend.terminal.pty_discover import PaneState, claude_in_pane, register_claude_when_ready, scan_panes
-from backend.terminal.receipt import SCREEN_WAIT_SEC, StoppedBeforeTyping, deliver_to_woken, wait_for_claude_screen
+from backend.terminal.receipt import HELD, SCREEN_WAIT_SEC, StoppedBeforeTyping, deliver_to_woken, wait_for_claude_screen
 from backend.terminal.routes import pty_send
 from backend.terminal.runner import has_tmux_session, jsonl_path_for_session, tmux_send_keys
 from backend.terminal.session_resolver import (
@@ -123,9 +124,9 @@ OPERATOR_SAID_OTHER_MACHINE = "other_machine"
 # 連絡の id (= `peers/seen_message_ids.py`)。 送り手の backend が付ける uuid4 の 32 桁
 MESSAGE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 LOCAL_TABS_PATH = "/agent-messages/local-tabs"
-# What `pty_send` answers with `ok: False` when it typed nothing into the pane (= the claude was not listening, or the
-# launch it needed could not be typed).
-NOTHING_TYPED_REASONS = ("not_ready", "launch_failed")
+# What `pty_send` answers with `ok: False` when it typed nothing into the pane (= the claude was not listening, the
+# launch it needed could not be typed, or a window was open that does not keep what a command types).
+NOTHING_TYPED_REASONS = ("not_ready", "launch_failed", "window_open")
 # The two answers for a failure nobody foresaw. They differ in the one thing the sender needs to know: whether the
 # message may have reached the receiver, since sending it again then can put it there twice.
 NOT_SENT_CODE = "agent_message_not_sent"
@@ -564,23 +565,29 @@ async def _reopen_in_shell(tab_id: str) -> bool:
         return True
 
 
-async def deliver_message(tab_id: str, text: str, woke: bool) -> dict:
+async def deliver_message(tab_id: str, text: str, woke: bool, *, hold: bool = False, sender: str | None = None) -> dict:
     """Type `text` (= a message already in its envelope) into the tab and press Enter. A tab that `wake_tab` started
     (`woke`) is only said to have taken it when its record shows the message (after one rescue, see
     `terminal/receipt.py`); otherwise 409 `agent_message_not_taken`. A tab that was running already gets the plain
     `pty_send`, whose answer is that of the typing: an answer that says it did not type is refused with the code that
-    tells the sender whether the message may have arrived (`refuse_untyped`). A tab with a window open (a permission, a
-    question, a plan approval) answers `held: "window"`: the message is kept and typed when the window closes
-    (`permission_window/window_hold.py`), and is returned as it is, so that the sender is told it was kept, not delivered.
+    tells the sender whether the message may have arrived (`refuse_untyped`).
+
+    A tab with a window open (a permission, a question, a plan approval) answers `held: "window"` for a message of
+    another tab (`hold`): it is kept and typed when the window closes (`permission_window/window_hold.py`), also for a tab
+    just started, and is returned as it is so that the sender is told it was kept, not delivered (`sender` is the tab to tell
+    if it never arrives). A command of the client (`hold` false: a notice, an ask) is refused, and counts as not typed.
 
     A stop of the backend ends the waits for the record (`terminal/receipt.py`): `BackendStopping` when the text may have
     been typed, `StoppedBeforeTyping` when it was not."""
     if not woke:
-        result = await pty_send(tab_id, {"text": text, "enter": True}, None)
+        result = await pty_send(tab_id, {"text": text, "enter": True}, None, hold=hold, sender=sender)
         if not result.get("ok"):
             refuse_untyped(result)
         return result
-    if not await deliver_to_woken(tab_id, text):
+    taken = await deliver_to_woken(tab_id, text, hold=hold, sender=sender)
+    if taken == HELD:
+        return {"ok": True, "held": window_hold.HELD}
+    if not taken:
         raise_error(409, "agent_message_not_taken", "宛先が受け取りませんでした。 もう一度送ってください")
     return {"ok": True, "confirmed": True}
 
@@ -603,10 +610,11 @@ def _forget_if_not_delivered(message_id: str | None, result: dict) -> None:
         release(message_id)
 
 
-async def deliver_or_keep(tab_id: str, text: str) -> dict:
-    """Deliver `text` (= a message in its envelope), or keep it without waking the tab when the account hold has the
-    tab stopped and no account is clear for it to run on (`account_hold/hold_mail.py`): the hold hands it over once one
-    is. → the answer of the delivery, or `{"ok": True, "kept": True}`."""
+async def deliver_or_keep(tab_id: str, text: str, *, sender: str | None = None) -> dict:
+    """Deliver `text` (= a message of another tab, or of a ticket, in its envelope), or keep it without waking the tab when
+    the account hold has the tab stopped and no account is clear for it to run on (`account_hold/hold_mail.py`): the hold
+    hands it over once one is. → the answer of the delivery (`held: "window"` when a window is open on the tab, `sender`
+    being told if it never arrives), or `{"ok": True, "kept": True}`."""
     # Imported here: the account hold imports the account fallback, which sends its messages through this module.
     from backend.account_hold import hold_mail  # noqa: PLC0415
     # Up to the typing of the message nothing reached the receiver, so an error there says so; from the typing on it
@@ -617,7 +625,7 @@ async def deliver_or_keep(tab_id: str, text: str) -> dict:
             return {"ok": True, "kept": True}
         woke = await wake_tab(tab_id)
     with failing_as(UNCONFIRMED_CODE, UNCONFIRMED_MESSAGE):
-        return await deliver_message(tab_id, text, woke)
+        return await deliver_message(tab_id, text, woke, hold=True, sender=sender)
 
 
 async def send_to_peer(peer_name: str, tab: str, sender: str, text: str) -> dict:
@@ -692,7 +700,7 @@ async def post_agent_message(
             said, left_out = await operator_said_for(sender, receiver_id) if operator_said else (None, None)
             title = await sender_title(sender, receiver_id)
             message = envelope(sender, text, said, title)
-        result = await deliver_or_keep(receiver_id, message)
+        result = await deliver_or_keep(receiver_id, message, sender=sender)
     _forget_if_not_delivered(message_id, result)
     logger.info("agent message sender=%s receiver=%s chars=%d operator_said=%s ok=%s kept=%s",
                 sender, receiver_id, len(text), said is not None, result.get("ok"), result.get("kept", False))

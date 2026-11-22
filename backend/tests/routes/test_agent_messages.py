@@ -5,6 +5,7 @@ tmux と claude は立てない。 「宛先で claude が動いているか」 
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import sys
@@ -34,7 +35,7 @@ def typed(monkeypatch) -> list[tuple[str, dict]]:
     """端末へ打たれた物の記録。 claude は ses_idle 以外で動いている。"""
     calls: list[tuple[str, dict]] = []
 
-    async def fake_send(session_id, payload, idempotency_key=None):
+    async def fake_send(session_id, payload, idempotency_key=None, **_):
         calls.append((session_id, payload))
         return {"ok": True, "delivered": True}
 
@@ -44,7 +45,7 @@ def typed(monkeypatch) -> list[tuple[str, dict]]:
     async def fake_screen(session_id):
         return True
 
-    async def fake_deliver(session_id, text):
+    async def fake_deliver(session_id, text, **_):
         await fake_send(session_id, {"text": text, "enter": True}, None)
         return True
 
@@ -1111,7 +1112,7 @@ def test_a_message_that_was_not_delivered_hands_no_work(client, tabs, typed, mon
     noted = []
     monkeypatch.setattr(am, "hand_work", lambda sender, receiver: noted.append((sender, receiver)) or True)
 
-    async def refuse(session_id, payload, idempotency_key=None):
+    async def refuse(session_id, payload, idempotency_key=None, **_):
         return {"ok": False, "delivered": False}
     monkeypatch.setattr(am, "pty_send", refuse)
     _send(client)
@@ -1125,20 +1126,69 @@ def test_a_message_the_sender_says_hands_no_work_is_not_noted_as_work(client, ta
     assert noted == [] and len(typed) == 1
 
 
-def test_a_message_to_a_tab_with_a_window_open_is_kept_not_typed_and_the_sender_is_told_so(client, tabs, typed, monkeypatch):
-    """The message goes through the real `pty_send`: the Enter of a text typed at a window would confirm its first choice."""
+@pytest.fixture
+def window_open(tabs, typed, monkeypatch, tmp_path):
+    """The real `pty_send` for the receiver, whose pane shows a permission window (the screen, the record's call and the
+    hook's input), with the kept messages in a file of the test's own."""
+    import backend.routes.window_hold_wiring  # noqa: F401  (= what the kept messages are typed and told with)
     from backend._common.state import agent_status
     from backend.permission_window import window_hold, window_state
+    from backend.permission_window.window_screen import read_screen
     from backend.terminal import routes as terminal_routes
+    from backend.terminal import runner
+    from backend.tests.permission_window import screens
+    from backend.tests.permission_window.conftest import call_row
+
+    async def ready(_sid):
+        return True
     monkeypatch.setitem(agent_status, "ses_receiver", {"pending_plan": None, "pending_permission": None})
     monkeypatch.setattr(window_state, "_tabs", {})
-    monkeypatch.setattr(window_state, "_close_listeners", [])
+    monkeypatch.setattr(window_state.jsonl_watcher, "get_jsonl_for", lambda _sid: None)
     monkeypatch.setattr(window_hold, "_kept", {})
+    monkeypatch.setattr(window_hold, "_typers", {})
+    monkeypatch.setattr(window_hold, "_loaded", True)
+    monkeypatch.setattr(window_hold, "WINDOW_HOLD_PATH", tmp_path / "window_hold.json")
+    monkeypatch.setattr(runner, "capture_pane_ansi_tail", lambda _sid, lines=70: screens.approval("ls"))
+    monkeypatch.setattr(terminal_routes, "wait_ready", ready)
     monkeypatch.setattr(am, "pty_send", terminal_routes.pty_send)
+    window_state.fold_row("ses_receiver", call_row("toolu_1", "Bash", {"command": "ls"}))
     window_state.open_window("ses_receiver", "Bash", {"command": "ls"}, "p1", now=1.0)
+    window_state.note_screen("ses_receiver", read_screen(screens.approval("ls")))
+    return window_hold
+
+
+def test_a_message_to_a_tab_with_a_window_open_is_kept_not_typed_and_the_sender_is_told_so(client, tabs, typed, window_open):
+    """The message goes through the real `pty_send`: the Enter of a text typed at a window would confirm its first choice."""
     r = _send(client, text="while you wait at the window")
     assert r.status_code == 200
     assert r.json() == {"ok": True, "held": "window", "to": "ses_receiver", "operator_said": False}
     assert typed == []
-    [(kept, _send_id)] = window_hold._kept["ses_receiver"]
-    assert kept.startswith(am.OPENING) and "while you wait at the window" in kept
+    [kept] = window_open._kept["ses_receiver"]
+    assert kept.text.startswith(am.OPENING) and "while you wait at the window" in kept.text
+    assert kept.sender_tab == "ses_sender"
+
+
+def test_the_message_of_a_tab_just_started_is_said_to_be_kept_too(client, tabs, typed, monkeypatch):
+    """Not "delivered": a window can be open when the claude that was started is the one that took the message."""
+    async def held(session_id, text, **_):
+        return am.HELD
+    monkeypatch.setattr(am, "deliver_to_woken", held)
+    monkeypatch.setattr(am, "wake_tab", lambda sid: _true())
+    r = _send(client, text="to a tab just started")
+    assert r.json()["held"] == "window" and "confirmed" not in r.json()
+
+
+async def _true():
+    return True
+
+
+def test_a_command_of_the_client_is_refused_at_a_window_and_asks_the_sender_to_send_again(window_open):
+    """`hold` is false unless the caller says a message of another tab: a notice or an ask is not kept for later."""
+    from backend.terminal import routes as terminal_routes
+    from fastapi import HTTPException
+    assert am.deliver_message.__kwdefaults__["hold"] is False
+    result = asyncio.run(terminal_routes.pty_send("ses_receiver", {"text": "a notice", "enter": True}, None))
+    assert result == {"ok": False, "reason": "window_open"}
+    with pytest.raises(HTTPException) as refused:
+        am.refuse_untyped(result)
+    assert refused.value.detail["code"] == "agent_message_receiver_not_ready"

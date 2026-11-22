@@ -7,7 +7,9 @@ import json
 import pytest
 
 import backend.terminal.receipt as receipt
+from backend.permission_window.window_screen import read_screen
 from backend.tests.async_run import run
+from backend.tests.permission_window import screens
 
 CLAUDE_SCREEN = "some history\n╭─────╮\n│ >   │\n╰─────╯\n  5h:12% ctx:3%"
 LOADING = "Resuming conversation…"
@@ -52,7 +54,7 @@ def typing(monkeypatch, pane):
     """The typing and the record: `taken` is the answers of the waits for the row, in order (the last one stays)."""
     log = {"typed": 0, "enters": 0, "keys": [], "taken": [], "asked": [], "confirmed": False}
 
-    async def pty_send(session_id, payload, key=None):
+    async def pty_send(session_id, payload, key=None, **_):
         log["typed"] += 1
         return {"ok": True, "confirmed": log["confirmed"]}
 
@@ -181,7 +183,7 @@ def test_a_launch_given_up_is_not_typed_into(typing, monkeypatch):
 
 
 def test_a_typing_that_failed_is_not_waited_on(typing, monkeypatch):
-    async def failed(session_id, payload, key=None):
+    async def failed(session_id, payload, key=None, **_):
         return {"ok": False}
     monkeypatch.setattr(receipt, "pty_send", failed)
     assert run(receipt.deliver_to_woken("ses_x", TEXT)) is False
@@ -195,7 +197,7 @@ def test_a_message_queued_while_claude_answers_is_taken_without_an_enter(monkeyp
     record.write_text("")
     log = {"enters": 0}
 
-    async def pty_send(session_id, payload, key=None):
+    async def pty_send(session_id, payload, key=None, **_):
         with record.open("a") as out:
             out.write(json.dumps({"type": "queue-operation", "operation": "enqueue", "content": payload["text"]}) + "\n")
         return {"ok": True, "confirmed": False}
@@ -217,7 +219,7 @@ def launched(typing, monkeypatch):
     the wait for the text's row answers."""
     log = {"watched": [], "seen": True}
 
-    async def pty_send(session_id, payload, key=None):
+    async def pty_send(session_id, payload, key=None, **_):
         typing["typed"] += 1
         return {"ok": True, "launched": True}
 
@@ -261,24 +263,47 @@ def test_the_watch_for_a_launched_text_lasts_as_long_as_the_held_message_gets(ty
 
 def test_a_text_the_send_kept_for_a_window_is_taken_and_not_typed_again(typing, monkeypatch):
     """`window_hold` types a kept text itself, once, when the window is gone: the rescue must not type it a second time."""
-    async def kept(session_id, payload, key=None):
+    async def kept(session_id, payload, key=None, **_):
         typing["typed"] += 1
         return {"ok": True, "held": "window"}
     monkeypatch.setattr(receipt, "pty_send", kept)
-    assert run(receipt.deliver_to_woken("ses_x", TEXT)) is True
+    assert run(receipt.deliver_to_woken("ses_x", TEXT)) == receipt.HELD
     assert (typing["typed"], typing["enters"], typing["asked"]) == (1, 0, [])
+
+
+def test_a_text_typed_again_that_the_send_kept_is_held_and_not_typed_a_third_time(typing, pane, short_rescue, monkeypatch):
+    """The first typing was lost (the text is gone from the input) and a window is open now: the typing again is kept, and
+    the answer is that it is held."""
+    answers = [{"ok": True, "confirmed": False}, {"ok": True, "held": "window"}]
+
+    async def pty_send(session_id, payload, key=None, **_):
+        typing["typed"] += 1
+        return answers.pop(0)
+    monkeypatch.setattr(receipt, "pty_send", pty_send)
+    pane["screens"] = [CLAUDE_SCREEN]
+    assert run(receipt.deliver_to_woken("ses_x", TEXT)) == receipt.HELD
+    assert typing["typed"] == 2 and typing["enters"] == 0
+
+
+def test_a_command_the_send_refused_at_a_window_is_not_taken(typing, monkeypatch):
+    async def refused(session_id, payload, key=None, **kwargs):
+        typing["typed"] += 1
+        assert kwargs["hold"] is False
+        return {"ok": False, "reason": "window_open"}
+    monkeypatch.setattr(receipt, "pty_send", refused)
+    assert run(receipt.deliver_to_woken("ses_x", TEXT, hold=False)) is False
 
 
 def test_no_enter_is_typed_for_a_waiting_text_while_a_window_is_open(typing, pane, short_rescue, monkeypatch):
     """An Enter typed at a window confirms its first choice: the rescue leaves the waiting text alone until it is gone."""
-    monkeypatch.setattr(receipt.window_state, "is_holding", lambda _sid: True)
+    monkeypatch.setattr(receipt.window_answer, "look", lambda _sid: read_screen(screens.approval()))
     pane["screens"] = ["│ > Sent by the client (the operator did not type this):\n" + CLAUDE_SCREEN]
     assert run(receipt.deliver_to_woken("ses_x", TEXT)) is False
     assert (typing["enters"], typing["keys"]) == (0, [])
 
 
 def test_the_text_waiting_in_the_input_is_not_cleared_at_a_window_either(typing, pane, short_rescue, monkeypatch):
-    monkeypatch.setattr(receipt.window_state, "is_holding", lambda _sid: True)
+    monkeypatch.setattr(receipt.window_answer, "look", lambda _sid: read_screen(screens.approval()))
     pane["screens"] = ["│ > [Pasted text #1 +4 lines]\n" + CLAUDE_SCREEN]
     run(receipt.deliver_to_woken("ses_x", TEXT))
     assert typing["keys"] == []

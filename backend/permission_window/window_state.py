@@ -1,42 +1,46 @@
-"""The windows a tab's Claude Code has open, and what the screen is told about them (`agent_status.pending_permission`).
+"""What the client knows of a tab's permission windows, and what the screen is told (`agent_status.pending_permission`).
 
-A window is stood up by a `PermissionRequest` hook (`open_window`), tied to the tool call of the conversation record it
-asks about (`window_table.py`; the rows come through `fold_row`) and watched on the pane: the detector tells on each look
-whether a selection prompt is on the screen (`note_screen`), and a window that was seen and is then missing on two looks in
-a row is closed. A call's result row, a key typed for the answer, a restart, a new conversation and the end of the turn
-close windows too. `AskUserQuestion` and `ExitPlanMode` ask through the same hook but have a screen of their own: they are
-kept as windows without being shown (`is_open` says no, `is_holding` says yes), so that what is typed to the tab waits for
-them as it waits for a permission window.
+The screen decides whether a window is open (`note_screen`: the detector's looks, read by `window_screen.py`) and the
+record decides what it is (the oldest call without a result: `window_table.py`). A `PermissionRequest` hook carries the
+tool's whole input and is no evidence of a window: it is kept as the input the window shows. A window the screen shows
+that no hook came for is shown from the record's call, and is not answered by a key.
 
-Windows ask one at a time in the order of the record's calls: the one the pane shows is always the oldest.
+A window is answered by a key only when the screen has shown it since the last answer, the window offers `Yes` and `No`
+and nothing else, and the command of the hook's input is on the screen whole (`answerable`). The input box on two looks in
+a row ends the windows the client remembers (= `input_looks`, which also says when kept messages are typed).
 
-Used by `routes/hooks.py`, `routes/permission_window.py`, `jsonl/session_status.py`, `terminal/` (the detector, the send
-and the receipt), `sleep/`, `rollover/`, `child_watch/`, `window_hold.py` and `window_answer.py`.
+The table of the record's calls is read again from the record's turn when the backend has not seen its rows (a restart).
+
+Used by `routes/hooks.py`, `routes/permission_window.py`, `jsonl/session_status.py`, `terminal/` (the detector and the
+send), `sleep/`, `rollover/`, `child_watch/`, `window_hold.py` and `window_answer.py`.
 """
 from __future__ import annotations
 
+import json
 import logging
+import threading
 import time
-from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 
+import backend.jsonl.jsonl_watcher as jsonl_watcher
 from backend._common.state import agent_status, sessions_overview, stream_states
 from backend.permission_window import window_table
+from backend.permission_window.window_judgement import INPUT_LOOKS_TO_RELEASE, Kind, Situation
+from backend.permission_window.window_screen import ScreenKind, ScreenReading, is_yes_no, shows_command
 from backend.permission_window.window_table import CallTable
 
 logger = logging.getLogger(__name__)
 
-# The tools whose window is the screen's own (a plan to approve, a question to answer): kept, never shown as a permission.
-CHOICE_TOOLS = frozenset({"AskUserQuestion", "ExitPlanMode"})
-# How many looks in a row a window that was seen must be missing from the pane to be closed.
-SCREEN_MISSES_TO_CLOSE = 2
 # How long a window may stay open before the parent of a child that waits at it is told (= `child_watch`).
 PERMISSION_WAIT_SEC = 300
+# How much of the record's end is read at a time when a turn's rows are read again.
+_TAIL_CHUNK = 1 << 18
 
 
 @dataclass
 class Window:
-    """One window: what the hook said, the call of the record it belongs to, and whether the pane showed it."""
+    """One window: the input the hook gave (or the record's, when no hook came), and the call of the record it is."""
     number: int
     tool_name: str
     tool_input: dict
@@ -44,93 +48,116 @@ class Window:
     opened_at: float
     tool_use_id: str | None = None
     record_input: dict | None = None
-    seen: bool = False
-    misses: int = 0
-
-    @property
-    def is_permission(self) -> bool:
-        return self.tool_name not in CHOICE_TOOLS
+    from_hook: bool = True
 
 
 @dataclass
 class _TabWindows:
     table: CallTable = field(default_factory=CallTable)
+    table_read: bool = False
     windows: list[Window] = field(default_factory=list)
     taken: set[str] = field(default_factory=set)
+    answered: set[str] = field(default_factory=set)
     next_number: int = 1
     answered_in_batch: int = 0
+    reading: ScreenReading | None = None
+    input_looks: int = 0
+    window_shown: bool = False
+    answered_print: str | None = None
 
 
 _tabs: dict[str, _TabWindows] = {}
-_close_listeners: list[Callable[[str], None]] = []
-
-
-def add_close_listener(listener: Callable[[str], None]) -> None:
-    """Call `listener(session_id)` whenever a window of a tab closes (= the tab may have nothing open now)."""
-    if listener not in _close_listeners:
-        _close_listeners.append(listener)
+_table_lock = threading.Lock()
 
 
 def _tab(session_id: str) -> _TabWindows:
     return _tabs.setdefault(session_id, _TabWindows())
 
 
+def _waiting(tab: _TabWindows) -> dict[str, window_table.RecordedCall]:
+    """The record's calls without a result that are not answered yet (= one a key was typed for is running, or about to
+    be refused, and is no window)."""
+    return {tool_use_id: call for tool_use_id, call in tab.table.open.items() if tool_use_id not in tab.answered}
+
+
 def _ordered(tab: _TabWindows) -> list[Window]:
-    """The tab's windows in the order the pane asks them: by the record's call order, a window not yet tied last."""
+    """The tab's windows in the order the record's calls were made, a window not tied to a call last."""
     order = {tool_use_id: index for index, tool_use_id in enumerate(tab.table.open)}
     return sorted(tab.windows, key=lambda window: (order.get(window.tool_use_id, len(order)), window.number))
 
 
+def kind_of(session_id: str) -> Kind:
+    """What the window of the tab is by its record: the oldest call without a result."""
+    tab = _tab(session_id)
+    _read_table(session_id, tab)
+    return window_table.oldest_kind(_waiting(tab))
+
+
+def is_open(session_id: str) -> bool:
+    """Whether the tab waits at a permission window now (= the `PERMISSION_OPEN` of the judgements): the last look
+    showed a window and the record's oldest call without a result is an approval."""
+    tab = _tabs.get(session_id)
+    return tab is not None and _permission_on_screen(tab)
+
+
+def _permission_on_screen(tab: _TabWindows) -> bool:
+    return (tab.reading is not None and tab.reading.kind is ScreenKind.WINDOW
+            and window_table.oldest_kind(_waiting(tab)) is Kind.APPROVAL)
+
+
+def permission_opened_at(session_id: str) -> float | None:
+    """When the oldest window of the tab that waits at a permission window was opened, None when it does not."""
+    tab = _tabs.get(session_id)
+    if tab is None or not _permission_on_screen(tab) or not tab.windows:
+        return None
+    return min(window.opened_at for window in tab.windows)
+
+
+def input_looks(session_id: str) -> int:
+    """How many looks in a row showed the input box."""
+    tab = _tabs.get(session_id)
+    return 0 if tab is None else tab.input_looks
+
+
 def current_window(session_id: str) -> Window | None:
-    """The window the pane shows now (= the oldest), of any kind. None when none is open."""
+    """The window the pane shows now (= the oldest the client knows of). None when it knows none."""
     tab = _tabs.get(session_id)
     ordered = _ordered(tab) if tab is not None else []
     return ordered[0] if ordered else None
 
 
-def current_permission(session_id: str) -> Window | None:
-    """The permission window the pane shows now, None when the pane shows none (= another kind of window, or none)."""
+def situation(session_id: str, reading: ScreenReading, *, backlog: bool = False) -> Situation:
+    """What the judgement reads for a look at the pane (`reading`) just taken: the record's kind and, for a window, whether
+    a key may answer it."""
+    tab = _tab(session_id)
+    kind = kind_of(session_id)
     window = current_window(session_id)
-    return window if window is not None and window.is_permission else None
+    return Situation(reading.kind, kind, answerable=_answerable(tab, window, reading, kind),
+                     input_looks=tab.input_looks, backlog=backlog)
 
 
-def is_open(session_id: str) -> bool:
-    """Whether the tab waits at a permission window (= the `PERMISSION_OPEN` of the judgements)."""
-    tab = _tabs.get(session_id)
-    return tab is not None and any(window.is_permission for window in tab.windows)
-
-
-def is_holding(session_id: str) -> bool:
-    """Whether what is typed to the tab must wait: a permission window, a question or a plan approval is open."""
-    tab = _tabs.get(session_id)
-    if tab is not None and tab.windows:
-        return True
-    plan = (agent_status.get(session_id) or {}).get("pending_plan")
-    return bool(plan)
-
-
-def permission_opened_at(session_id: str) -> float | None:
-    """When the oldest open permission window of the tab was opened, None when none is open."""
-    tab = _tabs.get(session_id)
-    opened = [window.opened_at for window in tab.windows if window.is_permission] if tab is not None else []
-    return min(opened) if opened else None
+def _answerable(tab: _TabWindows, window: Window | None, reading: ScreenReading, kind: Kind) -> bool:
+    if window is None or not window.from_hook or kind is not Kind.APPROVAL or reading.kind is not ScreenKind.WINDOW:
+        return False
+    command = window.tool_input.get("command")
+    return (tab.window_shown and is_yes_no(reading) and isinstance(command, str) and shows_command(reading, command))
 
 
 def _view(session_id: str) -> dict | None:
     """What the screen is told (= the contract's `pending_permission`)."""
     tab = _tabs.get(session_id)
-    window = current_permission(session_id)
-    if tab is None or window is None:
+    window = current_window(session_id)
+    if tab is None or window is None or not _permission_on_screen(tab):
         return None
-    waiting = sum(1 for each in tab.windows if each.is_permission)
     return {"number": window.number, "tool_use_id": window.tool_use_id, "tool_name": window.tool_name,
             "input": window.tool_input, "record_input": window.record_input,
-            "index": tab.answered_in_batch + 1, "count": tab.answered_in_batch + waiting,
+            "answerable": _answerable(tab, window, tab.reading, Kind.APPROVAL),
+            "index": tab.answered_in_batch + 1, "count": tab.answered_in_batch + len(tab.windows),
             "opened_at": window.opened_at}
 
 
 def _publish(session_id: str) -> None:
-    """Put the tab's windows into `agent_status` and wake the screens when what they show changed."""
+    """Put the tab's window into `agent_status` and wake the screens when what they show changed."""
     status = agent_status.get(session_id)
     if status is None:
         return
@@ -157,67 +184,118 @@ def _tie(tab: _TabWindows, window: Window, calls: dict[str, window_table.Recorde
 
 def open_window(session_id: str, tool_name: str, tool_input: dict, prompt_id: str | None = None, *,
                 now: float | None = None) -> Window | None:
-    """Stand up the window a `PermissionRequest` hook asked for. None when the record already holds the result of the
-    call (= a guard answered before the hook arrived: no window was ever shown)."""
+    """Keep the input a `PermissionRequest` hook gave. None when the record already holds the result of the call (= a guard
+    answered before the hook arrived: no window was ever shown). A window the screen showed before the hook came is
+    taken over: the hook's input is the one it shows from now on."""
     tab = _tab(session_id)
+    _read_table(session_id, tab)
     if window_table.select(tab.table.resolved, tool_name, tool_input, frozenset(tab.taken)) is not None \
             and window_table.select(tab.table.open, tool_name, tool_input, frozenset(tab.taken)) is None:
-        logger.info("permission window: not opened, the record has its result session=%s tool=%s", session_id, tool_name)
+        logger.info("permission window: not kept, the record has its result session=%s tool=%s", session_id, tool_name)
         return None
-    window = Window(number=tab.next_number, tool_name=tool_name, tool_input=tool_input, prompt_id=prompt_id,
-                    opened_at=time.time() if now is None else now)
-    tab.next_number += 1
-    _tie(tab, window, tab.table.open)
-    tab.windows.append(window)
-    logger.info("permission window: opened session=%s number=%d tool=%s tied=%s", session_id, window.number, tool_name,
-                window.tool_use_id is not None)
+    window = _from_screen_alone(tab, tool_name, tool_input)
+    if window is None:
+        window = Window(number=tab.next_number, tool_name=tool_name, tool_input=tool_input, prompt_id=prompt_id,
+                        opened_at=time.time() if now is None else now)
+        tab.next_number += 1
+        _tie(tab, window, tab.table.open)
+        tab.windows.append(window)
+    else:
+        window.tool_input, window.prompt_id, window.from_hook = tool_input, prompt_id, True
+        call = tab.table.open.get(window.tool_use_id or "")
+        window.record_input = call.tool_input if call is not None and call.tool_input != tool_input else None
+    logger.info("permission window: hook input kept session=%s number=%d tool=%s tied=%s", session_id, window.number,
+                tool_name, window.tool_use_id is not None)
     _publish(session_id)
     return window
 
 
+def _from_screen_alone(tab: _TabWindows, tool_name: str, tool_input: dict) -> Window | None:
+    """The window of the same call that the screen showed with no hook (= it shows the record's input), if any."""
+    call = window_table.select(tab.table.open, tool_name, tool_input, frozenset())
+    for window in tab.windows:
+        if not window.from_hook and call is not None and window.tool_use_id == call.tool_use_id:
+            return window
+    return None
+
+
 def fold_row(session_id: str, row: dict) -> None:
     """Take a row of the tab's conversation record in: the table of calls grows or shrinks, a window not yet tied to its
-    call is tied once the call is written, and a window whose call has its result is closed."""
+    call is tied once the call is written, and a window whose call has its result goes."""
     tab = _tab(session_id)
+    _read_table(session_id, tab)
     effect = window_table.effect_of_row(row)
     window_table.apply_effect(tab.table, effect)
     for call in effect.added:
         for window in _ordered(tab):
             if window.tool_use_id is None and _tie(tab, window, {call.tool_use_id: call}):
                 break
-    closed = [window for window in tab.windows if window.tool_use_id in effect.resolved_ids]
-    for window in closed:
-        _close(session_id, tab, window, "result")
-    if effect.added or effect.new_turn:
+    tab.answered.difference_update(effect.resolved_ids)
+    for window in [window for window in tab.windows if window.tool_use_id in effect.resolved_ids]:
+        tab.windows.remove(window)
+        logger.info("permission window: gone, the record has its result session=%s number=%d tool=%s", session_id,
+                    window.number, window.tool_name)
+    if effect.new_turn:
+        tab.windows.clear()
+        tab.taken.clear()
+        tab.answered.clear()
+    if effect.added or effect.resolved_ids or effect.new_turn:
         _publish(session_id)
 
 
-def note_screen(session_id: str, selection_prompt_visible: bool) -> None:
-    """The detector looked at the pane: the window it shows is the oldest. A window seen once and missing on
-    `SCREEN_MISSES_TO_CLOSE` looks in a row is closed."""
-    window = current_window(session_id)
-    if window is None:
+def note_screen(session_id: str, reading: ScreenReading) -> None:
+    """The detector looked at the pane. The input box on `INPUT_LOOKS_TO_RELEASE` looks in a row ends the windows the client
+    remembers; a window on the screen is shown to the screen (and, when no hook came for it, from the record's call)."""
+    tab = _tab(session_id)
+    tab.reading = reading
+    tab.input_looks = tab.input_looks + 1 if reading.kind is ScreenKind.INPUT else 0
+    if tab.input_looks >= INPUT_LOOKS_TO_RELEASE and (tab.windows or tab.answered_in_batch):
+        tab.windows.clear()
+        tab.taken.clear()
+        tab.answered_in_batch = 0
+        logger.info("permission window: forgotten, the input box is on the screen session=%s", session_id)
+    if reading.kind is ScreenKind.WINDOW:
+        tab.window_shown = tab.window_shown or reading.fingerprint != tab.answered_print
+        _read_table(session_id, tab)
+        _stand_up_from_record(session_id, tab)
+    else:
+        tab.window_shown = False
+        tab.answered_print = None
+    _publish(session_id)
+
+
+def _stand_up_from_record(session_id: str, tab: _TabWindows) -> None:
+    """A window the screen shows, an approval by the record, and no window known for the oldest call: stand one up from the
+    record's call (no hook came, or it was missed: it is shown, and not answered by a key)."""
+    waiting = _waiting(tab)
+    if not tab.window_shown or window_table.oldest_kind(waiting) is not Kind.APPROVAL:
         return
-    if selection_prompt_visible:
-        if not window.seen:
-            window.seen = True
-            logger.info("permission window: seen on the pane session=%s number=%d", session_id, window.number)
-        window.misses = 0
-    elif window.seen:
-        window.misses += 1
-        if window.misses >= SCREEN_MISSES_TO_CLOSE:
-            _close(session_id, _tab(session_id), window, "screen")
+    call = next(iter(waiting.values()))
+    if any(window.tool_use_id == call.tool_use_id for window in tab.windows):
+        return
+    window = Window(number=tab.next_number, tool_name=call.tool_name, tool_input=call.tool_input, prompt_id=None,
+                    opened_at=time.time(), tool_use_id=call.tool_use_id, from_hook=False)
+    tab.next_number += 1
+    tab.taken.add(call.tool_use_id)
+    tab.windows.append(window)
+    logger.info("permission window: shown from the record, no hook session=%s number=%d tool=%s", session_id, window.number,
+                call.tool_name)
 
 
-def note_answered(session_id: str, number: int) -> None:
-    """A key was typed for the window `number`: it is closed, and the next window of the batch is the next one asked."""
+def note_answered(session_id: str, number: int, fingerprint: str) -> None:
+    """A key was typed for the window `number` while the screen showed `fingerprint`: the window goes, and the next one is
+    answered only once the screen has shown another."""
     tab = _tab(session_id)
     for window in tab.windows:
         if window.number == number:
-            if window.is_permission:
-                tab.answered_in_batch += 1
-            _close(session_id, tab, window, "answered")
-            return
+            tab.windows.remove(window)
+            tab.answered_in_batch += 1
+            if window.tool_use_id is not None:
+                tab.answered.add(window.tool_use_id)
+            break
+    tab.window_shown = False
+    tab.answered_print = fingerprint
+    _publish(session_id)
 
 
 def close_all(session_id: str, reason: str) -> None:
@@ -228,29 +306,64 @@ def close_all(session_id: str, reason: str) -> None:
     had_windows = bool(tab.windows)
     tab.windows.clear()
     tab.table.clear()
+    tab.table_read = True
     tab.taken.clear()
+    tab.answered.clear()
     tab.answered_in_batch = 0
+    tab.window_shown = False
     if had_windows:
         logger.info("permission window: closed all session=%s reason=%s", session_id, reason)
     _publish(session_id)
-    _tell_closed(session_id)      # also when only a plan approval was open: the kept texts wait for it too
 
 
-def _close(session_id: str, tab: _TabWindows, window: Window, reason: str) -> None:
-    tab.windows.remove(window)
-    if not any(each.is_permission for each in tab.windows):
-        tab.answered_in_batch = 0
-    logger.info("permission window: closed session=%s number=%d tool=%s reason=%s", session_id, window.number,
-                window.tool_name, reason)
-    _publish(session_id)
-    _tell_closed(session_id)
+def _read_table(session_id: str, tab: _TabWindows) -> None:
+    """Read the table again from the record's turn, once, when the backend has not seen the rows of the turn (= it
+    started after them). Blocks on the record's end: the callers are the detector, the hook and the typing thread."""
+    if tab.table_read:
+        return
+    with _table_lock:
+        if tab.table_read:
+            return
+        path = jsonl_watcher.get_jsonl_for(session_id)
+        try:
+            rows = _rows_of_turn(path) if path is not None else []
+        except OSError:
+            logger.warning("permission window: the record could not be read session=%s", session_id, exc_info=True)
+            rows = []
+        tab.table = window_table.table_of_turn(rows)
+        tab.table_read = True
 
 
-def _tell_closed(session_id: str) -> None:
-    for listener in list(_close_listeners):
-        listener(session_id)
+def _rows_of_turn(path: Path) -> list[dict]:
+    """The rows of the turn the record ends in, oldest first: read from the end, up to the row that began the turn."""
+    rows: list[dict] = []
+    with path.open("rb") as handle:
+        handle.seek(0, 2)
+        position, rest = handle.tell(), b""
+        while position > 0:
+            step = min(_TAIL_CHUNK, position)
+            position -= step
+            handle.seek(position)
+            lines = (handle.read(step) + rest).split(b"\n")
+            rest = lines[0]
+            for line in reversed(lines[1:]):
+                row = _parse(line)
+                if row is None:
+                    continue
+                rows.append(row)
+                if window_table.effect_of_row(row).new_turn:
+                    return rows[::-1]
+        row = _parse(rest)
+        if row is not None:
+            rows.append(row)
+    return rows[::-1]
 
 
-def note_plan_cleared(session_id: str) -> None:
-    """The plan approval of the tab was answered: what waited for it may be typed now."""
-    _tell_closed(session_id)
+def _parse(line: bytes) -> dict | None:
+    if not line.strip():
+        return None
+    try:
+        row = json.loads(line)
+    except ValueError:
+        return None
+    return row if isinstance(row, dict) else None

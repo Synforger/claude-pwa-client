@@ -9,10 +9,16 @@ Used by `window_state.py`.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
+
+from backend.permission_window.window_judgement import Kind
 
 # The attachment row that ends a call a hook decided (`toolUseID` is the call).
 DECISION_ATTACHMENT = "hook_permission_decision"
+# The tools whose window is a question to answer or a plan to approve; every other call is an approval.
+QUESTION_TOOL = "AskUserQuestion"
+PLAN_TOOL = "ExitPlanMode"
 
 
 @dataclass(frozen=True)
@@ -89,3 +95,23 @@ def select(calls: dict[str, RecordedCall], tool_name: str, tool_input: dict, tak
         if call.tool_input == tool_input:
             return call
     return same_tool[0] if same_tool else None
+
+
+def oldest_kind(calls: dict[str, RecordedCall]) -> Kind:
+    """What the window on the screen is, by the oldest call (the first of `calls`) that has no result: a question, a plan,
+    an approval; `Kind.NONE` when no call is waiting."""
+    for call in calls.values():
+        if call.tool_name == QUESTION_TOOL:
+            return Kind.QUESTION
+        if call.tool_name == PLAN_TOOL:
+            return Kind.PLAN
+        return Kind.APPROVAL
+    return Kind.NONE
+
+
+def table_of_turn(rows: Iterable[dict]) -> CallTable:
+    """The table the rows of a turn leave, `rows` oldest first."""
+    table = CallTable()
+    for row in rows:
+        apply_effect(table, effect_of_row(row))
+    return table

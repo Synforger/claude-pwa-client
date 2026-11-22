@@ -17,7 +17,7 @@ def typed(monkeypatch) -> list[tuple[str, dict]]:
     """What the message path typed into a terminal (= it must stay empty)."""
     calls: list[tuple[str, dict]] = []
 
-    async def fake_send(session_id, payload, idempotency_key=None):
+    async def fake_send(session_id, payload, idempotency_key=None, **_):
         calls.append((session_id, payload))
     monkeypatch.setattr(am, "pty_send", fake_send)
     return calls

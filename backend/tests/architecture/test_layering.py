@@ -6,7 +6,7 @@
         + jsonl の共有部品 (jsonl_tail / jsonl_predicates / jsonl_watcher)
         + api_tabs の表・額・文脈の量・program が並べるタブの一覧 (api_tab_table / api_spend / context_tokens / log_throttle /
           api_tab_sources / api_tab_source_file)
-        + permission_window の窓の表・答えの語・窓の状態・預かり (window_table / answer_words / window_state / window_hold)
+        + permission_window の窓の表・画面の読み・判定・答えの語・窓の状態・預かり (window_table / window_screen / window_judgement / answer_words / window_state / window_hold)
     L1: terminal   (= tmux / PTY の入力口。 L0 のみ import 可)
         + permission_window.window_answer (= 画面から選びを読んで打つ。 terminal を読む)
     L2: jsonl      (= JSONL tail → SSE の出力口。 L0 / L1 を import 可)

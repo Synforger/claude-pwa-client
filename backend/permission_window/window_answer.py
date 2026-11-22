@@ -1,56 +1,95 @@
-"""Answers the window the pane shows: reads its choices from the screen and types one key.
+"""Looks at the pane just before a key is typed into a tab and types it, or says why not: the answer to a permission window,
+and the look before every other text or key a window may be in the way of.
 
-The number of the choice is not assumed: the line labelled `Yes` is the allow and the line labelled `No` the deny
-(`answer_words.key_for`), read from the pane just before the key is typed. A deny with no `No` line is an Escape. Nothing
-is typed when the pane shows no choices (= the window is not on the screen), and the window is closed once the key is
-typed, without waiting for the record.
+The look and the key are one step under the tab's typing lock (`terminal/pane_order.py`), so the screen cannot change
+between them. A window is answered only when the judgement says so (`window_judgement.judge`: the screen shows it, the
+record says it is an approval, it offers `Yes` and `No` only, the hook's command is on the screen whole, and the screen has
+shown it since the last answer); the key is the line labelled `Yes` or `No`, read from the screen, with no Enter and no
+Escape. The window is closed once the key is typed, without waiting for the record.
 
-Used by `routes/permission_window.py` and `terminal/routes.py` (an answer word of the person).
+Used by `routes/permission_window.py`, `terminal/routes.py` (the person's answer words, and the check before a send) and
+`terminal/receipt.py`.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 
-from backend.permission_window import window_state
-from backend.permission_window.answer_words import ALLOW, key_for
-from backend.permission_window.window_state import Window
+from backend.permission_window import window_hold, window_state
+from backend.permission_window.answer_words import key_for
+from backend.permission_window.window_judgement import Action, Caller, Kind, WindowInTheWay, judge
+from backend.permission_window.window_screen import ScreenKind, ScreenReading, read_screen
+from backend.terminal import runner
 from backend.terminal.ansi_text import strip_ansi
-from backend.terminal.pane_choices import choices_in_pane
+from backend.terminal.pane_order import in_typing_order
 from backend.terminal.prompt_detector_loop import note_user_input, poke_now
-from backend.terminal.runner import capture_pane_ansi_tail, tmux_send_keys
 
 logger = logging.getLogger(__name__)
 
 CLOSED = {"ok": False, "reason": "closed"}
+MISMATCH = {"ok": False, "reason": "mismatch"}
+NOT_TYPED = {"ok": False, "reason": "not_typed"}
 
 
-def _read_choices(session_id: str) -> list[dict]:
-    return choices_in_pane(strip_ansi(capture_pane_ansi_tail(session_id) or ""), selection_marker=True)
+def look(session_id: str) -> ScreenReading:
+    """The pane's screen read now (= one tmux capture; blocks). An unreadable pane reads as neither window nor input box."""
+    return read_screen(strip_ansi(runner.capture_pane_ansi_tail(session_id) or ""))
 
 
-def _type(session_id: str, key: str | None) -> bool:
-    return tmux_send_keys(session_id, key="Escape") if key is None else tmux_send_keys(session_id, text=key)
+def check_before_typing(session_id: str, caller: Caller, *, releasing: bool = False) -> Callable[[], None]:
+    """The look to make inside the typing lock before `caller` types into the tab: it raises `WindowInTheWay` when the
+    judgement is not to type. `releasing` is the typing of the messages kept, which are the backlog themselves."""
+    def check() -> None:
+        reading = look(session_id)
+        backlog = not releasing and window_hold.has_kept(session_id)
+        action = judge(caller, window_state.situation(session_id, reading, backlog=backlog))
+        if action is Action.TYPE:
+            return
+        # Typing the kept messages first is the caller's to do, before it takes the lock: here the message waits behind them.
+        raise WindowInTheWay(Action.HOLD if action is Action.RELEASE_THEN_TYPE else action)
+    return check
 
 
-async def answer(session_id: str, window: Window, answer_kind: str) -> dict:
-    """Type the answer (`ALLOW` or `DENY` of `answer_words`) for `window`, the oldest permission window of the tab.
-    → `{"ok": True}`; `{"ok": False, "reason": "closed"}` when the pane shows no choices; `{"ok": False, "reason":
-    "no_yes_line"}` when an allow finds no `Yes` line; `{"ok": False, "reason": "not_typed"}` when tmux took no key."""
-    choices = await asyncio.to_thread(_read_choices, session_id)
-    if not choices:
-        logger.info("permission window: not answered, the pane shows no choices session=%s number=%d", session_id,
-                    window.number)
+def _answer_once(session_id: str, number: int, answer_kind: str) -> tuple[dict, str]:
+    """The look and the key, under the lock. → the answer, and the fingerprint of the screen the key was typed at."""
+    reading = look(session_id)
+    window = window_state.current_window(session_id)
+    if window is None or window.number != number:
+        return {"ok": False, "reason": "stale", "current": window.number if window is not None else None}, ""
+    situation = window_state.situation(session_id, reading)
+    if judge(Caller.ANSWER, situation) is not Action.TYPE:
+        closed = reading.kind is not ScreenKind.WINDOW or situation.kind is not Kind.APPROVAL
+        logger.info("permission window: not answered session=%s number=%d reason=%s", session_id, number,
+                    "closed" if closed else "mismatch")
+        return dict(CLOSED if closed else MISMATCH), ""
+    key = key_for(reading.choices, answer_kind)
+    if key is None or not runner.tmux_send_keys(session_id, text=key):
+        return dict(NOT_TYPED), ""
+    return {"ok": True, "key": key}, reading.fingerprint
+
+
+async def answer(session_id: str, number: int, answer_kind: str) -> dict:
+    """Answer the permission window `number` (the oldest the client knows of) with `ALLOW` or `DENY` of `answer_words`.
+    → `{"ok": True}`, or `{"ok": False, "reason": "closed" | "mismatch" | "not_typed"}`, or `reason` `stale` with the
+    `current` number when the window is not the one named."""
+    if window_state.current_window(session_id) is None or not window_state.is_open(session_id):
         return dict(CLOSED)
-    key = key_for(choices, answer_kind)
-    if key is None and answer_kind == ALLOW:
-        logger.warning("permission window: no Yes line on the pane session=%s number=%d", session_id, window.number)
-        return {"ok": False, "reason": "no_yes_line"}
-    if not await asyncio.to_thread(_type, session_id, key):
-        return {"ok": False, "reason": "not_typed"}
-    logger.info("permission window: answered session=%s number=%d answer=%s key=%s", session_id, window.number,
-                answer_kind, key or "Escape")
-    window_state.note_answered(session_id, window.number)
+    result, fingerprint = await in_typing_order(session_id, lambda: _answer_once(session_id, number, answer_kind))
+    if not result.get("ok"):
+        return result
+    logger.info("permission window: answered session=%s number=%d answer=%s key=%s", session_id, number, answer_kind,
+                result["key"])
+    window_state.note_answered(session_id, number, fingerprint)
     note_user_input(session_id)
     asyncio.create_task(poke_now(session_id))
     return {"ok": True}
+
+
+async def answer_with_word(session_id: str, answer_kind: str) -> bool:
+    """A person's answer word: answer the window the client knows of now. False when there is none to answer (the words are
+    then an utterance like any other)."""
+    window = window_state.current_window(session_id)
+    if window is None or not window_state.is_open(session_id):
+        return False
+    return bool((await answer(session_id, window.number, answer_kind)).get("ok"))

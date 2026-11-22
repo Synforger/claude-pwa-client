@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import re
 
-from backend.terminal.pane_choices import choices_in_pane
+from backend._common.pane_choices import choices_in_pane
 from backend.terminal.runner import capture_tmux_scrollback
 from backend._common.state import agent_status, stream_states
 

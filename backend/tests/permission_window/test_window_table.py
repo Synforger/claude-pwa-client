@@ -49,3 +49,18 @@ def test_a_row_of_the_persons_words_starts_a_new_turn():
     table.apply_effect(folded, table.effect_of_row(call_row("a", "Bash", {})))
     table.apply_effect(folded, table.effect_of_row({"type": "user", "message": {"content": "next please"}}))
     assert (folded.open, folded.resolved) == ({}, {})
+
+
+def test_the_kind_is_the_oldest_call_without_a_result():
+    from backend.permission_window.window_judgement import Kind
+    assert table.oldest_kind({}) is Kind.NONE
+    assert table.oldest_kind(calls(("a", "AskUserQuestion", {}), ("b", "Bash", {}))) is Kind.QUESTION
+    assert table.oldest_kind(calls(("a", "ExitPlanMode", {}))) is Kind.PLAN
+    assert table.oldest_kind(calls(("a", "Bash", {}), ("b", "AskUserQuestion", {}))) is Kind.APPROVAL
+
+
+def test_the_table_of_a_turn_is_what_its_rows_leave():
+    rows = [{"type": "user", "message": {"content": "do it"}}, call_row("a", "Bash", {"command": "ls"}),
+            call_row("b", "Bash", {"command": "pwd"}), result_row("a")]
+    built = table.table_of_turn(rows)
+    assert (list(built.open), list(built.resolved)) == (["b"], ["a"])

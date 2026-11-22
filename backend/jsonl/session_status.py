@@ -765,7 +765,6 @@ def _mutate_user(session_id: str, a: dict, line: dict) -> bool:
         if pending and pending.get("tool_use_id") == tu_id:
             a["pending_plan"] = None
             changed = True
-            window_state.note_plan_cleared(session_id)
         # TaskCreate の実 id backfill (= 仮 id → harness id、 TaskUpdate 一致の前提)
         if tu_id and _backfill_task_id_from_result(a, tu_id, block):
             changed = True

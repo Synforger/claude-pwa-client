@@ -46,6 +46,7 @@ import struct
 import subprocess
 import termios
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -826,6 +827,7 @@ async def send_text_two_stage(
     key: str | None = None,
     *,
     wipe: bool = True,
+    window_check: Callable[[], None] | None = None,
 ) -> bool:
     """本文送信の 2 段送信 (= C-u wipe → 本文 paste → 猶予 → [展開 paste] → Enter 単発)。
 
@@ -847,13 +849,21 @@ async def send_text_two_stage(
 
     wipe=False は入力欄を消さずに、 在る文の後ろへ打つ (= 声の発話を Escape の後に打つ時。 claude が入力欄へ
     戻した前の発話を残し、 続けて 1 つの発話として送る)。
+
+    window_check は、 打つ順の鍵の中で打つ直前に呼ぶ見張り (= 入力欄を消す前・展開の貼り付けの前・Enter の直前)。
+    窓が画面に出ていれば例外を上げ、 その手の前で止める (= 窓へは 1 文字も打たない)。
     """
     from backend.terminal.ansi_text import strip_ansi  # noqa: PLC0415
 
     multiline = "\n" in text
 
+    def look() -> None:
+        if window_check is not None:
+            window_check()
+
     # 消してから貼るまでに、 他の打鍵を挟ませない
     def wipe_and_paste() -> tuple[bool, str]:
+        look()
         if wipe:
             wipe_input_line(session_id)
         shown = strip_ansi(capture_pane_ansi_tail(session_id) or "") if multiline else ""
@@ -867,9 +877,9 @@ async def send_text_two_stage(
         after = strip_ansi(await asyncio.to_thread(capture_pane_ansi_tail, session_id) or "")
         if paste_formed_placeholder(before, after):
             # プレースホルダが実際に形成された時だけ、 同 paste をもう一度 = 展開。
-            await in_typing_order(session_id, lambda: tmux_send_keys(session_id, text=text, enter=False))
+            await in_typing_order(session_id, lambda: (look(), tmux_send_keys(session_id, text=text, enter=False))[1])
             await asyncio.sleep(PASTE_EXPAND_DELAY_SEC)
-    return await in_typing_order(session_id, lambda: tmux_send_keys(session_id, enter=True))
+    return await in_typing_order(session_id, lambda: (look(), tmux_send_keys(session_id, enter=True))[1])
 
 
 # Control characters that must not reach a pane as keys: every C0 character except tab and LF (CR is turned into LF first).

@@ -208,9 +208,15 @@ def test_a_failing_look_does_not_stop_the_loop_after_it(env, monkeypatch, caplog
 
 
 def _open_window(env, opened_at: float):
-    """The child waits at a permission window opened at `opened_at` (= its turn is open, so it is not at a break)."""
+    """The child waits at a permission window opened at `opened_at` (= its turn is open, so it is not at a break): the
+    record has the call, the hook gave its input and the screen shows the window."""
     from backend.permission_window import window_state
+    from backend.permission_window.window_screen import read_screen
+    from backend.tests.permission_window import screens
+    window_state.fold_row(env.child.id, {"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": f"toolu_{opened_at}", "name": "Bash", "input": {"command": "ls"}}]}})
     window_state.open_window(env.child.id, "Bash", {"command": "ls"}, "p1", now=opened_at)
+    window_state.note_screen(env.child.id, read_screen(screens.approval("ls")))
     env.blocked_by = ("turn_open", "permission_open")
 
 
@@ -218,7 +224,7 @@ def _open_window(env, opened_at: float):
 def window_tabs(monkeypatch):
     from backend.permission_window import window_state
     monkeypatch.setattr(window_state, "_tabs", {})
-    monkeypatch.setattr(window_state, "_close_listeners", [])
+    monkeypatch.setattr(window_state.jsonl_watcher, "get_jsonl_for", lambda _sid: None)
 
 
 def test_a_child_at_a_window_for_five_minutes_is_told_about_once(env, window_tabs):

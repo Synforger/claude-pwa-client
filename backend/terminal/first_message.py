@@ -261,7 +261,7 @@ async def _type_held(session_id: str) -> None:
                          "again", input_ready.LAUNCH_GIVE_UP_SEC, session_id)
             input_ready.abandon_launch(session_id)
             for text, send_id in _held.pop(session_id, []):
-                result = await routes.pty_send(session_id, {"text": text, "enter": True}, None)
+                result = await routes.pty_send(session_id, {"text": text, "enter": True}, None, hold=True)
                 if not result.get("ok"):
                     logger.error("a held message did not go in session=%s reason=%s", session_id, result.get("reason"))
                     _tell_not_taken(session_id, send_id)

@@ -42,6 +42,7 @@ from backend.cli.claude_sessions import pid_of_conversation
 from backend.sleep.sleep_sensors import note_woken
 import backend.rollover.rollover as rollover
 from backend.permission_window import window_state
+from backend.permission_window.window_table import PLAN_TOOL, QUESTION_TOOL
 from backend.tickets import answer_delivery
 
 # backend-F-40 注記: jsonl_watcher は hooks を import しない (= confirm_bind → _save_bindings
@@ -385,18 +386,23 @@ async def _handle_notification(ctx: HookContext) -> dict:
 
 async def _handle_permission_request(ctx: HookContext) -> dict:
     """PermissionRequest: Claude Code is about to show a permission window (or a question, or a plan to approve). The hook
-    answers nothing, so the window stays Claude's own and any key still answers it: this only stands the window up for
-    the screen (`permission_window/window_state.py`) and pushes it once. A question and a plan approval have a screen of
-    their own: they are kept, not shown."""
+    answers nothing, so the window stays Claude's own: this keeps the tool's whole input for the screen to show
+    (`permission_window/window_state.py`) and pushes it once. It is no evidence that a window is open (the screen says that)
+    and is taken only from the tab whose conversation the claude is in (the tab's id in the header is the one the
+    conversation is bound to). A question and a plan approval have a screen of their own: they are recorded, not shown."""
     assert ctx.pwa_session_id is not None
     tool_name = ctx.payload.get("tool_name") or ""
+    if ctx.pwa_sid_hdr != ctx.pwa_session_id:
+        logger.warning("PermissionRequest ignored: the tab in the header is not the one the conversation is bound to "
+                       "header=%s bound=%s", ctx.pwa_sid_hdr, ctx.pwa_session_id)
+        return {"ok": True, "ignored": "not_this_tabs_conversation"}
+    if tool_name in CHOICE_TOOLS:
+        return {"ok": True, "observed": tool_name}
     tool_input = ctx.payload.get("tool_input")
     window = window_state.open_window(ctx.pwa_session_id, tool_name, tool_input if isinstance(tool_input, dict) else {},
                                       ctx.payload.get("prompt_id"))
     if window is None:
         return {"ok": True, "ignored": "already_resolved"}
-    if not window.is_permission:
-        return {"ok": True, "observed": tool_name}
     asyncio.create_task(broadcast_push(_permission_push_body(window), ctx.title, ctx.pwa_session_id))
     return {"ok": True, "pushed": "PermissionRequest", "window": window.number}
 
@@ -406,6 +412,9 @@ def _permission_push_body(window: window_state.Window) -> str:
     detail = window.tool_input.get("command") or window.tool_input.get("file_path") or window.tool_input.get("url") or ""
     return _truncate(f"承認待ち: {window.tool_name} {detail}".strip())
 
+
+# The tools whose window is the screen's own (a plan to approve, a question to answer): recorded, never shown as a permission.
+CHOICE_TOOLS = frozenset({QUESTION_TOOL, PLAN_TOOL})
 
 HOOK_HANDLERS: dict[str, _HookSpec] = {
     "PreToolUse": _HookSpec(handler=_handle_pre_tool_use, needs_pwa_session=False),

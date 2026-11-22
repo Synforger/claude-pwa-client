@@ -1,6 +1,6 @@
 """Reads the numbered choices (`1. Yes`, `2. No`, ...) a Claude Code dialog shows at the end of the pane's text. Pure.
 
-Used by `jsonl/plan_choices.py` (the plan approval) and `permission_window/window_answer.py` (the permission window).
+Used by `jsonl/plan_choices.py` (the plan approval) and `permission_window/window_screen.py` (the permission window).
 """
 from __future__ import annotations
 

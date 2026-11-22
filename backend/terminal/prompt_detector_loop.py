@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from backend.permission_window import window_state
+from backend.permission_window import window_hold, window_screen, window_state
 from backend.push.push import broadcast_push
 from backend.observability.metrics import metrics
 from backend._common.state import (
@@ -203,6 +203,7 @@ async def _tick_one(
         _detector_states.pop(sid, None)
         _last_events.pop(sid, None)
         _next_poll_at.pop(sid, None)
+        await window_hold.patrol(sid)    # no pane, no claude: what is kept for the tab cannot arrive
         return
 
     if alt is None:
@@ -230,8 +231,10 @@ async def _tick_one(
 
     prev_state = state.current_state
     verdict = analyze(snapshot, state, _config)
-    # The permission window of the tab is on the screen exactly while a selection prompt is (= `window_state.note_screen`).
-    window_state.note_screen(sid, verdict.state == PromptState.INLINE_TUI)
+    # What the screen shows (a window, the input box, neither) is read once here: the client's knowledge of the window and
+    # the messages kept for it follow it (= `window_state.note_screen`, `window_hold.patrol`).
+    window_state.note_screen(sid, window_screen.read_screen(tail))
+    await window_hold.patrol(sid)
 
     if not state.seeded:
         # 初回 tick: 既に「入力待ち」 状態で backend が起動しただけかもしれないので

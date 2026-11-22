@@ -100,7 +100,7 @@ def test_send_during_a_launch_is_held_and_typed_once_claude_is_up(monkeypatch):
     delivered: list[str] = []
     routes = _fake_tmux(monkeypatch, calls)
 
-    async def fake_deliver(_sid, text):
+    async def fake_deliver(_sid, text, **_):
         delivered.append(text)
         return True
 
