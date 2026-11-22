@@ -6,6 +6,9 @@ A ticket kept on the other machine (= the machine named in its id) is carried th
 and `pass` to that machine's backend (`ticket_relay.py`), and `ask` is refused (`ticket_ask_elsewhere`). The doors under
 `/agent-messages/tickets` are the receiving end on the machine that keeps the ticket: they answer the configured other machine
 only, and are the same ones the other machine's backend calls (`relay_home.py`).
+
+A stop of the backend ends the waits of these doors, and each answers what is true of its stage: `ticket_backend_stopping`
+for a read, `ticket_not_sent` or `ticket_unconfirmed` for a write (`ticket_stop.py`).
 """
 from __future__ import annotations
 
@@ -17,8 +20,9 @@ from backend._common.state import sessions_meta
 from backend.routes.agent_messages import require_peer
 from backend.tickets import (relay_home, ticket_answer, ticket_entry, ticket_held, ticket_id, ticket_operator, ticket_pass,
                              ticket_relay, ticket_service, ticket_state, ticket_view)
+from backend.tickets.ticket_stop import StopAnsweringRoute
 
-router = APIRouter()
+router = APIRouter(route_class=StopAnsweringRoute)
 
 
 def _from_this_machine(request: Request) -> None:
