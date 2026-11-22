@@ -1041,6 +1041,14 @@ def test_a_message_kept_for_a_stopped_tab_says_so_instead_of_delivered(world):
     assert "預かりました: ses_b" in world.tabs.out and "届きました" not in world.tabs.out
 
 
+def test_a_message_kept_while_a_window_is_open_says_so_instead_of_delivered(world):
+    world.put({"id": "ses_b", "title": "role-b", "tier_tab": "projects/B"})
+    world.tabs.backend.answers["send-body"] = {"held": "window"}
+    assert send(world.tabs, "ses_b") == 0
+    assert "預かりました: ses_b" in world.tabs.out and "窓が閉じたら届けます" in world.tabs.out
+    assert "届きました" not in world.tabs.out
+
+
 def test_a_message_kept_for_a_machine_that_does_not_answer_says_so_with_the_reason(world):
     world.put({"id": "ses_b", "title": "role-b", "tier_tab": "projects/B"})
     world.tabs.backend.answers["send-body"] = {

@@ -9,6 +9,7 @@ import logging
 
 from backend._common import state
 from backend.jsonl import history as session_history
+from backend.permission_window import window_state
 import backend.jsonl.jsonl_watcher as jsonl_watcher
 from backend.terminal.runner import pty_sessions
 from backend.terminal.tab_stop import stop_tab
@@ -85,3 +86,5 @@ async def reset_tab_status(session_id: str) -> None:
             sess.stream.pane_working = False
             sess.stream.queued_sends = 0
             sess.stream.status_event.set()
+    # The windows of the claude that ended went with it, and what waited for them is typed to the next one.
+    window_state.close_all(session_id, "restart")

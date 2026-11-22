@@ -40,7 +40,7 @@ def opened(monkeypatch, tmp_path, isolated_state) -> list[tuple[str, dict]]:
     async def fake_ensure(session_id, **_):
         return None
 
-    async def fake_send(session_id, payload, idempotency_key=None):
+    async def fake_send(session_id, payload, idempotency_key=None, **_):
         sent.append((session_id, payload))
         return {"ok": True, "launched": True}
 

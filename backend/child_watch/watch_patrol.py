@@ -1,6 +1,9 @@
 """The child watch patrol: looks over the child tabs on the rollover's interval and, for a child that stopped without
 reporting, sends its parent one message. See `docs/reference/child-sessions.md`.
 
+A child that waits at a permission window for `window_state.PERMISSION_WAIT_SEC` is told the same way, once per window
+(its mark is the time the window opened), with the reason `permission`: its turn is open, so no look at a break finds it.
+
 The judgement is `watch_judgement.py`. A stop is told once: the time of the child's last row is kept in the child's
 definition before the message is sent, so neither a later look nor a restart of the backend sends it again. A child
 that works on and stops again has a new last row, and so is a new stop.
@@ -9,13 +12,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from backend._common.state import SessionDef, save_sessions_meta, sessions_meta
 from backend.accounts.client_message import send_to_tab
 from backend.accounts.tab_claim import claimed
 from backend.child_watch.watch_envelope import child_stopped_envelope
-from backend.child_watch.watch_judgement import should_tell
+from backend.child_watch.watch_judgement import PERMISSION, permission_overdue, should_tell
 from backend.child_watch.watch_sensors import is_watching, look_at_child
+from backend.permission_window import window_state
 from backend.rollover.rollover import TICK_SEC
 
 logger = logging.getLogger(__name__)
@@ -43,6 +48,12 @@ async def _look(session_id: str) -> bool:
     meta = sessions_meta.get(session_id)
     look = None
     if meta is not None and await asyncio.to_thread(is_watching, meta):
+        opened_at = window_state.permission_opened_at(session_id)
+        if opened_at is not None and permission_overdue(opened_at=opened_at, now=time.time(),
+                                                        wait_sec=window_state.PERMISSION_WAIT_SEC):
+            # Its turn is open, so it is not at a break and is looked at no further: the window is what it waits at.
+            _seen_at_break.pop(session_id, None)
+            return meta.parent_id is not None and await tell_parent(meta, opened_at, PERMISSION)
         look = await asyncio.to_thread(look_at_child, meta)
     previous = _seen_at_break.pop(session_id, None)
     if look is None or meta is None or meta.parent_id is None:

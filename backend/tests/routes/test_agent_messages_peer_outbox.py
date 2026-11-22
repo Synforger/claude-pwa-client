@@ -32,7 +32,7 @@ def typed(monkeypatch) -> list[tuple[str, str]]:
     """What was typed into a tab, as (tab id, text); both tabs have a claude running."""
     calls: list[tuple[str, str]] = []
 
-    async def fake_send(session_id, payload, idempotency_key=None):
+    async def fake_send(session_id, payload, idempotency_key=None, **_):
         calls.append((session_id, payload["text"]))
         return {"ok": True, "delivered": True}
 

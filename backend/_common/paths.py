@@ -124,6 +124,9 @@ SEEN_MESSAGE_IDS_PATH = DATA_DIR / "seen_message_ids.json"
 # The send keys (`Idempotency-Key`) the backend typed, one `<sid>\t<key>` per line, so that a send posted again after a
 # restart is not typed a second time. Written by backend/terminal/sent_keys_store.py.
 SENT_KEYS_PATH = DATA_DIR / "sent_keys.txt"
+# The messages kept while a window is open on a tab, so that a restart does not lose them (600). Written by
+# backend/permission_window/window_hold.py.
+WINDOW_HOLD_PATH = DATA_DIR / "window_hold.json"
 VAPID_PATH = SECRETS_DIR / "vapid.json"
 
 # お気に入り: 1 行に 1 path のテキスト (= エージェントは 1 行足すだけで登録できる)

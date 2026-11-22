@@ -14,6 +14,8 @@ vi.mock('../../../src/_common/api.js', () => ({
   }),
 }))
 
+vi.mock('../../../src/features/permission-window/useOpenPermissionWindows.js', () => ({ useOpenPermissionWindows: () => new Set() }))
+
 import SessionDrawer from '../../../src/features/session-drawer/SessionDrawer.jsx'
 import { setSessions, setActiveId, setUnreadDone, getSnapshot } from '../../../src/state/sessions.js'
 import { setOverlay } from '../../../src/state/ui.js'

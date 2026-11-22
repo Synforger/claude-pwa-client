@@ -102,6 +102,8 @@ async def tell(session_id: str, key: str, reason: str, context_pct: int | None, 
     _deferred.pop(key, None)
     result = await pty_send(session_id, {"text": held_envelope(reason, context_pct, line_pct, shells), "enter": True},
                             None)
+    if result.get("reason") == "window_open":
+        _told.pop(key, None)    # a window open on the tab refused it: nothing was typed, so it is told again later
     logger.info("rollover: told held session=%s context_pct=%s background=%s ok=%s", session_id, context_pct,
                 ",".join(str(shell.pid) for shell in shells), result.get("ok"))
 

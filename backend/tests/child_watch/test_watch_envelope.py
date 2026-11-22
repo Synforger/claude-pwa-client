@@ -20,3 +20,10 @@ def test_a_limit_says_claude_code_carries_on_by_itself_and_idle_says_it_waits_wi
     assert "Once the limit is over it is told to carry on" in child_stopped_envelope("c", "t", LIMIT)
     idle = child_stopped_envelope("c", "t", IDLE)
     assert "waiting for input" in idle and "has not reported" in idle and "usage limit" not in idle
+
+
+def test_a_window_nobody_answered_says_the_turn_is_open_and_where_to_answer_it():
+    from backend.child_watch.watch_judgement import PERMISSION
+    text = child_stopped_envelope("c", "t", PERMISSION)
+    assert 'reason="permission"' in text and "permission window" in text and "five minutes" in text
+    assert "waiting for input" not in text

@@ -63,7 +63,7 @@ def test_a_stop_while_a_conversation_opens_asks_nothing_and_presses_nothing(head
     head.opens = False
     send = ask_turn.pty_send
 
-    async def send_then_stop(*args):
+    async def send_then_stop(*args, **_):
         _stop_soon()
         return await send(*args)
     monkeypatch.setattr(ask_turn, "pty_send", send_then_stop)

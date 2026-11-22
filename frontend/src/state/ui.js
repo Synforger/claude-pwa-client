@@ -21,6 +21,7 @@ const INITIAL = {
     desktopOpen: false,
     extensionOpen: null,  // 開いている拡張の id (= null で全部畳む)
     planOpen: false,
+    permissionOpen: false,
     storageWarnDismissed: false,
   },
   scroll: {

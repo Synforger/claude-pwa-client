@@ -459,6 +459,9 @@ class AgentStatus:
     # frontend が PlanApprovalBubble を表示するためのソース。
     # {tool_use_id: str, plan: str, choices: [{key: str, label: str}, ...]} または None
     pending_plan: dict | None = None
+    # The permission window Claude Code shows now, for the screen (= `permission_window/window_state.py`):
+    # {number, tool_use_id, tool_name, input, record_input, index, count, opened_at} or None.
+    pending_permission: dict | None = None
     # AskUserQuestion のライブ表示用。 claude は AskUserQuestion で停止中、 会話ログ
     # (JSONL) を回答までディスクに flush しないので、 JSONL tail では質問をライブ検出
     # できない。 そこで PreToolUse hook (= 質問表示時にリアルタイム発火) で立て、
@@ -501,6 +504,7 @@ class AgentStatus:
             "todos": self.todos,
             "subagent": self.subagent,
             "pending_plan": self.pending_plan,
+            "pending_permission": self.pending_permission,
             "mode": self.mode,
             "permission_mode": self.permission_mode,
             "budget_used": self.budget_used,

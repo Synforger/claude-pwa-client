@@ -633,3 +633,5 @@
   gap: 6px;
   max-width: 85%;
 }
+
+.held-by-window-note { opacity: 0.7; font-size: 0.85em; margin-top: 4px; }

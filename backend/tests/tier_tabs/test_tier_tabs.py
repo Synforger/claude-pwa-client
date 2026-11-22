@@ -241,7 +241,7 @@ def launched(configured, monkeypatch, tmp_path) -> list[tuple[str, str]]:
     async def fake_register(session_id, max_wait):
         return None
 
-    async def fake_deliver(session_id, text):
+    async def fake_deliver(session_id, text, **_):
         events.append(("send", text))
         return True
 

@@ -33,6 +33,9 @@ quiet, or when a usage limit stopped it: the watch asks no more, and the sleep, 
 longer count the tab as closing (`sleep_judgement.close_lapsed`). The count of asks stops at `ASKS_MAX`; at that
 count a message from another tab starts it over (= new work arrived).
 
+A tab waiting at a permission window is not asked and does not count as closing (`permission_window/window_state.py`):
+a person answers the window first, and the next look takes the tab as it is then.
+
 A tab whose claude still runs a tool's shell (= a command its Bash or Monitor tool runs in the background) is not
 asked, whatever the reason, and the next tab in line is looked at instead: the conversation's end would stop those
 commands (`tool_shells`). The tab is looked at again on the next look, and its quiet time includes the records of its
@@ -55,6 +58,7 @@ import backend.jsonl.jsonl_watcher as jsonl_watcher
 from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENINGS, CLIENT_OPENINGS, ROLLOVER_OPENING, unwrap_pasted
 from backend.routes.agent_messages import entered_text, lines_from_the_end
 from backend.routes.overview import context_pct_of, is_busy
+from backend.permission_window import window_state
 from backend.routes.rollover import TAG, close_envelope
 from backend._common.state import sessions_meta
 from backend.rollover import held_notice
@@ -368,6 +372,10 @@ async def tick() -> str | None:
             continue
         key = str(record)
         records.add(key)
+        if window_state.is_open(sid):
+            # Waiting at a permission window: not asked to close, and not a close under way that holds up the others
+            # (= the close would be answered at the window, taking its first choice).
+            continue
         try:
             written[key] = last_written(record)
             idle_minutes = (now - written[key]) / 60

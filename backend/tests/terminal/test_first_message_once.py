@@ -95,7 +95,7 @@ def pane(monkeypatch, tmp_path):
     async def typeable(_sid, _timeout):
         return True
 
-    async def pty_send(session_id, payload, key=None):
+    async def pty_send(session_id, payload, key=None, **_):
         """What `routes.pty_send` does with a text: held while a launch starts, else a launch, else typed."""
         text = payload["text"]
         if (held := fm.hold_while_launching(session_id, text)) is not None:

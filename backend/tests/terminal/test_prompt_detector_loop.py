@@ -15,6 +15,8 @@ import pytest
 from backend._common.state import jsonl_event_broadcaster
 from backend.terminal import prompt_detector_loop as loop_mod
 from backend.terminal.prompt_detector import PromptState
+from backend.tests.permission_window import screens
+from backend.tests.permission_window.conftest import call_row
 
 
 def _run(coro):
@@ -309,3 +311,136 @@ def test_note_user_input_resets_adaptive_poll(stub_session):
 
     _run(run())
     loop_mod._next_poll_at.clear()
+
+
+WINDOW_SCREEN = screens.approval("echo LABASK-B1")
+
+
+def _stand_a_window(sid, monkeypatch):
+    """The tab `sid` with the record's call and the hook's input of a permission window, in a window state of its own."""
+    from backend._common.state import agent_status
+    from backend.permission_window import window_state
+    monkeypatch.setitem(agent_status, sid, {"pending_plan": None, "pending_permission": None})
+    monkeypatch.setattr(window_state, "_tabs", {})
+    monkeypatch.setattr(window_state.jsonl_watcher, "get_jsonl_for", lambda _sid: None)
+    window_state.fold_row(sid, call_row("toolu_1", "Bash", {"command": "echo LABASK-B1"}))
+    window_state.open_window(sid, "Bash", {"command": "echo LABASK-B1"}, "p1", now=1.0)
+    return window_state
+
+
+def test_the_window_is_open_while_the_screen_shows_it_and_is_forgotten_after_two_looks_at_the_input_box(
+        stub_session, monkeypatch):
+    sid, tail_holder, _alt, _push = stub_session
+    window_state = _stand_a_window(sid, monkeypatch)
+
+    async def run():
+        tail_holder["value"] = "just some running output"
+        await loop_mod._tick_one(sid)                    # the seed look
+        assert window_state.is_open(sid) is False        # a hook alone is no window
+        tail_holder["value"] = WINDOW_SCREEN
+        await loop_mod._tick_one(sid)
+        assert window_state.is_open(sid) is True
+        tail_holder["value"] = screens.idle()
+        await loop_mod._tick_one(sid)
+        assert window_state.is_open(sid) is False and window_state.current_window(sid) is not None
+        await loop_mod._tick_one(sid)
+        assert window_state.current_window(sid) is None
+
+    _run(run())
+
+
+def test_g12_a_permission_window_is_pushed_once_when_the_screen_first_shows_it_with_the_tools_name_only(
+        stub_session, monkeypatch):
+    """Red before the fix: the hook pushed, with the command in the text, and the detector's own push was held back."""
+    sid, tail_holder, _alt, push_calls = stub_session
+    _stand_a_window(sid, monkeypatch)
+    monkeypatch.setattr(loop_mod, "notification_title_for", lambda _sid: "tab name")
+
+    async def run():
+        tail_holder["value"] = "just some running output"
+        await loop_mod._tick_one(sid)
+        assert push_calls == []                          # the hook alone is no window
+        tail_holder["value"] = WINDOW_SCREEN
+        await loop_mod._tick_one(sid)
+        await loop_mod._tick_one(sid)
+        await asyncio.sleep(0.02)
+
+    _run(run())
+    assert push_calls == [("tab name", "承認待ち: Bash", sid)]
+
+
+def test_g12_the_push_of_a_window_the_screen_never_showed_is_never_sent(stub_session, monkeypatch):
+    sid, tail_holder, _alt, push_calls = stub_session
+    _stand_a_window(sid, monkeypatch)
+
+    async def run():
+        tail_holder["value"] = screens.idle()
+        for _ in range(3):
+            await loop_mod._tick_one(sid)
+        await asyncio.sleep(0.02)
+
+    _run(run())
+    assert push_calls == []
+
+
+def test_g14_a_tab_whose_pane_is_gone_is_no_window_any_more(stub_session, monkeypatch):
+    """Red before the fix: the last screen stayed, and the tab stayed at a permission window for the sleep and the rollover."""
+    sid, tail_holder, _alt, _push = stub_session
+    window_state = _stand_a_window(sid, monkeypatch)
+
+    async def run():
+        tail_holder["value"] = WINDOW_SCREEN
+        await loop_mod._tick_one(sid)
+        await loop_mod._tick_one(sid)
+        assert window_state.is_open(sid)
+        monkeypatch.setattr(loop_mod, "has_tmux_session", lambda _s: False)
+        await loop_mod._tick_one(sid)
+        assert window_state.is_open(sid) is False
+
+    _run(run())
+
+
+def test_each_look_at_a_tab_is_a_patrol_of_the_messages_kept_for_it(stub_session, monkeypatch):
+    """The messages kept for a tab are released by the detector's looks: no window in memory is needed."""
+    from backend.permission_window import window_hold
+    sid, tail_holder, _alt, _push = stub_session
+    patrolled = []
+
+    async def patrol(session_id):
+        patrolled.append(session_id)
+    monkeypatch.setattr(window_hold, "patrol", patrol)
+
+    async def run():
+        tail_holder["value"] = screens.idle()
+        await loop_mod._tick_one(sid)
+        await loop_mod._tick_one(sid)
+
+    _run(run())
+    assert patrolled == [sid, sid]
+
+
+def test_a_tab_whose_pane_is_gone_is_a_patrol_too_so_that_what_was_kept_for_it_is_dropped(stub_session, monkeypatch):
+    from backend.permission_window import window_hold
+    sid, _tail, _alt, _push = stub_session
+    patrolled = []
+
+    async def patrol(session_id):
+        patrolled.append(session_id)
+    monkeypatch.setattr(window_hold, "patrol", patrol)
+    monkeypatch.setattr(loop_mod, "has_tmux_session", lambda _s: False)
+    _run(loop_mod._tick_one(sid))
+    assert patrolled == [sid]
+
+
+def test_a_selection_prompt_with_no_permission_window_is_pushed_as_before(stub_session):
+    sid, tail_holder, _alt, push_calls = stub_session
+
+    async def run():
+        tail_holder["value"] = "just some running output"
+        await loop_mod._tick_one(sid)
+        tail_holder["value"] = WINDOW_SCREEN
+        await loop_mod._tick_one(sid)
+        await asyncio.sleep(0.02)
+
+    _run(run())
+    assert len(push_calls) == 1

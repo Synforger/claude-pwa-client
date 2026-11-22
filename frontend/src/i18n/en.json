@@ -431,5 +431,19 @@
   "operator_reply.knob": "Open the last answer",
   "operator_reply.title": "Last answer",
   "operator_reply.still_writing": "still writing",
-  "operator_reply.before_rollover": "The last answer before the rollover"
+  "operator_reply.before_rollover": "The last answer before the rollover",
+  "topbar.permission_window": "Permission window",
+  "topbar.permission_window_label": "A permission window is open",
+  "drawer.permission_window": "A permission window is open",
+  "permission_window.title": "Waiting for approval",
+  "permission_window.position": "{index} / {count}",
+  "permission_window.allow": "Allow",
+  "permission_window.deny": "Deny",
+  "permission_window.rewritten": "A hook rewrote the input",
+  "permission_window.input_running": "Input that runs",
+  "permission_window.input_original": "Original input",
+  "permission_window.no_input": "(no input)",
+  "permission_window.send_failed": "The answer could not be sent. Press again",
+  "permission_window.answer_in_terminal": "Answer this window in the terminal",
+  "chat.held_by_window": "Kept until the window closes"
 }

@@ -43,6 +43,7 @@ import MessageList from '../features/chat/MessageList.jsx'
 import { sortByTs } from '../features/chat/sortByTs.js'
 import AttachmentsBar from '../features/chat/AttachmentsBar.jsx'
 import PlanApprovalBubble from '../features/plan-approval/PlanApprovalBubble.jsx'
+import PermissionWindowDialog from '../features/permission-window/PermissionWindowDialog.jsx'
 import { usePageExtensionOpen } from '../features/extensions/useExtensions.js'
 import { isApiTab } from '../_common/apiTab.js'
 import { useT } from '../i18n/t.js'
@@ -168,6 +169,11 @@ export default function ChatPanel({ sid }) {
     if (!status?.pending_plan && ui.overlays.planOpen) setOverlay('planOpen', false)
   }, [status?.pending_plan, ui.overlays.planOpen])
 
+  // The permission window's dialog closes by itself when the window is gone, as the plan's does.
+  useEffect(() => {
+    if (!status?.pending_permission && ui.overlays.permissionOpen) setOverlay('permissionOpen', false)
+  }, [status?.pending_permission, ui.overlays.permissionOpen])
+
   // Topbar ⋯ メニューの「ファイル添付」 が bump した時 hidden <input type="file"> を発火する。
   // Topbar は fileInputRef を持たない (= 疎結合)、 ephemeral の counter 変化を検知して click。
   const attachmentPickerBump = ephem.attachmentPickerBump
@@ -247,7 +253,10 @@ export default function ChatPanel({ sid }) {
   const handleOpenPath = useCallback((path) => openLinkedPath(path), [])
 
   const handleStopClick = useCallback(() => setOverlay('confirmStop', true), [])
-  const handleSendClick = useCallback((text) => sendMessage(text), [sendMessage])
+  const handleSendClick = useCallback(
+    (text) => (answerMode ? sendMessage(text, undefined, { answersChoice: true }) : sendMessage(text)),
+    [sendMessage, answerMode],
+  )
   // 声の会話が聞き取った文の送り先 (= 🔊 のタブ。 見ているタブが変わっても、 そのタブへ送る)。
   const sendRef = useRef(sendMessage)
   useEffect(() => { sendRef.current = sendMessage }, [sendMessage])
@@ -371,7 +380,8 @@ export default function ChatPanel({ sid }) {
 
       {/* tmux pane 入力待ち banner (= 2026-07-05 StatusBar chip から移設)。 待ち系
           state の時だけ出現、 excerpt + quick-reply button を入力欄の直上に出す。 */}
-      <PromptStateBanner sid={isApi ? null : activeSid} />
+      {/* A permission window is answered through its dialog, which shows the whole input: no quick replies for it. */}
+      <PromptStateBanner sid={isApi || status?.pending_permission ? null : activeSid} />
 
       <ActivityBar status={isApi ? null : status} />
 
@@ -424,10 +434,19 @@ export default function ChatPanel({ sid }) {
             await apiFetch(`/pty/${encodeURIComponent(activeSid)}/send`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text: key, enter: true }),
+              body: JSON.stringify({ text: key, enter: true, answers_choice: true }),
             }).catch(() => {})
             setOverlay('planOpen', false)
           }}
+        />
+      )}
+
+      {/* Claude Code の承認の窓。 topbar の 🔐 ボタンで開き、 窓が消えたら上の effect が閉じる。 */}
+      {ui.overlays.permissionOpen && !isApi && status?.pending_permission && (
+        <PermissionWindowDialog
+          sid={activeSid}
+          pending={status.pending_permission}
+          onClose={() => setOverlay('permissionOpen', false)}
         />
       )}
 

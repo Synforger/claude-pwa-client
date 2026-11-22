@@ -191,6 +191,7 @@ def test_pty_send_wipes_input_before_text_enter(monkeypatch):
     asyncio.run(routes.pty_send("ses_x", {"text": "hello", "enter": True}))
 
     # ワイプ = send-keys 1 発に (C-u, BSpace) 往復 (= C-u 単発ではない = 複数行残留を根治)。
+    tmux_calls = [call for call in tmux_calls if call[0] == "send-keys"]    # the looks at the screen are not keys
     assert len(tmux_calls) == 1
     wipe = tmux_calls[0]
     assert wipe[:3] == ["send-keys", "-t", "pwa-x"]

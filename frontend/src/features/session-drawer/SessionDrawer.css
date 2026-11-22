@@ -321,6 +321,11 @@ span.drawer-item-fold {
   font-size: 12px;
   opacity: 0.8;
 }
+.drawer-item-permission {
+  flex: none;
+  margin-left: 4px;
+  font-size: 12px;
+}
 /* どのアカウントで動いている会話かの札。 アカウントを 2 つ以上設定している時だけ出す。 */
 .drawer-item-pin {
   flex: 0 0 auto;

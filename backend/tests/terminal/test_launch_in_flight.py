@@ -87,7 +87,7 @@ def pane(monkeypatch):
         keys.append(text or key)
         return True
 
-    async def fake_deliver(_sid, text):
+    async def fake_deliver(_sid, text, **_):
         delivered.append(text)
         return True
 
@@ -170,7 +170,7 @@ def test_a_launch_given_up_sends_its_held_messages_again(pane, monkeypatch):
     _, delivered = pane
     resent: list[str] = []
 
-    async def fake_send(_sid, payload, _key=None):
+    async def fake_send(_sid, payload, _key=None, **_):
         resent.append(payload["text"])
         return {"ok": True}
     monkeypatch.setattr(routes, "pty_send", fake_send)
@@ -200,7 +200,7 @@ def published(monkeypatch):
 def test_a_held_message_from_the_screen_that_is_not_taken_is_told_back(pane, published, monkeypatch):
     # Intent: the send answered "held" at once, so the screen showed the bubble as sent. When the message does not get
     # in, the screen is told by the send's id, and its bubble says it was not delivered.
-    async def not_taken(_sid, _text):
+    async def not_taken(_sid, _text, **_):
         return False
     monkeypatch.setattr(receipt, "deliver_to_woken", not_taken)
     input_ready.mark_starting(SID)
@@ -227,7 +227,7 @@ def test_a_held_message_that_is_taken_tells_the_screen_nothing(pane, published):
 
 
 def test_a_held_message_whose_resend_fails_after_a_launch_given_up_is_told_back(pane, published, monkeypatch):
-    async def failed_send(_sid, payload, _key=None):
+    async def failed_send(_sid, payload, _key=None, **_):
         return {"ok": False, "reason": "not_ready"}
     input_ready.mark_starting(SID)
 
@@ -270,3 +270,39 @@ def test_the_autoresume_watchdog_waits_for_the_shell_before_it_looks_for_claude(
         await watchdog
     _run(scenario())
     assert typed == ["fallback"]
+
+
+def test_g15_a_held_message_keeps_the_id_of_its_send_to_the_window_that_may_keep_it_again(pane, monkeypatch):
+    """Red before the fix: the typing of a message held for a launch carried no id of its send, so a window that kept it again
+    could not tell the screen's bubble that it did not arrive."""
+    seen: list[dict] = []
+
+    async def deliver(_sid, text, **kwargs):
+        seen.append({"text": text, **kwargs})
+        return True
+    monkeypatch.setattr(receipt, "deliver_to_woken", deliver)
+    input_ready.mark_starting(SID)
+
+    async def scenario():
+        assert fm.hold_while_launching(SID, "hello", "send-9") is not None
+        input_ready.mark_ready(SID)
+        await asyncio.gather(*fm._typers.values())
+    _run(scenario())
+    assert [(one["text"], one["send_id"]) for one in seen] == [("hello", "send-9")]
+
+
+def test_g15_a_message_sent_again_after_a_launch_given_up_keeps_the_id_of_its_send(pane, monkeypatch):
+    resent: list[tuple[str, dict]] = []
+
+    async def fake_send(_sid, payload, _key=None, **kwargs):
+        resent.append((payload["text"], kwargs))
+        return {"ok": True}
+    monkeypatch.setattr(routes, "pty_send", fake_send)
+    input_ready.mark_starting(SID)
+
+    async def scenario():
+        assert fm.hold_while_launching(SID, "one", "send-1") is not None
+        monkeypatch.setattr(input_ready, "LAUNCH_GIVE_UP_SEC", 0.0)
+        await asyncio.gather(*fm._typers.values())
+    _run(scenario())
+    assert resent == [("one", {"hold": True, "send_id": "send-1"})]

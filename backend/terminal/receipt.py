@@ -35,6 +35,8 @@ import logging
 from pathlib import Path
 
 from backend._internal.stop_signal import BackendStopping, until_stop
+from backend.permission_window import window_answer
+from backend.permission_window.window_judgement import Caller, WindowInTheWay
 from backend.terminal import input_ready
 from backend.terminal.ansi_text import strip_ansi
 from backend.terminal.confirm import CONFIRM_TIMEOUT_SEC, wait_taken_row, wait_text_row
@@ -56,6 +58,11 @@ RESCUE_SEC = 120.0
 # How much of the typed message is looked for in the pane, and what the TUI shows for a long paste it has not expanded.
 HEAD_CHARS = 30
 PASTE_PLACEHOLDER = "[Pasted text #"
+
+
+# What `deliver_to_woken` says besides True (the record shows the message) and False (it was not taken): the message is kept
+# while a window is open, and typed when the window is gone.
+HELD = "held"
 
 
 class StoppedBeforeTyping(BackendStopping):
@@ -100,12 +107,15 @@ def _record_end(session_id: str) -> int:
         return 0
 
 
-async def deliver_to_woken(session_id: str, text: str) -> bool:
+async def deliver_to_woken(session_id: str, text: str, *, hold: bool = True, sender: str | None = None,
+                           send_id: str | None = None) -> bool | str:
     """Type `text` into a tab that was just started and make sure it was taken. True when the record shows the message
-    (maybe after the rescue: Enter again while the text waits in the input, typing it once more when it is gone); False
-    when it did not within `RESCUE_SEC`, or the launch in flight was given up, which is for the caller to refuse. A text
-    that the typing handed to a launch is not typed again (`_taken_by_launch`). Raises `StoppedBeforeTyping` when the
-    backend stops while the launch is waited for, and `BackendStopping` when it stops after the typing."""
+    (maybe after the rescue: Enter again while the text waits in the input, typing it once more when it is gone); `HELD`
+    when a window is open and the message is kept to be typed when it is gone (`hold` says whether a window keeps it
+    or refuses it, as for `pty_send`; `sender` is the tab and `send_id` the screen's send to tell if it does not arrive); False when it did not
+    within `RESCUE_SEC`, or the launch in flight was given up, which is for the caller to refuse. A text that the typing
+    handed to a launch is not typed again (`_taken_by_launch`). Raises `StoppedBeforeTyping` when the backend stops while
+    the launch is waited for, and `BackendStopping` when it stops after the typing."""
     if input_ready.launching(session_id):
         try:
             launched = await until_stop(_wait_for_launch(session_id))
@@ -115,10 +125,12 @@ async def deliver_to_woken(session_id: str, text: str) -> bool:
             return False
     record = jsonl_path_for_session(session_id)
     initial_pos = _record_end(session_id)
-    result = await pty_send(session_id, {"text": text, "enter": True}, None)
+    result = await pty_send(session_id, {"text": text, "enter": True}, None, hold=hold, sender=sender, send_id=send_id)
     if not result.get("ok"):
         return False
-    return await until_stop(_taken_after_typing(session_id, record, initial_pos, text, result))
+    if result.get("held"):
+        return HELD     # kept while a window is open: `window_hold` types it, once, when the window is gone
+    return await until_stop(_taken_after_typing(session_id, record, initial_pos, text, result, hold, sender, send_id))
 
 
 async def _wait_for_launch(session_id: str) -> bool:
@@ -130,14 +142,15 @@ async def _wait_for_launch(session_id: str) -> bool:
     return True
 
 
-async def _taken_after_typing(session_id: str, record: Path | None, initial_pos: int, text: str, result: dict) -> bool:
+async def _taken_after_typing(session_id: str, record: Path | None, initial_pos: int, text: str, result: dict, hold: bool,
+                              sender: str | None, send_id: str | None) -> bool | str:
     """Wait for the row of `text`, which `pty_send` answered `result` for: from the launch it was handed to, or from
     the typing itself, with the rescue when the row does not come."""
     if result.get("launched"):
         return await _taken_by_launch(session_id, record, initial_pos, text)
     if result.get("confirmed") or await _taken(session_id, initial_pos, TAKEN_WAIT_SEC - CONFIRM_TIMEOUT_SEC, text):
         return True
-    return await _rescue(session_id, initial_pos, text)
+    return await _rescue(session_id, initial_pos, text, hold, sender, send_id)
 
 
 async def _taken_by_launch(session_id: str, record: Path | None, initial_pos: int, text: str) -> bool:
@@ -153,26 +166,39 @@ async def _taken_by_launch(session_id: str, record: Path | None, initial_pos: in
                                follow=lambda: jsonl_path_for_session(session_id))
 
 
-async def _rescue(session_id: str, initial_pos: int, text: str) -> bool:
+async def _rescue(session_id: str, initial_pos: int, text: str, hold: bool, sender: str | None,
+                  send_id: str | None) -> bool | str:
     """Put right a typed text whose row did not come: Enter while it waits in the input, one more typing once it is
     gone, then wait `ENTER_AGAIN_SEC` for the row, until `RESCUE_SEC` has passed. A text that still waits then is
-    cleared from the input, so that the refusal the caller gives holds."""
+    cleared from the input, so that the refusal the caller gives holds. No key is typed while a window is on the screen
+    (= its Enter would take the window's first choice): the Enter waits for the window, and a typing again is kept like
+    any other (`HELD`)."""
     loop = asyncio.get_running_loop()
     deadline = loop.time() + RESCUE_SEC
     typed_again = False
+    check = window_answer.check_before_typing(session_id, Caller.MESSAGE, releasing=True)
     while loop.time() < deadline:
         if text_waits_in_input(await asyncio.to_thread(pane_text, session_id), text):
             logger.info("receipt: the message waits in the input, sending Enter session=%s", session_id)
-            await in_typing_order(session_id, lambda: tmux_send_keys(session_id, enter=True))
+            try:
+                await in_typing_order(session_id, lambda: (check(), tmux_send_keys(session_id, enter=True))[1])
+            except WindowInTheWay:
+                logger.info("receipt: a window is open, no Enter for the message session=%s", session_id)
         elif not typed_again:
             logger.info("receipt: the message is gone, typing it again session=%s", session_id)
             typed_again = True
-            if not (await pty_send(session_id, {"text": text, "enter": True}, None)).get("ok"):
+            again = await pty_send(session_id, {"text": text, "enter": True}, None, hold=hold, sender=sender, send_id=send_id)
+            if not again.get("ok"):
                 return False
+            if again.get("held"):
+                return HELD
         if await _taken(session_id, initial_pos, ENTER_AGAIN_SEC, text):
             return True
     if text_waits_in_input(await asyncio.to_thread(pane_text, session_id), text):
         logger.warning("receipt: the message was not taken in %.0fs, clearing it from the input session=%s",
                        RESCUE_SEC, session_id)
-        await in_typing_order(session_id, lambda: tmux_send_keys(session_id, key="C-u"))
+        try:
+            await in_typing_order(session_id, lambda: (check(), tmux_send_keys(session_id, key="C-u"))[1])
+        except WindowInTheWay:
+            logger.info("receipt: a window is open, the message is left in the input session=%s", session_id)
     return False

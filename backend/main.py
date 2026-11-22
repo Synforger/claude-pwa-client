@@ -100,6 +100,9 @@ import backend.routes.files as files_routes  # noqa: E402
 import backend.routes.hooks as hooks_routes  # noqa: E402
 import backend.routes.notes as notes_routes  # noqa: E402
 import backend.routes.page_url as page_url_routes  # noqa: E402
+import backend.routes.permission_window as permission_window_routes  # noqa: E402
+import backend.routes.window_hold_wiring  # noqa: E402,F401 (= what the kept messages are typed and told with)
+from backend.permission_window import window_hold  # noqa: E402
 import backend.routes.restart as restart_routes  # noqa: E402
 import backend.rollover.rollover as rollover  # noqa: E402
 import backend.sleep as sleep  # noqa: E402
@@ -237,6 +240,10 @@ async def lifespan(app: FastAPI):
         memo_migration.migrate_memos(LEGACY_NOTES_DIR)
     except Exception:
         logger.exception("memo migration failed")
+
+    # The messages kept while a window was open (= `permission_window/window_hold.py`) are read from their file: the patrol of
+    # the detector releases or drops them from its first look.
+    window_hold.load()
 
     # tmux server の status bar を全 session で OFF にする (= 端末画面下の緑バー除去)。
     # `-g` でサーバ全体に効くので、 既存 session も新規 session も等しく status off。
@@ -478,6 +485,7 @@ app.include_router(files_routes.router)
 app.include_router(hooks_routes.router)
 app.include_router(jsonl_routes.router)
 app.include_router(notes_routes.router)
+app.include_router(permission_window_routes.router)
 app.include_router(page_url_routes.router)
 app.include_router(pty_routes.router)
 app.include_router(restart_routes.router)

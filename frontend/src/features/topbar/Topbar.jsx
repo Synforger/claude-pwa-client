@@ -130,6 +130,19 @@ export default function Topbar() {
           📑<span className="topbar-plan-dot" />
         </button>
       )}
+      {/* Claude Code の承認の窓: 📑 の隣。 pending_permission がある時のみ表示し、 タップで
+          PermissionWindowDialog (= ChatPanel 内) を開く (= ui.overlays.permissionOpen 経由)。 */}
+      {activeViewMode === 'chat' && claudeSid && status?.pending_permission && (
+        <button
+          className="topbar-icon-btn topbar-permission-btn"
+          onClick={() => setOverlay('permissionOpen', true)}
+          aria-label={t('topbar.permission_window_label')}
+          title={t('topbar.permission_window')}
+          data-testid="permission-window-open-button"
+        >
+          🔐
+        </button>
+      )}
       {moonlightAvailable && (
         <button
           className={`screen-toggle ${ui.overlays.desktopOpen ? 'active' : ''}`}

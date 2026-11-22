@@ -193,7 +193,7 @@ def launcher(tab, monkeypatch, tmp_path) -> SimpleNamespace:
         seen.typed.append(key or text)
         return True
 
-    async def body(_sid, text, key=None):
+    async def body(_sid, text, key=None, **_):
         seen.bodies.append(text)
         return {"ok": True}
 

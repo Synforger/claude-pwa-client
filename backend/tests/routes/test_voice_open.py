@@ -69,7 +69,7 @@ def sent(monkeypatch) -> list[dict]:
     """人の送信の口が中身の口 (= pty_send) へ渡した payload。"""
     got: list[dict] = []
 
-    async def fake_pty_send(session_id, payload, idempotency_key=None):
+    async def fake_pty_send(session_id, payload, idempotency_key=None, **_):
         got.append(payload)
         return {"ok": True}
 
@@ -119,7 +119,7 @@ def test_a_photo_sent_without_text_is_marked_during_a_call(monkeypatch):
     state.calls_by_conn["pc-1"] = "ses_a"
     bodies: list[str] = []
 
-    async def fake_send_body(session_id, text, key=None):
+    async def fake_send_body(session_id, text, key=None, **_):
         bodies.append(text)
         return {"ok": True}
 

@@ -139,6 +139,8 @@ async def post_e2e_seed(request: Request, body: E2eSeedRequest) -> E2eSeedRespon
         sessions_meta[body.sid].notify_mode = body.notify_mode
 
     watcher.confirm_bind(body.sid, claude_sid, str(jsonl_path))
+    from backend.permission_window import window_state
+    window_state.inject_view(body.sid, None)
 
     return E2eSeedResponse(
         sid=body.sid,
@@ -218,6 +220,41 @@ async def post_e2e_inject_pending_plan(
     # snapshot on the next event loop tick instead of waiting for the 20s
     # keep-alive to roll around.
     sessions_overview.notify()
+    return {"ok": True}
+
+
+class PendingPermissionInjectRequest(BaseModel):
+    """`agent_status.pending_permission` as the status stream carries it (the backend and the screen agree on this shape)."""
+    number: int = Field(1)
+    tool_use_id: str | None = Field("toolu_e2e_permission")
+    tool_name: str = Field("Bash")
+    input: Any = Field(default_factory=lambda: {"command": "echo e2e"})
+    record_input: Any = Field(None)
+    answerable: bool = Field(True)
+    index: int = Field(1)
+    count: int = Field(1)
+    opened_at: float = Field(1_700_000_000)
+
+
+@router.post("/e2e/inject-pending-permission/{session_id}")
+async def post_e2e_inject_pending_permission(
+    request: Request,
+    session_id: str,
+    body: PendingPermissionInjectRequest,
+) -> dict:
+    """Open a permission window on a tab, as far as the screen is told.
+
+    It goes through the owner of `pending_permission` (`permission_window/window_state.py`): a value written straight
+    into agent_status is put back to the pane's truth by the detector's next look. Posting again replaces the window
+    (a new number, another position); seeding the tab again clears it.
+    """
+    _ensure_localhost(request)
+    _ensure_e2e_enabled()
+    from backend._common.state import agent_status
+    from backend.permission_window import window_state
+    if session_id not in agent_status:
+        raise HTTPException(status_code=409, detail="no session")
+    window_state.inject_view(session_id, body.model_dump())
     return {"ok": True}
 
 

@@ -24,7 +24,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from backend.push.push import broadcast_push
+from backend.permission_window import window_hold, window_screen, window_state
+from backend.push.push import broadcast_push, notification_title_for
 from backend.observability.metrics import metrics
 from backend._common.state import (
     jsonl_event_broadcaster,
@@ -202,6 +203,8 @@ async def _tick_one(
         _detector_states.pop(sid, None)
         _last_events.pop(sid, None)
         _next_poll_at.pop(sid, None)
+        window_state.forget_screen(sid)  # no pane: what the last look showed is gone
+        await window_hold.patrol(sid)    # no pane, no claude: what is kept for the tab cannot arrive
         return
 
     if alt is None:
@@ -229,6 +232,14 @@ async def _tick_one(
 
     prev_state = state.current_state
     verdict = analyze(snapshot, state, _config)
+    # What the screen shows (a window, the input box, neither) is read once here: the client's knowledge of the window and
+    # the messages kept for it follow it (= `window_state.note_screen`, `window_hold.patrol`).
+    await window_state.look(sid, window_screen.read_screen(tail))
+    if (shown := window_state.take_unpushed(sid)) is not None:
+        # One push for each window, when the screen first shows it: no hook decides (a hook can end in no window), and the
+        # text is the tool's name, not what it is asked to run.
+        asyncio.create_task(broadcast_push(f"承認待ち: {shown.tool_name}", notification_title_for(sid), sid))
+    await window_hold.patrol(sid)
 
     if not state.seeded:
         # 初回 tick: 既に「入力待ち」 状態で backend が起動しただけかもしれないので
@@ -267,6 +278,8 @@ async def _tick_one(
     # 元に戻る (= ACTIVE) 遷移では push しない。
     if state_transitioned:
         push_pair = _push_title_for(verdict)
+        if push_pair is not None and window_state.is_open(sid):
+            push_pair = None    # a permission window has its own push (= one per window)
         if push_pair is not None:
             title, body = push_pair
             # broadcast_push は async だが fire-and-forget (= loop を止めない)
