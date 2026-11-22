@@ -3,6 +3,8 @@
 // page). A page now reads its own folder and what is below it; the folder next to it stays out of reach, and what
 // the page keeps in localStorage is still there when it is opened again. The folder's name is Japanese with a space,
 // as the agents' tier folders are, since the browser compares the path of the policy in its percent form.
+// A page in a branch folder of a tab (`pages/<tab>/<branch>/`) also reads that tab's top page, and no other file
+// beside the branch.
 
 import { test, expect } from '@playwright/test'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -30,6 +32,21 @@ const GUIDE = `<!doctype html><meta charset="utf-8"><title>guide</title>
   localStorage.setItem('opened', '1')
 </script>`
 
+const BRANCH = `<!doctype html><meta charset="utf-8"><title>branch</title>
+<p id="top">waiting</p><p id="beside">waiting</p>
+<script>
+  async function read(url) {
+    try {
+      const response = await fetch(url)
+      return response.ok ? (await response.text()).trim() : 'status ' + response.status
+    } catch {
+      return 'blocked'
+    }
+  }
+  read('../index.html').then((text) => { document.getElementById('top').textContent = text })
+  read('../beside.html').then((text) => { document.getElementById('beside').textContent = text })
+</script>`
+
 test.describe('regression: a page on the page origin reads its own folder', () => {
   const tab = join(ORIGIN_DIR, '階層 A', 'tab')
   const other = join(ORIGIN_DIR, 'other')
@@ -45,6 +62,18 @@ test.describe('regression: a page on the page origin reads its own folder', () =
   test.afterAll(() => {
     rmSync(join(ORIGIN_DIR, '階層 A'), { recursive: true, force: true })
     rmSync(other, { recursive: true, force: true })
+  })
+
+  test('a page in a branch folder reads its tab\'s top page and nothing beside it', async ({ page }) => {
+    const top = join(ORIGIN_DIR, '階層 A', 'pages', 'ses one')
+    mkdirSync(join(top, 'model'), { recursive: true })
+    writeFileSync(join(top, 'index.html'), 'tab top')
+    writeFileSync(join(top, 'beside.html'), 'beside the branch')
+    writeFileSync(join(top, 'model', 'x.html'), BRANCH)
+    await page.goto(`/file/open?path=${encodeURIComponent(join(top, 'model', 'x.html'))}`)
+
+    await expect(page.locator('#top')).toHaveText('tab top')
+    await expect(page.locator('#beside')).toHaveText('blocked')
   })
 
   test('the top page of the folder is read, the next folder is not, and localStorage is kept', async ({ page, baseURL }) => {
