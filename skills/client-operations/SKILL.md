@@ -51,7 +51,9 @@ send/receive path.
   recover. The exceptions are the commands an agent uses to do its work: `tabs` (messages, children, rollover).
 - `task build` is safe to run on your own judgement.
 - A tab can run on another account than its own: the account fallback moves it while its account's usage is at the
-  line, and the client itself deletes the record it wrote there when the tab goes back, so never delete one by hand
+  line, and the client itself deletes the record it wrote there when the tab goes back, so never delete one by hand.
+  When the accounts' `projects` folders are one folder (one is a link to the other), a move reopens the same
+  conversation under the other account, writes nothing to delete, and the client deletes no record from that folder
   (`docs/reference/account-fallback.md`).
 - To try Claude's behaviour for real (how Esc is handled, say), do it in a tab that shows in the PWA's list, not in a
   hidden tmux session, so the operator can see what runs. Add a laboratory agent to the configuration only after

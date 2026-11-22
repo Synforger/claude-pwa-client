@@ -2,6 +2,7 @@
 //
 // How useChatStream catches up the history of the tab on screen:
 // - opening a tab asks for the history with the screen's offset as `since` (left out when there is none)
+// - a tab whose history this screen took in already asks only for the lines `after` that
 // - `reached: false` drops the tab's cache (memory and the saved copy) before the events are applied
 // - `reached: true` lays the events over the cache
 // - the `history_refetch` mark from the stream's replay drops the cache and fetches the history again
@@ -15,6 +16,7 @@ vi.mock('../../../src/_common/api.js', () => ({ apiFetch: (...args) => apiFetch(
 const transport = vi.hoisted(() => ({
   handler: null,
   offset: null,
+  confirmed: {},
   advanceOffset: vi.fn(),
 }))
 vi.mock('../../../src/transport/select.ts', () => ({
@@ -23,6 +25,9 @@ vi.mock('../../../src/transport/select.ts', () => ({
     setSubscribedSids: vi.fn(),
     setVoiceSids: vi.fn(),
     getOffset: () => transport.offset,
+    getConfirmed: sid => transport.confirmed[sid] ?? null,
+    confirmHistory: (sid, pos) => { transport.confirmed[sid] = pos },
+    forgetConfirmed: sid => { if (sid) delete transport.confirmed[sid]; else transport.confirmed = {} },
     advanceOffset: (...args) => transport.advanceOffset(...args),
     resetOffset: vi.fn(),
     bumpReconnect: vi.fn(),
@@ -78,6 +83,21 @@ function mountTab(initialMessages) {
   })
 }
 
+function mountSwitchingTab(initialMessages) {
+  return renderHook(active => {
+    const [messages, setMessages] = useState({ [SID]: initialMessages })
+    useChatStream({
+      activeSession: { id: active },
+      setMessages,
+      input: {}, setInput: () => {},
+      attachments: {}, clearAttachments: () => {},
+      scrollToBottom: () => {}, isAtBottomRef: { current: true },
+      sendStopIntent: () => {}, onSendFailed: () => {}, onStopUnavailable: () => {},
+    })
+    return messages[SID]
+  }, { initialProps: SID })
+}
+
 const uuids = messages => messages.map(m => m.uuid)
 
 // Node's own experimental localStorage hides jsdom's, so the storage is stubbed by hand.
@@ -94,6 +114,7 @@ beforeEach(() => {
   apiFetch.mockReset()
   transport.handler = null
   transport.offset = null
+  transport.confirmed = {}
   transport.advanceOffset.mockReset()
   vi.stubGlobal('localStorage', makeStorage())
 })
@@ -132,6 +153,49 @@ describe('useChatStream history catch-up', () => {
     const { result } = mountTab(cached(1, 3))
     await waitFor(() => expect(uuids(result.current)).toEqual(['u1', 'u2', 'u3', 'u4']))
     expect(transport.advanceOffset).not.toHaveBeenCalled()
+  })
+
+  it('asks only for the lines after what it took in when the tab is opened again', async () => {
+    transport.offset = 4321
+    respondWithHistory([
+      { events: [userEvent(2)], pos: 9000, reached: true },
+      { events: [], pos: 100, reached: true },
+      { events: [userEvent(3)], pos: 9100, reached: true },
+    ])
+    const { result, rerender } = mountSwitchingTab(cached(1, 1))
+    await waitFor(() => expect(uuids(result.current)).toEqual(['u1', 'u2']))
+    rerender('ses_b')
+    await waitFor(() => expect(transport.confirmed.ses_b).toBe(100))
+    rerender(SID)
+    await waitFor(() => expect(uuids(result.current)).toEqual(['u1', 'u2', 'u3']))
+    expect(historyPaths()[2]).toBe('/jsonl/history/ses_a?since=4321&after=9000')
+    expect(transport.confirmed[SID]).toBe(9100)
+    expect(transport.advanceOffset).not.toHaveBeenCalled()   // what is saved is what the persisted offset follows
+  })
+
+  it('trusts nothing confirmed before the screen was mounted, since its messages come from storage then', async () => {
+    transport.confirmed = { [SID]: 9000 }
+    transport.offset = 4321
+    respondWithHistory([{ events: [userEvent(2)], pos: 9500, reached: true }])
+    mountTab(cached(1, 1))
+    await waitFor(() => expect(transport.confirmed[SID]).toBe(9500))
+    expect(historyPaths()).toEqual(['/jsonl/history/ses_a?since=4321'])
+  })
+
+  it('forgets what was confirmed when the cache is dropped', async () => {
+    transport.offset = 4321
+    respondWithHistory([{ events: [userEvent(3)], pos: 5000, reached: true }])
+    mountTab(cached(1, 3))
+    await waitFor(() => expect(transport.confirmed[SID]).toBe(5000))
+    act(() => { transport.handler({ type: 'history_refetch', sid: SID, corr_id: 'c' }) })
+    expect(transport.confirmed[SID]).toBeUndefined()
+  })
+
+  it('confirms nothing when the history could not be fetched', async () => {
+    apiFetch.mockResolvedValue({ ok: false })
+    mountTab(cached(1, 3))
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled())
+    expect(transport.confirmed[SID]).toBeUndefined()
   })
 
   it('keeps the cache when the history could not be fetched', async () => {

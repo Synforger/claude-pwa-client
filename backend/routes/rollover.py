@@ -18,6 +18,10 @@
 タブが居る境界は、 そのタブの前の会話が読んだ所)。 どれも止めたら、 今の会話の理由で断る。 記録が 1 つも
 見つからない時だけ、 「どの会話でもない宛先」 の名前で通す (= 何も読んでいない相手。 別の機械への連絡と同じ扱い)。
 
+子のタブの封筒は、 子の行 (= `backend/_common/child_role.py`。 子である事・親・読む物) を本文の後ろに持つ。 無いと、
+起き直した子が親と同じ起動をして、 階層に在る親の引き継ぎを自分の仕事として進める。 締めを頼む発話も、 子には引き継ぎの
+置き場 (= メモ) と頼む命令を言う。
+
 子のタブは、 親が `tabs new` で選んだ model と effort (= タブの記録の `child_settings`) を、 封筒の本文の後ろに
 `model=`・`effort=` の行で足す。 起動の script は子の最初の発話の塊からそれを読むが、 入れ替えの後の最初の発話は
 封筒だけなので、 足さないと起き直した子は既定で起動する。 本文の後ろに置くのは、 起動の script が同じ鍵の後の行を
@@ -33,6 +37,7 @@ import re
 
 from fastapi import APIRouter, Form, HTTPException, Request
 
+from backend._common import child_role
 from backend._common.local_door import require_this_machine
 from backend.cli.child_start import settings_lines
 from backend.jsonl.jsonl_predicates import ROLLOVER_OPENING as OPENING
@@ -59,25 +64,28 @@ def _plain(text: str) -> str:
     return _TAG_LIKE.sub(r"&lt;\1\2", text.strip())
 
 
-def close_envelope(session_id: str, reason: str, context_pct: int, idle_minutes: int) -> str:
+def close_envelope(session_id: str, reason: str, context_pct: int, idle_minutes: int, child: bool = False) -> str:
     """締めを頼む発話。 reason は `context` (= 作業中に割合が閾値へ届いた) か `idle` (= 割合が閾値を超えた
-    まま静かになった)。 本文は、 この仕組みを知らない claude が読んでも次の動きが分かる 1 段落。"""
+    まま静かになった)。 本文は、 この仕組みを知らない claude が読んでも次の動きが分かる 1 段落。 子のタブ (= child)
+    には、 journal と口の代わりに、 メモと `tabs rollover` を言う。"""
     why = (f"Context is at {context_pct}%." if reason == "context" else
            f"Context is at {context_pct}% and this session has been quiet for {idle_minutes} minutes.")
+    how = (f"Wrap up at the next stopping point. {child_role.CLOSE_HANDOVER}" if child else
+           "Wrap up at the next stopping point and hand over: write down what the next session needs, "
+           f"then ask the client to start it (POST /sessions/{session_id}/rollover, form field `text` = what "
+           "the next session opens with).")
     return (
         f'{OPENING}\n<{TAG} phase="close" reason="{reason}" context_pct="{context_pct}" '
         f'idle_minutes="{idle_minutes}">\n'
-        f"{why} Wrap up at the next stopping point and hand over: write down what the next session needs, "
-        f"then ask the client to start it (POST /sessions/{session_id}/rollover, form field `text` = what "
-        f"the next session opens with).\n"
+        f"{why} {how}\n"
         f"</{TAG}>"
     )
 
 
-def start_envelope(text: str, settings: dict[str, str] | None = None) -> str:
-    """起動し直した会話の最初の発話。 本文は前の会話が渡した物。 settings は子のタブの model と effort
-    (= 本文の後ろに 1 行ずつ足す。 無ければ足さない)。"""
-    body = "\n".join([_plain(text), *settings_lines(settings or {})])
+def start_envelope(text: str, settings: dict[str, str] | None = None, role: list[str] | None = None) -> str:
+    """起動し直した会話の最初の発話。 本文は前の会話が渡した物。 role は子のタブの子の行、 settings は子のタブの
+    model と effort (= この順に本文の後ろへ 1 行ずつ足す。 無ければ足さない)。"""
+    body = "\n".join([_plain(text), *(role or []), *settings_lines(settings or {})])
     return f'{OPENING}\n<{TAG} phase="start">\n{body}\n</{TAG}>'
 
 
@@ -143,8 +151,11 @@ async def post_rollover(request: Request, session_id: str, text: str = Form(...)
     if AGENT_MESSAGE_CHECK:
         await _judge_as_the_tab(session_id, text)
     meta = sessions_meta.get(session_id)       # 検査を待つ間に閉じられたタブは、 子の値を持たない物として包む
-    settings = meta.child_settings if meta is not None and meta.child else None
-    task = asyncio.create_task(_roll(session_id, start_envelope(text, settings)))
+    settings, role = None, None
+    if meta is not None and meta.child:
+        settings = meta.child_settings
+        role = child_role.rollover_lines(child_role.known_parent(meta.parent_id, sessions_meta))
+    task = asyncio.create_task(_roll(session_id, start_envelope(text, settings, role)))
     _rolling.add(task)
     task.add_done_callback(_rolling.discard)
     logger.info("rollover accepted session=%s chars=%d", session_id, len(text))

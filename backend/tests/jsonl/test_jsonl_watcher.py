@@ -218,3 +218,16 @@ def test_a_binding_whose_jsonl_never_appears_is_not_restored(tmp_path):
     _restart()
     assert jw.get_jsonl_for("ses_never") is None
     assert "ses_never" not in jw._bindings
+
+
+def test_a_file_reached_by_two_spellings_belongs_to_the_tab_that_confirmed_it_last(tmp_path):
+    # 口座が記録の folder を共有すると、 同じ file が 2 つの path で現れる。 前の持ち主の binding は外れる。
+    folder = tmp_path / "projects"
+    folder.mkdir()
+    (tmp_path / "linked").symlink_to(folder)
+    record = folder / "c.jsonl"
+    record.write_text("{}\n")
+    jw.confirm_bind("ses_old", "c", str(record))
+    jw.confirm_bind("ses_new", "c", str(tmp_path / "linked" / "c.jsonl"))
+    assert jw.get_jsonl_for("ses_new") == tmp_path / "linked" / "c.jsonl"
+    assert jw._bindings["ses_old"].jsonl_path is None

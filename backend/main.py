@@ -112,6 +112,8 @@ import backend.child_watch.watch_patrol as child_watch  # noqa: E402
 import backend.engine_wake.wake_patrol as engine_wake  # noqa: E402
 import backend.peers as peers  # noqa: E402
 from backend.peers.seen_message_ids import forget_in_flight  # noqa: E402
+from backend._internal.stop_signal import on_stop_signal  # noqa: E402
+from backend.ask import turn_waiters  # noqa: E402
 from backend.observability.loop_stall import loop_stall_watch  # noqa: E402
 import backend.terminal.session_resolver as session_resolver  # noqa: E402
 import backend.routes.rollover as rollover_routes  # noqa: E402
@@ -370,7 +372,12 @@ async def lifespan(app: FastAPI):
     for _log_name in ("backend.log", "backend.boot.log"):
         _truncate_if_oversized(LOG_DIR / _log_name, LOG_MAX_BYTES)
 
-    yield
+    # A stream with no end and an ask waiting for its answer hold the stop until uvicorn's timeout cancels them: tell
+    # both at the signal, since the end of this lifespan only runs after that timeout.
+    unified_stream_routes.accept_streams()
+    turn_waiters.accept_waits()
+    with on_stop_signal(unified_stream_routes.end_streams), on_stop_signal(turn_waiters.end_waits):
+        yield
 
     # 終了: 常時 tail task + uploads GC task + maintenance task + prompt detector を停止
     blocker_monitor_task.cancel()

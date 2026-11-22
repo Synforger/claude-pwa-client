@@ -23,6 +23,7 @@ import backend.rollover.rollover as watch
 from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENING, CLIENT_NOTICE_OPENING, ROLLOVER_OPENING, is_client_message
 from backend.rollover.tool_shells import ToolShell
 from backend.routes import rollover as ro
+from backend._common import child_role
 from backend._common.state import SessionDef
 from backend.sleep import sleep_judgement as judgement
 from backend.sleep.sleep_judgement import SleepFacts
@@ -486,10 +487,48 @@ def test_a_child_starts_again_with_the_model_and_the_effort_its_parent_chose(rol
     """起動の script は同じ鍵の後の行を採るので、 子の値は本文の後ろに置き、 本文が書いた同じ鍵より勝たせる。"""
     meta = isolated_state.sessions_meta["ses_a"]
     meta.child, meta.child_settings = child, settings
+    role = "".join(f"\n{line}" for line in child_role.rollover_lines(None)) if child else ""
     with _client() as client:
         client.post("/sessions/ses_a/rollover", data={"text": "tier=normal\nmode=continue"})
     assert rolled == [("ses_a", f'{ROLLOVER_OPENING}\n<session-rollover phase="start">\ntier=normal\nmode=continue'
-                                f'{tail}\n</session-rollover>')]
+                                f'{role}{tail}\n</session-rollover>')]
+
+
+@pytest.mark.parametrize("parent_exists", [True, False])
+@pytest.mark.parametrize("mode", ["continue", "wait"])
+def test_a_child_starts_again_told_that_it_is_a_child(rolled, isolated_state, mode, parent_exists):
+    meta = isolated_state.sessions_meta["ses_a"]
+    meta.child, meta.parent_id, meta.child_settings = True, "ses_p", {"model": "opus"}
+    if parent_exists:
+        isolated_state.sessions_meta["ses_p"] = SessionDef(id="ses_p", agent_id="agent_a", title="lead", created_at=0)
+    with _client() as client:
+        client.post("/sessions/ses_a/rollover", data={"text": f"tier=normal\nmode={mode}"})
+    body = rolled[0][1].split('<session-rollover phase="start">\n', 1)[1].split("\n</session-rollover>")[0]
+    role = child_role.rollover_lines("ses_p" if parent_exists else None)
+    assert body.splitlines() == ["tier=normal", f"mode={mode}", *role, "model=opus"]
+    assert ("parent=ses_p" in role) is parent_exists
+
+
+def test_the_ask_to_close_tells_a_child_its_memo_and_its_command():
+    text = ro.close_envelope("ses_a", "context", 62, 0, child=True)
+    assert child_role.CLOSE_HANDOVER in text and "POST /sessions" not in text
+    assert text.splitlines()[:2] == CLOSE.splitlines()[:2]      # the same envelope
+    assert "child" not in CLOSE and "POST /sessions/ses_a/rollover" in CLOSE
+
+
+@pytest.mark.parametrize("child", [True, False])
+def test_the_watch_asks_a_child_in_the_child_s_words(monkeypatch, isolated_state, child):
+    isolated_state.sessions_meta["ses_a"] = SessionDef(
+        id="ses_a", agent_id="agent_a", title="work", created_at=0, child=child)
+    typed = []
+
+    async def type_in(session_id, payload, idempotency_key=None):
+        typed.append(payload["text"])
+        return {"ok": True}
+
+    monkeypatch.setattr(watch, "pty_send", type_in)
+    _run(watch._ask("ses_a", "record", "context", 62, 0, 0.0, again=False))
+    assert typed == [ro.close_envelope("ses_a", "context", 62, 0, child=child)]
 
 
 @pytest.mark.parametrize("sid, text, status, code", [

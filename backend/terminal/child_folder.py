@@ -16,10 +16,10 @@ import logging
 from pathlib import Path
 
 from backend._common import state
-from backend.terminal.page_template import fill_template, page_fingerprint, template_file
-from backend.terminal.tab_memo import MEMO_NAME, PAGE_NAME, agent_folder, memo_file, tier_folder
+from backend.terminal.page_template import fill_template, page_fingerprint, pages_root_from, template_file
+from backend.terminal.tab_memo import MEMO_NAME, PAGE_NAME, agent_folder, memo_file, page_file, tier_folder
 from backend.terminal.tab_tier import tab_tier
-from backend.terminal.tier import DEFAULT_TIER
+from backend.terminal.tier import DEFAULT_TIER, tier_path
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +33,8 @@ def clear_child_folder(session_id: str) -> list[Path]:
     tab_ids = [session_id, *([meta.parent_id] if meta.parent_id in state.sessions_meta else [])]
     folders = {memo_file(tier_folder(tab_id), session_id).parent for tab_id in tab_ids}
     tiers = {tier for tier in (*(tab_tier(tab_id) for tab_id in tab_ids), DEFAULT_TIER) if tier}
-    template = template_file(agent_folder(session_id))
-    untouched = _filled_fingerprints(template, meta.title, tiers)
+    agent = agent_folder(session_id)
+    untouched = _filled_fingerprints(agent, session_id, meta.title, tiers)
     if meta.top_page_sha:
         untouched.add(meta.top_page_sha)
     removed: list[Path] = []
@@ -45,14 +45,20 @@ def clear_child_folder(session_id: str) -> list[Path]:
     return removed
 
 
-def _filled_fingerprints(template: Path, title: str, tiers: set[str]) -> set[str]:
+def _filled_fingerprints(agent: Path, session_id: str, title: str, tiers: set[str]) -> set[str]:
     """The fingerprint of every top page the client could make for the tab from the template as it is now (= the
-    template filled with each tier the tab may have had)."""
+    template filled with each tier the tab may have had, and the way up from that tier's page folder)."""
     try:
-        text = template.read_text(encoding="utf-8")
+        text = template_file(agent).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return set()
-    return {page_fingerprint(fill_template(text, title=title, tier=tier)) for tier in tiers}
+    fingerprints: set[str] = set()
+    for tier in tiers:
+        below = tier_path(agent, tier)
+        page_folder = page_file(below if below.is_dir() else agent, session_id).parent
+        filled = fill_template(text, title=title, tier=tier, pages_root=pages_root_from(agent, page_folder))
+        fingerprints.add(page_fingerprint(filled))
+    return fingerprints
 
 
 def _clear(folder: Path, untouched: set[str]) -> list[Path]:

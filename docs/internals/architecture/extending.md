@@ -165,6 +165,9 @@ claude を止めて同じタブを立て直す。 この 2 つは必ず揃える
 見つけられず空のタブになる)。 会話ログの行は account 固有の識別子を持たない (= `cwd` / `gitBranch` /
 `version` / `userType` のみ) ので、 置き場所を変えるだけで移し先から読める。 切れ目がまだ無い時は 400 で、
 タブには触らない。 書き出しはフォーク (= `POST /sessions/{sid}/fork`) と同じ関数 (= `backend/fork/lineage.py` の `write_lineage`) が行い、 書いた直後に設定の `lineage_hook` を呼ぶ ([config.md](../../reference/config.md))。 同じ移し替えを、 口座の使用率に応じて自動でも行う ([account-fallback.md](../../reference/account-fallback.md))。
+2 つの口座の `projects` が同じ folder (= `config.projects_shared`) の時は、 書き出さずに同じ会話の id のまま移し先の口座で
+開き直す (= `backend/accounts/shared_reopen.py` が記録を読み、 `backend/accounts/reopen_judgement.py` がそのまま開けるかを決める)。 開けない時は
+`write_lineage` が同じ folder に新しい id で書く (= `moved` は偽、 `fallback_copy` は付かない)。
 
 ### 注意
 

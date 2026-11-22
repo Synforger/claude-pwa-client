@@ -8,6 +8,9 @@ takes asks: a tab set up for a program, not one an agent works in.
 A turn that hits a usage limit ends without a `Stop`: the record is watched for it (`limit_watch.py`), and the ask
 answers `ask_held` at once instead of waiting out its time.
 
+A stop of the backend ends the ask at once, with nothing more typed: `ask_not_ready` before the question's typing began,
+`ask_unconfirmed` from there on. An answer or a limit that is there already wins.
+
 An ask can first open another conversation in the tab: `resume` types `/resume <id>` and waits for that conversation's
 `SessionStart`, `fork` then types `/branch` and waits for the new conversation's (= the question goes into a branch,
 and the conversation it came from stays as it was).
@@ -24,7 +27,7 @@ import time
 from collections import Counter
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import contextmanager
-from typing import NamedTuple
+from typing import NamedTuple, NoReturn
 
 from fastapi import HTTPException
 
@@ -50,6 +53,9 @@ RESUME_WAIT_SEC = 30.0
 RESUME_COMMAND = "/resume"
 BRANCH_COMMAND = "/branch"
 
+#: `params.reason` of an ask that the backend's stop ended
+STOP_REASON = "backend_stopping"
+
 #: The failures of the delivery shared with the messages between tabs (`routes/agent_messages.py`), as the asker's
 #: codes. Any other code of that door means the text may have been typed: `ask_unconfirmed`.
 _DELIVERY_CODES: dict[str, tuple[int, str]] = {
@@ -71,6 +77,14 @@ class _Turn(NamedTuple):
     answer: asyncio.Future[str]
     since: limit_watch.RecordMark
     pasted_before: Counter[str] | None = None
+
+
+class _Ready(NamedTuple):
+    """A tab ready for the question: whether its claude was started or cleared for it, and where the turn begins."""
+    woke: bool
+    cleared: bool
+    since: limit_watch.RecordMark
+    pasted_before: Counter[str] | None
 
 
 async def ask(to: str, text: str, *, fresh: bool = False, resume: str | None = None, fork: bool = False,
@@ -119,6 +133,8 @@ async def _start(to: str, text: str, *, fresh: bool, resume: str | None, fork: b
     if not takes_asks(session_id):
         raise_error(403, "ask_not_allowed",
                     f"このタブのエージェントは聞かれる設定 (= \"ask\": true) を持っていません: {session_id}", id=session_id)
+    if turn_waiters.is_stopping():
+        _not_asked_by_stop(session_id)
     waiter = turn_waiters.start_waiting(session_id)
     if waiter is None:
         raise_error(409, "ask_in_progress", f"このタブには別の問いの答えを待っています。 答えが返ってから聞いてください: {session_id}",
@@ -133,6 +149,27 @@ async def _start(to: str, text: str, *, fresh: bool, resume: str | None, fork: b
 
 async def _type_text(session_id: str, text: str, waiter: turn_waiters.TurnWaiter, *, fresh: bool, resume: str | None,
                      fork: bool, read_screen: bool = False) -> _Turn:
+    try:
+        ready = await waiter.until_stop(_prepare(session_id, waiter, fresh=fresh, resume=resume, fork=fork,
+                                                 read_screen=read_screen))
+    except turn_waiters.BackendStopping:
+        _not_asked_by_stop(session_id)
+    if waiter.stopped.is_set():
+        _not_asked_by_stop(session_id)
+    answer = turn_waiters.expect_answer(waiter)
+    try:
+        with _as_ask_error():
+            await waiter.until_stop(deliver_message(session_id, text, ready.woke and not ready.cleared))
+    except turn_waiters.BackendStopping:
+        _unconfirmed_by_stop(session_id)
+    logger.info("ask: typed %d chars into session=%s fresh=%s resume=%s fork=%s", len(text), session_id, ready.cleared,
+                resume, fork)
+    return _Turn(session_id, text, waiter, answer, ready.since, ready.pasted_before)
+
+
+async def _prepare(session_id: str, waiter: turn_waiters.TurnWaiter, *, fresh: bool, resume: str | None, fork: bool,
+                   read_screen: bool) -> _Ready:
+    """Make the tab ready for the question, which is not typed here: cancelling this leaves nothing asked."""
     if await asyncio.to_thread(hold_mail.must_keep, session_id):
         raise_error(409, "ask_held", "このタブは口座の止める線で止まっていて、 動ける口座がありません。 何も聞いていません",
                     id=session_id, reason="account_hold")
@@ -148,12 +185,7 @@ async def _type_text(session_id: str, text: str, waiter: turn_waiters.TurnWaiter
         await _open_resumed(session_id, waiter, resume, fork)
     since = await asyncio.to_thread(limit_watch.mark, session_id)
     pasted_before = await asyncio.to_thread(screen_watch.read_pasted_counts, session_id) if read_screen else None
-    answer = turn_waiters.expect_answer(waiter)
-    with _as_ask_error():
-        await deliver_message(session_id, text, woke and not cleared)
-    logger.info("ask: typed %d chars into session=%s fresh=%s resume=%s fork=%s", len(text), session_id, cleared, resume,
-                fork)
-    return _Turn(session_id, text, waiter, answer, since, pasted_before)
+    return _Ready(woke, cleared, since, pasted_before)
 
 
 async def _wait(turn: _Turn, timeout_sec: float) -> str:
@@ -161,17 +193,26 @@ async def _wait(turn: _Turn, timeout_sec: float) -> str:
     session_id, since = turn.session_id, turn.since
     logger.info("ask: waiting up to %.0fs for the answer in session=%s", timeout_sec, session_id)
     limit = asyncio.ensure_future(limit_watch.wait_for_limit(session_id, since))
+    stopping = asyncio.ensure_future(turn.waiter.stopped.wait())
     try:
-        done, _ = await asyncio.wait({turn.answer, limit}, timeout=timeout_sec, return_when=asyncio.FIRST_COMPLETED)
+        done, _ = await asyncio.wait({turn.answer, limit, stopping}, timeout=timeout_sec,
+                                     return_when=asyncio.FIRST_COMPLETED)
     finally:
         limit.cancel()
+        stopping.cancel()
     if limit in done:
-        await _held_by_limit(session_id, since, limit.result())
+        await _held_by_limit(turn, limit.result())
     if turn.answer in done:
         end = await limit_watch.settled_turn(session_id, since)
         if end.limit_message is not None:
-            await _held_by_limit(session_id, since, end.limit_message)
+            await _held_by_limit(turn, end.limit_message)
         return turn.answer.result()
+    if stopping in done:
+        # The watch reads once a second: look once more, or a limit's booked continuation would be left to run.
+        end = await asyncio.to_thread(limit_watch.read_turn, session_id, since)
+        if end.limit_message is not None:
+            await _held_by_limit(turn, end.limit_message)
+        _unconfirmed_by_stop(session_id)
     stopped = await _press_escape(session_id)
     logger.warning("ask: no answer within %.0fs in session=%s; turn stopped=%s", timeout_sec, session_id, stopped)
     raise_error(504, "ask_timeout",
@@ -222,16 +263,35 @@ def _end_event(turn: _Turn, waiting: asyncio.Future[str]) -> dict:
         return event
 
 
-async def _held_by_limit(session_id: str, since: limit_watch.RecordMark, limit_message: str) -> None:
+async def _held_by_limit(turn: _Turn, limit_message: str) -> None:
     """Answer the ask whose turn a usage limit ended, after cancelling the continuation Claude Code booked (= the
     program asks again; the tab carrying on by itself at the reset would take that ask's `Stop`). Always raises."""
-    cancelled = await limit_watch.cancel_continuation(session_id, since, lambda: _press_escape(session_id))
+    session_id, since = turn.session_id, turn.since
+    cancelled = await limit_watch.cancel_continuation(session_id, since, lambda: _press_escape(session_id),
+                                                      turn.waiter.stopped.is_set)
     logger.warning("ask: usage limit in session=%s after %.1fs; continuation cancelled=%s", session_id,
                    time.time() - since.typed_at, cancelled)
     raise_error(409, "ask_held",
                 f"このタブの口座が使用量の上限に当たり、 ターンは答えずに終わりました ({limit_message})。 "
                 "問いは会話に残っています。 上限が戻ってから --fresh で聞き直してください",
                 id=session_id, reason="limit_stop", limit_message=limit_message, continuation_cancelled=cancelled)
+
+
+def _not_asked_by_stop(session_id: str) -> NoReturn:
+    logger.info("ask: the backend is stopping; nothing asked in session=%s", session_id)
+    raise_error(409, "ask_not_ready",
+                "backend が止まる所です。 何も聞いていません。 backend の起動を待ってから聞き直してください",
+                id=session_id, reason=STOP_REASON)
+    raise AssertionError("unreachable")
+
+
+def _unconfirmed_by_stop(session_id: str) -> NoReturn:
+    logger.info("ask: the backend is stopping; the question may go on in session=%s", session_id)
+    raise_error(500, "ask_unconfirmed",
+                "backend が止まる所なので、 答えを待てません。 文はタブに届いているかもしれず、 ターンは続きます。 "
+                "聞き直す前に、 タブの会話を確かめてください",
+                id=session_id, reason=STOP_REASON)
+    raise AssertionError("unreachable")
 
 
 async def _press_escape(session_id: str) -> bool:

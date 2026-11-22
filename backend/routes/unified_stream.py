@@ -49,6 +49,7 @@ from backend.jsonl.routes import (
     _inject_envelope,
     _latest_jsonl,
     _parse_all_from,
+    _shrink_tool_results,
 )
 from backend.observability.metrics import metrics
 from backend.tickets import ticket_feed, ticket_wake
@@ -103,6 +104,25 @@ class UnifiedConn:
 # ここを引いて対象接続の queue / 購読 set を触る)。
 _conns: dict[str, UnifiedConn] = {}
 
+# The item that ends a connection's stream, and whether the process is stopping (= a stream that opens then ends too).
+_END = object()
+_streams_ending = False
+
+
+def accept_streams() -> None:
+    """The app started: streams run until their client leaves."""
+    global _streams_ending
+    _streams_ending = False
+
+
+def end_streams() -> None:
+    """The process is stopping: each open stream ends by itself after what is queued, before the server's timeout
+    cancels it. The client connects again as after any end of the stream."""
+    global _streams_ending
+    _streams_ending = True
+    for conn in list(_conns.values()):
+        conn.queue.put_nowait(_END)
+
 
 def _frame(obj: dict) -> str:
     return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
@@ -156,6 +176,7 @@ def _replay_frames(sid: str, start: int | None) -> list[dict]:
     読むのはタブの記録を古い順につないだ物で、 pos はその通しの位置 (= backend/jsonl/chain.py)。 画面を
     閉じている間に会話が入れ替わっても、 前の会話の残り (= 締めの作業と、 入れ替えの発話) から流れる。
     per-line の位置を pos に載せる (= client は frame ごとに offset を前進できる)。
+    過去の行なので、 履歴 GET と同じに tool_result を縮める (= 画像の本体と長い本文を運ばない。 live は縮めない)。
     prompt_state snapshot も末尾に付ける (= 切断中の遷移取りこぼしを接続時に収束、
     旧 per-sid / all SSE と同じ規約)。
 
@@ -184,6 +205,7 @@ def _replay_frames(sid: str, start: int | None) -> list[dict]:
             continue
         for event in jsonl_line_to_events(obj, language):
             _inject_envelope(event, sid)
+            _shrink_tool_results(event)
             frames.append({"ch": "jsonl", "pos": line_pos, "ev": event})
     from backend.terminal.prompt_detector_loop import current_prompt_event  # noqa: PLC0415
     snap = _inject_envelope(current_prompt_event(sid), sid)
@@ -307,6 +329,8 @@ async def _jsonl_pump(conn: UnifiedConn, q: asyncio.Queue) -> None:
 async def _unified_gen(conn: UnifiedConn, initial_view: str | None):
     """統合 SSE generator 本体。 接続 = conn 登録、 切断 = 全 cleanup。"""
     _conns[conn.conn_id] = conn
+    if _streams_ending:
+        conn.queue.put_nowait(_END)
     if initial_view:
         views_by_conn[conn.conn_id] = initial_view
     metrics.inc("sse.unified.connect")
@@ -373,6 +397,9 @@ async def _unified_gen(conn: UnifiedConn, initial_view: str | None):
                 metrics.inc("sse.unified.keepalive")
                 yield _frame({"ch": "sys", "_hb": 1})
                 continue
+            if item is _END:
+                metrics.inc("sse.unified.shutdown_close")
+                return
             metrics.inc("sse.unified.frames")
             yield _frame(item)
     finally:

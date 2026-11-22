@@ -204,3 +204,16 @@ def test_a_body_with_files_goes_through_the_same_door(pane, monkeypatch):
     assert results[1]["saved_files"] == []
     keys = [what for _sid, what in pane["keys"]]
     assert [keys[i] for i in (0, 2, 3, 5)] == ["wipe", "enter", "wipe", "enter"]
+
+
+def test_a_body_whose_sender_is_cancelled_still_gets_its_enter(pane):
+    """待ち手が取り消されても (= backend の停止)、 貼った文を入力欄に残さない。"""
+    async def scenario():
+        sending = asyncio.create_task(send("ses_a", "the question"))
+        while not pane["box"].get("ses_a"):
+            await asyncio.sleep(0.001)
+        sending.cancel()
+        await asyncio.wait({sending})
+        assert sending.cancelled()
+    asyncio.run(asyncio.wait_for(scenario(), 5))
+    assert pane["delivered"] == [("ses_a", "the question")] and not pane["box"]["ses_a"]

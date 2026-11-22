@@ -3,11 +3,21 @@
 `ask_turn.ask` starts a wait before it types into the tab; the `Stop` hook hands over the turn's last answer and the
 `SessionStart` hook says a conversation has opened (= after `/clear`, `/resume` or `/branch`; `routes/hooks.py` calls
 in here). A hook of a tab with no ask in flight changes nothing.
+
+A stop of the backend ends every wait (`end_waits`, called from the lifespan's stop signal): no hook reaches a backend
+that stops, and the server cancels what still waits at its timeout.
 """
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
+from typing import Any, TypeVar
+
+_T = TypeVar("_T")
+
+
+class BackendStopping(Exception):
+    """The backend was asked to stop before what an ask waited on was over."""
 
 
 class TurnWaiter:
@@ -18,7 +28,26 @@ class TurnWaiter:
         self.answer: asyncio.Future[str] | None = None
         self.claude_session_id: str | None = None
         self.openings: list[str | None] = []
+        self.stopped = asyncio.Event()
         self._opened = asyncio.Event()
+        if _stopping:
+            self.stopped.set()
+
+    async def until_stop(self, work: Coroutine[Any, Any, _T]) -> _T:
+        """Run `work` until it is over or the backend stops. → its result; at a stop it is cancelled, waited for to
+        wind up (= a text being typed still gets its Enter) and `BackendStopping` is raised."""
+        working = asyncio.ensure_future(work)
+        stopping = asyncio.ensure_future(self.stopped.wait())
+        try:
+            await asyncio.wait({working, stopping}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            stopping.cancel()
+            if not working.done():
+                working.cancel()
+                await asyncio.wait({working})
+        if working.cancelled():
+            raise BackendStopping
+        return working.result()
 
     async def wait_opening(self, after: int, accept: Callable[[str | None], bool], timeout_sec: float) -> bool:
         """Wait for a conversation to open that `accept` takes (= it is given the id, or None when the hook sent none),
@@ -45,6 +74,25 @@ class TurnWaiter:
 
 
 _waiters: dict[str, TurnWaiter] = {}
+_stopping = False
+
+
+def accept_waits() -> None:
+    """The app started: asks wait until their turn is over."""
+    global _stopping
+    _stopping = False
+
+
+def end_waits() -> None:
+    """The process is stopping: every wait ends now, and one that starts later ends at once."""
+    global _stopping
+    _stopping = True
+    for waiter in list(_waiters.values()):
+        waiter.stopped.set()
+
+
+def is_stopping() -> bool:
+    return _stopping
 
 
 def start_waiting(session_id: str) -> TurnWaiter | None:

@@ -18,9 +18,11 @@ from starlette.testclient import TestClient
 
 import backend._common.config as config_mod
 import backend.rollover.rollover as rollover_watch
+from backend._common.child_role import opening_lines
 from backend._common.state import SessionDef
 from backend.jsonl.jsonl_predicates import (
     AGENT_MESSAGE_OPENING,
+    CLIENT_NOTICE_OPENING,
     ROLLOVER_OPENING,
     TAB_OPEN_OPENING,
     is_agent_message,
@@ -322,7 +324,25 @@ def test_a_message_that_wakes_a_child_with_no_tier_starts_it_in_its_parent_s(lau
         id="ses_kid", agent_id="agent_a", title="kid", created_at=0, child=True, parent_id="ses_p")
     relayed = f'{AGENT_MESSAGE_OPENING}\n<agent-message from="lead" session="ses_p">\nmore\n</agent-message>'
     run(deliver("ses_kid", relayed))
-    assert launched == [("launch", envelope("projects/A/subprojects/S")), ("send", relayed)]
+    assert launched == [("launch", envelope("projects/A/subprojects/S", opening_lines("ses_p"))), ("send", relayed)]
+
+
+@pytest.mark.parametrize("parent_exists", [True, False])
+@pytest.mark.parametrize("sent", [
+    f'{AGENT_MESSAGE_OPENING}\n<agent-message from="lead" session="ses_p">\nmore\n</agent-message>',
+    f'{CLIENT_NOTICE_OPENING}\n<ticket-answer ticket="t">\nyes\n</ticket-answer>',
+    "projects B, please",
+])
+def test_whatever_starts_a_child_s_new_conversation_comes_after_the_child_s_envelope(launched, isolated_state, sent,
+                                                                                      parent_exists):
+    if parent_exists:
+        isolated_state.sessions_meta["ses_p"] = SessionDef(id="ses_p", agent_id="agent_a", title="lead", created_at=0)
+    isolated_state.sessions_meta["ses_kid"] = SessionDef(
+        id="ses_kid", agent_id="agent_a", title="kid", created_at=0, child=True, parent_id="ses_p",
+        tier="projects/A/subprojects/S")
+    run(deliver("ses_kid", sent))
+    lines = opening_lines("ses_p" if parent_exists else None)
+    assert launched == [("launch", envelope("projects/A/subprojects/S", lines)), ("send", sent)]
 
 
 def test_the_operator_s_words_still_choose_the_tier_in_a_tab_not_placed_for_one(launched, isolated_state):

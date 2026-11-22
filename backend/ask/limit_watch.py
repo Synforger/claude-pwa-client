@@ -88,11 +88,12 @@ async def settled_turn(session_id: str, since: RecordMark) -> TurnEnd:
         await asyncio.sleep(SHORT_POLL_SEC)
 
 
-async def cancel_continuation(session_id: str, since: RecordMark, press_escape: Callable[[], Awaitable[object]]
-                              ) -> bool | None:
+async def cancel_continuation(session_id: str, since: RecordMark, press_escape: Callable[[], Awaitable[object]],
+                              is_stopping: Callable[[], bool]) -> bool | None:
     """Cancel the continuation Claude Code booked at the limit, so that the tab does not carry on with the question
     by itself when the limit resets. → True when its cancelling is in the record, False when it is not after every
-    try, None when nothing was booked (= nothing pressed)."""
+    try, None when nothing was booked (= nothing pressed). When the backend is stopping, the first look after the
+    first Escape is the last."""
     end = await asyncio.to_thread(read_turn, session_id, since)
     if not end.is_booked:
         return None
@@ -103,4 +104,6 @@ async def cancel_continuation(session_id: str, since: RecordMark, press_escape: 
             await asyncio.sleep(SHORT_POLL_SEC)
             if (await asyncio.to_thread(read_turn, session_id, since)).is_cancelled:
                 return True
+            if is_stopping():
+                return False
     return False

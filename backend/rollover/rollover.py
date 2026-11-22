@@ -307,7 +307,9 @@ def _log_lapse(session_id: str, key: str, facts: SleepFacts) -> None:
 
 
 async def _ask(sid: str, key: str, reason: str, pct: int | None, idle_minutes: int, now: float, again: bool) -> None:
-    result = await pty_send(sid, {"text": close_envelope(sid, reason, pct, idle_minutes), "enter": True}, None)
+    meta = sessions_meta.get(sid)
+    text = close_envelope(sid, reason, pct, idle_minutes, child=meta is not None and meta.child)
+    result = await pty_send(sid, {"text": text, "enter": True}, None)
     if result.get("ok"):
         with _count_lock:
             _pending[key] = _pending.get(key, 0) + 1

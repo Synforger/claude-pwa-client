@@ -510,6 +510,63 @@ def test_history_rejects_a_negative_since(tmp_path, monkeypatch):
     assert _hist_client(monkeypatch, p).get("/jsonl/history/ses_x?since=-1").status_code == 422
 
 
+# --- 履歴 GET: 画面が履歴の取得で確かめた位置 (= after) より後ろの行だけ ---
+
+def test_history_after_returns_only_the_lines_behind_it(tmp_path, monkeypatch):
+    p = tmp_path / "c.jsonl"
+    _numbered_user_lines(p, 1200)
+    data = _hist_client(monkeypatch, p).get(
+        f"/jsonl/history/ses_x?since={p.stat().st_size}&after={_pos_after_lines(p, 1190)}").json()
+    assert _user_texts(data) == [f"m{i}" for i in range(1190, 1200)]
+    assert data["reached"] is True and data["pos"] == p.stat().st_size
+
+
+def test_history_after_the_end_of_the_record_returns_nothing(tmp_path, monkeypatch):
+    p = tmp_path / "c.jsonl"
+    _numbered_user_lines(p, 1200)
+    data = _hist_client(monkeypatch, p).get(f"/jsonl/history/ses_x?after={p.stat().st_size}").json()
+    assert data == {"events": [], "pos": p.stat().st_size, "reached": True}
+
+
+def test_history_after_reaches_back_past_the_recent_lines(tmp_path, monkeypatch):
+    p = tmp_path / "c.jsonl"
+    _numbered_user_lines(p, 1200)
+    data = _hist_client(monkeypatch, p).get(f"/jsonl/history/ses_x?after={_pos_after_lines(p, 100)}").json()
+    assert _user_texts(data) == [f"m{i}" for i in range(100, 1200)]
+
+
+def test_history_after_past_the_limit_returns_the_window_and_not_reached(tmp_path, monkeypatch):
+    p = tmp_path / "c.jsonl"
+    _numbered_user_lines(p, 4000)
+    data = _hist_client(monkeypatch, p).get(f"/jsonl/history/ses_x?after={_pos_after_lines(p, 10)}").json()
+    assert len(_user_texts(data)) == jr.HISTORY_CATCH_UP_LINES and data["reached"] is False
+
+
+def test_history_after_ahead_of_the_end_returns_the_recent_lines(tmp_path, monkeypatch):
+    p = tmp_path / "c.jsonl"
+    _numbered_user_lines(p, 1200)
+    data = _hist_client(monkeypatch, p).get(f"/jsonl/history/ses_x?after={p.stat().st_size + 1}").json()
+    assert len(_user_texts(data)) == jr.INITIAL_REPLAY_LINES and data["reached"] is True
+
+
+def test_history_after_is_not_trusted_for_an_api_tabs_record(tmp_path, monkeypatch):
+    p = tmp_path / "c.jsonl"
+    _numbered_user_lines(p, 3)
+    client = _hist_client(monkeypatch, p)
+    monkeypatch.setattr(jr.api_tabs, "record_segments", lambda sid: [jr.chain.Segment(p, 0)])
+    data = client.get(f"/jsonl/history/api_x?since=0&after={p.stat().st_size}").json()
+    assert _user_texts(data) == ["m0", "m1", "m2"]   # another file can be renamed over it
+
+
+def test_the_thinking_signature_is_not_sent_to_the_screen(tmp_path, monkeypatch):
+    import json
+    p = tmp_path / "c.jsonl"
+    p.write_text(json.dumps({"type": "assistant", "uuid": "l1", "message": {"id": "m1", "content": [
+        {"type": "thinking", "thinking": "looking", "signature": "A" * 5000}, {"type": "text", "text": "done"}]}}) + "\n")
+    content = _hist_client(monkeypatch, p).get("/jsonl/history/ses_x").json()["events"][0]["message"]["content"]
+    assert content == [{"type": "thinking", "thinking": "looking"}, {"type": "text", "text": "done"}]
+
+
 # --- 履歴 GET の tool_result 切り詰め (= 2026-07-27 転送量削減) ---
 
 def test_shrink_tool_results_truncates_long_string_and_keeps_original_length():

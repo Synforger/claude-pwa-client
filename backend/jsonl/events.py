@@ -282,7 +282,7 @@ def _assistant_events(line: dict, language: str | None = None) -> list[dict]:
     content = msg.get("content") or []
     if not isinstance(content, list):
         return []
-    content = [_held(b, language) for b in content]
+    content = [_held(_without_signature(b), language) for b in content]
 
     # claude は 1 Anthropic message を複数 JSONL 行に分けて書く (= 同 message.id で
     # tool_use ブロックを別行で出す等)。 frontend の useStreamBuffer は uuid 単位で
@@ -333,6 +333,14 @@ def _assistant_events(line: dict, language: str | None = None) -> list[dict]:
 
 # assistant event の中の block の種類 (= event の種類ではない。 契約 = sse-events.yaml の assistant.content)
 HELD_TEXT = "held_text"
+
+
+def _without_signature(block):
+    """thinking の block から署名を外す。 API へ返す時のための物で画面は使わず、 乱数の形で圧縮も効かない
+    (= 実測で gzip 後の履歴の 45〜60%)。"""
+    if isinstance(block, dict) and "signature" in block:
+        return {key: value for key, value in block.items() if key != "signature"}
+    return block
 
 
 def _held(block, language: str | None):

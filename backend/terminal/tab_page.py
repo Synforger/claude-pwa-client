@@ -14,7 +14,7 @@ from pathlib import Path
 
 from backend._common import state
 from backend._common.state import atomic_write_text
-from backend.terminal.page_template import fill_template, page_fingerprint, template_file
+from backend.terminal.page_template import fill_template, page_fingerprint, pages_root_from, template_file
 from backend.terminal.tab_memo import agent_folder, page_path
 from backend.terminal.tab_tier import tab_tier
 
@@ -35,11 +35,14 @@ def make_page(session_id: str) -> Path | None:
     if tier is None or meta is None:
         return None
     page = page_path(session_id)
-    template = template_file(agent_folder(session_id))
+    agent = agent_folder(session_id)
+    template = template_file(agent)
     if page.exists() or not template.is_file():
         return None
     try:
-        text = fill_template(template.read_text(encoding="utf-8"), title=meta.title, tier=tier)
+        text = fill_template(
+            template.read_text(encoding="utf-8"), title=meta.title, tier=tier, pages_root=pages_root_from(agent, page.parent)
+        )
         page.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(page, text)
     except (OSError, UnicodeDecodeError):

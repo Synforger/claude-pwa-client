@@ -44,7 +44,7 @@ backup 先 = 同 PC の別 path (= `$AGENT_PLATFORM_ROOT/state/claude-pwa-client
 | `tier_tab` | str? | NO | [階層のタブ](tier-tabs.md) として置いたタブの階層 (= 新しい会話はこの階層で起動する)、 それ以外のタブは null |
 | `tier` | str? | NO | そのタブの Claude が最後に起動した階層 (= エージェントのプロセスが持つ環境変数 `AGENT_TIER` の値)。 まだ Claude を見ていないタブは null |
 | `fallback_from` | str? | NO | [口座の逃げ先](account-fallback.md) で別の口座へ移っている間だけ値を持つ、 タブの本来の口座 (= `account_id` は今動いている口座)。 戻すと null |
-| `fallback_copy` | str? | NO | 上の移し替えで、 client が逃げ先の口座の projects folder に書いた会話の記録の path。 戻す時に client が消す。 `fallback_from` と一緒に null になる |
+| `fallback_copy` | str? | NO | 上の移し替えで、 client が逃げ先の口座の projects folder に書いた会話の記録の path。 戻す時に client が消す。 `fallback_from` と一緒に null になる。 2 つの口座が会話の記録の folder を共有している時は書き出さないので付かず、 前から残る値は file を消さずに外す |
 | `error_resumed` | object? | NO | [API の誤りで切れたターンの続き](error-resume.md) で、 続けての連絡を送った誤りの行の uuid (`stop`)・送り終えた時刻 (`sent_at`、 epoch 秒)・同じ行に送った回数 (`sent_count`)。 まだ送っていないタブは null |
 | `error_gave_up` | str? | NO | 同じ仕組みが諦めて親か操作者に知らせた誤りの行の uuid (= 2 回は知らせない)。 諦めたことの無いタブは null |
 | `limit_resumed` | str? | NO | [上限が戻った時の続き](limit-resume.md) で、 続けての連絡を送った止まりの行の uuid (= 同じ止まりに 2 通目を送らない)。 まだ送っていないタブは null |
@@ -163,7 +163,7 @@ backup: 任意 (= 失っても、 もう一度 ⭐ を付け直せば戻る)。
 
 - 同じ `pages/<タブの id>/` には、 そのタブの他のページを置けます。 `index.html` は、 そのタブのトップページです
 - メモが無いタブを開くと空で出ます。 メモの雛形は backend も書きません (= 書くのはエージェントと利用者です)
-- **トップページは backend が作ります**。 タブの階層を記録した時 (= タブを立てた時、 backend の起動時、 会話の開始の知らせを受けた時) に、 `index.html` が無ければ、 `<エージェントの folder>/pages/_template-tab/index.html` (= 雛形。 階層ごとではなくエージェントに 1 つ) を写して作ります。 雛形の `{{title}}` はタブの題に、 `{{tier}}` は階層 (= `normal` や `projects/<名前>`) に置き換わります (= HTML として escape。 他の文字はそのまま)。 雛形が無いエージェントでは何もせず、 既に在るページには触りません
+- **トップページは backend が作ります**。 タブの階層を記録した時 (= タブを立てた時、 backend の起動時、 会話の開始の知らせを受けた時) に、 `index.html` が無ければ、 `<エージェントの folder>/pages/_template-tab/index.html` (= 雛形。 階層ごとではなくエージェントに 1 つ) を写して作ります。 雛形の `{{title}}` はタブの題に、 `{{tier}}` は階層 (= `normal` や `projects/<名前>`) に、 `{{pages_root}}` は書くページの folder からエージェントの `pages` folder への相対 path (末尾の / なし。 エージェントの folder のタブは `..`、 `projects/<名前>` のタブは ../../../../pages) に置き換わります (= HTML として escape。 他の文字はそのまま)。 全部のページで共有する部品 (例: 横の目次) を雛形から読む時は、 `<script src="{{pages_root}}/_common/<file>" defer></script>` と書くと、 どの階層のページからも同じ部品に届きます。 雛形が無いエージェントでは何もせず、 既に在るページには触りません
 - 📋 の画面は、 メモの本文とは別の固定の行で、 そのタブのトップページへのリンクを出します (= `GET /sessions/{sid}/note` の `page`。 ページがまだ無ければ `null` で、 行は出ません)
 - 空にしたメモ (= 画面の「リセット」、 か空文字の `PUT`) は file ごと消える
 - エージェントが書いた分は、 メモを開いたままでも、 そのタブの会話が進んだ時に読み直される
