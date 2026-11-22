@@ -205,6 +205,29 @@ def test_agents_endpoint_carries_the_list_folder_only_where_one_is_written(tmp_p
     ]
 
 
+def test_agents_endpoint_marks_the_agents_no_person_starts_a_conversation_with(tmp_path, monkeypatch):
+    """/agents は、 子用 (= ほかのエージェントの child_agent) と program が聞く用 (= ask: true) に印を付け、 削らない。
+    自分を child_agent に書いたエージェントには付けない。"""
+    import json  # noqa: PLC0415
+    import backend._common.config as config_mod  # noqa: PLC0415
+    import backend.routes.accounts as accounts_mod  # noqa: PLC0415
+    cfg = tmp_path / "agents-config.json"
+    cfg.write_text(json.dumps({"agents": {
+        "main": {"child_agent": "main_sub"},
+        "main_sub": {},
+        "head": {"ask": True},
+        "alone": {"child_agent": "alone", "ask": False},
+    }}), encoding="utf-8")
+    monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg)
+    config_mod.get_config.cache_clear()
+    assert accounts_mod.list_agents() == [
+        {"id": "main", "display_name": "MAIN"},
+        {"id": "main_sub", "display_name": "MAIN_SUB", "offered_for_new_tab": False},
+        {"id": "head", "display_name": "HEAD", "offered_for_new_tab": False},
+        {"id": "alone", "display_name": "ALONE"},
+    ]
+
+
 # --- backend-F-44: demote_fork_to_normal helper ---
 def test_demote_fork_to_normal_clears_resume_id_and_keeps_record(tmp_path, monkeypatch, isolated_state):
     """fork タブの resume_session_id を落とし、 会話の記録は残す。"""

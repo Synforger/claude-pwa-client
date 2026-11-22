@@ -1,6 +1,6 @@
 // 会話の一覧の親子の並びと、 畳んだタブの保存の検査。
 import { describe, it, expect, beforeEach } from 'vitest'
-import { FOLDED_KEY, loadFolded, sessionTree, toggleFolded } from '../../../src/features/session-drawer/sessionTree.js'
+import { OPENED_KEY, loadOpened, sessionTree, toggleOpened } from '../../../src/features/session-drawer/sessionTree.js'
 
 const store = new Map()
 globalThis.localStorage = {
@@ -19,7 +19,7 @@ beforeEach(() => store.clear())
 
 describe('sessionTree', () => {
   it('puts children right under their parent, in the order given', () => {
-    expect(shape(sessionTree(SESSIONS, new Set()))).toEqual([
+    expect(shape(sessionTree(SESSIONS, new Set(['a', 'a1'])))).toEqual([
       ['a', 0, 2, false, 0],
       ['a1', 1, 1, false, 0],
       ['a1x', 2, 0, false, 0],
@@ -30,12 +30,12 @@ describe('sessionTree', () => {
   })
 
   it('leaves out everything under a folded parent and says how many it hides', () => {
-    expect(shape(sessionTree(SESSIONS, new Set(['a'])))).toEqual([
+    expect(shape(sessionTree(SESSIONS, new Set()))).toEqual([
       ['a', 0, 2, true, 3],
       ['b', 0, 0, false, 0],
       ['lost', 0, 0, false, 0],
     ])
-    expect(shape(sessionTree(SESSIONS, new Set(['a1'])))).toEqual([
+    expect(shape(sessionTree(SESSIONS, new Set(['a'])))).toEqual([
       ['a', 0, 2, false, 0],
       ['a1', 1, 1, true, 1],
       ['a2', 1, 0, false, 0],
@@ -45,28 +45,33 @@ describe('sessionTree', () => {
   })
 
   it('does not count a tab with nothing under it as folded', () => {
-    expect(shape(sessionTree(SESSIONS, new Set(['b'])))[4]).toEqual(['b', 0, 0, false, 0])
+    expect(shape(sessionTree(SESSIONS, new Set(['a', 'a1'])))[4]).toEqual(['b', 0, 0, false, 0])
   })
 })
 
 describe('folded tabs are kept per device', () => {
-  it('starts with nothing folded', () => {
-    expect(loadFolded()).toEqual(new Set())
+  it('starts with nothing opened', () => {
+    expect(loadOpened()).toEqual(new Set())
   })
 
-  it('remembers a fold and forgets tabs that are no longer listed', () => {
-    let folded = toggleFolded(new Set(['closed']), 'a', SESSIONS)
-    expect(folded).toEqual(new Set(['a']))
-    expect(JSON.parse(localStorage.getItem(FOLDED_KEY))).toEqual(['a'])
-    expect(loadFolded()).toEqual(new Set(['a']))
-    folded = toggleFolded(folded, 'a', SESSIONS)
-    expect(loadFolded()).toEqual(new Set())
+  it('remembers an opened parent and forgets tabs that are no longer listed', () => {
+    let opened = toggleOpened(new Set(['closed']), 'a', SESSIONS)
+    expect(opened).toEqual(new Set(['a']))
+    expect(JSON.parse(localStorage.getItem(OPENED_KEY))).toEqual(['a'])
+    expect(loadOpened()).toEqual(new Set(['a']))
+    opened = toggleOpened(opened, 'a', SESSIONS)
+    expect(loadOpened()).toEqual(new Set())
   })
 
-  it('reads a broken record as nothing folded', () => {
-    localStorage.setItem(FOLDED_KEY, '{"a": 1}')
-    expect(loadFolded()).toEqual(new Set())
-    localStorage.setItem(FOLDED_KEY, '[1, "a"]')
-    expect(loadFolded()).toEqual(new Set(['a']))
+  it('starts from scratch on a device that kept the folded tabs of an older build', () => {
+    localStorage.setItem('cpc.drawer.folded', '["a"]')
+    expect(loadOpened()).toEqual(new Set())
+  })
+
+  it('reads a broken record as nothing opened', () => {
+    localStorage.setItem(OPENED_KEY, '{"a": 1}')
+    expect(loadOpened()).toEqual(new Set())
+    localStorage.setItem(OPENED_KEY, '[1, "a"]')
+    expect(loadOpened()).toEqual(new Set(['a']))
   })
 })

@@ -20,6 +20,7 @@ import asyncio
 import logging
 from pathlib import Path
 
+from backend._common.agent_roles import child_agent_ids
 from backend._common.state import SessionDef, register_session, sessions_meta
 from backend.terminal.tab_tier import tab_tier
 from backend.terminal.tier import DEFAULT_TIER
@@ -77,7 +78,7 @@ def agent_for_folder(folder: Path) -> str | None:
     """The agent whose folder is `folder`, or None when none or several are. An agent other agents name as
     their `child_agent` does not count (= it shares the folder but opens child tabs only)."""
     from backend._common.config import AGENTS  # noqa: PLC0415
-    children = {cfg.get("child_agent") for cfg in AGENTS.values()}
+    children = child_agent_ids(AGENTS)
     target = folder.expanduser().resolve()
     found = [agent_id for agent_id, cfg in AGENTS.items()
              if agent_id not in children and cfg.get("cwd") and Path(cfg["cwd"]).expanduser().resolve() == target]

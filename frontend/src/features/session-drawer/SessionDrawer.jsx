@@ -34,8 +34,8 @@ import { useDockedDrawer } from './useDockedDrawer.js'
 import { setDrawerOpen } from './dockedDrawerOpen.js'
 import { accountLabelOf } from './sessionAccounts.js'
 import { formatContext, isApiTab } from '../../_common/apiTab.js'
-import { loadFolded, toggleFolded } from './sessionTree.js'
-import { folderTree, loadFoldedFolders, toggleFoldedFolder } from './folderTree.js'
+import { loadOpened, toggleOpened } from './sessionTree.js'
+import { folderTree, loadToggledFolders, toggleFolder } from './folderTree.js'
 import { sendTreeReport, treeReport } from './treeReport.js'
 import {
   TEXT_ZOOM_MAX,
@@ -277,11 +277,11 @@ export default function SessionDrawer() {
 
   // Tabs sit in the folder of their tier, forks and child tabs under their parent; nothing below a folded
   // folder or parent is shown (= `folderTree.js`). F-38: rebuilt only when the tabs, badges or folds change.
-  const [folded, setFolded] = useState(loadFolded)
-  const [foldedFolders, setFoldedFolders] = useState(loadFoldedFolders)
+  const [openedSessions, setOpenedSessions] = useState(loadOpened)
+  const [toggledFolders, setToggledFolders] = useState(loadToggledFolders)
   const orderedSessions = useMemo(
-    () => folderTree(sortedSessions, { agents, foldedFolders, foldedSessions: folded, badges: sessionBadges }),
-    [sortedSessions, agents, foldedFolders, folded, sessionBadges],
+    () => folderTree(sortedSessions, { agents, toggledFolders, openedSessions, badges: sessionBadges }),
+    [sortedSessions, agents, toggledFolders, openedSessions, sessionBadges],
   )
   // 畳む印の列は、 畳める行が 1 つでも在る時だけ空ける (= 無ければ題の位置を今までと変えない)
   const hasTree = orderedSessions.some(row => row.kind === 'folder' || row.children > 0)
@@ -399,7 +399,7 @@ export default function SessionDrawer() {
           ) : pickedAgent === null ? (
             <div className="agent-picker">
               <div className="agent-picker-label">{t('drawer.pick_agent')}</div>
-              {agents.map(a => (
+              {agents.filter(a => a.offered_for_new_tab !== false).map(a => (
                 <button
                   key={a.id}
                   className="agent-picker-item"
@@ -479,7 +479,7 @@ export default function SessionDrawer() {
                   key={`folder:${row.key}`}
                   className="drawer-folder"
                   style={row.depth > 0 ? { paddingLeft: `${row.depth * 16}px` } : undefined}
-                  onClick={() => setFoldedFolders(prev => toggleFoldedFolder(prev, row.key, sessions, agents))}
+                  onClick={() => setToggledFolders(prev => toggleFolder(prev, row.key, sessions, agents))}
                   aria-expanded={!row.folded}
                   title={row.folded ? t('drawer.unfold') : t('drawer.fold')}
                   data-testid="session-folder"
@@ -492,8 +492,7 @@ export default function SessionDrawer() {
                 </button>
               )
             }
-            const { session: s, depth, children, folded: isFolded, hidden, nested: isFork } = row
-            const badge = sessionBadges[s.id]
+            const { session: s, depth, children, folded: isFolded, hidden, nested: isFork, badge } = row
             const isActive = s.id === activeId
             const isMenuOpen = menuFor === s.id
             const isRenaming = renameFor === s.id
@@ -522,7 +521,7 @@ export default function SessionDrawer() {
                 {hasTree && (children > 0 ? (
                   <button
                     className="drawer-item-fold"
-                    onClick={() => setFolded(prev => toggleFolded(prev, s.id, sessions))}
+                    onClick={() => setOpenedSessions(prev => toggleOpened(prev, s.id, sessions))}
                     aria-expanded={!isFolded}
                     aria-label={isFolded ? t('drawer.unfold') : t('drawer.fold')}
                     title={isFolded ? t('drawer.unfold') : t('drawer.fold')}

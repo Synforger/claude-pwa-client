@@ -104,6 +104,7 @@ class GetAgentsResponseItem(BaseModel):
     id: str
     display_name: str
     list_folder: Optional[str] = None
+    offered_for_new_tab: Optional[bool] = None
 
 
 class GetAccountsResponseItem(BaseModel):
