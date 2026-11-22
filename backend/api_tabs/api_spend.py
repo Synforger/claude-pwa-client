@@ -17,10 +17,11 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class Spend:
-    """One reading of a spend file."""
+    """One reading of a spend: a wallet's spend file, or the spend of a tab in a tab list, whose `limit` may be None
+    (= the tabs share their wallet's limit)."""
     month: str
     spent: float
-    limit: float
+    limit: float | None
     currency: str
     updated_at: str | None
 
@@ -35,8 +36,9 @@ def _amount(raw: object, field: str) -> float:
     return raw
 
 
-def parse_spend(text: str) -> Spend:
-    """The reading a spend file's text holds. Raises `ValueError` (with the reason) when the text is not that file."""
+def parse_spend(text: str, *, is_limit_optional: bool = False) -> Spend:
+    """The reading a spend file's text holds. With `is_limit_optional` the text may leave `limit` out (= a tab's spend in
+    a tab list). Raises `ValueError` (with the reason) when the text is not that shape."""
     try:
         raw = json.loads(text)
     except json.JSONDecodeError as error:
@@ -48,7 +50,10 @@ def parse_spend(text: str) -> Spend:
         raise ValueError("month must be YYYY-MM")
     if not (isinstance(currency, str) and currency):
         raise ValueError("currency must be a text")
-    return Spend(month=month, spent=_amount(raw.get("spent"), "spent"), limit=_amount(raw.get("limit"), "limit"),
+    limit = raw.get("limit")
+    if limit is not None or not is_limit_optional:
+        limit = _amount(limit, "limit")
+    return Spend(month=month, spent=_amount(raw.get("spent"), "spent"), limit=limit,
                  currency=currency, updated_at=updated_at if isinstance(updated_at, str) else None)
 
 

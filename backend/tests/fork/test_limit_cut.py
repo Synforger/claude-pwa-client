@@ -22,6 +22,12 @@ def test_only_a_usage_limit_row_is_a_limit_stop():
     assert not is_limit_stop_row(message_row("x", None, "assistant", "hello"))
 
 
+def test_the_stop_of_the_week_is_read_by_its_error_and_not_by_its_wording():
+    row = limit_stop_row("x", None)
+    row["message"]["content"][0]["text"] = "You've hit your weekly limit · resets Nov 28 at 6pm"
+    assert is_limit_stop_row(row)
+
+
 def test_the_cut_through_tool_results_keeps_the_result_and_drops_the_limit_row():
     lines = lines_of(stopped_mid_turn())
     assert latest_cut_through_tool_results(lines) == "u2"

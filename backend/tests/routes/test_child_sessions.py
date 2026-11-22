@@ -352,3 +352,29 @@ def test_a_child_keeps_the_model_and_the_effort_its_parent_chose(opened, isolate
         sid = client.post("/sessions/ses_p/children", data={"agent_id": "agent_sub", "text": text}).json()["id"]
     assert isolated_state.sessions_meta[sid].child_settings == expected
     assert isolated_state._load_sessions_meta()[sid].child_settings == expected
+
+
+def test_a_parent_renames_its_own_child_and_tells_the_overview(family, isolated_state, monkeypatch):
+    told: list[bool] = []
+    monkeypatch.setattr(isolated_state.sessions_overview, "notify", lambda: told.append(True))
+    with _client() as client:
+        r = client.post("/sessions/ses_p/children/ses_c/title", data={"title": " Index the people "})
+    assert r.status_code == 200 and r.json() == {"ok": True, "title": "Index the people"}
+    assert isolated_state.sessions_meta["ses_c"].title == "Index the people" and told
+
+
+def test_a_tab_cannot_rename_another_tab_s_child_or_itself(family, isolated_state):
+    with _client() as client:
+        for tab in ("ses_x", "ses_p"):
+            r = client.post(f"/sessions/ses_p/children/{tab}/title", data={"title": "mine"})
+            assert r.status_code == 404 and r.json()["detail"]["code"] == "child_session_not_a_child"
+    assert isolated_state.sessions_meta["ses_x"].title == "x" and isolated_state.sessions_meta["ses_p"].title == "lead"
+
+
+def test_a_rename_from_outside_the_machine_or_without_a_title_changes_nothing(family, isolated_state):
+    with _client("100.64.0.9") as client:
+        assert client.post("/sessions/ses_p/children/ses_c/title", data={"title": "far"}).status_code == 403
+    with _client() as client:
+        r = client.post("/sessions/ses_p/children/ses_c/title", data={"title": "  "})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "child_title_required"
+    assert isolated_state.sessions_meta["ses_c"].title == "c"

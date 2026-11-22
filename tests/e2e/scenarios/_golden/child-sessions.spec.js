@@ -60,5 +60,10 @@ test.describe('golden: child-sessions', () => {
     if (process.env.CPC_E2E_SHOT) {
       await page.locator('[data-testid=session-drawer]').screenshot({ path: process.env.CPC_E2E_SHOT })
     }
+
+    // The parent renames a child (= what `tabs rename` asks): the list on screen follows it without a reload.
+    const renamed = await request.post('/sessions/ses_e2etreepar/children/ses_e2etreech2/title', { form: { title: 'Index the people' } })
+    expect(renamed.ok()).toBeTruthy()
+    await expect(row(page, 'ses_e2etreech2')).toContainText('Index the people')
   })
 })

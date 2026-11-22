@@ -24,6 +24,8 @@ claude も、 端末の入力を読む外の道具も、 「人が打った文�
 親は、 報告を受けて待たせておく子を今すぐ眠らせられる (= `POST /sessions/{親}/children/{子}/sleep`)。 眠らせ方と
 起こし方は、 静かなタブを眠らせる見回りと同じ (= `backend/sleep/`、 届いた連絡で同じ会話のまま起きる)。 違うのは、
 静かな時間を待たないことと、 入れ替えの線を超えた子も眠らせることだけ。 眠った子も閉じるまでは子の数に入る。
+
+親は、 渡した仕事が変わった子の題を替えられる (= `POST /sessions/{親}/children/{子}/title`)。
 """
 from __future__ import annotations
 
@@ -37,7 +39,7 @@ from backend._common.errors import raise_error
 from backend.account_fallback.fallback_sensors import read_tab_break
 from backend.cli.child_start import read_settings
 from backend.routes.agent_messages import envelope, judge
-from backend._common.state import register_session, sessions_meta
+from backend._common.state import register_session, rename_session, sessions_meta
 from backend.sleep.sleeper import sleep_now
 from backend.terminal.routes import pty_send
 from backend.terminal.runner import jsonl_path_for_session
@@ -149,3 +151,17 @@ async def post_child_sleep(request: Request, session_id: str, child_id: str) -> 
         raise_error(409, "child_sleep_refused", f"{child_id} を眠らせられません: {', '.join(reasons)}",
                     child=child_id, reasons=",".join(reasons))
     return {"ok": True, "already": False}
+
+
+@router.post("/sessions/{session_id}/children/{child_id}/title")
+async def post_child_title(request: Request, session_id: str, child_id: str, title: str = Form("")) -> dict:
+    """The parent tab gives its own child the title of the work it holds now. → `{"ok": true, "title": ...}`."""
+    require_this_machine(request, "child_session_local_only")
+    if child_id not in children_of(session_id):
+        raise_error(404, "child_session_not_a_child", f"{child_id} は {session_id} の子のタブではありません",
+                    session=session_id, child=child_id)
+    named = title.strip()
+    if not named:
+        raise_error(400, "child_title_required", "title が空です", child=child_id)
+    rename_session(child_id, named)
+    return {"ok": True, "title": named}

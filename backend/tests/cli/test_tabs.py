@@ -112,6 +112,11 @@ class Backend:
                     if backend.answers.get("tier-tabs", 200) != 200:
                         return self.reply(backend.answers["tier-tabs"], {"detail": {"code": "tier_tab_exists", "message": "has one"}})
                     return self.reply(200, {"id": "ses_tier", "title": "B", "child": False, "tier_tab": "projects/B"})
+                if method == "POST" and self.path.endswith("/title"):
+                    if backend.answers.get("title", 200) != 200:
+                        return self.reply(backend.answers["title"], {"detail": {
+                            "code": "child_session_not_a_child", "message": "not a child"}})
+                    return self.reply(200, {"ok": True, "title": "Index the people"})
                 if method == "POST" and self.path.endswith("/sleep"):
                     if backend.answers.get("sleep", 200) != 200:
                         return self.reply(backend.answers["sleep"], {"detail": {
@@ -550,6 +555,16 @@ def test_sleep_names_why_a_child_was_left_awake(family):
     family.backend.answers["sleep"] = 409
     assert family.run("sleep", "ses_b") == 1
     assert "ses_b を眠らせられません: 声の通話の最中です / 起こす予約があります" in family.err
+
+
+def test_rename_asks_the_parents_own_door(family):
+    assert family.run("rename", "ses_b", "Index the people") == 0 and "renamed: ses_b  Index the people" in family.out
+    assert family.backend.called("POST", "/sessions/ses_parent/children/ses_b/title")
+
+
+def test_a_refused_rename_says_why(family):
+    family.backend.answers["title"] = 404
+    assert family.run("rename", "ses_other", "mine") == 1 and "child_session_not_a_child" in family.err
 
 
 def test_children_shows_a_sleeping_child_as_asleep(family):

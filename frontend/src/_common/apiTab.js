@@ -62,6 +62,15 @@ export function formatMoney(amount, currency) {
   return `${amount.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${currency}`
 }
 
+/** What a tab spent this month, without a limit (= the tabs share their wallet's): `0.5 USD`. Nothing when the amount is
+ *  not known (never 0).
+ *  @param {{spent: number, currency: string}|null|undefined} spend
+ *  @returns {string|null} */
+export function formatSpent(spend) {
+  if (!spend || typeof spend.spent !== 'number') return null
+  return `${spend.spent.toLocaleString('en-US', { maximumFractionDigits: 2 })} ${spend.currency}`
+}
+
 /** This month's spend of a wallet as one line: `123 / 1,000 JPY` (= spent / limit). Nothing when the wallet has no figure
  *  (the file is missing, broken or of another month: never 0).
  *  @param {{spent: number, limit: number, currency: string}|null|undefined} spend
