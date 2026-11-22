@@ -4,8 +4,7 @@ import { useOutsideClick } from '../../_common/useOutsideClick.js'
 import {
   subscribe as subscribeSessions,
   getSnapshot as getSessionsSnapshot,
-  setActiveId as storeSetActiveId,
-  clearUnreadDone,
+  selectTab,
 } from '../../state/sessions.js'
 import {
   subscribe as subscribeMessages,
@@ -51,8 +50,6 @@ import {
   setLang,
 } from '../../state/locale.js'
 import { useT } from '../../i18n/t.js'
-import { subscribe as subscribeTickets, getSnapshot as getTicketsSnapshot } from '../../state/tickets.js'
-import { attentionCount, heldByTab, heldText } from '../tickets/ticketGroups.js'
 import { runningBuildId } from '../../_common/appUpdate.js'
 import './SessionDrawer.css'
 
@@ -73,11 +70,6 @@ const MENU_FLIP_UP_THRESHOLD_PX = 140
 export default function SessionDrawer() {
   // store 直接 subscribe (= sessions list / activeId / agents / sessionActivity / unreadDone)
   const sessionsSnap = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
-  // タブごとに、 そのタブが今持つ票の題を 1 行出す
-  const { tickets } = useSyncExternalStore(subscribeTickets, getTicketsSnapshot)
-  const heldTickets = useMemo(() => heldByTab(tickets), [tickets])
-  // 列の先頭の「票」 の行に出す、 操作者 が答える票の数
-  const ticketsToAnswer = attentionCount(tickets)
   const messages = useSyncExternalStore(subscribeMessages, getMessagesSnapshot)
   const ephem = useSyncExternalStore(subscribeEphemeral, getEphemeralSnapshot)
   // メモと markdown のプレビューの字の大きさ (= 本文の上のピンチと同じ 1 つの値)
@@ -120,15 +112,9 @@ export default function SessionDrawer() {
 
   // 各種 callback (= 旧 AppShell からの props を内蔵化)
   const onClose = useCallback(() => setDrawerOpen(false, { docked }), [docked])
-  // What follows choosing or making a tab, or opening tickets or settings: the overlay form shuts, the docked form stays open
+  // What follows choosing or making a tab, or opening settings: the overlay form shuts, the docked form stays open
   const closeAfterAction = useCallback(() => { if (!docked) onClose() }, [docked, onClose])
-  const onSelect = useCallback((sid) => {
-    storeSetActiveId(sid)
-    // markAsSeen 等価 (= 旧 selectSession の即時赤丸消し、 AppShell useSessionBadges の
-    // 150ms debounce useEffect より先に sync で落とす)
-    const cur = getSessionsSnapshot().unreadDone
-    if (cur[sid]) clearUnreadDone(sid)
-  }, [])
+  const onSelect = selectTab
   const onCreate = useCallback((agentId, accountId) => createSession(agentId, accountId), [])
   const onRename = useCallback((id, title) => renameSession(id, title), [])
   const onMoveToAccount = useCallback((id, accountId) => moveToAccount(id, accountId), [])
@@ -459,16 +445,6 @@ export default function SessionDrawer() {
         </div>
 
         <div className="drawer-list">
-          {/* 票の一覧の入口。 タブの列の先頭に、 列の folder の行と同じ形で置く */}
-          <button
-            className="drawer-folder"
-            onClick={() => { setOverlay('tickets', true); closeAfterAction() }}
-            data-testid="drawer-tickets-open"
-          >
-            <span className="drawer-item-fold" aria-hidden="true">🎫</span>
-            <span className="drawer-folder-name">{t('drawer.tickets')}</span>
-            {ticketsToAnswer > 0 && <span className="drawer-item-hidden">{ticketsToAnswer}</span>}
-          </button>
           {sessions.length === 0 && (
             <div className="drawer-empty">{t('drawer.empty')}</div>
           )}
@@ -645,16 +621,6 @@ export default function SessionDrawer() {
                       {isLastSession ? t('drawer.delete_last') : t('drawer.delete')}
                     </button>
                   </div>
-                )}
-                {!isRenaming && heldTickets[s.id] && (
-                  <button
-                    type="button"
-                    className="drawer-item-ticket"
-                    onClick={() => { setOverlay('tickets', s.id); closeAfterAction() }}
-                    data-testid="session-held-ticket"
-                  >
-                    🎫 {heldTickets[s.id].map(heldText).join(' / ')}
-                  </button>
                 )}
               </div>
             )

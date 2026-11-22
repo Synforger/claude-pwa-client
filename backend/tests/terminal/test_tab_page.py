@@ -10,7 +10,7 @@ from starlette.testclient import TestClient
 
 from backend._generated import http_endpoints as http
 from backend.terminal import pty_discover, tab_tier
-from backend.terminal.page_template import fill_template, page_fingerprint, template_file
+from backend.terminal.page_template import fill_template, page_fingerprint, pages_root_from, template_file
 from backend.terminal.tab_memo import page_file, page_path
 from backend.terminal.tab_page import existing_page, make_page
 
@@ -37,17 +37,30 @@ def started_in(monkeypatch, tab, tier):
 # --- The fill-in (pure) ---
 
 def test_the_template_marks_are_filled_and_every_other_character_is_kept():
-    assert fill_template(TEMPLATE, title="設計", tier="projects/alpha") == (
+    assert fill_template(TEMPLATE, title="設計", tier="projects/alpha", pages_root="../../../../pages") == (
         '<html><title>設計</title><p>階層: projects/alpha</p><p>{{unknown}} {title} projects/alpha</p></html>')
 
 
 def test_the_title_and_tier_are_escaped_for_html():
-    out = fill_template("<h1>{{title}}</h1><i>{{tier}}</i>", title='<script>x("&")</script>', tier="a&b")
+    out = fill_template("<h1>{{title}}</h1><i>{{tier}}</i>", title='<script>x("&")</script>', tier="a&b", pages_root="..")
     assert out == "<h1>&lt;script&gt;x(&quot;&amp;&quot;)&lt;/script&gt;</h1><i>a&amp;b</i>"
 
 
 def test_a_mark_inside_the_title_is_not_filled_a_second_time():
-    assert fill_template("{{title}}|{{tier}}", title="{{tier}}", tier="normal") == "{{tier}}|normal"
+    assert fill_template("{{title}}|{{tier}}", title="{{tier}}", tier="normal", pages_root="..") == "{{tier}}|normal"
+
+
+def test_the_way_up_to_the_pages_folder_follows_the_depth_of_the_tier(tmp_path):
+    def root(*tier):
+        return pages_root_from(tmp_path, tmp_path.joinpath(*tier, "pages", "ses_1"))
+    assert root() == ".."
+    assert root("projects", "P") == "../../../../pages"
+    assert root("projects", "P", "subprojects", "S") == "../../../../../../pages"
+
+
+def test_the_pages_root_mark_is_filled_and_escaped():
+    out = fill_template('<script src="{{pages_root}}/_common/toc.js"></script>', title="t", tier="normal", pages_root="../a&b")
+    assert out == '<script src="../a&amp;b/_common/toc.js"></script>'
 
 
 def test_the_template_is_one_per_agent_and_the_page_sits_next_to_the_memo(tmp_path):
@@ -63,7 +76,7 @@ def test_a_tab_of_the_agent_folder_gets_its_page_from_the_template(tab, template
     started_in(monkeypatch, tab, "normal")
     made = make_page(tab.id)
     assert made == agent_folder / "pages" / tab.id / "index.html"
-    assert made.read_text(encoding="utf-8") == fill_template(TEMPLATE, title="A", tier="normal")
+    assert made.read_text(encoding="utf-8") == fill_template(TEMPLATE, title="A", tier="normal", pages_root="..")
     assert page_path(tab.id) == made and existing_page(tab.id) == made
 
 
@@ -74,6 +87,17 @@ def test_a_tab_started_in_a_tier_gets_its_page_in_that_tier_folder(tab, template
     assert made == agent_folder / "projects" / "alpha" / "pages" / tab.id / "index.html"
     assert "階層: projects/alpha" in made.read_text(encoding="utf-8")
     assert not (agent_folder / "pages" / tab.id).exists()
+
+
+def test_a_page_in_a_subproject_loads_the_shared_part_from_the_agents_own_pages_folder(tab, template, agent_folder, monkeypatch):
+    # 意図: 雛形が {{pages_root}} で書く部品の path は、 どの深さの階層のページからもエージェントの根の pages/_common/ に届く
+    template.write_text('<script src="{{pages_root}}/_common/toc-sidebar.js" defer></script>', encoding="utf-8")
+    (agent_folder / "projects" / "P" / "subprojects" / "S").mkdir(parents=True)
+    started_in(monkeypatch, tab, "projects/P/subprojects/S")
+    made = make_page(tab.id)
+    src = made.read_text(encoding="utf-8").split('"')[1]
+    assert src == "../../../../../../pages/_common/toc-sidebar.js"
+    assert (made.parent / src).resolve() == (agent_folder / "pages" / "_common" / "toc-sidebar.js").resolve()
 
 
 def test_a_page_that_exists_is_never_touched(tab, template, agent_folder, monkeypatch):
