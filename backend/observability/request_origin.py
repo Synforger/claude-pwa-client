@@ -10,6 +10,9 @@ response that never ends are counted without waiting for the end; a request that
 its end. Responses, exceptions, streams and WebSockets pass through unchanged: an error inside the counting leaves one
 warning and the request goes on.
 
+With the names of this machine given, each request is also held against the origin table (`origin_rules.py`, which
+reads Sec-Fetch-Mode too): what is outside of it is logged, and nothing is refused.
+
 Used by `backend/main.py`, which installs it on the main app and on the page app. The label rules, the counter and the
 middleware are kept in one file while they are this small and change together.
 """
@@ -17,11 +20,16 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any, NamedTuple
 
 from starlette.routing import Mount
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from backend.observability import origin_rules
+from backend.observability.log_milestones import is_milestone
+from backend.observability.outside_rules_counter import OutsideRulesCounter
+from backend.observability.served_names import ServedNames
 
 logger = logging.getLogger(__name__)
 
@@ -42,12 +50,14 @@ MOUNT_LABEL = "(mount)"
 WEBSOCKET_METHOD = "WS"
 HTTP_METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "DELETE", "CONNECT", "OPTIONS", "TRACE", "PATCH"})
 FETCH_SITES = frozenset({"same-origin", "same-site", "cross-site", "none"})
+FETCH_MODES = frozenset({"cors", "navigate", "no-cors", "same-origin", "websocket"})
 
 _HOST_PATTERN = r"(?:[A-Za-z0-9._\-]+|\[[0-9A-Fa-f:.]+\])(?::[0-9]{1,5})?"
 _HOST_RE = re.compile(_HOST_PATTERN)
 _ORIGIN_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://" + _HOST_PATTERN)
 
 _HEADER_NAMES = (b"host", b"origin", b"sec-fetch-site")
+_FETCH_MODE_HEADER = b"sec-fetch-mode"
 
 
 class RequestOrigin(NamedTuple):
@@ -84,6 +94,15 @@ def fetch_site_label(raw: bytes | None) -> str:
         return MALFORMED_LABEL
     value = raw.decode("ascii")
     return value if value in FETCH_SITES else MALFORMED_LABEL
+
+
+def fetch_mode_label(scope: Scope) -> str:
+    """The Sec-Fetch-Mode header when it is one of the five words the specification defines."""
+    for name, value in scope.get("headers") or ():
+        if name == _FETCH_MODE_HEADER:
+            word = value.decode("latin-1")
+            return word if word in FETCH_MODES else MALFORMED_LABEL
+    return NONE_LABEL
 
 
 def method_label(scope: Scope) -> str:
@@ -193,7 +212,7 @@ class RequestOriginCounter:
         else:
             count = self._counts.get(origin, 0) + 1
             self._counts[origin] = count
-        if str(count).rstrip("0") == "1":
+        if is_milestone(count):
             logger.info(
                 "request origin: app=%s method=%s template=%s host=%s origin=%s sec_fetch_site=%s count=%d",
                 *origin, count,
@@ -217,15 +236,21 @@ class RequestOriginCounter:
 
 # One counter for the process, so the limit on tuples holds for the main app and the page app together.
 _process_counter = RequestOriginCounter()
+_process_outside = OutsideRulesCounter()
 
 
 class RequestOriginMiddleware:
     """Pure ASGI middleware: counts each HTTP and WebSocket request once and forwards everything unchanged."""
 
-    def __init__(self, app: ASGIApp, *, app_name: str, counter: RequestOriginCounter | None = None) -> None:
+    def __init__(self, app: ASGIApp, *, app_name: str, counter: RequestOriginCounter | None = None,
+                 names: ServedNames | None = None, extra_origins: Callable[[], tuple[str, ...]] = tuple,
+                 outside: OutsideRulesCounter | None = None) -> None:
         self.app = app
         self._app_name = app_name
         self._counter = counter if counter is not None else _process_counter
+        self._names = names
+        self._extra_origins = extra_origins
+        self._outside = outside if outside is not None else _process_outside
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] not in ("http", "websocket"):
@@ -249,14 +274,32 @@ class RequestOriginMiddleware:
 
     def _count(self, scope: Scope) -> None:
         try:
-            self._counter.add(request_origin(self._app_name, scope))
+            origin = request_origin(self._app_name, scope)
+            self._counter.add(origin)
+            self._observe_table(scope, origin)
         except Exception as error:  # the counting must never fail a request; it is logged once instead
             self._counter.warn_failure_once(error)
 
 
-def install(app: Any, *, app_name: str) -> None:
-    """Register the middleware on a FastAPI app (called from `backend/main.py` for each app)."""
-    app.add_middleware(RequestOriginMiddleware, app_name=app_name)
+    def _observe_table(self, scope: Scope, origin: RequestOrigin) -> None:
+        server = scope.get("server")
+        if self._names is None or not server or server[1] is None:
+            return
+        facts = origin_rules.RequestFacts(origin.method, origin.template, origin.host, origin.origin,
+                                          origin.fetch_site, fetch_mode_label(scope))
+        rows = origin_rules.rows_outside(facts, self._names.known(server[1], self._extra_origins()))
+        if rows:
+            self._outside.add(self._app_name, rows, facts)
+
+
+def install(app: Any, *, app_name: str, names: ServedNames | None = None,
+            extra_origins: Callable[[], tuple[str, ...]] = tuple) -> None:
+    """Register the middleware on a FastAPI app (called from `backend/main.py` for each app).
+
+    names (ServedNames | None): this machine's own names, to hold each request against the origin table
+    extra_origins (Callable[[], tuple[str, ...]]): reads the origins the configuration allows this app besides
+    """
+    app.add_middleware(RequestOriginMiddleware, app_name=app_name, names=names, extra_origins=extra_origins)
 
 
 __all__ = [
