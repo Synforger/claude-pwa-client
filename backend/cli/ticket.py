@@ -34,6 +34,12 @@ A ticket kept on the other machine (= the machine named at the head of its id) i
 backend carries `show`, `add`, `close` and `pass` to it. `ask` is refused there (`ticket_ask_elsewhere`), and a machine that
 does not answer is `ticket_peer_down` (= nothing was done; try again when it is back).
 
+A backend that is asked to stop answers a command that reads (`show`, `mine`) `ticket_backend_stopping`, and one that changes
+a ticket `ticket_not_sent` (nothing was written) or `ticket_unconfirmed` (it may have been: look with `show`). When no answer
+with a code came at all, the command says the same of what it could not tell: a read changed nothing (`ticket_not_read`), a
+write that never connected wrote nothing (`ticket_not_sent`) and one whose answer was lost may have been written
+(`ticket_unconfirmed`).
+
 `tabs.py` reads the command word and hands the rest here with its way of calling the backend and of finding this tab's
 conversation record. The sender is the tab's `PWA_SID`. A failure goes to stderr as `tabs: <heading> [<code>]: <reason>` and
 the command ends with 1 (`mine --unsettled` ends with 3, since 1 says it found tickets).
@@ -66,6 +72,9 @@ ALWAYS_SHOWN = ("opened", "operator")
 SOURCES = {"operator": "操作者", "tab": "別のタブ", "self": "自分"}
 NOT_SENT_CODE = "ticket_not_sent"
 UNCONFIRMED_CODE = "ticket_unconfirmed"
+NOT_READ_CODE = "ticket_not_read"
+#: The words whose command only reads: a failure of these changed nothing
+READING_WORDS = ("show", "mine")
 KINDS = ("decide", "mac", "report")
 USAGE = (
     "tabs ticket new <題> <本文の file> [--operator-said] [--due YYYY-MM-DD]\n"
@@ -127,7 +136,7 @@ def run(argv: list[str], call: Call, resolve: Resolve | None = None, find_record
     if status == 200 and isinstance(body, dict) and body.get("ok"):
         print(_shown(word, since_mine_of(body, sender) if since_mine else body))
         return 0
-    code, message = failure(status, body)
+    code, message = failure(status, body, reads=word in READING_WORDS)
     print(f"tabs: {HEADINGS[word]} [{code}]: {message}", file=sys.stderr)
     return 1
 
@@ -239,7 +248,7 @@ def unsettled_refusal(call: Call, record: Path | None) -> str | None:
         return None
     status, body = call(_held_path(sender, since), None, "GET")
     if status != 200 or not isinstance(body, dict) or not body.get("ok"):
-        print(f"tabs: 票を確かめられませんでした ({failure(status, body)[1][:120]})。 起動し直しは止めません", file=sys.stderr)
+        print(f"tabs: 票を確かめられませんでした ({failure(status, body, reads=True)[1][:120]})。 起動し直しは止めません", file=sys.stderr)
         return None
     found = unsettled_of(body)
     return unsettled_text(found) if found else None
@@ -259,7 +268,7 @@ def _mine(rest: list[str], call: Call, find_record: FindRecord | None) -> int:
     since = conversation_start(find_record() if find_record else None)
     status, body = call(_held_path(sender, since), None, "GET")
     if status != 200 or not isinstance(body, dict) or not body.get("ok"):
-        code, message = failure(status, body)
+        code, message = failure(status, body, reads=True)
         print(f"tabs: {HEADINGS['mine']} [{code}]: {message}", file=sys.stderr)
         return UNSETTLED_NOT_LOOKED if "--unsettled" in on else 1
     if "--unsettled" in on:
@@ -340,12 +349,17 @@ def _ticket_text(body: dict) -> str:
     return "\n".join(lines).rstrip()
 
 
-def failure(status: int, body: object) -> tuple[str, str]:
-    """The code and the sentence of an answer that is not a success: the backend's own, or one made from the call."""
+def failure(status: int, body: object, *, reads: bool = False) -> tuple[str, str]:
+    """The code and the sentence of an answer that is not a success: the backend's own, or one made from the call. `reads` is
+    for a command that only reads: what it could not tell changed nothing, so it never says a ticket may have been written."""
     detail = body.get("detail") if isinstance(body, dict) else None
     if isinstance(detail, dict) and detail.get("code"):
         return str(detail["code"]), str(detail.get("message", ""))
     raw = str(detail.get("message")) if isinstance(detail, dict) and detail.get("message") else str(body)[:200]
+    if reads:
+        said = f"{raw}" if status == 0 else f"backend から答えを受け取れませんでした (HTTP {status}): {raw}"
+        return NOT_READ_CODE, (f"{said}。 読むだけの命令なので、 何も変わっていません。 backend が起動し直している間かもしれません。 "
+                               "少し待って、 同じ命令をもう一度打ってください")
     if status == 0 and not (isinstance(detail, dict) and detail.get("may_have_arrived")):
         return NOT_SENT_CODE, f"{raw}。 何も書いていません。 backend が起動し直している間かもしれません。 少し待ってやり直してください"
     return UNCONFIRMED_CODE, (f"backend から答えを受け取れませんでした (HTTP {status}): {raw}。 票に書けているかもしれません。 "
