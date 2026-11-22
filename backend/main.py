@@ -436,6 +436,13 @@ if _config.CORS_ALLOW_ORIGINS:
         allow_headers=["*"],
     )
 
+# Count requests by where they come from, on the main app and the page app. Added last so it is the outermost
+# middleware and sees every request, a CORS preflight included.
+from backend.observability.request_origin import APP_NAME_MAIN, APP_NAME_PAGE  # noqa: E402
+from backend.observability.request_origin import install as _install_request_origin  # noqa: E402
+_install_request_origin(app, app_name=APP_NAME_MAIN)
+_install_request_origin(files_routes.page_app, app_name=APP_NAME_PAGE)
+
 @app.get("/healthz", include_in_schema=False)
 async def healthz() -> dict:
     # 軽量 liveness probe。 SPA mount より前、 認証なし、 副作用なし。
