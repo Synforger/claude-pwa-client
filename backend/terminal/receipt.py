@@ -20,6 +20,10 @@ then on the launch owns the text and this module only watches the record for it 
 conversation that has not begun shows nothing yet, and a rescue that read that as "gone" typed the text a second time,
 which the new conversation got twice.
 
+A stop of the backend ends every wait here (`_internal/stop_signal.py`), since the responses that wait get 3 seconds
+and these wait for minutes. `deliver_to_woken` raises `StoppedBeforeTyping` when nothing of the text was typed yet (= the
+sender may send it again), and `BackendStopping` once it was (= it may have arrived, and the rescue stops where it is).
+
 Used by `routes/agent_messages.py` for a tab it had to wake (`deliver_to_woken`, `wait_for_claude_screen`). A tab that
 was already running keeps the plain `pty_send`: its answer in the middle of a turn writes no row, so no row proves
 nothing there.
@@ -30,6 +34,7 @@ import asyncio
 import logging
 from pathlib import Path
 
+from backend._internal.stop_signal import BackendStopping, until_stop
 from backend.terminal import input_ready
 from backend.terminal.ansi_text import strip_ansi
 from backend.terminal.confirm import CONFIRM_TIMEOUT_SEC, wait_taken_row, wait_text_row
@@ -50,6 +55,10 @@ RESCUE_SEC = 120.0
 # How much of the typed message is looked for in the pane, and what the TUI shows for a long paste it has not expanded.
 HEAD_CHARS = 30
 PASTE_PLACEHOLDER = "[Pasted text #"
+
+
+class StoppedBeforeTyping(BackendStopping):
+    """The backend was asked to stop before any of the text was typed."""
 
 
 def pane_text(session_id: str) -> str:
@@ -94,17 +103,35 @@ async def deliver_to_woken(session_id: str, text: str) -> bool:
     """Type `text` into a tab that was just started and make sure it was taken. True when the record shows the message
     (maybe after the rescue: Enter again while the text waits in the input, typing it once more when it is gone); False
     when it did not within `RESCUE_SEC`, or the launch in flight was given up, which is for the caller to refuse. A text
-    that the typing handed to a launch is not typed again (`_taken_by_launch`)."""
+    that the typing handed to a launch is not typed again (`_taken_by_launch`). Raises `StoppedBeforeTyping` when the
+    backend stops while the launch is waited for, and `BackendStopping` when it stops after the typing."""
     if input_ready.launching(session_id):
-        if not await input_ready.wait_launched(session_id):
-            logger.warning("receipt: the launch was given up before the message could be typed session=%s", session_id)
+        try:
+            launched = await until_stop(_wait_for_launch(session_id))
+        except BackendStopping:
+            raise StoppedBeforeTyping from None
+        if not launched:
             return False
-        await wait_for_claude_screen(session_id)
     record = jsonl_path_for_session(session_id)
     initial_pos = _record_end(session_id)
     result = await pty_send(session_id, {"text": text, "enter": True}, None)
     if not result.get("ok"):
         return False
+    return await until_stop(_taken_after_typing(session_id, record, initial_pos, text, result))
+
+
+async def _wait_for_launch(session_id: str) -> bool:
+    """Wait for the launch in flight to end and for the screen of its claude. False when the launch was given up."""
+    if not await input_ready.wait_launched(session_id):
+        logger.warning("receipt: the launch was given up before the message could be typed session=%s", session_id)
+        return False
+    await wait_for_claude_screen(session_id)
+    return True
+
+
+async def _taken_after_typing(session_id: str, record: Path | None, initial_pos: int, text: str, result: dict) -> bool:
+    """Wait for the row of `text`, which `pty_send` answered `result` for: from the launch it was handed to, or from
+    the typing itself, with the rescue when the row does not come."""
     if result.get("launched"):
         return await _taken_by_launch(session_id, record, initial_pos, text)
     if result.get("confirmed") or await _taken(session_id, initial_pos, TAKEN_WAIT_SEC - CONFIRM_TIMEOUT_SEC, text):

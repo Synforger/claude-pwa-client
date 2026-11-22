@@ -23,6 +23,8 @@ import asyncio
 import logging
 import time
 
+from backend._internal.stop_signal import BackendStopping, until_stop
+
 logger = logging.getLogger(__name__)
 
 # 旗が立つのを待つ上限。 実測 (= 同 44 回) の spawn → SessionStart は中央値 2.8s /
@@ -104,6 +106,9 @@ async def wait_ready(session_id: str, timeout: float | None = None) -> bool:
 
     上限を超えた時は旗を立てて返す (= 検出経路が効いていないのに次の送信まで毎回
     待たせない)。 呼び手は False を受けたら打鍵せず失敗を返し、 本文を入力欄へ戻す。
+
+    backend が止まる時 (= `_internal/stop_signal.py`) も、 待たずに False を返す。 旗は立てない (= claude の
+    起動は待ち切れていないので、 打鍵してよいとは言えない)。
     """
     ev = _events.get(session_id)
     if ev is None or ev.is_set():
@@ -111,8 +116,12 @@ async def wait_ready(session_id: str, timeout: float | None = None) -> bool:
     # 既定値は import 時でなく呼び出し時に読む (= 上限を差し替えて試験できる形)
     timeout = INPUT_READY_TIMEOUT_SEC if timeout is None else timeout
     try:
-        await asyncio.wait_for(ev.wait(), timeout=timeout)
+        await until_stop(asyncio.wait_for(ev.wait(), timeout=timeout))
         return True
+    except BackendStopping:
+        logger.info("input_ready: the backend is stopping; not waiting for claude to report startup session=%s",
+                    session_id)
+        return False
     except asyncio.TimeoutError:
         logger.warning(
             "input_ready: claude did not report startup within %.1fs session=%s; "

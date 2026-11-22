@@ -219,15 +219,29 @@ session) を受け取り、 見せてよい名前ごとに `<外向きの名前>
 | `agent_message_receiver_not_ready` | 何も打っていない: 宛先の Claude が時間内に起動しなかった、 入力を受け付ける状態にならなかった、 または宛先の会話がまだ始まっていないため検査できない (= 検査を設定している時のみ)。 もう一度送る |
 | `agent_message_not_taken` | 起動した宛先の Claude が、 打った連絡を受け取らなかった (= 上の確かめと、 1 回だけの救済でも会話の記録に行が来なかった)。 もう一度送る |
 | `agent_message_refused` | 検査が連絡を通さなかった。 理由が `reason` に、 検査が「本文のどこが当たったか」 を出していればその行が `hits` に入っている |
-| `agent_message_not_sent` | 想定外のエラーが、 何かを打つ前に起きた (= 宛先には何も届いていない)。 もう一度送る。 繰り返す時は code と時刻を client の不具合として送る |
-| `agent_message_unconfirmed` | 打った後で、 届いたかを確かめられなかった (= 入力が途中で止まった、 打つ途中に想定外のエラーが起きた、 相手の機械を呼んだ後に答えが途切れた)。 届いているかもしれない。 宛先で確かめてから送り直す |
-| `agent_message_check_failed` | 検査を実行できなかった、 または時間内に終わらなかった |
+| `agent_message_not_sent` | 何かを打つ前に、 想定外のエラーが起きた、 または backend が止まる所だった (`detail.params.reason` が `backend_stopping`、 503)。 宛先には何も届いていない。 もう一度送る (= 止まる所だった時は、 backend の起動を待ってから)。 繰り返す時は code と時刻を client の不具合として送る |
+| `agent_message_unconfirmed` | 打った後で、 届いたかを確かめられなかった (= 入力が途中で止まった、 打つ途中に想定外のエラーが起きた、 相手の機械を呼んだ後に答えが途切れた、 記録に行が来るのを待つ間に backend が止まる所だった (`detail.params.reason` が `backend_stopping`))。 届いているかもしれない。 宛先で確かめてから送り直す |
+| `agent_message_check_failed` | 検査を実行できなかった、 時間内に終わらなかった、 または検査の最中に backend が止まる所だった。 何も打っていないので、 もう一度送る |
 | `agent_message_local_only` | 別の機械から呼ばれた |
 | `agent_message_peer_not_allowed` | そのタブは、 その機械と連絡してよい account のタブではない。 見るのはタブの本来の口座で、 一時に移って動いている口座ではない (理由の文に出る) |
 | `agent_message_peer_offline` | 相手の機械が tailnet に出ていない (= 眠っている・電源か網が落ちている)。 連絡は預かれた時は失敗にならず、 預かれなかった時だけこの code で返る (= 下の「相手の機械が答えない時」) |
 | `agent_message_peer_unreachable` | 相手の機械は tailnet に出ているのに、 または tailnet の様子が読めず、 backend に繋がらなかった。 預かれなかった時だけ返る |
 | `agent_message_peer_failed` | 相手の機械が、 code を付けずに失敗を返した。 届いたかもしれない (= 相手のタブで確かめてから送り直す) |
 | `agent_message_bad_relay` | (= 相手の機械へ返る) 預かった連絡の形が正しくない |
+
+### 待つ間に backend が止まった時
+
+眠っているタブを起こす連絡は、 宛先の Claude が起動して入力欄を出すのを待ち、 打った後も会話の記録に行が来るのを待ちます
+(= 長いと数分)。 backend が止まる合図を受けると、 これらの待ちはその場で終わり、 止まる猶予 (= 数秒) を越えて切られることは
+ありません。 返る code は、 止まった時点で何を打っていたかで決まります。 `detail.params.reason` はどれも `backend_stopping` です。
+
+- 宛先の Claude の起動や、 検査を待っていた間 (= 本文を何も打っていない) は、 `agent_message_not_sent` (または
+  `agent_message_check_failed`) です。 backend が起動し直してから、 そのまま送り直してください
+- 本文を打った後 (= 打った文を起動中の Claude に預けた後や、 記録に行が来るのを待っていた間) は、
+  `agent_message_unconfirmed` です。 宛先の会話に届いているかを確かめてから送り直してください。 止まった時点で入力欄に
+  残っていた文は、 次の送信が打つ前に消します (= 2 通重なりません)
+- 連絡に付けた id (= `tabs send` が 1 回の実行ごとに付ける) は、 `agent_message_not_sent` なら忘れ、 `agent_message_unconfirmed`
+  なら届いた扱いで覚えます。 預かった連絡を相手の機械から送り直しても、 打つのは 1 回までです
 | `agent_message_unknown_peer` | (= 相手の機械へ返る) 設定されていない接続元から連絡を預けようとした |
 | `agent_message_in_flight` | (= 相手の機械へ返る) 同じ id の連絡を、 まだ届けている途中。 預かった連絡の送り直しは、 次の回にもう一度送る |
 | `agent_message_bad_id` | `message_id` が小文字の 16 進 32 桁ではない |

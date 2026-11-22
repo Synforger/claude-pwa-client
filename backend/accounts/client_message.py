@@ -11,6 +11,7 @@ import logging
 
 from fastapi import HTTPException
 
+from backend._internal.stop_signal import BackendStopping
 from backend.routes.agent_messages import deliver_message, wake_tab
 from backend.terminal.session_resolver import takes_asks
 
@@ -29,6 +30,9 @@ async def send_to_tab(session_id: str, text: str) -> bool:
         result = await deliver_message(session_id, text, woke)
     except HTTPException as error:
         logger.warning("client message: the tab did not take the message session=%s: %s", session_id, error.detail)
+        return False
+    except BackendStopping:
+        logger.info("client message: the backend is stopping; the tab was not waited for session=%s", session_id)
         return False
     if not result.get("ok"):
         logger.warning("client message: the tab did not take the message session=%s reason=%s", session_id,
