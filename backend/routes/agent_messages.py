@@ -569,7 +569,9 @@ async def deliver_message(tab_id: str, text: str, woke: bool) -> dict:
     (`woke`) is only said to have taken it when its record shows the message (after one rescue, see
     `terminal/receipt.py`); otherwise 409 `agent_message_not_taken`. A tab that was running already gets the plain
     `pty_send`, whose answer is that of the typing: an answer that says it did not type is refused with the code that
-    tells the sender whether the message may have arrived (`refuse_untyped`).
+    tells the sender whether the message may have arrived (`refuse_untyped`). A tab with a window open (a permission, a
+    question, a plan approval) answers `held: "window"`: the message is kept and typed when the window closes
+    (`permission_window/window_hold.py`), and is returned as it is, so that the sender is told it was kept, not delivered.
 
     A stop of the backend ends the waits for the record (`terminal/receipt.py`): `BackendStopping` when the text may have
     been typed, `StoppedBeforeTyping` when it was not."""

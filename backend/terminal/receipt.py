@@ -35,6 +35,7 @@ import logging
 from pathlib import Path
 
 from backend._internal.stop_signal import BackendStopping, until_stop
+from backend.permission_window import window_state
 from backend.terminal import input_ready
 from backend.terminal.ansi_text import strip_ansi
 from backend.terminal.confirm import CONFIRM_TIMEOUT_SEC, wait_taken_row, wait_text_row
@@ -118,6 +119,8 @@ async def deliver_to_woken(session_id: str, text: str) -> bool:
     result = await pty_send(session_id, {"text": text, "enter": True}, None)
     if not result.get("ok"):
         return False
+    if result.get("held"):
+        return True     # kept while a window is open: `window_hold` types it, once, when the window is gone
     return await until_stop(_taken_after_typing(session_id, record, initial_pos, text, result))
 
 
@@ -161,7 +164,10 @@ async def _rescue(session_id: str, initial_pos: int, text: str) -> bool:
     deadline = loop.time() + RESCUE_SEC
     typed_again = False
     while loop.time() < deadline:
-        if text_waits_in_input(await asyncio.to_thread(pane_text, session_id), text):
+        if window_state.is_holding(session_id):
+            # An Enter typed at a window confirms its first choice: the rescue waits until the window is gone.
+            logger.info("receipt: a window is open, no Enter for the message session=%s", session_id)
+        elif text_waits_in_input(await asyncio.to_thread(pane_text, session_id), text):
             logger.info("receipt: the message waits in the input, sending Enter session=%s", session_id)
             await in_typing_order(session_id, lambda: tmux_send_keys(session_id, enter=True))
         elif not typed_again:
@@ -171,7 +177,7 @@ async def _rescue(session_id: str, initial_pos: int, text: str) -> bool:
                 return False
         if await _taken(session_id, initial_pos, ENTER_AGAIN_SEC, text):
             return True
-    if text_waits_in_input(await asyncio.to_thread(pane_text, session_id), text):
+    if not window_state.is_holding(session_id) and text_waits_in_input(await asyncio.to_thread(pane_text, session_id), text):
         logger.warning("receipt: the message was not taken in %.0fs, clearing it from the input session=%s",
                        RESCUE_SEC, session_id)
         await in_typing_order(session_id, lambda: tmux_send_keys(session_id, key="C-u"))

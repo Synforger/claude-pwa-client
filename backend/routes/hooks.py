@@ -41,6 +41,7 @@ from backend.terminal.pty_discover import runs_inside_another_claude
 from backend.cli.claude_sessions import pid_of_conversation
 from backend.sleep.sleep_sensors import note_woken
 import backend.rollover.rollover as rollover
+from backend.permission_window import window_state
 from backend.tickets import answer_delivery
 
 # backend-F-40 注記: jsonl_watcher は hooks を import しない (= confirm_bind → _save_bindings
@@ -304,6 +305,8 @@ async def _handle_session_start(ctx: HookContext) -> dict:
     # claude 本体が起動を通知した = このタブへの打鍵を解禁する。 restart 直後の窓で
     # 送信を待たせている側がここで起きる (= `backend/terminal/input_ready.py`)。
     input_ready.mark_ready(ctx.pwa_sid_hdr)
+    # A new conversation has none of the windows of the one before it.
+    window_state.close_all(ctx.pwa_sid_hdr, "session_start")
     # An ask that cleared, resumed or branched the conversation types its text once the new one is open (`backend/ask/`).
     turn_waiters.conversation_opened(ctx.pwa_sid_hdr, ctx.claude_sid)
     # A conversation was just opened in the tab (= also `/resume` inside a running claude, which starts no process):
@@ -332,6 +335,8 @@ async def _handle_stop(ctx: HookContext) -> dict:
     # turn 完了の即時化 (= backend-F-12)。 mutate 経路は session_status 1 本に絞る。
     assert ctx.pwa_session_id is not None  # dispatcher が解決済
     _apply_immediate_stop(ctx.pwa_session_id)
+    # A turn that ended has no window open.
+    window_state.close_all(ctx.pwa_session_id, "stop")
     # An ask waiting on this tab takes the turn's last answer as it is (= before the push's checks).
     turn_waiters.turn_ended(ctx.pwa_session_id, body_raw, ctx.claude_sid)
     rollover.turn_ended(ctx.pwa_session_id)
@@ -371,8 +376,35 @@ async def _handle_notification(ctx: HookContext) -> dict:
         return {"ok": True, "ignored": "generic_waiting"}
     body = _truncate(message)
     assert ctx.pwa_session_id is not None
+    if window_state.is_open(ctx.pwa_session_id):
+        # The window has its own push (= one per window, from its `PermissionRequest`): this one would be a second.
+        return {"ok": True, "ignored": "permission_window"}
     asyncio.create_task(broadcast_push(body, ctx.title, ctx.pwa_session_id))
     return {"ok": True, "pushed": "Notification"}
+
+
+async def _handle_permission_request(ctx: HookContext) -> dict:
+    """PermissionRequest: Claude Code is about to show a permission window (or a question, or a plan to approve). The hook
+    answers nothing, so the window stays Claude's own and any key still answers it: this only stands the window up for
+    the screen (`permission_window/window_state.py`) and pushes it once. A question and a plan approval have a screen of
+    their own: they are kept, not shown."""
+    assert ctx.pwa_session_id is not None
+    tool_name = ctx.payload.get("tool_name") or ""
+    tool_input = ctx.payload.get("tool_input")
+    window = window_state.open_window(ctx.pwa_session_id, tool_name, tool_input if isinstance(tool_input, dict) else {},
+                                      ctx.payload.get("prompt_id"))
+    if window is None:
+        return {"ok": True, "ignored": "already_resolved"}
+    if not window.is_permission:
+        return {"ok": True, "observed": tool_name}
+    asyncio.create_task(broadcast_push(_permission_push_body(window), ctx.title, ctx.pwa_session_id))
+    return {"ok": True, "pushed": "PermissionRequest", "window": window.number}
+
+
+def _permission_push_body(window: window_state.Window) -> str:
+    """The push of a permission window: the tool and the start of what it is asked to run."""
+    detail = window.tool_input.get("command") or window.tool_input.get("file_path") or window.tool_input.get("url") or ""
+    return _truncate(f"承認待ち: {window.tool_name} {detail}".strip())
 
 
 HOOK_HANDLERS: dict[str, _HookSpec] = {
@@ -381,4 +413,5 @@ HOOK_HANDLERS: dict[str, _HookSpec] = {
     "Stop": _HookSpec(handler=_handle_stop, needs_pwa_session=True),
     "UserPromptSubmit": _HookSpec(handler=_handle_user_prompt_submit, needs_pwa_session=True),
     "Notification": _HookSpec(handler=_handle_notification, needs_pwa_session=True),
+    "PermissionRequest": _HookSpec(handler=_handle_permission_request, needs_pwa_session=True),
 }

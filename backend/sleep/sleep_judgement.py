@@ -23,6 +23,10 @@ A parent tab can also put one of its children to sleep at once (`tabs sleep`). T
 quiet minutes, and it does not leave a child above the rollover's line awake: the parent knows the child is waiting,
 and the rollover takes the child over once a message wakes it. Every other condition holds as it does for the patrol.
 
+A tab that waits at a permission window is left awake (`PERMISSION_OPEN`) however the judgement is asked (by hand, for a
+limit stop, for a reported child): only a person's answer ends it, and a sleep, a move to another account, a stop by the
+hold or a close for the rollover would take the window away from the person it waits for.
+
 A tab asked to close for a rollover is left awake while it closes (`ROLLING_OVER`), and also above the rollover's
 line, where the rollover takes it over. An ask that lapsed (`close_lapsed`: asked twice and quiet for `STALL_MINUTES`,
 or stopped by a usage limit) no longer counts as a close in progress, and its tab may sleep above the line: nothing
@@ -52,6 +56,7 @@ VOICE_CALL = "voice_call"
 ROLLING_OVER = "rolling_over"
 NOT_ANSWERED_SINCE_START = "not_answered_since_start"
 ACCOUNT_PENDING = "account_pending"
+PERMISSION_OPEN = "permission_open"
 
 # How long a child that reported its work done must be quiet before the patrol puts it to sleep (= 5 looks).
 REPORTED_QUIET_MINUTES = 5
@@ -133,6 +138,8 @@ class SleepFacts:
     answered_since_start: the conversation (or a sub-agent's) has a row newer than both the start of the claude now
                        running and the tab's last waking (= it took something in since it was started)
     account_pending:   the account fallback or hold asked the tab for a break, or owes it a "carry on"
+    permission_open:   the tab waits at a permission window (= `permission_window/window_state.py`): it needs a person's
+                       answer, and the tab must not be slept, moved, stopped or closed over it
     rollover_asks:     how many times the rollover asked the conversation to close since the operator last typed (0..2)
     ends_in_limit_stop: the conversation ends in a usage-limit stop
     """
@@ -150,6 +157,7 @@ class SleepFacts:
     ends_in_limit_stop: bool | None = None
     answered_since_start: bool | None = None
     account_pending: bool | None = None
+    permission_open: bool | None = None
 
 
 def close_lapsed(facts: SleepFacts) -> bool:
@@ -204,6 +212,8 @@ def _unmet(facts: SleepFacts, minutes: float) -> tuple[str, ...]:
         reasons.append(STARTING)
     if facts.turn_open:
         reasons.append(TURN_OPEN)
+    if facts.permission_open:
+        reasons.append(PERMISSION_OPEN)
     if facts.record_found is False:
         reasons.append(NO_RECORD)
     elif facts.quiet_minutes is not None and facts.quiet_minutes < minutes:

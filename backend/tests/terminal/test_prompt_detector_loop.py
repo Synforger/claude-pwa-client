@@ -309,3 +309,69 @@ def test_note_user_input_resets_adaptive_poll(stub_session):
 
     _run(run())
     loop_mod._next_poll_at.clear()
+
+
+WINDOW_SCREEN = ("─────────────────────────────────────────\n Bash command\n\n   echo LABASK-B1\n   Echo LABASK-B1\n\n"
+                 " Hook PreToolUse:Bash requires confirmation for this command: guard says so\n"
+                 " Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend\n")
+
+
+def _stand_a_window(sid, monkeypatch):
+    """The tab `sid` with a permission window open, in a window state of its own."""
+    from backend._common.state import agent_status
+    from backend.permission_window import window_state
+    monkeypatch.setitem(agent_status, sid, {"pending_plan": None, "pending_permission": None})
+    monkeypatch.setattr(window_state, "_tabs", {})
+    monkeypatch.setattr(window_state, "_close_listeners", [])
+    window_state.open_window(sid, "Bash", {"command": "echo LABASK-B1"}, "p1", now=1.0)
+    return window_state
+
+
+def test_the_window_is_seen_while_the_pane_shows_a_selection_prompt_and_gone_after_two_looks_without_it(
+        stub_session, monkeypatch):
+    sid, tail_holder, _alt, _push = stub_session
+    window_state = _stand_a_window(sid, monkeypatch)
+
+    async def run():
+        tail_holder["value"] = "just some running output"
+        await loop_mod._tick_one(sid)                    # the seed look
+        tail_holder["value"] = WINDOW_SCREEN
+        await loop_mod._tick_one(sid)
+        assert window_state.current_permission(sid).seen is True
+        tail_holder["value"] = "● Running echo LABASK-B1…"
+        await loop_mod._tick_one(sid)
+        assert window_state.is_open(sid)
+        await loop_mod._tick_one(sid)
+        assert window_state.is_open(sid) is False
+
+    _run(run())
+
+
+def test_the_selection_prompt_of_a_permission_window_is_pushed_once_by_the_window_and_not_again_by_the_detector(
+        stub_session, monkeypatch):
+    sid, tail_holder, _alt, push_calls = stub_session
+    _stand_a_window(sid, monkeypatch)
+
+    async def run():
+        tail_holder["value"] = "just some running output"
+        await loop_mod._tick_one(sid)
+        tail_holder["value"] = WINDOW_SCREEN
+        await loop_mod._tick_one(sid)
+        await asyncio.sleep(0.02)
+
+    _run(run())
+    assert push_calls == []
+
+
+def test_a_selection_prompt_with_no_permission_window_is_pushed_as_before(stub_session):
+    sid, tail_holder, _alt, push_calls = stub_session
+
+    async def run():
+        tail_holder["value"] = "just some running output"
+        await loop_mod._tick_one(sid)
+        tail_holder["value"] = WINDOW_SCREEN
+        await loop_mod._tick_one(sid)
+        await asyncio.sleep(0.02)
+
+    _run(run())
+    assert len(push_calls) == 1

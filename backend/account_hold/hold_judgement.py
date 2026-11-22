@@ -22,7 +22,7 @@ from typing import Iterable
 from backend.account_fallback.fallback_judgement import Move, decide
 from backend.account_fallback.fallback_settings import AT_PCT_MAX, WEEKDAYS, FallbackRule
 from backend.account_hold.hold_settings import HoldRule
-from backend.sleep.sleep_judgement import TURN_OPEN
+from backend.sleep.sleep_judgement import PERMISSION_OPEN, TURN_OPEN
 from backend.usage.limit_state import limit_state
 
 # A percentage no usage reaches, so that `limit_state` counts only the window that has a line.
@@ -73,8 +73,9 @@ def both_at_lines(*, current: str, home: str, rule: FallbackRule | None, limited
 def should_ask_to_hold(*, blocked_by: tuple[str, ...], stopped_by_limit: bool, asked_at: float | None) -> bool:
     """Whether the tab is asked to come to a break: it is held because claude is answering (`turn_open` among
     `blocked_by`; a tab held only by commands, wake-ups or a call is not answering), no usage limit stopped it (that
-    stop is its break) and it was not asked during this stay above the line (`asked_at` = None)."""
-    return TURN_OPEN in blocked_by and not stopped_by_limit and asked_at is None
+    stop is its break) and it was not asked during this stay above the line (`asked_at` = None). A tab waiting at a
+    permission window (`PERMISSION_OPEN` among `blocked_by`) is not asked: the ask would be typed at the window."""
+    return TURN_OPEN in blocked_by and PERMISSION_OPEN not in blocked_by and not stopped_by_limit and asked_at is None
 
 
 def resumes_on_home(*, current: str, home: str, rule: FallbackRule | None, limited: bool | None, near: bool | None,

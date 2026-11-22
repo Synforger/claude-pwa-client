@@ -6,7 +6,7 @@ Used by `watch_patrol.py`.
 """
 from __future__ import annotations
 
-from backend.child_watch.watch_judgement import API_ERROR, LIMIT
+from backend.child_watch.watch_judgement import API_ERROR, LIMIT, PERMISSION
 from backend.jsonl.jsonl_predicates import CLIENT_NOTICE_OPENING as OPENING
 
 TAG = "child-stopped"
@@ -18,6 +18,9 @@ _BODY = {
     API_ERROR: ("An API error ended this child's turn, and the client's messages to carry on did not get it going again "
                 "(see the end of its conversation). Send it a message to carry on once the API answers again, or "
                 "close it."),
+    PERMISSION: ("This child has waited for five minutes at a permission window that nobody answered. Its turn is open, so "
+                 "it is not stopped and will not report: the window is on its screen in the client (answer it there), "
+                 "or read the end of its conversation for the call it asks about."),
 }
 _IDLE_BODY = ("This child is waiting for input and has not reported. It stopped without running `tabs report`: "
               "read the end of its conversation, then send it a message or close it.")
@@ -29,7 +32,7 @@ def _attr(value: str) -> str:
 
 def child_stopped_envelope(child_id: str, title: str, reason: str) -> str:
     """The message that tells a parent tab its child `child_id` (named `title`) stopped for `reason` (`LIMIT` or
-    `IDLE` or `API_ERROR` of `watch_judgement.py`)."""
+    `IDLE`, `API_ERROR` or `PERMISSION` of `watch_judgement.py`)."""
     return (f'{OPENING}\n<{TAG} child="{_attr(child_id)}" title="{_attr(title)}" reason="{_attr(reason)}">\n'
             f"{_BODY.get(reason, _IDLE_BODY)}\n"
             f"</{TAG}>")

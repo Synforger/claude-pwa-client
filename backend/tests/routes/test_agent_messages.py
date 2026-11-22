@@ -1123,3 +1123,22 @@ def test_a_message_the_sender_says_hands_no_work_is_not_noted_as_work(client, ta
     monkeypatch.setattr(am, "hand_work", lambda sender, receiver: noted.append((sender, receiver)) or True)
     assert _send(client, hands_work="false").status_code == 200
     assert noted == [] and len(typed) == 1
+
+
+def test_a_message_to_a_tab_with_a_window_open_is_kept_not_typed_and_the_sender_is_told_so(client, tabs, typed, monkeypatch):
+    """The message goes through the real `pty_send`: the Enter of a text typed at a window would confirm its first choice."""
+    from backend._common.state import agent_status
+    from backend.permission_window import window_hold, window_state
+    from backend.terminal import routes as terminal_routes
+    monkeypatch.setitem(agent_status, "ses_receiver", {"pending_plan": None, "pending_permission": None})
+    monkeypatch.setattr(window_state, "_tabs", {})
+    monkeypatch.setattr(window_state, "_close_listeners", [])
+    monkeypatch.setattr(window_hold, "_kept", {})
+    monkeypatch.setattr(am, "pty_send", terminal_routes.pty_send)
+    window_state.open_window("ses_receiver", "Bash", {"command": "ls"}, "p1", now=1.0)
+    r = _send(client, text="while you wait at the window")
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "held": "window", "to": "ses_receiver", "operator_said": False}
+    assert typed == []
+    [(kept, _send_id)] = window_hold._kept["ses_receiver"]
+    assert kept.startswith(am.OPENING) and "while you wait at the window" in kept

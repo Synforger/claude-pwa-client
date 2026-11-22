@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import re
 
+from backend.terminal.pane_choices import choices_in_pane
 from backend.terminal.runner import capture_tmux_scrollback
 from backend._common.state import agent_status, stream_states
 
@@ -17,8 +18,6 @@ from backend._common.state import agent_status, stream_states
 # ANSI escape を剥がして plain text にする (= tmux capture-pane の出力に色 / cursor 制御が
 # 含まれる、 選択肢抽出時にノイズ)
 _ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]")
-# 「1. Yes, auto-accept edits」 みたいな choice 行を拾う
-_PLAN_CHOICE_RE = re.compile(r"^\s*(\d+)\.\s+(.+?)\s*$", re.MULTILINE)
 
 
 def _strip_ansi(s: str) -> str:
@@ -31,37 +30,6 @@ def _strip_ansi(s: str) -> str:
 # (= 抽出 OK 即 return、 上限到達まで失敗なら fallback の固定 2 択へ)。
 _POLL_INTERVAL_S = 0.1
 _POLL_MAX_ATTEMPTS = 10
-
-
-def _extract_choices_from_pane(text: str) -> list[dict]:
-    """tmux scrollback テキスト (= ANSI 除去済) から末尾の連続番号付き選択肢を抽出する。
-    旧 capture_plan_choices インライン処理を pure 関数に切り出して polling 内で再利用する。"""
-    choices: list[dict] = []
-    seen_keys: set[str] = set()
-    for m in _PLAN_CHOICE_RE.finditer(text):
-        key, label = m.group(1), m.group(2)
-        if key in seen_keys:
-            continue
-        seen_keys.add(key)
-        # label 末尾の「 (esc to interrupt)」 等の補助文言を捨てる
-        label = label.split("(")[0].strip()
-        if label:
-            choices.append({"key": key, "label": label})
-    if len(choices) >= 2:
-        # 末尾から「N, N-1, N-2 ...」 と降順で連続するブロックだけ採用
-        tail: list[dict] = []
-        for c in reversed(choices):
-            if not tail:
-                tail.append(c)
-                continue
-            prev_key = int(tail[-1]["key"])
-            if int(c["key"]) == prev_key - 1:
-                tail.append(c)
-            else:
-                break
-        tail.reverse()
-        choices = tail
-    return choices
 
 
 async def capture_plan_choices(session_id: str, tool_use_id: str) -> None:
@@ -90,7 +58,7 @@ async def capture_plan_choices(session_id: str, tool_use_id: str) -> None:
         if not raw:
             continue
         text = _strip_ansi(raw.decode("utf-8", errors="replace"))
-        choices = _extract_choices_from_pane(text)
+        choices = choices_in_pane(text)
         # 連続番号 >= 2 が取れたら確定。 取れなければ次 tick で再試行 (TUI 描画待ち)。
         if len(choices) >= 2:
             pending = a.get("pending_plan")

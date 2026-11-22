@@ -17,6 +17,8 @@ IDLE = "idle"
 # The error resume (`backend/error_resume/`) gave up carrying the child on after a passing API error. Only the error
 # resume tells this one.
 API_ERROR = "api_error"
+# The child waits at a permission window that nobody answered for `PERMISSION_WAIT_SEC` (= `permission_window/window_state.py`).
+PERMISSION = "permission"
 
 
 def is_watched(*, child: bool, parent_known: bool, asleep: bool, memo_state: str) -> bool:
@@ -30,6 +32,11 @@ def stop_reason(*, limit_stop: bool, continuation_owed: bool) -> str:
     """`LIMIT` when the record shows a usage limit (the stop it ends in, or a continuation Claude Code owes), else
     `IDLE` (= it waits at its prompt)."""
     return LIMIT if limit_stop or continuation_owed else IDLE
+
+
+def permission_overdue(*, opened_at: float | None, now: float, wait_sec: float) -> bool:
+    """Whether the window a child waits at has been open for `wait_sec` or longer (= `opened_at` None: it has none)."""
+    return opened_at is not None and now - opened_at >= wait_sec
 
 
 def should_tell(*, mark: float | None, previous: float | None, told: float | None) -> bool:

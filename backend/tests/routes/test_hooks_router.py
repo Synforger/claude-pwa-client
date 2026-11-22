@@ -337,12 +337,13 @@ def test_a_turn_starting_and_ending_in_a_pwa_tab_reaches_the_rollover_watch(fake
 
 
 def test_registry_has_all_known_events():
-    """既知 event (= Stop / Notification / UserPromptSubmit / SessionStart / PreToolUse) が registry に登録済。"""
+    """既知 event (= Stop / Notification / UserPromptSubmit / SessionStart / PreToolUse / PermissionRequest) が registry に登録済。"""
     assert set(hooks_router.HOOK_HANDLERS.keys()) == {
-        "Stop", "Notification", "UserPromptSubmit", "SessionStart", "PreToolUse",
+        "Stop", "Notification", "UserPromptSubmit", "SessionStart", "PreToolUse", "PermissionRequest",
     }
-    # PWA のタブに結び付く系 (= Stop / Notification / UserPromptSubmit) は needs_pwa_session=True
+    # PWA のタブに結び付く系 (= Stop / Notification / UserPromptSubmit / PermissionRequest) は needs_pwa_session=True
     assert hooks_router.HOOK_HANDLERS["Stop"].needs_pwa_session is True
+    assert hooks_router.HOOK_HANDLERS["PermissionRequest"].needs_pwa_session is True
     assert hooks_router.HOOK_HANDLERS["Notification"].needs_pwa_session is True
     assert hooks_router.HOOK_HANDLERS["UserPromptSubmit"].needs_pwa_session is True
     # early 系 (= 自己解決経路) は needs_pwa_session=False

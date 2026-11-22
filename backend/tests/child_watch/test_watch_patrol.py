@@ -205,3 +205,45 @@ def test_a_failing_look_does_not_stop_the_loop_after_it(env, monkeypatch, caplog
     with caplog.at_level(logging.ERROR):
         assert run(_loop()) is True
     assert any("watch_loop iteration failed" in r.getMessage() for r in caplog.records)
+
+
+def _open_window(env, opened_at: float):
+    """The child waits at a permission window opened at `opened_at` (= its turn is open, so it is not at a break)."""
+    from backend.permission_window import window_state
+    window_state.open_window(env.child.id, "Bash", {"command": "ls"}, "p1", now=opened_at)
+    env.blocked_by = ("turn_open", "permission_open")
+
+
+@pytest.fixture
+def window_tabs(monkeypatch):
+    from backend.permission_window import window_state
+    monkeypatch.setattr(window_state, "_tabs", {})
+    monkeypatch.setattr(window_state, "_close_listeners", [])
+
+
+def test_a_child_at_a_window_for_five_minutes_is_told_about_once(env, window_tabs):
+    _open_window(env, env.now - 301)
+    assert run(patrol.tick()) == [env.child.id]
+    (parent_id, text), = env.sent
+    assert parent_id == env.parent.id and 'reason="permission"' in text
+    assert [run(patrol.tick()) for _ in range(3)] == [[], [], []] and len(env.sent) == 1
+
+
+def test_a_child_at_a_window_for_less_than_five_minutes_is_not_told_about(env, window_tabs):
+    _open_window(env, env.now - 299)
+    assert [run(patrol.tick()) for _ in range(3)] == [[], [], []] and env.sent == []
+
+
+def test_the_next_window_of_the_same_child_is_a_new_one_to_tell_about(env, window_tabs):
+    from backend.permission_window import window_state
+    _open_window(env, env.now - 400)
+    run(patrol.tick())
+    window_state.close_all(env.child.id, "test")
+    _open_window(env, env.now - 350)
+    assert run(patrol.tick()) == [env.child.id] and len(env.sent) == 2
+
+
+def test_a_child_that_reported_is_not_watched_at_its_window(env, window_tabs):
+    env.memo.write_text(f"# t\n\n- 親のタブ: {env.parent.id}\n- 状態: 完了\n", encoding="utf-8")
+    _open_window(env, env.now - 900)
+    assert run(patrol.tick()) == [] and env.sent == []

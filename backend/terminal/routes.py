@@ -49,6 +49,7 @@ from backend.terminal.runner import (
     write_pty,
 )
 from backend._common.state import is_voice_open, sessions_meta, stream_states
+from backend.permission_window import answer_words, window_answer, window_hold, window_state
 
 # 送信確認 (= JSONL カウント + wait + 救済再送) は pty_confirm に分離。
 # session 解決 + spawn は pty_session_resolver に分離。 ここは endpoint と pump のみ持つ。
@@ -569,6 +570,9 @@ async def _escape_running(session_id: str) -> _Escaped | None:
     st = stream_states.get(session_id)
     if st is None or not st.busy or st.user_stopped:
         return None
+    if window_state.is_holding(session_id):
+        # An Escape typed at a window cancels it: the voice waits for the window like any other text.
+        return None
     sent = await _send_escape(session_id)
     return None if sent is None else await _escape_settled(session_id, sent)
 
@@ -630,9 +634,23 @@ async def pty_send_from_person(
     付かない (= 印は turn を止めて打つ合図も兼ねる)。
     """
     text = payload.get("text")
+    if isinstance(text, str) and payload.get("enter") and (answered := await _answer_window_with(session_id, text)):
+        return answered
     if isinstance(text, str) and payload.get("enter") and is_voice_open(session_id):
         payload = {**payload, "text": mark_voice_input(text)}
     return await pty_send(session_id, payload, idempotency_key)
+
+
+async def _answer_window_with(session_id: str, text: str) -> dict | None:
+    """The person's whole utterance is an answer word and a permission window is on the pane: type the answer for the
+    window instead of sending the words (= no bubble, no confirmation, nothing queued). → what the send answers, None
+    when the words are not taken as an answer (= they are sent, or kept while the window is open)."""
+    kind = answer_words.answer_of(text)
+    window = window_state.current_permission(session_id)
+    if kind is None or window is None or not window.seen:
+        return None
+    result = await window_answer.answer(session_id, window, kind)
+    return {"ok": True, "answered": kind, "message": "窓に答えました"} if result.get("ok") else None
 
 
 async def pty_send(session_id: str, payload: dict, idempotency_key: str | None = None) -> dict:
@@ -681,6 +699,11 @@ async def pty_send(session_id: str, payload: dict, idempotency_key: str | None =
     # launcher の新しい会話: 最初の本文で claude を起動する (= `first_message.py`)。
     if text and enter and (launched := await launch_with_first_message(session_id, text, idempotency_key)) is not None:
         return launched
+
+    # A window of the tab (a permission, a question, a plan approval) takes the Enter of a text as its first choice and the
+    # text is lost: the text is kept and typed once the tab has nothing open (= `permission_window/window_hold.py`).
+    if text and enter and (kept := window_hold.hold_if_open(session_id, text, idempotency_key)) is not None:
+        return kept
 
     # 本文送信は claude が打鍵を受け取れるようになるまで待つ (= restart 直後の
     # 「tmux は在るが claude はまだ端末を読んでいない」 窓に打つと、 本文と Enter が
@@ -791,6 +814,8 @@ async def pty_send_with_files(
     # launcher の新しい会話: 最初の本文で claude を起動する (= `first_message.py`)。
     if (launched := await launch_with_first_message(session_id, full_text, idempotency_key)) is not None:
         return {**launched, "saved_files": saved_files}
+    if (kept := window_hold.hold_if_open(session_id, full_text, idempotency_key)) is not None:
+        return {**kept, "saved_files": saved_files}
     # text 経路と同じ共通部 (= 1 通ずつ、 2 段送信、 到達確認)。 添付経路は本文が長い (= path 追記で伸びる)
     # ので paste / Enter 競合の懸念はむしろ大きい。
     result = await _send_body(session_id, full_text)
@@ -798,3 +823,9 @@ async def pty_send_with_files(
     return result
 
 
+async def _type_kept_text(session_id: str, text: str) -> dict:
+    """Type a text that was kept while a window was open (= the same send as a person's, without a send id)."""
+    return await pty_send(session_id, {"text": text, "enter": True}, None)
+
+
+window_hold.install(_type_kept_text)

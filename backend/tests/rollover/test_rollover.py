@@ -981,3 +981,20 @@ def test_a_tab_without_a_running_claude_is_not_told(tabs):
     tabs.absent.add("ses_a")
     tabs.tick()
     assert tabs.sent == []
+
+
+def test_a_tab_waiting_at_a_permission_window_is_not_asked_and_does_not_hold_up_the_others(tabs, monkeypatch):
+    tabs.add("ses_a", pct=45, idle_minutes=55)
+    tabs.add("ses_b", pct=45, idle_minutes=52)
+    monkeypatch.setattr(watch.window_state, "is_open", lambda sid: sid == "ses_a")
+    assert tabs.tick() == "ses_b"
+    assert [sid for sid, _text in tabs.asks()] == ["ses_b"]
+
+
+def test_a_tab_asked_to_close_that_then_waits_at_a_window_is_not_counted_as_closing(tabs, monkeypatch):
+    """A close under way holds back every other ask; a window the person must answer first is not that."""
+    key = tabs.add("ses_a", pct=45, idle_minutes=0, busy=True)
+    _write(key, _typed(CLOSE))
+    tabs.add("ses_b", pct=45, idle_minutes=51)
+    monkeypatch.setattr(watch.window_state, "is_open", lambda sid: sid == "ses_a")
+    assert tabs.tick() == "ses_b"
