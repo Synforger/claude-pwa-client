@@ -46,3 +46,13 @@ def test_a_tab_another_feature_holds_starts_again_on_its_account(monkeypatch, is
     with claimed(sid):
         assert asyncio.run(sessions_routes.restart_session(sid))["ok"] is True
     assert order == ["stop", "spawn"]
+
+
+def test_a_tab_whose_claude_could_not_be_stopped_keeps_its_conversation(monkeypatch, isolated_state):
+    sessions_routes, sid, order = _restart_with(monkeypatch, isolated_state)
+
+    async def not_stopped(_sid):
+        return False
+    monkeypatch.setattr(sessions_routes, "stop_tab_claude", not_stopped)
+    assert asyncio.run(sessions_routes.restart_session(sid)) == {"ok": False, "reason": "tab_not_stopped"}
+    assert order == []

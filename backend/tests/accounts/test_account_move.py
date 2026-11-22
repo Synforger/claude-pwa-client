@@ -2,6 +2,9 @@
 for that, and the client deleting that record once the tab leaves (`accounts/account_move.py`)."""
 from __future__ import annotations
 
+import pytest
+from fastapi import HTTPException
+
 import backend._common.config as config
 from backend.accounts.account_move import move_tab_account, remove_written_copy
 from backend.fork.lineage import LineageCut
@@ -53,3 +56,25 @@ def test_only_a_record_inside_an_accounts_projects_folder_is_deleted(tmp_path, m
     assert [remove_written_copy(str(p)) for p in (outside, wrong_kind, inside)] == [False, False, True]
     assert outside.exists() and wrong_kind.exists() and not inside.exists()
     assert remove_written_copy(str(inside)) is False                    # already gone
+
+
+@pytest.mark.parametrize("raises", [False, True])
+def test_a_tab_whose_claude_could_not_be_stopped_is_not_moved(tmp_path, monkeypatch, isolated_state, raises):
+    import backend.accounts.tab_restart as tab_restart
+    _sessions, tab, src, work_dir, events = _setup_account_move(tmp_path, monkeypatch, isolated_state)
+    forgotten: list[str] = []
+    monkeypatch.setattr(tab_restart.jsonl_watcher, "unregister", forgotten.append)
+    monkeypatch.setattr(tab_restart.session_history, "record_end", lambda sid, *a, **kw: forgotten.append(sid))
+
+    async def not_stopped(_sid):
+        if raises:
+            raise OSError("no tmux")
+        return False
+    monkeypatch.setattr(tab_restart, "stop_tab", not_stopped)
+    resume = tab.resume_session_id
+    with pytest.raises(HTTPException) as refused:
+        _run(move_tab_account(tab.id, "work", fallback_from="personal", pin=True))
+    assert (refused.value.status_code, refused.value.detail["code"]) == (409, "tab_not_stopped")
+    assert (tab.account_id, tab.account_pinned, tab.fallback_from, tab.resume_session_id) == ("personal", False, None, resume)
+    assert (forgotten, events, list(work_dir.glob("*.jsonl"))) == ([], [], [])
+    assert src.is_file()

@@ -90,7 +90,7 @@ async def _roll(session_id: str, first: str) -> None:
     try:
         out = await restart_session(session_id, session_id)
         if not out.get("ok"):
-            # タブは shell のまま残る。 次に人が送った発話が、 最初の発話として会話を起動する。
+            # 止められなければ前の会話のまま残る。 立てられなければ shell のまま残り、 次に人が送った発話が会話を起動する。
             logger.warning("rollover: restart failed session=%s reason=%s", session_id, out.get("reason"))
             return
         result = await pty_send(session_id, {"text": first, "enter": True}, None)

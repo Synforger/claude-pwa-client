@@ -150,6 +150,7 @@ endpoints:
       - "移したタブには account_pinned を付ける (= 口座の見回りが移し直さない。 外すのは PATCH /sessions/{sid} の account_pinned)。 付けるのは account_id を書く同じ手順の中で、 見回りの移しでは付けない"
       - "切れ目がまだ無ければ 400 で、 タブには触らない (= 固定も付かない)"
       - "口座の見回りか上限明けの続けが同じタブに手を掛けている間は 409 (code = account_busy) で、 タブには触らない"
+      - "タブの claude を止められなければ 409 (code = tab_not_stopped) で、 書いた記録を消し、 口座・固定・会話は変えない"
     implementation: backend/routes/sessions.py
 
   - method: POST
@@ -165,7 +166,7 @@ endpoints:
     auth: tailnet
     invariants:
       - "再 spawn 後の new claude_sid は SessionStart hook で confirm_bind 自動更新"
-      - "tmux の窓を消す (= claude に HUP) → claude が終わるまで最大 5s 待つ → 残っていれば KILL。 次の claude は前の claude が終わってから立てる"
+      - "claude に TERM → 終わるまで最大 5s 待つ → 残っていれば KILL → 消えた後に tmux の窓を消す。 止められなければ何も変えず ok = false (reason = tab_not_stopped)。 次の claude は前の claude が終わってから立てる"
     implementation: backend/routes/sessions.py
 
   - method: GET

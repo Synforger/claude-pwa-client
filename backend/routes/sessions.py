@@ -44,7 +44,7 @@ from backend.accounts.tab_restart import reset_tab_status, stop_tab_claude
 from backend.fork.lineage import write_lineage
 from backend.terminal import input_ready
 from backend.terminal.child_folder import clear_child_folder
-from backend.terminal.runner import pty_sessions
+from backend.terminal.runner import kill_tmux_session, pty_sessions
 from backend.terminal.tab_stop import stop_tab
 from backend.terminal.tab_tier import tab_tier
 import backend.jsonl.jsonl_watcher as jsonl_watcher
@@ -205,7 +205,8 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
     """claude プロセスを kill + 新規 spawn する (= /clear と違ってプロセスメモリも完全解放)。
     新 claude_sid に切り替わるが SessionStart hook で bindings 更新されるので、 PWA タブは
     シームレスに続けて使える。 長期稼働で claude プロセスメモリが累積する問題への対策。"""
-    await stop_tab_claude(session_id)
+    if not await stop_tab_claude(session_id):
+        return {"ok": False, "reason": "tab_not_stopped"}
     # フォーク産タブを通常タブ化する (= state.demote_fork_to_normal、 backend-F-44)。
     # restart のセマンティクスは「文脈リセット + プロセスリセット」 で、 fork タブの
     # resume_session_id を残したままだと再 spawn で `claude --resume <同一 id>` が走り、
@@ -279,7 +280,9 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
     # PTY + tmux + JSONL binding を一括 cleanup
     input_ready.forget(session_id)
     try:
-        await stop_tab(session_id)
+        if not await stop_tab(session_id):
+            # a closed tab leaves no terminal behind, even when its claude could not be ended
+            await asyncio.to_thread(kill_tmux_session, session_id)
         pty_sessions.pop(session_id, None)
         jsonl_watcher.unregister(session_id)
     except Exception:

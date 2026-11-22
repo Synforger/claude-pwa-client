@@ -87,7 +87,7 @@ backup 先 = 同 PC の別 path (= `$AGENT_PLATFORM_ROOT/state/claude-pwa-client
 
 **形式**: `dict[pwa_sid, list[HistoryEntry]]`。 各 PWA session の restart 履歴を最新順で最大 3 件保持。
 
-**writer**: `backend/jsonl/history.py::record_end`。 `POST /sessions/<sid>/restart` で kill する直前に呼ばれる。 同一 claude_sid の連投は dedup、 4 件目以降は古い方から落ちる。
+**writer**: `backend/jsonl/history.py::record_end`。 `POST /sessions/<sid>/restart` や口座の移しで claude が止まった後に呼ばれる (止められなければ書かない)。 同一 claude_sid の連投は dedup、 4 件目以降は古い方から落ちる。
 
 **HistoryEntry**:
 
