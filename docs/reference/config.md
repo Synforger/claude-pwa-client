@@ -238,6 +238,8 @@ file に書き、 client はそれを見せるだけ。 `api_accounts` は、 �
 "api_tabs": {"support-bot": {"title": "Support bot", "agent_id": "agent_a", "account": "api", "record": "/path/to/main.jsonl"}}
 ```
 
+`api_tabs` の行にも `list_folder` (任意) を書ける。 そのタブが会話の一覧で並ぶ folder で、 形はエージェントの `list_folder` と同じ。
+
 名前は `[a-z0-9-]+`、 `agent_id` は設定にある agent、 `record` は絶対 path。 どれかを外れた行は読まず、 理由を log に
 出す。 記録と額の file の契約は [api-tabs.md](api-tabs.md)。
 
@@ -250,6 +252,8 @@ program がタブの一覧を自分の file に書き、 client がその行を 
 ```json
 "api_tab_sources": {"line-group": {"tabs": "/path/to/tabs.json", "agent_id": "agent_a", "account": "api", "settings": "/path/to/settings.json"}}
 ```
+
+`list_folder` (任意、 例: `"agent_a/Group chats"`) を書くと、 その元のタブは全部 (後から増えた物も) 会話の一覧のその folder に並ぶ。 形はエージェントの `list_folder` と同じ。
 
 名前は `[a-z0-9-]+`、 `tabs` は絶対 path、 `agent_id` は設定にある agent、 `account` は省くと `api`、 `settings` は
 省いてよい絶対 path (= 省くと設定の画面に欄を出さない)。 外れた宣言は読まず、 理由を log に出す。 タブの一覧の file の

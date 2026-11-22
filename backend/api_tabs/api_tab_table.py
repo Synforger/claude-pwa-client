@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import backend._common.config as config
+from backend._common.list_folder import parse_list_folder
 from backend.api_tabs.api_tab_sources import ApiTabSources, sources
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,7 @@ class ApiTab:
     account: str
     record: Path
     source: str | None = None
+    list_folder: str | None = None  # the folder of the list it sits in; None = directly under its agent
 
 
 @dataclass(frozen=True)
@@ -58,6 +60,7 @@ class ApiTabSource:
     agent_id: str
     account: str
     settings: Path | None
+    list_folder: str | None = None  # the folder of the list every tab of the source sits in
 
 
 @dataclass(frozen=True)
@@ -146,6 +149,14 @@ def _read_accounts(raw: object, problems: list[str]) -> list[ApiAccount]:
     return accounts
 
 
+def _read_list_folder(raw: object, owner: str, problems: list[str]) -> str | None:
+    """The folder of the list `owner` declares. A value of another shape only costs the folder, never the tabs."""
+    folder = parse_list_folder(raw)
+    if raw is not None and folder is None:
+        problems.append(f"{owner} list_folder {raw!r} is not <agent id>/<folder>/..., so no folder is used")
+    return folder
+
+
 def _read_tabs(raw: object, agent_ids: set[str], wallet_names: set[str], problems: list[str]) -> list[ApiTab]:
     if raw is None:
         return []
@@ -181,6 +192,7 @@ def _read_tabs(raw: object, agent_ids: set[str], wallet_names: set[str], problem
             agent_id=agent_id,
             account=account,
             record=Path(record).expanduser(),
+            list_folder=_read_list_folder(entry.get("list_folder"), f"api tab: {name}", problems),
         ))
     return tabs
 
@@ -216,7 +228,9 @@ def _read_sources(raw: object, agent_ids: set[str], wallet_names: set[str], prob
         if account not in wallet_names:
             problems.append(f"api source: {name} names account {account}, which is not in api_accounts")
         declared.append(ApiTabSource(name=name, tabs=Path(tabs).expanduser(), agent_id=agent_id, account=account,
-                                     settings=Path(settings).expanduser() if isinstance(settings, str) else None))
+                                     settings=Path(settings).expanduser() if isinstance(settings, str) else None,
+                                     list_folder=_read_list_folder(entry.get("list_folder"), f"api source: {name}",
+                                                                   problems)))
     return declared
 
 
@@ -232,7 +246,8 @@ def _source_tabs(declared: list[ApiTabSource], listed: ApiTabSources, taken: set
                 continue
             taken.add(tab_id)
             tabs.append(ApiTab(id=tab_id, name=row.name, title=row.title, agent_id=source.agent_id,
-                               account=source.account, record=row.record, source=source.name))
+                               account=source.account, record=row.record, source=source.name,
+                               list_folder=source.list_folder))
     return tabs
 
 

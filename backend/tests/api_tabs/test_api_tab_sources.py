@@ -124,6 +124,24 @@ def test_a_settings_field_that_does_not_hold_together_is_left_out():
 # --- the table and the rows -----------------------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(("written", "placed"), [
+    ("agent_a/Group chats", "agent_a/Group chats"), (" agent_a / Group chats ", "agent_a/Group chats"),
+    (None, None), ("agent_a", None), ("agent_a//Group chats", None), (7, None),
+])
+def test_the_list_folder_of_a_source_and_of_a_declared_tab_reaches_their_rows(source_env, written, placed):
+    write_config(source_env,
+                 api_tabs={"support-bot": {"agent_id": "agent_a", "record": str(source_env.record),
+                                           "list_folder": written}},
+                 api_tab_sources={"line-group": {"tabs": str(source_env.tabs), "agent_id": "agent_a",
+                                                 "list_folder": written}})
+    _write_tabs(source_env, _row("g-a", source_env.folder), _row("g-b", source_env.folder))
+    _poll()
+    assert [(row["id"], row["list_folder"]) for row in list_rows(NOW)] == [
+        (TAB_ID, placed), ("api_g-a", placed), ("api_g-b", placed)]
+    warned = [problem for problem in current_table().problems if "list_folder" in problem]
+    assert len(warned) == (2 if written is not None and placed is None else 0)
+
+
 def test_a_backend_that_declares_only_a_source_lists_its_tabs_after_one_look(api_env, tmp_path):
     folder = tmp_path / "only"
     folder.mkdir()
