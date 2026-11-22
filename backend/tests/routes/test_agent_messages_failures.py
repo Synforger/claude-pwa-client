@@ -21,7 +21,7 @@ def _pty_send_answers(monkeypatch, answer) -> list[str]:
     """`pty_send` answers `answer` (or raises it, when it is an exception). Returns the tabs it was asked to type to."""
     asked: list[str] = []
 
-    async def pty_send(session_id, payload, idempotency_key=None):
+    async def pty_send(session_id, payload, idempotency_key=None, **_):
         asked.append(session_id)
         if isinstance(answer, BaseException):
             raise answer

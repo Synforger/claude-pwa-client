@@ -120,7 +120,7 @@ def test_a_stop_while_the_rescue_waits_leaves_the_input_as_it_is(monkeypatch):
     keys: list[tuple] = []
     typed: list[str] = []
 
-    async def pty_send(session_id, payload, key=None):
+    async def pty_send(session_id, payload, key=None, **_):
         typed.append(payload["text"])
         return {"ok": True, "confirmed": False}
 

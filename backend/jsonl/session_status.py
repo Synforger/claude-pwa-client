@@ -24,6 +24,7 @@ from backend.jsonl.jsonl_predicates import INTERRUPT_USER_RE
 from backend.jsonl.plan_choices import capture_plan_choices
 from backend.jsonl.jsonl_predicates import is_user_prompt as _is_user_prompt_pred
 from backend.jsonl.jsonl_tail import parse_jsonl_timestamp
+from backend.permission_window import window_state
 from backend._common.state import agent_status, sessions_overview, stream_states
 from backend.usage.usage import compute_ctx_pct, format_model_name
 
@@ -548,6 +549,8 @@ def mutate_agent_status(session_id: str, line: dict) -> bool:
         return False
     if session_id not in agent_status:
         return False
+    # The tool calls without a result are what a permission window is tied to (= `permission_window/window_table.py`).
+    window_state.fold_row(session_id, line)
     handler = _LINE_MUTATORS.get(line.get("type"))
     if handler is None:
         return False

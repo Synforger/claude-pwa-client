@@ -28,6 +28,7 @@ claude-pwa-client を **インストールして使うため**の文書です。
 | pdf・Office・tif・md を、 path のタップで頁として開きたい | [reference/documents.md](reference/documents.md) |
 | タブの中の Claude どうしで連絡させたい | [reference/agent-messages.md](reference/agent-messages.md) |
 | 別のタブへ頼んだ仕事を、 書き直さずに 1 枚の票で回したい | [reference/tickets.md](reference/tickets.md) |
+| 承認の窓 (実行してよいかの問い) が開いたことを画面と通知で知りたい / 画面から答えたい | [reference/permission-window.md](reference/permission-window.md) |
 | 長くなった会話を自動で締めて、 新しい会話に入れ替えたい | [reference/rollover.md](reference/rollover.md) |
 | タブの中の Claude に、 仕事を渡す別のタブを立てさせたい | [reference/child-sessions.md](reference/child-sessions.md) |
 | エージェントの階層ごとのタブを、 最初から一覧に並べておきたい | [reference/tier-tabs.md](reference/tier-tabs.md) |

@@ -50,6 +50,7 @@
 | 最後の発話より後に `ScheduleWakeup` で起きる予約をしていない | `wakeup_scheduled` |
 | 会話の中で `CronCreate` で作った定期実行が、`CronDelete` で消されずに残っていない | `cron_scheduled` |
 | 会話の最後の行が、結果のまだ無い道具の呼び出しではない (人の答えや許可を待っていない) | `awaiting_tool_result` |
+| 承認の窓 (実行してよいかの問い) を開いて、 人の答えを待っていない ([permission-window.md](permission-window.md)) | `permission_open` |
 | 声の通話中ではない | `voice_call` |
 | 自動の入れ替えの途中 (締めを頼んだ後、新しい会話が起動するまで) ではない。頼みの期限切れ ([rollover.md](rollover.md#締めの手が止まった時)) は途中と数えない | `rolling_over` |
 | 口座の振り分けが、そのタブに区切りや止めを頼んでいない。「続けて」を返す借りも無い ([account-fallback.md](account-fallback.md)・[account-hold.md](account-hold.md)) | `account_pending` |

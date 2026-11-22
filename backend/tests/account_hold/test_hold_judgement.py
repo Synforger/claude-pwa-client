@@ -11,7 +11,7 @@ from backend.account_fallback.fallback_settings import FallbackRule
 from backend.account_hold.hold_judgement import (
     both_at_lines, carry_on_account, hold_line_pct, is_over_line, reached_line_pct, resumes_on_home, should_ask_to_hold)
 from backend.account_hold.hold_settings import HoldRule
-from backend.sleep.sleep_judgement import PROCESSES_RUNNING, TURN_OPEN
+from backend.sleep.sleep_judgement import PERMISSION_OPEN, PROCESSES_RUNNING, TURN_OPEN
 
 MONDAY_NOON = datetime(2026, 11, 9, 12, 0).timestamp()
 TUESDAY_NOON = datetime(2026, 11, 10, 12, 0).timestamp()
@@ -106,6 +106,7 @@ def test_an_account_without_a_rule_is_never_over_a_line():
     ((), False, None, False),                          # at a break: stopped, not asked
     ((TURN_OPEN,), True, None, False),                 # the limit's own stop is its break
     ((TURN_OPEN,), False, time.time(), False),         # asked during this stay above the line
+    ((TURN_OPEN, PERMISSION_OPEN), False, None, False),    # waits at a permission window: the ask would be typed at it
 ])
 def test_a_tab_is_asked_once_to_come_to_a_break_only_while_it_keeps_answering(blocked_by, stopped, asked_at, asks):
     assert should_ask_to_hold(blocked_by=blocked_by, stopped_by_limit=stopped, asked_at=asked_at) is asks

@@ -42,7 +42,7 @@ def head(monkeypatch):
             asyncio.get_running_loop().call_soon(turn_waiters.turn_ended, session_id, tab.answer, tab.claude_session)
         return {"ok": True}
 
-    async def send(session_id: str, payload: dict, idempotency_key) -> dict:
+    async def send(session_id: str, payload: dict, idempotency_key, **_) -> dict:
         if payload.get("key"):
             tab.keys.append(payload["key"])
             if tab.after_escape is not None:

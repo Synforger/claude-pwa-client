@@ -393,3 +393,13 @@ def test_a_tab_whose_ask_to_close_lapsed_is_read_past_its_close(monkeypatch, tmp
     assert facts.rollover_asks == 2 and facts.ends_in_limit_stop is False
     assert j.judge(facts, 60) == ()
     assert calls[-1] == "tree"
+
+
+def test_a_tab_at_a_permission_window_is_read_as_open_and_is_left_awake_at_the_first_look(monkeypatch, tmp_path):
+    """The window is the cheapest fact: the reading stops there, before the record is opened."""
+    calls = _stand_in(monkeypatch, tmp_path)
+    monkeypatch.setattr(sensors.window_state, "is_open", lambda _sid: True)
+    facts = sensors.gather("ses_x", 60)
+    assert facts.permission_open is True
+    assert j.PERMISSION_OPEN in j.judge(facts, 60, by_hand=True)
+    assert "record" not in calls

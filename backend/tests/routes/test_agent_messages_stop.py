@@ -66,7 +66,7 @@ def real_receipt(monkeypatch, typed, started, no_tmux):
     in the test's hands: the typed texts go to `typed`, a text the typing hands to a launch is told as `launched`."""
     log = {"launched": False, "confirmed": False}
 
-    async def pty_send(session_id, payload, idempotency_key=None):
+    async def pty_send(session_id, payload, idempotency_key=None, **_):
         typed.append((session_id, payload))
         return {"ok": True, "launched": log["launched"], "confirmed": log["confirmed"]}
     monkeypatch.setattr(am, "deliver_to_woken", receipt.deliver_to_woken)

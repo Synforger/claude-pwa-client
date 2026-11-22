@@ -192,6 +192,7 @@ def test_the_request_is_asked_only_of_a_tab_that_is_wanted_elsewhere_and_is_answ
     assert should_ask_to_pause(**{**ask, "wanted": Move.STAY}) is False
     assert should_ask_to_pause(**{**ask, "blocked_by": ("processes_running",)}) is False
     assert should_ask_to_pause(**{**ask, "stopped_by_limit": True}) is False
+    assert should_ask_to_pause(**{**ask, "blocked_by": ("turn_open", "permission_open")}) is False   # waits at a window
     assert should_ask_to_pause(**{**ask, "asked_at": 1.0}) is False
 
 

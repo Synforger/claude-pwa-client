@@ -118,7 +118,7 @@ def test_while_a_turn_runs_the_next_body_does_not_wait_for_the_line(pane, monkey
     order: list[str] = []
     typed = runner.send_text_two_stage
 
-    async def typing(session_id, text, key=None):
+    async def typing(session_id, text, key=None, **_):
         order.append(f"typed:{text}")
         return await typed(session_id, text, key=key)
 
@@ -143,7 +143,7 @@ def test_a_turn_that_is_not_running_makes_the_next_body_wait_for_the_line(pane, 
     order: list[str] = []
     typed = runner.send_text_two_stage
 
-    async def typing(session_id, text, key=None):
+    async def typing(session_id, text, key=None, **_):
         order.append(f"typed:{text}")
         return await typed(session_id, text, key=key)
 

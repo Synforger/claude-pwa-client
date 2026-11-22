@@ -52,7 +52,7 @@ def test_a_new_conversation_is_still_checked_for_receipt(client, tabs, typed, st
     monkeypatch.setattr(am, "uses_launcher", lambda sid: True)
     delivered: list[str] = []
 
-    async def taken(session_id, text):
+    async def taken(session_id, text, **_):
         delivered.append(session_id)
         return True
     monkeypatch.setattr(am, "deliver_to_woken", taken)
@@ -84,7 +84,7 @@ def test_a_screen_that_is_never_recognised_is_typed_to_and_checked_for_receipt(c
         return False
     delivered: list[str] = []
 
-    async def taken(session_id, text):
+    async def taken(session_id, text, **_):
         delivered.append(session_id)
         return True
     monkeypatch.setattr(am, "wait_for_claude_screen", never)
@@ -96,7 +96,7 @@ def test_a_screen_that_is_never_recognised_is_typed_to_and_checked_for_receipt(c
 
 def test_a_message_the_woken_tab_did_not_take_is_refused_not_said_to_have_arrived(
         client, tabs, typed, started, no_tmux, monkeypatch):
-    async def not_taken(session_id, text):
+    async def not_taken(session_id, text, **_):
         return False
     monkeypatch.setattr(am, "deliver_to_woken", not_taken)
     monkeypatch.setattr(am.input_ready, "wait_ready", _ready)
@@ -108,11 +108,11 @@ def test_a_message_the_woken_tab_did_not_take_is_refused_not_said_to_have_arrive
 def test_a_tab_that_was_running_is_said_to_have_got_the_message_though_nothing_confirms_it(client, tabs, typed, monkeypatch):
     sent: list[str] = []
 
-    async def unconfirmed(session_id, payload, idempotency_key=None):
+    async def unconfirmed(session_id, payload, idempotency_key=None, **_):
         sent.append(session_id)
         return {"ok": True, "confirmed": False}      # a turn in progress writes no row
 
-    async def must_not_be_asked(*_a):
+    async def must_not_be_asked(*_a, **_):
         raise AssertionError("a running tab is not waited for or checked")
     monkeypatch.setattr(am, "pty_send", unconfirmed)
     monkeypatch.setattr(am, "wait_for_claude_screen", must_not_be_asked)
@@ -128,7 +128,7 @@ def test_the_message_of_the_clients_own_features_goes_through_the_same_door(tabs
     assert run(send_to_tab("ses_idle", "carry on")) is True                   # woken: delivered and checked
     assert typed[-1] == ("ses_idle", {"text": "carry on", "enter": True})
 
-    async def not_taken(session_id, text):
+    async def not_taken(session_id, text, **_):
         return False
     monkeypatch.setattr(am, "deliver_to_woken", not_taken)
     assert run(send_to_tab("ses_idle", "carry on")) is False                  # a refusal is not a delivery

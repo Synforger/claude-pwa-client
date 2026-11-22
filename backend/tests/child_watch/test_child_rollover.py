@@ -25,7 +25,7 @@ def rolling(env, monkeypatch):
     typed: list[str] = []
     restarts: list[str] = []
 
-    async def type_in(session_id, payload, idempotency_key=None):
+    async def type_in(session_id, payload, idempotency_key=None, **_):
         assert session_id == env.child.id
         typed.append(payload["text"])
         return {"ok": True}

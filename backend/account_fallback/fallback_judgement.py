@@ -25,7 +25,7 @@ from enum import Enum
 from typing import Iterable
 
 from backend.account_fallback.fallback_settings import AT_PCT_MIN, WEEKDAYS, FallbackRule
-from backend.sleep.sleep_judgement import TURN_OPEN
+from backend.sleep.sleep_judgement import PERMISSION_OPEN, TURN_OPEN
 from backend.usage.limit_state import limit_state
 
 
@@ -134,8 +134,10 @@ def should_ask_to_pause(*, wanted: Move, blocked_by: tuple[str, ...], stopped_by
     """Whether the tab is asked to come to a break: it must move whatever its cache is (`wanted` is `urgent_move`),
     it is held because claude is answering (`turn_open` among `blocked_by`; a tab held only by commands, wake-ups or a
     call is not answering), no usage limit stopped it (that stop is its break) and it was not asked during this stay
-    above the line (`asked_at` = None)."""
-    return wanted is not Move.STAY and TURN_OPEN in blocked_by and not stopped_by_limit and asked_at is None
+    above the line (`asked_at` = None). A tab waiting at a permission window (`PERMISSION_OPEN` among `blocked_by`) is
+    not asked: the ask would be typed at the window; it moves once a person has answered it."""
+    return (wanted is not Move.STAY and TURN_OPEN in blocked_by and PERMISSION_OPEN not in blocked_by
+            and not stopped_by_limit and asked_at is None)
 
 
 def pause_overdue(asked_at: float, now: float) -> bool:

@@ -49,6 +49,8 @@ from backend.terminal.runner import (
     write_pty,
 )
 from backend._common.state import is_voice_open, sessions_meta, stream_states
+from backend.permission_window import answer_words, window_answer, window_hold, window_state
+from backend.permission_window.window_judgement import Action, Caller, INPUT_LOOKS_TO_RELEASE, WindowInTheWay
 
 # 送信確認 (= JSONL カウント + wait + 救済再送) は pty_confirm に分離。
 # session 解決 + spawn は pty_session_resolver に分離。 ここは endpoint と pump のみ持つ。
@@ -425,7 +427,8 @@ def _require_session(session_id: str) -> None:
 _send_locks: dict[str, asyncio.Lock] = {}
 
 
-async def _send_body(session_id: str, text: str, key: str | None = None) -> dict:
+async def _send_body(session_id: str, text: str, key: str | None = None, *, caller: Caller = Caller.COMMAND,
+                     releasing: bool = False) -> dict:
     """本文 1 通を claude の入力欄へ打ち、 届いたかを確かめる (= text 経路 / 添付経路 / タブどうしの連絡の共通部)。
 
     ⚠ **同じ session への本文は 1 通ずつ通す。** 打つ手順は「入力欄を消す → 貼る → 待つ → Enter」 で、 途中に
@@ -442,6 +445,11 @@ async def _send_body(session_id: str, text: str, key: str | None = None) -> dict
 
     声の発話 (= 頭に `[voice]` の印) は、 turn の実行中なら先に止めてから、 入力欄を消さずに後ろへ打つ
     (= `_escape_for_voice`。 claude が入力欄へ戻した前の発話と 1 つになって届く)。
+
+    ⚠ **窓が画面に出ている間は、 1 文字も打たない。** 打つ順の鍵の中で画面を 2 回見る: 入力欄を消す前と、 Enter の直前
+    (= `window_answer.check_before_typing`)。 窓なら `caller` が決まりに従う: 預かる呼び手 (人の発話・別のタブの連絡) は
+    `{"ok": True, "held": "window"}` (= 預かりは呼び手の `_keep_or_refuse`)、 そのほかは `{"ok": False, "reason":
+    "window_open"}`。 窓が出た後の Enter は窓の 1 番を確定し、 本文の 1 文字も選びになりうる。
     """
     _, is_slash = _delivery_counter(text)
     lock = _send_locks.setdefault(session_id, asyncio.Lock())
@@ -465,12 +473,16 @@ async def _send_body(session_id: str, text: str, key: str | None = None) -> dict
         # 2 段送信 protocol (= C-u wipe → paste → Enter、 詳細 = runner.send_text_two_stage docstring)。
         # queue に既に積まれた過去 message には触れない (= C-u は入力欄のみ)。 Escape を打った声の発話は消さずに
         # 後ろへ打つ (= 戻された前の発話とは空白 1 つで区切り、 声の印は前の発話の頭の 1 つだけにする)。
+        check = window_answer.check_before_typing(session_id, caller, releasing=releasing)
         if escaped is None:
-            typing = send_text_two_stage(session_id, text, key=key)
+            typing = send_text_two_stage(session_id, text, key=key, window_check=check)
         else:
             tail = " " + text[len(VOICE_INPUT_MARK):].lstrip() if escaped.restored else text
-            typing = send_text_two_stage(session_id, tail, key=key, wipe=False)
-        ok = await _type_to_the_enter(typing)
+            typing = send_text_two_stage(session_id, tail, key=key, wipe=False, window_check=check)
+        try:
+            ok = await _type_to_the_enter(typing)
+        except WindowInTheWay as in_the_way:
+            return {"in_the_way": in_the_way.action}
         if ok:
             # prompt_detector の tier C grace period 用に「今 user が送信した」 を記録。
             # 直後 tick で末尾が prompt-like でも 1.5s は待機扱いにしない (= 自分の入力を
@@ -513,8 +525,10 @@ class _EscapeSent:
     started: float
 
 
-async def _send_escape(session_id: str) -> _EscapeSent | None:
-    """Escape を打つ (= 打てなければ None)。 打つ前の記録の長さと入力欄の文を控える。"""
+async def _send_escape(session_id: str, *, guard: bool = False) -> _EscapeSent | None:
+    """Escape を打つ (= 打てなければ None)。 打つ前の記録の長さと入力欄の文を控える。
+
+    `guard` は声の道 (= 人の Escape ではない): 窓が画面に出ていれば打たない。 窓への Escape は窓を断つ。"""
     jsonl_path = jsonl_path_for_session(session_id)
     try:
         pos = jsonl_path.stat().st_size if jsonl_path is not None else 0
@@ -522,7 +536,16 @@ async def _send_escape(session_id: str) -> _EscapeSent | None:
         pos = 0
     before = await asyncio.to_thread(read_input_box, session_id)
     started = time.monotonic()
-    if not await in_typing_order(session_id, lambda: tmux_send_keys(session_id, key="Escape")):
+    check = window_answer.check_before_typing(session_id, Caller.COMMAND) if guard else None
+
+    def type_escape() -> bool:
+        if check is not None:
+            check()
+        return tmux_send_keys(session_id, key="Escape")
+    try:
+        if not await in_typing_order(session_id, type_escape):
+            return None
+    except WindowInTheWay:
         return None
     return _EscapeSent(jsonl_path=jsonl_path, pos=pos, box_before=before, started=started)
 
@@ -569,7 +592,7 @@ async def _escape_running(session_id: str) -> _Escaped | None:
     st = stream_states.get(session_id)
     if st is None or not st.busy or st.user_stopped:
         return None
-    sent = await _send_escape(session_id)
+    sent = await _send_escape(session_id, guard=True)
     return None if sent is None else await _escape_settled(session_id, sent)
 
 
@@ -630,14 +653,30 @@ async def pty_send_from_person(
     付かない (= 印は turn を止めて打つ合図も兼ねる)。
     """
     text = payload.get("text")
-    if isinstance(text, str) and payload.get("enter") and is_voice_open(session_id):
-        payload = {**payload, "text": mark_voice_input(text)}
-    return await pty_send(session_id, payload, idempotency_key)
+    answers_choice = payload.get("answers_choice") is True
+    if isinstance(text, str) and payload.get("enter") and not answers_choice:
+        # The words that answer a window are judged here and nowhere else (= not in `pty_send`, which another tab's message
+        # and the client's own commands come through), on what was said, before the voice mark is put on.
+        word = answer_words.answer_of(text)
+        if word is not None and await window_answer.answer_with_word(session_id, word):
+            return {"ok": True, "answered": word, "message": "窓に答えました"}
+        if is_voice_open(session_id):
+            payload = {**payload, "text": mark_voice_input(text)}
+    return await pty_send(session_id, payload, idempotency_key, hold=True, answers_choice=answers_choice)
 
 
-async def pty_send(session_id: str, payload: dict, idempotency_key: str | None = None) -> dict:
+async def pty_send(session_id: str, payload: dict, idempotency_key: str | None = None, *, hold: bool = False,
+                   sender: str | None = None, answers_choice: bool = False, releasing: bool = False,
+                   send_id: str | None = None) -> dict:
     """入力を tmux session に送る (= send-keys 経路、 PTY attach 不要)。 人の入力は `pty_send_from_person` から、
     別のタブからの連絡と自動の入れ替えは直に来る。
+
+    窓 (= 承認・問い・計画の承認) が画面に出ている間は、 本文を打たない (= 窓の 1 番を確定して本文が消える)。 `hold` が真の
+    呼び手 (= 人の発話・別のタブの連絡) は預かり、 `{"ok": True, "held": "window"}` を返す。 偽 (= 既定) の呼び手 (= 入れ替え・
+    口座の移し・client の知らせ・子の最初の発話・`tabs ask`) は預からず `{"ok": False, "reason": "window_open"}` で断り、 呼び手は
+    それを「頼んだ」 に数えない。 `answers_choice` (= 問い・計画への人の答え) は人の口 (`pty_send_from_person`) だけが付ける。
+    `sender` は預けた別のタブ (= 届かなかった時に知らせる先)、 `releasing` は預かった本文を放す打ち直し (= `window_hold`)。
+    `send_id` は画面の送りの id (= 預かった本文が届かなかった時に、 その吹き出しへ知らせる。 既定は idempotency_key)。
 
     送信本文 (= text + enter) の場合は、 JSONL に user 行が +1 されるかを最大 2s
     監視して機械的に送信成功を確認する。 +1 されなければ 1 回だけ再送して +1.5s 待つ。
@@ -682,27 +721,62 @@ async def pty_send(session_id: str, payload: dict, idempotency_key: str | None =
     if text and enter and (launched := await launch_with_first_message(session_id, text, idempotency_key)) is not None:
         return launched
 
-    # 本文送信は claude が打鍵を受け取れるようになるまで待つ (= restart 直後の
-    # 「tmux は在るが claude はまだ端末を読んでいない」 窓に打つと、 本文と Enter が
-    # まとめて読まれて Enter が改行になり、 本文が入力欄に取り残される)。 単発 key
-    # (= Escape で停止 / quick-reply) は待たせない ― 停止が遅れる害の方が大きい。
-    # 詳細 = `backend/terminal/input_ready.py`。
-    if bool(text) and enter and not await wait_ready(session_id):
-        return {"ok": False, "reason": "not_ready"}
-
     # 本文 (= text + enter) は、 同じ session の他の本文と重ならないように 1 通ずつ打って確かめる。
     if text and enter:
-        return await _send_body(session_id, text, key)
+        return await _send_message(session_id, text, key, hold=hold, sender=sender, answers_choice=answers_choice,
+                                   releasing=releasing, send_id=send_id or idempotency_key)
     # 停止ボタン (= 本文の無い Escape): 止めて、 入力欄に戻された文も消す。
     if key == "Escape" and not text and not enter:
         return {"ok": await _stop(session_id)}
     # 単発 key 送信 (= Escape で停止 / AskUserQuestion typeNum 等) と、 enter 無しの text (= 自由記述の
     # 1 回目) は wipe も確認もしない (= key の意味を壊さない、 送信完了の概念が無い)。 並びもしない。
-    ok = await in_typing_order(session_id, lambda: tmux_send_keys(session_id, text=text, key=key, enter=enter))
+    # 数字 1 つ・Enter だけ・Escape と C-c 以外の key (= チップと同じ扱い): 承認の窓へは、 窓の吹き出しの口の外から打たない。
+    # Escape と C-c は人の止める手で、 預からず、 見ない。
+    watched = bool(text) or enter or key not in ("Escape", "C-c")
+    check = window_answer.check_before_typing(session_id, Caller.CHIP) if watched else None
+
+    def type_once() -> bool:
+        if check is not None:
+            check()
+        return tmux_send_keys(session_id, text=text, key=key, enter=enter)
+    try:
+        ok = await in_typing_order(session_id, type_once)
+    except WindowInTheWay:
+        return {"ok": False, "reason": "window_open"}
     if ok:
         from backend.terminal.prompt_detector_loop import note_user_input
         note_user_input(session_id)
     return {"ok": ok}
+
+
+async def _send_message(session_id: str, text: str, key: str | None, *, hold: bool, sender: str | None,
+                        answers_choice: bool, releasing: bool, send_id: str | None) -> dict:
+    """本文 (= text + enter) 1 通を、 窓の見張りつきで打つ (= `pty_send` と添付つきの送りの共通部)。 預かった本文が在れば
+    その後ろ (= 画面が入力欄を 2 回続けて見せていれば、 先に放す)。 窓が出ていれば呼び手の決まりのとおり預かる / 断る。"""
+    caller = Caller.CHOICE_ANSWER if answers_choice else Caller.MESSAGE if hold else Caller.COMMAND
+    if caller is Caller.MESSAGE and not releasing and window_hold.has_kept(session_id):
+        if window_state.input_looks(session_id) < INPUT_LOOKS_TO_RELEASE:
+            return _keep(session_id, text, send_id, sender)
+        await window_hold.release(session_id)
+    # 本文送信は claude が打鍵を受け取れるようになるまで待つ (= restart 直後の
+    # 「tmux は在るが claude はまだ端末を読んでいない」 窓に打つと、 本文と Enter が
+    # まとめて読まれて Enter が改行になり、 本文が入力欄に取り残される)。 単発 key
+    # (= Escape で停止 / quick-reply) は待たせない ― 停止が遅れる害の方が大きい。
+    # 詳細 = `backend/terminal/input_ready.py`。
+    if not await wait_ready(session_id):
+        return {"ok": False, "reason": "not_ready"}
+    result = await _send_body(session_id, text, key, caller=caller, releasing=releasing)
+    action = result.get("in_the_way")
+    if action is None:
+        return result
+    if action is Action.HOLD:
+        return {"ok": True, "held": window_hold.HELD} if releasing else _keep(session_id, text, send_id, sender)
+    return {"ok": False, "reason": "window_open"}
+
+
+def _keep(session_id: str, text: str, send_id: str | None, sender: str | None) -> dict:
+    window_hold.keep(session_id, text, send_id, sender)
+    return {"ok": True, "held": window_hold.HELD}
 
 
 @router.post("/pty/{session_id}/send-raw-key")
@@ -730,10 +804,16 @@ async def pty_send_raw_key(session_id: str, payload: dict = Body(...)) -> dict:
     enter = bool(payload.get("enter", False))
     # 単一 printable char は literal (`-l`) 経路、 それ以外は key name として扱う。
     # 判別: len==1 かつ ASCII printable なら literal。
-    if len(key) == 1 and 32 <= ord(key) < 127:
-        ok = await in_typing_order(session_id, lambda: tmux_send_keys(session_id, text=key, enter=enter))
-    else:
-        ok = await in_typing_order(session_id, lambda: tmux_send_keys(session_id, key=key, enter=enter))
+    check = window_answer.check_before_typing(session_id, Caller.CHIP)
+    literal = len(key) == 1 and 32 <= ord(key) < 127
+
+    def type_key() -> bool:
+        check()     # 承認の窓の間は、 チップからは打たない (= 窓の吹き出しの口が、 全文を見せて答える)
+        return tmux_send_keys(session_id, text=key if literal else None, key=None if literal else key, enter=enter)
+    try:
+        ok = await in_typing_order(session_id, type_key)
+    except WindowInTheWay:
+        return {"ok": False, "reason": "window_open"}
     if ok:
         # tier C grace は文字入力なので発火させる (= 次 tick で誤検知しないよう
         # note_user_input と同じ扱い)
@@ -791,10 +871,9 @@ async def pty_send_with_files(
     # launcher の新しい会話: 最初の本文で claude を起動する (= `first_message.py`)。
     if (launched := await launch_with_first_message(session_id, full_text, idempotency_key)) is not None:
         return {**launched, "saved_files": saved_files}
-    # text 経路と同じ共通部 (= 1 通ずつ、 2 段送信、 到達確認)。 添付経路は本文が長い (= path 追記で伸びる)
+    # text 経路と同じ共通部 (= 1 通ずつ、 2 段送信、 到達確認、 窓の見張り)。 添付経路は本文が長い (= path 追記で伸びる)
     # ので paste / Enter 競合の懸念はむしろ大きい。
-    result = await _send_body(session_id, full_text)
+    result = await _send_message(session_id, full_text, None, hold=True, sender=None, answers_choice=False,
+                                 releasing=False, send_id=idempotency_key)
     result["saved_files"] = saved_files
     return result
-
-

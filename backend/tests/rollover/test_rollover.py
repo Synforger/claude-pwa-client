@@ -216,7 +216,7 @@ class Tabs:
         monkeypatch.setattr(held_notice, "claude_in_pane", lambda sid: sid not in self.absent)
         monkeypatch.setattr(watch, "background_shells", lambda sid: self.shells.get(sid, []))
 
-        async def fake_send(sid, payload, idempotency_key=None):
+        async def fake_send(sid, payload, idempotency_key=None, **_):
             self.sent.append((sid, payload["text"]))
             return {"ok": True}
 
@@ -322,7 +322,7 @@ def test_an_ask_that_failed_does_not_start_the_gap(tabs, monkeypatch):
     outcomes = iter([{"ok": False}, {"ok": True}])
     sent: list[str] = []
 
-    async def flaky_send(sid, payload, idempotency_key=None):
+    async def flaky_send(sid, payload, idempotency_key=None, **_):
         sent.append(sid)
         return next(outcomes)
 
@@ -522,7 +522,7 @@ def test_the_watch_asks_a_child_in_the_child_s_words(monkeypatch, isolated_state
         id="ses_a", agent_id="agent_a", title="work", created_at=0, child=child)
     typed = []
 
-    async def type_in(session_id, payload, idempotency_key=None):
+    async def type_in(session_id, payload, idempotency_key=None, **_):
         typed.append(payload["text"])
         return {"ok": True}
 
@@ -657,7 +657,7 @@ def test_the_tab_is_ended_first_and_the_new_session_opens_with_the_text(monkeypa
         order.append(("restart", session_id))
         return {"ok": True}
 
-    async def fake_send(session_id, payload, idempotency_key=None):
+    async def fake_send(session_id, payload, idempotency_key=None, **_):
         order.append(("send", session_id, payload))
         return {"ok": True, "launched": True}
 
@@ -675,7 +675,7 @@ def test_a_tab_that_could_not_be_started_again_gets_nothing_typed(monkeypatch):
     async def failing_restart(session_id, _=None):
         return {"ok": False, "reason": "spawn_failed"}
 
-    async def fake_send(session_id, payload, idempotency_key=None):
+    async def fake_send(session_id, payload, idempotency_key=None, **_):
         sent.append(payload)
         return {"ok": True}
 
@@ -912,7 +912,7 @@ def test_a_notice_typed_counts_as_told_even_when_the_tab_did_not_take_it(tabs, m
     tabs.shells["ses_a"] = [R94]
     typed: list[str] = []
 
-    async def failing_send(sid, payload, idempotency_key=None):
+    async def failing_send(sid, payload, idempotency_key=None, **_):
         typed.append(sid)
         return {"ok": False}
 
@@ -981,3 +981,20 @@ def test_a_tab_without_a_running_claude_is_not_told(tabs):
     tabs.absent.add("ses_a")
     tabs.tick()
     assert tabs.sent == []
+
+
+def test_a_tab_waiting_at_a_permission_window_is_not_asked_and_does_not_hold_up_the_others(tabs, monkeypatch):
+    tabs.add("ses_a", pct=45, idle_minutes=55)
+    tabs.add("ses_b", pct=45, idle_minutes=52)
+    monkeypatch.setattr(watch.window_state, "is_open", lambda sid: sid == "ses_a")
+    assert tabs.tick() == "ses_b"
+    assert [sid for sid, _text in tabs.asks()] == ["ses_b"]
+
+
+def test_a_tab_asked_to_close_that_then_waits_at_a_window_is_not_counted_as_closing(tabs, monkeypatch):
+    """A close under way holds back every other ask; a window the person must answer first is not that."""
+    key = tabs.add("ses_a", pct=45, idle_minutes=0, busy=True)
+    _write(key, _typed(CLOSE))
+    tabs.add("ses_b", pct=45, idle_minutes=51)
+    monkeypatch.setattr(watch.window_state, "is_open", lambda sid: sid == "ses_a")
+    assert tabs.tick() == "ses_b"

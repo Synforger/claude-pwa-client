@@ -505,6 +505,8 @@ def send(to: str, file: Path, operator_said: bool = False, hands_work: bool = Tr
             print(f"預かりました: {body.get('to')} ({said}。 相手の機械が戻ったら届けます: {body.get('message')})")
         elif body.get("kept"):
             print(f"預かりました: {body.get('to')} ({said}。 宛先は口座の線で止まっています。 動ける口座ができた時に届けます)")
+        elif body.get("held") == "window":
+            print(f"預かりました: {body.get('to')} ({said}。 宛先は承認の窓などが開いているので、 窓が閉じたら届けます)")
         elif body.get("duplicate"):
             print(f"届きました: {body.get('to')} (同じ連絡が既に届いていたので、 打ち直していません)")
         else:

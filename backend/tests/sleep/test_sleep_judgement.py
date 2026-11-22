@@ -44,6 +44,7 @@ def test_an_agent_without_a_rollover_line_has_no_context_condition():
     ({"record": RecordFacts(awaiting_tool_result=True)}, j.AWAITING_TOOL_RESULT),
     ({"on_voice_call": True}, j.VOICE_CALL),
     ({"rollover_asks": 1}, j.ROLLING_OVER),
+    ({"permission_open": True}, j.PERMISSION_OPEN),
 ])
 def test_a_tab_is_left_awake_when_one_condition_fails(change, reason):
     assert j.judge(dataclasses.replace(READY, **change), MINUTES) == (reason,)
@@ -195,3 +196,16 @@ def test_the_conditions_asked_to_be_ignored_are_not_looked_at():
     assert j.judge(facts, j.STALL_MINUTES, ignoring=j.LEFT_BY_A_STALLED_CLOSE) == ()
     assert j.judge(dataclasses.replace(facts, foreign_processes=("sleep",)), j.STALL_MINUTES,
                    ignoring=j.LEFT_BY_A_STALLED_CLOSE) == (j.PROCESSES_RUNNING,)
+
+
+@pytest.mark.parametrize("options", [
+    {"by_hand": True}, {"stopped_by_limit": True}, {"reported": True}, {"by_hand": True, "reported": True},
+])
+def test_a_tab_at_a_permission_window_is_left_awake_however_the_judgement_is_asked(options):
+    """A sleep by hand, a limit stop and a reported child skip other conditions, never the person's window."""
+    facts = dataclasses.replace(READY, permission_open=True, answered_since_start=True)
+    assert j.PERMISSION_OPEN in j.judge(facts, MINUTES, **options)
+
+
+def test_a_window_is_not_one_of_the_conditions_that_pass_by_themselves():
+    assert j.PERMISSION_OPEN not in j.PASSING

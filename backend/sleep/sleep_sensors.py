@@ -18,6 +18,7 @@ import psutil
 import backend.jsonl.jsonl_watcher as jsonl_watcher
 import backend.rollover.rollover as rollover
 from backend._common.state import is_session_on_call, sessions_meta, stream_states
+from backend.permission_window import window_state
 from backend.routes.overview import context_pct_of, is_busy
 from backend.sleep.record_facts import RecordFacts, fold_row
 from backend.sleep.sleep_judgement import ProcessNode, SleepFacts, foreign_processes, judge
@@ -178,7 +179,8 @@ def gather(session_id: str, minutes: int, by_hand: bool = False, stopped_by_limi
         return facts
     facts = dataclasses.replace(facts, starting=not input_ready.is_ready(session_id), turn_open=_turn_open(session_id),
                                 on_voice_call=is_session_on_call(session_id),
-                                account_pending=_account_pending(session_id))
+                                account_pending=_account_pending(session_id),
+                                permission_open=window_state.is_open(session_id))
     if judge(facts, minutes, by_hand, stopped_by_limit, reported, ignoring):
         return facts
     record = jsonl_watcher.get_jsonl_for(session_id)

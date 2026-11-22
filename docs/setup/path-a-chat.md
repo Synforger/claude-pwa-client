@@ -120,6 +120,8 @@ PWA がチャットを表示し通知を出すには、 claude の hook が back
 - `UserPromptSubmit` だけは backend の返事を捨てずに出力する (= `?reply=text`)。 会話がオンの間に、 人が送って
   いない turn (= 別のタブからの連絡など) が始まると、 返事が声で聞かれる事を伝える 1 行がエージェントに届く
   ([voice.md](../reference/voice.md) の「声で聞いている印」)。 それ以外の時、 返事は空
+- 承認の窓 (実行してよいかの問い) を画面に出したい時は、 `PermissionRequest` にも同じ形の hook を足す
+  ([permission-window.md](../reference/permission-window.md))。 足さなくても bind と通知は成立する
 - `SessionStart` だけでも bind は成立する。 `Stop` / `Notification` を足すと turn 完了や
   問い合わせ時に Web Push 通知が飛ぶ。 なお `/hooks/event` は localhost のみ受付
 
