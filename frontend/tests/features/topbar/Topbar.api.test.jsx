@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // The top bar of an API tab (no Claude Code behind it): no notes, no plan approval. A Claude tab's bar keeps them.
-// The top bar has no pin and no robot: the tickets that want a look are a number on the menu button.
+// The top bar has no robot; 🎫 stands beside ⭐ with the tickets that want a look (this tab / all).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, cleanup, fireEvent, act } from '@testing-library/react'
 
@@ -29,12 +29,12 @@ afterEach(() => {
 })
 
 describe('Topbar', () => {
-  it('shows the notes and plan-approval buttons of a Claude tab, and neither the pin nor the robot', () => {
+  it('shows the notes and plan-approval buttons of a Claude tab, 🎫, and no robot', () => {
     setActiveId('ses_claude')
     const { queryByTestId } = render(<Topbar />)
     expect(queryByTestId('notes-open-button')).not.toBeNull()
     expect(queryByTestId('plan-approval-open-button')).not.toBeNull()
-    expect(queryByTestId('tickets-open-button')).toBeNull()
+    expect(queryByTestId('tickets-open-button')).not.toBeNull()
     expect(queryByTestId('subagents-open-button')).toBeNull()
   })
 
@@ -55,19 +55,39 @@ describe('Topbar tickets', () => {
     act(() => { applyTicketsSnapshot({ tickets: [], peers: {} }); setOverlay('drawer', false) })
   })
 
-  it('shows no number on the menu button while no ticket wants a look', () => {
+  it('shows no number on 🎫 while no ticket wants a look', () => {
     setActiveId('ses_claude')
     act(() => applyTicketsSnapshot({ tickets: [row('a', null)], peers: {} }))
     const { queryByTestId } = render(<Topbar />)
     expect(queryByTestId('tickets-count')).toBeNull()
   })
 
-  it('shows the number of tickets that want a look on the menu button, whichever tab is open', () => {
+  it('shows on 🎫, beside ⭐, how many want a look of this tab and of all', () => {
     setActiveId('api_support-bot')
     act(() => applyTicketsSnapshot({ tickets: [row('a', 'waiting'), row('b', 'delivery'), row('c', null)], peers: {} }))
     const { getByTestId } = render(<Topbar />)
-    expect(getByTestId('tickets-count').textContent).toBe('2')
-    expect(getByTestId('drawer-toggle').contains(getByTestId('tickets-count'))).toBe(true)
+    expect(getByTestId('tickets-count').textContent).toBe('0/2')
+    expect(getByTestId('favorites-open-button').nextElementSibling).toBe(getByTestId('tickets-open-button'))
+    expect(getByTestId('drawer-toggle').textContent).toBe('☰')
+    act(() => setActiveId('ses_claude'))
+    expect(getByTestId('tickets-count').textContent).toBe('2/2')
+  })
+
+  it('opens the list of tickets', () => {
+    setActiveId('ses_claude')
+    const { getByTestId } = render(<Topbar />)
+    fireEvent.click(getByTestId('tickets-open-button'))
+    expect(getUiSnapshot().overlays.tickets).toBe(true)
+    act(() => setOverlay('tickets', false))
+  })
+
+  it('stays, with the number of all, when no tab is open', () => {
+    setSessions([])
+    setActiveId(null)
+    act(() => applyTicketsSnapshot({ tickets: [row('a', 'waiting')], peers: {} }))
+    const { getByTestId, queryByTestId } = render(<Topbar />)
+    expect(queryByTestId('favorites-open-button')).toBeNull()
+    expect(getByTestId('tickets-count').textContent).toBe('1')
   })
 
   it('opens the tab list by the menu button, number or not', () => {

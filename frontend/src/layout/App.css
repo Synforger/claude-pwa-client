@@ -349,16 +349,30 @@ button:disabled {
   0%, 100% { opacity: 0.35; }
   50% { opacity: 1; }
 }
-/* topbar ☰ ボタンの数 (= 「見てほしい」 票の件数。 ☰ の右に並べる) */
+/* topbar 🎫 の数 (= 「見てほしい」 票の件数)。 📑 の点と同じく右上に重ね、 🎫 を隣のボタンと同じ幅に保つ
+   (= 数の桁で帯の幅が変わらない)。 */
+.topbar-tickets-btn {
+  position: relative;
+}
 .topbar-tickets-count {
-  margin-left: 4px;
-  padding: 0 5px;
+  position: absolute;
+  top: -6px;
+  right: -4px;
+  min-width: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
   border-radius: 8px;
   background: var(--accent);
   color: #fff;
-  font-size: 11px;
+  font-size: 10px;
   line-height: 16px;
-  vertical-align: middle;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* 幅の狭い電話 (= 375 px) では、 帯が一番混む時 (📑 と 🖥 も出る時) にボタンの間を詰めて 🧩 を画面の中に収める */
+@media (max-width: 380px) {
+  .topbar { gap: 6px; }
 }
 .plan-approval-body {
   padding: 12px 16px;

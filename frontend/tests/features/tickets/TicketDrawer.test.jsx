@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// 票の一覧: 4 段 (閉じたは畳む)、 行は題・求める物・持つタブ・経過・期限・印の 1 字、 一番下にもう 1 台の数。
+// 票の一覧: 上に今のタブ、 下にほかをタブごと、 最後に閉じた (畳む)。 行は題・求める物・持つタブ・経過・期限・印の 1 字、 一番下にもう 1 台の数。
 import { it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, cleanup, fireEvent, screen, act } from '@testing-library/react'
 import TicketDrawer from '../../../src/features/tickets/TicketDrawer.jsx'
@@ -14,7 +14,7 @@ const row = (id, extra = {}) => ({
 })
 
 beforeEach(() => {
-  vi.spyOn(sessions, 'getSnapshot').mockReturnValue({ activeId: 'ses_a', sessions: [{ id: 'ses_a', title: 'client work' }] })
+  vi.spyOn(sessions, 'getSnapshot').mockReturnValue({ activeId: 'ses_a', unreadDone: {}, sessions: [{ id: 'ses_a', title: 'client work' }, { id: 'ses_b', title: 'notes' }] })
 })
 
 afterEach(() => {
@@ -35,17 +35,19 @@ it('sorts the tickets into the groups, shows what each asks and who holds it, an
     peers: {},
   }))
   render(<TicketDrawer />)
-  const attention = screen.getByTestId('ticket-group-attention')
-  expect(attention.textContent).toContain('T home-1')
-  expect(attention.textContent).toContain('Decide')
-  expect(attention.textContent).toContain('client work')
-  expect(attention.textContent).toContain('No tab holds it')
-  expect(screen.getByTestId('ticket-group-running').textContent).toContain('A tab on company')
-  expect(screen.getByTestId('ticket-group-running').textContent).toContain('5 min ago')
+  const own = screen.getByTestId('ticket-section-own')
+  expect(own.querySelector('[data-testid=ticket-group-attention]').textContent).toContain('T home-1')
+  expect(own.textContent).toContain('Decide')
+  expect(own.querySelector('[data-testid=ticket-group-running]').textContent).toContain('5 min ago')
+  const others = screen.getByTestId('ticket-section-others')
+  expect(others.textContent).toContain('No tab holds it')
+  expect(others.textContent).toContain('A tab on company')
+  expect(screen.queryByTestId('ticket-holder-open')).toBeNull()   // neither is a tab of this machine to go to
   const closed = screen.getByTestId('ticket-group-closed')
   expect(closed.textContent).not.toContain('T home-5')
   fireEvent.click(screen.getByTestId('ticket-group-toggle'))
   expect(closed.textContent).toContain('T home-5')
+  expect(closed.textContent).toContain('client work')
 })
 
 it('opens the ticket screen by the row', () => {
@@ -156,13 +158,18 @@ it('draws the next step as plain text, never as markup', () => {
   expect(next.querySelector('b')).toBeNull()
 })
 
-it('opened from a tab\'s line, lists only the tickets that tab holds, under the tab\'s name, without the other machine', () => {
+it('puts this tab first and the others by tab, each ticket once, and goes to a tab by its heading', () => {
+  const select = vi.spyOn(sessions, 'selectTab').mockImplementation(() => {})
   act(() => {
     applyTicketsSnapshot({ tickets: [row('home-1'), row('home-2', { holder: 'ses_b' })], peers: { company: { waiting: 2 } } })
-    setOverlay('tickets', 'ses_a')
+    setOverlay('tickets', true)
   })
   render(<TicketDrawer />)
-  expect(screen.getAllByTestId('ticket-row').map((r) => r.dataset.ticket)).toEqual(['home-1'])
-  expect(screen.getByTestId('ticket-drawer-heading').textContent).toContain('client work')
-  expect(screen.queryByTestId('ticket-peer')).toBeNull()
+  expect(screen.getAllByTestId('ticket-row').map((r) => r.dataset.ticket)).toEqual(['home-1', 'home-2'])
+  expect(screen.getByTestId('ticket-section-own').textContent).toContain('T home-1')
+  expect(screen.getByTestId('ticket-section-others').textContent).not.toContain('T home-1')
+  expect(screen.getByTestId('ticket-peer')).toBeTruthy()
+  fireEvent.click(screen.getByTestId('ticket-holder-open'))
+  expect(select).toHaveBeenCalledWith('ses_b')
+  return import('../../../src/state/ui.js').then(({ getSnapshot }) => expect(getSnapshot().overlays.tickets).toBe(false))
 })
