@@ -103,6 +103,17 @@ tabs ask <タブ> q3.txt --resume 7565f8b3-… --fork     # その会話の枝�
 - 開いた後の問いは、 次の問いからも同じ会話の続きです。 別の問いで元へ戻る時は、 もう一度 `--resume` を付けます
 - Claude の居ないタブには使えません (`ask_not_ready`)。 まず `--resume` なしで 1 度聞いて、 Claude を起動してください
 
+## 待つ間に backend が止まった時
+
+backend は止まる合図を受けると、 待っている問いを待つ秒数の前に終わらせます。 `detail.params.reason` は
+`backend_stopping` です。
+
+- 問いを打つ前なら `ask_not_ready` です。 何も聞いていないので、 backend の起動を待ってから聞き直してください
+- 打ち始めた後なら `ask_unconfirmed` です。 ターンはタブで続くので、 聞き直す前にタブの会話を確かめてください。
+  backend は Escape を押しません
+- 答えか使用量の上限がもう出ていれば、 そちらを返します
+- `--stream` の流れは、 最後の `error` の行で終わります
+
 ## 使用量の上限に当たった時
 
 タブの口座が使用量の上限 (5 時間や週の枠) に当たると、 Claude Code はそのターンを答えずに終え、 枠が戻った時に
@@ -113,8 +124,8 @@ tabs ask <タブ> q3.txt --resume 7565f8b3-… --fork     # その会話の枝�
   `You've hit your 5-hour limit · resets 8:30am (Asia/Tokyo)`)・`continuation_cancelled` です。 理由の文にも
   `limit_message` が入るので、 `tabs ask` の 1 行で戻りの時刻が読めます
 - 返す前に、 Claude Code の予約を Escape で取り消します。 取り消さないと、 枠が戻った時にタブが前の問いに
-  自分で答え始め、 次の問いと重なります。 `continuation_cancelled` は、 取り消せた時 `true`、 2 回押しても
-  取り消しの記録が出ない時 `false`、 予約が無かった時 `null` です
+  自分で答え始め、 次の問いと重なります。 `continuation_cancelled` は、 取り消せた時 `true`、 取り消しの
+  記録を見られなかった時 (= 2 回押しても出ない、 1 回押した所で backend が止まる) `false`、 予約が無かった時 `null` です
 - 打った問いはタブの会話に残っています。 聞き直す時は `--fresh` を付けてください
 - 一時的な混み合い (Claude Code が自分でやり直す 429) では返さず、 そのまま答えを待ちます。 上限以外の API の
   誤りでターンが終わった時は、 今は `ask_timeout` になります

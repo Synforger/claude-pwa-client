@@ -27,6 +27,7 @@ import time
 import uuid as _uuid_mod
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any, Coroutine
 
 from fastapi import APIRouter, Body, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
@@ -444,10 +445,11 @@ async def _send_body(session_id: str, text: str, key: str | None = None) -> dict
         # queue に既に積まれた過去 message には触れない (= C-u は入力欄のみ)。 Escape を打った声の発話は消さずに
         # 後ろへ打つ (= 戻された前の発話とは空白 1 つで区切り、 声の印は前の発話の頭の 1 つだけにする)。
         if escaped is None:
-            ok = await send_text_two_stage(session_id, text, key=key)
+            typing = send_text_two_stage(session_id, text, key=key)
         else:
             tail = " " + text[len(VOICE_INPUT_MARK):].lstrip() if escaped.restored else text
-            ok = await send_text_two_stage(session_id, tail, key=key, wipe=False)
+            typing = send_text_two_stage(session_id, tail, key=key, wipe=False)
+        ok = await _type_to_the_enter(typing)
         if ok:
             # prompt_detector の tier C grace period 用に「今 user が送信した」 を記録。
             # 直後 tick で末尾が prompt-like でも 1.5s は待機扱いにしない (= 自分の入力を
@@ -461,6 +463,17 @@ async def _send_body(session_id: str, text: str, key: str | None = None) -> dict
             return _note_queue_on_unconfirmed(session_id, was_busy, is_slash, result)
     result = await _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slash)
     return _note_queue_on_unconfirmed(session_id, was_busy, is_slash, result)
+
+
+async def _type_to_the_enter(typing: Coroutine[Any, Any, bool]) -> bool:
+    """打ち始めた本文は、 待ち手が取り消されても Enter まで打ってから取り消しを通す (= 貼った文だけが入力欄に残り、
+    次の Enter で送られるのを防ぐ。 打つのは 1 秒未満)。"""
+    task = asyncio.ensure_future(typing)
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await asyncio.wait({task})
+        raise
 
 
 @dataclass
