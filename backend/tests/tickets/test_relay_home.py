@@ -137,6 +137,13 @@ def test_show_judges_each_line_for_the_reader_as_a_tab_of_the_other_machine(home
     assert {call["flags"]["--to"] for call in home.guard.calls("read")} == {"company:ses_x"}
 
 
+def test_show_names_no_writer_the_other_machines_tab_may_not_know(home):
+    ticket = outside_ticket()
+    home.guard.use("read", read={"refuse_containing": "client work"})
+    first = run(relay_home.show("company", ticket, "ses_x"))["entries"][0]
+    assert (first["tab"], first["tab_title"], first["tier"]) == ("home:ses_a", "別の境界のタブ", "")
+
+
 def test_show_writes_the_tabs_as_the_other_machine_reads_them(home):
     ticket = outside_ticket(holder="ses_b")
     run(relay_home.add("company", ticket, "ses_x", "notes", "x"))
