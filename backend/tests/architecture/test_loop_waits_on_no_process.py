@@ -15,8 +15,8 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 WAITS = frozenset({
     "subprocess.run", "subprocess.check_output", "subprocess.call", "subprocess.check_call",
-    "os.system", "os.popen",
-    "psutil.process_iter", "psutil.pids", "psutil.net_connections",
+    "os.system", "os.popen", "time.sleep",
+    "psutil.process_iter", "psutil.pids", "psutil.net_connections", "psutil.wait_procs",
     "backend.terminal.pty_discover._find_claude_descendant_info",
     "backend.terminal.pty_discover.runs_inside_another_claude",
     "backend.sleep.sleep_sensors.process_tree",

@@ -38,7 +38,8 @@ async def run_to_end(work: Coroutine[Any, Any, Result]) -> Result:
 
 async def in_typing_order(session_id: str, typing: Callable[[], Result]) -> Result:
     """Run `typing` (= what types into the tab, and blocks) in a thread, after what was asked for this tab before it.
-    What one call types is not cut into by another, and a call that began is not left half typed."""
+    What one call types is not cut into by another. A cancelled caller takes nothing back: what was asked for is typed
+    in its turn, so the caller answers as for a text that may have been typed."""
     lock = _lock_of(_typing_locks, session_id)
 
     async def typed() -> Result:

@@ -45,6 +45,7 @@ from backend.fork.lineage import write_lineage
 from backend.terminal import input_ready
 from backend.terminal.child_folder import clear_child_folder
 from backend.terminal.runner import kill_tmux_session, pty_sessions
+from backend.terminal.session_resolver import spawn_lock
 from backend.terminal.tab_stop import stop_tab
 from backend.terminal.tab_tier import tab_tier
 import backend.jsonl.jsonl_watcher as jsonl_watcher
@@ -279,8 +280,15 @@ async def move_session_account(session_id: str, payload: dict = Body(...), _: st
 
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str, _: str = Depends(require_session)):
+    # A terminal being started for the tab is waited for, and none is started until the tab is out of the table.
+    async with spawn_lock(session_id):
+        await _close_tab(session_id)
+    return {"status": "ok", "session_id": session_id}
+
+
+async def _close_tab(session_id: str) -> None:
+    """End what runs in the tab, then take it out of the table; a stop that failed does not keep it there."""
     # PTY + tmux + JSONL binding を一括 cleanup
-    input_ready.forget(session_id)
     try:
         if not await stop_tab(session_id):
             # a closed tab leaves no terminal behind, even when its claude could not be ended
@@ -291,6 +299,7 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
         # delete 経路の kill 失敗 = backend に session が残るゴースト化の原因。 warning で
         # 残す (= 2026-06-22)。
         logger.warning("session cleanup failed for %s", session_id, exc_info=True)
+    input_ready.forget(session_id)    # after the stop: a launch may set the mark while the tab stops
     # A tab's memo stays: it lives in the agent's own folder, beside the tab's other pages. A child's goes with it,
     # since closing a child ends the work it was opened for.
     clear_child_folder(session_id)
@@ -301,7 +310,6 @@ async def delete_session(session_id: str, _: str = Depends(require_session)):
         except Exception:
             logger.debug("tmp file unlink failed: %s", p, exc_info=True)
     unregister_session(session_id)
-    return {"status": "ok", "session_id": session_id}
 
 
 # 旧: session 別 model / effort / fast 切替 endpoint (= ⋯ メニューの ModelEffortPicker
