@@ -350,7 +350,7 @@ button:disabled {
   50% { opacity: 1; }
 }
 /* topbar ☰ ボタンの数 (= 「見てほしい」 票の件数。 ☰ の右に並べる) */
-.topbar-tickets-btn { white-space: nowrap; }
+.topbar-tickets-btn { display: inline-flex; align-items: center; white-space: nowrap; }
 .topbar-tickets-count {
   margin-left: 4px;
   padding: 0 5px;
