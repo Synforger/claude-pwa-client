@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from backend._common import config as _config
+from backend._internal.check_process import run_check_process
 from backend._internal.stop_signal import until_stop
 from backend.routes.agent_messages import CHECK_TIMEOUT_SEC
 
@@ -58,13 +59,12 @@ def _write_private(text: str) -> Path:
 
 async def run_command(command: list[str], names: dict[str, str], text: str | None = None) -> CommandResult:
     """Run `command` once. `text`, when given, is written to a private file named by `{text_file}` for the run. When the
-    backend stops meanwhile `BackendStopping` is raised: the command goes on in its thread and its answer is not read, and
-    nothing is changed on the strength of a check that did not finish."""
+    backend stops meanwhile the command is killed and `BackendStopping` is raised: nothing is changed on the strength of
+    a check that did not finish."""
     scratch = _write_private(text) if text is not None else None
     try:
         argv = argv_for(command, {**names, **({"text_file": str(scratch)} if scratch else {})})
-        done = await until_stop(asyncio.to_thread(subprocess.run, argv, capture_output=True, text=True,
-                                                  timeout=CHECK_TIMEOUT_SEC))
+        done = await until_stop(run_check_process(argv, CHECK_TIMEOUT_SEC))
     except subprocess.TimeoutExpired:
         return CommandResult(None, "", "the check did not finish in time")
     except OSError as error:
