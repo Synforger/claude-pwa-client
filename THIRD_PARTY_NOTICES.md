@@ -14,7 +14,7 @@ claude-pwa-client は以下の OSS に依存している。 全 deps のライ�
 | NPM | ISC | 3 |
 | NPM | MIT | 124 |
 | Python | Apache License 2.0 | 1 |
-| Python | Apache-2.0 | 8 |
+| Python | Apache-2.0 | 9 |
 | Python | Apache-2.0 AND MIT | 1 |
 | Python | Apache-2.0 OR BSD-2-Clause | 1 |
 | Python | Apache-2.0 OR BSD-3-Clause | 1 |
@@ -26,7 +26,6 @@ claude-pwa-client は以下の OSS に依存している。 全 deps のライ�
 | Python | MIT OR Apache-2.0 | 1 |
 | Python | MPL-2.0 | 4 |
 | Python | PSF-2.0 | 2 |
-| Python | UNKNOWN | 1 |
 
 ## Backend (Python) dependencies
 
@@ -53,7 +52,7 @@ claude-pwa-client は以下の OSS に依存している。 全 deps のライ�
 | fastapi | MIT | https://github.com/fastapi/fastapi |
 | flake8 | MIT | https://github.com/pycqa/flake8 |
 | frozenlist | Apache-2.0 | https://github.com/aio-libs/frozenlist |
-| google-crc32c | UNKNOWN | https://github.com/googleapis/python-crc32c |
+| google-crc32c | Apache-2.0 | https://github.com/googleapis/python-crc32c |
 | h11 | MIT | https://github.com/python-hyper/h11 |
 | http_ece | MIT | https://github.com/martinthomson/encrypted-content-encoding |
 | httpcore | BSD-3-Clause | https://www.encode.io/httpcore/ |

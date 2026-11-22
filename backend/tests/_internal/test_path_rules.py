@@ -153,3 +153,59 @@ def test_the_file_door_still_reads_and_writes_an_ordinary_file(client, tmp_path)
     res = client.get("/file", params={"path": str(target)})
     assert res.status_code == 200
     assert res.json()["content"] == "hello"
+
+
+@pytest.mark.parametrize("path", [
+    "/home/u/.netrc.bak",
+    "/home/u/.claude.json.backup",
+    "/home/u/.claude.json.tmp.12",
+    "/home/u/.claude-x/backups/any-name",
+    "/home/u/.claude-x/backups/.claude.json.backup.12",
+    "/home/u/.claude-backup-x/projects/a/b.jsonl",
+    "/home/u/.bashrc~",
+    "/home/u/.zshrc.bak-20200101",
+    "/home/u/keep/zshrc.before-change",
+    "/home/u/keep/copy____zshrc",
+    "/home/u/keep/one-claude.json.before-change",
+    "/home/u/app/.env-local",
+    "/home/u/app/.env~",
+    "/home/u/app/env.bak",
+    "/home/u/.ssh.bak/config",
+    "/home/u/.credentials.json.old",
+    "/home/u/app/credentials.toml",
+    "/home/u/app/credentials",
+    "/home/u/app/credentials.json.bak",
+    "/home/u/app/secrets.toml",
+    "/home/u/app/_secrets/token.txt",
+    "/home/u/app/secrets_/token.txt",
+    "/home/u/app/.secrets",
+    "/home/u/app/secrets.bak/token.txt",
+    "/home/u/keep/id_rsa.old",
+    "/home/u/cert.pem.bak",
+    "/home/u/server.key~",
+], ids=lambda _: "path")
+def test_the_rules_refuse_the_related_names(path):
+    assert is_denied(Path(path))
+
+
+@pytest.mark.parametrize("path", [
+    "/home/u/app/.env.example",
+    "/home/u/app/.env-template",
+    "/home/u/app/.npmrc.example",
+    "/home/u/app/secrets.example.toml",
+    "/home/u/app/secrets-notes.md",
+    "/home/u/app/my_secrets_manager.py",
+    "/home/u/app/env.hpp",
+    "/home/u/app/credentials.dart",
+    "/home/u/app/credentials_test.py",
+    "/home/u/sdk/credentials/__init__.py",
+    "/home/u/app/.dockerignore",
+    "/home/u/app/.profiles",
+    "/home/u/app/id_rsa.pub",
+    "/home/u/app/i18n.key.ts",
+    "/home/u/app/notes.backup.md",
+    "/home/u/.claude/projects/a/b.jsonl",
+    "/home/u/backups/photo.png",
+], ids=lambda _: "path")
+def test_the_rules_pass_the_ordinary_names(path):
+    assert not is_denied(Path(path))
