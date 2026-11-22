@@ -1,10 +1,8 @@
-// 票の一覧の分け方と、 一覧と帯の 🎫 が出す数と短い文字を作る純関数 (= 画面にも通信にも触れない)。
+// 票の一覧の分け方と、 一覧・会話の一覧の 🎫 の行・帯の 🎫 が出す数と短い文字を作る純関数 (= 画面にも通信にも触れない)。
 // 一覧の材料は backend の `tickets` channel の行で、 「見てほしい」 かは行の `attention`、 印は行の `marks` が持つ (= backend の判定が真値)。
 
 /** 一覧の段。 上から出す順。 */
 export const GROUPS = ['attention', 'running', 'waiting', 'closed']
-/** The groups of the tickets that are not closed (= drawn under the tab that holds them). */
-export const OPEN_GROUPS = GROUPS.slice(0, 3)
 
 const ATTENTION_WAITING = 'waiting'
 const STATUS_WAITING = 'waiting'
@@ -22,12 +20,12 @@ const CLOSED_SHOWN_MS = CLOSED_SHOWN_DAYS * DAY_MS
 const lastAtOf = (ticket) => ticket.last_at || ticket.opened_at || ''
 
 /** 操作者が動く票か: 答えを待つ・届かなかった答え・持つタブが無い (= backend の `attention`) か、 期限を過ぎた。
- * タブどうしの頼みで動いている票は入らない (= 票の一覧の、 そのタブの所で見る)。 */
+ * タブどうしの頼みで動いている票は入らない (= 票の一覧の「動いている」「待ち」 の段で見る)。 */
 export function needsOperator(ticket) {
   return ticket.attention != null || (Array.isArray(ticket.marks) && ticket.marks.includes('overdue'))
 }
 
-/** 「見てほしい」 票の数 (= 帯の 🎫 の数)。 操作者が動く票だけを数える。 */
+/** 「見てほしい」 票の数 (= 会話の一覧の 🎫 の行と、 帯の 🎫 の数)。 操作者が動く票だけを数える。 */
 export function attentionCount(tickets) {
   return tickets.filter(needsOperator).length
 }
@@ -86,24 +84,6 @@ export function holderOf(holder) {
 
 /** 票の呼び名 (= 題。 題が読めない票は id)。 */
 export const ticketLabel = (ticket) => ticket.title || ticket.id
-
-/** The list as the screen draws it, each ticket once: `own` = the groups of what the tab `tabId` holds (null without a
- * tab), `others` = `{ holder, groups }` for every other holder, the ones with a ticket the operator acts on first, and
- * `closed` = the closed tickets of every tab. */
-export function ticketSections(tickets, tabId, nowMs) {
-  const groups = groupTickets(tickets, nowMs)
-  const byHolder = new Map()
-  for (const group of OPEN_GROUPS) {
-    for (const ticket of groups[group]) {
-      const holder = ticket.holder || ''
-      if (!byHolder.has(holder)) byHolder.set(holder, { attention: [], running: [], waiting: [] })
-      byHolder.get(holder)[group].push(ticket)
-    }
-  }
-  const own = tabId ? (byHolder.get(tabId) || { attention: [], running: [], waiting: [] }) : null
-  const others = [...byHolder].filter(([holder]) => !tabId || holder !== tabId).map(([holder, held]) => ({ holder, groups: held }))
-  return { own, others, closed: groups.closed }
-}
 
 /** What the head of the ticket screen shows: the state (the end of its i18n key), whether the operator asked for it, and the due date (null when none). */
 export function factsOf(ticket) {
