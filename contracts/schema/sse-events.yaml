@@ -19,10 +19,11 @@
 #   - the rows of their record (JSONL) become the same events as a Claude tab's rows, with sid api_<name>; the contract
 #     for the shape of a row is docs/reference/api-tabs.md
 #   - in the status channel (= the snapshot of every sid that the top bar reads; it is not an event) an API tab's row
-#     is only { kind: "api", context_tokens, context_window, spend, spend_scope }: a row of its own kind, not a Claude
+#     is only { kind: "api", context_tokens, context_window, spend, spend_scope, wallet_spend }: a row of its own kind, not a Claude
 #     tab's row (= model / ctx_pct / 5h / 7d ...) with fields added. context_window is the window a source's program says
 #     (null for a tab of api_tabs); spend_scope says whose spend it is: tab (= the tab's own, as its source lists it) or
-#     wallet (= the wallet the tab names)
+#     wallet (= the wallet the tab names). wallet_spend is always that wallet's (= the limit the tabs share); the limit
+#     of a spend of scope tab may be null
 #
 # sid 必須化 (= /jsonl/stream/all envelope):
 #   - /jsonl/stream/all は複数 session の event を 1 接続に多重化するため event に sid 付与必須
