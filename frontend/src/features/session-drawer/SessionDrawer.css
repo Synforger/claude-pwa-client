@@ -164,21 +164,6 @@
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
 }
-/* そのタブが今持つ票の題 (= 項目の下の段に 1 行) */
-.drawer-item-ticket {
-  flex: 0 0 100%;
-  box-sizing: border-box;
-  padding: 0 8px 6px 28px;
-  background: none;
-  border: none;
-  color: var(--accent);
-  font-size: 12px;
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-}
 .drawer-new {
   width: 100%;
   background: var(--accent);

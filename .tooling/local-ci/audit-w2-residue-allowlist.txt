@@ -25,6 +25,9 @@ A:frontend/src/features/screenshare/useMoonlightAvailable.js:12:available
 # heuristic で LOW として fire し続ける。 個別 case の理由は audit-w2-residue.md 参照。
 C:frontend/src/layout/App.css:225:.action-menu
 C:frontend/src/layout/App.css:547:.topbar-plan-dot
+# 🎫 の数の印は、 同じ file の .topbar-tickets-btn (= position: relative) に重ねる (= .topbar-plan-dot と同じ形)。
+# e2e topbar-crowded が、 印が 🎫 の右上に出る絵を撮る。
+C:frontend/src/layout/App.css:357:.topbar-tickets-count
 C:frontend/src/layout/App.css:649:.attach-remove
 C:frontend/src/features/chat/MessageItem.css:23:.scroll-btn
 C:frontend/src/features/chat/MessageItem.css:41:.scroll-dot
