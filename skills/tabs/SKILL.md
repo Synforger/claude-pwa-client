@@ -1,7 +1,7 @@
 ---
 name: tabs
 description: Talk to other tabs of the client, hand work to child tabs, hand a tab over to its next session, and find a tab's conversation record. All of it goes through the `tabs` command.
-when_to_use: When an agent in a tab needs to send a note to another tab or answer one that arrived / hand a piece of work to a child tab, or finish as a child tab / close or restart the conversation of a tab / read what another tab's conversation said from its record.
+when_to_use: When a tab starts as a child tab (AGENT_CHILD=1), also after a restart / when an agent in a tab needs to send a note to another tab or answer one that arrived / hand a piece of work to a child tab, or finish as a child tab / close or restart the conversation of a tab / read what another tab's conversation said from its record.
 ---
 
 # Tabs: messages, child tabs, rollover, conversation records
@@ -316,8 +316,9 @@ stop. Its first line is the client's own opening line, its block is `<child-stop
 
 ### Working as a child
 
-Recognise a child by `AGENT_CHILD=1`. Its first message starts with a `<child-start>` block (the tier) followed by
-the task. A child works like a sub-agent with its own conversation:
+Recognise a child by `AGENT_CHILD=1`, whatever its first message is. The first message of a new child starts with a
+`<child-start>` block (the tier) followed by the task; after a restart it is an envelope of the client instead (see
+*A child that starts again*). A child works like a sub-agent with its own conversation:
 
 1. Say in three lines, before starting: its role, what it may write, what it may only read. If the scope is unclear,
    ask the parent (`tabs report stuck`) rather than guess.
@@ -336,12 +337,32 @@ the task. A child works like a sub-agent with its own conversation:
    state. A stuck report says the symptom, the cause (file and line) and anything else relevant.
 4. A decision that needs design judgement goes back as `stuck`, not as a guess.
 
+### A child that starts again
+
+After a rollover, a child's first message is `<session-rollover phase="start">`; after the operator's ⟳ it is
+`<tab-open>`, followed by the message that woke it. Both carry `child=1` and, while the parent's tab exists,
+`parent=<id>`. The journal of the tier and the requests in it are the parent's: do not run a parent's startup and do
+not act on them, even when the agent's general startup steps say that a rollover starts like any session.
+
+Read the memo (the file in `PWA_NOTE`): the section with the task and `## 引き継ぎ`, which is the newer where the two
+differ. Then:
+
+| The envelope | The memo | What the child does |
+|---|---|---|
+| rollover, `mode=continue` | working, and the handover names a next step | carry on from that step |
+| any other rollover | working, or no memo to read | `tabs report stuck <file>` saying what it waits for, then wait |
+| any other rollover | done or stuck | wait for the parent's message |
+| `<tab-open>` | any | start no step of the memo by itself; follow the message that comes next |
+| either, with no `parent=` line | any | start no work from the memo; say so in the reply and wait for the operator |
+
 ### A child that has to restart
 
 When the closing request arrives (`<session-rollover phase="close">`), bring the work to a break, commit what is
 half written, and rewrite the `## 引き継ぎ` section of the memo (the file in `PWA_NOTE`) with where the work is,
-the next step, and what it waits for. Do not delete the section with the task. The heading is the literal the
-command looks for. Then run `tabs rollover continue`; it refuses until the conversation has written that section.
+the next step, and what it waits for; leave no step that is already done, since the next conversation acts on it.
+Do not delete the section with the task. The heading is the literal the command looks for. Then run
+`tabs rollover continue` (`wait` when there is nothing to carry on); it refuses until the conversation has written
+that section.
 
 ## Handing a tab over: `tabs rollover`
 

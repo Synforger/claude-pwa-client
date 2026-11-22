@@ -10,7 +10,9 @@ launcher (= agent cfg `launcher: true`) の新しい会話は、 最初の発話
 会話 (= 連絡の本文からは階層が決まらないので、 タブが覚えている階層 `SessionDef.tier`、 覚えていなければ `normal`) は、 最初の発話の代わりに
 その階層の封筒で起動し、 送られた本文は claude が打鍵を受け取れるようになってから次の発話として打つ
 (= 本文を封筒に足すと 1 行目が client の文になり、 人が打った発話として数えられなくなる)。 自動の入れ替えの
-発話は自分の階層を運ぶので、 そのまま最初の発話にする。
+発話は自分の階層を運ぶので、 そのまま最初の発話にする。 子のタブの新しい会話は、 仕事を渡す最初の発話と入れ替えの
+ほかは、 誰の発話で始まっても封筒で起動し、 封筒に子の行 (= `backend/_common/child_role.py`) を持たせる (= 無いと、
+子が親と同じ起動をして親の仕事を進める)。
 
 claude の居ない pane に届いた発話は、 そのタブに開き直せる最後の会話があれば、 新しい会話を始めずにそれを開き直して
 から打つ (= 眠らせ損ねて後から終わった claude、 落ちた claude。 新しい会話で始めると、 タブの会話が黙って消える)。 新しい
@@ -37,7 +39,8 @@ import re
 import uuid
 from pathlib import Path
 
-from backend._common.state import jsonl_event_broadcaster, sessions_meta
+from backend._common import child_role
+from backend._common.state import SessionDef, jsonl_event_broadcaster, sessions_meta
 from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENINGS, ROLLOVER_OPENING, unwrap_pasted
 from backend.terminal import input_ready
 from backend.terminal.pty_discover import claude_in_pane, register_claude_when_ready
@@ -109,7 +112,7 @@ async def launch_with_first_message(session_id: str, text: str, send_id: str | N
                     session_id)
         return await _reopen_then_send(session_id, text, send_id)
     tier = _placed_tier(session_id, text)
-    first = envelope(tier) if tier is not None else text
+    first = envelope(tier, _child_lines(meta)) if tier is not None else text
     command = first_message_command(session_id, _message_file(session_id, first))
     input_ready.mark_starting(session_id)
     # 立て直した直後の pane (= 自動の入れ替え) は、 tmux が session を作り終えるまで打鍵を受けない。
@@ -165,9 +168,10 @@ async def _reopen_then_send(session_id: str, text: str, send_id: str | None) -> 
 def _placed_tier(session_id: str, text: str) -> str | None:
     """The tier the tab's new conversation starts in by envelope, or None when the text itself is the first
     message. A rollover and a child tab's first message (= `<child-start>`) carry their own tier, and the operator's
-    words choose it in a tab not placed for a tier; a message from another tab cannot, so it starts in the tier the
-    tab remembers, else its parent's (= a child works in its parent's tier), else `normal`, where the operator's
-    words start when they name no tier."""
+    words choose it in a tab that is neither a child nor placed for a tier; a message from another tab cannot, so it
+    starts in the tier the tab remembers, else its parent's (= a child works in its parent's tier), else `normal`,
+    where the operator's words start when they name no tier. A child starts that way whatever the message is: its
+    envelope is what tells it that it is a child."""
     meta = sessions_meta.get(session_id)
     if meta is None:
         return None
@@ -178,10 +182,17 @@ def _placed_tier(session_id: str, text: str) -> str | None:
         return None
     if meta.tier_tab is not None:
         return meta.tier_tab
-    if not opening.startswith(AGENT_MESSAGE_OPENINGS):
+    if not meta.child and not opening.startswith(AGENT_MESSAGE_OPENINGS):
         return None
     parent = sessions_meta.get(meta.parent_id) if meta.child and meta.parent_id else None
     return meta.tier or (parent.tier if parent is not None else None) or DEFAULT_TIER
+
+
+def _child_lines(meta: SessionDef | None) -> list[str]:
+    """What a child's envelope says besides its tier; nothing for a tab that is not a child."""
+    if meta is None or not meta.child:
+        return []
+    return child_role.opening_lines(child_role.known_parent(meta.parent_id, sessions_meta))
 
 
 def _hold(session_id: str, text: str, send_id: str | None) -> None:

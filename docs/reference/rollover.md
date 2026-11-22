@@ -130,6 +130,9 @@ Context is at 62%. Wrap up at the next stopping point and hand over: write down 
 </session-rollover>
 ```
 
+[子のタブ](child-sessions.md) への発話は、 後ろの 2 文が替わり、 journal と口の代わりに、 子のメモの `## 引き継ぎ` を
+今の仕事に書き直して `tabs rollover continue` (続ける物が無ければ `tabs rollover wait`) を実行するよう頼みます。
+
 Claude が作業している最中に届いた発話は、 作業の合間に読まれます。
 
 ### 起動し直す口 (= タブの中の Claude が実行する)
@@ -199,6 +202,21 @@ effort=low
 </session-rollover>
 ```
 
+子のタブの封筒は、 本文と `model=`・`effort=` の間に子の行を持ちます。 `child=1`、 `parent=<親のタブの id>`
+(親のタブが在る時だけ)、 英語の 1 段落です。 段落は、 階層の journal と依頼は親の物である事、 子の仕事はメモに在る事、
+続けるか待つかを言います。 起動ラッパは `tier=`・`model=`・`effort=` を今までどおり読めます。
+
+```
+<session-rollover phase="start">
+tier=projects/<P>
+mode=continue
+child=1
+parent=ses_0123456789ab
+This tab is a child tab. …
+model=haiku
+</session-rollover>
+```
+
 ## 人の発話との見分け
 
 2 つの発話は、 人が画面から送る発話と同じ道 (= Claude の入力欄) で届くので、 会話の記録では人の発話と
@@ -226,4 +244,4 @@ effort=low
 | 口が `rollover_empty` を返す | 本文が空 |
 | 口が `rollover_local_only` を返す | 別の機械から呼ばれた |
 | 口が `agent_message_refused` を返す | 検査が本文を通さなかった。 理由が `reason` に入っている |
-| タブが終了した後、 会話が始まらない | 起動に失敗している。 そのタブで発話を送ると、 それが最初の発話として会話が始まる |
+| タブが終了した後、 会話が始まらない | 起動に失敗している。 そのタブで発話を送ると、 開き直せる前の会話が在ればその会話が開き、 無ければ新しい会話が始まる |

@@ -106,6 +106,7 @@ from typing import NamedTuple
 
 # 子のタブのメモの状態の行の読み方は backend と同じ file (= 標準ライブラリだけ)。 repo の根から読む
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from backend._common.child_role import CARRY, HANDED  # noqa: E402
 from backend.child_watch.child_memo import (  # noqa: E402
     DONE, STATE_LINE as STATE, STUCK, UNKNOWN, WORKING, memo_state, save_memo_state)
 from backend.rollover.tool_shells import (  # noqa: E402
@@ -540,8 +541,7 @@ CLAUDE_NONE = "Claude なし"
 #: 作業中のメモのまま入力待ちの子 (= 報告せずに止まった) の印。 `--summary` ではこの子の数を `静か` と数える (= 起動の検査の形)
 QUIET = "静か"
 STOPPED_MARK = "← 報告なしで止まっている"
-#: 子のタブのメモの、 入れ替えの引き継ぎを書く節 (= 子が自分の入れ替えの前に書き、 起き直した子が読む)
-CARRY = "## 引き継ぎ"
+#: 子のタブのメモの引き継ぎの節 (= `CARRY`。 子が自分の入れ替えの前に書き、 起き直した子が読む) が空の時の中身
 CARRY_EMPTY = "(まだ無し)"
 
 
@@ -614,7 +614,7 @@ def new_child(title: str, file: Path, settings: dict[str, str] | None = None) ->
     note = child_note(tier, child)
     note.parent.mkdir(parents=True, exist_ok=True)
     note.write_text(f"# {title}\n\n- 親のタブ: {me}\n- 状態: {WORKING}\n- 階層: {tier}\n\n"
-                    f"## 渡された仕事\n\n{task}\n\n{CARRY}\n\n{CARRY_EMPTY}\n", encoding="utf-8")
+                    f"{HANDED}\n\n{task}\n\n{CARRY}\n\n{CARRY_EMPTY}\n", encoding="utf-8")
     started = "" if body.get("started") else " (= 最初の発話を渡せていません。 子のタブを開いて確かめてください)"
     print(f"立てました: {child} ({title}){started}\n  メモ: {note}")
     return 0
