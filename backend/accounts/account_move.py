@@ -34,6 +34,7 @@ async def move_tab_account(session_id: str, account_id: str, *, cut: LineageCut 
     (`fallback_from` is cleared) and is pinned too: the pin brings a pinned tab back to the account it belongs to, so
     a stale `fallback_from` would send it back off the account that was chosen. Raises the HTTP error of
     `write_lineage` when there is no point to carry the conversation from (then the tab is not pinned), and
+    `tab_not_stopped` when its claude could not be stopped (nothing of the tab is then changed), and
     `spawn_failed` when the tab cannot be opened under the new account (it is pinned: it runs there)."""
     meta = sessions_meta[session_id]
     if account_id == (meta.account_id or default_account_id()):
@@ -54,7 +55,10 @@ async def move_tab_account(session_id: str, account_id: str, *, cut: LineageCut 
         sessions_overview.notify()
         return meta
     written = await asyncio.to_thread(write_lineage, session_id, None, account_id, cut=cut)
-    await stop_tab_claude(session_id)
+    if not await stop_tab_claude(session_id):
+        # the new record is the client's own and no claude opened it: it goes by its own path, whichever folder it is in
+        written.path.unlink(missing_ok=True)
+        raise_error(409, "tab_not_stopped", "このタブの Claude を止められなかったので、 口座は移していません")
     previous_copy = meta.fallback_copy
     meta.account_id = account_id
     meta.resume_session_id = written.claude_id

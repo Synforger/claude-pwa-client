@@ -1,8 +1,7 @@
 """Stops the claude of a tab and makes sure it is gone before anything starts in its place.
 
-Removing a tab's tmux session hangs up the claude inside, which normally ends it. Nothing waited for that,
-so a restart or an account move could start the next claude while the previous one was still shutting down,
-and a claude that ignored the hang-up would have kept running with no tab to show it. Called by the session
+The claude is ended first and the tab's tmux session is removed after it is gone. A claude that stays is still seen
+in its pane, so nothing starts a second one beside it and the next try finds the same process. Called by the session
 routes (restart, account move, delete).
 """
 
@@ -18,7 +17,7 @@ from backend.terminal.runner import kill_tmux_session
 
 logger = logging.getLogger(__name__)
 
-#: How long a hung-up claude gets to end on its own before it is killed
+#: How long a claude asked to end gets to end on its own before it is killed
 STOP_WAIT_SEC = 5.0
 #: How long a killed claude gets to disappear from the process table
 KILL_WAIT_SEC = 2.0
@@ -31,26 +30,32 @@ def _wait_gone(process: psutil.Process, timeout_sec: float) -> bool:
 
 
 def stop_claude(session_id: str) -> bool:
-    """Remove a tab's tmux session and wait until the claude that ran in it has ended, killing it when it
-    outlives `STOP_WAIT_SEC`. True when no claude of the tab is left running. Blocks; callers on the event
-    loop use `stop_tab`."""
+    """End the claude in a tab's pane (SIGTERM, then a kill when it outlives `STOP_WAIT_SEC`) and then remove the
+    tab's tmux session. False when that claude is still running: the tmux session is then left as it was. Blocks;
+    callers on the event loop use `stop_tab`."""
     pid = claude_pid_in_pane(session_id)
-    process = None
-    if pid is not None:
-        try:
-            process = psutil.Process(pid)
-        except psutil.NoSuchProcess:
-            process = None
+    if pid is not None and not _end_claude(session_id, pid):
+        return False
     kill_tmux_session(session_id)
-    if process is None or _wait_gone(process, STOP_WAIT_SEC):
-        return True
-    logger.warning("claude of session=%s pid=%s outlived its tmux session; killing it", session_id, pid)
+    return True
+
+
+def _end_claude(session_id: str, pid: int) -> bool:
+    """True once the claude `pid` is gone."""
     try:
+        process = psutil.Process(pid)
+        process.terminate()
+        if _wait_gone(process, STOP_WAIT_SEC):
+            return True
+        logger.warning("claude of session=%s pid=%s did not end when asked; killing it", session_id, pid)
         process.kill()
+        if _wait_gone(process, KILL_WAIT_SEC):
+            return True
     except psutil.NoSuchProcess:
         return True
-    if _wait_gone(process, KILL_WAIT_SEC):
-        return True
+    except psutil.AccessDenied:
+        logger.error("claude of session=%s pid=%s may not be signalled", session_id, pid, exc_info=True)
+        return False
     logger.error("claude of session=%s pid=%s is still running after a kill", session_id, pid)
     return False
 

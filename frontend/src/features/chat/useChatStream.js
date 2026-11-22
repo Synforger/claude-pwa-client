@@ -622,6 +622,13 @@ export function useChatStream({
         let detail = `HTTP ${r?.status ?? '???'}`
         try { detail = translateHttpErrorDetail((await r.json())?.detail, detail) } catch { /* ignore parse */ }
         alert(tRaw('alert.end_session_failed', { detail }))
+      } else {
+        const result = await r.json().catch(() => null)
+        // The claude runs on in the same conversation: no divider may say that it ended.
+        if (result?.reason === 'tab_not_stopped') {
+          alert(tRaw('alert.end_session_failed', { detail: translateHttpErrorDetail({ code: result.reason }, result.reason) }))
+          return
+        }
       }
     } catch (e) {
       alert(tRaw('alert.end_session_failed', { detail: e?.message || e }))
