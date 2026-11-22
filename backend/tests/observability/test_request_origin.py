@@ -21,20 +21,12 @@ from backend.observability.request_origin import (
     method_label,
     origin_label,
 )
+from backend.tests.async_run import run
 
 LOGGER_NAME = "backend.observability.request_origin"
 
 Message = dict[str, Any]
 Headers = list[tuple[bytes, bytes]]
-
-
-def _run_async(coro: Awaitable[Any]) -> Any:
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
-        asyncio.set_event_loop(asyncio.new_event_loop())
 
 
 def _http_scope(path: str, *, method: str = "GET", headers: Headers | None = None, query: bytes = b"") -> Message:
@@ -187,7 +179,7 @@ def test_method_label() -> None:
 def test_included_router_route_is_counted_by_its_prefixed_template_and_not_by_its_id() -> None:
     counter = RequestOriginCounter()
     app = _build_app(counter)
-    sent = _run_async(_drive(app, _http_scope("/api/items/42", query=b"token=secret")))
+    sent = run(_drive(app, _http_scope("/api/items/42", query=b"token=secret")))
     assert _status(sent) == 200
     assert [key.template for key in counter.counts()] == ["/api/items/{item_id}"]
     for forbidden in ("42", "token", "secret"):
@@ -196,21 +188,21 @@ def test_included_router_route_is_counted_by_its_prefixed_template_and_not_by_it
 
 def test_a_route_of_the_app_itself_is_counted_by_its_template() -> None:
     counter = RequestOriginCounter()
-    _run_async(_drive(_build_app(counter), _http_scope("/direct/someone")))
+    run(_drive(_build_app(counter), _http_scope("/direct/someone")))
     assert [key.template for key in counter.counts()] == ["/direct/{name}"]
     assert "someone" not in repr(counter.counts())
 
 
 def test_a_method_the_route_does_not_serve_keeps_the_template() -> None:
     counter = RequestOriginCounter()
-    sent = _run_async(_drive(_build_app(counter), _http_scope("/api/items/42", method="POST")))
+    sent = run(_drive(_build_app(counter), _http_scope("/api/items/42", method="POST")))
     assert _status(sent) == 405
     assert [(key.method, key.template) for key in counter.counts()] == [("POST", "/api/items/{item_id}")]
 
 
 def test_websocket_of_an_included_router_is_counted_as_ws_by_its_template() -> None:
     counter = RequestOriginCounter()
-    sent = _run_async(_drive(_build_app(counter), _websocket_scope("/api/live/room-7")))
+    sent = run(_drive(_build_app(counter), _websocket_scope("/api/live/room-7")))
     assert [m["type"] for m in sent] == ["websocket.accept", "websocket.close"]
     assert [(key.method, key.template) for key in counter.counts()] == [("WS", "/api/live/{room}")]
     assert "room-7" not in repr(counter.counts())
@@ -219,8 +211,8 @@ def test_websocket_of_an_included_router_is_counted_as_ws_by_its_template() -> N
 def test_a_mount_is_counted_by_its_name_and_an_unknown_path_as_unmatched() -> None:
     counter = RequestOriginCounter()
     app = _build_app(counter)
-    assert _status(_run_async(_drive(app, _http_scope("/files/secret/report.pdf")))) == 200
-    assert _status(_run_async(_drive(app, _http_scope("/nowhere/private-name")))) == 404
+    assert _status(run(_drive(app, _http_scope("/files/secret/report.pdf")))) == 200
+    assert _status(run(_drive(app, _http_scope("/nowhere/private-name")))) == 404
     assert sorted(key.template for key in counter.counts()) == ["(unmatched)", "files"]
     for forbidden in ("secret", "report", "nowhere", "private-name"):
         assert forbidden not in repr(counter.counts())
@@ -235,7 +227,7 @@ def test_the_values_counted_are_the_three_headers_and_nothing_else_is_read() -> 
         (b"cookie", b"session=cookie-value"),
         (b"authorization", b"Bearer bearer-value"),
     ]
-    _run_async(_drive(_build_app(counter), _http_scope("/api/items/42", headers=headers)))
+    run(_drive(_build_app(counter), _http_scope("/api/items/42", headers=headers)))
     assert counter.counts() == {
         RequestOrigin(
             app="main",
@@ -250,7 +242,7 @@ def test_the_values_counted_are_the_three_headers_and_nothing_else_is_read() -> 
 
 def test_a_request_without_the_headers_is_counted_as_none() -> None:
     counter = RequestOriginCounter()
-    _run_async(_drive(_build_app(counter), _http_scope("/api/items/42")))
+    run(_drive(_build_app(counter), _http_scope("/api/items/42")))
     (key,) = counter.counts()
     assert (key.host, key.origin, key.fetch_site) == ("(none)", "(none)", "(none)")
 
@@ -258,7 +250,7 @@ def test_a_request_without_the_headers_is_counted_as_none() -> None:
 def test_values_outside_their_shape_are_counted_as_malformed() -> None:
     counter = RequestOriginCounter()
     headers = [(b"host", b"a b"), (b"origin", b"https://x/y"), (b"sec-fetch-site", b"sideways")]
-    _run_async(_drive(_build_app(counter), _http_scope("/api/items/42", headers=headers)))
+    run(_drive(_build_app(counter), _http_scope("/api/items/42", headers=headers)))
     (key,) = counter.counts()
     assert (key.host, key.origin, key.fetch_site) == ("(malformed)",) * 3
 
@@ -278,7 +270,7 @@ def _blocking_app(first_message: Message) -> tuple[Callable[..., Awaitable[None]
 
 
 def _count_while_the_request_is_open(scope: Message, first_message: Message) -> dict[RequestOrigin, int]:
-    async def run() -> dict[RequestOrigin, int]:
+    async def count_open() -> dict[RequestOrigin, int]:
         counter = RequestOriginCounter()
         app, release = _blocking_app(first_message)
         first_sent = asyncio.Event()
@@ -298,7 +290,7 @@ def _count_while_the_request_is_open(scope: Message, first_message: Message) -> 
         assert counter.counts() == counts
         return counts
 
-    return _run_async(run())
+    return run(count_open())
 
 
 def test_a_response_that_does_not_end_is_counted_at_its_start() -> None:
@@ -319,7 +311,7 @@ def test_a_request_that_ends_before_it_sends_is_counted_once_at_its_end() -> Non
     async def silent(scope: Message, receive: Any, send: Any) -> None:
         return None
 
-    sent = _run_async(_drive(RequestOriginMiddleware(silent, app_name="main", counter=counter), _http_scope("/x")))
+    sent = run(_drive(RequestOriginMiddleware(silent, app_name="main", counter=counter), _http_scope("/x")))
     assert sent == []
     assert sum(counter.counts().values()) == 1
 
@@ -327,7 +319,7 @@ def test_a_request_that_ends_before_it_sends_is_counted_once_at_its_end() -> Non
 def test_a_request_is_counted_once_however_many_messages_it_sends() -> None:
     counter = RequestOriginCounter()
     app = _build_app(counter)
-    sent = _run_async(_drive(app, _http_scope("/api/items/42")))
+    sent = run(_drive(app, _http_scope("/api/items/42")))
     assert len(sent) == 2
     assert sum(counter.counts().values()) == 1
 
@@ -339,7 +331,7 @@ def test_lifespan_passes_through_uncounted() -> None:
     async def inner(scope: Message, receive: Any, send: Any) -> None:
         seen.append(scope["type"])
 
-    _run_async(_drive(RequestOriginMiddleware(inner, app_name="main", counter=counter), {"type": "lifespan"}))
+    run(_drive(RequestOriginMiddleware(inner, app_name="main", counter=counter), {"type": "lifespan"}))
     assert seen == ["lifespan"]
     assert counter.counts() == {}
 
@@ -354,7 +346,7 @@ def test_an_exception_of_the_app_passes_through_and_the_request_is_counted() -> 
         raise ValueError("handler failed")
 
     with pytest.raises(ValueError, match="handler failed"):
-        _run_async(_drive(RequestOriginMiddleware(failing, app_name="main", counter=counter), _http_scope("/x")))
+        run(_drive(RequestOriginMiddleware(failing, app_name="main", counter=counter), _http_scope("/x")))
     assert sum(counter.counts().values()) == 1
 
 
@@ -370,7 +362,7 @@ def test_the_messages_sent_are_forwarded_unchanged() -> None:
         for message in messages:
             await send(message)
 
-    sent = _run_async(_drive(RequestOriginMiddleware(app, app_name="main", counter=counter), _http_scope("/x")))
+    sent = run(_drive(RequestOriginMiddleware(app, app_name="main", counter=counter), _http_scope("/x")))
     assert sent == messages
 
 
@@ -385,8 +377,8 @@ def test_a_failure_of_the_counting_leaves_one_warning_and_the_requests_go_on(
     monkeypatch.setattr(counter, "add", failing_add)
     app = _build_app(counter)
     caplog.set_level(logging.INFO, logger=LOGGER_NAME)
-    first = _run_async(_drive(app, _http_scope("/api/items/1")))
-    second = _run_async(_drive(app, _http_scope("/api/items/2")))
+    first = run(_drive(app, _http_scope("/api/items/1")))
+    second = run(_drive(app, _http_scope("/api/items/2")))
     assert (_status(first), _status(second)) == (200, 200)
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
