@@ -3,7 +3,9 @@ machine makes to the other machine for a `pass`. A ticket's home is the machine 
 ticket of another machine goes to that machine's backend through the doors under `/agent-messages/tickets` (`relay_home.py`
 is the receiving end) and its answer comes back as it was. The command is never kept for later: a machine that does not
 answer is `503 ticket_peer_down`, and the tab tries again when it is back (= a command kept would arrive at a ticket that
-closed meanwhile, with nobody to tell it was refused). Called by `routes/tickets.py` and `ticket_pass.py`.
+closed meanwhile, with nobody to tell it was refused). A stop of the backend ends the wait for the other machine: a call that
+only reads is `BackendStopping`, and one that may have changed the ticket there, once it was made, is `StoppedAfterSending`
+(`ticket_stop.py`). Called by `routes/tickets.py` and `ticket_pass.py`.
 """
 from __future__ import annotations
 
@@ -15,14 +17,19 @@ from typing import NamedTuple
 from backend._common import config as _config
 from backend._common.errors import raise_error
 from backend._common.state import sessions_meta
+from backend._internal.stop_signal import BackendStopping, is_stopping, until_stop
 from backend.peers import peer_health
 from backend.peers.peer_call import PEER_LIST_TIMEOUT_SEC, PEER_TABS_PATH, TICKETS_PATH, PeerReply, call_peer
 from backend.peers.peer_health_judgement import unreachable_message
 from backend.routes.agent_messages import allowed_for_peer, judge, peer_refusal_message, split_peer
 from backend.tickets import relay_judgement
 from backend.tickets.relay_judgement import HERE
+from backend.tickets.ticket_stop import StoppedAfterSending
 
 logger = logging.getLogger(__name__)
+
+#: The calls that only read the other machine's ticket: the others may change it
+READING_OPERATIONS = ("show",)
 
 
 class Home(NamedTuple):
@@ -55,8 +62,16 @@ def _refusal_of(name: str, reply: PeerReply) -> None:
 
 async def _carry(op: str, name: str, peer: dict, path: str, payload: dict | None, ticket: str) -> dict:
     """One call to the other machine. → its answer. `503 ticket_peer_down` when it does not answer (= nothing is kept; when the
-    call was sent and only the answer is missing, the message says the command may have been done)."""
-    reply = await call_peer(name, peer, path, payload)
+    call was sent and only the answer is missing, the message says the command may have been done). A stop of the backend ends
+    the wait: `BackendStopping` when nothing was sent (= it was stopping already, or the call only reads), and
+    `StoppedAfterSending` when a call that changes the ticket was made."""
+    if is_stopping():
+        raise BackendStopping
+    try:
+        reply = await until_stop(call_peer(name, peer, path, payload))
+    except BackendStopping:
+        logger.info("ticket relay: op=%s id=%s to=%s result=stopped", op, ticket, name)
+        raise (BackendStopping if op in READING_OPERATIONS else StoppedAfterSending) from None
     record = await peer_health.record_reply(name, peer, reply)
     if reply.status is None:
         logger.info("ticket relay: op=%s id=%s to=%s result=down", op, ticket, name)

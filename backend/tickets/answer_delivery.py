@@ -14,6 +14,7 @@ import time
 from fastapi import HTTPException
 
 from backend._common.state import sessions_meta
+from backend._internal.stop_signal import BackendStopping
 from backend.jsonl.jsonl_predicates import ticket_answer_envelope
 from backend.rollover import rollover
 from backend.routes.agent_messages import deliver_or_keep, hand_over_work, tab_reachable
@@ -203,6 +204,9 @@ async def deliver(key: AnswerKey, *, from_patrol: bool = False) -> None:
             await _deliver_locked(key)
         except asyncio.CancelledError:
             raise
+        except BackendStopping:
+            logger.info("ticket answer: id=%s asked_at=%s was left for the next start: the backend is stopping", key.ticket,
+                        key.asked_at)
         except Exception:
             logger.exception("ticket answer: id=%s asked_at=%s failed unexpectedly", key.ticket, key.asked_at)
             _back_off(key)
@@ -274,6 +278,8 @@ async def patrol_loop(interval_sec: float = PATROL_SEC) -> None:
                 await patrol_once()
             except asyncio.CancelledError:
                 raise
+            except BackendStopping:
+                logger.info("ticket answer patrol: the backend is stopping; this look was left")
             except Exception:
                 logger.exception("ticket answer patrol iteration failed")
             await asyncio.sleep(interval_sec)

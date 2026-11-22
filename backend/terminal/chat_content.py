@@ -22,6 +22,16 @@ logger = logging.getLogger(__name__)
 # 常用画像が軒並み 413 で reject される事故が出たので 2026-06-21 緩和)。
 FILE_SIZE_LIMIT = 20 * 1024 * 1024
 
+# The saved path is typed into a pane, so the sender's extension is kept only when it is plain letters and digits.
+EXTENSION_LENGTH_MAX = 16
+
+
+def _saved_extension(filename: str) -> str:
+    """The extension (with its dot) a saved upload keeps: up to 16 ASCII letters and digits, otherwise none."""
+    extension = Path(filename).suffix
+    plain = extension[1:].isascii() and extension[1:].isalnum() and len(extension) <= EXTENSION_LENGTH_MAX + 1
+    return extension if plain else ""
+
 
 async def save_to_tmp(files: list[UploadFile], session_id: str) -> list[dict]:
     """アップロードされたファイルを uploads/tmp に保存、 セッションごとに追跡。
@@ -52,8 +62,7 @@ async def save_to_tmp(files: list[UploadFile], session_id: str) -> list[dict]:
                 status_code=413,
                 detail=f"file too large: {f.filename!r} {len(data)} bytes (limit {FILE_SIZE_LIMIT})",
             )
-        ext = Path(f.filename or "file").suffix or ""
-        dest = uploads_dir / f"{uuid.uuid4().hex}{ext}"
+        dest = uploads_dir / f"{uuid.uuid4().hex}{_saved_extension(f.filename or 'file')}"
         dest.write_bytes(data)
         session_tmp_files.setdefault(session_id, []).append(dest)
         saved.append({

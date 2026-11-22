@@ -18,7 +18,7 @@ from fastapi import APIRouter, Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
 from backend._common.config import FILE_SIZE_LIMIT, HOME, page_folders, page_origin
-from backend._internal.path_rules import is_denied
+from backend._internal.path_rules import is_denied, is_write_denied
 from backend.documents import convert, pages, strings
 from backend.documents.store import get_store as get_document_store
 from backend._common.errors import raise_error
@@ -499,6 +499,8 @@ def get_page(request: Request, path: str):
 @router.put("/file")
 def put_file(path: str = Body(...), content: str = Body(...)):
     resolved = _resolve_safe(path)
+    if is_write_denied(resolved):
+        raise HTTPException(status_code=403, detail="Access denied")
     if resolved.exists() and not resolved.is_file():
         raise HTTPException(status_code=400, detail="Not a file")
     # 書き込みサイズも GET と同じ上限で塞ぐ。 これがないと tailnet 内ユーザが HOME 配下の

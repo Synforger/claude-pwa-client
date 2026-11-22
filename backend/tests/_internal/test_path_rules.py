@@ -153,3 +153,135 @@ def test_the_file_door_still_reads_and_writes_an_ordinary_file(client, tmp_path)
     res = client.get("/file", params={"path": str(target)})
     assert res.status_code == 200
     assert res.json()["content"] == "hello"
+
+
+@pytest.mark.parametrize("path", [
+    "/home/u/.netrc.bak",
+    "/home/u/.claude.json.backup",
+    "/home/u/.claude.json.tmp.12",
+    "/home/u/.claude-x/backups/any-name",
+    "/home/u/.claude-x/backups/.claude.json.backup.12",
+    "/home/u/.claude-backup-x/projects/a/b.jsonl",
+    "/home/u/.bashrc~",
+    "/home/u/.zshrc.bak-20200101",
+    "/home/u/keep/zshrc.before-change",
+    "/home/u/keep/copy____zshrc",
+    "/home/u/keep/one-claude.json.before-change",
+    "/home/u/app/.env-local",
+    "/home/u/app/.env~",
+    "/home/u/app/env.bak",
+    "/home/u/.ssh.bak/config",
+    "/home/u/.credentials.json.old",
+    "/home/u/app/credentials.toml",
+    "/home/u/app/credentials",
+    "/home/u/app/credentials.json.bak",
+    "/home/u/app/secrets.toml",
+    "/home/u/app/_secrets/token.txt",
+    "/home/u/app/secrets_/token.txt",
+    "/home/u/app/.secrets",
+    "/home/u/app/secrets.bak/token.txt",
+    "/home/u/keep/id_rsa.old",
+    "/home/u/cert.pem.bak",
+    "/home/u/server.key~",
+], ids=lambda _: "path")
+def test_the_rules_refuse_the_related_names(path):
+    assert is_denied(Path(path))
+
+
+@pytest.mark.parametrize("path", [
+    "/home/u/app/.env.example",
+    "/home/u/app/.env-template",
+    "/home/u/app/.npmrc.example",
+    "/home/u/app/secrets.example.toml",
+    "/home/u/app/secrets-notes.md",
+    "/home/u/app/my_secrets_manager.py",
+    "/home/u/app/env.hpp",
+    "/home/u/app/credentials.dart",
+    "/home/u/app/credentials_test.py",
+    "/home/u/sdk/credentials/__init__.py",
+    "/home/u/app/.dockerignore",
+    "/home/u/app/.profiles",
+    "/home/u/app/id_rsa.pub",
+    "/home/u/app/i18n.key.ts",
+    "/home/u/app/notes.backup.md",
+    "/home/u/.claude/projects/a/b.jsonl",
+    "/home/u/backups/photo.png",
+], ids=lambda _: "path")
+def test_the_rules_pass_the_ordinary_names(path):
+    assert not is_denied(Path(path))
+
+
+@pytest.mark.parametrize("path", [
+    "/home/u/.zlogin",
+    "/home/u/.ZLogout",
+    "/home/u/dots/.bash_login",
+    "/home/u/.bash_logout",
+    "/home/u/.tcshrc",
+    "/home/u/.cshrc",
+    "/home/u/.login",
+    "/home/u/.xonshrc",
+    "/home/u/.config/xonsh/rc.xsh",
+    "/home/u/.zlogin.zwc",
+    "/home/u/Library/LaunchAgents/com.example.sample.plist",
+    "/home/u/repo/.git/hooks/pre-commit",
+    "/home/u/repo.git/hooks/update",
+    "/home/u/repo/.git/modules/sub/hooks/post-checkout",
+    "/home/u/repo/.githooks/pre-push",
+    "/home/u/repo/.githooks/lib/shared",
+    "/home/u/.git-hooks/pre-commit",
+    "/home/u/.config/git/hooks/pre-commit",
+    "/home/u/repo/.husky/pre-commit",
+    "/home/u/repo/.claude/hooks/check",
+    "/home/u/.local/bin/sample",
+    "/home/u/bin/sample",
+    "/home/u/app/node_modules/.bin/sample",
+    "/home/u/envs/x/bin/python3.11",
+    "/home/u/.local/share/mise/shims/sample",
+], ids=lambda _: "path")
+def test_the_write_rules_refuse_their_names(path):
+    assert path_rules.is_write_denied(Path(path))
+    assert not is_denied(Path(path))    # reading them is as before
+
+
+@pytest.mark.parametrize("path", [
+    "/home/u/notes/memo.md",
+    "/home/u/app/login.py",
+    "/home/u/app/logins",
+    "/home/u/app/hooks/useThing.js",
+    "/home/u/app/src/hooks/README",
+    "/home/u/repo/.githooks/check.sh",
+    "/home/u/repo/.claude/hooks/check.py",
+    "/home/u/repo/bin/run.sh",
+    "/home/u/app/cabin/notes",
+    "/home/u/Documents/com.example.sample.plist",
+    "/home/u/.gitconfig",
+    "/home/u/.tmux.conf",
+    "/home/u/.config/fish/config.fish",
+    "/home/u/.claude/settings.json",
+    "/home/u/repo/Makefile",
+    "/home/u/repo/bin/Makefile",
+], ids=lambda _: "path")
+def test_the_write_rules_pass_the_other_names(path):
+    assert not path_rules.is_write_denied(Path(path))
+
+
+def test_the_write_rules_hold_what_the_rules_refuse():
+    assert path_rules.is_write_denied(Path("/home/u/.zshrc"))
+
+
+def test_the_file_route_refuses_only_the_write_of_those_names(client, tmp_path):
+    target = tmp_path / "bin" / "sample"
+    target.parent.mkdir()
+    target.write_text("as before\n")
+    assert client.get("/file", params={"path": str(target)}).status_code == 200
+    res = client.put("/file", json={"path": str(target), "content": "x"})
+    assert res.status_code == 403
+    assert target.read_text() == "as before\n"
+
+
+@pytest.mark.skipif(not ON_MACOS, reason="the file system's own name is read on macOS")
+def test_the_write_rules_follow_the_file_system_s_name(tmp_path):
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin" / "sample").write_text("x")
+    (tmp_path / "tools").symlink_to(tmp_path / "bin")
+    assert path_rules.is_write_denied(tmp_path / "tools" / "sample")

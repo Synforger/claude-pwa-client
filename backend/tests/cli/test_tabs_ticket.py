@@ -219,8 +219,34 @@ def test_a_failure_goes_to_stderr_with_the_heading_and_the_code_and_ends_with_1(
     (500, {}, ticket.UNCONFIRMED_CODE),
 ])
 def test_an_answer_with_no_code_gets_one_that_says_whether_the_line_may_be_in_the_ticket(tab, capsys, status, body, code):
-    assert ticket.run(["show", "id"], _Calls(status=status, body=body)) == 1
+    assert ticket.run(["close", "id"], _Calls(status=status, body=body)) == 1
     assert f"[{code}]" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("words", [["show", "id"], ["mine"], ["mine", "--unsettled"]])
+@pytest.mark.parametrize(("status", "body"), [
+    (0, {"detail": {"message": "refused", "may_have_arrived": False}}),
+    (0, {"detail": {"message": "timed out", "may_have_arrived": True}}),
+    (500, {}),
+])
+def test_a_command_that_only_reads_never_says_a_ticket_may_have_been_written(tab, capsys, words, status, body):
+    """The incident: `tabs ticket mine` was cut by a stop of the backend and printed `[ticket_unconfirmed] HTTP 500 {}`, which
+    says a line may be in a ticket; a read changed nothing, and sending it again is what to do."""
+    ticket.run(words, _Calls(status=status, body=body))
+    err = capsys.readouterr().err
+    assert f"[{ticket.NOT_READ_CODE}]" in err and "何も変わっていません" in err and "もう一度打って" in err
+    assert "書けている" not in err and ticket.UNCONFIRMED_CODE not in err and ticket.NOT_SENT_CODE not in err
+
+
+@pytest.mark.parametrize(("words", "code"), [
+    (["show", "id"], "ticket_backend_stopping"), (["mine"], "ticket_backend_stopping"),
+    (["close", "id"], "ticket_not_sent"), (["add", "id", "{f}"], "ticket_unconfirmed"),
+])
+def test_the_code_the_backend_answers_at_a_stop_is_printed_as_it_is_with_its_sentence(tab, tmp_path, capsys, words, code):
+    body = {"detail": {"code": code, "message": "backend が止まる所です", "params": {"reason": "backend_stopping"}}}
+    words = [str(_file(tmp_path, "f.txt", "x")) if w == "{f}" else w for w in words]
+    assert ticket.run(words, _Calls(status=503, body=body)) == 1
+    assert f"[{code}]: backend が止まる所です\n" in capsys.readouterr().err
 
 
 # --- --due and --waiting ---
@@ -341,7 +367,7 @@ def test_unsettled_lists_the_open_writable_tickets_the_tab_has_not_written_to_an
 
 def test_unsettled_ends_with_3_when_it_could_not_look(tab, capsys):
     assert ticket.run(["mine", "--unsettled"], _Calls(status=0, body={"detail": {"message": "refused"}})) == 3
-    assert "[ticket_not_sent]" in capsys.readouterr().err
+    assert "[ticket_not_read]" in capsys.readouterr().err
 
 
 def test_the_refusal_a_rollover_uses_is_the_same_sentence_for_the_same_tickets(tab, tmp_path):

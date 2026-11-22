@@ -117,13 +117,24 @@ def _note_queue_on_unconfirmed(
 
 
 
+def _may_have_terminal(session_id: str) -> bool:
+    """Whether the terminal's door serves this id: a tab, or an agent of the configuration."""
+    return session_id in _config.AGENTS or session_id in sessions_meta
+
+
+async def _refuse_socket(ws: WebSocket, code: int, reason: str, message: str | None = None) -> None:
+    try:
+        await ws.send_text(json.dumps({"type": "error", "message": message or reason}))
+    finally:
+        await ws.close(code=code, reason=reason)
+
+
 @router.websocket("/ws/pty/{session_id}")
 async def pty_socket(ws: WebSocket, session_id: str) -> None:
     await ws.accept()
     # 未知 session_id を弾く (= 任意 sid で backend cwd の zsh を起こさない)。
-    if session_id not in _config.AGENTS and session_id not in sessions_meta:
-        await ws.send_text(json.dumps({"type": "error", "message": "unknown session"}))
-        await ws.close(code=4004, reason="unknown session")
+    if not _may_have_terminal(session_id):
+        await _refuse_socket(ws, 4004, "unknown session")
         return
 
     # scrollback の自動復元は無効化 (= 2026-05-21 再試行で描画破綻、 旧症状再発)。
@@ -149,10 +160,14 @@ async def pty_socket(ws: WebSocket, session_id: str) -> None:
                 exit_event=asyncio.Event(),
             )
 
-    # 見てから立てるまでは、 チャット画面の接続 (= ensure_pty_session_for) と 1 本の並び
+    # 見てから立てるまでは、 チャット画面の接続 (= ensure_pty_session_for) と、 タブを閉じる口と 1 本の並び。
+    # 接続へは並びを抜けてから返す (= 遅い画面が、 立てる物と閉じる物を待たせない)
+    refusal: tuple[int, str, str] | None = None    # (code, reason, message)
     async with spawn_lock(session_id):
         session = pty_sessions.get(session_id)
-        if session is None or session.exit_event.is_set():
+        if not _may_have_terminal(session_id):
+            refusal = (4004, "unknown session", "unknown session")
+        elif session is None or session.exit_event.is_set():
             # backend 再起動跨ぎ: in-memory PtySession は空でも tmux server には pwa-<sid> が
             # 生き残ってる場合がある (= 既存 claude TUI が継続中)。 そのまま autoresume の
             # launch_alias / fallback_alias を渡して spawn すると、 spawn_pty_session 内の
@@ -172,21 +187,23 @@ async def pty_socket(ws: WebSocket, session_id: str) -> None:
                 launch_alias = _resolve_launch_alias(session_id)
                 fallback_alias = _resolve_autoresume_fallback(session_id)
             try:
-                from backend.terminal.session_resolver import resolve_extra_env  # noqa: PLC0415
-                extra_env = resolve_extra_env(session_id, cfg)
-                session = await spawn_pty_session(
-                    session_id, cwd=cwd, launch_alias=launch_alias,
-                    fallback_alias=fallback_alias,
-                    extra_env=extra_env,
-                )
+                if not _may_have_terminal(session_id):    # closed while tmux was asked
+                    refusal = (4004, "unknown session", "unknown session")
+                else:
+                    from backend.terminal.session_resolver import resolve_extra_env  # noqa: PLC0415
+                    extra_env = resolve_extra_env(session_id, cfg)
+                    session = await spawn_pty_session(
+                        session_id, cwd=cwd, launch_alias=launch_alias,
+                        fallback_alias=fallback_alias,
+                        extra_env=extra_env,
+                    )
+                    pty_sessions[session_id] = session
             except Exception as e:
                 logger.exception("PTY spawn failed session=%s", session_id)
-                try:
-                    await ws.send_text(json.dumps({"type": "error", "message": str(e)}))
-                finally:
-                    await ws.close(code=4002, reason="spawn failed")
-                return
-            pty_sessions[session_id] = session
+                refusal = (4002, "spawn failed", str(e))
+    if refusal is not None:
+        await _refuse_socket(ws, *refusal)
+        return
 
     # The client's first size must reach tmux before the screen is captured, so the input
     # side starts first. send_connect_snapshot drops the backlog that built up while no
@@ -575,7 +592,8 @@ async def interrupt_for_voice(session_id: str) -> bool:
 async def _stop(session_id: str) -> bool:
     """停止ボタン: Escape で turn を止め、 claude が入力欄へ戻した文 (= 取り消した発話と、 待っていた発話) を消す。
 
-    Escape は本文の送信の後ろに並ばせず、 すぐ打つ (= 停止が遅れる害の方が大きい)。 消すのは、 claude が受け終える
+    Escape は本文の送信の後ろに並ばせず、 すぐ打つ (= 停止が遅れる害の方が大きい。 待つのは、 今打っている打鍵の
+    列だけ = `pane_order.in_typing_order`)。 消すのは、 claude が受け終える
     のを見届けてから、 本文の送信と順番に (= 送っている途中の本文を、 Enter の前に消さない)。
 
     ⚠ 作業中の印 (= busy) に関わらず、 毎回見届ける。 送った直後はまだ印が立たず、 印を見て待たずに消した間は、

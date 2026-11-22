@@ -76,7 +76,17 @@ tabs ticket pass <id> <宛先>                            # 票の持ち主を�
 | `ticket_check_failed` | 検査コマンドが動きませんでした。 もう一度試し、 続く時は設定を確かめてください |
 | `ticket_check_missing` | 連絡を検査する機械 (`agent_message_check` がある) で、 票の検査コマンドの鍵が設定にありません。 設定に書いて backend を起動し直すまで、 その段は断ります |
 | `agent_message_*` | `pass` で宛先に届ける道の失敗です。 意味と次の手は [tabs の skill](../../skills/tabs/SKILL.md) の表と同じです |
-| `ticket_not_sent` / `ticket_unconfirmed` | backend に繋がらない / 答えを受け取れませんでした。 前者は何も書いていません。 後者は `show` で確かめてから、 やり直してください |
+| `ticket_backend_stopping` | backend が止まる所でした。 読む命令 (`show`・`mine`) は何も変えていないので、 backend が起動し直してから同じ命令をもう一度打ちます |
+| `ticket_not_sent` | 書く命令が、 何かを書く前・送る前に止まりました (= backend が止まる所だった時は `params.reason` が `backend_stopping`)、 または backend に繋がりませんでした。 何も書いていないので、 そのまま打ち直します |
+| `ticket_unconfirmed` | 書く命令が、 別の機械や宛先のタブへ呼びかけた後で止まりました、 または答えを受け取れませんでした。 書けているかもしれないので、 `show` で確かめてから打ち直します |
+| `ticket_not_read` | 読む命令 (`show`・`mine`) が答えを受け取れませんでした (= code の無い失敗)。 読むだけなので何も変わっていません。 少し待って打ち直します |
+
+### backend が止まる所だった時
+
+止める合図を受けると、 票の口は検査コマンドと別の機械の答えを待つのをやめ、 止まる猶予 (数秒) の中で答えます。 読む口は
+`ticket_backend_stopping`、 書く口は、 何も書く前なら `ticket_not_sent`、 別の機械や宛先のタブへ呼びかけた後なら
+`ticket_unconfirmed` です (どれも `params.reason` は `backend_stopping`)。 ファイルへの書き込みは数回の操作なので切らず、
+書けたら書けたと答えます。 `mine` は票を同時に (4 枚ずつ) 見るので、 票が多くても 1 枚ずつ見た時の長さにはなりません。
 
 ## 票の形と置き場
 

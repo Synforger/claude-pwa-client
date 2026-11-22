@@ -337,6 +337,17 @@ async def _tell_the_held(wanted: list[tuple[bool, float, str, str, int, str]]) -
     return shells_of
 
 
+def _moved_since(sid: str, key: str, written: float) -> bool:
+    """Whether the tab is at work now, or its record moved since `written` was read of it: what "quiet" rests on, read
+    again just before a quiet tab is typed into. A record that cannot be read counts as moved."""
+    if is_busy(sid) or sid in _started:
+        return True
+    try:
+        return last_written(Path(key)) != written
+    except OSError:
+        return True
+
+
 async def tick() -> str | None:
     """Look over every tab once and ask one tab at most: a new ask first, else once more a tab whose close stalled.
     → the id of the tab asked (None when none was)."""
@@ -349,6 +360,7 @@ async def tick() -> str | None:
     wanted: list[tuple[bool, float, str, str, int, str]] = []   # (静かでないか, −静かな分数, タブ, 理由, 割合, 記録)
     stalled: list[tuple[float, str, int, str]] = []            # (- quiet minutes, tab, context %, record)
     closing = False
+    written: dict[str, float] = {}      # each record's last write as this look read it
     for sid in list(sessions_meta):
         cfg = settings_for(sid)
         record = jsonl_watcher.get_jsonl_for(sid) if cfg is not None else None
@@ -357,7 +369,8 @@ async def tick() -> str | None:
         key = str(record)
         records.add(key)
         try:
-            idle_minutes = (now - last_written(record)) / 60
+            written[key] = last_written(record)
+            idle_minutes = (now - written[key]) / 60
         except OSError:
             continue
         busy = is_busy(sid) or sid in started
@@ -391,6 +404,8 @@ async def tick() -> str | None:
         if shells:
             _log_held(sid, key, reason, shells)
             continue
+        if reason == "idle" and _moved_since(sid, key, written[key]):
+            continue
         _held.pop(key, None)
         await _ask(sid, key, reason, pct, int(-minus_idle), now, again=False)
         return sid
@@ -401,7 +416,7 @@ async def tick() -> str | None:
         if lapsed:
             _log_lapse(sid, key, facts)
             continue
-        if not is_stalled or facts.rollover_asks != 1:
+        if not is_stalled or facts.rollover_asks != 1 or _moved_since(sid, key, written[key]):
             continue
         # Asked again with its quiet minutes: the screen reads the reason as `idle` or `context` only
         await _ask(sid, key, "idle", pct, int(facts.quiet_minutes or -minus_idle), now, again=True)
