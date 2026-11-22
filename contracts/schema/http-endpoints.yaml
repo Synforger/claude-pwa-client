@@ -1879,6 +1879,7 @@ endpoints:
       - "an API tab's events (jsonl channel) and its context_tokens (overview) follow the rows appended to its record file, looked at every 0.5 s. Rows already there when the backend started are not streamed; a file that appears later is read from 0; a file that got shorter, or vanished, is read from 0 again and history_refetch is sent"
       - "jsonl frame = {ch, pos, ev}。 ev は sse-events.yaml の event そのまま (= schema 変更なし)、 pos は行末実 byte 位置 (= null は ephemeral)"
       - "接続時 warmup (= PTY ensure) + replay は購読 sid のみ (= 全 sid sweep なし)"
+      - "replay は過去の行なので GET /jsonl/history と同じに tool_result を縮める (= 画像の本体なし・長い本文は冒頭と full_chars)。 client は GET で受け取り終えた位置と offset の先の方を replay の offset に渡す"
       - "replay の offset は GET /jsonl/history の since と同じ窓で読む。 offset の直後の行から欠けずに流せなかった時は、 その sid の frame の先頭に history_refetch event を 1 つ載せる (= offset を持たない購読には載せない)"
       - "query `conn` (= client 生成 id) 必須、 `view` で視認中 sid を同時申告可"
       - "keep-alive は {ch:sys,_hb:1} を 25s 間隔"

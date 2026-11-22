@@ -163,6 +163,44 @@ describe('unified transport', () => {
     unsub()
   })
 
+  it('the stream starts after what the history GET brought, and that position is never saved', async () => {
+    localStorage.setItem('cpc_v2_jsonl_offsets', JSON.stringify({ ses_b: 55 }))
+    const { unifiedTransport, unifiedJsonl } = await freshTransport()
+    const unsub = unifiedJsonl.subscribe(() => {})
+    FakeEventSource.instances.at(-1).open()
+    unifiedJsonl.confirmHistory('ses_b', 900)
+    unifiedJsonl.setSubscribedSids(['ses_b'])
+    await vi.advanceTimersByTimeAsync(10)
+    expect(apiCalls.list.find(([, opts]) => opts.jsonBody.op === 'jsonl')[1].jsonBody.sids).toEqual([{ sid: 'ses_b', from: 900 }])
+    unifiedTransport.bumpReconnect()
+    expect(decodeURIComponent(FakeEventSource.instances.at(-1).url)).toContain('jsonl=ses_b:900')
+    unifiedJsonl.flushOffsets()
+    expect(JSON.parse(localStorage.getItem('cpc_v2_jsonl_offsets'))).toEqual({ ses_b: 55 })
+    expect(unifiedJsonl.getOffset('ses_b')).toBe(55)
+    unsub()
+  })
+
+  it('the stream starts after the live frames once they are further than the history', async () => {
+    const { unifiedTransport, unifiedJsonl } = await freshTransport()
+    const unsub = unifiedJsonl.subscribe(() => {})
+    const es = FakeEventSource.instances.at(-1)
+    es.open()
+    unifiedJsonl.confirmHistory('ses_b', 900)
+    unifiedJsonl.setSubscribedSids(['ses_b'])
+    es.emit({ ch: 'jsonl', pos: 1200, ev: { sid: 'ses_b', type: 'assistant' } })
+    unifiedTransport.bumpReconnect()
+    expect(decodeURIComponent(FakeEventSource.instances.at(-1).url)).toContain('jsonl=ses_b:1200')
+    expect(unifiedJsonl.getConfirmed('ses_b')).toBe(900)   // a frame confirms nothing
+    unsub()
+  })
+
+  it('resetOffset forgets what was confirmed too', async () => {
+    const { unifiedJsonl } = await freshTransport()
+    unifiedJsonl.confirmHistory('ses_b', 900)
+    unifiedJsonl.resetOffset('ses_b')
+    expect(unifiedJsonl.getConfirmed('ses_b')).toBeNull()
+  })
+
   it('control 404 (= backend 再起動で conn 消失) で張り直す', async () => {
     const { unifiedJsonl, unifiedViews } = await freshTransport()
     const unsub = unifiedJsonl.subscribe(() => {})

@@ -6,19 +6,28 @@
 // The backend says whether the window reached the line right after the screen's position (`since`)
 // with `reached`; when it did not, the cache is dropped and the screen is rebuilt from the
 // returned events alone.
+//
+// `after` is how far an earlier fetch on this screen got (transport's confirmed position): the backend
+// then returns only the lines behind it, and the same `reached` rule holds.
 import { apiFetch } from '../../_common/api.js'
 import { LS_MESSAGES_V2_PREFIX } from '../../_common/constants.js'
 
-/** Path of the history request. `since` (the screen's offset for the tab) is left out when unknown; 0 is a valid position. */
-export function historyPath(sid, since) {
+/**
+ * Path of the history request. `since` (the screen's offset for the tab) and `after` (what an earlier fetch on this
+ * screen took in) are left out when unknown; 0 is a valid position.
+ */
+export function historyPath(sid, since, after) {
+  const params = [['since', since], ['after', after]]
+    .filter(([, pos]) => Number.isFinite(pos) && pos >= 0)
+    .map(([name, pos]) => `${name}=${Math.floor(pos)}`)
   const base = `/jsonl/history/${encodeURIComponent(sid)}`
-  return Number.isFinite(since) && since >= 0 ? `${base}?since=${Math.floor(since)}` : base
+  return params.length > 0 ? `${base}?${params.join('&')}` : base
 }
 
 /** Fetches the history as `{ events, pos, reached }`; null when it could not be fetched (the stream replay fills in). */
-export async function fetchHistory(sid, since) {
+export async function fetchHistory(sid, since, after) {
   try {
-    const response = await apiFetch(historyPath(sid, since))
+    const response = await apiFetch(historyPath(sid, since, after))
     if (!response || !response.ok) return null
     const data = await response.json().catch(() => null)
     return data && Array.isArray(data.events) ? data : null

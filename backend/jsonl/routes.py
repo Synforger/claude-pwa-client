@@ -224,6 +224,7 @@ def get_chat_history(
     session_id: str,
     from_pos: int | None = Query(None, alias="from"),
     since: int | None = Query(None, ge=0),
+    after: int | None = Query(None, ge=0),
 ) -> dict:
     """チャット履歴の権威スナップショットを 1 発 GET で返す (= client=射影の「状態は GET」 経路)。
 
@@ -232,7 +233,10 @@ def get_chat_history(
     byte 位置 (= stream 購読の起点にすれば replay 重複が消える)。 GET は stream とは別リクエスト
     なので、 stream が復帰し損ねても履歴は必ず取れる。
 
-    窓は 3 通り。 since (= 画面が描き終えた位置) 指定ありは、 直近 N 行の頭と since の早い方から (= 画面を
+    窓は 4 通り。 after (= 画面が開いてから、 履歴の GET で受け取り終えた位置) 指定ありは、 その位置より後ろの
+    行だけ (= since より先に効く。 since と違い stream の frame では進まないので、 直近 N 行を重ねて取り直さなくて
+    よい)。 ただし届かなければ since と同じ窓で reached は False。 API のタブには効かない (= 記録が別の file に
+    置き換わり、 位置が同じ中身を指すとは限らない)。 since (= 画面が描き終えた位置) 指定ありは、 直近 N 行の頭と since の早い方から (= 画面を
     閉じている間に N 行を超えて書かれても、 画面の中に穴が空かない)。 ただし HISTORY_CATCH_UP_LINES 行を
     超えない。 from (= 描画・永続化した offset) 指定ありはその位置以降。 どちらも無い / 無効 (= 初回 /
     cache 消失) は直近 N 行。 `reached` は窓が since の直後の行から欠けずに届いたか (= False なら画面の
@@ -245,7 +249,14 @@ def get_chat_history(
     segs = api_tabs.record_segments(session_id)
     if segs is None:
         segs = chain.segments(session_id, _latest_jsonl(session_id))
-    if since is not None:
+    else:
+        after = None
+    if after is not None:
+        window = chain.read_window(segs, after, INITIAL_REPLAY_LINES, HISTORY_CATCH_UP_LINES)
+        pairs, end_pos, reached = window.lines, window.end, window.reached
+        if reached:
+            pairs = window.after(after)
+    elif since is not None:
         window = chain.read_window(segs, since, INITIAL_REPLAY_LINES, HISTORY_CATCH_UP_LINES)
         pairs, end_pos, reached = window.lines, window.end, window.reached
     else:
