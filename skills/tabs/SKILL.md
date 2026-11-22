@@ -134,6 +134,9 @@ labelled `From <tab name>`. The envelope carries the sender's tab name and `sess
 `agent_message_peers`. Every tab of the other machine that you may message is listed, whether or not a Claude runs in it,
 and the state is the same word as for a tab of this machine (what the running Claude is doing, `眠り`, `未起動` or
 `起こせない`). A line from a machine that does not answer is `<machine>:  別の機械  一覧を取れません (<reason>)`.
+When this tab may not message that machine, a line
+`<machine>:  別の機械  <why>` comes ahead of its tabs. What is judged is the account the tab belongs to, not the one it
+runs on while the account fallback has moved it, which is the account `tabs list` shows.
 Address them as `<machine>:<id>` (or `<machine>:<tab name>`) in the same `tabs send`.
 Such notes go through the guard as if the sender had read no protected material, and never carry
 `--operator-said`. Use `tabs send` for them and not a direct call to the other backend. Extra codes:

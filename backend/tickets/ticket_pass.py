@@ -20,6 +20,7 @@ from backend.routes.agent_messages import (
     NOT_SENT_CODE,
     NOT_SENT_MESSAGE,
     allowed_for_peer,
+    peer_refusal_message,
     check,
     deliver_or_keep,
     envelope,
@@ -183,7 +184,7 @@ async def _tell(ticket: str, sender: Party, receiver: Party, receiver_id: str | 
     peer = _config.AGENT_MESSAGE_PEERS[receiver.machine]
     if sender.machine is None:
         if not allowed_for_peer(peer, sender.tab):
-            raise_error(403, "agent_message_peer_not_allowed", f"このタブは {receiver.machine} の機械と連絡できません",
+            raise_error(403, "agent_message_peer_not_allowed", peer_refusal_message(receiver.machine, sender.tab),
                         peer=receiver.machine)
     if _config.AGENT_MESSAGE_CHECK:
         name = f"{receiver.machine}:{receiver.tab}"

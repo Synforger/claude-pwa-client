@@ -836,6 +836,18 @@ def test_the_tabs_of_each_peer_are_listed_for_a_caller_on_this_machine(client, t
     assert _from_peer("100.64.0.2").get("/agent-messages/peers").json()["detail"]["code"] == "agent_message_local_only"
 
 
+def test_a_tab_running_on_another_account_for_now_is_told_why_it_may_not_message_the_machine(
+        client, tabs, work_tab, monkeypatch, tmp_path):
+    _peers(monkeypatch, tmp_path)
+    tabs[work_tab].account_id, tabs[work_tab].fallback_from = "personal", "work"
+    monkeypatch.setattr(peer_call, "_call_peer", lambda url, payload, timeout: (200, {"tabs": [{"id": "ses_far"}]}))
+    peer = client.get("/agent-messages/peers", params={"from": work_tab}).json()["peers"][0]
+    assert peer["tabs"] == [{"id": "ses_far"}]
+    assert "本来の口座=work" in peer["refusal"] and "今 personal" in peer["refusal"]
+    tabs[work_tab].fallback_from = None
+    assert "refusal" not in client.get("/agent-messages/peers", params={"from": work_tab}).json()["peers"][0]
+
+
 def test_two_machines_carry_a_message_end_to_end(client, tabs, typed, monkeypatch, tmp_path):
     """送る側の口と受ける側の口を繋ぐ (= 相手の backend の代わりに、 同じ app を相手の接続元から呼ぶ)。"""
     _peers(monkeypatch, tmp_path)

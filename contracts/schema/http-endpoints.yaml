@@ -1671,6 +1671,8 @@ endpoints:
   - method: GET
     path: /agent-messages/peers
     description: "設定された相手の機械と、 そこで連絡してよいタブの一覧 (= 眠っているタブ・claude の居ないタブも、 状態を決める欄つきで)"
+    request_query:
+      from: { type: string, description: "the asking tab's id (optional): a machine it may not talk to then carries refusal" }
     response:
       type: object
       properties:
@@ -1682,6 +1684,7 @@ endpoints:
               name:  { type: string }
               tabs:  { type: array, nullable: true, description: "繋がらない相手は null" }
               error: { type: string, nullable: true }
+              refusal: { type: string, description: "why the asking tab may not talk to that machine; absent when it may" }
             required: [name]
       required: [peers]
     response_kind: json

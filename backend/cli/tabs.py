@@ -368,7 +368,8 @@ def listing() -> int:
 
 def others() -> None:
     """別の機械のタブを並べる (= 相手が設定されていない backend、 その口を持たない古い backend では何も出さない)。"""
-    status, body = call("/agent-messages/peers")
+    me = os.environ.get("PWA_SID")
+    status, body = call("/agent-messages/peers" + (f"?{urllib.parse.urlencode({'from': me})}" if me else ""))
     if status == 200 and isinstance(body, dict):
         for line in peer_tab_lines(body.get("peers") or []):
             print(line)
