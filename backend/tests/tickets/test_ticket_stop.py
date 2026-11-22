@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from unittest.mock import AsyncMock
 
 import httpx2
 import pytest
@@ -228,7 +229,7 @@ def test_a_pass_whose_notice_was_not_typed_before_the_stop_is_not_sent(ticket_en
         raise refusal_with_reason(503, "agent_message_not_sent")
 
     monkeypatch.setattr(ticket_pass, "deliver_or_keep", stopped)
-    monkeypatch.setattr(ticket_pass, "tab_reachable", lambda tab_id: True)
+    monkeypatch.setattr(ticket_pass, "tab_reachable", AsyncMock(return_value=True))
     (code, detail, _took) = run(_door("POST", f"/tickets/{ticket}/pass", stop=False, **{"from": "ses_a", "to": "ses_b"}))
     assert code == NOT_SENT and detail["params"]["reason"] == STOPPING and ticket_index.get(ticket).holder == "ses_a"
 
@@ -240,14 +241,14 @@ def test_a_pass_whose_notice_may_have_been_typed_before_the_stop_may_have_been_d
         raise refusal_with_reason(500, "agent_message_unconfirmed")
 
     monkeypatch.setattr(ticket_pass, "deliver_or_keep", stopped)
-    monkeypatch.setattr(ticket_pass, "tab_reachable", lambda tab_id: True)
+    monkeypatch.setattr(ticket_pass, "tab_reachable", AsyncMock(return_value=True))
     (code, _detail, _took) = run(_door("POST", f"/tickets/{ticket}/pass", stop=False, **{"from": "ses_a", "to": "ses_b"}))
     assert code == UNCONFIRMED and ticket_index.get(ticket).holder == "ses_a"
 
 
 def test_a_check_that_failed_because_the_backend_was_stopping_is_not_sent(ticket_env, monkeypatch):
     ticket = outside_ticket()
-    monkeypatch.setattr(ticket_pass, "tab_reachable", lambda tab_id: True)
+    monkeypatch.setattr(ticket_pass, "tab_reachable", AsyncMock(return_value=True))
 
     async def check(tab_id, text):
         stop_signal.end_work()
@@ -260,7 +261,7 @@ def test_a_check_that_failed_because_the_backend_was_stopping_is_not_sent(ticket
 
 def test_a_check_that_failed_while_the_backend_runs_keeps_its_own_code(ticket_env, monkeypatch):
     ticket = outside_ticket()
-    monkeypatch.setattr(ticket_pass, "tab_reachable", lambda tab_id: True)
+    monkeypatch.setattr(ticket_pass, "tab_reachable", AsyncMock(return_value=True))
 
     async def check(tab_id, text):
         raise refusal(503, "agent_message_check_failed")
