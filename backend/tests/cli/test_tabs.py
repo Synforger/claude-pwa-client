@@ -106,7 +106,7 @@ class Backend:
                     return self.reply(*backend.answers.get("held", (404, {})))
                 if method == "GET" and self.path == "/agent-messages/local-tabs":
                     return self.reply(200, {"tabs": backend.local_tabs})
-                if method == "GET" and self.path == "/agent-messages/peers" and backend.peers is not None:
+                if method == "GET" and self.path.split("?")[0] == "/agent-messages/peers" and backend.peers is not None:
                     return self.reply(200, {"peers": backend.peers})
                 if method == "POST" and self.path == "/tier-tabs":
                     if backend.answers.get("tier-tabs", 200) != 200:
@@ -814,6 +814,15 @@ def test_the_listing_shows_the_tabs_of_another_machine_with_their_state_whether_
     other = [line.split("  ") for line in tabs.out.splitlines() if line.startswith("company:")]
     assert other == [["company:ses_busy", "別の機械", "busy", "builder"], ["company:ses_nap", "別の機械", "眠り", "番人"],
                      ["company:ses_new", "別の機械", "未起動", "fresh"], ["company:ses_dead", "別の機械", "起こせない", "stuck"]]
+
+
+def test_the_listing_puts_the_reason_ahead_of_a_machine_this_tab_may_not_message(tabs):
+    tabs.backend.tabs = [{"id": "ses_parent", "title": "main", "agent_id": "agent_a", "child": False, "parent_id": None}]
+    tabs.backend.peers = [{"name": "home", "error": None, "refusal": "why", "tabs": [
+        {"id": "ses_far", "title": "notes", "running": True, "status": "busy", "asleep": False}]}]
+    assert tabs.run("list") == 0
+    other = [line for line in tabs.out.splitlines() if line.startswith("home:")]
+    assert other == ["home:  別の機械  why", "home:ses_far  別の機械  busy  notes"]
 
 
 def test_the_listing_shows_an_api_tab_with_the_state_api_no_tier_and_its_name_as_it_is(tabs):

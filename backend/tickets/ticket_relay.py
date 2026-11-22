@@ -18,7 +18,7 @@ from backend._common.state import sessions_meta
 from backend.peers import peer_health
 from backend.peers.peer_call import PEER_LIST_TIMEOUT_SEC, PEER_TABS_PATH, TICKETS_PATH, PeerReply, call_peer
 from backend.peers.peer_health_judgement import unreachable_message
-from backend.routes.agent_messages import allowed_for_peer, judge, split_peer
+from backend.routes.agent_messages import allowed_for_peer, judge, peer_refusal_message, split_peer
 from backend.tickets import relay_judgement
 from backend.tickets.relay_judgement import HERE
 
@@ -75,7 +75,7 @@ async def _carry(op: str, name: str, peer: dict, path: str, payload: dict | None
 def _may_talk_to(home: Home, sender: str) -> None:
     """The tab's account may talk to that machine (= the peer's `accounts`, as for a message)."""
     if not allowed_for_peer(home.peer, sender):
-        raise_error(403, "agent_message_peer_not_allowed", f"このタブは {home.name} の機械と連絡できません", peer=home.name)
+        raise_error(403, "agent_message_peer_not_allowed", peer_refusal_message(home.name, sender), peer=home.name)
 
 
 async def _judged(home: Home, ticket: str, text: str) -> None:

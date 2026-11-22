@@ -926,6 +926,8 @@ export interface GetAgentMessagesPeersResponse {
       /** 繋がらない相手は null */
       tabs?: unknown[] | null
       error?: string | null
+      /** why the asking tab may not talk to that machine; absent when it may */
+      refusal?: string
     })[]
 }
 

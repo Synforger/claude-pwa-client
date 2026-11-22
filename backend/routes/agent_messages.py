@@ -53,7 +53,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Form, HTTPException, Request
+from fastapi import APIRouter, Body, Form, HTTPException, Query, Request
 
 from backend._common.local_door import require_this_machine
 from backend.jsonl.jsonl_predicates import (
@@ -389,6 +389,17 @@ def allowed_for_peer(peer: dict, tab_id: str) -> bool:
     return accounts is None or (meta.fallback_from or meta.account_id or default_account_id()) in accounts
 
 
+def peer_refusal_message(peer_name: str, tab_id: str) -> str:
+    """Why a tab may not talk to that machine, for the refusal and for `tabs list`. It names the account the tab
+    belongs to, which is what is judged: the one it runs on for now is the one the listing shows."""
+    from backend._common.config import default_account_id  # noqa: PLC0415
+    meta = sessions_meta[tab_id]
+    running_on = meta.account_id or default_account_id()
+    own = meta.fallback_from or running_on
+    for_now = f"。 今 {running_on} で動いているのは一時の移しで、 判定には使いません" if own != running_on else ""
+    return f"このタブは {peer_name} の機械と連絡できません (本来の口座={own}{for_now})"
+
+
 def peer_of_caller(request: Request) -> tuple[str, dict] | None:
     """呼び出しの接続元が、 設定された相手の物ならその (名前, 設定)。"""
     from backend._common.config import AGENT_MESSAGE_PEERS  # noqa: PLC0415
@@ -541,8 +552,7 @@ async def send_to_peer(peer_name: str, tab: str, sender: str, text: str) -> dict
     peer = AGENT_MESSAGE_PEERS[peer_name]
     name = f"{peer_name}:{tab}"
     if not allowed_for_peer(peer, sender):
-        raise_error(403, "agent_message_peer_not_allowed",
-                    f"このタブは {peer_name} の機械と連絡できません", peer=peer_name)
+        raise_error(403, "agent_message_peer_not_allowed", peer_refusal_message(peer_name, sender), peer=peer_name)
     if AGENT_MESSAGE_CHECK:
         await judge(name, text, name)
     # From the call on, the other machine may have delivered the message whatever happens to the answer.
@@ -702,10 +712,12 @@ async def get_local_tabs(request: Request) -> dict:
 
 
 @router.get("/agent-messages/peers")
-async def get_peers(request: Request) -> dict:
+async def get_peers(request: Request, caller: str | None = Query(None, alias="from")) -> dict:
     """設定された相手の機械と、 そこで連絡を受けられるタブの一覧 (= 同じ機械の中からだけ呼べる)。
 
     繋がらない相手は `tabs` が null で、 `error` に理由が入る。
+    With `from` (= the tab that asks), a machine that tab may not talk to carries `refusal`, the sentence of the refusal.
+    Its tabs are still listed: the listing also tells which tabs of the other machine exist.
     """
     from backend._common.config import AGENT_MESSAGE_PEERS  # noqa: PLC0415
     require_this_machine(request, "agent_message_local_only")
@@ -718,4 +730,6 @@ async def get_peers(request: Request) -> dict:
             detail = reply.body.get("detail") if isinstance(reply.body.get("detail"), dict) else {}
             peers.append({"name": name, "tabs": None,
                           "error": detail.get("code") or ("unreachable" if reply.status is None else f"http_{reply.status}")})
+        if caller in sessions_meta and not allowed_for_peer(peer, caller):
+            peers[-1]["refusal"] = peer_refusal_message(name, caller)
     return {"peers": peers}

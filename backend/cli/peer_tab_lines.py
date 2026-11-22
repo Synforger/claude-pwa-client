@@ -9,10 +9,13 @@ OTHER_MACHINE = "別の機械"
 
 def peer_tab_lines(peers: list) -> list[str]:
     """`GET /agent-messages/peers` の `peers` から行を作る。 行の頭は `<機械>:<タブの id>` (= 起動の検査がこの形を読む)、
-    続けて状態の語と名前。 眠っているタブ・claude の居ないタブも並べる。"""
+    続けて状態の語と名前。 眠っているタブ・claude の居ないタブも並べる。
+    A machine the asking tab may not talk to gets a line with the reason ahead of its tabs."""
     lines = []
     for peer in peers:
         name = peer.get("name")
+        if peer.get("refusal"):
+            lines.append(f"{name}:  {OTHER_MACHINE}  {peer['refusal']}")
         if peer.get("tabs") is None:
             lines.append(f"{name}:  {OTHER_MACHINE}  一覧を取れません ({peer.get('error')})")
             continue
