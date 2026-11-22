@@ -349,20 +349,55 @@ def test_the_window_is_open_while_the_screen_shows_it_and_is_forgotten_after_two
     _run(run())
 
 
-def test_the_selection_prompt_of_a_permission_window_is_pushed_once_by_the_window_and_not_again_by_the_detector(
+def test_g12_a_permission_window_is_pushed_once_when_the_screen_first_shows_it_with_the_tools_name_only(
         stub_session, monkeypatch):
+    """Red before the fix: the hook pushed, with the command in the text, and the detector's own push was held back."""
     sid, tail_holder, _alt, push_calls = stub_session
     _stand_a_window(sid, monkeypatch)
+    monkeypatch.setattr(loop_mod, "notification_title_for", lambda _sid: "tab name")
 
     async def run():
         tail_holder["value"] = "just some running output"
         await loop_mod._tick_one(sid)
+        assert push_calls == []                          # the hook alone is no window
         tail_holder["value"] = WINDOW_SCREEN
+        await loop_mod._tick_one(sid)
         await loop_mod._tick_one(sid)
         await asyncio.sleep(0.02)
 
     _run(run())
+    assert push_calls == [("tab name", "承認待ち: Bash", sid)]
+
+
+def test_g12_the_push_of_a_window_the_screen_never_showed_is_never_sent(stub_session, monkeypatch):
+    sid, tail_holder, _alt, push_calls = stub_session
+    _stand_a_window(sid, monkeypatch)
+
+    async def run():
+        tail_holder["value"] = screens.idle()
+        for _ in range(3):
+            await loop_mod._tick_one(sid)
+        await asyncio.sleep(0.02)
+
+    _run(run())
     assert push_calls == []
+
+
+def test_g14_a_tab_whose_pane_is_gone_is_no_window_any_more(stub_session, monkeypatch):
+    """Red before the fix: the last screen stayed, and the tab stayed at a permission window for the sleep and the rollover."""
+    sid, tail_holder, _alt, _push = stub_session
+    window_state = _stand_a_window(sid, monkeypatch)
+
+    async def run():
+        tail_holder["value"] = WINDOW_SCREEN
+        await loop_mod._tick_one(sid)
+        await loop_mod._tick_one(sid)
+        assert window_state.is_open(sid)
+        monkeypatch.setattr(loop_mod, "has_tmux_session", lambda _s: False)
+        await loop_mod._tick_one(sid)
+        assert window_state.is_open(sid) is False
+
+    _run(run())
 
 
 def test_each_look_at_a_tab_is_a_patrol_of_the_messages_kept_for_it(stub_session, monkeypatch):

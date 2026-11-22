@@ -9,10 +9,13 @@ INPUT_BOX = f"{RULE}\n ❯ \n{RULE}\n  ? for shortcuts"
 FOOTER = " Esc to cancel · Tab to amend"
 
 
-def approval(command: str = "ls -la", reason: str = "guard says so", *, position: str = "") -> str:
-    """The window of an approval of a Bash command (`position` is the `1 of 2` of a second window)."""
+def approval(command: str = "ls -la", reason: str = "guard says so", *, position: str = "",
+             description: str | None = None) -> str:
+    """The window of an approval of a Bash command (`position` is the `1 of 2` of a second window; `description` is the line
+    the dialog shows under the command when the call has one)."""
     head = f" Bash command{position}"
-    return (f"● Running the command\n\n{RULE}\n{head}\n\n   {command}\n   List the files\n\n"
+    described = f"   {description}\n" if description else ""
+    return (f"● Running the command\n\n{RULE}\n{head}\n\n   {command}\n{described}\n"
             f" Hook PreToolUse:Bash requires confirmation for this command: {reason} [settings]\n\n"
             f" Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n{FOOTER}")
 
@@ -37,6 +40,13 @@ def picker() -> str:
 
 def idle(text: str = "● done") -> str:
     return f"{text}\n\n{INPUT_BOX}"
+
+
+def idle_with_typed(typed: str, *, title: str = "") -> str:
+    """The usual screen of a tab: a reply above, the input box (its upper rule may carry the tab's name) with what is typed in
+    it, and the status line under it."""
+    upper = f"{'─' * 24} {title} ──" if title else RULE
+    return f"● done\n  ❯ 1. an earlier line of the reply\n\n{upper}\n ❯ {typed}\n{RULE}\n  ⏵⏵ bypass permissions on · ? for shortcuts"
 
 
 def numbers_in_a_reply() -> str:

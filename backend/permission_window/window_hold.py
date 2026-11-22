@@ -87,9 +87,30 @@ def load() -> None:
     except (OSError, ValueError):
         logger.warning("window hold: the kept messages could not be read, starting with none: %s", WINDOW_HOLD_PATH)
         return
+    if not isinstance(stored, dict):
+        logger.warning("window hold: the file is not a table of tabs, starting with none: %s", WINDOW_HOLD_PATH)
+        return
+    dropped = 0
     for session_id, entries in stored.items():
-        _kept[session_id] = [Kept(**entry) for entry in entries]
+        found = [entry for entry in map(_entry_of, entries if isinstance(entries, list) else []) if entry is not None]
+        dropped += (len(entries) if isinstance(entries, list) else 1) - len(found)
+        if found:
+            _kept[session_id] = found
+    if dropped:
+        logger.warning("window hold: %d entries of the file could not be read and were dropped: %s", dropped, WINDOW_HOLD_PATH)
     logger.info("window hold: read the kept messages of %d tabs", len(_kept))
+
+
+def _entry_of(raw: object) -> Kept | None:
+    """One kept message of the file, None when its fields are not those of one."""
+    try:
+        entry = Kept(**raw)      # type: ignore[arg-type]
+    except TypeError:
+        return None
+    texts_or_none = (entry.send_id, entry.sender_tab, entry.conversation)
+    well_formed = (isinstance(entry.text, str) and isinstance(entry.kept_at, (int, float))
+                   and all(value is None or isinstance(value, str) for value in texts_or_none))
+    return entry if well_formed else None
 
 
 def _ensure_loaded() -> None:

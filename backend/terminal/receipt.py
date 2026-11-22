@@ -107,11 +107,12 @@ def _record_end(session_id: str) -> int:
         return 0
 
 
-async def deliver_to_woken(session_id: str, text: str, *, hold: bool = True, sender: str | None = None) -> bool | str:
+async def deliver_to_woken(session_id: str, text: str, *, hold: bool = True, sender: str | None = None,
+                           send_id: str | None = None) -> bool | str:
     """Type `text` into a tab that was just started and make sure it was taken. True when the record shows the message
     (maybe after the rescue: Enter again while the text waits in the input, typing it once more when it is gone); `HELD`
     when a window is open and the message is kept to be typed when it is gone (`hold` says whether a window keeps it
-    or refuses it, as for `pty_send`; `sender` is the tab to tell if it does not arrive); False when it did not
+    or refuses it, as for `pty_send`; `sender` is the tab and `send_id` the screen's send to tell if it does not arrive); False when it did not
     within `RESCUE_SEC`, or the launch in flight was given up, which is for the caller to refuse. A text that the typing
     handed to a launch is not typed again (`_taken_by_launch`). Raises `StoppedBeforeTyping` when the backend stops while
     the launch is waited for, and `BackendStopping` when it stops after the typing."""
@@ -124,12 +125,12 @@ async def deliver_to_woken(session_id: str, text: str, *, hold: bool = True, sen
             return False
     record = jsonl_path_for_session(session_id)
     initial_pos = _record_end(session_id)
-    result = await pty_send(session_id, {"text": text, "enter": True}, None, hold=hold, sender=sender)
+    result = await pty_send(session_id, {"text": text, "enter": True}, None, hold=hold, sender=sender, send_id=send_id)
     if not result.get("ok"):
         return False
     if result.get("held"):
         return HELD     # kept while a window is open: `window_hold` types it, once, when the window is gone
-    return await until_stop(_taken_after_typing(session_id, record, initial_pos, text, result, hold, sender))
+    return await until_stop(_taken_after_typing(session_id, record, initial_pos, text, result, hold, sender, send_id))
 
 
 async def _wait_for_launch(session_id: str) -> bool:
@@ -142,14 +143,14 @@ async def _wait_for_launch(session_id: str) -> bool:
 
 
 async def _taken_after_typing(session_id: str, record: Path | None, initial_pos: int, text: str, result: dict, hold: bool,
-                              sender: str | None) -> bool | str:
+                              sender: str | None, send_id: str | None) -> bool | str:
     """Wait for the row of `text`, which `pty_send` answered `result` for: from the launch it was handed to, or from
     the typing itself, with the rescue when the row does not come."""
     if result.get("launched"):
         return await _taken_by_launch(session_id, record, initial_pos, text)
     if result.get("confirmed") or await _taken(session_id, initial_pos, TAKEN_WAIT_SEC - CONFIRM_TIMEOUT_SEC, text):
         return True
-    return await _rescue(session_id, initial_pos, text, hold, sender)
+    return await _rescue(session_id, initial_pos, text, hold, sender, send_id)
 
 
 async def _taken_by_launch(session_id: str, record: Path | None, initial_pos: int, text: str) -> bool:
@@ -165,7 +166,8 @@ async def _taken_by_launch(session_id: str, record: Path | None, initial_pos: in
                                follow=lambda: jsonl_path_for_session(session_id))
 
 
-async def _rescue(session_id: str, initial_pos: int, text: str, hold: bool, sender: str | None) -> bool | str:
+async def _rescue(session_id: str, initial_pos: int, text: str, hold: bool, sender: str | None,
+                  send_id: str | None) -> bool | str:
     """Put right a typed text whose row did not come: Enter while it waits in the input, one more typing once it is
     gone, then wait `ENTER_AGAIN_SEC` for the row, until `RESCUE_SEC` has passed. A text that still waits then is
     cleared from the input, so that the refusal the caller gives holds. No key is typed while a window is on the screen
@@ -185,7 +187,7 @@ async def _rescue(session_id: str, initial_pos: int, text: str, hold: bool, send
         elif not typed_again:
             logger.info("receipt: the message is gone, typing it again session=%s", session_id)
             typed_again = True
-            again = await pty_send(session_id, {"text": text, "enter": True}, None, hold=hold, sender=sender)
+            again = await pty_send(session_id, {"text": text, "enter": True}, None, hold=hold, sender=sender, send_id=send_id)
             if not again.get("ok"):
                 return False
             if again.get("held"):

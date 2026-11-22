@@ -158,3 +158,30 @@ def test_the_messages_of_a_restarted_backend_are_released_with_no_window_in_memo
 def test_a_patrol_of_a_tab_with_nothing_kept_does_nothing(recorder):
     run(patrol_and_wait())
     assert recorder.typed == [] and recorder.told == []
+
+
+# --- G10: a file with a field missing does not stop the start ---------------------------------------------------------------
+
+@pytest.mark.parametrize("stored", [
+    {SID: [{"text": "half"}]},
+    {SID: [{"text": "ok", "send_id": None, "sender_tab": None, "conversation": None, "kept_at": 1.0}, {"text": 5}]},
+    {SID: "not a list"}, {SID: [None, 3, "x"]}, [1, 2], "text", 7,
+    {SID: [{"text": "t", "send_id": 3, "sender_tab": None, "conversation": None, "kept_at": 1.0}]},
+])
+def test_g10_a_file_that_cannot_be_read_whole_starts_with_what_can(recorder, monkeypatch, stored, caplog):
+    hold.WINDOW_HOLD_PATH.write_text(json.dumps(stored))
+    monkeypatch.setattr(hold, "_kept", {})
+    import logging
+    with caplog.at_level(logging.WARNING):
+        hold.load()
+    readable = [entry.text for entries in hold._kept.values() for entry in entries]
+    assert readable in ([], ["ok"])
+    assert any("window hold" in record.getMessage() for record in caplog.records)
+
+
+def test_g10_an_entry_that_can_be_read_is_kept_beside_one_that_cannot(recorder, monkeypatch):
+    good = {"text": "ok", "send_id": "s1", "sender_tab": "ses_x", "conversation": "c", "kept_at": 1.0}
+    hold.WINDOW_HOLD_PATH.write_text(json.dumps({SID: [{"text": "half"}, good], "ses_other": [{"x": 1}]}))
+    monkeypatch.setattr(hold, "_kept", {})
+    hold.load()
+    assert list(hold._kept) == [SID] and [(entry.text, entry.send_id) for entry in hold._kept[SID]] == [("ok", "s1")]

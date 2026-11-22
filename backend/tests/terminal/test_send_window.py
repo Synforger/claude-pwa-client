@@ -398,3 +398,80 @@ def test_a_plan_approval_with_no_plan_window_open_is_not_answered_blind(pane, dr
     """With the plan gone from the screen its answer is refused (W5), not typed into the input box as a message."""
     input_looks(drawn, 2)
     assert from_the_person("1", answers_choice=True)["ok"] is False and pane["delivered"] == []
+
+
+# --- version 4 ---------------------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("hold", [True, False])
+@pytest.mark.parametrize("typed", ["1. fix the test", "1. Yes", "1. Yes\n  2. No"])
+def test_g1_a_text_that_begins_with_a_number_is_sent_like_any_other(pane, drawn, hold, typed):  # noqa: F811
+    """Red before the fix: once pasted into the box, `❯ 1. …` was read as the marked line of a window, the Enter was not typed
+    and the text was refused or kept: an ordinary message could not be sent."""
+    drawn["text"] = screens.idle()
+    drawn["sequence"] = [screens.idle(), screens.idle_with_typed(typed)]
+    result = run(routes.pty_send(SID, {"text": typed, "enter": True}, None, hold=hold))
+    assert result.get("held") is None and result.get("reason") is None
+    assert [said for _sid, said in pane["delivered"]] == [typed] and "enter" in typed_keys(pane)
+
+
+def test_g1_g6_the_usual_screen_of_a_tab_with_a_title_and_a_status_line_takes_a_text(pane, drawn):  # noqa: F811
+    drawn["text"] = screens.idle_with_typed("", title="tab name")
+    run(routes.pty_send(SID, {"text": "hello", "enter": True}, None, hold=True))
+    assert [said for _sid, said in pane["delivered"]] == ["hello"]
+
+
+@pytest.mark.parametrize("key", ["Enter", "Down", "Up", "1", "y", "Tab", "Space"])
+def test_g9_a_key_or_a_bare_enter_is_refused_at_an_approval(pane, drawn, key):  # noqa: F811
+    """Red before the fix: a send with no text and an Enter, or any key but Escape, never went through the look, and Enter
+    allowed the window."""
+    a_window(drawn)
+    payload = {"enter": True} if key == "Enter" else {"key": key}
+    assert run(routes.pty_send(SID, payload, None)) == {"ok": False, "reason": "window_open"}
+    assert pane["keys"] == []
+
+
+def test_g9_a_bare_enter_with_text_none_and_key_enter_is_refused_too(pane, drawn):  # noqa: F811
+    a_window(drawn)
+    assert run(routes.pty_send(SID, {"key": "Enter"}, None)) == {"ok": False, "reason": "window_open"}
+    assert run(routes.pty_send(SID, {"text": "", "enter": True}, None))["ok"] is False
+
+
+def test_g9_escape_and_control_c_are_the_persons_stop_and_pass_at_a_window(pane, drawn):  # noqa: F811
+    a_window(drawn)
+    assert run(routes.pty_send(SID, {"key": "C-c"}, None)) == {"ok": True}
+    assert typed_keys(pane) == ["key:C-c"]
+
+
+def test_g9_a_bare_enter_and_a_key_pass_at_a_question_and_with_the_input_box(pane, drawn):  # noqa: F811
+    window_state.fold_row(SID, call_row("toolu_q", "AskUserQuestion", {"questions": []}))
+    drawn["text"] = screens.question()
+    assert run(routes.pty_send(SID, {"key": "Down"}, None)) == {"ok": True}
+    assert run(routes.pty_send(SID, {"key": "Enter"}, None)) == {"ok": True}
+    input_looks(drawn, 2)
+    assert run(routes.pty_send(SID, {"key": "Enter"}, None)) == {"ok": True}
+    assert typed_keys(pane) == ["key:Down", "key:Enter", "key:Enter"]
+
+
+def test_g11_a_question_the_record_does_not_hold_yet_takes_the_persons_answer_and_keeps_messages(pane, drawn):  # noqa: F811
+    """Red before the fix: the window of a question the record did not hold was a window nothing is known of: the answer was
+    refused, so the question that is open now could not be answered by the chat."""
+    window_state.note_choice_hook(SID, "AskUserQuestion")
+    drawn["text"] = screens.question()
+    window_state.note_screen(SID, read_screen(drawn["text"]))
+    assert run(routes.pty_send(SID, {"text": "typed at it", "enter": True}, None, hold=True))["held"] == "window"
+    assert from_the_person("2", answers_choice=True)["ok"] is True
+    assert [said for _sid, said in pane["delivered"]] == ["2"]
+
+
+def test_g11_the_hook_of_an_answered_question_does_not_keep_a_later_picker_a_question(pane, drawn):  # noqa: F811
+    window_state.note_choice_hook(SID, "AskUserQuestion")
+    input_looks(drawn, 2)
+    drawn["text"] = screens.picker()
+    assert run(routes.pty_send(SID, {"text": "2", "enter": True}, None, hold=True)) == {"ok": False, "reason": "window_open"}
+
+
+def test_g15_the_send_id_of_a_text_kept_for_a_window_is_the_one_given_or_the_idempotency_key(pane, drawn):  # noqa: F811
+    a_window(drawn)
+    run(routes.pty_send(SID, {"text": "one", "enter": True}, "key-1", hold=True))
+    run(routes.pty_send(SID, {"text": "two", "enter": True}, None, hold=True, send_id="send-2"))
+    assert [(entry.text, entry.send_id) for entry in window_hold._kept[SID]] == [("one", "key-1"), ("two", "send-2")]

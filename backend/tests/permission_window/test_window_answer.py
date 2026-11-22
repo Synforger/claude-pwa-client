@@ -228,3 +228,82 @@ def test_the_door_refuses_a_word_that_is_not_an_answer(client):
 
 def test_the_door_knows_no_tab_it_was_not_told_of(client):
     assert post(client, 1, "allow", session="ses_none").status_code == 404
+
+
+# --- version 4 ----------------------------------------------------------------------------------------------------------
+
+def test_g7_two_answers_that_come_together_type_one_key(pane):
+    """Red before the fix: both took the lock one after the other and the mark that an answer was typed came after the lock was
+    let go, so the second typed a key at a window nobody had seen."""
+    import asyncio
+    window = an_open_window(pane)
+
+    async def together():
+        return await asyncio.gather(window_answer.answer(SID, window.number, ALLOW),
+                                    window_answer.answer(SID, window.number, ALLOW))
+    first, second = run(together())
+    assert sorted(result["ok"] for result in (first, second)) == [False, True]
+    assert pane["typed"] == [("1", None, False)]
+
+
+def test_g7_two_answers_of_two_windows_that_look_alike_type_one_key_until_the_screen_changes(pane):
+    import asyncio
+    for tool_use_id in ("toolu_1", "toolu_2"):
+        state.fold_row(SID, call_row(tool_use_id, "Bash", LS))
+    first = state.open_window(SID, "Bash", LS, "p1", now=1.0)
+    second = state.open_window(SID, "Bash", LS, "p1", now=1.0)
+    state.note_screen(SID, read_screen(pane["text"]))
+
+    async def together():
+        return await asyncio.gather(window_answer.answer(SID, first.number, ALLOW),
+                                    window_answer.answer(SID, second.number, ALLOW))
+    run(together())
+    assert len(pane["typed"]) == 1
+
+
+@pytest.mark.parametrize("label", ["Yes (always allow)", "Yes, and always allow", "Yes, allow for this session"])
+def test_g4_a_yes_with_more_words_is_not_the_allow_line(pane, label):
+    """Red before the fix: the label was cut at `(`, so `Yes (always allow)` was typed for as `Yes`."""
+    pane["text"] = screens.approval("ls -la").replace("❯ 1. Yes", f"❯ 1. {label}")
+    window = an_open_window(pane)
+    assert answer(window.number)["reason"] == "mismatch" and pane["typed"] == []
+
+
+def test_g3_a_list_in_an_earlier_reply_is_not_the_windows_choices(pane):
+    """Red before the fix: an earlier `1. Yes` / `2. No` made the window of `Yes, and always allow` an answerable one."""
+    pane["text"] = "● earlier\n  1. Yes\n  2. No\n\n" + screens.approval("ls -la").replace("❯ 1. Yes", "❯ 1. Yes, and always allow")
+    window = an_open_window(pane)
+    assert answer(window.number)["reason"] == "mismatch" and pane["typed"] == []
+
+
+def test_g3_the_real_window_below_an_older_list_is_answered(pane):
+    pane["text"] = "● earlier\n  1. first\n  2. second\n\n" + screens.approval("ls -la")
+    window = an_open_window(pane)
+    assert answer(window.number) == {"ok": True} and pane["typed"] == [("1", None, False)]
+
+
+@pytest.mark.parametrize("command, shown", [("ls -la", "touch marker && ls -la"), ("ls -la", "ls -la && touch marker"),
+                                            ("rm -rf /tmp/x", "rm -rf /tmp/xyz")])
+def test_g2_a_command_that_only_contains_the_hooks_command_is_not_answered(pane, command, shown):
+    pane["text"] = screens.approval(shown)
+    window = an_open_window(pane, command=command)
+    assert answer(window.number)["reason"] == "mismatch" and pane["typed"] == []
+
+
+def test_g2_a_hook_command_found_only_in_the_reason_is_not_answered(pane):
+    pane["text"] = screens.approval("touch marker", "run ls -la first")
+    window = an_open_window(pane, command="ls -la")
+    assert answer(window.number)["reason"] == "mismatch" and pane["typed"] == []
+
+
+def test_g5_a_window_with_a_border_on_its_sides_is_answered_when_it_matches(pane):
+    pane["text"] = "\n".join(f"│{line:<60}│" if line and not line.startswith("─") else line
+                            for line in screens.approval("ls -la").split("\n"))
+    window = an_open_window(pane)
+    assert answer(window.number) == {"ok": True} and pane["typed"] == [("1", None, False)]
+
+
+def test_g1_what_is_typed_in_the_box_is_never_answered_as_a_window(pane):
+    window = an_open_window(pane)
+    pane["text"] = screens.idle_with_typed("1. Yes\n  2. No")
+    assert answer(window.number)["reason"] == "closed" and pane["typed"] == []

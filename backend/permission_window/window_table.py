@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
+from backend.jsonl.jsonl_predicates import INTERRUPT_USER_RE, blocks_text, is_sidechain, is_user_prompt
 from backend.permission_window.window_judgement import Kind
 
 # The attachment row that ends a call a hook decided (`toolUseID` is the call).
@@ -50,8 +51,11 @@ class RowEffect:
 
 def effect_of_row(row: dict) -> RowEffect:
     """What a record row does to the table: an assistant row adds its `tool_use` blocks, a `tool_result` or a
-    `hook_permission_decision` attachment resolves its call, and a row of the operator's own words starts a new turn
-    (= whatever was left without a result belongs to the turn before)."""
+    `hook_permission_decision` attachment resolves its call, and a row of the person's own words, or the mark that a turn was
+    interrupted, starts a new turn (= whatever was left without a result belongs to the turn before). A row of a sub-agent
+    and a row the harness wrote (a skill loaded, a caveat) is none of these and changes nothing."""
+    if is_sidechain(row):
+        return RowEffect()
     row_type = row.get("type")
     if row_type == "assistant":
         blocks = (row.get("message") or {}).get("content")
@@ -66,7 +70,9 @@ def effect_of_row(row: dict) -> RowEffect:
                         and block.get("type") == "tool_result" and isinstance(block.get("tool_use_id"), str))
             if ids:
                 return RowEffect(resolved_ids=ids)
-        return RowEffect(new_turn=True)
+        if is_user_prompt(row) or INTERRUPT_USER_RE.match(blocks_text(content)):
+            return RowEffect(new_turn=True)
+        return RowEffect()
     if row_type == "attachment":
         attachment = row.get("attachment") or {}
         if attachment.get("type") == DECISION_ATTACHMENT and isinstance(attachment.get("toolUseID"), str):

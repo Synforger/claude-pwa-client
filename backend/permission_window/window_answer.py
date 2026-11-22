@@ -66,6 +66,8 @@ def _answer_once(session_id: str, number: int, answer_kind: str) -> tuple[dict, 
     key = key_for(reading.choices, answer_kind)
     if key is None or not runner.tmux_send_keys(session_id, text=key):
         return dict(NOT_TYPED), ""
+    # Marked with the key, in the same lock: an answer that comes next finds the window not shown since this one.
+    window_state.mark_answer_typed(session_id, reading.fingerprint)
     return {"ok": True, "key": key}, reading.fingerprint
 
 

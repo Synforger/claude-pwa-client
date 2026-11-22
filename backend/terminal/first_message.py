@@ -261,7 +261,7 @@ async def _type_held(session_id: str) -> None:
                          "again", input_ready.LAUNCH_GIVE_UP_SEC, session_id)
             input_ready.abandon_launch(session_id)
             for text, send_id in _held.pop(session_id, []):
-                result = await routes.pty_send(session_id, {"text": text, "enter": True}, None, hold=True)
+                result = await routes.pty_send(session_id, {"text": text, "enter": True}, None, hold=True, send_id=send_id)
                 if not result.get("ok"):
                     logger.error("a held message did not go in session=%s reason=%s", session_id, result.get("reason"))
                     _tell_not_taken(session_id, send_id)
@@ -270,7 +270,7 @@ async def _type_held(session_id: str) -> None:
             logger.warning("held message: the screen of session=%s did not look like Claude's; typing anyway", session_id)
         text, send_id = _held[session_id].pop(0)
         try:
-            taken = await receipt.deliver_to_woken(session_id, text)
+            taken = await receipt.deliver_to_woken(session_id, text, send_id=send_id)
         except Exception:
             # The tab may have been closed meanwhile; the next held message is still tried.
             logger.exception("a held message could not be typed session=%s", session_id)

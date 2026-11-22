@@ -307,3 +307,17 @@ def test_the_text_waiting_in_the_input_is_not_cleared_at_a_window_either(typing,
     pane["screens"] = ["│ > [Pasted text #1 +4 lines]\n" + CLAUDE_SCREEN]
     run(receipt.deliver_to_woken("ses_x", TEXT))
     assert typing["keys"] == []
+
+
+def test_g15_the_typing_again_of_a_rescue_carries_the_sender_and_the_id_of_the_screens_send(typing, pane, short_rescue, monkeypatch):
+    """Red before the fix: a text typed again and kept by a window had lost the id of its send and the tab that sent it."""
+    seen = []
+    answers = [{"ok": True, "confirmed": False}, {"ok": True, "held": "window"}]
+
+    async def pty_send(session_id, payload, key=None, **kwargs):
+        seen.append(kwargs)
+        return answers.pop(0)
+    monkeypatch.setattr(receipt, "pty_send", pty_send)
+    pane["screens"] = [CLAUDE_SCREEN]
+    assert run(receipt.deliver_to_woken("ses_x", TEXT, sender="ses_s", send_id="send-3")) == receipt.HELD
+    assert [(kw["sender"], kw["send_id"]) for kw in seen] == [("ses_s", "send-3"), ("ses_s", "send-3")]

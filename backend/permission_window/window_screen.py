@@ -1,9 +1,18 @@
 """What Claude Code's screen shows, as far as a permission window is concerned. Pure: it reads no pane and no state.
 
-`read_screen` takes the pane's text (escapes removed) and says whether it shows a window (a selection with a marked line
-and no input box under it), the input box (the box Claude takes a message in) or neither. A text that only has numbers in
-it (`1. Yes` / `2. No` in a reply) is not a window: the marked line is the dialog's own. `shows_command` says whether a
-command is on the screen whole, which is the condition for answering a window the person has not read.
+`read_screen` takes the pane's text (escapes removed) and says which of three it is:
+
+- the input box: the last two horizontal rules of the screen (the upper one may carry a title) with a line that begins with
+  `❯` or `>` right under the upper one (what is typed may begin with `1.` and is still the input box), and no footer line of
+  a selection (`Esc to cancel`, `Esc to exit`, `Enter to select`, `Enter to confirm`) under it;
+- a window: not the input box, with a marked choice (`❯ 1. Yes`) on the screen; a window drawn with a border on its sides is
+  read with the border left out;
+- neither.
+
+Of a window it reads the choices (the run of numbered lines the marked one belongs to, labels whole) and the command field of
+the dialog (the lines under its title and above the hook's reason or its question). `shows_command` is true only when that
+field is the hook's command (and description) and nothing else, which is the condition for answering a window the person
+has not read.
 
 Used by `window_state.py` (the detector's looks), `window_answer.py` (the look before a key is typed) and
 `window_judgement.py`.
@@ -15,8 +24,6 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 
-from backend._common.pane_choices import choices_in_pane
-
 
 class ScreenKind(Enum):
     WINDOW = "window"
@@ -26,21 +33,26 @@ class ScreenKind(Enum):
 
 @dataclass(frozen=True)
 class ScreenReading:
-    """What one look at the pane showed: the kind, the choices of a window (`(key, label)`, top to bottom), the text of
-    the dialog above them and a fingerprint of the lower part of the screen (it changes when another window is drawn)."""
+    """What one look at the pane showed: the kind, the choices of a window (`(key, label)`, top to bottom, labels whole), the
+    command field of its dialog (None when the dialog could not be read) and a fingerprint of the lower part of the screen (it
+    changes when another window is drawn)."""
     kind: ScreenKind
     choices: tuple[tuple[str, str], ...] = ()
-    dialog_text: str = ""
+    command_field: str | None = None
     fingerprint: str = ""
 
 
-# A horizontal rule: the border of the input box and of a dialog.
-_RULE = re.compile(r"^\s*[─━]{8,}\s*$")
-# The line the input box is typed on, which is not a numbered choice.
-_PROMPT = re.compile(r"^\s*[❯>](?!\s*\d+\.)")
-# The marked line of a selection.
-_MARKED_CHOICE = re.compile(r"^\s*❯\s*\d+\.\s+\S")
-# The side border a dialog may be drawn with.
+_RULE_CHARS = "─━"
+_RULE_LENGTH_MIN = 8
+# What the line the input is typed on begins with, whatever follows.
+_PROMPT = re.compile(r"^[❯>]")
+# The marked line of a selection, and a line of a selection.
+_MARKED_CHOICE = re.compile(r"^❯\s*\d+\.\s+\S")
+_CHOICE = re.compile(r"^(?:❯\s*)?(\d+)\.\s+(.+?)\s*$")
+# The footer a selection draws under its choices.
+_SELECTION_FOOTER = re.compile(r"Esc to cancel|Esc to exit|Enter to select|Enter to confirm", re.IGNORECASE)
+# The line a hook's reason for asking is written on.
+_HOOK_REASON = re.compile(r"^Hook \S")
 _SIDE_BORDER = "│┃"
 _FINGERPRINT_LINES = 12
 LABEL_YES = "Yes"
@@ -49,33 +61,38 @@ LABEL_NO = "No"
 
 def read_screen(plain: str) -> ScreenReading:
     """The reading of the pane's text `plain` (escapes removed)."""
-    lines = [line.rstrip() for line in plain.split("\n")]
-    marked = _last_index(lines, lambda line: bool(_MARKED_CHOICE.match(line)))
-    box_end = _input_box_end(lines)
+    lines = [_inside_border(line) for line in plain.split("\n")]
     fingerprint = hashlib.sha1("\n".join(lines[-_FINGERPRINT_LINES:]).encode("utf-8")).hexdigest()
-    if marked is not None and (box_end is None or box_end < marked):
-        choices = tuple((choice["key"], choice["label"]) for choice in choices_in_pane("\n".join(lines), selection_marker=True))
-        return ScreenReading(ScreenKind.WINDOW, choices, _dialog_text(lines, marked), fingerprint)
-    if box_end is not None:
+    if _input_box_shown(lines):
         return ScreenReading(ScreenKind.INPUT, fingerprint=fingerprint)
-    return ScreenReading(ScreenKind.OTHER, fingerprint=fingerprint)
+    marked = _last_index(lines, lambda line: bool(_MARKED_CHOICE.match(line)))
+    if marked is None:
+        return ScreenReading(ScreenKind.OTHER, fingerprint=fingerprint)
+    first, choices = _choice_run(lines, marked)
+    return ScreenReading(ScreenKind.WINDOW, choices, _command_field(lines, first), fingerprint)
 
 
 def is_yes_no(reading: ScreenReading) -> bool:
-    """Whether the window offers two choices and only two: `Yes` and `No`. Any other form (a third choice, a
-    `Yes, and don't ask again`) is answered at the terminal."""
+    """Whether the window offers two choices and only two: `Yes` and `No`, whole. Any other form (a third choice, a
+    `Yes, and always allow`, a `Yes (always allow)`) is answered at the terminal."""
     return tuple(label for _key, label in reading.choices) == (LABEL_YES, LABEL_NO)
 
 
-def shows_command(reading: ScreenReading, command: str) -> bool:
-    """Whether the dialog on the screen shows the whole of `command`, spaces and line breaks aside. A command that is
-    cut short on the screen is not shown whole, and neither is one the dialog is not read for (no rule above it)."""
-    squashed = _squash(command)
-    return bool(squashed) and squashed in _squash(reading.dialog_text)
+def shows_command(reading: ScreenReading, command: str, description: str | None = None) -> bool:
+    """Whether the command field of the dialog on the screen is the hook's `command` (and its `description` when it has one),
+    spaces and line breaks aside. A field that holds more or less than that (a command cut short, one with more before or
+    after it, the reason's words) is not the command, and neither is a dialog that was not read."""
+    expected = _squash(command + (description or ""))
+    return bool(expected) and reading.command_field is not None and _squash(reading.command_field) == expected
 
 
 def _squash(text: str) -> str:
-    return re.sub(r"\s+", "", text.replace("│", " ").replace("┃", " "))
+    return re.sub(r"\s+", "", text)
+
+
+def _inside_border(line: str) -> str:
+    """The line with the border of a dialog drawn at its sides, and the spaces around it, left out."""
+    return line.strip().strip(_SIDE_BORDER).strip()
 
 
 def _last_index(lines: list[str], matches) -> int | None:
@@ -85,23 +102,61 @@ def _last_index(lines: list[str], matches) -> int | None:
     return None
 
 
-def _input_box_end(lines: list[str]) -> int | None:
-    """The line the last input box ends on (= its lower rule): two rules with the prompt line right under the upper one."""
-    rules = [index for index, line in enumerate(lines) if _RULE.match(line)]
-    for lower in range(len(rules) - 1, 0, -1):
-        upper = rules[lower - 1]
-        if upper + 1 < rules[lower] and _PROMPT.match(lines[upper + 1]):
-            return rules[lower]
-    return None
+def _is_rule(line: str) -> bool:
+    return line.startswith(tuple(_RULE_CHARS)) and sum(char in _RULE_CHARS for char in line) >= _RULE_LENGTH_MIN
 
 
-def _dialog_text(lines: list[str], marked: int) -> str:
-    """The text of the dialog above its choices: the lines under the nearest rule above the first choice. Empty when
-    there is no such rule (= the dialog is not read, so nothing on it is taken as shown)."""
+def _input_box_shown(lines: list[str]) -> bool:
+    """The last two rules of the screen frame a line that begins with a prompt, and no selection's footer is under them."""
+    rules = [index for index, line in enumerate(lines) if _is_rule(line)]
+    if len(rules) < 2:
+        return False
+    upper, lower = rules[-2], rules[-1]
+    if lower <= upper + 1 or not _PROMPT.match(lines[upper + 1]):
+        return False
+    return not any(_SELECTION_FOOTER.search(line) for line in lines[lower + 1:])
+
+
+def _choice_run(lines: list[str], marked: int) -> tuple[int, tuple[tuple[str, str], ...]]:
+    """The run of numbered lines the marked line is in, as `(index of its first line, ((key, label), ...))`: the numbers go
+    up by one, a line indented under a choice goes with it, and a blank line or anything else ends the run."""
+    choices = [_choice_of(lines[marked])]
     first = marked
-    while first > 0 and re.match(r"^\s*(?:❯\s*)?\d+\.\s", lines[first - 1]):
-        first -= 1
-    rule = _last_index(lines[:first], lambda line: bool(_RULE.match(line)))
+    index = marked - 1
+    while index >= 0 and lines[index] and not _is_rule(lines[index]):
+        found = _CHOICE.match(lines[index])
+        if found is None:
+            break
+        if int(found.group(1)) != int(choices[0][0]) - 1:
+            break
+        choices.insert(0, (found.group(1), found.group(2)))
+        first = index
+        index -= 1
+    index = marked + 1
+    while index < len(lines) and lines[index] and not _is_rule(lines[index]) and not _SELECTION_FOOTER.search(lines[index]):
+        found = _CHOICE.match(lines[index])
+        if found is not None:
+            if int(found.group(1)) != int(choices[-1][0]) + 1:
+                break
+            choices.append((found.group(1), found.group(2)))
+        index += 1
+    return first, tuple(choices)
+
+
+def _choice_of(line: str) -> tuple[str, str]:
+    found = _CHOICE.match(line)
+    assert found is not None     # the caller took it for a marked choice
+    return found.group(1), found.group(2)
+
+
+def _command_field(lines: list[str], first_choice: int) -> str | None:
+    """The command field of the dialog above its choices: under the dialog's title (the first line under the nearest rule
+    above), up to the line of the hook's reason when there is one, else up to the question line right above the choices.
+    None when there is no rule above, or nothing is left between."""
+    rule = _last_index(lines[:first_choice], _is_rule)
     if rule is None:
-        return ""
-    return "\n".join(line.strip(_SIDE_BORDER + " ") for line in lines[rule + 1:first])
+        return None
+    rest = [line for line in lines[rule + 1:first_choice] if line][1:]
+    end = next((index for index, line in enumerate(rest) if _HOOK_REASON.match(line)), len(rest) - 1)
+    field = rest[:end]
+    return "\n".join(field) if field else None

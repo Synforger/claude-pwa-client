@@ -666,7 +666,8 @@ async def pty_send_from_person(
 
 
 async def pty_send(session_id: str, payload: dict, idempotency_key: str | None = None, *, hold: bool = False,
-                   sender: str | None = None, answers_choice: bool = False, releasing: bool = False) -> dict:
+                   sender: str | None = None, answers_choice: bool = False, releasing: bool = False,
+                   send_id: str | None = None) -> dict:
     """入力を tmux session に送る (= send-keys 経路、 PTY attach 不要)。 人の入力は `pty_send_from_person` から、
     別のタブからの連絡と自動の入れ替えは直に来る。
 
@@ -675,6 +676,7 @@ async def pty_send(session_id: str, payload: dict, idempotency_key: str | None =
     口座の移し・client の知らせ・子の最初の発話・`tabs ask`) は預からず `{"ok": False, "reason": "window_open"}` で断り、 呼び手は
     それを「頼んだ」 に数えない。 `answers_choice` (= 問い・計画への人の答え) は人の口 (`pty_send_from_person`) だけが付ける。
     `sender` は預けた別のタブ (= 届かなかった時に知らせる先)、 `releasing` は預かった本文を放す打ち直し (= `window_hold`)。
+    `send_id` は画面の送りの id (= 預かった本文が届かなかった時に、 その吹き出しへ知らせる。 既定は idempotency_key)。
 
     送信本文 (= text + enter) の場合は、 JSONL に user 行が +1 されるかを最大 2s
     監視して機械的に送信成功を確認する。 +1 されなければ 1 回だけ再送して +1.5s 待つ。
@@ -722,14 +724,16 @@ async def pty_send(session_id: str, payload: dict, idempotency_key: str | None =
     # 本文 (= text + enter) は、 同じ session の他の本文と重ならないように 1 通ずつ打って確かめる。
     if text and enter:
         return await _send_message(session_id, text, key, hold=hold, sender=sender, answers_choice=answers_choice,
-                                   releasing=releasing, send_id=idempotency_key)
+                                   releasing=releasing, send_id=send_id or idempotency_key)
     # 停止ボタン (= 本文の無い Escape): 止めて、 入力欄に戻された文も消す。
     if key == "Escape" and not text and not enter:
         return {"ok": await _stop(session_id)}
     # 単発 key 送信 (= Escape で停止 / AskUserQuestion typeNum 等) と、 enter 無しの text (= 自由記述の
     # 1 回目) は wipe も確認もしない (= key の意味を壊さない、 送信完了の概念が無い)。 並びもしない。
-    # 数字 1 つなどの単発 (= チップと同じ扱い): 承認の窓へは、 窓の吹き出しの口の外から打たない。
-    check = window_answer.check_before_typing(session_id, Caller.CHIP) if text else None
+    # 数字 1 つ・Enter だけ・Escape と C-c 以外の key (= チップと同じ扱い): 承認の窓へは、 窓の吹き出しの口の外から打たない。
+    # Escape と C-c は人の止める手で、 預からず、 見ない。
+    watched = bool(text) or enter or key not in ("Escape", "C-c")
+    check = window_answer.check_before_typing(session_id, Caller.CHIP) if watched else None
 
     def type_once() -> bool:
         if check is not None:

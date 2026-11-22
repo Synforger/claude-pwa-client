@@ -214,3 +214,200 @@ def test_the_numbers_of_the_windows_grow():
     a_call("toolu_2")
     numbers = [state.open_window(SID, "Bash", LS, "p1", now=1.0).number for _ in range(2)]
     assert numbers == [1, 2]
+
+
+# --- G2: the description is part of the command field -------------------------------------------------------------------
+
+def test_g2_a_hook_input_with_a_description_is_answerable_when_the_dialog_shows_both(tab):
+    described = {"command": "ls -la", "description": "List the files"}
+    a_call(tool_input=described)
+    state.open_window(SID, "Bash", described, "p1", now=1.0)
+    look(screens.approval("ls -la", description="List the files"))
+    assert tab["pending_permission"]["answerable"] is True
+
+
+def test_g2_a_dialog_that_shows_more_than_the_hooks_command_is_not_answerable(tab):
+    a_call()
+    state.open_window(SID, "Bash", LS, "p1", now=1.0)
+    look(screens.approval("ls -la", description="and also do this other thing"))
+    assert tab["pending_permission"]["answerable"] is False
+
+
+# --- G8: only the person's words and the mark of an interrupt end a turn ---------------------------------------------------
+
+def test_g8_a_row_the_harness_wrote_does_not_end_the_turn():
+    """Red before the fix: any user row that was not a tool result (a skill loaded, a caveat) forgot the open call."""
+    a_call()
+    for row in ({"type": "user", "isMeta": True, "message": {"content": [{"type": "text", "text": "loaded a skill"}]}},
+                {"type": "user", "message": {"content": "<command-name>/model</command-name>"}},
+                {"type": "system", "content": "caveat"}):
+        state.fold_row(SID, row)
+    assert state.kind_of(SID) is Kind.APPROVAL
+
+
+def test_g8_a_row_of_a_sub_agent_changes_nothing():
+    a_call()
+    state.fold_row(SID, {**call_row("toolu_s", "Bash", {"command": "x"}), "isSidechain": True})
+    state.fold_row(SID, {"type": "user", "isSidechain": True, "message": {"content": "the sub-agent's prompt"}})
+    state.fold_row(SID, {**result_row("toolu_1"), "isSidechain": True})
+    assert list(state._tab(SID).table.open) == ["toolu_1"]
+
+
+def test_g8_the_mark_of_an_interrupt_ends_the_turn():
+    a_call()
+    state.fold_row(SID, {"type": "user", "message": {"content": [{"type": "text", "text": "[Request interrupted by user for tool use]"}]}})
+    assert state.kind_of(SID) is Kind.NONE
+
+
+def test_g8_a_turn_read_again_from_the_record_ends_at_the_same_rows(tmp_path, monkeypatch):
+    record = tmp_path / "conv.jsonl"
+    rows = [call_row("toolu_old", "Bash", LS), {"type": "user", "message": {"content": "do it"}},
+            {"type": "user", "isMeta": True, "message": {"content": [{"type": "text", "text": "skill"}]}},
+            call_row("toolu_1", "Bash", {"command": "rm x"})]
+    record.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    monkeypatch.setattr(state.jsonl_watcher, "get_jsonl_for", lambda _sid: record)
+    assert state.kind_of(SID) is Kind.APPROVAL and list(state._tab(SID).table.open) == ["toolu_1"]
+
+
+# --- G11: a question or a plan the record does not hold yet ----------------------------------------------------------------
+
+@pytest.mark.parametrize("tool, kind", [("AskUserQuestion", Kind.QUESTION), ("ExitPlanMode", Kind.PLAN)])
+def test_g11_a_question_or_plan_known_from_its_hook_is_that_kind_before_the_record_has_it(tool, kind):
+    """Red before the fix: the window of a question was a window nothing is known of, and its answer was refused."""
+    state.note_choice_hook(SID, tool)
+    assert state.kind_of(SID) is kind
+
+
+def test_g11_the_record_decides_once_it_has_the_call():
+    state.note_choice_hook(SID, "AskUserQuestion")
+    a_call("toolu_b")
+    assert state.kind_of(SID) is Kind.APPROVAL
+
+
+def test_g11_the_hook_is_forgotten_when_the_record_has_the_question_a_turn_ends_or_the_input_box_shows_twice():
+    for ending in (lambda: a_call("toolu_q", "AskUserQuestion", {"questions": []}),
+                   lambda: state.fold_row(SID, {"type": "user", "message": {"content": "next"}}),
+                   lambda: (look(screens.idle()), look(screens.idle())),
+                   lambda: state.close_all(SID, "stop")):
+        state.note_choice_hook(SID, "AskUserQuestion")
+        ending()
+        assert state._tab(SID).choice_hook is None
+
+
+def test_g11_one_look_at_the_input_box_does_not_forget_it():
+    state.note_choice_hook(SID, "ExitPlanMode")
+    look(screens.idle())
+    assert state.kind_of(SID) is Kind.PLAN
+
+
+# --- G13: the record is read in a thread, and the row that is folded reads nothing -----------------------------------------
+
+def test_g13_folding_a_row_and_the_detectors_look_read_no_record(monkeypatch):
+    def reading(*_args):
+        raise AssertionError("a record was read on the caller's thread")
+    monkeypatch.setattr(state, "_rows_of_turn", reading)
+    monkeypatch.setattr(state.jsonl_watcher, "get_jsonl_for", lambda _sid: "a-record")
+    a_call()
+    state.open_window(SID, "Bash", LS, "p1", now=1.0)
+    state.note_screen(SID, read_screen(screens.approval("ls -la")))
+
+
+def test_g13_the_table_is_read_in_a_thread_by_prepare_and_the_detectors_look(tmp_path, monkeypatch):
+    import asyncio
+    import threading
+    record = tmp_path / "conv.jsonl"
+    record.write_text(json.dumps(call_row("toolu_1", "Bash", LS)) + "\n")
+    threads = []
+    real = state._rows_of_turn
+    monkeypatch.setattr(state, "_rows_of_turn", lambda path: threads.append(threading.current_thread()) or real(path))
+    monkeypatch.setattr(state.jsonl_watcher, "get_jsonl_for", lambda _sid: record)
+
+    async def scenario():
+        main = threading.current_thread()
+        await state.look(SID, read_screen(screens.approval("ls -la")))
+        return main
+    main = asyncio.run(scenario())
+    assert len(threads) == 1 and threads[0] is not main
+    assert state.is_open(SID) and state.current_window(SID).tool_input == LS
+
+
+def test_g13_the_rows_folded_while_the_record_is_read_are_kept_and_a_new_turn_wins(tmp_path, monkeypatch):
+    record = tmp_path / "conv.jsonl"
+    record.write_text(json.dumps(call_row("toolu_old", "Bash", LS)) + "\n")
+    real = state._rows_of_turn
+
+    def reading_while_rows_come(path):
+        rows = real(path)
+        state.fold_row(SID, call_row("toolu_new", "Bash", {"command": "pwd"}))     # written after the read
+        return rows
+    monkeypatch.setattr(state, "_rows_of_turn", reading_while_rows_come)
+    monkeypatch.setattr(state.jsonl_watcher, "get_jsonl_for", lambda _sid: record)
+    assert state.kind_of(SID) is Kind.APPROVAL and list(state._tab(SID).table.open) == ["toolu_old", "toolu_new"]
+
+    state.close_all(SID, "test")
+    state._tabs.clear()
+
+    def a_turn_begins_meanwhile(path):
+        rows = real(path)
+        state.fold_row(SID, {"type": "user", "message": {"content": "a new request"}})
+        state.fold_row(SID, call_row("toolu_new", "Bash", {"command": "pwd"}))
+        return rows
+    monkeypatch.setattr(state, "_rows_of_turn", a_turn_begins_meanwhile)
+    state.kind_of(SID)
+    assert list(state._tab(SID).table.open) == ["toolu_new"]
+
+
+# --- G12: one push for each window, when the screen first shows it ---------------------------------------------------------
+
+def test_g12_a_window_is_taken_for_a_push_once_when_the_screen_shows_it():
+    a_call()
+    state.open_window(SID, "Bash", LS, "p1", now=1.0)
+    assert state.take_unpushed(SID) is None                  # the hook alone shows no window
+    look(screens.approval("ls -la"))
+    shown = state.take_unpushed(SID)
+    assert shown is not None and shown.tool_name == "Bash"
+    look(screens.approval("ls -la"))
+    assert state.take_unpushed(SID) is None
+
+
+def test_g12_the_next_window_of_a_row_is_a_push_of_its_own():
+    a_call("toolu_1", tool_input={"command": "ls"})
+    a_call("toolu_2", tool_input={"command": "pwd"})
+    first = state.open_window(SID, "Bash", {"command": "ls"}, "p1", now=1.0)
+    state.open_window(SID, "Bash", {"command": "pwd"}, "p1", now=1.0)
+    look(screens.approval("ls"))
+    assert state.take_unpushed(SID).number == first.number
+    state.note_answered(SID, first.number, read_screen(screens.approval("ls")).fingerprint)
+    look(screens.approval("pwd"))
+    assert state.take_unpushed(SID).tool_input == {"command": "pwd"}
+
+
+# --- G14: no pane, no screen -------------------------------------------------------------------------------------------------
+
+def test_g14_the_window_is_gone_with_the_pane():
+    a_call()
+    state.open_window(SID, "Bash", LS, "p1", now=1.0)
+    look(screens.approval("ls -la"))
+    assert state.is_open(SID)
+    state.forget_screen(SID)
+    assert state.is_open(SID) is False and state.permission_opened_at(SID) is None and state.current_window(SID) is None
+
+
+def test_g14_closing_the_tabs_windows_forgets_the_last_look_too(tab):
+    a_call()
+    state.open_window(SID, "Bash", LS, "p1", now=1.0)
+    look(screens.approval("ls -la"))
+    state.close_all(SID, "restart")
+    assert state.is_open(SID) is False and tab["pending_permission"] is None and state.input_looks(SID) == 0
+
+
+# --- G7: the mark that an answer was typed is made with the key ------------------------------------------------------------
+
+def test_g7_the_mark_of_a_typed_answer_is_made_before_the_rest_of_the_bookkeeping():
+    a_call()
+    window = state.open_window(SID, "Bash", LS, "p1", now=1.0)
+    reading = read_screen(screens.approval("ls -la"))
+    look(screens.approval("ls -la"))
+    assert state.situation(SID, reading).answerable
+    state.mark_answer_typed(SID, reading.fingerprint)
+    assert state.situation(SID, reading).answerable is False and state.current_window(SID) is window
