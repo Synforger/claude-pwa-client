@@ -18,6 +18,7 @@ from fastapi import APIRouter, Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
 from backend._common.config import FILE_SIZE_LIMIT, HOME, page_origin
+from backend._internal.path_rules import is_denied
 from backend.documents import convert, pages, strings
 from backend.documents.store import get_store as get_document_store
 from backend._common.errors import raise_error
@@ -25,26 +26,6 @@ from backend._common.paths import PAGE_STORE_DIR
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-# 読み書きを完全に禁止するパス / 拡張子 / ファイル名のパターン。 HOME 配下に存在しても
-# `/file` 経由では到達させない。 リモートシェル奪取 / 認証情報漏洩経路を物理的に塞ぐ。
-#
-# 並びは「鍵と認証情報の置き場 → token を平文で持つ設定 → シェルの初期化と履歴」。 token を持つ設定は
-# ホームの直下に限らない (= `.env` / `.envrc` は repo ごと、 `secrets/` はアプリごとに在る) ので、
-# 場所ではなく名前で拒む。 `.env.example` のような雛形は中身が見本なので通す。
-_DENY_RE = re.compile(
-    r"(?:^|/)(?:"
-    r"\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.azure|\.config/gh|\.config/gcloud|Library/Keychains|"
-    r"\.netrc|\.npmrc|\.pypirc|\.git-credentials|\.pgpass|"
-    r"\.envrc|\.credentials\.json|\.claude\.json|secrets|"
-    r"\.zshrc|\.zshenv|\.zprofile|\.bashrc|\.bash_profile|\.profile|"
-    r"\.zsh_history|\.bash_history"
-    r")(?:$|/)"
-    r"|(?:^|/)\.env(?:\.(?!(?:example|sample|template)$)[^/]*)?$"
-    r"|(?:^|/)(?:authorized_keys|id_rsa|id_ed25519|id_ecdsa|id_dsa|known_hosts)$"
-    r"|\.(?:pem|key|p12|pfx)$"
-)
 
 
 def _resolve_safe(path_str: str) -> Path:
@@ -55,7 +36,7 @@ def _resolve_safe(path_str: str) -> Path:
     except ValueError:
         raise HTTPException(status_code=403, detail="Access denied")
     # 秘密ファイル deny list。 SSH 鍵 / 認証情報 / シェル初期化ファイル等は読み書き不可。
-    if _DENY_RE.search(str(resolved)):
+    if is_denied(resolved):
         raise HTTPException(status_code=403, detail="Access denied")
     return resolved
 
