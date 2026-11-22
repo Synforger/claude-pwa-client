@@ -575,7 +575,8 @@ async def interrupt_for_voice(session_id: str) -> bool:
 async def _stop(session_id: str) -> bool:
     """停止ボタン: Escape で turn を止め、 claude が入力欄へ戻した文 (= 取り消した発話と、 待っていた発話) を消す。
 
-    Escape は本文の送信の後ろに並ばせず、 すぐ打つ (= 停止が遅れる害の方が大きい)。 消すのは、 claude が受け終える
+    Escape は本文の送信の後ろに並ばせず、 すぐ打つ (= 停止が遅れる害の方が大きい。 待つのは、 今打っている打鍵の
+    列だけ = `pane_order.in_typing_order`)。 消すのは、 claude が受け終える
     のを見届けてから、 本文の送信と順番に (= 送っている途中の本文を、 Enter の前に消さない)。
 
     ⚠ 作業中の印 (= busy) に関わらず、 毎回見届ける。 送った直後はまだ印が立たず、 印を見て待たずに消した間は、
