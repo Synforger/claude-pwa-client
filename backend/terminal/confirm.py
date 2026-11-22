@@ -25,6 +25,7 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 
+from backend._internal.stop_signal import BackendStopping, until_stop
 from backend.jsonl.jsonl_predicates import INTERRUPT_USER_RE, blocks_text, is_meta, is_sidechain, unwrap_pasted
 from backend.jsonl.jsonl_predicates import is_user_prompt as _is_user_prompt_pred
 from backend.jsonl.jsonl_tail import read_complete_lines
@@ -245,10 +246,17 @@ async def _confirm_after_send(session_id, text, jsonl_path, initial_pos, is_slas
     """
     counter = _count_command_lines if is_slash else _count_user_prompts
     follow = (lambda: jsonl_path_for_session(session_id)) if is_slash else None
-    if await _wait_count_added(
-        counter, jsonl_path, initial_pos, timeout=CONFIRM_TIMEOUT_SEC, follow=follow
-    ):
-        return {"ok": True, "confirmed": True}
+    try:
+        if await until_stop(_wait_count_added(
+            counter, jsonl_path, initial_pos, timeout=CONFIRM_TIMEOUT_SEC, follow=follow
+        )):
+            return {"ok": True, "confirmed": True}
+    except BackendStopping:
+        # The text was typed with its Enter before this wait began: a backend that stops cannot watch the record on,
+        # which is the answer of a wait that ran out (= observation only).
+        logger.info("pty_send: the backend is stopping; not waiting to confirm sid=%s text_len=%d", session_id,
+                    len(text or ""))
+        return {"ok": True, "confirmed": False}
     logger.info(
         "pty_send: not confirmed within %.0fs (interactive UI or slow turn; "
         "no intervention): sid=%s text_len=%d slash=%s",

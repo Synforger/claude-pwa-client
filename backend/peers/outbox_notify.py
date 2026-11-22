@@ -11,6 +11,7 @@ import logging
 from fastapi import HTTPException
 
 from backend._common.state import sessions_meta
+from backend._internal.stop_signal import BackendStopping
 
 logger = logging.getLogger(__name__)
 
@@ -29,5 +30,8 @@ async def notify_sender(entry: dict, notice: str) -> bool:
         result = await deliver_message(tab_id, notice, woke=False)
     except HTTPException as error:
         logger.warning("kept message %s: its sender %s did not take the notice: %s", entry["id"], tab_id, error.detail)
+        return False
+    except BackendStopping:
+        logger.info("kept message %s: the backend is stopping; its sender %s was not waited for", entry["id"], tab_id)
         return False
     return bool(result.get("ok"))

@@ -13,11 +13,9 @@ import asyncio
 from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar
 
+from backend._internal.stop_signal import BackendStopping
+
 _T = TypeVar("_T")
-
-
-class BackendStopping(Exception):
-    """The backend was asked to stop before what an ask waited on was over."""
 
 
 class TurnWaiter:

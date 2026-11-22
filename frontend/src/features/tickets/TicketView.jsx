@@ -10,10 +10,11 @@ import './Tickets.css'
 import TicketEntries from './TicketEntries.jsx'
 import TicketLower from './TicketLower.jsx'
 import { factsOf, ticketLabel } from './ticketGroups.js'
+import { useFollowLatest } from './useFollowLatest.js'
 import { useTicketDetail } from './useTicketDetail.js'
 
 // 票の画面 (= 🎫 の一覧・チャットの 1 行・通知から開く)。 頭に状態・出どころ・期限を出し、 その下に操作者の原文を枠で囲んで固定し、 下に件を時刻の順に出し、
-// 一番下の欄は票の今で変わる (= TicketLower)。 別の機械の票は開かない (= 一覧の数だけ。 backend が `ticket_elsewhere` で断る)。
+// 一番下の欄は票の今で変わる (= TicketLower)。 開いた時は一番新しい所が見え、 過去は上へ送って読む (= useFollowLatest)。 別の機械の票は開かない (= 一覧の数だけ。 backend が `ticket_elsewhere` で断る)。
 
 // The head line of the ticket screen: its state, who asked for it (only when it is the operator) and the due date (when there is one).
 function TicketFacts({ facts, t }) {
@@ -33,6 +34,7 @@ export default function TicketView() {
   const { tickets } = useSyncExternalStore(subscribeTickets, getTicketsSnapshot)
   const summary = useMemo(() => tickets.find((ticket) => ticket.id === ticketId) || null, [tickets, ticketId])
   const { detail, error, reload } = useTicketDetail(ticketId, summary)
+  const { scrollerRef, onScroll } = useFollowLatest(ticketId, detail)
 
   const tabNames = useMemo(() => Object.fromEntries(sessions.map((s) => [s.id, s.title])), [sessions])
   const candidates = useMemo(() => sessions.filter((s) => !isApiTab(s)).map((s) => ({ id: s.id, title: s.title })), [sessions])
@@ -52,7 +54,7 @@ export default function TicketView() {
             <button className="modal-close" onClick={onClose} aria-label={t('common.close')} data-testid="ticket-close">✕</button>
           </div>
         </div>
-        <div className="modal-body ticket-body">
+        <div className="modal-body ticket-body" ref={scrollerRef} onScroll={onScroll}>
           {error && <span className="error" data-testid="ticket-load-error">{error.message || t('ticket.load_error')}</span>}
           {!detail && !error && <span className="dim">{t('ticket.loading')}</span>}
           {summary && <TicketFacts facts={factsOf(summary)} t={t} />}
