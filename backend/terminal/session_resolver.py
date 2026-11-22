@@ -217,6 +217,11 @@ def resolve_extra_env(session_id: str, cfg: dict) -> dict | None:
     return {**agent_env, **(acct_env or {})} if (agent_env or acct_env) else None
 
 
+def spawn_lock(session_id: str) -> asyncio.Lock:
+    """The lock held from the look at a tab's terminal to the client started for it."""
+    return _spawn_locks.setdefault(session_id, asyncio.Lock())
+
+
 async def ensure_pty_session_for(session_id: str, *, prefer_fresh: bool = False) -> None:
     """指定 session の tmux + claude を起動 (既にあれば何もしない)。
 
@@ -240,16 +245,17 @@ async def ensure_pty_session_for(session_id: str, *, prefer_fresh: bool = False)
             await _wake_hook(session_id)
         except Exception:
             logger.exception("wake hook failed session=%s; the tab wakes where it slept", session_id)
-    lock = _spawn_locks.setdefault(session_id, asyncio.Lock())
-    async with lock:
+    async with spawn_lock(session_id):
         existing = pty_sessions.get(session_id)
         if existing is not None and not existing.exit_event.is_set():
             return
-        if has_tmux_session(session_id):
+        if await asyncio.to_thread(has_tmux_session, session_id):
             # tmux session は生きてるが backend 側に PtySession 記録が無い (= backend 再起動跨ぎ)。
             # チャット画面側からは attach の必要なし。 JSONL は claude プロセスが書き続けてるので
             # 解決経路 (= jsonl_path_for_session) が拾える。 spawn 重複も避ける
             return
+        if session_id not in sessions_meta:
+            return  # closed while tmux was asked
         cfg = resolve_agent_cfg(session_id) or {}
         cwd = cfg.get("cwd")
         launch_alias = resolve_launch_alias(session_id, prefer_fresh=prefer_fresh)

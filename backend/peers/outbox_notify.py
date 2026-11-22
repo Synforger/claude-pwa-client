@@ -6,6 +6,7 @@ Used by `outbox_flush.py`.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import HTTPException
@@ -22,7 +23,7 @@ async def notify_sender(entry: dict, notice: str) -> bool:
     # Imported here: the message routes use this package to send to another machine.
     from backend.routes.agent_messages import _tab_running, deliver_message  # noqa: PLC0415
     tab_id = entry["from_session"]
-    if tab_id not in sessions_meta or not _tab_running(tab_id):
+    if tab_id not in sessions_meta or not await asyncio.to_thread(_tab_running, tab_id):
         logger.info("kept message %s to %s:%s: its sender %s is not running, so it was not told: %s",
                     entry["id"], entry["peer"], entry["to"], tab_id, notice.splitlines()[-2])
         return False

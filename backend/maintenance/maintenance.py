@@ -265,12 +265,23 @@ def run_all_maintenance() -> dict:
     から外出し済 (= docs/troubleshooting/sunshine.md + LaunchAgent 別経路)。 backend
     summary からも `restarted_sunshine` キーを削除。
     """
-    from backend.jsonl.session_status import cleanup_orphan_turn_starts  # noqa: PLC0415
+    return {**run_tmux_maintenance(), **run_record_maintenance()}
 
+
+def run_tmux_maintenance() -> dict:
+    """The cleanups that wait on tmux. They change no state of the backend, so they may run in a thread."""
     return {
         "killed_tmux": cleanup_stale_tmux_sessions(),
         "killed_idle_pwa": cleanup_idle_pwa_sessions(),
         "removed_statusline_map": cleanup_stale_statusline_map(),
+    }
+
+
+def run_record_maintenance() -> dict:
+    """The cleanups of the records. They change the bindings, so they run on the event loop."""
+    from backend.jsonl.session_status import cleanup_orphan_turn_starts  # noqa: PLC0415
+
+    return {
         "removed_jsonl": cleanup_old_jsonl(),
         "orphan_turn_starts": cleanup_orphan_turn_starts(),
     }
@@ -283,7 +294,7 @@ async def maintenance_loop(interval_sec: int = MAINTENANCE_INTERVAL_SEC) -> None
         while True:
             try:
                 await asyncio.sleep(interval_sec)
-                summary = run_all_maintenance()
+                summary = {**await asyncio.to_thread(run_tmux_maintenance), **run_record_maintenance()}
                 logger.info("maintenance tick: %s", summary)
             except asyncio.CancelledError:
                 raise

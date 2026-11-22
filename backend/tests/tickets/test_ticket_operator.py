@@ -3,6 +3,7 @@ say it looked at an answer that did not arrive. Also who may ask the operator, a
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -28,7 +29,7 @@ def told(monkeypatch):
         return {"ok": True}
 
     monkeypatch.setattr(ticket_pass, "deliver_or_keep", deliver)
-    monkeypatch.setattr(ticket_pass, "tab_reachable", lambda tab_id: True)
+    monkeypatch.setattr(ticket_pass, "tab_reachable", AsyncMock(return_value=True))
     return typed
 
 

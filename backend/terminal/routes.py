@@ -67,6 +67,7 @@ from backend.terminal.connect_snapshot import send_connect_snapshot
 from backend.terminal.first_message import hold_while_launching, launch_with_first_message
 from backend.speech.speech import VOICE_INPUT_MARK, mark_voice_input
 from backend.terminal.input_ready import launching, wait_ready
+from backend.terminal.pane_order import in_typing_order
 from backend.terminal.send_dedup import send_dedup
 from backend.terminal.session_resolver import (
     ensure_pty_session_for,
@@ -74,6 +75,7 @@ from backend.terminal.session_resolver import (
     resolve_agent_cfg as _resolve_agent_cfg,
     resolve_autoresume_fallback as _resolve_autoresume_fallback,
     resolve_launch_alias as _resolve_launch_alias,
+    spawn_lock,
 )
 
 logger = logging.getLogger(__name__)
@@ -147,42 +149,44 @@ async def pty_socket(ws: WebSocket, session_id: str) -> None:
                 exit_event=asyncio.Event(),
             )
 
-    session = pty_sessions.get(session_id)
-    if session is None or session.exit_event.is_set():
-        # backend 再起動跨ぎ: in-memory PtySession は空でも tmux server には pwa-<sid> が
-        # 生き残ってる場合がある (= 既存 claude TUI が継続中)。 そのまま autoresume の
-        # launch_alias / fallback_alias を渡して spawn すると、 spawn_pty_session 内の
-        # is_new_tmux_session 判定が race / 失敗で True に倒れた時に、 既存 claude TUI に
-        # `claude --resume <id>` という文字列がそのまま入力されて pane を乗っ取り、
-        # 元の会話が別 jsonl に切り替わる事故が起きる (= 2026-06-08 REDACTEDタブ事故の直接原因)。
-        # 既存 tmux にぶら下がるだけの再 attach では絶対に alias を投入しないよう、
-        # ここで明示的に None を渡す (= ensure_pty_session_for は has_tmux_session で早期
-        # return するので alias 投入経路自体を踏まない、 こちらはそれと整合する経路)。
-        tmux_alive = has_tmux_session(session_id)
-        cfg = _resolve_agent_cfg(session_id) or {}
-        cwd = cfg.get("cwd")
-        if tmux_alive:
-            launch_alias = None
-            fallback_alias = None
-        else:
-            launch_alias = _resolve_launch_alias(session_id)
-            fallback_alias = _resolve_autoresume_fallback(session_id)
-        try:
-            from backend.terminal.session_resolver import resolve_extra_env  # noqa: PLC0415
-            extra_env = resolve_extra_env(session_id, cfg)
-            session = await spawn_pty_session(
-                session_id, cwd=cwd, launch_alias=launch_alias,
-                fallback_alias=fallback_alias,
-                extra_env=extra_env,
-            )
-        except Exception as e:
-            logger.exception("PTY spawn failed session=%s", session_id)
+    # 見てから立てるまでは、 チャット画面の接続 (= ensure_pty_session_for) と 1 本の並び
+    async with spawn_lock(session_id):
+        session = pty_sessions.get(session_id)
+        if session is None or session.exit_event.is_set():
+            # backend 再起動跨ぎ: in-memory PtySession は空でも tmux server には pwa-<sid> が
+            # 生き残ってる場合がある (= 既存 claude TUI が継続中)。 そのまま autoresume の
+            # launch_alias / fallback_alias を渡して spawn すると、 spawn_pty_session 内の
+            # is_new_tmux_session 判定が race / 失敗で True に倒れた時に、 既存 claude TUI に
+            # `claude --resume <id>` という文字列がそのまま入力されて pane を乗っ取り、
+            # 元の会話が別 jsonl に切り替わる。
+            # 既存 tmux にぶら下がるだけの再 attach では絶対に alias を投入しないよう、
+            # ここで明示的に None を渡す (= ensure_pty_session_for は has_tmux_session で早期
+            # return するので alias 投入経路自体を踏まない、 こちらはそれと整合する経路)。
+            tmux_alive = await asyncio.to_thread(has_tmux_session, session_id)
+            cfg = _resolve_agent_cfg(session_id) or {}
+            cwd = cfg.get("cwd")
+            if tmux_alive:
+                launch_alias = None
+                fallback_alias = None
+            else:
+                launch_alias = _resolve_launch_alias(session_id)
+                fallback_alias = _resolve_autoresume_fallback(session_id)
             try:
-                await ws.send_text(json.dumps({"type": "error", "message": str(e)}))
-            finally:
-                await ws.close(code=4002, reason="spawn failed")
-            return
-        pty_sessions[session_id] = session
+                from backend.terminal.session_resolver import resolve_extra_env  # noqa: PLC0415
+                extra_env = resolve_extra_env(session_id, cfg)
+                session = await spawn_pty_session(
+                    session_id, cwd=cwd, launch_alias=launch_alias,
+                    fallback_alias=fallback_alias,
+                    extra_env=extra_env,
+                )
+            except Exception as e:
+                logger.exception("PTY spawn failed session=%s", session_id)
+                try:
+                    await ws.send_text(json.dumps({"type": "error", "message": str(e)}))
+                finally:
+                    await ws.close(code=4002, reason="spawn failed")
+                return
+            pty_sessions[session_id] = session
 
     # The client's first size must reach tmux before the screen is captured, so the input
     # side starts first. send_connect_snapshot drops the backlog that built up while no
@@ -501,7 +505,7 @@ async def _send_escape(session_id: str) -> _EscapeSent | None:
         pos = 0
     before = await asyncio.to_thread(read_input_box, session_id)
     started = time.monotonic()
-    if not tmux_send_keys(session_id, key="Escape"):
+    if not await in_typing_order(session_id, lambda: tmux_send_keys(session_id, key="Escape")):
         return None
     return _EscapeSent(jsonl_path=jsonl_path, pos=pos, box_before=before, started=started)
 
@@ -578,18 +582,20 @@ async def _stop(session_id: str) -> bool:
     Escape のすぐ後に消すキーが届いた。 端末は Escape の直後のキーと 2 つで 1 つのキー (= Alt + キー) と読むので、
     停止が効かずに turn が続いた (= 2026-10-15 の実験用タブ)。
     """
-    sent = await _send_escape(session_id)
-    if sent is None:
-        return False
-    _stop_clears[session_id] = asyncio.create_task(_clear_after_stop(session_id, sent))
-    return True
+    escape = asyncio.create_task(_send_escape(session_id))
+    # 消す番は Escape を打ち終える前に取る (= 打っている間に届いた本文が、 Escape のすぐ後に打たれない)
+    _stop_clears[session_id] = asyncio.create_task(_clear_after_stop(session_id, escape))
+    return await asyncio.shield(escape) is not None
 
 
-async def _clear_after_stop(session_id: str, sent: _EscapeSent) -> None:
+async def _clear_after_stop(session_id: str, escape: asyncio.Task[_EscapeSent | None]) -> None:
     lock = _send_locks.setdefault(session_id, asyncio.Lock())
     async with lock:
+        sent = await escape
+        if sent is None:
+            return
         await _escape_settled(session_id, sent)
-        await asyncio.to_thread(wipe_input_line, session_id)
+        await in_typing_order(session_id, lambda: wipe_input_line(session_id))
 
 
 @router.post("/pty/{session_id}/send")
@@ -674,7 +680,7 @@ async def pty_send(session_id: str, payload: dict, idempotency_key: str | None =
         return {"ok": await _stop(session_id)}
     # 単発 key 送信 (= Escape で停止 / AskUserQuestion typeNum 等) と、 enter 無しの text (= 自由記述の
     # 1 回目) は wipe も確認もしない (= key の意味を壊さない、 送信完了の概念が無い)。 並びもしない。
-    ok = tmux_send_keys(session_id, text=text, key=key, enter=enter)
+    ok = await in_typing_order(session_id, lambda: tmux_send_keys(session_id, text=text, key=key, enter=enter))
     if ok:
         from backend.terminal.prompt_detector_loop import note_user_input
         note_user_input(session_id)
@@ -707,9 +713,9 @@ async def pty_send_raw_key(session_id: str, payload: dict = Body(...)) -> dict:
     # 単一 printable char は literal (`-l`) 経路、 それ以外は key name として扱う。
     # 判別: len==1 かつ ASCII printable なら literal。
     if len(key) == 1 and 32 <= ord(key) < 127:
-        ok = tmux_send_keys(session_id, text=key, enter=enter)
+        ok = await in_typing_order(session_id, lambda: tmux_send_keys(session_id, text=key, enter=enter))
     else:
-        ok = tmux_send_keys(session_id, key=key, enter=enter)
+        ok = await in_typing_order(session_id, lambda: tmux_send_keys(session_id, key=key, enter=enter))
     if ok:
         # tier C grace は文字入力なので発火させる (= 次 tick で誤検知しないよう
         # note_user_input と同じ扱い)

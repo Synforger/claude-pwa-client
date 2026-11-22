@@ -38,6 +38,8 @@ def typed(monkeypatch) -> list[tuple[str, str]]:
 
     monkeypatch.setattr(am, "pty_send", fake_send)
     monkeypatch.setattr(am, "claude_in_pane", lambda sid: True)
+    monkeypatch.setattr(am, "scan_panes", lambda sids: {
+        sid: am.PaneState(has_session=am.has_tmux_session(sid), runs_claude=am.claude_in_pane(sid)) for sid in sids})
     return calls
 
 

@@ -44,6 +44,7 @@ from backend._internal.stop_signal import BackendStopping, until_stop
 from backend._common.state import SessionDef, jsonl_event_broadcaster, sessions_meta
 from backend.jsonl.jsonl_predicates import AGENT_MESSAGE_OPENINGS, ROLLOVER_OPENING, unwrap_pasted
 from backend.terminal import input_ready
+from backend.terminal.pane_order import deciding_launch, in_typing_order, is_deciding_launch, run_to_end
 from backend.terminal.pty_discover import claude_in_pane, register_claude_when_ready
 from backend.terminal.runner import tmux_send_keys, wait_until_typeable
 from backend.terminal.session_resolver import (
@@ -110,8 +111,20 @@ async def launch_with_first_message(session_id: str, text: str, send_id: str | N
     if not uses_launcher(session_id):
         return None
     await ensure_pty_session_for(session_id)
-    if not input_ready.is_ready(session_id) or claude_in_pane(session_id):
-        return None
+    async with deciding_launch(session_id) as waited:
+        # what came while another's launch was being typed waits behind that launch
+        if waited and (held := _hold_behind_launch(session_id, text, send_id)) is not None:
+            return held
+        if not input_ready.is_ready(session_id) or await asyncio.to_thread(claude_in_pane, session_id):
+            return None
+        # read again: a launch may have started, or the tab closed, during the look
+        if not input_ready.is_ready(session_id) or not uses_launcher(session_id):
+            return None
+        return await _launch(session_id, text, send_id)
+
+
+async def _launch(session_id: str, text: str, send_id: str | None) -> dict:
+    """Start the claude of a pane that holds a shell, with `text`."""
     meta = sessions_meta.get(session_id)
     if meta is not None and meta.sleeping_claude_sid() is not None:
         return await _reopen_then_send(session_id, text, send_id)
@@ -127,23 +140,40 @@ async def launch_with_first_message(session_id: str, text: str, send_id: str | N
     input_ready.mark_starting(session_id)
     # 立て直した直後の pane (= 自動の入れ替え) は、 tmux が session を作り終えるまで打鍵を受けない。
     # 入力行に残った打ちかけ (= 前の失敗の残り) を消してから打つ。
-    ok = (await _typeable(session_id)
-          and tmux_send_keys(session_id, key="C-u") and tmux_send_keys(session_id, text=command, enter=True))
+    held = (text, send_id) if tier is not None else None
+    ok = await _typeable(session_id) and await run_to_end(_type_launch(session_id, command, held))
     if not ok:
         input_ready.mark_ready(session_id)
         logger.warning("first message launch failed session=%s", session_id)
         return {"ok": False, "reason": "launch_failed"}
     logger.info("first message launch session=%s tier_tab=%s", session_id, tier)
-    asyncio.create_task(register_claude_when_ready(session_id, max_wait=LAUNCH_DISCOVER_SEC))
-    if tier is not None:
-        _hold(session_id, text, send_id)
     return {"ok": True, "launched": True}
+
+
+async def _type_launch(session_id: str, command: str, held: tuple[str, str | None] | None) -> bool:
+    """Type `command` into the shell and, once it is typed, keep `held` for the claude it starts. A caller that is
+    cancelled does not stop this half way (`run_to_end`): a launch typed without its message would lose the message."""
+    if not await in_typing_order(
+            session_id,
+            lambda: tmux_send_keys(session_id, key="C-u") and tmux_send_keys(session_id, text=command, enter=True)):
+        return False
+    asyncio.create_task(register_claude_when_ready(session_id, max_wait=LAUNCH_DISCOVER_SEC))
+    if held is not None:
+        _hold(session_id, *held)
+    return True
 
 
 def hold_while_launching(session_id: str, text: str, send_id: str | None = None) -> dict | None:
     """Keep `text` for the tab while a launch typed into its pane is still starting, to be typed once that claude takes
     input. `send_id` is the screen's id of the send, told back when the text is not taken. → the send's answer, or
-    None when no launch is in flight (= the caller sends as usual)."""
+    None when no launch is in flight (= the caller sends as usual), or when a launcher's launch is still being typed
+    (= `launch_with_first_message` then waits for it, so that this text comes after the one that launches)."""
+    if is_deciding_launch(session_id) and uses_launcher(session_id):
+        return None
+    return _hold_behind_launch(session_id, text, send_id)
+
+
+def _hold_behind_launch(session_id: str, text: str, send_id: str | None) -> dict | None:
     if not input_ready.launching(session_id):
         return None
     _hold(session_id, text, send_id)
@@ -164,14 +194,12 @@ async def _reopen_then_send(session_id: str, text: str, send_id: str | None) -> 
     input_ready.mark_starting(session_id)
     ok = (command is not None
           and await _typeable(session_id)
-          and tmux_send_keys(session_id, key="C-u") and tmux_send_keys(session_id, text=command, enter=True))
+          and await run_to_end(_type_launch(session_id, command, (text, send_id))))
     if not ok:
         input_ready.mark_ready(session_id)
         logger.warning("tab without a claude: could not reopen its conversation session=%s", session_id)
         return {"ok": False, "reason": "launch_failed"}
     logger.info("tab without a claude: reopened its conversation for the first message session=%s", session_id)
-    asyncio.create_task(register_claude_when_ready(session_id, max_wait=LAUNCH_DISCOVER_SEC))
-    _hold(session_id, text, send_id)
     return {"ok": True, "launched": True}
 
 

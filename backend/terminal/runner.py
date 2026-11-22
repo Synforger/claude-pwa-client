@@ -55,6 +55,7 @@ from backend._common.paths import FAVORITES_PATH, PLATFORM_ROOT
 from backend.terminal import input_ready
 from backend.terminal.tab_memo import memo_path
 from backend.terminal.tab_environment import read_environment, tab_environment
+from backend.terminal.pane_order import in_typing_order
 from backend.terminal.control_mode import (
     ControlModeLineBuffer,
     build_refresh_client_line,
@@ -297,10 +298,8 @@ async def spawn_pty_session(
         # はここで検証。 未設定なら設定漏れとして失敗させる。
         raise RuntimeError("CLAUDE_PATH is empty; set `claude_path` in backend/config.json")
 
-    if USE_TMUX_WRAP:
-        # server がいつ生まれ直しても「session 全滅 = server 死」 にならない状態を先に固定
-        ensure_tmux_resilience()
-        clean_server_environment()
+    # 新規作成かは spawn の前に見る。 tmux を待つのは thread で、 fd を開く前に済ませる (= 取り消されても漏れない)
+    is_new_tmux_session = await asyncio.to_thread(_prepare_tmux, session_id) if USE_TMUX_WRAP else False
 
     master_fd, slave_fd = pty.openpty()
     _set_winsize(master_fd, initial_rows, initial_cols)
@@ -325,10 +324,8 @@ async def spawn_pty_session(
     # (%output %<pane> <octal> 等) を送る。 これにより client (= xterm) が自分の桁数を
     # refresh-client -C で tmux に伝え、 tmux がそのサイズで描画するため、 生 passthrough で
     # 起きていた「桁数不一致による折り返し崩壊」 が原理的に起きない (= 移植の主目的)。
-    is_new_tmux_session = False
     if USE_TMUX_WRAP:
         tmux_name = _tmux_session_name(session_id)
-        is_new_tmux_session = not has_tmux_session(session_id)
         # `-e PWA_SID=<sid>` で tmux session env に PWA タブ識別子を注入する。 これは
         # session 配下の全 pane に継承され、 zsh → claude → SessionStart hook の curl まで
         # 環境変数として伝わる。 backend の hooks_router が X-PWA-SID header としてこれを
@@ -403,6 +400,14 @@ async def spawn_pty_session(
     return session
 
 
+def _prepare_tmux(session_id: str) -> bool:
+    """Put the tmux server in shape for a new client. → whether the tab has no session yet."""
+    # server がいつ生まれ直しても「session 全滅 = server 死」 にならない状態を先に固定
+    ensure_tmux_resilience()
+    clean_server_environment()
+    return not has_tmux_session(session_id)
+
+
 # 新しい pane で zsh の prompt を待つ上限と、 prompt を見る経路が無い時に置く間。
 PROMPT_WAIT_SEC: float = 3.0
 PROMPT_FALLBACK_DELAY_SEC: float = 1.0
@@ -445,11 +450,11 @@ async def wait_until_typeable(session_id: str, timeout: float) -> bool:
     作っていない (= その間の `tmux_send_keys` は何も打たずに False を返す)。 session ができる
     まで見に行き、 できたら zsh の prompt を待つ。 timeout までにできなければ False。
     """
-    if has_tmux_session(session_id):
+    if await asyncio.to_thread(has_tmux_session, session_id):
         return True
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
-    while not has_tmux_session(session_id):
+    while not await asyncio.to_thread(has_tmux_session, session_id):
         if loop.time() >= deadline:
             return False
         await asyncio.sleep(TMUX_SESSION_POLL_SEC)
@@ -466,7 +471,7 @@ async def _send_launch_alias(
     """zsh の prompt を待ってから tmux に alias+Enter を送る (= 待ち方は wait_for_prompt)。"""
     try:
         await wait_for_prompt(session_id, session, max_wait=max_wait, fallback_delay=fallback_delay)
-        ok = tmux_send_keys(session_id, text=alias, enter=True)
+        ok = await in_typing_order(session_id, lambda: tmux_send_keys(session_id, text=alias, enter=True))
         if not ok:
             logger.warning("launch alias send failed session=%s alias=%s", session_id, alias)
     except Exception:
@@ -496,7 +501,7 @@ async def _autoresume_watchdog(
     minutes to run it, which would otherwise look like a claude that exited at once.
     """
     try:
-        from backend.terminal.pty_discover import tmux_pane_pids, find_claude_descendant
+        from backend.terminal.pty_discover import claude_pid_in_pane
         import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
         if session is not None and session.control_mode:
             try:
@@ -507,9 +512,8 @@ async def _autoresume_watchdog(
         loop = asyncio.get_running_loop()
         deadline = loop.time() + max_wait
         while loop.time() < deadline:
-            for pane_pid in tmux_pane_pids(session_id):
-                if find_claude_descendant(pane_pid) is not None:
-                    return  # autoresume 成功
+            if await asyncio.to_thread(claude_pid_in_pane, session_id) is not None:
+                return  # autoresume 成功
             await asyncio.sleep(interval)
         # 投入直前 gate: SessionStart hook 経由で confirmed binding が更新されてれば成功扱い
         info = jsonl_watcher.list_bindings().get(session_id)
@@ -519,7 +523,7 @@ async def _autoresume_watchdog(
             "autoresume watchdog: no claude after %.1fs, injecting fallback alias session=%s",
             max_wait, session_id,
         )
-        tmux_send_keys(session_id, text=fallback_alias, enter=True)
+        await in_typing_order(session_id, lambda: tmux_send_keys(session_id, text=fallback_alias, enter=True))
     except Exception:
         logger.exception("_autoresume_watchdog error session=%s", session_id)
 
@@ -846,13 +850,16 @@ async def send_text_two_stage(
     """
     from backend.terminal.ansi_text import strip_ansi  # noqa: PLC0415
 
-    if wipe:
-        wipe_input_line(session_id)
     multiline = "\n" in text
-    before = ""
-    if multiline:
-        before = strip_ansi(await asyncio.to_thread(capture_pane_ansi_tail, session_id) or "")
-    ok = tmux_send_keys(session_id, text=text, key=key, enter=False)
+
+    # 消してから貼るまでに、 他の打鍵を挟ませない
+    def wipe_and_paste() -> tuple[bool, str]:
+        if wipe:
+            wipe_input_line(session_id)
+        shown = strip_ansi(capture_pane_ansi_tail(session_id) or "") if multiline else ""
+        return tmux_send_keys(session_id, text=text, key=key, enter=False), shown
+
+    ok, before = await in_typing_order(session_id, wipe_and_paste)
     if not ok:
         return False
     await asyncio.sleep(TWO_STAGE_ENTER_DELAY_SEC)
@@ -860,9 +867,9 @@ async def send_text_two_stage(
         after = strip_ansi(await asyncio.to_thread(capture_pane_ansi_tail, session_id) or "")
         if paste_formed_placeholder(before, after):
             # プレースホルダが実際に形成された時だけ、 同 paste をもう一度 = 展開。
-            tmux_send_keys(session_id, text=text, enter=False)
+            await in_typing_order(session_id, lambda: tmux_send_keys(session_id, text=text, enter=False))
             await asyncio.sleep(PASTE_EXPAND_DELAY_SEC)
-    return tmux_send_keys(session_id, enter=True)
+    return await in_typing_order(session_id, lambda: tmux_send_keys(session_id, enter=True))
 
 
 def _build_send_keys_chain(

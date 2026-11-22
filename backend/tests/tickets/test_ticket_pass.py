@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -23,7 +24,7 @@ def delivered(monkeypatch):
         return {"ok": True}
 
     monkeypatch.setattr(ticket_pass, "deliver_or_keep", deliver)
-    monkeypatch.setattr(ticket_pass, "tab_reachable", lambda tab_id: True)
+    monkeypatch.setattr(ticket_pass, "tab_reachable", AsyncMock(return_value=True))
     return typed
 
 
@@ -98,7 +99,7 @@ def test_when_the_sender_or_the_tab_has_not_read_the_boundary_nothing_is_told_an
 
 
 def test_a_tab_that_cannot_be_reached_leaves_the_ticket_as_it_was(ticket_env, delivered, monkeypatch):
-    monkeypatch.setattr(ticket_pass, "tab_reachable", lambda tab_id: False)
+    monkeypatch.setattr(ticket_pass, "tab_reachable", AsyncMock(return_value=False))
     ticket = _ticket()
     assert _code(ticket_pass.pass_ticket("ses_a", ticket, "ses_b")) == "agent_message_receiver_not_running"
     assert ticket_index.get(ticket).holder == "ses_a"
@@ -109,7 +110,7 @@ def test_a_delivery_that_fails_leaves_the_ticket_as_it_was(ticket_env, monkeypat
         raise HTTPException(409, detail={"code": "agent_message_receiver_not_ready", "message": "not ready"})
 
     monkeypatch.setattr(ticket_pass, "deliver_or_keep", fail)
-    monkeypatch.setattr(ticket_pass, "tab_reachable", lambda tab_id: True)
+    monkeypatch.setattr(ticket_pass, "tab_reachable", AsyncMock(return_value=True))
     ticket = _ticket()
     assert _code(ticket_pass.pass_ticket("ses_a", ticket, "ses_b")) == "agent_message_receiver_not_ready"
     assert ticket_index.get(ticket).holder == "ses_a"
@@ -121,7 +122,7 @@ def test_a_line_kept_for_a_tab_the_account_hold_stopped_still_moves_the_ticket_a
         return {"ok": True, "kept": True}
 
     monkeypatch.setattr(ticket_pass, "deliver_or_keep", keep)
-    monkeypatch.setattr(ticket_pass, "tab_reachable", lambda tab_id: True)
+    monkeypatch.setattr(ticket_pass, "tab_reachable", AsyncMock(return_value=True))
     ticket = _ticket()
     assert run(ticket_pass.pass_ticket("ses_a", ticket, "ses_b")) == {"ok": True, "id": ticket, "to": "ses_b", "kept": True}
     assert ticket_index.get(ticket).holder == "ses_b"
@@ -135,7 +136,7 @@ def test_a_ticket_that_asks_the_operator_while_the_line_is_on_its_way_is_not_mov
         return {"ok": True}
 
     monkeypatch.setattr(ticket_pass, "deliver_or_keep", deliver_then_ask)
-    monkeypatch.setattr(ticket_pass, "tab_reachable", lambda tab_id: True)
+    monkeypatch.setattr(ticket_pass, "tab_reachable", AsyncMock(return_value=True))
     assert _code(ticket_pass.pass_ticket("ses_a", ticket, "ses_b")) == "ticket_waiting_operator"
     assert ticket_index.get(ticket).holder == "ses_a"
 
@@ -184,6 +185,6 @@ def test_an_answer_that_is_queued_while_the_tab_is_told_stops_the_ticket_from_mo
         return {"ok": True}
 
     monkeypatch.setattr(ticket_pass, "deliver_or_keep", answer_arrives_meanwhile)
-    monkeypatch.setattr(ticket_pass, "tab_reachable", lambda tab_id: True)
+    monkeypatch.setattr(ticket_pass, "tab_reachable", AsyncMock(return_value=True))
     assert _code(ticket_pass.pass_ticket("ses_a", ticket, "ses_b")) == "ticket_answer_pending"
     assert ticket_index.get(ticket).holder == "ses_a"
