@@ -47,3 +47,18 @@ def test_the_default_action_is_left_as_it_is(handlers):
             assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
 
     run(scenario())
+
+
+def test_two_callbacks_one_inside_the_other_both_run(handlers):
+    received, before = handlers
+    told: list[str] = []
+
+    async def scenario():
+        with on_stop_signal(lambda: told.append("outer")), on_stop_signal(lambda: told.append("inner")):
+            signal.raise_signal(signal.SIGTERM)
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+        assert signal.getsignal(signal.SIGTERM) is before
+
+    run(scenario())
+    assert received == [signal.SIGTERM] and sorted(told) == ["inner", "outer"]
