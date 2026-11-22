@@ -61,6 +61,7 @@ from typing import NoReturn
 from fastapi import APIRouter, Body, Form, HTTPException, Query, Request
 
 from backend._common.local_door import require_this_machine
+from backend._internal.check_process import run_check_process
 from backend._internal.stop_signal import BackendStopping, until_stop
 from backend.jsonl.jsonl_predicates import (
     AGENT_MESSAGE_OPENING as OPENING,
@@ -306,10 +307,9 @@ async def _run_check(command: list[str], text: str, names: dict[str, str]) -> tu
             word = word.replace("{" + name + "}", value)
         argv.append(os.path.expanduser(word))
     try:
-        done = await until_stop(asyncio.to_thread(subprocess.run, argv, capture_output=True, text=True,
-                                                  timeout=CHECK_TIMEOUT_SEC))
+        done = await until_stop(run_check_process(argv, CHECK_TIMEOUT_SEC))
     except BackendStopping:
-        # The check goes on in its thread and its answer is not read: nothing is delivered on one that did not finish.
+        # The stop killed the check: nothing is delivered on one that did not finish.
         return None, "the backend is stopping", []
     except subprocess.TimeoutExpired:
         return None, "the check did not finish in time", []

@@ -53,6 +53,7 @@ from backend.jsonl.routes import (
 )
 from backend.observability.metrics import metrics
 from backend.tickets import ticket_feed, ticket_wake
+from backend._internal.stop_signal import BackendStopping
 from backend.routes.overview import (
     _build_all_status,
     _build_sessions_overview,
@@ -302,7 +303,10 @@ async def _tickets_pump(conn: UnifiedConn, ev: asyncio.Event, last: str) -> None
     while True:
         await ev.wait()
         ev.clear()
-        payload = json.dumps(await ticket_feed.snapshot(), ensure_ascii=False)
+        try:
+            payload = json.dumps(await ticket_feed.snapshot(), ensure_ascii=False)
+        except BackendStopping:
+            return
         if payload != last:
             last = payload
             await conn.queue.put({"ch": "tickets", "data": json.loads(payload)})
@@ -373,7 +377,10 @@ async def _unified_gen(conn: UnifiedConn, initial_view: str | None):
         status_pump_started = True
 
         # 3b) 票の絵: 接続した時に今の 1 枚、 その後は変化の時だけ (= 購読は上で済み、 隙間の変化は ev に残る)
-        initial_tickets = json.dumps(await ticket_feed.snapshot(), ensure_ascii=False)
+        try:
+            initial_tickets = json.dumps(await ticket_feed.snapshot(), ensure_ascii=False)
+        except BackendStopping:
+            return
         yield _frame({"ch": "tickets", "data": json.loads(initial_tickets)})
         pumps.append(asyncio.create_task(_tickets_pump(conn, tickets_ev, initial_tickets)))
 
