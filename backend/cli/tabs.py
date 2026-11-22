@@ -59,6 +59,8 @@
                                  子のタブから親のタブへ結果を返し、 メモの状態を「完了」 か「詰まり」 にする
     tabs    close <子の id> [--force]
                                  このタブが立てた子を閉じ、 そのメモを消す。 作業中の子は --force の時だけ閉じる
+    tabs    rename <子の id> <題>
+                                 このタブが立てた子の題を、 今の仕事の物に替える (= 使い方: `backend/cli/rename.py`)
     tabs    sleep <子の id>      このタブが立てた子の claude を今すぐ眠らせる (= 静かなタブを眠らせる見回りと同じ眠り。
                                  届いた連絡で同じ会話のまま起きる)。 報告を受けて、 続きの仕事まで待たせる子に打つ。
                                  子が答えを書き終えるまで最大 60 秒待ち、 眠らせられない時は理由を出す
@@ -110,6 +112,7 @@ from backend.rollover.tool_shells import (  # noqa: E402
     ProcessRow, ToolShell, elapsed_text, own_tool_shell, seconds_of_elapsed, tool_shells)
 from backend.cli import ask as ask_command  # noqa: E402
 from backend.cli import capacity as capacity_command  # noqa: E402
+from backend.cli import rename as rename_command  # noqa: E402
 from backend.cli import child_start  # noqa: E402
 from backend.cli import ticket as ticket_command  # noqa: E402
 from backend.cli.peer_tab_lines import peer_tab_lines  # noqa: E402
@@ -959,6 +962,8 @@ def main(argv: list[str]) -> int:
         return ask_command.run(argv[1:], call, BASE)
     if argv[:1] == ["capacity"]:
         return capacity_command.run(argv[1:], call)
+    if argv[:1] == ["rename"]:
+        return rename_command.run(argv[1:], call)
     if argv[:1] == ["ticket"]:
         return ticket_command.run(argv[1:], call, outward_receiver, own_record)
     if len(argv) == 2 and argv[0] == "page-url":

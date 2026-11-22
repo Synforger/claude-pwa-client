@@ -274,6 +274,7 @@ tabs new <title> <task file>      open a child; the task becomes its first messa
          [--model <name>] [--effort <level>]   the child's model and effort (the agent's launch script takes only values it allows)
 tabs children [--summary]         list the children this tab opened (id, memo state, what its Claude is doing, title)
 tabs close <child id> [--force]   close a child and clear its memo and untouched top page; a child still working needs --force
+tabs rename <child id> <title>    give a child the title of the work it holds now
 tabs sleep <child id>             put a child's Claude to sleep now; a message wakes it in the same conversation
 tabs capacity [--json]            how much this machine holds now: the child limit, the claudes and their memory, the
                                   machine's memory and each account's usage (plain numbers; no line is drawn)
@@ -281,6 +282,7 @@ tabs capacity [--json]            how much this machine holds now: the child lim
 
 **Name the child by its work alone** (`tabs new "<what it does>" …`). The list shows a child under its parent and in its
 parent's folder, so a prefix of the tier, the project or the parent's name only repeats what the list already shows.
+When you hand a child other work, rename it (`tabs rename <child id> "<what it does now>"`), so the list says what it does.
 
 The child starts in the same tier as the parent. A child cannot open children (`tabs new` refuses); work that
 should be split further goes into its report. `tabs new` also writes the task into the child's memo

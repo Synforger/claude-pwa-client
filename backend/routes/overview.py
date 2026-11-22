@@ -185,6 +185,9 @@ def _build_sessions_overview() -> dict:
             "tier": tab_tier(sid),
             # Whether the tab's claude was put to sleep (= backend/sleep/), so the list marks it as soon as it sleeps.
             "asleep": sessions_meta[sid].sleep is not None,
+            # The tab's title, so a list that is already on screen follows a rename made elsewhere (= another device,
+            # or the parent of a child).
+            "title": sessions_meta[sid].title,
             # The account the tab runs on now, the account it was moved off (= null when it was not moved), and whether it
             # is held on its account, so a list that is already on screen follows an automatic move between accounts
             # (= backend/account_fallback/) without fetching /sessions again.

@@ -12,8 +12,13 @@ test.describe('golden: session-drawer', () => {
     await page.locator('[data-testid=drawer-toggle]').click()
     await expect(page.locator('[data-testid=session-drawer]')).toBeVisible()
 
-    // Capture how many sessions exist before the create.
-    const before = await page.locator('[data-testid=session-list-item]').count()
+    // Capture how many sessions exist before the create. The list hides the children of a folded parent, so this
+    // counts where the count after the create is taken: the backend's list.
+    const countSessions = async () => {
+      const body = await (await page.request.get('/sessions')).json()
+      return (body.sessions || body).length
+    }
+    const before = await countSessions()
 
     await page.locator('[data-testid=new-session-button]').click()
     // Agent picker shows, then the account step (= the e2e config has two
@@ -23,12 +28,6 @@ test.describe('golden: session-drawer', () => {
     await page.locator('.agent-picker .agent-picker-item').first().click()
 
     // /sessions should now report one more session than before.
-    await expect.poll(
-      async () => {
-        const body = await (await page.request.get('/sessions')).json()
-        return (body.sessions || body).length
-      },
-      { timeout: 10_000 },
-    ).toBe(before + 1)
+    await expect.poll(countSessions, { timeout: 10_000 }).toBe(before + 1)
   })
 })
