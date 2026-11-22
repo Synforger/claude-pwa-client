@@ -1,9 +1,7 @@
 // @vitest-environment jsdom
 //
-// StatusBar の表示ロジック契約 test (= 2026-07-27 audit 充填: 従来テスト 0 件)。
-// useStatus を mock して「status 値 → 表示文字列」 の変換だけを固定する。
-// 特に 5h / 7d の期限切れ 0% フォールバック (= 窓切れの古い % を出し続けない) は
-// 2026-07-27 に 7d 側の欠落を直したばかりの回帰点。
+// StatusBar の表示ロジック契約 test。 useStatus を mock して「status 値 → 表示文字列」 の変換だけを固定する。
+// 5h / 7d は、 数字が在って窓が戻っていない時だけ出る (= 分からない値を 0% で埋めない)。
 import { it, expect, vi, afterEach } from 'vitest'
 import { render, cleanup } from '@testing-library/react'
 
@@ -35,16 +33,17 @@ it('renders live percentages when windows are current', () => {
   expect(container.textContent).toContain('7d 70%')
 })
 
-it('falls back to 0% when the 5h window has expired', () => {
+it('leaves out the 5h window once it has reset', () => {
   mockStatus.mockReturnValue(baseStatus({ five_hour_resets_at: NOW - 60 }))
   const { container } = render(<StatusBar />)
-  expect(container.textContent).toContain('5h 0%')
+  expect(container.textContent).not.toContain('5h')
+  expect(container.textContent).toContain('7d 70%')
 })
 
-it('falls back to 0% when the 7d window has expired (= 2026-07-27 fix)', () => {
+it('leaves out the 7d window once it has reset', () => {
   mockStatus.mockReturnValue(baseStatus({ seven_day_resets_at: NOW - 60 }))
   const { container } = render(<StatusBar />)
-  expect(container.textContent).toContain('7d 0%')
+  expect(container.textContent).not.toContain('7d')
   // 5h は現行のまま
   expect(container.textContent).toContain('5h 40%')
 })
@@ -53,4 +52,27 @@ it('keeps raw pct while resets_at is unknown (= 0)', () => {
   mockStatus.mockReturnValue(baseStatus({ seven_day_resets_at: 0, seven_day_pct: 55 }))
   const { container } = render(<StatusBar />)
   expect(container.textContent).toContain('7d 55%')
+})
+
+it('shows the week and ctx alone for an account without the 5 hours', () => {
+  mockStatus.mockReturnValue(baseStatus({ five_hour_pct: null, five_hour_resets_at: null }))
+  const { container } = render(<StatusBar />)
+  expect(container.textContent).not.toContain('5h')
+  expect(container.textContent).toContain('7d 70%')
+  expect(container.textContent).toContain('ctx 12%')
+})
+
+it('shows ctx alone, and no 0%, when neither window is known', () => {
+  mockStatus.mockReturnValue(baseStatus({
+    five_hour_pct: null, five_hour_resets_at: null, seven_day_pct: null, seven_day_resets_at: null,
+  }))
+  const { container } = render(<StatusBar />)
+  expect(container.textContent).not.toMatch(/5h|7d|NaN| 0%/)
+  expect(container.textContent).toContain('ctx 12%')
+})
+
+it('shows a real 0% of a window', () => {
+  mockStatus.mockReturnValue(baseStatus({ five_hour_pct: 0 }))
+  const { container } = render(<StatusBar />)
+  expect(container.textContent).toContain('5h 0%')
 })

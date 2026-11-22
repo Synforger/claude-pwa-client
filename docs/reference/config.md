@@ -183,6 +183,8 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
 - `rate_limits_log`: 使用率 (5h / 7d / context) を記録する JSONL の path。 **このファイルを
   書くのは claude の statusline スクリプト** (= claude が statusline subprocess に渡す
   `rate_limits` を 1 行ずつ追記する)。 backend はこれを読んでステータスバーに表示する。
+  口座の使用率に採るのは、 同じ session の前の行と値の違う最後の行 (= 古い値の描き直しは採らない)。
+  口座に無い枠 (例えば 5 時間の枠の無いプラン) は、 欄を `null` で書く (`0` は「0%」と読む)。
   statusline 側の書き込み path と必ず一致させること。 表示専用の statusline だと書き込まれず
   ステータスバーが空になる (設定手順は [../setup/path-a-chat.md](../setup/path-a-chat.md) の
   「ステータスバーを有効にする」 を参照)

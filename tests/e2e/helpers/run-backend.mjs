@@ -29,6 +29,7 @@ const USER_DIR = resolve(RUNTIME, 'user')
 // the real HOME.
 const AGENT_DIR = resolve(RUNTIME, 'agent')
 const CONFIG_PATH = resolve(RUNTIME, 'config.json')
+const RATE_LIMITS_LOG = resolve(RUNTIME, 'rate-limits.jsonl')
 
 const PORT = process.env.CPC_E2E_PORT || '18765'
 // The page origin's folder and port (= the setting `page_origin`): HTML in this folder opens from its own port. The
@@ -154,6 +155,9 @@ const config = {
     { id: 'fixture-page', title: 'Fixture page', icon: '📄', view: 'page' },
   ],
   page_origin: { folder: PAGE_ORIGIN_DIR, port: PAGE_ORIGIN_PORT },
+  // The usage log is the run's own file: without this key, a machine with a platform root makes the test backend read
+  // the operator's real log, and what the screens show then depends on their plan.
+  rate_limits_log: RATE_LIMITS_LOG,
   claude_path: '/usr/bin/true',
   cors_allow_origins: ['*'],
   ...(API_TABS ? {

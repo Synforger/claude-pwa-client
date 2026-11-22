@@ -152,7 +152,6 @@ def api_env(tmp_path, monkeypatch):
 # state.py の module-level に存在する dict 群。
 _STATE_GLOBALS = (
     "agent_status",
-    "shared_status",
     "sessions_meta",
     "stream_states",
     "calls_by_conn",

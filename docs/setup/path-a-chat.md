@@ -157,7 +157,7 @@ SESSION_ID=$(echo "$input" | jq -r '.session_id // ""')
 
 # --- backend 連携: rate_limits を JSONL に追記 (config.json の rate_limits_log と同じ path) ---
 TRACKER_LOG="/path/to/rate-limits.jsonl"
-if [ -n "$FIVE_H" ]; then
+if [ -n "$FIVE_H" ] || [ -n "$WEEK" ]; then
     # account を CLAUDE_CONFIG_DIR から導く (~/.claude-work → "work"、 unset → "personal")。
     # backend はこの account_id で個人 / 会社など複数アカウントの使用率を分けて扱う。
     if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
@@ -167,15 +167,17 @@ if [ -n "$FIVE_H" ]; then
         ACCOUNT_ID="personal"
     fi
     /usr/bin/python3 - "$TRACKER_LOG" "$SESSION_ID" "$ACCOUNT_ID" "$MODEL" \
-        "$FIVE_H" "${FIVE_H_RESET:-0}" "${WEEK:-0}" "${WEEK_RESET:-0}" \
+        "$FIVE_H" "$FIVE_H_RESET" "$WEEK" "$WEEK_RESET" \
         "$IN_TOKENS" "$OUT_TOKENS" "$CTX_PCT" <<'PYEOF' 2>/dev/null
 import json, sys, time
 log, sid, acct, model, f5, f5r, w7, w7r, intok, outtok, ctx = sys.argv[1:12]
+def number(text, kind):
+    return kind(text) if text else None  # a window the plan does not have is null, not 0
 entry = {
     "timestamp": int(time.time()),
     "session_id": sid, "account_id": acct, "model": model,
-    "five_hour_pct": float(f5), "five_hour_resets_at": int(f5r),
-    "seven_day_pct": float(w7), "seven_day_resets_at": int(w7r),
+    "five_hour_pct": number(f5, float), "five_hour_resets_at": number(f5r, int),
+    "seven_day_pct": number(w7, float), "seven_day_resets_at": number(w7r, int),
     "input_tokens": int(intok), "output_tokens": int(outtok), "context_pct": int(ctx),
 }
 with open(log, "a") as f:
@@ -189,7 +191,7 @@ fi
 - **`rate_limits_log` と書き込み先 path を一致させる**。 違うと backend は永遠に空ファイルを読む
 - **親ディレクトリは事前に作る** (`mkdir -p`)。 スクリプトは作らないので、 無いと append が
   silent fail する
-- **`jq` が無いと値が全部 empty になり** (`if [ -n "$FIVE_H" ]` が false)、 記録されず
+- **`jq` が無いと値が全部 empty になり** (`$FIVE_H` も `$WEEK` も空)、 記録されず
   ステータスバーが出ない。 移植前に `which jq` で確認する
 
 ## Tailscale で tailnet 内に公開

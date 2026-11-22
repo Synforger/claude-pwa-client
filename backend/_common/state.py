@@ -7,7 +7,7 @@
 
 - セッション定義 (`sessions_meta`): 永続化、 session_meta.json
 - ストリームごとの状態 (`stream_states`)
-- ステータスキャッシュ (`agent_status`, `shared_status`)
+- ステータスキャッシュ (`agent_status`)
 - セッション単位の `SessionState` (= 2026-06-21、 backend-F-07): 上の dict 群
   を 1 sid あたり 1 instance に束ねた view。 `asyncio.Lock` も SessionState
   内に持つので、 副 path から `async with state.get_session(sid).lock:` で
@@ -741,13 +741,6 @@ session_last_seen_at: dict[str, float] = {}
 session_tmp_files: dict[str, list[Path]] = {}
 
 # --- ステータスキャッシュ ---
-shared_status: dict = {
-    "five_hour_pct": 0,
-    "seven_day_pct": 0,
-    "five_hour_resets_at": 0,
-    "seven_day_resets_at": 0,
-}
-
 agent_status: dict[str, dict] = {
     sid: _make_agent_status(meta.agent_id) for sid, meta in sessions_meta.items()
 }
@@ -919,5 +912,5 @@ def demote_fork_to_normal(session_id: str) -> str | None:
     return fork_resume_id
 
 
-# SDK レスポンス / HTTP header の解析と agent_status / shared_status の更新は
+# SDK レスポンス / HTTP header の解析と agent_status の更新は
 # `usage.py` に分離した (2026-05-17)。 state.py は純粋に state の定義 / lifecycle に専念。

@@ -41,7 +41,7 @@ backend は機能ごとのサブパッケージ + 中立基盤 `_common/` で構
 | `jsonl/` | `~/.claude/projects/<cwd-hash>/<claude_session_id>.jsonl` を tail し、 chat UI 用 event 形式 (= `processStreamEvent` 入力) に変換する出力経路。 `terminal/` も使う JSONL 行プリミティブ (tail / predicates) と sid↔JSONL binding registry もここに置く | `events.py` (`jsonl_line_to_events`) / `routes.py` (`/jsonl/stream/{sid}`) / `session_status.py` / `notifications.py` / `plan_choices.py` / `resolver.py` / `jsonl_tail.py` / `jsonl_predicates.py` / `jsonl_watcher.py` |
 | `routes/` | HTTP / SSE / WS の各 endpoint を session / chat / overview / files / hooks / subagents / accounts 単位で分割保持 | `sessions.py` / `chat.py` / `overview.py` (`POST /sessions/{sid}/seen` + 旧 status / overview SSE の実装は unified へ吸収済) / `files.py` / `hooks.py` / `subagents.py` / `accounts.py` / `unified_stream.py` (`/stream/unified` = 多重化 1 本接続、 protocol 詳細 = `../protocol/streams.md`) |
 | `push/` | Web Push の配信と subscription 管理 | `push.py` |
-| `usage/` | 使用率 (5h / 7d / ctx) の組み立て | `usage.py` |
+| `usage/` | 使用率 (5h / 7d / ctx) の組み立て | `usage.py` / `account_usage.py` (= どの行が口座の使用率か) / `limit_state.py` |
 | `fork/` | 会話フォーク | `fork.py` |
 | `speech/` | 声に渡す文の整形と、 声の音のコンプレッサー | `speech.py` / `compressor.py` |
 | `maintenance/` | 定期 GC / 掃除 loop | `maintenance.py` |
