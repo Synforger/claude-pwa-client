@@ -38,7 +38,7 @@ def _write(folder, *, memo=True, page=None, more=None):
 def test_the_memo_the_untouched_page_and_the_empty_folder_go(family):
     _parent, child, agent = family
     folder = agent / "projects" / "P" / "pages" / child.id
-    _write(folder, page=fill_template(TEMPLATE, title="kid", tier="projects/P"))
+    _write(folder, page=fill_template(TEMPLATE, title="kid", tier="projects/P", pages_root="../../../../pages"))
     clear_child_folder(child.id)
     assert not folder.exists()
 
@@ -49,7 +49,7 @@ def test_a_page_that_only_gained_a_script_line_is_untouched(family, monkeypatch)
     template = "<html>\n<head><title>{{title}}</title></head>\n<body><p>{{tier}}</p></body>\n</html>\n"
     template_file(agent).write_text(template, encoding="utf-8")
     folder = agent / "projects" / "P" / "pages" / child.id
-    filled = fill_template(template, title="kid", tier="projects/P")
+    filled = fill_template(template, title="kid", tier="projects/P", pages_root="../../../../pages")
     _write(folder, page=filled.replace("</head>", '</head>\n<script src="../_common/toc-sidebar.js" defer></script>'))
     clear_child_folder(child.id)
     assert not folder.exists()
@@ -58,7 +58,7 @@ def test_a_page_that_only_gained_a_script_line_is_untouched(family, monkeypatch)
 def test_a_page_with_a_script_line_and_its_own_words_stays(family):
     _parent, child, agent = family
     folder = agent / "projects" / "P" / "pages" / child.id
-    page = fill_template(TEMPLATE, title="kid", tier="projects/P") + '\n<script src="x.js"></script>\n<p>found</p>'
+    page = fill_template(TEMPLATE, title="kid", tier="projects/P", pages_root="../../../../pages") + '\n<script src="x.js"></script>\n<p>found</p>'
     _write(folder, page=page)
     clear_child_folder(child.id)
     assert (folder / "index.html").is_file()
@@ -76,7 +76,7 @@ def test_a_child_that_started_in_another_tier_is_cleared_there_too(family):
     _parent, child, agent = family
     child.tier = "normal"  # started in the wrong tier: its page is in the agent's folder, its memo in the parent's
     wrong = agent / "pages" / child.id
-    _write(wrong, page=fill_template(TEMPLATE, title="kid", tier="normal"))
+    _write(wrong, page=fill_template(TEMPLATE, title="kid", tier="normal", pages_root=".."))
     right = agent / "projects" / "P" / "pages" / child.id
     _write(right)
     clear_child_folder(child.id)
@@ -86,7 +86,7 @@ def test_a_child_that_started_in_another_tier_is_cleared_there_too(family):
 def test_a_tab_that_is_not_a_child_keeps_its_memo(family):
     parent, _child, agent = family
     folder = agent / "projects" / "P" / "pages" / parent.id
-    _write(folder, page=fill_template(TEMPLATE, title="lead", tier="projects/P"))
+    _write(folder, page=fill_template(TEMPLATE, title="lead", tier="projects/P", pages_root="../../../../pages"))
     assert clear_child_folder(parent.id) == []
     assert (folder / "memo.md").is_file() and (folder / "index.html").is_file()
 
@@ -150,3 +150,16 @@ def test_a_page_that_matches_neither_the_fingerprint_nor_the_template_stays(fami
     template_file(agent).write_text(NEW_TEMPLATE, encoding="utf-8")
     clear_child_folder(child.id)
     assert page.is_file()
+
+
+def test_an_untouched_page_with_the_way_up_is_told_untouched_in_a_deeper_tier(family, monkeypatch):
+    # 意図: {{pages_root}} を埋めたページも、 指紋の無い子で今の雛形と比べて片付く (= 階層ごとに埋める値を合わせる)
+    _parent, child, agent = family
+    template_file(agent).write_text('<html><a href="{{pages_root}}/index.html">{{title}}</a></html>', encoding="utf-8")
+    (agent / "projects" / "P" / "subprojects" / "S").mkdir(parents=True)
+    child.tier = "projects/P/subprojects/S"
+    page = make_page(child.id)
+    assert '"../../../../../../pages/index.html"' in page.read_text(encoding="utf-8")
+    child.top_page_sha = None
+    clear_child_folder(child.id)
+    assert not page.parent.exists()
