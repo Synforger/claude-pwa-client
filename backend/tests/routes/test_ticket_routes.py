@@ -1,6 +1,7 @@
 """The doors of the tickets: the forms, the values they refuse, the answers, and that they answer this machine only."""
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
 import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
@@ -16,7 +17,7 @@ def client(ticket_env, monkeypatch):
         return {"ok": True}
 
     monkeypatch.setattr(ticket_pass, "deliver_or_keep", deliver)
-    monkeypatch.setattr(ticket_pass, "tab_reachable", lambda tab_id: True)
+    monkeypatch.setattr(ticket_pass, "tab_reachable", AsyncMock(return_value=True))
     app = FastAPI()
     app.include_router(ticket_routes.router)
     return TestClient(app)

@@ -14,6 +14,7 @@ Used by `rollover.py`.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -92,7 +93,7 @@ def _log_deferred(session_id: str, key: str, reason: str) -> None:
 async def tell(session_id: str, key: str, reason: str, context_pct: int | None, line_pct: float | None,
                shells: list[ToolShell], why_not: str | None) -> None:
     """Type the notice into the tab, unless `why_not` (from `blocker`) or a claude that is gone puts it off."""
-    if why_not is None and not claude_in_pane(session_id):
+    if why_not is None and not await asyncio.to_thread(claude_in_pane, session_id):
         why_not = NO_CLAUDE
     if why_not is not None:
         _log_deferred(session_id, key, why_not)

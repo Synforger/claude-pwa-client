@@ -164,3 +164,55 @@ def test_claude_pid_in_pane_finds_the_claude_under_any_pane(monkeypatch):
         assert pty_discover.claude_pid_in_pane("ses_a") == 9
     monkeypatch.setattr(pty_discover, "tmux_pane_pids", lambda sid: [])
     assert pty_discover.claude_pid_in_pane("ses_a") is None
+
+
+class _Scanned:
+    """A process of a made-up table."""
+
+    def __init__(self, pid: int, ppid: int, name: str) -> None:
+        self.pid, self._ppid, self._name = pid, ppid, name
+
+    def ppid(self) -> int:
+        return self._ppid
+
+    def name(self) -> str:
+        return self._name
+
+    def cmdline(self) -> list[str]:
+        return [self._name]
+
+    def create_time(self) -> float:
+        return 1.0
+
+    def cwd(self) -> str:
+        return "/work"
+
+
+def test_one_look_at_every_pane_finds_the_same_claudes(monkeypatch):
+    from backend.terminal import runner
+
+    table = {10: _Scanned(10, 1, "zsh"), 11: _Scanned(11, 10, "wrapper"), 12: _Scanned(12, 11, "claude"),
+             20: _Scanned(20, 1, "zsh"), 21: _Scanned(21, 20, "vim")}
+    asked = []
+
+    def tmux(*args, **_options):
+        asked.append(args)
+        return type("Done", (), {"returncode": 0, "stdout": "pwa-ses_a\t10\npwa-ses_b\t20\n"})()
+
+    monkeypatch.setattr(runner, "USE_TMUX_WRAP", True)
+    monkeypatch.setattr(runner, "_run_tmux", tmux)
+    monkeypatch.setattr(pty_discover.psutil, "pids", lambda: list(table))
+    monkeypatch.setattr(pty_discover.psutil, "Process", lambda pid: table[pid])
+    assert pty_discover.scan_panes(["ses_a", "ses_b", "ses_c"]) == {
+        "ses_a": (True, True), "ses_b": (True, False), "ses_c": (False, False)}
+    assert len(asked) == 1
+
+
+def test_a_look_that_tmux_does_not_answer_asks_each_tab(monkeypatch):
+    from backend.terminal import runner
+
+    monkeypatch.setattr(runner, "USE_TMUX_WRAP", True)
+    monkeypatch.setattr(runner, "_run_tmux", lambda *args, **options: None)
+    monkeypatch.setattr(runner, "has_tmux_session", lambda sid: True)
+    monkeypatch.setattr(pty_discover, "claude_in_pane", lambda sid: sid == "ses_a")
+    assert pty_discover.scan_panes(["ses_a", "ses_b"]) == {"ses_a": (True, True), "ses_b": (True, False)}

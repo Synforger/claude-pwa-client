@@ -323,7 +323,7 @@ async def _tell_the_held(wanted: list[tuple[bool, float, str, str, int, str]]) -
     → the shells read, by tab (= the asks that follow read them from here)."""
     shells_of: dict[str, list[ToolShell]] = {}
     for _, _, sid, reason, pct, key in wanted:
-        if reason != "context" or not claude_in_pane(sid):
+        if reason != "context" or not await asyncio.to_thread(claude_in_pane, sid):
             continue
         record = Path(key)
         if await asyncio.to_thread(held_notice.was_told, key, record):
@@ -385,7 +385,7 @@ async def tick() -> str | None:
         return None
     # 静かなタブを、 静かな時間の長い順に。 推論中のタブはその後。
     for _, minus_idle, sid, reason, pct, key in sorted(wanted):
-        if not reask_allowed(_asked_at.get(key), now) or not claude_in_pane(sid):
+        if not reask_allowed(_asked_at.get(key), now) or not await asyncio.to_thread(claude_in_pane, sid):
             continue
         shells = shells_of[sid] if sid in shells_of else await asyncio.to_thread(background_shells, sid)
         if shells:
@@ -395,7 +395,7 @@ async def tick() -> str | None:
         await _ask(sid, key, reason, pct, int(-minus_idle), now, again=False)
         return sid
     for minus_idle, sid, pct, key in sorted(stalled):
-        if not reask_allowed(_asked_at.get(key), now) or not claude_in_pane(sid):
+        if not reask_allowed(_asked_at.get(key), now) or not await asyncio.to_thread(claude_in_pane, sid):
             continue
         is_stalled, lapsed, facts = await asyncio.to_thread(_close_check, sid)
         if lapsed:

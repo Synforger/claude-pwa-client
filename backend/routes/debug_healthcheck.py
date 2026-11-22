@@ -11,6 +11,7 @@ checks are read-only — no spawn, no real push send, no file mutation.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -160,7 +161,8 @@ async def _check_agent_launch_alias() -> dict[str, Any]:
         # zsh -ilc "type <alias>": login + interactive で .zshrc を読み込み、
         # alias / function / file として解決可能か判定。 timeout で hang を防ぐ。
         try:
-            proc = _sp.run(
+            proc = await asyncio.to_thread(
+                _sp.run,
                 [zsh, "-ilc", f"type {alias!s} 2>&1"],
                 capture_output=True, text=True, timeout=5,
             )
@@ -312,11 +314,13 @@ async def _check_tmux_pty_sessions() -> dict[str, Any]:
     from backend.terminal.runner import has_tmux_session, pty_sessions
     pty_count = len(pty_sessions)
     per_sid: list[dict[str, Any]] = []
-    for sid in sessions_meta:
+    sids = list(sessions_meta)
+    alive = await asyncio.to_thread(lambda: [has_tmux_session(sid) for sid in sids])
+    for sid, tmux_alive in zip(sids, alive):
         per_sid.append({
             "sid": sid,
             "pty_attached": sid in pty_sessions,
-            "tmux_alive": has_tmux_session(sid),
+            "tmux_alive": tmux_alive,
         })
     soft, hard = _resource.getrlimit(_resource.RLIMIT_NOFILE)
     # 自プロセスの実 open fd 数 (macOS は /dev/fd を列挙)

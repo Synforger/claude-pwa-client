@@ -51,6 +51,8 @@ def typed(monkeypatch) -> list[tuple[str, dict]]:
     monkeypatch.setattr(am, "wait_for_claude_screen", fake_screen)
     monkeypatch.setattr(am, "deliver_to_woken", fake_deliver)
     monkeypatch.setattr(am, "claude_in_pane", lambda sid: sid != "ses_idle")
+    monkeypatch.setattr(am, "scan_panes", lambda sids: {
+        sid: am.PaneState(has_session=am.has_tmux_session(sid), runs_claude=am.claude_in_pane(sid)) for sid in sids})
     # ses_idle has a shell left in its pane, its agent has no launcher and it has no conversation to reopen
     # (= a message has no way to start its claude)
     monkeypatch.setattr(am, "has_tmux_session", lambda sid: True)

@@ -72,6 +72,8 @@ def pane(monkeypatch, tmp_path):
     bound = {"path": None}
     sent_files: list = []
 
+    loop: dict[str, asyncio.AbstractEventLoop] = {}
+
     def keys(_sid, text=None, key=None, enter=False):
         if text and "--first-message-file" in text:
             file = text.split("--first-message-file ", 1)[1]
@@ -81,10 +83,13 @@ def pane(monkeypatch, tmp_path):
                 claude.record.write_text("")
                 bound["path"] = claude.record
                 claude.start(open(file, encoding="utf-8").read())
-            asyncio.get_running_loop().call_later(BOOT_SEC, boot)
+            running = loop["running"]
+            # typed from a thread: the claude still boots on the event loop
+            running.call_soon_threadsafe(lambda: running.call_later(BOOT_SEC, boot))
         return True
 
     async def nothing(*_a, **_k):
+        loop["running"] = asyncio.get_running_loop()
         return None
 
     async def typeable(_sid, _timeout):

@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 
 import psutil
 
@@ -36,24 +38,28 @@ async def register_claude_when_ready(
     deadline = time.time() + max_wait
     while time.time() < deadline:
         await asyncio.sleep(interval)
-        for pane_pid in tmux_pane_pids(session_id):
-            info = _find_claude_descendant_info(pane_pid)
-            if info is None:
-                continue
-            claude_pid, start_time, cwd = info
-            jsonl_watcher.register_pending(session_id, claude_pid, cwd, start_time)
-            if _record_tier_and_make_page(session_id, claude_pid):
-                sessions_overview.notify()
-            return
+        info = await asyncio.to_thread(_claude_info_in_pane, session_id)
+        if info is None:
+            continue
+        claude_pid, start_time, cwd = info
+        jsonl_watcher.register_pending(session_id, claude_pid, cwd, start_time)
+        if _record_tier_and_make_page(session_id, claude_pid):
+            sessions_overview.notify()
+        return
 
 
 def claude_pid_in_pane(session_id: str) -> int | None:
     """The pid of the claude now running in a tab's pane, or `None` when none runs there. Blocks on tmux and
     the process table, so callers on the event loop run it in a thread."""
+    info = _claude_info_in_pane(session_id)
+    return info[0] if info is not None else None
+
+
+def _claude_info_in_pane(session_id: str) -> tuple[int, float, str] | None:
     for pane_pid in tmux_pane_pids(session_id):
         info = _find_claude_descendant_info(pane_pid)
         if info is not None:
-            return info[0]
+            return info
     return None
 
 
@@ -117,13 +123,16 @@ def runs_inside_another_claude(pid: int) -> bool:
 
 
 def _find_claude_descendant_info(
-    root_pid: int, max_depth: int = 6,
+    root_pid: int, max_depth: int = 6, children_of: Callable[[psutil.Process], list[psutil.Process]] | None = None,
 ) -> tuple[int, float, str] | None:
     """BFS で子孫プロセスを psutil で辿り、 name() の basename == 'claude' を返す。
 
     返り値 = (pid, create_time, cwd)。 cwd 取得失敗 (= 権限 / プロセス即終了) は None で skip。
     旧 find_claude_descendant + process_start_time + process_cwd を 1 関数に統合
     (= backend-F-24)、 psutil の 1 系統で start_time / cwd まで一気に取る。
+
+    `children_of` says where a process's children are read: a table read once, for a look at many panes
+    (`scan_panes`). Without it each process asks the system, and each such question reads the whole table.
     """
     try:
         root = psutil.Process(root_pid)
@@ -135,7 +144,7 @@ def _find_claude_descendant_info(
         if depth >= max_depth:
             continue
         try:
-            children = proc.children()
+            children = proc.children() if children_of is None else children_of(proc)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
         for child in children:
@@ -155,6 +164,54 @@ def claude_in_pane(session_id: str) -> bool:
     """tmux pane の子孫に claude プロセスが居るか (= 画面の真値。 backend の記憶に頼らない)。"""
     return any(_find_claude_descendant_info(pid) is not None
                for pid in tmux_pane_pids(session_id))
+
+
+class PaneState(NamedTuple):
+    """What a tab's pane holds."""
+
+    has_session: bool
+    runs_claude: bool
+
+
+def scan_panes(session_ids: list[str]) -> dict[str, PaneState]:
+    """`has_tmux_session` and `claude_in_pane` of many tabs from one look: one tmux call and one read of the process
+    table, however many tabs there are. When that call does not answer, each tab is asked by itself. Blocks, so
+    callers on the event loop run it in a thread."""
+    from backend.terminal.runner import USE_TMUX_WRAP, _run_tmux, _tmux_session_name, has_tmux_session
+    if not USE_TMUX_WRAP:
+        return {sid: PaneState(has_session=False, runs_claude=False) for sid in session_ids}
+    listed = _run_tmux("list-panes", "-a", "-F", "#{session_name}\t#{pane_pid}", text=True)
+    if listed is None or listed.returncode != 0:
+        return {sid: PaneState(has_session=has_tmux_session(sid), runs_claude=claude_in_pane(sid))
+                for sid in session_ids}
+    panes: dict[str, list[int]] = {}
+    for line in listed.stdout.splitlines():
+        name, _, pid = line.partition("\t")
+        if pid.strip().isdigit():
+            panes.setdefault(name, []).append(int(pid))
+    children = _children_by_parent() if panes else {}
+
+    def children_of(process: psutil.Process) -> list[psutil.Process]:
+        return children.get(process.pid, [])
+
+    states = {}
+    for sid in session_ids:
+        pids = panes.get(_tmux_session_name(sid), [])
+        runs = any(_find_claude_descendant_info(pid, children_of=children_of) is not None for pid in pids)
+        states[sid] = PaneState(has_session=bool(pids), runs_claude=runs)
+    return states
+
+
+def _children_by_parent() -> dict[int, list[psutil.Process]]:
+    children: dict[int, list[psutil.Process]] = {}
+    for pid in psutil.pids():
+        try:
+            process = psutil.Process(pid)
+            children.setdefault(process.ppid(), []).append(process)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            # benign: a process that ended, or that cannot be read, is no tab's claude
+            continue
+    return children
 
 
 def find_claude_descendant(root_pid: int, max_depth: int = 6) -> int | None:
