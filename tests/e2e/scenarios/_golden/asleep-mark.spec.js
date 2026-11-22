@@ -31,6 +31,7 @@ test.describe('golden: asleep-mark', () => {
     await openClient(page, { sid: 'ses_e2esleeppa' })
     await page.locator('[data-testid=drawer-toggle]').click()
     await expect(page.locator('[data-testid=session-drawer]')).toBeVisible()
+    await row(page, 'ses_e2esleeppa').locator('[data-testid=session-fold]').click()
     await expect(mark(page, 'ses_e2esleepc1')).toBeVisible()
     await expect(mark(page, 'ses_e2esleepc2')).toHaveCount(0)
     await expect(mark(page, 'ses_e2esleeppa')).toHaveCount(0)

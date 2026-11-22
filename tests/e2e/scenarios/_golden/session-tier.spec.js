@@ -1,7 +1,7 @@
 // Golden path: the drawer lists each tab in the folder of the project its agent started in; a subproject's
 // tab sits in its project's folder, with no folder of its own. Seed tabs started in different tiers (and one
-// whose tier is not known), open the drawer, and assert the folders and what sits in them; folding a folder
-// hides its tabs and says how many it holds.
+// whose tier is not known), open the drawer, and assert the folders and what sits in them; a folder starts
+// folded, and folding one hides its tabs and says how many it holds.
 // A tab keeps the name the user gave it, and its account label.
 
 import { test, expect } from '@playwright/test'
@@ -37,6 +37,8 @@ test.describe('golden: session-tier', () => {
     await expect(page.locator('[data-testid=session-drawer]')).toBeVisible()
 
     await expect(folder(page, PROJECT)).toContainText('Agent Platform')
+    await expect(folder(page, PROJECT)).toHaveAttribute('aria-expanded', 'false')
+    await folder(page, PROJECT).click()
     // A subproject has no folder of its own: only the project's folder is there.
     await expect(folder(page, 'agent_e2e/Agent Platform/Client')).toHaveCount(0)
     const order = await page.locator('[data-testid=session-folder], [data-testid=session-list-item]').evaluateAll(

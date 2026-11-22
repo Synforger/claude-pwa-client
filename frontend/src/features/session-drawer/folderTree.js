@@ -2,18 +2,19 @@
 // (`projects/Platform` and `projects/Platform/subprojects/Client` both -> Platform), under a folder per agent when
 // the list holds more than one agent. A subproject gets no folder of its own: it usually holds one tab, so there
 // would be nothing to open. Inside a folder, its tabs come first (forks and child tabs under their parent, see
-// `sessionTree`), then its subfolders by name. A folded folder hides everything below it and carries the
-// most urgent badge of what it hides. An agent with `list_folder` (`<agent id>/<folder>/...`) puts its tabs in that
+// `sessionTree`), then its subfolders by name. The folder of an agent starts open, and every folder below it and
+// every parent tab starts folded. A folded folder or parent hides everything below it and carries the most urgent
+// badge of what it hides. An agent with `list_folder` (`<agent id>/<folder>/...`) puts its tabs in that
 // folder instead of its own, so the tabs of several agents that serve one project fold together; a tab with its own
 // `list_folder` (set by whoever made it) goes there ahead of its agent's, so tabs of one agent can sit in different
-// folders. Called by the drawer; which folders are folded is kept per device.
+// folders. Called by the drawer; which folders were switched from how they start is kept per device.
 
 import { lsGet, lsSet } from '../../_common/storage.js'
 import { sessionTree } from './sessionTree.js'
 
-export const FOLDED_FOLDERS_KEY = 'cpc.drawer.folded-folders'
+export const TOGGLED_FOLDERS_KEY = 'cpc.drawer.toggled-folders'
 
-// A folded folder shows the first of these that any tab inside it has
+// A folded folder or parent shows the first of these that any tab it stands for has
 const BADGE_ORDER = ['pending', 'processing', 'new']
 
 // The folder a tier puts a tab in. A tier is pairs of a container and a name
@@ -57,6 +58,13 @@ function newFolder(key, name) {
   return { key, name, sessions: [], folders: new Map() }
 }
 
+// The key of an agent's folder is the agent's id alone; a folder below it adds `/<name>`. So the key says how the
+// folder starts, and a folder no one has touched needs no entry.
+function isFolderFolded(key, toggled) {
+  const startsFolded = key.includes('/')
+  return toggled.has(key) ? !startsFolded : startsFolded
+}
+
 function mostUrgent(badges) {
   for (const kind of BADGE_ORDER) {
     const found = badges.find(b => b?.kind === kind)
@@ -68,8 +76,9 @@ function mostUrgent(badges) {
 // sorted = the tabs in list order (= latest activity first). agents = the configured agents, in the
 // order the folders of agents follow. Rows are either
 //   { kind: 'folder', key, name, depth, folded, count (= tabs below), badge (= only when folded) }
-//   { kind: 'session', session, depth, children, folded, hidden, nested (= under its parent tab) }
-export function folderTree(sorted, { agents = [], foldedFolders = new Set(), foldedSessions = new Set(), badges = {} } = {}) {
+//   { kind: 'session', session, depth, children, folded, hidden, nested (= under its parent tab),
+//     badge (= when folded, the most urgent of its own and those it hides) }
+export function folderTree(sorted, { agents = [], toggledFolders = new Set(), openedSessions = new Set(), badges = {} } = {}) {
   const agentsById = new Map(agents.map(a => [a.id, a]))
   const byId = new Map(sorted.map(s => [s.id, s]))
   // A fork or child tab goes where its parent is, so it always stays under the parent (its own tier may not be
@@ -106,11 +115,12 @@ export function folderTree(sorted, { agents = [], foldedFolders = new Set(), fol
 
   const rows = []
   const walk = (folder, depth, isAgentLevel) => {
-    for (const row of sessionTree(folder.sessions, foldedSessions)) {
-      rows.push({ kind: 'session', ...row, depth: depth + row.depth, nested: row.depth > 0 })
+    for (const row of sessionTree(folder.sessions, openedSessions)) {
+      const badge = mostUrgent([row.session, ...row.hiddenTabs].map(s => badges[s.id]))
+      rows.push({ kind: 'session', ...row, depth: depth + row.depth, nested: row.depth > 0, badge })
     }
     for (const sub of subfolders(folder, isAgentLevel)) {
-      const folded = foldedFolders.has(sub.key)
+      const folded = isFolderFolded(sub.key, toggledFolders)
       rows.push({
         kind: 'folder',
         key: sub.key,
@@ -127,8 +137,8 @@ export function folderTree(sorted, { agents = [], foldedFolders = new Set(), fol
   return rows
 }
 
-export function loadFoldedFolders() {
-  const saved = lsGet(FOLDED_FOLDERS_KEY, [])
+export function loadToggledFolders() {
+  const saved = lsGet(TOGGLED_FOLDERS_KEY, [])
   return new Set(Array.isArray(saved) ? saved.filter(key => typeof key === 'string') : [])
 }
 
@@ -149,14 +159,14 @@ function folderKeys(sessions, agents) {
   return keys
 }
 
-// Returns the new set with `key` folded or unfolded, and keeps it. Folders no tab is in any more are
-// dropped, so closed tiers do not pile up.
-export function toggleFoldedFolder(folded, key, sessions, agents = []) {
-  const next = new Set(folded)
+// Returns the new set with `key` switched, and keeps it. Folders no tab is in any more are dropped, so closed
+// tiers do not pile up.
+export function toggleFolder(toggled, key, sessions, agents = []) {
+  const next = new Set(toggled)
   if (next.has(key)) next.delete(key)
   else next.add(key)
   const keys = folderKeys(sessions, agents)
   const kept = [...next].filter(k => keys.has(k))
-  lsSet(FOLDED_FOLDERS_KEY, kept)
+  lsSet(TOGGLED_FOLDERS_KEY, kept)
   return new Set(kept)
 }

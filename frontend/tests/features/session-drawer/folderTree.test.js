@@ -1,6 +1,6 @@
 // The conversation list as a folder tree of tiers, and how folded folders are kept.
 import { describe, it, expect, beforeEach } from 'vitest'
-import { FOLDED_FOLDERS_KEY, folderTree, loadFoldedFolders, tierFolders, toggleFoldedFolder } from '../../../src/features/session-drawer/folderTree.js'
+import { TOGGLED_FOLDERS_KEY, folderTree, loadToggledFolders, tierFolders, toggleFolder } from '../../../src/features/session-drawer/folderTree.js'
 
 const store = new Map()
 globalThis.localStorage = {
@@ -24,6 +24,10 @@ const ONE_AGENT = [
   tab('unknown', null),
 ]
 
+const every = { has: () => true }
+// everything opened by hand: the folders below an agent's are switched, the agent's own are left as they start
+const OPEN = { toggledFolders: { has: key => key.includes('/') }, openedSessions: every }
+
 const shape = rows => rows.map(r => (r.kind === 'folder'
   ? ['folder', r.key, r.depth, r.folded, r.count]
   : [r.session.id, r.depth, r.nested]))
@@ -42,7 +46,7 @@ describe('tierFolders', () => {
 
 describe('folderTree', () => {
   it('puts each tab in the folder of its project, subprojects included, in list order', () => {
-    expect(shape(folderTree(ONE_AGENT, { agents: AGENTS }))).toEqual([
+    expect(shape(folderTree(ONE_AGENT, { agents: AGENTS, ...OPEN }))).toEqual([
       ['top', 0, false],
       ['unknown', 0, false],
       ['folder', 'main/Platform', 0, false, 4],
@@ -55,7 +59,7 @@ describe('folderTree', () => {
 
   it('keeps a fork or child tab under its parent even when its own tier is unknown or different', () => {
     const tabs = [tab('client', CLIENT), tab('fork', null, { parent: 'client' }), tab('child', 'normal', { parent: 'fork' })]
-    expect(shape(folderTree(tabs, { agents: AGENTS }))).toEqual([
+    expect(shape(folderTree(tabs, { agents: AGENTS, ...OPEN }))).toEqual([
       ['folder', 'main/Platform', 0, false, 3],
       ['client', 1, false],
       ['fork', 2, true],
@@ -65,7 +69,7 @@ describe('folderTree', () => {
 
   it('adds a folder per agent, in the order the agents are configured, when the list holds more than one', () => {
     const tabs = [tab('helper-top', 'normal', { agent: 'helper' }), ...ONE_AGENT.slice(0, 2)]
-    expect(shape(folderTree(tabs, { agents: AGENTS }))).toEqual([
+    expect(shape(folderTree(tabs, { agents: AGENTS, ...OPEN }))).toEqual([
       ['folder', 'main', 0, false, 2],
       ['top', 1, false],
       ['folder', 'main/Platform', 1, false, 1],
@@ -77,7 +81,7 @@ describe('folderTree', () => {
   })
 
   it('hides everything below a folded folder and says how many tabs it holds', () => {
-    expect(shape(folderTree(ONE_AGENT, { agents: AGENTS, foldedFolders: new Set(['main/Platform']) }))).toEqual([
+    expect(shape(folderTree(ONE_AGENT, { agents: AGENTS, openedSessions: every }))).toEqual([
       ['top', 0, false],
       ['unknown', 0, false],
       ['folder', 'main/Platform', 0, true, 4],
@@ -86,9 +90,9 @@ describe('folderTree', () => {
 
   it('carries the most urgent badge of the tabs a folded folder hides, and none when open', () => {
     const badges = { slides: { kind: 'new', label: '●' }, child: { kind: 'pending', label: '?' } }
-    const folded = folderTree(ONE_AGENT, { agents: AGENTS, foldedFolders: new Set(['main/Platform']), badges })
+    const folded = folderTree(ONE_AGENT, { agents: AGENTS, badges })
     expect(folded.find(r => r.key === 'main/Platform').badge).toEqual({ kind: 'pending', label: '?' })
-    const open = folderTree(ONE_AGENT, { agents: AGENTS, badges })
+    const open = folderTree(ONE_AGENT, { agents: AGENTS, ...OPEN, badges })
     expect(open.find(r => r.key === 'main/Platform').badge).toBeNull()
   })
 
@@ -96,7 +100,7 @@ describe('folderTree', () => {
     const agents = [...AGENTS, { id: 'head', display_name: 'Head', list_folder: 'main/Platform/Heads' }]
     const tabs = [tab('h1', 'normal', { agent: 'head' }), tab('ap', Platform), tab('h2', null, { agent: 'head' })]
     // one agent folder only: the head tabs sit in main's folders, so the list holds main alone
-    expect(shape(folderTree(tabs, { agents }))).toEqual([
+    expect(shape(folderTree(tabs, { agents, ...OPEN }))).toEqual([
       ['folder', 'main/Platform', 0, false, 3],
       ['ap', 1, false],
       ['folder', 'main/Platform/Heads', 1, false, 2],
@@ -104,7 +108,7 @@ describe('folderTree', () => {
       ['h2', 2, false],
     ])
     // folding the project folds the heads with it
-    expect(shape(folderTree(tabs, { agents, foldedFolders: new Set(['main/Platform']) }))).toEqual([
+    expect(shape(folderTree(tabs, { agents }))).toEqual([
       ['folder', 'main/Platform', 0, true, 3],
     ])
   })
@@ -112,7 +116,7 @@ describe('folderTree', () => {
   it('shows the agent folder list_folder names even when that agent has no tab of its own', () => {
     const agents = [...AGENTS, { id: 'head', display_name: 'Head', list_folder: 'helper/Heads' }]
     const tabs = [tab('top', 'normal'), tab('h1', 'normal', { agent: 'head' })]
-    const rows = folderTree(tabs, { agents })
+    const rows = folderTree(tabs, { agents, ...OPEN })
     expect(shape(rows)).toEqual([
       ['folder', 'main', 0, false, 1],
       ['top', 1, false],
@@ -131,7 +135,7 @@ describe('folderTree', () => {
       tab('old', null, { agent: 'head' }),
       { ...tab('bad', null, { agent: 'head' }), list_folder: 'main' },
     ]
-    expect(shape(folderTree(tabs, { agents }))).toEqual([
+    expect(shape(folderTree(tabs, { agents, ...OPEN }))).toEqual([
       ['folder', 'main/Game', 0, false, 4],
       ['folder', 'main/Game/Heads', 1, false, 2],
       ['old', 2, false],
@@ -152,38 +156,79 @@ describe('folderTree', () => {
   })
 
   it('folds a parent tab inside a folder as before', () => {
-    const rows = folderTree(ONE_AGENT, { agents: AGENTS, foldedSessions: new Set(['client']) })
+    const rows = folderTree(ONE_AGENT, { agents: AGENTS, toggledFolders: OPEN.toggledFolders })
     const client = rows.find(r => r.session?.id === 'client')
     expect([client.folded, client.hidden]).toEqual([true, 1])
     expect(rows.some(r => r.session?.id === 'child')).toBe(false)
   })
 })
 
-describe('folded folders are kept per device', () => {
-  it('saves a fold and reads it back', () => {
-    const next = toggleFoldedFolder(new Set(), 'main/Platform', ONE_AGENT)
-    expect([...next]).toEqual(['main/Platform'])
-    expect(JSON.parse(store.get(FOLDED_FOLDERS_KEY))).toEqual(['main/Platform'])
-    expect([...loadFoldedFolders()]).toEqual(['main/Platform'])
-    expect([...toggleFoldedFolder(next, 'main/Platform', ONE_AGENT)]).toEqual([])
+describe('how a list starts', () => {
+  const tabs = [tab('helper-top', 'normal', { agent: 'helper' }), ...ONE_AGENT,
+    tab('fork', 'normal', { parent: 'top' })]
+
+  it('opens the folders of agents alone', () => {
+    expect(shape(folderTree(tabs, { agents: AGENTS }))).toEqual([
+      ['folder', 'main', 0, false, 7],
+      ['top', 1, false],
+      ['unknown', 1, false],
+      ['folder', 'main/Platform', 1, true, 4],
+      ['folder', 'helper', 0, false, 1],
+      ['helper-top', 1, false],
+    ])
   })
 
-  it('keeps the fold of a folder hidden under a folded one, and drops folders no tab is in', () => {
+  it('folds an agent folder once it is switched', () => {
+    const rows = folderTree(tabs, { agents: AGENTS, toggledFolders: new Set(['main']) })
+    expect(shape(rows)[0]).toEqual(['folder', 'main', 0, true, 7])
+  })
+
+  it('shows on a folded parent the most urgent badge of its own and of what it hides', () => {
+    const line = [tab('top', 'normal'), tab('kid', 'normal', { parent: 'top' }), tab('grand', 'normal', { parent: 'kid' })]
+    const pending = { kind: 'pending', label: '?' }
+    const busy = { kind: 'processing', label: '●' }
+    const done = { kind: 'new', label: '●' }
+    const top = (badges, openedSessions) => folderTree(line, { agents: AGENTS, badges, openedSessions })[0].badge
+    expect(top({ top: busy, grand: pending })).toEqual(pending)
+    expect(top({ top: busy, kid: done })).toEqual(busy)
+    expect(top({ kid: done })).toEqual(done)
+    expect(top({})).toBeNull()
+    // an open parent says only what it has itself, and the folded one below it carries the rest
+    expect(top({ grand: pending }, new Set(['top']))).toBeNull()
+    expect(folderTree(line, { badges: { grand: pending }, openedSessions: new Set(['top']) })[1].badge).toEqual(pending)
+  })
+})
+
+describe('switched folders are kept per device', () => {
+  it('saves a switch and reads it back', () => {
+    const next = toggleFolder(new Set(), 'main/Platform', ONE_AGENT)
+    expect([...next]).toEqual(['main/Platform'])
+    expect(JSON.parse(store.get(TOGGLED_FOLDERS_KEY))).toEqual(['main/Platform'])
+    expect([...loadToggledFolders()]).toEqual(['main/Platform'])
+    expect([...toggleFolder(next, 'main/Platform', ONE_AGENT)]).toEqual([])
+  })
+
+  it('keeps the switch of a folder hidden under a folded one, and drops folders no tab is in', () => {
     const tabs = [tab('helper-top', 'normal', { agent: 'helper' }), ...ONE_AGENT]
-    const next = toggleFoldedFolder(new Set(['main/Platform', 'main/Gone']), 'main', tabs)
+    const next = toggleFolder(new Set(['main/Platform', 'main/Gone']), 'main', tabs)
     expect([...next].sort()).toEqual(['main', 'main/Platform'])
   })
 
   it('keeps the fold of a folder only list_folder makes', () => {
     const agents = [...AGENTS, { id: 'head', display_name: 'Head', list_folder: 'main/Platform/Heads' }]
     const tabs = [tab('h1', 'normal', { agent: 'head' })]
-    expect([...toggleFoldedFolder(new Set(), 'main/Platform/Heads', tabs, agents)]).toEqual(['main/Platform/Heads'])
+    expect([...toggleFolder(new Set(), 'main/Platform/Heads', tabs, agents)]).toEqual(['main/Platform/Heads'])
     // without the agents the folder is not known, so the fold is dropped as a folder no tab is in
-    expect([...toggleFoldedFolder(new Set(), 'main/Platform/Heads', tabs)]).toEqual([])
+    expect([...toggleFolder(new Set(), 'main/Platform/Heads', tabs)]).toEqual([])
   })
 
-  it('reads a broken saved value as nothing folded', () => {
-    store.set(FOLDED_FOLDERS_KEY, '{"not":"a list"}')
-    expect([...loadFoldedFolders()]).toEqual([])
+  it('starts from scratch on a device that kept the folded folders of an older build', () => {
+    store.set('cpc.drawer.folded-folders', '["main/Platform"]')
+    expect([...loadToggledFolders()]).toEqual([])
+  })
+
+  it('reads a broken saved value as nothing switched', () => {
+    store.set(TOGGLED_FOLDERS_KEY, '{"not":"a list"}')
+    expect([...loadToggledFolders()]).toEqual([])
   })
 })

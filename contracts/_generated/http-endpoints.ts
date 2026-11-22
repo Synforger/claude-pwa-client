@@ -103,6 +103,7 @@ export interface GetAgentsResponseItem {
   id: string
   display_name: string
   list_folder?: string
+  offered_for_new_tab?: boolean
 }
 
 export type GetAgentsResponse = GetAgentsResponseItem[]

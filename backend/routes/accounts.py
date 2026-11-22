@@ -9,6 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from backend._common import config as _config
+from backend._common.agent_roles import child_agent_ids, is_offered_for_new_tab
 from backend._common.list_folder import parse_list_folder
 
 router = APIRouter()
@@ -17,15 +18,20 @@ router = APIRouter()
 @router.get("/agents")
 def list_agents():
     """セッション作成時の選択肢として agent 種別一覧を返す。 `list_folder` は、 一覧でそのエージェントのタブを並べる
-    folder (= `<agent の id>/<folder>/...`) で、 書いてあるエージェントにだけ付く。"""
-    return [_agent_view(name, cfg) for name, cfg in _config.AGENTS.items()]
+    folder (= `<agent の id>/<folder>/...`) で、 書いてあるエージェントにだけ付く。 `offered_for_new_tab` は、 新しい会話の
+    選択に出さないエージェントにだけ false で付く。 一覧の名前と folder に要るので、 そのエージェントも返す。"""
+    agents = _config.AGENTS
+    child_ids = child_agent_ids(agents)
+    return [_agent_view(name, cfg, child_ids) for name, cfg in agents.items()]
 
 
-def _agent_view(name: str, cfg: dict) -> dict:
+def _agent_view(name: str, cfg: dict, child_ids: set[str]) -> dict:
     view = {"id": name, "display_name": cfg.get("display_name", name.upper())}
     folder = parse_list_folder(cfg.get("list_folder"))
     if folder is not None:
         view["list_folder"] = folder
+    if not is_offered_for_new_tab(name, cfg, child_ids):
+        view["offered_for_new_tab"] = False
     return view
 
 

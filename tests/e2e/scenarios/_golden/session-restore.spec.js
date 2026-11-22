@@ -47,6 +47,9 @@ async function openWithOldCopy(page) {
   await openClient(page, { sid: 'ses_e2erstpar' })
   await page.locator('[data-testid=drawer-toggle]').click()
   await expect(page.locator('[data-testid=session-drawer]')).toBeVisible()
+  // The folder and the parent start folded.
+  await folder(page, PROJECT).click()
+  await row(page, 'ses_e2erstpar').locator('[data-testid=session-fold]').click()
   return gate
 }
 

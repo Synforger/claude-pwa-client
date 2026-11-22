@@ -1,8 +1,8 @@
 // Golden path: child tabs in the drawer.
 // Seed a parent tab with two child tabs (one with a child of its own) and a fork, open the
-// drawer, and assert the rows hang under their parent with their marks. Fold the parent:
-// the rows under it leave the list and the parent says how many it hides. The fold
-// survives a reload (= kept per device) and unfolds again.
+// drawer, and assert that the parent starts folded and says how many it hides. Open it and
+// the child under it: the rows hang under their parent with their marks. What was opened
+// survives a reload (= kept per device) and folds again.
 
 import { test, expect } from '@playwright/test'
 import { openClient } from '../../helpers/pwa.js'
@@ -26,6 +26,13 @@ test.describe('golden: child-sessions', () => {
     await openClient(page, { sid: 'ses_e2etreepar' })
     await page.locator('[data-testid=drawer-toggle]').click()
     await expect(page.locator('[data-testid=session-drawer]')).toBeVisible()
+
+    // The parent starts folded. Opening it lists its children, and the child that has one of its own starts folded too.
+    await expect(row(page, 'ses_e2etreepar')).toContainText('+4')
+    for (const tab of TABS.slice(1)) await expect(row(page, tab.sid)).toHaveCount(0)
+    await row(page, 'ses_e2etreepar').locator('[data-testid=session-fold]').click()
+    await expect(row(page, 'ses_e2etreegc1')).toHaveCount(0)
+    await row(page, 'ses_e2etreech1').locator('[data-testid=session-fold]').click()
 
     // Every row under the parent is listed, a child with ↳ and the fork with ⑂.
     for (const tab of TABS) await expect(row(page, tab.sid)).toBeVisible()
