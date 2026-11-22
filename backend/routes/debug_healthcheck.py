@@ -284,12 +284,11 @@ async def _check_files_tree() -> dict[str, Any]:
     Catches "file tree button does nothing" symptoms without enumerating the
     full tree."""
     from backend._common.config import HOME
-    from backend.routes.files import _DENY_RE
+    from backend._internal.path_rules import is_denied
     try:
         resolved = Path("~").expanduser().resolve()
         resolved.relative_to(HOME)
-        denied = bool(_DENY_RE.search(str(resolved)))
-        if denied:
+        if is_denied(resolved):
             return {"ok": False, "reason": "HOME root matched deny regex (impossible)"}
         # 1 階層だけ iterdir で読めるか確認 (= permission 確認)。 結果は捨てる。
         sample: list[str] = []
