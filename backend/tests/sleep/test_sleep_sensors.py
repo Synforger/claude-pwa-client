@@ -164,11 +164,13 @@ def test_a_process_that_is_gone_has_no_tree():
     assert sensors.process_tree(2 ** 22 + 12345) == ()
 
 
-def _tree_with(name: str) -> tuple:
-    """The nodes right under this process whose names hold `name`, waiting until the process shows."""
+def _tree_with(name: str, child: str | None = None) -> tuple:
+    """The nodes right under this process whose names hold `name`, waiting until the process shows, and, with `child`,
+    until it has started the process of that name (a shell shows before the command it runs does)."""
     deadline = time.time() + 5
     while time.time() < deadline:
-        tree = tuple(node for node in sensors.process_tree(os.getpid()) if name in node.names)
+        tree = tuple(node for node in sensors.process_tree(os.getpid()) if name in node.names
+                     and (child is None or any(child in under.names for under in node.children)))
         if tree:
             return tree
         time.sleep(0.05)
@@ -190,7 +192,7 @@ def test_a_server_kept_under_the_claude_is_not_work(tmp_path):
 def test_a_command_run_in_a_shell_is_work():
     child = subprocess.Popen(["/bin/sh", "-c", "sleep 30 && true"])     # a list, as Claude's Bash tool runs: the shell stays
     try:
-        tree = _tree_with("sh")
+        tree = _tree_with("sh", child="sleep")
         work = j.foreign_processes(tree)                    # /bin/sh is bash on macOS and dash on Linux
         assert tree and work[0] in j.SHELLS and work[1:] == ("sleep",)
     finally:
