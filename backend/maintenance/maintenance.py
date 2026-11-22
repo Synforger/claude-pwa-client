@@ -196,26 +196,29 @@ def cleanup_stale_statusline_map() -> int:
 
 
 def cleanup_old_jsonl(keep_days: int = JSONL_KEEP_DAYS) -> int:
-    """Delete the conversation records (`~/.claude*/projects/*/*.jsonl`) not written for `keep_days` days, so that
-    Claude Code's records, which it never deletes itself, do not pile up. → how many were deleted.
+    """Delete the conversation records (`~/.claude*/projects/*/*.jsonl`) not written for `keep_days` days, so that the
+    records of the accounts the client runs do not pile up. Claude Code removes old records itself too (its
+    `cleanupPeriodDays`); this is the client's own age limit on top of that. → how many were deleted.
 
     A record a tab is bound to is kept however old it is: a tab that came back after a restart of the backend or of
-    the machine still reopens it. Every account's projects folder is looked at.
+    the machine still reopens it. Every account's projects folder is looked at, and a file that two accounts reach
+    (they keep their records in one folder) is one file: it is counted and deleted once.
     """
     bases = [b for b in _config.CLAUDE_PROJECTS_DIRS if b.is_dir()]
     if not bases:
         return 0
     # 現在 PWA タブが bind 中の jsonl は idle でも保護する。
-    bound_paths: set[str] = set()
+    bound_records: set[tuple[int, int]] = set()
     try:
         import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: PLC0415
         for info in jsonl_watcher.list_bindings().values():
             jp = info.get("jsonl_path")
-            if info.get("confirmed") and jp:
-                bound_paths.add(str(Path(jp).resolve()))
+            key = _config.entity_key(Path(jp)) if jp else None
+            if info.get("confirmed") and key is not None:
+                bound_records.add(key)
     except Exception:
         logger.exception("jsonl gc: failed to collect bound paths")
-    if not bound_paths:
+    if not bound_records:
         # The transcripts are shared by every backend and account on the machine; one that sees no bound tab
         # cannot tell a live conversation from an old one, so it deletes nothing.
         logger.info("jsonl gc: no bound tab; deleting nothing")
@@ -223,6 +226,7 @@ def cleanup_old_jsonl(keep_days: int = JSONL_KEEP_DAYS) -> int:
     cutoff = time.time() - keep_days * 86400
     deleted = 0
     all_files: list[tuple[Path, float, int]] = []
+    listed: set[tuple[int, int]] = set()
     for base in bases:
         for proj_dir in base.iterdir():
             if not proj_dir.is_dir():
@@ -230,11 +234,14 @@ def cleanup_old_jsonl(keep_days: int = JSONL_KEEP_DAYS) -> int:
             for f in proj_dir.glob("*.jsonl"):
                 try:
                     st = f.stat()
-                    all_files.append((f, st.st_mtime, st.st_size))
                 except OSError:
                     continue
+                if (st.st_dev, st.st_ino) in listed:
+                    continue                    # the same file reached through another account's folder
+                listed.add((st.st_dev, st.st_ino))
+                all_files.append((f, st.st_mtime, st.st_size))
     for f, mt, sz in all_files:
-        if mt >= cutoff or str(f.resolve()) in bound_paths:
+        if mt >= cutoff or _config.entity_key(f) in bound_records:
             continue
         try:
             f.unlink()
