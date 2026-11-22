@@ -164,7 +164,7 @@ def test_resize_pty_control_mode_emits_refresh_client():
 def test_build_send_keys_chain_single_line_text_no_enter():
     args, chained = pty_runner._build_send_keys_chain("pwa-x", text="hello")
     assert chained is False
-    assert args == [["send-keys", "-t", "pwa-x", "-l", "hello"]]
+    assert args == [["send-keys", "-t", "pwa-x", "-l", "--", "hello"]]
 
 
 def test_build_send_keys_chain_text_with_enter_chained():
@@ -173,7 +173,7 @@ def test_build_send_keys_chain_text_with_enter_chained():
     assert chained is True
     # 1 invocation の中に text と Enter が同居
     assert args[0] == [
-        "send-keys", "-t", "pwa-x", "-l", "hi",
+        "send-keys", "-t", "pwa-x", "-l", "--", "hi",
         ";", "send-keys", "-t", "pwa-x", "Enter",
     ]
 

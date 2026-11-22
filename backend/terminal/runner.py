@@ -872,6 +872,15 @@ async def send_text_two_stage(
     return await in_typing_order(session_id, lambda: tmux_send_keys(session_id, enter=True))
 
 
+# Control characters that must not reach a pane as keys: every C0 character except tab and LF (CR is turned into LF first).
+_DROPPED_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f]")
+
+
+def _typed_text(text: str) -> str:
+    """The text as it is typed into a pane: CR and CRLF become LF, and control characters other than tab and LF are dropped."""
+    return _DROPPED_CONTROL_CHARS.sub("", text.replace("\r\n", "\n").replace("\r", "\n"))
+
+
 def _build_send_keys_chain(
     tmux_name: str,
     text: str | None = None,
@@ -898,6 +907,7 @@ def _build_send_keys_chain(
     """
     arg_sets: list[list[str]] = []
     chained_enter = False
+    text = _typed_text(text) if text else text
     if text:
         text_args: list[str] | None = None
         if "\n" in text:
@@ -927,7 +937,10 @@ def _build_send_keys_chain(
                 # fall back to the unconditional send-keys path below.
                 pass
         if text_args is None:
-            text_args = ["send-keys", "-t", tmux_name, "-l", text]
+            # `--` ends tmux's options, so a sentence starting with `-` stays text. tmux also reads a trailing `;`
+            # of an argument as the end of a command; `\;` is how it takes one as a character.
+            literal = f"{text[:-1]}\\;" if text.endswith(";") else text
+            text_args = ["send-keys", "-t", tmux_name, "-l", "--", literal]
         if enter:
             text_args = [*text_args, ";", "send-keys", "-t", tmux_name, "Enter"]
             chained_enter = True

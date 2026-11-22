@@ -6,6 +6,7 @@ backend-F-59: save_to_tmp 入口で FILE_SIZE_LIMIT (= 1 MiB) を fail-fast す�
 """
 import asyncio
 import io
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException, UploadFile
@@ -96,3 +97,35 @@ def test_save_to_tmp_size_none_oversize_caught_after_read(tmp_path, monkeypatch)
     with pytest.raises(HTTPException) as exc:
         _run(cc.save_to_tmp([f], "ses_x"))
     assert exc.value.status_code == 413
+
+
+@pytest.mark.parametrize(
+    ("filename", "suffix"),
+    [
+        ("photo.PNG", ".PNG"),
+        ("photo.heic", ".heic"),
+        ("notes.md", ".md"),
+        ("sheet.xlsx", ".xlsx"),
+        ("archive.tar.gz", ".gz"),
+        ("a" * 3 + "." + "e" * 16, "." + "e" * 16),
+        ("a" * 3 + "." + "e" * 17, ""),
+        ("noextension", ""),
+        ("trailingdot.", ""),
+        ("with space.p g", ""),
+        ("line\nbreak.pn\ng", ""),
+        ("bell.p\x07g", ""),
+        ("quote.p'g", ""),
+        ("semi.p;g", ""),
+        ("dollar.$(id)", ""),
+        ("wide.ｐｎｇ", ""),
+        ("日本語.日本語", ""),
+    ],
+)
+def test_the_saved_name_keeps_only_a_plain_extension(tmp_path, monkeypatch, filename, suffix):
+    """The saved path is typed into a pane, so an extension is kept only when it is up to 16 ASCII letters and digits."""
+    monkeypatch.setattr(config_mod, "UPLOADS_TMP", tmp_path / "tmp")
+    monkeypatch.setattr(cc, "session_tmp_files", {})
+    saved = _run(cc.save_to_tmp([_upload(filename, b"data")], "ses_x"))
+    name = Path(saved[0]["path"]).name
+    assert name == f"{name[:32]}{suffix}"
+    assert saved[0]["name"] == filename
