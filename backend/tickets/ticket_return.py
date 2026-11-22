@@ -15,6 +15,7 @@ from fastapi import HTTPException
 
 from backend._common.errors import raise_error
 from backend._common.state import sessions_meta
+from backend._internal.stop_signal import BackendStopping
 from backend.routes.agent_messages import deliver_or_keep, hand_over_work
 from backend.tickets import (answer_judgement, ticket_entry, ticket_index, ticket_notify, ticket_places, ticket_relay,
                              ticket_service, ticket_view)
@@ -119,6 +120,8 @@ async def return_loop(interval_sec: float = RETURN_PATROL_SEC) -> None:
                 await tick()
             except asyncio.CancelledError:
                 raise
+            except BackendStopping:
+                logger.info("ticket return loop: the backend is stopping; this look was left")
             except Exception:
                 logger.exception("ticket return loop iteration failed")
     except asyncio.CancelledError:
