@@ -260,8 +260,10 @@ async def restart_session(session_id: str, _: str = Depends(require_session)):
 @router.post("/sessions/{session_id}/account")
 async def move_session_account(session_id: str, payload: dict = Body(...), _: str = Depends(require_session)):
     """Move a tab to another account in place: the same tab, with the same name, continues its conversation under
-    `account_id`. The conversation up to its latest clean point is written into that account's projects folder,
-    the tab's claude is stopped, and the tab starts again resuming it there. The tab is pinned to the account the
+    `account_id`. The conversation up to its latest clean point is written into that account's projects folder (the
+    one folder both use, when the accounts share their records), the tab's claude is stopped, and the tab starts again
+    resuming it there. A running tab is always written out, since the move has not found it at a break; a sleeping tab
+    whose accounts share their records reopens the same conversation. The tab is pinned to the account the
     operator chose (`account_pinned`), so that the account fallback does not move it off again; the operator takes the
     pin off. The tab is claimed for the move: while the account fallback or the limit resume works on it, this is
     refused with 409 `account_busy`, and the operator tries again."""

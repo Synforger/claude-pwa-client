@@ -323,3 +323,32 @@ def test_live_lines_carry_the_position_across_the_sessions(isolated_state, tmp_p
     jr._tick_sid(SID, tstate, now_mono=2.0)  # 今の会話の行を流す
     assert history.ended(SID) == [(prev, 0)]
     assert published[-1] == prev.stat().st_size + cur.stat().st_size
+
+
+# --- 同じ会話を 2 つの綴りで指す記録 (= 口座が記録の folder を共有する) ----------
+
+def test_a_conversation_reopened_under_another_account_is_one_segment(tmp_path):
+    """前の会話の記録と今の会話の記録が同じ file (= 口座を移して同じ会話を開き直した) なら、 鎖は伸びない。"""
+    folder = tmp_path / "projects"
+    folder.mkdir()
+    (tmp_path / "other-projects").symlink_to(folder)
+    record = folder / "same.jsonl"
+    _write(record, ("s1", "one"), ("s2", "two"))
+    history.record_end(SID, "same", str(tmp_path / "other-projects" / "same.jsonl"))   # the end, spelled through the link
+    assert chain.segments(SID, record) == [chain.Segment(record, 0)]
+    assert chain.segments(SID, None) == [chain.Segment(tmp_path / "other-projects" / "same.jsonl", 0)]
+
+
+def test_the_same_ended_record_is_listed_once(tmp_path):
+    folder = tmp_path / "projects"
+    folder.mkdir()
+    (tmp_path / "other-projects").symlink_to(folder)
+    record = folder / "same.jsonl"
+    _write(record, ("s1", "one"))
+    other = folder / "next.jsonl"
+    _write(other, ("n1", "three"))
+    history.record_end(SID, "same", str(record))
+    history.record_end(SID, "mid", str(other))
+    history.record_end(SID, "same2", str(tmp_path / "other-projects" / "same.jsonl"))
+    listed = [segment.path.name for segment in chain.segments(SID, None)]
+    assert listed == ["same.jsonl", "next.jsonl"]

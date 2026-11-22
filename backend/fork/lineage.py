@@ -40,8 +40,8 @@ class LineageCut(str, Enum):
 
 
 class WrittenLineage(NamedTuple):
-    """The new claude session `write_lineage` wrote: its id, whether it was written for another account, and the
-    record's path."""
+    """The new claude session `write_lineage` wrote: its id, whether it was written into another account's folder
+    (false when the accounts share their folder), and the record's path."""
     claude_id: str
     moved: bool
     path: Path
@@ -164,7 +164,11 @@ def write_lineage(session_id: str, from_uuid: str | None, target_account_id: str
     # account_id が None のタブ (= 古い時期に作られた) は既定 account と等価。 素の比較だと
     # 「既定 account へ移す」 が移行扱いになり、 同じ場所に置き直して title に札が付く。
     current_account = parent.account_id or default_account_id()
-    moving = bool(target_account_id) and target_account_id != current_account
+    # Two accounts that keep their records in one folder need no copy: the new session goes next to its source and
+    # either account opens it, so nothing is "written for another account" (= `moved` is false, and nothing is
+    # recorded to delete later).
+    moving = (bool(target_account_id) and target_account_id != current_account
+              and not _config.projects_shared(target_account_id, current_account))
     if moving:
         cwd = (_config.AGENTS.get(parent.agent_id) or {}).get("cwd")
         if not cwd:

@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from backend._common.config import entity_key
 from backend.jsonl.jsonl_tail import initial_offset, read_complete_lines_with_pos
 from backend.jsonl import history
 
@@ -28,22 +29,31 @@ class Segment:
     base: int
 
 
+def _same_record(a: Path, b: Path) -> bool:
+    """Whether `a` and `b` are the same file: the same path, or the same file reached by two spellings (= two accounts
+    that keep their records in one folder name one conversation by two paths)."""
+    if a == b:
+        return True
+    key = entity_key(a)
+    return key is not None and key == entity_key(b)
+
+
 def segments(sid: str, current: Path | None) -> list[Segment]:
     """タブの記録を古い順に返す。 最後が今の会話 (= current)。 消えた記録は除く。
 
     current は呼び手が `_latest_jsonl(sid)` で引いた今の会話の記録 (= 引けなければ None で、 終わった
     会話だけを返す)。 今の会話が控えに載っている (= 終わった直後で、 次の会話がまだ起動していない) 時は、
-    控えの起点をそのまま使う。
+    控えの起点をそのまま使う。 同じ file は 1 本に数える (= 口座を移して同じ会話を開き直しても、 鎖は伸びない)。
     """
     out: list[Segment] = []
     current_base: int | None = None
     for path, base in history.ended(sid):
         if path is None:
             continue
-        if current is not None and path == current:
+        if current is not None and _same_record(path, current):
             current_base = base
             continue
-        if path.is_file():
+        if path.is_file() and not any(_same_record(path, seen.path) for seen in out):
             out.append(Segment(path, base))
     if current is not None:
         out.append(Segment(current, history.next_base(sid) if current_base is None else current_base))

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import socket
 from functools import lru_cache
@@ -93,18 +94,33 @@ def reload_config() -> dict[str, Any]:
     return fresh
 
 
+def entity_key(path: Path) -> tuple[int, int] | None:
+    """What names the file or folder `path` is, whichever way it is spelled (a link and its target give the same key):
+    its device and inode. None when it does not exist."""
+    try:
+        status = os.stat(path)
+    except OSError:
+        return None
+    return status.st_dev, status.st_ino
+
+
 def _projects_dirs_from_accounts(accounts: dict[str, Any]) -> list[Path]:
     """ACCOUNTS の env.CLAUDE_CONFIG_DIR から projects ディレクトリ候補を集める。
     デフォルト `~/.claude/projects` は常に含める (= account_id=None 互換)。
+    A folder that is the same folder as one already listed (= the accounts share their records through a link) is
+    listed once, so that no record is counted twice.
     """
     dirs: list[Path] = [Path.home() / ".claude" / "projects"]
+    seen = {entity_key(dirs[0])} - {None}
     for cfg in accounts.values():
         env = (cfg or {}).get("env") or {}
         d = env.get("CLAUDE_CONFIG_DIR")
         if d:
             p = Path(d).expanduser() / "projects"
-            if p not in dirs:
+            key = entity_key(p)
+            if p not in dirs and key not in seen:
                 dirs.append(p)
+                seen.add(key)
     return dirs
 
 
@@ -118,6 +134,24 @@ def projects_dir_for_account(account_id: str | None) -> Path:
         if d:
             return Path(d).expanduser() / "projects"
     return Path.home() / ".claude" / "projects"
+
+
+def projects_shared(account_a: str | None, account_b: str | None) -> bool:
+    """Whether the conversation records of the two accounts are one folder: their `projects` folders are the same
+    folder (one is a link to the other). False when either does not exist or is not an account of the configuration,
+    so a machine whose accounts keep separate folders is judged as it always was."""
+    if any(account is not None and account not in _accounts() for account in (account_a, account_b)):
+        return False
+    key = entity_key(projects_dir_for_account(account_a))
+    return key is not None and key == entity_key(projects_dir_for_account(account_b))
+
+
+def accounts_sharing(folder: Path) -> list[str]:
+    """The accounts of the configuration whose `projects` folder is `folder` (the same folder, however spelled)."""
+    key = entity_key(folder)
+    if key is None:
+        return []
+    return [name for name in _accounts() if entity_key(projects_dir_for_account(name)) == key]
 
 
 def default_account_id() -> str | None:

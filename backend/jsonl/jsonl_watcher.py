@@ -68,6 +68,13 @@ def _candidate_project_dirs(cwd: str) -> list[Path]:
     return [d / _cwd_to_project_dirname(cwd) for d in _config.CLAUDE_PROJECTS_DIRS]
 
 
+def _same_file(a: Path, b: Path) -> bool:
+    """Whether two paths are one file, however spelled (= accounts that share their records name a conversation by
+    two paths)."""
+    key = _config.entity_key(a)
+    return key is not None and key == _config.entity_key(b)
+
+
 def register_pending(
     tmux_sid: str, claude_pid: int, claude_cwd: str, start_time: float,
 ) -> None:
@@ -132,7 +139,7 @@ def confirm_bind(pwa_sid: str, claude_sid: str, transcript_path: str) -> Optiona
     for other in _bindings.values():
         if other is binding:
             continue
-        if other.jsonl_path == path:
+        if other.jsonl_path is not None and (other.jsonl_path == path or _same_file(other.jsonl_path, path)):
             logger.info(
                 "jsonl_watcher confirm_bind detached stale binding: pwa_sid=%s -> None",
                 other.tmux_sid,

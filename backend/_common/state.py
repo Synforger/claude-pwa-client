@@ -226,9 +226,13 @@ class SessionDef:
 
     def sleeping_claude_sid(self) -> str | None:
         """The conversation a sleeping tab reopens, None for a tab that is not asleep or whose account changed since
-        (= a conversation of another account's folder cannot be reopened)."""
+        (= a conversation of another account's folder cannot be reopened; one in a folder the two accounts share can)."""
         mark = self.sleep
-        return mark.claude_sid if mark is not None and mark.account_id == self.account_id else None
+        if mark is None:
+            return None
+        if mark.account_id == self.account_id or _config.projects_shared(mark.account_id, self.account_id):
+            return mark.claude_sid
+        return None
 
     def to_dict(self) -> dict:
         return {

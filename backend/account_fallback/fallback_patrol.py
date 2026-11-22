@@ -147,7 +147,8 @@ async def _move(session_id: str, current: str, home: str, rule: FallbackRule | N
     target = rule.to_account if moving and rule is not None else home
     cut = LineageCut.THROUGH_TOOL_RESULTS if tab_break.stop is not None else LineageCut.CLEAN_TURN
     try:
-        await move_tab_account(session_id, target, cut=cut, fallback_from=home if moving else None)
+        await move_tab_account(session_id, target, cut=cut, fallback_from=home if moving else None,
+                               at_break=True)
     except HTTPException as error:
         logger.warning("account fallback: could not move session=%s from=%s to=%s: %s", session_id, current, target,
                        error.detail)
@@ -321,7 +322,8 @@ async def move_before_wake(session_id: str) -> None:
         stop = await asyncio.to_thread(sleeping_stop, session_id)
         cut = LineageCut.THROUGH_TOOL_RESULTS if stop is not None else LineageCut.CLEAN_TURN
         try:
-            await move_tab_account(session_id, target, cut=cut, fallback_from=home if moving else None)
+            await move_tab_account(session_id, target, cut=cut, fallback_from=home if moving else None,
+                                   at_break=True)
         except HTTPException as error:
             logger.warning("account fallback: a sleeping tab stays on its account session=%s: %s", session_id,
                            error.detail)

@@ -204,3 +204,23 @@ def test_tmux_socket_is_one_per_platform_root(tmp_path):
     assert runner.platform_socket_name(str(first)) == runner.platform_socket_name(str(first) + "/")
     assert runner.platform_socket_name(str(first)) != runner.platform_socket_name(str(second))
     assert runner.platform_socket_name(str(first)).startswith("agent-platform-")
+
+
+def test_jsonl_gc_counts_a_file_two_accounts_reach_once(monkeypatch, tmp_path):
+    """Accounts that keep their records in one folder reach each file by two paths: it is deleted once, counted
+    once, and kept when a tab is bound to it by either path."""
+    from pathlib import Path
+    import backend.jsonl.jsonl_watcher as watcher
+    home = tmp_path / "home"
+    project = _old_transcripts(home / ".claude", ["bound.jsonl", "old.jsonl", "older.jsonl"])
+    (tmp_path / "work").mkdir()
+    (tmp_path / "work" / "projects").symlink_to(home / ".claude" / "projects")
+    monkeypatch.setattr(m._config, "CLAUDE_PROJECTS_DIRS", [home / ".claude" / "projects", tmp_path / "work" / "projects"])
+    through_the_link = tmp_path / "work" / "projects" / project.name / "bound.jsonl"
+    monkeypatch.setattr(watcher, "list_bindings", lambda: {"ses_a": {"confirmed": True, "jsonl_path": str(through_the_link)}})
+    deletes: list[str] = []
+    unlink = Path.unlink
+    monkeypatch.setattr(Path, "unlink", lambda self, *a, **k: (deletes.append(self.name), unlink(self, *a, **k))[1])
+    assert m.cleanup_old_jsonl(keep_days=14) == 2
+    assert sorted(deletes) == ["old.jsonl", "older.jsonl"]            # each file was asked to go once
+    assert sorted(p.name for p in project.iterdir()) == ["bound.jsonl"]
