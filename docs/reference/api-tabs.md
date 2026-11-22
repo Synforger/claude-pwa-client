@@ -32,7 +32,7 @@ Add `api_tabs` to `config.json` (and, to see what the program spends, `api_accou
 | `title` | The name the list shows (the name when left out) |
 | `agent_id` | An agent of `agents`: where in the list the tab sits. A row naming an agent that is not configured is not read (a warning line is written) |
 | `account` | The wallet the tab spends from (`api` when left out). The list shows it as the tab's account |
-| `list_folder` | The folder of the list the tab sits in, `<agent id>/<folder>/...` such as `agent_a/Support` (optional; without it, or with another shape, the tab sits directly under its agent) |
+| `list_folder` | The folder of the list the tab sits in, `<agent id>/<folder>/...` such as `agent_a/Group chats` (optional; without it, or with another shape, the tab sits directly under its agent) |
 | `record` | Absolute path of the record file. The tab appears even when the file does not exist yet (the conversation is empty until it does) |
 
 `api_accounts` is read-only: nothing is routed to a wallet. A wallet is not an account of `accounts`, so the account
