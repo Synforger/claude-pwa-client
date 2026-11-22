@@ -17,10 +17,11 @@ from urllib.parse import quote
 from fastapi import APIRouter, Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
-from backend._common.config import FILE_SIZE_LIMIT, HOME, page_origin
+from backend._common.config import FILE_SIZE_LIMIT, HOME, page_folders, page_origin
 from backend.documents import convert, pages, strings
 from backend.documents.store import get_store as get_document_store
 from backend._common.errors import raise_error
+from backend._common.page_folders import is_served
 from backend._common.paths import PAGE_STORE_DIR
 
 logger = logging.getLogger(__name__)
@@ -180,7 +181,7 @@ def _same_host(request: Request, port: str | int) -> str:
 
 
 def _page_target(resolved: Path, request: Request) -> str | None:
-    """page_origin の folder の中の file なら、 それを配る別の port の URL (= 外か、 待ち受けが開いていなければ None)。
+    """ページの origin が配る file なら、 その別の port の URL (= 配らない file か、 待ち受けが開いていなければ None)。
 
     host と scheme は今の要求の物を使う (= Tailscale の serve 越しなら https、 手元なら http)。 別の port も同じ
     host の同じ番号で届く前提 (= Tailscale では同じ番号の port を serve で出す)。
@@ -192,6 +193,8 @@ def _page_target(resolved: Path, request: Request) -> str | None:
     try:
         rel = resolved.relative_to(folder)
     except ValueError:
+        return None
+    if not is_served(rel.as_posix(), page_folders()):
         return None
     return f"{_same_host(request, port)}/{quote(rel.as_posix())}"
 
@@ -438,15 +441,17 @@ def _page_csp(request: Request) -> str:
 
 
 def _in_folder(path: str) -> Path:
-    """folder の中の path を resolve() した実体にする (= folder の外・設定が無い時は断る)。"""
+    """folder の中の path を resolve() した実体にする (= folder の外・一覧の外・設定が無い時は断る)。"""
     origin = page_origin()
     if origin is None:
         raise HTTPException(status_code=404, detail="File not found")
     folder = origin[0]
     resolved = (folder / path).resolve()
     try:
-        resolved.relative_to(folder)
+        inside = resolved.relative_to(folder)
     except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not is_served(inside.as_posix(), page_folders()):
         raise HTTPException(status_code=403, detail="Access denied")
     return _resolve_safe(str(resolved))
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
+from backend._common.page_folders import is_served
 from backend.page_url.page_url_refusal import PageUrlRefusal
 
 #: The ports a URL leaves out, per scheme.
@@ -24,13 +25,20 @@ def page_url(file: Path, folder: Path, port: int, serve_status: dict) -> str:
     return f"{tailnet_base(serve_status, port)}/{quote(path_in_origin(file, folder))}"
 
 
-def path_in_origin(file: Path, folder: Path) -> str:
-    """The path of `file` (= resolved) inside the page origin `folder` (= resolved), as the page port serves it."""
+def path_in_origin(file: Path, folder: Path, *, folders: tuple[str, ...] | None = None) -> str:
+    """The path of `file` (= resolved) inside the page origin `folder` (= resolved), as the page port serves it.
+
+    folders (tuple[str, ...] | None): the folders the page origin serves; None is all of `folder`
+    """
     try:
-        return file.relative_to(folder).as_posix()
+        inside = file.relative_to(folder).as_posix()
     except ValueError:
         raise PageUrlRefusal("page_outside_origin",
                              f"ページの origin の folder ({folder}) の外の file です: {file}") from None
+    if not is_served(inside, folders):
+        raise PageUrlRefusal("page_outside_origin",
+                             f"ページの origin が配る folder (= 設定の page_origin.folders) の外の file です: {file}")
+    return inside
 
 
 def tailnet_base(serve_status: dict, port: int) -> str:
