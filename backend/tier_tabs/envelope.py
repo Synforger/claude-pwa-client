@@ -9,6 +9,8 @@ to start in that tier (= the same shape as `<session-rollover phase="start">` an
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from backend.jsonl.jsonl_predicates import TAB_OPEN_OPENING
 from backend.terminal.tier import DEFAULT_TIER
 
@@ -17,9 +19,11 @@ TAG = "tab-open"
 NAME_JOINER = "・"
 
 
-def envelope(tier: str) -> str:
-    """The first message that starts the claude of the tab placed for `tier`."""
-    return f"{TAB_OPEN_OPENING}\n<{TAG}>\ntier={tier}\n</{TAG}>"
+def envelope(tier: str, lines: Sequence[str] = ()) -> str:
+    """The first message that starts the claude of a tab in `tier`. `lines` follow the tier inside the block (= what
+    a child tab's envelope says of the child, `backend/_common/child_role.py`)."""
+    body = "\n".join([f"tier={tier}", *lines])
+    return f"{TAB_OPEN_OPENING}\n<{TAG}>\n{body}\n</{TAG}>"
 
 
 def tab_name(tier: str, agent_name: str) -> str:
