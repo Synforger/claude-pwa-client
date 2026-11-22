@@ -59,9 +59,11 @@ The program writes one JSON object per line, appending only:
 - A user `message.content` is a string, or blocks of `text` and `tool_result`. Do not start a message with an XML tag
   such as `<command-` (such rows are taken for Claude Code's internal rows and left out). A message that holds only an
   image is not drawn
-- The file is append-only: never rewrite or truncate it. A last row without its newline is a write in progress, and
-  the client waits for the newline before reading it. At start, if the file does not end in a newline, write one first,
-  so that a row cut by a crash does not run into the next row and spoil both
+- Within a conversation the file is append-only: never write over or truncate it. To start a new conversation in the
+  same path, write the new file beside it and rename it over the path ([how the client follows
+  it](#how-the-client-follows-the-record)). A last row without its newline is a write in progress, and the client waits
+  for the newline before reading it. At start, if the file does not end in a newline, write one first, so that a row
+  cut by a crash does not run into the next row and spoil both
 
 **Context amount** = `input_tokens + cache_read_input_tokens + cache_creation_input_tokens` of the last assistant row
 that has a `usage` (a missing count is 0). Until such a row exists there is no amount: the screen shows nothing, never 0.

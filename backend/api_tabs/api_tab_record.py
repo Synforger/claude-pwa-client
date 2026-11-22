@@ -1,9 +1,10 @@
 """Reading an API tab's record file: the one segment the replay reads, the end of its complete rows, the context amount
 of its last answer, and what was appended since a position.
 
-A record only ever grows by whole rows (`docs/reference/api-tabs.md`): a last row without its newline is a write in
-progress, so nothing here reads past the last newline. Blocking file reads: callers run them in a thread. Used by
-`api_tab_stream.py` and by the replay and history doors (`record_segments`).
+A record grows by whole rows until the program renames a new file over it to start another conversation
+(`docs/reference/api-tabs.md`). A last row without its newline is a write in progress, so nothing here reads past the
+last newline. Blocking file reads: callers run them in a thread. Used by `api_tab_stream.py` and by the replay and
+history doors (`record_segments`).
 """
 from __future__ import annotations
 

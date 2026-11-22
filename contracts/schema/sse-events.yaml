@@ -434,7 +434,7 @@ events:
       - "client が位置を持たずに購読した時 (= 窓が届いたかを測れない時) は載せない"
       - "API のタブでは、 記録の file が縮んだ・消えた時にも、 流れの側から 1 つ送る (= 画面は履歴を取り直す)"
       - "chat 履歴には積まない (= 画面の cache の取り直しの合図だけ)"
-    trigger: "backend/routes/unified_stream.py の流し直しが、 client の位置の直後の行から欠けずに返せなかった時。 API のタブでは backend/api_tabs/api_tab_stream.py が記録の file の縮みを見つけた時"
+    trigger: "backend/routes/unified_stream.py の流し直しが、 client の位置の直後の行から欠けずに返せなかった時。 API のタブでは backend/api_tabs/api_tab_stream.py が記録の file の縮みか、 別の file への置き換えを見つけた時"
     consumer: "useChatStream (= その sid の cache を捨てて GET /jsonl/history を取り直す)"
     render_target: "skip"
 
