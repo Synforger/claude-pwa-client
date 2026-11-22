@@ -15,6 +15,8 @@ def approval(command: str = "ls -la", reason: str = "guard says so", *, position
     the dialog shows under the command when the call has one)."""
     head = f" Bash command{position}"
     described = f"   {description}\n" if description else ""
+    # The dialog draws every line of a command under the title's indent.
+    command = command.replace("\n", "\n   ")
     return (f"● Running the command\n\n{RULE}\n{head}\n\n   {command}\n{described}\n"
             f" Hook PreToolUse:Bash requires confirmation for this command: {reason} [settings]\n\n"
             f" Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n{FOOTER}")

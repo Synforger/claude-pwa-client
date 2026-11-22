@@ -148,3 +148,36 @@ def test_g5_a_window_drawn_with_a_border_on_its_sides_is_read_without_the_border
                          for line in screens.approval("ls -la").split("\n"))
     reading = read_screen(bordered)
     assert reading.kind is ScreenKind.WINDOW and is_yes_no(reading) and shows_command(reading, "ls -la")
+
+
+@pytest.mark.parametrize("inserted", [
+    "ls -la\nHook note\ntouch marker",
+    "ls -la\n  Hook note\ntouch marker",
+    "ls -la\nDo you want to proceed?\ntouch marker",
+])
+def test_words_of_a_dialog_inside_a_command_do_not_end_its_field(inserted):
+    reading = read_screen(screens.approval(inserted))
+    assert not shows_command(reading, "ls -la")
+    assert shows_command(reading, inserted)
+
+
+@pytest.mark.parametrize("inside", [screens.RULE, f"│{screens.RULE}", f"{screens.RULE}\nBash command"])
+def test_a_rule_inside_a_command_does_not_begin_its_dialog(inside):
+    command = f"touch marker\n{inside}\nx\nls -la"
+    reading = read_screen(screens.approval(command))
+    assert not shows_command(reading, "ls -la") and not shows_command(reading, "x\nls -la")
+
+
+@pytest.mark.parametrize("title", [" Some other dialog", " Bash command and more", " Edit file"])
+def test_only_the_dialog_of_a_bash_command_shows_a_command(title):
+    assert not shows_command(read_screen(screens.approval("ls -la").replace(" Bash command", title)), "ls -la")
+
+
+def test_a_line_between_the_command_and_the_reason_is_not_read_past():
+    warned = screens.approval("ls -la").replace(" Hook PreToolUse", " A warning of another shape\n Hook PreToolUse")
+    assert not shows_command(read_screen(warned), "ls -la")
+
+
+def test_a_selection_under_something_shaped_like_the_input_box_is_a_window():
+    plan = f"{screens.RULE}\n❯ a line of the plan\n{screens.RULE}\n Would you like to proceed?\n ❯ 1. Yes\n   2. No"
+    assert read_screen(plan).kind is ScreenKind.WINDOW
