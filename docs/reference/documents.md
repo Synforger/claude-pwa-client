@@ -75,7 +75,7 @@ iPhone と iPad、 macOS でない backend、 ファイルの木とお気に入�
 HTML と同じです (`/file/view` と同じ検査)。
 
 - 読めるのは HOME の下だけで、 鍵・認証情報・シェルの初期化 file などの deny list に当たる path は開きません
-- `page_origin` の folder の外の file は、 その port からは開きません (symlink で外へ出る物も含む)
+- `page_origin` の folder の外と、 `folders` を書いた時はその一覧の外の file は、 その port からは開きません (symlink で外へ出る物も含む)
 - 1 file 50 MB まで
 - 開く前の変換の command には、 path を引数としてそのまま渡します (shell は通りません)
 

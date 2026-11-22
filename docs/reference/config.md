@@ -211,10 +211,18 @@ Claude PWA Client の設定ファイル仕様。 backend / frontend それぞれ
   それ以外 (= スクリプト・フォーム・ポップアップ・ダイアログ・ダウンロード) は使える。 backend は `127.0.0.1:<port>` で待ち受けるので、
   Tailscale 越しに使う時は同じ番号を tailnet に出す (= `tailscale serve --bg --https=<port> http://127.0.0.1:<port>`)。
   書き損じた時と port が塞がっている時は起動ログに理由を出し、 その folder も今どおり `/file/view` で開く
+  - **配る folder の一覧** (`folders`、 任意): folder の中の一部だけを配る。 folder からの相対で書き、 書いた folder と
+    その下が配られる。 書かなければ folder の全部、 `[]` は何も配らない
+    - `*` は 1 段、 `**` は何段でも (= 0 段も) の folder に当たる。 どちらも `.` か `_` で始まる名前には当たらない
+      (= そういう folder を配る時は名前で書く。 配る folder の下に在る分は配られる)
+    - 例: `{"folder": "~/agents", "port": 8775, "folders": ["*/pages", "*/projects/**/pages"]}`
+    - 一覧の外の file は、 その port では 403 (= 保存箱も)。 path をタップした時は `/file/view` で開き
+      (= `localStorage` と保存箱は使えない)、 `tabs page-url` は URL を作らない。 symlink は解いた先で判定する
+    - 一覧の形の書き損じは page_origin の書き損じと同じ (= 起動ログに理由を出し、 その port では何も配らない)
   - **ページの URL**: 端末へ渡すページの URL は `tabs page-url <file>` が出す (= 手元の `localhost` は、 Tailscale 越しの
     端末では開かない)。 backend が、 `tailscale serve status` から「ページの port へ流している tailnet の口」 を探して
     `https://<tailnet の名前>[:<口の port>]/<folder の中の path>` を組む (= 口は `GET /page-url?path=<絶対 path>`、
-    同じ機械の中からだけ)。 folder の外の file・page_origin が無い・待ち受けが開いていない・serve がその port を
+    同じ機械の中からだけ)。 folder か一覧の外の file・page_origin が無い・待ち受けが開いていない・serve がその port を
     出していない時は、 URL を作らずに理由を返す
   - **チャットの localhost のリンク**: 返事に `http://localhost:<port>/…` や `http://127.0.0.1:<port>/…` のリンクが書かれていても、
     画面を別の端末 (= tailnet の名前) で開いている時は、 画面がリンクを `<画面の scheme>://<画面の host>:<port>/…` に置き換えて

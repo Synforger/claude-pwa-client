@@ -53,17 +53,18 @@ def _lock_for(key: AnswerKey) -> asyncio.Lock:
     return _locks.setdefault(key, asyncio.Lock())
 
 
-def _facts_of(row: IndexRow | None) -> AnswerFacts:
+async def _facts_of(row: IndexRow | None) -> AnswerFacts:
     """What is known of the answer now: the ticket's row, and the holder's claude (= working, asked to close)."""
     if row is None:
         return AnswerFacts(False, False, "", False, False, False, False, False)
     holder, here = row.holder, row.holder in sessions_meta
     busy, close_asked, reachable = False, False, False
     if here:
+        reachable = await tab_reachable(holder)
+        # read after the look at the pane, which takes a while: these say whether to type now
         record = jsonl_path_for_session(holder)
         busy = is_busy(holder)
         close_asked = record is not None and rollover.asked(record)
-        reachable = tab_reachable(holder)
     return AnswerFacts(has_row=True, closed=row.status == CLOSED, holder=holder, holder_is_remote=":" in holder,
                        holder_here=here, reachable=reachable, busy=busy, close_asked=close_asked)
 
@@ -158,14 +159,14 @@ async def _settle_failure(key: AnswerKey, row: IndexRow, error: HTTPException) -
 async def _deliver_locked(key: AnswerKey) -> None:
     """One look at one answer, under its lock."""
     row = ticket_index.get(key.ticket)
-    step = answer_judgement.next_step(_facts_of(row))
+    step = answer_judgement.next_step(await _facts_of(row))
     if step == answer_judgement.RETURN_HOLDER:
         try:
             await ticket_return.return_if_gone(key.ticket)
         except HTTPException as error:
             logger.info("ticket answer: id=%s could not be given back to its first tab now: %s", key.ticket, error.detail)
         row = ticket_index.get(key.ticket)
-        step = answer_judgement.next_step(_facts_of(row))
+        step = answer_judgement.next_step(await _facts_of(row))
     holder = row.holder if row else ""
     if step == answer_judgement.DROP_NO_TICKET:
         logger.warning("ticket answer: id=%s asked_at=%s has no row in the index; it is taken out of the queue",

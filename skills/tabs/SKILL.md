@@ -260,7 +260,7 @@ tabs page-url <file>
 ```
 
 It prints the URL (`https://<this machine on the tailnet>[:<port>]/<path inside the folder>`), made by the backend from
-the page origin and what `tailscale serve` exposes. It stops with the reason when the file is outside the folder, when
+the page origin and what `tailscale serve` exposes. It stops with the reason when the file is outside the folder (or outside the `folders` it lists), when
 there is no `page_origin` or its listener is closed, or when `tailscale serve` does not expose the page port (the
 reason names the `tailscale serve` command that would).
 

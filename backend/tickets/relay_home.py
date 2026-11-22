@@ -132,7 +132,7 @@ async def notify(peer_name: str, peer: dict, ticket: str, to: str, from_machine:
         receiver = resolve_receiver(to)
         if not allowed_for_peer(peer, receiver):
             raise_error(403, "agent_message_peer_not_allowed", f"宛先のタブは {peer_name} の機械と連絡できません", peer=peer_name)
-        if not tab_reachable(receiver):
+        if not await tab_reachable(receiver):
             raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
         await check(receiver, notice_text(ticket))
         message = relayed_notice_envelope(from_machine, from_title, from_session, ticket)

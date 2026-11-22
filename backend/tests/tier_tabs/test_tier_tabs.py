@@ -371,11 +371,11 @@ def test_a_tab_that_was_not_placed_starts_with_what_was_sent(launched, isolated_
 def test_a_tab_of_a_launcher_agent_takes_messages_before_its_claude_starts(configured, isolated_state, monkeypatch):
     tabs = tier_tabs.place_new_tiers()
     monkeypatch.setattr(agent_messages, "claude_in_pane", lambda sid: False)
-    assert agent_messages.tab_reachable(tabs[0])
+    assert run(agent_messages.tab_reachable(tabs[0]))
     # a tab the operator opened is the same: the message starts it in the tier it remembers, or in normal
     isolated_state.sessions_meta["ses_hand"] = SessionDef(id="ses_hand", agent_id="agent_a", title="hand",
                                                           created_at=0)
-    assert agent_messages.tab_reachable("ses_hand")
+    assert run(agent_messages.tab_reachable("ses_hand"))
 
 
 def test_a_message_to_a_placed_tab_is_checked_as_for_a_conversation_that_read_nothing(configured, isolated_state,

@@ -170,7 +170,7 @@ async def _tell(ticket: str, sender: Party, receiver: Party, receiver_id: str | 
     account hold stopped). Nothing is changed by this: a failure leaves the ticket as it was."""
     if receiver_id is not None:
         with failing_as(NOT_SENT_CODE, NOT_SENT_MESSAGE):
-            if not tab_reachable(receiver_id):
+            if not await tab_reachable(receiver_id):
                 raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
             await check(receiver_id, notice_text(ticket, by_operator=by_operator))
             if by_operator:

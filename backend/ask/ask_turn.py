@@ -175,10 +175,11 @@ async def _prepare(session_id: str, waiter: turn_waiters.TurnWaiter, *, fresh: b
                     id=session_id, reason="account_hold")
     with _as_ask_error():
         woke = await wake_tab(session_id)
+    # A tab with no claude yet starts a new conversation with the text itself: there is nothing to clear.
+    cleared = fresh and await asyncio.to_thread(claude_in_pane, session_id)
+    # read after the look at the pane: a turn may begin during it
     if is_busy(session_id):
         raise_error(409, "ask_tab_busy", "このタブは別の仕事の途中です。 何も聞いていません。 終わってから聞いてください", id=session_id)
-    # A tab with no claude yet starts a new conversation with the text itself: there is nothing to clear.
-    cleared = fresh and claude_in_pane(session_id)
     if cleared:
         await _open_conversation(session_id, waiter, CLEAR_COMMAND, lambda opened: True, CLEAR_WAIT_SEC)
     if resume is not None:
@@ -303,7 +304,7 @@ async def _open_resumed(session_id: str, waiter: turn_waiters.TurnWaiter, resume
     """Open the conversation `resume` in the tab, and with `fork` a branch of it: type `/resume <id>` (not when the tab is
     in that conversation already: Claude Code has nothing to open then) and `/branch`, each waiting for the `SessionStart`
     of the conversation it opens. A conversation that does not open ends the ask: nothing was asked."""
-    if not claude_in_pane(session_id):
+    if not await asyncio.to_thread(claude_in_pane, session_id):
         raise_error(409, "ask_not_ready", "このタブには Claude が居ないので、 会話を開けません。 何も聞いていません。 "
                     "--resume を付けずに 1 度聞いて Claude を起動してから聞き直してください", id=session_id)
     if _conversation_of(session_id) != resume:

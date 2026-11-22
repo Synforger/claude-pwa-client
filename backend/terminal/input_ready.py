@@ -116,7 +116,7 @@ async def wait_ready(session_id: str, timeout: float | None = None) -> bool:
     # 既定値は import 時でなく呼び出し時に読む (= 上限を差し替えて試験できる形)
     timeout = INPUT_READY_TIMEOUT_SEC if timeout is None else timeout
     try:
-        await until_stop(asyncio.wait_for(ev.wait(), timeout=timeout))
+        await until_stop(_wait_for_flag(ev, timeout))
         return True
     except BackendStopping:
         logger.info("input_ready: the backend is stopping; not waiting for claude to report startup session=%s",
@@ -130,3 +130,8 @@ async def wait_ready(session_id: str, timeout: float | None = None) -> bool:
         )
         ev.set()
         return False
+
+
+async def _wait_for_flag(flag: asyncio.Event, timeout: float) -> None:
+    """Wait for `flag`, up to `timeout`. Nothing waits before this runs, so a stop that came first leaves nothing unawaited."""
+    await asyncio.wait_for(flag.wait(), timeout=timeout)

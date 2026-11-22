@@ -2,6 +2,7 @@
 `waiting-operator`, `closed`), and that the next state is worked out from the row under the ticket's lock."""
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
@@ -17,7 +18,7 @@ def delivered(monkeypatch):
         return {"ok": True}
 
     monkeypatch.setattr(ticket_pass, "deliver_or_keep", deliver)
-    monkeypatch.setattr(ticket_pass, "tab_reachable", lambda tab_id: True)
+    monkeypatch.setattr(ticket_pass, "tab_reachable", AsyncMock(return_value=True))
 
 
 def _ticket(status: str = "open") -> str:

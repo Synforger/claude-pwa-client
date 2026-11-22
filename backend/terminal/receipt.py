@@ -38,6 +38,7 @@ from backend._internal.stop_signal import BackendStopping, until_stop
 from backend.terminal import input_ready
 from backend.terminal.ansi_text import strip_ansi
 from backend.terminal.confirm import CONFIRM_TIMEOUT_SEC, wait_taken_row, wait_text_row
+from backend.terminal.pane_order import in_typing_order
 from backend.terminal.prompt_detector import claude_tui_owns_screen
 from backend.terminal.routes import pty_send
 from backend.terminal.runner import capture_pane_ansi_tail, jsonl_path_for_session, tmux_send_keys
@@ -162,7 +163,7 @@ async def _rescue(session_id: str, initial_pos: int, text: str) -> bool:
     while loop.time() < deadline:
         if text_waits_in_input(await asyncio.to_thread(pane_text, session_id), text):
             logger.info("receipt: the message waits in the input, sending Enter session=%s", session_id)
-            tmux_send_keys(session_id, enter=True)
+            await in_typing_order(session_id, lambda: tmux_send_keys(session_id, enter=True))
         elif not typed_again:
             logger.info("receipt: the message is gone, typing it again session=%s", session_id)
             typed_again = True
@@ -173,5 +174,5 @@ async def _rescue(session_id: str, initial_pos: int, text: str) -> bool:
     if text_waits_in_input(await asyncio.to_thread(pane_text, session_id), text):
         logger.warning("receipt: the message was not taken in %.0fs, clearing it from the input session=%s",
                        RESCUE_SEC, session_id)
-        tmux_send_keys(session_id, key="C-u")
+        await in_typing_order(session_id, lambda: tmux_send_keys(session_id, key="C-u"))
     return False

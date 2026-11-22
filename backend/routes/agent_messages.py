@@ -91,7 +91,8 @@ from backend.peers.peer_call import (  # noqa: F401 (= re-exported: the tests an
 from backend.peers.seen_message_ids import delivering, release
 from backend.terminal import input_ready
 from backend.terminal.first_message import LAUNCH_DISCOVER_SEC
-from backend.terminal.pty_discover import claude_in_pane, register_claude_when_ready
+from backend.terminal.pane_order import deciding_launch, in_typing_order
+from backend.terminal.pty_discover import PaneState, claude_in_pane, register_claude_when_ready, scan_panes
 from backend.terminal.receipt import SCREEN_WAIT_SEC, StoppedBeforeTyping, deliver_to_woken, wait_for_claude_screen
 from backend.terminal.routes import pty_send
 from backend.terminal.runner import has_tmux_session, jsonl_path_for_session, tmux_send_keys
@@ -332,7 +333,7 @@ async def check(receiver_id: str, text: str) -> None:
     if not AGENT_MESSAGE_CHECK:
         return
     record = jsonl_path_for_session(receiver_id)
-    if record is None and _message_starts_claude(receiver_id):
+    if record is None and await _message_starts_claude(receiver_id):
         # まだ始まっていない会話: 何も読んでいない相手として通す (= この連絡で始まる会話)
         await judge(f"tier-tab:{receiver_id}", text, receiver_id)
         return
@@ -446,7 +447,7 @@ def _tab_running(tab_id: str) -> bool:
     return os.environ.get("CPC_E2E") == "1" or claude_in_pane(tab_id)
 
 
-def _message_starts_claude(tab_id: str) -> bool:
+async def _message_starts_claude(tab_id: str) -> bool:
     """Whether a message can start the claude of this tab, which has none running. A message does what the
     operator's own action on the tab would do, so the two never differ:
 
@@ -457,19 +458,39 @@ def _message_starts_claude(tab_id: str) -> bool:
       a child keeps the task its parent gave it and an agent without a launcher cannot start from a first message
 
     Only an agent without a launcher and with no conversation to reopen is left with no way to start."""
-    meta = sessions_meta.get(tab_id)
-    if meta is None or _tab_running(tab_id):
+    if tab_id not in sessions_meta or await asyncio.to_thread(_tab_running, tab_id):
+        return False
+    return _can_start(tab_id, await asyncio.to_thread(has_tmux_session, tab_id))
+
+
+def _can_start(tab_id: str, has_session: bool) -> bool:
+    """The judgement of `_message_starts_claude` on a tab with no claude, from what was read of its pane."""
+    if sessions_meta.get(tab_id) is None:
         return False
     if not input_ready.is_ready(tab_id):  # already starting: the message waits for it
         return True
-    if not has_tmux_session(tab_id):
+    if not has_session:
         return resolve_launch_alias(tab_id) is not None or uses_launcher(tab_id)
     return uses_launcher(tab_id) or resume_command_for(tab_id) is not None
 
 
-def tab_reachable(tab_id: str) -> bool:
+async def tab_reachable(tab_id: str) -> bool:
     """Whether a message reaches this tab (= its claude runs, or the message can start it)."""
-    return _tab_running(tab_id) or _message_starts_claude(tab_id)
+    if await asyncio.to_thread(_tab_running, tab_id):
+        return True
+    return _can_start(tab_id, await asyncio.to_thread(has_tmux_session, tab_id))
+
+
+def _read_panes(tab_ids: list[str]) -> dict[str, PaneState]:
+    """What `_tab_running` and `has_tmux_session` tell, for a list of tabs, from one look."""
+    if os.environ.get("CPC_E2E") == "1":
+        return {tab_id: PaneState(has_session=True, runs_claude=True) for tab_id in tab_ids}
+    return scan_panes(tab_ids)
+
+
+def _reachable_in(panes: dict[str, PaneState], tab_id: str) -> bool:
+    pane = panes.get(tab_id, PaneState(has_session=False, runs_claude=False))
+    return pane.runs_claude or _can_start(tab_id, pane.has_session)
 
 
 def _reopens_in_its_shell(tab_id: str) -> bool:
@@ -500,25 +521,18 @@ async def _wake(tab_id: str) -> bool:
     # Imported here: the sleep package reads the rollover, which reads this module.
     from backend.sleep.sleeper import wait_until_asleep  # noqa: PLC0415
     await wait_until_asleep(tab_id)
-    if _tab_running(tab_id):
+    if await asyncio.to_thread(_tab_running, tab_id):
         return False
     # A launch still starting is waited for, not typed a second time (= `input_ready.launching`).
-    shell_left = has_tmux_session(tab_id) and input_ready.is_ready(tab_id) and not input_ready.launching(tab_id)
+    shell_left = (await asyncio.to_thread(has_tmux_session, tab_id)
+                  and input_ready.is_ready(tab_id) and not input_ready.launching(tab_id))
     await ensure_pty_session_for(tab_id)
-    reopened = False
-    if shell_left and _reopens_in_its_shell(tab_id) and (command := resume_command_for(tab_id)) is not None:
-        input_ready.mark_starting(tab_id)
-        if not (tmux_send_keys(tab_id, key="C-u") and tmux_send_keys(tab_id, text=command, enter=True)):
-            input_ready.mark_ready(tab_id)
-            raise_error(409, "agent_message_receiver_not_ready", "宛先の claude を起動できませんでした。 もう一度送ってください")
-        logger.info("agent message: reopened the last conversation in the shell session=%s", tab_id)
-        asyncio.create_task(register_claude_when_ready(tab_id, max_wait=LAUNCH_DISCOVER_SEC))
-        reopened = True
+    reopened = shell_left and _reopens_in_its_shell(tab_id) and await _reopen_in_shell(tab_id)
     starting = reopened or input_ready.launching(tab_id)
     if not await input_ready.wait_ready(tab_id, LAUNCH_DISCOVER_SEC):
         raise_error(409, "agent_message_receiver_not_ready",
                     f"宛先の claude が {LAUNCH_DISCOVER_SEC:.0f} 秒以内に起動しませんでした。 もう一度送ってください")
-    if not starting and not claude_in_pane(tab_id):
+    if not starting and not await asyncio.to_thread(claude_in_pane, tab_id):
         return True  # nothing started: the pane holds a shell, and the message's own typing starts the conversation
     if not await wait_for_claude_screen(tab_id):
         # The screen is recognised by Claude's status bar, which not every installation shows: typing anyway is safe,
@@ -526,6 +540,28 @@ async def _wake(tab_id: str) -> bool:
         logger.warning("agent message: the screen of session=%s did not look like Claude's within %.0fs; typing anyway",
                        tab_id, SCREEN_WAIT_SEC)
     return True
+
+
+async def _reopen_in_shell(tab_id: str) -> bool:
+    """Type the command that reopens the tab's last conversation into the shell of its pane. → whether it was typed:
+    not when there is none to reopen, or when another request started the tab's claude since it was looked at."""
+    def is_launch_under_way() -> bool:
+        return not input_ready.is_ready(tab_id) or input_ready.launching(tab_id)
+
+    async with deciding_launch(tab_id):
+        if is_launch_under_way() or await asyncio.to_thread(claude_in_pane, tab_id) or is_launch_under_way():
+            return False
+        command = resume_command_for(tab_id)
+        if command is None:
+            return False
+        input_ready.mark_starting(tab_id)
+        if not await in_typing_order(
+                tab_id, lambda: tmux_send_keys(tab_id, key="C-u") and tmux_send_keys(tab_id, text=command, enter=True)):
+            input_ready.mark_ready(tab_id)
+            raise_error(409, "agent_message_receiver_not_ready", "宛先の claude を起動できませんでした。 もう一度送ってください")
+        logger.info("agent message: reopened the last conversation in the shell session=%s", tab_id)
+        asyncio.create_task(register_claude_when_ready(tab_id, max_wait=LAUNCH_DISCOVER_SEC))
+        return True
 
 
 async def deliver_message(tab_id: str, text: str, woke: bool) -> dict:
@@ -648,7 +684,7 @@ async def post_agent_message(
         if not first:
             return {"ok": True, "duplicate": True, "to": receiver_id, "operator_said": False}
         with failing_as(NOT_SENT_CODE, NOT_SENT_MESSAGE):
-            if not tab_reachable(receiver_id):
+            if not await tab_reachable(receiver_id):
                 raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
             await check(receiver_id, text)
             said, left_out = await operator_said_for(sender, receiver_id) if operator_said else (None, None)
@@ -715,7 +751,7 @@ async def post_relayed_agent_message(request: Request, body: dict = Body(...)) -
             logger.info("agent message peer=%s message_id=%s was delivered already", peer_name, message_id)
             return {"ok": True, "duplicate": True, "to": receiver_id, "operator_said": False}
         with failing_as(NOT_SENT_CODE, NOT_SENT_MESSAGE):
-            if not tab_reachable(receiver_id):
+            if not await tab_reachable(receiver_id):
                 raise_error(409, "agent_message_receiver_not_running", "宛先のタブで claude が動いておらず、 起動できません")
             await check(receiver_id, text)
             message = relayed_envelope(peer_name, title, session, text)
@@ -733,7 +769,8 @@ async def get_tabs_for_peer(request: Request) -> dict:
     あるか。 `status` と `asleep` で、 相手の `tabs list` はこの機械の `tabs list` と同じ状態の語を出す。"""
     _peer_name, peer = require_peer(request)
     claudes = await asyncio.to_thread(running_claudes)
-    return {"tabs": [{"id": m.id, "title": m.title, "running": tab_reachable(m.id),
+    panes = await asyncio.to_thread(_read_panes, list(sessions_meta))
+    return {"tabs": [{"id": m.id, "title": m.title, "running": _reachable_in(panes, m.id),
                       "status": status_of(claudes.get(m.id)), "asleep": m.sleep is not None}
                      for m in sessions_meta.values() if allowed_for_peer(peer, m.id)]}
 
@@ -745,9 +782,10 @@ async def get_local_tabs(request: Request) -> dict:
     from this machine."""
     require_this_machine(request, "agent_message_local_only")
     tabs = []
+    panes = await asyncio.to_thread(_read_panes, list(sessions_meta))
     for tab_id in list(sessions_meta):
         record = jsonl_path_for_session(tab_id)
-        tabs.append({"id": tab_id, "reachable": tab_reachable(tab_id), "conversation": record.stem if record else None,
+        tabs.append({"id": tab_id, "reachable": _reachable_in(panes, tab_id), "conversation": record.stem if record else None,
                      "asleep": sessions_meta[tab_id].sleep is not None})
     return {"tabs": tabs}
 

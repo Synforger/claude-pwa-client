@@ -28,6 +28,7 @@ def pages(tmp_path, monkeypatch):
     (folder / "agent/pages/report.html").write_text("<p>hi</p>", encoding="utf-8")
     # the endpoint's own reading of the configuration (= the configuration file itself stays the test session's)
     monkeypatch.setattr(page_url_routes, "page_origin", lambda: (folder, PAGE_PORT))
+    monkeypatch.setattr(page_url_routes, "page_folders", lambda: None, raising=False)
     monkeypatch.setattr(files_mod, "page_listening", True)
     monkeypatch.setattr(page_url_routes, "serve_status", lambda: SERVED)
     return folder
@@ -60,6 +61,15 @@ def test_a_file_outside_the_folder_is_refused_before_the_tailnet_is_asked(pages,
     monkeypatch.setattr(modules()[1], "serve_status", serve_status)
     (tmp_path / "other.html").write_text("x", encoding="utf-8")
     response = asked(str(tmp_path / "other.html"))
+    assert (response.status_code, code_of(response)) == (400, "page_outside_origin")
+
+
+def test_a_file_outside_the_listed_folders_gets_no_url(pages, monkeypatch):
+    monkeypatch.setattr(modules()[1], "page_folders", lambda: ("*/pages",), raising=False)
+    assert asked(str(pages / "agent/pages/report.html")).status_code == 200
+    (pages / "agent/rules").mkdir()
+    (pages / "agent/rules/report.html").write_text("x", encoding="utf-8")
+    response = asked(str(pages / "agent/rules/report.html"))
     assert (response.status_code, code_of(response)) == (400, "page_outside_origin")
 
 

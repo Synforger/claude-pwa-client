@@ -10,6 +10,7 @@ import sys
 import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -116,7 +117,8 @@ def delivery_env(ticket_env, monkeypatch):
     monkeypatch.setattr(ticket_return, "deliver_or_keep", deliver_or_keep)
     monkeypatch.setattr(ticket_return, "hand_over_work", hand_over_work)
     monkeypatch.setattr(answer_delivery, "hand_over_work", hand_over_work)
-    monkeypatch.setattr(answer_delivery, "tab_reachable", lambda tab_id: tab_id not in env.unreachable)
+    monkeypatch.setattr(answer_delivery, "tab_reachable",
+                        AsyncMock(side_effect=lambda tab_id: tab_id not in env.unreachable))
     monkeypatch.setattr(answer_delivery, "is_busy", lambda tab_id: tab_id in env.busy)
     monkeypatch.setattr(answer_delivery, "jsonl_path_for_session", lambda tab_id: Path(f"/records/{tab_id}.jsonl"))
     monkeypatch.setattr(answer_delivery.rollover, "asked", lambda record: record.stem in env.close_asked)
@@ -198,7 +200,7 @@ def relay_env(ticket_env, monkeypatch):
     monkeypatch.setattr(ticket_relay.peer_health, "record_reply", record_reply)
     for module in (ticket_pass, relay_home):
         monkeypatch.setattr(module, "deliver_or_keep", deliver_or_keep)
-        monkeypatch.setattr(module, "tab_reachable", lambda tab_id: True)
+        monkeypatch.setattr(module, "tab_reachable", AsyncMock(return_value=True))
     monkeypatch.setattr(ticket_pass, "hand_over_work", hand_over_work)
     monkeypatch.setattr(ticket_checks, "session_of", lambda tab: f"conv-{tab}")
     configure()
