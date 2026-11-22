@@ -228,6 +228,7 @@ class PendingPermissionInjectRequest(BaseModel):
     tool_name: str = Field("Bash")
     input: Any = Field(default_factory=lambda: {"command": "echo e2e"})
     record_input: Any = Field(None)
+    answerable: bool = Field(True)
     index: int = Field(1)
     count: int = Field(1)
     opened_at: float = Field(1_700_000_000)

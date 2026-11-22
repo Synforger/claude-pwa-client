@@ -12,13 +12,15 @@ import './PermissionWindowDialog.css'
 //
 // props:
 //   sid: the tab's id
-//   pending: agent_status.pending_permission ({number, tool_name, input, record_input, index, count, ...})
+//   pending: agent_status.pending_permission ({number, tool_name, input, record_input, answerable, index, count, ...});
+//     a window that is not `answerable` is shown, and answered in the terminal
 //   onClose(): close the dialog (backdrop / × / after an answer)
 
 export default function PermissionWindowDialog({ sid, pending, onClose }) {
   const t = useT()
   const [sending, setSending] = useState(null)
   const [failed, setFailed] = useState(false)
+  const [mismatched, setMismatched] = useState(false)
   const view = useMemo(() => (pending ? windowView(pending) : null), [pending])
   const number = pending?.number
 
@@ -26,15 +28,23 @@ export default function PermissionWindowDialog({ sid, pending, onClose }) {
   useEffect(() => {
     setSending(null)
     setFailed(false)
+    setMismatched(false)
   }, [number])
 
   if (!pending || !view) return null
 
+  const inTerminal = pending.answerable !== true || mismatched
+
   const handle = async (answer) => {
-    if (sending) return
+    if (sending || inTerminal) return
     setSending(answer)
     setFailed(false)
     const outcome = await answerWindow(sid, number, answer)
+    if (outcome === 'mismatch') {
+      setSending(null)
+      setMismatched(true)
+      return
+    }
     if (outcome === 'failed') {
       setSending(null)
       setFailed(true)
@@ -81,6 +91,11 @@ export default function PermissionWindowDialog({ sid, pending, onClose }) {
             <WindowInput fields={view.running} testId="permission-window-running" />
           )}
         </div>
+        {inTerminal && (
+          <div className="permission-window-failed" role="status" data-testid="permission-window-in-terminal">
+            {t('permission_window.answer_in_terminal')}
+          </div>
+        )}
         {failed && (
           <div className="permission-window-failed" role="alert" data-testid="permission-window-failed">
             {t('permission_window.send_failed')}
@@ -91,7 +106,7 @@ export default function PermissionWindowDialog({ sid, pending, onClose }) {
             <button
               key={answer}
               className={`permission-window-choice ${sending === answer ? 'sending' : ''}`}
-              disabled={!!sending}
+              disabled={!!sending || inTerminal}
               onClick={() => handle(answer)}
               data-testid="permission-window-answer"
               data-cpc-answer={answer}

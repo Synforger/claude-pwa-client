@@ -5,6 +5,7 @@ import { useStreamBuffer } from './useStreamBuffer.js'
 import { processStreamEvent } from './processStreamEvent.js'
 import { observeVoiceEvent, subscribeVoice, voiceOnSids } from '../voice/index.js'
 import { reconcileUserMessage } from './reconcileUserMessage.js'
+import { holdUserBubble } from './holdUserBubble.js'
 import { failUserBubble } from './failUserBubble.js'
 import { logSendFailed } from './sendFailedLog.js'
 import { postSend } from './postSend.js'
@@ -338,7 +339,9 @@ export function useChatStream({
 
   // targetSid = 送り先のタブ (= 省くと今見ているタブ)。 声の会話は、 見ているタブが変わっても 🔊 のタブへ送る
   // (= features/voice/voice.js の setVoiceSender)。
-  const sendMessage = useCallback(async (textOverride, targetSid) => {
+  // `answersChoice`: the text is the person's answer to a question on the tab's screen, which the backend lets through
+  // while it keeps other texts for the window.
+  const sendMessage = useCallback(async (textOverride, targetSid, { answersChoice = false } = {}) => {
     const to = targetSid || sid
     if (!to) return
     const earlier = sendChainRef.current[to] || Promise.resolve()
@@ -451,6 +454,15 @@ export function useChatStream({
       if (extraInput) setInput(prev => ({ ...prev, [to]: prev[to] || text }))
       try { onSendFailed?.(to, text) } catch { /* ignore consumer error */ }
     }
+    // The backend keeps the text until the window of the tab closes: the bubble says so, and no turn is awaited.
+    const holdBubble = () => {
+      setMessages(prev => {
+        const held = holdUserBubble(prev[to] || [], m => m.id === optimisticUserId)
+        return held ? { ...prev, [to]: held } : prev
+      })
+      setLoading(prev => ({ ...prev, [to]: false }))
+      optimisticRef.current[to] = null
+    }
     await earlier
     if (files.length > 0) {
       // multipart: backend がファイルを uploads/tmp に保存して path を本文に追記して
@@ -481,6 +493,8 @@ export function useChatStream({
             uploadErrDetail = translateHttpErrorDetail(
               { code: body.reason }, body.reason || '',
             )
+          } else if (body?.held) {
+            holdBubble()
           }
         }
       } catch (e) {
@@ -508,7 +522,7 @@ export function useChatStream({
       try {
         const r = await postSend(`/pty/${encodeURIComponent(to)}/send`, {
           headers: { 'Content-Type': 'application/json', 'Idempotency-Key': send_id },
-          body: JSON.stringify({ text, enter: true }),
+          body: JSON.stringify({ text, enter: true, ...(answersChoice ? { answers_choice: true } : {}) }),
         }, { onTry: n => { tries = n } })
         status = r ? r.status : null
         result = r ? await r.json().catch(() => ({ ok: false })) : { ok: false }
@@ -521,6 +535,8 @@ export function useChatStream({
         // 旧来の setInput 経路は failBubble 内に内包済 (= F-36 ChatInput.localText の onSendFailed
         // callback も同関数内で呼ぶ)。
         failBubble(true, { path: 'text', status, error, reason: result.reason || null, tries })
+      } else if (result.held) {
+        holdBubble()
       }
     }
     } finally {
@@ -600,11 +616,11 @@ export function useChatStream({
       // (= 自由記述が届かない原因)。 先に "Type something"(= 選択肢数+1 番) を選んで
       // 自由入力モードに入れてから、 テキスト + Enter を送る。
       const typeNum = String((optionCount || 0) + 1)
-      await sendToPty(targetSid, { text: typeNum, enter: false })
+      await sendToPty(targetSid, { text: typeNum, enter: false, answers_choice: true })
       await new Promise(r => setTimeout(r, 150))
-      await sendToPty(targetSid, { text: answer, enter: true })
+      await sendToPty(targetSid, { text: answer, enter: true, answers_choice: true })
     } else {
-      await sendToPty(targetSid, { text: answer, enter: true })
+      await sendToPty(targetSid, { text: answer, enter: true, answers_choice: true })
     }
     setMessages(prev => {
       const cur = prev[targetSid] || []

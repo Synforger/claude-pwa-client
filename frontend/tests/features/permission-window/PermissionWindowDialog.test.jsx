@@ -12,7 +12,7 @@ import PermissionWindowDialog from '../../../src/features/permission-window/Perm
 
 const LONG_COMMAND = `echo ${'y'.repeat(1500)}`
 const PENDING = {
-  number: 4, tool_use_id: 'toolu_1', tool_name: 'Bash', input: { command: LONG_COMMAND }, record_input: null,
+  answerable: true, number: 4, tool_use_id: 'toolu_1', tool_name: 'Bash', input: { command: LONG_COMMAND }, record_input: null,
   index: 1, count: 1, opened_at: 1700000000,
 }
 
@@ -76,7 +76,7 @@ describe('PermissionWindowDialog: answering', () => {
     fireEvent.click(answerButton(view, 'allow'))
     await waitFor(() => expect(onClose).toHaveBeenCalled())
     const [path, options] = apiFetch.mock.calls[0]
-    expect(path).toBe('/sessions/ses_a/permission/answer')
+    expect(path).toBe('/pty/ses_a/permission/answer')
     expect(JSON.parse(options.body)).toEqual({ number: 4, answer: 'allow' })
   })
 
@@ -106,6 +106,12 @@ describe('PermissionWindowDialog: answering', () => {
     fireEvent.click(answerButton(view, 'allow'))
     await waitFor(() => expect(onClose).toHaveBeenCalled())
     expect(view.queryByTestId('permission-window-failed')).toBeNull()
+  })
+
+  it('offers no answer for a window that is answered in the terminal', () => {
+    const view = render(<PermissionWindowDialog sid="ses_a" pending={{ ...PENDING, answerable: false }} onClose={() => {}} />)
+    expect(view.getByTestId('permission-window-in-terminal')).toBeTruthy()
+    for (const button of view.getAllByTestId('permission-window-answer')) expect(button.disabled).toBe(true)
   })
 
   it('closes quietly on a stale number: the newer window keeps the topbar button', async () => {

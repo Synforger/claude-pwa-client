@@ -253,7 +253,10 @@ export default function ChatPanel({ sid }) {
   const handleOpenPath = useCallback((path) => openLinkedPath(path), [])
 
   const handleStopClick = useCallback(() => setOverlay('confirmStop', true), [])
-  const handleSendClick = useCallback((text) => sendMessage(text), [sendMessage])
+  const handleSendClick = useCallback(
+    (text) => (answerMode ? sendMessage(text, undefined, { answersChoice: true }) : sendMessage(text)),
+    [sendMessage, answerMode],
+  )
   // 声の会話が聞き取った文の送り先 (= 🔊 のタブ。 見ているタブが変わっても、 そのタブへ送る)。
   const sendRef = useRef(sendMessage)
   useEffect(() => { sendRef.current = sendMessage }, [sendMessage])
@@ -377,7 +380,8 @@ export default function ChatPanel({ sid }) {
 
       {/* tmux pane 入力待ち banner (= 2026-07-05 StatusBar chip から移設)。 待ち系
           state の時だけ出現、 excerpt + quick-reply button を入力欄の直上に出す。 */}
-      <PromptStateBanner sid={isApi ? null : activeSid} />
+      {/* A permission window is answered through its dialog, which shows the whole input: no quick replies for it. */}
+      <PromptStateBanner sid={isApi || status?.pending_permission ? null : activeSid} />
 
       <ActivityBar status={isApi ? null : status} />
 
@@ -430,7 +434,7 @@ export default function ChatPanel({ sid }) {
             await apiFetch(`/pty/${encodeURIComponent(activeSid)}/send`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text: key, enter: true }),
+              body: JSON.stringify({ text: key, enter: true, answers_choice: true }),
             }).catch(() => {})
             setOverlay('planOpen', false)
           }}

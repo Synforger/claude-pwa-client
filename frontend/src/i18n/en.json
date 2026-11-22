@@ -443,5 +443,7 @@
   "permission_window.input_running": "Input that runs",
   "permission_window.input_original": "Original input",
   "permission_window.no_input": "(no input)",
-  "permission_window.send_failed": "The answer could not be sent. Press again"
+  "permission_window.send_failed": "The answer could not be sent. Press again",
+  "permission_window.answer_in_terminal": "Answer this window in the terminal",
+  "chat.held_by_window": "Kept until the window closes"
 }

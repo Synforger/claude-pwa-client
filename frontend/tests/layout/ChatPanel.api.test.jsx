@@ -31,7 +31,7 @@ vi.mock('../../src/features/attachments/useAttachments.js', () => ({
     removeAttachment: () => {}, clearAttachments: () => {} }),
 }))
 vi.mock('../../src/features/attachments/imageStore.js', () => ({ gcImages: () => Promise.resolve() }))
-vi.mock('../../src/features/status-bar/useStatus.js', () => ({ useStatus: () => ({ pending_plan: { plan: 'x' }, pending_permission: { number: 1 } }) }))
+vi.mock('../../src/features/status-bar/useStatus.js', () => ({ useStatus: () => ({ pending_plan: { plan: 'x' }, pending_permission: seen.windowClosed ? null : { number: 1 } }) }))
 vi.mock('../../src/features/push-notify/useSessionBadges.js', () => ({
   useSessionBadges: () => ({ unreadCount: 0, onOverviewPayload: () => {} }),
 }))
@@ -66,7 +66,7 @@ beforeEach(() => {
   setSessions([CLAUDE, API])
   setOverlay('planOpen', true)
   setOverlay('permissionOpen', true)
-  Object.assign(seen, { messageList: null, activityStatus: undefined, bannerSid: undefined })
+  Object.assign(seen, { messageList: null, activityStatus: undefined, bannerSid: undefined, windowClosed: false })
 })
 afterEach(() => {
   cleanup()
@@ -111,6 +111,14 @@ describe('ChatPanel of a Claude tab', () => {
     expect(queryByTestId('chat-input')).not.toBeNull()
     expect(queryByTestId('api-tab-readonly')).toBeNull()
     expect(typeof seen.messageList.onFork).toBe('function')
+  })
+
+  it('gives quick replies only while no permission window is open', () => {
+    render(<ChatPanel sid="ses_claude" />)
+    expect(seen.bannerSid).toBeNull()
+    cleanup()
+    seen.windowClosed = true
+    render(<ChatPanel sid="ses_claude" />)
     expect(seen.bannerSid).toBe('ses_claude')
   })
 })

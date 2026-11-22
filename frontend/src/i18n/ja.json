@@ -443,5 +443,7 @@
   "permission_window.input_running": "走る入力",
   "permission_window.input_original": "元の入力",
   "permission_window.no_input": "(入力なし)",
-  "permission_window.send_failed": "答えを送れませんでした。 もう一度押してください"
+  "permission_window.send_failed": "答えを送れませんでした。 もう一度押してください",
+  "permission_window.answer_in_terminal": "この窓は端末で答えてください",
+  "chat.held_by_window": "預かり中 (窓が閉じたら届きます)"
 }

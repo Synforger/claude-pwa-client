@@ -1,4 +1,4 @@
-// Send the operator's answer to a permission window: POST /sessions/<id>/permission/answer with the window's number.
+// Send the operator's answer to a permission window: POST /pty/<id>/permission/answer with the window's number.
 // Used by PermissionWindowDialog.jsx.
 import { apiFetch } from '../../_common/api.js'
 
@@ -6,8 +6,9 @@ import { apiFetch } from '../../_common/api.js'
  *  - `sent`: the backend typed it into the window.
  *  - `closed`: the window was already gone (answered elsewhere, or Claude moved on).
  *  - `stale`: the number is an older window's (409): the answer was not typed, a newer window is open.
+ *  - `mismatch`: the window on the terminal is not the one shown here: nothing was typed, answer in the terminal.
  *  - `failed`: no answer from the backend, or an error: nothing is known to have been typed.
- *  @typedef {'sent' | 'closed' | 'stale' | 'failed'} AnswerOutcome */
+ *  @typedef {'sent' | 'closed' | 'stale' | 'mismatch' | 'failed'} AnswerOutcome */
 
 const STALE_STATUS = 409
 
@@ -20,7 +21,7 @@ const STALE_STATUS = 409
 export async function answerWindow(sid, number, answer) {
   let res
   try {
-    res = await apiFetch(`/sessions/${encodeURIComponent(sid)}/permission/answer`, {
+    res = await apiFetch(`/pty/${encodeURIComponent(sid)}/permission/answer`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ number, answer }),
@@ -32,5 +33,6 @@ export async function answerWindow(sid, number, answer) {
   if (!res.ok) return 'failed'
   const body = await res.json().catch(() => null)
   if (body?.ok === true) return 'sent'
-  return body?.reason === 'closed' ? 'closed' : 'failed'
+  if (body?.reason === 'closed' || body?.reason === 'mismatch') return body.reason
+  return 'failed'
 }

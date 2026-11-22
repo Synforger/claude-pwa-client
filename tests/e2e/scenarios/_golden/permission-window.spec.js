@@ -18,7 +18,7 @@ import { openClient } from '../../helpers/pwa.js'
 test.use({ serviceWorkers: 'block' })
 
 const SID = 'ses_e2echatgld'
-const ANSWER_URL = `**/sessions/${SID}/permission/answer`
+const ANSWER_URL = `**/pty/${SID}/permission/answer`
 const LONG_COMMAND = `echo ${'0123456789'.repeat(150)} && ls -la`
 const PHONE = { width: 390, height: 844 }
 

@@ -19,7 +19,7 @@ describe('answerWindow', () => {
     apiFetch.mockReturnValue(reply(200, { ok: true }))
     await answerWindow('ses_a/b', 7, 'allow')
     const [path, options] = apiFetch.mock.calls[0]
-    expect(path).toBe('/sessions/ses_a%2Fb/permission/answer')
+    expect(path).toBe('/pty/ses_a%2Fb/permission/answer')
     expect(options.method).toBe('POST')
     expect(JSON.parse(options.body)).toEqual({ number: 7, answer: 'allow' })
   })
@@ -32,6 +32,11 @@ describe('answerWindow', () => {
   it('says closed when the window is already gone', async () => {
     apiFetch.mockReturnValue(reply(200, { ok: false, reason: 'closed' }))
     expect(await answerWindow('ses_a', 1, 'allow')).toBe('closed')
+  })
+
+  it('tells a window that does not match what was shown', async () => {
+    apiFetch.mockReturnValue(reply(200, { ok: false, reason: 'mismatch' }))
+    expect(await answerWindow('ses_a', 1, 'allow')).toBe('mismatch')
   })
 
   it('says stale on a 409, whatever its body', async () => {
