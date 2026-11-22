@@ -63,12 +63,20 @@ def lines_of(view: dict) -> list[str]:
                      f"{claude['min']:.0f}-{claude['max']:.0f} MB), so the available memory holds about "
                      f"{view.get('claudes_fitting_available')} more")
     for account in view.get("accounts") or []:
-        usage = account.get("usage")
-        used = "no usage yet" if not usage else (
-            f"5h {_pct(usage.get('five_hour_pct'))} (resets {_at(usage.get('five_hour_resets_at'))}), "
-            f"7d {_pct(usage.get('seven_day_pct'))} (resets {_at(usage.get('seven_day_resets_at'))})")
+        used = _used(account.get("usage") or {}, time.time())
         lines.append(f"account {account.get('id')}: {used}; claude running {account.get('tabs_with_claude')}")
     return lines
+
+
+def _used(usage: dict, now: float) -> str:
+    """The windows that have a figure and have not reset. A window the account does not have is not named."""
+    parts = []
+    for name, field in (("5h", "five_hour"), ("7d", "seven_day")):
+        pct, resets_at = usage.get(f"{field}_pct"), usage.get(f"{field}_resets_at")
+        if not isinstance(pct, (int, float)) or (resets_at and resets_at <= now):
+            continue
+        parts.append(f"{name} {_pct(pct)} (resets {_at(resets_at or None)})")
+    return ", ".join(parts) or "no usage yet"
 
 
 def _gb(megabytes: float | None) -> str:

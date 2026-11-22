@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from backend.cli import capacity
 
 VIEW = {"machine": "company", "child_sessions_max": None, "children_of_caller": 1,
@@ -53,3 +55,15 @@ def test_a_refusal_is_printed_and_ends_with_1(capsys):
 
 def test_other_words_print_the_usage():
     assert capacity.run(["--all"], _Calls()) == 2
+
+
+@pytest.mark.parametrize(("usage", "expected"), [
+    ({"five_hour_pct": None, "seven_day_pct": 11}, "7d 11% (resets ?)"),
+    ({"five_hour_pct": 99, "five_hour_resets_at": 1, "seven_day_pct": 11}, "7d 11% (resets ?)"),
+    ({"five_hour_pct": 11, "seven_day_pct": None}, "5h 11% (resets ?)"),
+    ({"five_hour_pct": None, "seven_day_pct": None}, "no usage yet"),
+])
+def test_a_window_the_account_does_not_have_now_is_not_named(usage, expected, capsys):
+    calls = _Calls(body={**VIEW, "accounts": [{"id": "work", "usage": usage, "tabs_with_claude": 1}]})
+    assert capacity.run([], calls) == 0
+    assert f"account work: {expected}; claude running 1" in capsys.readouterr().out

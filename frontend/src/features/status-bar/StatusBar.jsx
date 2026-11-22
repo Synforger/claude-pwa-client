@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { isWindowCurrent } from '../../_common/usageWindow.js'
 import { pctClass, timeUntil, formatResetWeekdayTime } from '../../_common/format.js'
 import { API_KIND, contextPercent, formatContext, formatSpend } from '../../_common/apiTab.js'
 import { useConnectionStatus } from '../../transport/connectionStatus.js'
@@ -15,7 +16,7 @@ import './StatusBar.css'
 
 // 上部のステータス行: モデル名 / 5h / 7d / ctx 使用率 (= 表示専用) と、 右端に ⋯ メニュー。
 // モデル名は長い (= 1M 等の context 表記が付く) と折り返すので CSS で省略する。
-// resets_at が 0 (未知) の間は生の pct を信用、既知かつ過去なら「窓切れ = 0%」扱い。
+// 5h / 7d は、 数字が在って窓が戻っていない時だけ出す (= `_common/usageWindow.js`。 分からない値を 0% で埋めない)。
 // Model & Effort の変更入口は ⋯ メニューに一本化したので、 ここには pill を出さない
 // (= 旧 effort / fast pill は撤去、 2026-05-29)。
 
@@ -88,11 +89,8 @@ export default function StatusBar() {
       </div>
     )
   }
-  const expired = status.five_hour_resets_at > 0 && status.five_hour_resets_at < nowSec
-  const fivePct = expired ? 0 : status.five_hour_pct
-  // 7d も 5h と同じく resets_at 超過で 0% 扱い (= 窓切れの古い % を出し続けない)
-  const sevenExpired = status.seven_day_resets_at > 0 && status.seven_day_resets_at < nowSec
-  const sevenPct = sevenExpired ? 0 : status.seven_day_pct
+  const hasFive = isWindowCurrent(status.five_hour_pct, status.five_hour_resets_at, nowSec)
+  const hasSeven = isWindowCurrent(status.seven_day_pct, status.seven_day_resets_at, nowSec)
   // 7d リセット: backend が動的に取れた時 (resets_at > 0) はそれ、 取れない時は表示しない
   const sevenDayResetLabel = status.seven_day_resets_at > 0
     ? formatResetWeekdayTime(status.seven_day_resets_at)
@@ -104,14 +102,18 @@ export default function StatusBar() {
       <span className="model" data-testid="status-bar-model">{cleanModel(status.model)}</span>
       {modeLabel && <span className="mode-chip" data-testid="status-bar-mode">{modeLabel}</span>}
       {budgetLabel && <span className="budget-chip" data-testid="status-bar-budget">{budgetLabel}</span>}
-      <span className={pctClass(fivePct)}>
-        5h {Math.round(fivePct)}%{' '}
-        <span className="dim">{timeUntil(status.five_hour_resets_at, nowSec)}</span>
-      </span>
-      <span className={pctClass(sevenPct)}>
-        7d {Math.round(sevenPct)}%{' '}
-        <span className="dim">{sevenDayResetLabel}</span>
-      </span>
+      {hasFive && (
+        <span className={pctClass(status.five_hour_pct)}>
+          5h {Math.round(status.five_hour_pct)}%{' '}
+          <span className="dim">{timeUntil(status.five_hour_resets_at, nowSec)}</span>
+        </span>
+      )}
+      {hasSeven && (
+        <span className={pctClass(status.seven_day_pct)}>
+          7d {Math.round(status.seven_day_pct)}%{' '}
+          <span className="dim">{sevenDayResetLabel}</span>
+        </span>
+      )}
       <span className={pctClass(status.ctx_pct)}>ctx {Math.round(status.ctx_pct || 0)}%</span>
       <StatusBarEnd isOnline={isOnline} />
     </div>

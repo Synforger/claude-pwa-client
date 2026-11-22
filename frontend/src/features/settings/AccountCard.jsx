@@ -2,21 +2,21 @@
 // タブと続ける口、 口座を固定しているタブと外す口。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useT } from '../../i18n/t.js'
+import { isWindowCurrent, lacksFiveHourWindow } from '../../_common/usageWindow.js'
 import { NumberField, SaveBar } from './SettingsFields.jsx'
 import { useReportDirty } from './SettingsDirty.js'
 import { useCardSave } from './useCardSave.js'
 import { useDraft } from './useDraft.js'
 import {
-  WEEKDAYS, accountDraftOf, accountPatch, aheadRule, formatMoment, formatPct, hasReset, liftLaterDays, lineRule, ruleMessage,
+  WEEKDAYS, accountDraftOf, accountPatch, aheadRule, formatMoment, formatPct, liftLaterDays, lineRule, ruleMessage,
   todayKey, usageBar,
 } from './settingsDraft.js'
 
 // 持ち上げた欄を光らせる長さ (= SettingsScreen.css の settings-lift-flash と同じ)。
 const LIFT_FLASH_MS = 1600
 
-function UsageRow({ label, bar, resetsAt, nowSeconds, testId }) {
+function UsageRow({ label, bar, resetsAt, testId }) {
   const t = useT()
-  const reset = hasReset(resetsAt, nowSeconds)
   return (
     <div className="settings-usage-row" data-testid={testId}>
       <span className="settings-usage-label">{label}</span>
@@ -29,9 +29,7 @@ function UsageRow({ label, bar, resetsAt, nowSeconds, testId }) {
       </div>
       <span className={`settings-usage-pct${bar.over ? ' over' : ''}`}>{formatPct(bar.pct)}</span>
       <span className="settings-usage-reset">
-        {typeof resetsAt === 'number'
-          ? t(reset ? 'settings.usage.reset_done' : 'settings.usage.resets_at', { at: formatMoment(resetsAt) })
-          : ''}
+        {resetsAt > 0 ? t('settings.usage.resets_at', { at: formatMoment(resetsAt) }) : ''}
       </span>
     </div>
   )
@@ -39,13 +37,19 @@ function UsageRow({ label, bar, resetsAt, nowSeconds, testId }) {
 
 function Usage({ fiveBar, sevenBar, usage, nowSeconds }) {
   const t = useT()
-  if (!usage) return <div className="settings-dim">{t('settings.usage.none')}</div>
+  const hasFive = isWindowCurrent(usage?.five_hour_pct, usage?.five_hour_resets_at, nowSeconds)
+  const hasSeven = isWindowCurrent(usage?.seven_day_pct, usage?.seven_day_resets_at, nowSeconds)
+  if (!hasFive && !hasSeven) return <div className="settings-dim">{t('settings.usage.none')}</div>
   return (
     <div className="settings-usage" data-testid="settings-usage">
-      <UsageRow label={t('settings.usage.five_hour')} bar={fiveBar} resetsAt={usage.five_hour_resets_at} nowSeconds={nowSeconds}
-        testId="settings-usage-five" />
-      <UsageRow label={t('settings.usage.seven_day')} bar={sevenBar} resetsAt={usage.seven_day_resets_at} nowSeconds={nowSeconds}
-        testId="settings-usage-seven" />
+      {hasFive && (
+        <UsageRow label={t('settings.usage.five_hour')} bar={fiveBar} resetsAt={usage.five_hour_resets_at}
+          testId="settings-usage-five" />
+      )}
+      {hasSeven && (
+        <UsageRow label={t('settings.usage.seven_day')} bar={sevenBar} resetsAt={usage.seven_day_resets_at}
+          testId="settings-usage-seven" />
+      )}
     </div>
   )
 }
@@ -155,6 +159,8 @@ export default function AccountCard({ account, limits, nowSeconds, onSave, onCon
 
   // 使用率のバーに重ねる今日の線は、 backend が今効かせている値 (= 入力の途中の値ではない)。
   const usage = account.usage
+  // An account whose plan has no 5-hour window: the card does not name the 5 hours anywhere. A line already set stays.
+  const weekOnly = lacksFiveHourWindow(usage)
   const lines = account.mode === 'fallback'
     ? { five: account.fallback.at_pct, seven: account.fallback.seven_day_today_pct }
     : { five: account.hold?.five_hour_at_pct ?? null, seven: account.hold?.today_pct ?? null }
@@ -176,13 +182,14 @@ export default function AccountCard({ account, limits, nowSeconds, onSave, onCon
       <Usage fiveBar={fiveBar} sevenBar={sevenBar} usage={usage} nowSeconds={nowSeconds} />
       <div className="settings-block">
         <div className="settings-block-title">{t(`settings.lines.title_${lineKind}`)}</div>
-        <div className="settings-note">{t(`settings.lines.hint_${lineKind}`)}</div>
+        <div className="settings-note">{t(`settings.lines.hint_${lineKind}${weekOnly ? '_week' : ''}`)}</div>
         {account.mode === 'fallback' ? (
           <>
             <NumberField
-              label={t('settings.lines.five_hour')} suffix="%" value={draft.atPct}
+              label={t(weekOnly ? 'settings.lines.blank_day' : 'settings.lines.five_hour')} suffix="%" value={draft.atPct}
               onChange={value => setDraft(prev => ({ ...prev, atPct: value }))}
-              invalid={invalid.includes('atPct')} error={rangeError} testId="settings-at-pct" title={t('settings.lines.five_hour_hint')}
+              invalid={invalid.includes('atPct')} error={rangeError} testId="settings-at-pct"
+              title={t(weekOnly ? 'settings.lines.blank_day_hint' : 'settings.lines.five_hour_hint')}
             />
             <NumberField
               label={t('settings.lines.ahead')} suffix="%" value={draft.ahead} placeholder="0"
@@ -190,7 +197,7 @@ export default function AccountCard({ account, limits, nowSeconds, onSave, onCon
               invalid={invalid.includes('ahead')} error={aheadError} testId="settings-ahead-pct" title={t('settings.lines.ahead_hint')}
             />
           </>
-        ) : (
+        ) : !weekOnly && (
           <NumberField
             label={t('settings.lines.five_hour')} suffix="%" value={draft.fiveHour} placeholder={t('settings.lines.blank')}
             onChange={value => setDraft(prev => ({ ...prev, fiveHour: value }))}

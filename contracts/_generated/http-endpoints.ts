@@ -144,7 +144,7 @@ export interface GetCapacityResponse {
   claudes_fitting_available?: number | null
   accounts: ({
       id: string
-      /** five_hour_pct / five_hour_resets_at / seven_day_pct / seven_day_resets_at (epoch seconds). null when no usage line was written for the account */
+      /** five_hour_pct / five_hour_resets_at / seven_day_pct / seven_day_resets_at (epoch seconds). null when no usage line was written for the account; a window the plan does not have (the 5 hours of a plan with the week alone) has null fields */
       usage?: Record<string, unknown> | null
       /** the tabs on this account whose claude runs */
       tabs_with_claude: number
@@ -157,7 +157,7 @@ export interface GetSettingsResponse {
       id: string
       display_name: string
       is_default?: boolean
-      /** five_hour_pct / five_hour_resets_at / seven_day_pct / seven_day_resets_at。 使用率の行が無い口座は null */
+      /** five_hour_pct / five_hour_resets_at / seven_day_pct / seven_day_resets_at。 使用率の行が無い口座は null。 プランに無い枠 (= 5 時間) の欄は null */
       usage?: Record<string, unknown> | null
       /** fallback = タブを逃げ先へ移す / hold = 区切りで止める / none */
       mode: string

@@ -35,7 +35,6 @@ from backend._common.state import (
     session_last_seen_at,
     sessions_meta,
     sessions_overview,
-    shared_status,
     stream_states,
     views_by_conn,
 )
@@ -109,13 +108,12 @@ def _build_all_status() -> dict:
         if sid_key:
             by_sess[sid_key] = p  # 最後勝ち = 各 claude_sid の最新行
 
-    def _acct_view(acct: str) -> tuple[dict, float | int | None]:
+    def _acct_view(acct: str) -> dict:
         # 5h/7d/resets_at の集計は core/usage.latest_from_tail に一元化。 過去に本 file が
         # 同ロジックを inline で持ち、 max hack の flap 吸収が usage.py 側だけ撤去されて
         # 本 file 側に残った結果 PWA statusline が真値を追えない事故が起きた (2026-07-02)。
         # ここは delegate に徹し、 挙動変更が要る場合は core/usage.py 側で行う。
-        view = latest_from_tail(parsed, account_id=acct)
-        return view, view.get("seven_day_pct")
+        return latest_from_tail(parsed, account_id=acct)
 
     out: dict[str, dict] = {}
     for sid in list(sessions_meta.keys()):
@@ -125,7 +123,7 @@ def _build_all_status() -> dict:
         jp = jsonl_watcher.get_jsonl_for(sid)
         claude_sid = jp.stem if jp else None
         sess = by_sess.get(claude_sid) if claude_sid else None
-        last_acct, seven_day_pct_acct = _acct_view(acct)
+        last_acct = _acct_view(acct)
         out[sid] = {
             "model": (sess.get("model") if sess else None) or a["model"],
             "ctx_pct": _context_pct(sess, a),
@@ -140,10 +138,11 @@ def _build_all_status() -> dict:
             "budget_total": a.get("budget_total"),
             "budget_remaining": a.get("budget_remaining"),
             "tasks": a.get("tasks") or [],
-            "five_hour_pct": last_acct.get("five_hour_pct") if last_acct.get("five_hour_pct") is not None else shared_status["five_hour_pct"],
-            "seven_day_pct": seven_day_pct_acct if seven_day_pct_acct is not None else shared_status["seven_day_pct"],
-            "five_hour_resets_at": last_acct.get("five_hour_resets_at") or shared_status["five_hour_resets_at"],
-            "seven_day_resets_at": last_acct.get("seven_day_resets_at") or shared_status["seven_day_resets_at"],
+            # A window the account does not have, or that is not known, is null: never 0 and never an older value.
+            "five_hour_pct": last_acct.get("five_hour_pct"),
+            "seven_day_pct": last_acct.get("seven_day_pct"),
+            "five_hour_resets_at": last_acct.get("five_hour_resets_at"),
+            "seven_day_resets_at": last_acct.get("seven_day_resets_at"),
             "account_id": acct,
             "backend_start_time": backend_start_time,
         }

@@ -16,6 +16,7 @@ from pathlib import Path
 
 import backend._common.config as _config
 from backend._common.state import DEFAULT_CTX_WINDOW
+from backend.usage.account_usage import account_row, has_usage, is_news
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,8 @@ _ACCOUNT_RE = re.compile(rb'"account_id":\s*"([^"]*)"')
 
 
 class _LatestRows:
-    """rate-limits.jsonl の「アカウントごと・session ごとの最新行」 を持ち続ける。
+    """rate-limits.jsonl の「アカウントごとの使用率の行・session ごとの最新行」 を持ち続ける。 アカウントの使用率の行は、
+    知らせのある最後の行 (= `account_usage.is_news`。 古い値を描き直しただけの行は採らない)。
 
     rate-limits.jsonl は全アカウント・全 session が statusline の更新ごとに 1 行ずつ
     追記する共有 file。 旧実装は末尾 200 行だけを見ていたため、 片方のアカウントが
@@ -45,14 +47,22 @@ class _LatestRows:
         self._offset = 0
         self._partial = b""
         self._seq = 0
-        self._rows: dict[tuple[str, str], tuple[int, dict]] = {}
+        self._sessions: dict[str, tuple[int, dict]] = {}
+        self._accounts: dict[str, tuple[int, dict]] = {}
+        self._before: dict[tuple[str, str], dict] = {}
 
     def _add(self, row: dict) -> None:
         self._seq += 1
-        self._rows[("account", row.get("account_id") or "personal")] = (self._seq, row)
+        account = row.get("account_id") or "personal"
+        shown = self._accounts.get(account)
+        before = shown[1] if shown else None
         sid = row.get("session_id")
         if sid:
-            self._rows[("session", sid)] = (self._seq, row)
+            before = self._before.get((account, sid), before)
+            self._before[(account, sid)] = row
+            self._sessions[sid] = (self._seq, row)
+        if is_news(row, before):
+            self._accounts[account] = (self._seq, account_row(row, account))
 
     def _feed(self, data: bytes) -> None:
         buf = self._partial + data
@@ -90,7 +100,8 @@ class _LatestRows:
                 row = _parse_line(ln)
                 if row is not None:
                     newest_first.append(row)
-                    found.add(acct)
+                    if has_usage(row):
+                        found.add(acct)
             first = False
             # 設定にアカウントが無ければ、 最新の読み幅だけで止める。
             if not wanted or wanted <= found:
@@ -114,13 +125,9 @@ class _LatestRows:
                     self._feed(data)
         except OSError:
             return []
-        seen: set[int] = set()
-        out: list[dict] = []
-        for _, row in sorted(self._rows.values(), key=lambda v: v[0]):
-            if id(row) not in seen:
-                seen.add(id(row))
-                out.append(row)
-        return out
+        # The accounts' rows come last, so "the last row of the account" is its usage for every reader.
+        return [row for kind in (self._sessions, self._accounts)
+                for _, row in sorted(kind.values(), key=lambda v: v[0])]
 
 
 def _parse_line(ln: bytes) -> dict | None:
@@ -145,13 +152,13 @@ _LATEST = _LatestRows()
 
 
 def read_all_rate_limits_tail() -> list[dict]:
-    """rate-limits.jsonl から「アカウントごと・session ごとの最新行」 を古→新の順で返す
-    (= 全 sid 共有用)。
+    """rate-limits.jsonl から「session ごとの最新行」 を古→新の順で、 その後ろに「アカウントごとの使用率の行」 を返す
+    (= 全 sid 共有用。 アカウントの行は session_id を持たない)。
 
     `_build_all_status` が複数 sid 分を 1 回の SSE で配るとき、 sid 毎に
     `read_latest_rate_limits` を呼ぶと同じ file を sid 数回 read するので、 ここで 1 回
     にまとめて呼び出し側が in-memory filter する。 各アカウントの最新行が必ず含まれる
-    ので、 呼び出し側は account で絞った末尾をそのまま最新値として使える。"""
+    ので、 呼び出し側は account で絞った末尾をそのままアカウントの使用率として使える。"""
     path = _config.RATE_LIMITS_LOG_PATH
     if not path:
         return []
@@ -206,7 +213,7 @@ def read_latest_rate_limits(
 
     proxy を一切使わず、 claude CLI 自身が statusline subprocess に渡す使用率を
     ファイル経由で拾う。 ファイル末尾だけ読んで軽く済ませる。 値が取れなければ空 dict
-    (= 呼び出し側は既存 shared_status / agent_status を維持)。
+    (= 呼び出し側は既存 agent_status を維持)。
 
     rate-limits.jsonl は全 claude セッション共有の 1 ファイルだが、 各行は
     `session_id` (= claude_sid) と `account_id` (= personal / work / ...) を持つ。

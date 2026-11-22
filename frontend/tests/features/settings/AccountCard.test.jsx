@@ -30,17 +30,56 @@ describe('usage', () => {
     expect(usage).toContain('に戻る')
   })
 
-  it('reads a window that has already reset as 0 and says it was reset', () => {
+  it('leaves out a window that has reset, and still offers its line', () => {
     const reset = { ...WORK, usage: { ...WORK.usage, five_hour_resets_at: NOW - 60, five_hour_pct: 96 } }
-    const { getByTestId } = show(reset)
-    expect(getByTestId('settings-usage').textContent).toContain('0%')
-    expect(getByTestId('settings-usage').textContent).toContain('に戻った')
+    const { getByTestId, queryByTestId, container } = show(reset)
+    expect(queryByTestId('settings-usage-five')).toBeNull()
+    expect(getByTestId('settings-usage-seven').textContent).toContain('40%')
+    expect(container.textContent).toContain('5 時間の線')
+  })
+
+  it('says so when neither window has a figure', () => {
+    const none = { five_hour_pct: null, five_hour_resets_at: null, seven_day_pct: null, seven_day_resets_at: null }
+    const { queryByTestId, container } = show({ ...WORK, usage: none })
+    expect(queryByTestId('settings-usage')).toBeNull()
+    expect(container.textContent).toContain('使用率の記録がありません')
   })
 
   it('says so when no usage was recorded', () => {
     const { queryByTestId, container } = show({ ...WORK, usage: null })
     expect(queryByTestId('settings-usage')).toBeNull()
     expect(container.textContent).toContain('使用率の記録がありません')
+  })
+})
+
+describe('an account without the 5 hours', () => {
+  const weekOnly = account => ({ ...account, usage: { ...account.usage, five_hour_pct: null, five_hour_resets_at: null } })
+  // Every word the card puts on the screen, the titles of its fields included.
+  const wordsOf = container =>
+    [container.textContent, ...[...container.querySelectorAll('[title]')].map(element => element.title)].join(' ')
+
+  it.each([
+    ['ja', 'moves', WORK], ['ja', 'holds', PERSONAL], ['en', 'moves', WORK], ['en', 'holds', PERSONAL],
+  ])('names the 5 hours nowhere (%s, an account that %s)', (lang, _kind, account) => {
+    setLang(lang)
+    const { container, queryByTestId } = show(weekOnly(account))
+    expect(queryByTestId('settings-usage-five')).toBeNull()
+    expect(wordsOf(container)).not.toMatch(/5 時間|5 hours|5-hour|5h/)
+  })
+
+  it('keeps the line of blank days of an account that moves', () => {
+    const { getByTestId, container } = show(weekOnly(WORK))
+    expect(getByTestId('settings-at-pct').value).toBe('95')
+    expect(container.textContent).toContain('空の曜日の線')
+  })
+
+  it('does not clear a 5-hour line already set when another line is saved', async () => {
+    const account = weekOnly({ ...PERSONAL, hold: { ...PERSONAL.hold, five_hour_at_pct: 90 } })
+    const { getByTestId, onSave } = show(account)
+    type(getByTestId, 'settings-day-tue', '75')
+    fireEvent.click(getByTestId('settings-account-save'))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(JSON.stringify(onSave.mock.calls[0])).not.toMatch(/"five_hour_at_pct":null/)
   })
 })
 
