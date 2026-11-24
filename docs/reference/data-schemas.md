@@ -52,7 +52,7 @@ backup 先 = 同 PC の別 path (= `$AGENT_PLATFORM_ROOT/state/claude-pwa-client
 | `pause_asked_at` | float? | NO | [口座の逃げ先](account-fallback.md) が、返事を作り続けているタブに区切りを頼んだ時刻 (= epoch 秒)。 この「線を超えている間」に 2 通目を送らないための印で、 backend を再起動しても残る。 口座が線を下回った時、 タブを移した時、 固定した時に null |
 | `held_at` | float? | NO | [口座の止める線](account-hold.md) が、タブを区切りで止めた時刻 (= epoch 秒)。 操作者が画面から続けるか、別のタブからの連絡でタブが起きるまで残り、 backend を再起動しても残る |
 | `hold_asked_at` | float? | NO | [口座の止める線](account-hold.md) が、返事を作り続けているタブに区切りを頼んだ時刻 (= epoch 秒)。 この「線を超えている間」に 2 通目を送らないための印。 使用率が線を下回った時、 タブを止めた時に null |
-| `top_page_sha` | str? | NO | 子のタブのトップページ (= `pages/<子の id>/index.html`) を client が雛形から書いた時の、書いた中身の指紋 (= sha256 の 16 進、 目次の部品などを読む 1 行だけの行を除いた中身で取る)。 閉じる時の片付けが、 ページの今の中身をこれと比べる。 子でないタブと、 指紋を残す前に立てた子は null |
+| `top_page_sha` | str? | NO | 前の版の client が子のタブのトップページ (= `pages/<子の id>/index.html`) を雛形から書いた時の、書いた中身の指紋 (= sha256 の 16 進、 目次の部品などを読む 1 行だけの行を除いた中身で取る)。 今の client は子にページを書かない。 そのページを片付ける時に、 ページの今の中身をこれと比べる。 ほかのタブは null |
 | `stop_told_at` | float? | NO | 子のタブが報告せずに止まったことを親に知らせた時の、 その子の会話の記録の最後の行の時刻 (= epoch 秒)。 [止まった子の見回り](child-sessions.md#止まった子の見回り) が、 同じ止まりに 2 通目を送らないための印。 まだ知らせていない子と、 子でないタブは null |
 | `list_folder` | str? | NO | 画面の会話の一覧でこのタブを並べる folder (= `<エージェントの key>/<folder>/...`)。 エージェントの `list_folder` より先に効く。 `POST /sessions` か `PATCH /sessions/<id>` で付ける。 エージェントの folder に並ぶタブは null |
 | `child_settings` | object | NO | 子のタブに親が `tabs new` で選んだ値 (= `model`・`effort` の文字列。 子の最初の発話の `<child-start>` の塊から読む)。 [自動の入れ替え](rollover.md#新しい会話の最初の発話) が、 子の次の会話の封筒に同じ行を書く。 子でないタブと、 選ばれなかった子は `{}` |
@@ -164,7 +164,8 @@ backup: 任意 (= 失っても、 もう一度 ⭐ を付け直せば戻る)。
 - 同じ `pages/<タブの id>/` には、 そのタブの他のページを置けます。 `index.html` は、 そのタブのトップページです
 - メモが無いタブを開くと空で出ます。 メモの雛形は backend も書きません (= 書くのはエージェントと利用者です)
 - **トップページは backend が作ります**。 タブの階層を記録した時 (= タブを立てた時、 backend の起動時、 会話の開始の知らせを受けた時) に、 `index.html` が無ければ、 `<エージェントの folder>/pages/_template-tab/index.html` (= 雛形。 階層ごとではなくエージェントに 1 つ) を写して作ります。 雛形の `{{title}}` はタブの題に、 `{{tier}}` は階層 (= `normal` や `projects/<名前>`) に、 `{{pages_root}}` は書くページの folder からエージェントの `pages` folder への相対 path (末尾の / なし。 エージェントの folder のタブは `..`、 `projects/<名前>` のタブは ../../../../pages) に置き換わります (= HTML として escape。 他の文字はそのまま)。 全部のページで共有する部品 (例: 横の目次) を雛形から読む時は、 `<script src="{{pages_root}}/_common/<file>" defer></script>` と書くと、 どの階層のページからも同じ部品に届きます。 雛形が無いエージェントでは何もせず、 既に在るページには触りません
-- 📋 の画面は、 メモの本文とは別の固定の行で、 そのタブのトップページへのリンクを出します (= `GET /sessions/{sid}/note` の `page`。 ページがまだ無ければ `null` で、 行は出ません)
+- **子のタブと fork のタブ (= 別のタブから生まれたタブ) にはトップページを作りません**。 そのタブのページは、 生まれた元のタブのページの木へ書きます。 前の版が作った手つかずのトップページ (= 雛形を埋めたままの物) は、 backend の起動の時に消え、 それで空になった folder も消えます。 メモとほかのページは残ります。 閉じた後の fork のタブのページは、 どのタブの物か分からないので残ります
+- 📋 の画面は、 メモの本文とは別の固定の行で、 そのタブのトップページへのリンクを出します (= `GET /sessions/{sid}/note` の `page`。 ページがまだ無ければ `null` で、 行は出ません)。 子のタブと fork のタブは、 元のタブを親へ辿り、 別のタブから生まれていないタブのページを出します (= 途中のタブが閉じていれば `null`)
 - 空にしたメモ (= 画面の「リセット」、 か空文字の `PUT`) は file ごと消える
 - エージェントが書いた分は、 メモを開いたままでも、 そのタブの会話が進んだ時に読み直される
 - 画面の保存は、 読んだ時の版 (= `GET` の応答の `ETag`) を `PUT` の `If-Match` に付けて送ります。 その後にエージェントがメモを書き換えていたら 412 (`note_changed`) で断り、 file は書き換えません。 画面は「メモが変わりました。 開き直してください」 を出し、 書きかけの文を残します。 `If-Match` を付けない `PUT` は、 これまでどおり通ります
@@ -172,7 +173,7 @@ backup: 任意 (= 失っても、 もう一度 ⭐ を付け直せば戻る)。
 - タブを消しても、 メモは消えません (= エージェントの folder の記録として残ります)
 - 前の版は `<根>/state/claude-pwa-client/notes/<タブの id>.md` (根を渡さない時は `~/.claude-pwa-client/notes/`) に置いていました。 backend は起動のたびに、 そこに残っているメモを今の置き場へ移します (= 移した先に既にメモが在る時は移さず残し、 backend の記録に 1 行出します)。 前の置き場の file が symlink の時は、 指す先の `<folder>/notes/<タブの id>.md` を同じ folder の `pages/<タブの id>/memo.md` へ移します
 
-**writer**: `backend/routes/notes.py` (= `atomic_write_text` 経由) と、 そのタブのエージェント。 `index.html` の writer は `backend/terminal/tab_page.py` (= 最初の 1 回だけ) と、 そのタブのエージェント / 利用者。
+**writer**: `backend/routes/notes.py` (= `atomic_write_text` 経由) と、 そのタブのエージェント。 `index.html` の writer は `backend/terminal/tab_page.py` (= 最初の 1 回だけ。 子と fork のタブには書かない) と、 そのタブのエージェント / 利用者。
 
 backup: 任意 (= エージェントの folder の記録なので、 その folder の持ち主の方針に従う)。
 

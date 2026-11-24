@@ -4,7 +4,8 @@ The memo is one file, `<tier folder>/pages/<tab id>/memo.md` (see `terminal/tab_
 is chosen). The screen reads and writes it through these routes; the tab's agent writes the same file
 directly, at the path in its `PWA_NOTE` variable. A tab with no memo reads as empty: the backend never writes
 a memo template. The tab's top page (= `index.html` next to the memo) is made by the backend from the agent's
-template when the tab's tier is recorded (`terminal/tab_page.py`); the read tells the screen where it is.
+template when the tab's tier is recorded (`terminal/tab_page.py`); the read tells the screen where it is. A child
+or a fork has no page of its own: the read names the page of the tab it came from.
 
 Emptying a memo deletes the file (= no empty files pile up). Other pages in the same folder are never touched.
 
@@ -24,7 +25,7 @@ from backend._common.errors import raise_error
 from backend.routes.sessions import require_session
 from backend._common.state import atomic_write_text
 from backend.terminal.tab_memo import memo_path
-from backend.terminal.tab_page import existing_page
+from backend.terminal.tab_page import shown_page
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -61,7 +62,7 @@ def get_note(response: Response, session_id: str, _: str = Depends(require_sessi
     path = memo_path(session_id)
     content, version = _read_memo(path)
     response.headers["ETag"] = version
-    page = existing_page(session_id)
+    page = shown_page(session_id)
     return {"path": str(path), "content": content, "page": str(page) if page else None}
 
 

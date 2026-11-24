@@ -206,9 +206,9 @@ class SessionDef:
     # tab, when the tab was woken by someone else, or when it was started again with a new conversation (= the
     # rollover's first message hands the work over); asking marks (`pause_asked_at`, `hold_asked_at`) leave it.
     owes_carry_on: bool = False
-    # The fingerprint (sha256, hex) of the top page the client wrote for a child tab when it made the page
-    # (`terminal/tab_page.py`). Closing the child compares the page with it (`terminal/child_folder.py`). None for a
-    # tab that is not a child, and for a child whose page was made before this was kept.
+    # The fingerprint (sha256, hex) of the top page an earlier version of the client wrote for a child tab (child tabs
+    # get no page now, `terminal/tab_page.py`). Clearing that page compares it with this (`terminal/child_folder.py`).
+    # None for every other tab.
     top_page_sha: str | None = None
     # For a child tab: the time (epoch seconds) of the last row of its conversation at the stop its parent was already
     # told about (`backend/child_watch/`), so that the same stop is never told twice, nor after a restart. A child that
