@@ -85,6 +85,7 @@ import backend.push.push as push  # noqa: E402
 from backend.usage.usage import rate_limits_log_health  # noqa: E402
 import backend.jsonl.routes as jsonl_routes  # noqa: E402
 import backend.jsonl.jsonl_watcher as jsonl_watcher  # noqa: E402
+import backend.terminal.child_folder as child_folder  # noqa: E402
 import backend.terminal.memo_migration as memo_migration  # noqa: E402
 import backend.terminal.pty_discover as pty_discover  # noqa: E402
 import backend.routes.account_hold as account_hold_routes  # noqa: E402
@@ -237,6 +238,12 @@ async def lifespan(app: FastAPI):
         memo_migration.migrate_memos(LEGACY_NOTES_DIR)
     except Exception:
         logger.exception("memo migration failed")
+
+    # Child and fork tabs get no top page of their own; the ones an earlier version made go while untouched.
+    try:
+        child_folder.clear_derived_pages()
+    except Exception:
+        logger.exception("clearing the top pages of child and fork tabs failed")
 
     # tmux server の status bar を全 session で OFF にする (= 端末画面下の緑バー除去)。
     # `-g` でサーバ全体に効くので、 既存 session も新規 session も等しく status off。

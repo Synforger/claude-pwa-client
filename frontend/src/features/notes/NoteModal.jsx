@@ -26,7 +26,8 @@ import './NoteModal.css'
 // The version read (= the ETag of the answer) is sent back in `If-Match` on a save. When the file changed since (= an
 // agent wrote it), the backend refuses with 412, so an old copy never replaces the memo; the draft stays and a reopen is asked for.
 // 頭に、 そのタブのトップページへのリンクを固定で置く (= メモの本文とは別の行。 ページは backend が
-// タブの階層を記録した時に作るので、 メモを空にしても消えない)。 ページが無いタブでは出さない。
+// タブの階層を記録した時に作るので、 メモを空にしても消えない)。 子と fork のタブは自分のページを持たず、
+// 元のタブのトップページを指す。 ページが無いタブでは出さない。
 export default function NoteModal() {
   const t = useT()
   const sessionsSnap = useSyncExternalStore(subscribeSessions, getSessionsSnapshot)
@@ -38,7 +39,7 @@ export default function NoteModal() {
   const conversation = activeId ? messagesSnap[activeId] : undefined
 
   const [content, setContent] = useState(null)   // null = まだ読んでいない
-  const [page, setPage] = useState(null)         // そのタブのトップページの path。 null = 無い
+  const [page, setPage] = useState(null)         // リンク先のトップページの path。 null = 無い
   const [error, setError] = useState(null)
   const [editMode, setEditMode] = useState(false)
   const [editText, setEditText] = useState('')

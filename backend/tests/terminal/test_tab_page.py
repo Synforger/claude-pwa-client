@@ -1,5 +1,6 @@
 """A tab's top page (`terminal/tab_page.py`, `terminal/page_template.py`): made from the agent's template when
-the tab's tier is recorded, never over a page that exists, and told to the screen by the memo read."""
+the tab's tier is recorded, never over a page that exists, never for a child or a fork, and told to the screen by the
+memo read (for a child or a fork, the page of the tab it came from)."""
 from __future__ import annotations
 
 import asyncio
@@ -12,7 +13,7 @@ from backend._generated import http_endpoints as http
 from backend.terminal import pty_discover, tab_tier
 from backend.terminal.page_template import fill_template, page_fingerprint, pages_root_from, template_file
 from backend.terminal.tab_memo import page_file, page_path
-from backend.terminal.tab_page import existing_page, make_page
+from backend.terminal.tab_page import existing_page, make_page, page_owner, shown_page
 
 TEMPLATE = '<html><title>{{title}}</title><p>階層: {{tier}}</p><p>{{unknown}} {title} {{tier}}</p></html>'
 
@@ -140,19 +141,47 @@ def test_the_title_of_the_tab_is_what_the_page_shows(a_tab, template, isolated_s
     assert "<title>&lt;b&gt;調査&lt;/b&gt;</title>" in make_page(a_tab.id).read_text(encoding="utf-8")
 
 
-# --- The fingerprint of the page a child tab was given ---
+# --- A tab that comes from another tab: no page of its own, the page of the tab it came from ---
 
-def test_a_child_tab_keeps_the_fingerprint_of_the_page_it_was_given(tab, template, monkeypatch):
+@pytest.fixture
+def child(tab, isolated_state):
+    return isolated_state.register_session("agent_a", title="kid", parent_id=tab.id, child=True, tier="normal")
+
+
+@pytest.fixture
+def fork(tab, isolated_state):
+    return isolated_state.register_session("agent_a", title="A fork", parent_id=tab.id, resume_session_id="c1", tier="normal")
+
+
+def test_a_child_and_a_fork_get_no_page_and_no_folder(child, fork, template, agent_folder):
+    for derived in (child, fork):
+        assert make_page(derived.id) is None
+        assert not (agent_folder / "pages" / derived.id).exists()
+        assert derived.top_page_sha is None
+
+
+def test_a_child_and_a_fork_show_the_page_of_the_tab_they_came_from(tab, child, fork, template, monkeypatch):
     started_in(monkeypatch, tab, "normal")
-    tab.child = True
     made = make_page(tab.id)
-    assert tab.top_page_sha == page_fingerprint(made.read_text(encoding="utf-8"))
+    assert page_owner(child.id) == page_owner(fork.id) == tab.id
+    assert shown_page(child.id) == shown_page(fork.id) == made
 
 
-def test_a_tab_that_is_not_a_child_keeps_no_fingerprint(tab, template, monkeypatch):
+def test_a_fork_of_a_child_shows_the_page_at_the_top_of_its_line(tab, child, template, isolated_state, monkeypatch):
     started_in(monkeypatch, tab, "normal")
-    make_page(tab.id)
-    assert tab.top_page_sha is None
+    made = make_page(tab.id)
+    grandchild = isolated_state.register_session("agent_a", title="kid fork", parent_id=child.id, resume_session_id="c2")
+    assert page_owner(grandchild.id) == tab.id and shown_page(grandchild.id) == made
+
+
+def test_a_tab_whose_line_has_a_closed_tab_shows_no_page(child, isolated_state):
+    isolated_state.sessions_meta[child.id].parent_id = "ses_closed"
+    assert page_owner(child.id) is None and shown_page(child.id) is None
+
+
+def test_a_line_that_loops_shows_no_page(tab, child, isolated_state):
+    isolated_state.sessions_meta[tab.id].parent_id = child.id
+    assert page_owner(child.id) is None
 
 
 def test_the_fingerprint_ignores_script_lines_and_nothing_else():
@@ -204,3 +233,11 @@ def test_the_memo_read_names_the_page_when_it_exists_and_null_when_not(client, t
     body = client.get(f"/sessions/{tab.id}/note").json()
     assert body["page"] == str(made)
     http.GetSessionsSidNoteResponse.model_validate(body)
+
+
+def test_the_memo_read_of_a_child_names_its_parents_page_and_its_own_memo(client, tab, child, template, monkeypatch):
+    started_in(monkeypatch, tab, "normal")
+    made = make_page(tab.id)
+    body = client.get(f"/sessions/{child.id}/note").json()
+    assert body["page"] == str(made)
+    assert body["path"].endswith(f"/pages/{child.id}/memo.md")

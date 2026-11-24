@@ -1,13 +1,13 @@
 """Clearing what the client wrote for a closed child tab (`terminal/child_folder.py`): the memo and an untouched
 top page go, the folder goes once it is empty, and a page the child wrote stays. A page the client wrote is told untouched by the fingerprint kept
-when it was made, even after the template changed. A tab that is not a child keeps its memo."""
+when it was made, even after the template changed. A tab that is not a child keeps its memo. At start, the untouched top
+pages an earlier version made for child and fork tabs go, and nothing else does."""
 from __future__ import annotations
 
 import pytest
 
-from backend.terminal.child_folder import clear_child_folder
-from backend.terminal.tab_page import make_page
-from backend.terminal.page_template import fill_template, template_file
+from backend.terminal.child_folder import clear_child_folder, clear_derived_pages
+from backend.terminal.page_template import fill_template, page_fingerprint, pages_root_from, template_file
 
 TEMPLATE = "<html><title>{{title}}</title><p>{{tier}}</p></html>"
 
@@ -96,12 +96,21 @@ def test_a_tab_that_is_not_a_child_keeps_its_memo(family):
 NEW_TEMPLATE = "<html><title>{{title}}</title><p>newer layout: {{tier}}</p></html>"
 
 
+def _earlier_page(tab, agent, tier="projects/P"):
+    """The top page an earlier version of the client made for `tab` in `tier` from the template, with its fingerprint
+    kept on the tab as that version kept it."""
+    tab.tier = tier
+    folder = agent.joinpath(*tier.split("/"), "pages", tab.id)
+    text = fill_template(template_file(agent).read_text(encoding="utf-8"), title=tab.title, tier=tier,
+                         pages_root=pages_root_from(agent, folder))
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "index.html").write_text(text, encoding="utf-8")
+    tab.top_page_sha = page_fingerprint(text)
+    return folder / "index.html"
+
+
 def _made_page(child, agent, monkeypatch):
-    """The top page of `child` made by the client (= `make_page`), whose fingerprint is then kept on the tab."""
-    child.tier = "projects/P"
-    page = make_page(child.id)
-    assert page == agent / "projects" / "P" / "pages" / child.id / "index.html"
-    return page
+    return _earlier_page(child, agent)
 
 
 def test_an_untouched_page_goes_after_the_template_changed(family, monkeypatch):
@@ -157,9 +166,60 @@ def test_an_untouched_page_with_the_way_up_is_told_untouched_in_a_deeper_tier(fa
     _parent, child, agent = family
     template_file(agent).write_text('<html><a href="{{pages_root}}/index.html">{{title}}</a></html>', encoding="utf-8")
     (agent / "projects" / "P" / "subprojects" / "S").mkdir(parents=True)
-    child.tier = "projects/P/subprojects/S"
-    page = make_page(child.id)
+    page = _earlier_page(child, agent, "projects/P/subprojects/S")
     assert '"../../../../../../pages/index.html"' in page.read_text(encoding="utf-8")
     child.top_page_sha = None
     clear_child_folder(child.id)
     assert not page.parent.exists()
+
+
+# --- At start: the pages an earlier version made for child and fork tabs ---
+
+@pytest.fixture
+def fork(family, isolated_state):
+    """A fork of the parent, as `POST /sessions/<id>/fork` registers it (= `parent_id`, not a child)."""
+    parent, _child, _agent = family
+    return isolated_state.register_session("agent_a", title="lead fork", parent_id=parent.id, resume_session_id="c1",
+                                           tier="projects/P")
+
+
+def test_the_untouched_pages_of_a_child_and_a_fork_go_and_their_memos_stay(family, fork):
+    parent, child, agent = family
+    pages = [_earlier_page(tab, agent) for tab in (child, fork)]
+    for page in pages:
+        (page.parent / "memo.md").write_text("- 状態: 作業中\n", encoding="utf-8")
+    removed = clear_derived_pages()
+    assert sorted(removed) == sorted(pages)
+    assert all(not page.exists() and (page.parent / "memo.md").is_file() for page in pages)
+
+
+def test_a_folder_that_only_held_the_untouched_page_goes(family, fork):
+    _parent, _child, agent = family
+    page = _earlier_page(fork, agent)
+    clear_derived_pages()
+    assert not page.parent.exists()
+
+
+def test_a_page_the_fork_wrote_itself_stays_with_its_other_pages(family, fork):
+    _parent, _child, agent = family
+    page = _earlier_page(fork, agent)
+    page.write_text("<p>the fork's own words</p>", encoding="utf-8")
+    (page.parent / "notes.html").write_text("<p>x</p>", encoding="utf-8")
+    assert clear_derived_pages() == []
+    assert sorted(path.name for path in page.parent.iterdir()) == ["index.html", "notes.html"]
+
+
+def test_a_fork_with_pages_of_its_own_keeps_the_top_page_that_leads_to_them(family, fork):
+    # 意図: 自分のページを持つ fork の手つかずのトップページを消すと、 目次からそのページへ辿れなくなる
+    _parent, _child, agent = family
+    page = _earlier_page(fork, agent)
+    (page.parent / "findings.html").write_text("<p>x</p>", encoding="utf-8")
+    assert clear_derived_pages() == []
+    assert page.is_file()
+
+
+def test_the_page_of_a_tab_that_comes_from_no_other_tab_stays_untouched(family):
+    parent, _child, agent = family
+    page = _earlier_page(parent, agent)
+    assert clear_derived_pages() == []
+    assert page.is_file()
