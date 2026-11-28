@@ -75,7 +75,7 @@ tabs ticket pass <id> <宛先>                            # 票の持ち主を�
 | `ticket_place_unknown` | 票の置き場を決められない・見つけられません |
 | `ticket_check_failed` | 検査コマンドが動きませんでした。 もう一度試し、 続く時は設定を確かめてください |
 | `ticket_check_missing` | 連絡を検査する機械 (`agent_message_check` がある) で、 票の検査コマンドの鍵が設定にありません。 設定に書いて backend を起動し直すまで、 その段は断ります |
-| `agent_message_*` | `pass` で宛先に届ける道の失敗です。 意味と次の手は [tabs の skill](../../skills/tabs/SKILL.md) の表と同じです |
+| `agent_message_*` | `pass` で宛先に届ける道の失敗です。 意味と次の手は [tabs-send の skill](../../skills/tabs-send/SKILL.md) の表と同じです |
 | `ticket_backend_stopping` | backend が止まる所でした。 読む命令 (`show`・`mine`) は何も変えていないので、 backend が起動し直してから同じ命令をもう一度打ちます |
 | `ticket_not_sent` | 書く命令が、 何かを書く前・送る前に止まりました (= backend が止まる所だった時は `params.reason` が `backend_stopping`)、 または backend に繋がりませんでした。 何も書いていないので、 そのまま打ち直します |
 | `ticket_unconfirmed` | 書く命令が、 別の機械や宛先のタブへ呼びかけた後で止まりました、 または答えを受け取れませんでした。 書けているかもしれないので、 `show` で確かめてから打ち直します |
