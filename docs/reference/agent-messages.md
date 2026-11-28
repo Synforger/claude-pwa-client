@@ -151,7 +151,7 @@ Claude には、 この確かめをしません (= 作業の途中に打った�
 
 ## `tabs` でタブを一覧し、 宛先を指す
 
-タブの中の Claude は、 `curl` の代わりに命令 `tabs` で一覧と送信ができます (= 使い方は plugin の skill `tabs`)。
+タブの中の Claude は、 `curl` の代わりに命令 `tabs` で一覧と送信ができます (= 使い方は plugin の skill `tabs-send`)。
 
 ```sh
 tabs list                         # 連絡できるタブを 1 行ずつ
