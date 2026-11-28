@@ -362,6 +362,16 @@ def test_one_tab_at_a_time_and_the_longest_quiet_first(tabs):
     assert [sid for sid, _ in tabs.sent] == ["ses_long", "ses_short", "ses_work"]
 
 
+def test_a_tab_just_asked_holds_the_next_ask_before_its_record_moves(tabs):
+    tabs.add("ses_first", pct=50, idle_minutes=58)
+    tabs.add("ses_second", pct=50, idle_minutes=52)
+    assert tabs.tick() == "ses_first"
+    # The ask's turn has started (= its hook woke the watch), and the record has not been written yet.
+    tabs.busy["ses_first"] = True
+    assert tabs.tick() is None
+    assert [sid for sid, _ in tabs.asks()] == ["ses_first"]
+
+
 def test_a_session_that_rolled_over_keeps_being_watched(tabs):
     """起動し直した会話が人の発話なしに作業を続けても、 割合に届けばまた頼む。"""
     tabs.add("ses_a", pct=10, busy=True)

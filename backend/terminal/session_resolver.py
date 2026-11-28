@@ -26,6 +26,8 @@ from pathlib import Path
 
 from backend._common import config as _config
 from backend.terminal.runner import has_tmux_session, pty_sessions, spawn_pty_session
+from backend.terminal.tab_tier import tab_tier
+from backend.terminal.tier import DEFAULT_TIER
 from backend._common.state import sessions_meta
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,22 @@ logger = logging.getLogger(__name__)
 # Mac / backend 再起動跨ぎで前回 claude session を自動 resume する時の鮮度上限。
 # これより古い jsonl は「もう死んだ会話」 扱いで resume せず通常起動に倒す (= 衛生面)。
 AUTORESUME_MAX_AGE_DAYS = 30
+
+
+def agent_setting(session_id: str, key: str) -> object:
+    """One section of the tab's agent (`agents.<agent>.<key>`), as the tab's tier replaces it.
+
+    When `agents.<agent>.tiers.<tier>` has `key` (one of `TIER_SETTING_KEYS`), its value replaces the agent's whole
+    section, nothing merged; any other value than an object reads as no section. The tier is the one the tab works in
+    (`tab_tier`), `normal` when none is known. None when the tab or its agent is unknown.
+    """
+    cfg = resolve_agent_cfg(session_id) or {}
+    tiers = cfg.get("tiers")
+    if key in _config.TIER_SETTING_KEYS and isinstance(tiers, dict):
+        section = tiers.get(tab_tier(session_id) or DEFAULT_TIER)
+        if isinstance(section, dict) and key in section:
+            return section[key]
+    return cfg.get(key)
 
 
 def resolve_agent_cfg(session_id: str) -> dict | None:

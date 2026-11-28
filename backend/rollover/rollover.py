@@ -61,7 +61,7 @@ from backend.rollover import held_notice
 from backend.rollover.tool_shells import ProcessRow, ToolShell, tool_shells
 from backend.terminal.pty_discover import claude_in_pane, claude_pid_in_pane
 from backend.terminal.routes import pty_send
-from backend.terminal.session_resolver import resolve_agent_cfg
+from backend.terminal.session_resolver import agent_setting
 
 if TYPE_CHECKING:
     from backend.sleep.sleep_judgement import SleepFacts
@@ -115,8 +115,8 @@ def turn_ended(session_id: str) -> None:
 
 
 def settings_for(session_id: str) -> dict | None:
-    """そのタブの agent の入れ替えの条件。 書いていなければ None。"""
-    rollover = (resolve_agent_cfg(session_id) or {}).get("rollover")
+    """そのタブの入れ替えの条件 (= agent の値を、 タブの階層の `tiers` が置き換えた物)。 書いていなければ None。"""
+    rollover = agent_setting(session_id, "rollover")
     return rollover if isinstance(rollover, dict) else None
 
 
@@ -380,8 +380,9 @@ async def tick() -> str | None:
         # of the backend the asks are only in the record. In a thread: a record seen first is read back from its end,
         # then only from where it stopped, and nothing else waits meanwhile.
         asks = await asyncio.to_thread(close_requests, record)
-        if busy and asks and idle_minutes < STALL_MINUTES:
-            closing = True          # 頼まれて締めへ向かっている
+        # 頼まれて締めへ向かっている。 頼んだ直後は、 推論が始まっても記録がまだ古いので、 頼んだ時刻でも数える
+        if busy and asks and (idle_minutes < STALL_MINUTES or now - _asked_at.get(key, 0) < STALL_MINUTES * 60):
+            closing = True
         elif reason is not None and not asks:
             wanted.append((reason != "idle", -idle_minutes, sid, reason, pct, key))
         elif asks and not busy:

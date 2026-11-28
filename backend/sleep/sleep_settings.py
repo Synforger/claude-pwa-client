@@ -1,4 +1,5 @@
-"""The sleep settings of an agent, read from its entry in `config.json` (= `agents.<id>.sleep`).
+"""The sleep settings of an agent, read from its entry in `config.json` (= `agents.<id>.sleep`), as the tab's tier
+replaces it (`agents.<id>.tiers.<tier>.sleep`, read by `session_resolver.agent_setting`).
 
     "sleep": { "minutes": 60, "pressure_minutes": 10 }
 
@@ -9,7 +10,7 @@ earlier. Used by the sleep patrol (`sleep_patrol.py`) and the sensors (`sleep_se
 """
 from __future__ import annotations
 
-from backend.terminal.session_resolver import resolve_agent_cfg
+from backend.terminal.session_resolver import agent_setting
 
 
 def sleep_minutes(session_id: str) -> int | None:
@@ -26,7 +27,7 @@ def pressure_minutes(session_id: str) -> int | None:
 
 
 def _section(session_id: str) -> dict:
-    section = (resolve_agent_cfg(session_id) or {}).get("sleep")
+    section = agent_setting(session_id, "sleep")
     return section if isinstance(section, dict) else {}
 
 
@@ -37,7 +38,7 @@ def _whole_minutes(value: object) -> int | None:
 def rollover_idle_pct(session_id: str) -> float | None:
     """The context percentage above which the automatic rollover takes a quiet tab over (= `rollover.idle.context_pct`);
     None when the agent has no such line. A tab below the line is the sleep's, a tab above it the rollover's."""
-    rollover = (resolve_agent_cfg(session_id) or {}).get("rollover")
+    rollover = agent_setting(session_id, "rollover")
     idle = rollover.get("idle") if isinstance(rollover, dict) else None
     pct = idle.get("context_pct") if isinstance(idle, dict) else None
     return pct if isinstance(pct, (int, float)) and not isinstance(pct, bool) else None

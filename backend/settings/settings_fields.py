@@ -157,18 +157,25 @@ def _problems(settings: dict) -> list[str]:
 
 
 def _sleep_problems(agents: object) -> list[str]:
-    """The agents whose `sleep.pressure_minutes` the sleep would not use: one without `minutes`, or above them."""
+    """The `sleep.pressure_minutes` the sleep would not use, the agents' and their tiers' (`tiers.<tier>.sleep`): one
+    without `minutes`, or above them."""
     problems: list[str] = []
     for agent_id, agent in (agents.items() if isinstance(agents, dict) else ()):
-        sleep = agent.get("sleep") if isinstance(agent, dict) else None
-        if not isinstance(sleep, dict) or sleep.get("pressure_minutes") is None:
+        if not isinstance(agent, dict):
             continue
-        minutes, pressure = sleep.get("minutes"), sleep.get("pressure_minutes")
-        if not _is_whole(minutes, MINUTES_MIN):
-            problems.append(f"agents.{agent_id}.sleep.pressure_minutes: the agent does not sleep (no `minutes`)")
-        elif _is_whole(pressure, MINUTES_MIN) and pressure > minutes:
-            problems.append(f"agents.{agent_id}.sleep.pressure_minutes: must be {minutes} or less (= `minutes`), "
-                            f"got {pressure}")
+        tiers = agent.get("tiers") if isinstance(agent.get("tiers"), dict) else {}
+        places = [(f"agents.{agent_id}", agent)] + [(f"agents.{agent_id}.tiers.{tier}", section)
+                                                     for tier, section in tiers.items() if isinstance(section, dict)]
+        for where, owner in places:
+            sleep = owner.get("sleep")
+            if not isinstance(sleep, dict) or sleep.get("pressure_minutes") is None:
+                continue
+            minutes, pressure = sleep.get("minutes"), sleep.get("pressure_minutes")
+            if not _is_whole(minutes, MINUTES_MIN):
+                problems.append(f"{where}.sleep.pressure_minutes: the agent does not sleep (no `minutes`)")
+            elif _is_whole(pressure, MINUTES_MIN) and pressure > minutes:
+                problems.append(f"{where}.sleep.pressure_minutes: must be {minutes} or less (= `minutes`), "
+                                f"got {pressure}")
     return problems
 
 
