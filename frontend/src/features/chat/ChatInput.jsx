@@ -16,6 +16,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useT } from '../../i18n/t.js'
 import { setDraftSource } from './draftSource.js'
+import { endComposition } from './endComposition.js'
+import { sendSwLog } from '../app-effects/swLog.js'
 import { useInputSizing } from './useInputSizing.js'
 import VoiceButtons from '../voice/VoiceButtons.jsx'
 
@@ -64,6 +66,8 @@ function ChatInputInner({
   // 超えると上端に開閉のボタンが出る (= 普段は上のメッセージを読みながら打てる高さに留める)。
   const inputAreaRef = useRef(null)
   const textareaRef = useRef(null)
+  // Whether a conversion of the keyboard (Japanese input) is open in the field now.
+  const composingRef = useRef(false)
   const sizing = useInputSizing({ text: localText, textareaRef })
   const collapseInput = sizing.collapse
 
@@ -104,6 +108,11 @@ function ChatInputInner({
     // 送信時は textOverride を渡して App→useChatStream の sendMessage に直接届ける。
     // 同時に親 input dict もクリアして次の永続化 (= 500ms debounce) で空になる。
     const text = localText
+    // A conversion still open when the text is replaced leaves the page's keyboard without candidates (WebKit).
+    if (endComposition(textareaRef.current, composingRef.current)) {
+      composingRef.current = false
+      sendSwLog({ stage: 'keyboard:send-while-composing', name: 'chat-input' })
+    }
     setLocalText('')
     setInput(prev => (prev[activeSid] ? { ...prev, [activeSid]: '' } : prev))
     collapseInput()
@@ -164,6 +173,8 @@ function ChatInputInner({
           ref={textareaRef}
           value={localText}
           onChange={e => setLocalText(e.target.value)}
+          onCompositionStart={() => { composingRef.current = true }}
+          onCompositionEnd={() => { composingRef.current = false }}
           onKeyDown={(e) => {
             // デスクトップ (= 物理キーボード + マウス) のみ Enter を送信に倒す。
             // モバイル (タッチ専用) は Enter = 改行のまま、 送信は明示ボタンのみ
