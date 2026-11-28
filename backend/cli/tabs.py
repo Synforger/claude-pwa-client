@@ -45,7 +45,7 @@
                                  開ける tailnet の URL にして出す (= `tailscale serve` がページの port を出している口から組む)。
                                  folder の外の file・serve が無い時は、 理由を出して止まる。 操作者へページを渡す時の URL はこれ
 
-    子のタブ (= このタブが仕事を渡すために立てるタブ。 手順は skill `child-tab`):
+    子のタブ (= このタブが仕事を渡すために立てるタブ。 手順は skill `pwa-client:tabs-children`):
     tabs    new <題> <本文の file> [--model <名前>] [--effort <段>]
                                  子のタブを立て、 本文を最初の発話として渡す (= --model・--effort は子の model と effort。
                                  起動の script がエージェントの設定に在る値だけを採る。 使い方: `backend/cli/child_start.py`)。 子はこのタブと同じ階層で起動し、

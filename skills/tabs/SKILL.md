@@ -1,7 +1,7 @@
 ---
 name: tabs
-description: Talk to other tabs of the client, hand work to child tabs, hand a tab over to its next session, and find a tab's conversation record. All of it goes through the `tabs` command.
-when_to_use: When a tab starts as a child tab (AGENT_CHILD=1), also after a restart / when an agent in a tab needs to send a note to another tab or answer one that arrived / hand a piece of work to a child tab, or finish as a child tab / close or restart the conversation of a tab / read what another tab's conversation said from its record.
+description: Find the tabs skill to read, and use the tier tabs, `tabs ask` and `tabs page-url`.
+when_to_use: Before opening a tier tab again, asking a tab set up for a program, or handing the operator a page.
 ---
 
 # Tabs: messages, child tabs, rollover, conversation records
