@@ -367,6 +367,34 @@ def documents_settings() -> tuple[Path, int]:
     return _scan_documents()[0]
 
 
+# The sections of an agent a tier may replace (`agents.<agent>.tiers.<tier>`); every other key is the agent's.
+TIER_SETTING_KEYS = ("rollover", "sleep")
+
+
+def tier_setting_problems(agents: object) -> list[str]:
+    """What is miswritten in the agents' `tiers`: a tier the agent's folder does not have, a key no tier replaces, or a
+    value that is not an object. The readers then take the agent's own sections, so each would go unnoticed."""
+    problems: list[str] = []
+    for agent_id, agent in (agents.items() if isinstance(agents, dict) else ()):
+        tiers = agent.get("tiers") if isinstance(agent, dict) else None
+        if tiers is None:
+            continue
+        if not isinstance(tiers, dict):
+            problems.append(f"config.agents.{agent_id}.tiers must be an object of tiers")
+            continue
+        folder = Path(str(agent.get("cwd") or "")).expanduser()
+        for tier, section in tiers.items():
+            where = f"config.agents.{agent_id}.tiers.{tier}"
+            if not isinstance(section, dict):
+                problems.append(f"{where} must be an object")
+                continue
+            if tier != "normal" and agent.get("cwd") and not (folder / str(tier)).is_dir():
+                problems.append(f"{where}: no such tier folder: {folder / str(tier)}")
+            problems.extend(f"{where}.{key}: a tier replaces only {', '.join(TIER_SETTING_KEYS)}"
+                            for key in section if key not in TIER_SETTING_KEYS)
+    return problems
+
+
 def validate_runtime_paths() -> None:
     """起動時 sanity check (= backend-F-67)。 主要 path / 設定の欠落を warn する。
 
@@ -394,7 +422,8 @@ def validate_runtime_paths() -> None:
         logger.warning(
             "runtime check: tmux_session_map_dir does not exist: %s", map_dir
         )
-    for problem in _scan_extensions()[1] + _scan_page_origin()[1] + _scan_documents()[1]:
+    for problem in (_scan_extensions()[1] + _scan_page_origin()[1] + _scan_documents()[1]
+                    + tier_setting_problems(cfg.get("agents"))):
         logger.warning("runtime check: %s", problem)
     missing = missing_ticket_checks()
     if missing:

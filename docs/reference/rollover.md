@@ -14,7 +14,8 @@
 
 ## 設定
 
-`backend/config.json` の、 使いたいエージェントに `rollover` を足します。
+`backend/config.json` の、 使いたいエージェントに `rollover` を足します。 階層ごとに変える時は、 エージェントの `tiers` に
+書きます ([config.md](config.md) の `tiers`)。
 
 ```json
 "agents": {

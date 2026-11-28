@@ -12,7 +12,8 @@
 
 ## 設定
 
-`backend/config.json` の、使いたいエージェントに `sleep` を足します。
+`backend/config.json` の、使いたいエージェントに `sleep` を足します。階層ごとに変える時は、エージェントの `tiers` に書きます
+([config.md](config.md) の `tiers`)。下の「そのエージェントの」は、タブの階層が置き換えた後の値です。
 
 ```json
 "agents": {
